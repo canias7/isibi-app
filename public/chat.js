@@ -9874,6 +9874,17 @@ let siteCodeOpen = '';      // Code panel: the open file, kept by NAME across re
 // Reading the two as one would re-open a folder somebody just closed, on the
 // next click, for ever.
 let siteCodeOpenGroups = null;
+// WHAT IS IN THE SEARCH BOX, at module scope for the reason the fold set is: the
+// workspace re-renders on every reply, so a filter kept inside the render would
+// empty itself each time the builder answered.
+//
+// IT SURVIVES A PROJECT SWITCH, deliberately. `siteCodeOpen` already does — it
+// falls back to the first file when the name is not in the new site — and a
+// carried-over query is VISIBLE where a carried-over filename is not: the text is
+// in the box, the count is under it, and a site with no match says so by name.
+// Clearing it on a switch would be a second rule about a state the customer can
+// already see and undo.
+let siteCodeFind = '';
 let siteRail = 'chat';      // left rail: chat | history
 let siteRailHidden = false; // collapse the chat rail to give the preview full width
 // THE MOBILE APP COLUMN, closed until somebody opens it (owner, 2026-09-08:
@@ -11207,6 +11218,12 @@ const ST_ICONS = {
   // knobs stay legible at any size, and "settings" is what they say.
   sliders: '<path d="M4 8h9"/><path d="M17 8h3"/><path d="M4 16h3"/><path d="M11 16h9"/><circle cx="15" cy="8" r="2.1"/><circle cx="9" cy="16" r="2.1"/>',
   lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
+  // THE SEARCH BOX'S CLEAR (owner, 2026-09-12: "add the search box too"). Two
+  // strokes rather than a circled cross: at the 12px it is drawn the ring closes
+  // up against the arms and the whole mark reads as a blob. Named for the SHAPE,
+  // not the job — this is the only x in the set and the next thing that needs one
+  // will not be a search box.
+  x: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
 // THE TWO PLATFORM MARKS (owner, 2026-09-08: "instead of the names, the names
@@ -11505,6 +11522,51 @@ function stFileIcon(name) {
   if (!ext && base.startsWith('.')) return 'sliders';
   return 'code';
 }
+// THE SEARCH BOX'S FILTER (owner, 2026-09-12: "add the search box too", holding
+// Lovable's "Search code" beside ours).
+//
+// IT SEARCHES THE CODE AND NOT ONLY THE NAMES, and that is the whole reason the
+// box can carry that label honestly. Every file's text is ALREADY in the browser
+// — `stSrcFiles` hands the tab the whole project and the download zips the same
+// list — so matching contents costs no request and no server work, and a box
+// named "Search code" that only filtered filenames would be this app's dead
+// control wearing a new coat: a promise the thing behind it cannot keep.
+//
+// AND A ROW SAYS WHY IT IS THERE. A match inside a file carries the number of
+// times the words appear, which is what answers "why is README.md in my results
+// for booking" without opening it. A name-only match carries no number, so the
+// absence is the answer: it matched the path you can read on the row.
+//
+// COUNTING STOPS AT `ST_FIND_MAX`, both for the column and for the work. A
+// one-letter query against `package-lock.json` (310,981 bytes) has tens of
+// thousands of hits, which is an unreadable number in a 210px column and an
+// unbounded loop on every keystroke. The ceiling is a DISPLAY decision that
+// cannot change the answer — one hit is enough to be in the list, and the
+// counting only ever stops ABOVE the ceiling.
+//
+// CASE-INSENSITIVE, because a customer typing `Button` and missing
+// `<button>` would read as the search being broken. Never a regular expression:
+// a query is a person's words, and `(` or `*` typed into a box that compiles
+// them is either a throw or a silently different search.
+const ST_FIND_MAX = 99;
+function stCodeFind(files, q) {
+  const list = Array.isArray(files) ? files : [];
+  // A NON-STRING IS NOT A QUERY. `String(['a'])` is `'a'`, so a coerced array
+  // would filter the whole tree down to whatever its one element spells — this
+  // repository's own recorded coercion, three shipped bugs deep.
+  const needle = (typeof q === 'string' ? q : '').trim().toLowerCase();
+  if (!needle) return { on: false, files: list, shown: list.length, total: list.length };
+  const out = [];
+  for (const f of list) {
+    const named = String((f && f.name) || '').toLowerCase().includes(needle);
+    const text = (f && typeof f.text === 'string') ? f.text : '';
+    const hay = text.toLowerCase();
+    let hits = 0;
+    for (let i = hay.indexOf(needle); i !== -1 && hits <= ST_FIND_MAX; i = hay.indexOf(needle, i + needle.length)) hits += 1;
+    if (named || hits) out.push({ ...f, hits });
+  }
+  return { on: true, files: out, shown: out.length, total: list.length };
+}
 function stCodeRows(node, keyBase, prefix, depth, open, openName) {
   let out = '';
   // FOLDERS ABOVE FILES, which is what every explorer does and what keeps a long
@@ -11526,13 +11588,30 @@ function stCodeRows(node, keyBase, prefix, depth, open, openName) {
       (f.unplaced ? ' st-file-lost' : '') + '" data-srcname="' + esc(f.name) + '"' +
       (depth ? ' style="--d:' + depth + '"' : '') + '>' +
       '<span class="st-file-ic">' + ic(stFileIcon(f.base), 13) + '</span>' +
-      '<span class="st-file-n">' + esc(f.base) + '</span></button>';
+      '<span class="st-file-n">' + esc(f.base) + '</span>' +
+      // HOW MANY TIMES THE SEARCH FOUND IT IN THERE — drawn only when a search
+      // found it in the CONTENTS, so a row with no number matched the path the
+      // reader can already see on it. `ST_FIND_MAX + '+'` rather than a second
+      // literal, so raising the ceiling cannot leave the label saying the old one.
+      (f.hits ? '<span class="st-file-hits">' + (f.hits > ST_FIND_MAX ? ST_FIND_MAX + '+' : f.hits) + '</span>' : '') +
+      '</button>';
   }
   return out;
 }
-function stCodeTree(files, openName, chosen) {
+// EVERY FOLDER, WITHOUT NAMING ONE. A search has to draw its matches OPEN or the
+// tree answers a query with four shut headings — the one shape that reads as
+// "nothing found" while holding the answer. A Set would have to be built by
+// walking the filtered tree, which is a second copy of the renderer's own
+// collapse rule and the exact drift `stCollapse` exists to stop; a thing that
+// says yes to every key is the same answer with nothing to keep in step.
+//
+// AND IT IS NEVER STORED. `siteCodeOpenGroups` keeps the customer's own folds
+// untouched while a query is up, so clearing the box puts the tree back exactly
+// as they left it.
+const ST_ALL_OPEN = { has: () => true };
+function stCodeTree(files, openName, chosen, all) {
   const list = Array.isArray(files) ? files : [];
-  const open = stOpenGroups(list, openName, chosen);
+  const open = all ? ST_ALL_OPEN : stOpenGroups(list, openName, chosen);
   let out = '';
   for (const g of ST_CODE_GROUPS) {
     const mine = list.filter((f) => f.kind === g[0]);
@@ -11542,6 +11621,53 @@ function stCodeTree(files, openName, chosen) {
     if (shown) out += stCodeRows(stDirTree(mine), g[0], '', 1, open, openName);
   }
   return out;
+}
+/**
+ * The search box itself, above the tree.
+ *
+ * THE FIELD IS DRAWN ONCE AND NEVER RE-RENDERED WHILE IT IS BEING TYPED IN —
+ * `drawSiteCode` replaces the whole panel's HTML, which destroys the input, takes
+ * the focus with it and loses the caret, so a customer would type one character
+ * and be thrown out of the box. Everything the query changes lives in three
+ * places OUTSIDE this field (the rows, the count line, and a class here for the
+ * clear button), and the keystroke handler rewrites exactly those.
+ *
+ * THE CLEAR BUTTON IS ALWAYS IN THE MARKUP AND HIDDEN BY A CLASS, for the same
+ * reason: drawing it in and out on each keystroke would mean rebuilding this
+ * element, which is the thing the paragraph above exists to avoid.
+ */
+function stFindBox(q) {
+  return '<div class="st-code-find' + (q ? ' on' : '') + '">' +
+    '<span class="st-find-ic">' + ic('search', 13) + '</span>' +
+    '<input type="text" id="stCodeFind" class="st-find-in" value="' + esc(q || '') +
+      '" placeholder="Search files and code" aria-label="Search files and code"' +
+      ' autocomplete="off" autocorrect="off" spellcheck="false">' +
+    '<button type="button" id="stCodeFindX" class="st-find-x" title="Clear the search" aria-label="Clear the search">' +
+      ic('x', 12) + '</button>' +
+  '</div>' +
+  '<div class="st-find-said" id="stCodeFindSaid" aria-live="polite"></div>';
+}
+// WHAT THE FILTER DID, IN WORDS, and it is not decoration: a filtered tree that
+// looks exactly like an unfiltered one is a lying instrument — a customer who
+// forgets the box has something in it reads missing files as missing files. The
+// count says the tree is showing a part of the project and how big a part.
+//
+// EMPTY WHEN NOTHING IS FILTERED, so the line is the SIGN that a filter is on
+// rather than a permanent label reading "25 of 25 files".
+function stFindSaid(found) {
+  if (!found || !found.on) return '';
+  return found.shown + ' of ' + found.total + (found.total === 1 ? ' file' : ' files');
+}
+// NOTHING MATCHED IS A SENTENCE NAMING THE QUERY, never an empty column. An empty
+// tree is indistinguishable from a project whose files are gone, and this panel
+// has already shipped one empty state that said nothing about which empty it was.
+//
+// IT RETURNS TEXT AND THE CALLER ESCAPES IT, which is the split the pair above
+// forces: `stFindSaid` goes into `textContent` and must NOT be escaped or the
+// customer reads `&amp;`, and this goes into `innerHTML` and must be. Escaping
+// here would double-escape at the one call site that exists.
+function stFindNone(q) {
+  return 'No file matches “' + String(q || '').trim() + '”.';
 }
 // EVERY FILE OF THE PROJECT, in ONE list the tree, the download and the counter
 // all read. Two lists would let the tree show a file the download leaves out —
@@ -11727,6 +11853,13 @@ async function loadSiteCode(site) {
 //
 // The file picker went through the fetch too, from the day it shipped. Fixed by
 // the same split rather than left standing beside the new one.
+//
+// AND THE SEARCH BOX SPLITS IT ONCE MORE, one level down (2026-09-12). A filter
+// changes only the TREE, so it redraws only the tree: going back through
+// `drawSiteCode` would replace the panel's whole HTML on every keystroke, which
+// destroys the input mid-word and scrolls the file being read back to its top.
+// Same argument, one layer in — a display control must not take down more of the
+// panel than the thing it displays.
 function drawSiteCode(src) {
   const host = document.getElementById('stCode'); if (!host) return;
   const files = stSrcFiles(src);
@@ -11738,16 +11871,21 @@ function drawSiteCode(src) {
   // The chosen file, kept across renders by NAME rather than by index — a
   // rebuild can add or drop a part, and an index would then open a different
   // file than the one that was open.
+  //
+  // AND IT IS CHOSEN FROM THE WHOLE PROJECT, NEVER FROM THE SEARCH RESULTS.
+  // Typing in a box must not change what you are reading: filtered through
+  // `found.files`, a query that excludes the open file would fall to `[0]` and
+  // swap the pane out from under the customer mid-word, and clearing the box
+  // would not bring their file back.
   let open = files.find((f) => f.name === siteCodeOpen) || files[0];
   siteCodeOpen = open.name;
-  const tree = stCodeTree(files, open.name, siteCodeOpenGroups);
   // CLIPPED FOR DISPLAY ONLY, and the zip gets the whole file. A `<pre>` of a
   // megabyte locks the tab; a download that quietly lost the end of a page
   // would be a lying instrument.
   const raw = String(open.text).slice(0, 120000);
   const gutter = Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n');
   host.innerHTML = '<div class="st-code">' +
-    '<div class="st-code-tree">' + tree + '</div>' +
+    '<div class="st-code-tree">' + stFindBox(siteCodeFind) + '<div class="st-code-rows"></div></div>' +
     '<div class="st-code-main">' +
       '<div class="st-code-bar"><span class="st-code-fname">' + esc(open.name) + '</span>' +
       // READ ONLY, SAID OUT LOUD. The panel has never been editable and never
@@ -11759,22 +11897,65 @@ function drawSiteCode(src) {
       '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
     '</div>' +
   '</div>';
-  host.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });
-  // A FOLD IS MATERIALISED BEFORE IT IS CHANGED. The first click has no stored
-  // choice to toggle, so it takes the derived default as its starting point —
-  // which is what keeps the chain holding the open file open after the customer
-  // folds a different one, rather than everything snapping shut at once.
-  //
-  // ONE HANDLER FOR A GROUP AND A FOLDER, because they are the same thing at two
-  // depths: a key that is either in the open set or not. A second handler would
-  // be a second copy of "materialise, toggle, redraw" with nothing to gain.
-  host.querySelectorAll('[data-srcfold]').forEach((b) => b.onclick = () => {
-    const now = new Set(stOpenGroups(files, open.name, siteCodeOpenGroups));
-    const k = b.dataset.srcfold;
-    if (now.has(k)) now.delete(k); else now.add(k);
-    siteCodeOpenGroups = now;
-    drawSiteCode(src);
-  });
+  // ONE PLACE BUILDS THE TREE AND BINDS ITS ROWS, called on the first paint and
+  // again on every keystroke in the search box. Two copies would be "two lists of
+  // the same thing" with the rows' own handlers inside them, and the failure is a
+  // filtered tree whose files do nothing when clicked.
+  const rows = host.querySelector('.st-code-rows');
+  const said = host.querySelector('.st-find-said');
+  const box = host.querySelector('.st-code-find');
+  const paintTree = () => {
+    if (!rows) return;
+    const found = stCodeFind(files, siteCodeFind);
+    rows.innerHTML = found.files.length
+      ? stCodeTree(found.files, open.name, siteCodeOpenGroups, found.on)
+      : '<div class="st-find-none">' + esc(stFindNone(siteCodeFind)) + '</div>';
+    if (said) said.textContent = stFindSaid(found);
+    if (box) box.classList.toggle('on', found.on);
+    rows.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });
+    // A FOLD IS MATERIALISED BEFORE IT IS CHANGED. The first click has no stored
+    // choice to toggle, so it takes the derived default as its starting point —
+    // which is what keeps the chain holding the open file open after the customer
+    // folds a different one, rather than everything snapping shut at once.
+    //
+    // ONE HANDLER FOR A GROUP AND A FOLDER, because they are the same thing at two
+    // depths: a key that is either in the open set or not. A second handler would
+    // be a second copy of "materialise, toggle, redraw" with nothing to gain.
+    //
+    // AND IT IS COMPUTED FROM THE WHOLE PROJECT (`files`), never from the filtered
+    // list: a fold is the customer's own preference about their tree, and deriving
+    // the default from a filtered list would store a chain that names folders the
+    // query happened to leave standing.
+    rows.querySelectorAll('[data-srcfold]').forEach((b) => b.onclick = () => {
+      const now = new Set(stOpenGroups(files, open.name, siteCodeOpenGroups));
+      const k = b.dataset.srcfold;
+      if (now.has(k)) now.delete(k); else now.add(k);
+      siteCodeOpenGroups = now;
+      drawSiteCode(src);
+    });
+  };
+  paintTree();
+  // THE SEARCH BOX REDRAWS THE TREE AND NOTHING ELSE. Calling `drawSiteCode` per
+  // keystroke would destroy the input the customer is typing in — focus and caret
+  // gone after one character — and would also rebuild the `<pre>` beside it, so
+  // the file being read would jump back to its first line on every letter.
+  const find = document.getElementById('stCodeFind');
+  if (find) {
+    find.oninput = () => { siteCodeFind = find.value; paintTree(); };
+    // ESCAPE CLEARS, AND STOPS THERE. The document has its own Escape handler that
+    // closes whatever overlay is open, so without this a customer emptying the box
+    // would also shut the panel they are searching in.
+    find.onkeydown = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      if (!find.value) return;
+      find.value = ''; siteCodeFind = ''; paintTree();
+    };
+  }
+  const clear = document.getElementById('stCodeFindX');
+  // FOCUS GOES BACK TO THE FIELD, because clearing a search is almost always the
+  // start of the next one, and a cleared box the caret is not in costs a click.
+  if (clear && find) clear.onclick = () => { find.value = ''; siteCodeFind = ''; paintTree(); find.focus(); };
   const one = document.getElementById('stCodeDl');
   if (one) one.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());
 }

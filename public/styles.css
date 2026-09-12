@@ -2618,7 +2618,35 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-codewrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .st-codewrap > * { flex: 1; min-height: 0; }
 .st-code { display: flex; width: 100%; height: 100%; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: var(--bg); }
-.st-code-tree { flex: 0 0 210px; border-right: 1px solid var(--line); overflow-y: auto; padding: .6rem .5rem; background: var(--panel); }
+/* THE TREE COLUMN IS A HEAD AND A SCROLLER, not one scrolling box (owner,
+   2026-09-12: "add the search box too"). It was `overflow-y: auto` with padding
+   all round; the search box has to stay put while the rows under it scroll, and
+   `position: sticky` inside a padded scrollport sticks BELOW the padding and
+   leaves a strip of panel scrolling past above it. A column with a fixed head is
+   the honest shape. `min-height: 0` is what lets the scroller shrink below its
+   own content at all. */
+.st-code-tree { flex: 0 0 210px; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+/* THE SEARCH BOX. The field carries no border of its own — the wrapper is the
+   control, so the magnifier, the input and the clear button read as one box and
+   the focus ring goes round all three (`:focus-within`). */
+.st-code-find { flex: none; display: flex; align-items: center; gap: .35rem; margin: .6rem .5rem .35rem; padding: .28rem .45rem; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.st-code-find:focus-within { border-color: var(--line-2); }
+.st-find-ic { display: flex; color: var(--muted); }
+.st-find-in { flex: 1; min-width: 0; font: inherit; font-size: .78rem; color: var(--text); background: none; border: none; outline: none; padding: .12rem 0; }
+.st-find-in::placeholder { color: var(--muted); }
+/* THE CLEAR IS ALWAYS IN THE MARKUP AND SHOWN BY A CLASS, never drawn in and out
+   per keystroke: rebuilding this row would destroy the input inside it and throw
+   the customer out of the box they are typing in. */
+.st-find-x { display: none; align-items: center; font: inherit; color: var(--muted); background: none; border: none; padding: 0; cursor: pointer; }
+.st-code-find.on .st-find-x { display: flex; }
+.st-find-x:hover { color: var(--text); }
+/* WHAT THE FILTER DID, and `:empty` is what makes it a SIGN rather than a label:
+   with nothing filtered the element has no text and takes no room, so the line
+   appearing is itself the news that the tree is showing a part of the project. */
+.st-find-said { flex: none; margin: 0 .6rem .4rem; font-size: .68rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st-find-said:empty { display: none; }
+.st-find-none { padding: .5rem .6rem; font-size: .76rem; line-height: 1.45; color: var(--muted); }
+.st-code-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 0 .5rem .6rem; }
 /* THE HEADING IS A FOLDER (owner, 2026-09-11: "components you click and the 8
    or 0 or whatever how many they appear"). A button, so it is reachable by
    keyboard and announces its own state; the type stays exactly what it was, so
@@ -2667,6 +2695,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-file:hover, .st-file.on { background: var(--panel-2); color: var(--text); }
 .st-file-ic { display: flex; color: var(--muted); }
 .st-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* HOW MANY TIMES THE SEARCH FOUND IT IN THERE — hard right, the folder count's
+   own alignment one row type over, so the two columns of numbers line up down a
+   filtered tree. Drawn only on a row whose CONTENTS matched, which is what makes
+   a row with no number self-explanatory: it matched its own name. */
+.st-file-hits { margin-left: auto; font-size: .68rem; color: var(--muted); font-variant-numeric: tabular-nums; opacity: .8; }
 /* DEPTH IS ONE NUMBER THE ROW CARRIES, never a wrapper element per level. Nested
    divs would put the indent in the MARKUP, where a folded branch leaves an empty
    box behind and a guard has to count boxes to know a depth; `--d` keeps the tree

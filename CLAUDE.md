@@ -936,6 +936,62 @@ and **inside each one, the real directory tree.**
   one the only thing that fails (3 pass, 1 fail). That is the likely mistake,
   not the unlikely one. Said in the test too, because a sweep cannot say it and
   the next session deletes what nothing appears to need.
+- **A SEARCH BOX, AND IT SEARCHES THE CODE (2026-09-12, owner holding Lovable's
+  "Search code" beside ours: *"add the search box too"*).** At the top of the
+  tree column, matching a file's PATH **or its CONTENTS** — the whole project is
+  already in the browser (`stSrcFiles` hands the tab every file and the Download
+  zips the same list), so searching the text costs no request and no server
+  work, and a box labelled "Search code" that filtered filenames alone would be
+  this app's dead-control finding wearing a new coat. **Measured: ~1.15 ms per
+  keystroke** over the 25 shared files (489,130 bytes) on every query shape,
+  a one-letter one included; the tree redraw around it is the larger cost.
+  - **A ROW SAYS WHY IT IS THERE.** A contents match carries the number of times
+    the words appear, in the folder count's own column; a name-only match carries
+    nothing, so a numberless row means it matched the name you can already read.
+    Counting stops just above `ST_FIND_MAX` (99) and the label is
+    `ST_FIND_MAX + '+'`, never a second literal — a DISPLAY bound that cannot
+    change the answer, since one hit is enough to be in the list.
+  - **THE KEYSTROKE REDRAWS THE TREE AND NOTHING ELSE.** `drawSiteCode` replaces
+    the whole panel's HTML, so routing a filter through it destroys the input
+    mid-word (focus and caret gone after one character) and rebuilds the `<pre>`
+    beside it, scrolling the file being read back to its first line. `paintTree`
+    is the ONE place that builds the rows and binds them — called on the first
+    paint and on every keystroke — and the field, the count line and the clear
+    button are written once, with only their text and one class changing. The
+    file's own "THE DRAW IS NOT THE FETCH" argument, one layer in.
+  - **A FILTERED TREE IS DRAWN OPEN AND STORES NOTHING.** `ST_ALL_OPEN`
+    (`{has: () => true}`) rather than a Set walked out of the filtered tree,
+    which would be a second copy of `stCollapse`'s rule; `siteCodeOpenGroups` is
+    untouched, so clearing the box puts the tree back as the customer left it —
+    and a fold clicked DURING a search materialises its default from the whole
+    project, never from the results.
+  - **THE OPEN FILE IS CHOSEN FROM THE WHOLE PROJECT, NEVER FROM THE RESULTS.**
+    Typing must not swap out what is being read; picked from the results, a query
+    excluding it falls to `files[0]` and the customer's file does not come back
+    when the box is cleared. Only a FULL draw recomputes it, so the shape that
+    shows the wrong reading is a reload or a fold click with a query already up.
+  - **TWO SENTENCES, because a filtered tree that looks unfiltered is a lying
+    instrument.** `stFindSaid` ("5 of 28 files") is empty and `display: none`
+    when nothing is filtered, so the line APPEARING is the sign; `stFindNone`
+    ("No file matches “kayak”.") is never a blank column. They split on escaping
+    and it is stated in both: the count goes into `textContent` and must not be
+    escaped, the sentence into `innerHTML` and must be.
+  - The query survives a project switch deliberately — `siteCodeOpen` already
+    does, and a carried-over query is VISIBLE where a carried-over filename is not.
+  **Guards**: `test/site-source.test.mjs` drives the filter, the tree, the rows,
+  the three renderers and the tab end to end, plus the CSS both ways.
+  **Sweep: 39 mutants, 39 killed, none survived, none unapplied, both
+  comment-only controls survived — three survived the first pass and every one
+  was a guard gap, not the product's**: the open file picked from the results
+  (the keystroke path never recomputes it, so only a full draw with a query up
+  can see it), the fold default derived from the filtered list (visible only on
+  the FIRST click, when there is no stored choice to honour), and a glyph a
+  CALLER asks for by literal — `ic('x', 12)` in the search box — dropped from
+  `ST_ICONS`, which the derived icon guard could not see because it reads
+  `stFileIcon`'s RETURNS. That guard now also derives every `ic('<name>'` in the
+  file and asks the table for it: **18 names asked for, 0 missing**, measured
+  before it shipped. One mutant never applied: its anchor spelled `“` where
+  the source carries the character itself.
 - **A SHARED FILE MUST BE ONE THE REPOSITORY HAS, and the guard asks GIT rather
   than the filesystem.** `src/routeTree.gen.ts` was in the list: TanStack
   regenerates it per build, the template's own `.gitignore` names it, and
@@ -2948,7 +3004,17 @@ because I had reasoned that starting the service was the risk and skipped the
 **THE FOURTH FREE-IDENTIFIER MISS IN ONE SESSION** (run 22's `TOKEN`, `eMark`,
 `MARKS`, this) and the first that a module LOAD did not catch: an import graph
 resolves at load, a free identifier inside a function body resolves when that
-line runs, and a short-circuited operand may never run at all. **The check that
+line runs, and a short-circuited operand may never run at all.
+**AND IT HAPPENS IN A TEST SCOPE TOO, WHERE IT IS SILENT IN BOTH DIRECTIONS
+(2026-09-12).** `test/site-source.test.mjs` carries the tree renderer out of
+`chat.js` into a `new Function` scope; `stCodeRows` gained `ST_FIND_MAX` behind
+`f.hits ? … : ''` and `stCodeTree` gained `ST_ALL_OPEN` behind `all ? … :`, and
+every case in that file went on passing against a scope that had NEITHER — no
+missing import, no parse error, just two operands nothing in the fixtures
+happened to evaluate. `konst(name)` pulls a top-level one-line `const` out of the
+file so a carried function's constants are carried like its functions. **When a
+carried function gains a new free name, add it to the scope even if the suite is
+green** — green here means the fixtures never took that branch. **The check that
 finds this class is grep for every identifier a change deletes**, in both
 directions — and for anything the baker touches, the container harness, which is
 the only thing that runs `writeSiteBrand` with a real logo. Its 25 minutes are

@@ -5718,3 +5718,48 @@ deliberate difference of ours, not a gap, but say the word if you want it flat.
 Tests green at 6,039. Sweep 15 of 15 — one survived the first pass and it was my
 test's fault, not the code's: I'd fed it the one input where the right answer and
 the lazy answer happen to agree. Fixed the input, and it dies.
+
+## The search box (12 Sept)
+
+You asked for the search box from their screenshot, so it's in — at the top of
+the file tree, and it searches **inside** your files as well as their names.
+
+That second half is the part worth knowing. Your whole project is already in the
+browser the moment the Code tab opens — that's what the Download button zips — so
+searching the actual code costs nothing extra and never goes near the server.
+Type `booking` and you get every file with that word in it, not only the ones
+with it in the filename.
+
+**Each result says why it's there.** A file that matched inside gets the number
+of times the word appears, on the right of the row, lined up with the folder
+counts. A file with no number matched its name, which you can already read.
+
+**Under the box it says what it's showing** — "5 of 28 files". Without that, a
+filtered tree looks exactly like a normal tree, so if you forgot you'd typed
+something you'd read missing files as missing files.
+
+**Nothing matching says so**, in a sentence with your own word in it, rather than
+leaving an empty column.
+
+**Two ways to clear it**: the × in the box, or Escape while you're typing in it.
+Both put the tree straight back — including whichever folders you had open before
+you searched, because searching never touches them. And whatever file you had
+open stays open the whole time, even while it's filtered out of the list.
+
+One thing I was careful about: typing redraws the tree and nothing else. If it
+redrew the whole panel you'd lose the cursor after the first letter, and the file
+you were reading would jump back to its first line on every keystroke.
+
+Measured: about 1.1 milliseconds a keystroke to search all 25 shared files
+(489,130 bytes), whatever you type. The hit count stops at 99 and shows "99+", so
+a one-letter search doesn't sit there counting forty thousand matches in the lock
+file.
+
+**Still not done from your screenshot:** the little menu on each row. And their
+one flat root against our four headings — still a deliberate difference of ours,
+say the word if you want it flat.
+
+Tests green at 6,048. Sweep 39 of 39 — three survived the first pass and all
+three were my tests' fault rather than the code's: two of them only go wrong
+on a redraw of the whole panel, which typing never does, and the third was a
+missing icon that nothing was checking for. All three are checked now.

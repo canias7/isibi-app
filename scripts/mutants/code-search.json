@@ -1,0 +1,250 @@
+[
+  {
+    "label": "THE STATE BEFORE THIS — there is no search box at all, so the tree column is the tree and nothing else",
+    "files": ["public/chat.js"],
+    "from": "'<div class=\"st-code-tree\">' + stFindBox(siteCodeFind) + '<div class=\"st-code-rows\"></div></div>' +",
+    "to": "'<div class=\"st-code-tree\">' + '<div class=\"st-code-rows\"></div></div>' +"
+  },
+  {
+    "label": "the box searches NAMES ONLY — the label says \"and code\" and the thing behind it cannot",
+    "files": ["public/chat.js"],
+    "from": "    if (named || hits) out.push({ ...f, hits });",
+    "to": "    if (named) out.push({ ...f, hits });"
+  },
+  {
+    "label": "the box searches CONTENTS ONLY, so typing a filename finds nothing",
+    "files": ["public/chat.js"],
+    "from": "    if (named || hits) out.push({ ...f, hits });",
+    "to": "    if (hits) out.push({ ...f, hits });"
+  },
+  {
+    "label": "nothing matching falls back to the WHOLE list — the filter silently stops filtering",
+    "files": ["public/chat.js"],
+    "from": "  return { on: true, files: out, shown: out.length, total: list.length };",
+    "to": "  return { on: true, files: out.length ? out : list, shown: out.length, total: list.length };"
+  },
+  {
+    "label": "the search is case-SENSITIVE, so `BOOKING` finds nothing and reads as broken",
+    "files": ["public/chat.js"],
+    "from": "  const needle = (typeof q === 'string' ? q : '').trim().toLowerCase();",
+    "to": "  const needle = (typeof q === 'string' ? q : '').trim();"
+  },
+  {
+    "label": "a non-string query is COERCED — `String(['a'])` is `'a'`, the recorded trap, filtering the tree to one letter",
+    "files": ["public/chat.js"],
+    "from": "  const needle = (typeof q === 'string' ? q : '').trim().toLowerCase();",
+    "to": "  const needle = String(q == null ? '' : q).trim().toLowerCase();"
+  },
+  {
+    "label": "the count line's total is the FILTERED count, so it can never say what the search hid",
+    "files": ["public/chat.js"],
+    "from": "  return { on: true, files: out, shown: out.length, total: list.length };",
+    "to": "  return { on: true, files: out, shown: out.length, total: out.length };"
+  },
+  {
+    "label": "the hit count runs to the end of the file — an unbounded loop per keystroke and a number no column holds",
+    "files": ["public/chat.js"],
+    "from": "    for (let i = hay.indexOf(needle); i !== -1 && hits <= ST_FIND_MAX; i = hay.indexOf(needle, i + needle.length)) hits += 1;",
+    "to": "    for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) hits += 1;"
+  },
+  {
+    "label": "the counting stops AT the ceiling rather than just above it, so nothing can ever draw the 99+ label",
+    "files": ["public/chat.js"],
+    "from": "    for (let i = hay.indexOf(needle); i !== -1 && hits <= ST_FIND_MAX; i = hay.indexOf(needle, i + needle.length)) hits += 1;",
+    "to": "    for (let i = hay.indexOf(needle); i !== -1 && hits < ST_FIND_MAX; i = hay.indexOf(needle, i + needle.length)) hits += 1;"
+  },
+  {
+    "label": "matches are counted OVERLAPPING, so the row says 3 where a reader counts 2",
+    "files": ["public/chat.js"],
+    "from": "i = hay.indexOf(needle, i + needle.length)) hits += 1;",
+    "to": "i = hay.indexOf(needle, i + 1)) hits += 1;"
+  },
+  {
+    "label": "the filtered entry is the PROJECT'S OWN file object — a count from one search rides into the next, and into the zip",
+    "files": ["public/chat.js"],
+    "from": "    if (named || hits) out.push({ ...f, hits });",
+    "to": "    if (named || hits) { f.hits = hits; out.push(f); }"
+  },
+  {
+    "label": "a filtered tree is drawn with the customer's own folds, so the matches hide inside shut folders",
+    "files": ["public/chat.js"],
+    "from": "  const open = all ? ST_ALL_OPEN : stOpenGroups(list, openName, chosen);",
+    "to": "  const open = stOpenGroups(list, openName, chosen);"
+  },
+  {
+    "label": "the tree is ALWAYS drawn open, so an unfiltered panel forgets every fold the customer set",
+    "files": ["public/chat.js"],
+    "from": "  const open = all ? ST_ALL_OPEN : stOpenGroups(list, openName, chosen);",
+    "to": "  const open = ST_ALL_OPEN;"
+  },
+  {
+    "label": "the row never says how many times the words are in there — a search result with nothing to explain it",
+    "files": ["public/chat.js"],
+    "from": "      (f.hits ? '<span class=\"st-file-hits\">' + (f.hits > ST_FIND_MAX ? ST_FIND_MAX + '+' : f.hits) + '</span>' : '') +",
+    "to": "      '' +"
+  },
+  {
+    "label": "the count is drawn on EVERY row, so a name-only match wears a 0 and an unfiltered tree grows a column of them",
+    "files": ["public/chat.js"],
+    "from": "      (f.hits ? '<span class=\"st-file-hits\">' + (f.hits > ST_FIND_MAX ? ST_FIND_MAX + '+' : f.hits) + '</span>' : '') +",
+    "to": "      '<span class=\"st-file-hits\">' + (f.hits || 0) + '</span>' +"
+  },
+  {
+    "label": "the ceiling's label is its own literal, so raising the ceiling leaves the row saying the old one",
+    "files": ["public/chat.js"],
+    "from": "(f.hits > ST_FIND_MAX ? ST_FIND_MAX + '+' : f.hits)",
+    "to": "(f.hits > ST_FIND_MAX ? '50+' : f.hits)"
+  },
+  {
+    "label": "the OPEN FILE is picked from the search results — typing swaps out the file being read, mid-word",
+    "files": ["public/chat.js"],
+    "from": "  let open = files.find((f) => f.name === siteCodeOpen) || files[0];",
+    "to": "  let open = stCodeFind(files, siteCodeFind).files.find((f) => f.name === siteCodeOpen) || stCodeFind(files, siteCodeFind).files[0] || files[0];"
+  },
+  {
+    "label": "a keystroke redraws the WHOLE panel — the input is destroyed mid-word and the file being read jumps to its top",
+    "files": ["public/chat.js"],
+    "from": "    find.oninput = () => { siteCodeFind = find.value; paintTree(); };",
+    "to": "    find.oninput = () => { siteCodeFind = find.value; drawSiteCode(src); };"
+  },
+  {
+    "label": "the keystroke is never stored, so the next redraw of the panel forgets the query",
+    "files": ["public/chat.js"],
+    "from": "    find.oninput = () => { siteCodeFind = find.value; paintTree(); };",
+    "to": "    find.oninput = () => { paintTree(); };"
+  },
+  {
+    "label": "nothing listens to the box — a control that looks like a search and is a decoration",
+    "files": ["public/chat.js"],
+    "from": "    find.oninput = () => { siteCodeFind = find.value; paintTree(); };",
+    "to": "    find.oninput = null;"
+  },
+  {
+    "label": "a no-match answer is an EMPTY COLUMN — indistinguishable from a project whose files are gone",
+    "files": ["public/chat.js"],
+    "from": "      : '<div class=\"st-find-none\">' + esc(stFindNone(siteCodeFind)) + '</div>';",
+    "to": "      : '';"
+  },
+  {
+    "label": "the count line is never written, so a filtered tree looks exactly like an unfiltered one",
+    "files": ["public/chat.js"],
+    "from": "    if (said) said.textContent = stFindSaid(found);",
+    "to": "    if (said) said.textContent = '';"
+  },
+  {
+    "label": "the box is never marked as filtering, so its clear button stays hidden with a query in it",
+    "files": ["public/chat.js"],
+    "from": "    if (box) box.classList.toggle('on', found.on);",
+    "to": "    if (box) box.classList.toggle('on', false);"
+  },
+  {
+    "label": "the rows are drawn and never re-bound, so every file the search finds is dead when clicked",
+    "files": ["public/chat.js"],
+    "from": "    rows.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });",
+    "to": "    if (!rows.innerHTML) rows.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });"
+  },
+  {
+    "label": "the fold default is derived from the FILTERED list, so a click stores a chain naming folders the query left standing",
+    "files": ["public/chat.js"],
+    "from": "      const now = new Set(stOpenGroups(files, open.name, siteCodeOpenGroups));",
+    "to": "      const now = new Set(stOpenGroups(stCodeFind(files, siteCodeFind).files, open.name, siteCodeOpenGroups));"
+  },
+  {
+    "label": "Escape does not clear the box",
+    "files": ["public/chat.js"],
+    "from": "      find.value = ''; siteCodeFind = ''; paintTree();\n    };",
+    "to": "      paintTree();\n    };"
+  },
+  {
+    "label": "Escape goes on to the document, which closes the panel being searched in",
+    "files": ["public/chat.js"],
+    "from": "      e.stopPropagation();\n      if (!find.value) return;",
+    "to": "      if (!find.value) return;"
+  },
+  {
+    "label": "the field swallows EVERY key, so no shortcut works while the caret is in it",
+    "files": ["public/chat.js"],
+    "from": "      if (e.key !== 'Escape') return;\n      e.stopPropagation();",
+    "to": "      e.stopPropagation();\n      if (e.key !== 'Escape') return;"
+  },
+  {
+    "label": "the clear button clears the field and not the state, so the tree stays filtered under an empty box",
+    "files": ["public/chat.js"],
+    "from": "  if (clear && find) clear.onclick = () => { find.value = ''; siteCodeFind = ''; paintTree(); find.focus(); };",
+    "to": "  if (clear && find) clear.onclick = () => { find.value = ''; paintTree(); find.focus(); };"
+  },
+  {
+    "label": "clearing leaves the caret outside the box it just emptied",
+    "files": ["public/chat.js"],
+    "from": "  if (clear && find) clear.onclick = () => { find.value = ''; siteCodeFind = ''; paintTree(); find.focus(); };",
+    "to": "  if (clear && find) clear.onclick = () => { find.value = ''; siteCodeFind = ''; paintTree(); };"
+  },
+  {
+    "label": "the field's value is written unescaped — a quote in the query ends the attribute and the rest is markup",
+    "files": ["public/chat.js"],
+    "from": "    '<input type=\"text\" id=\"stCodeFind\" class=\"st-find-in\" value=\"' + esc(q || '') +",
+    "to": "    '<input type=\"text\" id=\"stCodeFind\" class=\"st-find-in\" value=\"' + (q || '') +"
+  },
+  {
+    "label": "the clear button is drawn only when there is something to clear — so showing it rebuilds the row holding the input",
+    "files": ["public/chat.js"],
+    "from": "    '<button type=\"button\" id=\"stCodeFindX\" class=\"st-find-x\" title=\"Clear the search\" aria-label=\"Clear the search\">' +\n      ic('x', 12) + '</button>' +",
+    "to": "    (q ? '<button type=\"button\" id=\"stCodeFindX\" class=\"st-find-x\" title=\"Clear the search\" aria-label=\"Clear the search\">' + ic('x', 12) + '</button>' : '') +"
+  },
+  {
+    "label": "the count line is a permanent label reading \"25 of 25 files\" rather than the sign that something is filtered",
+    "files": ["public/chat.js"],
+    "from": "  if (!found || !found.on) return '';",
+    "to": "  if (!found) return '';"
+  },
+  {
+    "label": "the no-match sentence does not name the query, so a forgotten box reads as a broken panel",
+    "files": ["public/chat.js"],
+    "from": "  return 'No file matches “' + String(q || '').trim() + '”.';",
+    "to": "  return 'No file matches.';"
+  },
+  {
+    "label": "the tree column scrolls as a whole, so the search box scrolls away with the rows",
+    "files": ["public/styles.css"],
+    "from": ".st-code-tree { flex: 0 0 210px; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }",
+    "to": ".st-code-tree { flex: 0 0 210px; border-right: 1px solid var(--line); overflow-y: auto; padding: .6rem .5rem; background: var(--panel); }"
+  },
+  {
+    "label": "the rows never scroll, so a long project pushes the panel instead of scrolling inside it",
+    "files": ["public/styles.css"],
+    "from": ".st-code-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 0 .5rem .6rem; }",
+    "to": ".st-code-rows { flex: 1; padding: 0 .5rem .6rem; }"
+  },
+  {
+    "label": "the clear button is painted but never shown",
+    "files": ["public/styles.css"],
+    "from": ".st-code-find.on .st-find-x { display: flex; }",
+    "to": ".st-code-find.on .st-find-x { color: var(--text); }"
+  },
+  {
+    "label": "the empty count line still holds a gap above the tree, so the sign is a permanent blank strip",
+    "files": ["public/styles.css"],
+    "from": ".st-find-said:empty { display: none; }",
+    "to": ".st-find-said:empty { color: transparent; }"
+  },
+  {
+    "label": "a glyph the box asks for is dropped from the icon table — the clear draws an empty svg and nothing fails",
+    "files": ["public/chat.js"],
+    "from": "  x: '<path d=\"M6 6l12 12\"/><path d=\"M18 6L6 18\"/>',",
+    "to": ""
+  },
+  {
+    "label": "CONTROL: a comment-only change in the file the guards really read, which must survive",
+    "control": true,
+    "files": ["public/chat.js"],
+    "from": "// THE SEARCH BOX'S FILTER (owner, 2026-09-12: \"add the search box too\", holding",
+    "to": "// The search box's filter (owner, 2026-09-12: \"add the search box too\", holding"
+  },
+  {
+    "label": "CONTROL: a comment-only change in the stylesheet, which must survive",
+    "control": true,
+    "files": ["public/styles.css"],
+    "from": "/* THE SEARCH BOX. The field carries no border of its own — the wrapper is the",
+    "to": "/* The search box. The field carries no border of its own — the wrapper is the"
+  }
+]

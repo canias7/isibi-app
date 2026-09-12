@@ -68,6 +68,24 @@ function fn(head, src = BARE) {
   return src.slice(at, end + 2);
 }
 
+/**
+ * A top-level one-line `const NAME = …;`, out of a file.
+ *
+ * FOR THE CONSTANTS A CARRIED FUNCTION REACHES FOR, and it exists because of a
+ * miss caught here: `stCodeRows` names `ST_FIND_MAX` and `stCodeTree` names
+ * `ST_ALL_OPEN`, and BOTH sit behind a short-circuit (`f.hits ? … : ''` and
+ * `all ? … :`). A free identifier resolves when its line RUNS, so every case in
+ * this file went on passing against a scope that had neither — which is this
+ * repository's recorded free-identifier trap arriving through the one door it
+ * cannot see: not a missing import, not a parse error, just an operand nothing
+ * happened to evaluate. They are carried now, like the functions.
+ */
+function konst(name, src = BARE) {
+  const m = src.match(new RegExp("^const " + name + " = .*;$", "m"));
+  assert.ok(m, "const " + name + " is gone");
+  return m[0];
+}
+
 // ── THE ZIP, AGAINST AN IMPLEMENTATION NOBODY HERE WROTE ────────────────────
 
 test("DRIVEN: the zip opens, and every file in it round-trips byte for byte", () => {
@@ -580,31 +598,81 @@ test("DRIVEN: a server that cannot answer is said, and the tab's list is used wh
 });
 
 /**
+ * The Code tab's host, as a fake that models the ONE thing this panel does to
+ * the DOM: `drawSiteCode` writes the shell once, and the TREE is written into a
+ * node inside it — again on every keystroke in the search box, without the shell
+ * being touched. `host.innerHTML` reads back the composed document, which is
+ * what a real element answers and what every case below reads.
+ *
+ * A FLAT STRING WOULD HIDE THE PROPERTY IT EXISTS TO PROVE. A fake whose
+ * `innerHTML` only ever holds the last thing written to it cannot tell a tree
+ * redraw from a whole-panel redraw — and "the search box does not rebuild the
+ * panel" is the only thing keeping the customer's caret in the field and the
+ * file they are reading where they left it.
+ */
+function codeHost(bind = () => []) {
+  const st = { shell: "", rows: "", said: "", on: false };
+  const SLOT = '<div class="st-code-rows"></div>';
+  const text = (key) => ({
+    get innerHTML() { return st[key]; },
+    set innerHTML(v) { st[key] = String(v); },
+    get textContent() { return st[key]; },
+    set textContent(v) { st[key] = String(v); },
+    querySelectorAll: (sel) => bind(st[key], sel),
+  });
+  return {
+    get innerHTML() { return st.shell.includes(SLOT) ? st.shell.replace(SLOT, '<div class="st-code-rows">' + st.rows + "</div>") : st.shell; },
+    set innerHTML(v) { st.shell = String(v); st.rows = ""; },
+    // What the two nodes beside the rows were told, so a case can read the count
+    // line and the clear button's class without a stylesheet.
+    get said() { return st.said; },
+    get filtering() { return st.on; },
+    querySelector: (sel) => (sel === ".st-code-rows" ? text("rows")
+      : sel === ".st-find-said" ? text("said")
+      : sel === ".st-code-find" ? { classList: { toggle: (c, v) => { st.on = !!v; } } }
+      : null),
+    querySelectorAll: (sel) => bind(st.shell + st.rows, sel),
+  };
+}
+
+/**
  * The real Code tab, out of the file, with a fake document.
  *
  * Same reason as the downloader: `siteCodeOpen` is a module-level `let` that
  * survives renders, and which file is open across a rebuild is exactly what is
  * being asked.
  */
-function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups = null, host } = {}) {
+function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups = null, find = "", bind, host } = {}) {
   // BOTH HALVES, because they are one hop. `loadSiteCode` fetches and hands the
   // answer to `drawSiteCode`, which draws and wires; carrying only the first
   // would drive a function whose whole body is now one call.
   const body = fn("async function loadSiteCode(site)") + "\n" + fn("function drawSiteCode(src)");
-  host = host || { innerHTML: "", querySelectorAll: () => [] };
+  host = host || codeHost(bind);
+  // THE SEARCH FIELD AND ITS CLEAR, as the two nodes `drawSiteCode` looks up by
+  // id. `focus()` counts rather than no-ops, because "clearing puts the caret
+  // back in the box" is a decision and a stub that swallowed it would leave the
+  // case asserting nothing.
+  const input = { value: find, focused: 0, focus() { this.focused += 1; }, oninput: null, onkeydown: null };
+  const clear = { onclick: null };
+  const els = { stCode: host, stCodeFind: input, stCodeFindX: clear };
   const make = new Function("deps", [
     "const { document, apiFetch, stSrcFiles, stCodeTree, stOpenGroups, esc, ic, stSaveBlob } = deps;",
+    "const { stCodeFind, stFindBox, stFindSaid, stFindNone } = deps;",
     "let siteCodeFiles = []; let siteCodeOpen = deps.open; let siteCodeOpenGroups = deps.groups;",
+    "let siteCodeFind = deps.find;",
     body,
     "return { run: loadSiteCode, draw: drawSiteCode,",
     "  get open() { return siteCodeOpen; }, get files() { return siteCodeFiles; },",
-    "  get groups() { return siteCodeOpenGroups; } };",
+    "  get groups() { return siteCodeOpenGroups; }, get find() { return siteCodeFind; } };",
   ].join("\n"));
   let asked = 0;
   const t = make({
     open,
     groups,
-    document: { getElementById: (id) => (id === "stCode" ? host : null) },
+    find,
+    // `Object.hasOwn`, never truthiness — `els["constructor"]` is a function and
+    // would be handed back as an element. The recorded trap, in a fake.
+    document: { getElementById: (id) => (Object.hasOwn(els, id) ? els[id] : null) },
     apiFetch: async () => {
       asked += 1;
       if (fail) throw new Error("offline");
@@ -631,7 +699,7 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
     ...TREE,
     esc: escFake, ic: () => "", stSaveBlob: () => {},
   });
-  return { t, host, site: { slug }, fetches: () => asked };
+  return { t, host, input, clear, site: { slug }, fetches: () => asked };
 }
 // THE WHOLE RENDERER, carried out of the file: the tree builder, the collapse
 // rule, the counter, the fold reader and the two row writers. Stubbing any one
@@ -647,11 +715,14 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
 // The property has not moved; the renderer has two more parts and they are
 // carried like the rest.
 const TREE = new Function("esc", "ic", "ST_CODE_GROUPS", [
+  konst("ST_FIND_MAX"), konst("ST_ALL_OPEN"),
   fn("function stDirTree("), fn("function stSortTree("), fn("function stCollapse("),
-  fn("function stDirCount("), fn("function stFileIcon("),
+  fn("function stDirCount("), fn("function stFileIcon("), fn("function stCodeFind("),
   fn("function stOpenGroups("), fn("function stFoldRow("), fn("function stCodeRows("),
-  fn("function stCodeTree("),
-  "return { stDirTree, stSortTree, stFileIcon, stCollapse, stDirCount, stOpenGroups, stCodeTree };",
+  fn("function stCodeTree("), fn("function stFindBox("), fn("function stFindSaid("),
+  fn("function stFindNone("),
+  "return { stDirTree, stSortTree, stFileIcon, stCollapse, stDirCount, stOpenGroups, stCodeTree,",
+  "  stCodeFind, stFindBox, stFindSaid, stFindNone, ST_FIND_MAX };",
 ].join("\n"))(
   // AND `ic` ECHOES ITS NAME rather than answering "". It used to return the
   // empty string, which was fine while every row asked for the same glyph and
@@ -948,7 +1019,19 @@ test("the Code host fills its stage, and the file tree keeps its scroll", () => 
   assert.match(CSS, /\.st-codewrap > \* \{[^}]*flex: 1/, "what the host holds does not fill it");
   // THE OBSERVER IS ALIVE: the editor it holds still has its own rules.
   assert.match(CSS, /\.st-code \{[^}]*height: 100%/, "the editor lost its height");
-  assert.match(CSS, /\.st-code-tree \{[^}]*overflow-y: auto/, "the file tree lost its scroll");
+  // THE SCROLL MOVED OFF `.st-code-tree` AND THE PROPERTY DID NOT (2026-09-12).
+  // This read `\.st-code-tree \{[^}]*overflow-y: auto`, which went red for the
+  // search box: the column is a fixed head over a scroller now, because a box
+  // that must stay put cannot live inside the thing that scrolls past it. The
+  // property was never "that selector carries overflow" — it is that the rows
+  // scroll INSIDE a column that does not, so the head stays and the panel never
+  // grows a second scrollbar. Both halves asserted, since either alone passes on
+  // a column that scrolls as a whole.
+  assert.match(CSS, /\.st-code-rows \{[^}]*overflow-y: auto/, "the file tree lost its scroll");
+  assert.match(CSS, /\.st-code-rows \{[^}]*min-height: 0/, "the scroller cannot shrink, so the whole column scrolls instead");
+  assert.match(CSS, /\.st-code-tree \{[^}]*min-height: 0/, "the tree column cannot bound its scroller");
+  assert.ok(!/\.st-code-tree \{[^}]*overflow-y: auto/.test(CSS),
+    "the column scrolls as well as its rows — the search box scrolls away with them");
 });
 
 // ── THE WHOLE PROJECT, NOT TWO FILES ────────────────────────────────────────
@@ -1414,19 +1497,20 @@ test("DRIVEN THROUGH THE TAB: a click really folds, and the fold survives the re
   // a new Set and drops it leaves every case above green and the folder shut for
   // ever. This repository's most-shipped failure, so it is driven end to end.
   const clicks = new Map();
-  const host = {
-    innerHTML: "",
-    querySelectorAll(sel) {
-      const attr = sel.slice(1, -1);
-      const out = [...String(this.innerHTML).matchAll(new RegExp(attr + '="([^"]*)"', "g"))]
-        .map((m) => ({ dataset: { [attr === "data-srcfold" ? "srcfold" : "srcname"]: m[1] }, set onclick(f) { clicks.set(attr + ":" + m[1], f); } }));
-      return out;
-    },
-  };
+  // RE-ANCHORED 2026-09-12, not appeased: the rows are written into a node
+  // INSIDE the shell now, so the binder is handed that node's own HTML by
+  // `codeHost` rather than reading one flat string off the host. The property —
+  // a click really folds and the fold survives — has not moved.
   const a = codeTab({
     answer: { ok: true, pages: [{ path: "src/routes/index.tsx", source: "// page\n" }], assets: [{ path: "public/icon.svg", source: "<svg/>" }] },
-    open: "src/routes/index.tsx", host,
+    open: "src/routes/index.tsx",
+    bind: (html, sel) => {
+      const attr = sel.slice(1, -1);
+      return [...String(html).matchAll(new RegExp(attr + '="([^"]*)"', "g"))]
+        .map((m) => ({ dataset: { [attr === "data-srcfold" ? "srcfold" : "srcname"]: m[1] }, set onclick(f) { clicks.set(attr + ":" + m[1], f); } }));
+    },
   });
+  const host = a.host;
   await a.t.run(a.site);
   assert.equal(a.t.groups, null, "the tab stored a choice nobody made");
   assert.equal(rows(host.innerHTML, "st-file").length, 1, "the first draw is not one chain open");
@@ -1541,10 +1625,24 @@ test("DERIVED: every icon the resolver can answer is one the icon table has", ()
   const src = fn("function stFileIcon(");
   const answers = [...src.matchAll(/return '([a-z]+)'/g)].map((m) => m[1]);
   assert.ok(answers.length >= 6, "only " + answers.length + " icon answers found — this check is measuring nothing");
-  const table = CHAT.slice(CHAT.indexOf("const ST_ICONS = {"), CHAT.indexOf("\n};", CHAT.indexOf("const ST_ICONS = {")));
+  const table = BARE.slice(BARE.indexOf("const ST_ICONS = {"), BARE.indexOf("\n};", BARE.indexOf("const ST_ICONS = {")));
   for (const name of new Set(answers)) {
     assert.match(table, new RegExp("^  " + name + ": '", "m"),
       "stFileIcon can answer " + JSON.stringify(name) + " and ST_ICONS has no such glyph — those rows draw an empty svg");
+  }
+
+  // AND EVERY GLYPH ANY CALLER ASKS FOR BY NAME, which is the same silence one
+  // step wider. The half above covers the resolver's own answers; it cannot see
+  // `ic('x', 12)` written into the search box, and a sweep found exactly that —
+  // the clear button drawing an empty <svg> with every case still green.
+  // Derived from the calls rather than from a list beside them, so the next
+  // glyph anybody reaches for is covered by existing. MEASURED over the real
+  // file before it shipped: 18 names asked for, 0 missing.
+  const asked = [...new Set([...BARE.matchAll(/\bic\('([a-zA-Z]+)'/g)].map((m) => m[1]))];
+  assert.ok(asked.length >= 15, "only " + asked.length + " ic() calls found — this half is measuring nothing");
+  for (const name of asked) {
+    assert.match(table, new RegExp("^  " + name + ": '", "m"),
+      "something calls ic(" + JSON.stringify(name) + ") and ST_ICONS has no such glyph — it draws an empty svg and nothing fails");
   }
 });
 
@@ -1607,4 +1705,336 @@ test("the rendered rows really carry their icons, and the drawn order is the sor
   const order = [...html.matchAll(/data-srcname="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(order, ["src/styles.css", ".gitignore", "package-lock.json", "README.md"],
     "the drawn order is not folders-then-files-A-Z");
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// THE SEARCH BOX (2026-09-12, owner holding Lovable's "Search code" beside
+// ours: "add the search box too").
+//
+// It searches the CODE and not only the names, which is the whole reason the box
+// can carry that label: every file's text is already in the browser, so matching
+// contents costs no request — and a box named "Search code" that filtered
+// filenames alone would be this app's dead control wearing a new coat.
+
+const FIND_FILES = [
+  { name: "src/routes/index.tsx", kind: "page", text: "export function Home() { return <Booking /> }\n" },
+  { name: "src/routes/-parts/Booking.tsx", kind: "part", text: "// the booking band\nexport function Booking() {}\n" },
+  { name: "README.md", kind: "shared", text: "A site built with Go Farther.\n" },
+  { name: "package.json", kind: "shared", text: '{ "name": "gofarther-site" }\n' },
+];
+
+test("DRIVEN: the filter matches a name OR the code inside, and counts what it found", () => {
+  const { stCodeFind } = TREE;
+  const names = (r) => r.files.map((f) => f.name);
+
+  // NOTHING TYPED IS NOT A FILTER. The whole list comes back, `on` is false, and
+  // the count line above the tree stays empty — a tree that always says
+  // "4 of 4 files" is a label, not a sign that something is filtered.
+  const idle = stCodeFind(FIND_FILES, "");
+  assert.equal(idle.on, false);
+  assert.equal(idle.files, FIND_FILES, "an empty query copied the list instead of handing it back");
+  assert.equal(idle.shown, 4);
+  assert.equal(idle.total, 4);
+  for (const blank of ["   ", "\t\n"]) assert.equal(stCodeFind(FIND_FILES, blank).on, false, "whitespace read as a query");
+
+  // BY NAME — and the row carries NO number, because the thing that matched is
+  // the name already on the row.
+  const byName = stCodeFind(FIND_FILES, "package");
+  assert.deepEqual(names(byName), ["package.json"]);
+  assert.equal(byName.files[0].hits, 0, "a name match invented a hit count for contents that do not match");
+  assert.equal(byName.shown, 1);
+  assert.equal(byName.total, 4, "the total is the filtered count, so the count line can never say what was hidden");
+
+  // BY CONTENTS — the case the whole feature exists for. `README.md` says
+  // nothing about farther in its NAME.
+  const byText = stCodeFind(FIND_FILES, "Go Farther");
+  assert.deepEqual(names(byText), ["README.md"]);
+  assert.equal(byText.files[0].hits, 1, "a contents match did not say how many times");
+
+  // BOTH AT ONCE, and the count is still the contents' — a file whose name AND
+  // body match is one row with a real number on it.
+  const both = stCodeFind(FIND_FILES, "booking");
+  assert.deepEqual(names(both), ["src/routes/index.tsx", "src/routes/-parts/Booking.tsx"]);
+  assert.equal(both.files[0].hits, 1, "the page's own <Booking /> was not counted");
+  assert.equal(both.files[1].hits, 2, "the part's name matched but its two mentions were not counted");
+
+  // CASE-INSENSITIVE IN BOTH HALVES. A customer typing `BOOKING` and getting
+  // nothing would read as the search being broken.
+  assert.deepEqual(names(stCodeFind(FIND_FILES, "BOOKING")), names(both), "the search is case-sensitive");
+
+  // NOTHING MATCHES IS AN EMPTY LIST WITH `on` TRUE, never the whole list back.
+  // Falling back to "show everything" is how a filter silently stops filtering.
+  const none = stCodeFind(FIND_FILES, "kayak");
+  assert.equal(none.on, true);
+  assert.deepEqual(names(none), []);
+  assert.equal(none.total, 4, "a no-match answer forgot how big the project is");
+
+  // THE ORIGINALS ARE NEVER TOUCHED. The filtered entries are copies, so a
+  // `hits` from one search cannot ride along into the next, or into the zip.
+  assert.ok(!Object.hasOwn(FIND_FILES[1], "hits"), "the filter wrote its count onto the project's own file list");
+});
+
+test("DRIVEN: the filter refuses what it is not given, and never throws on a short file", () => {
+  const { stCodeFind } = TREE;
+  // `String(["a"])` IS `"a"` — this repository's recorded coercion, three
+  // shipped bugs deep. A coerced array here would filter the whole tree down to
+  // whatever its one element spells, silently.
+  for (const junk of [["package"], 0, null, undefined, {}, 42]) {
+    const r = stCodeFind(FIND_FILES, junk);
+    assert.equal(r.on, false, "a " + typeof junk + " was read as a query");
+    assert.equal(r.files.length, 4);
+  }
+  // A MISSING LIST IS AN EMPTY ONE, not a throw — the tab draws before a fetch
+  // has ever answered.
+  assert.deepEqual(stCodeFind(null, "x").files, []);
+  assert.deepEqual(stCodeFind(undefined, "").files, []);
+  // A FILE WITH NO TEXT is still matchable by name, and does not throw. The
+  // explorer's `unplaced/` entries and any future row are this shape.
+  const odd = [{ name: "unplaced/1.txt", kind: "page" }, { name: "a.tsx", kind: "page", text: null }];
+  assert.deepEqual(stCodeFind(odd, "unplaced").files.map((f) => f.name), ["unplaced/1.txt"]);
+  assert.deepEqual(stCodeFind(odd, "zzz").files, []);
+});
+
+test("DRIVEN: the hit count stops at a number a 210px column can hold", () => {
+  const { stCodeFind, ST_FIND_MAX } = TREE;
+  assert.equal(typeof ST_FIND_MAX, "number", "the ceiling is gone, so the next assertion measures nothing");
+  // A ONE-LETTER QUERY AGAINST THE LOCK FILE is the real shape: 310,981 bytes
+  // with tens of thousands of hits, counted on every keystroke.
+  const many = [{ name: "package-lock.json", kind: "shared", text: "e".repeat(5000) }];
+  const r = stCodeFind(many, "e");
+  assert.ok(r.files[0].hits > ST_FIND_MAX, "the count stopped at or below the ceiling, so the row can never say 99+");
+  assert.equal(r.files[0].hits, ST_FIND_MAX + 1, "the counting ran past the ceiling instead of stopping just above it");
+  // AND THE CEILING IS A DISPLAY DECISION THAT CANNOT CHANGE THE ANSWER: one hit
+  // is enough to be in the list, so stopping early never drops a file.
+  assert.equal(r.shown, 1);
+  // NON-OVERLAPPING, which is what "3 matches" means to a reader. Counting
+  // overlaps would answer 3 here where a person counts 2.
+  assert.equal(stCodeFind([{ name: "a", kind: "page", text: "aaaa" }], "aa").files[0].hits, 2,
+    "overlapping matches were counted, so the number is not the number a reader sees");
+});
+
+test("DRIVEN: a filtered tree is drawn OPEN, and the customer's own folds are left alone", () => {
+  const { stCodeTree, stCodeFind } = TREE;
+  const shut = new Set();          // every folder closed, deliberately
+  // THE CONTROL FIRST: with those folds and no query, the tree is four headings
+  // and not one file — so the next assertion is measuring the `all` flag and not
+  // a tree that was open anyway.
+  const folded = stCodeTree(FIND_FILES, "README.md", shut);
+  assert.equal(rows(folded, "st-file").length, 0, "the fixture's folds do not actually fold, so this case proves nothing");
+
+  const found = stCodeFind(FIND_FILES, "booking");
+  const open = stCodeTree(found.files, "README.md", shut, found.on);
+  assert.equal(rows(open, "st-file").length, 2, "the matches are hidden inside folders the search left shut");
+  assert.ok(open.includes('data-srcname="src/routes/-parts/Booking.tsx"'), "a match two folders deep never reached the tree");
+  // AND THE STORED FOLDS ARE UNTOUCHED, so clearing the box puts the tree back
+  // exactly as the customer left it. `shut` is the state, and it is still empty.
+  assert.equal(shut.size, 0, "drawing a search wrote folders into the customer's stored choice");
+});
+
+test("DRIVEN: a row says how many times, only when the CONTENTS matched", () => {
+  const { stCodeTree, stCodeFind, ST_FIND_MAX } = TREE;
+  const draw = (q) => stCodeTree(stCodeFind(FIND_FILES, q).files, "README.md", new Set(), true);
+  const row = (html, name) => html.slice(html.indexOf('data-srcname="' + name + '"'), html.indexOf("</button>", html.indexOf('data-srcname="' + name + '"')));
+
+  const both = draw("booking");
+  assert.match(row(both, "src/routes/-parts/Booking.tsx"), /class="st-file-hits">2</, "the part's two mentions are not on its row");
+  assert.match(row(both, "src/routes/index.tsx"), /class="st-file-hits">1</, "the page's one mention is not on its row");
+  // A NAME-ONLY MATCH CARRIES NOTHING, which is what makes a numberless row
+  // self-explanatory: it matched the name you can read on it.
+  assert.ok(!row(draw("package"), "package.json").includes("st-file-hits"),
+    "a name-only match drew a count, so the number no longer means what it says");
+  // AND AN UNFILTERED TREE HAS NO NUMBERS AT ALL — the ordinary state of this
+  // panel, which the filter must not leave a mark on.
+  assert.ok(!stCodeTree(FIND_FILES, "README.md", new Set(), false).includes("st-file-hits"));
+
+  // THE CEILING'S LABEL IS DERIVED FROM THE CEILING, so raising one cannot leave
+  // the other saying the old number.
+  const many = stCodeFind([{ name: "a.tsx", kind: "page", text: "e".repeat(5000) }], "e");
+  assert.ok(stCodeTree(many.files, "a.tsx", new Set(), true).includes(">" + ST_FIND_MAX + "+<"),
+    "a file past the ceiling drew a raw count rather than " + ST_FIND_MAX + "+");
+});
+
+test("DRIVEN: the box, the count line and the no-match sentence all say what they are", () => {
+  const { stFindBox, stFindSaid, stFindNone } = TREE;
+
+  // THE FIELD CARRIES THE QUERY BACK, ESCAPED. It is rendered as an attribute,
+  // so a quote in the query would end it and everything after would be markup.
+  const box = stFindBox('a" onfocus="x');
+  assert.ok(box.includes('id="stCodeFind"'), "the field is not the one the handler looks up");
+  assert.ok(!box.includes('onfocus="x'), "a quote in the query escaped the value attribute");
+  assert.ok(box.includes("&quot;"), "the query was dropped rather than escaped");
+  // IT SAYS WHAT IT SEARCHES. "Search files" would be the false-promise version.
+  assert.match(box, /placeholder="Search files and code"/);
+  assert.match(box, /aria-label="Search files and code"/);
+  // THE CLEAR IS ALWAYS DRAWN and shown by a class — drawing it in and out per
+  // keystroke would rebuild the row holding the input and throw the customer out
+  // of the box they are typing in.
+  assert.ok(stFindBox("").includes('id="stCodeFindX"'), "the clear button is absent until something is typed");
+  assert.ok(stFindBox("x").includes('class="st-code-find on"'), "a query does not mark the box, so the clear stays hidden");
+  assert.ok(!stFindBox("").includes('class="st-code-find on"'), "an empty box is marked as filtering");
+  // AND THE COUNT LINE IS IN THE MARKUP EMPTY, for the same reason.
+  assert.ok(stFindBox("").includes('id="stCodeFindSaid"'));
+
+  // THE COUNT IS A SIGN, NOT A LABEL: empty unless something is filtered.
+  assert.equal(stFindSaid({ on: false, shown: 4, total: 4 }), "");
+  assert.equal(stFindSaid(null), "");
+  assert.equal(stFindSaid({ on: true, shown: 2, total: 25 }), "2 of 25 files");
+  assert.equal(stFindSaid({ on: true, shown: 0, total: 1 }), "0 of 1 file", "one file is still called files");
+
+  // AND NOTHING MATCHING IS A SENTENCE NAMING THE QUERY. An empty column is
+  // indistinguishable from a project whose files are gone.
+  assert.match(stFindNone("kayak"), /No file matches .kayak./);
+  assert.match(stFindNone("  kayak  "), /.kayak./, "the sentence quoted the customer's own spaces");
+});
+
+test("DRIVEN THROUGH THE TAB: typing filters the tree and rebuilds nothing else", async () => {
+  // THE PROPERTY THAT KEEPS THE CARET IN THE BOX, and no assertion about the
+  // filter can see it: `drawSiteCode` replaces the whole panel's HTML, so a
+  // keystroke that went back through it would destroy the input mid-word and
+  // scroll the file being read back to its first line.
+  const clicks = new Map();
+  const a = codeTab({
+    answer: {
+      ok: true,
+      pages: [{ path: "src/routes/index.tsx", source: "<Booking />\n" }, { path: "src/routes/menu.tsx", source: "// menu\n" }],
+      assets: [{ path: "public/icon.svg", source: "<svg/>" }],
+    },
+    open: "src/routes/index.tsx",
+    bind: (html, sel) => {
+      const attr = sel.slice(1, -1);
+      return [...String(html).matchAll(new RegExp(attr + '="([^"]*)"', "g"))]
+        .map((m) => ({ dataset: { srcfold: m[1], srcname: m[1] }, set onclick(f) { clicks.set(attr + ":" + m[1], f); } }));
+    },
+  });
+  await a.t.run(a.site);
+  const shellOf = (h) => String(h).slice(0, String(h).indexOf('<div class="st-code-rows">'));
+  const before = shellOf(a.host.innerHTML);
+  assert.ok(before.includes('id="stCodeFind"'), "the tab drew no search box");
+  assert.ok(typeof a.input.oninput === "function", "nothing is listening to the box — it is a dead control");
+
+  // TYPE. Only the rows change; the shell — which holds the input and the open
+  // file's <pre> — is byte-for-byte what it was.
+  a.input.value = "booking";
+  a.input.oninput();
+  assert.equal(a.t.find, "booking", "the keystroke was not stored, so a later redraw would forget it");
+  assert.equal(shellOf(a.host.innerHTML), before, "a keystroke rebuilt the panel around the box being typed in");
+  assert.equal(rows(a.host.innerHTML, "st-file").length, 1, "the filter did not narrow the tree");
+  assert.ok(a.host.innerHTML.includes('data-srcname="src/routes/index.tsx"'));
+  assert.equal(a.host.said, "1 of 3 files", "the count line does not say the tree is filtered");
+  assert.equal(a.host.filtering, true, "the box is not marked, so its clear button stays hidden");
+
+  // THE OPEN FILE DOES NOT MOVE, even when the query excludes it. Typing in a
+  // box must never swap out what you are reading.
+  a.input.value = "icon";
+  a.input.oninput();
+  assert.equal(a.t.open, "src/routes/index.tsx", "the search changed which file is open");
+  assert.equal(rows(a.host.innerHTML, "st-file").length, 1);
+
+  // AND A FOLD CLICKED WHILE A QUERY IS UP STORES THE WHOLE PROJECT'S CHAIN, not
+  // the filtered one — a sweep survivor until this was driven. The first click
+  // has no stored choice, so it materialises the derived default; derived from
+  // the FILTERED list that default loses the open file entirely (it is not in
+  // the results) and collapses to the bare group, so clearing the box would show
+  // the folder holding the file on screen shut.
+  assert.equal(a.t.groups, null, "the fixture already has a stored fold, so this measures nothing");
+  clicks.get("data-srcfold:asset")();
+  assert.deepEqual([...a.t.groups].sort(), ["asset", "page", "page/src/routes"],
+    "a fold clicked during a search stored a chain derived from the search results");
+
+  // NOTHING MATCHING IS THE SENTENCE, and the tree is not simply empty.
+  a.input.value = "kayak";
+  a.input.oninput();
+  assert.equal(rows(a.host.innerHTML, "st-file").length, 0);
+  assert.match(a.host.innerHTML, /st-find-none/, "an empty result is a blank column with nothing said");
+  assert.match(a.host.innerHTML, /No file matches/);
+  assert.equal(a.host.said, "0 of 3 files");
+
+  // A FILTERED ROW IS STILL A CONTROL. The rows are rebuilt on every keystroke,
+  // so the handlers have to be rebound with them — without it the tree goes
+  // quiet the first time anybody searches.
+  a.input.value = "menu";
+  a.input.oninput();
+  assert.ok(clicks.has("data-srcname:src/routes/menu.tsx"), "a row drawn by the search has no click handler");
+  clicks.get("data-srcname:src/routes/menu.tsx")();
+  assert.equal(a.t.open, "src/routes/menu.tsx", "clicking a search result did not open it");
+
+  // AND NOTHING WENT BACK TO THE NETWORK. One fetch, five keystrokes, one click.
+  assert.equal(a.fetches(), 1, "a keystroke re-fetched the whole project");
+});
+
+test("DRIVEN THROUGH THE TAB: the box clears two ways, and Escape stops where it is", async () => {
+  const a = codeTab({
+    answer: { ok: true, pages: [{ path: "src/routes/index.tsx", source: "// page\n" }] },
+    open: "src/routes/index.tsx", find: "kayak",
+  });
+  await a.t.run(a.site);
+  // THE STORED QUERY SURVIVES THE DRAW — a filter kept inside the render would
+  // empty itself every time the builder answered.
+  assert.equal(rows(a.host.innerHTML, "st-file").length, 0, "the query the tab came up with was ignored");
+  assert.match(a.host.innerHTML, /value="kayak"/, "the field came up empty over a filtered tree");
+
+  // AND THE OPEN FILE IS STILL CHOSEN FROM THE WHOLE PROJECT. A sweep survivor
+  // until this was driven: the keystroke path never recomputes it, so the only
+  // way to see the wrong reading is a FULL draw with a query already up — a
+  // reload, or a fold click. Picked from the results, a query naming another
+  // file opens that one instead, and the customer's file does not come back when
+  // the box is cleared.
+  const swap = codeTab({
+    answer: { ok: true, pages: [{ path: "src/routes/index.tsx", source: "// page\n" }, { path: "src/routes/menu.tsx", source: "// menu\n" }] },
+    open: "src/routes/index.tsx", find: "menu",
+  });
+  await swap.t.run(swap.site);
+  assert.equal(swap.t.open, "src/routes/index.tsx", "a stored search picked which file is open");
+  assert.equal(rows(swap.host.innerHTML, "st-file").length, 1, "the tree was not filtered, so this case proves nothing");
+
+  // THE CLEAR BUTTON puts the tree back AND the caret back — clearing a search
+  // is almost always the start of the next one.
+  assert.ok(typeof a.clear.onclick === "function", "the clear button does nothing");
+  a.clear.onclick();
+  assert.equal(a.input.value, "", "the field still shows the query it no longer has");
+  assert.equal(a.t.find, "");
+  assert.equal(rows(a.host.innerHTML, "st-file").length, 1, "clearing did not put the tree back");
+  assert.equal(a.input.focused, 1, "the caret was left outside the box that was just cleared");
+
+  // ESCAPE CLEARS TOO — and STOPS, because the document's own Escape handler
+  // closes whatever overlay is open. Without the stop, emptying the box would
+  // also shut the panel being searched in.
+  let stopped = 0;
+  a.input.value = "menu";
+  a.input.oninput();
+  assert.equal(rows(a.host.innerHTML, "st-file").length, 0);
+  a.input.onkeydown({ key: "Escape", stopPropagation: () => { stopped += 1; } });
+  assert.equal(a.t.find, "", "Escape did not clear the search");
+  assert.equal(stopped, 1, "Escape went on to the document, which closes the panel");
+  assert.equal(rows(a.host.innerHTML, "st-file").length, 1);
+
+  // ANY OTHER KEY IS NOT SWALLOWED, or the box would eat every shortcut the app
+  // has while the caret is in it.
+  let other = 0;
+  a.input.onkeydown({ key: "a", stopPropagation: () => { other += 1; } });
+  assert.equal(other, 0, "the field stops every key, not only Escape");
+});
+
+test("the search box's classes are the ones the sheet paints, and the field is not in the scroll", () => {
+  // THE CLASS THE MARKUP WRITES IS THE CLASS THE SHEET PAINTS, asked in both
+  // directions — a rule on a class nothing draws paints nothing, and a class
+  // nothing paints is an unstyled control.
+  const html = TREE.stFindBox("x") + TREE.stCodeTree(TREE.stCodeFind(FIND_FILES, "booking").files, "README.md", new Set(), true);
+  for (const cls of ["st-code-find", "st-find-ic", "st-find-in", "st-find-x", "st-find-said", "st-file-hits"]) {
+    assert.ok(html.includes(cls), "the box draws no " + cls);
+    assert.match(CSS, new RegExp("\\." + cls + "[ .:{]"), "the sheet paints no " + cls);
+  }
+  assert.match(CSS, /\.st-find-none \{/, "the no-match sentence is unstyled");
+  // THE CLEAR IS HIDDEN UNTIL THERE IS SOMETHING TO CLEAR, and shown by the
+  // class the renderer writes — the two halves have to agree or the button is
+  // either always there or never.
+  assert.match(CSS, /\.st-find-x \{[^}]*display: none/, "the clear button shows over an empty box");
+  assert.match(CSS, /\.st-code-find\.on \.st-find-x \{[^}]*display: flex/, "the clear button never appears");
+  // THE COUNT LINE TAKES NO ROOM WHEN IT SAYS NOTHING, which is what makes it a
+  // sign rather than a permanent label.
+  assert.match(CSS, /\.st-find-said:empty \{[^}]*display: none/, "an empty count line still holds a gap above the tree");
+  // AND THE FIELD SITS OUTSIDE THE SCROLLER. Both are in the tree column, and
+  // only one of them scrolls.
+  assert.match(CSS, /\.st-code-find \{[^}]*flex: none/, "the search box shrinks as the tree grows");
+  assert.match(CSS, /\.st-code-tree \{[^}]*flex-direction: column/, "the column is not a head over a scroller");
 });
