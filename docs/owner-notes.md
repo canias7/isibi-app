@@ -5986,3 +5986,35 @@ break anything, which proves the run is honest). Four recent batches named their
 in the label only, not the way the tool reads it, so the tool's own check on
 itself was switched off in exactly the runs that reported it working. Fixed and
 all four re-run: 18, 4, 25 and 7, every control surviving.
+
+## Why the start screen looked wrecked on your laptop (12 Sept)
+
+Those six grey slabs are the **phone tiles** — the little handset drawn beside
+each site. They're meant to be about 100px wide. On your laptop each one had
+blown up to roughly 506px wide and the full height of the window, so six of them
+sat almost edge to edge across the whole screen, overlapping. The grey is only
+10% ink, which is why they got darker towards the right: that's two and three of
+them stacked on top of each other.
+
+**Your screenshot is what solved it.** I measured the slabs off it — about 520px
+wide, full window tall — and the phone's shape is 0.46 wide for every 1 tall.
+0.46 × your window height comes to 506. That arithmetic closing is what told me
+the tile was being sized off the *window* instead of off its own little box.
+
+Why one Mac and not the other: the tile's height is worked out from its shape
+rather than typed in, and browsers disagree about that particular calculation.
+Yours gets it right on the desktop and wrong on the laptop. I could not
+reproduce it here at all — I rendered the screen at five different widths and it
+was correct to within a pixel every time, which is the same thing that happened
+with the scrollbar two days ago: my browser can't see your browser's bug.
+
+**So I fixed the class rather than the guess.** The tile now clips, so a phone
+that computes wrong physically cannot paint outside its own column on any
+browser, and the phone is capped in both directions so the sizing isn't wrong in
+the first place. I kept both on purpose — one catches the paint, the other the
+layout. I checked it changes nothing where things already work: rendered before
+and after at five widths, every box identical.
+
+**Reload the laptop and it should be right.** Nothing for you to do beyond that.
+
+Tests 6,078 green. Sweep 6 of 6, control survived.

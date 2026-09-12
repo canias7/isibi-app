@@ -1297,3 +1297,57 @@ test("the switch changes the phone and NOTHING ELSE ON THE ROW", () => {
     assert.equal((html.match(/st-app-screen/g) || []).length, 1, "one box per tile");
   }
 });
+
+test("THE TILE CANNOT PAINT OUTSIDE ITS OWN COLUMN, whatever the phone computes to", () => {
+  // WHY THIS EXISTS (2026-09-12, owner on one of two Macs: "on my desktop looks
+  // fine, but in my laptop is kinda mess up" — six grey slabs over the whole
+  // start screen, the cards underneath them correct).
+  //
+  // The phone is `height: 100%`, and a percentage height resolves only against a
+  // parent whose height is DEFINITE. `.st-app-screen`'s height is definite by
+  // `aspect-ratio`, which is correct CSS and is exactly the corner engines have
+  // disagreed about. Where it does not resolve, the phone sizes against a taller
+  // ancestor, `width: auto` follows its ratio, and `max-width` does not always
+  // clamp a width the ratio produced — so one 102px tile becomes ~506 x a whole
+  // window. MEASURED off the owner's own screenshot: slabs ~520px wide and the
+  // full window tall, and 0.46 (the 393/852 handset) x the window height is 506.
+  // Six of those at a 518px pitch overlap almost edge to edge, and `--panel-2`
+  // is 10% ink, so they stack into bands. Every detail of the picture closes.
+  //
+  // THE PROPERTY IS CONTAINMENT, NOT THE TWO DECLARATIONS. What must be true is
+  // that the tile is bounded on BOTH axes and clips — never that it spells
+  // `max-height` or `overflow: hidden` in particular — so this reads the rules
+  // for a bound on each axis and for a clip, and any spelling that achieves them
+  // passes.
+  const css = read("../public/styles.css");
+  const box = rule(css, ".st-app-screen");
+  const phone = rule(css, ".st-app-phone");
+
+  // THE CLIP. `visible` is the default and the thing that let the slabs out, so
+  // it is the one value refused rather than a list of the ones allowed.
+  const ov = /(?:^|[;{]\s*)overflow:\s*([^;]+)/.exec(box);
+  assert.ok(ov, "the phone's box no longer clips — a tile that mis-sizes paints over the grid");
+  assert.ok(!/\bvisible\b/.test(ov[1]),
+    "the phone's box is `overflow: " + ov[1].trim() + "`, which does not contain a mis-sized phone");
+
+  // BOUNDED ON BOTH AXES. Width alone was what shipped, and the height is the
+  // axis the owner's browser ran away on.
+  for (const axis of ["max-width", "max-height"]) {
+    const m = new RegExp("(?:^|[;{]\\s*)" + axis + ":\\s*([^;]+)").exec(phone);
+    assert.ok(m, "the phone has no " + axis + ", so it can outgrow its box on that axis");
+    assert.equal(m[1].trim(), "100%",
+      "the phone's " + axis + " is `" + m[1].trim() + "` rather than its box");
+  }
+
+  // AND THE DESIGN IS UNCHANGED: still height-led inside the box, which is what
+  // makes a taller phone NARROWER rather than taller and keeps the card still.
+  // A fix that quietly turned the tile width-led would pass every check above
+  // and move every card on the screen.
+  // THE LOOKBEHIND IS LOAD-BEARING: a bare `height:` search is satisfied by the
+  // `max-height` two declarations along, so the check would pass over a phone
+  // that had stopped being height-led at all.
+  assert.match(phone, /(?<![-\w])height:\s*100%/,
+    "the phone stopped being height-led, which is what kept the cards still");
+  assert.match(phone, /(?<![-\w])width:\s*auto/,
+    "the phone's width stopped following its ratio");
+});

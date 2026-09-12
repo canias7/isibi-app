@@ -1,0 +1,45 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the phone's box stops clipping, so a mis-sized tile paints over the grid again",
+    "files": ["public/styles.css"],
+    "from": "aspect-ratio: 390 / 844; display: flex; justify-content: center; overflow: hidden; }",
+    "to": "aspect-ratio: 390 / 844; display: flex; justify-content: center; }"
+  },
+  {
+    "label": "the box clips on the default, which is no clip at all",
+    "files": ["public/styles.css"],
+    "from": "aspect-ratio: 390 / 844; display: flex; justify-content: center; overflow: hidden; }",
+    "to": "aspect-ratio: 390 / 844; display: flex; justify-content: center; overflow: visible; }"
+  },
+  {
+    "label": "the phone is unbounded on the axis the owner's browser ran away on",
+    "files": ["public/styles.css"],
+    "from": "max-width: 100%; max-height: 100%;",
+    "to": "max-width: 100%;"
+  },
+  {
+    "label": "the phone is unbounded across, which is the width that made the slabs 506px",
+    "files": ["public/styles.css"],
+    "from": "max-width: 100%; max-height: 100%;",
+    "to": "max-height: 100%;"
+  },
+  {
+    "label": "a bound that is not the box — 100vh reads as a bound and is the bug",
+    "files": ["public/styles.css"],
+    "from": "max-width: 100%; max-height: 100%;",
+    "to": "max-width: 100%; max-height: 100vh;"
+  },
+  {
+    "label": "the tile is quietly turned width-led, which contains it and moves every card",
+    "files": ["public/styles.css"],
+    "from": "  height: 100%; width: auto; max-width: 100%; max-height: 100%;",
+    "to": "  width: 100%; height: auto; max-width: 100%; max-height: 100%;"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": ["public/styles.css"],
+    "from": "   So the tile cannot paint outside its column whatever the phone computes to.",
+    "to": "   So the tile cannot paint outside its column whatever the phone computes to (control)."
+  }
+]

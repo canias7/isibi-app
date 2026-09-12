@@ -3001,10 +3001,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   nobody re-measured is a claim ahead of its evidence in BOTH directions.
   Before that, CI had read `373 passed, 0 failed` on runs 1065 and 1066 once
   the cap moved to 35 minutes.
-  The unit suite is 6,077 (2026-09-12, the project-root census, the template
+  The unit suite is 6,078 (2026-09-12, the project-root census, the template
   name guard, the preview-error channel, the code tree's icons and sort, the
   search box, the tree column's width, the row menu, the click twitch, the
-  scrollbar gutter, the kit closure and the derived harness ceiling; 86.6 s
+  scrollbar gutter, the kit closure, the derived harness ceiling and the phone
+  tile's containment; 86.6 s
   local).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
@@ -4043,6 +4044,34 @@ depends on how often its element is created, which nothing in a stylesheet can s
 width regression on the same panel the same night was real, measured, and covered
 only the FOLD path, so the file path went on twitching and the owner had to report
 it twice.
+
+**A PERCENTAGE HEIGHT AGAINST AN `aspect-ratio` BOX IS WHERE ENGINES DISAGREE —
+SO THE BOX MUST CONTAIN (2026-09-12, owner on one of two Macs: *"on my desktop
+looks fine, but in my laptop is kinda mess up"*).** The start screen's phone
+tile is `height: 100%` inside `.st-app-screen`, whose height is definite by
+`aspect-ratio: 390/844`. That is correct CSS. Where an engine does not resolve
+it, the phone sizes against a taller ancestor, `width: auto` follows its own
+ratio, and **`max-width` does not always clamp a width the ratio produced** — so
+a 102px tile becomes ~506 × a whole window, six of them at a 518px pitch overlap
+almost edge to edge, and `--panel-2` at 10% ink stacks them into grey bands over
+the entire grid.
+**THE PICTURE WAS THE INSTRUMENT AND ITS ARITHMETIC CLOSED.** Measured off the
+owner's screenshot: slabs ~520px wide, full window tall, against a 102px column —
+and 0.46 (the 393/852 handset) × the window height is 506. That is what named
+the mechanism; nothing in the repository could have.
+**AND CHROMIUM COULD NOT REPRODUCE IT AT ALL** — 2560, 1512, 1440, 1280 and 1200,
+phone within 1.3px of the thumbnail every time, no overflow. The recorded "a zero
+from a blind instrument is not evidence of absence", for the second time in two
+days on this screen; the failure had to be FORCED (`height: 100vh`) to be tested.
+**The fix is a wall, not a rule**: `overflow: hidden` on the box so a mis-sized
+phone cannot paint outside its column on any engine, and `max-height: 100%` so
+the layout is not wrong in the first place. **Both are kept deliberately** — one
+contains the paint, the other the layout, and the sweep kills each alone.
+Proven free rather than assumed: rendered both ways at five widths, every box
+byte-identical, so it changes nothing where the engine behaves. 6/6 killed,
+control survived. The general shape: **when a size depends on a resolution
+engines get wrong, bound it on both axes AND clip the parent** — a design that is
+only correct while every engine agrees is a design with no floor.
 
 **A CSS RULE CAN BE CORRECT AND STILL LOSE (2026-09-11).** `padding-left` written
 above a `.st-file { padding: … }` shorthand loses on source order alone, at equal
