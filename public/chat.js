@@ -4852,14 +4852,14 @@ async function loadSiteSeo(site) {
       // the value here; the fields above are the smaller half.
       '<div class="st-field"><label>How it looks</label>' +
         '<div class="st-seo-previews">' +
-          '<div class="st-seo-prev"><span class="st-seo-prev-k">Google</span>' +
+          '<div><span class="st-seo-prev-k">Google</span>' +
             '<div class="st-seo-g">' +
               '<div class="st-seo-g-url">' + esc(host) + '</div>' +
               '<div class="st-seo-g-t">' + esc(d.title || site.name || 'Your site') + '</div>' +
               '<div class="st-seo-g-d">' + (desc ? esc(desc) : '<i>No description — Google will pick its own words off the page.</i>') + '</div>' +
             '</div>' +
           '</div>' +
-          '<div class="st-seo-prev"><span class="st-seo-prev-k">Shared link</span>' +
+          '<div><span class="st-seo-prev-k">Shared link</span>' +
             '<div class="st-seo-card">' +
               (d.image
                 ? '<img class="st-seo-card-img" src="' + esc(d.image) + '" alt="" loading="lazy">'

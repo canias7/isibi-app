@@ -2889,12 +2889,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    know one exists, so showing the two places this text really lands is most of
    what this tab is for; the fields above it are the smaller half. */
 .st-seo-previews { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
-/* A GRID ITEM'S AUTOMATIC MINIMUM SIZE IS ITS CONTENT, so a description with no
-   space in it — a URL, a long German compound — widens its column past the
-   `1fr` it was given and pushes the other preview off the panel. The recorded
-   width regression on the code explorer's tree column, one panel over: the
-   declaration says out loud what nothing else here says at all. */
-.st-seo-prev { min-width: 0; }
 .st-seo-prev-k { display: block; font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: .45rem; }
 .st-seo-g { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .85rem .95rem; }
 .st-seo-g-url { font-size: .74rem; color: var(--muted); margin-bottom: .2rem; }
@@ -2902,9 +2896,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    a preview earns its place by being recognisable as the thing it previews, and
    a graphite-on-cream mock of a search result is a diagram of one. */
 .st-seo-g-t { font-size: 1.02rem; line-height: 1.35; color: #1a0dab; margin-bottom: .25rem; }
-/* `min-width: 0` above lets the COLUMN shrink; this lets the WORDS break, and
-   both are needed — a shrinkable column with an unbreakable word in it just
-   overflows its own box instead of its neighbour's. */
+/* A DESCRIPTION WITH NO SPACES IN IT — a pasted URL, a long compound — has to
+   be allowed to BREAK, or it lays the previews row out at its own width and the
+   panel scrolls sideways. MEASURED in a real browser at a 520px row: with this
+   rule the row is 520 and each column 252; without it the row's scrollWidth is
+   **2369**, and both columns still read 252, so nothing about the columns says
+   what happened. A `min-width: 0` on the preview column was written here first
+   and DELETED after the same measurement showed it changes neither number —
+   `.st-seo-previews` tracks are `minmax(240px, 1fr)`, which is already a
+   definite minimum, so a grid item's automatic minimum size never applies and
+   the declaration was inert. One rule, the one that does the work. */
 .st-seo-g-d, .st-seo-g-t, .st-seo-card-tx span { overflow-wrap: anywhere; }
 .st-seo-g-d { font-size: .8rem; line-height: 1.5; color: var(--muted); }
 .st-seo-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }

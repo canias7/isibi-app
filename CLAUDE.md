@@ -2392,6 +2392,110 @@ case now, and it is safe on walls that already existed.
   site is published with the token baked into its frozen bundle and needs a
   republish after the deploy. It touches `worker.js` and `builder/`, so the image
   rebuilds and the container rolls — the 15–20 minute hold applies.
+- **THE SEO & SOCIAL TAB SHOWS THE SITE'S REAL HEAD (2026-09-12, owner shown the
+  tab: *"WHAT IS THIS"* → *"BUT WHAT IT IS SUPPOSED TO BE"* → *"YES BUILD IT"*).**
+  It was eleven lines of hardcoded markup stating **three false facts about the
+  customer's own business**: a title drawn as `<name> — built with Go Farther`, a
+  suffix **no site has ever served**; a sentence of grey prose where a real
+  description was already stored; and "Generate · soon" for a 1200×630 card the
+  container has composed on every build for weeks. MEASURED on
+  `hebden-bike-repair` the same day: `<title>Hebden Bike Repair</title>`, a real
+  description, an `og:image` at a card that really is 1200×630. **That is a step
+  past this repo's dead-control finding** — a dead control does nothing; this one
+  ANSWERED, wrongly, and the next thought on reading it is *"how do I get your
+  branding off my title"*, about a thing that was never there.
+  **NOTHING NEW UNDERNEATH IT.** All three values were already stored, already
+  served, and already changeable through paths the platform has.
+  **THE SPLIT IS `site-runtime.ts`'s OWN and it decides the whole tab**:
+  `description` and `image` are PUBLISH-TIME and live in the R2 sidecar, which
+  the published site's script reads on every request — so **patching that one key
+  IS the deployment** (the rename lane's pattern and the share picker's: no
+  container, no compile, no credits); `title` is BUILD-TIME, baked as `SITE_NAME`.
+  **THE TITLE IS DELIBERATELY READ-ONLY**, a product decision rather than a
+  missing hop: `SITE_NAME` is the BUSINESS'S NAME and the same constant paints the
+  site's header, the composed share card and `og:site_name`, so an override
+  reaching only `<title>` desyncs four things. The `brand` edit lane moves all
+  four together and the panel says so where the field is. **A SEO title that
+  differs from the business name on purpose is a real, separate feature** — the
+  sidecar must carry one and `__root.tsx` prefer it for the two title tags only —
+  and it is named as the follow-up rather than half-built.
+  `site-head-edit.mjs` (dependency-free) owns the decisions: `MAX_HEAD_DESCRIPTION`
+  **300, DERIVED from the publish path's own slice** rather than chosen again (a
+  panel that took more would store what the next publish silently truncates);
+  `GOOD_DESCRIPTION` 50–160, **advisory only**, colouring a counter and refusing
+  nothing; `cleanHeadDescription`, which REFUSES a non-string instead of coercing
+  (`String(["hi"])` is `"hi"`, shipped here as a real bug three times) and treats
+  `""` as a real answer meaning *clear it*; `pickableImages`, whose two filters
+  are both load-bearing (a stranger's form upload must never become the business's
+  preview; an og:image at a PDF renders NOTHING in a chat app, silently) with
+  `uploadIsImage` **INJECTED** so that rule has one home; and `headAnswer`, which
+  keeps `share` (the CHOICE) apart from `image` (what RESOLVES) — collapsing them
+  is the mockup's own mistake one layer in. **NOT `site-seo.mjs`**, which is the
+  published site's crawling surface; two neighbours of one word, named apart in
+  both files.
+  `GET|POST /api/site/<slug>/seo` — owner-gated, shaped **line for line on the
+  share route beside it**. The POST **READS AND MERGES the look**: `withConfig`
+  replaces a named field WHOLE, so a bare `{ look: { description } }` takes the
+  theme, the brand, the mark and every language off the site — the exact defect
+  the logo rung shipped. Both R2 reads on the GET are best-effort: a bucket blip
+  must cost the picture and the picker, never the two fields beside them. `live`
+  says whether the sidecar patch landed, because a failure there is a DELAY (the
+  words appear at the next publish) and not a loss.
+  The panel draws **the two places this text actually lands** — a Google result
+  and a shared-link card — which is most of the value, since most owners have
+  never seen their own share card. The picker posts through the **existing** share
+  route and then **RE-READS**, because what serves is the precedence's answer and
+  not the file just chosen. **Five stylesheet rules went with the mockup that was
+  their only reader** (`.st-inp-area`, `.st-social`, `.st-social-ph`,
+  `.st-social-btns`, `.st-gen2`), each counted at zero readers across everything
+  the app serves — not a scan, which this repo has measured as not good enough to
+  cut by. `.st-inp` survives: the read-only title box is its one reader.
+  **A CSS RULE WAS WRITTEN, MEASURED INERT AND DELETED RATHER THAN TESTED.**
+  `.st-seo-prev { min-width: 0 }` went in on the grid-item-minimum-size
+  reasoning; rendered both ways at a 520px previews row with a 300-character
+  unbroken word, it changes **neither** number — `.st-seo-previews` tracks are
+  `minmax(240px, 1fr)`, already a definite minimum, so the automatic minimum size
+  never applies. What DOES the work is `overflow-wrap: anywhere`: **with it the
+  row is 520 and each column 252; without it the row's scrollWidth is 2369 and
+  both columns still read 252**, so nothing about the columns says what happened.
+  **Guards**: `test/site-head-edit.test.mjs` (26) drives the module whole,
+  CARRIES the browser's twin out of chat.js and holds the two numbers equal
+  (chat.js cannot import, so they are a second copy by construction), drives the
+  route through `worker.fetch` for eleven cases, and reads the panel's hops as
+  CALLS. **Its own first two runs found three real gaps before any sweep**: a
+  class written and painted by nothing, a second whose rule did not exist, and
+  the recorded "prose contains the thing it forbids" in my own comment naming the
+  five deleted classes — so the stylesheet gets a blanker too, with a landmark
+  asserted to survive it.
+  **Sweep: 31 mutants, 31 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived — FOUR survived the first pass and the split between them is
+  the useful part.** Three were real guard gaps and one was a driving mistake:
+  `live` had only its happy case (a route hardcoding `true` passed); the CSS rule
+  was asserted to EXIST and not to say anything (the recorded "a CSS rule can be
+  correct and still lose", now read by VALUE over every `overflow-wrap` in the
+  block); and the cannot-resolve case **failed every `site_backends` request, so
+  `assertOwner`'s own owner read threw first and answered its own 503** — the
+  route never reached the line the case was about, and the two reads are
+  separated by their selects (`select=uid` against `select=neon_db,uid,brief`).
+  The fourth was **INERT and was answered with a sentence rather than hunted**:
+  cutting the missing-`description` check falls through to the cleaner, which
+  refuses `undefined` with its own 400 — so the STATUS cannot tell them apart and
+  the observable half is *which sentence the caller is told*.
+  **Three older guards went red and were re-anchored, not appeased**:
+  `test/dockerfile.test.mjs`'s import census (the new root module was not on the
+  image's COPY line — the recorded "a module the container imports and the image
+  did not carry"), and the two `siteOgImage` reader counts in `site-edit` and
+  `site-zone`, each pinned at `=== 3` and each failed by an honest fourth READER;
+  both are floors now, with the two publish paths' distinct dists asserted by name
+  and every other caller required to pass `null`. **A fourth went QUIET rather
+  than red, which is the dangerous half**: `test/site-share.test.mjs` windowed
+  `sh` → `nt` and the new route landed between them, so its window silently grew
+  to hold two routes and every assertion in it went on passing over a region twice
+  the size it describes. It closes on its next sibling now.
+  **Suite 6,126** (6,100 before; 26 new cases).
+  **Not proven live** — the deploy is the precondition. It touches `worker.js` and
+  a new root module, so the image rebuilds and the container rolls: the 15–20
+  minute hold applies.
 
 ---
 
@@ -3894,8 +3998,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   count is unchanged from 1114 because this change adds no container case** —
   its guards are unit-level, and what the harness proves here is that a site
   still compiles, renders and serves with the image steps reading the parts.
-  The unit suite is **6,100** (2026-09-12, 81.4 s local — the photograph
-  pipeline reading the parts; **6,088** before it, plus `image-parts`' twelve;
+  The unit suite is **6,126** (2026-09-12, local — the SEO tab's twenty-six;
+  **6,100** before it, the photograph
+  pipeline reading the parts; **6,088** before that, plus `image-parts`' twelve;
   6,086 at stage 4 of the media deletion, plus two cases for the one tree and the
   row's ink; CI has NOT read this number yet, and the last one it did read was
   6,072 on run 2473). The arithmetic across the deletion, because a falling

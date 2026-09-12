@@ -259,9 +259,9 @@ function withWire({ uid = OWNER.id, rows = null } = {}, run) {
   return (async () => { try { return await run(); } finally { globalThis.fetch = real; } })();
 }
 
-async function seo(store, { method = "GET", body } = {}) {
+async function seo(store, { method = "GET", body, slug = SLUG } = {}) {
   const worker = await loadWorker();
-  const req = new Request("https://gofarther.dev/api/site/" + SLUG + "/seo", {
+  const req = new Request("https://gofarther.dev/api/site/" + slug + "/seo", {
     method,
     headers: { "content-type": "application/json", Authorization: "Bearer some-token" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -330,6 +330,26 @@ test("the POST patches the sidecar, which IS the deployment, and says which happ
   assert.equal(sidecarOf(store).routesCsv, "/");
 });
 
+test("`live` is FALSE when the one key that deploys the words could not be written", async () => {
+  // The happy case alone cannot see this — a route that hardcoded `live: true`
+  // passes it, which is the sweep survivor that bought this case. The patch is
+  // best-effort on purpose: the value is already SAFE in the config, so a
+  // failure here means the words appear at the site's next publish instead of
+  // now. That is a delay rather than a loss, and the panel says which of the
+  // two sentences to show off this one boolean.
+  const store = bucket();
+  const real = store.put;
+  store.put = async function (k, v) {
+    if (k === siteMetaKey(SLUG)) throw new Error("r2 down");
+    return real.call(this, k, v);
+  };
+  const got = await withWire({}, () => seo(store, { method: "POST", body: { description: "Stored, not yet live." } }));
+  assert.equal(got.status, 200, "a sidecar blip refused a description that was already safely stored");
+  assert.equal(got.body.live, false, "the panel is told the words are live on a site that is not serving them");
+  assert.equal(configOf(store).look.description, "Stored, not yet live.",
+    "the value that survives a failed patch is the one the next publish reads — and it was not written");
+});
+
 test("clearing is a real answer, and reaches the sidecar as an empty string", async () => {
   const store = bucket();
   const got = await withWire({}, () => seo(store, { method: "POST", body: { description: "   " } }));
@@ -339,7 +359,7 @@ test("clearing is a real answer, and reaches the sidecar as an empty string", as
   assert.equal(sidecarOf(store).description, "", "the key was omitted rather than emptied, so the old sentence stands");
 });
 
-test("a POST that names nothing this route owns is refused, not answered ok", async () => {
+test("a POST that names nothing this route owns is refused, and SAYS which", async () => {
   // A caller that posted a title thinks it changed something. Answering `ok` to
   // it is a silent drop, and the title arrives here the day somebody wires the
   // follow-up.
@@ -347,6 +367,17 @@ test("a POST that names nothing this route owns is refused, not answered ok", as
   const got = await withWire({}, () => seo(store, { method: "POST", body: { title: "Something else" } }));
   assert.equal(got.status, 400);
   assert.deepEqual(store.writes, []);
+  // THE SENTENCE IS THE OBSERVABLE HALF, and a sweep survivor is why it is
+  // asserted. Dropping the named check falls through to the cleaner, which
+  // refuses `undefined` and answers 400 too — so the STATUS cannot tell the two
+  // apart and a mutant removing the check lived. What differs is what the
+  // caller is told: "send a description" says what this route wants, where the
+  // cleaner's sentence complains about the type of a field they never sent.
+  // This repo's "a failure that cannot name itself", one refusal over.
+  assert.match(got.body.error, /send a description/);
+  const typed = await withWire({}, () => seo(store, { method: "POST", body: { description: 12 } }));
+  assert.notEqual(typed.body.error, got.body.error,
+    "the missing-field refusal and the wrong-type refusal wear one sentence");
 });
 
 test("a non-string description is refused by the route, not coerced on its way in", async () => {
@@ -380,20 +411,27 @@ test("a site whose settings cannot be resolved is a 503, never a fresh config wr
   // difference is a new R2 config written over a pre-migration site's `_meta`
   // look. `siteBackendRowFresh` THROWS rather than answering null, and the
   // route must say so rather than carry on.
+  //
+  // ONLY THE SECOND READ FAILS, and that is what makes the case real. The first
+  // draft failed EVERY `site_backends` request, so `assertOwner`'s own owner
+  // read threw first and answered its own 503 — the route never reached the
+  // line this case is about, and a mutant that swallowed the throw survived the
+  // sweep. The two reads ask for different columns (`select=uid` against
+  // `select=neon_db,uid,brief`), which is the discriminator.
   const store = bucket();
-  const got = await withWire({ rows: null }, async () => {
-    const real = globalThis.fetch;
+  const got = await withWire({}, async () => {
     const wrapped = globalThis.fetch;
     globalThis.fetch = async (input, init) => {
       const url = String((input && input.url) || input || "");
-      if (url.includes("/rest/v1/site_backends")) return new Response("boom", { status: 500 });
+      if (url.includes("/rest/v1/site_backends") && url.includes("neon_db")) return new Response("boom", { status: 500 });
       return wrapped(input, init);
     };
     try { return await seo(store, { method: "POST", body: { description: "nope" } }); }
-    finally { globalThis.fetch = real; }
+    finally { globalThis.fetch = wrapped; }
   });
   assert.equal(got.status, 503);
-  assert.deepEqual(store.writes, []);
+  assert.deepEqual(store.writes, [],
+    "a fresh config was written over a site whose stored settings could not even be resolved");
 });
 
 /* ── the panel ───────────────────────────────────────────────────────────── */
@@ -509,4 +547,29 @@ test("every class the panel writes is painted, and the mockup's own rules went w
   // an empty file.
   assert.ok(SHEET.includes(".st-inp "), ".st-inp went with the mockup, taking the read-only title box's look");
   assert.match(PANEL, /class="st-inp st-seo-ro"/, "the title box stopped using the field look");
+});
+
+test("the preview text is allowed to BREAK, by value — a rule can be present and useless", () => {
+  // MEASURED in a real browser at a 520px previews row, with a 300-character
+  // unbroken word in the Google snippet: with `anywhere` the row is 520 and
+  // each column 252; with the rule present but set to `normal` the row's
+  // scrollWidth is **2369** and both columns still read 252 — so nothing about
+  // the columns says what happened and the panel simply scrolls sideways.
+  //
+  // A SWEEP SURVIVOR IS WHY THIS READS THE VALUE. The class census above only
+  // asks that a rule EXISTS, which `overflow-wrap: normal` satisfies — this
+  // repo's recorded "a CSS rule can be correct and still lose", where nothing
+  // read what it said. Derived over every `overflow-wrap` in the panel's own
+  // block rather than naming today's one selector, with a floor so the scan
+  // cannot go quiet.
+  const block = SHEET.slice(SHEET.indexOf(".st-seo-load "), SHEET.indexOf(".st-seo-opt.on "));
+  assert.ok(block.length > 500, "the SEO block moved — rescope this guard");
+  const wraps = [...block.matchAll(/overflow-wrap:\s*([a-z-]+)/g)].map((m) => m[1]);
+  assert.ok(wraps.length >= 1, "nothing in the panel lets a long unbroken word break any more");
+  for (const v of wraps) {
+    assert.equal(v, "anywhere", "a preview's text was told to wrap as `" + v + "`, which leaves the row laying out at the word's own width");
+  }
+  // And the rule really covers the two places a customer's own words land.
+  assert.match(block, /\.st-seo-g-d[^{]*\{[^}]*overflow-wrap|overflow-wrap[^;]*;[^}]*\}[\s\S]*?\.st-seo-g-d/,
+    "the Google snippet is no longer covered by the break rule");
 });

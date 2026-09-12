@@ -155,6 +155,62 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-12 — The SEO & social tab was a mockup. It's real now.
+
+You opened it and asked *"WHAT IS THIS"*, then *"BUT WHAT IT IS SUPPOSED TO
+BE"*, then *"YES BUILD IT"*. Here is what it was, and what it is.
+
+**It was lying, and that is worse than being empty.** Three boxes, all
+hardcoded, none of them reading your site:
+
+- The **title** was drawn as *"Hebden Bike Repair — built with Go Farther"*.
+  **No site has ever served that.** The real page says
+  `<title>Hebden Bike Repair</title>` and always has. We were showing customers
+  our own branding on their title where it does not exist — so the natural next
+  question is "how do I get that off", about something that was never there.
+- The **description** showed a line of grey instruction text — *"A short,
+  on-brand description of your site…"* — which reads as an empty field. Hebden
+  Bike Repair has had a real 150-character description the whole time.
+- The **social image** said *"1200 × 630"* over an empty dashed box with two
+  greyed buttons, *Upload · soon* and *Generate · soon*. That card is **made for
+  every site on every build** and has been for weeks, and you have been able to
+  swap it for your own photo since August.
+
+**Nothing new had to be built underneath.** All three values were already
+stored, already served, already changeable. The tab just was not asking.
+
+**What it shows now** (screenshot: `docs/edits/seo-tab.png`):
+
+- Your **title**, read off your site — and it is **read-only here, on purpose**.
+  That name is not just your `<title>`: the same word paints your site's header,
+  the picture that unfurls when someone pastes your link, and the little line
+  above it. A box here that changed only one of the four would leave Google
+  calling your business one thing while your own header called it another. Ask
+  in the chat to change your business's name and all four move together. The tab
+  says exactly that under the field.
+- Your **description**, editable, with a character count that goes bold when it
+  is a good length and amber when Google will cut it off. **Saving is instant
+  and free** — no rebuild, no credits, live on your site in seconds.
+- **Two previews**, which are the point of the tab: what a Google result looks
+  like, and what the card looks like when your link is pasted into WhatsApp or
+  Slack. Most people have never seen their own share card and do not know one
+  exists.
+- The **picture picker**, showing the card we made you and every photo you have
+  uploaded. It goes through the switch you already had, so nothing about how it
+  works changed — it is just visible now.
+
+**One thing deliberately left for later, and it is worth a word.** A *separate*
+SEO title — one that differs from your business's name on purpose, the way a shop
+called "Hebden Bike Repair" might want Google to show "Bike Repairs & Servicing,
+Hebden Bridge" — is a real feature and a good one. It needs the site to carry
+two names instead of one. Say the word and it is a small job; it is written down
+either way.
+
+**Not live yet.** It needs the next deploy, and that deploy rolls the build
+container, so the usual 15–20 minute wait applies before firing anything at it.
+
+---
+
 ## 2026-09-12 — The writing across the Hebden Bike Repair hero: fixed
 
 You sent the screenshot and said *"LOOK AT THIS AND TELL ME WHAT HAPPENED
