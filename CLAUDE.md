@@ -3885,6 +3885,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   fetched reached only step 20 (`site-runtime`, 47 passed) — and it is left
   unstamped rather than carried over from 1114, which is the rule this line's
   own history is about.
+  **RE-MEASURED ON RUN 1117 (2026-09-12 21:25→21:49Z, the photograph pipeline's
+  own tree, ALL TWENTY STEPS GREEN): `site-build.mjs` `382 passed, 0 failed` in
+  17m37s**, read out of the job's own log rather than carried over — so the
+  count and the colour agree on a tree that moved `worker.js` and two builder
+  modules. The other six: kit-typecheck 4, contrast-cases 16, theme-seam 11,
+  theme-render 29, site-routing 14, site-runtime 47, every one 0 failed. **The
+  count is unchanged from 1114 because this change adds no container case** —
+  its guards are unit-level, and what the harness proves here is that a site
+  still compiles, renders and serves with the image steps reading the parts.
   The unit suite is **6,100** (2026-09-12, 81.4 s local — the photograph
   pipeline reading the parts; **6,088** before it, plus `image-parts`' twelve;
   6,086 at stage 4 of the media deletion, plus two cases for the one tree and the

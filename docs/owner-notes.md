@@ -196,10 +196,16 @@ not ship it. It only *warns*; the swap is what stops a broken page, and the swap
 is fixed. Written down as open.
 
 **Proven:** the whole test suite green (6,100), and 18 deliberate breakages of
-the fix all caught by the new tests. **Not proven live yet** — and note that
-**this does not repair Hebden Bike Repair on its own.** That site is already
-published with the note baked into it; it needs one republish after this
-deploys. Free, and your call.
+the fix all caught by the new tests. **Merged and deployed the same night** —
+deploy 2103 green in 2m52s, the container rolled onto the new image at 21:33Z,
+so anything fired before ~21:50 would still have hit the old code. And the slow
+check that actually compiles and renders a real site through the container came
+back **all twenty steps green, 382 passed 0 failed** — read out of the run's own
+log rather than carried over from the last one.
+
+**Not proven live on a real build yet** — and note that **this does not repair
+Hebden Bike Repair on its own.** That site is already published with the note
+baked into it; it needs one republish. Free, and your call.
 
 **The cost of finding it:** the build that showed it, 30 credits (244 → 214).
 
