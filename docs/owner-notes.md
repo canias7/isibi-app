@@ -6697,5 +6697,14 @@ screen.
 Tests 6,143 green. Sweep 13 of 13, both controls survived — including a mutant
 that puts the original bug back, so the test really does catch it.
 
-**Not live yet** — the next deploy puts it on your screen, and the proof is one
-press: the preview should visibly reload.
+**It's live.** Deploy 2107 went green in 48 seconds and the `chat.js` your
+browser is served is byte-for-byte the file here. Nothing rolled, so no wait —
+reload the page and the button works.
+
+**The proof left is one press:** click it and the preview should visibly reload.
+
+One thing worth recording because I nearly mis-read my own check: grepping the
+live file for the old broken line found it — in **my own comment explaining the
+bug**. Read properly, with comments ignored, the broken line is gone and the fix
+is there. That is the second time tonight a check has been fooled by prose about
+the thing it was looking for.

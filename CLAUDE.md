@@ -2748,9 +2748,20 @@ case now, and it is safe on walls that already existed.
   by the observable mutant** (no default at all) rather than hunted.
   **Suite 6,143** (6,135 before; the eight new cases, less one retired when
   `preview-pages`' two source assertions became one driven pair).
-  **Not proven live** — the deploy is the precondition, and the proof is one
-  press: the preview visibly reloads. `public/` and `test/` only, so no image
-  input moves and the 15–20 minute hold does not apply.
+  **MERGED AND LIVE — deploy 2107, 2026-09-12 23:57:01→23:57:49Z, green in 48
+  seconds**, and the served `chat.js` hashes **byte-for-byte identical to the
+  source** (sha256 `7c0b9610da357913`) 52 seconds from push. The whole push
+  range moves no image input, so nothing rolled and the hold does not apply.
+  **AND THE LIVE CHECK HIT "PROSE CONTAINS THE THING IT FORBIDS" AGAIN — the
+  second time in one session, in a live check both times.** Grepping the served
+  file RAW for the dead gate `if (f && curHtml)` read **1**, which is my own
+  comment explaining the defect. Over comment-blanked served source, with the
+  landmark asserted to have survived the blanking: the gate is **0** in code,
+  `sitePreviewSrc` is **4** (one definition, three callers), the bump is **1**,
+  and the inline arithmetic is **1** — the helper's own body. **A live check
+  needs the same blanker the unit guards have had for months.**
+  **Not proven live: a press** — the proof is one click, the preview visibly
+  reloading.
 
 ---
 
