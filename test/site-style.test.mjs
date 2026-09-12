@@ -18,6 +18,10 @@ import { AXIS_DECLS, AXIS_RAMPS, authoredFieldHint } from "../builder/site-autho
 import * as T from "../builder/site-theme.mjs";
 import { ASKABLE as TOKEN_NAMES, saidFor as tokenSaid, valueHint } from "../builder/site-tokens.mjs";
 import { normalizeSeeds } from "../builder/site-seeds.mjs";
+// THE REAL TOOL, EVALUATED. The css field prints its token list from an
+// expression, so the only honest reader of it is the one the design step uses.
+import { readSchemaTool } from "./integration/schema-tool.mjs";
+const REAL_TOOL = (await readSchemaTool()).tool;
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
@@ -1601,12 +1605,35 @@ test("a prototype key is not an option on ANY of the five late tables", () => {
 // product; what has to be held is that nothing puts it back, because a removal
 // with nothing asserting it rots quietly while every other test stays green.
 //
-// AND THE DANGEROUS SHAPE IS SPECIFICALLY A PATH THAT DROPS `style`. The tool
+// AND THE DANGEROUS SHAPE IS SPECIFICALLY A PATH THAT DROPS THE LOOK. The tool
 // is one literal serving the build and the revise, so a branch that rebuilds
-// `input_schema` without the axes is a build whose model has no way to say what
-// the site looks like — and it publishes perfectly well, on the plain theme,
+// `input_schema` without it is a build whose model has no way to say what the
+// site looks like — and it publishes perfectly well, on the plain theme,
 // reported as a success. That is exactly what arm A measured.
-test("nothing can take the style axes out of the design tool", () => {
+//
+// ── WHAT THE LOOK FIELD IS TODAY, AND HOW THIS GUARD WENT BLIND ─────────────
+//
+// The 29 axes left `design_schema` on 2026-08-23 — the owner's "let it just be
+// css", recorded in worker.js's own import note where the twenty-one axis
+// helpers used to be imported. So the third assertion here, the one that proves
+// the other two are not vacuous, has been looking for a `style:` property the
+// design tool stopped having THREE WEEKS AGO. It passed anyway, and what it was
+// matching was `write_prompt`'s voice-tuning `style: { type: "number" … }` — a
+// 0-1 expressiveness dial on the MEDIA side's director, in a completely
+// different tool, which happened to be spelled the same way.
+//
+// Deleting the media side on 2026-09-12 is what made it fail. That is the
+// recorded "a negative assertion must prove its observer is alive" trap with
+// the observer alive off the wrong subject: the liveness clause was satisfied,
+// so nobody looked, and the two absence checks above it were unproven for the
+// whole of that time. A liveness anchor has to name the thing whose absence
+// would make the check meaningless — here that is the LOOK field the tool
+// really carries, `css`, and specifically that it still prints the custom
+// property names the kit paints from (`ASKABLE`, the one name that survived the
+// engine). A model told to write a stylesheet and not told which variables the
+// components read is the `publicView` failure, which is the same class of
+// nothing-shipped arm A measured.
+test("nothing can take the look out of the design tool", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   // Whole-line comments blanked first, length-preserving: this file explains
   // the removal in prose and prose about a field contains that field's name.
@@ -1620,9 +1647,47 @@ test("nothing can take the style axes out of the design tool", () => {
   // path may delete `style` out of the tool's properties.
   assert.ok(!/\{\s*style:\s*\w+\s*,\s*\.\.\./.test(bare),
     "something destructures `style` out of the design tool's properties — that is the arm under a new name");
-  // AND THE FIELD IS STILL THERE, or the two assertions above pass perfectly
-  // against a tool that has no `style` property at all. An absence check has to
-  // prove its subject is alive first.
-  assert.ok(/style:\s*\{/.test(bare) || /style:\s*STYLE/.test(bare),
-    "the design tool no longer offers a `style` field at all — the axes are unreachable");
+  // AND THE LOOK FIELD IS STILL THERE, or the two assertions above pass
+  // perfectly against a tool with no way to describe a look at all. An absence
+  // check has to prove its subject is alive first — and it has to prove it on
+  // the RIGHT subject, which is what went wrong here for three weeks (see the
+  // comment above this test).
+  //
+  // Bounded to `design_schema`, so a `css:` anywhere else in a 24,000-line file
+  // — a lane's tool, a note, a container payload — cannot stand in for it. That
+  // is the whole lesson of the `style` match it replaces.
+  const at = bare.indexOf('name: "design_schema"');
+  assert.ok(at > 0, "design_schema is gone from worker.js");
+  const end = bare.indexOf('tool_choice: { type: "tool", name: "design_schema" }', at);
+  assert.ok(end > at, "the design tool's own tool_choice is gone — this window reads nothing");
+  const toolSrc = bare.slice(at, end);
+  assert.match(toolSrc, /css:\s*\{/,
+    "the design tool no longer offers a `css` field — the model has no way to say what the site looks like");
+  // …and it still TELLS the model which custom properties the kit paints from.
+  // `site-tokens.mjs`'s `ASKABLE` is printed into that field's description as
+  // `--background, --foreground, …` and is the one name that survived the axes;
+  // without it the field is a capability conditioned on a fact nobody was
+  // given, which publishes a plain-theme site and reports success.
+  //
+  // TOKEN_NAMES, NOT THIS FILE'S `ASKABLE`, and the two are easy to confuse:
+  // `site-style.mjs` exports `ASKABLE` as the 29 AXIS names (corner, scale,
+  // tracking) and `site-tokens.mjs` exports `ASKABLE` as the 24 CUSTOM PROPERTY
+  // names (background, primary, muted). The axes are the ones that left the
+  // tool; the properties are the ones in it. The first draft of this check
+  // asked for `--corner` — the guard being right about the wrong list, a
+  // smaller version of the mix-up it was written to fix.
+  //
+  // AND IT IS DRIVEN, NOT READ, because the list is COMPUTED: the description
+  // carries `SITE_TOKEN_NAMES.map((t) => "--" + t).join(", ")`, so a source
+  // read finds only the five names the prose spells out (`--background`,
+  // `--foreground`, `--radius`, `--font-sans`, `--font-heading`) and would pass
+  // over an import rebound to an empty array. The second draft of this check
+  // asked the source for `--card` and failed for exactly that reason.
+  // `readSchemaTool` evaluates the tool the way the wire sees it.
+  assert.ok(TOKEN_NAMES.length >= 5, `TOKEN_NAMES is ${TOKEN_NAMES.length} long — this check is reading nothing`);
+  const desc = REAL_TOOL.input_schema.properties.css.description;
+  for (const token of TOKEN_NAMES) {
+    assert.ok(desc.includes("--" + token),
+      `the css field no longer names --${token}, so the model is not told which variables the components read`);
+  }
 });

@@ -83,11 +83,17 @@ first deletion, not assumed.
 **Four stages, each its own commit with the suite green before the next**:
 1. the game builder — self-contained, and it proves the method;
 2. video/image/audio generation, the model/pricing/duration tables, the composer;
-3. the surround — the SERVER half of what stage 2b's UI removal orphaned:
+3. the surround (DONE) — the SERVER half of what stage 2b's UI removal orphaned:
    `/api/gallery`, `/api/save`, `/api/import/fetch`, `/api/direct`, `/api/m/`,
-   `/api/cancel`, `/api/refund`, `gen_charges`, `/api/storage`, the media token,
-   `/api/media/unlist`, the Media Agent (`/api/agent`), `/api/social/*`, the
-   avatar routes, the universal-memory routes;
+   `/api/cancel`, `/api/refund`, `/api/storage`, the media token,
+   `/api/media/unlist`, the Media Agent (`/api/agent` and its CRON half),
+   `/api/social/*`, `/api/video/poll`. **`gen_charges` was on this list and
+   stayed**: it is a Postgres table with a live RPC over it (`refund_charge`),
+   which is credit machinery the owner said to leave alone, and its ROWS are the
+   data step's. **The avatar and universal-memory routes were not on the router
+   to delete** — the survey found no such paths; the avatar was a view (stage
+   2b) and the memory was read inside the generation block (stage 2a);
+
 4. the sweep — dead CSS, tests, workflows, secrets, docs, the landing's copy.
 **The customers' stored media is a SEPARATE step, after the code is merged and
 proven**, with one more explicit confirm: it is the only part that cannot be
@@ -305,6 +311,196 @@ two test-side mutants that DID die, whose weakening broke other assertions in
 the same file. **Suite 6,078** (6,072 at stage 1; the four new cases in
 `media-deleted` plus the driven fallback case, less the cases the deletion
 retired).
+
+### Stage 3: the surround leaves the Worker (done, 2026-09-12)
+
+**2,781 lines out of `worker.js` (27,300 → 24,519)** in twelve bands, every one
+of them cut with its first surviving line asserted before and after. **25
+routes**: `/api/storage`, `/api/gallery`, `/api/media/unlist`, the twelve
+`/api/social/*`, `/api/agent` (the Media Agent's brain), `/api/direct` (the
+director), `/api/cancel`, `/api/refund`, `/api/import/fetch`, `/api/save`,
+`/api/media-token`, `/api/m/*` and `/api/video/poll`. `api-auth`'s own census
+reads **30 routes** where it read 53 before the cut and 61 before the game.
+
+**THE METHOD WAS THE OPPOSITE OF STAGE 2b's, AND IT HAD TO BE.** There the
+question was which of 855 browser names the builder still reaches; here the
+regions sit INSIDE `handleRequest`, a 19,000-line function, so "what do these
+lines reference" answers nearly the whole file. `doom.mjs` took a LEAST FIXED
+POINT ON LIVE instead: a declaration is live if anything outside the cut lines
+references it from a live position — module top level, `export default`, or a
+declaration already known live — iterated to a fixed point, which is what
+follows a chain (a route calls a helper that calls three more) without the
+wiring table flooding the answer.
+
+**AND IT WAS RUN TWICE, WITH NO CUT RANGES AND WITH THEM, because the two
+answers mean different things.** With none: **17 declarations were ALREADY dead
+before any of this started** (`runSiteAI` and its two helpers, `anthropicMessages`,
+`resolveRaw`, `siteExec`, `tableDef`, `loadEditableFiles`, `runContainerJob`, the
+four `_hmac` helpers, `_notifsReady`, `_authExtrasDone`, and `SiteBuildContainer`,
+which is a FALSE POSITIVE — `wrangler.jsonc` references it and a JS-only walk
+cannot see that). With them: **57 more**, and **3 that stages 1–2 orphaned**
+(`writeGameDistToR2`, `briefErr`, `scrubProvider`). Only the 57 + 3 are this
+stage's; the 17 are named and left, because a deletion that also tidies
+unrelated dead code cannot say which of its own lines did what.
+
+- **`scrubProvider` WAS RE-POINTED, NOT DELETED, and that is the one judgement
+  call here.** The standing owner rule is *the user must NEVER see "fal"*, and
+  the scrubber guarded the DIRECTOR's brief errors — the half that is going.
+  What STAYS is the one fal call the owner asked for by name: `genSitePhoto`
+  throws `"photo " + status + " " + d.detail`, `detail` written by fal, and
+  `makeSitePhoto` puts that message on the wire as `images.error`. Nothing was
+  leaking — `imageNote` is the one composer of the customer's sentence and reads
+  `error` only as a DISCRIMINATOR between four identical-looking placeholder
+  outcomes — but the wall was pointed at the path that left and not at the one
+  that stayed, and "not currently rendered" is a property of a renderer somebody
+  will change. It wraps that message now, at the one place the provider's words
+  enter our own data. The LOG keeps them: it is ours to read, and a scrubbed log
+  makes a provider outage harder to diagnose for nothing.
+
+- **FOUR PROVIDER ORIGINS AND A WHOLE CSP DIRECTIVE WENT WITH IT.** `fal.media`
+  and `*.fal.media` (the generator's temporary render links, loaded straight
+  into a browser), `*.ytimg.com`, `*.cdninstagram.com` and `*.fbcdn.net` (the
+  Media Agent's thumbnails), off `img-src` and `connect-src` — and **`media-src`
+  in its entirety**, which existed so the composer could play a generated clip.
+  **DROPPED RATHER THAN NARROWED, which is the tighter answer**: with no
+  directive `default-src 'self'` governs, so a `<video>` nobody has written yet
+  is refused a remote source by default instead of inheriting a permission
+  somebody has to remember to remove. **The builder's fal call is unaffected and
+  this is why it can be**: `genSitePhoto` runs SERVER-side and downloads the
+  bytes into R2, so a photograph reaches a page as `/u/<slug>/<hash>.jpg` on the
+  site's own origin. The media side was the half that put a provider URL in
+  front of a browser; the builder never has. **The remaining set is checked
+  against `public/` rather than asserted**: every non-`self` host in the policy
+  must be named by something the app serves.
+
+- **THE MEDIA AGENT'S CRON HALF WAS THE PIECE THE FIRST SURVEY MISSED, AND IT IS
+  WHY THE SWEEP MATTERS.** `composioExecute` had **27 references outside the
+  delete regions**, which read as a live consumer sharing the helper — and the
+  answer was that all 27 were in the auto-reply engine (`runAutoReply`,
+  `runAutoReplyDm`, `runAutoReplyComment`, `autoreplyDraft`/`Handled`/`Mark`/
+  `WithinDays`, `AUTOREPLY_ALLOW`, `sbSvcHeaders`), which is rooted from
+  `scheduled()` rather than from a route and so was outside every region. It is
+  media-side whole (Instagram DM and comment auto-reply), and it went.
+
+**AND DELETING IT SHIPPED A DEFECT THAT ONLY A DRIVEN TEST COULD SEE.**
+`ctx.waitUntil(runAutoReply(env));` stayed in the cron handler with the engine
+gone. `node --input-type=module --check` passes on a free name; every
+source-reading guard found its landmarks; **a cron handler throws into nothing**,
+so every `waitUntil` below it — the sites' scheduled jobs, the nightly backups,
+the Neon teardown queue, the domain watch, the webhook queue, the rebuild queue,
+the lost-edit sweep, the job-litter sweep — would have stopped running on every
+two-minute tick, silently, with no customer-facing request failing. It was caught
+by `test/rebuild-job.test.mjs`, **the only guard anywhere that DRIVES
+`scheduled()`**, which is luck rather than coverage.
+
+**SO THE FREE-IDENTIFIER WALKER NOW READS `worker.js` TOO** — the sixth instance
+of that trap and the first in the Worker. `test/free-identifiers.test.mjs`
+gained two changes and two cases: imports are SKIPPED in the walk (worker.js is a
+module, and an aliased import reads its ORIGINAL name as free — measured at 17
+findings, every one that shape), a class field's NAME is not a reference
+(`SiteBuildContainer`'s two fields were the false alarm that found it), and the
+scope is seeded with the 571 imported bindings because `hoist` knows about
+function, class and variable statements and not about imports.
+**ZERO FALSE ALARMS AND ONE REAL FINDING, on code nobody had touched:
+`editAnswer`, called twice in the edit route's removal branches and defined only
+in `public/chat.js`, with a different signature `(httpOk, e, o)` and no return
+value.** Both would have thrown. `eAnswer` is the fix — one shape for an answer
+the route decides itself, `status` taken OFF the body so the JSON cannot carry a
+second copy of the HTTP one — and `test/site-delete.test.mjs` drives it (422 for
+a refusal, 200 for nothing-to-do, the default, both call sites counted). The
+removal verb has not run live, which is the only reason no customer met it.
+
+**Guards, and three older ones re-anchored on the property:**
+- `test/media-deleted.test.mjs` (4 → 5): the CSP host census above, DERIVED from
+  what `public/` names, and the fal scrubber DRIVEN — four real failure
+  sentences scrubbed, three innocent ones unharmed (`"false positive"`,
+  `"falcon perch"`), and a provider URL required to go WHOLE rather than word by
+  word.
+- `test/safe-fetch-redirects.test.mjs` — **its subject moved rather than its
+  property.** Nine cases drove the SSRF loop through `POST /api/import/fetch`,
+  and there is no longer ANY route whose body is a URL we fetch. `safeFetch`
+  still has two callers that take a customer's URL (`siteReadUrl`, the brief's
+  "read this page" link, and the outbound webhook), so the reader is EVALUATED
+  out of worker.js with the REAL `hostIsBlocked` handed in, plus a self-test
+  that the lift reached the real chain and the guard really blocks. **Its own
+  lift trap fired on the first run**: `export default` was missing from the
+  boundary list, worker.js declares its handler object near the top of the file,
+  and the window swallowed it — "Unexpected token 'export'". The identical
+  reader in `api-auth.test.mjs` had the same latent hole and now names it too.
+- `test/rebuild-job.test.mjs` — its window closed on `"\n// ── Free-tier media
+  proxy"`, a NEIGHBOUR's heading that this cut deleted, so `indexOf` answered -1
+  and `slice(from, -1)` handed back the rest of the file: "runSiteRebuild moved"
+  about a function nothing had touched. Bounded by the next top-level
+  declaration, derived.
+- `test/site-style.test.mjs` — **"nothing can take the style axes out of the
+  design tool" had been proving its own liveness off the MEDIA side for three
+  weeks.** The 29 axes left `design_schema` on 2026-08-23 (the owner's "let it
+  just be css"), and the clause that keeps the two absence checks above it
+  honest looked for a `style:` property — matching `write_prompt`'s voice-tuning
+  `style: { type: "number" }`, a 0-1 expressiveness dial in the director's tool.
+  Deleting the media side is what made it fail. Re-anchored on the LOOK field
+  the tool really carries, and DRIVEN through `readSchemaTool` because the token
+  list is an expression (`SITE_TOKEN_NAMES.map(...)`), so a source read finds
+  only the five names the prose spells out. **The recorded "a negative assertion
+  must prove its observer is alive" trap with the observer alive off the wrong
+  subject** — the liveness clause passed, so nobody looked.
+- `test/api-auth.test.mjs`: `/api/m/*` off `PUBLIC` (six unauthenticated routes
+  now, not seven — and the count goes DOWN as happily as up), the route floor
+  35 → 25, the tool set asserted EXACTLY (`design_schema` alone; `write_prompt`
+  and `respond` were the director's), and the shared window reader given
+  `export default` as a boundary.
+- `test/wiring.test.mjs`: the literal-route floor 30 → 20 against a measured 26,
+  and `/api/m/` off `answered()` — **a hole rather than dead weight**, since that
+  function decides whether a CLIENT call is answered and a stale prefix says yes
+  about a route that is gone.
+
+**Sweep: 27 mutants, 27 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived — THREE SURVIVED THE FIRST PASS AND ONE NEVER APPLIED, and
+every one of the four was a missing assertion, an inert fixture or an ambiguous
+anchor**, all three of which this repository already has names for:
+- the scrubber's whole-URL rule (the two narrower rules remove every `fal`
+  either way, so "no provider survives" passed over
+  `https://the render service/the render service/nano-banana-pro` — the
+  assertion was the property, not the wall);
+- the worker walk's seed widened with `runAutoReply` and `editAnswer` (inert
+  against today's source, because neither name is in the file — load-bearing the
+  day one comes back, and the case now drives the real seed against the real
+  source with the call appended);
+- the CSP host census reading the raw source WITH its comments (inert, because
+  the prose above the directives named the four deleted origins WITHOUT their
+  `https://`). Fixed in the SOURCE rather than the test: the comment spells them
+  out in full now, deliberately, which is what makes the blanking load-bearing —
+  "prose contains the thing it forbids", pointed at a census.
+The one never applied was the img-src mutant: that directive line is
+BYTE-IDENTICAL in the app CSP and the website CSP, so the anchor was ambiguous
+(the recorded trap), and it is anchored with its neighbour and the array's close.
+
+**A FOURTH SURVIVED THE SECOND PASS AND WAS PROVEN INERT BY MEASUREMENT RATHER
+THAN HUNTED.** Widening the CLEAN worker walk's seed with `runAutoReply` and
+`editAnswer` changes no answer — both runs return `[]`, measured side by side —
+because after the deletion neither name survives in `worker.js` outside a
+COMMENT, and the walker reads identifiers, not comments. So no mutant of that
+line can die, and the property has exactly one observable half: the PLANTED
+call, which appends the defect to the real source and requires it found. That is
+the half the spec mutates now, and it dies. **Suite 6,082** (6,078 at stage 2b:
+one case retired with `/api/m/*`, and five added — the SSRF driver's self-test,
+the two worker free-identifier cases, the fal scrubber, and `eAnswer`'s driven
+status).
+
+**WHAT STAYS, AND WHY, all checked rather than assumed**: `gen_charges` and
+`refund_charge` (a Postgres table with a live RPC over it — the credit machinery
+the owner said to leave alone, and the rows are the data step's, not the code's),
+the whole credit ledger, the memberships, Stripe, `safeFetch` and `hostIsBlocked`
+(the outbound webhook is the caller that matters — a webhook URL is typed by a
+customer and pointed wherever they like), `CHROME_UA`, `readCapped`,
+`tooLargeBody`, and the builder's photo path whole.
+**Stage 4 is the sweep**: the dead CSS (`styles.css` is 478 KB), the landing's
+own copy (the CRT channel selector, the model pipeline, the "generate or build"
+prompt line — deliberately left working, with `providerOf` and the model tables
+kept for it), `docs/media-agent.md`, `fal-wm-test.yml`, and
+`COMPOSIO_API_KEY`, which deploy.yml still uploads and nothing now reads.
+**The customers' stored media is still a separate step, after the code is merged
+and proven, with one more explicit confirm.**
 
 ## Working rules
 
@@ -3250,8 +3446,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   neither is local. Before that, CI had read `373 passed, 0 failed` on runs 1065
   and 1066 once the cap moved to 35 minutes. The other nine integration steps on
   the same run: 4 / 16 / 11 / 29 / 14 / 47, all 0 failed.
-  The unit suite is **6,072** (2026-09-12, 87.4 s local; CI run 2473 green in
-  2m26s) — **DOWN from 6,078, and the subtraction is the point**: the game
+  The unit suite is **6,082** (2026-09-12, 82.4 s local — stage 3 of the media
+  deletion; CI has NOT read this number yet, and the last one it did read was
+  6,072 on run 2473). The arithmetic across the deletion, because a falling
+  count is the ordinary shape of one and is only honest written down:
+  **6,078 → 6,072** at stage 1 (the game builder retired ten cases when
+  `dockerfile`'s `SERVICES` lost its second entry, plus four elsewhere, against
+  eight added), **6,072 → 6,078** at stage 2 (the four `media-deleted` cases and
+  the driven view fallback, less what the UI removal retired), and
+  **6,078 → 6,082** at stage 3 (one retired with `/api/m/*`; five added — the
+  SSRF driver's self-test, two worker free-identifier cases, the fal scrubber
+  and `eAnswer`'s driven status) — **DOWN from 6,078, and the subtraction is the point**: the game
   deletion retired its cases (ten at once when `test/dockerfile.test.mjs`'s
   `SERVICES` lost its second entry, plus four in `api-auth`, `build-lane` and
   `client-routes`) and added eight (the DO-migration census and the

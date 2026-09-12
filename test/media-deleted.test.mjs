@@ -150,6 +150,56 @@ test("DRIVEN: the CSP grants no wasm permission, and the demo frame's relaxation
     "the CSP still grants 'wasm-unsafe-eval', and nothing in the app compiles WebAssembly any more");
   assert.ok(!/[^-]unsafe-eval'/.test(csp), "the CSP grants JS eval()");
 
+  // NO REMOTE ORIGIN THE APP DOES NOT TALK TO (2026-09-12, stage 3). The policy
+  // carried `fal.media`/`*.fal.media` (the generator's own render links),
+  // `*.ytimg.com` and `*.cdninstagram.com`/`*.fbcdn.net` (the Media Agent's
+  // thumbnails) on img-src, media-src and connect-src — and a whole `media-src`
+  // directive, which existed so the composer could play a generated clip.
+  //
+  // DERIVED FROM WHAT `public/` ACTUALLY NAMES, never from a list of hosts to
+  // forbid: every non-Supabase, non-`self` host in the policy has to appear in a
+  // served script or page, or it is a standing permission with no claimant.
+  // `demo-hero-2/` is excluded deliberately — it is a FROZEN copy of the old
+  // client kept for the landing's demo and served under its own path, so the
+  // hosts it names are the media side's and would re-admit every one of them.
+  const served = ["public/index.html", "public/chat.js", "public/auth.js", "public/confirm.js", "public/site-list.js"]
+    .filter((p) => fs.existsSync(ROOT + p)).map((p) => read(p)).join("\n");
+  assert.ok(served.length > 100000, `the served client read as ${served.length} characters — this scan is reading nothing`);
+  // READ OFF THE RAW SOURCE WITH WHOLE-LINE COMMENTS BLANKED, not off
+  // `WORKER_CODE`. `https://` CONTAINS `//`, so the file-wide blanker — which
+  // strips from any `//` to end of line, and has to, because chat.js carries
+  // `// Every /api/* call …` — turns every origin in this policy into
+  // `https:` and this scan found zero hosts. The recorded "a blanker erases the
+  // landmark the guard needs" trap; `site-style.test.mjs` lives under the same
+  // rule and says so. Whole-line comments are still removed, because the prose
+  // right above these directives NAMES the four origins that just left.
+  const cspRaw = /const CSP = \[([\s\S]*?)\n\]\.join\("; "\);/.exec(WORKER)[1]
+    .replace(/^[ \t]*\/\/[^\n]*$/gm, "");
+  const hosts = [...new Set([...cspRaw.matchAll(/https:\/\/([A-Za-z0-9*.-]+)/g)].map((m) => m[1]))];
+  assert.ok(hosts.length >= 2, `only ${hosts.length} remote hosts in the CSP — this scan is reading nothing`);
+  for (const h of hosts) {
+    // `fonts.googleapis.com` / `fonts.gstatic.com` are named by a generated
+    // SITE's stylesheet rather than by ours.
+    if (/^fonts\./.test(h)) continue;
+    const bare = h.replace(/^\*\./, "");
+    // `https://*." + SITE_ZONE` is INTERPOLATED, so the match ends at the quote
+    // and `bare` comes out empty — and `served.includes("")` is true, which is a
+    // silent pass rather than a skip. Named, because a host this scan cannot
+    // read is a host it is not checking and that has to be visible.
+    if (!bare.includes(".")) {
+      assert.match(h, /^\*\.$/, `the CSP names https://${h}, which this scan cannot resolve to a host`);
+      continue;
+    }
+    assert.ok(served.includes(bare),
+      `the CSP admits https://${h} and nothing the app serves names it — a standing permission with no claimant`);
+  }
+  // AND `media-src` IS GONE RATHER THAN NARROWED, which is the tighter answer:
+  // with no directive `default-src 'self'` governs, so a `<video>` nobody has
+  // written yet is refused a remote source by default instead of inheriting a
+  // permission somebody has to remember to remove.
+  assert.ok(!/media-src/.test(csp),
+    "media-src is back; nothing in the workspace plays audio or video, and default-src 'self' is the tighter answer");
+
   // The two relaxations, applied the way the Worker applies them, against the
   // CSP the Worker really builds.
   const rel = /const demoCSP = CSP\n((?:\s+\.replace\([^\n]*\n)+)/.exec(WORKER_CODE);
@@ -195,4 +245,70 @@ test("the deleted editor's files are gone from the tree, and nothing asks for th
   }
   assert.ok(!HTML.includes("ffmpeg"), "index.html still asks for the deleted video editor");
   assert.ok(!CHAT_CODE.includes("sbFF"), "chat.js still calls into the deleted video editor");
+});
+
+test("the one fal path the builder keeps does not put the provider's name on the wire", () => {
+  // A STANDING OWNER RULE THAT OUTLIVED ITS WALL (2026-08-28: the user must
+  // NEVER see "fal"). `scrubProvider` guarded the DIRECTOR's brief errors, and
+  // the director left on 2026-09-12; what stayed is `genSitePhoto`, which is the
+  // only fal call left in the tree and the one the owner asked for by name
+  // ("leave fal for the banano pro images for the site builder").
+  //
+  // It throws `"photo " + status + " " + d.detail` — `detail` written by fal —
+  // and `makeSitePhoto` puts that message on the wire as `images.error`. So the
+  // wall was pointed at the path that is going and not at the one that stays.
+  //
+  // TWO HALVES, and the second is what makes the first honest: the scrubber has
+  // to be there, and it has to be DRIVEN, because a regex nobody runs is a
+  // claim. Driven against the sentence the throw really builds, not a made-up
+  // one — derived from `genSitePhoto`'s own throw.
+  const throwLine = /throw new Error\("photo " \+ r\.status \+ " " \+ String\(\(d && d\.detail\) \|\| ""\)/;
+  assert.match(WORKER_CODE, throwLine,
+    "genSitePhoto no longer throws the provider's own `detail` — if that changed, re-derive the sentence below");
+  const at = WORKER_CODE.indexOf("async function makeSitePhoto(");
+  assert.ok(at > 0, "makeSitePhoto is gone");
+  const next = WORKER_CODE.slice(at + 1).match(/\n(?:\/\*\*|export default|(?:export )?(?:async )?(?:function|class|const|let) )/);
+  const body = WORKER_CODE.slice(at, next ? at + 1 + next.index : WORKER_CODE.length);
+  assert.ok(body.length > 400 && body.length < 4000, `makeSitePhoto's body read as ${body.length} characters`);
+  assert.match(body, /error: scrubProvider\(/,
+    "makeSitePhoto puts the provider's own error message on the wire unscrubbed");
+
+  // DRIVEN. `scrubProvider` is evaluated out of worker.js — it takes a string
+  // and returns one, so there is nothing to stub — and asked about the exact
+  // shapes a fal failure produces, plus the two that must survive: this repo
+  // shipped a scrubber that turned "false" into "the render service" once, and
+  // the word-boundary rule is the whole reason this one is safe.
+  const src = WORKER_CODE.slice(WORKER_CODE.indexOf("function scrubProvider(s) {"));
+  const end = src.indexOf("\n}\n");
+  assert.ok(end > 0, "scrubProvider's body is gone");
+  const scrub = new Function(src.slice(0, end + 2) + "\nreturn scrubProvider;")();
+  for (const bad of [
+    "photo 402 Insufficient balance on fal.ai",
+    "photo 422 https://fal.run/fal-ai/nano-banana-pro rejected the prompt",
+    "photo 500 fal-ai upstream error",
+    "photo 429 rate limited by fal",
+  ]) {
+    assert.ok(!/\bfal\b|fal\.(ai|run|media)|fal-ai/i.test(scrub(bad)), `the provider survives scrubbing: ${scrub(bad)}`);
+  }
+  // A URL GOES WHOLE, NOT WORD BY WORD — the property the first rule buys, and
+  // the reason it is not redundant with the two narrower ones. Without it the
+  // narrow rules still remove every `fal`, so nothing above fails; what comes
+  // out is `https://the render service/the render service/nano-banana-pro`,
+  // which still says we call an outside render service at a path shaped like a
+  // model id. The sweep found this as a survivor and it was a missing
+  // assertion, not a redundant wall.
+  assert.equal(scrub("photo 422 https://fal.run/fal-ai/nano-banana-pro rejected the prompt"),
+    "photo 422 the render service rejected the prompt",
+    "a provider URL is scrubbed in pieces instead of replaced whole");
+  for (const fine of ["photo 400 false positive", "the falcon perch photograph", "photo 404 not found"]) {
+    assert.equal(scrub(fine), fine, `scrubbing damaged an innocent sentence: ${scrub(fine)}`);
+  }
+
+  // AND THE SENTENCE THE CUSTOMER READS NEVER QUOTES IT ANYWAY, which is the
+  // belt: `imageNote` is the one composer of that sentence and uses `error`
+  // only as a DISCRIMINATOR between four identical-looking placeholder
+  // outcomes. Asked of the real module, so a future edit that starts quoting
+  // the error fails here.
+  assert.ok(!/\$\{[^}]*\berror\b[^}]*\}|\+\s*i\.error|\+\s*images\.error/.test(read("builder/site-images.mjs")),
+    "imageNote has started putting the raw image error into the customer's sentence");
 });

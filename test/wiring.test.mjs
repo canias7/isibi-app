@@ -845,7 +845,12 @@ test("every /api path the client calls is answered by a route in worker.js", () 
   for (const m of worker.matchAll(/(\/(?:\\.|\[[^\]]*\]|[^/\n])+\/[a-z]*)\.test\(url\.pathname\)/g)) {
     try { regexes.push(new RegExp(m[1].replace(/^\//, "").replace(/\/[a-z]*$/, ""))); } catch { /* not a pathname regex */ }
   }
-  assert.ok(literals.size > 30, `only ${literals.size} literal routes found — the scan broke`);
+  // THE FLOOR CAME DOWN 30 → 20 WITH THE MEDIA SIDE (2026-09-12): 26 literal
+  // routes now, against 51 before the deletion. It is an observer-alive check,
+  // not a count — below it, `answered()` would be answering off an empty set
+  // and every client call would read as dead — so it sits under the measured
+  // number rather than on it.
+  assert.ok(literals.size > 20, `only ${literals.size} literal routes found — the scan broke`);
   assert.ok(literals.has("/api/credits"), "a known route is not being seen");
   assert.ok(regexes.length >= 1, "the pathname regexes are not being read");
 
@@ -858,7 +863,13 @@ test("every /api path the client calls is answered by a route in worker.js", () 
       const tail = "/" + seg.slice(2).join("/");
       if (worker.includes('"' + tail + '"') || worker.includes('endsWith("' + tail)) return true;
     }
-    return p.startsWith("/api/db/") || p.startsWith("/api/m/");
+    // `/api/db/<slug>/…` is the last sub-router this needs to know about.
+    // `/api/m/` was the second and came off on 2026-09-12 with the media proxy
+    // — and leaving it would have been a hole rather than dead weight: this
+    // function decides whether a CLIENT call is answered, so a stale prefix
+    // here says yes about a route that is gone, which is precisely the "three
+    // separate live bugs" shape at the top of this test.
+    return p.startsWith("/api/db/");
   };
 
   const dead = [];

@@ -294,8 +294,21 @@ test("the rebuild route exists, is gated, and is INTERNAL — a replay is the on
 });
 
 test("the drain hands the site to a job and never compiles inside the cron", () => {
-  const body = WORKER.slice(WORKER.indexOf("async function runSiteRebuild(env) {"), WORKER.indexOf("\n// ── Free-tier media proxy"));
-  assert.ok(body.length > 500 && body.length < 20000, "runSiteRebuild moved");
+  // BOUNDED BY THE NEXT TOP-LEVEL DECLARATION, DERIVED, not by a named
+  // neighbour. It closed on `"\n// ── Free-tier media proxy"` — the media
+  // proxy's own heading, which happened to sit under this function — and that
+  // heading left with the media side on 2026-09-12, so `indexOf` answered -1,
+  // `slice(from, -1)` handed back everything up to the last character of the
+  // file, and the length bound reported "runSiteRebuild moved" about a function
+  // nothing had touched. The recorded overlapping-window trap: where a function
+  // ENDS is a fact about that function, and a neighbour's comment is not.
+  const from = WORKER.indexOf("async function runSiteRebuild(env) {");
+  assert.ok(from > 0, "runSiteRebuild is gone from worker.js");
+  const after = WORKER.slice(from + 1);
+  const next = after.match(/\n(?:\/\*\*|(?:export )?(?:async )?(?:function|class|const|let) )/);
+  assert.ok(next, "nothing follows runSiteRebuild — this window is reading the rest of the file");
+  const body = after.slice(0, next.index);
+  assert.ok(body.length > 500 && body.length < 20000, `runSiteRebuild's body read as ${body.length} characters`);
   assert.match(body, /rebuild: async \(slug, row\) => \{/, "the dep cannot name its job without the row");
   assert.match(body, /op: REBUILD_OP/);
   assert.match(body, /delayS: REBUILD_START_DELAY_S/);

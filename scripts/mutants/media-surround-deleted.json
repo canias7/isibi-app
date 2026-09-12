@@ -1,0 +1,236 @@
+[
+  {
+    "label": "the Media Agent's auto-reply engine is called from the cron handler again, with the engine gone — a cron handler throws into nothing, so every housekeeping task below it stops on every tick",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  async scheduled(event, env, ctx) {\n    ctx.waitUntil(runScheduledSiteJobs(env, ctx));",
+    "to": "  async scheduled(event, env, ctx) {\n    ctx.waitUntil(runAutoReply(env));\n    ctx.waitUntil(runScheduledSiteJobs(env, ctx));"
+  },
+  {
+    "label": "the edit route's removal branches reach for the browser's editAnswer again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                return eAnswer({\n                  ok: false,\n                  status: 422,",
+    "to": "                return editAnswer({\n                  ok: false,\n                  status: 422,"
+  },
+  {
+    "label": "eAnswer leaves the status in the body, so a refused removal answers 200 with a 422 nobody reads",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const eAnswer = ({ status = 200, ...body }) => Response.json(body, { status });",
+    "to": "            const eAnswer = (body) => Response.json(body);"
+  },
+  {
+    "label": "eAnswer defaults to 500 rather than 200, so \"nothing to take off\" reads as a failure",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const eAnswer = ({ status = 200, ...body }) => Response.json(body, { status });",
+    "to": "            const eAnswer = ({ status = 500, ...body }) => Response.json(body, { status });"
+  },
+  {
+    "label": "only ONE removal branch answers through eAnswer; the other keeps the name that does not exist",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                        return eAnswer({\n                          ok: true, status: 200, moved: [], cost: 0,",
+    "to": "                        return editAnswer({\n                          ok: true, status: 200, moved: [], cost: 0,"
+  },
+  {
+    "label": "the CSP gets its wasm permission back, with nothing left that compiles WebAssembly",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  \"script-src 'self'\",",
+    "to": "  \"script-src 'self' 'wasm-unsafe-eval'\","
+  },
+  {
+    "label": "the image provider's origins come back onto img-src, with nothing the app serves naming them (anchored with its neighbour AND the array's close: the identical line is in the website CSP too)",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  \"img-src 'self' data: blob: https://*.supabase.co\",\n  \"connect-src 'self' data: blob: https://*.supabase.co\",\n].join(\"; \");",
+    "to": "  \"img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media\",\n  \"connect-src 'self' data: blob: https://*.supabase.co\",\n].join(\"; \");"
+  },
+  {
+    "label": "the Media Agent's thumbnail hosts come back onto connect-src",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  \"connect-src 'self' data: blob: https://*.supabase.co\",",
+    "to": "  \"connect-src 'self' data: blob: https://*.supabase.co https://*.cdninstagram.com https://*.fbcdn.net\","
+  },
+  {
+    "label": "media-src comes back as a directive, so a <video> nobody has written yet inherits a remote permission",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  \"img-src 'self' data: blob: https://*.supabase.co\",\n  \"connect-src 'self' data: blob: https://*.supabase.co\",",
+    "to": "  \"img-src 'self' data: blob: https://*.supabase.co\",\n  \"media-src 'self' data: blob: https://fal.media\",\n  \"connect-src 'self' data: blob: https://*.supabase.co\","
+  },
+  {
+    "label": "the demo frame's CSP relaxation silently stops matching",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      .replace(\"script-src 'self'\", \"script-src 'self' 'unsafe-inline'\");\n    if (demoCSP === CSP) console.error",
+    "to": "      .replace(\"script-src 'self' 'wasm-unsafe-eval'\", \"script-src 'self' 'unsafe-inline'\");\n    if (false) console.error"
+  },
+  {
+    "label": "the one fal path left puts the provider's own error message on the wire unscrubbed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    return { url: null, error: scrubProvider(String((e && e.message) || e)).slice(0, 120) };",
+    "to": "    return { url: null, error: String((e && e.message) || e).slice(0, 120) };"
+  },
+  {
+    "label": "the scrubber loses its word boundary, so \"false\" and \"falcon\" become \"the render service\"",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    .replace(/\\bfal\\b/gi, \"the render service\");",
+    "to": "    .replace(/fal/gi, \"the render service\");"
+  },
+  {
+    "label": "the scrubber stops seeing a provider URL, so a whole fal.run address rides out",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    .replace(/https?:\\/\\/[^\\s\"']*\\bfal\\.(?:ai|run|media)[^\\s\"']*/gi, \"the render service\")",
+    "to": ""
+  },
+  {
+    "label": "the SSRF guard checks only the FIRST hop, so a public page can 302 onto the metadata address",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if ((u.protocol !== \"http:\" && u.protocol !== \"https:\") || hostIsBlocked(u.hostname)) return null;",
+    "to": "    if (i === 0 && ((u.protocol !== \"http:\" && u.protocol !== \"https:\") || hostIsBlocked(u.hostname))) return null;"
+  },
+  {
+    "label": "the brief's \"read this page\" link goes through a plain fetch instead of the SSRF guard",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    r = await safeFetch(url, {\n      // A real browser UA, for the reason the importer needs one:",
+    "to": "    r = await fetch(url, {\n      // A real browser UA, for the reason the importer needs one:"
+  },
+  {
+    "label": "a refusal carries a status, which tells a prober which hosts we block",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!r) return { ok: false };",
+    "to": "  if (!r) return { ok: false, status: 502 };"
+  },
+  {
+    "label": "the redirect loop is unbounded — a Worker pinned on somebody else's redirect",
+    "files": [
+      "worker.js"
+    ],
+    "from": "async function safeFetch(startUrl, opts = {}, max = 4) {",
+    "to": "async function safeFetch(startUrl, opts = {}, max = 10000) {"
+  },
+  {
+    "label": "the free-identifier walker walks INTO import statements, so every aliased import reads as a free name",
+    "files": [
+      "test/free-identifiers.test.mjs"
+    ],
+    "from": "    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;",
+    "to": ""
+  },
+  {
+    "label": "the walker reads a class field's NAME as a reference, so SiteBuildContainer's two fields read as free",
+    "files": [
+      "test/free-identifiers.test.mjs"
+    ],
+    "from": "    if (ts.isPropertyDeclaration(node)) { if (node.initializer) walk(node.initializer); return; }",
+    "to": ""
+  },
+  {
+    "label": "the worker walk seeds its scope with nothing, so all 571 imports read as free",
+    "files": [
+      "test/free-identifiers.test.mjs"
+    ],
+    "from": "  const free = freeIdentifiers(src, \"worker.js\", imported);",
+    "to": "  const free = freeIdentifiers(src, \"worker.js\", new Set());"
+  },
+  {
+    "label": "the worker walk forgives everything — the seed handed to the PLANTED check admits the name it is planting, so the case that proves the absence check is not vacuous becomes vacuous itself. (MEASURED: widening the CLEAN run's seed the same way is INERT — both answers are `[]`, because neither `runAutoReply` nor `editAnswer` survives in worker.js outside a comment, and the walker does not read comments. So the planted call is the only half of this property that can be observed, which is why it is the half mutated.)",
+    "files": [
+      "test/free-identifiers.test.mjs"
+    ],
+    "from": "  const planted = freeIdentifiers(src + \"\\nfunction zzzPlanted(env) { return runAutoReply(env); }\\n\", \"worker.js\", imported);",
+    "to": "  const planted = freeIdentifiers(src + \"\\nfunction zzzPlanted(env) { return runAutoReply(env); }\\n\", \"worker.js\", new Set([...imported, \"runAutoReply\"]));"
+  },
+  {
+    "label": "the CSP host census reads the file-wide blanked source, where `https://` has been eaten by the `//` rule",
+    "files": [
+      "test/media-deleted.test.mjs"
+    ],
+    "from": "  const cspRaw = /const CSP = \\[([\\s\\S]*?)\\n\\]\\.join\\(\"; \"\\);/.exec(WORKER)[1]\n    .replace(/^[ \\t]*\\/\\/[^\\n]*$/gm, \"\");",
+    "to": "  const cspRaw = csp;"
+  },
+  {
+    "label": "the host census reads the raw source WITH its comments, so the prose naming the four deleted origins admits them all",
+    "files": [
+      "test/media-deleted.test.mjs"
+    ],
+    "from": "  const cspRaw = /const CSP = \\[([\\s\\S]*?)\\n\\]\\.join\\(\"; \"\\);/.exec(WORKER)[1]\n    .replace(/^[ \\t]*\\/\\/[^\\n]*$/gm, \"\");",
+    "to": "  const cspRaw = /const CSP = \\[([\\s\\S]*?)\\n\\]\\.join\\(\"; \"\\);/.exec(WORKER)[1];"
+  },
+  {
+    "label": "the SSRF driver's lift loses `export default` as a boundary, so a window runs through the handler object",
+    "files": [
+      "test/safe-fetch-redirects.test.mjs"
+    ],
+    "from": "const BOUNDARY = /\\n(?:\\/\\*\\*|export default|(?:export )?(?:async )?(?:function|class|const|let) )/;",
+    "to": "const BOUNDARY = /\\n(?:\\/\\*\\*|(?:export )?(?:async )?(?:function|class|const|let) )/;"
+  },
+  {
+    "label": "the SSRF driver is handed a guard that blocks nothing, so every case passes over an open fetch",
+    "files": [
+      "test/safe-fetch-redirects.test.mjs"
+    ],
+    "from": "const { siteReadUrl } = new Function(\"hostIsBlocked\", SRC + \"\\nreturn { siteReadUrl, safeFetch };\")(hostIsBlocked);",
+    "to": "const { siteReadUrl } = new Function(\"hostIsBlocked\", SRC + \"\\nreturn { siteReadUrl, safeFetch };\")(() => false);"
+  },
+  {
+    "label": "the design tool's look check reads the SOURCE again, where the token list is an expression and only five names are spelled out",
+    "files": [
+      "test/site-style.test.mjs"
+    ],
+    "from": "  const desc = REAL_TOOL.input_schema.properties.css.description;",
+    "to": "  const desc = toolSrc;"
+  },
+  {
+    "label": "the rebuild drain's window closes on a named neighbour again, so a deleted comment makes it read the rest of the file",
+    "files": [
+      "test/rebuild-job.test.mjs"
+    ],
+    "from": "  const next = after.match(/\\n(?:\\/\\*\\*|(?:export )?(?:async )?(?:function|class|const|let) )/);\n  assert.ok(next, \"nothing follows runSiteRebuild — this window is reading the rest of the file\");",
+    "to": "  const next = { index: after.length };\n  assert.ok(next, \"nothing follows runSiteRebuild — this window is reading the rest of the file\");"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "// ONE SHAPE FOR AN ANSWER THIS ROUTE DECIDES ON ITS OWN",
+    "to": "// One shape for an answer this route settles by itself"
+  },
+  {
+    "label": "CONTROL — a second comment, in a test file this time",
+    "control": true,
+    "files": [
+      "test/media-deleted.test.mjs"
+    ],
+    "from": "// NO REMOTE ORIGIN THE APP DOES NOT TALK TO (2026-09-12, stage 3).",
+    "to": "// No remote origin the app does not talk to (stage 3, this September)."
+  }
+]

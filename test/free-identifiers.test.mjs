@@ -182,11 +182,25 @@ export function freeIdentifiers(src, fileName = "x.js", outer = new Set()) {
     if (ts.isPropertyAccessExpression(node)) { walk(node.expression); return; }
     if (ts.isPropertyAssignment(node)) { if (!ts.isIdentifier(node.name)) walk(node.name); walk(node.initializer); return; }
     if (ts.isMethodSignature(node) || ts.isPropertySignature(node)) return;
+    // A CLASS FIELD'S NAME IS NOT A REFERENCE. `class C { defaultPort = 8080 }`
+    // — `SiteBuildContainer`'s two fields are the real instance — read as free
+    // names the first time this walk was pointed at worker.js, which is a false
+    // alarm about the most ordinary shape in a class body. Only the initialiser
+    // is an expression.
+    if (ts.isPropertyDeclaration(node)) { if (node.initializer) walk(node.initializer); return; }
     if (ts.isShorthandPropertyAssignment(node)) {
       // `{ foo }` IS a read of `foo`.
       if (!known(node.name.text)) found.push({ name: node.name.text, pos: node.name.getStart(sf) });
       return;
     }
+    // AN IMPORT STATEMENT DECLARES; IT NEVER REFERENCES. Its local bindings are
+    // seeded by the caller through `outer`, and walking into it reports the
+    // ORIGINAL half of an alias — `import { retryable as webhookRetryable }`
+    // reads `retryable` as a free name in the importing file, which it is not.
+    // Measured on worker.js: 17 findings, all of them exactly that shape, zero
+    // real. Classic browser scripts have no imports, so this changes nothing
+    // for the three cases this file was written for.
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;
     if (ts.isLabeledStatement(node)) { walk(node.statement); return; }
     if (ts.isBreakOrContinueStatement(node)) return;
     if (ts.isQualifiedName(node)) { walk(node.left); return; }
@@ -355,4 +369,95 @@ test("the reader really reaches the app's own cross-file globals", () => {
   assert.ok(absent.length >= 1,
     "no typeof-guarded name is actually absent from the page, so the exemption covers nothing: " +
     JSON.stringify(guarded));
+});
+
+/* ─────────────────────── and the same walk over worker.js ───────────────── */
+//
+// FIVE INSTANCES OF THIS TRAP WERE IN BROWSER SCRIPTS AND THE SIXTH WAS IN THE
+// WORKER (2026-09-12). Deleting the media side left
+// `ctx.waitUntil(runAutoReply(env))` in the cron handler with the engine it
+// named gone — and a cron handler throws into nothing, so every other
+// `waitUntil` below it would have stopped running, on every two-minute tick,
+// silently, with no customer-facing request failing. It was caught by
+// `test/rebuild-job.test.mjs`, which is the only guard anywhere that DRIVES
+// `scheduled()`, and that is luck rather than coverage: `handleRequest` is
+// ~19,000 lines and nothing drives most of it.
+//
+// The same walk answers it, with one change and one addition:
+//
+//   · IMPORTS ARE SKIPPED IN THE WALK (see the walker). worker.js is a MODULE,
+//     and an aliased import reads its ORIGINAL name as a free identifier.
+//   · `outer` IS SEEDED WITH THE IMPORTED BINDINGS, because `hoist` knows about
+//     function, class and variable statements and not about imports — without
+//     it all 571 read as free, which is a false alarm about the whole file.
+//
+// WHAT IT FOUND ON ITS FIRST RUN, on code nobody had touched: `editAnswer`,
+// called twice in the edit route's removal branches and defined only in
+// `public/chat.js`, with a different signature and no return value. Both would
+// have thrown. Fixed in the same change (`eAnswer`), which is why this test is
+// green rather than carrying an exception.
+//
+// ZERO FALSE ALARMS, MEASURED: 17 findings before imports were skipped, every
+// one of them the `X` half of an `import { X as Y }`, and one real after.
+test("worker.js reads no name it does not declare or import", () => {
+  const src = fs.readFileSync(ROOT + "worker.js", "utf8");
+  const sf = ts.createSourceFile("worker.js", src, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JS);
+  const imported = new Set();
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || !st.importClause) continue;
+    const c = st.importClause;
+    if (c.name) imported.add(c.name.text);                       // default
+    if (c.namedBindings) {
+      if (ts.isNamespaceImport(c.namedBindings)) imported.add(c.namedBindings.name.text);
+      else for (const e of c.namedBindings.elements) imported.add(e.name.text);  // the LOCAL name
+    }
+  }
+  // THE OBSERVERS, ALIVE FIRST. A seed that came out empty would report the
+  // whole file; one that somehow swallowed everything would report nothing.
+  assert.ok(src.length > 100000, `worker.js read as ${src.length} characters — this scan is reading nothing`);
+  assert.ok(imported.size > 200, `only ${imported.size} imported bindings found — the import reader is broken, not the code`);
+  assert.ok(!imported.has("runAutoReply"), "the seed is admitting names that are not imported");
+
+  const free = freeIdentifiers(src, "worker.js", imported);
+  assert.deepEqual(free.map((f) => `worker.js:${f.line}  ${f.name}`), [],
+    "worker.js reads a name nothing declares — it throws when that line runs (a cron handler throws into nothing):\n  " +
+    free.map((f) => `worker.js:${f.line}  ${f.name}`).join("\n  "));
+
+  // AND THE SAME WALK, OVER THE SAME FILE, WITH THE DEFECT PUT BACK. An absence
+  // check over 24,000 lines has exactly one way to go quiet — a seed that
+  // forgives everything — and the planted case below cannot see that, because it
+  // builds its own seed. So the real seed is driven against the real source
+  // with `runAutoReply(env)` appended: found, or this whole case is vacuous.
+  //
+  // A SWEEP SURVIVOR BOUGHT THIS. Widening the seed with `runAutoReply` and
+  // `editAnswer` changed no answer, because neither name is in the file any
+  // more — inert against today's source and load-bearing the day one comes
+  // back, which is the shape that reads as a test gap and is one.
+  const planted = freeIdentifiers(src + "\nfunction zzzPlanted(env) { return runAutoReply(env); }\n", "worker.js", imported);
+  assert.deepEqual(planted.map((f) => f.name), ["runAutoReply"],
+    "the real seed forgives a name worker.js neither declares nor imports, so the check above proves nothing");
+});
+
+test("the worker walk really would catch a deleted function's surviving call", () => {
+  // THE OBSERVER, DRIVEN. The case above is an absence check over 24,000 lines,
+  // and the one way it goes quiet is a reader that forgives everything — which
+  // is exactly what the import seed could become. So the shape it exists for is
+  // planted: a handler object calling a name that is neither declared nor
+  // imported, which is `runAutoReply` on 2026-09-12 to the character.
+  const planted = [
+    'import { runScheduledSiteJobs } from "./builder/site-jobs.mjs";',
+    "export default {",
+    "  async scheduled(event, env, ctx) {",
+    "    ctx.waitUntil(runAutoReply(env));",
+    "    ctx.waitUntil(runScheduledSiteJobs(env, ctx));",
+    "  },",
+    "};",
+  ].join("\n");
+  const found = freeIdentifiers(planted, "planted.js", new Set(["runScheduledSiteJobs"]));
+  assert.deepEqual(found.map((f) => f.name), ["runAutoReply"],
+    "the walk does not see a deleted function's surviving call inside a handler object");
+  // …and the import it WAS given is not reported, or every real file fails.
+  const ok = freeIdentifiers(planted.replace("runAutoReply(env)", "runScheduledSiteJobs(env)"), "planted.js",
+    new Set(["runScheduledSiteJobs"]));
+  assert.deepEqual(ok, [], "a seeded import reads as free — the seed is not reaching the walker");
 });

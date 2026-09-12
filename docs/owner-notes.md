@@ -155,6 +155,58 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-12 — Stage 3: the server side of the video half is gone too
+
+You said *"go on stage 3"*, so the endpoints those deleted screens used to call
+are out: **2,781 more lines of the Worker** and **25 addresses** — the gallery,
+the storage meter, the twelve Instagram/YouTube endpoints, the Media Agent, the
+director, cancel, refund, import-from-link, save, the media token and its proxy,
+and the video poller. The Worker answered 61 addresses before any of this
+started and answers 30 now.
+
+**Your sites' photographs still work and I checked it rather than assumed it.**
+That one fal call is the thing you asked me to leave, and it runs on the server
+and downloads the picture into our own storage, so it shares nothing with the
+road I deleted.
+
+**One thing I fixed that you did not ask for, and I want to flag it.** There is
+a standing rule of yours that a customer must never see the word "fal". The
+scrubber that enforced it only ever guarded the director's error messages — the
+part that is going — and the one fal call left over does put the provider's own
+words into data we send the browser. Nothing was leaking (the sentence a
+customer reads never quotes it), but the wall was pointing at the wrong door. It
+points at the right one now. It is eight lines and I would rather have it than
+have to remember.
+
+**Two real bugs came out of this that nothing would have caught otherwise.**
+
+1. **I nearly broke every background task on the platform.** Deleting the Media
+   Agent left one line still calling it, in the two-minute timer that also runs
+   your sites' scheduled jobs, the nightly backups, the domain setup, the
+   webhooks and four sweeps. A timer that throws throws into nothing — no
+   customer request fails, nothing goes red — so all of it would have simply
+   stopped. One of your own tests caught it because it is the only test that
+   actually RUNS that timer, which is luck rather than coverage. So I taught the
+   checker that reads the browser files for this exact mistake to read the server
+   file too.
+
+2. **It immediately found a second one, in code nobody had touched.** The edit
+   path's delete branches call a function that only exists in the browser — two
+   places, both of which would have crashed. That is part of the delete work
+   that has not run live yet, which is the only reason no customer met it. Fixed
+   and driven.
+
+**And one of your tests had been checking the wrong thing for three weeks.** The
+guard that keeps the design step's look field honest was proving itself alive by
+matching a voice-tuning dial in the *director's* tool — a completely different
+thing that happened to be spelled the same way. It passed, so nobody looked.
+Deleting the media side is what made it fail. It reads the real field now.
+
+**What is left:** stage 4 sweeps the dead CSS (`styles.css` is 478 KB), the
+landing page's own copy, the Media Agent's doc, one workflow and one secret we
+still upload for code that no longer exists. **Your customers' stored media is
+still a separate step and I will ask again before touching it.**
+
 ## 2026-09-12 — The video side is gone from the app, and home is the builder
 
 You said *"yeah thats right, home is the builder now, keep going"*, so that is
@@ -201,6 +253,11 @@ half. They are green now — **6,074 tests, all passing**.
    used to open the studio now open the builder, and the tables the pipeline
    reads are kept with a note saying why. It is the last piece of the media side
    still standing.
+
+**Correction to a number in this entry:** I wrote "6,074 tests" above and the
+run said **6,078**. Nothing was wrong with the code — the count was typed from
+memory instead of read off the run, which is exactly the thing this file says
+not to do.
 
 **Still to do:** stage 3 takes the server routes those deleted screens used to
 call (gallery, save, import, the director, the Media Agent, the social

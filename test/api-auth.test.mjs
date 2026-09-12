@@ -49,7 +49,14 @@ function topLevel(src, decl) {
   // `/**` as well as at the declaration. Without that, `publishPlaceholder`'s
   // window swallowed the ~2,600 characters of prose arguing for `clearPlaceholder`
   // and the size bound below failed about a function that had not changed.
-  const next = rest.match(/\n(?:\/\*\*|(?:export )?(?:async )?(?:function|class|const|let) )/);
+  // `export default` IS A BOUNDARY TOO, added 2026-09-12 after the identical
+  // reader in `safe-fetch-redirects.test.mjs` ran a window straight through
+  // worker.js's handler object: it is declared near the top of the file,
+  // thousands of lines above the router it calls, so the function just above it
+  // swallows `export default { fetch, scheduled, queue }` whole. Nothing in
+  // THIS file windows that function today — the hole is latent here and was
+  // load-bearing there, which is exactly when to close it.
+  const next = rest.match(/\n(?:\/\*\*|export default|(?:export )?(?:async )?(?:function|class|const|let) )/);
   return rest.slice(0, next ? next.index : rest.length);
 }
 
@@ -57,7 +64,16 @@ function topLevel(src, decl) {
 // the reason it is safe. Anything not on this list must gate.
 const PUBLIC = {
   "/api/stripe/webhook": "Stripe cannot hold a session; authenticated by HMAC over the raw body instead (stripe-webhook.mjs).",
-  "/api/m/*": "Capability URL — the signed, expiring token IN the path is the credential; that is the whole point of a shareable media link.",
+  // (`/api/m/*` — the media proxy's capability URL — left this list on
+  // 2026-09-12 with the route it described. It was the media side's answer to
+  // a free account that could not save to the gallery: the provider's own
+  // temporary render link, AES-GCM-sealed into an opaque token so the host
+  // stayed off the page. The builder never had an equivalent, because a
+  // photograph it buys is downloaded server-side into R2 and served from the
+  // site's own origin, so there is nothing to hide and nothing to seal. It is
+  // named here rather than silently dropped: the list's own guard reads a
+  // DISAPPEARANCE as interesting, which is exactly right, and this says which
+  // of the three reasons it was.)
   "/api/stripe/site/*": "A SITE OWNER's own Stripe telling us one of their orders was paid. Separate from /api/stripe/webhook, which is isibi's own billing — different account, different signing secret, and one handler deciding whether an event mints platform credits or marks a barber shop's order is not a thing to build. Stripe cannot hold a session; what authenticates it is the HMAC over the raw body verified against THAT SITE's own webhook secret, so a signature valid for one shop proves nothing about another.",
   "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. As of 2026-07-30 it is TRANSPORT ONLY: the row routes were deleted and these paths forward to the site's Neon Data API and Neon Auth, where the site's own RLS policies decide every access question. What is enforced here is a per-source rate limit and that the slug resolves to a real site.",
   "/api/site/genresult": "THE BUILD CONTAINER handing back the generation it was fired. It holds no Supabase session and never will — it is our own compute, reached over the queue, not a person. What authenticates it is a 128-bit token minted for ONE generation at fire time and stored in that build's resume record, travelling in a HEADER rather than the path so it stays out of logs and proxies. Knowing it authorises writing exactly one build's answer to one R2 key and nothing else; it is the same shape as a site's inbound webhook secret. An unrecognised token is 404, not 401, because the route's existence is not worth confirming to somebody probing it and a container that got the token wrong has no recovery either way.",
@@ -242,7 +258,19 @@ const gatesWithin = (i) => {
 test("worker.js still dispatches on /api paths the way this test reads it", () => {
   // If the router is ever restructured, every assertion below would vacuously
   // pass on an empty set. Fail loudly instead.
-  assert.ok(routes().size >= 35, `only found ${routes().size} /api routes — has the router changed shape?`);
+  // THE FLOOR CAME DOWN 35 → 25 WITH THE MEDIA SIDE (2026-09-12). This reader
+  // answers **30** today; stage 3 took 25 routes out in one commit — the
+  // gallery, storage, the media token and the proxy, the twelve social
+  // endpoints, the Media Agent, the director, cancel, refund, import, save and
+  // the video poll.
+  //
+  // THE FLOOR IS NOT THE COUNT, deliberately: it is the point below which every
+  // assertion in this file would pass over an empty set, so it sits under the
+  // measured number rather than on it. A count pinned exactly would go red on
+  // every honest route added or removed, which trains the next session to bump
+  // it without reading — and the thing worth failing on is a RESTRUCTURED
+  // router, which takes the count to zero.
+  assert.ok(routes().size >= 25, `only found ${routes().size} /api routes — has the router changed shape?`);
 });
 
 test("every /api route requires a Supabase session", () => {
@@ -261,11 +289,14 @@ test("the public allow-list is exactly what we think it is", () => {
   for (const p of Object.keys(PUBLIC)) {
     assert.ok(names.includes(p), `${p} is allow-listed as public but no longer exists — remove it from PUBLIC`);
   }
-  // SEVEN since 2026-09-07 (`gencode`), six before it. The number is here so
-  // that adding an unauthenticated endpoint has to be a decision somebody wrote
-  // down rather than a line that slipped past — which is exactly what it did
-  // for this one, and the sentence above it is that decision.
-  assert.equal(Object.keys(PUBLIC).length, 7, "a new unauthenticated endpoint was added — is that intended?");
+  // SIX since 2026-09-12, when the media proxy's capability URL left with the
+  // route; seven from 2026-09-07 (`gencode`), six before that. The number is
+  // here so that adding an unauthenticated endpoint has to be a decision
+  // somebody wrote down rather than a line that slipped past — which is exactly
+  // what it did for `gencode`, and the entries above are those decisions. It
+  // goes DOWN as happily as up: an unauthenticated endpoint leaving is the one
+  // direction that needs no argument.
+  assert.equal(Object.keys(PUBLIC).length, 6, "a new unauthenticated endpoint was added — is that intended?");
 });
 
 test("the unauthenticated webhook verifies a signature instead", () => {
@@ -312,12 +343,13 @@ test("the window cannot be widened into the next route's gate", () => {
   }
 });
 
-test("the media proxy is gated on an opaque token, not a guessable id", () => {
-  const i = routes().get("/api/m/*");
-  const block = LINES.slice(i, i + WINDOW).join("\n");
-  assert.match(block, /openMediaToken/, "the token IS the credential here; without it this is an open proxy");
-  assert.match(block, /return new Response\("Not found", \{ status: 404 \}\)/, "an unopenable token must not fall through");
-});
+// ("the media proxy is gated on an opaque token, not a guessable id" was here
+// and went with `/api/m/*` on 2026-09-12. It asserted that the route opened its
+// own sealed token and 404'd anything it could not open — the one property that
+// kept a public capability URL from being an open proxy. There is no successor
+// to re-anchor it on: the only remaining public non-HMAC route is `/api/db/*`,
+// which has its own rate-limit and slug-resolution case below, and nothing in
+// the builder serves bytes off a token in a path.)
 
 test("the router has a catch-all so an unmatched /api path is never served as an asset", () => {
   // Without this, a typo'd or future route would fall through to ASSETS.fetch
@@ -530,9 +562,22 @@ test("every tool the model is given is a schema the API will accept", () => {
   // everything. Naming the tools that must be reached turns that into a failure.
   // `design_schema` is the builder's main path and the one that took it down.
   const found = tools.map((t) => t[1]);
-  for (const must of ["design_schema", "write_prompt", "respond"]) {
-    assert.ok(found.includes(must), `the scan no longer finds ${must} — the regex has drifted`);
-  }
+  // `write_prompt` AND `respond` WERE THE DIRECTOR'S AND LEFT WITH IT
+  // (2026-09-12, `/api/direct`). They are not re-anchored anywhere: they were
+  // the only two tools in this file that were not the builder's, and the
+  // builder's other tools (the lane picker, the add step's nine, the page
+  // call's) live in `builder/` modules with their own guards — this scan reads
+  // `worker.js`, so `design_schema` is now the whole of what it can reach.
+  //
+  // THE OBSERVER FLOOR MATTERS MORE THAN IT DID, not less, and is why the count
+  // is asserted exactly rather than as "at least one": with three names the
+  // must-list was the thing keeping a drifted regex loud, and with one name a
+  // regex that found nothing at all would fail on `design_schema` alone — but a
+  // regex that found design_schema and silently stopped finding a tool added
+  // next month would not. An exact count fails the day a tool arrives, which is
+  // the day somebody should look.
+  assert.deepEqual(found, ["design_schema"],
+    "worker.js's tool set changed: " + found.join(", ") + " — add the new tool to this list and check its schema below");
 
   const skipped = [];
   for (const t of tools) {

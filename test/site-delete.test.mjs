@@ -339,3 +339,40 @@ test("a lane nobody picked cannot be REFUSED either — the refusal list has no 
   assert.deepEqual(r.refused, [], "a lane the picker never chose was refused, on a message that never asked");
   assert.deepEqual(r.remove, []);
 });
+
+test("DRIVEN: the removal branches answer with a real HTTP status, not one buried in the body", () => {
+  // `eAnswer` REPLACED TWO CALLS TO `editAnswer`, WHICH NEVER EXISTED HERE
+  // (2026-09-12). Both sat in this work's own branches — a picker that refused a
+  // lane, and "your site doesn't have a 3D scene to take off" — and `editAnswer`
+  // is a `public/chat.js` function with a different signature and no return
+  // value, so both would have thrown `ReferenceError`. Found by pointing the
+  // free-identifier walker at worker.js for the first time; the removal verb has
+  // not run live, which is the only reason no customer met it.
+  //
+  // THREE PROPERTIES, because a helper written to fix a crash is easy to get
+  // half right: the refusal is a 422 and the nothing-to-do is a 200, `status`
+  // comes OFF the body (a stray one in the JSON is a second copy of the HTTP
+  // status that can disagree with it), and both call sites really use it.
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("const eAnswer = (");
+  assert.ok(at > 0, "eAnswer is gone from the edit route");
+  const eAnswer = new Function("return " + src.slice(at + "const eAnswer = ".length, src.indexOf(";\n", at)))();
+
+  const refused = eAnswer({ ok: false, status: 422, error: "not-removable", msg: "no", cost: 0 });
+  assert.equal(refused.status, 422, "a refused removal does not answer 422");
+  const absent = eAnswer({ ok: true, status: 200, moved: [], cost: 0, msg: "nothing to take off" });
+  assert.equal(absent.status, 200);
+  // A body with no status of its own still answers 200 rather than undefined.
+  assert.equal(eAnswer({ ok: true }).status, 200, "the default status is not 200");
+
+  return Promise.all([refused.json(), absent.json()]).then(([a, b]) => {
+    assert.ok(!("status" in a) && !("status" in b), "the HTTP status is copied into the body as well");
+    assert.equal(a.error, "not-removable");
+    assert.equal(b.msg, "nothing to take off");
+    // BOTH CALL SITES, counted — a helper with one caller means one branch is
+    // still reaching for a name that is not there.
+    assert.equal((src.match(/return eAnswer\(\{/g) || []).length, 2,
+      "the removal branches no longer both answer through eAnswer");
+    assert.ok(!/\beditAnswer\(/.test(src), "worker.js is calling the browser's editAnswer again");
+  });
+});

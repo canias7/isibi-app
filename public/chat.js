@@ -362,69 +362,6 @@ async function fetchCredits(attempt) {
   }
 }
 
-// Turn fal's error payload into one readable line. Validation errors arrive as
-// {detail:[{loc:['body','video_url'],msg:'...'}]} (FastAPI-style) — name the
-// field and the reason so a rejected input is diagnosable straight from chat.
-// Upstream detail text can name the provider or its hosts — users must never
-// see "fal" anywhere (owner 2026-07-17), so every quoted error is scrubbed:
-// provider URLs vanish, standalone provider tokens become neutral wording.
-// \bfal\b never matches inside words (false, falcon), so prose survives.
-function scrubProvider(s) {
-  return String(s || '')
-    .replace(/https?:\/\/[^\s"']*fal[^\s"']*/gi, '')
-    .replace(/\bfal\.(?:ai|run|media)\b/gi, 'the render service')
-    .replace(/\bfal-ai\b/gi, 'the render service')
-    .replace(/\bfal\b/gi, 'the render service')
-    .replace(/\s{2,}/g, ' ').trim();
-}
-function falErrorDetail(body) {
-  try {
-    const d = body && (body.detail ?? body.error ?? body.message);
-    if (!d) return '';
-    if (typeof d === 'string') return scrubProvider(d).slice(0, 300);
-    if (Array.isArray(d)) {
-      return scrubProvider(d.slice(0, 3).map((e) => {
-        if (typeof e === 'string') return e;
-        const field = Array.isArray(e.loc) ? e.loc.filter((p) => p !== 'body').join('.') : '';
-        return (field ? field + ': ' : '') + (e.msg || e.message || JSON.stringify(e));
-      }).join(' · ')).slice(0, 400);
-    }
-    return scrubProvider(JSON.stringify(d)).slice(0, 300);
-  } catch { return ''; }
-}
-
-// A fal-confirmed failure means fal never billed us — ask the server to refund
-// the charge (it independently re-verifies the failure with fal). Returns the
-// refunded credit amount, and refreshes the balance display when it's non-zero.
-// Cancel a possibly-stuck job THEN refund. A job wedged IN_QUEUE forever is
-// never in a terminal state, so /api/refund (which only credits FAILED/ERROR/
-// CANCELED) wouldn't refund it — cancelling first moves it to CANCELED so the
-// refund can land (fal doesn't bill a cancelled-while-queued job).
-async function cancelThenRefund(statusUrl) {
-  if (!statusUrl) return 0;
-  try {
-    await apiFetch('/api/cancel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: statusUrl.replace(/\/status\b.*$/, '/cancel') }),
-    });
-  } catch {}
-  return requestRefund(statusUrl);
-}
-async function requestRefund(statusUrl) {
-  if (!statusUrl) return 0;
-  try {
-    const r = await apiFetch('/api/refund', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ statusUrl }),
-    });
-    if (!r.ok) return 0;
-    const d = await r.json().catch(() => ({}));
-    const n = Number(d.refunded) || 0;
-    if (n > 0) fetchCredits();
-    return n;
-  } catch { return 0; }
-}
-
 // One-time welcome banner for fresh accounts: makes the signup grant feel
 // intentional and points at the plans. Shows only while the account still
 // looks new (grant-sized balance, no chat history), until dismissed.
@@ -639,12 +576,14 @@ async function apiFetch(path, opts = {}) {
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(path, Object.assign({}, opts, { headers }));
   if (res.status === 401) showAuthGate();
-  // Reflect every credit spend as it happens: the orchestrator (/api/direct),
-  // each generation (/api/video|image|audio), and the builder's message router
-  // (/api/site/route), which debits before it answers exactly like /api/direct.
-  // Exact-match so the polling and save endpoints (/api/video/poll, /api/save)
-  // don't trigger a refresh; 501 = the feature isn't configured, so nothing was
-  // charged.
+  // Reflect a credit spend as it happens. ONE ROUTE DOES THIS NOW: the builder's
+  // message router (/api/site/route), which debits before it answers. The list
+  // used to hold the orchestrator and the three generation endpoints, and those
+  // four names outlived the routes themselves by one commit — the media side's
+  // server half went on 2026-09-12 and this array kept naming them. An entry for
+  // a route nobody calls is the quietest kind of dead code: it never runs and
+  // never fails. Exact-match, and 501 = the feature isn't configured, so nothing
+  // was charged.
   //
   // THE BUILD ROUTES ARE DELIBERATELY ABSENT, and the reason is not the one this
   // comment gave when it was written ("they stream their own balance back") —
@@ -655,9 +594,7 @@ async function apiFetch(path, opts = {}) {
   // and paints a number that is wrong in the reassuring direction. `reactSend`
   // and the legacy path call `scheduleCreditRefresh` once the stream is done.
   const p = path.split('?')[0];
-  if (res.status !== 501 &&
-      (p === '/api/direct' || p === '/api/video' || p === '/api/image' || p === '/api/audio' ||
-       p === '/api/site/route')) {
+  if (res.status !== 501 && p === '/api/site/route') {
     scheduleCreditRefresh();
   }
   return res;
