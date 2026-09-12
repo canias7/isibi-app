@@ -4278,6 +4278,19 @@ reader answers null for "unreadable", check what every consumer says out
 loud for that null** — a writer that skips is safe, a prompt that says
 "absent" is not.
 
+**AND THE SAME AMBIGUITY IN A LIVE CHECK ANSWERS "SHIPPED" FOR THE WRONG RULE
+(2026-09-12).** The watch for the phone-tile fix reaching `gofarther.dev` grepped
+the served stylesheet for `justify-content: center; overflow: hidden; }` and said
+LIVE in 15 seconds. That string ends `.ig-ico` too — it has for months — so the
+match was a rule the change never touched, and the deploy had not landed. Caught
+only because two later reads in the same command disagreed with it. **A mutant's
+ambiguous anchor fails loudly (NOT APPLIED); a verification's fails SILENTLY and
+in the worst direction**, telling you something is shipped when it is not — this
+file rates a false alarm worse than a miss, and a false ALL-CLEAR is worse than
+either. Anchor a live check on the rule's own selector (`^\.st-app-screen {`),
+and count the pattern in the source first: more than one occurrence means it
+cannot answer the question being asked of it.
+
 **A MUTANT WHOSE ANCHOR IS A SUBSTRING OF ANOTHER'S (2026-09-02).** The
 sweep's ambiguity check (`indexOf !== lastIndexOf`) refused a mutant whose
 8-space-indented line was contained in its 14-space twin — correctly, and
