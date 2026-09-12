@@ -431,6 +431,12 @@ test("DRIVEN: the owner gets their pages and their own parts", async () => {
   }
   assert.deepEqual(r.reads.slice().sort(), [
     "config/" + r.body.slug + ".json",
+    // THE KIT CLOSURE, added 2026-09-12 — the components the site's pages
+    // import, which the Download needs or the project it hands the customer
+    // cannot build. A fourth READ, and this census is the right place for it to
+    // have to be written down: the route's cost per Code-tab open is a fact
+    // worth going red over.
+    "source/" + r.body.slug + "/kit.json",
     "source/" + r.body.slug + "/pages.json",
     "source/" + r.body.slug + "/parts.json",
   ], "the explorer's reads have drifted");

@@ -11344,6 +11344,13 @@ const ST_CODE_GROUPS = [
   ['page', 'Pages'],
   ['part', 'Components'],
   ['asset', 'Made by the build'],
+  // THE KIT PARTS THIS SITE IMPORTS, as their own heading between the site's own
+  // files and the platform's. They are neither: a page the model wrote is the
+  // customer's, `src/router.tsx` is ours on every site, and these are ours but
+  // only on the sites that reach for them — which is why they are stored per
+  // slug and why the count differs between two sites. Folded into "Shared with
+  // every site" the heading would be a lie about half its rows.
+  ['kit', 'Design system'],
   ['shared', 'Shared with every site'],
 ];
 /**
@@ -11814,6 +11821,28 @@ function stSrcFiles(src) {
     if (!f || typeof f.path !== 'string' || !f.path || typeof f.source !== 'string') continue;
     if (claimed.has(f.path)) continue;
     out.push({ name: f.path, text: f.source, kind: 'shared', note: '' });
+    claimed.add(f.path);
+  }
+  // THE COMPONENTS THIS SITE'S PAGES IMPORT (owner, 2026-09-12, holding
+  // Lovable's tree beside ours: *"look at all of this, we dont have all of
+  // it"*). The kit is 3,394 files and 17 MB and is NOT this: what a site has is
+  // the closure of what it imports, measured over 100 real generated sites at
+  // 9 to 53 files. The container resolves it at publish time and the route
+  // hands it back per slug.
+  //
+  // WITHOUT THEM THE DOWNLOAD WAS NOT A PROJECT. `src/routes/__root.tsx` is in
+  // the shared set above and imports `@/components/ui/sonner`; the zip carried
+  // the importer and not the module, so `npm run build` on it could not resolve
+  // its own first import.
+  //
+  // THEY GO IN LAST AND THROUGH `claimed`, so a site that somehow carries its
+  // own copy of a kit path keeps the site's — the `src/styles.css` rule above,
+  // applied to the one list that is resolved rather than authored.
+  for (const f of (src && Array.isArray(src.kit)) ? src.kit : []) {
+    if (!f || typeof f.path !== 'string' || !f.path || typeof f.source !== 'string') continue;
+    if (claimed.has(f.path)) continue;
+    out.push({ name: f.path, text: f.source, kind: 'kit', note: '' });
+    claimed.add(f.path);
   }
   return out;
 }

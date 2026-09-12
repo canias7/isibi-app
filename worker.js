@@ -9854,6 +9854,76 @@ async function loadSiteParts(env, slug) {
   } catch (e) { console.error("parts read failed:", slug, e && e.message); return null; }
 }
 
+/**
+ * THE KIT FILES THE SITE'S OWN PROJECT NEEDS — `source/<slug>/kit.json`.
+ *
+ * The Download zipped the pages, the parts and the 25 shared files, and
+ * `src/routes/__root.tsx` — one of those shared files — imports
+ * `@/components/ui/sonner`. So the project a customer downloaded could not
+ * build. The container resolves what is missing at publish time (`siteKitFiles`
+ * there, and it says why it has to be there), and this is where it lands.
+ *
+ * IT IS SMALL, WHICH IS THE WHOLE REASON IT IS STORED AT ALL. The kit is 3,394
+ * files and 17 MB; a SITE's closure, measured over 100 real generated sites, is
+ * 9 to 53 files and 26,092 to 126,082 bytes. That is the same order as the
+ * shared set, so it rides with the source instead of being fetched per file.
+ *
+ * THE SUBTRACTION HAPPENS HERE, and only here. The container sends the whole
+ * closure because which files the Worker already BUNDLES is the Worker's fact;
+ * a copy of `FOUNDATION_PATHS` in the image would be the recorded "two lists of
+ * the same thing" with a deploy between them. Derived from `FOUNDATION_FILES`
+ * itself, so a file that joins or leaves the bundle cannot leave a duplicate or
+ * a hole behind.
+ */
+const KIT_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/kit.json";
+
+/** The paths the browser already gets in `shared`, as a Set, computed once. */
+let FOUNDATION_PATH_SET = null;
+function foundationPaths() {
+  if (FOUNDATION_PATH_SET) return FOUNDATION_PATH_SET;
+  const list = Array.isArray(FOUNDATION_FILES) ? FOUNDATION_FILES : [];
+  FOUNDATION_PATH_SET = new Set(list.map((f) => String((f && f.path) || "")));
+  return FOUNDATION_PATH_SET;
+}
+
+async function saveSiteKit(env, slug, kit) {
+  if (!env.SITES_BUCKET) return false;
+  const have = foundationPaths();
+  const list = (Array.isArray(kit) ? kit : [])
+    .filter((f) => f && typeof f.path === "string" && typeof f.source === "string" && f.path && f.source)
+    // NOTHING ABOVE THE PROJECT, whatever the container sent. Its own reader is
+    // fenced to the app directory, and this is the second wall on the same
+    // input: the specifiers that produced these paths came out of source a MODEL
+    // wrote, and a customer's zip is somewhere a `..` must never reach.
+    .filter((f) => !f.path.startsWith("/") && !f.path.split("/").includes("..") && !have.has(f.path))
+    .map((f) => ({ path: f.path, source: f.source }));
+  // AN EMPTY LIST IS WRITTEN, `saveSiteParts`' rule for its own reason: a revise
+  // that drops the last component the kit was pulled in for must be able to
+  // shrink the project, and skipping the write would keep re-sending files the
+  // site no longer imports.
+  try {
+    await env.SITES_BUCKET.put(KIT_KEY(slug), JSON.stringify(list), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    return true;
+  } catch (e) { console.error("kit save failed:", slug, e && e.message); return false; }
+}
+
+/**
+ * An empty answer for a site that has never published since this shipped, which
+ * is every site today — the explorer then shows exactly what it showed before,
+ * with no error and no gap to explain. It fills in on that site's next publish.
+ */
+async function loadSiteKit(env, slug) {
+  if (!env.SITES_BUCKET) return [];
+  try {
+    const o = await env.SITES_BUCKET.get(KIT_KEY(slug));
+    if (!o) return [];
+    const v = JSON.parse(await o.text());
+    return Array.isArray(v) ? v.filter((f) => f && typeof f.path === "string" && typeof f.source === "string") : [];
+  } catch (e) { console.error("kit read failed:", slug, e && e.message); return []; }
+}
+
 function versionDeps(env) {
   return {
     list: async (prefix) => {
@@ -11801,6 +11871,12 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       await saveSiteSource(env, slug, pages);
       // AND THE PARTS BESIDE THEM, on the same terms.
       if (Array.isArray(parts)) await saveSiteParts(env, slug, parts);
+      // AND THE KIT CLOSURE THE CONTAINER JUST RESOLVED. Every cheap edit
+      // republishes through here, so a site whose edit added a component that
+      // pulls in a new kit file gets that file stored with the same publish —
+      // the spine's own "anything a build bakes must be sent by the spine too",
+      // pointed at what the project DEPENDS on rather than what it renders.
+      if (Array.isArray(built.kit)) await saveSiteKit(env, slug, built.kit);
       tm("r2:source", "ok");
       // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to
       // aim by. After the source, deliberately: the source is what the next
@@ -12019,6 +12095,12 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // THE COMPONENTS THIS BUILD WROTE, filled in by the compile dep and read by the
   // publish below it. Empty is the honest default and the ordinary case.
   let partsBuilt = [];
+  // AND THE KIT FILES THAT BUILD NEEDED, on exactly the same terms and for the
+  // same reason as `partsBuilt` above: the publish path writes them to R2 so the
+  // customer's Download is a project that builds, and it cannot reach into this
+  // closure. Captured from the CONTAINER'S OWN REPLY rather than from what we
+  // sent, because the closure is resolved over the files as they landed on disk.
+  let kitBuilt = [];
   // ── THE FAMILIES THE MODEL'S OWN STYLESHEET NAMES ──────────────────────────
   //
   // A face that is not one of the 24 installed is DOWNLOADED here, before any
@@ -12670,6 +12752,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // build from (run 39). Absent when nothing was translated, so a
         // monolingual build's result is byte-identical.
         if (langUsage.length && built && typeof built === "object") built.langUsage = langUsage;
+        // THE CLOSURE THE CONTAINER RESOLVED, remembered here and stored below.
+        // Assigned on EVERY call, a salvage retry included, so what is stored is
+        // what the published build actually needed — `partsBuilt`'s own rule.
+        if (built && typeof built === "object" && Array.isArray(built.kit)) kitBuilt = built.kit;
         return built;
       }
       catch {
@@ -12795,6 +12881,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
           // as having removed it rather than resurrecting it forever.
           sourceStored = await saveSiteSource(env, slug, pages);
           await saveSiteParts(env, slug, partsBuilt);
+          // AND THE PROJECT'S OWN DEPENDENCIES, so the Download builds.
+          await saveSiteKit(env, slug, kitBuilt);
           // THE MARKER LAST (stage 6): which version this copy is, for the
           // next job's repair to read against the pointer.
           await writeHead(buildDeps(env), slug, bVersion);
@@ -20525,8 +20613,16 @@ async function handleRequest(request, env, ctx) {
       // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers
       // that go on to PUBLISH what they read; this one only shows it, so it
       // takes no lease, moves nothing, and cannot make a site busy.
-      const [sPages, sParts, sCfg] = await Promise.all([
+      const [sPages, sParts, sKit, sCfg] = await Promise.all([
         loadSiteSource(env, sslug), loadSiteParts(env, sslug),
+        // THE KIT FILES THIS SITE'S PROJECT NEEDS — empty for a site that has
+        // not published since this shipped, which is every site the day it
+        // does: the explorer then shows exactly what it showed before, with no
+        // error and nothing to explain, and fills in on that site's next
+        // publish. `loadSiteKit` answers `[]` for a failed read too, on
+        // `loadConfig`'s reasoning below: the source is what the customer came
+        // for and losing the tree to a second read is the worse answer.
+        loadSiteKit(env, sslug),
         // A CONFIG WE COULD NOT READ IS NO ASSETS, NEVER A FAILED REQUEST: the
         // source is the half a customer came for, and losing the whole tree
         // because a second read blipped is the worse answer by a distance.
@@ -20571,6 +20667,19 @@ async function handleRequest(request, env, ctx) {
         // things, and a boolean on a row is a distinction one careless reader
         // drops. The kit's 3,394 components are deliberately not here.
         shared: FOUNDATION_FILES,
+        // AND THE PROJECT'S OWN DEPENDENCIES, KEPT APART FROM `shared` (owner,
+        // 2026-09-12, holding Lovable's tree beside ours: *"look at all of this,
+        // we dont have all of it"*). These are kit components — the same on
+        // every site that imports them — but they are not the BUNDLE: which of
+        // them a site has is a fact about that site, so they are stored per
+        // slug and answered from the store, while `shared` is compiled in. One
+        // list flattened would make "why has this site got 31 files and that
+        // one 46" unanswerable.
+        //
+        // WHY THEY EXIST AT ALL: `src/routes/__root.tsx` is in `shared` and
+        // imports `@/components/ui/sonner`, so the Download was a project whose
+        // own imports named modules that were not in it. It could not build.
+        kit: sKit,
         // THE SENTENCE ASKS ABOUT THE WHOLE ANSWER, NOT JUST THE PAGES. It read
         // `pages.length` alone, so a site whose pages were all unnameable — or
         // one carrying only components — got no sentence at all and the browser

@@ -1,0 +1,164 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the closure is never resolved, so the Download cannot build again",
+    "files": ["builder/build-server.mjs"],
+    "from": "        const k = siteKitFiles();",
+    "to": "        const k = { files: [], missing: [], capped: false };"
+  },
+  {
+    "label": "the container resolves it and never puts it on the reply",
+    "files": ["builder/build-server.mjs"],
+    "from": "...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });",
+    "to": "...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });"
+  },
+  {
+    "label": "a closure that throws takes the built, paid-for site down with it",
+    "files": ["builder/build-server.mjs"],
+    "from": "      } catch (e) { kitOut = { kitError: String((e && e.message) || e).slice(0, 300) }; }",
+    "to": "      } finally { /* no catch */ }"
+  },
+  {
+    "label": "the container's reader is unfenced, so `@/../../etc/passwd` is readable",
+    "files": ["builder/build-server.mjs"],
+    "from": "    if (full !== APP && !full.startsWith(APP + path.sep)) return null;",
+    "to": "    if (false) return null;"
+  },
+  {
+    "label": "the seeds are the payload's pages only, so a salvage stub's imports are missed",
+    "files": ["builder/build-server.mjs"],
+    "from": "  walk(ROUTES);",
+    "to": "  /* no walk */"
+  },
+  {
+    "label": "the build path forgets the closure the container sent",
+    "files": ["worker.js"],
+    "from": "        if (built && typeof built === \"object\" && Array.isArray(built.kit)) kitBuilt = built.kit;",
+    "to": "        if (false) kitBuilt = built.kit;"
+  },
+  {
+    "label": "the build path never stores it",
+    "files": ["worker.js"],
+    "from": "          await saveSiteKit(env, slug, kitBuilt);",
+    "to": "          if (false) await saveSiteKit(env, slug, kitBuilt);"
+  },
+  {
+    "label": "the publish spine never stores it, so an edit that adds a component loses its dependency",
+    "files": ["worker.js"],
+    "from": "      if (Array.isArray(built.kit)) await saveSiteKit(env, slug, built.kit);",
+    "to": "      if (false) await saveSiteKit(env, slug, built.kit);"
+  },
+  {
+    "label": "the store stops subtracting the bundled files, so the tree shows them twice",
+    "files": ["worker.js"],
+    "from": " && !have.has(f.path))",
+    "to": ")"
+  },
+  {
+    "label": "the store admits a path that climbs out of the project",
+    "files": ["worker.js"],
+    "from": "    .filter((f) => !f.path.startsWith(\"/\") && !f.path.split(\"/\").includes(\"..\") && !have.has(f.path))",
+    "to": "    .filter((f) => !have.has(f.path))"
+  },
+  {
+    "label": "the foundation paths are a hardcoded list instead of the bundle's own",
+    "files": ["worker.js"],
+    "from": "  FOUNDATION_PATH_SET = new Set(list.map((f) => String((f && f.path) || \"\")));",
+    "to": "  FOUNDATION_PATH_SET = new Set([\"src/router.tsx\", \"src/server.ts\"]);"
+  },
+  {
+    "label": "the route reads the kit and never answers it",
+    "files": ["worker.js"],
+    "from": "        kit: sKit,",
+    "to": ""
+  },
+  {
+    "label": "a failed kit read takes the whole explorer down instead of showing what it has",
+    "files": ["worker.js"],
+    "from": "  } catch (e) { console.error(\"kit read failed:\", slug, e && e.message); return []; }",
+    "to": "  } catch (e) { throw e; }"
+  },
+  {
+    "label": "the browser reads the kit and never marks it, so it lands in no group",
+    "files": ["public/chat.js"],
+    "from": "    out.push({ name: f.path, text: f.source, kind: 'kit', note: '' });",
+    "to": "    out.push({ name: f.path, text: f.source, kind: 'shared', note: '' });"
+  },
+  {
+    "label": "the browser never reads the kit at all",
+    "files": ["public/chat.js"],
+    "from": "  for (const f of (src && Array.isArray(src.kit)) ? src.kit : []) {",
+    "to": "  for (const f of []) {"
+  },
+  {
+    "label": "the group is gone, so every kit file is drawn under no heading",
+    "files": ["public/chat.js"],
+    "from": "  ['kit', 'Design system'],",
+    "to": ""
+  },
+  {
+    "label": "a nameless kit entry reaches the zip",
+    "files": ["public/chat.js"],
+    "from": "    if (!f || typeof f.path !== 'string' || !f.path || typeof f.source !== 'string') continue;\n    if (claimed.has(f.path)) continue;\n    out.push({ name: f.path, text: f.source, kind: 'kit', note: '' });",
+    "to": "    if (!f) continue;\n    if (claimed.has(f.path)) continue;\n    out.push({ name: f.path, text: f.source, kind: 'kit', note: '' });"
+  },
+  {
+    "label": "the resolver reads a plain string as an import, so prose drags files in",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "  for (const m of src.matchAll(/(?:from|import)\\s*\\(?\\s*[\"'](@\\/[^\"']+)[\"']/g)) out.push(m[1]);",
+    "to": "  for (const m of src.matchAll(/[\"'](@\\/[^\"']+)[\"']/g)) out.push(m[1]);"
+  },
+  {
+    "label": "a re-export is not followed, so a barrel file's targets go missing",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "    for (const next of kitSpecs(hit.text)) queue.push(next);",
+    "to": "    /* no walk */"
+  },
+  {
+    "label": "the bare path is tried first, so a directory wins over the file",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "export const TRIES = [\".tsx\", \".ts\", \"/index.tsx\", \"/index.ts\", \"\"];",
+    "to": "export const TRIES = [\"\", \".tsx\", \".ts\", \"/index.tsx\", \"/index.ts\"];"
+  },
+  {
+    "label": "a cycle is walked for ever",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "      if (seen.has(path)) { hit = \"seen\"; break; }",
+    "to": "      if (false) { hit = \"seen\"; break; }"
+  },
+  {
+    "label": "a file the project already has is skipped whole, so its own imports are lost",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "    if (!known.has(hit.path)) {",
+    "to": "    if (known.has(hit.path)) continue; if (true) {"
+  },
+  {
+    "label": "an unresolved import is dropped in silence",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "    if (!hit) { if (!missing.includes(spec)) missing.push(spec); continue; }",
+    "to": "    if (!hit) { continue; }"
+  },
+  {
+    "label": "the cap truncates without saying so",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "      if (files.length >= MAX_KIT_FILES) { capped = true; continue; }",
+    "to": "      if (files.length >= MAX_KIT_FILES) { continue; }"
+  },
+  {
+    "label": "the order is whatever the walk found, so two builds of one site store different bytes",
+    "files": ["builder/kit-closure.mjs"],
+    "from": "  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));",
+    "to": "  /* unsorted */"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "files": ["builder/kit-closure.mjs"],
+    "from": " * THE KIT FILES A SITE ACTUALLY HAS.",
+    "to": " * THE KIT FILES A SITE ACTUALLY HAS (control)."
+  },
+  {
+    "label": "CONTROL 2 — a comment only in the Worker, which must survive",
+    "files": ["worker.js"],
+    "from": " * THE KIT FILES THE SITE'S OWN PROJECT NEEDS",
+    "to": " * THE KIT FILES THE SITE'S OWN PROJECT NEEDS (control)"
+  }
+]

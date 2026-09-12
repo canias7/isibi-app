@@ -67,6 +67,7 @@ import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, plainSelectors, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 import { runFanout, fanoutTally, MAX_FANOUT_REQS } from "./model-fanout.mjs";
+import { kitClosure } from "./kit-closure.mjs";
 
 const APP = process.env.APP_DIR || "/app";
 const ROUTES = path.join(APP, "src", "routes");
@@ -451,6 +452,67 @@ function safePart(name) {
   const n = String(name || "").trim().toLowerCase();
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(n)) return null;
   return path.join("-parts", n + ".tsx");
+}
+
+/**
+ * THE KIT FILES THIS SITE ACTUALLY NEEDS, read off the image at publish time.
+ *
+ * The customer's Download zipped the site's pages, its parts and the 25 shared
+ * files — and `src/routes/__root.tsx`, one of those shared files, imports
+ * `@/components/ui/sonner`. So the downloaded project could not build: its own
+ * imports named modules that were not in the zip. THIS is where the missing
+ * modules come from, and the explorer showing a real project falls out of it.
+ *
+ * THE CONTAINER IS THE ONLY PLACE THAT CAN DO IT. The Worker can work out WHICH
+ * files a site needs — it holds the page source — but not what is IN them: the
+ * kit is 3,394 files and 17 MB, it lives in this image, and a Worker has no
+ * filesystem. Here both halves are on disk at once.
+ *
+ * IT IS A CLOSURE, NOT THE KIT. MEASURED over 100 real generated sites from the
+ * corpus: **9 to 53 files, 26,092 to 126,082 bytes** — the same order as the
+ * shared set already sent, and nothing resolved to nothing on any of them. So
+ * there is nothing to lazy-load: it travels with the source the way `parts`
+ * does.
+ *
+ * SEEDED FROM THE DIRECTORY, NOT FROM THE PAYLOAD. Everything the bundler
+ * compiles is under `src/routes` by the time this runs — the generated pages,
+ * the parts written for this site, and the template's own `__root.tsx` — so
+ * reading the directory catches a page that arrived by some other door (a
+ * salvage stub, a repair round) where a list of what we were SENT would not.
+ * The other entry points are named because they are not routes and nothing
+ * imports them from one.
+ */
+const KIT_SEEDS = ["src/router.tsx", "src/server.ts", "src/site-locale.ts", "src/site-runtime.ts"];
+
+function siteKitFiles() {
+  const seeds = [];
+  const walk = (dir) => {
+    let names = [];
+    try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of names) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!/\.(tsx?|jsx?)$/.test(e.name)) continue;
+      try { seeds.push(fs.readFileSync(full, "utf8")); } catch {}
+    }
+  };
+  walk(ROUTES);
+  for (const rel of KIT_SEEDS) {
+    try { seeds.push(fs.readFileSync(path.join(APP, rel), "utf8")); } catch {}
+  }
+  // THE READER IS FENCED TO THE APP DIRECTORY. Every specifier it is given comes
+  // out of source a MODEL wrote, so `@/../../etc/passwd` is a shape that can
+  // really arrive — `path.resolve` and a prefix test, never string concatenation.
+  const read = (rel) => {
+    const full = path.resolve(APP, rel);
+    if (full !== APP && !full.startsWith(APP + path.sep)) return null;
+    try { return fs.statSync(full).isFile() ? fs.readFileSync(full, "utf8") : null; } catch { return null; }
+  };
+  // NOTHING IS EXCLUDED HERE. Which files the Worker already bundles is the
+  // WORKER'S fact, and it subtracts them when it stores — one list, on the side
+  // that owns it, rather than a copy of `FOUNDATION_PATHS` in this image that
+  // would drift the first time that list moved.
+  return kitClosure(seeds, read, []);
 }
 
 function resetRoutes() {
@@ -2673,7 +2735,21 @@ const server = http.createServer((req, res) => {
       // sends exactly what it sent before — and kept on ONE line, because three
       // guards match this literal as a line and a comment in the middle of it
       // makes them report a working response as broken.
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }) });
+      // THE PROJECT'S OWN DEPENDENCIES, resolved off this image (`siteKitFiles`
+      // says why here and not in the Worker). LAST, and spread, so the line
+      // below is byte-identical for everything that came before it — three
+      // guards match it as a line, which is also why it stays on one.
+      //
+      // A THROW HERE MUST NOT LOSE A BUILT SITE. The files are compiled, the
+      // dist is in hand and the customer is paying for it; a closure that could
+      // not be read is a Download that will not build, which is worth saying and
+      // is not worth refusing a publish over. `kitError` is the sentence.
+      let kitOut = {};
+      try {
+        const k = siteKitFiles();
+        kitOut = { kit: k.files, ...(k.missing.length ? { kitMissing: k.missing } : {}), ...(k.capped ? { kitCapped: true } : {}) };
+      } catch (e) { kitOut = { kitError: String((e && e.message) || e).slice(0, 300) }; }
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
     }

@@ -629,7 +629,19 @@ test("the editable copy: four editing readers read through the repairing reader,
   const head = spine.indexOf("await writeHead(buildDeps(env), slug, version);");
   assert.ok(marks > 0 && head > marks, "the spine's copy does not end with the marker");
   const buildPath = W.slice(W.indexOf("sourceStored = await saveSiteSource(env, slug, pages);"), W.indexOf("keep: (answer) => saveGenAnswer(env, slug, answer),"));
-  assert.match(buildPath, /await saveSiteParts\(env, slug, partsBuilt\);\s+(?:\/\/[^\n]*\n\s*)*await writeHead\(buildDeps\(env\), slug, bVersion\);/, "the build's copy does not end with the marker");
+  // RE-ANCHORED 2026-09-12, not appeased. This required `saveSiteParts` and
+  // `writeHead` to be ADJACENT past comments, and the closure store (`saveSiteKit`
+  // — the components the site's pages import, so the Download builds) landed
+  // honestly between them. Adjacency was never the property: the MARKER IS LAST
+  // is, because a state copy whose marker lands before one of its writes tells
+  // the next job's repair that a copy is complete when it is not. Asserted as
+  // "every write of the copy sits above the marker", derived from the writes
+  // rather than from the two that happened to be here.
+  const copyWrites = [...buildPath.matchAll(/await save[A-Za-z]+\(env, slug,/g)].map((m) => m.index);
+  const markerAt = buildPath.indexOf("await writeHead(buildDeps(env), slug, bVersion);");
+  assert.ok(copyWrites.length >= 2, "found " + copyWrites.length + " writes in the build's copy — the scan is not finding them");
+  assert.ok(markerAt > 0, "the build's copy has no marker at all");
+  assert.ok(copyWrites.every((at) => at < markerAt), "the build's copy does not end with the marker");
   const restore = fnW("restoreVersion");
   const cfg = restore.indexOf("withConfig(cur.config, stateConfigOf(JSON.parse(b.config)))");
   const rh = restore.indexOf("await writeHead(deps, slug, id);");
