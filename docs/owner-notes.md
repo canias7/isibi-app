@@ -155,6 +155,57 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-12 — Merged, and the stored video/image files are gone
+
+You said to do it and merge, so: merged, deployed, then the data.
+
+**Merged.** Main moved from `4d8ea151` to `e64b57a7` — all four stages of the
+deletion. Deploy 2101 went green. Both CI checks were green first: the test
+suite, and the container test that actually compiles and renders a real site
+(that one ran green twice on this tree).
+
+**Then the files.** I deleted the video side's stored media AFTER the deploy, on
+purpose — the old page wrote some of that data straight to the database from the
+browser, so deleting it while the old code was still live would have let it come
+straight back.
+
+**The survey found something that changed what I deleted, and it is worth
+knowing.** The media bucket held 161 files, 522 MB. Reading that as "the video
+side's files" would have been wrong: **108 of them are SITE BUILDER uploads** —
+photographs customers attached to a brief back in July, across eleven accounts.
+You said keep the site builder, so those stayed. I deleted the 53 real video
+side files: **360 MB of generated video, images and audio.**
+
+Before deleting I checked no live site could be pointing at any of them: nothing
+we ship on the server side contains a Supabase storage link at all, so no
+published page can reference one. Ten of the eleven accounts with builder uploads
+own no site anyway.
+
+**Also deleted**, the video side's database rows: the chat sync, the gallery's
+asset list, the "universal memory" that learned your taste, and the Media Agent's
+auto-reply settings. Five other video-side tables were already empty.
+
+**NOT deleted, and each on purpose:**
+- **The charge ledger** (84 rows). It is the record of what customers were
+  actually billed for generations. You said leave the credits alone, and this is
+  money history — deleting it loses the audit trail. Say the word if you want it
+  gone too.
+- **`usage_log`** — this one looked like video-side leftovers and is not. It is
+  the site builder's own quota counter, and it was written to yesterday. Left
+  completely alone.
+- Membership tiers, credits, purchases, the credit events — all untouched.
+
+**One thing left open for you:** those 108 builder uploads, 162 MB. They are
+almost certainly orphans — ten of their eleven owners have no site, and nothing
+serves them — but they are the builder's data, not the video side's, so I did not
+touch them. Your call.
+
+**One limitation, said plainly:** I removed the files the way your own
+account-deletion function does it, which takes them out of the database so they
+are gone from every listing and every read. Whether Supabase then reclaims the
+underlying disk space is their housekeeping, and not something I can confirm from
+here.
+
 ## 2026-09-12 — Stage 4: the last of the video side swept out
 
 The fourth and last stage. Nothing of the builder changed; this was clearing out

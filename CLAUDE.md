@@ -100,9 +100,11 @@ first deletion, not assumed.
    it**, each for a stated reason: the landing is a design job the owner directs,
    and the CSS scan's false-alarm rate is not yet zero — the stage 4 section
    below carries both measurements.
-**The customers' stored media is a SEPARATE step, after the code is merged and
-proven**, with one more explicit confirm: it is the only part that cannot be
-undone.
+5. the data (DONE, 2026-09-12, owner: *"YEAH DO THAT AND MERGE IT"* — the one
+   more explicit confirm the plan asked for). **Run AFTER the merge and its
+   deploy**, so no live media route could re-write what was being removed.
+   The section below records what went, what stayed, and the one thing the
+   survey found that changed the answer.
 
 **THE STAGE BOUNDARY MOVED, AND THREE GUARDS ARE WHY.** The plan had stage 2 as
 two commits — the Worker's routes, then the composer — and that is not possible:
@@ -650,6 +652,61 @@ answer. Two were **measured inert and deleted rather than hunted**: the
 occurs **exactly once** in `worker.js`, at 977772, so both forms answer the same
 index and no mutant of it can die.
 **Suite 6,086** (6,083 at stage 3; the three new `media-deleted` cases).
+
+### Stage 5: the customers' stored media (done, 2026-09-12)
+
+The irreversible step, run after the merge (`4d8ea151..e64b57a7`) and after
+**deploy 2101 went green**, so the live Worker no longer answered a media route
+while the data behind it was being removed. That ordering is the one safety
+property this step has: the browser wrote `chats`, `user_assets` and
+`user_memory` DIRECTLY over PostgREST, so purging before the deploy leaves a
+signed-in page able to sync them back.
+
+**THE SURVEY IS WHAT MADE THIS SAFE, AND IT CHANGED THE ANSWER.** The `media`
+bucket read as **161 objects / 522 MB**, and reading it as "the customers' stored
+media" would have been wrong: **108 of those objects (162 MB) sit under
+`<uid>/site/` and are the SITE BUILDER's uploads** — photographs customers
+attached to a brief, 2026-07-18 to 2026-07-21, across eleven accounts. The owner
+said *keep the site builder*, so they **stay**, and the deletion took only the
+**53 media generations (360 MB, 2026-07-11 to 2026-07-18)**.
+**Proven unserved rather than assumed**: no file the Worker ships — `worker.js`,
+any root module, anything under `builder/` — contains `storage/v1/object`, so no
+published site can reference one of these objects. The only reader left is
+`public/auth.js`'s account-deletion sweep, which is the browser's, not a page's.
+And ten of the eleven accounts own **zero** sites; the eleventh is the building
+account, whose sites last built 2026-09-11.
+
+**THE MECHANISM IS THIS PROJECT'S OWN, NOT AN INVENTED ONE.** There is no service
+key in a session and the Supabase tooling has no storage-delete call, so the
+question was whether deleting `storage.objects` rows is legitimate here.
+`delete_account` — shipped, live, and the platform's existing answer for removing
+a customer's stored media — does exactly that, between
+`set_config('storage.allow_delete_query', 'true', true)` and its `false`. The
+purge used the same two lines. **What that means, stated rather than glossed**:
+the rows are gone, so the objects are gone from every listing and every read.
+Whether Supabase reclaims the underlying bytes is Supabase's own housekeeping and
+is not something this session can verify.
+
+**ROWS DELETED**: `chats` 2, `user_assets` 1, `user_memory` 1, `user_autoreply` 1
+— and `autoreply_log`, `orchestrator_plan`, `video_editor_plan`,
+`storage_reservations`, all already empty (0 each, run for completeness).
+
+**ROWS KEPT, EACH FOR A CHECKED REASON:**
+- **`gen_charges` (84)** — the media side's charge ledger, with `refund_charge`
+  live over it. The owner's instruction is *leave the membership and the credits
+  how they are*, and this is money history: deleting it destroys the record of
+  what customers were charged. Named here rather than quietly swept.
+- **`usage_log` (185)** — **STILL LIVE, and this is the find worth writing
+  down.** It reads as a media-era counter and is not: `use_quota` is called from
+  `worker.js`, and `kind = 'sitelinks'` holds 113 rows with the newest at
+  **2026-09-11 17:40Z**, the day before this. It is the BUILDER's quota.
+- **`user_plan` (2)** — the membership tier. `credits` (11), `purchases` (7),
+  `credit_events` (126) — the ledger. All explicitly out of scope.
+
+**WHAT IS LEFT OPEN, deliberately**: the 108 site-builder uploads (162 MB). They
+are the builder's, they are provably unserved, and ten of their eleven owners have
+no site — so they are almost certainly orphans and the owner's call, not this
+step's.
 
 **AND THE HARNESS THAT PROVES A SITE STILL COMPILES HAD NOT RUN SINCE STAGE 1
 (found while reading CI after this push).** `site-build.yml`'s `paths` filter
