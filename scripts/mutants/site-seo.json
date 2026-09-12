@@ -264,5 +264,29 @@
     ],
     "from": "// SEO & social — what the site says about itself WHERE IT IS NOT THE SITE: the",
     "to": "// SEO & social — what the site says about itself where it is not the site: the"
+  },
+  {
+    "label": "THE DEFECT ITSELF — the site zone off img-src, so every share-card preview draws a broken image and says nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  \"img-src 'self' data: blob: https://*.supabase.co https://*.\" + SITE_ZONE,",
+    "to": "  \"img-src 'self' data: blob: https://*.supabase.co\","
+  },
+  {
+    "label": "img-src hardcodes the zone instead of deriving it, so the policy and the address can drift apart",
+    "files": [
+      "worker.js"
+    ],
+    "from": "https://*.supabase.co https://*.\" + SITE_ZONE,",
+    "to": "https://*.supabase.co https://*.gofarther.dev\","
+  },
+  {
+    "label": "connect-src is widened with it — the app gains a fetch grant nothing asked for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  \"connect-src 'self' data: blob: https://*.supabase.co\",",
+    "to": "  \"connect-src 'self' data: blob: https://*.supabase.co https://*.\" + SITE_ZONE,"
   }
 ]

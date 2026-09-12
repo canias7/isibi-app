@@ -925,7 +925,34 @@ const CSP = [
   //
   // `data:` and `blob:` stay on img-src: a drawn favicon or wordmark is inlined
   // as a data URI, and the preview builds Blob URLs.
-  "img-src 'self' data: blob: https://*.supabase.co",
+  //
+  // AND `https://*.` + SITE_ZONE IS ON IT SINCE 2026-09-12, found LIVE by the
+  // owner's screenshot of a broken share-card preview in the SEO tab. That
+  // panel is the FIRST thing in the app to put a site's own origin in front of
+  // the app's browser: `siteOgImage` answers the composed card as
+  // `https://<slug>.` + SITE_ZONE + `/card.png`, because that URL is what goes
+  // into `og:image` and is right there — and the app's own page then could not
+  // load it. MEASURED: the card serves 200 image/png 45,617 bytes; the refusal
+  // was entirely this directive. **A CSP refusal on an `<img>` renders the
+  // broken-image glyph and nothing else** — no error the panel can catch, no
+  // console line the owner would look for, which is why only a screenshot of
+  // the real app found it.
+  //
+  // THERE IS NO SAME-ORIGIN PATH, asked rather than assumed: `/u/<slug>/…`
+  // serves UPLOADS and 404s for the card, and `/s/<slug>/card.png` 301s to the
+  // site origin, which an `<img>` follows straight back into the same refusal.
+  //
+  // IT IS THE SMALLER GRANT, not a widening of the trust boundary: every host
+  // under SITE_ZONE is a site THIS PLATFORM built and serves, and `frame-src`
+  // twelve lines up already admits exactly that wildcard for the preview panel
+  // — so the app already runs those origins' SCRIPTS in a frame, and an image
+  // is strictly less capable than that. Derived from SITE_ZONE for the reason
+  // the frame-src line gives: the two must not drift.
+  //
+  // `connect-src` IS DELIBERATELY NOT WIDENED. Nothing fetches a site's bytes
+  // from the app — the panel only DISPLAYS the picture — so the tighter answer
+  // costs nothing here and is the one to keep.
+  "img-src 'self' data: blob: https://*.supabase.co https://*." + SITE_ZONE,
   "connect-src 'self' data: blob: https://*.supabase.co",
 ].join("; ");
 

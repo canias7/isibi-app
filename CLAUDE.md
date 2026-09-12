@@ -2526,6 +2526,54 @@ case now, and it is safe on walls that already existed.
   and a hung image step on a deploy that was 87 seconds old. **`date` is the
   cheap check and it settled it**; the recorded stale-snapshot trap is real and
   this was not it.
+  **AND THE OWNER'S FIRST SCREENSHOT OF THE LIVE TAB FOUND A DEFECT NO GUARD
+  HERE COULD HAVE (`hebden-bike-repair`): THE SHARE-CARD PREVIEW DREW A BROKEN
+  IMAGE.** The card served perfectly — **200 `image/png`, 45,617 bytes**,
+  measured — and the APP's own `img-src` refused it, because **this panel is the
+  first thing in the app to put a SITE's own origin in front of the app's
+  browser**: `siteOgImage` answers the composed card as
+  `https://<slug>.` + SITE_ZONE + `/card.png`, which is right for `og:image` and
+  cross-origin for a page on `gofarther.dev`.
+  **A CSP REFUSAL ON AN `<img>` IS SILENT** — the broken glyph and nothing else,
+  no error the panel can catch and no failed request it can see. No markup
+  assertion and no does-the-rule-exist check could find it, **and my own
+  headless render could not either: its fixture used a `data:` URI for the card,
+  and `data:` has always been on `img-src`.** The recorded "a fixture in a
+  different shape from reality", where the fixture was more permissive than
+  reality **by exactly the thing that broke** — the screenshot rule earning its
+  place for the second time on one panel.
+  **THE FIX IS ONE TOKEN AND IT IS THE SMALLER GRANT, not a widened trust
+  boundary.** `https://*." + SITE_ZONE` joins the app's `img-src`, derived the
+  way `frame-src` twelve lines above already derives the SAME wildcard for the
+  preview panel — **so the app already runs those origins' SCRIPTS in a frame,
+  and an image is strictly less capable than that.** Every host under that zone
+  is a site this platform built and serves.
+  **THERE IS NO SAME-ORIGIN PATH, asked rather than assumed**: `/u/<slug>/…`
+  serves UPLOADS and **404s** for the card, and `/s/<slug>/card.png` **301s** to
+  the site origin, which an `<img>` follows straight back into the same refusal.
+  **`connect-src` IS DELIBERATELY NOT WIDENED** — the panel DISPLAYS the picture
+  and never fetches its bytes — and **the PUBLISHED SITE's CSP is untouched**: a
+  customer's site has no business loading another site's images. The two
+  `img-src` lines are byte-identical (the recorded ambiguous-anchor trap), so
+  both regions were read before either was edited.
+  **The census did not move and did not need to**: it requires every non-`self`
+  host to be named by something the app serves, and `chat.js` (×3) and
+  `site-list.js` (×1) already name the site zone — a genuine claimant, not an
+  exemption.
+  **Guard: DRIVEN against a real URL from its real producer, never a spelling.**
+  `siteOrigin(slug, APP_ZONE) + "/card.png"` matched against the directive read
+  out of the Worker with its `+ SITE_ZONE` resolved, one-label wildcard
+  matching, an alive-observer control (`evil.example.com` refused,
+  `a.b.<zone>` refused), and `connect-src` asserted NOT to carry the zone.
+  **Proven RED then GREEN by putting the old policy back.**
+  **Sweep re-run: 34 mutants, 34 killed, 0 survived, 0 never applied, 2
+  comment-only controls survived.** One survived the first pass and it was my
+  guard's own regex: it captured `"(connect-src[^"]*)"` — only what is INSIDE
+  the quotes — so a mutant appending `+ SITE_ZONE` put the grant outside the
+  capture and the absence check passed over a real widening. **One reader for
+  both directives now**, because the trailing `+ CONST` is part of a directive
+  and two copies of that rule is how one keeps the old blind spot.
+  **Suite 6,127.**
 
 ---
 

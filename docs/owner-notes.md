@@ -239,6 +239,32 @@ site's real title, description and picture.
    refuses to let this session press it. If you want the belt-and-braces run,
    it is `site build` under Actions.
 
+**AND YOUR SCREENSHOT FOUND A REAL BUG — the share-card picture was broken.**
+Thank you for sending it; nothing I have could have caught it.
+
+The picture itself was **completely fine** — I fetched it directly and it came
+back as a proper 45 KB PNG. What went wrong is that the browser **refused to
+display it**, because of a security rule the app sets for itself: it lists which
+places pictures are allowed to come from, and your *sites'* addresses
+(`<name>.gofarther.app`) were not on that list. The app had never needed them
+before — this tab is the first thing in the whole app that shows you a picture
+that lives on your site rather than on ours.
+
+**A refusal like that is completely silent.** No error, no message, nothing the
+panel can detect — just the broken-picture icon. That is why it took you
+opening it on a real site to find.
+
+**The fix is one word added to that list**, and it is a *smaller* permission
+than one the app already gives: it already loads your whole site, running, in
+the Preview panel. Letting it show a picture from the same place is less than
+that, not more. I checked there was no way to avoid it first — the card only
+exists on your site's own address, and the two other paths I tried both dead-end.
+
+I also left the equivalent rule on *your published sites* completely alone. Your
+site has no business loading another site's images, and it still cannot.
+
+This is deploying now. When it lands, the card will appear in that preview.
+
 ---
 
 ## 2026-09-12 — The writing across the Hebden Bike Repair hero: fixed

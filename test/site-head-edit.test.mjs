@@ -35,6 +35,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { siteMetaKey } from "../site-meta.mjs";
 import { uploadIsImage } from "../site-uploads.mjs";
+import { siteOrigin, APP_ZONE, SITE_ZONE } from "../site-domains.mjs";
 import {
   MAX_HEAD_DESCRIPTION, GOOD_DESCRIPTION,
   cleanHeadDescription, describeLength, pickableImages, headAnswer,
@@ -547,6 +548,67 @@ test("every class the panel writes is painted, and the mockup's own rules went w
   // an empty file.
   assert.ok(SHEET.includes(".st-inp "), ".st-inp went with the mockup, taking the read-only title box's look");
   assert.match(PANEL, /class="st-inp st-seo-ro"/, "the title box stopped using the field look");
+});
+
+test("the app's own policy ADMITS the picture the panel shows — driven against a real URL", () => {
+  // FOUND LIVE BY THE OWNER'S SCREENSHOT, 2026-09-12, on the first real site
+  // this tab was opened on: the share-card preview drew the broken-image glyph.
+  // The card served perfectly (200 image/png, 45,617 bytes); the app's `img-src`
+  // refused it, because this panel is the FIRST thing in the app to put a SITE's
+  // own origin in front of the app's browser.
+  //
+  // **A CSP REFUSAL ON AN `<img>` IS SILENT** — the broken glyph and nothing
+  // else: no error the panel can catch and no failed request it can see. So
+  // neither a markup assertion nor a "does the rule exist" check can find this
+  // class, and my own headless render could not either: its fixture used a
+  // `data:` URI for the card, and `data:` has always been on `img-src`. **The
+  // recorded "a fixture in a different shape from reality", where the fixture
+  // was more permissive than reality by exactly the thing that broke.**
+  //
+  // So this drives a REAL URL from its REAL producer against the REAL policy.
+  const cardUrl = siteOrigin("hebden-bike-repair", "https://" + APP_ZONE) + "/card.png";
+  assert.match(cardUrl, /^https:\/\/[^/]+\/card\.png$/, "the card URL's producer changed shape — rescope this guard");
+  const host = new URL(cardUrl).host;
+  assert.notEqual(host, APP_ZONE, "the card is same-origin now, so this guard is testing nothing");
+
+  // The app's img-src, with the `+ SITE_ZONE` interpolation resolved the way the
+  // Worker resolves it. Read as text because several directives interpolate real
+  // bindings, which is the same reason `media-deleted` reads it as text.
+  const arr = /const CSP = \[([\s\S]*?)\n\]\.join\("; "\);/.exec(WORKER);
+  assert.ok(arr, "the app CSP array is gone or has been reshaped");
+  // ONE READER FOR BOTH DIRECTIVES, and a sweep survivor is why. The first draft
+  // captured `"(img-src[^"]*)"` — only what is INSIDE the quotes — so a mutant
+  // that appended `https://*." + SITE_ZONE` to connect-src put the grant OUTSIDE
+  // the capture and the absence check below passed over a real widening. The
+  // trailing `+ CONST` is part of the directive and has to be read as part of it;
+  // two copies of that rule is how one of them keeps the old blind spot.
+  const directive = (name) => {
+    const m = new RegExp('"(' + name + '[^"]*)"((?:\\s*\\+\\s*[A-Z_]+)*)').exec(arr[1]);
+    assert.ok(m, name + " is gone from the app CSP");
+    return m[1] + m[2].replace(/\s*\+\s*SITE_ZONE/g, SITE_ZONE).replace(/\s*\+\s*APP_ZONE/g, APP_ZONE);
+  };
+  const imgSrc = directive("img-src");
+  assert.ok(imgSrc.includes("'self'"), "img-src stopped naming 'self' — this reader is not reading the directive");
+
+  // A one-label wildcard, matched the way a browser matches it.
+  const admits = (h) => imgSrc.split(/\s+/).some((tok) => {
+    const m = /^https:\/\/(\*\.)?(.+)$/.exec(tok);
+    if (!m) return false;
+    return m[1] ? h.endsWith("." + m[2]) && h.slice(0, -(m[2].length + 1)).indexOf(".") < 0 : h === m[2];
+  });
+  assert.ok(admits(host),
+    `the panel shows ${cardUrl} and img-src refuses it — the browser draws a broken image and says nothing.\n  img-src is: ${imgSrc}`);
+  // THE OBSERVER IS ALIVE: a host the policy has no business admitting is
+  // refused, or the matcher above says yes to everything and proves nothing.
+  assert.ok(!admits("evil.example.com"), "the CSP matcher admits anything — it cannot answer the question above");
+  assert.ok(!admits("a.b." + SITE_ZONE), "the wildcard is matching more than one label deep");
+
+  // AND `connect-src` IS NOT WIDENED WITH IT. The panel DISPLAYS the picture and
+  // never fetches its bytes, so the tighter answer costs nothing — and the two
+  // directives sitting next to each other is exactly how the looser one gets
+  // copied onto the stricter by habit.
+  assert.ok(!directive("connect-src").includes(SITE_ZONE),
+    "connect-src was widened to the site zone too; nothing in the app fetches a site's bytes");
 });
 
 test("the preview text is allowed to BREAK, by value — a rule can be present and useless", () => {
