@@ -1010,6 +1010,61 @@ and **inside each one, the real directory tree.**
   file and asks the table for it: **18 names asked for, 0 missing**, measured
   before it shipped. One mutant never applied: its anchor spelled `“` where
   the source carries the character itself.
+- **A MENU ON EVERY FILE ROW, AND THE "READ ONLY" PILL IS GONE (2026-09-12,
+  owner: *"add the ... menu on each row"* / *"delete the thing that says read
+  only"*).** The last item from Lovable's explorer, and the pill this panel had
+  carried since the Code tab became real.
+  - **THREE ENTRIES, BECAUSE THE PANEL DOES NOT WRITE** — `Copy path`,
+    `Copy contents`, `Download` (`ST_ROW_ACTS`, and the menu is DERIVED from it).
+    Rename, delete and new-file are what an editor's row menu holds and each
+    would be a control promising what the Code tab cannot do; the customer
+    changes their site by asking in the chat. `Download` repeats the bar's button
+    deliberately: the bar downloads the file that is OPEN, this one the row you
+    are pointing at, without opening it.
+  - **THE HANDLE IS ON FILES AND ON NO FOLDER.** Every entry acts on one file's
+    BYTES — its path, its contents, its download — and a folder has none, so a
+    handle there opens a menu with nothing in it that works. A menu is the
+    easiest place in the app to hide a dead control.
+  - **THE ROW IS A WRAPPER AROUND TWO BUTTONS, and that is forced, not tidiness.**
+    A `<button>` inside a `<button>` is invalid and browsers recover by HOISTING
+    the inner one out — the handle would land beside the row on its own line,
+    firing the wrong handler. `--d` stays on the FILE button: moved up to the
+    wrapper it indents the handle with the name and pushes it off a deep row.
+    The knock-on is silent and was caught by hand: `.st-file` stopped being a
+    SIBLING of the next group heading, so `.st-file + .st-code-h` matched nothing
+    and every group after the first ran into the files above it.
+  - **ONE MENU FOR THE WHOLE TREE**, moved to whichever row asked. Twenty-eight
+    rows would otherwise carry twenty-eight hidden menus and a second place for
+    the open state to live. `position: fixed` off the handle's own rect (the
+    210px column scrolls, so anything else is clipped by the one box it must
+    escape), flipped up when there is no room below, and DISMISSED on that scroll
+    rather than left pointing at a different file — `closeApInfo`'s own reasoning
+    one panel over, and the failure here would be copying the wrong file.
+  - **`stRowMenuAct` TAKES ITS DEPS**, so what each entry reads is drivable
+    without a clipboard or a disk. Copy path copies the FULL path (it is what you
+    paste into an import); copy contents copies the WHOLE file, never the pane's
+    120,000-character clip; download saves under the BASENAME. A file it cannot
+    find does nothing and says nothing, and an empty one is said rather than
+    "copied".
+  - **THE PILL WENT AND THE BEHAVIOUR DID NOT.** The panel is still read-only —
+    the guard asserts the `<pre>` and the absence of any editor beside the
+    absence of the label, because an absence check over a bar that stopped being
+    drawn would pass by accident.
+  **THE RENDER CAUGHT A DEFECT NO GUARD WOULD HAVE**: the menu painted with
+  `var(--panel)`, which is `rgba(51,49,61,0.055)` — a surface on the media side's
+  dark chrome and 5.5% ink on this cream paper, so the tree rows read straight
+  through it and both sets of words fought. `var(--bg)` and a heavier shadow.
+  That is the screenshot rule earning its place: it is the only instrument that
+  sees it, and it saw it before the merge.
+  **Sweep: 24 mutants, 24 killed, none survived, none unapplied, both
+  comment-only controls survived — three survived the first pass and every one
+  was a guard gap**: the handle announced as the whole PATH (nothing read the
+  label's contents, so a screen reader got the folder chain on every row), the
+  opacity above, and — for the second time in one night — a SUBSTRING observer:
+  `assert.ok(html.includes("st-code-bar"))` is satisfied by `st-code-bar2`, so
+  the check meant to prove the bar was still there passed over a panel that had
+  lost it. Both instances are in this file's markup now: assert `class="x"` with
+  its quote, never the bare name.
 - **A SHARED FILE MUST BE ONE THE REPOSITORY HAS, and the guard asks GIT rather
   than the filesystem.** `src/routeTree.gen.ts` was in the list: TanStack
   regenerates it per build, the template's own `.gitignore` names it, and
@@ -2784,9 +2839,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 6,048 (2026-09-12, the project-root census, the template
+  The unit suite is 6,053 (2026-09-12, the project-root census, the template
   name guard, the preview-error channel, the code tree's icons and sort, and
-  the search box; 86.4 s local).
+  the search box, the tree column's width and the row menu; 86.4 s local).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a

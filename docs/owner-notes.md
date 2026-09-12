@@ -5800,3 +5800,44 @@ The only instrument that sees it is actually rendering the thing and measuring,
 which is what found it and what proves it.
 
 Tests green at 6,048. Sweep 3 of 3, including the bug itself as one of them.
+
+## The row menu, and the READ ONLY pill is gone (12 Sept)
+
+Both asks, in one change. That's the last thing from Lovable's screenshot.
+
+**The pill is deleted.** No argument — you asked, it's gone. Worth saying that
+nothing about the panel changed, only the label: you still can't type in a file
+there, you change your site by asking in the chat. The bar is just the filename
+and Download now.
+
+**Each file row has a `...` when you point at it.** Three things in it:
+
+- **Copy path** — the whole path, because that's what you'd paste into an import.
+- **Copy contents** — the whole file. The pane on the right only draws the first
+  120,000 characters so a huge file can't lock the tab; the copy doesn't do that,
+  or it'd be quietly handing you a file with the end missing.
+- **Download** — the row you're pointing at, without having to open it first.
+  (The bar's Download is for the file that's already open.)
+
+**Folders don't get one,** deliberately. Everything in that menu is about one
+file's contents, and a folder hasn't got any — so a `...` there would open a menu
+where nothing works. That's the dead-control thing we keep finding; a menu is the
+easiest place in the app to hide one.
+
+**Nothing in it writes.** Rename, delete, new file are what you'd find in an
+editor's row menu and each would be a button promising something this panel
+can't do.
+
+**One thing the screenshot caught that no test would have.** My first version
+painted the menu with the same background the model picker on the media side
+uses. That colour is almost fully transparent — it works over there because the
+chrome behind it is dark, and over here on the cream it's basically a window: you
+could read the file tree straight through the menu, both sets of words on top of
+each other. Rendering it is the only way to see that, and it's why every UI change
+here gets a picture before it gets merged.
+
+Tests green at 6,053. Sweep 24 of 24 — three survived the first pass and all
+three were my tests', not the code's. One of them was the same mistake I made an
+hour earlier: I checked for the text "st-code-bar" to prove the toolbar was still
+there, and "st-code-bar2" contains "st-code-bar", so the check would have passed
+over a toolbar that had been renamed away. Both are fixed and written down.

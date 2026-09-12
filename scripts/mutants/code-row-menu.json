@@ -1,0 +1,160 @@
+[
+  {
+    "label": "THE STATE BEFORE THIS — no handle on any row, so the menu is unreachable",
+    "files": ["public/chat.js"],
+    "from": "    out += '<button type=\"button\" class=\"st-file-more\" data-srcmore=\"' + esc(f.name) + '\"'",
+    "to": "    out += '' + ('<button type=\"button\" class=\"st-file-more\" data-srcmore=\"' + esc(f.name) + '\"'"
+  },
+  {
+    "label": "the file row loses its wrapper, so the handle nests in the file button and the browser hoists it out",
+    "files": ["public/chat.js"],
+    "from": "    out += '<div class=\"st-file-row\">';",
+    "to": "    out += '';"
+  },
+  {
+    "label": "`--d` moves onto the wrapper, indenting the handle with the name and pushing it off a deep row",
+    "files": ["public/chat.js"],
+    "from": "    out += '<div class=\"st-file-row\">';",
+    "to": "    out += '<div class=\"st-file-row\"' + (depth ? ' style=\"--d:' + depth + '\"' : '') + '>';"
+  },
+  {
+    "label": "the handle is named for the whole path, so a screen reader is read the folder chain on every row",
+    "files": ["public/chat.js"],
+    "from": " aria-label=\"More for ' + esc(f.base) + '\">' + ic('more', 14) + '</button>';",
+    "to": " aria-label=\"More for ' + esc(f.name) + '\">' + ic('more', 14) + '</button>';"
+  },
+  {
+    "label": "a handle is given to FOLDERS too — a menu over bytes a folder does not have",
+    "files": ["public/chat.js"],
+    "from": "    out += stFoldRow(key, step.label, stDirCount(step.node), shown, depth, 'st-code-d');",
+    "to": "    out += stFoldRow(key, step.label, stDirCount(step.node), shown, depth, 'st-code-d') + '<button type=\"button\" class=\"st-file-more\" data-srcmore=\"' + esc(path) + '\"></button>';"
+  },
+  {
+    "label": "COPY PATH copies the basename, so what you paste is not what you import",
+    "files": ["public/chat.js"],
+    "from": "  if (act === 'path') { if (d.copy) d.copy(file.name); return 'Path copied \u2014 ' + file.name; }",
+    "to": "  if (act === 'path') { if (d.copy) d.copy(base); return 'Path copied \u2014 ' + file.name; }"
+  },
+  {
+    "label": "COPY CONTENTS copies what the pane SHOWS — clipped at 120,000 characters, so a long file loses its end",
+    "files": ["public/chat.js"],
+    "from": "    const text = typeof file.text === 'string' ? file.text : '';",
+    "to": "    const text = typeof file.text === 'string' ? file.text.slice(0, 120000) : '';"
+  },
+  {
+    "label": "an EMPTY file is copied under a success sentence rather than said",
+    "files": ["public/chat.js"],
+    "from": "    if (!text) return 'Nothing to copy \u2014 ' + base + ' is empty.';",
+    "to": "    if (false) return 'Nothing to copy \u2014 ' + base + ' is empty.';"
+  },
+  {
+    "label": "DOWNLOAD saves under the full path instead of the basename",
+    "files": ["public/chat.js"],
+    "from": "  if (act === 'file') { if (d.save) d.save(String(file.text == null ? '' : file.text), base); return ''; }",
+    "to": "  if (act === 'file') { if (d.save) d.save(String(file.text == null ? '' : file.text), file.name); return ''; }"
+  },
+  {
+    "label": "a file that is not there is acted on anyway — copying the empty string under a 'copied' toast",
+    "files": ["public/chat.js"],
+    "from": "  if (!file || !file.name) return '';",
+    "to": "  if (false) return '';"
+  },
+  {
+    "label": "the menu's decision reaches the disk itself instead of through the dep it is handed, which also makes it undrivable",
+    "files": ["public/chat.js"],
+    "from": "  if (act === 'file') { if (d.save) d.save(String(file.text == null ? '' : file.text), base); return ''; }",
+    "to": "  if (act === 'file') { stSaveBlob(new Blob([String(file.text == null ? '' : file.text)]), base); return ''; }"
+  },
+  {
+    "label": "the menu is drawn once per ROW rather than once per tree — every row a hidden menu, and a second place for the open state",
+    "files": ["public/chat.js"],
+    "from": "  '</div>' + stRowMenuHtml();",
+    "to": "  '</div>';"
+  },
+  {
+    "label": "the menu entries are hardcoded rather than derived, so the list and the menu can disagree",
+    "files": ["public/chat.js"],
+    "from": "    ST_ROW_ACTS.map((a) => '<button type=\"button\" class=\"st-row-item\" role=\"menuitem\" data-act=\"' + a[0] + '\">' +",
+    "to": "    ST_ROW_ACTS.slice(0, 2).map((a) => '<button type=\"button\" class=\"st-row-item\" role=\"menuitem\" data-act=\"' + a[0] + '\">' +"
+  },
+  {
+    "label": "the menu offers a Rename the read-only panel cannot do",
+    "files": ["public/chat.js"],
+    "from": "  ['file', 'Download', 'download'],\n];",
+    "to": "  ['file', 'Download', 'download'],\n  ['rename', 'Rename', 'code'],\n];"
+  },
+  {
+    "label": "the entries are not announced as a menu",
+    "files": ["public/chat.js"],
+    "from": "class=\"st-row-item\" role=\"menuitem\" data-act=\"'",
+    "to": "class=\"st-row-item\" data-act=\"'"
+  },
+  {
+    "label": "THE READ ONLY PILL COMES BACK — the thing the owner asked to delete",
+    "files": ["public/chat.js"],
+    "from": "      '<div class=\"st-code-bar\"><span class=\"st-code-fname\">' + esc(open.name) + '</span>' +",
+    "to": "      '<div class=\"st-code-bar\"><span class=\"st-code-fname\">' + esc(open.name) + '</span><span class=\"st-code-ro\">Read only</span>' +"
+  },
+  {
+    "label": "the whole bar goes with the pill, so the open file is no longer named",
+    "files": ["public/chat.js"],
+    "from": "      '<div class=\"st-code-bar\"><span class=\"st-code-fname\">' + esc(open.name) + '</span>' +",
+    "to": "      '<div class=\"st-code-bar2\"><span class=\"st-code-fname2\">' + esc(open.name) + '</span>' +"
+  },
+  {
+    "label": "the handle is on every row all the time rather than on hover",
+    "files": ["public/styles.css"],
+    "from": ".st-file-more { display: none;",
+    "to": ".st-file-more { display: flex;"
+  },
+  {
+    "label": "the handle is unreachable by keyboard — it cannot be focused while it is display:none",
+    "files": ["public/styles.css"],
+    "from": ".st-file-row:hover .st-file-more, .st-file-row:focus-within .st-file-more, .st-file-more[aria-expanded=\"true\"] { display: flex; }",
+    "to": ".st-file-row:hover .st-file-more { display: flex; }"
+  },
+  {
+    "label": "the menu is positioned inside the 210px column, where the tree's own scroll clips it",
+    "files": ["public/styles.css"],
+    "from": ".st-row-menu { position: fixed;",
+    "to": ".st-row-menu { position: absolute;"
+  },
+  {
+    "label": "THE DEFECT THE RENDER CAUGHT — the menu paints with --panel, 5.5% ink on cream, and the rows read through it",
+    "files": ["public/styles.css"],
+    "from": "border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.22); }",
+    "to": "border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.22); background: var(--panel); }"
+  },
+  {
+    "label": "the group heading after a file loses its air — the spacing rule still names a sibling the wrapper replaced",
+    "files": ["public/styles.css"],
+    "from": ".st-code-h + .st-code-h, .st-file-row + .st-code-h { margin-top: .5rem; }",
+    "to": ".st-code-h + .st-code-h, .st-file + .st-code-h { margin-top: .5rem; }"
+  },
+  {
+    "label": "the name no longer takes the row's width, so the handle wraps to its own line",
+    "files": ["public/styles.css"],
+    "from": ".st-file-row > .st-file { flex: 1; min-width: 0; }",
+    "to": ".st-file-row > .st-file { min-width: 0; }"
+  },
+  {
+    "label": "a glyph the menu asks for is dropped from the icon table — the handle draws an empty svg",
+    "files": ["public/chat.js"],
+    "from": "  more: '<circle cx=\"5.5\" cy=\"12\" r=\"1.5\" fill=\"currentColor\"/><circle cx=\"12\" cy=\"12\" r=\"1.5\" fill=\"currentColor\"/><circle cx=\"18.5\" cy=\"12\" r=\"1.5\" fill=\"currentColor\"/>',",
+    "to": ""
+  },
+  {
+    "label": "CONTROL: a comment-only change in the file the guards really read, which must survive",
+    "control": true,
+    "files": ["public/chat.js"],
+    "from": "// WHAT THE ROW MENU OFFERS (owner, 2026-09-12: \"add the ... menu on each row\").",
+    "to": "// What the row menu offers (owner, 2026-09-12: \"add the ... menu on each row\")."
+  },
+  {
+    "label": "CONTROL: a comment-only change in the stylesheet, which must survive",
+    "control": true,
+    "files": ["public/styles.css"],
+    "from": "/* THE FILE ROW: the name, and a handle that appears when you point at it.",
+    "to": "/* The file row: the name, and a handle that appears when you point at it."
+  }
+]

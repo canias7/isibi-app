@@ -2696,13 +2696,37 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    read as one long list, which is the thing this tree exists to stop. Both
    spellings, because a folded group puts two headings side by side where an
    open one puts files between them. */
-.st-code-h + .st-code-h, .st-file + .st-code-h { margin-top: .5rem; }
+/* RE-ANCHORED 2026-09-12 when the file row gained its menu handle: a file is
+   wrapped in `.st-file-row` now, so `.st-file` is no longer a SIBLING of the
+   next heading and this rule stopped matching — every group after the first ran
+   straight into the files above it. The property has not moved. */
+.st-code-h + .st-code-h, .st-file-row + .st-code-h { margin-top: .5rem; }
+/* THE FILE ROW: the name, and a handle that appears when you point at it.
+   `:focus-within` is not politeness — without it the handle is unreachable by
+   keyboard, since it cannot be focused while it is `display: none`. */
+.st-file-row { display: flex; align-items: center; }
+.st-file-row > .st-file { flex: 1; min-width: 0; }
+.st-file-more { display: none; flex: none; align-items: center; padding: .2rem .25rem; margin-right: .1rem; color: var(--muted); background: none; border: none; border-radius: 6px; cursor: pointer; }
+.st-file-row:hover .st-file-more, .st-file-row:focus-within .st-file-more, .st-file-more[aria-expanded="true"] { display: flex; }
+.st-file-more:hover, .st-file-more[aria-expanded="true"] { color: var(--text); background: var(--panel-2); }
+/* THE MENU IS `fixed`, placed off the handle's own rect — the tree column is a
+   210px box that scrolls, so a menu positioned inside it would be clipped by the
+   one thing it has to escape. It is dismissed on that scroll rather than left
+   floating over a different row. */
+/* OPAQUE, AND `var(--panel)` IS NOT. The media side's own dropdown paints with
+   `--panel` over dark chrome; here that is `rgba(51,49,61,0.055)` over cream —
+   5.5% ink, so the tree rows underneath read straight through the menu and both
+   sets of words fight. Caught in the render before it shipped, which is the only
+   instrument that sees it. `--bg` is the paper itself, so the menu sits ON the
+   panel rather than in it, and the shadow is what lifts it. */
+.st-row-menu { position: fixed; display: none; z-index: 60; min-width: 170px; padding: .3rem; background: var(--bg); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.22); }
+.st-row-menu.open { display: block; }
+.st-row-item { display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left; font: inherit; font-size: .8rem; color: var(--text); background: none; border: none; border-radius: 8px; padding: .4rem .55rem; cursor: pointer; white-space: nowrap; }
+.st-row-item:hover, .st-row-item:focus-visible { background: var(--panel-2); }
+.st-row-ic { display: flex; color: var(--muted); }
 /* A file the store has and we could not place. Shown rather than dropped, and
    marked so it does not read as an ordinary part of the project. */
 .st-file-lost .st-file-n { font-style: italic; opacity: .75; }
-/* READ ONLY, beside the file name. The panel has never been editable; saying so
-   is what stops a customer wondering whether they may type in it. */
-.st-code-ro { margin-left: auto; margin-right: .6rem; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: .12rem .5rem; }
 /* The one file that is a LAYER rather than the whole thing says so above it. */
 .st-code-note { font-size: .74rem; color: var(--muted); padding: .5rem .8rem; border-bottom: 1px solid var(--line); background: var(--panel); }
 .st-file { display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left; font: inherit; font-size: .82rem; color: var(--muted); background: none; border: none; border-radius: 8px; padding: .45rem .55rem; cursor: pointer; }

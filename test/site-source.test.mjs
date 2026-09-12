@@ -86,6 +86,15 @@ function konst(name, src = BARE) {
   return m[0];
 }
 
+/** A top-level `const NAME = [ … ];` that spans lines, out of a file. */
+function konstBlock(name, close, src = BARE) {
+  const at = src.indexOf("const " + name + " = ");
+  assert.ok(at >= 0, "const " + name + " is gone");
+  const end = src.indexOf("\n" + close, at);
+  assert.ok(end > at, "const " + name + " has no end (" + close + ")");
+  return src.slice(at, end + close.length + 1);
+}
+
 // ── THE ZIP, AGAINST AN IMPLEMENTATION NOBODY HERE WROTE ────────────────────
 
 test("DRIVEN: the zip opens, and every file in it round-trips byte for byte", () => {
@@ -613,12 +622,19 @@ test("DRIVEN: a server that cannot answer is said, and the tab's list is used wh
 function codeHost(bind = () => []) {
   const st = { shell: "", rows: "", said: "", on: false };
   const SLOT = '<div class="st-code-rows"></div>';
+  // THE BINDER UNDERSTANDS `[attr]` AND NOTHING ELSE, so anything compound is
+  // answered with the empty list rather than handed to it. `closeMenu` asks for
+  // `[data-srcmore][aria-expanded="true"]`, which the binder's `slice(1, -1)`
+  // turned into a regular expression that does not compile — and the empty list
+  // is the honest answer here anyway, since nothing in this fake is expanded.
+  const simple = (sel) => /^\[[a-z-]+\]$/.test(sel);
+  const ask = (html, sel) => (simple(sel) ? bind(html, sel) : []);
   const text = (key) => ({
     get innerHTML() { return st[key]; },
     set innerHTML(v) { st[key] = String(v); },
     get textContent() { return st[key]; },
     set textContent(v) { st[key] = String(v); },
-    querySelectorAll: (sel) => bind(st[key], sel),
+    querySelectorAll: (sel) => ask(st[key], sel),
   });
   return {
     get innerHTML() { return st.shell.includes(SLOT) ? st.shell.replace(SLOT, '<div class="st-code-rows">' + st.rows + "</div>") : st.shell; },
@@ -631,7 +647,7 @@ function codeHost(bind = () => []) {
       : sel === ".st-find-said" ? text("said")
       : sel === ".st-code-find" ? { classList: { toggle: (c, v) => { st.on = !!v; } } }
       : null),
-    querySelectorAll: (sel) => bind(st.shell + st.rows, sel),
+    querySelectorAll: (sel) => ask(st.shell + st.rows, sel),
   };
 }
 
@@ -658,6 +674,7 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
   const make = new Function("deps", [
     "const { document, apiFetch, stSrcFiles, stCodeTree, stOpenGroups, esc, ic, stSaveBlob } = deps;",
     "const { stCodeFind, stFindBox, stFindSaid, stFindNone } = deps;",
+    "const { ST_ROW_ACTS, stRowMenuHtml, stRowMenuAct, sbToast } = deps;",
     "let siteCodeFiles = []; let siteCodeOpen = deps.open; let siteCodeOpenGroups = deps.groups;",
     "let siteCodeFind = deps.find;",
     body,
@@ -721,8 +738,10 @@ const TREE = new Function("esc", "ic", "ST_CODE_GROUPS", [
   fn("function stOpenGroups("), fn("function stFoldRow("), fn("function stCodeRows("),
   fn("function stCodeTree("), fn("function stFindBox("), fn("function stFindSaid("),
   fn("function stFindNone("),
+  konstBlock("ST_ROW_ACTS", "];"), fn("function stRowMenuHtml("), fn("function stRowMenuAct("),
   "return { stDirTree, stSortTree, stFileIcon, stCollapse, stDirCount, stOpenGroups, stCodeTree,",
-  "  stCodeFind, stFindBox, stFindSaid, stFindNone, ST_FIND_MAX };",
+  "  stCodeFind, stFindBox, stFindSaid, stFindNone, ST_FIND_MAX,",
+  "  ST_ROW_ACTS, stRowMenuHtml, stRowMenuAct };",
 ].join("\n"))(
   // AND `ic` ECHOES ITS NAME rather than answering "". It used to return the
   // empty string, which was fine while every row asked for the same glyph and
@@ -776,18 +795,35 @@ test("DRIVEN: every way the tab can come up empty says WHICH empty it is", async
   assert.match(noSlug.host.innerHTML, /no address yet/);
 });
 
-test("DRIVEN: the bar says READ ONLY, and a file that needs a sentence gets one", async () => {
-  // TWO SMALL THINGS THE SWEEP FOUND UNGUARDED, and both are a customer being
-  // told something true that nothing was keeping true.
-  //
-  // (1) THE PANEL HAS NEVER BEEN EDITABLE AND NEVER SAID SO, which leaves
-  // somebody clicking into a file wondering whether they may type in it. It is
-  // a label, so it can be deleted without anything failing — which is exactly
-  // why it needs a driver rather than a reading.
+test("DRIVEN: the READ ONLY pill is gone, and a file that needs a sentence gets one", async () => {
+  // (1) THE PILL IS DELETED, ON PURPOSE (owner, 2026-09-12: "delete the thing
+  // that says read only"), and this case is INVERTED rather than removed. It used
+  // to assert the label was drawn, on the reasoning that a panel nobody can type
+  // in should say so; the owner's call is that it was worth less than the space.
+  // The absence is asserted so it cannot drift back in unnoticed, and the two
+  // halves below prove the OBSERVER is alive — a bar that stopped being drawn at
+  // all would satisfy an absence check by accident.
   const a = codeTab({ answer: PAGES(["src/routes/index.tsx"]) });
   await a.t.run(a.site);
-  assert.match(a.host.innerHTML, /class="st-code-ro">Read only</,
-    "the Code tab no longer says it is read only — a customer cannot tell whether they may type in it");
+  // THE CLASSES IN FULL, WITH THEIR QUOTES — a sweep survivor. `st-code-bar` is
+  // a PREFIX of anything starting with it, so a renamed bar satisfied the bare
+  // substring and the observer read as alive over a panel that had lost it. The
+  // same trap as the pill's own check three lines down, met twice in one test.
+  assert.ok(a.host.innerHTML.includes('class="st-code-bar"'), "the bar is gone, so the next assertion is measuring nothing");
+  assert.ok(a.host.innerHTML.includes('class="st-code-fname"'), "the bar no longer names the open file");
+  assert.ok(a.host.innerHTML.includes(">src/routes/index.tsx<"), "the bar draws no filename");
+  // THE CLASS IN FULL, WITH ITS QUOTE. `st-code-ro` is a PREFIX of
+  // `st-code-rows`, the search box's own row list, so the bare substring is in
+  // every draw and this assertion failed on its first run against a panel with
+  // no pill in it — the recorded "prose contains the thing it forbids", in
+  // markup rather than in a comment.
+  assert.ok(!/class="st-code-ro"/.test(a.host.innerHTML), "the READ ONLY pill is back");
+  assert.ok(!/Read only/i.test(a.host.innerHTML), "the bar says read only again by another spelling");
+  // AND NOTHING ABOUT THE PANEL'S BEHAVIOUR MOVED — only the sentence about it.
+  // The code is still drawn into a <pre>, which is not typeable, and no editor
+  // was wired in its place.
+  assert.ok(a.host.innerHTML.includes("st-code-pre"), "the file is no longer drawn as a <pre>");
+  assert.ok(!/contenteditable|<textarea/i.test(a.host.innerHTML), "the panel became editable, which is not what was asked");
 
   // (2) THE NOTE IS COMPUTED BY THE ROUTE AND HAS TO BE SHOWN. The site's
   // `src/styles.css` is the LAYER the build wrote over the template's base, not
@@ -989,8 +1025,16 @@ test("ONE saver, so the two downloads cannot drift", () => {
   // revoke it" is the recorded 'two lists of the same thing', and the half that
   // drifts is the revoke — a leak nobody sees.
   assert.match(BARE, /function stSaveBlob\(blob, filename\)/, "the one saver is gone");
+  // A FLOOR, NOT A COUNT — re-anchored 2026-09-12, not appeased. This read
+  // `=== 3` (the definition and the two downloads) and went red the moment the
+  // row menu added an HONEST third caller, reporting a feature as broken that
+  // was working: the recorded "assert the property, not the spelling", in its
+  // counting form. The property was never how MANY callers there are; it is that
+  // every one of them reaches the disk through this function and none writes its
+  // own blob-click-revoke. The floor keeps the observer alive, and the windows
+  // below are where the real assertion lives.
   const uses = [...BARE.matchAll(/stSaveBlob\(/g)];
-  assert.equal(uses.length, 3, "expected the definition and both downloads; found " + uses.length);
+  assert.ok(uses.length >= 3, "the definition and at least two downloads; found " + uses.length);
   assert.match(fn("function stSaveBlob(blob, filename)"), /revokeObjectURL/, "the blob URL is never revoked");
   // SCOPED TO THE TWO HANDLERS, not the file. The media side mints blob URLs all
   // over `chat.js` for generated images and video, and a whole-file count would
@@ -1004,10 +1048,18 @@ test("ONE saver, so the two downloads cannot drift", () => {
   // property, reaching the disk through the one saver is.
   const tabDl = fn("function drawSiteCode(src)");
   assert.ok(barDl.length > 200 && tabDl.length > 400, "re-derive these two windows");
-  for (const [what, body] of [["the top bar's zip", barDl], ["the tab's per-file download", tabDl]]) {
+  // The row menu's Download is the third, and it reaches the disk the same way —
+  // through the deps handed to `stRowMenuAct`, which is where its `save` comes
+  // from. Windowed on the decision rather than the handler, since the menu's own
+  // function must never touch a blob at all.
+  const rowAct = fn("function stRowMenuAct(act, file, deps)");
+  for (const [what, body] of [["the top bar's zip", barDl], ["the tab's per-file download", tabDl], ["the row menu's download", tabDl]]) {
     assert.ok(!/createObjectURL/.test(body), what + " makes its own blob URL instead of using the saver");
     assert.match(body, /stSaveBlob\(/, what + " no longer reaches the disk through the one saver");
   }
+  assert.ok(!/createObjectURL|stSaveBlob/.test(rowAct),
+    "the row menu's decision reaches the disk itself instead of through the `save` dep it is handed — which also makes it undrivable");
+  assert.match(tabDl, /save: \(t, n\) => stSaveBlob\(/, "the row menu's `save` dep is not the one saver");
 });
 
 test("the Code host fills its stage, and the file tree keeps its scroll", () => {
@@ -2059,4 +2111,176 @@ test("the search box's classes are the ones the sheet paints, and the field is n
   // only one of them scrolls.
   assert.match(CSS, /\.st-code-find \{[^}]*flex: none/, "the search box shrinks as the tree grows");
   assert.match(CSS, /\.st-code-tree \{[^}]*flex-direction: column/, "the column is not a head over a scroller");
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// THE ROW MENU (2026-09-12, owner: "add the ... menu on each row").
+//
+// Three entries, because the panel does not write: rename, delete and new-file
+// would each promise something the Code tab cannot do. Everything it offers acts
+// on ONE file's bytes, which is also why folders have no handle.
+
+test("DRIVEN: each menu entry reads the field it says it does", () => {
+  const { stRowMenuAct } = TREE;
+  const file = { name: "src/routes/-parts/tide-window-chart.tsx", text: "a\nb\nc\n" };
+  const copied = [], saved = [];
+  const deps = { copy: (t) => copied.push(t), save: (t, n) => saved.push([n, t]) };
+
+  // COPY PATH is the FULL path, not the basename — it is what you paste into an
+  // import, and two files can share a basename across folders.
+  assert.match(stRowMenuAct("path", file, deps), /Path copied/);
+  assert.deepEqual(copied, [file.name], "copy path copied something other than the path");
+
+  // COPY CONTENTS is the WHOLE file. The pane clips at 120,000 characters so a
+  // megabyte cannot lock the tab; a copy that silently lost the end would be the
+  // lying instrument the clip exists to avoid, one control over.
+  copied.length = 0;
+  assert.match(stRowMenuAct("text", file, deps), /Copied tide-window-chart\.tsx — 4 lines/);
+  assert.deepEqual(copied, [file.text], "copy contents copied something other than the file's own text");
+  const big = { name: "a.tsx", text: "x".repeat(200000) };
+  stRowMenuAct("text", big, deps);
+  assert.equal(copied[1].length, 200000, "the copy was clipped to what the pane shows");
+
+  // DOWNLOAD hands the saver the bytes and the BASENAME — a file called
+  // `src/routes/index.tsx` must not try to reach the disk as a path.
+  assert.equal(stRowMenuAct("file", file, deps), "", "download toasted, where the browser's own download bar says it");
+  assert.deepEqual(saved, [["tide-window-chart.tsx", file.text]], "download saved the wrong name or the wrong bytes");
+
+  // A FILE IT CANNOT FIND DOES NOTHING AND SAYS NOTHING, rather than copying the
+  // empty string under a "copied" toast — this app's own "doing less than was
+  // asked while saying it was done".
+  copied.length = 0; saved.length = 0;
+  for (const missing of [null, undefined, {}, { text: "x" }]) {
+    assert.equal(stRowMenuAct("path", missing, deps), "", "a nameless file was acted on");
+    assert.equal(stRowMenuAct("text", missing, deps), "");
+  }
+  assert.deepEqual(copied, [], "something was copied for a file that is not there");
+  assert.deepEqual(saved, [], "something was saved for a file that is not there");
+  // AN EMPTY FILE IS SAID, not silently "copied".
+  assert.match(stRowMenuAct("text", { name: "e.txt", text: "" }, deps), /Nothing to copy/);
+  assert.deepEqual(copied, [], "an empty file was copied under a success sentence");
+  // AN ENTRY NOBODY DEFINED DOES NOTHING.
+  assert.equal(stRowMenuAct("rename", file, deps), "", "an unknown action did something");
+  // AND IT NEVER REACHES A CLIPBOARD OR A DISK ITSELF — the deps are the whole
+  // of its access, which is what makes it drivable at all.
+  assert.doesNotThrow(() => stRowMenuAct("path", file, {}), "the decision needs its deps to exist");
+  assert.doesNotThrow(() => stRowMenuAct("file", file, {}));
+});
+
+test("DERIVED: the menu draws one entry per action, and every glyph is one the table has", () => {
+  const { stRowMenuHtml, ST_ROW_ACTS } = TREE;
+  const html = stRowMenuHtml();
+  assert.ok(ST_ROW_ACTS.length >= 3, "only " + ST_ROW_ACTS.length + " actions — this check is measuring nothing");
+  assert.equal([...html.matchAll(/data-act="/g)].length, ST_ROW_ACTS.length,
+    "the menu and its list disagree about how many entries there are");
+  for (const [act, label, icon] of ST_ROW_ACTS) {
+    assert.ok(html.includes('data-act="' + act + '"'), act + " is in the list and not in the menu");
+    assert.ok(html.includes(label), act + " draws no words");
+    assert.ok(html.includes('data-ic="' + icon + '"'), act + " draws no glyph");
+  }
+  // NOTHING HERE WRITES. The entries are read-only by construction and the panel
+  // has no editor behind them; a Rename or Delete would be a control promising
+  // what the Code tab cannot do.
+  assert.ok(!/Rename|Delete|New file/i.test(html), "the menu offers something the read-only panel cannot do");
+  assert.match(html, /role="menu"/, "the menu is not announced as one");
+  assert.equal([...html.matchAll(/role="menuitem"/g)].length, ST_ROW_ACTS.length, "the entries are not announced as menu items");
+});
+
+test("DRIVEN: the handle is on every file and on no folder", () => {
+  const { stCodeTree, stOpenGroups } = TREE;
+  const html = stCodeTree(TREE_FILES, "src/routes/index.tsx",
+    new Set(TREE_FILES.flatMap((f) => [...stOpenGroups(TREE_FILES, f.name, null)])));
+  const fileRows = rows(html, "st-file");
+  assert.ok(fileRows.length >= 3, "only " + fileRows.length + " file rows — this check is measuring nothing");
+  assert.equal([...html.matchAll(/data-srcmore="/g)].length, fileRows.length,
+    "the handle count does not match the file count — a file has none, or a folder has one");
+  // EVERY HANDLE NAMES ITS OWN FILE, so the menu cannot open on the wrong one and
+  // a screen reader is not read a column of identical "More" buttons.
+  for (const m of html.matchAll(/data-srcname="([^"]+)"/g)) {
+    assert.ok(html.includes('data-srcmore="' + m[1] + '"'), m[1] + " has a row and no handle");
+  }
+  assert.ok(!/data-srcfold="[^"]*"[^>]*data-srcmore/.test(html), "a folder was given a handle over bytes it does not have");
+  // AND THE SPOKEN NAME IS THE ONE ON THE ROW — the basename, not the path. A
+  // sweep survivor: nothing read the label's contents, so "More for
+  // src/routes/-parts/tide-window-chart.tsx" passed, which is the folder chain
+  // read aloud on every row of a deep tree.
+  for (const m of html.matchAll(/data-srcmore="([^"]+)"[^>]*aria-label="More for ([^"]+)"/g)) {
+    assert.equal(m[2], m[1].split("/").pop(), "the handle is announced as the whole path rather than the name on the row");
+  }
+  assert.ok([...html.matchAll(/aria-label="More for /g)].length === fileRows.length, "a handle has no spoken name at all");
+  const folder = html.slice(html.indexOf('data-srcfold="page/src/routes"'));
+  assert.ok(!folder.slice(0, folder.indexOf("</button>")).includes("data-srcmore"), "the folder row carries a handle");
+  // THE WRAPPER IS REAL AND `--d` STAYED ON THE FILE BUTTON. A `<button>` inside
+  // a `<button>` is invalid and browsers HOIST the inner one out, so the two have
+  // to be siblings; and the depth variable moving up would indent the handle with
+  // the name and push it off a deep row.
+  assert.ok(html.includes('<div class="st-file-row">'), "the row is not a wrapper, so the handle nests in the file button");
+  assert.match(html, /<div class="st-file-row"><button type="button" class="st-file[^"]*"[^>]*style="--d:/,
+    "`--d` is no longer on the file button");
+  assert.ok(!/<div class="st-file-row"[^>]*style="--d:/.test(html), "the depth moved onto the wrapper");
+});
+
+test("DRIVEN THROUGH THE TAB: the handle opens one menu, and it shuts again", async () => {
+  const clicks = new Map();
+  const a = codeTab({
+    answer: { ok: true, pages: [{ path: "src/routes/index.tsx", source: "// a\n" }, { path: "src/routes/menu.tsx", source: "// b\n" }] },
+    open: "src/routes/index.tsx",
+    bind: (html, sel) => {
+      const attr = sel.slice(1, -1);
+      return [...String(html).matchAll(attr + '="([^"]*)"')].map(() => ({}));
+    },
+  });
+  await a.t.run(a.site);
+  // THE MENU IS RENDERED ONCE FOR THE WHOLE TREE, outside the scrolling row list:
+  // twenty-eight rows would otherwise carry twenty-eight hidden menus and a
+  // second place for the open state to live.
+  const shell = a.host.innerHTML.slice(0, a.host.innerHTML.indexOf('<div class="st-code-rows">'));
+  assert.equal([...a.host.innerHTML.matchAll(/id="stRowMenu"/g)].length, 1, "there is not exactly one menu");
+  assert.ok(shell.includes('id="stRowMenu"') || a.host.innerHTML.indexOf('id="stRowMenu"') > a.host.innerHTML.indexOf("</div>"),
+    "the menu is inside the row list, where every keystroke in the search box rebuilds it");
+  // AND IT IS DRAWN SHUT. A menu that comes up open is one nobody asked for.
+  assert.ok(!/id="stRowMenu"[^>]*class="[^"]*open/.test(a.host.innerHTML), "the menu is drawn already open");
+  assert.match(a.host.innerHTML, /data-srcmore="src\/routes\/menu\.tsx"[^>]*aria-expanded="false"/,
+    "a handle does not say whether its menu is open");
+});
+
+test("the row menu's classes are the ones the sheet paints, and the handle hides until you point at it", () => {
+  const html = TREE.stRowMenuHtml() + TREE.stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["page", "page/src/routes"]));
+  for (const cls of ["st-file-row", "st-file-more", "st-row-menu", "st-row-item", "st-row-ic"]) {
+    assert.ok(html.includes(cls), "nothing draws a " + cls);
+    assert.match(CSS, new RegExp("\\." + cls + "[ .:{,]"), "the sheet paints no " + cls);
+  }
+  // HIDDEN UNTIL HOVER, AND REACHABLE BY KEYBOARD. `:focus-within` is not
+  // politeness — a handle that is `display: none` cannot be focused at all, so
+  // without it the menu is mouse-only.
+  assert.match(CSS, /\.st-file-more \{[^}]*display: none/, "the handle is on every row all the time");
+  assert.match(CSS, /\.st-file-row:hover \.st-file-more[^{]*\{[^}]*display: flex/, "the handle never appears");
+  assert.match(CSS, /:focus-within \.st-file-more/, "the handle cannot be reached by keyboard");
+  // THE MENU ESCAPES THE 210px COLUMN. It is placed off the handle's rect, and
+  // the column scrolls — anything but `fixed` is clipped by the one box it has
+  // to get out of.
+  assert.match(CSS, /\.st-row-menu \{[^}]*position: fixed/, "the menu is clipped by the tree column");
+  assert.match(CSS, /\.st-row-menu\.open \{[^}]*display: block/, "the menu never opens");
+  assert.ok(!/\.st-row-menu \{[^}]*display: block/.test(CSS), "the menu is drawn open by default");
+  // AND IT IS OPAQUE — a sweep survivor, and the defect the render caught before
+  // this shipped. `--panel` is `rgba(51,49,61,0.055)`: 5.5% ink, which reads as a
+  // surface on the media side's dark chrome and as nothing at all on cream, so
+  // the tree rows underneath show straight through the menu and both sets of
+  // words fight. Asserted as ONE background declaration that is the paper, since
+  // a second one appended after it is what the sweep did and what a later edit
+  // borrowing the other dropdown's styling would do.
+  const menuRule = CSS.slice(CSS.indexOf(".st-row-menu {"), CSS.indexOf("}", CSS.indexOf(".st-row-menu {")));
+  assert.ok(menuRule.includes(".st-row-menu {"), "the menu rule is gone");
+  assert.equal([...menuRule.matchAll(/background:/g)].length, 1, "the menu has two backgrounds — the later one wins and may be see-through");
+  assert.match(menuRule, /background: var\(--bg\)/, "the menu no longer paints on the paper, so the tree reads through it");
+  assert.ok(!/background: var\(--panel/.test(menuRule), "the menu paints with a translucent token and the rows show through it");
+  // THE ROW IS A FLEX PAIR, so the name takes the space and the handle sits at
+  // the end rather than wrapping to its own line.
+  assert.match(CSS, /\.st-file-row \{[^}]*display: flex/, "the row is not a flex pair");
+  assert.match(CSS, /\.st-file-row > \.st-file \{[^}]*flex: 1/, "the name does not take the row's width");
+  // AND THE HEADING SPACING FOLLOWED THE WRAPPER. `.st-file` is no longer a
+  // sibling of the next group heading; pinned here because nothing about the
+  // markup can see a rule that quietly stopped matching.
+  assert.match(CSS, /\.st-file-row \+ \.st-code-h/, "a group heading after files runs straight into them");
+  assert.ok(!/\.st-file \+ \.st-code-h/.test(CSS), "the spacing rule still names a sibling that no longer exists");
 });

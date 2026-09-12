@@ -11224,6 +11224,11 @@ const ST_ICONS = {
   // not the job — this is the only x in the set and the next thing that needs one
   // will not be a search box.
   x: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+  // THE ROW MENU'S HANDLE (owner, 2026-09-12: "add the ... menu on each row").
+  // Three dots, FILLED — at 14px a stroked circle of r=1.4 is a ring with a hole
+  // and the trio reads as dotted-i's. `ic()` stamps `fill="none"` on the <svg>,
+  // so each circle carries its own paint.
+  more: '<circle cx="5.5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="18.5" cy="12" r="1.5" fill="currentColor"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
 // THE TWO PLATFORM MARKS (owner, 2026-09-08: "instead of the names, the names
@@ -11580,6 +11585,17 @@ function stCodeRows(node, keyBase, prefix, depth, open, openName) {
     if (shown) out += stCodeRows(step.node, keyBase, path + '/', depth + 1, open, openName);
   }
   for (const f of node.files) {
+    // THE ROW IS A WRAPPER AROUND TWO BUTTONS, and the wrapper is not decoration:
+    // a `<button>` inside a `<button>` is invalid HTML, and browsers recover from
+    // it by hoisting the inner one OUT — so the menu handle nested in the file
+    // row would land beside it as a sibling of the row instead, taking its own
+    // line and firing the wrong handler. Two siblings under one hover target is
+    // the only shape that works.
+    //
+    // `--d` STAYS ON THE FILE BUTTON, not the wrapper: `.st-code-d, .st-file`
+    // carries the depth padding, and moving the variable up would indent the
+    // menu handle along with the name and push it off a deep row.
+    out += '<div class="st-file-row">';
     // THE ROW CARRIES ITS OWN NAME AND THE FULL PATH. The name is what the reader
     // sees, since the folders above it carry the rest; `data-srcname` is the full
     // one, because that is what the click handler looks a file up by and two
@@ -11595,6 +11611,18 @@ function stCodeRows(node, keyBase, prefix, depth, open, openName) {
       // literal, so raising the ceiling cannot leave the label saying the old one.
       (f.hits ? '<span class="st-file-hits">' + (f.hits > ST_FIND_MAX ? ST_FIND_MAX + '+' : f.hits) + '</span>' : '') +
       '</button>';
+    // THE HANDLE IS ON FILES AND NOT ON FOLDERS, deliberately. Every action it
+    // offers is about one file's bytes — its path, its contents, its download —
+    // and a folder has none of those, so a handle there would open a menu with
+    // nothing in it that works. That is this app's own dead-control finding, and
+    // a menu is the easiest place in the world to hide one.
+    //
+    // NAMED FOR THE FILE, because a row of identical "More" buttons down a tree
+    // is unreadable to anything that cannot see the screen.
+    out += '<button type="button" class="st-file-more" data-srcmore="' + esc(f.name) + '"' +
+      ' aria-haspopup="menu" aria-expanded="false" title="More for ' + esc(f.base) + '"' +
+      ' aria-label="More for ' + esc(f.base) + '">' + ic('more', 14) + '</button>';
+    out += '</div>';
   }
   return out;
 }
@@ -11657,6 +11685,63 @@ function stFindBox(q) {
 function stFindSaid(found) {
   if (!found || !found.on) return '';
   return found.shown + ' of ' + found.total + (found.total === 1 ? ' file' : ' files');
+}
+// WHAT THE ROW MENU OFFERS (owner, 2026-09-12: "add the ... menu on each row").
+//
+// THREE THINGS, AND THE LIST IS SHORT BECAUSE THE PANEL DOES NOT WRITE. Rename,
+// delete and new-file are what a menu like this holds in an editor; here they
+// would each be a control that promises something the Code tab cannot do — the
+// customer changes their site by asking in the chat. Every entry acts on ONE
+// file's bytes, which is also why folders have no handle.
+//
+// `Download` REPEATS THE BAR'S BUTTON ON PURPOSE and is not a duplicate control:
+// the bar downloads the file that is OPEN, and this downloads the row you are
+// pointing at, without opening it first.
+const ST_ROW_ACTS = [
+  ['path', 'Copy path', 'code'],
+  ['text', 'Copy contents', 'doc'],
+  ['file', 'Download', 'download'],
+];
+// ONE MENU FOR THE WHOLE TREE, moved to whichever row asked for it. Twenty-eight
+// rows would otherwise carry twenty-eight hidden menus, and only one can ever be
+// open — the extra twenty-seven are markup nobody reads and a second place for
+// the open state to live.
+function stRowMenuHtml() {
+  return '<div class="st-row-menu" id="stRowMenu" role="menu" aria-label="File actions">' +
+    ST_ROW_ACTS.map((a) => '<button type="button" class="st-row-item" role="menuitem" data-act="' + a[0] + '">' +
+      '<span class="st-row-ic">' + ic(a[2], 13) + '</span>' + esc(a[1]) + '</button>').join('') +
+  '</div>';
+}
+/**
+ * What one entry DOES, and the answer is the sentence to toast.
+ *
+ * THE DEPS ARE HANDED IN so this is drivable without a clipboard or a disk —
+ * `navigator.clipboard` rejects in a headless context and `stSaveBlob` reaches
+ * for `document`, so a decision written inline would be a decision no test can
+ * ask. The route the value takes (which field of the file each entry reads) is
+ * the part worth guarding, and it is all here.
+ *
+ * A FILE IT CANNOT FIND ANSWERS NOTHING rather than copying the empty string: a
+ * toast saying "copied" over an empty clipboard is this app's own "doing less
+ * than was asked while saying it was done".
+ */
+function stRowMenuAct(act, file, deps) {
+  const d = deps || {};
+  if (!file || !file.name) return '';
+  const base = String(file.name).split('/').pop();
+  if (act === 'path') { if (d.copy) d.copy(file.name); return 'Path copied — ' + file.name; }
+  if (act === 'text') {
+    // THE WHOLE FILE, never the clipped `<pre>`. The pane shows the first
+    // 120,000 characters so a megabyte cannot lock the tab; a copy that quietly
+    // lost the end of a page would be the lying instrument the clip exists to
+    // avoid, one control over.
+    const text = typeof file.text === 'string' ? file.text : '';
+    if (!text) return 'Nothing to copy — ' + base + ' is empty.';
+    if (d.copy) d.copy(text);
+    return 'Copied ' + base + ' — ' + text.split('\n').length + ' lines';
+  }
+  if (act === 'file') { if (d.save) d.save(String(file.text == null ? '' : file.text), base); return ''; }
+  return '';
 }
 // NOTHING MATCHED IS A SENTENCE NAMING THE QUERY, never an empty column. An empty
 // tree is indistinguishable from a project whose files are gone, and this panel
@@ -11887,16 +11972,32 @@ function drawSiteCode(src) {
   host.innerHTML = '<div class="st-code">' +
     '<div class="st-code-tree">' + stFindBox(siteCodeFind) + '<div class="st-code-rows"></div></div>' +
     '<div class="st-code-main">' +
+      // THE "READ ONLY" PILL IS GONE (owner, 2026-09-12: "delete the thing that
+      // says read only"). It was added because the panel has never been editable
+      // and never said so; the owner's call is that the label was worth less than
+      // the space and the noise it cost. The panel is still read-only — nothing
+      // about the behaviour moved, only the sentence about it.
       '<div class="st-code-bar"><span class="st-code-fname">' + esc(open.name) + '</span>' +
-      // READ ONLY, SAID OUT LOUD. The panel has never been editable and never
-      // said so, which leaves a customer clicking into a file wondering whether
-      // they may type in it. A label costs nothing and answers it.
-      '<span class="st-code-ro">Read only</span>' +
       '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this file">' + ic('download', 14) + ' Download</button></div>' +
       (open.note ? '<div class="st-code-note">' + esc(open.note) + '</div>' : '') +
       '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
     '</div>' +
-  '</div>';
+  '</div>' + stRowMenuHtml();
+  // THE MENU IS A SIBLING OF THE EDITOR, not a child of the scrolling row list.
+  // It is `position: fixed` off the handle's own rect, so a menu written inside
+  // `.st-code-rows` would still escape that box — but it would be REMOVED and
+  // rebuilt by every keystroke in the search box, which is the one thing that
+  // happens while a menu can be open.
+  const menu = host.querySelector('#stRowMenu');
+  // WHICH FILE THE OPEN MENU IS POINTED AT — a name, never the file object, for
+  // the same reason the open file is kept by name: a rebuild replaces every entry
+  // in `files`, and a held object would go on answering for a row that is gone.
+  let menuFor = '';
+  const closeMenu = () => {
+    menuFor = '';
+    if (menu) menu.classList.remove('open');
+    host.querySelectorAll('[data-srcmore][aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  };
   // ONE PLACE BUILDS THE TREE AND BINDS ITS ROWS, called on the first paint and
   // again on every keystroke in the search box. Two copies would be "two lists of
   // the same thing" with the rows' own handlers inside them, and the failure is a
@@ -11912,7 +12013,26 @@ function drawSiteCode(src) {
       : '<div class="st-find-none">' + esc(stFindNone(siteCodeFind)) + '</div>';
     if (said) said.textContent = stFindSaid(found);
     if (box) box.classList.toggle('on', found.on);
-    rows.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });
+    rows.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { closeMenu(); siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });
+    // THE HANDLE OPENS THE ONE MENU AT ITS OWN ROW. `stopPropagation` is what
+    // keeps it from ALSO opening the file underneath — the two buttons sit in one
+    // row and the document's close handler is listening on the way back up.
+    rows.querySelectorAll('[data-srcmore]').forEach((b) => b.onclick = (e) => {
+      e.stopPropagation();
+      const was = b.getAttribute('aria-expanded') === 'true';
+      closeMenu();
+      if (was || !menu) return;                       // a second press shuts it
+      menuFor = b.dataset.srcmore;
+      b.setAttribute('aria-expanded', 'true');
+      // POSITIONED OFF THE HANDLE'S OWN RECT, and flipped up when there is not
+      // room below — a menu on the last row of a long tree would otherwise open
+      // past the bottom of the panel with its entries unreachable.
+      const r = b.getBoundingClientRect();
+      const h = ST_ROW_ACTS.length * 30 + 12;
+      menu.style.left = Math.max(8, Math.min(r.left - 150, window.innerWidth - 190)) + 'px';
+      menu.style.top = (r.bottom + h > window.innerHeight ? Math.max(8, r.top - h) : r.bottom + 4) + 'px';
+      menu.classList.add('open');
+    });
     // A FOLD IS MATERIALISED BEFORE IT IS CHANGED. The first click has no stored
     // choice to toggle, so it takes the derived default as its starting point —
     // which is what keeps the chain holding the open file open after the customer
@@ -11958,6 +12078,35 @@ function drawSiteCode(src) {
   if (clear && find) clear.onclick = () => { find.value = ''; siteCodeFind = ''; paintTree(); find.focus(); };
   const one = document.getElementById('stCodeDl');
   if (one) one.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());
+
+  // THE MENU'S OWN WIRING, bound once per draw rather than per row — the entries
+  // never change, only which file they are pointed at.
+  if (menu) {
+    menu.onclick = (e) => e.stopPropagation();
+    menu.querySelectorAll('[data-act]').forEach((it) => it.onclick = () => {
+      // LOOKED UP FROM THE WHOLE PROJECT BY NAME, at the moment it is pressed.
+      // Closing over the file object would hand back whatever the tree held when
+      // the menu was drawn, and a rebuild between the two is an ordinary thing.
+      const f = files.find((x) => x.name === menuFor);
+      const said = stRowMenuAct(it.dataset.act, f, {
+        copy: (t) => { try { navigator.clipboard.writeText(t); } catch (err) {} },
+        save: (t, n) => stSaveBlob(new Blob([t], { type: 'text/plain' }), n),
+      });
+      closeMenu();
+      if (said && typeof sbToast === 'function') sbToast(said);
+    });
+    // DISMISSED RATHER THAN LEFT FLOATING. It is `position: fixed` off a row's
+    // rect, so a tree that scrolls underneath it leaves the menu pointing at a
+    // different file than the one it was opened on — `closeApInfo`'s own
+    // reasoning, one panel over, and the failure here would be copying the
+    // wrong file's contents.
+    if (rows) rows.addEventListener('scroll', closeMenu);
+    host.addEventListener('click', closeMenu);
+    // ESCAPE SHUTS IT AND STOPS THERE, so it does not also close the workspace
+    // behind it — the search box's own rule, for the document handler that is
+    // listening for exactly this key.
+    menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(); } });
+  }
 }
 // ONE SAVER, so the two downloads cannot drift on how a file reaches the disk.
 function stSaveBlob(blob, filename) {
