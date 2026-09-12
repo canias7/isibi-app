@@ -6079,3 +6079,18 @@ up twice and both times someone had to remember it. There's a test for it now,
 and I proved it catches the mistake before shipping it.
 
 Tests 6,072 green. Sweep 13 of 13, both controls survived.
+
+**Both CI runs came back green on that commit.** The normal test suite in 2m26s,
+and the big build test — the one that compiles a real site in a real container,
+which is the only thing here that proves a site can still be built — **382 of
+382, 0 failed**, 17m36s.
+
+That last number is worth one line: it had been sitting in my notes as "382"
+from a local run three days ago, nothing had re-checked it, and when something
+finally did it came back **381 and one red** — a stale hardcoded number inside
+the test itself, not a real fault. This is the first run where the count and the
+colour agree and neither of them is from my machine. So the site builder still
+builds, with the game code gone.
+
+The normal suite went 6,078 → 6,072, which is what a deletion looks like: the
+game's own tests came out (fourteen) and the two new guards went in (eight).

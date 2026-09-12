@@ -3090,22 +3090,31 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 382/382, RE-MEASURED LOCALLY 2026-09-12** — and the
-  re-measure is why it is trustworthy today. The 382 was stamped on 2026-09-09
-  from a local run and nothing re-read it for three days; the line then said
-  "the next CI run of this workflow is what re-reads the number", and what
-  actually re-read it was this one, which came back **381 passed, 1 failed**.
-  The failure was the harness's own hardcoded fan-out ceiling, not the product
-  (the trap entry has it): the count was right and the run was red, and a count
-  nobody re-measured is a claim ahead of its evidence in BOTH directions.
-  Before that, CI had read `373 passed, 0 failed` on runs 1065 and 1066 once
-  the cap moved to 35 minutes.
-  The unit suite is 6,078 (2026-09-12, the project-root census, the template
-  name guard, the preview-error channel, the code tree's icons and sort, the
-  search box, the tree column's width, the row menu, the click twitch, the
-  scrollbar gutter, the kit closure, the derived harness ceiling and the phone
-  tile's containment; 86.6 s
-  local).
+- **`site build` is 382/382, AND CI HAS NOW READ IT — run 1114, 2026-09-12
+  08:25:23Z, `382 passed, 0 failed`** on the game deletion's own push, 17m36s
+  for the harness step inside a 24m11s job. That is the number closing its own
+  loop: it was stamped on 2026-09-09 from a LOCAL run and nothing re-read it for
+  three days; the line then said "the next CI run of this workflow is what
+  re-reads the number", and what actually re-read it first came back **381
+  passed, 1 failed** — the harness's own hardcoded fan-out ceiling, not the
+  product (the trap entry has it). So the count was right and the run was red,
+  and **a count nobody re-measured is a claim ahead of its evidence in BOTH
+  directions**; this is the first run where the count and the colour agree and
+  neither is local. Before that, CI had read `373 passed, 0 failed` on runs 1065
+  and 1066 once the cap moved to 35 minutes. The other nine integration steps on
+  the same run: 4 / 16 / 11 / 29 / 14 / 47, all 0 failed.
+  The unit suite is **6,072** (2026-09-12, 87.4 s local; CI run 2473 green in
+  2m26s) — **DOWN from 6,078, and the subtraction is the point**: the game
+  deletion retired its cases (ten at once when `test/dockerfile.test.mjs`'s
+  `SERVICES` lost its second entry, plus four in `api-auth`, `build-lane` and
+  `client-routes`) and added eight (the DO-migration census and the
+  free-identifier walker). A falling count is the ordinary shape of a deletion
+  and is only honest when the arithmetic is written down beside it. Before
+  those, the count rose through the project-root census, the template name
+  guard, the preview-error channel, the code tree's icons and sort, the search
+  box, the tree column's width, the row menu, the click twitch, the scrollbar
+  gutter, the kit closure, the derived harness ceiling and the phone tile's
+  containment.
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
