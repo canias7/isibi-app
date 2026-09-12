@@ -206,8 +206,38 @@ Hebden Bridge" — is a real feature and a good one. It needs the site to carry
 two names instead of one. Say the word and it is a small job; it is written down
 either way.
 
-**Not live yet.** It needs the next deploy, and that deploy rolls the build
-container, so the usual 15–20 minute wait applies before firing anything at it.
+**IT IS LIVE.** Merged and deployed at 22:50 tonight, green in under three
+minutes. Open Cloud → SEO & social on any of your sites and it will read that
+site's real title, description and picture.
+
+**What I checked after it went out**, so "it works" is not just my word:
+
+- The two files your browser downloads — `chat.js` and `styles.css` — are
+  **byte-for-byte identical** to what I wrote. Not "looks right": the same
+  checksum.
+- The mockup's three false lines are **gone from the served file**, checked
+  properly. (My first check said they were still there; that was my check
+  being wrong, not the app — my own code comments *describe* those three lines
+  while explaining why they were deleted, and a plain search cannot tell a
+  comment from the real thing. Re-checked ignoring comments: all gone.)
+- The new save route is **live and locked to you**: asking for it without
+  signing in is refused, and a made-up address beside it is a plain
+  not-found — which is how you can tell the route really exists rather than
+  quietly doing nothing.
+- The build container rolled at 22:50, so **anything you fire at a site before
+  about 23:10 may still run the old code**. After that it is all the new one.
+
+**Two things I could NOT test from here, plainly:**
+
+1. **A real save, signed in as you.** The route only answers the site's owner,
+   and I have no session of yours — by design, and it is the right design.
+   Eleven automated cases drive the whole route including the write, but the
+   last mile is you opening the tab and changing a description. **That is the
+   one thing worth doing**, and it costs nothing: no credits, no rebuild, and
+   it is live on your site in seconds.
+2. **The full site-build harness.** It is a manual button now and GitHub
+   refuses to let this session press it. If you want the belt-and-braces run,
+   it is `site build` under Actions.
 
 ---
 

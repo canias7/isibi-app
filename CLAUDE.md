@@ -2493,9 +2493,39 @@ case now, and it is safe on walls that already existed.
   to hold two routes and every assertion in it went on passing over a region twice
   the size it describes. It closes on its next sibling now.
   **Suite 6,126** (6,100 before; 26 new cases).
-  **Not proven live** — the deploy is the precondition. It touches `worker.js` and
-  a new root module, so the image rebuilds and the container rolls: the 15–20
-  minute hold applies.
+  **MERGED AND LIVE — deploy 2104, 2026-09-12 22:47:21→22:50:12Z, green in
+  2m51s.** The image BUILT (step 2m01s, `7e7…605009e70…6…` →
+  `8…4407b60d…c…9…d`) and the container `EDIT`ed at **22:50:00Z**, so the
+  15–20 minute hold ran to ~23:05–23:10Z; the drain found no live leases and the
+  gate was left to expire on success. Wrangler uploaded exactly **two** assets,
+  `chat.js` and `styles.css`, which is the whole of what `public/` changed.
+  **READ BACK OFF THE SERVED FILES, sha256 against the source: both IDENTICAL**
+  (`chat.js` fda79922ac66312e, `styles.css` d78e238230e82d88) — which is a
+  stronger answer than any needle and is the one to reach for first.
+  **AND THE ROUTE IS PROVEN MATCHED AND GATED WITHOUT A TOKEN**: `/api/site/
+  fretwork-1/seo` answers **401**, `/share` beside it **401**, and a made-up
+  `/nope-not-a-route` **404** — a path the Worker does not match falls to
+  `env.ASSETS` and 404s, so **401-against-404 is the free discriminator** that
+  says a new owner-gated route is really wired. Worth reaching for on every
+  owner-gated route from now on.
+  **WHAT IS STILL NOT PROVEN, named rather than glossed**: a real AUTHENTICATED
+  round trip (the route is owner-gated by design, and no session token exists
+  here — the eleven driven cases through `worker.fetch` are what stands in), and
+  the container harness, whose **`workflow_dispatch` is refused for this
+  session's GitHub integration with a 403** — the recorded 2026-09-03
+  limitation. It is a button the owner can press.
+  **AND TWO OF MY OWN INSTRUMENTS WERE WRONG BEFORE THE PRODUCT WAS — both
+  recorded traps, both mine.** (1) The live check grepped the served files RAW
+  for the mockup's three claims and the five deleted rules, and read `1` for
+  nearly all of them: **my own comments in `chat.js` and `styles.css` name every
+  one of them while explaining the deletion** — "prose contains the thing it
+  forbids", in a live check this time, where the unit guard beside it had
+  blanked comments for exactly this reason since its second run. Re-run over
+  blanked served source: every one 0. (2) Polling the deploy, I read my own poll
+  SPACING as elapsed time and was one sentence from reporting a frozen snapshot
+  and a hung image step on a deploy that was 87 seconds old. **`date` is the
+  cheap check and it settled it**; the recorded stale-snapshot trap is real and
+  this was not it.
 
 ---
 
