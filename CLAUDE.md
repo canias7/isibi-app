@@ -4072,6 +4072,9 @@ byte-identical, so it changes nothing where the engine behaves. 6/6 killed,
 control survived. The general shape: **when a size depends on a resolution
 engines get wrong, bound it on both axes AND clip the parent** — a design that is
 only correct while every engine agrees is a design with no floor.
+**PROVEN LIVE the same hour** (deploy 2100, owner: *"it works now"*) — first
+report to first fix, with no second round, because the owner's screenshot
+carried the arithmetic that named the mechanism. The scrollbar took three.
 
 **A CSS RULE CAN BE CORRECT AND STILL LOSE (2026-09-11).** `padding-left` written
 above a `.st-file { padding: … }` shorthand loses on source order alone, at equal

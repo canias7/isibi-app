@@ -6018,3 +6018,14 @@ and after at five widths, every box identical.
 **Reload the laptop and it should be right.** Nothing for you to do beyond that.
 
 Tests 6,078 green. Sweep 6 of 6, control survived.
+
+**You confirmed it: "it works now".** One report, one fix, no second round —
+which is the difference your screenshot made. The slabs' size in that picture was
+the measurement that told me what was wrong; without it I'd have been guessing at
+browser versions.
+
+One habit worth keeping from this: my own check that the fix had reached the live
+site nearly told me "done" while the deploy was still running, because the text I
+searched for also appears in an unrelated rule further up the file. Two other
+reads in the same command disagreed with it, which is the only reason I noticed.
+Written down so the next one doesn't get through.
