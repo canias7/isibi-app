@@ -206,7 +206,15 @@ section "THE JOB RUNS INSIDE THE SITE'S CONTAINER"), so a push that changes
 as a change to the Dockerfile, `.dockerignore`, `lovable/template/` or
 `theme-candidates/` always did. What still reuses the image: a push that
 touches only `docs/`, `test/`, `scripts/`, `public/`, `supabase/` or the
-workflows. After any code push, wait **15–20 minutes** before firing
+workflows.
+**AND SOME OF THOSE DO NOT DEPLOY AT ALL — `deploy.yml` carries a
+`paths-ignore`** (`**.md`, `docs/**`, `LICENSE`, `test/**`, `scripts/**`), so a
+push touching only those produces **NO RUN**, not a fast one. Proven on
+`024005de` (CLAUDE.md + owner-notes, 2026-09-12): no deploy run exists for it,
+by design. Look that up before hunting a missing deploy or blaming the API's
+stale snapshot — a `public/`-only push DOES deploy, since `public/` is served.
+**THE ROLL IS DECIDED BY THE WHOLE PUSH, NEVER BY ITS TIP COMMIT** — the trap
+below has the instance and the two honest ways to ask. After any code push, wait **15–20 minutes** before firing
 container work that must run the new code (an instance started seconds after
 "deploy completed" is still on the previous image). Between 2026-09-04 and
 2026-09-05 a Worker-only push rolled nothing; that property was traded for
@@ -3509,6 +3517,33 @@ the warm new instance and passed. Both refunded correctly, both reported as
 **The deploy rule above says "a push that touches `builder/`"; it is every
 push.** Never push while a live run is in flight, and after any push wait
 15–20 minutes before firing anything that needs the container.
+**AND THAT ENTRY'S OWN PREMISE HAS SINCE EXPIRED — corrected in place rather
+than left standing (2026-09-12).** `deploy.yml` gained a `paths-ignore` on
+2026-09-03 naming `**.md`, `docs/**`, `LICENSE`, `test/**` and `scripts/**`, so
+the two pushes that caused the damage above would not deploy at all today. What
+survives is the half that is still law: **every push the filter does not catch
+rolls the container**, and that has nothing to do with `builder/`.
+
+**A COMMIT SAYS WHAT A COMMIT CHANGED; THE DEPLOY FIRES ON THE PUSH
+(2026-09-12, written into two commit messages the same night).** The tip two
+commits of one push each ended "no image input moves, so nothing rolls" — TRUE
+of each commit read alone, and false about the deploy they triggered, because
+the three commits UNDER them had moved `worker.js`, the `Dockerfile` and five
+builder modules. Deploy 2090's log settles it: `built
+isibi-app-sitebuildcontainer:6…b7cabe28d…f48a (registry answered 404; 172
+inputs off ./Dockerfile)`, then `EDIT isibi-app-sitebuildcontainer`,
+`f779f569…7b…8667` → `6…b7cabe28d…f48a`, `SUCCESS Modified application`,
+**applied 23:58:22Z** — so the hold ran to ~00:13–00:18Z on a push whose last
+two commit messages both said nothing would roll. The game image `reused`
+(registry answered 200) and its app `no changes`, which is the control: the
+skip logic was working perfectly and the CLAIM was the wrong one.
+**This is the recorded merge-diffstat trap wearing its other face**: that one
+is a diff against the wrong BASE, this one is a diff over the wrong RANGE. Both
+answer a question about a push by reading one commit. **The roll question has
+exactly two honest answers**: `git diff --name-only <what main had>..<what you
+pushed>` before the push, and the deploy's own image step after it. A per-commit
+"nothing rolls" line is fine as a note about that commit and must never be read
+as the hold being off.
 
 **A CHECK THAT ASKS THE FILESYSTEM IS ASKING THE WRONG THING (2026-09-11, found
 by a RED CI run).** `fs.existsSync` said a file was there and git had never heard

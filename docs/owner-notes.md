@@ -5539,3 +5539,34 @@ All of it is still in git if anything is ever needed back.
 Tests green at 6,025.
 
 Still on your desk: the 19 credits from the two failed builds.
+
+---
+
+### Reading the deploy after the merge (2026-09-12)
+
+Checked both pushes landed properly. They did, but I got one thing wrong in a
+commit message and want it written down rather than left sitting there.
+
+**Everything is green.** Tests passed on all three pushes (runs 2450, 2451,
+2452). The code merge deployed in 3m13s and everything came up fine.
+
+**The thing I got wrong.** The last two commits each end with "nothing rolls" —
+meaning the build container doesn't need restarting, so you don't have to wait
+before making a site. That's true of those two commits on their own. It's wrong
+about the push, because the three commits underneath them changed files the
+container is built from. The container *did* restart, at 23:58:22, so the usual
+15–20 minute wait did apply.
+
+Nothing went wrong because of it — nobody built a site in that window. But if
+someone had read that commit and fired a build straight after, they'd have got
+the old code and no warning. So the correction is in CLAUDE.md now, with the
+rule: **the restart question is about the whole push, never about the last
+commit in it.** There are exactly two honest ways to ask — compare against what
+main had before you pushed, or read the deploy log afterwards.
+
+**One other thing worth knowing, now written down.** A push that only changes
+notes and docs doesn't deploy at all — it produces no run whatsoever, by design,
+so nothing is wasted. I spent a few minutes hunting for a "missing" deploy
+before finding that out. It's in CLAUDE.md now so nobody repeats it.
+
+Still on your desk: the 19 credits from the two failed builds.
