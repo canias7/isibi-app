@@ -1,0 +1,118 @@
+[
+  {
+    "label": "the tree goes back to five trees under five headings, so the project is cut into categories again",
+    "files": ["public/chat.js"],
+    "from": "  return stCodeRows(stDirTree(list), '', 0, open, openName);",
+    "to": "  let out = '';\n  for (const g of ST_FILE_KINDS) {\n    const mine = list.filter((f) => f.kind === g[0]);\n    if (!mine.length) continue;\n    const shown = open.has(g[0]);\n    out += stFoldRow(g[0], g[1], mine.length, shown, 0);\n    if (shown) out += stCodeRows(stDirTree(mine), '', 1, open, openName);\n  }\n  return out;"
+  },
+  {
+    "label": "the tree is built from one KIND's files rather than the project, so four fifths of it disappears",
+    "files": ["public/chat.js"],
+    "from": "  return stCodeRows(stDirTree(list), '', 0, open, openName);",
+    "to": "  return stCodeRows(stDirTree(list.filter((f) => f.kind === 'page')), '', 0, open, openName);"
+  },
+  {
+    "label": "the default-open chain is walked over one kind's files again, so the folder holding the open file is drawn shut",
+    "files": ["public/chat.js"],
+    "from": "  let at = stDirTree(list);\n  let prefix = '';\n  const segs = String(holds.name).split('/');",
+    "to": "  let at = stDirTree(list.filter((f) => f.kind === holds.kind));\n  let prefix = '';\n  const segs = String(holds.name).split('/');"
+  },
+  {
+    "label": "a folder's fold key carries its kind again, so the keys the renderer draws and the keys the default derives no longer meet",
+    "files": ["public/chat.js"],
+    "from": "    const path = prefix + step.label;\n    const shown = open.has(path);",
+    "to": "    const path = prefix + step.label;\n    const shown = open.has('page/' + path);"
+  },
+  {
+    "label": "the default chain's key carries a prefix the renderer does not, so the first draw opens nothing",
+    "files": ["public/chat.js"],
+    "from": "    const path = prefix + step.label;\n    keys.add(path);",
+    "to": "    const path = prefix + step.label;\n    keys.add('page/' + path);"
+  },
+  {
+    "label": "the chain walk advances one segment at a time, so a folder below a COLLAPSED chain is never opened",
+    "files": ["public/chat.js"],
+    "from": "    i += step.label.split('/').length;\n    prefix = path + '/';\n    at = step.node;",
+    "to": "    i += 1;\n    prefix = path + '/';\n    at = step.node;"
+  },
+  {
+    "label": "a stored fold set is no longer taken wholesale, so a customer who folded every folder gets one re-opened on the next click for ever",
+    "files": ["public/chat.js"],
+    "from": "function stOpenFolders(files, openName, chosen) {\n  if (chosen instanceof Set) return chosen;",
+    "to": "function stOpenFolders(files, openName, chosen) {\n  if (chosen instanceof Set && chosen.size) return chosen;"
+  },
+  {
+    "label": "the customer's own files stop being drawn in their own ink, so a directory tree says nothing about whose file a row is",
+    "files": ["public/chat.js"],
+    "from": "      (kind.own ? ' st-file-own' : '') + (f.unplaced ? ' st-file-lost' : '') +",
+    "to": "      (f.unplaced ? ' st-file-lost' : '') +"
+  },
+  {
+    "label": "every file reads as the customer's own, so `router.tsx` is drawn as though this site's build wrote it",
+    "files": ["public/chat.js"],
+    "from": "  return { label: row ? row[1] : '', own: !!(row && row[2]) };",
+    "to": "  return { label: row ? row[1] : '', own: true };"
+  },
+  {
+    "label": "an unknown kind is promoted into the customer's own ink — the wall failing OPEN, on a classification nothing recognises",
+    "files": ["public/chat.js"],
+    "from": "  const row = ST_FILE_KINDS.find((k) => k[0] === kind);\n  return { label: row ? row[1] : '', own: !!(row && row[2]) };",
+    "to": "  const row = ST_FILE_KINDS.find((k) => k[0] === kind);\n  return { label: row ? row[1] : '', own: !row || !!row[2] };"
+  },
+  {
+    "label": "the row stops saying what it is in words, so the ink hierarchy is a difference with nothing to explain it",
+    "files": ["public/chat.js"],
+    "from": "      (kind.label ? ' title=\"' + esc(f.base + ' — ' + kind.label) + '\"' : '') +",
+    "to": "      '' +"
+  },
+  {
+    "label": "the kit's own kind claims to be the customer's, so 25 files we ship on every site read as this site's code",
+    "files": ["public/chat.js"],
+    "from": "  ['kit', 'Design system', false],",
+    "to": "  ['kit', 'Design system', true],"
+  },
+  {
+    "label": "the sheet stops painting the customer's own ink, so the class is written and nothing changes",
+    "files": ["public/styles.css"],
+    "from": ".st-file-own { color: var(--text); }",
+    "to": ".st-file-own { color: var(--muted); }"
+  },
+  {
+    "label": "a folder's caret never turns, so it looks shut over its own open contents",
+    "files": ["public/styles.css"],
+    "from": ".st-code-d.on .st-code-caret { transform: rotate(-90deg); }",
+    "to": ".st-code-d.on .st-code-caret { transform: none; }"
+  },
+  {
+    "label": "the category headings' rules come back into the sheet, painting markup the tree cannot draw",
+    "files": ["public/styles.css"],
+    "from": ".st-code-caret { display: flex; color: var(--muted); transition: transform .14s ease; }",
+    "to": ".st-code-caret { display: flex; color: var(--muted); transition: transform .14s ease; }\n.st-code-h { text-transform: uppercase; }\n.st-file-row + .st-code-h { margin-top: .5rem; }"
+  },
+  {
+    "label": "the fold set survives a project switch again — the defect the owner reported, one shape worse now that a shut `src` hides nearly everything",
+    "files": ["public/chat.js"],
+    "from": "  if ((id || null) !== siteOpenId) siteCodeFolds = null;",
+    "to": ""
+  },
+  {
+    "label": "the kind table is handed to the tree scope as a fixture again, so the guards run against a project whose kinds are whatever the test typed",
+    "files": ["test/site-source.test.mjs"],
+    "from": "const TREE = new Function(\"esc\", \"ic\", [\n  konstBlock(\"ST_FILE_KINDS\", \"];\"), fn(\"function stKindOf(\"),",
+    "to": "const TREE = new Function(\"esc\", \"ic\", [\n  'const ST_FILE_KINDS = [[\"page\",\"Page\",true],[\"part\",\"Component\",true],[\"asset\",\"Made by the build\",true],[\"kit\",\"Design system\",true],[\"shared\",\"Shared with every site\",true]];', fn(\"function stKindOf(\"),"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": ["public/chat.js"],
+    "from": "// WHAT KIND OF FILE EACH ONE IS — a fact the ROW carries, not a heading that",
+    "to": "// What kind of file each one is, as a fact the row carries rather than a heading that"
+  },
+  {
+    "label": "CONTROL — a second comment, in the stylesheet this time",
+    "control": true,
+    "files": ["public/styles.css"],
+    "from": "/* WHOSE FILE IT IS, IN INK (2026-09-12). This is the one thing the five group",
+    "to": "/* Whose file it is, said in ink (2026-09-12). This is the one thing the five group"
+  }
+]

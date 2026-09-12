@@ -726,15 +726,15 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
   const clear = { onclick: null };
   const els = { stCode: host, stCodeFind: input, stCodeFindX: clear };
   const make = new Function("deps", [
-    "const { document, apiFetch, stSrcFiles, stCodeTree, stOpenGroups, esc, ic, stSaveBlob } = deps;",
+    "const { document, apiFetch, stSrcFiles, stCodeTree, stOpenFolders, esc, ic, stSaveBlob } = deps;",
     "const { stCodeFind, stFindBox, stFindSaid, stFindNone } = deps;",
     "const { ST_ROW_ACTS, stRowMenuHtml, stRowMenuAct, sbToast, stCodeFileHtml } = deps;",
-    "let siteCodeFiles = []; let siteCodeOpen = deps.open; let siteCodeOpenGroups = deps.groups;",
+    "let siteCodeFiles = []; let siteCodeOpen = deps.open; let siteCodeFolds = deps.groups;",
     "let siteCodeFind = deps.find;",
     body,
     "return { run: loadSiteCode, draw: drawSiteCode,",
     "  get open() { return siteCodeOpen; }, get files() { return siteCodeFiles; },",
-    "  get groups() { return siteCodeOpenGroups; }, get find() { return siteCodeFind; } };",
+    "  get groups() { return siteCodeFolds; }, get find() { return siteCodeFind; } };",
   ].join("\n"));
   let asked = 0;
   const t = make({
@@ -785,17 +785,25 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
 // trap this comment already warns about, arriving through the door it describes.
 // The property has not moved; the renderer has two more parts and they are
 // carried like the rest.
-const TREE = new Function("esc", "ic", "ST_CODE_GROUPS", [
+// RE-ANCHORED AGAIN 2026-09-12 when the five group headings became one tree:
+// `stOpenFolders` is `stOpenFolders`, and the KIND TABLE IS CARRIED rather than
+// handed in. It used to arrive as a parameter holding a hand-typed fixture —
+// four entries where the product has five, so every case in this file ran
+// against a project with no `Design system` in it. That is the recorded "two
+// lists of the same thing" with a test on one end, and the fix is the one this
+// repository always reaches for: take it out of the real source.
+const TREE = new Function("esc", "ic", [
+  konstBlock("ST_FILE_KINDS", "];"), fn("function stKindOf("),
   konst("ST_FIND_MAX"), konst("ST_ALL_OPEN"),
   fn("function stDirTree("), fn("function stSortTree("), fn("function stCollapse("),
   fn("function stDirCount("), fn("function stFileIcon("), fn("function stCodeFind("),
-  fn("function stOpenGroups("), fn("function stFoldRow("), fn("function stCodeRows("),
+  fn("function stOpenFolders("), fn("function stFoldRow("), fn("function stCodeRows("),
   fn("function stCodeTree("), fn("function stFindBox("), fn("function stFindSaid("),
   fn("function stCodeFileHtml("),
   fn("function stFindNone("),
   konstBlock("ST_ROW_ACTS", "];"), fn("function stRowMenuHtml("), fn("function stRowMenuAct("),
-  "return { stDirTree, stSortTree, stFileIcon, stCollapse, stDirCount, stOpenGroups, stCodeTree,",
-  "  stCodeFileHtml,",
+  "return { stDirTree, stSortTree, stFileIcon, stCollapse, stDirCount, stOpenFolders, stCodeTree,",
+  "  stCodeFileHtml, ST_FILE_KINDS, stKindOf,",
   "  stCodeFind, stFindBox, stFindSaid, stFindNone, ST_FIND_MAX,",
   "  ST_ROW_ACTS, stRowMenuHtml, stRowMenuAct };",
 ].join("\n"))(
@@ -804,8 +812,7 @@ const TREE = new Function("esc", "ic", "ST_CODE_GROUPS", [
   // is a blindfold now that the icon is a DECISION: a case cannot assert which
   // icon a file got against a stub that draws none. The real `ic` emits an
   // <svg>; this emits the name it was asked for, which is the part under test.
-  escFake, (n) => '<i data-ic="' + n + '"></i>',
-  [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]);
+  escFake, (n) => '<i data-ic="' + n + '"></i>');
 
 const PAGES = (names) => ({ ok: true, pages: names.map((n) => ({ path: n, source: "// " + n + "\n" })) });
 
@@ -815,7 +822,7 @@ test("DRIVEN: the Code tab keeps the open file by NAME across a rebuild", async 
   await a.t.run(a.site);
   assert.equal(a.t.open, "src/routes/prices.tsx", "the file that was open is not the one shown");
   assert.match(a.host.innerHTML, /data-srcname="src\/routes\/prices\.tsx"/);
-  assert.match(a.host.innerHTML, /class="st-file on" data-srcname="src\/routes\/prices\.tsx"/,
+  assert.match(a.host.innerHTML, /class="st-file on[^"]*" data-srcname="src\/routes\/prices\.tsx"/,
     "the open file is not the one marked open in the tree");
 
   // THE FAILURE THE NAME IS FOR. A rebuild adds or drops a part, so the file at
@@ -1377,10 +1384,12 @@ test("DRIVEN END TO END: the favicon reaches the explorer AND the download", asy
     parts: [{ name: "band-1-hero", source: "HERO" }],
     config: { look: { favicon: { form: "svg", svg: ICON } }, css: ".hero{}" },
   });
+  // NO KIND TABLE HANDED IN. `stSrcFiles` never read one — it STAMPS the kind on
+  // each file and nothing else — so the parameter was a fake for a name this
+  // function does not use, and an empty array in it meant nothing either way.
   const stSrcFiles = new Function(
-    "ST_CODE_GROUPS",
     fn("function stSrcFiles(") + "\n" + fn("function stSrcPath(") + "\nreturn stSrcFiles;",
-  )([]);
+  )();
   const files = stSrcFiles(r.body);
   const names = files.map((f) => f.name);
 
@@ -1431,17 +1440,17 @@ const TREE_FILES = [
   { name: "package.json", kind: "shared" },
 ];
 /**
- * Every node of TREE_FILES open — the four groups AND the folder inside each.
+ * Every folder of TREE_FILES open.
  *
  * DERIVED FROM THE RENDERER'S OWN CHAIN, never typed out, because the key a
- * folder is drawn under comes from the collapse rule (`src/routes/-parts` is ONE
- * node, not three) and a hand-typed key is a second copy of that rule. It would
- * pass today and silently open nothing the day the rule moves — the shape this
- * file exists to catch.
+ * folder is drawn under comes from the collapse rule (`src/routes` is ONE node,
+ * not two) and a hand-typed key is a second copy of that rule. It would pass
+ * today and silently open nothing the day the rule moves — the shape this file
+ * exists to catch.
  */
-const ALL_OPEN = new Set(TREE_FILES.flatMap((f) => [...TREE.stOpenGroups(TREE_FILES, f.name, null)]));
+const ALL_OPEN = new Set(TREE_FILES.flatMap((f) => [...TREE.stOpenFolders(TREE_FILES, f.name, null)]));
 
-test("DRIVEN: the tree NESTS by real folders, and a file row carries its own name", () => {
+test("DRIVEN: the tree is ONE tree from the project root, and a file row carries its own name", () => {
   const { stCodeTree } = TREE;
   const files = TREE_FILES;
   // EVERY FOLDER OPEN, because what this case asserts is the SHAPE and the
@@ -1449,12 +1458,24 @@ test("DRIVEN: the tree NESTS by real folders, and a file row carries its own nam
   // below; conflating the two would make this one go red for a change to the
   // fold default, reporting the names as wrong.
   const html = stCodeTree(files, "public/icon.svg", ALL_OPEN);
-  for (const label of ["Pages", "Components", "Made by the build", "Shared with every site"]) {
-    assert.ok(html.includes(label), "the tree has no " + label + " heading");
+  // NO CATEGORY HEADINGS AT ALL (owner, 2026-09-12: *"ITS BY FOLDERS"* → *"OK
+  // GO"*). The tree was five trees under Pages · Components · Made by the build ·
+  // Design system · Shared with every site, each holding the real directories of
+  // its own slice — so `src/routes` was drawn twice and the project root was
+  // split across two headings. One directory on disk is one tree here.
+  //
+  // BOTH HALVES ARE CHECKED, because either alone passes over the other: no
+  // heading LABEL survives, and no heading MARKUP is emitted. A tree that still
+  // built the five rows with their words changed would satisfy the first.
+  for (const label of ["Pages", "Components", "Made by the build", "Design system", "Shared with every site"]) {
+    assert.ok(!html.includes(">" + label + "<"), "the tree still draws the " + label + " heading");
   }
-  // A HEADING OVER NOTHING reads as something missing rather than absent.
-  assert.ok(!stCodeTree([{ name: "a.tsx", kind: "page" }], "a.tsx", ALL_OPEN).includes("Made by the build"),
-    "an empty group was given a heading");
+  // `class="st-code-h[ "]` AND NOT THE BARE NAME. `st-code-hn` is the label span
+  // INSIDE every fold row and starts with those nine characters, so the loose
+  // form is satisfied by a tree that has no headings at all — the recorded
+  // substring-observer trap, which this file already carries twice, met on the
+  // first run of the assertion written to avoid it.
+  assert.ok(!/class="st-code-h[ "]/.test(html), "a category heading row is still being written");
   // THE FOLDERS CARRY THE PATH AND THE FILE ROW CARRIES ITS OWN NAME (owner,
   // 2026-09-11, drawing `1. / 1.a. / 2.`). The old tree printed the path AS TEXT
   // on every row — `-parts/` nine times over — and stripped `src/routes/` in the
@@ -1466,19 +1487,113 @@ test("DRIVEN: the tree NESTS by real folders, and a file row carries its own nam
   }
   assert.ok(!/>[^<]*\/[^<]*<\/span><\/button>/.test(html.replace(/class="st-code-d[\s\S]*?<\/button>/g, "")),
     "a file row still prints a path where a folder should be");
-  // A CHAIN OF ONE-CHILD DIRECTORIES IS ONE ROW. Without it the Pages group is
-  // `src` then `routes` then one file — two rows of nothing and two clicks.
+  // A CHAIN OF ONE-CHILD DIRECTORIES IS STILL ONE ROW — `src` holds nothing but
+  // `routes`, so the two are one row and not a ladder with a file at the bottom.
   assert.ok(html.includes(">src/routes<"), "the one-child chain was not collapsed into a single folder row");
-  assert.ok(html.includes(">src/routes/-parts<"), "a component's folder chain was not collapsed");
   assert.ok(!/>src<\/span>/.test(html), "a one-child directory was drawn as its own row");
-  // AND A GROUP'S ROOT FILE HAS NO FOLDER AT ALL: `package.json` sits straight
-  // under its heading, which is what keeps a flat group flat.
-  assert.match(html, /data-srcfold="shared"[\s\S]*?data-srcname="package\.json"/, "a root file was given a folder");
+  // AND `-parts` IS A CHILD OF IT, drawn under its own segment rather than as
+  // `src/routes/-parts`: the chain above it is a row of its own now, so repeating
+  // the prefix would print the path twice down two rows.
+  assert.ok(html.includes(">-parts<"), "the component folder is not drawn under the chain holding it");
+  assert.ok(!html.includes(">src/routes/-parts<"), "a child folder repeats the path its parent already carries");
+  // A ROOT FILE HAS NO FOLDER AT ALL: `package.json` sits at the top level with
+  // the root's own folders, which is what a project root looks like.
+  assert.match(html, /data-srcname="package\.json"/, "the project root's own file is missing");
+  assert.ok(!/style="--d:[^"]*"[^>]*data-srcname="package\.json"|data-srcname="package\.json"[^>]*style="--d:/.test(html),
+    "a root file was drawn indented, so something was put above it");
   // THE OPEN FILE IS MARKED, and the data attribute is the FULL name the click
   // handler looks a file up by — never the display name, because two folders can
   // hold files of the same basename.
   assert.match(html, /data-srcname="public\/icon\.svg"[^>]*/, "the open file cannot be looked up by what the row carries");
-  assert.ok(/class="st-file on"[^>]*data-srcname="public\/icon\.svg"/.test(html), "the open file is not marked open");
+  assert.ok(/class="st-file on[^"]*"[^>]*data-srcname="public\/icon\.svg"/.test(html), "the open file is not marked open");
+});
+
+test("DRIVEN: a row says whose file it is, in ink and in words", () => {
+  // THE ONE THING A DIRECTORY TREE CANNOT SAY, and the only half of the five
+  // headings worth keeping (owner, 2026-09-12, told the categories would go:
+  // *"OK GO"*). `src/routes/__root.tsx` and `src/routes/index.tsx` sit two rows
+  // apart in one folder and are not the same kind of thing — one is ours on every
+  // site, the other is the page this customer asked for.
+  const { stCodeTree, stKindOf, ST_FILE_KINDS } = TREE;
+  const files = [
+    { name: "src/routes/index.tsx", kind: "page" },
+    { name: "src/routes/-parts/Hero.tsx", kind: "part" },
+    { name: "src/site-brand.ts", kind: "asset" },
+    { name: "src/components/ui/button.tsx", kind: "kit" },
+    { name: "src/router.tsx", kind: "shared" },
+  ];
+  const open = new Set(files.flatMap((f) => [...TREE.stOpenFolders(files, f.name, null)]));
+  const html = stCodeTree(files, "src/routes/index.tsx", open);
+  const row = (name) => new RegExp('<button[^>]*data-srcname="' + name.replace(/[.\/]/g, "\\$&") + '"[^>]*>').exec(html)[0];
+
+  // THE TABLE IS THE PRODUCT'S, AND THIS IS WHAT SAYS SO. Everything below
+  // derives from `ST_FILE_KINDS`, which is exactly what makes the derivation
+  // worthless if the scope is ever handed a FIXTURE instead of the real block:
+  // both sides of every assertion would move together and the case would pass
+  // over a table that calls every file the customer's own. A sweep proved it —
+  // the survivor was a literal five-entry array spliced into the scope. So the
+  // carried table is compared against a SECOND, independent read of the source.
+  // (The recorded "two lists of the same thing", with a test on one end.)
+  const inSource = /const ST_FILE_KINDS = \[([\s\S]*?)\n\];/.exec(CHAT);
+  assert.ok(inSource, "the kind table is not where this case reads it from");
+  assert.deepEqual(
+    [...inSource[1].matchAll(/\['([a-z]+)', '([^']+)', (true|false)\]/g)].map((m) => [m[1], m[2], m[3] === "true"]),
+    ST_FILE_KINDS,
+    "the tree scope is running against a kind table the product does not have");
+  assert.ok(ST_FILE_KINDS.some((k) => k[2]) && ST_FILE_KINDS.some((k) => !k[2]),
+    "every kind is on one side of the line, so the ink hierarchy has nothing to draw");
+
+  // DERIVED FROM THE TABLE, never a second list of which kinds are whose: the
+  // case asks `stKindOf` what the product says and checks the row agrees. A
+  // hardcoded ["page","part","asset"] here would pass over a table that had
+  // changed its mind about one of them.
+  for (const [kind, label, own] of ST_FILE_KINDS) {
+    const f = files.find((x) => x.kind === kind);
+    assert.ok(f, "no fixture file of kind " + kind + " — the case cannot see this row");
+    const got = row(f.name);
+    assert.equal(/\bst-file-own\b/.test(got), own,
+      kind + " is drawn " + (own ? "muted" : "in the customer's own ink") + ": " + got);
+    // AND THE WORDS ARE THERE TOO, because ink is a hierarchy and not a label: it
+    // says two rows differ and never says how. A pointer or a screen reader gets
+    // the sentence the heading used to spell out for a whole group.
+    assert.ok(got.includes('title="' + f.name.split("/").pop() + " — " + label + '"'),
+      kind + "'s row does not say what it is: " + got);
+    assert.equal(stKindOf(kind).own, own, "the table and its reader disagree about " + kind);
+  }
+  // A KIND NOTHING KNOWS IS NOT THE CUSTOMER'S, and gets no title rather than an
+  // empty one — the wall failing closed, since `own` decides an ink level and a
+  // file we cannot classify must not be promoted into theirs.
+  assert.equal(stKindOf("nonsense").own, false);
+  assert.equal(stKindOf("nonsense").label, "");
+  // READ OFF THE FILE BUTTON, never the whole row: the menu handle beside it
+  // carries `title="More for x.ts"` unconditionally, so a `title=` scan over the
+  // row passes on every file there has ever been and would have called this
+  // assertion satisfied by markup that never changes.
+  const oddRow = /<button[^>]*class="st-file[^>]*>/.exec(
+    stCodeTree([{ name: "x.ts", kind: "nonsense" }], "x.ts", new Set()))[0];
+  assert.ok(!/st-file-own/.test(oddRow) && !/title=/.test(oddRow),
+    "an unknown kind was given a badge: " + oddRow);
+
+  // AND THE SHEET REALLY PAINTS IT DIFFERENTLY. The markup writing a class is
+  // half of a hierarchy; a rule that sets the SAME colour the row already had
+  // leaves every row identical with the class sitting there looking wired — the
+  // recorded "a CSS rule can be correct and still lose", and a sweep survivor
+  // until this line. BOTH VALUES ARE DERIVED, so a change to the resting colour
+  // moves the comparison with it rather than making this a second copy of it.
+  const rest = /\n\.st-file \{([^}]*)\}/.exec(CSS);
+  const own = /\n\.st-file-own \{([^}]*)\}/.exec(CSS);
+  assert.ok(rest && own, "the sheet does not paint the file row and its own-file state");
+  const colour = (m) => (/color: ([^;]+);/.exec(m[1]) || [])[1];
+  assert.ok(colour(rest) && colour(own), "one of the two rules sets no colour at all");
+  assert.notEqual(colour(own), colour(rest),
+    "the customer's own files rest at the same ink as ours, so the class paints nothing");
+  // AND IT IS THE INK THE ROW ALREADY REACHES ON HOVER, rather than a third
+  // colour invented for this: the hierarchy is "yours is already at full ink",
+  // not "yours is a different colour".
+  const lit = /\n\.st-file:hover, \.st-file\.on \{([^}]*)\}/.exec(CSS);
+  assert.ok(lit, "the hover/open rule moved, so this cannot check what ink it uses");
+  assert.equal(colour(own), colour(lit),
+    "the own-file ink is a colour of its own instead of the one every row reaches on hover");
 });
 
 test("DRIVEN: depth is on the row, and it is the depth the folder really sits at", () => {
@@ -1494,7 +1609,7 @@ test("DRIVEN: depth is on the row, and it is the depth the folder really sits at
     { name: "src/server.ts", kind: "shared" },
     { name: "package.json", kind: "shared" },
   ];
-  const open = new Set(TREE.stOpenGroups(deep, "src/lib/rows.ts", null));
+  const open = new Set(TREE.stOpenFolders(deep, "src/lib/rows.ts", null));
   const html = stCodeTree(deep, "src/lib/rows.ts", open);
   // THE WHOLE OPENING TAG, not the part before the attribute we searched for:
   // `style` is written after `data-srcfold`, so a window ending at the needle
@@ -1506,12 +1621,18 @@ test("DRIVEN: depth is on the row, and it is the depth the folder really sits at
     const m = /--d:(\d+)/.exec(row);
     return m ? Number(m[1]) : 0;
   };
-  assert.equal(at('data-srcfold="shared"'), 0, "the group heading is indented");
-  assert.equal(at('data-srcfold="shared/src"'), 1, "a folder inside a group is not one step in");
-  assert.equal(at('data-srcfold="shared/src/lib"'), 2, "a folder inside a folder is not two steps in");
-  assert.equal(at('data-srcname="src/lib/rows.ts"'), 3, "a file is not indented under the folder holding it");
-  assert.equal(at('data-srcname="src/server.ts"'), 2, "a file beside a folder is at the folder's depth instead of its own");
-  assert.equal(at('data-srcname="package.json"'), 1, "a group's own root file is indented as though it were in a folder");
+  // EVERY DEPTH IS ONE STEP SHALLOWER THAN IT WAS, because the group heading that
+  // used to sit at 0 is gone and the root folders took its place. The property is
+  // the same and the numbers moved with the shape: re-anchored, not appeased.
+  //
+  // AND THE KEY IS THE PATH, with no heading name prefixed onto it — which is the
+  // simplification the one tree bought, since `src/routes` under Pages and under
+  // Components were two folders needing two keys.
+  assert.equal(at('data-srcfold="src"'), 0, "a root folder is indented");
+  assert.equal(at('data-srcfold="src/lib"'), 1, "a folder inside a folder is not one step in");
+  assert.equal(at('data-srcname="src/lib/rows.ts"'), 2, "a file is not indented under the folder holding it");
+  assert.equal(at('data-srcname="src/server.ts"'), 1, "a file beside a folder is at the folder's depth instead of its own");
+  assert.equal(at('data-srcname="package.json"'), 0, "the project root's own file is indented as though it were in a folder");
   // AND THE SHEET REALLY APPLIES IT, below both rules that set `padding` whole.
   const pad = CSS.lastIndexOf(".st-code-d, .st-file { padding-left:");
   assert.ok(pad > 0, "nothing indents a nested row, so the tree draws flat");
@@ -1540,109 +1661,121 @@ const rows = (html, cls) => [...html.matchAll(new RegExp('class="' + cls + '( [^
 test("DRIVEN: every folder says how many are in it, open or shut", () => {
   const { stCodeTree } = TREE;
   const shut = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set());
-  // THE COUNT IS THE WHOLE OF WHAT A SHUT FOLDER SAYS. Without it a folded group
-  // is a heading over nothing, which reads as the thing being missing — the same
-  // failure the empty-group rule one case up exists to avoid, wearing a fold.
-  for (const [key, n] of [["page", 1], ["part", 1], ["asset", 1], ["shared", 2]]) {
+  // THE COUNT IS THE WHOLE OF WHAT A SHUT FOLDER SAYS. Without it a folded folder
+  // is a name over nothing, which reads as the thing being missing.
+  for (const [key, n] of [["public", 1], ["src/routes", 3]]) {
     const at = shut.indexOf('data-srcfold="' + key + '"');
     assert.ok(at > 0, "the " + key + " folder is gone");
     assert.match(shut.slice(at, shut.indexOf("</button>", at)),
       new RegExp('class="st-code-count">' + n + "<"), "the " + key + " folder does not say it holds " + n);
   }
-  // AND A FOLDER SAYS IT TOO, AT ANY DEPTH — which the group headings alone did
-  // not cover, so a folder reporting 0 over nine files survived a sweep. It is
-  // the same honesty rule one level down, and it counts the whole subtree rather
-  // than the folder's own files: `src` holding nothing but `lib/` still says 5.
+  // IT COUNTS THE WHOLE SUBTREE rather than the folder's own files: `src` holding
+  // nothing but `lib/` still says 4. A folder reporting 0 over nine files
+  // survived a sweep once.
   const deep = [
     { name: "src/lib/rows.ts", kind: "shared" },
     { name: "src/lib/utils.ts", kind: "shared" },
     { name: "src/lib/deep/one.ts", kind: "shared" },
     { name: "src/server.ts", kind: "shared" },
   ];
-  const tree = stCodeTree(deep, "src/server.ts", new Set(["shared", "shared/src", "shared/src/lib"]));
-  for (const [key, n] of [["shared", 4], ["shared/src", 4], ["shared/src/lib", 3], ["shared/src/lib/deep", 1]]) {
+  const tree = stCodeTree(deep, "src/server.ts", new Set(["src", "src/lib"]));
+  for (const [key, n] of [["src", 4], ["src/lib", 3], ["src/lib/deep", 1]]) {
     const where = tree.indexOf('data-srcfold="' + key + '"');
     assert.ok(where > 0, "there is no " + key + " folder row");
     assert.match(tree.slice(where, tree.indexOf("</button>", where)),
       new RegExp('class="st-code-count">' + n + "<"),
       key + " does not say it holds " + n + " — a folder that miscounts is worse than one that is shut");
   }
-  // SHUT DRAWS NO FILES, OPEN DRAWS THEM ALL. Both directions, because a tree
-  // that always draws its files is a tree that never folded, and one that never
-  // draws them is a tree nothing can open.
-  assert.equal(rows(shut, "st-file").length, 0, "a shut folder still lists its files");
+  // SHUT DRAWS NO FILE THAT IS INSIDE A FOLDER, open draws them all. Both
+  // directions, because a tree that always draws its files is a tree that never
+  // folded, and one that never draws them is a tree nothing can open.
+  //
+  // AND THE PROJECT ROOT'S OWN FILES ARE ALWAYS THERE — the one row a fully shut
+  // tree still holds, because nothing sits above `package.json` to fold it away.
+  // This changed with the shape: under the five headings a shut tree drew NO
+  // files at all, since every file including the root's was inside a heading.
+  assert.deepEqual(
+    [...shut.matchAll(/data-srcname="([^"]+)"/g)].map((m) => m[1]).filter((n, i, a) => a.indexOf(n) === i),
+    ["package.json"], "a shut tree draws the wrong set of files");
   assert.equal(rows(stCodeTree(TREE_FILES, "src/routes/index.tsx", ALL_OPEN), "st-file").length, TREE_FILES.length,
     "an open folder does not list its files");
-  // ONE FOLDER AT A TIME: opening Components must not open anything else — and
-  // with the tree nested, opening the GROUP reveals its folder rather than its
-  // files, which is the point of nesting and is asserted rather than assumed.
-  const group = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["part"]));
-  assert.equal(rows(group, "st-file").length, 0, "opening a group jumped straight past its folders to its files");
-  assert.ok(group.includes('data-srcfold="part/src/routes/-parts"'), "opening a group did not reveal the folder inside it");
-  const one = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["part", "part/src/routes/-parts"]));
-  assert.equal(rows(one, "st-file").length, 1, "opening one folder opened another");
+  // ONE FOLDER AT A TIME: opening `src/routes` must not open `-parts` under it.
+  const chain = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["src/routes"]));
+  assert.ok(chain.includes('data-srcfold="src/routes/-parts"'), "opening a folder did not reveal the folder inside it");
+  assert.ok(!chain.includes('data-srcname="src/routes/-parts/band-1-hero.tsx"'), "opening a folder opened the one under it");
+  assert.equal(rows(chain, "st-file").length, 3, "opening one folder listed the wrong number of files");
+  const one = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["src/routes", "src/routes/-parts"]));
   assert.ok(one.includes('data-srcname="src/routes/-parts/band-1-hero.tsx"'), "the folder that was opened is not the one that listed its files");
+  assert.equal(rows(one, "st-file").length, 4, "opening a nested folder opened something else too");
 });
 
 test("DRIVEN: a folder is a control — reachable, and it says whether it is open", () => {
   const { stCodeTree } = TREE;
-  const html = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["part"]));
-  // A BUTTON, not a div with a click handler. The tree is now navigable by
-  // keyboard and the state is announced; a `<div onclick>` is neither, and no
-  // assertion about the click handler can see the difference.
-  for (const key of ["page", "part", "asset", "shared"]) {
+  const html = stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["src/routes"]));
+  // A BUTTON, not a div with a click handler. The tree is navigable by keyboard
+  // and the state is announced; a `<div onclick>` is neither, and no assertion
+  // about the click handler can see the difference.
+  for (const key of ["public", "src/routes", "src/routes/-parts"]) {
     const at = html.indexOf('data-srcfold="' + key + '"');
+    assert.ok(at > 0, "there is no " + key + " folder row");
     const head = html.slice(html.lastIndexOf("<", at), html.indexOf(">", at) + 1);
     assert.match(head, /^<button type="button"/, "the " + key + " folder is not a button");
-    assert.match(head, key === "part" ? /aria-expanded="true"/ : /aria-expanded="false"/,
+    assert.match(head, key === "src/routes" ? /aria-expanded="true"/ : /aria-expanded="false"/,
       "the " + key + " folder does not say whether it is open");
-    assert.equal(/class="st-code-h on/.test(head), key === "part",
+    assert.equal(/class="st-code-d on"/.test(head), key === "src/routes",
       "the " + key + " folder's open class disagrees with what it announces");
   }
 });
 
 test("DRIVEN: `null` is not an empty Set — the first draw opens the folder holding the open file", () => {
-  const { stOpenGroups, stCodeTree } = TREE;
+  const { stOpenFolders, stCodeTree } = TREE;
   // THE THIRD STATE. Until the customer folds anything there is no choice to
   // remember and one folder is derived; an EMPTY SET is a customer who closed
   // every folder, and re-deriving for them would re-open one on the next click,
   // for ever. The recorded "cannot-tell must never read as a value".
-  // THE WHOLE CHAIN, not just the group: with the tree nested, opening `page`
-  // alone would reveal the folder `src/routes` and stop there, leaving the file
-  // on screen one click away in the explorer that is showing it.
-  assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", null)], ["page", "page/src/routes"]);
-  assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", new Set())], [],
+  // THE WHOLE CHAIN FROM THE ROOT, and the keys are PATHS with nothing prefixed
+  // onto them (2026-09-12). Under the five headings a key carried its heading's
+  // name because `src/routes` existed under two of them; one tree has one of
+  // each path, so the path identifies the folder on its own.
+  assert.deepEqual([...stOpenFolders(TREE_FILES, "src/routes/index.tsx", null)], ["src/routes"]);
+  assert.deepEqual([...stOpenFolders(TREE_FILES, "src/routes/index.tsx", new Set())], [],
     "a customer who closed every folder gets one re-opened");
-  // DERIVED FROM THE OPEN FILE, never a hardcoded `page`. A rebuild can replace
-  // the file list while the chosen file is a component, so a fixed default would
-  // fold the folder holding the file being shown. The chain is derived through
-  // the SAME collapse rule the renderer uses, so `src/routes/-parts` is one key.
+  // DERIVED FROM THE OPEN FILE, never a named folder. A rebuild can replace the
+  // file list while the chosen file is anything, so a fixed default would fold
+  // the folder holding the file being shown. The chain is derived through the
+  // SAME collapse rule the renderer uses, so `src/routes` is one key.
   for (const [name, keys] of [
-    ["src/routes/-parts/band-1-hero.tsx", ["part", "part/src/routes/-parts"]],
-    ["public/icon.svg", ["asset", "asset/public"]],
-    ["package.json", ["shared"]],
+    ["src/routes/-parts/band-1-hero.tsx", ["src/routes", "src/routes/-parts"]],
+    ["public/icon.svg", ["public"]],
+    // A FILE AT THE ROOT OPENS NOTHING and is visible anyway — the assertion
+    // under the loop is what proves the empty answer is not a hidden file.
+    ["package.json", []],
   ]) {
-    assert.deepEqual([...stOpenGroups(TREE_FILES, name, null)], keys, name + " does not open the chain holding it");
+    assert.deepEqual([...stOpenFolders(TREE_FILES, name, null)], keys, name + " does not open the chain holding it");
     assert.ok(stCodeTree(TREE_FILES, name, null).includes('data-srcname="' + name + '"'),
       "the file on screen is in a folder the tree drew shut");
   }
-  // A NAME THAT NAMES NOTHING falls to the first group rather than to none — an
-  // explorer that opens onto four shut folders is one a customer must click to
-  // see anything at all.
+  // A NAME THAT NAMES NOTHING OPENS NOTHING, which is now the right answer rather
+  // than a gap: the root's own files and every top-level folder are drawn
+  // whatever is in the set, so an explorer with an unfindable open file still
+  // shows the project rather than a blank column. Under the headings this had to
+  // fall back to `page`, because with no key at all NOTHING was drawn.
   for (const junk of ["", "nope.tsx", null, undefined]) {
-    assert.deepEqual([...stOpenGroups(TREE_FILES, junk, null)], ["page"], JSON.stringify(junk));
+    assert.deepEqual([...stOpenFolders(TREE_FILES, junk, null)], [], JSON.stringify(junk));
+    assert.match(stCodeTree(TREE_FILES, junk, null), /data-srcname="package\.json"/,
+      "an unfindable open file left the tree with nothing on screen: " + JSON.stringify(junk));
   }
-  // A CHOICE IS HONOURED WHATEVER IT HOLDS, including a key no group has.
-  assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", new Set(["nope"]))], ["nope"]);
+  // A CHOICE IS HONOURED WHATEVER IT HOLDS, including a key no folder has.
+  assert.deepEqual([...stOpenFolders(TREE_FILES, "src/routes/index.tsx", new Set(["nope"]))], ["nope"]);
   // A NON-SET IS NOT A CHOICE, so each of these falls to the derived chain
   // rather than being taken as one. The duck-typed object is the case that
   // matters: `new Set(chosen)` inside the toggle THROWS on anything that is not
   // iterable, so admitting one by shape would turn a click into an exception.
-  for (const junk of [[], "page", { has: () => true }, 0]) {
-    assert.deepEqual([...stOpenGroups(TREE_FILES, "src/routes/index.tsx", junk)], ["page", "page/src/routes"],
+  for (const junk of [[], "src/routes", { has: () => true }, 0]) {
+    assert.deepEqual([...stOpenFolders(TREE_FILES, "src/routes/index.tsx", junk)], ["src/routes"],
       "a " + typeof junk + " was read as a stored choice");
   }
-  assert.deepEqual([...stOpenGroups(null, "x", null)], ["page"], "a missing file list throws instead of drawing");
+  assert.deepEqual([...stOpenFolders(null, "x", null)], [], "a missing file list throws instead of drawing");
 
   // A COLLAPSED CHAIN WITH ANOTHER FOLDER BELOW IT — the shape every fixture
   // above lacks, and a sweep survivor until it was added. The walk has to skip
@@ -1657,14 +1790,14 @@ test("DRIVEN: `null` is not an empty Set — the first draw opens the folder hol
     { name: "a/b/c/d.ts", kind: "page" },
     { name: "a/b/c/e/f.ts", kind: "page" },
   ];
-  assert.deepEqual([...stOpenGroups(nested, "a/b/c/e/f.ts", null)], ["page", "page/a/b/c", "page/a/b/c/e"],
+  assert.deepEqual([...stOpenFolders(nested, "a/b/c/e/f.ts", null)], ["a/b/c", "a/b/c/e"],
     "the walk lost the folder below a collapsed chain");
   assert.ok(stCodeTree(nested, "a/b/c/e/f.ts", null).includes('data-srcname="a/b/c/e/f.ts"'),
     "the file on screen sits in a folder the tree drew shut");
 });
 
 test("DRIVEN THROUGH THE TAB: a click really folds, and the fold survives the redraw", async () => {
-  // THE CHAIN, not the function. `stOpenGroups` answering correctly says nothing
+  // THE CHAIN, not the function. `stOpenFolders` answering correctly says nothing
   // about whether anybody STORES what the click computed — a handler that builds
   // a new Set and drops it leaves every case above green and the folder shut for
   // ever. This repository's most-shipped failure, so it is driven end to end.
@@ -1687,64 +1820,64 @@ test("DRIVEN THROUGH THE TAB: a click really folds, and the fold survives the re
   assert.equal(a.t.groups, null, "the tab stored a choice nobody made");
   assert.equal(rows(host.innerHTML, "st-file").length, 1, "the first draw is not one chain open");
 
-  // THE CLICK OPENS A SECOND CHAIN — and the one holding the open file stays
+  // THE CLICK OPENS A SECOND FOLDER — and the chain holding the open file stays
   // open, which is what materialising the derived default before toggling buys.
-  // TWO CLICKS, because the tree nests: the group, then the folder inside it.
-  clicks.get("data-srcfold:asset")();
-  assert.deepEqual([...a.t.groups].sort(), ["asset", "page", "page/src/routes"],
+  // The keys are PATHS now that the tree is one tree; `asset/public` was the
+  // heading's name prefixed onto the same folder.
+  clicks.get("data-srcfold:public")();
+  assert.deepEqual([...a.t.groups].sort(), ["public", "src/routes"],
     "the click did not store the fold");
-  assert.equal(rows(host.innerHTML, "st-file").length, 1, "opening a group jumped past its folder to its files");
-  clicks.get("data-srcfold:asset/public")();
   assert.equal(rows(host.innerHTML, "st-file").length, 2, "the folder that was clicked did not open");
 
   // AND SHUTTING IT AGAIN IS THE SAME CLICK. A handler that only ever adds is a
   // folder that opens once and never closes.
-  clicks.get("data-srcfold:asset/public")();
+  clicks.get("data-srcfold:public")();
   assert.equal(rows(host.innerHTML, "st-file").length, 1, "a second click did not shut the folder");
-  clicks.get("data-srcfold:asset")();
-  assert.deepEqual([...a.t.groups].sort(), ["page", "page/src/routes"], "shutting the group did not store it");
+  assert.deepEqual([...a.t.groups], ["src/routes"], "shutting the folder did not store it");
 
   // THE FOLD SURVIVES A RE-FETCH, because it is the customer's preference and
   // not a property of the answer. A rebuild must not silently re-open folders.
-  clicks.get("data-srcfold:page")();
-  clicks.get("data-srcfold:page/src/routes")();
+  clicks.get("data-srcfold:src/routes")();
   assert.deepEqual([...a.t.groups], [], "every folder shut is not a state the tab can hold");
   await a.t.run(a.site);
   assert.deepEqual([...a.t.groups], [], "a re-fetch threw the customer's folds away");
   assert.equal(rows(host.innerHTML, "st-file").length, 0, "a re-fetch re-opened a folder the customer shut");
 
-  // AND A CLICK NEVER GOES BACK TO THE NETWORK. Two fetches, six clicks.
+  // AND A CLICK NEVER GOES BACK TO THE NETWORK. Two fetches, three clicks.
   assert.equal(a.fetches(), 2, "a fold or a file pick re-fetched the whole project");
 });
 
 test("the folder's chevron turns, and its name wraps rather than truncating", () => {
   // THE CLASS THE MARKUP WRITES IS THE CLASS THE SHEET PAINTS, asked in both
   // directions — a rule on a class nothing draws is a rule that paints nothing.
-  const html = TREE.stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["page"]));
+  const html = TREE.stCodeTree(TREE_FILES, "src/routes/index.tsx", new Set(["src/routes"]));
   for (const cls of ["st-code-caret", "st-code-hn", "st-code-count"]) {
     assert.ok(html.includes('class="' + cls + '"'), "the tree draws no " + cls);
     assert.match(CSS, new RegExp("\\." + cls + " \\{"), "the sheet paints no " + cls);
   }
-  // BOTH KINDS OF FOLD TURN THEIR CARET, and the group heading alone was the
-  // spelling once — which left every FOLDER drawing a shut caret over its own
-  // open contents, the one state a disclosure triangle exists to report.
-  for (const cls of ["st-code-h", "st-code-d"]) {
-    assert.match(CSS, new RegExp("\\." + cls + "\\.on \\.st-code-caret[^{]*\\{[^}]*rotate\\(-90deg\\)"),
-      "a ." + cls + " caret never turns, so it looks shut whether it is or not");
-    assert.match(CSS, new RegExp("\\." + cls + " \\{[^}]*cursor: pointer"), "a ." + cls + " does not read as clickable");
-    assert.match(CSS, new RegExp("\\." + cls + ":hover \\{"), "a ." + cls + " gives no sign it can be pressed");
-  }
+  // ONE KIND OF FOLD ROW, AND ITS CARET TURNS. There were two — `.st-code-h` for
+  // the five category headings and `.st-code-d` for the directories inside them —
+  // and the headings left on 2026-09-12 when the tree became one tree.
+  //
+  // BOTH DIRECTIONS, which is what keeps this honest: the class the markup writes
+  // must be painted, AND the class the sheet paints must be written. Without the
+  // second half a rule for a row nothing draws sits there for ever; without the
+  // first, a row draws unpainted.
+  assert.ok(html.includes('class="st-code-d'), "the tree draws no folder row");
+  assert.match(CSS, /\.st-code-d\.on \.st-code-caret[^{]*\{[^}]*rotate\(-90deg\)/,
+    "a folder's caret never turns, so it looks shut whether it is or not");
+  assert.match(CSS, /\.st-code-d \{[^}]*cursor: pointer/, "a folder does not read as clickable");
+  assert.match(CSS, /\.st-code-d:hover \{/, "a folder gives no sign it can be pressed");
+  assert.ok(!/\.st-code-h[ .:{+]/.test(CSS.replace(/\/\*[\s\S]*?\*\//g, "")),
+    "the sheet still paints a category heading the tree cannot draw");
   // THE NAME WRAPS. The column is 210px and the caret and the count take ~40 of
-  // it, so "SHARED WITH EVERY SITE" no longer fits on one line — and an ellipsis
-  // there reads as a heading somebody cut. `min-width: 0` is what lets a flex
-  // item shrink below its own text at all.
+  // it, so a collapsed chain like `src/routes/-parts` does not fit on one line —
+  // and an ellipsis there reads as a folder somebody cut. `min-width: 0` is what
+  // lets a flex item shrink below its own text at all.
   assert.match(CSS, /\.st-code-hn \{[^}]*min-width: 0/, "the folder name cannot shrink, so the count is pushed off the row");
   assert.ok(!/\.st-code-hn \{[^}]*text-overflow/.test(CSS), "the folder name truncates instead of wrapping");
-  // THE COUNT IS HARD RIGHT, so four of them line up down the column.
+  // THE COUNT IS HARD RIGHT, so they line up down the column.
   assert.match(CSS, /\.st-code-count \{[^}]*margin-left: auto/, "the counts no longer line up");
-  // AND A FOLDED GROUP PUTS TWO HEADINGS SIDE BY SIDE, which the spacing rule
-  // has to know about — the old one only knew heading-after-file.
-  assert.match(CSS, /\.st-code-h \+ \.st-code-h[^{]*\{/, "two folded folders run together");
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1854,14 +1987,14 @@ test("DRIVEN: the tree is A–Z with the dotfiles first, and folders still lead"
 });
 
 test("the rendered rows really carry their icons, and the drawn order is the sorted one", () => {
-  const { stCodeTree, stOpenGroups } = TREE;
+  const { stCodeTree, stOpenFolders } = TREE;
   const files = ["README.md", ".gitignore", "package-lock.json", "src/styles.css"]
     .map((name) => ({ name, kind: "shared", text: "x" }));
   // EVERY FOLDER OPEN. The default-open chain opens only the chain holding the
   // chosen file, so `src` would be folded and its row simply absent — which is
   // what the first draft of this case asserted against, and the renderer was
   // right. Folding has its own cases above.
-  const html = stCodeTree(files, "README.md", new Set(files.flatMap((f) => [...stOpenGroups(files, f.name, null)])));
+  const html = stCodeTree(files, "README.md", new Set(files.flatMap((f) => [...stOpenFolders(files, f.name, null)])));
   // THE OBSERVER IS ALIVE FIRST: `ic` is a stub in this file, and if it stopped
   // echoing, every assertion below would pass over an empty string.
   assert.ok(html.includes('data-ic='), "the icon stub drew nothing — every icon assertion here is vacuous");
@@ -1988,11 +2121,22 @@ test("DRIVEN: the hit count stops at a number a 210px column can hold", () => {
 test("DRIVEN: a filtered tree is drawn OPEN, and the customer's own folds are left alone", () => {
   const { stCodeTree, stCodeFind } = TREE;
   const shut = new Set();          // every folder closed, deliberately
-  // THE CONTROL FIRST: with those folds and no query, the tree is four headings
-  // and not one file — so the next assertion is measuring the `all` flag and not
-  // a tree that was open anyway.
+  // THE CONTROL FIRST: with those folds and no query, nothing INSIDE a folder is
+  // drawn — so the next assertion is measuring the `all` flag and not a tree that
+  // was open anyway.
+  //
+  // THE PROJECT ROOT'S OWN FILES ARE NOT PART OF THAT (2026-09-12). `README.md`
+  // and `package.json` sit at the top level with nothing above them to fold, so
+  // a fully shut tree still holds them — which is why this is a check on WHICH
+  // files are drawn and not a count of zero. A count would have read the two root
+  // files as the fold failing.
   const folded = stCodeTree(FIND_FILES, "README.md", shut);
-  assert.equal(rows(folded, "st-file").length, 0, "the fixture's folds do not actually fold, so this case proves nothing");
+  assert.deepEqual([...folded.matchAll(/data-srcname="([^"]+)"/g)].map((m) => m[1]).filter((n, i, a) => a.indexOf(n) === i),
+    // A–Z ON LOWERCASE CODE POINTS, which is why `package.json` comes first: a
+    // case-SENSITIVE sort would put `README.md` above it ('R' is 0x52, 'p' is
+    // 0x70), so this order is the tree's own rule showing through.
+    ["package.json", "README.md"],
+    "the fixture's folds do not actually fold, so this case proves nothing");
 
   const found = stCodeFind(FIND_FILES, "booking");
   const open = stCodeTree(found.files, "README.md", shut, found.on);
@@ -2109,8 +2253,8 @@ test("DRIVEN THROUGH THE TAB: typing filters the tree and rebuilds nothing else"
   // the results) and collapses to the bare group, so clearing the box would show
   // the folder holding the file on screen shut.
   assert.equal(a.t.groups, null, "the fixture already has a stored fold, so this measures nothing");
-  clicks.get("data-srcfold:asset")();
-  assert.deepEqual([...a.t.groups].sort(), ["asset", "page", "page/src/routes"],
+  clicks.get("data-srcfold:public")();
+  assert.deepEqual([...a.t.groups].sort(), ["public", "src/routes"],
     "a fold clicked during a search stored a chain derived from the search results");
 
   // NOTHING MATCHING IS THE SENTENCE, and the tree is not simply empty.
@@ -2285,9 +2429,9 @@ test("DERIVED: the menu draws one entry per action, and every glyph is one the t
 });
 
 test("DRIVEN: the handle is on every file and on no folder", () => {
-  const { stCodeTree, stOpenGroups } = TREE;
+  const { stCodeTree, stOpenFolders } = TREE;
   const html = stCodeTree(TREE_FILES, "src/routes/index.tsx",
-    new Set(TREE_FILES.flatMap((f) => [...stOpenGroups(TREE_FILES, f.name, null)])));
+    new Set(TREE_FILES.flatMap((f) => [...stOpenFolders(TREE_FILES, f.name, null)])));
   const fileRows = rows(html, "st-file");
   assert.ok(fileRows.length >= 3, "only " + fileRows.length + " file rows — this check is measuring nothing");
   assert.equal([...html.matchAll(/data-srcmore="/g)].length, fileRows.length,
@@ -2412,8 +2556,8 @@ test("DRIVEN: a row click repaints the file and the tree, and NEVER the panel", 
   // did nothing at all — which is the cheapest way for this case to go quiet.
   assert.equal(a.t.open, "src/routes/menu.tsx", "the click did not change which file is open");
   assert.match(a.host.innerHTML, /class="st-code-fname">src\/routes\/menu\.tsx</, "the bar still names the file before it");
-  assert.match(a.host.innerHTML, /class="st-file on"[^>]*data-srcname="src\/routes\/menu\.tsx"/, "the tree does not mark the file now open");
-  assert.ok(!/class="st-file on"[^>]*data-srcname="src\/routes\/index\.tsx"/.test(a.host.innerHTML),
+  assert.match(a.host.innerHTML, /class="st-file on[^"]*"[^>]*data-srcname="src\/routes\/menu\.tsx"/, "the tree does not mark the file now open");
+  assert.ok(!/class="st-file on[^"]*"[^>]*data-srcname="src\/routes\/index\.tsx"/.test(a.host.innerHTML),
     "the tree still marks the file before it as open");
 });
 
@@ -2427,7 +2571,7 @@ test("DRIVEN: a fold click repaints the tree and leaves the file being read alon
   assert.ok(main.includes("st-code-pre"), "the editor column was never filled, so this case can prove nothing");
   assert.ok(rows.includes('data-srcname="src/routes/menu.tsx"'), "the tree was never filled");
 
-  hands.press("srcfold", "page");
+  hands.press("srcfold", "src/routes");
 
   assert.equal(a.host.draws, drawn, "a fold click rebuilt the whole panel, which is the twitch one row over");
   // A FOLD CHANGES NOTHING ABOUT THE FILE BEING READ, so rebuilding the editor
@@ -2473,7 +2617,7 @@ test("DRIVEN: the tree keeps its place across a click, and a NEW QUERY starts at
   assert.equal(at(), 140, "a row click threw the tree back to the top — a customer reading a file near the bottom loses their place on every press");
 
   a.host.querySelector(".st-code-rows").scrollTop = 90;
-  hands.press("srcfold", "page");
+  hands.press("srcfold", "src/routes");
   assert.equal(at(), 90, "a fold click threw the tree back to the top");
 
   // AND A NEW SET OF RESULTS IS A NEW LIST. Holding an offset into it lands the
@@ -2593,19 +2737,22 @@ test("the row menu's classes are the ones the sheet paints, and the handle hides
   // the end rather than wrapping to its own line.
   assert.match(CSS, /\.st-file-row \{[^}]*display: flex/, "the row is not a flex pair");
   assert.match(CSS, /\.st-file-row > \.st-file \{[^}]*flex: 1/, "the name does not take the row's width");
-  // AND THE HEADING SPACING FOLLOWED THE WRAPPER. `.st-file` is no longer a
-  // sibling of the next group heading; pinned here because nothing about the
-  // markup can see a rule that quietly stopped matching.
-  assert.match(CSS, /\.st-file-row \+ \.st-code-h/, "a group heading after files runs straight into them");
-  assert.ok(!/\.st-file \+ \.st-code-h/.test(CSS), "the spacing rule still names a sibling that no longer exists");
+  // AND THE HEADING SPACING WENT WITH THE HEADINGS (2026-09-12). It was
+  // `.st-file-row + .st-code-h`, re-anchored once already when the file row
+  // gained its menu wrapper — and there is no `.st-code-h` now, so a rule naming
+  // one would be a rule that paints nothing. The chevron case above holds the
+  // sheet to that in both directions; here the only thing left to say is that
+  // NOBODY PUT IT BACK, because a resurrected selector is silent.
+  assert.ok(!/\.st-code-h[ .:{+]/.test(CSS.replace(/\/\*[\s\S]*?\*\//g, "")),
+    "a spacing rule names a category heading the tree cannot draw");
 });
 
 // ── THE FOLD SET BELONGS TO A PROJECT ────────────────────────────────────────
 
 test("a project switch forgets the folds, and re-opening the same one keeps them", () => {
   // THE DEFECT, FROM A SCREENSHOT OF FOUR SHUT HEADINGS AND NO FILES
-  // (2026-09-12). `siteCodeOpenGroups` is module state that outlived the project
-  // it was made in, and `stOpenGroups` takes a stored Set WHOLESALE —
+  // (2026-09-12). `siteCodeFolds` is module state that outlived the project
+  // it was made in, and `stOpenFolders` takes a stored Set WHOLESALE —
   // `chosen instanceof Set` short-circuits the derive — so a customer who folded
   // every group on one site opened the next one to a panel with nothing in it and
   // nothing to explain why. The first draw's "open the folder holding the file"
@@ -2621,7 +2768,7 @@ test("a project switch forgets the folds, and re-opening the same one keeps them
   ];
   // First: the mechanism, driven — a foreign Set really does suppress the default.
   const foreign = new Set();
-  assert.equal(TREE.stOpenGroups(files, "src/routes/index.tsx", foreign), foreign,
+  assert.equal(TREE.stOpenFolders(files, "src/routes/index.tsx", foreign), foreign,
     "a stored Set is no longer returned wholesale — the reset below may be the wrong fix");
   const shut = TREE.stCodeTree(files, "src/routes/index.tsx", foreign, false);
   assert.equal((shut.match(/st-file-row/g) || []).length, 0, "the foreign Set no longer hides the files");
@@ -2634,12 +2781,12 @@ test("a project switch forgets the folds, and re-opening the same one keeps them
   // is a single `if` whose whole job is to be conditional.
   const run = new Function("deps", [
     "let siteOpenId = deps.start;",
-    "let siteCodeOpenGroups = deps.folds;",
+    "let siteCodeFolds = deps.folds;",
     "const history = deps.history; const location = deps.location;",
     "const renderSites = () => {};",
     fn("function openProject("),
     "openProject(deps.to, 'none');",
-    "return { siteOpenId, siteCodeOpenGroups };",
+    "return { siteOpenId, siteCodeFolds };",
   ].join("\n"));
   const fakes = (start, folds, to) => run({
     start, folds, to,
@@ -2650,22 +2797,22 @@ test("a project switch forgets the folds, and re-opening the same one keeps them
 
   const switched = fakes("site_a", kept, "site_b");
   assert.equal(switched.siteOpenId, "site_b");
-  assert.equal(switched.siteCodeOpenGroups, null,
+  assert.equal(switched.siteCodeFolds, null,
     "a project switch carried the previous project's folds into the new one");
 
   const same = fakes("site_a", kept, "site_a");
-  assert.equal(same.siteCodeOpenGroups, kept,
+  assert.equal(same.siteCodeFolds, kept,
     "re-opening the project already open threw away the folds the customer just made");
 
   const fromList = fakes(null, kept, "site_b");
-  assert.equal(fromList.siteCodeOpenGroups, null, "list → project kept a stale fold set");
+  assert.equal(fromList.siteCodeFolds, null, "list → project kept a stale fold set");
 
   const toList = fakes("site_a", kept, null);
   assert.equal(toList.siteOpenId, null);
-  assert.equal(toList.siteCodeOpenGroups, null, "leaving for the project list kept a stale fold set");
+  assert.equal(toList.siteCodeFolds, null, "leaving for the project list kept a stale fold set");
 
   // AND `null`, NEVER AN EMPTY SET — they mean different things here, and the
   // empty one is exactly what the defect looked like on screen.
-  assert.ok(!(switched.siteCodeOpenGroups instanceof Set),
+  assert.ok(!(switched.siteCodeFolds instanceof Set),
     "the reset stores an empty Set, which reads as 'the customer closed everything'");
 });

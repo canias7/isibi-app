@@ -247,11 +247,20 @@ test("THE CHAIN: resolved in the container, stored on both publish paths, answer
   assert.match(WORKER, /loadSiteKit\(env, sslug\)/, "the source route does not read the kit");
   assert.match(WORKER, /\n        kit: sKit,/, "the source route does not answer the kit");
 
-  // 5. THE BROWSER LISTS IT, under its own heading.
-  assert.match(CHAT, /\['kit', 'Design system'\]/, "the explorer has no group for it");
+  // 5. THE BROWSER LISTS IT, and knows what it is.
+  //
+  // RE-ANCHORED 2026-09-12, not appeased: the explorer draws ONE tree from the
+  // project root now (owner: *"ITS BY FOLDERS"* → *"OK GO"*), so `Design system`
+  // is no longer a heading these files are gathered under — it is the name the
+  // KIND carries, which decides the row's ink and what the row says about
+  // itself. The property that matters here has not moved: the browser reads the
+  // kit off the answer and marks each file, so a kit file is never an unlabelled
+  // row the customer reads as their own code.
+  assert.match(CHAT, /\['kit', 'Design system', false\]/,
+    "the explorer does not know what a kit file is, or has started calling it the customer's own");
   assert.match(CHAT, /for \(const f of \(src && Array\.isArray\(src\.kit\)\) \? src\.kit : \[\]\)/,
     "the browser never reads the kit off the answer");
-  assert.match(CHAT, /kind: 'kit'/, "the files are read but not marked, so they land in no group");
+  assert.match(CHAT, /kind: 'kit'/, "the files are read but not marked, so nothing can say what they are");
 });
 
 test("ONE LIST STILL FEEDS THE TREE AND THE DOWNLOAD, kit included", () => {

@@ -1495,28 +1495,76 @@ the next platform-wide republish is the measurement).
 
 ## The code explorer
 
-The Code tab shows the customer's whole project. **Four groups, by what a file
-IS** — `Pages` · `Components` · `Made by the build` · `Shared with every site` —
-and **inside each one, the real directory tree.**
+The Code tab shows the customer's whole project **as ONE tree from its root** —
+the directory it really is on disk.
 
-- **A heading is a folder and so is every directory under it**: it folds, it
-  carries a COUNT of everything beneath it, and one chevron turns. The count is
-  what makes a folded folder honest rather than hidden — a bare heading over
-  nothing reads as the thing being missing.
+- **THE FIVE CATEGORY HEADINGS ARE GONE (2026-09-12, owner holding Lovable's
+  explorer beside ours: *"ITS BY FOLDERS . THATS THE DIFFERENCE I THINK"* →
+  *"OK GO"*).** It was `Pages` · `Components` · `Made by the build` ·
+  `Design system` · `Shared with every site`, each holding the real directory
+  tree of its own slice. That was right about the distinction and wrong about
+  the shape: `src/routes` was drawn TWICE (once under Pages, once under
+  Components), the project root was split across two headings, and no row
+  anywhere sat where the file really lives. **One directory on disk is one tree
+  here.** Everything else survived the change — the same `stDirTree`, the same
+  collapse rule, the same rows, the same icons, the same A–Z sort — over ALL the
+  files at once, starting at depth 0 where the headings used to sit.
+  **WHAT IT COSTS, so the next session does not read it as a regression**: a page
+  is one row deeper. Under the headings, Pages held only the routes the customer
+  wrote, so `src/routes` collapsed to one row with `index.tsx` under it; in the
+  real directory `src/routes` also holds `__root.tsx` and `-parts/`, so the chain
+  is `src/routes` → the file. And **`src/components/ui` sorts to the top of
+  `src`** and is the biggest folder in the project (9–53 files); it is drawn shut
+  by default and is the first thing under `src`.
+  **A FOLDER'S KEY IS ITS PATH**, with nothing prefixed onto it — the
+  simplification the one tree bought, since under five headings two different
+  `src/routes` folders needed two keys. `stFoldRow` writes its own class for the
+  same reason: a parameter with one possible value is a second copy of it.
+  **AND THE `.st-code-h` RULES LEFT WITH THE HEADINGS** — there were two fold-row
+  styles because there were two kinds of fold row, and the second had nothing
+  left to distinguish itself from. The guard holds the sheet to that in BOTH
+  directions.
+- **WHOSE FILE IT IS, IN INK — the one thing a directory tree cannot say.**
+  `src/routes/__root.tsx` and `src/routes/index.tsx` sit two rows apart in one
+  folder and are not the same kind of thing, so `ST_FILE_KINDS` survived the
+  headings as a per-ROW fact: the customer's own files (`page`, `part`, `asset`)
+  are drawn in full ink (`st-file-own`, the same token every row reaches on
+  HOVER) and the platform's (`kit`, `shared`) stay at the muted resting colour
+  every row had before. **Purely additive — nothing became harder to read.**
+  The words ride in `title` ("`router.tsx` — Shared with every site"), because
+  ink is a hierarchy and not a label: it says two rows differ and never says how.
+  A badge or a second column would cost width the 210px tree has not got, and a
+  reader skims past a flag on a row — which is why the headings existed at all.
+  **`own` FAILS CLOSED**: a kind nothing recognises is not the customer's and
+  gets no title rather than an empty one.
+- **A FOLDER folds, carries a COUNT of everything beneath it, and one chevron
+  turns.** The count is what makes a folded folder honest rather than hidden — a
+  bare name over nothing reads as the thing being missing.
+- **THE PROJECT ROOT'S OWN FILES ARE ALWAYS DRAWN**, because nothing sits above
+  them to fold away. Under the headings a fully shut tree drew NO files at all;
+  now a shut tree still shows the twelve root files, which is also why an
+  unfindable open file can safely open nothing.
 - **`null` IS A THIRD STATE, and it is the whole of the first draw.** The stored
   fold preference is `null` until the customer touches something, which is NOT an
   empty Set: uninitialised opens the CHAIN holding the file on screen and folds
   everything else; an empty Set is somebody who closed every folder, and
   re-deriving for them would re-open one on the next click for ever. The recorded
   "cannot-tell must never read as a value", pointed at a preference. The default
-  is derived from the OPEN FILE, never a hardcoded `page` — a rebuild can find
-  the preference null while the chosen file is a component.
+  is derived from the OPEN FILE, never a named folder — a rebuild can find the
+  preference null while the chosen file is anything. **AND IT RESETS ON A PROJECT
+  SWITCH** (2026-09-12, owner, on a screenshot of a Code tab with every heading
+  shut and no file on screen): `stOpenFolders` takes a stored Set WHOLESALE, so a
+  customer who folded one site's tree up opened the next one to a shut tree with
+  no sign of why. Reset on a real CHANGE of project, never on every call — and to
+  `null`, not an empty Set, because the empty one is what the defect looked like.
+  It is the same defect now the tree is one tree, and cheaper to hit: a folded
+  `src` used to hide one heading's contents and now hides nearly the project.
 - **A CHAIN OF ONE-CHILD DIRECTORIES IS ONE ROW** — `src/routes/-parts`, never
   `src` then `routes` then `-parts`. VS Code's compact folders, and it earns its
   place because our paths are deep and narrow: every page and component lives
-  under `src/routes/`, so without it the Pages group is a ladder with one file at
+  under `src/routes/`, so without it every page is a ladder with one file at
   the bottom. **ONE COLLAPSE RULE, ASKED IN BOTH PLACES** — the renderer walks the
-  tree and `stOpenGroups` walks it again to name the chain; two copies would drift
+  tree and `stOpenFolders` walks it again to name the chain; two copies would drift
   into a folder drawn under a key the toggle cannot match, a row that does nothing
   when clicked.
 - **THE DRAW IS NOT THE FETCH.** `loadSiteCode` asks the server and hands the
@@ -1551,8 +1599,6 @@ and **inside each one, the real directory tree.**
   project", which is right about READING a project and wrong for FINDING one file
   among twenty-five, which is what this panel is for. The list keeps its order (it
   is also the download's) and its comment now says the tree no longer inherits it.
-  **Still different from theirs, and not done**: no search box, no per-row menu,
-  and our four headings against their one flat root.
 - **WHAT IS OUT, AND BOTH HALVES WERE DECIDED**: `src/components/**` (3,394 kit
   files, 9.5 MB — a dependency, and it would be in every isolate); the template's
   DEMO routes, because the image DELETES them (derived from the Dockerfile's own
@@ -1884,8 +1930,10 @@ and **inside each one, the real directory tree.**
   the same thing with a deploy between them), refuses an absolute or climbing
   path a second time, and answers it from `/api/site/source`.
   **ITS OWN HEADING, `Design system`, never folded into `Shared with every
-  site`**: which of these a site has is a fact about THAT site, so two sites show
-  different counts and one heading over both would be a lie about half its rows.
+  site`** — a distinction the KIND still carries now that the headings are gone
+  (2026-09-12): which of these a site has is a fact about THAT site, so two sites
+  show different counts, and calling them the same thing would be wrong about
+  half of them.
   **A site that has not published since this shipped gets `[]`** — the explorer
   shows exactly what it showed before, no error and nothing to explain, and it
   fills in on that site's next publish.
@@ -1920,6 +1968,32 @@ and **inside each one, the real directory tree.**
   MACHINE'S copy into the committed module, so the explorer showed customers a
   file no checkout has, listing routes no site has. Found by a red CI run.
   `git ls-files` now, derived, so the next generated file cannot enter either.
+
+**Guards for the one tree (2026-09-12)**: `test/site-source.test.mjs` — no
+heading label and no heading MARKUP (both halves, since a tree that rebuilt the
+five rows with new words satisfies the first); the collapse rule still one row
+and a CHILD folder drawn under its own segment; depth re-anchored one step
+shallower with the key as the path; the count over the whole subtree; a shut tree
+listing exactly the root's own files; the ink hierarchy DERIVED from
+`ST_FILE_KINDS` for all five kinds with the words beside it; an unknown kind
+refused the customer's ink and given no title; and the sheet asked, both
+directions, that it paints the class and paints it DIFFERENTLY.
+**THE KIND TABLE IS CARRIED OUT OF THE SOURCE, NOT HANDED IN** — it used to
+arrive as a parameter holding a hand-typed FOUR-entry fixture where the product
+has five, so every case in that file ran against a project with no `Design
+system` in it. The recorded "two lists of the same thing", with a test on one
+end, and the carried table is now compared against a second independent read.
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived — TWO survived the first pass and both were real guard gaps.**
+The sheet's own-file colour set back to `--muted` (the class written, the rule
+present, and nothing painted: the recorded "a CSS rule can be correct and still
+lose" — nothing read the VALUE), and the kind table spliced into the tree scope
+as a literal with every kind `own: true` (both sides of every derived assertion
+moved together, so the case passed over a project that called `router.tsx` the
+customer's). **And one of my own new assertions was the recorded substring
+trap on its first run**: `!/class="st-code-h/` is satisfied by a tree with no
+headings at all, because `st-code-hn` is the label span inside every fold row.
+`class="st-code-h[ "]`, with the quote.
 
 **OPEN, named and not fixed: the `tweak` rung targets pages by ROUTE**, so a
 layout tweak on a split site falls to the `page` rung (~1 → ~1–3 credits).
@@ -3701,8 +3775,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   fetched reached only step 20 (`site-runtime`, 47 passed) — and it is left
   unstamped rather than carried over from 1114, which is the rule this line's
   own history is about.
-  The unit suite is **6,086** (2026-09-12, 82.4 s local — stage 4 of the media
-  deletion; CI has NOT read this number yet, and the last one it did read was
+  The unit suite is **6,088** (2026-09-12, 82.3 s local — the folder tree;
+  6,086 at stage 4 of the media deletion, plus two cases for the one tree and the
+  row's ink; CI has NOT read this number yet, and the last one it did read was
   6,072 on run 2473). The arithmetic across the deletion, because a falling
   count is the ordinary shape of one and is only honest written down:
   **6,078 → 6,072** at stage 1 (the game builder retired ten cases when

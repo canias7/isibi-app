@@ -6322,3 +6322,48 @@ builds, with the game code gone.
 
 The normal suite went 6,078 → 6,072, which is what a deletion looks like: the
 game's own tests came out (fourteen) and the two new guards went in (eight).
+
+---
+
+## The Code tab is the project now, not our five boxes (2026-09-12)
+
+You put Lovable's file explorer next to ours and said **"ITS BY FOLDERS. THATS
+THE DIFFERENCE I THINK"**, and that was exactly it.
+
+Ours had five headings — Pages, Components, Made by the build, Design system,
+Shared with every site — and inside each one it drew the real folders. So a
+customer's project got cut into five stacks, `src/routes` was drawn twice (once
+under Pages, once under Components), the root files were split across two
+headings, and no row anywhere sat where the file actually lives.
+
+**Now it's one tree from the top of the project**, the way it is on disk. `src`
+opens, `routes` is inside it, your pages are inside that, and the config files
+sit at the bottom with nothing above them. Same files, same count, same search
+box, same right-click menu — only the shape changed.
+
+**Two things I'd flag before you look at it.**
+
+Your pages are one row deeper than they were. Under the old Pages heading the
+folder chain squashed down to a single row because that heading only held the
+pages you'd written; in the real directory `src/routes` also holds the root file
+and the components folder, so it can't squash. That's the project as it is, and
+the tree remembers what you left open, so it's one click once.
+
+And `components/ui` — the design-system files — sorts to the top of `src` and is
+the biggest folder in there. It stays shut unless you open it.
+
+**The one thing the headings were genuinely good for, I kept.** A folder tree
+can't tell you that `index.tsx` is *your* page and `router.tsx` is something we
+ship on every site — they're two rows apart in the same folder. So your own
+files are now drawn in darker ink and ours stay the lighter grey every row used
+to be. Nothing got harder to read; some rows just got darker. Hover any row and
+it tells you which it is in words.
+
+I also fixed something you'd have hit: the fold state was leaking between
+projects. Fold a tree up on one site, open another, and you got a shut tree and
+no explanation. That's reset per project now — and it mattered more after this
+change, because a folded `src` used to hide one heading and now hides nearly
+everything.
+
+Tests 6,088 green. Sweep 17 of 17, both controls survived. **Not seen live yet**
+— the next deploy is what puts it in front of you.

@@ -1946,24 +1946,29 @@ function projectFromPath() {
  */
 function openProject(id, mode) {
   // THE FOLD SET BELONGS TO A PROJECT, AND IT IS THE ONE CODE-TAB STATE THAT
-  // CANNOT SURVIVE A SWITCH (2026-09-12, owner, on a screenshot of four shut
-  // headings and no files).
+  // CANNOT SURVIVE A SWITCH (2026-09-12, owner, on a screenshot of a Code tab
+  // with every heading shut and no file on screen).
   //
   // The paragraph beside `siteCodeFind` argues that a carried-over QUERY is fine
   // because it is VISIBLE, and a carried-over FILENAME is fine because it falls
-  // back to `files[0]`. The fold set has neither property: `stOpenGroups` returns
-  // a stored Set wholesale (`chosen instanceof Set` short-circuits the derive),
-  // so a customer who folded every group on one site opened the next one to four
-  // shut headings, nothing on screen, and no sign of why — the first draw's
-  // "open the folder holding the file" default never ran, because from the
+  // back to `files[0]`. The fold set has neither property: `stOpenFolders`
+  // returns a stored Set wholesale (`chosen instanceof Set` short-circuits the
+  // derive), so a customer who folded the tree up on one site opened the next one
+  // to a shut tree, nothing on screen, and no sign of why — the first draw's
+  // "open the chain holding the file" default never ran, because from the
   // renderer's side there WAS a choice to honour. It just belonged to a
   // different project.
+  //
+  // IT IS THE SAME DEFECT NOW THAT THE TREE IS ONE TREE, and cheaper to hit: the
+  // keys were group names and folder paths under them, and they are folder paths
+  // from the root, so folding `src` on one project used to hide one heading's
+  // contents and now hides nearly the whole project on the next one.
   //
   // Reset on a real CHANGE of project, not on every call: re-opening the site
   // already open (the Data button, a re-render) must keep the folds the customer
   // just made. `null` and not an empty Set, because those two mean different
   // things here and the empty one is what the defect looked like.
-  if ((id || null) !== siteOpenId) siteCodeOpenGroups = null;
+  if ((id || null) !== siteOpenId) siteCodeFolds = null;
   siteOpenId = id || null;
   const path = siteOpenId ? '/projects/' + siteOpenId : '/projects';
   // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that
@@ -2023,7 +2028,7 @@ let siteCodeOpen = '';      // Code panel: the open file, kept by NAME across re
 // a customer who has closed every folder, which must survive a re-render.
 // Reading the two as one would re-open a folder somebody just closed, on the
 // next click, for ever.
-let siteCodeOpenGroups = null;
+let siteCodeFolds = null;
 // WHAT IS IN THE SEARCH BOX, at module scope for the reason the fold set is: the
 // workspace re-renders on every reply, so a filter kept inside the render would
 // empty itself each time the builder answered.
@@ -3389,39 +3394,51 @@ function stSrcPath(f) {
   const p = typeof f.path === 'string' ? f.path.replace(/^(?:src\/)?routes\//, '') : '';
   return p ? 'src/routes/' + p : '';
 }
-// THE TREE, GROUPED BY WHOSE FILE IT IS.
+// WHAT KIND OF FILE EACH ONE IS — a fact the ROW carries, not a heading that
+// cuts the tree (owner, 2026-09-12, holding Lovable's explorer beside ours:
+// *"ITS BY FOLDERS . THATS THE DIFFERENCE I THINK"*, then *"OK GO"*).
 //
-// FOUR HEADINGS, NOT ONE FLAT LIST (owner, 2026-09-11, on Lovable's explorer
-// beside ours: *"their stuff is files organized ours is all on one file"*).
-// The customer's own pages and components come first, then what the build made
-// for this site, then the scaffold every site shares — and the last group is
-// SEPARATED rather than flagged, because "this is yours" and "this is the
-// platform's" is the distinction a reader most needs and a flag on a row is the
-// one a reader skims past.
+// UNTIL TODAY THESE WERE FIVE HEADINGS and the tree was five trees under them:
+// Pages · Components · Made by the build · Design system · Shared with every
+// site, each holding the real directory tree of its own files. That was right
+// about the distinction and wrong about the shape. A customer's project is ONE
+// directory on disk, and cutting it five ways meant `src/routes` was drawn twice
+// (once under Pages, once under Components), the project root was split between
+// two headings, and no row anywhere sat where the file really lives. Lovable
+// opens at the repo root and goes down; a customer reading their own project
+// wants the project, not our classification of it.
 //
-// EACH GROUP IS DRAWN ONLY WHEN IT HAS FILES, so a site with no drawn mark and
-// no stylesheet shows no empty "Made by the build" heading — a heading over
-// nothing reads as something missing rather than something absent.
+// WHAT THE HEADINGS SAID IS NOT LOST, IT MOVED ONTO THE ROW. Which files are the
+// customer's own and which are ours on every site is a real and useful thing to
+// know — it is the ONE thing a flat directory cannot say — so the file rows the
+// customer owns are drawn in full ink and the platform's stay muted, and every
+// row carries its kind's name where a pointer or a screen reader can reach it.
+// A flag on a row is the one a reader skims past, which is why the headings were
+// chosen in the first place; the answer is not a flag but the type itself.
 //
-// THE DISPLAY NAME DROPS `src/routes/` ONLY IN THE CUSTOMER'S OWN GROUPS, which
-// is where every file shares that prefix and it is noise repeated down the list.
-// Everything else keeps its real path — `public/icon.svg` and `src/lib/rows.ts`
-// are only meaningful with it, and the SHARED group holds `src/routes/__root.tsx`,
-// which stripped reads as a file sitting beside the customer's pages instead of
-// the platform's own root route.
-const ST_CODE_GROUPS = [
-  ['page', 'Pages'],
-  ['part', 'Components'],
-  ['asset', 'Made by the build'],
-  // THE KIT PARTS THIS SITE IMPORTS, as their own heading between the site's own
-  // files and the platform's. They are neither: a page the model wrote is the
-  // customer's, `src/router.tsx` is ours on every site, and these are ours but
-  // only on the sites that reach for them — which is why they are stored per
-  // slug and why the count differs between two sites. Folded into "Shared with
-  // every site" the heading would be a lie about half its rows.
-  ['kit', 'Design system'],
-  ['shared', 'Shared with every site'],
+// `own: true` IS "THIS IS THE CUSTOMER'S FILE", and the split is by who decides
+// what is in it. A page and a component are written for this site by the model
+// the customer is talking to, and `src/site-brand.ts` is written by their own
+// build — those three change when they ask for a change. `src/router.tsx` is
+// ours on every site, and the kit parts are ours on every site that imports one:
+// neither moves because the customer said anything, so neither is theirs.
+const ST_FILE_KINDS = [
+  ['page', 'Page', true],
+  ['part', 'Component', true],
+  ['asset', 'Made by the build', true],
+  // THE KIT PARTS THIS SITE IMPORTS. They are not quite the shared scaffold:
+  // `src/router.tsx` is on every site and these are only on the sites that reach
+  // for them, which is why they are stored per slug and why the count differs
+  // between two sites. The distinction is worth keeping in the words even now
+  // that it no longer decides where the row is drawn.
+  ['kit', 'Design system', false],
+  ['shared', 'Shared with every site', false],
 ];
+/** What a file's kind is called, and whether it is the customer's own. */
+function stKindOf(kind) {
+  const row = ST_FILE_KINDS.find((k) => k[0] === kind);
+  return { label: row ? row[1] : '', own: !!(row && row[2]) };
+}
 /**
  * One group's files as the DIRECTORY TREE they really are (owner, 2026-09-11,
  * drawing `1. / 1.a. / 2.`: *"Why"*).
@@ -3510,34 +3527,43 @@ function stDirCount(node) {
   return n;
 }
 /**
- * Which nodes the tree draws OPEN — the four groups and every folder inside them
- * (owner, 2026-09-11: *"components you click and the 8 or 0 or whatever how many
- * they appear"*, then the nesting).
+ * Which folders the tree draws OPEN (owner, 2026-09-11: *"components you click
+ * and the 8 or 0 or whatever how many they appear"*, then the nesting).
+ *
+ * A FOLDER'S KEY IS ITS PATH, and that is what the one tree bought. Under the
+ * five headings it could not be: `src/routes` existed under Pages AND under
+ * Components, two different folders drawn from two different file lists, so
+ * every key had to carry its heading's name to tell them apart. One tree has one
+ * `src/routes`, so the path identifies it and there is nothing to prefix.
  *
  * THE THIRD STATE IS THE WHOLE OF THE FIRST DRAW. `chosen` is what the customer
  * has folded and unfolded; `null` means they have touched nothing yet, which is
  * NOT an empty Set. Uninitialised opens exactly the CHAIN holding the file on
- * screen — its group and every folder down to it — and leaves everything else
+ * screen — every folder from the root down to it — and leaves everything else
  * folded, which is what a file explorer does when you open a file by path. An
  * empty Set is a customer who has closed every folder, and re-deriving the
  * default for them would re-open one on the next click, for ever. The recorded
  * "cannot-tell must never read as a value", pointed at a preference.
  *
- * THE DEFAULT IS DERIVED FROM THE OPEN FILE rather than naming `page`, because
- * the first draw is not the only draw that can find `chosen` null — a rebuild
- * replaces the file list while the customer's chosen file may be a component —
- * and a hardcoded `page` would fold the folder holding the file being shown.
+ * THE DEFAULT IS DERIVED FROM THE OPEN FILE and from nothing else, because the
+ * first draw is not the only draw that can find `chosen` null — a rebuild
+ * replaces the file list while the customer's chosen file may be anything — and
+ * a named folder would fold the one holding the file being shown.
+ *
+ * A FILE AT THE ROOT OPENS NOTHING, and that is right rather than a gap:
+ * `package.json` has no folder above it, so the empty answer draws the whole
+ * root — its twelve files and every top-level folder, shut — with the open file
+ * among them.
  */
-function stOpenGroups(files, openName, chosen) {
+function stOpenFolders(files, openName, chosen) {
   if (chosen instanceof Set) return chosen;
   const list = Array.isArray(files) ? files : [];
+  const keys = new Set();
   const holds = list.find((f) => f && f.name === openName);
-  const kind = (holds && holds.kind) || ST_CODE_GROUPS[0][0];
-  const keys = new Set([kind]);
   if (!holds) return keys;
   // THE CHAIN, walked through the SAME collapse rule the renderer uses, so every
   // key here is a key the tree really draws.
-  let at = stDirTree(list.filter((f) => f.kind === kind));
+  let at = stDirTree(list);
   let prefix = '';
   const segs = String(holds.name).split('/');
   segs.pop();
@@ -3545,24 +3571,33 @@ function stOpenGroups(files, openName, chosen) {
   while (i < segs.length && at.dirs.has(segs[i])) {
     const step = stCollapse(segs[i], at.dirs.get(segs[i]));
     const path = prefix + step.label;
-    keys.add(kind + '/' + path);
+    keys.add(path);
     i += step.label.split('/').length;
     prefix = path + '/';
     at = step.node;
   }
   return keys;
 }
-/** A row that folds: a group heading, or a folder inside one. */
-function stFoldRow(key, label, count, shown, depth, cls) {
+/**
+ * A row that folds: a folder, at any depth.
+ *
+ * IT TOOK A CLASS UNTIL 2026-09-12 because a group heading and a folder were two
+ * kinds of fold row wearing two styles — `st-code-h` in tracked uppercase for the
+ * five headings, `st-code-d` in sentence case for the real directories inside
+ * them. There is one kind now, so the class is written here rather than passed:
+ * a parameter with one possible value is a second copy of that value with a call
+ * site between them.
+ */
+function stFoldRow(key, label, count, shown, depth) {
   // ONE CHEVRON, TURNED. `chevronleft` points left when the folder is shut — the
   // universal collapsed state — and the open rule rotates it to point down. A
   // second icon entry would be a second glyph to keep in step with the first for
   // no gain; the disclosure triangle IS one mark that turns.
   //
   // AND THE COUNT IS WHAT MAKES A FOLDED FOLDER HONEST rather than a hidden one.
-  // "Made by the build 4" says there are four things in there; a bare heading
-  // over nothing says a group exists and nothing about whether it is empty.
-  return '<button type="button" class="' + cls + (shown ? ' on' : '') +
+  // `components/ui 25` says there are twenty-five things in there; a bare folder
+  // over nothing says a folder exists and nothing about whether it is empty.
+  return '<button type="button" class="st-code-d' + (shown ? ' on' : '') +
     '" data-srcfold="' + esc(key) + '" aria-expanded="' + (shown ? 'true' : 'false') + '"' +
     (depth ? ' style="--d:' + depth + '"' : '') + '>' +
     '<span class="st-code-caret">' + ic('chevronleft', 12) + '</span>' +
@@ -3648,17 +3683,19 @@ function stCodeFind(files, q) {
   }
   return { on: true, files: out, shown: out.length, total: list.length };
 }
-function stCodeRows(node, keyBase, prefix, depth, open, openName) {
+function stCodeRows(node, prefix, depth, open, openName) {
   let out = '';
   // FOLDERS ABOVE FILES, which is what every explorer does and what keeps a long
   // file list from burying the one folder under it.
   for (const entry of node.dirs) {
     const step = stCollapse(entry[0], entry[1]);
+    // THE PATH IS THE KEY. It took a `keyBase` prefix until 2026-09-12, when the
+    // tree was five trees and `src/routes` could be two different folders; one
+    // tree has one of each path, so the path names it on its own.
     const path = prefix + step.label;
-    const key = keyBase + '/' + path;
-    const shown = open.has(key);
-    out += stFoldRow(key, step.label, stDirCount(step.node), shown, depth, 'st-code-d');
-    if (shown) out += stCodeRows(step.node, keyBase, path + '/', depth + 1, open, openName);
+    const shown = open.has(path);
+    out += stFoldRow(path, step.label, stDirCount(step.node), shown, depth);
+    if (shown) out += stCodeRows(step.node, path + '/', depth + 1, open, openName);
   }
   for (const f of node.files) {
     // THE ROW IS A WRAPPER AROUND TWO BUTTONS, and the wrapper is not decoration:
@@ -3676,8 +3713,25 @@ function stCodeRows(node, keyBase, prefix, depth, open, openName) {
     // sees, since the folders above it carry the rest; `data-srcname` is the full
     // one, because that is what the click handler looks a file up by and two
     // files can share a basename across folders.
+    //
+    // AND IT CARRIES ITS KIND, which is the half of the five headings worth
+    // keeping (2026-09-12). A directory tree cannot say whether `router.tsx` is
+    // something the customer's build wrote or something on every site we ship,
+    // and that is worth knowing before you read a file — so the customer's own
+    // files are drawn in full ink (`st-file-own`) and ours stay at the muted
+    // resting colour every row had before today. NOTHING BECOMES HARDER TO READ:
+    // the change is additive, some rows get darker, and the platform's rows are
+    // exactly the ink they have always been.
+    //
+    // THE WORDS ARE ON THE ROW TOO, in `title`, because ink is a hierarchy and
+    // not a label: it says these two rows differ and never says how. A pointer or
+    // a screen reader gets "Shared with every site" in as many words, which is
+    // what the heading used to spell out for a whole group at once.
+    const kind = stKindOf(f.kind);
     out += '<button type="button" class="st-file' + (f.name === openName ? ' on' : '') +
-      (f.unplaced ? ' st-file-lost' : '') + '" data-srcname="' + esc(f.name) + '"' +
+      (kind.own ? ' st-file-own' : '') + (f.unplaced ? ' st-file-lost' : '') +
+      '" data-srcname="' + esc(f.name) + '"' +
+      (kind.label ? ' title="' + esc(f.base + ' — ' + kind.label) + '"' : '') +
       (depth ? ' style="--d:' + depth + '"' : '') + '>' +
       '<span class="st-file-ic">' + ic(stFileIcon(f.base), 13) + '</span>' +
       '<span class="st-file-n">' + esc(f.base) + '</span>' +
@@ -3703,28 +3757,38 @@ function stCodeRows(node, keyBase, prefix, depth, open, openName) {
   return out;
 }
 // EVERY FOLDER, WITHOUT NAMING ONE. A search has to draw its matches OPEN or the
-// tree answers a query with four shut headings — the one shape that reads as
-// "nothing found" while holding the answer. A Set would have to be built by
-// walking the filtered tree, which is a second copy of the renderer's own
-// collapse rule and the exact drift `stCollapse` exists to stop; a thing that
-// says yes to every key is the same answer with nothing to keep in step.
+// tree answers a query with a shut `src` — the one shape that reads as "nothing
+// found" while holding the answer. A Set would have to be built by walking the
+// filtered tree, which is a second copy of the renderer's own collapse rule and
+// the exact drift `stCollapse` exists to stop; a thing that says yes to every
+// key is the same answer with nothing to keep in step.
 //
-// AND IT IS NEVER STORED. `siteCodeOpenGroups` keeps the customer's own folds
+// AND IT IS NEVER STORED. `siteCodeFolds` keeps the customer's own folds
 // untouched while a query is up, so clearing the box puts the tree back exactly
 // as they left it.
 const ST_ALL_OPEN = { has: () => true };
+/**
+ * THE WHOLE PROJECT, AS ONE TREE FROM ITS ROOT (owner, 2026-09-12, holding
+ * Lovable's explorer beside ours: *"ITS BY FOLDERS . THATS THE DIFFERENCE I
+ * THINK"* → *"OK GO"*).
+ *
+ * THIS FUNCTION USED TO BE A LOOP OVER FIVE HEADINGS, each building its own
+ * `stDirTree` from its own slice of the list. Every part of that is still here
+ * except the loop: the same tree builder, the same collapse rule, the same rows,
+ * the same icons, the same A–Z sort — over ALL the files at once, starting at
+ * depth 0 where the headings used to sit.
+ *
+ * WHAT IT COSTS, so the next session does not read it as a regression: a page is
+ * one row deeper than it was. Under the headings, Pages held only the routes the
+ * customer wrote, so `src/routes` collapsed to a single row and `index.tsx` sat
+ * under it. In the real directory `src/routes` also holds `__root.tsx` and
+ * `-parts/`, so the chain is `src` → `routes` → the file. That is the project as
+ * it is on disk, and the fold preference means it is one click once.
+ */
 function stCodeTree(files, openName, chosen, all) {
   const list = Array.isArray(files) ? files : [];
-  const open = all ? ST_ALL_OPEN : stOpenGroups(list, openName, chosen);
-  let out = '';
-  for (const g of ST_CODE_GROUPS) {
-    const mine = list.filter((f) => f.kind === g[0]);
-    if (!mine.length) continue;
-    const shown = open.has(g[0]);
-    out += stFoldRow(g[0], g[1], mine.length, shown, 0, 'st-code-h');
-    if (shown) out += stCodeRows(stDirTree(mine), g[0], '', 1, open, openName);
-  }
-  return out;
+  const open = all ? ST_ALL_OPEN : stOpenFolders(list, openName, chosen);
+  return stCodeRows(stDirTree(list), '', 0, open, openName);
 }
 /**
  * The search box itself, above the tree.
@@ -4152,7 +4216,7 @@ function drawSiteCode(src) {
     const wasAt = rows.scrollTop;
     const found = stCodeFind(files, siteCodeFind);
     rows.innerHTML = found.files.length
-      ? stCodeTree(found.files, open.name, siteCodeOpenGroups, found.on)
+      ? stCodeTree(found.files, open.name, siteCodeFolds, found.on)
       : '<div class="st-find-none">' + esc(stFindNone(siteCodeFind)) + '</div>';
     if (said) said.textContent = stFindSaid(found);
     if (box) box.classList.toggle('on', found.on);
@@ -4211,10 +4275,10 @@ function drawSiteCode(src) {
     // the default from a filtered list would store a chain that names folders the
     // query happened to leave standing.
     rows.querySelectorAll('[data-srcfold]').forEach((b) => b.onclick = () => {
-      const now = new Set(stOpenGroups(files, open.name, siteCodeOpenGroups));
+      const now = new Set(stOpenFolders(files, open.name, siteCodeFolds));
       const k = b.dataset.srcfold;
       if (now.has(k)) now.delete(k); else now.add(k);
-      siteCodeOpenGroups = now;
+      siteCodeFolds = now;
       // THE TREE, NOT THE PANEL — the row click's argument, for the same reason
       // and with one more: a fold changes nothing about the file being read, so
       // rebuilding the editor beside it scrolled that file back to line 1.

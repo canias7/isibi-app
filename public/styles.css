@@ -2704,46 +2704,31 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    where the bar goes. And it is on BOTH scrolling boxes — the editor's own
    scroller toggles the same way when you open a long file after a short one. */
 .st-code-rows { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 0 .5rem .6rem; }
-/* THE HEADING IS A FOLDER (owner, 2026-09-11: "components you click and the 8
-   or 0 or whatever how many they appear"). A button, so it is reachable by
-   keyboard and announces its own state; the type stays exactly what it was, so
-   a folded tree reads as the same tree with its groups closed. */
-.st-code-h { display: flex; align-items: center; gap: .4rem; width: 100%; text-align: left; font: inherit; font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: none; border: none; border-radius: 8px; padding: .4rem .5rem; cursor: pointer; }
-.st-code-h:hover { background: var(--panel-2); color: var(--text); }
 /* ONE CHEVRON, TURNED — `chevronleft` is the shut state and the open rule
    rotates it to point down, which is the disclosure triangle every file tree
    has. A second icon entry would be a second glyph to keep in step. */
 .st-code-caret { display: flex; color: var(--muted); transition: transform .14s ease; }
-/* BOTH KINDS OF FOLD, because a group heading and a folder are the same control
-   at two depths. Naming only `.st-code-h` here left every folder drawing a shut
-   caret over its own open contents — the one state a disclosure triangle exists
-   to report, reported wrong. */
-.st-code-h.on .st-code-caret, .st-code-d.on .st-code-caret { transform: rotate(-90deg); }
+.st-code-d.on .st-code-caret { transform: rotate(-90deg); }
 /* THE NAME WRAPS, IT IS NEVER TRUNCATED. The column is 210px and the caret and
-   the count take ~40 of it, so "SHARED WITH EVERY SITE" no longer fits on one
-   line — and an ellipsis there reads as a heading somebody cut, where two lines
-   read as a heading. `min-width: 0` is what lets a flex item shrink below its
-   own text at all. */
+   the count take ~40 of it, so a collapsed chain like `src/routes/-parts` no
+   longer fits on one line — and an ellipsis there reads as a folder somebody
+   cut, where two lines read as a path. `min-width: 0` is what lets a flex item
+   shrink below its own text at all. */
 .st-code-hn { min-width: 0; line-height: 1.3; }
-/* THE COUNT, hard right. It is what makes a FOLDED group honest rather than
-   hidden: "Made by the build 4" says there are four things in there. */
+/* THE COUNT, hard right. It is what makes a FOLDED folder honest rather than
+   hidden: `components/ui 25` says there are twenty-five things in there. */
 .st-code-count { margin-left: auto; font-variant-numeric: tabular-nums; letter-spacing: 0; opacity: .8; }
-/* A FOLDER INSIDE A GROUP (owner, 2026-09-11, drawing `1. / 1.a. / 2.`). It
-   folds exactly as a group heading does and shares the caret and the count, but
-   it is a PATH rather than a label: sentence case, not the tracked uppercase the
-   four group names wear, so a reader can tell "Components" from `src/routes`. */
+/* A FOLDER, AT ANY DEPTH (owner, 2026-09-11, drawing `1. / 1.a. / 2.`).
+   THE `.st-code-h` HEADING RULES LEFT WITH THE HEADINGS (2026-09-12, owner:
+   *"ITS BY FOLDERS"* → *"OK GO"*). There were two fold-row styles because there
+   were two kinds of fold row — the five group headings in tracked uppercase, and
+   the real directories inside them in sentence case, so a reader could tell
+   "Components" from `src/routes`. One tree has only directories, so the second
+   style had nothing left to distinguish itself from and every rule naming
+   `.st-code-h` was matching markup nothing emits. */
 .st-code-d { display: flex; align-items: center; gap: .4rem; width: 100%; text-align: left; font: inherit; font-size: .8rem; color: var(--muted); background: none; border: none; border-radius: 8px; padding: .4rem .55rem; cursor: pointer; }
 .st-code-d:hover { background: var(--panel-2); color: var(--text); }
 .st-code-d .st-code-hn { font-variant-numeric: normal; }
-/* A GROUP HEADING AFTER THE FIRST needs air above it: four groups run together
-   read as one long list, which is the thing this tree exists to stop. Both
-   spellings, because a folded group puts two headings side by side where an
-   open one puts files between them. */
-/* RE-ANCHORED 2026-09-12 when the file row gained its menu handle: a file is
-   wrapped in `.st-file-row` now, so `.st-file` is no longer a SIBLING of the
-   next heading and this rule stopped matching — every group after the first ran
-   straight into the files above it. The property has not moved. */
-.st-code-h + .st-code-h, .st-file-row + .st-code-h { margin-top: .5rem; }
 /* THE FILE ROW: the name, and a handle that appears when you point at it.
    `:focus-within` is not politeness — without it the handle is unreachable by
    keyboard, since it cannot be focused while it is `display: none`. */
@@ -2774,6 +2759,20 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-code-note { font-size: .74rem; color: var(--muted); padding: .5rem .8rem; border-bottom: 1px solid var(--line); background: var(--panel); }
 .st-file { display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left; font: inherit; font-size: .82rem; color: var(--muted); background: none; border: none; border-radius: 8px; padding: .45rem .55rem; cursor: pointer; }
 .st-file:hover, .st-file.on { background: var(--panel-2); color: var(--text); }
+/* WHOSE FILE IT IS, IN INK (2026-09-12). This is the one thing the five group
+   headings said that a directory tree cannot: `index.tsx` is the customer's and
+   `router.tsx` is ours on every site, and they sit two rows apart in the same
+   folder. The customer's own files are drawn in full ink and the platform's stay
+   at the muted resting colour — which is what EVERY row was before today, so
+   nothing became harder to read and the change is purely additive.
+   IT IS NOT A COLOUR, IT IS A HIERARCHY, so it is deliberately quiet: a badge or
+   a second column would cost width the 210px tree has not got, and a reader
+   skims past a flag on a row (which is exactly why the headings existed). The
+   WORDS are on the row's `title` for anyone who wants them spelled out.
+   RESTING STATE ONLY — hover and the open file already go to `--text` above, and
+   they must keep doing so or pointing at one of our files would look like it had
+   stopped being ours. */
+.st-file-own { color: var(--text); }
 .st-file-ic { display: flex; color: var(--muted); }
 .st-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* HOW MANY TIMES THE SEARCH FOUND IT IN THERE — hard right, the folder count's
