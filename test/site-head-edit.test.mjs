@@ -601,7 +601,16 @@ test("the app's own policy ADMITS the picture the panel shows — driven against
   // THE OBSERVER IS ALIVE: a host the policy has no business admitting is
   // refused, or the matcher above says yes to everything and proves nothing.
   assert.ok(!admits("evil.example.com"), "the CSP matcher admits anything — it cannot answer the question above");
-  assert.ok(!admits("a.b." + SITE_ZONE), "the wildcard is matching more than one label deep");
+  // AND THIS MATCHER IS DELIBERATELY TIGHTER THAN A BROWSER, said out loud so
+  // nobody reads it as a claim about CSP. A real `*.host` source matches ANY
+  // depth of subdomain; this one matches ONE label, which is what the platform
+  // ever serves (`frame-src`'s own comment: "one label deep, matching the one
+  // label Universal SSL covers and the one `siteHostSlug` will resolve").
+  // Tighter is the safe direction for a guard that answers "is this admitted":
+  // it can report a refusal a browser would allow, and can never report an
+  // admission a browser would refuse — which is the half that would be a lie.
+  assert.ok(!admits("a.b." + SITE_ZONE),
+    "this matcher stopped being the one-label reading the platform's own addressing uses");
 
   // AND `connect-src` IS NOT WIDENED WITH IT. The panel DISPLAYS the picture and
   // never fetches its bytes, so the tighter answer costs nothing — and the two

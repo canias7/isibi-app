@@ -2574,6 +2574,26 @@ case now, and it is safe on walls that already existed.
   both directives now**, because the trailing `+ CONST` is part of a directive
   and two copies of that rule is how one keeps the old blind spot.
   **Suite 6,127.**
+  **AND THE BROWSER PROOF COULD NOT BE RUN HERE — the instrument again, caught
+  by its own control.** Rendering the real card under the real live policy read
+  **BROKEN in BOTH directions** (old policy and new), which reads exactly like a
+  fix that did not work. The control settles it: with **no CSP at all** the same
+  load fails `net::ERR_CONNECTION_RESET`. **Chromium in this sandbox does not
+  reach that host** — only `curl` goes through the agent proxy — so that test
+  could never have answered the question either way. The recorded "a zero from a
+  blind instrument is not evidence of absence", and a `net::` error in the
+  failure list is the tell: **a CSP refusal is `blockedURI`, never a transport
+  error.** What IS provable live and was: the served header carries
+  `https://*.gofarther.app`, the card answers 200 `image/png` 45,617 bytes, and
+  its host is one label under the zone.
+  **A FALSE BELIEF ABOUT CSP NEARLY WENT INTO A GUARD WITH IT.** The alive-
+  observer control asserted `a.b.<zone>` is refused, worded as though that were
+  CSP semantics — **it is not**: a real `*.host` source matches ANY subdomain
+  depth. The matcher is deliberately ONE label (what this platform ever serves,
+  per `frame-src`'s own comment), which is the SAFE direction for a guard that
+  answers "is this admitted" — it can report a refusal a browser would allow and
+  can never report an admission a browser would refuse. Re-worded to say that
+  rather than to state something untrue about browsers.
 
 ---
 
