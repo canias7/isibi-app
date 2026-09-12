@@ -6583,3 +6583,51 @@ And your other 51 sites are still in the same state. There's a platform rebuild
 that republishes all of them and **costs no credits** — that would fill in every
 one. It hasn't been run since it was made to do several sites at a time, so it's
 your call whether to fire it.
+
+---
+
+## The Publish button is back (12 Sept)
+
+You asked for it next to Share, and it's there — right of Share, the dark filled
+one. `docs/edits/topbar-publish.png` is what it looks like, both states.
+
+**One thing you should know, because it's your call whether it's what you
+wanted.** There *was* a Publish button, and it was deleted four days ago on the
+grounds that your sites publish themselves — every change you make goes live on
+its own, so there was nothing for it to do.
+
+**So what does this one do?** It opens the panel that was already there: your
+site's live address as a clickable link, a Copy link button, and **Take it off
+the web / Put it back online**. That last one is a real thing the platform can
+do and you could only reach it through More → Cloud → Visibility, which is
+nobody's first guess for "take my site down". Now it's one press from the bar.
+
+**What it does not do is publish**, because there is nothing to publish — and
+the panel says exactly that in a sentence. To stop that reading as a broken
+button, hovering it says *"Your site is live — see its link, or take it off the
+web"* before you click rather than after.
+
+Before your first build it's dimmed, like the download button beside it, and the
+tooltip says why.
+
+**Why the old one really died, since it matters for this one.** It wasn't the
+idea, it was a bug: it was written so it only appeared on projects that had
+*never been built* — the one state where it had nothing to open — so it
+vanished the moment a site was real. That's the single thing I did not copy, and
+it's the top item in the mutation sweep: if anyone ever puts that gate back, a
+test fails by name.
+
+**Nothing new was styled.** The button's look was kept in the stylesheet when the
+old one was removed, so `styles.css` is byte-for-byte unchanged — I only added
+the button and its handler.
+
+Tests 6,135 green. Sweep 14 of 14, both controls survived.
+
+**Worth recording, because it nearly fooled me.** The first sweep came back
+"12 of 12 killed, clean" — and two mutants **had never run**, one of them the
+important one. They spelled a dash the wrong way, so they found nothing to
+change and were counted as applied-and-passed. A sweep that says "never applied"
+is saying it proved nothing, and it's as important to read as a failure. Fixed
+and re-run: 14 of 14.
+
+**Not live yet** — the next deploy is what puts it on your screen.

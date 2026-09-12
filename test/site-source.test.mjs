@@ -995,11 +995,36 @@ test("the Code PANE is reachable on a built site, and its host is the one the lo
     "siteCodeView no longer decides emptiness itself, and the pane now has no gate at all");
 });
 
-test("Publish is gone, and the panel it opened is kept with the way back", () => {
+test("Publish is back WITHOUT its old gate, and the panel is reachable", () => {
+  // INVERTED DELIBERATELY, 2026-09-12 (owner: "NEXT TO SHARE ADD A PUBLISH
+  // BUTTON"). This read "Publish is gone…" and pinned its absence from the bar.
+  //
+  // WHICH SPELLING MOVED, AND WHY: the assertion `!/st-publish/.test(bar)` was
+  // the deletion of 2026-09-08 written down, and the owner has reversed that
+  // decision. Keeping it would hold the bar to a removal nobody wants any more.
+  //
+  // THE PROPERTY WAS NEVER "no Publish button". It was that the mechanism
+  // behind it — `sitePublishPanel`, `siteSetLive`, `POST /api/site/<slug>/
+  // offline` — must not be stranded, which is why the panel and the setter were
+  // kept when the button went. That property is untouched and is now satisfied
+  // twice over, by the Cloud card and by the button; all of it is still
+  // asserted below.
+  //
+  // WHAT IS KEPT FROM THE OLD TEST is the half that is still law: the OLD
+  // spellings must not come back. `stPub` was the dead button's id and
+  // `getElementById('stPub')` its dead handler, and both are checked WITH their
+  // closing quote — `id="stPub"` is a substring of nothing, but `stPub` alone is
+  // a substring of `stPublish`, so the bare name would answer "the dead one is
+  // back" about the live one. The recorded substring-observer trap, one
+  // character away in this very line.
   const bar = topBar();
-  assert.ok(!/id="stPub"/.test(bar), "the Publish button is back on the bar");
-  assert.ok(!/st-publish/.test(bar), "a publish button is drawn in the top bar");
-  assert.ok(!/getElementById\('stPub'\)/.test(BARE), "the Publish handler outlived its button");
+  assert.ok(!/id="stPub"/.test(bar), "the DEAD Publish button's id is back on the bar");
+  assert.ok(!/getElementById\('stPub'\)/.test(BARE), "the dead Publish handler is back");
+  // AND THE LIVE ONE IS THERE, so this is not an absence check over a bar that
+  // lost the feature entirely. `test/publish-button.test.mjs` holds the button's
+  // own contract — chiefly that the `isReact` gate, which is what made the old
+  // one unreachable on every site that had built, has not come back with it.
+  assert.match(bar, /id="stPublish"/, "the Publish button the owner asked for is not on the bar");
   // THE OBSERVER IS ALIVE. Share is the control that stayed, and its two
   // neighbours are still drawn — so this is an absence beside three presences,
   // not an assertion about a bar that was deleted.

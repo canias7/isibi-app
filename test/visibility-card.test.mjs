@@ -8,6 +8,13 @@
 // `POST /api/site/<slug>/offline`) and unreachable in the product; removing
 // Publish on 2026-09-07 did not bury it, it was already buried.
 //
+// AND THE CARD IS NO LONGER THE ONLY DOOR (2026-09-12, owner: "NEXT TO SHARE
+// ADD A PUBLISH BUTTON"). A Publish button sits on the workspace bar again and
+// opens this same panel — without the `isReact` gate that made the old one
+// unreachable. Everything below is unchanged and still holds: two doors to one
+// panel is the point, and a card that stopped dispatching would still be a
+// dead card. `test/publish-button.test.mjs` guards the other door.
+//
 // What these guards hold:
 //
 //   • the card exists, is dispatched, and opens THAT panel — a card with no

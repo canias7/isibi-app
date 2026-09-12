@@ -1,0 +1,100 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the isReact gate is back, so the button vanishes from every site that has ever built",
+    "files": ["public/chat.js"],
+    "from": "              ? ' title=\"Your site is live — see its link, or take it off the web\"'",
+    "to": "              ? (isReact ? '' : ' title=\"Your site is live — see its link, or take it off the web\"')"
+  },
+  {
+    "label": "the button reverts to the dead button's id, so the handler finds nothing and the old spelling is back",
+    "files": ["public/chat.js"],
+    "from": "id=\"stPublish\"",
+    "to": "id=\"stPub\""
+  },
+  {
+    "label": "the slug gate goes: a project with nothing to publish gets a live button over nothing",
+    "files": ["public/chat.js"],
+    "from": "            (site.slug\n              ? ' title=",
+    "to": "            (true\n              ? ' title="
+  },
+  {
+    "label": "never dimmed — the disabled attribute goes and a fresh project gets a pressable button",
+    "files": ["public/chat.js"],
+    "from": "              : ' disabled title=\"Build the first draft",
+    "to": "              : ' title=\"Build the first draft"
+  },
+  {
+    "label": "the enabled tooltip goes, so nothing resolves 'Publish' against a panel that says there is nothing to publish",
+    "files": ["public/chat.js"],
+    "from": "              ? ' title=\"Your site is live — see its link, or take it off the web\"'\n",
+    "to": "              ? ''\n"
+  },
+  {
+    "label": "the handler is gone — the button draws and does nothing when pressed",
+    "files": ["public/chat.js"],
+    "from": "  if (pub) pub.onclick = () => sitePublishPanel(site);",
+    "to": "  if (pub) pub.onclick = null;"
+  },
+  {
+    "label": "the handler sits in a dead branch — a position is not a behaviour, and every landmark stays where it was",
+    "files": ["public/chat.js"],
+    "from": "  if (pub) pub.onclick = () => sitePublishPanel(site);",
+    "to": "  if (false) pub.onclick = () => sitePublishPanel(site);"
+  },
+  {
+    "label": "the button carries the offline state again — a second copy of what the panel reads, on a bar nothing repaints",
+    "files": ["public/chat.js"],
+    "from": "  if (pub) pub.onclick = () => sitePublishPanel(site);",
+    "to": "  if (pub) { pub.textContent = site.offline ? 'Offline' : 'Live'; pub.onclick = () => sitePublishPanel(site); }"
+  },
+  {
+    "label": "Share is deleted from the bar — the control that proves this file's ordering check is not vacuous",
+    "files": ["public/chat.js"],
+    "from": "          '<button type=\"button\" class=\"st-share\" id=\"stShare\">Share</button>' +\n",
+    "to": ""
+  },
+  {
+    "label": "the Cloud card stops dispatching, so the panel is down to one door and the card is dead",
+    "files": ["public/chat.js"],
+    "from": "    else if (b.dataset.cloud === 'visibility') sitePublishPanel(site);",
+    "to": "    else if (b.dataset.cloud === 'visibility') {}"
+  },
+  {
+    "label": "the disabled rule stops dimming — a button drawn disabled paints at full strength and the screen lies",
+    "files": ["public/styles.css"],
+    "from": ".st-publish[disabled] { opacity: .45; cursor: default; box-shadow: none; }",
+    "to": ".st-publish[disabled] { cursor: default; box-shadow: none; }"
+  },
+  {
+    "label": "the disabled rule keeps the pointer, so a button that does nothing still invites the press",
+    "files": ["public/styles.css"],
+    "from": ".st-publish[disabled] { opacity: .45; cursor: default; box-shadow: none; }",
+    "to": ".st-publish[disabled] { opacity: .45; box-shadow: none; }"
+  },
+  {
+    "label": "the primary action loses its ground and draws as unstyled chrome beside Share",
+    "files": ["public/styles.css"],
+    "from": "  background: var(--split);\n  border: 1.5px solid transparent; box-shadow: 0 0 18px -6px rgba(0,0,0, .4);",
+    "to": "  background: none;\n  border: 1.5px solid transparent; box-shadow: 0 0 18px -6px rgba(0,0,0, .4);"
+  },
+  {
+    "label": "the end buttons may wrap again — a second toolbar row at narrow widths",
+    "files": ["public/styles.css"],
+    "from": ".st-share, .st-publish { white-space: nowrap; flex: none; }",
+    "to": ".st-share, .st-publish { flex: none; }"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only, which must survive",
+    "files": ["public/chat.js"],
+    "from": "          // PUBLISH IS BACK, AS A DOOR (owner, 2026-09-12: \"NEXT TO SHARE ADD A",
+    "to": "          // PUBLISH IS BACK, AS A DOOR (owner, 2026-09-12, restated: \"NEXT TO SHARE ADD A"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the guard's own header, which must survive",
+    "files": ["test/publish-button.test.mjs"],
+    "from": "// There was one until 2026-09-08 and it was deleted, so the first question this",
+    "to": "// There was one until 2026-09-08 and it was removed, so the first question this"
+  }
+]

@@ -5211,6 +5211,50 @@ function renderSiteWorkspace(view, site) {
           // control is how a customer never learns it is there.
           '<button type="button" class="st-icon" id="stDl" title="' + (isReact ? 'Download your code' : 'Nothing to download yet \u2014 build the first draft') + '" aria-label="Download your code"' + (isReact ? '' : ' disabled') + '>' + ic('download', 16) + '</button>' +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
+          // PUBLISH IS BACK, AS A DOOR (owner, 2026-09-12: "NEXT TO SHARE ADD A
+          // PUBLISH BUTTON"). The notes below record its deletion on 2026-09-08
+          // and they are kept, because what was deleted and what is here are not
+          // the same control — reading them as the same is how this comes back
+          // round a third time.
+          //
+          // WHAT WAS WRONG WITH THE OLD ONE WAS THE GATE, and it is the one
+          // thing deliberately not restored. It was drawn `isReact ? '' : …`, so
+          // it appeared ONLY on a project that had never built — the single
+          // state where it had nothing to open — and vanished the moment the
+          // site had an address worth showing. Both halves of it were therefore
+          // unreachable code that read as live. This one is gated on
+          // `site.slug`, exactly as the Visibility card is, for the same stated
+          // reason: `siteSetLive` returns at once without a slug.
+          //
+          // AND IT IS NOT A DEAD CONTROL, which is the question to ask of
+          // anything labelled Publish on a platform that publishes as part of
+          // the build. `sitePublishPanel` has three working actions behind it —
+          // the live URL as a real link, Copy link, and Take it offline / Put it
+          // back online over `POST /api/site/<slug>/offline` — and one true
+          // sentence saying every change goes live on its own. The panel stopped
+          // being a liar in its own right on 2026-09-08: the Publish and
+          // Republish buttons INSIDE it, which POSTed a route deleted on
+          // 2026-07-27, went then.
+          //
+          // WHAT THIS BUYS is that the capability stops being three clicks deep.
+          // Its only door since 2026-09-08 has been More → Cloud → Visibility,
+          // and "take my site off the web" is not a thing anybody finds under a
+          // card called Visibility on a tab called More.
+          //
+          // THE TITLE CARRIES THE HONESTY, because the label cannot: a button
+          // reading Publish over a panel reading "there is nothing to publish"
+          // is a contradiction the customer meets in one second, and the tooltip
+          // is what resolves it before the click rather than after.
+          //
+          // DIMMED RATHER THAN HIDDEN before the first build, with the tooltip
+          // saying what to do — the Download button's rule two lines up, and the
+          // card icons' before it. Hiding a control is how a customer never
+          // learns it is there.
+          '<button type="button" class="st-publish" id="stPublish"' +
+            (site.slug
+              ? ' title="Your site is live — see its link, or take it off the web"'
+              : ' disabled title="Build the first draft — your site goes live on its own"') +
+            '>Publish</button>' +
           // THE "Live ↗" LINK IS GONE (owner's call, 2026-08-08). A React site
           // publishes as part of the build, so there was nothing for it to do
           // that Share does not already do — and it opened the raw
@@ -5712,11 +5756,19 @@ function renderSiteWorkspace(view, site) {
     if (live) { try { navigator.clipboard.writeText(live); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + live); }
     else if (typeof sbToast === 'function') sbToast('Publish it first, then you can share the live link.');
   };
-  // THE PUBLISH HANDLER WENT WITH ITS BUTTON (owner, 2026-09-08). It set the
-  // label to "Live" or "Offline" and opened `sitePublishPanel` — on a button
-  // the `isReact` gate had already stopped drawing for every real site, so
-  // both halves were unreachable code that read as live. The panel itself is
-  // kept; the comment on the deleted button says how to give it a door.
+  // PUBLISH: the door to `sitePublishPanel` (owner, 2026-09-12: "NEXT TO SHARE
+  // ADD A PUBLISH BUTTON"). The handler deleted on 2026-09-08 set the label to
+  // "Live" or "Offline" as well as opening the panel — a SECOND copy of the
+  // state the panel reads for itself, and the panel's copy is the better one
+  // because it asks `SiteList.offlineFor`, which prefers the server's answer
+  // over this browser's. The label is constant now and the panel is the one
+  // place that says which face a site is wearing.
+  //
+  // NO STATE IS READ HERE AT ALL, deliberately: a bar that says "Live" has to
+  // be repainted when the site goes offline, and this render is not the thing
+  // that would notice.
+  const pub = document.getElementById('stPublish');
+  if (pub) pub.onclick = () => sitePublishPanel(site);
   // The inbox and members handlers went with their buttons (above). Both
   // panels are still reached from their own Cloud cards, which is the door
   // that describes what it opens.

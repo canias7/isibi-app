@@ -2595,6 +2595,85 @@ case now, and it is safe on walls that already existed.
   can never report an admission a browser would refuse. Re-worded to say that
   rather than to state something untrue about browsers.
 
+- **PUBLISH IS A DOOR ON THE WORKSPACE BAR, AND IT IS NOT THE BUTTON THAT WAS
+  DELETED (2026-09-12, owner: *"NEXT TO SHARE ADD A PUBLISH BUTTON"*).** There
+  was a Publish button until 2026-09-08 and this repo deleted it, so the first
+  question is why this is not that coming back round.
+  **THE OLD ONE'S DEFECT WAS ITS GATE, and it is the one thing deliberately not
+  restored.** It was drawn `isReact ? '' : …`, so it appeared ONLY on a project
+  that had never built — the single state in which it had nothing to open — and
+  vanished the moment a site had an address worth showing. Both halves were
+  unreachable code that read as live from a source read. This one is gated on
+  `site.slug`, the same gate the Visibility card asks, for the same stated
+  reason: `siteSetLive` returns at once without a slug.
+  **IT IS NOT A DEAD CONTROL, which is the question to ask of anything labelled
+  Publish on a platform that publishes as part of the build.** `sitePublishPanel`
+  has three working actions behind it — the live URL as a link, Copy link, and
+  Take it offline / Put it back online over `POST /api/site/<slug>/offline` — and
+  one true sentence saying every change goes live on its own. **The panel stopped
+  lying in its own right on 2026-09-08**, when the Publish and Republish buttons
+  INSIDE it (POSTing `/api/site/publish`, a route deleted 2026-07-27) went; this
+  gives a door to a panel that was already honest, and its only door since had
+  been More → Cloud → Visibility, which is not where anybody finds "take my site
+  off the web".
+  **THE TITLE CARRIES THE HONESTY, because the label cannot**: a button reading
+  Publish over a panel reading "there is nothing to publish" is a contradiction
+  the customer meets in one second, and a tooltip resolves it before the click
+  rather than after. **DIMMED RATHER THAN HIDDEN** before the first build with
+  the tooltip saying what to do — the Download button's rule two lines up.
+  **NO STATE IS READ AT THE BAR, deliberately.** The deleted handler set the
+  label to "Live" or "Offline" — a second copy of what the panel reads for
+  itself, and the panel's copy is the better one (`SiteList.offlineFor` prefers
+  the server's answer over this browser's). A bar that carries the state must be
+  repainted when the site goes offline, and that render is not the thing that
+  would notice.
+  **ZERO CSS WAS ADDED, measured rather than assumed**: `.st-publish` was kept
+  whole when its button went (the `gif` and effort-dial rule) — the base rule,
+  the `:hover`, the `[disabled]` state and the shared nowrap rule with
+  `.st-share` — so `public/styles.css` is byte-for-byte unchanged and
+  `topbar-layout.test.mjs`'s existing nowrap assertion already covered it.
+  **RENDERED, because a token that means one thing on the media side's dark
+  chrome and another on this cream paper is what betrayed the SEO panel.** Both
+  states off the REAL bar expression cut out of `chat.js`: order `stReload · 3×
+  st-dev · stDl · stShare · stPublish` (rightmost, as asked), **bar height 49px
+  so it stays one line**, enabled carrying its title at full strength and
+  disabled at **opacity 0.45**. `docs/edits/topbar-publish.png`.
+  **AND `backgroundColor` READ `rgba(0,0,0,0)`, WHICH WAS THE INSTRUMENT** —
+  `--split` is a `linear-gradient`, which lives in `backgroundImage`; the
+  recorded "suspect the instrument first", settled by looking at the picture.
+  **Guards**: `test/publish-button.test.mjs` (8) — the blanker's own landmarks
+  asserted first, the button beside Share and NOT in the centred group, **the
+  `isReact` gate forbidden across the whole Share→Publish span so a wrapping
+  conditional is caught as well as an inner one**, the slug gate, both tooltips
+  counted, the label a literal, and the handler read by its OWN condition
+  (`if (false) pub.onclick = …` leaves every landmark where a position check
+  finds it). Plus the sheet read BY VALUE, since a disabled rule that exists and
+  says nothing satisfies a presence check.
+  **`test/site-source.test.mjs`'s "Publish is gone" case was INVERTED, not
+  appeased** — the owner reversed that decision, so holding the bar to it would
+  pin a removal nobody wants. The property was never "no Publish button"; it was
+  that the mechanism must not be stranded, and that is now satisfied twice over.
+  **What it KEEPS is the half still law**: the dead spellings `id="stPub"` and
+  `getElementById('stPub')` stay forbidden, **each with its closing quote** —
+  `stPub` bare is a substring of `stPublish`, so the bare name would report the
+  dead button as back about the live one. The recorded substring-observer trap,
+  one character away in the line that forbids it.
+  **Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived. THE FIRST PASS HAD TWO NEVER APPLIED AND ONE OF THEM WAS
+  THE DEFECT ITSELF** — the `isReact` mutant and the tooltip mutant both spelled
+  their anchor `—` where the source carries a real em dash, so the sweep
+  reported 12/12 clean while the single most important mutant had not run. The
+  recorded "`—` in the source, a dash in the sweep", and the reason a NEVER
+  APPLIED line must be read as loudly as a survivor. **MEASURED: `chat.js`
+  carries 837 real em dashes against 20 escapes**, so the source follows the
+  file's own norm and the spec was what was wrong — even though the Download
+  button on the very next line uses the escape. **Suite 6,135** (6,127 before;
+  the eight new cases, and `site-source`'s count unchanged because its case was
+  renamed rather than added to).
+  **Not proven live** — the deploy is the precondition. The push touches
+  `public/` and `test/` only, so no image input moves and the 15–20 minute hold
+  does not apply.
+
 ---
 
 ## Editing a site — the ladder
