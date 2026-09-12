@@ -1,0 +1,124 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the React branch is gated on curHtml again, so Refresh does nothing on every real site",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (isReact) {\n      site.previewV = (site.previewV || 0) + 1;",
+    "to": "    if (isReact && curHtml) {\n      site.previewV = (site.previewV || 0) + 1;"
+  },
+  {
+    "label": "the React branch goes entirely, leaving only the legacy path a React site can never take",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (isReact) {\n      site.previewV = (site.previewV || 0) + 1;\n      sitePreviewErrs[previewErrKey()] = [];\n      loadSiteFrame(f, sitePreviewSrc(site, active && active.path));\n      paintPreviewErrBadge();\n    } else if (curHtml) {",
+    "to": "    if (false) {\n    } else if (curHtml) {"
+  },
+  {
+    "label": "the cache-buster never moves, so the frame is re-pointed at the url it already has and reloads nothing",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      site.previewV = (site.previewV || 0) + 1;\n      sitePreviewErrs[previewErrKey()] = [];",
+    "to": "      sitePreviewErrs[previewErrKey()] = [];"
+  },
+  {
+    "label": "a refresh keeps the errors from the page it just replaced — Fix with AI offers them for a page nobody is looking at",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      sitePreviewErrs[previewErrKey()] = [];\n      loadSiteFrame(f, sitePreviewSrc(site, active && active.path));",
+    "to": "      loadSiteFrame(f, sitePreviewSrc(site, active && active.path));"
+  },
+  {
+    "label": "the badge is not repainted, so it keeps a count for errors that were cleared",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      loadSiteFrame(f, sitePreviewSrc(site, active && active.path));\n      paintPreviewErrBadge();",
+    "to": "      loadSiteFrame(f, sitePreviewSrc(site, active && active.path));"
+  },
+  {
+    "label": "the legacy branch is deleted with the fix, trading one dead case for another",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    } else if (curHtml) {\n      sitePreviewErrs[previewErrKey()] = [];\n      loadSitePreview(f, curHtml, site.slug);\n      paintPreviewErrBadge();\n    }",
+    "to": "    }"
+  },
+  {
+    "label": "Refresh always reloads the home page, whatever the picker says",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      loadSiteFrame(f, sitePreviewSrc(site, active && active.path));\n      paintPreviewErrBadge();\n    } else if (curHtml) {",
+    "to": "      loadSiteFrame(f, sitePreviewSrc(site, '/'));\n      paintPreviewErrBadge();\n    } else if (curHtml) {"
+  },
+  {
+    "label": "a project with nothing to show burns a cache-buster and reloads an empty frame",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (!f) return;\n    if (isReact) {",
+    "to": "    if (!f) return;\n    site.previewV = (site.previewV || 0) + 1;\n    if (isReact) {"
+  },
+  {
+    "label": "the preview url loses its cache-buster, so nothing that re-points the frame ever re-fetches",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return site.url + (at !== '/' ? String(at).replace(/^\\//, '') : '') + '?v=' + (site.previewV || 1);",
+    "to": "  return site.url + (at !== '/' ? String(at).replace(/^\\//, '') : '');"
+  },
+  {
+    "label": "the leading slash is kept, so a sub-page addresses https://host//press — which parses as a DIFFERENT SITE",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return site.url + (at !== '/' ? String(at).replace(/^\\//, '') : '') + '?v=' + (site.previewV || 1);",
+    "to": "  return site.url + (at !== '/' ? String(at) : '') + '?v=' + (site.previewV || 1);"
+  },
+  {
+    "label": "a site that has never been revised gets ?v=undefined instead of a first version",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "+ '?v=' + (site.previewV || 1);",
+    "to": "+ '?v=' + site.previewV;"
+  },
+  {
+    "label": "the path default goes entirely, so a caller with no active page points the frame at <site>/null",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const at = path || '/';",
+    "to": "  const at = path;"
+  },
+  {
+    "label": "a caller writes the url arithmetic out again — the third copy this fix existed to prevent",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    loadSiteFrame(fr, sitePreviewSrc(site, active && active.path));",
+    "to": "    loadSiteFrame(fr, site.url + '' + '?v=' + (site.previewV || 1));"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only, which must survive",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  // REFRESH RELOADS THE FRAME THE PANEL ACTUALLY DRAWS (2026-09-12, owner:",
+    "to": "  // REFRESH RELOADS THE FRAME THE PANEL REALLY DRAWS (2026-09-12, owner:"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the guard's own header, which must survive",
+    "files": [
+      "test/preview-reload.test.mjs"
+    ],
+    "from": "// IT DID NOTHING ON ANY REAL SITE, and it read as correct from every angle but",
+    "to": "// IT DID NOTHING ON ANY LIVE SITE, and it read as correct from every angle but"
+  }
+]

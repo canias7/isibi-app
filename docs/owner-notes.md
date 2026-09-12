@@ -6655,3 +6655,47 @@ The container didn't roll (nothing it cares about changed), so there's no wait.
 **Reload the page and it's there, right of Share.** The one thing I haven't
 proven is a press — I have no way to sign in as you. If it opens the panel with
 your live link and the "Take it off the web" button, that's the whole feature.
+
+---
+
+## The refresh button did nothing (12 Sept)
+
+You pointed at the little circular-arrow button next to "Homepage" and asked
+what it does. **The honest answer was: nothing.** It's fixed now.
+
+**What it's for:** reloading the preview beside it, so you can see your live site
+again without refreshing the whole page.
+
+**Why it was dead.** It was a leftover from the old site engine, before React.
+It asked for the page's *stored HTML* — and your sites don't have any; their
+pages are saved with that field empty, because the real page lives on the
+published site. So the button checked for something that is never there and
+quietly did nothing. Meanwhile the panel itself loads your preview a completely
+different way. The button was simply never moved over.
+
+**I proved it rather than assuming it** — I pulled the real handler out of the
+code and pressed it: with a React site it called nothing at all, with an old
+stored-HTML site it worked. That's the only way to see this one; the line reads
+perfectly well and is dead.
+
+**It is the same bug as the Publish button, one control to the left**, found the
+same night. Both were wired for the old engine while the thing they act on moved
+to the new one. Two in one toolbar in one evening is a pattern rather than bad
+luck, so I've written down that the rest of that bar is worth the same check —
+not done yet.
+
+**One detail that mattered.** Pointing the preview at the same address it already
+has does not reload it — browsers ignore that. So the button also nudges a
+version number, or it would have looked fixed and still done nothing. That is
+exactly the trap the vibrating-panel fix fell into three times, so it got a test
+of its own: press twice, get two different addresses.
+
+Also, refreshing now clears the errors collected from the page it just replaced,
+so "Fix with AI" stops offering you problems from a page that is no longer on
+screen.
+
+Tests 6,143 green. Sweep 13 of 13, both controls survived — including a mutant
+that puts the original bug back, so the test really does catch it.
+
+**Not live yet** — the next deploy puts it on your screen, and the proof is one
+press: the preview should visibly reload.

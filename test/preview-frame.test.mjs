@@ -117,12 +117,20 @@ test("THE WIRING: every place the preview frame is pointed goes through loadSite
   // perfect and that surface dead — the wiring trap, which survived twelve
   // features here and was caught on the card icons by exactly this check.
   const calls = (src.match(/loadSiteFrame\(/g) || []).length;
-  assert.equal(calls, 5, "one definition plus four call sites; a changed count means one moved or went");
+  assert.equal(calls, 6, "one definition plus five call sites; a changed count means one moved or went");
 
-  // Named individually, so the count above cannot be satisfied by four copies
-  // in one place.
-  assert.match(src, /loadSiteFrame\(fr, site\.url \+/, "the workspace render must point the frame through it");
-  assert.match(src, /loadSiteFrame\(f, s\.url \+/, "the page picker must point the frame through it");
+  // Named individually, so the count above cannot be satisfied by copies in one
+  // place.
+  //
+  // RE-ANCHORED 2026-09-12. Two of these pinned `site.url +` and `s.url +` —
+  // the URL arithmetic written inline at the call site. It was written inline
+  // TWICE, and the Refresh button needed it a third time, so it moved into
+  // `sitePreviewSrc` and all three callers ask for it. The property is
+  // unchanged and is what is asserted: each surface points the frame through
+  // the setter. WHICH surface is named by the variable it holds the frame in.
+  assert.match(src, /loadSiteFrame\(fr, sitePreviewSrc\(site,/, "the workspace render must point the frame through it");
+  assert.match(src, /loadSiteFrame\(f, sitePreviewSrc\(s,/, "the page picker must point the frame through it");
+  assert.match(src, /loadSiteFrame\(f, sitePreviewSrc\(site,/, "Refresh must point the frame through it");
   assert.match(src, /loadSiteFrame\(fr, d\.url\)/, "the draft preview must point the frame through it");
   assert.match(src, /loadSiteFrame\(fr, sitePrevUrl\)/, "the blob fallback must point the frame through it");
 

@@ -170,15 +170,28 @@ test("the preview follows the picked page", () => {
   // hash-routed and a real path 404'd; the Worker answers an extensionless path
   // with that route's prerendered HTML now, so the fragment stopped being the
   // mechanism and became the reason the frame stayed on the home page.
-  assert.match(block, /\(path !== '\/' \? String\(path\)\.replace\(\/\^\\\/\/, ''\) : ''\)/,
-    "the picked page is not addressed by path");
-  // THE ABSENCE CHECK IS ON THE ASSIGNMENT LINE, not the block. The comment
-  // above that line explains what the fragment used to do and so contains the
-  // literal — scanned over the whole block this assertion is defeated by prose,
-  // which is the comment-vs-code failure this repo has recorded more than once.
-  const srcLine = (block.match(/^.*loadSiteFrame\(f, s\.url.*$/m) || [""])[0];
-  assert.ok(srcLine, "the preview src assignment is gone");
-  assert.doesNotMatch(srcLine, /'#'/, "a fragment is inert under browser history");
+  // RE-ANCHORED 2026-09-12, AND DRIVEN RATHER THAN MATCHED. This pinned the
+  // path arithmetic as a literal inside `switchSitePage`; it was written inline
+  // there and in the workspace render, the Refresh button needed it a third
+  // time, and it moved into `sitePreviewSrc`.
+  //
+  // The property never was "this block contains that expression" — it is that
+  // the picked page reaches the frame as a REAL PATH rather than a fragment. So
+  // this block is asked only to HAND the path over, and the arithmetic is
+  // driven where it now lives, which is a stronger check than the regex was:
+  // a regex cannot tell `/press` from `press` and this can.
+  assert.match(block, /loadSiteFrame\(f, sitePreviewSrc\(s, path\)\)/,
+    "the picked page is not handed to the preview src builder");
+  const src = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const at = src.indexOf("function sitePreviewSrc(");
+  assert.ok(at > 0, "sitePreviewSrc is gone — the path arithmetic has no home");
+  const build = new Function(src.slice(at, src.indexOf("\n}", at) + 2) + "; return sitePreviewSrc;")();
+  const site = { url: "https://hey.gofarther.app/", previewV: 3 };
+  assert.equal(build(site, "/press"), "https://hey.gofarther.app/press?v=3", "the picked page is not addressed by path");
+  assert.equal(build(site, "/"), "https://hey.gofarther.app/?v=3", "the home page grew a segment");
+  assert.equal(build(site, null), "https://hey.gofarther.app/?v=3", "no page must read as the home page");
+  // A fragment is inert under browser history — the reason the path exists.
+  for (const p of ["/press", "/", null]) assert.ok(!String(build(site, p)).includes("#"), "a fragment is back in the preview URL");
 
   // And the first render agrees with it, or opening a site lands somewhere the
   // picker then disagrees about.
@@ -188,13 +201,15 @@ test("the preview follows the picked page", () => {
   // covering what it was written for the moment a comment is added above the
   // line, which is this repo's recurring source-guard bug.
   const first = chat.slice(j, chat.indexOf("} else if (fr && curHtml) {", j));
-  assert.match(first, /\(at !== '\/' \? String\(at\)\.replace\(\/\^\\\/\/, ''\) : ''\)/,
+  // RE-ANCHORED 2026-09-12 with its twin above, and for the same reason: the
+  // path arithmetic left this branch for `sitePreviewSrc`, which the driven
+  // cases above now prove. What this branch must still do is hand over the
+  // ACTIVE page — passing nothing, or a constant, is how the first render lands
+  // somewhere the picker then disagrees about, which is the defect this case is
+  // named for.
+  assert.match(first, /loadSiteFrame\(fr, sitePreviewSrc\(site, active && active\.path\)\)/,
     "the initial preview ignores the active page");
-  // Re-anchored with its twin above: the first-render assignment moved behind
-  // `loadSiteFrame` for the same reason. The fragment check is the property.
-  const firstLine = (first.match(/^.*loadSiteFrame\(fr, site\.url.*$/m) || [""])[0];
-  assert.ok(firstLine, "the first-render src assignment is gone");
-  assert.doesNotMatch(firstLine, /'#'/, "a fragment is inert under browser history");
+  assert.doesNotMatch(first, /'#'/, "a fragment is inert under browser history");
 });
 
 test("a revise that reports no files keeps the pages it had", () => {

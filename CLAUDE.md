@@ -2684,6 +2684,73 @@ case now, and it is safe on walls that already existed.
   **Not proven live: a press.** The panel behind it is reached from the Cloud
   card today and unchanged by this, so what a press has yet to prove is the new
   door, not the panel.
+- **THE REFRESH BUTTON DID NOTHING ON ANY REAL SITE, AND IT IS THE PUBLISH
+  BUTTON'S DEFECT ONE CONTROL TO THE LEFT (2026-09-12, owner pointing at the
+  icon: *"WHAT DOES THIS BUTTON DOES ?"* → *"YES FIX IT"*).** `#stReload`, titled
+  "Refresh preview", ran
+  `if (f && curHtml) loadSitePreview(f, curHtml, site.slug)` — the STATIC-SITE
+  path. `curHtml` is a page's stored HTML and **a React site's pages are written
+  with `html: ''`** (`chat.js`, the route derivation and the empty-project
+  fallback), so the gate was false and every click fell through, while the render
+  three hundred lines up points the frame at the LIVE site through
+  `loadSiteFrame`.
+  **IT IS LITERALLY THE SAME SHAPE AS THE PUBLISH BUTTON FIXED THE SAME NIGHT**:
+  a handler gated on the legacy path while the thing it acts on moved to the
+  React one. `isReact ? '' : …` there, `if (curHtml)` here — the same sentence in
+  different words, which is why neither was caught by reading. **Two instances in
+  one bar in one night says the class is worth a sweep of its own**: every
+  handler in `chat.js` still gated on `curHtml` or `site.html`, against a render
+  that asks `isReact`. Not done.
+  **PROVEN BY DRIVING, NOT BY READING** — the line is well-formed, its landmarks
+  are all present, and it is dead. The real handler carried out of the file and
+  pressed: with `curHtml` empty it called nothing, with a stored page it called
+  the legacy loader.
+  **THE BUMP IS NOT COSMETIC, and skipping it would have been the right symptom
+  fixed by the wrong cause** — assigning `fr.src` a value it already holds does
+  not reload an iframe, so a re-point without moving `previewV` is a second dead
+  button. **AND A REFRESH IS A FRESH PAGE LOAD**, so the collected preview errors
+  are cleared and the badge repainted (the render's own rule on the branch
+  below); kept, they would leave "Fix with AI" offering errors from a page nobody
+  is looking at. The legacy branch is KEPT, not deleted — it is what a site with
+  stored HTML is for and is the branch that has always worked.
+  **`sitePreviewSrc` IS THE ONE EXPRESSION.** The preview URL arithmetic was
+  already written inline TWICE (the render and `switchSitePage`) and this fix
+  needed it a third time — the recorded two-lists-of-the-same-thing trap with a
+  URL as its subject, where the drift is silent because a frame pointed at a path
+  the router redirects away from reads as a slow site. One definition, three
+  callers, and a census that fails on a fourth copy.
+  **THE `|| '/'` DEFAULT GUARDS `String(null)`, MEASURED**: `|| '/'` against
+  `|| ''` is **identical on all seven path shapes** (the test is `!== '/'`, and
+  `''.replace(/^\//, '')` is `''`), so that mutant is INERT — but with NO default
+  a caller holding no active page hands over `null` and `String(null)` is
+  `"null"`, pointing the frame at `<site>/null`. Said in the source so the next
+  session does not simplify it away.
+  **Guards**: `test/preview-reload.test.mjs` (8), every case DRIVING the real
+  handler — the React reload, the bump across two presses, the PICKED page, the
+  cleared errors, the legacy branch, a project with neither, the one-expression
+  census, and the builder over five path shapes. **`rl` is deliberately NOT
+  handed into the driven scope**: the carried block opens with its own
+  `const rl = …`, so a parameter of that name refuses to compile — the recorded
+  "a re-anchor lands in a scope it did not write", met on this file's first run.
+  **Two older guards went red for the change and were re-anchored, not
+  appeased** — `preview-frame`'s call census (5 → 6, and its two named surfaces
+  re-pointed at the helper) and `preview-pages`' path assertion, which is now
+  DRIVEN over the real builder instead of matching a regex: **a regex cannot tell
+  `/press` from `press` and the driven case can**.
+  **Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived. TWO SURVIVED THE FIRST PASS and the split is the useful
+  part.** One was a real gap — every driven press used the default `path: "/"`,
+  where `sitePreviewSrc(site, '/')` and `sitePreviewSrc(site, active.path)`
+  answer the same string, so a handler hardcoded to the home page passed
+  everything; the recorded "a fixture too shallow to separate the two readings",
+  fixed by pressing on `/press`. The other was the inert default above, **proven
+  inert by measuring both versions over the real input shapes and then REPLACED
+  by the observable mutant** (no default at all) rather than hunted.
+  **Suite 6,143** (6,135 before; the eight new cases, less one retired when
+  `preview-pages`' two source assertions became one driven pair).
+  **Not proven live** — the deploy is the precondition, and the proof is one
+  press: the preview visibly reloads. `public/` and `test/` only, so no image
+  input moves and the 15–20 minute hold does not apply.
 
 ---
 

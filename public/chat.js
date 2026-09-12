@@ -2549,6 +2549,29 @@ function frameSandbox(url) {
 // set the draft preview's, and a sandbox attribute applies AT NAVIGATION — so
 // the flags have to be written before the src on every one of them, and one
 // function is what stops the four drifting apart.
+// WHERE THE PREVIEW FRAME POINTS, in ONE place (2026-09-12).
+//
+// This expression was written out TWICE — in `switchSitePage` and in the
+// workspace render — and the Refresh button needed a third. Three copies of
+// "which URL is this site's preview" is the recorded two-lists-of-the-same-thing
+// trap with a URL as its subject, and the drift is silent: a frame pointed at a
+// path the router redirects away from looks like a slow site, not a bug.
+//
+// `?v=` IS LOAD-BEARING AND IS NOT DECORATION. Assigning `fr.src` a value it
+// already has does not reload an iframe, so the cache-buster is the only thing
+// that makes a re-point actually re-fetch. It is bumped on every revise
+// (`previewV`), and the Refresh button bumps it for the same reason.
+// THE DEFAULT GUARDS `String(null)`, NOT THE EMPTY STRING — measured, because
+// it reads like tidiness and is not. `'' ` and `'/'` produce the same answer
+// (the test below is `!== '/'`, and `''.replace(/^\//, '')` is `''`), so
+// `|| '/'` against `|| ''` is INERT: identical on all seven path shapes tried.
+// With NO default, a caller that has no active page yet hands over `null` and
+// `String(null)` is `"null"` — the frame then points at `<site>/null`, a route
+// no site has. Do not "simplify" this away.
+function sitePreviewSrc(site, path) {
+  const at = path || '/';
+  return site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 1);
+}
 function loadSiteFrame(fr, url) {
   if (!fr || typeof url !== 'string' || !url) return;
   fr.setAttribute('sandbox', frameSandbox(url));
@@ -2688,7 +2711,7 @@ function switchSitePage(path) {
   // origin is precisely what stopped the site's own scripts loading, so the
   // frame is pointed through `loadSiteFrame` now and a cross-origin site keeps
   // its own origin. The draft branch above it does not, and must not.
-  else if (f && s.react && s.url) loadSiteFrame(f, s.url + (path !== '/' ? String(path).replace(/^\//, '') : '') + '?v=' + (s.previewV || 1));
+  else if (f && s.react && s.url) loadSiteFrame(f, sitePreviewSrc(s, path));
   if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();
 }
 // THE THREE ON EVERY CARD: its data, its live address, its phone view (owner,
@@ -5471,8 +5494,7 @@ function renderSiteWorkspace(view, site) {
     // route's prerendered HTML, or the app shell — so the fragment stopped
     // being the mechanism and became the bug, leaving the frame on the home
     // page whatever the picker said. Same fix as `switchSitePage`.
-    const at = (active && active.path) || '/';
-    loadSiteFrame(fr, site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 1));
+    loadSiteFrame(fr, sitePreviewSrc(site, active && active.path));
   } else if (fr && curHtml) {
     sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
     loadSitePreview(fr, curHtml, site.slug);
@@ -5692,8 +5714,53 @@ function renderSiteWorkspace(view, site) {
   if (errLogs) errLogs.onclick = () => { siteErr = null; renderSites(); };
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => openProject(null, 'push');
+  // REFRESH RELOADS THE FRAME THE PANEL ACTUALLY DRAWS (2026-09-12, owner:
+  // "WHAT DOES THIS BUTTON DOES ?" → "YES FIX IT").
+  //
+  // IT DID NOTHING ON ANY REAL SITE, and it read as correct from every angle
+  // but the one that mattered. The handler was the STATIC-SITE version: it
+  // called `loadSitePreview(curHtml)` — the stored-page-HTML path — behind
+  // `if (f && curHtml)`, and a React site's pages are written with `html: ''`,
+  // so the gate was false and the click fell straight through. Meanwhile the
+  // render three hundred lines up points the frame at the LIVE site through
+  // `loadSiteFrame`. Proven by driving the real line, not by reading it: with
+  // `curHtml` empty it called nothing, with a stored page it called the legacy
+  // loader.
+  //
+  // It is the same shape as the Publish button restored the same night, one
+  // control to the left: a handler gated on the legacy path while the thing it
+  // acts on moved to the React one. `isReact ? '' : …` there, `if (curHtml)`
+  // here — the same sentence in different words, which is why neither was
+  // spotted by reading.
+  //
+  // THE BUMP IS NOT COSMETIC. Assigning `fr.src` a value it already holds does
+  // not reload an iframe, so without moving `previewV` this would have gone on
+  // doing nothing — the right symptom fixed by the wrong cause, which this
+  // panel has already cost three rounds of once.
+  //
+  // AND A REFRESH IS A FRESH PAGE LOAD, so the collected runtime errors go with
+  // it and the badge repaints: the render's own rule on the branch below, which
+  // says so in as many words. Keeping them would leave "Fix with AI" offering
+  // errors from a page that is no longer on screen.
+  //
+  // The legacy branch is kept rather than deleted — a site still carrying
+  // stored HTML is exactly what it is for, and it is the branch that has always
+  // worked.
   const rl = document.getElementById('stReload');
-  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && curHtml) loadSitePreview(f, curHtml, site.slug); };
+  if (rl) rl.onclick = () => {
+    const f = document.getElementById('stFrame');
+    if (!f) return;
+    if (isReact) {
+      site.previewV = (site.previewV || 0) + 1;
+      sitePreviewErrs[previewErrKey()] = [];
+      loadSiteFrame(f, sitePreviewSrc(site, active && active.path));
+      paintPreviewErrBadge();
+    } else if (curHtml) {
+      sitePreviewErrs[previewErrKey()] = [];
+      loadSitePreview(f, curHtml, site.slug);
+      paintPreviewErrBadge();
+    }
+  };
   // Page picker: toggle the menu; clicking a page switches the active page.
   const pageBtn = document.getElementById('stPageBtn');
   const pageMenu = document.getElementById('stPageMenu');
