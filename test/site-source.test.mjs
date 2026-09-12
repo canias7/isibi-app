@@ -639,13 +639,27 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
 // and the collapse rule in particular is asked in two places (the renderer and
 // the default-open chain), so a stub would hide exactly the drift it exists to
 // prevent.
+//
+// RE-ANCHORED 2026-09-12, not appeased: `stDirTree` now calls `stSortTree` and
+// `stCodeRows` calls `stFileIcon`, so this scope threw `stSortTree is not
+// defined` for two functions that are perfectly correct — the free-identifier
+// trap this comment already warns about, arriving through the door it describes.
+// The property has not moved; the renderer has two more parts and they are
+// carried like the rest.
 const TREE = new Function("esc", "ic", "ST_CODE_GROUPS", [
-  fn("function stDirTree("), fn("function stCollapse("), fn("function stDirCount("),
+  fn("function stDirTree("), fn("function stSortTree("), fn("function stCollapse("),
+  fn("function stDirCount("), fn("function stFileIcon("),
   fn("function stOpenGroups("), fn("function stFoldRow("), fn("function stCodeRows("),
   fn("function stCodeTree("),
-  "return { stDirTree, stCollapse, stDirCount, stOpenGroups, stCodeTree };",
+  "return { stDirTree, stSortTree, stFileIcon, stCollapse, stDirCount, stOpenGroups, stCodeTree };",
 ].join("\n"))(
-  escFake, () => "", [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]);
+  // AND `ic` ECHOES ITS NAME rather than answering "". It used to return the
+  // empty string, which was fine while every row asked for the same glyph and
+  // is a blindfold now that the icon is a DECISION: a case cannot assert which
+  // icon a file got against a stub that draws none. The real `ic` emits an
+  // <svg>; this emits the name it was asked for, which is the part under test.
+  escFake, (n) => '<i data-ic="' + n + '"></i>',
+  [["page", "Pages"], ["part", "Components"], ["asset", "Made by the build"], ["shared", "Shared with every site"]]);
 
 const PAGES = (names) => ({ ok: true, pages: names.map((n) => ({ path: n, source: "// " + n + "\n" })) });
 
@@ -1475,4 +1489,122 @@ test("the folder's chevron turns, and its name wraps rather than truncating", ()
   // AND A FOLDED GROUP PUTS TWO HEADINGS SIDE BY SIDE, which the spacing rule
   // has to know about — the old one only knew heading-after-file.
   assert.match(CSS, /\.st-code-h \+ \.st-code-h[^{]*\{/, "two folded folders run together");
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// THE TREE READS LIKE A PROJECT: TYPED ICONS AND A–Z (2026-09-12, owner holding
+// Lovable's explorer beside ours: "ok do that").
+//
+// Two things were wrong and both were invisible to every case above. Every row
+// asked `ic('code', 13)`, so a readme, a lock file and a stylesheet drew the
+// same chevron pair; and `stDirTree` never sorted, so the project root came out
+// in whatever order the file list arrived in — the hand-chosen reading order
+// `builder/gen-foundation.mjs` lists its paths in, which is the wrong order for
+// finding one file among twenty-five.
+
+test("DRIVEN: a file's icon comes from its own name, one kind at a time", () => {
+  const { stFileIcon } = TREE;
+  // THE PAIRS ARE THE CONTRACT. Each is a real file the explorer shows today.
+  const want = [
+    ["README.md", "doc"], ["AGENTS.md", "doc"], ["notes.txt", "doc"],
+    ["package.json", "braces"], ["tsconfig.kit.json", "braces"], ["components.json", "braces"],
+    ["src/styles.css", "paint"],
+    ["public/icon.svg", "image"], ["public/card.png", "image"], ["a.JPEG", "image"],
+    [".gitignore", "sliders"], [".prettierrc", "sliders"], [".prettierignore", "sliders"],
+    ["package-lock.json", "lock"], ["bun.lock", "lock"],
+    ["src/routes/index.tsx", "code"], ["vite.config.ts", "code"], ["eslint.config.js", "code"],
+    ["src/server.ts", "code"], ["builder/x.mjs", "code"],
+  ];
+  for (const [name, icon] of want) {
+    assert.equal(stFileIcon(name), icon, name + " draws " + JSON.stringify(stFileIcon(name)) + ", not " + JSON.stringify(icon));
+  }
+  // THE FALLBACK IS REACHED AND IS `code`, never nothing. A blank icon column is
+  // worse than a slightly wrong glyph, and an extension nobody has taught this
+  // function is source until proven otherwise.
+  assert.equal(stFileIcon("thing.wat"), "code", "an unknown extension drew something other than code");
+  assert.equal(stFileIcon("Makefile"), "code", "an extensionless NON-dotfile was read as configuration");
+  assert.equal(stFileIcon(""), "code", "a nameless row threw or drew nothing");
+  assert.equal(stFileIcon(null), "code", "a missing name threw");
+  // THE LOCK RULE IS BY NAME, NOT BY EXTENSION, which is the one rule here that
+  // has to beat the extension it also matches: `package-lock.json` IS json, and
+  // braces would be true and useless where a padlock says "the pinned one".
+  assert.equal(stFileIcon("package-lock.json"), "lock", "the lock file fell through to its extension");
+  assert.notEqual(stFileIcon("lockers.json"), "lock", "a file merely containing 'lock' was read as a lock file");
+  assert.notEqual(stFileIcon("unlock.ts"), "lock", "a file merely containing 'lock' was read as a lock file");
+});
+
+test("DERIVED: every icon the resolver can answer is one the icon table has", () => {
+  // TWO LISTS OF THE SAME THING, and the drift is silent: `ic()` answers
+  // `ST_ICONS[name] || ''`, so a renamed or dropped glyph draws an EMPTY <svg> —
+  // a blank column where an icon was, with nothing failing anywhere. Derived
+  // from the resolver's own returns rather than from a list beside it.
+  const src = fn("function stFileIcon(");
+  const answers = [...src.matchAll(/return '([a-z]+)'/g)].map((m) => m[1]);
+  assert.ok(answers.length >= 6, "only " + answers.length + " icon answers found — this check is measuring nothing");
+  const table = CHAT.slice(CHAT.indexOf("const ST_ICONS = {"), CHAT.indexOf("\n};", CHAT.indexOf("const ST_ICONS = {")));
+  for (const name of new Set(answers)) {
+    assert.match(table, new RegExp("^  " + name + ": '", "m"),
+      "stFileIcon can answer " + JSON.stringify(name) + " and ST_ICONS has no such glyph — those rows draw an empty svg");
+  }
+});
+
+test("DRIVEN: the tree is A–Z with the dotfiles first, and folders still lead", () => {
+  const { stDirTree } = TREE;
+  // DELIBERATELY SHUFFLED, and in the shape the real list arrives in: the root
+  // comes out of FOUNDATION_PATHS in reading order, which is exactly what this
+  // is here to stop the tree inheriting.
+  const files = ["vite.config.ts", "README.md", ".prettierrc", "package.json", "AGENTS.md",
+    ".gitignore", "package-lock.json", "tsconfig.json", "src/router.tsx", "public/icon.svg"]
+    .map((name) => ({ name, kind: "shared" }));
+  const root = stDirTree(files);
+  assert.deepEqual(root.files.map((f) => f.base), [
+    ".gitignore", ".prettierrc", "AGENTS.md", "package-lock.json", "package.json",
+    "README.md", "tsconfig.json", "vite.config.ts",
+  ], "the root is not A–Z with the dotfiles at the top");
+  // FOLDERS A–Z TOO, and they are a Map whose ORDER is what the renderer walks.
+  assert.deepEqual([...root.dirs.keys()], ["public", "src"], "the folders are not sorted");
+  // AND THE SORT REACHES EVERY LEVEL, not just the root.
+  const deep = stDirTree(["a/z.tsx", "a/b.tsx", "a/m.tsx"].map((name) => ({ name, kind: "page" })));
+  assert.deepEqual(deep.dirs.get("a").files.map((f) => f.base), ["b.tsx", "m.tsx", "z.tsx"],
+    "a nested folder kept its insertion order");
+  // CASE-INSENSITIVE, WITH A TOTAL ORDER. `README.md` must not sort above
+  // `package.json` just for being capitalised, and two names differing only in
+  // case must still come out in a fixed order rather than swapping per engine.
+  //
+  // THE INPUT ORDER IS THE WHOLE OF THE SECOND HALF, and the first draft of this
+  // case got it wrong: it fed `["b.tsx", "A.tsx", "a.tsx"]`, where the tie-break
+  // and INSERTION order happen to agree, so dropping the tie-break entirely
+  // survived the sweep. `Array.sort` is stable, so an equal comparison keeps the
+  // order the list arrived in — which is exactly the thing this sort exists to
+  // stop the tree depending on. Feeding the lowercase one FIRST is what separates
+  // "ordered by name" from "ordered by whatever arrived first".
+  const cased = stDirTree(["a.tsx", "A.tsx", "b.tsx"].map((name) => ({ name, kind: "page" })));
+  assert.deepEqual(cased.files.map((f) => f.base), ["A.tsx", "a.tsx", "b.tsx"],
+    "the order is case-sensitive, or the tie between two spellings fell back to the order the list arrived in");
+});
+
+test("the rendered rows really carry their icons, and the drawn order is the sorted one", () => {
+  const { stCodeTree, stOpenGroups } = TREE;
+  const files = ["README.md", ".gitignore", "package-lock.json", "src/styles.css"]
+    .map((name) => ({ name, kind: "shared", text: "x" }));
+  // EVERY FOLDER OPEN. The default-open chain opens only the chain holding the
+  // chosen file, so `src` would be folded and its row simply absent — which is
+  // what the first draft of this case asserted against, and the renderer was
+  // right. Folding has its own cases above.
+  const html = stCodeTree(files, "README.md", new Set(files.flatMap((f) => [...stOpenGroups(files, f.name, null)])));
+  // THE OBSERVER IS ALIVE FIRST: `ic` is a stub in this file, and if it stopped
+  // echoing, every assertion below would pass over an empty string.
+  assert.ok(html.includes('data-ic='), "the icon stub drew nothing — every icon assertion here is vacuous");
+  for (const [name, icon] of [["README.md", "doc"], [".gitignore", "sliders"], ["package-lock.json", "lock"]]) {
+    const at = html.indexOf('data-srcname="' + name + '"');
+    assert.ok(at > 0, "no row for " + name);
+    const row = html.slice(at, html.indexOf("</button>", at));
+    assert.match(row, new RegExp('data-ic="' + icon + '"'), name + " did not draw the " + icon + " icon");
+  }
+  // AND THE ROWS COME OUT IN THE SORTED ORDER, which is the half a tree-shape
+  // assertion cannot see: `stDirTree` could sort and the renderer still walk
+  // something else.
+  const order = [...html.matchAll(/data-srcname="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ["src/styles.css", ".gitignore", "package-lock.json", "README.md"],
+    "the drawn order is not folders-then-files-A-Z");
 });

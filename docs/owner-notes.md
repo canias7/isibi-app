@@ -5681,3 +5681,40 @@ I found another one that should have been on that list and wasn't — an animati
 name that's baked into published sites the same way.
 
 Tests green at 6,035. Sweep 15 of 15, from a clean baseline.
+
+## The file tree reads like an editor now (12 Sept)
+
+You held Lovable's explorer up next to ours and said do it. Two of the four gaps
+are closed — the two that were cheap. The other two are real features and I have
+not started them.
+
+**Every file has its own icon.** Before this, every single row drew the same
+little chevron pair, so a readme, a lock file, a stylesheet and a page all looked
+identical and the panel read as a list of filenames rather than a project. Now
+markdown gets a page, JSON gets braces, the lock file gets a padlock, a
+stylesheet gets a droplet, and the dotted config files get sliders.
+
+Small thing worth knowing: I drew the config icon as a cog first and it turned
+into a smudge at that size — eight teeth in thirteen pixels is an asterisk. The
+sliders stay legible.
+
+**The list is in alphabetical order.** It used to come out in whatever order our
+own code happened to list the files in, so finding one file among twenty-five
+meant reading all of them. Folders first, then files A–Z, with the dotted ones at
+the top — same as any editor.
+
+**One decision I reversed, and you should know I did.** Our file list has a note
+in it saying "never alphabetical", because the order it uses is the order you'd
+read a project in if you were reading the whole thing start to finish. That's the
+right order for reading and the wrong one for finding, and finding is what this
+panel is for. The list itself is untouched — it still decides what goes into the
+download — only what the tree shows.
+
+**Still not done, both from your screenshot:** they have a search box, and a
+little menu on each row. Those are features rather than tweaks, so I stopped.
+They also show one flat root where we show four headings — that one's a
+deliberate difference of ours, not a gap, but say the word if you want it flat.
+
+Tests green at 6,039. Sweep 15 of 15 — one survived the first pass and it was my
+test's fault, not the code's: I'd fed it the one input where the right answer and
+the lazy answer happen to agree. Fixed the input, and it dies.

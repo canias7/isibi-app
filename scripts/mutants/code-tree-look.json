@@ -1,0 +1,99 @@
+[
+  {
+    "label": "THE STATE BEFORE THIS — every row draws the same icon, so a readme, a lock file and a stylesheet are one glyph",
+    "files": ["public/chat.js"],
+    "from": "ic(stFileIcon(f.base), 13)",
+    "to": "ic('code', 13)"
+  },
+  {
+    "label": "the icon is resolved from the wrong name — the full path, so a folder named like an extension decides the glyph",
+    "files": ["public/chat.js"],
+    "from": "ic(stFileIcon(f.base), 13)",
+    "to": "ic(stFileIcon(f.kind), 13)"
+  },
+  {
+    "label": "the lock rule falls through to the extension — package-lock.json draws braces like any other json",
+    "files": ["public/chat.js"],
+    "from": "  if (/(^|[.-])lock\\.[a-z]+$/i.test(base) || /\\.lock$/i.test(base)) return 'lock';",
+    "to": "  if (/\\.lock$/i.test(base)) return 'lock';"
+  },
+  {
+    "label": "the lock rule matches anywhere in the name, so `unlock.ts` and `lockers.json` draw a padlock",
+    "files": ["public/chat.js"],
+    "from": "  if (/(^|[.-])lock\\.[a-z]+$/i.test(base) || /\\.lock$/i.test(base)) return 'lock';",
+    "to": "  if (/lock/i.test(base)) return 'lock';"
+  },
+  {
+    "label": "the extension is read from the FIRST dot, so `.gitignore` matches a phantom extension instead of reading as config",
+    "files": ["public/chat.js"],
+    "from": "  const dot = base.lastIndexOf('.');\n  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';",
+    "to": "  const dot = base.indexOf('.');\n  const ext = dot >= 0 ? base.slice(dot + 1).toLowerCase() : '';"
+  },
+  {
+    "label": "a dotfile is no longer configuration — .prettierrc and .gitignore fall to the source default",
+    "files": ["public/chat.js"],
+    "from": "  if (!ext && base.startsWith('.')) return 'sliders';",
+    "to": "  if (false) return 'sliders';"
+  },
+  {
+    "label": "the fallback answers nothing instead of `code` — a blank icon column on every type nobody taught it",
+    "files": ["public/chat.js"],
+    "from": "  return 'code';\n}\nfunction stCodeRows(",
+    "to": "  return '';\n}\nfunction stCodeRows("
+  },
+  {
+    "label": "markdown and json swap glyphs — both still draw SOMETHING, which is how a wrong icon ships",
+    "files": ["public/chat.js"],
+    "from": "  if (ext === 'md' || ext === 'txt' || ext === 'mdx') return 'doc';\n  if (ext === 'json' || ext === 'jsonc') return 'braces';",
+    "to": "  if (ext === 'md' || ext === 'txt' || ext === 'mdx') return 'braces';\n  if (ext === 'json' || ext === 'jsonc') return 'doc';"
+  },
+  {
+    "label": "a glyph the resolver answers is dropped from the icon table — those rows draw an empty svg and nothing fails",
+    "files": ["public/chat.js"],
+    "from": "  lock: '<rect x=\"4.5\" y=\"10.5\" width=\"15\" height=\"10\" rx=\"2\"/><path d=\"M8 10.5V7a4 4 0 0 1 8 0v3.5\"/>',",
+    "to": ""
+  },
+  {
+    "label": "THE STATE BEFORE THIS — the tree is never sorted, so the root comes out in whatever order the list arrived in",
+    "files": ["public/chat.js"],
+    "from": "  stSortTree(root);\n  return root;",
+    "to": "  return root;"
+  },
+  {
+    "label": "only the files sort — the folders keep their insertion order",
+    "files": ["public/chat.js"],
+    "from": "  const dirs = [...node.dirs].sort((a, b) => by(a[0], b[0]));",
+    "to": "  const dirs = [...node.dirs];"
+  },
+  {
+    "label": "only the folders sort — the files keep their insertion order",
+    "files": ["public/chat.js"],
+    "from": "  node.files.sort((a, b) => by(a.base, b.base));",
+    "to": "  /* the files keep their order */"
+  },
+  {
+    "label": "the sort stops at the root — a nested folder is never reached",
+    "files": ["public/chat.js"],
+    "from": "  for (const [, child] of dirs) stSortTree(child);",
+    "to": "  /* no recursion */"
+  },
+  {
+    "label": "the comparison is case-SENSITIVE, so a capitalised name sorts above every lowercase one",
+    "files": ["public/chat.js"],
+    "from": "    const x = String(a).toLowerCase(), y = String(b).toLowerCase();",
+    "to": "    const x = String(a), y = String(b);"
+  },
+  {
+    "label": "the tie between two spellings is not total — two names differing only in case come back in engine order",
+    "files": ["public/chat.js"],
+    "from": "    return a < b ? -1 : a > b ? 1 : 0;",
+    "to": "    return 0;"
+  },
+  {
+    "label": "CONTROL: a comment-only change in the file the guards really read, which must survive",
+    "control": true,
+    "files": ["public/chat.js"],
+    "from": "// WHICH ICON A FILE GETS, FROM ITS OWN NAME (owner, 2026-09-12: \"ok do that\").",
+    "to": "// Which icon a file gets, from its own name (owner, 2026-09-12: \"ok do that\")."
+  }
+]

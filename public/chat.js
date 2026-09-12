@@ -11190,6 +11190,23 @@ const ST_ICONS = {
   // control nobody can read. What this button does is open a panel on the right,
   // so it draws a panel with a divider on the right.
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  // THE FILE-TYPE GLYPHS (owner, 2026-09-12, holding Lovable's explorer beside
+  // ours: "ok do that"). Every row in the code tree drew `code` — one chevron
+  // pair for a readme, a lock file and a stylesheet alike — so the tree read as
+  // a LIST where theirs reads as a project. These five are what `stFileIcon`
+  // resolves to; they are in this table rather than beside it so they inherit
+  // the one thing that makes the set coherent, `ic()`'s stroke-only emitter.
+  doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
+  braces: '<path d="M8.5 3H8a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h.5"/><path d="M15.5 3h.5a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-.5"/>',
+  // A DROPLET FOR A STYLESHEET, not a hash. What `src/styles.css` holds here is
+  // the theme's colour tokens, so colour is the honest thing to draw.
+  paint: '<path d="M12 3.2s6 6.5 6 10.1a6 6 0 0 1-12 0c0-3.6 6-10.1 6-10.1z"/>',
+  // SLIDERS RATHER THAN A GEAR, and it was drawn both ways before choosing. A
+  // cog needs eight teeth to read as a cog, and at the 13px these rows use the
+  // teeth close up into an asterisk — a smudge, not a symbol. Two tracks and two
+  // knobs stay legible at any size, and "settings" is what they say.
+  sliders: '<path d="M4 8h9"/><path d="M17 8h3"/><path d="M4 16h3"/><path d="M11 16h9"/><circle cx="15" cy="8" r="2.1"/><circle cx="9" cy="16" r="2.1"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
 // THE TWO PLATFORM MARKS (owner, 2026-09-08: "instead of the names, the names
@@ -11331,7 +11348,39 @@ function stDirTree(files) {
     }
     at.files.push({ ...f, base });
   }
+  stSortTree(root);
   return root;
+}
+// A–Z, WHICH IS WHAT AN EXPLORER DOES (owner, 2026-09-12: "ok do that", holding
+// Lovable's tree beside ours). Until this the tree came out in INSERTION order —
+// whatever order the file list happened to arrive in — so the project root read
+// in the hand-chosen order `builder/gen-foundation.mjs` lists its paths, and a
+// customer looking for `tsconfig.json` had to read every row to find it.
+//
+// IT OVERRIDES A WRITTEN DECISION, said out loud rather than left to be found:
+// `FOUNDATION_PATHS`'s own comment says "Never alphabetical — `components.json`
+// is not where anybody starts reading a project", and that reasoning is sound
+// about READING a project start to finish. It is the wrong order for FINDING one
+// file among twenty-five, which is what this panel is for. The list keeps its
+// order (it is also the download's), and the corrected comment there says the
+// tree no longer inherits it.
+//
+// LOWERCASE CODE POINTS, NOT `localeCompare`. A locale comparison commonly
+// ignores leading punctuation, which would scatter `.gitignore`, `.prettierrc`
+// and `.prettierignore` in among the letters; `.` is 0x2E and sorts before every
+// letter, which puts the dotfiles together at the top exactly as they sit in
+// every editor. Ties fall back to the raw name so the order is total.
+function stSortTree(node) {
+  const by = (a, b) => {
+    const x = String(a).toLowerCase(), y = String(b).toLowerCase();
+    if (x !== y) return x < y ? -1 : 1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  };
+  node.files.sort((a, b) => by(a.base, b.base));
+  // A Map keeps insertion order, so re-inserting in sorted order IS the sort.
+  const dirs = [...node.dirs].sort((a, b) => by(a[0], b[0]));
+  node.dirs = new Map(dirs);
+  for (const [, child] of dirs) stSortTree(child);
 }
 /**
  * A CHAIN OF ONE-CHILD DIRECTORIES IS ONE ROW — `src/routes/-parts`, never
@@ -11423,6 +11472,39 @@ function stFoldRow(key, label, count, shown, depth, cls) {
     '<span class="st-code-count">' + count + '</span></button>';
 }
 /** The rows under one node: its folders first, then its own files. */
+// WHICH ICON A FILE GETS, FROM ITS OWN NAME (owner, 2026-09-12: "ok do that").
+// Every row drew `code` before this, so a readme, a lock file and a stylesheet
+// were the same chevron pair and the tree read as a list of strings rather than
+// a project.
+//
+// THE ORDER OF THE RULES IS THE WHOLE OF IT, most specific first:
+//
+//   1. A LOCK FILE BY NAME, not by extension. `package-lock.json` is JSON and
+//      braces would be true and useless — what a reader wants to know is that
+//      this is the pinned one, and it is the file they will never open. Named
+//      rather than extension-matched because the lock is `.json` here and
+//      `.lock` elsewhere.
+//   2. By extension, when there IS one — a dot that is not the first character.
+//      `.gitignore`'s only dot is at index 0, so it has no extension, which is
+//      what sends it to the rule below instead of matching a phantom one.
+//   3. A DOTFILE WITH NO EXTENSION IS CONFIGURATION. `.prettierrc`,
+//      `.prettierignore`, `.gitignore` — every one of them is a setting, and
+//      sliders say that where a page glyph would not.
+//   4. Everything else is `code`, which is what every row used to get. A type
+//      nobody has taught this function reads as source rather than as nothing,
+//      because a blank icon column is worse than a slightly wrong one.
+function stFileIcon(name) {
+  const base = String(name || '').split('/').pop();
+  if (/(^|[.-])lock\.[a-z]+$/i.test(base) || /\.lock$/i.test(base)) return 'lock';
+  const dot = base.lastIndexOf('.');
+  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+  if (ext === 'md' || ext === 'txt' || ext === 'mdx') return 'doc';
+  if (ext === 'json' || ext === 'jsonc') return 'braces';
+  if (ext === 'css' || ext === 'scss') return 'paint';
+  if (/^(svg|png|jpe?g|webp|gif|ico|avif)$/.test(ext)) return 'image';
+  if (!ext && base.startsWith('.')) return 'sliders';
+  return 'code';
+}
 function stCodeRows(node, keyBase, prefix, depth, open, openName) {
   let out = '';
   // FOLDERS ABOVE FILES, which is what every explorer does and what keeps a long
@@ -11443,7 +11525,7 @@ function stCodeRows(node, keyBase, prefix, depth, open, openName) {
     out += '<button type="button" class="st-file' + (f.name === openName ? ' on' : '') +
       (f.unplaced ? ' st-file-lost' : '') + '" data-srcname="' + esc(f.name) + '"' +
       (depth ? ' style="--d:' + depth + '"' : '') + '>' +
-      '<span class="st-file-ic">' + ic('code', 13) + '</span>' +
+      '<span class="st-file-ic">' + ic(stFileIcon(f.base), 13) + '</span>' +
       '<span class="st-file-n">' + esc(f.base) + '</span></button>';
   }
   return out;

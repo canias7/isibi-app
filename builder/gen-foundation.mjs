@@ -86,6 +86,13 @@ const TEMPLATE = path.join(HERE, "lovable", "template");
  * The files, in the order a reader wants them: the entry points first, then the
  * root route, then the library, then the configuration. Never alphabetical —
  * `components.json` is not where anybody starts reading a project.
+ *
+ * AND SINCE 2026-09-12 THE CODE TAB NO LONGER INHERITS THIS ORDER. `stSortTree`
+ * sorts the tree A–Z, because the order that is right for READING a project
+ * start to finish is the wrong one for FINDING one file among twenty-five, and
+ * finding is what that panel is for. This order still decides the bundle and the
+ * download, so it is kept — but do not read the list expecting the tree to match
+ * it, and do not re-sort this list to make them agree.
  */
 export const FOUNDATION_PATHS = [
   "src/router.tsx",

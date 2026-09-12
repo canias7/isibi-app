@@ -838,6 +838,32 @@ and **inside each one, the real directory tree.**
 - **DEPTH IS ONE NUMBER THE ROW CARRIES (`--d`)**, never a wrapper per level, and
   its rule must sit BELOW `.st-file`'s `padding` shorthand or it loses on source
   order and the tree draws flat.
+- **A FILE'S ICON COMES FROM ITS OWN NAME, AND THE TREE IS A–Z (2026-09-12, owner
+  holding Lovable's explorer beside ours: *"ok do that"*).** Every row asked
+  `ic('code', 13)`, so a readme, a lock file and a stylesheet were the same
+  chevron pair and the panel read as a LIST of strings; and `stDirTree` never
+  sorted, so the root came out in the order the file list arrived in.
+  **`stFileIcon` is the resolver and the ORDER OF ITS RULES IS THE WHOLE OF IT**:
+  a lock file BY NAME first (`package-lock.json` is json, and braces there would
+  be true and useless), then by extension, then a dotfile with no extension is
+  configuration (`sliders`, because a cog needs eight teeth and they smudge into
+  an asterisk at 13px — drawn both ways before choosing), then `code` as a
+  fallback that is REACHED, since a blank icon column is worse than a slightly
+  wrong glyph. The five new glyphs live in `ST_ICONS` so they inherit `ic()`'s
+  stroke-only emitter, and **a guard derives the resolver's own answers and
+  requires each to exist in that table** — `ic()` answers `ST_ICONS[name] || ''`,
+  so a renamed glyph draws an EMPTY `<svg>` with nothing failing anywhere.
+  **`stSortTree` sorts on LOWERCASE CODE POINTS, never `localeCompare`**, which
+  commonly ignores leading punctuation and would scatter the dotfiles in among
+  the letters; ties fall back to the raw name so the order is total. It sorts
+  folders and files at every level, and folders still lead.
+  **IT OVERRIDES A WRITTEN DECISION, deliberately**: `FOUNDATION_PATHS` says
+  "Never alphabetical — `components.json` is not where anybody starts reading a
+  project", which is right about READING a project and wrong for FINDING one file
+  among twenty-five, which is what this panel is for. The list keeps its order (it
+  is also the download's) and its comment now says the tree no longer inherits it.
+  **Still different from theirs, and not done**: no search box, no per-row menu,
+  and our four headings against their one flat root.
 - **WHAT IS OUT, AND BOTH HALVES WERE DECIDED**: `src/components/**` (3,394 kit
   files, 9.5 MB — a dependency, and it would be in every isolate); the template's
   DEMO routes, because the image DELETES them (derived from the Dockerfile's own
@@ -2684,8 +2710,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 6,035 (2026-09-12, the project-root census, the template
-  name guard and the preview-error channel; 86.7 s local).
+  The unit suite is 6,039 (2026-09-12, the project-root census, the template
+  name guard, the preview-error channel and the code tree's icons and sort;
+  86.4 s local).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
