@@ -5920,4 +5920,6 @@ column is steady or jumping, so it read "nothing moves" in exactly the case that
 moves. I tried to force it and couldn't. The thing that actually cracked it was
 you saying "Windows".
 
-Tests green at 6,061. Sweep 4 of 4, control survived.
+Tests green at 6,061. Sweep 4 of 4, control survived. **You confirmed it: "it
+works now".** Third time, and the thing that fixed it was you telling me which
+computer you were on — worth remembering for the next one of these.

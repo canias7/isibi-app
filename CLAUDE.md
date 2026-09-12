@@ -1147,7 +1147,13 @@ and **inside each one, the real directory tree.**
   cause**, and the honest tell was that the owner had to report it again.
   **What cracked it was one fact from the owner's side of the screen** — which OS
   — after two rounds of instruments that could not see past their own defaults.
-  Sweep 4/4, control survived.
+  Sweep 4/4, control survived. **PROVEN LIVE the same night** — deploy 2098,
+  the owner on Windows: *"it works now"*, after two fixes that were each real
+  and each left the panel moving. The live stylesheet carries the gutter on
+  both boxes (read back off `gofarther.dev/styles.css`), and GitHub's run
+  listing was still answering `in_progress` with a frozen `updated_at` while
+  it was working on the owner's screen — the recorded stale-snapshot trap,
+  settled by asking the served file rather than the control plane.
 - **A SHARED FILE MUST BE ONE THE REPOSITORY HAS, and the guard asks GIT rather
   than the filesystem.** `src/routeTree.gen.ts` was in the list: TanStack
   regenerates it per build, the template's own `.gitignore` names it, and
