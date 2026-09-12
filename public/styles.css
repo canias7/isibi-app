@@ -1857,8 +1857,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .si-item > .st-hi-restore { margin-top: .1rem; }
 .si-io { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .si-io select.st-in { flex: 1 1 120px; min-width: 110px; }
-.si-io .st-gen2 { flex: 0 0 auto; cursor: pointer; }
-.si-io label.st-gen2 { display: inline-flex; align-items: center; }
 .si-form { font-weight: 700; font-size: .82rem; text-transform: capitalize; background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .si-when { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .si-row { display: flex; gap: .8rem; padding: .2rem 0; font-size: .86rem; }
@@ -2858,15 +2856,71 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-sev-high { border-left-color: #ff9558; } .st-sev-high .st-issue-sev { background: #ff9558; }
 .st-sev-medium { border-left-color: #000000; } .st-sev-medium .st-issue-sev { background: #000000; }
 .st-sev-low { border-left-color: var(--line-2); } .st-sev-low .st-issue-sev { background: var(--muted); color: var(--bg); }
-.st-gen2 { font: inherit; font-size: .82rem; font-weight: 600; color: var(--text); background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; padding: .5rem .9rem; cursor: pointer; }
-.st-gen2:disabled { opacity: .5; cursor: default; }
 .st-field { margin-bottom: 1.1rem; }
 .st-field label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: .4rem; }
 .st-inp { border: 1px solid var(--line-2); border-radius: 11px; background: var(--panel-2); padding: .7rem .85rem; font-size: .9rem; color: var(--text); }
-.st-inp-area { min-height: 4rem; color: var(--muted); }
-.st-social { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
-.st-social-ph { width: 180px; height: 96px; border: 1px dashed var(--line-2); border-radius: 10px; display: grid; place-items: center; color: var(--muted); font-size: .76rem; background: var(--panel-2); }
-.st-social-btns { display: flex; flex-direction: column; gap: .5rem; }
+/* SEO & social. FIVE RULES CAME OUT OF HERE ON 2026-09-12 WITH THE MOCKUP THAT
+   WAS THEIR ONLY READER — `.st-inp-area`, `.st-social`, `.st-social-ph`,
+   `.st-social-btns` and `.st-gen2`. Not a scan: each was the deleted markup's
+   own class, counted at zero readers across everything the app serves. The
+   `.st-gen2` pair under `.si-io` went with them — a compound selector needs an
+   element with that class and there is none, and `si-io` is the media side's
+   import panel, deleted in stage 2b. `.st-inp` survives: the read-only title
+   box below is its one reader, which is the look this rule was written for. */
+.st-seo-load { color: var(--muted); font-size: .88rem; padding: .6rem 0; }
+/* The title, which this tab shows and does not let you change: the site's NAME
+   also paints its header, its share card and og:site_name, so the door is the
+   chat and the `brand` lane, which moves all four together. Drawn as the field
+   it is rather than a disabled input — a greyed-out box invites clicking. */
+.st-seo-ro { display: block; color: var(--muted); }
+.st-seo-hint { display: block; font-size: .76rem; color: var(--muted); margin-top: .4rem; line-height: 1.5; }
+.st-seo-desc { display: block; width: 100%; box-sizing: border-box; font: inherit; font-size: .9rem; line-height: 1.55; resize: vertical; min-height: 4.4rem; }
+.st-seo-row { display: flex; align-items: center; gap: .7rem; margin-top: .55rem; flex-wrap: wrap; }
+/* THE COUNTER SPENDS COLOUR ON ONE STATE ONLY. `empty` and `short` read as the
+   muted base and their own words carry the difference ("Nothing yet" against
+   "48 characters — on the short side"); `long` is the one state that COSTS
+   something, because Google truncates it, so it is the one that is coloured.
+   A palette with four counter colours is a panel shouting at its owner. */
+.st-seo-count { font-size: .76rem; color: var(--muted); }
+.st-seo-good { color: var(--text); font-weight: 650; }
+.st-seo-long { color: #ff9558; font-weight: 650; }
+.st-seo-said { font-size: .76rem; color: var(--muted); }
+/* The two previews. Most owners have never seen their own share card and do not
+   know one exists, so showing the two places this text really lands is most of
+   what this tab is for; the fields above it are the smaller half. */
+.st-seo-previews { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+/* A GRID ITEM'S AUTOMATIC MINIMUM SIZE IS ITS CONTENT, so a description with no
+   space in it — a URL, a long German compound — widens its column past the
+   `1fr` it was given and pushes the other preview off the panel. The recorded
+   width regression on the code explorer's tree column, one panel over: the
+   declaration says out loud what nothing else here says at all. */
+.st-seo-prev { min-width: 0; }
+.st-seo-prev-k { display: block; font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: .45rem; }
+.st-seo-g { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .85rem .95rem; }
+.st-seo-g-url { font-size: .74rem; color: var(--muted); margin-bottom: .2rem; }
+/* Google's own link colour, deliberately the one saturated thing in this panel:
+   a preview earns its place by being recognisable as the thing it previews, and
+   a graphite-on-cream mock of a search result is a diagram of one. */
+.st-seo-g-t { font-size: 1.02rem; line-height: 1.35; color: #1a0dab; margin-bottom: .25rem; }
+/* `min-width: 0` above lets the COLUMN shrink; this lets the WORDS break, and
+   both are needed — a shrinkable column with an unbreakable word in it just
+   overflows its own box instead of its neighbour's. */
+.st-seo-g-d, .st-seo-g-t, .st-seo-card-tx span { overflow-wrap: anywhere; }
+.st-seo-g-d { font-size: .8rem; line-height: 1.5; color: var(--muted); }
+.st-seo-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.st-seo-card-img { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; background: var(--panel-2); }
+.st-seo-card-none { display: grid; place-items: center; font-size: .76rem; color: var(--muted); }
+.st-seo-card-tx { padding: .7rem .85rem; display: flex; flex-direction: column; gap: .2rem; }
+.st-seo-card-tx b { font-size: .88rem; }
+.st-seo-card-tx span { font-size: .78rem; color: var(--muted); line-height: 1.45; }
+.st-seo-card-tx i { font-size: .72rem; color: var(--muted); font-style: normal; text-transform: uppercase; letter-spacing: .04em; }
+.st-seo-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: .6rem; margin-top: .6rem; }
+.st-seo-opt { font: inherit; text-align: left; padding: 0; cursor: pointer; background: var(--panel); border: 1px solid var(--line-2); border-radius: 11px; overflow: hidden; display: flex; flex-direction: column; }
+.st-seo-opt img, .st-seo-opt-ph { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; background: var(--panel-2); }
+.st-seo-opt-ph { display: grid; place-items: center; color: var(--muted); }
+.st-seo-opt span:last-child { padding: .4rem .5rem; font-size: .72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-seo-opt.on { background: linear-gradient(var(--bg), var(--bg)) padding-box, var(--split) border-box; border: 2px solid transparent; }
+.st-seo-opt.on span:last-child { color: var(--text); font-weight: 700; }
 /* Media Agent DM inbox */
 .ma-dm { margin-top: 1.6rem; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); overflow: hidden; }
 .ma-dm-head { display: flex; align-items: center; justify-content: space-between; padding: .8rem 1.1rem; border-bottom: 1px solid var(--line-2); font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }

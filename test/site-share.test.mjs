@@ -83,7 +83,14 @@ test("the upload list says WHO added each file, so the panel can withhold the bu
 /* ── the route ───────────────────────────────────────────────────────────── */
 
 const w = blank(worker);
-const route = windowOf(w, "} else if (sh) {", "} else if (nt) {");
+// RE-ANCHORED 2026-09-12, and it went QUIET rather than red, which is the
+// dangerous half of the overlapping-window trap. The SEO route (`sq`) landed
+// between this one and `nt`, so this window silently grew to hold both routes
+// and every assertion below went on passing over a region twice the size it
+// describes — a mutation in the NEIGHBOUR would have satisfied a check written
+// about the share route. Close on the next sibling, not on a named one two
+// doors down.
+const route = windowOf(w, "} else if (sh) {", "} else if (sq) {");
 
 test("the share route is dispatched, owner-gated, and GET answers the stored choice", () => {
   // The matcher, in the dispatch condition and the ownerSlug list both —

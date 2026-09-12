@@ -1,0 +1,202 @@
+[
+  {
+    "label": "the description is coerced instead of refused — String([\"hi\"]) is \"hi\", the trap this repo has shipped three times",
+    "files": ["site-head-edit.mjs"],
+    "from": "  if (typeof value !== \"string\") return { ok: false, error: \"send the description as text\" };",
+    "to": "  value = String(value == null ? \"\" : value);"
+  },
+  {
+    "label": "the store's cap goes, so a description longer than the publish path's own slice is stored and then silently truncated",
+    "files": ["site-head-edit.mjs"],
+    "from": "  if (v.length > MAX_HEAD_DESCRIPTION) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "the textarea's shape is stored — newlines and runs of space in a tag every reader renders as one line",
+    "files": ["site-head-edit.mjs"],
+    "from": "  const v = value.replace(/\\s+/g, \" \").trim();",
+    "to": "  const v = value.trim();"
+  },
+  {
+    "label": "an empty description reads as `short` — a site missing a thing told it has a weak version of it",
+    "files": ["site-head-edit.mjs"],
+    "from": "  if (!n) return { state: \"empty\", chars: 0 };",
+    "to": "  if (false) return { state: \"empty\", chars: 0 };"
+  },
+  {
+    "label": "a stranger's form upload is offered as the business's link preview",
+    "files": ["site-head-edit.mjs"],
+    "from": "    if (!o || o.visitor) continue;",
+    "to": "    if (!o) continue;"
+  },
+  {
+    "label": "the injected reader is ignored, so a PDF is offered as a picture — and renders nothing, silently, in every chat app",
+    "files": ["site-head-edit.mjs"],
+    "from": "    if (!name || !ok(name)) continue;",
+    "to": "    if (!name) continue;"
+  },
+  {
+    "label": "the picker's order comes off R2's listing, which has none — the grid reshuffles under the cursor",
+    "files": ["site-head-edit.mjs"],
+    "from": "  out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));",
+    "to": "  /* unsorted */"
+  },
+  {
+    "label": "`share` and `image` collapse into one — the mockup's own mistake, one layer in",
+    "files": ["site-head-edit.mjs"],
+    "from": "    share: String(share || \"\"),",
+    "to": "    share: String(image || \"\"),"
+  },
+  {
+    "label": "an absent field answers undefined, which JSON drops — the panel cannot tell it from a key nobody sent",
+    "files": ["site-head-edit.mjs"],
+    "from": "    description: String(description || \"\"),",
+    "to": "    description: description,"
+  },
+  {
+    "label": "THE LOGO RUNG'S OWN DEFECT: a bare patch replaces the look WHOLE, taking the theme, the brand, the mark and every language off the site",
+    "files": ["worker.js"],
+    "from": "                look: { ...sqLook, description: sqClean.value },",
+    "to": "                look: { description: sqClean.value },"
+  },
+  {
+    "label": "the sidecar is composed afresh rather than read and patched, so the origin, the routes and the redirects go with the edit",
+    "files": ["worker.js"],
+    "from": "              const side = cur ? JSON.parse(await cur.text()) : {};",
+    "to": "              const side = {};"
+  },
+  {
+    "label": "the panel is told the words are live whether or not the one key that deploys them was written",
+    "files": ["worker.js"],
+    "from": "            return Response.json({ ok: true, description: sqClean.value, live: sqLive });",
+    "to": "            return Response.json({ ok: true, description: sqClean.value, live: true });"
+  },
+  {
+    "label": "a POST naming nothing this route owns is answered ok — a silent drop the caller reads as a change",
+    "files": ["worker.js"],
+    "from": "            if (!(\"description\" in sqBody)) {",
+    "to": "            if (false) {"
+  },
+  {
+    "label": "the cleaner's refusal is ignored, so an array reaches the store as a description",
+    "files": ["worker.js"],
+    "from": "            if (!sqClean.ok) return Response.json({ ok: false, error: sqClean.error }, { status: 400 });",
+    "to": "            if (false) return Response.json({ ok: false, error: sqClean.error }, { status: 400 });"
+  },
+  {
+    "label": "a backend read that could not resolve is swallowed, so a fresh R2 config is written over a pre-migration site's stored look",
+    "files": ["worker.js"],
+    "from": "            try { sqRow = await siteBackendRowFresh(env, sqslug); } catch (e) {\n              return Response.json({ ok: false, error: \"couldn't reach this site's settings just now\" }, { status: 503 });\n            }",
+    "to": "            try { sqRow = await siteBackendRowFresh(env, sqslug); } catch (e) { sqRow = { conn: null }; }"
+  },
+  {
+    "label": "the uploads read stops being best-effort, so a bucket blip takes the description field down with the picker",
+    "files": ["worker.js"],
+    "from": "              try { sqUploads = pickableImages(await siteUploadList(env, sqslug), uploadIsImage); }\n              catch (e) { console.error(\"seo uploads read failed:\", sqslug, e && e.message); }",
+    "to": "              sqUploads = pickableImages(await siteUploadList(env, sqslug), uploadIsImage);"
+  },
+  {
+    "label": "the picker is handed no reading of what counts as a picture, so every document the owner uploaded is offered",
+    "files": ["worker.js"],
+    "from": "              try { sqUploads = pickableImages(await siteUploadList(env, sqslug), uploadIsImage); }",
+    "to": "              try { sqUploads = pickableImages(await siteUploadList(env, sqslug), null); }"
+  },
+  {
+    "label": "the tab is opened to any signed-in stranger, who reads somebody else's business's settings",
+    "files": ["worker.js"],
+    "from": "            const gQ = await assertOwner(ownerDeps, sqslug, ou.id);\n            if (gQ.error) return Response.json(gQ.error.body, { status: gQ.error.status });",
+    "to": "            const gQ = { error: null };"
+  },
+  {
+    "label": "the panel's picture is claimed off a faked build rather than as the site stands — a card the last publish may never have made",
+    "files": ["worker.js"],
+    "from": "              try { sqImage = (await siteOgImage(env, sqslug, null)) || \"\"; }",
+    "to": "              try { sqImage = (await siteOgImage(env, sqslug, { \"card.png\": 1 })) || \"\"; }"
+  },
+  {
+    "label": "the browser's cap drifts off the store's, so a long paste is refused by the server the textarea allowed",
+    "files": ["public/chat.js"],
+    "from": "const ST_SEO_MAX = 300;                     // = MAX_HEAD_DESCRIPTION",
+    "to": "const ST_SEO_MAX = 500;                     // = MAX_HEAD_DESCRIPTION"
+  },
+  {
+    "label": "the browser's band drifts off the module's, so the counter colours the wrong lengths",
+    "files": ["public/chat.js"],
+    "from": "const ST_SEO_GOOD = { min: 50, max: 160 };  // = GOOD_DESCRIPTION",
+    "to": "const ST_SEO_GOOD = { min: 20, max: 160 };  // = GOOD_DESCRIPTION"
+  },
+  {
+    "label": "the browser's length reader stops answering `empty`, so a site with no description is told its one is short",
+    "files": ["public/chat.js"],
+    "from": "  if (!n) return { state: 'empty', label: 'Nothing yet' };",
+    "to": "  if (false) return { state: 'empty', label: 'Nothing yet' };"
+  },
+  {
+    "label": "the render hook never fires, so the tab draws its frame and stops — the wiring layer twelve features have died in",
+    "files": ["public/chat.js"],
+    "from": "  if (siteView === 'more' && siteMoreTab === 'seo' && site.slug) loadSiteSeo(site);",
+    "to": "  if (false) loadSiteSeo(site);"
+  },
+  {
+    "label": "Save is live before anything is typed, so pressing it stores what is already stored",
+    "files": ["public/chat.js"],
+    "from": "      saveEl.disabled = v.replace(/\\s+/g, ' ').trim() === String(d.description || '');",
+    "to": "      saveEl.disabled = false;"
+  },
+  {
+    "label": "the picker stops re-reading, so the panel draws the file just chosen rather than the picture the precedence resolves",
+    "files": ["public/chat.js"],
+    "from": "          if (rr.ok && dd && dd.ok) d = dd;",
+    "to": "          if (rr.ok && dd && dd.ok) { /* kept */ }"
+  },
+  {
+    "label": "the picker posts to this tab's own route instead of the share route, re-implementing a validation it does not have",
+    "files": ["public/chat.js"],
+    "from": "        const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/share', {",
+    "to": "        const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/seo', {"
+  },
+  {
+    "label": "a site with NO picture at all is told it is using the card made for it",
+    "files": ["public/chat.js"],
+    "from": "          : d.image\n            ? 'Using the card made for you when the site was built.'\n            : 'No picture yet — a shared link shows just the name. Pick one below, or your card appears at your site’s next change.') + '</span>' +",
+    "to": "          : 'Using the card made for you when the site was built.') + '</span>' +"
+  },
+  {
+    "label": "the read-only title box loses the field look, so the one value this tab cannot change is drawn as bare text",
+    "files": ["public/chat.js"],
+    "from": "        '<div class=\"st-inp st-seo-ro\">' + esc(d.title || site.name || 'Your site') + '</div>' +",
+    "to": "        '<div class=\"st-seo-ro\">' + esc(d.title || site.name || 'Your site') + '</div>' +"
+  },
+  {
+    "label": "the preview column can grow past its 1fr, so one unbroken word pushes the other preview off the panel",
+    "files": ["public/styles.css"],
+    "from": ".st-seo-prev { min-width: 0; }",
+    "to": ".st-seo-prev { }"
+  },
+  {
+    "label": "the one state that costs something — a description Google truncates — is painted like every other",
+    "files": ["public/styles.css"],
+    "from": ".st-seo-long { color: #ff9558; font-weight: 650; }",
+    "to": ""
+  },
+  {
+    "label": "the new module leaves the image, so the job runner dies at import inside the container and every build refuses to launch",
+    "files": ["Dockerfile"],
+    "from": "site-export.mjs site-head-edit.mjs ",
+    "to": "site-export.mjs "
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only, which must survive",
+    "files": ["site-head-edit.mjs"],
+    "from": " * The longest description we will store.",
+    "to": " * The longest description we will store (control)."
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the panel, which must survive",
+    "files": ["public/chat.js"],
+    "from": "// SEO & social — what the site says about itself WHERE IT IS NOT THE SITE: the",
+    "to": "// SEO & social — what the site says about itself where it is not the site: the"
+  }
+]

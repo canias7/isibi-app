@@ -1087,14 +1087,28 @@ test("the preview image is derived in ONE place, for both publish paths and the 
   // a guard that cannot see a third call site is one that reports two readers
   // while a fourth drifts.
   const calls = [...worker.matchAll(/await siteOgImage\(env, \w+, ([^)]+)\)/g)];
-  assert.equal(calls.length, 3,
-    "a publish path or the share picker derives its own preview image again — or stopped passing its dist, which silently loses the composed-card fallback on that path");
+  const dists = calls.map((m) => m[1]);
+  // NOT AN EQUALITY ON THE COUNT ANY MORE (2026-09-12). It was `=== 3` and the
+  // SEO tab's read-only GET made it four — an honest new READER failing a test
+  // about how many readers there are, which is this file's own "assert the
+  // property, not the spelling" one line below a comment saying so. The
+  // property is that nobody derives the precedence again and that a caller with
+  // a build in hand hands it over; a fourth reader that passes `null` breaks
+  // neither. The floor keeps the observer alive.
+  assert.ok(calls.length >= 3,
+    "a publish path or the share picker stopped asking for the derivation — only " + calls.length + " readers left");
   // Each publish path hands over the dist it is about to publish, and they are
   // two DIFFERENT maps — both naming one variable would mean one path publishes
-  // a card resolved against the other's files. The picker's recompute has NO
-  // build in hand and says so with `null`, which is the reading's own "as the
-  // site stands" case — a dist faked there would claim a card the last publish
-  // may never have made.
-  assert.deepEqual(calls.map((m) => m[1]).sort(), ["built.files", "dist", "null"],
-    "a publish path resolves the card against a dist it is not publishing");
+  // a card resolved against the other's files.
+  for (const d of ["built.files", "dist"]) {
+    assert.equal(dists.filter((x) => x === d).length, 1,
+      "the publish path whose dist is `" + d + "` no longer resolves the card against exactly its own files");
+  }
+  // EVERY OTHER READER HAS NO BUILD IN HAND AND SAYS SO WITH `null`, which is
+  // the reading's own "as the site stands" case — a dist faked there would
+  // claim a card the last publish may never have made.
+  const rest = dists.filter((d) => d !== "built.files" && d !== "dist");
+  assert.ok(rest.length >= 1, "the read-only readers vanished — rescope this guard");
+  assert.deepEqual([...new Set(rest)], ["null"],
+    "a reader with no build in hand passed something other than null: " + rest.join(", "));
 });

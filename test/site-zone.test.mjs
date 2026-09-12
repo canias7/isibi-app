@@ -418,7 +418,14 @@ test("a shared link's preview image is on the SITE's domain, not the platform's"
   // precedence. The build derived it inline and the text edit never did, so
   // fixing a typo stripped the site's preview image — exactly the divergence
   // one reader exists to prevent.
-  assert.equal((w.match(/await siteOgImage\(env, /g) || []).length, 3,
+  // A FLOOR, NOT AN EQUALITY (2026-09-12). It was `=== 3` and the SEO tab's
+  // read-only GET made it four: an honest new READER failed a test about how
+  // many readers there are, which is the same own-goal the comment three lines
+  // above this one describes. What matters here is that nobody composes the
+  // precedence a second time, and a reader that asks the one function cannot
+  // do that however many of them there are. Which callers hand over a dist is
+  // `site-edit.test.mjs`'s to assert; this one keeps its own observer alive.
+  assert.ok((w.match(/await siteOgImage\(env, /g) || []).length >= 3,
     "a publish path or the share picker no longer asks for a preview image");
 });
 

@@ -94,6 +94,7 @@ import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verifi
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
+import { cleanHeadDescription, pickableImages, headAnswer } from "./site-head-edit.mjs";
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
 import { drainTeardown } from "./site-teardown.mjs";
@@ -19256,6 +19257,15 @@ async function handleRequest(request, env, ctx) {
       // call that guesses which picture "the one with the chairs" means fails
       // silently when it guesses wrong.
       const sh = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/share$/i);
+      // WHAT THE SITE SAYS ABOUT ITSELF WHERE IT IS NOT THE SITE — the Google
+      // result, the grey line under it, the picture a chat app unfurls. One
+      // GET for the whole tab (four facts across three stores), and a POST that
+      // writes the one field this route owns. The PICTURE is still the share
+      // route's: it already validates against the live upload list, refuses a
+      // document and recomputes the sidecar, and a second copy of that here is
+      // this repo's own "two lists of the same thing" with a live link preview
+      // as the subject. See `site-head-edit.mjs` for why the title is read-only.
+      const sq = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/seo$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -19267,10 +19277,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh) {
+      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -24261,6 +24271,116 @@ async function handleRequest(request, env, ctx) {
               shLive = true;
             } catch (e) { console.error("share sidecar patch failed:", shslug, e && e.message); }
             return Response.json({ ok: true, share: shFile, live: shLive });
+          } else if (sq) {
+            // ── SEO & SOCIAL ─────────────────────────────────────────────────
+            //
+            // The head as the owner can see and change it. Its shape is the
+            // share route's above, deliberately and line for line — owner gate,
+            // the THREE-WAY backend read, `readSiteConfig`, patch, then the
+            // sidecar — because the two answer for neighbouring fields of one
+            // object and a second shape here would be a second set of failure
+            // modes for no new capability.
+            const sqslug = sq[1].toLowerCase();
+            const gQ = await assertOwner(ownerDeps, sqslug, ou.id);
+            if (gQ.error) return Response.json(gQ.error.body, { status: gQ.error.status });
+            if (request.method !== "GET" && request.method !== "POST") {
+              return Response.json({ error: "method not allowed" }, { status: 405 });
+            }
+            if (!env.SITES_BUCKET) return Response.json({ error: "storage not configured" }, { status: 501 });
+            // The share route's own reasoning, unchanged: a null from
+            // `siteBackendBySlug` cannot tell "no database" from "could not
+            // resolve one", and on the WRITE that difference is a fresh R2
+            // config written over a pre-migration site's `_meta` look.
+            let sqRow;
+            try { sqRow = await siteBackendRowFresh(env, sqslug); } catch (e) {
+              return Response.json({ ok: false, error: "couldn't reach this site's settings just now" }, { status: 503 });
+            }
+            if (!sqRow) return Response.json({ error: "not found" }, { status: 404 });
+            const sqconn = sqRow.conn;
+            const sqCfg = await readSiteConfig(env, sqslug, sqconn);
+            if (!sqCfg.ok) {
+              console.error("seo read failed:", sqslug, sqCfg.why, sqCfg.error);
+              return Response.json({ ok: false, error: "couldn't read this site's settings just now" }, { status: 503 });
+            }
+            const sqLook = (sqCfg.config && sqCfg.config.look) || {};
+
+            if (request.method === "GET") {
+              // THE PICTURE IS RESOLVED, NOT GUESSED — `siteOgImage` is the one
+              // reader of the precedence (the owner's chosen upload → any owner
+              // upload → the composed card), so the panel draws exactly what a
+              // chat app will unfurl rather than a second opinion about it.
+              // `null` for the dist: no build in hand, which is that function's
+              // own "as the site stands" case.
+              //
+              // BEST-EFFORT ON BOTH READS, AND THE PANEL STILL DRAWS. A bucket
+              // blip must cost the picture and the picker, never the two fields
+              // beside them — a tab that refuses whole because a listing failed
+              // is a tab that stops an owner fixing their description.
+              let sqImage = "";
+              let sqUploads = [];
+              try { sqImage = (await siteOgImage(env, sqslug, null)) || ""; }
+              catch (e) { console.error("seo image read failed:", sqslug, e && e.message); }
+              try { sqUploads = pickableImages(await siteUploadList(env, sqslug), uploadIsImage); }
+              catch (e) { console.error("seo uploads read failed:", sqslug, e && e.message); }
+              return Response.json(headAnswer({
+                // The BUSINESS'S name, which is what the `<title>` says. Read
+                // only here — `site-head-edit.mjs` carries the argument.
+                title: sqLook.brand || "",
+                description: sqLook.description || "",
+                image: sqImage,
+                share: (sqCfg.config && sqCfg.config.share) || "",
+                uploads: sqUploads,
+              }));
+            }
+
+            const sqBody = await request.json().catch(() => null);
+            if (!sqBody || typeof sqBody !== "object") return Response.json({ error: "send a JSON object" }, { status: 400 });
+            if (!("description" in sqBody)) {
+              // NAMED RATHER THAN TREATED AS A NO-OP. A POST with nothing this
+              // route owns is a caller that thinks it changed something; the
+              // title arrives here the day somebody wires the follow-up, and
+              // answering `ok` to it would be a silent drop.
+              return Response.json({ error: "send a description" }, { status: 400 });
+            }
+            const sqClean = cleanHeadDescription(sqBody.description);
+            if (!sqClean.ok) return Response.json({ ok: false, error: sqClean.error }, { status: 400 });
+
+            // READ-AND-MERGE, NEVER A BARE `{ look: { description } }`.
+            // `withConfig` replaces a named field WHOLE, so patching the look
+            // with one key takes the theme, the brand, the mark and every
+            // language off the site — the exact defect the logo rung shipped
+            // and which its own comment now records. `sqLook` is the look this
+            // request already read, above, from the same config.
+            {
+              const w = await patchSiteConfig(env, sqslug, sqconn, {
+                look: { ...sqLook, description: sqClean.value },
+              });
+              if (!w.ok) {
+                console.error("seo write failed:", sqslug, w.error);
+                return Response.json({ ok: false, error: "couldn't save that just now" }, { status: 503 });
+              }
+            }
+            // AND IT IS LIVE WITHOUT A REPUBLISH — the share route's pattern and
+            // the rename lane's. The published site's own script reads its head
+            // out of this sidecar on every request, so patching the one key IS
+            // the deployment: no container, no compile, no credits.
+            //
+            // BEST-EFFORT, AND THE STORED VALUE IS ALREADY SAFE: a failure here
+            // means the new description appears at the site's next publish
+            // instead of now, which is a delay rather than a loss — and `live`
+            // says which happened rather than letting the panel claim the good
+            // one. An EMPTY description is written as an empty string, not
+            // omitted: `__root.tsx` emits no tag for a falsy description, so
+            // clearing has to reach the same state as never having had one.
+            let sqLive = false;
+            try {
+              const cur = await env.SITES_BUCKET.get(siteMetaKey(sqslug));
+              const side = cur ? JSON.parse(await cur.text()) : {};
+              side.description = sqClean.value;
+              await env.SITES_BUCKET.put(siteMetaKey(sqslug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } });
+              sqLive = true;
+            } catch (e) { console.error("seo sidecar patch failed:", sqslug, e && e.message); }
+            return Response.json({ ok: true, description: sqClean.value, live: sqLive });
           } else if (nt) {
             // The off switch. Email the owner did not ask for, with no way to
             // stop it, is not something to ship.

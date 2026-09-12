@@ -4725,12 +4725,248 @@ function siteSecurityScan(site) {
       if (typeof fetchCredits === 'function') fetchCredits();
     }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = 'Run scan'; } box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
 }
+// SEO & social — what the site says about itself WHERE IT IS NOT THE SITE: the
+// Google result, the grey line under it, and the picture a chat app unfurls.
+//
+// WHAT STOOD HERE UNTIL 2026-09-12 was eleven lines of hardcoded markup that
+// stated three false facts about the customer's own site (owner, shown the tab:
+// "WHAT IS THIS"). It drew the title as `<name> — built with Go Farther`, a
+// suffix NO SITE HAS EVER SERVED; it drew a sentence of grey prose that reads as
+// an empty field on a site with a perfectly good description; and it offered
+// "Generate · soon" for a 1200×630 card that is composed on every build and has
+// been live the whole time. Measured on `hebden-bike-repair` the same day: the
+// served page answers `<title>Hebden Bike Repair</title>`, a 158-character
+// description, and `og:image` at a card that really is 1200×630.
+//
+// That is worse than the dead controls this repo already tracks. A dead control
+// does nothing; this one answered a question, wrongly, about somebody's own
+// business — and the obvious next thought on reading it is "how do I get your
+// branding off my title", about a thing that was never there.
+//
+// THE SHELL IS DRAWN SYNCHRONOUSLY AND FILLED BY `loadSiteSeo`, the Analytics
+// tab's own split: `renderSites` composes markup, so a panel that has to ask the
+// server draws its frame first and its answer when it arrives. THE SHELL HOLDS
+// NO FIELDS AT ALL until then, rather than disabled ones carrying a guess — a
+// box with a plausible wrong value in it is what this tab is being rebuilt for.
+
+// THE BROWSER'S HALF OF `site-head-edit.mjs`, and it is a SECOND COPY because
+// chat.js is a classic script and cannot import a module. That is this repo's
+// recorded "two lists of the same thing", so the two are held equal by a guard
+// rather than by habit: `test/site-seo.test.mjs` reads both numbers out of both
+// files and drives both length readers over the same inputs.
+const ST_SEO_MAX = 300;                     // = MAX_HEAD_DESCRIPTION
+const ST_SEO_GOOD = { min: 50, max: 160 };  // = GOOD_DESCRIPTION
+/**
+ * How long is this description, and is that a good length?
+ *
+ * The twin of `describeLength`, plus the counter's own words. ADVISORY: it
+ * colours a label and refuses nothing — a description outside the band is a
+ * worse listing, not an invalid one, and this file's own rule is that a false
+ * alarm is worse than a miss.
+ *
+ * `''` IS ITS OWN STATE, never `short`: a site with no description and a site
+ * with a six-word one need different sentences, because one is missing a thing
+ * and the other has a weak version of it.
+ */
+function stSeoLength(value) {
+  const n = String(value || '').length;
+  if (!n) return { state: 'empty', label: 'Nothing yet' };
+  if (n < ST_SEO_GOOD.min) return { state: 'short', label: n + ' characters — on the short side' };
+  if (n > ST_SEO_GOOD.max) return { state: 'long', label: n + ' characters — Google shows about ' + ST_SEO_GOOD.max };
+  return { state: 'good', label: n + ' characters' };
+}
 function moreSeo(site) {
-  return '<div class="st-panel"><div class="st-panel-head"><h3>SEO &amp; social</h3></div>' +
-    '<div class="st-field"><label>Title</label><div class="st-inp">' + esc(site.name || 'Your site') + ' — built with Go Farther</div></div>' +
-    '<div class="st-field"><label>Description</label><div class="st-inp st-inp-area">A short, on-brand description of your site for search engines and social shares.</div></div>' +
-    '<div class="st-field"><label>Social image</label><div class="st-social"><div class="st-social-ph">1200 × 630</div><div class="st-social-btns"><button type="button" class="st-gen2" disabled>Upload · soon</button><button type="button" class="st-gen2" disabled>Generate · soon</button></div></div></div>' +
+  return '<div class="st-panel" id="stSeoPanel"><div class="st-panel-head"><h3>SEO &amp; social</h3></div>' +
+    '<p class="sp-intro">What your site looks like in a Google result and when its link is pasted into WhatsApp, Slack or a post. None of this shows on the page itself.</p>' +
+    '<div class="st-seo-load" id="stSeoLoad">Reading your site…</div>' +
+    // NO CLASS ON THE BODY, because it needs no rule: the fields inside carry
+    // their own, and `hidden` does the one thing this box does. A class the
+    // stylesheet never paints is decoration nothing can see, and the guard
+    // beside this derives the panel's classes and asks the sheet for each —
+    // which is how this one was found, on its first run.
+    '<div id="stSeoBody" hidden></div>' +
   '</div>';
+}
+/**
+ * The tab's real contents, once the server has answered.
+ *
+ * ONE FETCH FOR THE WHOLE TAB. The four facts live in three stores — the name
+ * and the description in the site's config, the chosen file beside them, the
+ * RESOLVED picture through the platform's precedence, and the uploads in R2 —
+ * and four round trips from here would each have their own failure and their own
+ * half-drawn panel.
+ */
+async function loadSiteSeo(site) {
+  const slug = site.slug || '';
+  const panel = document.getElementById('stSeoPanel');
+  if (!panel || !slug) return;
+  const loadEl = panel.querySelector('#stSeoLoad');
+  const bodyEl = panel.querySelector('#stSeoBody');
+  let d = null;
+  try {
+    const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/seo');
+    d = await r.json().catch(() => null);
+    if (!r.ok || !d || !d.ok) throw new Error('bad');
+  } catch (e) {
+    // SAYS WHICH IT IS. "Couldn't read" is a transient thing to retry; drawing
+    // empty fields would invite somebody to save over a description they cannot
+    // currently see, which is the mockup's own failure wearing a network error.
+    loadEl.textContent = 'Couldn’t read your site’s settings just now — try again in a moment.';
+    return;
+  }
+  loadEl.hidden = true;
+  bodyEl.hidden = false;
+
+  // The address, for the Google preview's breadcrumb line. `liveUrl` is what the
+  // site list already carries; the slug's own address is the fallback, and it is
+  // the same shape `publicUrlFor` produces server-side.
+  const addr = String(site.liveUrl || ('https://' + slug + '.gofarther.app/')).replace(/\/+$/, '');
+  const host = (() => { try { return new URL(addr).host; } catch (e) { return slug + '.gofarther.app'; } })();
+
+  const draw = () => {
+    const desc = String(d.description || '');
+    const len = stSeoLength(desc);
+    bodyEl.innerHTML =
+      // ── THE TITLE, READ-ONLY AND SAID SO ────────────────────────────────
+      // It is the BUSINESS'S NAME, not a page title: the same value paints the
+      // site's own header, the composed share card and `og:site_name`. A box
+      // here that changed only the `<title>` would leave Google calling the
+      // business one thing while its own header called it another, so the door
+      // is the `brand` edit lane, which moves all four together.
+      '<div class="st-field"><label>Title</label>' +
+        '<div class="st-inp st-seo-ro">' + esc(d.title || site.name || 'Your site') + '</div>' +
+        '<span class="st-seo-hint">This is your site’s name — it’s also on the header and the share card. Ask in the chat to change it.</span>' +
+      '</div>' +
+      // ── THE DESCRIPTION, EDITABLE AND LIVE ──────────────────────────────
+      '<div class="st-field"><label for="stSeoDesc">Description</label>' +
+        '<textarea class="st-in st-seo-desc" id="stSeoDesc" rows="3" maxlength="' + ST_SEO_MAX + '" placeholder="One sentence about the business, for search results and shared links.">' + esc(desc) + '</textarea>' +
+        '<div class="st-seo-row">' +
+          '<span class="st-seo-count st-seo-' + esc(len.state) + '" id="stSeoCount">' + esc(len.label) + '</span>' +
+          '<button type="button" class="st-publish" id="stSeoSave" disabled>Save</button>' +
+          '<span class="st-seo-said" id="stSeoSaid"></span>' +
+        '</div>' +
+      '</div>' +
+      // ── THE PREVIEWS, which are the whole reason to open this tab ────────
+      // Most owners have never seen their own share card and do not know one
+      // exists. Showing the two places this text actually appears is most of
+      // the value here; the fields above are the smaller half.
+      '<div class="st-field"><label>How it looks</label>' +
+        '<div class="st-seo-previews">' +
+          '<div class="st-seo-prev"><span class="st-seo-prev-k">Google</span>' +
+            '<div class="st-seo-g">' +
+              '<div class="st-seo-g-url">' + esc(host) + '</div>' +
+              '<div class="st-seo-g-t">' + esc(d.title || site.name || 'Your site') + '</div>' +
+              '<div class="st-seo-g-d">' + (desc ? esc(desc) : '<i>No description — Google will pick its own words off the page.</i>') + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="st-seo-prev"><span class="st-seo-prev-k">Shared link</span>' +
+            '<div class="st-seo-card">' +
+              (d.image
+                ? '<img class="st-seo-card-img" src="' + esc(d.image) + '" alt="" loading="lazy">'
+                : '<div class="st-seo-card-img st-seo-card-none">no picture</div>') +
+              '<div class="st-seo-card-tx"><b>' + esc(d.title || site.name || 'Your site') + '</b>' +
+                '<span>' + (desc ? esc(desc) : 'No description') + '</span>' +
+                '<i>' + esc(host) + '</i>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      // ── THE PICTURE ─────────────────────────────────────────────────────
+      // `share` is the CHOICE and `image` is what actually serves, and they are
+      // drawn apart on purpose: empty `share` with a live `image` is the
+      // ordinary state — nobody has chosen, and the card the build composed is
+      // what a chat app unfurls. Collapsing the two is how the old mockup drew
+      // "no image" over a site that had one.
+      '<div class="st-field"><label>Social image</label>' +
+        // THREE CASES, BECAUSE THERE ARE THREE. Chosen; nothing chosen and the
+        // platform's card serving; and nothing chosen and NOTHING serving —
+        // which happens on a site published before the card existed, or one
+        // whose card write failed. Saying "using the card made for you" over
+        // that third state is the mockup's own mistake in a new place: an
+        // absence the panel narrates as a presence.
+        '<span class="st-seo-hint">' + (d.share
+          ? 'Using your picture — <b>' + esc(d.share) + '</b>.'
+          : d.image
+            ? 'Using the card made for you when the site was built.'
+            : 'No picture yet — a shared link shows just the name. Pick one below, or your card appears at your site’s next change.') + '</span>' +
+        '<div class="st-seo-pick" id="stSeoPick">' +
+          '<button type="button" class="st-seo-opt' + (d.share ? '' : ' on') + '" data-share="">' +
+            '<span class="st-seo-opt-ph">' + ic('image', 16) + '</span><span>The built card</span></button>' +
+          (d.uploads || []).map((u) =>
+            '<button type="button" class="st-seo-opt' + (d.share === u.name ? ' on' : '') + '" data-share="' + esc(u.name) + '">' +
+              '<img src="/u/' + esc(slug) + '/' + esc(u.name) + '" alt="" loading="lazy"><span>' + esc(u.name) + '</span></button>').join('') +
+        '</div>' +
+        ((d.uploads || []).length ? '' : '<span class="st-seo-hint">Upload a picture by attaching it in the chat, and it shows up here to choose.</span>') +
+      '</div>';
+
+    const descEl = bodyEl.querySelector('#stSeoDesc');
+    const saveEl = bodyEl.querySelector('#stSeoSave');
+    const countEl = bodyEl.querySelector('#stSeoCount');
+    const saidEl = bodyEl.querySelector('#stSeoSaid');
+    // SAVE IS DEAD UNTIL SOMETHING CHANGED. A button that is always live invites
+    // a write that stores what is already stored — a publish-shaped no-op the
+    // owner then has to wonder about.
+    const sync = () => {
+      const v = descEl.value;
+      const l = stSeoLength(v.replace(/\s+/g, ' ').trim());
+      countEl.textContent = l.label;
+      countEl.className = 'st-seo-count st-seo-' + l.state;
+      saveEl.disabled = v.replace(/\s+/g, ' ').trim() === String(d.description || '');
+      saidEl.textContent = '';
+    };
+    descEl.oninput = sync;
+    saveEl.onclick = async () => {
+      const next = descEl.value.replace(/\s+/g, ' ').trim();
+      saveEl.disabled = true;
+      saidEl.textContent = 'Saving…';
+      try {
+        const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/seo', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: next }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (!r.ok || !o.ok) { saidEl.textContent = o.error || 'Couldn’t save that.'; saveEl.disabled = false; return; }
+        d.description = o.description;
+        // SAYS WHICH OF THE TWO HAPPENED. The sidecar patch IS the deployment,
+        // so the ordinary answer is that it is already live; a failed patch
+        // means the words appear at the site's next publish instead, which is a
+        // delay rather than a loss and is worth saying rather than glossing.
+        saidEl.textContent = o.live ? 'Saved — live on your site now.' : 'Saved — it shows at your site’s next change.';
+        draw();
+      } catch (e) { saidEl.textContent = 'Lost the connection — try again.'; saveEl.disabled = false; }
+    };
+    bodyEl.querySelectorAll('[data-share]').forEach((b) => b.onclick = async () => {
+      const want = b.getAttribute('data-share') || '';
+      if (want === String(d.share || '')) return;
+      // THROUGH THE SHARE ROUTE, not a second copy of it. That one validates the
+      // name against this site's own live uploads, refuses a stranger's file and
+      // refuses a document, and recomputes the sidecar through the one reader of
+      // the precedence. Re-implementing any of that here is how the two drift.
+      try {
+        const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/share', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file: want || null }),
+        });
+        const o = await r.json().catch(() => ({}));
+        if (!r.ok || !o.ok) { if (typeof sbToast === 'function') sbToast(o.error || 'Couldn’t change the picture.'); return; }
+        d.share = o.share || '';
+        // RE-READ RATHER THAN ASSUMED. The picture that SERVES is the
+        // precedence's answer, not the file just chosen — clearing the choice
+        // falls back to the built card, and only the server knows whether one
+        // exists. Guessing here is how a panel shows a picture the unfurl does
+        // not have.
+        try {
+          const rr = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/seo');
+          const dd = await rr.json().catch(() => null);
+          if (rr.ok && dd && dd.ok) d = dd;
+        } catch (e) { /* the choice is stored either way */ }
+        draw();
+        if (typeof sbToast === 'function') sbToast(o.live ? 'Picture changed — live now.' : 'Picture changed — it shows at the next publish.');
+      } catch (e) { if (typeof sbToast === 'function') sbToast('Lost the connection — try again.'); }
+    });
+  };
+  draw();
 }
 // Edit history — the rail flips from chat to a list of every change you asked for.
 function siteHistoryRail(site) {
@@ -5220,6 +5456,10 @@ function renderSiteWorkspace(view, site) {
   // More sub-nav (Analytics / Cloud / Security / SEO).
   view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
   if (siteView === 'more' && siteMoreTab === 'analytics' && site.slug) loadSiteAnalytics(site);
+  // SEO & social asks the server for the three real values it shows. Same hop as
+  // Analytics one line up: `moreSeo` drew the frame while this function was
+  // composing markup, and the answer fills it once it arrives.
+  if (siteView === 'more' && siteMoreTab === 'seo' && site.slug) loadSiteSeo(site);
   if (isReact && site.backend && siteView === 'data') loadSiteData(site);
   // The Code tab fetches its own source once the markup it fills is on the page
   // — `loadSiteData`'s hop, one tab over.
