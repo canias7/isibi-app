@@ -1,0 +1,27 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the column loses its floor and grows to its widest row, so every fold click moves the editor",
+    "files": ["public/styles.css"],
+    "from": ".st-code-tree { flex: 0 0 210px; min-width: 0; border-right:",
+    "to": ".st-code-tree { flex: 0 0 210px; border-right:"
+  },
+  {
+    "label": "the column loses its fixed basis and is sized by the flex layout instead",
+    "files": ["public/styles.css"],
+    "from": ".st-code-tree { flex: 0 0 210px; min-width: 0; border-right:",
+    "to": ".st-code-tree { flex: 1 1 auto; min-width: 0; border-right:"
+  },
+  {
+    "label": "the floor comes back as `overflow-y: auto` on the COLUMN — which restores the width and takes the search box back into the scroll",
+    "files": ["public/styles.css"],
+    "from": ".st-code-tree { flex: 0 0 210px; min-width: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }",
+    "to": ".st-code-tree { flex: 0 0 210px; overflow-y: auto; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }"
+  },
+  {
+    "label": "CONTROL: a comment-only change beside the rule, which must survive",
+    "control": true,
+    "files": ["public/styles.css"],
+    "from": "/* `min-width: 0` IS WHAT KEEPS THE COLUMN 210px WIDE, and it is not decoration",
+    "to": "/* min-width: 0 is what keeps the column 210px wide, and it is not decoration"
+  }
+]

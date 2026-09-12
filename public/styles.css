@@ -2625,7 +2625,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    leaves a strip of panel scrolling past above it. A column with a fixed head is
    the honest shape. `min-height: 0` is what lets the scroller shrink below its
    own content at all. */
-.st-code-tree { flex: 0 0 210px; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+/* `min-width: 0` IS WHAT KEEPS THE COLUMN 210px WIDE, and it is not decoration
+   (owner, 2026-09-12: "everytime i click it the screen vibrates").
+   `flex: 0 0 210px` sets the BASIS; a flex item's automatic minimum size
+   (`min-width: auto`) then refuses to let it shrink below its widest row's
+   min-content width, so the column grew whenever a folder with a long label
+   (`src/routes/-parts`) was open and snapped back when it was shut — moving the
+   editor beside it sideways on every click.
+   IT USED TO BE FREE, WHICH IS WHY IT WAS NEVER WRITTEN DOWN: this rule carried
+   `overflow-y: auto`, and any overflow other than `visible` makes that automatic
+   minimum ZERO. The search box moved the scroll down to `.st-code-rows` and the
+   floor went with it. This repository's own "a rule true because of a layer
+   below it expires when that layer moves" — the width was true BECAUSE of the
+   overflow, not because of the basis. Measured: 193px in every fold state
+   before, 209px or 224px after, constant again with this line. */
+.st-code-tree { flex: 0 0 210px; min-width: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
 /* THE SEARCH BOX. The field carries no border of its own — the wrapper is the
    control, so the magnifier, the input and the clear button read as one box and
    the focus ring goes round all three (`:focus-within`). */

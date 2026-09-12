@@ -978,6 +978,24 @@ and **inside each one, the real directory tree.**
     escaped, the sentence into `innerHTML` and must be.
   - The query survives a project switch deliberately — `siteCodeOpen` already
     does, and a carried-over query is VISIBLE where a carried-over filename is not.
+  - **AND IT SHIPPED A WIDTH REGRESSION THE SAME NIGHT, FOUND LIVE BY THE OWNER
+    (*"everytime i click it the screen vibrates"*).** Splitting the column into a
+    fixed head over a scroller moved `overflow-y: auto` off `.st-code-tree` — and
+    **any overflow but `visible` makes a flex item's automatic minimum size ZERO**,
+    which is what had actually been pinning the column at its `flex: 0 0 210px`.
+    With `overflow: visible` restored, `min-width: auto` took over and the column
+    refused to shrink below its widest row: opening a folder with a long label
+    (`src/routes/-parts`) widened it and shutting it narrowed it again, so **every
+    fold click moved the editor beside it sideways.** `min-width: 0` is the one
+    declaration that says out loud what the overflow used to say by accident.
+    **MEASURED in a real browser over seven fold states**: 193px throughout before
+    the search box, **209px or 224px** after, constant again with the line.
+    The recorded "a rule true because of a layer below it expires when that layer
+    moves" — the width was true BECAUSE of the overflow, not because of the basis,
+    and nothing said so because nobody had written it down. **No markup assertion
+    can see this and neither can one that checks the rule exists**: it takes a
+    render, which is how it was found and how it was proved. Sweep 3/3 with the
+    defect itself as a mutant, the comment-only control surviving.
   **Guards**: `test/site-source.test.mjs` drives the filter, the tree, the rows,
   the three renderers and the tab end to end, plus the CSS both ways.
   **Sweep: 39 mutants, 39 killed, none survived, none unapplied, both

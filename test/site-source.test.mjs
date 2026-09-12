@@ -1032,6 +1032,28 @@ test("the Code host fills its stage, and the file tree keeps its scroll", () => 
   assert.match(CSS, /\.st-code-tree \{[^}]*min-height: 0/, "the tree column cannot bound its scroller");
   assert.ok(!/\.st-code-tree \{[^}]*overflow-y: auto/.test(CSS),
     "the column scrolls as well as its rows — the search box scrolls away with them");
+
+  // AND THE COLUMN MUST NOT GROW TO FIT ITS WIDEST ROW (owner, 2026-09-12:
+  // "everytime i click it the screen vibrates"). `flex: 0 0 210px` sets only the
+  // BASIS; a flex item's automatic minimum size (`min-width: auto`) then refuses
+  // to shrink it below its widest row's min-content width, so opening a folder
+  // with a long label widened the column and shut it narrowed it again — moving
+  // the editor beside it sideways on every click.
+  //
+  // IT WAS FREE UNTIL THE SEARCH BOX AND SO NOBODY WROTE IT DOWN: this rule
+  // carried `overflow-y: auto`, and any overflow but `visible` makes that
+  // automatic minimum ZERO. Moving the scroll to `.st-code-rows` took the floor
+  // with it — the recorded "a rule true because of a layer below it expires when
+  // that layer moves", and the width was true BECAUSE of the overflow.
+  // MEASURED in a real browser over seven fold states: 193px throughout before
+  // the search box, then 209px or 224px depending on which folders were open,
+  // and constant again with this line. Both halves asserted, because the basis
+  // alone is what looks sufficient and is not.
+  const col = CSS.slice(CSS.indexOf(".st-code-tree {"), CSS.indexOf("}", CSS.indexOf(".st-code-tree {")));
+  assert.ok(col.includes(".st-code-tree {"), "the tree column rule is gone");
+  assert.match(col, /flex: 0 0 210px/, "the column lost its fixed basis");
+  assert.match(col, /min-width: 0/,
+    "the column can grow to its widest row again — every fold click moves the editor beside it");
 });
 
 // ── THE WHOLE PROJECT, NOT TWO FILES ────────────────────────────────────────

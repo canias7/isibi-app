@@ -5763,3 +5763,40 @@ Tests green at 6,048. Sweep 39 of 39 — three survived the first pass and all
 three were my tests' fault rather than the code's: two of them only go wrong
 on a redraw of the whole panel, which typing never does, and the third was a
 missing icon that nothing was checking for. All three are checked now.
+
+## The vibrating panel — my bug, from an hour earlier (12 Sept)
+
+You clicked around the Code tab and the screen shook. That was mine, from the
+search box an hour before, and it's fixed.
+
+**What was happening.** The file tree column is meant to be a fixed 210 pixels
+wide. It wasn't any more — it was growing to fit whatever the longest visible row
+was. So opening a folder with a long name widened the column, and closing it
+narrowed it back, and the code pane beside it slid sideways every time. Click,
+click, click: shudder.
+
+**Why I broke it.** To give the search box a fixed spot at the top, I moved the
+scrolling from the column itself down to the list of rows inside it. That looked
+like a tidy little change. What I didn't know was that the scrolling was the only
+thing holding the column's width — a browser rule says a column that scrolls is
+allowed to be narrower than its contents, and one that doesn't isn't. Take the
+scrolling away and the width goes with it.
+
+So the width was never really set by the "210 pixels" line. It was being held up
+by something next to it that nobody had written down, and when I moved that
+thing, the width quietly went too. One line puts it back and says so in plain
+words this time, so the next person moving things around can see what's load
+bearing.
+
+**How I know it's fixed rather than think it is.** I ran the real panel in a real
+browser through seven different open/closed states and measured the column each
+time. Before the search box: 193 pixels, every time. After: 209 or 224 depending
+on which folders were open — there's the shake. With the fix: constant again.
+
+Worth saying: nothing in our tests could have caught this. Checking the page's
+structure doesn't see it, and neither does checking that the rule is written —
+the rule *was* written, it just wasn't doing what it looked like it was doing.
+The only instrument that sees it is actually rendering the thing and measuring,
+which is what found it and what proves it.
+
+Tests green at 6,048. Sweep 3 of 3, including the bug itself as one of them.
