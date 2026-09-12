@@ -1154,6 +1154,76 @@ and **inside each one, the real directory tree.**
   listing was still answering `in_progress` with a frozen `updated_at` while
   it was working on the owner's screen — the recorded stale-snapshot trap,
   settled by asking the served file rather than the control plane.
+- **THE PROJECT A CUSTOMER DOWNLOADS CAN BUILD — the kit files their pages
+  import (2026-09-12, owner holding Lovable's tree beside ours: *"look at all of
+  this, we dont have all of it"*).** The comparison found something worse than a
+  parity gap. **The Code tab showed 28 files and the Download zipped the same
+  28 — and `src/routes/__root.tsx`, ONE OF THOSE 28, imports
+  `@/components/ui/sonner`.** The zip carried the importer and not the module,
+  so `npm run build` on a downloaded project could not resolve its own first
+  import. It was a folder of source, not a project.
+  **IT IS THE CLOSURE, NOT THE KIT, AND THE MEASUREMENT IS THE WHOLE DESIGN.**
+  The kit is 3,394 files and 17 MB (2,112 under `src/components/ui` alone), and
+  the first plan was a name manifest plus lazy contents. Then it was measured:
+  a SITE has the files its pages import transitively, and over **100 real
+  generated sites from the corpus that is 9 to 53 files, 26,092 to 126,082
+  bytes, with ZERO specifiers resolving to nothing** — the same order as the 25
+  shared files already sent, and the same order as Lovable's whole
+  `components/ui` (~50). So there is nothing to lazy-load, no R2 kit upload and
+  no per-file route: it travels with the source the way `parts` does.
+  **`builder/kit-closure.mjs`** is the resolver — dependency-free, reader
+  INJECTED because it runs in three places with nothing in common (the
+  container's disk, a fake map, the corpus scan). Imports, re-exports and
+  dynamic imports; **the extension order IS the resolver** (`.tsx` before the
+  bare path, or a directory beats the file the bundler takes); cycles terminate
+  on the RESOLVED path, because a kit that re-exports through barrels has them;
+  a file the project already HAS is **walked but not re-sent** (`src/lib/utils.ts`
+  is bundled and imports things of its own); an unresolved specifier is NAMED,
+  never dropped; a stable sort, so two builds of an unchanged site store the
+  same bytes; `MAX_KIT_FILES` 400 is a ceiling that REPORTS rather than
+  truncating in silence — the worst real site needs 53.
+  **THE CONTAINER RESOLVES IT** because it is the only place both halves exist
+  at once: the Worker can work out WHICH files a site needs and not what is in
+  them. Seeded from the routes DIRECTORY rather than the payload, so a salvage
+  stub's or a repair round's imports count; its reader is fenced with
+  `path.resolve` and a prefix test, because every specifier came out of source a
+  MODEL wrote; a throw there cannot lose a built, paid-for site (`kitError`).
+  **THE WORKER STORES IT at `source/<slug>/kit.json` ON BOTH PUBLISH PATHS** —
+  the build path and the edit spine, so an edit that adds a component stores the
+  dependency it pulled in — **subtracts what it already bundles, DERIVED from
+  `FOUNDATION_FILES`** (a copy of that list in the image would be two lists of
+  the same thing with a deploy between them), refuses an absolute or climbing
+  path a second time, and answers it from `/api/site/source`.
+  **ITS OWN HEADING, `Design system`, never folded into `Shared with every
+  site`**: which of these a site has is a fact about THAT site, so two sites show
+  different counts and one heading over both would be a lie about half its rows.
+  **A site that has not published since this shipped gets `[]`** — the explorer
+  shows exactly what it showed before, no error and nothing to explain, and it
+  fills in on that site's next publish.
+  **Sweep: 27 mutants, 25 killed, 0 survived, none unapplied, both comment-only
+  controls survived. SIX survived the first pass and every one was a guard gap**
+  — and THREE were the same recorded trap: **a positional guard cannot see a
+  dead branch.** `if (false) await saveSiteKit(…)` leaves the call exactly where
+  a count finds it, so the store read as wired while nothing was ever written;
+  each call's OWN condition is read now. The other three: the container's fence
+  and its directory seed were never asserted, and the subtraction was read
+  (`foundationPaths()` is called either way) rather than DRIVEN — it is driven
+  against the real bundle AND a second one now, which is the only thing that
+  separates derived from hardcoded. **The driven case then met the
+  free-identifier trap through the door that entry describes**: `KIT_KEY` is a
+  free name in a carried scope, so the store threw inside its own catch and
+  answered `false`, which reads exactly like a refused write.
+  **Two older guards went red and were re-anchored, not appeased**: the
+  explorer's READ CENSUS gained a fourth read (the right place for that cost to
+  have to be written down), and the state-copy guard required `saveSiteParts`
+  and `writeHead` to be ADJACENT when the property is that the MARKER IS LAST —
+  it derives every write in the copy and asserts each sits above the marker.
+  **The two things the same comparison found and did NOT change**: their
+  `src/assets` carries 7 photographs because their builder writes generated
+  images into the project and ours is genuinely empty (every picture is a
+  placeholder — fal balance is empty), and their root has `bun.lock` /
+  `bunfig.toml` where ours has `package-lock.json`, which is a package manager
+  and not a gap.
 - **A SHARED FILE MUST BE ONE THE REPOSITORY HAS, and the guard asks GIT rather
   than the filesystem.** `src/routeTree.gen.ts` was in the list: TanStack
   regenerates it per build, the template's own `.gitignore` names it, and

@@ -190,12 +190,39 @@ test("THE CHAIN: resolved in the container, stored on both publish paths, answer
   assert.match(kitBlock, /catch \(e\)/, "a closure that throws takes the publish down with it");
   assert.match(kitBlock, /kitError/, "a closure that failed says nothing");
 
+  // THE SEEDS ARE THE DIRECTORY, not what we were sent — a salvage stub or a
+  // repair round writes pages we never posted, and their imports count too.
+  const seedFn = SERVER.slice(SERVER.indexOf("function siteKitFiles() {"), SERVER.indexOf("function resetRoutes() {"));
+  assert.ok(seedFn.length > 400, "re-derive the closure function's window");
+  assert.match(seedFn, /walk\(ROUTES\);/, "the closure is seeded from the payload, so a salvaged page's imports are missed");
+  // AND ITS READER IS FENCED TO THE APP DIRECTORY. Every specifier it is handed
+  // came out of source a MODEL wrote, so `@/../../etc/passwd` is a shape that
+  // can really arrive — `path.resolve` and a prefix test, never concatenation.
+  assert.match(seedFn, /const full = path\.resolve\(APP, rel\);/, "the reader builds its path by concatenation");
+  assert.match(seedFn, /if \(full !== APP && !full\.startsWith\(APP \+ path\.sep\)\) return null;/,
+    "the container's reader is unfenced — a specifier can climb out of the app directory");
+
   // 2. THE WORKER STORES IT, on BOTH publish paths. The build path and the edit
   // spine are different functions and the recorded trap is fixing one.
   assert.match(WORKER, /const KIT_KEY = \(slug\) => "source\/" \+ String\(slug\)\.toLowerCase\(\) \+ "\/kit\.json";/,
     "the kit has no key");
   const saves = [...WORKER.matchAll(/await saveSiteKit\(env, slug, /g)];
   assert.equal(saves.length, 2, "expected the build path and the publish spine; found " + saves.length + " stores");
+  // AND NEITHER IS BEHIND A DEAD BRANCH. A POSITION IS NOT A BEHAVIOUR — this
+  // repository's own recorded trap, and a sweep proved it here: `if (false)
+  // await saveSiteKit(…)` leaves the call exactly where a count or an ordering
+  // finds it, so the store reads as wired while nothing is ever written. Each
+  // call's OWN condition is read.
+  for (const m of saves) {
+    const line = WORKER.slice(WORKER.lastIndexOf("\n", m.index) + 1, WORKER.indexOf("\n", m.index));
+    assert.ok(!/if \(false\)|if \(0\)/.test(line), "a kit store is behind a dead branch: " + line.trim());
+    assert.match(line.trim(), /^(await saveSiteKit|if \(Array\.isArray\(built\.kit\)\) await saveSiteKit)/,
+      "a kit store is gated on something other than the answer carrying a kit: " + line.trim());
+  }
+  // AND THE BUILD PATH REMEMBERS WHAT THE CONTAINER SENT, on a live condition.
+  const keep = WORKER.slice(WORKER.indexOf("if (built && typeof built === \"object\" && Array.isArray(built.kit)) kitBuilt = built.kit;"));
+  assert.ok(keep.length > 0, "the build path never remembers the closure the container sent");
+  assert.ok(!/if \(false\) kitBuilt/.test(WORKER), "the build path's capture is behind a dead branch");
   // AND EACH SITS BESIDE THE PARTS STORE IT MIRRORS, so a publish that writes
   // one writes the other.
   for (const m of [...WORKER.matchAll(/await saveSiteParts\(env, slug, [a-zA-Z]+\);/g)]) {
@@ -256,4 +283,91 @@ test("ONE LIST STILL FEEDS THE TREE AND THE DOWNLOAD, kit included", () => {
   // AND A HOSTILE ENTRY IS REFUSED RATHER THAN NAMED INTO THE ZIP.
   const hostile = stSrcFiles({ pages: [], shared: [], kit: [{ path: "src/ok.tsx", source: "a" }, { path: "", source: "b" }, { path: "src/bad.tsx" }] });
   assert.deepEqual(hostile.map((f) => f.name), ["src/ok.tsx"], "a nameless or sourceless kit entry reached the list");
+});
+
+test("DRIVEN: the store subtracts what the browser already gets, DERIVED from the bundle", () => {
+  // A SWEEP SURVIVED A HARDCODED LIST HERE, and reading the source could not
+  // tell one from the other: `foundationPaths()` is called either way. What
+  // separates them is behaviour — a file that is in the bundle TODAY must be
+  // subtracted, whatever its name is, so the function is carried out and run
+  // against the real bundle.
+  const fnOut = (head, close) => {
+    const at = WORKER.indexOf(head);
+    assert.ok(at > 0, "gone: " + head);
+    const end = WORKER.indexOf(close, at);
+    assert.ok(end > at, "no close for: " + head);
+    return WORKER.slice(at, end + close.length);
+  };
+  // `KIT_KEY` IS CARRIED TOO. A function lifted out of the file resolves its
+  // free names when a LINE RUNS, not when the scope is built — this
+  // repository's own recorded trap, and it arrived here through the door the
+  // entry describes: without it the store threw `KIT_KEY is not defined` inside
+  // its own catch and answered `false`, which reads exactly like a refused write.
+  const konst = (name) => {
+    const at = WORKER.indexOf("const " + name + " = ");
+    assert.ok(at > 0, "gone: " + name);
+    return WORKER.slice(at, WORKER.indexOf("\n", at));
+  };
+  const scope = new Function("FOUNDATION_FILES", [
+    "let FOUNDATION_PATH_SET = null;",
+    konst("KIT_KEY"),
+    fnOut("function foundationPaths() {", "\n}"),
+    fnOut("async function saveSiteKit(env, slug, kit) {", "\n}"),
+    "return { saveSiteKit, foundationPaths };",
+  ].join("\n"));
+
+  const put = [];
+  const env = { SITES_BUCKET: { put: async (key, body) => { put.push({ key, body }); } } };
+  // THE REAL BUNDLE, so "is this file already sent" is answered by the thing
+  // that actually sends it.
+  const real = scope(FOUNDATION_FILES);
+  const bundled = shared[0] && shared[0].path;
+  assert.ok(bundled, "the shared set is empty — this case would prove nothing");
+
+  return real.saveSiteKit(env, "s", [
+    { path: bundled, source: "ALREADY BUNDLED" },
+    { path: "src/components/ui/button.tsx", source: "BUTTON" },
+    { path: "/etc/passwd", source: "ABSOLUTE" },
+    { path: "src/../../secrets.env", source: "CLIMBING" },
+    { path: "", source: "NAMELESS" },
+    { path: "src/ok.tsx" },
+  ]).then((ok) => {
+    assert.equal(ok, true, "the store refused a healthy write");
+    assert.equal(put.length, 1, "expected exactly one object written");
+    assert.equal(put[0].key, "source/s/kit.json", "the kit went to the wrong key");
+    const stored = JSON.parse(put[0].body);
+    assert.deepEqual(stored, [{ path: "src/components/ui/button.tsx", source: "BUTTON" }],
+      "the store kept something it should have dropped, or dropped the one file it should keep");
+
+    // AND THE SUBTRACTION IS DERIVED, not a list that happens to contain today's
+    // names: handed a DIFFERENT bundle, it subtracts THAT one's paths instead.
+    const other = scope([{ path: "src/components/ui/button.tsx", source: "x" }]);
+    const put2 = [];
+    return other.saveSiteKit({ SITES_BUCKET: { put: async (k, b) => { put2.push(b); } } }, "s",
+      [{ path: "src/components/ui/button.tsx", source: "BUTTON" }, { path: "src/components/ui/card.tsx", source: "CARD" }]
+    ).then(() => {
+      assert.deepEqual(JSON.parse(put2[0]).map((f) => f.path), ["src/components/ui/card.tsx"],
+        "the subtraction is a hardcoded list — it did not follow the bundle it was given");
+    });
+  });
+});
+
+test("DRIVEN: a bucket that will not take the write is said, never thrown", () => {
+  const fnOut = (head, close) => {
+    const at = WORKER.indexOf(head);
+    const end = WORKER.indexOf(close, at);
+    return WORKER.slice(at, end + close.length);
+  };
+  const at = WORKER.indexOf("const KIT_KEY = ");
+  const scope = new Function("FOUNDATION_FILES", "console", [
+    "let FOUNDATION_PATH_SET = null;",
+    WORKER.slice(at, WORKER.indexOf("\n", at)),
+    fnOut("function foundationPaths() {", "\n}"),
+    fnOut("async function saveSiteKit(env, slug, kit) {", "\n}"),
+    "return { saveSiteKit };",
+  ].join("\n"))([], { error: () => {} });
+  // A PUBLISH IS LIVE BY THE TIME THIS RUNS. A store that throws here would take
+  // down a site that is already serving, for the sake of a file listing.
+  return scope.saveSiteKit({ SITES_BUCKET: { put: async () => { throw new Error("r2 down"); } } }, "s", [{ path: "src/a.tsx", source: "a" }])
+    .then((ok) => assert.equal(ok, false, "a failed store did not report itself"));
 });

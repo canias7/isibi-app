@@ -5923,3 +5923,48 @@ you saying "Windows".
 Tests green at 6,061. Sweep 4 of 4, control survived. **You confirmed it: "it
 works now".** Third time, and the thing that fixed it was you telling me which
 computer you were on — worth remembering for the next one of these.
+
+## The project you download can actually build now (12 Sept)
+
+You held up Lovable's file tree beside ours and said we don't have all of it.
+Looking into it found something worse than a missing list.
+
+**The Download was broken and nobody had noticed.** The Code tab showed 28 files
+and the Download zipped the same 28 — and one of those 28, `src/routes/__root.tsx`,
+starts by importing a component that wasn't in the zip. So the "project" we handed
+a customer couldn't build: its very first import pointed at a file that wasn't
+there. That's a promise broken regardless of what anyone else does.
+
+**Why the components were missing, and why the fix isn't what I first said.** I
+told you we'd list all 3,394 kit files and fetch each one when clicked. Then I
+measured the thing that actually matters: **a site doesn't have 3,394 files, it
+has the ones its pages import.** Across 100 real generated sites that's **9 to 53
+files** — about the same as the 25 shared files we already send, and about the
+same as Lovable's whole components folder. So there's nothing to lazy-load. The
+files just travel with the rest of the code.
+
+The container works out which ones at publish time — it's the only place that has
+both the site's pages and the kit on disk at once — and they're stored with the
+site, listed under their own heading **"Design system"**, and zipped with
+everything else.
+
+**They get their own heading rather than going in "Shared with every site"** on
+purpose: which of these a site has depends on what its pages use, so two of your
+sites will show different numbers. Folded in with the platform files, that
+heading would be lying about half its rows.
+
+**Existing sites see no change until they next publish.** The list comes back
+empty, the tab shows what it showed before, no error and nothing to explain, and
+it fills in the next time that site publishes anything.
+
+Two smaller things from the same comparison, for the record: their `src/assets`
+has 7 photos because their builder writes generated images into the project —
+ours is genuinely empty, since every picture is still a placeholder (no generated
+photo has ever been bought). And their root has `bun.lock`/`bunfig.toml` where
+ours has `package-lock.json`; that's just a different package manager, not a gap.
+
+Tests green, sweep 25 of 25 with both controls surviving. One thing I got wrong
+on the way: six mutants survived the first pass and three of them were the same
+mistake — I checked that a line *existed* rather than that it *runs*, so wrapping
+it in `if (false)` slipped straight past. That's a trap already written down here
+and I walked into it anyway; the checks read each call's own condition now.
