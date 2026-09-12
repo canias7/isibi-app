@@ -109,15 +109,15 @@ test("the deploy stamps the Dockerfile it is about to build, and never one it re
   const cfg = JSON.stringify({
     name: "isibi-app",
     containers: [{ class_name: "SiteBuildContainer", image: "./Dockerfile" },
-                 { class_name: "GameBuildContainer", image: "./builder-game/Dockerfile" }],
+                 { class_name: "OtherBuildContainer", image: "./other/Dockerfile" }],
   }, null, 2);
   const run = async (present) => {
     const writes = [];
-    // The context is NORMALISED by the script (`./builder-game/Dockerfile` →
-    // context `builder-game`), so the fixture is keyed the way the script really
+    // The context is NORMALISED by the script (`./other/Dockerfile` →
+    // context `other`), so the fixture is keyed the way the script really
     // asks — a fixture in a different shape from reality is the recorded trap,
     // and this one caught itself on the first run.
-    const files = { "wrangler.jsonc": cfg, "./Dockerfile": DOCKER, "builder-game/Dockerfile": DOCKER };
+    const files = { "wrangler.jsonc": cfg, "./Dockerfile": DOCKER, "other/Dockerfile": DOCKER };
     const out = await main({
       root: ".", accountId: "a".repeat(32),
       git: (p) => "b".repeat(40 - (String(p).length % 7)) + "0".repeat(String(p).length % 7),

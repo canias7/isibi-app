@@ -155,7 +155,7 @@ test("a docs-only commit does not deploy, and so does not pay for a build", () =
   assert.match(yml, /run: node \.github\/scripts\/saas-setup\.mjs/, "the deploy no longer runs .github/scripts — re-point this guard");
 });
 
-test("nothing the deploy ships, and nothing either container image copies, comes from test/ or scripts/", () => {
+test("nothing the deploy ships, and nothing the container image copies, comes from test/ or scripts/", () => {
   // THE PREMISE the two new globs rest on. Same shape as the `.md` guard
   // below: a file that IS part of the Worker or the image but lives under an
   // ignored path would silently stop reaching production.
@@ -173,7 +173,7 @@ test("nothing the deploy ships, and nothing either container image copies, comes
   // The images: every COPY source, read the way test/dockerfile.test.mjs
   // reads them (flags skipped, `--from=` stages skipped).
   let copies = 0;
-  for (const df of ["../Dockerfile", "../builder-game/Dockerfile"]) {
+  for (const df of ["../Dockerfile"]) {
     const text = readFileSync(new URL(df, import.meta.url), "utf8");
     for (const m of text.matchAll(/^COPY\s+(.+?)\s+\S+\s*$/gm)) {
       const parts = m[1].split(/\s+/).filter((p) => !p.startsWith("--"));

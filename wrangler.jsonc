@@ -164,10 +164,6 @@
   "send_email": [
     { "name": "EMAIL" }
   ],
-  // Game build-service (Phase 3): runs `vite build` on AI-generated kaplay games
-  // AND a headless-Chromium runtime smoke test. Image ./builder-game/Dockerfile;
-  // the Worker talks to it via the GAME_BUILD_CONTAINER Durable Object binding.
-  //
   // Site build-service: the same shape for the rebuilt website builder — the React
   // template with its deps baked in, so a per-site build is `tsr generate` →
   // `tsc --noEmit` → `vite build`. A NEW class name rather than the retired
@@ -179,16 +175,10 @@
   // were removed 2026-07-27 along with the rest of the builder.)
   "containers": [
     {
-      "class_name": "GameBuildContainer",
-      "image": "./builder-game/Dockerfile",
-      "max_instances": 300,
-      "instance_type": "standard-1"
-    },
-    {
       "class_name": "SiteBuildContainer",
       // AT THE ROOT SINCE 2026-09-04: the image carries the Worker's own
-      // module graph as the job runtime, which spans builder/, builder-game/
-      // and the root modules, so its build context is the whole repository.
+      // module graph as the job runtime, which spans builder/ and the root
+      // modules, so its build context is the whole repository.
       "image": "./Dockerfile",
       "max_instances": 1000,
       "instance_type": "standard-1"
@@ -196,7 +186,6 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "class_name": "GameBuildContainer", "name": "GAME_BUILD_CONTAINER" },
       { "class_name": "SiteBuildContainer", "name": "SITE_BUILD_CONTAINER" }
     ]
   },
@@ -207,7 +196,13 @@
     // Retires the two builder containers. A Durable Object class that disappears
     // from the Worker without a deleted_classes migration fails the deploy.
     { "tag": "v4", "deleted_classes": ["BuildContainer", "CloneBuildContainer"] },
-    { "tag": "v5", "new_sqlite_classes": ["SiteBuildContainer"] }
+    { "tag": "v5", "new_sqlite_classes": ["SiteBuildContainer"] },
+    // Retires the game builder (2026-09-12, owner: "delete it too"). Same rule as
+    // v4: a Durable Object class that disappears from the Worker without a
+    // deleted_classes migration FAILS THE DEPLOY. v2 above STAYS — migration
+    // history is append-only, so the tag that created the class cannot be taken
+    // back out even though the class is gone.
+    { "tag": "v6", "deleted_classes": ["GameBuildContainer"] }
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).

@@ -10,8 +10,8 @@
 // what the site does, which is the only kind of thing that belongs here.
 //
 // RELATIONSHIP TO `tooLargeBody` in worker.js. That helper already exists and is
-// used on six routes (media save, the Stripe webhook, the game and revise
-// endpoints). It checks `content-length` and nothing else — which is the header
+// used on several routes (media save, the Stripe webhook, the revise endpoint).
+// It checks `content-length` and nothing else — which is the header
 // the CALLER writes, so it is a courtesy that saves buffering, not a control: a
 // request that omits the header passes it unconditionally. It is also applied to
 // none of the site-builder routes.

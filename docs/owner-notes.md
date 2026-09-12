@@ -6029,3 +6029,53 @@ site nearly told me "done" while the deploy was still running, because the text 
 searched for also appears in an unrelated rule further up the file. Two other
 reads in the same command disagreed with it, which is the only reason I noticed.
 Written down so the next one doesn't get through.
+
+## Deleting the video side — stage 1 of 4 done (12 Sept)
+
+You asked me to keep the website builder and carefully delete everything else:
+the video/image/voice maker, and — when I asked — the game builder too, plus the
+customers' stored media. Fal stays for the site builder's photographs, and the
+memberships and credits stay exactly as they are.
+
+I'm doing it in four stages so nothing goes out half-finished:
+
+1. **the game builder** — done, this commit;
+2. video, image and voice generation and the composer;
+3. everything around it — the gallery, saving, importing, the director, the
+   Media Agent, the avatar;
+4. the sweep — leftover styling, tests, workflows, secrets, docs.
+
+**The stored media is a separate step, after all four are merged and working**,
+and I'll ask you once more before I touch it. It's the only part that can't be
+undone.
+
+### Stage 1 also found two live bugs
+
+Neither was caused by the deletion — deleting is just what made them visible.
+
+**The Gallery has been broken.** Two settings it needs (which filter, which
+sort order) are declared in a *demo copy* of the app's main file and were never
+in the one we actually serve. The gallery reads them before anything can set
+them, so opening Gallery threw an error and left the panel blank. Fixed. It's
+on the list to be deleted in stage 3 anyway, but it works in the meantime.
+
+**And the deletion nearly shipped one of its own.** The game code defined a
+small function the *saved-assets sync* was still calling. Nothing here could
+see it: the file passes every check we have, because in JavaScript a name that
+doesn't exist only fails at the moment that line runs — and in the browser that
+would have been every signed-in customer, every sync.
+
+So I built a check for that whole class. It reads every script the page loads
+the way a browser would, and reports any name that's used but defined nowhere.
+It found both of the above, and — this is the part I care about — **nothing
+else**: 23 things came up on the first run, 21 of which were my own list being
+incomplete, and the two real ones are the two above. It's now part of the test
+suite, so the next deletion can't do this quietly.
+
+**One more guard, on the deploy itself.** Removing the game's container needed a
+specific line in the config, and Cloudflare refuses the *entire deploy* if it's
+missing. That rule was written in a comment and checked by nothing — it had come
+up twice and both times someone had to remember it. There's a test for it now,
+and I proved it catches the mistake before shipping it.
+
+Tests 6,072 green. Sweep 13 of 13, both controls survived.

@@ -1,7 +1,8 @@
-// isibi SITE build-service (runs inside the container). Forks ../builder-game/build-server.mjs
-// with kaplay swapped back out for the React template, and a `tsc --noEmit` gate in
-// front of `vite build` — GENERATOR.md's definition of done is both, so a page that
-// only happens to bundle is still a failure here.
+// isibi SITE build-service (runs inside the container). It began as a fork of the
+// game builder's own build service (deleted 2026-09-12), with kaplay swapped out for
+// the React template, and a `tsc --noEmit` gate in front of `vite build` —
+// GENERATOR.md's definition of done is both, so a page that only happens to bundle is
+// still a failure here.
 //
 // Contract:
 //   POST /build   { "files": { "index.tsx": "<tsx source>", ... },   // relative to src/routes/

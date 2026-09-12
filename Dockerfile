@@ -1,10 +1,10 @@
-# isibi SITE build-service. Clone of builder-game/Dockerfile with the React
+# isibi SITE build-service. The React
 # template swapped in for kaplay.
 #
 # AT THE REPOSITORY ROOT SINCE 2026-09-04, so the build context is the whole
 # repository: this image carries the Worker's own module graph as the job
 # runtime (the `worker/` tree at the bottom), and that graph spans builder/,
-# builder-game/ and the root modules — a context rooted at builder/ cannot
+# and the root modules — a context rooted at builder/ cannot
 # reach above itself. Every COPY source below is therefore root-relative
 # (`builder/…`), and wrangler.jsonc names this file as `./Dockerfile`, whose
 # directory is the context for a hand `wrangler deploy` and for the CI image
@@ -22,7 +22,7 @@ FROM node:22-slim
 # looking at a screen. A compile pass proves the code is valid, not that anybody
 # can read the page.
 #
-# The DISTRO browser driven by playwright-core, exactly as ../builder-game does,
+# The DISTRO browser driven by playwright-core,
 # rather than Playwright's own download: smaller image, and the pattern is
 # already proven next door.
 # `fonts-liberation` + `fonts-noto-core` ARE LOAD-BEARING, not polish: the
@@ -168,7 +168,6 @@ RUN cd worker && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --logle
 COPY worker.js billing.mjs rate-limit.mjs request-limits.mjs site-access.mjs site-apis.mjs site-backup.mjs site-config.mjs site-cookie.mjs site-csv.mjs site-db.mjs site-dns.mjs site-domain-connect.mjs site-domains.mjs site-errors.mjs site-export.mjs site-idem.mjs site-inbound.mjs site-jobs.mjs site-live.mjs site-mail.mjs site-meta.mjs site-notify.mjs site-owner.mjs site-payments.mjs site-provision.mjs site-rebuild.mjs site-registrar.mjs site-rls.mjs site-routing.mjs site-schema.mjs site-secrets.mjs site-seo.mjs site-sms.mjs site-ssrf.mjs site-sweep.mjs site-teardown.mjs site-turnstile.mjs site-uploads.mjs site-versions.mjs site-builds.mjs site-webhook-queue.mjs site-webhooks.mjs stripe-webhook.mjs ttl-cache.mjs worker-finance.mjs ./worker/
 COPY builder/build-answer.mjs builder/build-budget.mjs builder/build-call.mjs builder/build-job.mjs builder/build-lane.mjs builder/build-lease.mjs builder/build-models.mjs builder/build-record.mjs builder/build-resume.mjs builder/chart-api.mjs builder/chart-usage.mjs builder/component-api.mjs builder/container-env.mjs builder/container-hold.mjs builder/container-job.mjs builder/container-room.mjs builder/design-graph.mjs builder/design-waves.mjs builder/edit-job.mjs builder/edit-trace.mjs builder/font-index.json builder/foundation-files.mjs builder/gen-code.mjs builder/job-clock.mjs builder/job-gateway.mjs builder/job-retention.mjs builder/model-fanout.mjs builder/model-xai.mjs builder/page-bands.mjs builder/page-gen.mjs builder/publish-pages.mjs builder/site-add.mjs builder/site-addon.mjs builder/site-alias.mjs builder/site-apply.mjs builder/site-ask.mjs builder/site-authored.mjs builder/site-chat.mjs builder/site-context.mjs builder/site-css.mjs builder/site-dispatch.mjs builder/site-edit.mjs builder/site-favicon.mjs builder/site-files.mjs builder/site-fonts.mjs builder/site-freecss.mjs builder/site-identity.mjs builder/site-images.mjs builder/site-lanes.mjs builder/site-langs.mjs builder/site-logo.mjs builder/site-mark.mjs builder/site-migrations.mjs builder/site-nav.mjs builder/site-offline.mjs builder/site-order.mjs builder/site-picture.mjs builder/site-plan.mjs builder/site-qr-list.mjs builder/site-qr.mjs builder/site-reconcile.mjs builder/site-render.mjs builder/site-repair.mjs builder/site-rules.mjs builder/site-seed.mjs builder/site-seeds.mjs builder/site-style.mjs builder/site-table.mjs builder/site-text.mjs builder/site-theme-registry.mjs builder/site-theme.mjs builder/site-tokens.mjs builder/site-translate.mjs builder/site-tweak.mjs builder/site-verify.mjs builder/site-worker.mjs builder/trace.mjs builder/ui-components.mjs builder/worker-loader.mjs builder/worker-register.mjs builder/cloudflare-shim.mjs builder/containers-shim.mjs ./worker/builder/
 COPY builder/theme-candidates/ ./worker/builder/theme-candidates/
-COPY builder-game/game-gen.mjs ./worker/builder-game/
 
 # THIS IMAGE DOES EXECUTE MODEL-WRITTEN CODE, AND THIS COMMENT USED TO DENY IT.
 #

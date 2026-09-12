@@ -456,7 +456,10 @@ test("the job env carries the strings, the bucket shim, a refusing queue, and no
   assert.ok(env.SITES_BUCKET instanceof GatewayBucket);
   assert.equal(env.BUILD_QUEUE, refusingQueue);
   assert.deepEqual(env.SITE_BUILD_CONTAINER, { local: true });
-  for (const absent of ["SITE_ROUTES", "SITE_API_CACHE", "EMAIL", "SITE_WORKERS", "ASSETS", "GAME_BUILD_CONTAINER"]) {
+  // `GAME_BUILD_CONTAINER` came off this list on 2026-09-12: the game builder
+  // was deleted, so the binding no longer exists anywhere and asserting its
+  // absence asserted nothing about the product.
+  for (const absent of ["SITE_ROUTES", "SITE_API_CACHE", "EMAIL", "SITE_WORKERS", "ASSETS"]) {
     assert.equal(absent in env, false, absent + " has no business inside the container");
   }
   assert.throws(() => makeContainerEnv({ secrets: {}, gateway: { url: "", token: "" } }), /gateway/);

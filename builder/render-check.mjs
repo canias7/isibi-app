@@ -12,10 +12,10 @@
 // way. A build whose pages compiled and whose database is live must never be
 // lost because a browser would not start.
 //
-// The browser is the DISTRO Chromium, driven by `playwright-core` — the same
-// arrangement `builder-game/smoke.mjs` has been using, rather than Playwright's
-// own download. It is the smaller image and it is the pattern already proven
-// here.
+// The browser is the DISTRO Chromium, driven by `playwright-core` — rather than
+// Playwright's own download. It is the smaller image. (The arrangement was
+// inherited from the game builder's smoke, deleted 2026-09-12; it stands on its
+// own reasons.)
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";

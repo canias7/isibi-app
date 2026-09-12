@@ -159,16 +159,23 @@ test("max_instances IS FAR ABOVE ANY REAL CONCURRENCY, and the classes SUM under
   // the docs were unclear, and it made two simultaneous builds collide one time
   // in five.
   //
-  // THE SUM MATTERS, not each number alone: both classes draw on ONE account
+  // THE SUM MATTERS, not each number alone: every class draws on ONE account
   // pool, so if they can add up past it our own cap stops being the thing that
   // binds and the failure becomes Cloudflare's 503 instead of something we chose.
+  // Written as a sum over the list even though the list is one long today — a
+  // second image added next month is then bounded by existing, not by somebody
+  // remembering this file.
   const ACCOUNT_MEMORY_GIB = 6 * 1024;
   const STANDARD_1_GIB = 4;
   const CEILING = Math.floor(ACCOUNT_MEMORY_GIB / STANDARD_1_GIB); // 1536
 
   const raw = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
   const cfg = JSON.parse(raw.replace(/^\s*\/\/.*$/gm, ""));
-  assert.ok(Array.isArray(cfg.containers) && cfg.containers.length >= 2, "no containers declared");
+  // THE FLOOR IS 1 SINCE 2026-09-12 — it was 2 while the game builder existed.
+  // It is not decoration: the sum below is over a list, and an EMPTY list sums to
+  // zero and passes every ceiling check silently. The floor is what keeps this
+  // from being a vacuous assertion, which is the only reason it has a number.
+  assert.ok(Array.isArray(cfg.containers) && cfg.containers.length >= 1, "no containers declared");
 
   let sum = 0;
   for (const c of cfg.containers) {
@@ -182,13 +189,13 @@ test("max_instances IS FAR ABOVE ANY REAL CONCURRENCY, and the classes SUM under
   }
   assert.ok(sum <= CEILING,
     `the classes sum to ${sum} concurrent instances against an account ceiling of ${CEILING}`);
-  // AND THE SITE IS THE ONE THAT GETS THE BULK. It is the platform's primary
-  // feature; a game build waiting is not a customer's site failing to publish.
+  // THE SITE IS THE ONLY CLASS SINCE 2026-09-12, when the game builder was
+  // deleted (owner: "delete it too"). What used to be asserted here — that the
+  // site outranks the game — has no second class to compare against, so the
+  // property that survives is the one that was always the real one: the site
+  // class exists and draws the pool the sum above bounds.
   const site = cfg.containers.find((c) => c.class_name === "SiteBuildContainer");
-  const game = cfg.containers.find((c) => c.class_name === "GameBuildContainer");
-  assert.ok(site && game, "one of the two container classes is gone");
-  assert.ok(site.max_instances > game.max_instances,
-    `sites get ${site.max_instances} against games' ${game.max_instances}`);
+  assert.ok(site, "the site container class is gone");
 
   // AND THE QUEUE IS WHAT ACTUALLY BINDS. A queued build starts only when a
   // consumer invocation is free, so raising the container alone leaves the
@@ -373,30 +380,4 @@ test("EVERY SITE BUILD IS KEYED BY THE SLUG, and only a probe may key by a liter
   }
 });
 
-test("THE GAME BUILD SERVER STILL SERIALISES — one container per key, not per request", () => {
-  // Found 2026-08-25: it wipes four SHARED directories per build and had no queue
-  // at all, surviving only because every request resolved to one instance. Two
-  // game builds by ONE user still share a container BY DESIGN — the key is the
-  // account, because a game names itself only after it compiles — so the
-  // protection has to be in the server rather than inferred from how requests
-  // arrive.
-  const game = fs.readFileSync(new URL("../builder-game/build-server.mjs", import.meta.url), "utf8");
-  const g = blankComments(game);
-  assert.match(g, /function oneAtATime\(/, "the game build server has no oneAtATime");
-  // It must WRAP the wipes, not merely exist beside them — a queue nothing enters
-  // is the twelve-dead-features shape one file over.
-  const wrap = g.indexOf("return oneAtATime(");
-  const wipe = g.indexOf("wipeSrc();");
-  assert.ok(wrap > 0 && wipe > wrap, `oneAtATime at ${wrap} does not enclose the wipe at ${wipe}`);
-});
 
-test("BOTH BUILD SERVERS KEEP THEIR QUEUE — removing it reopens the 2026-07-29 failure", () => {
-  // A container is one instance with one working directory, and per-key naming
-  // makes that MORE precise rather than redundant: two builds of one site still
-  // share one. "Finishing the job" by deleting the chain puts them back into one
-  // `src/routes` on a path that now looks concurrent and is not.
-  for (const f of ["../builder/build-server.mjs", "../builder-game/build-server.mjs"]) {
-    const src = blankComments(fs.readFileSync(new URL(f, import.meta.url), "utf8"));
-    assert.match(src, /_chain\s*=\s*done\.then\(/, `${f} lost its queue`);
-  }
-});

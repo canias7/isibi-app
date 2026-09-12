@@ -123,7 +123,7 @@ test("the SLUG-SCOPED owner routes the app builds by concatenation all exist", (
 /**
  * Every call the client makes, WITH THE VERB IT USES.
  *
- * The verb is not a detail. `/api/game/delete` is DELETE-only, and a first draft
+ * The verb is not a detail. `/api/site/edit/` is DELETE-only, and a first draft
  * that read every call as a GET reported it dead — a false alarm on a route that
  * is perfectly fine, which is the one thing a check like this must not produce.
  *
@@ -170,7 +170,7 @@ test("the call scan finds the routes AND their verbs", async () => {
   // If every call reads as GET the verb window has broken, and a DELETE-only
   // route will be reported dead. That happened; it is why this line is here.
   assert.ok(verbs.has("POST") && verbs.has("GET"), "the verb window is broken — found only " + [...verbs].join(","));
-  assert.ok(calls.some((c) => c.path === "/api/game/delete" && c.verb === "DELETE"),
+  assert.ok(calls.some((c) => c.path === "/api/site/edit/" && c.verb === "DELETE"),
     "the DELETE-only route reads as something else, which reports a working route as dead");
 });
 

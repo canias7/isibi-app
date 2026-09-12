@@ -22,25 +22,27 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-// BOTH build services. The game one happens to be correct today, and it is the
-// identical shape — one Dockerfile, one entrypoint, a handful of hand-listed
-// COPY lines that nothing forced to keep up with the imports. Covering only the
-// one that broke would leave the same bug live next door.
+// THE BUILD SERVICE. One Dockerfile, one entrypoint, a handful of hand-listed
+// COPY lines that nothing forces to keep up with the imports — which is the bug
+// this file exists for.
 //
-// TWO BUILD CONTEXTS SINCE 2026-09-04. The site image's Dockerfile moved to the
+// IT WAS TWO UNTIL 2026-09-12, when the game builder was deleted (owner: "delete
+// it too"). The array is KEPT AS AN ARRAY rather than flattened to one service:
+// the shape is what makes a second build image cost one entry instead of a
+// rewrite, and every check below is written against a list either way.
+//
+// THE BUILD CONTEXT. The site image's Dockerfile moved to the
 // REPOSITORY ROOT so the image can carry the Worker's own module graph as the
 // job runtime (the `worker/` tree, checked by its own test below), and that
-// graph spans builder/, builder-game/ and the root modules — a context rooted
-// at builder/ cannot reach above itself. So the site service's COPY sources are
-// root-relative (`builder/build-server.mjs`) while its closure is still
-// dir-relative (`build-server.mjs`); `prefix` is the difference, and `context`
-// is where a COPY source has to exist. The game image is untouched.
+// graph spans builder/ and the root modules — a context rooted at builder/
+// cannot reach above itself. So the service's COPY sources are root-relative
+// (`builder/build-server.mjs`) while its closure is still dir-relative
+// (`build-server.mjs`); `prefix` is the difference, and `context` is where a
+// COPY source has to exist.
 const ROOT = new URL("../", import.meta.url).pathname;
 const SERVICES = [
   { name: "site", dir: ROOT + "builder/", dockerfile: ROOT + "Dockerfile", context: ROOT, prefix: "builder/",
     cls: "SiteBuildContainer", port: "8080" },
-  { name: "game", dir: ROOT + "builder-game/", dockerfile: ROOT + "builder-game/Dockerfile", context: ROOT + "builder-game/", prefix: "",
-    cls: "GameBuildContainer", port: "8080" },
 ];
 
 /** Every relative specifier a file imports, including `with { type: "json" }`,
@@ -460,7 +462,7 @@ test(`the ${svc.name} container class agrees with the image's port`, () => {
 // `/app/worker/`, which `build-server.mjs` spawns (`/job/run`) to execute a
 // queued edit or addon inside the site's container instead of in the queue
 // consumer. It is laid out exactly as the repository is — `worker.js` at the
-// tree's root, `builder/…` and `builder-game/…` beneath it — because every
+// tree's root and `builder/…` beneath it — because every
 // relative import in it has to resolve there, and its node_modules come from
 // the ROOT lockfile. A module the job imports and the tree lacks is a job that
 // dies at import inside the container, with the consumer already gone (the

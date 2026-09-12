@@ -891,34 +891,7 @@ test("the explicit-schema build path still checks the balance before provisionin
 // mid-bundle, or one that never started ("build service returned no JSON"),
 // kept 20-30 credits and delivered no game. There was no refund on ANY failure
 // branch of either route, and `/api/refund` covers fal jobs only.
-test("both game routes refund on a build failure and on a throw", () => {
-  const marks = [...WORKER_SRC.matchAll(/ev: "error", stage: "build"/g)];
-  assert.equal(marks.length, 2, "expected the build and revise routes: " + marks.length);
-  for (const m of marks) {
-    const block = WORKER_SRC.slice(Math.max(0, m.index - 1400), m.index + 200);
-    assert.match(block, /refundCredits\(env, gu\.id, cost\)/, "a game build failure kept the charge");
-  }
-  const throws = [...WORKER_SRC.matchAll(/emit\(\{ ev: "error", msg: \(e && e\.status === 402\)/g)];
-  assert.equal(throws.length, 2, "expected two game catch blocks: " + throws.length);
-  for (const m of throws) {
-    const block = WORKER_SRC.slice(Math.max(0, m.index - 700), m.index);
-    assert.match(block, /refundCredits\(env, gu\.id, cost\)/, "a game throw kept the charge");
-    // Never on a 402: that IS the ledger refusing, so nothing was taken and
-    // "refunding" it would mint credits out of a failure to pay.
-    assert.match(block, /!\(e && e\.status === 402\)/, "a 402 must not be refunded — nothing was taken");
-  }
-});
 
-test("the game routes declare `cost` where their catch can see it", () => {
-  // Declared inside the try, `cost` is not in scope in the catch — a
-  // ReferenceError on the one path that gives a customer their credits back,
-  // which is this file's own most repeated bug arriving in the fix for it.
-  const runs = [...WORKER_SRC.matchAll(/const run = async \(\) => \{\n([\s\S]{0,400}?)try \{/g)];
-  assert.equal(runs.length, 2, "expected two game run() blocks: " + runs.length);
-  for (const m of runs) {
-    assert.match(m[1], /let cost = 0;/, "`cost` must be declared before the try, or the catch cannot refund it");
-  }
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // EVERY `compileMsg` CALL NAMES A VARIABLE THAT EXISTS.

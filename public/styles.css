@@ -5270,7 +5270,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-composer-lead .mkt-typebox-caret{align-self:flex-start;margin-top:.15rem}
 /* output pickers — small rounded-square tiles fanned in a gentle arc over the
    chatbox (per the owner's sketch). Icon squircle + small label; active tile
-   lifts and fills with the gradient. Game/Music are SOON teasers. */
+   lifts and fills with the gradient. Music is a SOON teaser. */
 /* a true semicircle over the chatbox: tiles positioned on a half-circle
    (x = R·cosθ, y = −R·sinθ at 180/135/90/45/0°), centered on the column so the
    dome sits symmetric over the box below. */
@@ -6170,7 +6170,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .crt-stage .lp-film{background:transparent}
 .crt-stage .lp-voice{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem}
 .crt-stage .lp-voice-note{color:var(--muted);font-size:.8rem;letter-spacing:.06em}
-/* NO SIGNAL panel (music / game) */
+/* NO SIGNAL panel (the MUSIC channel) */
 .lp-nosig{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;
   background:radial-gradient(60% 60% at 50% 45%,rgba(255,121,140,.06),transparent 70%),#0a0806}
 .lp-nosig-static{position:absolute;inset:0;opacity:.5;pointer-events:none;
@@ -6180,24 +6180,8 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .lp-nosig-txt{position:relative;z-index:1;font-family:ui-monospace,Menlo,monospace;font-weight:700;
   letter-spacing:.18em;color:#ff7a6a;text-align:center;font-size:1rem}
 .lp-nosig-txt small{display:block;margin-top:.4rem;font-size:.62rem;letter-spacing:.24em;color:var(--muted)}
-/* GAME channel preview — live games Go Farther built, playing in mini arcade frames */
-.lp-game{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;padding:1rem;
-  background:radial-gradient(70% 60% at 50% 40%,rgba(0,0,0,.07),transparent 70%),#0a0812}
-.lp-arcade{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;width:100%;max-width:440px}
-.lp-arc-slot{grid-column:auto;border:1px solid var(--line-2);border-radius:12px;overflow:hidden;
-  background:#0a0812;box-shadow:0 12px 34px rgba(0,0,0,.45);transition:border-color .2s,transform .2s}
-.lp-arc-slot:first-child{grid-column:1 / -1}
-.lp-arc-slot:hover{border-color:rgba(0,0,0,.5);transform:translateY(-2px)}
-.mkt-chrome-game .mkt-url{color:#000000}
-/* neon-gradient fallback shows through if a showcase game ever 404s (never a black void) */
-.lp-arc-body{position:relative;width:100%;aspect-ratio:16/9;
-  background:linear-gradient(135deg,rgba(0,0,0,.16),rgba(0,0,0,.12)),#0a0812}
-.lp-arc-frame{position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none}
-.lp-arc-tag{position:absolute;right:8px;bottom:8px;z-index:1;font-size:.56rem;font-weight:800;letter-spacing:.12em;
   text-transform:uppercase;color:#0a0812;background:linear-gradient(90deg,var(--split-1,#1e1e22),var(--split-2,#000000));
   padding:3px 9px;border-radius:999px}
-.lp-arc-cap{font-size:.74rem;line-height:1.4;color:var(--muted);text-align:center;max-width:440px}
-.lp-arc-cap b{color:var(--text)}
 /* legal footer, bottom-right on the frame */
 .crt-legal{position:absolute;right:clamp(1.4rem,3vw,2.4rem);bottom:clamp(1rem,2.4vh,1.6rem);z-index:3;
   display:flex;align-items:center;gap:1.1rem;font-family:Inter,system-ui,sans-serif;
@@ -6379,105 +6363,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .view-home.home-empty .composer-row .send { min-width: 0; padding: 0 16px; height: 54px; }
 .view-home.home-empty .composer-row .mode-switch,
 .view-home.home-empty .composer-row .opt-wrap { flex-shrink: 0; }
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Game Studio — its own screen (owner 2026-07-22), like the Website Builder.
-   Entered from the landing GAME channel → showView('games'). Chrome hidden while
-   open (mirrors body.in-sites); NOT part of the media composer.
-   ══════════════════════════════════════════════════════════════════════════ */
-body.in-games .sidebar { display: none; }
-body.in-games .top-tab, body.in-games .top-back { display: none !important; }
-
-#viewGames.active { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.gs-top { display: flex; align-items: center; gap: 14px; padding: 16px 26px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-.gs-brand { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.02rem; }
-.gs-brand b { font-weight: 600; }
-.gs-back { background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 9px; padding: 7px 13px; font: inherit; font-size: .86rem; cursor: pointer; }
-.gs-back:hover { color: var(--text); border-color: rgba(0,0,0,.3); }
-.gs-open { font-size: .86rem; font-weight: 600; text-decoration: none; background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.gs-new { background: var(--split); color: var(--on-accent); border: none; border-radius: 10px; padding: 8px 15px; font: inherit; font-weight: 600; font-size: .86rem; cursor: pointer; }
-
-/* Compose (empty) state */
-.gs-compose { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; padding: 6vh 24px 60px; text-align: center; }
-.gs-h1 { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 600; font-size: 2.7rem; letter-spacing: -.02em; margin-bottom: 12px; }
-.gs-grad { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.gs-sub { color: var(--muted); font-size: 1.02rem; max-width: 520px; margin-bottom: 26px; }
-.gs-chips { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; margin-bottom: 18px; }
-.gs-chip { background: var(--panel); border: 1px solid var(--line-2); color: var(--muted); border-radius: 999px; padding: 8px 15px; font: inherit; font-size: .84rem; cursor: pointer; transition: border-color .12s, color .12s; }
-.gs-chip:hover { color: var(--text); border-color: rgba(0,0,0,.5); }
-.gs-box { width: 100%; max-width: 640px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; padding: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); backdrop-filter: blur(24px); }
-.gs-box textarea { width: 100%; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 1rem; resize: none; line-height: 1.5; padding: 6px 6px 12px; }
-.gs-box textarea::placeholder { color: #5c5c66; }
-.gs-box-foot { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
-.gs-status { flex: 1; text-align: left; color: var(--muted); font-size: .84rem; min-height: 1.2em; }
-.gs-build { background: var(--split); color: var(--on-accent); border: none; border-radius: 12px; padding: 12px 22px; font: inherit; font-weight: 600; font-size: .95rem; cursor: pointer; white-space: nowrap; }
-.gs-build:disabled { opacity: .7; cursor: default; }
-
-/* Recent games grid */
-.gs-recent { width: 100%; max-width: 900px; margin-top: 46px; }
-.gs-recent-lab { text-align: left; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 14px; }
-.gs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-.gs-card { background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; cursor: pointer; padding: 0; text-align: left; transition: border-color .12s, transform .12s; }
-.gs-card:hover { border-color: rgba(0,0,0,.5); transform: translateY(-2px); }
-.gs-card-frame { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; background: #0a0812; overflow: hidden; pointer-events: none; }
-.gs-card-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
-.gs-card-t { display: block; padding: 10px 12px; font-size: .88rem; font-weight: 600; color: var(--text); text-transform: capitalize; }
-.gs-card { position: relative; }
-.gs-card-del { position: absolute; top: 8px; right: 8px; z-index: 3; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; border: 1px solid rgba(255,90,120,.32); background: rgba(10,8,16,.72); color: #ff9db0; cursor: pointer; opacity: 0; transform: translateY(-3px); transition: opacity .12s, transform .12s, background .12s, color .12s, border-color .12s; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-.gs-card:hover .gs-card-del, .gs-card:focus-within .gs-card-del { opacity: 1; transform: none; }
-.gs-card-del:hover { background: rgba(255,64,96,.92); color: #fff; border-color: transparent; }
-.gs-card-del:focus-visible { opacity: 1; transform: none; outline: 2px solid #1e1e22; outline-offset: 2px; }
-
-/* Preview (a game open) */
-.gs-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 26px; }
-.gs-frame-wrap { width: 100%; max-width: 1000px; }
-.gs-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0a0812; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 90px -30px #000; }
-.gs-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
-.gs-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-top: 14px; }
-.gs-meta b { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.1rem; text-transform: capitalize; }
-.gs-meta span { color: var(--muted); font-size: .84rem; }
-
-/* Revise bar under an open game (Game Studio iterate loop) */
-.gs-revise { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
-.gs-revise input { flex: 1; min-width: 240px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; color: var(--text); font: inherit; font-size: .92rem; padding: 11px 14px; outline: none; }
-.gs-revise input:focus { border-color: rgba(0,0,0,.5); }
-.gs-revise input::placeholder { color: #5c5c66; }
-.gs-revise .gs-status { flex-basis: 100%; text-align: left; }
-
-/* Live code stream during a build (Game Studio) */
-.gs-code { width: 100%; max-width: 640px; margin: 14px auto 0; max-height: 230px; overflow-y: auto;
-  background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .74rem; line-height: 1.55;
-  color: rgba(237,234,243,.72); white-space: pre-wrap; word-break: break-word; text-align: left; }
-.gs-code::-webkit-scrollbar { width: 6px; }
-.gs-code::-webkit-scrollbar-thumb { background: rgba(0,0,0,.4); border-radius: 999px; }
-
-/* Preview/Code tabs + code view (Game Studio) */
-.gs-tabs { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line-2); border-radius: 11px; background: rgba(0,0,0,.25); margin-right: 6px; }
-.gs-tab { background: none; border: none; color: var(--muted); font: inherit; font-size: .84rem; font-weight: 600; padding: 6px 14px; border-radius: 8px; cursor: pointer; }
-.gs-tab.on { background: var(--split); color: var(--on-accent); }
-.gs-codeview { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 26px 60px; max-width: 1000px; margin: 0 auto; width: 100%; }
-.gs-code-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.gs-code-head span { font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.gs-dl { background: var(--panel); border: 1px solid var(--line-2); color: var(--text); font: inherit; font-size: .84rem; font-weight: 600; padding: 8px 15px; border-radius: 10px; cursor: pointer; }
-.gs-dl:hover { border-color: rgba(0,0,0,.5); }
-.gs-code-load { color: var(--muted); font-size: .92rem; padding: 30px 0; text-align: center; }
-.gs-file { margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.gs-file-h { padding: 9px 14px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .78rem; color: var(--neon); background: rgba(0,0,0,.03); border-bottom: 1px solid var(--line); }
-.gs-code-static { max-height: none; margin: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.04); color: var(--text); }
-
-/* AI-art toggle (Game Studio, Phase 6) */
-.gs-toggles { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin: 0 0 18px; }
-.gs-toggles .gs-arttoggle { margin: 0; }
-.gs-beta { font-size: .58rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #000000; border: 1px solid rgba(0,0,0,.5); border-radius: 5px; padding: 1px 4px; margin-left: 2px; }
-.gs-arttoggle { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; }
-.gs-artbtn { display: inline-flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line-2); color: var(--muted); font: inherit; font-size: .84rem; font-weight: 600; padding: 7px 14px 7px 8px; border-radius: 999px; cursor: pointer; }
-.gs-artbtn.on { background: linear-gradient(120deg, rgba(0,0,0,.18), rgba(0,0,0,.18)); border-color: rgba(0,0,0,.5); color: var(--text); }
-.gs-artknob { width: 30px; height: 18px; border-radius: 999px; background: rgba(0,0,0,.14); position: relative; transition: background .15s; flex-shrink: 0; }
-.gs-artknob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.28); transition: transform .15s; }
-.gs-artbtn.on .gs-artknob { background: var(--split); }
-.gs-artbtn.on .gs-artknob::after { transform: translateX(12px); }
-.gs-arthint { color: var(--muted); font-size: .82rem; }
 
 /* ===== Black-and-white theme — accent-ink fixups (owner 2026-07-23) =========
    The 2026-07-18 "dark fill + gradient-border" button language reads as solid
@@ -6804,10 +6689,10 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
    distance and the number of passes are one fact: change the passes and -50%
    is wrong, and the loop will visibly stutter once per cycle.
 
-   FIVE sites, and it must stay five. A published game is served with
-   `frame-ancestors 'none'` and cannot go in a frame at all — that is why an
-   earlier version of this section showed broken cards live. Only /mkt/demo*
-   carries `frame-ancestors 'self'`. Read the headers before adding anything.
+   FIVE sites, and it must stay five. Only /mkt/demo* carries
+   `frame-ancestors 'self'`; anything served `'none'` cannot go in a frame at
+   all, which is why an earlier version of this section showed broken cards
+   live. Read the headers before adding anything.
 
    Motion is CSS, not a timer: a JS-stepped transform competes with the
    compositor and shows as jitter, and it keeps running when the tab is hidden.

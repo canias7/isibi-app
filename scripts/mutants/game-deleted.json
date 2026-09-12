@@ -1,0 +1,94 @@
+[
+  {
+    "label": "THE DEPLOY-BREAKER — the class leaves the Worker and no migration says so",
+    "files": ["wrangler.jsonc"],
+    "from": "    { \"tag\": \"v6\", \"deleted_classes\": [\"GameBuildContainer\"] }",
+    "to": "    { \"tag\": \"v5b\", \"deleted_classes\": [] }"
+  },
+  {
+    "label": "the history is tidied up — the migration that created the deleted class is taken out",
+    "files": ["wrangler.jsonc"],
+    "from": "    { \"tag\": \"v2\", \"new_sqlite_classes\": [\"GameBuildContainer\"] },",
+    "to": ""
+  },
+  {
+    "label": "the deletion migration names a class the Worker still exports",
+    "files": ["wrangler.jsonc"],
+    "from": "    { \"tag\": \"v6\", \"deleted_classes\": [\"GameBuildContainer\"] }",
+    "to": "    { \"tag\": \"v6\", \"deleted_classes\": [\"SiteBuildContainer\"] }"
+  },
+  {
+    "label": "a container entry names a class nothing binds",
+    "files": ["wrangler.jsonc"],
+    "from": "      \"class_name\": \"SiteBuildContainer\",\n      // AT THE ROOT SINCE 2026-09-04",
+    "to": "      \"class_name\": \"GhostBuildContainer\",\n      // AT THE ROOT SINCE 2026-09-04"
+  },
+  {
+    "label": "THE FREE IDENTIFIER ITSELF — the gallery reads a name nothing declares",
+    "files": ["public/chat.js"],
+    "from": "let galFilter = 'all';   // all | video | image | audio\nlet galSort = 'new';     // new | old",
+    "to": ""
+  },
+  {
+    "label": "the deleted studio's reader is called again from the asset sync",
+    "files": ["public/chat.js"],
+    "from": "      if (loadAvatars().length) touchAssets();",
+    "to": "      if (loadAvatars().length || gamesLoad().length) touchAssets();"
+  },
+  {
+    "label": "the walker stops descending into function bodies, so nothing inside one is ever checked",
+    "files": ["test/free-identifiers.test.mjs"],
+    "from": "      if (node.body) {\n        if (ts.isBlock(node.body)) { hoist(node.body.statements); node.body.statements.forEach(walk); }\n        else walk(node.body);\n      }",
+    "to": "      if (node.body) { /* mutant: do not walk */ }"
+  },
+  {
+    "label": "typeof forgives every name in the file, not the ones it guards",
+    "files": ["test/free-identifiers.test.mjs"],
+    "from": "  return new Set([...src.matchAll(/\\btypeof\\s+([A-Za-z_$][\\w$]*)/g)].map((m) => m[1]));",
+    "to": "  return new Set([...src.matchAll(/([A-Za-z_$][\\w$]*)/g)].map((m) => m[1]));"
+  },
+  {
+    "label": "the page's shared scope is read from one file, so a cross-file global reads as missing",
+    "files": ["test/free-identifiers.test.mjs"],
+    "from": "    for (const n of pageNames(f.src, f.rel)) shared.add(n);",
+    "to": "    if (f.rel === \"chat.js\") for (const n of pageNames(f.src, f.rel)) shared.add(n);"
+  },
+  {
+    "label": "a property access is read as an identifier — every `a.b` becomes a finding",
+    "files": ["test/free-identifiers.test.mjs"],
+    "from": "    if (ts.isPropertyAccessExpression(node)) { walk(node.expression); return; }",
+    "to": "    if (ts.isPropertyAccessExpression(node)) { node.forEachChild(walk); return; }"
+  },
+  {
+    "label": "hoisting is dropped, so a call above its own function declaration reads as free",
+    "files": ["test/free-identifiers.test.mjs"],
+    "from": "  hoist(sf.statements);\n  sf.statements.forEach(walk);",
+    "to": "  sf.statements.forEach(walk);"
+  },
+  {
+    "label": "the second container is not derived, so the fixture is the real config under another name",
+    "files": ["test/container-images.test.mjs"],
+    "from": "    .replace('\"image\": \"./Dockerfile\"', '\"image\": \"./other/Dockerfile\"');",
+    "to": "    .replace('\"image\": \"./NOPE\"', '\"image\": \"./other/Dockerfile\"');"
+  },
+  {
+    "label": "the container-image loop is asked over one image again, so the ordering property is vacuous",
+    "files": ["test/container-images.test.mjs"],
+    "from": "  const { deps, calls } = harness({ answer: () => ABSENT, files: TWO_CONTAINERS });",
+    "to": "  const { deps, calls } = harness({ answer: () => ABSENT });"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": ["test/free-identifiers.test.mjs"],
+    "from": "// THE BAR IS ZERO FALSE ALARMS, measured over the real files rather than",
+    "to": "// THE BAR IS ZERO FALSE ALARMS (control), measured over the real files rather than"
+  },
+  {
+    "label": "CONTROL — a second comment, in the config this time",
+    "control": true,
+    "files": ["wrangler.jsonc"],
+    "from": "    // Retires the game builder (2026-09-12, owner: \"delete it too\"). Same rule as",
+    "to": "    // Retires the game builder (2026-09-12, owner: \"delete it too\") (control). Same rule as"
+  }
+]

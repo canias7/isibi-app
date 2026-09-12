@@ -13,8 +13,8 @@
 // shim for a packaging quirk in somebody else's dist, and it exists so a test
 // can drive the REAL router with the REAL dispatch and the REAL gates.
 
-/** The base class `SiteBuildContainer` and `GameBuildContainer` extend. Nothing
- *  in a routing test ever instantiates one; it only has to be a class. */
+/** The base class `SiteBuildContainer` extends. Nothing in a routing test ever
+ *  instantiates one; it only has to be a class. */
 export class Container {
   constructor(ctx, env) { this.ctx = ctx; this.env = env; }
 }

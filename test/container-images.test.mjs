@@ -34,14 +34,17 @@ test("stripJsonc removes comments and trailing commas outside strings, and nothi
   assert.equal(JSON.parse(stripJsonc('{"e":"\\"//\\""}')).e, '"//"', "an escaped quote inside a string is not the end of it");
 });
 
-test("the real config names the Worker and both Dockerfile-backed containers, with their build contexts", () => {
+test("the real config names the Worker and its Dockerfile-backed container, with the build context", () => {
   const { name, containers } = readContainers(CONFIG);
   assert.equal(name, "isibi-app");
   // RE-ANCHORED 2026-09-04: the site image builds from the repository root
   // (its Dockerfile moved there) because it carries the Worker's module graph
   // as the job runtime, which a builder/-rooted context cannot reach.
+  // ONE SINCE 2026-09-12 — the game builder was deleted (owner: "delete it too").
+  // The multi-image behaviour it used to give these checks for free is covered
+  // deliberately now, by TWO_CONTAINERS below: the script has to keep working for
+  // N images whatever the product happens to ship today.
   assert.deepEqual(containers.map((c) => [c.class_name, c.image, c.context]), [
-    ["GameBuildContainer", "./builder-game/Dockerfile", "./builder-game"],
     ["SiteBuildContainer", "./Dockerfile", "."],
   ]);
   // A container already on a registry reference is NOT one this step touches.
@@ -146,13 +149,21 @@ test("manifestPresent is a HEAD on the tag's manifest under the account: 200 is 
 });
 
 test("rewriteImage replaces exactly one image path with a reference, and refuses zero or two", () => {
-  const out = rewriteImage(CONFIG, "./Dockerfile", "isibi-app-sitebuildcontainer:abc");
+  // THE REAL CONFIG FIRST — the one image the deploy actually rewrites.
+  const real = rewriteImage(CONFIG, "./Dockerfile", "isibi-app-sitebuildcontainer:abc");
+  assert.match(real, /"image": "isibi-app-sitebuildcontainer:abc"/);
+  assert.doesNotMatch(real, /"image": "\.\/Dockerfile"/);
+  assert.equal(real.length - CONFIG.length, '"isibi-app-sitebuildcontainer:abc"'.length - '"./Dockerfile"'.length, "something other than the one value moved");
+  // AND OVER TWO, because "exactly one" cannot be told from "the first one" on a
+  // config that has one: this is the assertion that the OTHER path is left for
+  // its own rewrite, and it was riding on the game image until 2026-09-12.
+  const two = TWO_CONTAINERS["wrangler.jsonc"];
+  const out = rewriteImage(two, "./Dockerfile", "isibi-app-sitebuildcontainer:abc");
   assert.match(out, /"image": "isibi-app-sitebuildcontainer:abc"/);
   assert.doesNotMatch(out, /"image": "\.\/Dockerfile"/);
-  assert.match(out, /"image": "\.\/builder-game\/Dockerfile"/, "the other container's path must stay for its own rewrite");
-  assert.equal(out.length - CONFIG.length, '"isibi-app-sitebuildcontainer:abc"'.length - '"./Dockerfile"'.length, "something other than the one value moved");
-  assert.throws(() => rewriteImage(CONFIG, "./nowhere/Dockerfile", "x:y"), /found 0/);
-  assert.throws(() => rewriteImage(CONFIG + '\n"image": "./Dockerfile"', "./Dockerfile", "x:y"), /found 2/);
+  assert.match(out, /"image": "\.\/other\/Dockerfile"/, "the other container's path must stay for its own rewrite");
+  assert.throws(() => rewriteImage(two, "./nowhere/Dockerfile", "x:y"), /found 0/);
+  assert.throws(() => rewriteImage(two + '\n"image": "./Dockerfile"', "./Dockerfile", "x:y"), /found 2/);
 });
 
 test("containerInputs: the Dockerfile, the dockerignore when there is one, then every COPY source under the context", () => {
@@ -173,25 +184,30 @@ test("containerInputs: the Dockerfile, the dockerignore when there is one, then 
     assert.deepEqual(atRoot.map((i) => i.path), ["Dockerfile", ".dockerignore", "worker.js", "builder/dir"], "context " + JSON.stringify(root));
   }
   assert.equal(contextDir("./builder/"), "builder");
-  assert.equal(contextDir("builder-game"), "builder-game");
+  assert.equal(contextDir("builder-other"), "builder-other");
   for (const root of [".", "./", "", undefined]) assert.equal(contextDir(root), ".", "context " + JSON.stringify(root));
   assert.throws(() => containerInputs({ context: "b", dockerfileText: "COPY ghost.mjs ./\n", hasDockerignore: false, git }), /ghost\.mjs, which is not in git/);
 });
 
 /* ─────────────────── against this repository, at HEAD ─────────────────── */
 
-test("every input of both real images is a git object at HEAD, and the ids are stable", () => {
+test("every input of every real image is a git object at HEAD, and the ids are stable", () => {
   const git = (p) => {
     const r = spawnSync("git", ["rev-parse", "--verify", "-q", `HEAD:${p}`], { cwd: ROOT, encoding: "utf8" });
     const o = String(r.stdout || "").trim();
     return r.status === 0 && /^[0-9a-f]{40,64}$/.test(o) ? o : null;
   };
   const { name, containers } = readContainers(CONFIG);
+  // THE OBSERVER, PROVED ALIVE FIRST. This is a loop over the real config, and
+  // a config that stopped declaring any Dockerfile-backed container would make
+  // every assertion below vacuous rather than red — the recorded trap, and a
+  // live risk the day the second container was deleted (2026-09-12).
+  assert.ok(containers.length >= 1, "the config declares no Dockerfile-backed container — every check below is vacuous");
   for (const c of containers) {
     const ctx = c.context.replace(/^\.\//, "");
     const inputs = containerInputs({ context: ctx, dockerfileText: fs.readFileSync(path.join(ROOT, ctx, "Dockerfile"), "utf8"), hasDockerignore: fs.existsSync(path.join(ROOT, ctx, ".dockerignore")), git });
     assert.ok(inputs.length >= 3, `${c.class_name}: too few inputs (${inputs.length})`);
-    // `Dockerfile` bare for the root context, `builder-game/Dockerfile` for a
+    // `Dockerfile` bare for the root context, `<dir>/Dockerfile` for a
     // directory — this pinned the slash and went red the day the site image's
     // context became the root (2026-09-05).
     assert.ok(/^(?:.*\/)?Dockerfile$/.test(inputs[0].path), "the Dockerfile itself is the first input: " + inputs[0].path);
@@ -220,10 +236,48 @@ const ABSENT = { present: false, status: 404 };
 const THERE = { present: true, status: 200 };
 
 /**
+ * A config with TWO Dockerfile-backed containers, DERIVED FROM THE REAL ONE.
+ *
+ * The repository ships ONE image since the game builder was deleted
+ * (2026-09-12, owner: "delete it too"), and every multi-image property below is
+ * vacuous over a list of one: "each image is asked for BEFORE its own build" has
+ * no second image to be out of order with, and "the other container's path must
+ * stay for its own rewrite" has no other path. The game supplied the second by
+ * accident; this supplies it on purpose, which is also what stops the coverage
+ * disappearing again the next time a container is added or removed.
+ *
+ * DERIVED, NEVER TYPED. The second entry is the real entry's own text with the
+ * class and the image path swapped, so its spelling is the config's:
+ * `rewriteImage` matches `"image": "…"` with that exact spacing, and a
+ * `JSON.stringify` fixture writes `"image":"…"` with no space — a second copy of
+ * what the config looks like, which is the recorded trap, and which is exactly
+ * how the first draft of this fixture silently matched nothing. Both
+ * substitutions are asserted to have landed, for the same reason.
+ */
+const TWO_CONTAINERS = (() => {
+  const open = CONFIG.indexOf("{", CONFIG.indexOf('"containers": ['));
+  const entry = CONFIG.slice(open, CONFIG.indexOf("}", open) + 1);
+  const other = entry
+    .replace('"class_name": "SiteBuildContainer"', '"class_name": "OtherBuildContainer"')
+    .replace('"image": "./Dockerfile"', '"image": "./other/Dockerfile"');
+  assert.ok(open > 0 && entry.includes('"image": "./Dockerfile"'), "the real config's container entry could not be read");
+  assert.ok(other.includes('"class_name": "OtherBuildContainer"') && other.includes('"image": "./other/Dockerfile"'),
+    "the second container was not derived — the fixture would be the real config under another name");
+  return {
+    "wrangler.jsonc": CONFIG.slice(0, open) + other + ",\n    " + CONFIG.slice(open),
+    // A Dockerfile for it, because the script reads one per image. Three COPY
+    // sources so it clears the inputs floor the real images are held to.
+    "other/Dockerfile": "FROM node:22-slim\nCOPY a.mjs ./\nCOPY b.mjs ./\nCOPY c.mjs ./\n",
+  };
+})();
+
+/**
  * `answer(name, tag)` is what the registry says for that tag: a result, or a
  * function that throws — the real probe throws when no credential can be had.
+ * `files` overlays the checkout the flow reads, keyed by the path `main` asks
+ * for with any leading `./` off; anything not in it comes off the real tree.
  */
-function harness({ answer = () => ABSENT, buildOk = () => true, gitMissing = [] } = {}) {
+function harness({ answer = () => ABSENT, buildOk = () => true, gitMissing = [], files = null } = {}) {
   const oids = new Map();
   const git = (p) => {
     if (gitMissing.includes(p)) return null;
@@ -239,7 +293,11 @@ function harness({ answer = () => ABSENT, buildOk = () => true, gitMissing = [] 
     root: ROOT, git, wrangler, tagPresent, accountId: ACCOUNT,
     log: (s) => calls.logs.push(s),
     write: (p, t) => calls.writes.push([p, t]),
-    read: (p) => fs.readFileSync(path.join(ROOT, p), "utf8"),
+    read: (p) => {
+      const key = String(p).replace(/^\.\//, "");
+      if (files && Object.hasOwn(files, key)) return files[key];
+      return fs.readFileSync(path.join(ROOT, p), "utf8");
+    },
     exists: (p) => fs.existsSync(path.join(ROOT, p)),
   };
   return { deps, calls };
@@ -247,7 +305,7 @@ function harness({ answer = () => ABSENT, buildOk = () => true, gitMissing = [] 
 
 test("an image already in the registry is REUSED: no build, the config references it", async () => {
   // Learn the ids from a first run against an empty registry, then answer them.
-  const first = harness();
+  const first = harness({ files: TWO_CONTAINERS });
   const out1 = await main(first.deps);
   assert.equal(out1.images.length, 2);
   assert.equal(first.calls.builds.length, 2, "an empty registry builds both");
@@ -255,7 +313,7 @@ test("an image already in the registry is REUSED: no build, the config reference
   // the build tag, which is what `wrangler containers build -t` pushed.
   const known = new Set(out1.images.map((i) => i.tag));
 
-  const { deps, calls } = harness({ answer: (name, tag) => (known.has(`${name}:${tag}`) ? THERE : ABSENT) });
+  const { deps, calls } = harness({ answer: (name, tag) => (known.has(`${name}:${tag}`) ? THERE : ABSENT), files: TWO_CONTAINERS });
   const out = await main(deps);
   assert.equal(calls.builds.length, 0, "an image already there was built again");
   assert.deepEqual(out.images.map((i) => i.action), ["reused", "reused"]);
@@ -266,12 +324,12 @@ test("an image already in the registry is REUSED: no build, the config reference
   assert.equal(calls.writes[0][0], "wrangler.jsonc");
   const written = calls.writes[0][1];
   for (const i of out.images) assert.match(written, new RegExp(`"image": ${JSON.stringify(i.ref)}`), `${i.ref} not in the written config`);
-  assert.doesNotMatch(written, /"image": "\.\/builder/, "a Dockerfile path survived the rewrite — the deploy would build it");
+  assert.doesNotMatch(written, /"image": "\.[^"]*Dockerfile"/, "a Dockerfile path survived the rewrite — the deploy would build it");
   // THE FULL REFERENCE, under this account's registry (deploy run 2016,
   // 2026-09-04: Wrangler's config validator parses the image as a URL, and a
   // bare `name:tag` is an invalid one — the tag reads as a port).
   for (const i of out.images) {
-    assert.match(i.ref, new RegExp(`^registry\\.cloudflare\\.com/${ACCOUNT}/isibi-app-(game|site)buildcontainer:[0-9a-f]{16}$`), `not a full registry reference: ${i.ref}`);
+    assert.match(i.ref, new RegExp(`^registry\\.cloudflare\\.com/${ACCOUNT}/isibi-app-(other|site)buildcontainer:[0-9a-f]{16}$`), `not a full registry reference: ${i.ref}`);
     assert.doesNotThrow(() => new URL(`https://${i.ref}`), "Wrangler's validator would refuse this reference");
     assert.equal(i.tag, i.ref.slice(i.ref.lastIndexOf("/") + 1), "the build tag is not the reference's own name:tag");
   }
@@ -287,13 +345,13 @@ test("without an account id nothing is asked, built or written — the reference
 });
 
 test("an image the registry lacks is BUILT under its id, from its own context, and pushed — each asked for BEFORE its own build", async () => {
-  const { deps, calls } = harness({ answer: () => ABSENT });
+  const { deps, calls } = harness({ answer: () => ABSENT, files: TWO_CONTAINERS });
   const out = await main(deps);
   assert.deepEqual(out.images.map((i) => i.action), ["built", "built"]);
   // The site image's context is the REPOSITORY ROOT since 2026-09-04 — its
   // Dockerfile moved there so the image can carry the Worker's module graph.
-  assert.deepEqual(calls.builds.map(([ctx]) => ctx), ["builder-game", "."], "the build context is the Dockerfile's directory");
-  for (const [, ref] of calls.builds) assert.match(ref, /^isibi-app-(game|site)buildcontainer:[0-9a-f]{16}$/);
+  assert.deepEqual(calls.builds.map(([ctx]) => ctx), ["other", "."], "the build context is the Dockerfile's directory");
+  for (const [, ref] of calls.builds) assert.match(ref, /^isibi-app-(other|site)buildcontainer:[0-9a-f]{16}$/);
   assert.deepEqual(calls.seq.map(([k]) => k), ["ask", "build", "ask", "build"], "an image is built before the registry is asked for it");
   for (const [i, [name, tag]] of calls.asked.entries()) assert.equal(`${name}:${tag}`, calls.builds[i][1], "the tag asked for is not the tag built");
   assert.ok(!calls.logs.some((l) => /could not be asked/.test(l)), "a plain 404 was reported as a registry that could not be asked");
@@ -302,12 +360,12 @@ test("an image the registry lacks is BUILT under its id, from its own context, a
 test("a registry that CANNOT be asked builds — never skips — and the log says so, for a refusal and for a credential it would not mint", async () => {
   // One image gets a 401 on the manifest; the other's probe throws (the real
   // probe throws when the credential call fails). Both are "could not tell".
-  const { deps, calls } = harness({ answer: (name) => { if (name.includes("game")) return { present: null, status: 401 }; throw new Error("registry credentials: 403"); } });
+  const { deps, calls } = harness({ answer: (name) => { if (name.includes("other")) return { present: null, status: 401 }; throw new Error("registry credentials: 403"); }, files: TWO_CONTAINERS });
   const out = await main(deps);
   assert.deepEqual(out.images.map((i) => i.action), ["built", "built"], "an unanswered registry was read as an image being there");
   assert.equal(calls.builds.length, 2);
   assert.deepEqual(out.images.map((i) => i.status), [401, "registry credentials: 403"]);
-  const said = calls.logs.filter((l) => /registry could not be asked for isibi-app-(game|site)buildcontainer:[0-9a-f]{16} \((401|registry credentials: 403)\) — building/.test(l));
+  const said = calls.logs.filter((l) => /registry could not be asked for isibi-app-(other|site)buildcontainer:[0-9a-f]{16} \((401|registry credentials: 403)\) — building/.test(l));
   assert.equal(said.length, 2, "the two unanswered asks were not both said out loud, with their reasons");
   // RE-ANCHORED 2026-09-10 (the image-id stamp). This counted writes — `=== 1`
   // — which was true while `wrangler.jsonc` was the only file the script wrote
@@ -318,11 +376,11 @@ test("a registry that CANNOT be asked builds — never skips — and the log say
 });
 
 test("a failed build is tried once more; a second failure fails the deploy and writes nothing", async () => {
-  const once = harness({ buildOk: (n) => n !== 1 });
+  const once = harness({ buildOk: (n) => n !== 1, files: TWO_CONTAINERS });
   const out = await main(once.deps);
   assert.equal(once.calls.builds.length, 3, "the first image's failed build was not retried exactly once");
   assert.equal(out.images.length, 2);
-  const never = harness({ buildOk: () => false });
+  const never = harness({ buildOk: () => false, files: TWO_CONTAINERS });
   await assert.rejects(() => main(never.deps), /could not build and push/);
   // RE-ANCHORED 2026-09-10, same reason and the same property. What must not
   // happen is a CONFIG naming an image that was never pushed; the deploy then
@@ -368,7 +426,6 @@ test("the deploy runs the step between the queue check and the Wrangler deploy, 
   assert.doesNotMatch(CONFIG, /registry\.cloudflare\.com/, "an account's registry path is committed in the config");
   // The repository's own config still builds from the Dockerfiles: only the checkout is rewritten.
   assert.match(CONFIG, /"image": "\.\/Dockerfile"/, "the site image's Dockerfile is at the repository root since 2026-09-04");
-  assert.match(CONFIG, /"image": "\.\/builder-game\/Dockerfile"/);
   // And the action deploys from the rewritten checkout — it must not re-check out.
   assert.equal((WORKFLOW.match(/uses: actions\/checkout@/g) || []).length, 1, "a second checkout would discard the rewrite");
 });

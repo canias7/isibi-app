@@ -53,10 +53,109 @@ distinction that still exists once the branding does not.
 
 - **The media side** — an AI image/video/voice generator at **gofarther.dev**.
   Live, has paying customers, unrelated to the builder except that both run out
-  of `worker.js`.
+  of `worker.js`. **BEING DELETED since 2026-09-12 — see the section below.**
 - **The site builder** — a customer describes a business in chat and gets a
   published website at **`<slug>.gofarther.app`**. `gofarther.dev` is the tool
-  they use; `.app` is theirs. The builder is the active work.
+  they use; `.app` is theirs. The builder is the active work, and after the
+  deletion it is the only work.
+
+---
+
+## The media side is being deleted, in stages (2026-09-12)
+
+Owner: *"so we had a video maker, and the website builder, keep the site
+builder, just carefully delete the other stuff, leave fal for the banano pro
+images for the site builder, and leave the membership and the credits how they
+are"* — then, asked directly, *"delete it too"* (the game builder) and *"delete
+the data as well"*.
+
+**What goes**: the generator `gofarther.dev` has served since the beginning —
+the composer, the gallery, the director (`/api/direct`),
+`/api/video|image|audio`, the Media Agent, the avatar, the universal memory —
+and the game builder with it. **What stays**: the site builder whole, the
+membership tiers, the credit ledger and every RPC under it, and **fal for the
+builder's own photographs**. `genSitePhoto` calls
+`https://fal.run/${SITE_IMG_MODEL}` (`fal-ai/nano-banana-pro`) DIRECTLY, which
+is a different path from the media side's `queue.fal.run/${endpoint}` — so
+deleting `/api/image` cannot take a site's pictures with it. Read before the
+first deletion, not assumed.
+
+**Four stages, each its own commit with the suite green before the next**:
+1. the game builder — self-contained, and it proves the method;
+2. video/image/audio generation, the model/pricing/duration tables, the composer;
+3. the surround — gallery, save, import, `/api/direct`, `/api/m/`, refund,
+   storage, media-token, the Media Agent, `/api/social/*`, avatar, memory;
+4. the sweep — dead CSS, tests, workflows, secrets, docs.
+**The customers' stored media is a SEPARATE step, after the code is merged and
+proven**, with one more explicit confirm: it is the only part that cannot be
+undone.
+
+### Stage 1: the game builder (done, 2026-09-12)
+
+`builder-game/` (76 files, 8.6 MB), 476 lines of `worker.js`, 328 of
+`public/chat.js`, its container, its Durable Object, its markup and its
+stylesheet. Two things came out of it that outlive the deletion, and both are
+guards this repository did not have.
+
+- **A DURABLE OBJECT CLASS THAT LEAVES THE WORKER NEEDS A `deleted_classes`
+  MIGRATION, AND NOTHING GUARDED IT.** `wrangler.jsonc` has carried that rule in
+  a COMMENT since v4 retired the two original builder containers; v6 had to be
+  written by hand off that comment. Cloudflare refuses the WHOLE DEPLOY for a
+  config naming a class the script no longer exports, and **the history is
+  append-only** — the `new_sqlite_classes` tag that CREATED the class stays, so
+  v2 is still there with the class long gone. `test/do-migrations.test.mjs` is
+  the census, derived from the config and from `worker.js`'s own `export class`
+  lines: every bound class exported and every exported class bound, every
+  created-and-unbound class deleted by a migration, every deleted class really
+  gone from both, no class deleted before it was created, and every `containers`
+  entry naming a bound class. **Proved red both ways before it shipped** — v6
+  removed (`GameBuildContainer was created by migration v2, is no longer bound,
+  and no migration deletes it`) and v2 removed (`deleted by v6 and nothing ever
+  created it`). This is the recorded "the thing that runs your guards is not
+  itself guarded" shape, one layer over: the CONFIG that decides whether
+  anything deploys at all had no census over it.
+
+- **A FREE IDENTIFIER IN A BROWSER SCRIPT, AND NOW A GUARD THAT SEES IT.** The
+  trap entry has the general shape; what this deletion added is that
+  `public/chat.js` went on CALLING `gamesLoad()` after the Game Studio that
+  defined it was deleted — `node --check` passes, every source guard finds its
+  landmarks, the sweep kills every mutant, and every signed-in customer's asset
+  sync throws `ReferenceError`. `test/free-identifiers.test.mjs` parses every
+  script `index.html` loads with TypeScript's own parser and walks real lexical
+  scopes (parameters, destructuring, catch bindings, for-of, hoisting).
+  **Classic scripts share ONE global scope**, so the check is over the PAGE and
+  not the file — `auth.js`'s `SUPABASE_URL` read from `chat.js` is correct code
+  — and a name used as a `typeof` operand anywhere is a deliberately-optional
+  global (`if (typeof sbSave === 'function') sbSave()`), which is the one
+  identifier position the language guarantees cannot throw. **ZERO EXCEPTIONS
+  AND ZERO FALSE ALARMS, measured rather than claimed**: the first run reported
+  23 names, 21 of them the reader's fault (missing browser globals, UMD footers,
+  cross-file globals) and **two of them real**. A second pass for sloppy-mode
+  implicit globals was written, measured, and DELETED: it reported `TABLE` and
+  `_bitBuffer` out of the vendored QR library — assignments to names declared in
+  an enclosing FUNCTION scope, which the main walker already sees. One walker,
+  not two.
+
+- **`galFilter` AND `galSort` WERE DECLARED NOWHERE IN THE SERVED `chat.js`**,
+  and `galleryItems` reads both. Their `let` declarations live in
+  `public/demo-hero-2/chat.js`, the demo copy, and never crossed. You have to
+  render the gallery before there is a filter to click, so the read always came
+  first: **opening Gallery threw and the view stayed blank** — live, for as long
+  as those two copies have been out of step. Declared in the served file rather
+  than added to an exception list, because an exception list is where the next
+  one hides. The feature is Stage 3's to delete; until then it works.
+
+Guards: the two above, plus `test/container-images.test.mjs`'s **TWO_CONTAINERS
+fixture, DERIVED FROM THE REAL CONFIG** — the repository ships one image now, so
+"each image is asked for BEFORE its own build" and "the other container's path
+must stay for its own rewrite" were both vacuous over a list of one; the game
+supplied the second by accident and this supplies it on purpose. Derived, never
+typed: `rewriteImage` matches `"image": "…"` with the spacing the config really
+carries, and the first draft — a `JSON.stringify` fixture writing `"image":"…"`
+— silently matched nothing. The recorded "a fixture in a different shape from
+reality" trap, met on the first run.
+**Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Suite 6,072.
 
 ---
 
@@ -3141,6 +3240,19 @@ versions over the real corpus, then mutate the PAIR, which must die. Say in the
 code that the redundancy is deliberate — a sweep cannot say it, and the next
 session deletes what nothing appears to need.
 
+**AND NOTHING GUARDED THE CONFIG THAT DECIDES WHETHER ANYTHING DEPLOYS AT ALL
+(2026-09-12).** No test anywhere read `durable_objects` or `migrations` out of
+`wrangler.jsonc`, so the rule that a Durable Object class leaving the Worker
+needs a `deleted_classes` migration lived only in a comment — and the failure is
+Cloudflare refusing the whole deploy, which is the most expensive way to find
+out. It had already come up twice (v4, then v6 for the game builder) and both
+times the migration was written by hand off that comment.
+`test/do-migrations.test.mjs` is the census, derived from the config and from
+`worker.js`'s own exports. Same shape as the merge-triggers entry below: **the
+part of the repository that decides what ships is the part nobody writes a guard
+for**, and it fails silently in the safe-looking direction until the day it does
+not.
+
 **NOTHING GUARDED WHICH WORKFLOWS A MERGE STARTS (2026-09-09).** Twenty-two
 automatic triggers came off `.github/workflows/` in one commit — five smokes
 chained to the Deploy, three probes, the unit suite, thirteen path-filtered —
@@ -3260,6 +3372,21 @@ because I had reasoned that starting the service was the risk and skipped the
 `MARKS`, this) and the first that a module LOAD did not catch: an import graph
 resolves at load, a free identifier inside a function body resolves when that
 line runs, and a short-circuited operand may never run at all.
+**AND THE FIFTH INSTANCE IS WHAT FINALLY BOUGHT A GUARD (2026-09-12, the game
+deletion).** `public/chat.js` kept CALLING `gamesLoad()` after the Game Studio
+that defined it was deleted — a `ReferenceError` on every asset sync for every
+signed-in customer, invisible to `node --check`, to every source-reading guard
+and to a 13-mutant sweep. **`test/free-identifiers.test.mjs` is the check**: it
+parses every script `index.html` loads and walks real lexical scopes, over the
+PAGE rather than the file (classic scripts share one global scope), forgiving a
+name only where a `typeof` guard protects it. It found `gamesLoad` and, on its
+first run over untouched code, a second live one nobody had reported —
+`galFilter`/`galSort`, read by the gallery and declared only in the demo copy of
+chat.js, so opening Gallery threw. **The check that finds this class is not a
+grep; it is a parser**, and the cheap version of the same idea is still the one
+to reach for mid-change: grep for every identifier a deletion removes a
+definition for, in both directions.
+
 **AND IT HAPPENS IN A TEST SCOPE TOO, WHERE IT IS SILENT IN BOTH DIRECTIONS
 (2026-09-12).** `test/site-source.test.mjs` carries the tree renderer out of
 `chat.js` into a `new Function` scope; `stCodeRows` gained `ST_FIND_MAX` behind
