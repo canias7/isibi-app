@@ -5501,3 +5501,41 @@ Everything is committed and pushed. Tests green at 6,025, GitHub green. Ready to
 merge when you say.
 
 Still on your desk: the 19 credits from the two failed builds.
+
+---
+
+## Merged, and CLAUDE.md pruned (12 Sept)
+
+Main is at `5cfd4e58`. The deploy runs on the merge; `worker.js` and four builder
+modules moved, so the container rolls and the usual 15-20 minute wait applies
+before firing anything that needs the new code.
+
+### The cleanup
+
+CLAUDE.md was **7,883 lines** and is **3,933** — about 3,950 gone.
+
+Same call as the last two times, done slightly differently. Before, whole entries
+were cut. This time the forty-odd dated entries between "The published site" and
+"Editing a site" were **compressed** instead: every one of them described work
+that's already shipped and live, so I kept what still governs — the flag names
+and what they default to, the two limits, the measured numbers, the rule that
+came out of each fix — and threw away the story of how each one got there. They
+now sit in four sections rather than forty:
+
+- **The code explorer** — the file tree, what's shown and what isn't
+- **The two splits** — design and page, the flags, how they're shaped
+- **The instruments** — what each build records and how to read it
+- **Rules from recent fixes** — the start box, charging, the removal verb, and so on
+
+Five new traps went into the traps list rather than staying as stories.
+
+One rule I added to the header: **when an entry is compressed rather than cut,
+keep the numbers.** The timings and the arithmetic are the one part of a finished
+entry that stays useful — they're what the next decision gets made from, and
+re-measuring one costs a real build.
+
+All of it is still in git if anything is ever needed back.
+
+Tests green at 6,025.
+
+Still on your desk: the 19 credits from the two failed builds.
