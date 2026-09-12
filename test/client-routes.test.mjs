@@ -58,7 +58,15 @@ function clientRoutes() {
 
 test("the scan finds the routes it is supposed to — it is not silently matching nothing", () => {
   const routes = clientRoutes();
-  assert.ok(routes.length > 20, "found only " + routes.length + " client routes, so the pattern has stopped matching");
+  // FLOOR LOWERED 20 → 12 ON 2026-09-12, and the reason matters more than the
+  // number: deleting the media client took the generator, the gallery, the
+  // avatar, the Media Agent and the social hub with it, and every route only
+  // they called went too. Measured after the cut: 15. A floor is an
+  // observer-alive check — "the pattern still matches something" — so after a
+  // deletion the honest value is one derived from what is left with a little
+  // room, not the old number kept out of habit, and not a number so low the
+  // check stops meaning anything.
+  assert.ok(routes.length >= 12, "found only " + routes.length + " client routes, so the pattern has stopped matching");
   assert.ok(routes.includes("/api/credits"), "a route the app definitely calls is missing from the scan");
 });
 

@@ -39,7 +39,33 @@ const CSS_CODE = decomment(CSS, ["/\\*", "\\*/"]);
 const HTML_CODE = decomment(HTML, ["<!--", "-->"]);
 // JavaScript has two comment forms and this file's comments argue about the
 // very markup they sit above, so both are blanked before anything is scanned.
-const CHAT = decomment(CHAT_RAW, ["/\\*", "\\*/"]).replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+//
+// LINE COMMENTS FIRST, AND BLOCK OPENERS ONLY AT THE START OF A LINE. Both
+// halves are load-bearing and this file learned it the expensive way on
+// 2026-09-12: blanking blocks first, chat.js:35853 is the LINE comment
+// "// Every /api/* call carries the Supabase access token", whose `/*` opened a
+// false block that ran to the next real `*/` — 71,729 characters away — and
+// swallowed `RUN_AGENTS` along with most of the file. MEASURED: 37.1% of the
+// visible source survived, and three tests here reported the landing's pipeline
+// as gone on a change that never touched it. The identical failure is recorded
+// for worker.js at 46% (see `test/worker-imports.test.mjs`, which already reads
+// in this order); this was the last blanker in the repo still doing it the naive
+// way, and a deletion moving one boundary is all it took to expose it.
+// Written out rather than routed through `decomment`, because the block form
+// needs the `m` flag for its line anchor and that helper does not pass one.
+const CHAT = CHAT_RAW
+  .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
+  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, (m) => m.replace(/[^\n]/g, " "));
+// THE OBSERVER, PROVED ALIVE — a blanker that ate the file is the whole subject
+// of the comment above, so the landmarks these tests are about to look for are
+// asserted to have survived it. A ratio alone would not do: chat.js is MEASURED
+// at 50.1% comments by visible character, so "most of the file is left" is a
+// weak claim here and a floor set by eye would either pass a hole or fail on an
+// ordinary week's writing.
+for (const landmark of ["const RUN_AGENTS = [", "const RUN_VALVE", 'class="gf-pipe-valve"']) {
+  assert.ok(CHAT.includes(landmark),
+    `the comment blanker ate ${JSON.stringify(landmark)} — every scan below is reading a hole`);
+}
 
 // A rule's body, from its selector to the brace that closes it. Landmark to
 // landmark: a byte window would be outrun by the next comment.

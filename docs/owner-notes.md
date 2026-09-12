@@ -155,6 +155,59 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-12 — The video side is gone from the app, and home is the builder
+
+You said *"yeah thats right, home is the builder now, keep going"*, so that is
+what it is. Opening `gofarther.dev` now lands you straight on your sites and the
+box that starts a new one. There is no composer, no Gallery, no Avatar, no Media
+Agent, and no chat sidebar.
+
+**Two commits.** The first took the video, image and voice generation out of the
+server — the three endpoints, every model and price table, the code that
+measured how long an uploaded clip was, and six old pricing test scripts:
+1,370 lines. The second took the browser side out: 8,255 lines of `public/chat.js`
+(17,453 → 9,219), the whole composer and every screen that only the media side
+used, plus the in-browser video editor and its 11 MB of vendored code.
+
+**Why it had to be two and not four.** I had planned the server and the browser
+as separate commits. Three of your own tests would not allow it: they check that
+every address the browser calls is an address the server answers. Take the
+endpoints out and the browser is still calling them; take the callers out and the
+endpoints have no caller. So I pushed the server half with those three failing
+and the message saying exactly which three and why, then finished the browser
+half. They are green now — **6,074 tests, all passing**.
+
+**What did NOT change**, and I checked rather than assumed:
+- **Your sites' photographs.** The builder buys those down a different road from
+  the one I deleted, and it prices them from a different file.
+- **Credits and memberships.** Untouched, both ends.
+- **Sign-in, Settings, the whole builder.**
+
+**Three things I had to decide, all named so you can overrule them:**
+1. **The fal balance no longer gates anything.** There used to be a check that
+   refused a video render when the fal account was under $0.50. It lived on the
+   endpoints I deleted, and it never covered your sites' photographs. The
+   diagnostic route still reads the balance and now says what the reading means —
+   empty means every photograph comes back a placeholder. Say the word if you
+   want a real check in front of a build buying pictures.
+2. **The account badge says "Member", not "Plus"/"Pro"/"Max".** The tier name
+   came off the gallery's storage endpoint, which is going. Putting the name back
+   means adding it to the credits answer, which is where it belongs — a small
+   job, your call.
+3. **The landing page is untouched, deliberately.** It still has the channel
+   selector with Video/Audio channels, the pipeline listing every AI model, and a
+   prompt line that alternates between "generate" and "build". Rewriting that is
+   a design job and you direct design, so I left it working: the channels that
+   used to open the studio now open the builder, and the tables the pipeline
+   reads are kept with a note saying why. It is the last piece of the media side
+   still standing.
+
+**Still to do:** stage 3 takes the server routes those deleted screens used to
+call (gallery, save, import, the director, the Media Agent, the social
+connections, the avatar, memory), and stage 4 sweeps the dead CSS — `styles.css`
+is 478 KB and a lot of it now styles nothing. **The customers' stored media is
+still a separate step and I will ask again before touching it.**
+
 ## 2026-09-11 — Each section of a page is its own file now, and the Code tab shows the whole project
 
 You held up Lovable's file explorer next to ours and said **"their stuff is

@@ -865,11 +865,14 @@ const CSP = [
   "form-action 'self'",
   // No 'unsafe-inline' for scripts: all handlers are wired via addEventListener
   // (data-act hooks), so a would-be HTML injection can't execute as script.
-  // 'wasm-unsafe-eval' lets the Studio's on-device video editor (ffmpeg.wasm,
-  // self-hosted under /vendor/ffmpeg) compile WebAssembly WITHOUT permitting
-  // JS eval() — the narrow token, not 'unsafe-eval'.
+  // 'wasm-unsafe-eval' IS GONE WITH THE ONLY THING THAT NEEDED IT. It let the
+  // Studio's on-device video editor (ffmpeg.wasm, self-hosted under
+  // /vendor/ffmpeg) compile WebAssembly without permitting JS eval(); the editor
+  // and its 11 MB of vendored wasm were deleted on 2026-09-12 with the rest of
+  // the media side, so the token is a standing permission with no claimant —
+  // which is exactly the kind of leftover a CSP must not accumulate.
   // style-src keeps 'unsafe-inline' for the handful of inline style attributes.
-  "script-src 'self' 'wasm-unsafe-eval'",
+  "script-src 'self'",
   // blob: frames = the Website Builder's preview (generated sites render in a
   // sandboxed allow-scripts iframe from a Blob URL — an opaque origin with no
   // access to the app's DOM/storage; srcdoc would inherit THIS CSP and block
@@ -1114,9 +1117,17 @@ function harden(res, request) {
     // left unset, because an upstream response carrying one would survive.
     h.delete("X-Frame-Options");
   } else {
+    // BOTH ANCHORS ARE ASSERTED, because a `.replace` whose needle has moved
+    // changes nothing and says nothing. This one nearly shipped that way: the
+    // needle read `script-src 'self' 'wasm-unsafe-eval'` and the token was
+    // removed from CSP on 2026-09-12 with the video editor that needed it, so
+    // the demo frame would have quietly lost its `unsafe-inline` and rendered
+    // without its inline styles, with no error anywhere. A stale needle in a
+    // verification fails loudly; a stale needle in a REPLACEMENT fails silent.
     const demoCSP = CSP
       .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
-      .replace("script-src 'self' 'wasm-unsafe-eval'", "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'");
+      .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'");
+    if (demoCSP === CSP) console.error("demo CSP: neither relaxation matched — the policy's spelling moved");
     h.set("Content-Security-Policy", sameOriginFrame ? demoCSP : CSP);
     h.set("X-Frame-Options", sameOriginFrame ? "SAMEORIGIN" : "DENY");
   }

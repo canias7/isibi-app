@@ -220,9 +220,17 @@ test("Back and Forward move a screen: popstate is listened for, and it does NOT 
 // must not do. Landmark to landmark, the closing one searched FROM the opening
 // one and both asserted (the recorded window traps).
 function loadBoot(pathname, storedView) {
-  const at = chat.indexOf("let lastView = 'home';");
+  // RE-ANCHORED 2026-09-12, NOT APPEASED. Both landmarks moved when the media
+  // side was deleted and home became the builder: the remembered view now
+  // defaults to 'sites' rather than 'home', and the unknown-view fallback moved
+  // OUT of the boot and INTO showView — where it belongs, since a stale
+  // localStorage value can reach showView by other doors too. The boot's own
+  // property is unchanged and is what this drives: the address beats the
+  // remembered view, and only when there is one. The fallback has its own case
+  // below, driving showView, because this block's showView is a stub.
+  const at = chat.indexOf("let lastView = 'sites';");
   assert.ok(at > 0, "the boot no longer starts from a remembered view");
-  const endAt = chat.indexOf("showView(KNOWN_VIEWS.includes(lastView)", at);
+  const endAt = chat.indexOf("showView(lastView);", at);
   assert.ok(endAt > at, "the boot no longer shows a view after choosing one");
   const body = chat.slice(at, chat.indexOf("\n", endAt));
   const shown = [];
@@ -251,8 +259,52 @@ test("DRIVEN: the boot lets the ADDRESS beat the remembered view — and only wh
   const list = loadBoot(null, "gallery");
   assert.deepEqual(list.shown, ["sites"], "/projects did not land on the sites screen");
   assert.equal(list.id, null, "/projects opened a project");
-  // And an unknown stored view still falls back, address or no address.
-  assert.deepEqual(loadBoot(undefined, "not-a-view").shown, ["home"]);
+  // And the boot passes the remembered value through as it read it — the
+  // fallback is showView's now, driven in the case below.
+  assert.deepEqual(loadBoot(undefined, "not-a-view").shown, ["not-a-view"]);
+});
+
+test("DRIVEN: a remembered view the app no longer has lands on the builder", () => {
+  // THE CASE THE MEDIA DELETION CREATED, and it is the one an ordinary customer
+  // hits: their browser remembers 'gallery' from yesterday, that view does not
+  // exist today, and `document.getElementById('viewGallery')` answers null — so
+  // without a fallback showView would clear every view's `active` class, add it
+  // to nothing, and paint an empty main. A refresh-proof preference is exactly
+  // the kind of value that outlives the thing it names.
+  //
+  // Driven rather than read: the fallback is one `if` and the recorded trap is
+  // that `if (false)` leaves every landmark where a positional guard looks for
+  // it.
+  const src = bare(chat);
+  const at = src.indexOf("function showView(name) {");
+  assert.ok(at > 0, "showView is gone");
+  const end = src.indexOf("\n}", at);
+  assert.ok(end > at, "showView is unterminated");
+  const body = src.slice(src.indexOf("{", at) + 1, end);
+  const known = /const KNOWN_VIEWS = (\[[^\]]*\])/.exec(src);
+  assert.ok(known, "KNOWN_VIEWS is gone — showView has nothing to fall back from");
+  const views = eval(known[1]);
+  assert.ok(views.length >= 1 && views.includes("sites"), "the builder is not a known view: " + views.join(", "));
+
+  const run = (name) => {
+    const stored = [];
+    const el = () => null;                 // no view element for anything
+    const fn = new Function("name", "KNOWN_VIEWS", "VIEW_KEY", "localStorage", "document", "renderSites",
+      "renderSettings", "body", body + "\nreturn name;");
+    return { landed: fn(name, views, "zephyr_view_v1",
+      { setItem: (k, v) => stored.push(v) },
+      { querySelectorAll: () => [], getElementById: el, body: { classList: { toggle: () => {} } } },
+      () => {}, () => {}, null), stored };
+  };
+  for (const gone of ["gallery", "avatar", "mediaAgent", "integrations", "home", "landing", "", "__proto__"]) {
+    assert.equal(run(gone).landed, "sites", `a remembered '${gone}' did not land on the builder`);
+  }
+  // THE CONTROL: a view the app really has is NOT rewritten. Without it a
+  // showView that always answered 'sites' would pass everything above, and
+  // Settings would be unreachable.
+  assert.equal(run("settings").landed, "settings", "an existing view was dragged to the builder");
+  // And what it remembers is what it landed on, never the value it was handed.
+  assert.deepEqual(run("gallery").stored, ["sites"], "the boot would remember a view it did not show");
 });
 
 test("the boot sets the open project BEFORE it draws", () => {

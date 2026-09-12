@@ -569,7 +569,12 @@ test("chat.js calls nothing it does not define", () => {
     ...[...chat.matchAll(/(?:^|\s)(?:async\s+)?function\s+(\w+)\s*\(/gm)].map((m) => m[1]),
     ...[...chat.matchAll(/(?:^|[;{},)]\s*|\s)(?:const|let|var)\s+(\w+)\s*=/gm)].map((m) => m[1]),
   ]);
-  assert.ok(declared.size > 1000, "only found " + declared.size + " declarations — the scan broke");
+  // FLOOR LOWERED 1000 → 600 ON 2026-09-12: chat.js went 17,453 lines to 9,219
+  // when the media client was deleted, and its top-level declarations went with
+  // it. Measured after the cut: 844. Same reasoning as every other floor moved
+  // by that deletion — this number's job is to say the scan still matches, and
+  // it has to be derived from the file that exists.
+  assert.ok(declared.size >= 600, "only found " + declared.size + " declarations — the scan broke");
   // Narrowed to names shaped like this file's OWN vocabulary, so browser and
   // library globals are not flagged. A wider net here would cry wolf, and a
   // scan that cries wolf is worse than no scan.

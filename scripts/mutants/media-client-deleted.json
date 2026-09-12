@@ -1,0 +1,220 @@
+[
+  {
+    "label": "THE PAIR — both the alias and the fallback go, so a remembered view paints a blank main. Each half alone is INERT (measured: the alias's own mutant survived every guard, because the fallback already sends 'home' here), so the pair is what has to die and the source says the redundancy is deliberate.",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (name === 'landing' || name === 'home') name = 'sites';\n  // Anything that names a view this app no longer has (a remembered\n  // localStorage value from before the media side was deleted, an old link)\n  // lands on the builder rather than on nothing. A refresh-proof preference is\n  // exactly the thing that outlives the view it points at.\n  //\n  // THESE TWO LINES ARE DELIBERATELY REDUNDANT AND A SWEEP PROVED IT: 'home'\n  // and 'landing' are not in KNOWN_VIEWS, so the fallback below already sends\n  // them here and cutting the alias above changed no answer for any input.\n  // Both are kept, because they say different things — the alias is a NAME this\n  // app answers to (the Back arrow still carries data-view=\"home\", and old\n  // links say it), the fallback is a wall against anything at all. Said out\n  // loud because a sweep cannot say it, and the next session deletes what\n  // nothing appears to need.\n  if (!KNOWN_VIEWS.includes(name)) name = 'sites';",
+    "to": ""
+  },
+  {
+    "label": "a remembered view the app no longer has is shown as-is, so the screen is empty",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!KNOWN_VIEWS.includes(name)) name = 'sites';",
+    "to": ""
+  },
+  {
+    "label": "the fallback names a view that is not there either",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!KNOWN_VIEWS.includes(name)) name = 'sites';",
+    "to": "  if (!KNOWN_VIEWS.includes(name)) name = 'gallery';"
+  },
+  {
+    "label": "KNOWN_VIEWS still lists the deleted views, so the fallback lets them through",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "const KNOWN_VIEWS = ['sites', 'settings'];",
+    "to": "const KNOWN_VIEWS = ['sites', 'settings', 'gallery', 'avatar', 'mediaAgent', 'integrations'];"
+  },
+  {
+    "label": "the fallback rewrites EVERY view, so Settings is unreachable",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!KNOWN_VIEWS.includes(name)) name = 'sites';",
+    "to": "  name = 'sites';"
+  },
+  {
+    "label": "the boot remembers the builder no longer — a fresh session lands nowhere",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  let lastView = 'sites';\n  try { lastView = localStorage.getItem(VIEW_KEY) || 'sites'; } catch {}",
+    "to": "  let lastView = 'home';\n  try { lastView = localStorage.getItem(VIEW_KEY) || 'home'; } catch {}"
+  },
+  {
+    "label": "the address stops beating the remembered view",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (bootProject !== undefined) { siteOpenId = bootProject; lastView = 'sites'; }",
+    "to": "  if (false) { siteOpenId = bootProject; lastView = 'sites'; }"
+  },
+  {
+    "label": "`esc` leaves with the media side, and every builder string it escapes goes raw",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "function esc(s) {\n  return String(s).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n}",
+    "to": "function esc(s) { return String(s); }"
+  },
+  {
+    "label": "`schWhen` leaves with the Media Agent it was declared in",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "function schWhen(iso) {\n  const t = Date.parse(iso);",
+    "to": "function schWhenGone(iso) {\n  const t = Date.parse(iso);"
+  },
+  {
+    "label": "the landing loses the provider badges its pipeline asks for",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "function providerOf(id) {\n  if (/nano-banana/.test(id))",
+    "to": "function providerOfGone(id) {\n  if (/nano-banana/.test(id))"
+  },
+  {
+    "label": "a retired feature's storage key stops being cleared on an account switch",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "         'zephyr_chats_v1', 'zephyr_memory_v1', 'zephyr_studio_v1',\n         'zephyr_avatars_v1', 'zephyr_products_v1']",
+    "to": "         'zephyr_chats_v1', 'zephyr_studio_v1',\n         'zephyr_avatars_v1', 'zephyr_products_v1']"
+  },
+  {
+    "label": "sign-out stops clearing the retired keys too",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "     'zephyr_chats_v1', 'zephyr_memory_v1', 'zephyr_studio_v1',\n     'zephyr_avatars_v1', 'zephyr_products_v1']",
+    "to": "     'zephyr_chats_v1', 'zephyr_studio_v1',\n     'zephyr_avatars_v1', 'zephyr_products_v1']"
+  },
+  {
+    "label": "`?q=` goes back to the deleted director instead of starting a build",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (window.Auth && Auth.isSignedIn()) { showView('sites'); siteCreate(firstBrief); }\n  else pendingSiteBrief = firstBrief;",
+    "to": "  if (window.Auth && Auth.isSignedIn()) { startDirector(firstBrief); }\n  else pendingFirstMsg = firstBrief;"
+  },
+  {
+    "label": "the landing's brief holder is gone, so a typed sentence is lost at the gate",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "let pendingSiteBrief = null;",
+    "to": ""
+  },
+  {
+    "label": "the Stripe return writes into a chat thread that no longer exists",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (typeof sbToast === 'function') sbToast('✦ Payment received — your credits are landing now.');",
+    "to": "    addMsg('agent', '✦ Payment received — your credits are landing now.');"
+  },
+  {
+    "label": "the wiring table keeps an action whose markup and handler are both gone",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  'landing': () => goLanding(),\n};",
+    "to": "  'landing': () => goLanding(),\n  'send': () => send(true),\n};"
+  },
+  {
+    "label": "the attach chooser offers a gallery source that no longer exists",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "function siteAttachOpen() {\n  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }\n  siteAttachDevice();\n}",
+    "to": "function siteAttachOpen() {\n  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }\n  siteAttachGallery();\n}"
+  },
+  {
+    "label": "the media views come back to index.html with nothing to render them",
+    "files": [
+      "public/index.html"
+    ],
+    "from": "      <div id=\"viewSites\" class=\"view view-sites\"></div>",
+    "to": "      <div id=\"viewSites\" class=\"view view-sites\"></div>\n      <div id=\"viewGallery\" class=\"view view-gallery\"></div>"
+  },
+  {
+    "label": "the deleted views' tabs come back, so a customer can open a blank screen",
+    "files": [
+      "public/index.html"
+    ],
+    "from": "      <button class=\"top-back\" id=\"topBack\" data-view=\"home\" data-act=\"view\"",
+    "to": "      <button class=\"top-tab\" role=\"tab\" data-view=\"gallery\" data-act=\"view\"><span class=\"tt-label\">Gallery</span></button>\n      <button class=\"top-back\" id=\"topBack\" data-view=\"home\" data-act=\"view\""
+  },
+  {
+    "label": "the in-browser video editor's script tag comes back, pointing at a deleted file",
+    "files": [
+      "public/index.html"
+    ],
+    "from": "  <script src=\"/chat.js\"></script>",
+    "to": "  <script src=\"/chat.js\"></script>\n  <script src=\"/ffmpeg-edit.js\"></script>"
+  },
+  {
+    "label": "the CSP keeps a wasm permission nothing claims any more",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  \"script-src 'self'\",",
+    "to": "  \"script-src 'self' 'wasm-unsafe-eval'\","
+  },
+  {
+    "label": "the demo frame's CSP relaxation silently stops matching",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      .replace(\"script-src 'self'\", \"script-src 'self' 'unsafe-inline'\");\n    if (demoCSP === CSP) console.error",
+    "to": "      .replace(\"script-src 'self' 'wasm-unsafe-eval'\", \"script-src 'self' 'unsafe-inline'\");\n    if (false) console.error"
+  },
+  {
+    "label": "the landing guard's blanker goes back to eating half the file",
+    "files": [
+      "test/landing-pipe-run.test.mjs"
+    ],
+    "from": "const CHAT = CHAT_RAW\n  .replace(/\\/\\/[^\\n]*/g, (m) => \" \".repeat(m.length))\n  .replace(/^[ \\t]*\\/\\*[\\s\\S]*?\\*\\//gm, (m) => m.replace(/[^\\n]/g, \" \"));",
+    "to": "const CHAT = decomment(CHAT_RAW, [\"/\\\\*\", \"\\\\*/\"]).replace(/\\/\\/[^\\n]*/g, (m) => \" \".repeat(m.length));"
+  },
+  {
+    "label": "the one-place model count reads prose again, so a comment counts as a reader",
+    "files": [
+      "test/landing-models.test.mjs"
+    ],
+    "from": "  const consumers = (CODE.match(/\\bMODELS_TAB\\b/g) || []).length;",
+    "to": "  const consumers = (CHAT.match(/\\bMODELS_TAB\\b/g) || []).length;"
+  },
+  {
+    "label": "a browser script reads a name nothing on the page declares, unguarded",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();",
+    "to": "  paintPreviewErrBadgeGone();"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "// Shown in Settings → About, and in the support mailto's footer.",
+    "to": "// Shown in Settings then About, and in the support mail footer."
+  },
+  {
+    "label": "CONTROL — a second comment, in the markup this time",
+    "control": true,
+    "files": [
+      "public/index.html"
+    ],
+    "from": "<!-- Settings page (built by renderSettings) -->",
+    "to": "<!-- The settings page, built by renderSettings -->"
+  }
+]

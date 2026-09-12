@@ -83,12 +83,32 @@ first deletion, not assumed.
 **Four stages, each its own commit with the suite green before the next**:
 1. the game builder — self-contained, and it proves the method;
 2. video/image/audio generation, the model/pricing/duration tables, the composer;
-3. the surround — gallery, save, import, `/api/direct`, `/api/m/`, refund,
-   storage, media-token, the Media Agent, `/api/social/*`, avatar, memory;
-4. the sweep — dead CSS, tests, workflows, secrets, docs.
+3. the surround — the SERVER half of what stage 2b's UI removal orphaned:
+   `/api/gallery`, `/api/save`, `/api/import/fetch`, `/api/direct`, `/api/m/`,
+   `/api/cancel`, `/api/refund`, `gen_charges`, `/api/storage`, the media token,
+   `/api/media/unlist`, the Media Agent (`/api/agent`), `/api/social/*`, the
+   avatar routes, the universal-memory routes;
+4. the sweep — dead CSS, tests, workflows, secrets, docs, the landing's copy.
 **The customers' stored media is a SEPARATE step, after the code is merged and
 proven**, with one more explicit confirm: it is the only part that cannot be
 undone.
+
+**THE STAGE BOUNDARY MOVED, AND THREE GUARDS ARE WHY.** The plan had stage 2 as
+two commits — the Worker's routes, then the composer — and that is not possible:
+`client-routes.test.mjs` (twice, once by reading the Worker and once by DRIVING
+it) and `wiring.test.mjs` all assert that every `/api` path the browser calls is
+a route the Worker answers. Delete the three generation routes and the browser
+still calls them; delete the browser's callers and the routes have no caller.
+The two halves are one change, and the guards refusing to let them ship apart is
+them working. So stage 2 is **2a, the server side (`d969de02`, pushed with those
+three red and the message saying so)** and **2b, the client side**, and the
+branch became mergeable again only when 2b landed.
+**And stage 2b absorbed what stage 3's CLIENT half would have been** — the
+gallery, the avatar, the Media Agent and the integrations views — because once
+home is the builder, `in-sites` hides the studio chrome permanently and every one
+of those tabs is a door to a screen nobody can reach. A tab that cannot be
+clicked is this repo's own dead-control finding, so they went with the composer;
+their server routes are stage 3 as planned.
 
 ### Stage 1: the game builder (done, 2026-09-12)
 
@@ -158,6 +178,133 @@ reality" trap, met on the first run.
 controls survived.** Suite 6,072.
 
 ---
+
+### Stage 2a: the generation routes leave the Worker (done, 2026-09-12)
+
+`d969de02`. 1,370 lines of `worker.js` in five self-contained regions, plus
+`test/attach/` (six manual pricing harnesses, one of which lifts `creditCost`
+out of `worker.js` BY NAME and would have thrown the moment it landed):
+`/api/video|image|audio` and its 823-line gated block; the model tables; the
+price tables (`VIDEO_USD`, the media `IMAGE_USD`, `AUDIO_USD_PER_1K`,
+`GPT_PRICE`, `gptSizePx`, `KLS_VOICES`); the duration and billing helpers
+(`MODEL_DURATIONS`, `creditCost`, `billableDuration`, `durationError`,
+`clipLengthError`, `CLIP_MAX_S`, the four container readers `durWav`/`durMp4`/
+`durWebm`/`durMp3` with `MP3_BR` and the two data-URI probes); `falUpload` and
+`cancelFal`.
+**EVERY SYMBOL PROVED SELF-CONTAINED BEFORE THE CUT.** A reference survey over
+comment-blanked source classified every occurrence of all 32 names as in-region
+or outside, and the ONE outside hit was the aliased import `IMAGE_USD as
+SITE_PHOTO_USD` — a different binding from a different module. The builder's
+photo path shares nothing: `genSitePhoto` calls `fal.run` where the media side
+called `queue.fal.run`, and its price is `publish-pages.mjs`'s.
+**THREE COMMENTS WHOSE REASONS THE DELETION EXPIRED, corrected in place** — the
+`SITE_PHOTO_USD` alias (the collision it dodged is gone; the name stays because
+it is the better name, said as a decision), `/api/fal-balance`'s note (**nothing
+gates on the fal balance now**, and the builder's photographs never were gated
+by it — the route is a reading, and an empty balance means every photograph
+comes back a placeholder), and the auth header.
+
+### Stage 2b: the media UI, and home is the builder (done, 2026-09-12)
+
+Owner, asked directly: *"yeah thats right, home is the builder now, keep
+going"*. **8,255 lines out of `public/chat.js` (17,453 → 9,219)**, 201 of
+`index.html`, `public/ffmpeg-edit.js` and its 11 MB of vendored wasm.
+
+- **`home` IS AN ALIAS FOR `sites`, NOT A VIEW.** `viewHome` was the media
+  composer and `home` was already LABELLED 'Builder' from an earlier renaming —
+  two things called the builder, one of which was the video generator. There is
+  one now. `KNOWN_VIEWS` is `['sites', 'settings']`, and **anything else falls
+  back to the builder**: a remembered `zephyr_view_v1` of `gallery` would
+  otherwise clear every view's `active` class and add it to nothing, painting an
+  empty main — a refresh-proof preference is exactly the value that outlives the
+  view it names. The alias and the fallback are DELIBERATELY REDUNDANT and the
+  sweep proved it (neither half alone changes an answer); both are kept because
+  they say different things, and the source says so.
+- **WHAT DECIDED THE SCOPE was not the composer, it was `in-sites`.** That class
+  hides the studio chrome while the builder is open, so once the builder is home
+  it hides it always — and the Gallery, Avatar and Media Agent tabs become doors
+  to screens nobody can reach. A tab that cannot be clicked is this repo's own
+  dead-control finding, so all four views went with the composer. Their SERVER
+  routes are stage 3.
+- **THE CHAT SHELL WAS MEDIA, and that was the surprising half.** `chatStore`,
+  `loadStore`/`persistStore`, the cross-device sync, `renderThread`,
+  `renderChatList`, `newChat`, `addMsg`, the staged attachments — all of it.
+  MEASURED, not assumed: over the builder's own 8,000 lines, `addMsg` is called
+  **once**, at the Stripe-return line in the boot tail, which is not the builder
+  at all. The builder keeps its conversation inside each project.
+- **THE METHOD WAS A REACHABILITY QUESTION, AND THE FIRST TWO ANSWERS WERE
+  USELESS.** A transitive closure from the builder's region reaches nearly
+  everything (845 of 855 names) because the declarative wiring table at the foot
+  of the file roots the app's whole surface. What worked was DIRECT reference,
+  region by region: of 507 top-level declarations outside the four keep-islands
+  (the builder picker, credits + memberships, the auth gate, and everything from
+  `initAuthGate` down), **427 were named by nothing kept**. The 80 that were
+  split into wiring entries, boot lines, and a genuinely shared set of **three**:
+  `esc`, `schWhen` and `providerOf`. All three were lifted out rather than left
+  behind — a live name inside a region being deleted is how a deletion ships a
+  `ReferenceError` nothing can see.
+- **`providerOf` AND THE MODEL TABLES STAY, FOR THE LANDING.** The marketing
+  page still has a CRT channel selector with Video/Audio channels, a pipeline
+  listing every AI model, and a prompt line alternating "generate" and "build".
+  Rewriting it is a design job the owner directs, so it was left WORKING: both
+  landing doors open the builder, the non-website channels are inert (the state
+  the selector already had a design for), and the tables it reads are kept with
+  a note saying why. **It is the one piece of the media side still standing, and
+  it is stage 4's.**
+- **TWO LOSSES NAMED RATHER THAN HIDDEN.** The account badge says 'Member' where
+  it said Plus/Pro/Max — the tier name came off `/api/storage`, whose only
+  reader was the gallery; putting it back means adding the tier to the credits
+  answer, which is where it belongs. And `'wasm-unsafe-eval'` came out of the
+  CSP with the video editor that was its only claimant — **which nearly shipped
+  a silent defect**: the demo frame's policy is built by `.replace()` off the
+  main one and its needle named that exact token, so the frame would have
+  quietly lost its `unsafe-inline` and rendered without its inline styles. A
+  stale needle in a VERIFICATION fails loudly; in a REPLACEMENT it fails silent.
+  Both halves are driven now, and the replacement refuses to be a no-op.
+
+**THE 46%-OF-THE-FILE BLANKER TRAP FIRED, IN A GUARD, AND THE CUT IS WHAT
+EXPOSED IT.** `test/landing-pipe-run.test.mjs` blanked block comments BEFORE
+line comments, and `chat.js` carries `// Every /api/* call carries the Supabase
+access token` — whose `/*` opened a false block running to the next real `*/`
+**71,729 characters away**, swallowing `RUN_AGENTS` and most of the file.
+MEASURED: **37.1% of the visible source survived**, and three tests reported
+the landing's pipeline as gone on a change that never touched it. It was the
+last blanker in the repo still doing it the naive way. Both it and
+`landing-models.test.mjs` (whose `MODELS_TAB` mention count went 2 → 3 because
+a NEW COMMENT of mine named the constant — "prose contains the thing it
+forbids", landing on a guard whose job is counting mentions) read line comments
+first now, with the landmarks they are about to look for asserted to have
+survived. **A ratio alone would not do: chat.js is measured at 50.1% comments.**
+
+**Guards**: `test/media-deleted.test.mjs` (4) — the app's view list DERIVED from
+`KNOWN_VIEWS` and from index.html's own `.view` ids and required to agree, with
+no control offering a view that is neither; both storage clear-lists required to
+carry every retired `zephyr_` key from owner-notes' own do-not-rename table
+(with the session key excluded because it is Auth's, and the owner key excluded
+from the account-switch list because that list re-sets it three lines later);
+the CSP driven, needles and all; the deleted editor's files asked of `git
+ls-files` rather than the filesystem. Plus a driven case in
+`test/project-url.test.mjs` for the fallback, over eight names that must land on
+the builder with Settings as the control.
+**Seven older guards went red and were re-anchored, not appeased** — two scan
+floors moved by the deletion (`client-routes` 20 → 12 against a measured 15,
+`site-addon` 1,000 → 600 against a measured 844), the two blankers above, the
+two boot landmarks, and the free-identifier guard's own liveness check, which
+named `sbSave`/`sbMediaClear` — two media globals — and now DERIVES the
+typeof-guarded set and requires one of them to be genuinely absent.
+**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** **EIGHT survived the first pass and SIX were real guard
+gaps** — the app's view list (adding `viewGallery` or a Gallery tab back passed
+every test in the repo), both storage clear-lists (`brand-rename` only asks that
+a key is SOMEWHERE in the tree, which the two lists satisfy between them, so
+dropping it from one survived), and the two CSP halves. One was the declared
+redundancy above, and the spec mutates the PAIR now. One was INERT BY
+CONSTRUCTION and was replaced rather than hunted: weakening a guard's own
+assertion is not a behaviour change, so no other test can catch it — unlike the
+two test-side mutants that DID die, whose weakening broke other assertions in
+the same file. **Suite 6,078** (6,072 at stage 1; the four new cases in
+`media-deleted` plus the driven fallback case, less the cases the deletion
+retired).
 
 ## Working rules
 
@@ -3229,8 +3376,31 @@ claim about the producer, not about the input.
 
 **Prose contains the thing it forbids.** A comment explaining a deletion spells
 the deleted name; a comment arguing for a class name contains that class name.
-Nine-plus instances, several inside the guard written for that very trap. **Blank
+Ten-plus instances, several inside the guard written for that very trap. **Blank
 whole-line comments (length-preserving) before any scan.**
+**AND THE LATEST LANDED ON A GUARD WHOSE JOB IS COUNTING MENTIONS (2026-09-12).**
+`landing-models.test.mjs` holds `MODELS_TAB` to "its declaration and exactly one
+reader" by counting the name in `chat.js`. A comment explaining why `providerOf`
+survives the media deletion said that the landing's pipeline walks MODELS_TAB —
+and the count went 2 → 3. **Prose about a name is not a second reader of it**, so
+a count that reads raw source is one comment away from a false alarm; the count
+reads blanked source now, with the declaration asserted to have survived the
+blanking.
+
+**AND THE BLANKER'S ORDER IS ITSELF A TRAP: LINE COMMENTS FIRST, BLOCK OPENERS
+ONLY AT THE START OF A LINE.** Recorded for worker.js at 46% and hit AGAIN on
+2026-09-12, in `test/landing-pipe-run.test.mjs`, the last blanker in the repo
+still doing it the naive way. `chat.js` carries the line comment `// Every
+/api/* call carries the Supabase access token`; blanking blocks first, that `/*`
+opened a false block that ran to the next real `*/` **71,729 characters away**
+and swallowed `RUN_AGENTS` with most of the file — **37.1% of the visible source
+survived**, and three tests reported the landing's pipeline as gone on a change
+that never touched it. **What exposed it was a DELETION moving one boundary**:
+the same text had been there for weeks with the swallow landing somewhere
+harmless. **And a survival RATIO is the wrong observer** — chat.js is measured at
+50.1% comments, so "most of the file is left" is a weak claim and a floor set by
+eye either passes a hole or fails on an ordinary week's writing. **Assert that
+the landmarks the scan is about to look for survived the blanking.**
 
 **A negative assertion must prove its observer is alive.** `[].every(...)` is
 `true`. A loop over an empty collection contributes no checks to fail. Assert a

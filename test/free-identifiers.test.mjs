@@ -328,9 +328,31 @@ test("the reader really reaches the app's own cross-file globals", () => {
   for (const n of ["Auth", "EditPoll", "SiteList", "SiteZip", "qrcode", "SUPABASE_URL", "SUPABASE_ANON_KEY"]) {
     assert.ok(outer.has(n), n + " is not in the page's shared scope — the reader missed a script or a form of assignment");
   }
-  // The optional-global idiom is really in use, so exempting it is not free
-  // permission for anything: these are the names a `typeof` guard protects.
-  for (const n of ["sbSave", "sbMediaClear", "module"]) {
-    assert.ok(outer.has(n), n + " is expected to be reached through a typeof guard and is not");
-  }
+  // THE OPTIONAL-GLOBAL IDIOM IS REALLY IN USE, so exempting it is not free
+  // permission for anything.
+  //
+  // RE-ANCHORED 2026-09-12, NOT APPEASED. This named three globals —
+  // `sbSave`, `sbMediaClear`, `module` — and two of them belonged to the media
+  // side. Deleting it left the guard reporting that its own exemption was never
+  // exercised, on a change that did not touch the reader: the recorded "assert
+  // the property, not the spelling" trap, in a liveness check for the second
+  // time in one day. The property was never "these three names exist"; it is
+  // that the exemption covers at least one name the page really does reach
+  // through a guard AND that the guard is what makes it safe — so it is derived
+  // from the sources, with a floor so the scan cannot go quiet.
+  const { files } = page();
+  const guarded = [...new Set(files.flatMap((f) => [...typeofNames(f.src)]))];
+  assert.ok(guarded.length >= 5,
+    `only ${guarded.length} typeof-guarded names across the page — the reader has stopped matching`);
+  // At least one of them must be a name NOTHING on the page DECLARES. That is
+  // the case the exemption exists for: a guarded read of a name that is simply
+  // absent is correct code, and with no such name the exemption would be
+  // forgiving nothing any file relies on. Asked of the declarations directly,
+  // because `outer` admits every guarded name by construction — checking it
+  // there would be circular.
+  const declared = new Set(files.flatMap((f) => [...pageNames(f.src, f.rel)]));
+  const absent = guarded.filter((n) => !declared.has(n) && !GLOBALS.has(n));
+  assert.ok(absent.length >= 1,
+    "no typeof-guarded name is actually absent from the page, so the exemption covers nothing: " +
+    JSON.stringify(guarded));
 });

@@ -28,6 +28,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 const CHAT = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
+// CHAT with every comment blanked, length-preserved so offsets still line up.
+// Line comments FIRST and block openers only at the start of a line: chat.js
+// carries `// Every /api/* call carries…`, whose `/*` opens a false block that
+// runs to the next real `*/` and eats most of the file (measured at 37% left,
+// and the same failure is recorded for worker.js at 46%).
+const CODE = CHAT
+  .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
+  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, (m) => m.replace(/[^\n]/g, " "));
+// The observer, alive: the declaration this file is about must survive it.
+assert.ok(CODE.includes("const MODELS_TAB"), "the comment blanker ate MODELS_TAB — every count below is a hole");
 const HTML = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "index.html"), "utf8");
 const CSS = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "styles.css"), "utf8");
 
@@ -122,7 +132,14 @@ test("the models are listed in ONE place", () => {
   // The whole point of deleting the nav menu. Two renderers over one table is
   // this repo's most repeated failure shape: they do not disagree on day one,
   // they disagree on the day somebody edits one of them.
-  const consumers = (CHAT.match(/\bMODELS_TAB\b/g) || []).length;
+  // COMMENTS BLANKED BEFORE COUNTING, length-preserved, this repo's standing
+  // rule — and this count is why it exists. On 2026-09-12 a comment explaining
+  // why `providerOf` survives the media deletion NAMED `MODELS_TAB` while
+  // saying the landing's pipeline walks it, and the count went 2 → 3: the
+  // recorded "prose contains the thing it forbids" trap, landing on a guard
+  // whose whole job is counting mentions. Prose about a name is not a second
+  // reader of it.
+  const consumers = (CODE.match(/\bMODELS_TAB\b/g) || []).length;
   assert.equal(consumers, 2,
     "MODELS_TAB should be its declaration and exactly one reader; found " + consumers + " mentions");
   assert.match(renderer, /MODELS_TAB\[key\]/, "the one reader is the pipeline");
