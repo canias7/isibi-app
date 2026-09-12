@@ -258,10 +258,23 @@ test("AND THE DECISION IS ACTUALLY WIRED — all three answers are acted on", ()
   assert.match(fn, /if \(!clockPlan\.buy\) affordable = 0;/,
     "the clock no longer clamps the spend, so a build can buy a photograph it cannot wait for");
   // BEFORE THE SHOTS ARE PLANNED, or the clamp is a value nothing reads.
+  //
+  // ANCHORED ON THE PLAN, NEVER ON ITS ARGUMENT LIST (re-anchored 2026-09-12).
+  // This read `planImages(pages, affordable)` and went red when the plan started
+  // being made over the pages AND the parts — reporting the clock clamp as
+  // unwired by a change that only widened what gets planned. The property is
+  // that the clamp precedes the plan; what the plan is made over is a different
+  // property, and `test/image-parts.test.mjs` owns it.
   const clamp = fn.indexOf("if (!clockPlan.buy) affordable = 0;");
-  const planned = fn.indexOf("planImages(pages, affordable)");
-  assert.ok(clamp > 0 && planned > clamp,
+  const planned = fn.indexOf("const plan = planImages(");
+  assert.ok(clamp > 0, "the clock's clamp on the spend is gone");
+  assert.ok(planned > 0, "the plan is no longer made here — rescope this guard");
+  assert.ok(planned > clamp,
     "the spend is clamped after the shots are already planned, which changes nothing");
+  // AND THE CLAMPED NUMBER IS WHAT IS PLANNED WITH, which is the half an
+  // ordering check on its own cannot see.
+  assert.match(fn.slice(planned), /^const plan = planImages\([^;]*\baffordable\b/,
+    "the plan is made with something other than the clamped allowance");
 
   // ONE READING OF THE CLOCK, USED TWICE. Asking twice is asking a clock that
   // moved in between, so the half that decides to buy and the half that decides

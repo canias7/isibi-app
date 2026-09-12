@@ -155,6 +155,56 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-12 — The writing across the Hebden Bike Repair hero: fixed
+
+You sent the screenshot and said *"LOOK AT THIS AND TELL ME WHAT HAPPENED
+HERE"*, then *"YES FIX IT"*. Here is what it was, in plain terms.
+
+**What the builder actually does with photographs.** When it wants a photo it
+does not put a photo there. It writes a **note** into the code — a sentence
+describing the picture it wants. A later step goes through the site and swaps
+every note for either a real photograph or a blank, and a blank draws the grey
+placeholder you see on most sites (the photo budget is empty).
+
+**What went wrong.** Your bigger sites are now written in **pieces** — the page
+gets cut into sections and each section becomes its own file, which is what
+makes a build faster. **That swapping step only ever opened the page file. It
+never opened the section files.** So the note in a section was left exactly
+where the model wrote it, went into the published site as the image's address,
+and the browser tried to fetch a sentence. When a browser cannot load a picture
+it shows the description instead — which is the writing you saw lying across
+the hero.
+
+**Measured on your live site before the fix:** 11 pictures on the page, 9 of
+them drawing the grey placeholder correctly, **2 carrying the raw note**. It
+had nothing to do with that one site — every build written in pieces had it.
+
+**The fix.** The photo steps now operate on *every file the builder wrote*,
+pages and sections alike. Four places needed it: deciding which photos to buy,
+buying them, counting them for the sentence you get back, and the swap itself —
+on the build path and on both edit paths. There is now one function that says
+"these are the files a photo can be in", so the next step somebody adds asks it
+instead of remembering.
+
+**One thing found and deliberately left.** There is also a *checker* that warns
+when a note is written somewhere it cannot be swapped. Widening that to the
+section files looked obvious and I measured it first: over the 100 real sites I
+test against, it produces **100 false warnings**, all from one rule that reads
+the file's web address — and section files have no web address. I have no
+corpus of real section files to measure the corrected version against, so I did
+not ship it. It only *warns*; the swap is what stops a broken page, and the swap
+is fixed. Written down as open.
+
+**Proven:** the whole test suite green (6,100), and 18 deliberate breakages of
+the fix all caught by the new tests. **Not proven live yet** — and note that
+**this does not repair Hebden Bike Repair on its own.** That site is already
+published with the note baked into it; it needs one republish after this
+deploys. Free, and your call.
+
+**The cost of finding it:** the build that showed it, 30 credits (244 → 214).
+
+---
+
 ## 2026-09-12 — Merged, and the stored video/image files are gone
 
 You said to do it and merge, so: merged, deployed, then the data.
@@ -2811,6 +2861,26 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 ---
 
 ## Open — bugs and gaps
+
+**Open 2026-09-12 — Hebden Bike Repair still has the writing across its hero,
+and one republish clears it**
+
+The bug that caused it is fixed (entry above), but the site is already published
+with the bad text baked into it. It needs one republish after the fix deploys.
+Free, and your call — any other site built in pieces before today is in the same
+state.
+
+**Open 2026-09-12 — the photo checker still only reads page files**
+
+Alongside the swap, there is a *checker* that warns when a photo note is written
+somewhere it cannot be swapped. It still reads page files only. Widening it
+looked obvious; measured against the 100 real sites I test against it produces
+**100 false warnings**, all from one rule that reads the file's web address —
+and section files have no web address. I have no collection of real section
+files to measure a corrected version against, and the rule here is that a
+checker must produce zero false warnings before it ships. It only warns, and the
+swap that actually protects the page is fixed, so nothing is broken by leaving
+it. Reopen when there is a corpus to measure against.
 
 **Fixed 2026-09-07 — the Preview panel was showing your sites with the
 JavaScript switched off**

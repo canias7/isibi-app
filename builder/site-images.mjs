@@ -391,6 +391,51 @@ export const IMAGE_TOKEN = /@@IMG:([\s\S]*?)@@/g;
 /** Longest description we will send. Past this it is a page, not a prompt. */
 export const MAX_PROMPT_CHARS = 240;
 
+/** Where a part is written, and the one place that path is spelled for a lint. */
+export const partPath = (p) => "src/routes/-parts/" + String((p && p.name) || "") + ".tsx";
+
+/**
+ * EVERY GENERATED FILE THAT CAN CARRY A PHOTOGRAPH TOKEN — the pages AND the
+ * parts (2026-09-12, owner, on a live site with a raw token across its hero:
+ * *"LOOK AT THIS AND TELL ME WHAT HAPPENED HERE"*).
+ *
+ * WHAT WAS BROKEN: the whole photograph pipeline read `pages` and nothing read
+ * `parts`. Five steps, all of them — `planImages` (which photographs to buy),
+ * `buySitePhotos` (buying them), `countImageSlots` (the sentence the customer
+ * gets), `applyImages` (token → URL, or → the empty src `SafeImage` draws as its
+ * placeholder) and `lintPages` (the check written to refuse a token in a bare
+ * `<img>`). A band-split build writes its sections as PARTS, so a photograph
+ * planned into a band was never planned, never bought, never counted, never
+ * swept and never linted, and the token shipped into the bundle as a literal
+ * `src="@@IMG:the stone shopfront of a small bike workshop…@@"`. The browser
+ * cannot fetch that, so the page rendered the alt text across the hero.
+ * MEASURED on `hebden-bike-repair` (2026-09-12): 11 `SafeImage`s on the page,
+ * 9 of them drawing their placeholder correctly and 2 raw `<img>` carrying the
+ * unswept token. The build's own render check SAW it — "/ has an image that did
+ * not load" — and it published anyway, which is the ship-it rule working; the
+ * finding had no reader.
+ *
+ * THIS IS THE RECORDED "A DROPPED FIELD HAS A TWIN ONE HOP OVER", and this file
+ * is the answer to it: not five call sites each remembering to add `parts`, but
+ * ONE function that says what the image steps operate on. A sixth step added
+ * next month asks this and cannot forget.
+ *
+ * IT IS FOR READING ONLY, and that is deliberate rather than a limitation.
+ * `applyImages` has to write each file back into the list it came from, so it is
+ * called once per list with the SAME url map — never over this union with the
+ * answer sliced apart by length, which is index arithmetic and is exactly how a
+ * fix like this breaks again in silence.
+ *
+ * A PART IS GIVEN ITS REAL PATH, because `lintPages` destructures `{ path }` to
+ * name the file in its message and a part carries `name`. Without it every
+ * finding in a band would read `undefined: writes a @@IMG:@@ token`.
+ */
+export function imageSources(pages, parts) {
+  const ps = Array.isArray(pages) ? pages : [];
+  const bs = Array.isArray(parts) ? parts : [];
+  return ps.concat(bs.map((p) => ({ ...p, path: partPath(p) })));
+}
+
 /**
  * Every distinct token across the pages, in the order they appear.
  *

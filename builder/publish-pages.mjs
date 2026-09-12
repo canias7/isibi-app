@@ -1199,8 +1199,29 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     // pages; a guess high refuses photographs somebody could afford.
     const reserve = pageCredits(gen.usage, priorUsage);
     try {
-      const r = await deps.images(v.pages, { balance, reserve });
+      // THE PARTS GO TOO, AND COME BACK SWEPT. A band-split build writes each
+      // section as a PART, so a photograph planned into a band lives in one of
+      // those files — and this hook read `v.pages` alone, so that token was
+      // never planned, never bought and, worse, never SWEPT: it shipped into
+      // the bundle as a literal `src="@@IMG:…@@"`, which the browser cannot
+      // fetch, so the published page drew its alt text across the hero. Live on
+      // `hebden-bike-repair` (2026-09-12) and on every band-split build before
+      // it; `builder/site-images.mjs`'s `imageSources` carries the full account.
+      //
+      // EACH LIST IS TAKEN BACK ONLY AT ITS OWN LENGTH — the pages' own rule
+      // one line up, for the same reason: a hook that answers a different shape
+      // than it was handed has not swept these files, and half-applying is
+      // worse than not applying.
+      const r = await deps.images(v.pages, { balance, reserve, parts: v.parts });
       if (r && Array.isArray(r.pages) && r.pages.length === v.pages.length) pages = r.pages;
+      if (r && Array.isArray(r.parts) && r.parts.length === v.parts.length) {
+        v.parts = r.parts;
+        // AND THE LIST THE COMPILE READS MOVES WITH IT. `sitePartsForBuild` is
+        // what `deps.compile` is handed, captured above precisely because parts
+        // are constant across a retry — so a sweep that did not update it would
+        // send the container the unswept parts and change nothing at all.
+        sitePartsForBuild = v.parts;
+      }
       out.images = {
         made: Math.max(0, Number(r && r.made) || 0),
         // What the FAMILY asked for, before the balance cut it down. Carried

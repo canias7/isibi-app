@@ -1,0 +1,124 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the sweep reads the pages alone, so a band's token ships as a literal src the browser cannot fetch",
+    "files": ["worker.js"],
+    "from": "    pages: applyImages(pages, urls), parts: applyImages(parts, urls),",
+    "to": "    pages: applyImages(pages, urls),"
+  },
+  {
+    "label": "the plan is made over the pages alone, so a photograph asked for inside a band is never bought",
+    "files": ["worker.js"],
+    "from": "  const plan = planImages(imageSources(pages, parts), affordable);",
+    "to": "  const plan = planImages(pages, affordable);"
+  },
+  {
+    "label": "buySitePhotos stops taking the parts, so nothing in it can see them",
+    "files": ["worker.js"],
+    "from": "async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock }) {",
+    "to": "async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock }) {"
+  },
+  {
+    "label": "the build path calls buySitePhotos without the parts — the function perfect and the value undefined on every real build",
+    "files": ["worker.js"],
+    "from": "      return buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget });",
+    "to": "      return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve, clock: budget });"
+  },
+  {
+    "label": "the images hook never reads the parts the spine hands it",
+    "files": ["worker.js"],
+    "from": "    images: (pages, { balance, reserve, parts }) => {",
+    "to": "    images: (pages, { balance, reserve }) => {"
+  },
+  {
+    "label": "the sweep runs with an empty map, so a photograph that was bought and paid for never reaches the band that asked for it",
+    "files": ["worker.js"],
+    "from": "    pages: applyImages(pages, urls), parts: applyImages(parts, urls),",
+    "to": "    pages: applyImages(pages, urls), parts: applyImages(parts, new Map()),"
+  },
+  {
+    "label": "the spine hands the images hook no parts at all",
+    "files": ["builder/publish-pages.mjs"],
+    "from": "      const r = await deps.images(v.pages, { balance, reserve, parts: v.parts });",
+    "to": "      const r = await deps.images(v.pages, { balance, reserve });"
+  },
+  {
+    "label": "the spine never takes the swept parts back, so the sweep happens and changes nothing",
+    "files": ["builder/publish-pages.mjs"],
+    "from": "      if (r && Array.isArray(r.parts) && r.parts.length === v.parts.length) {\n        v.parts = r.parts;",
+    "to": "      if (false) {\n        v.parts = r.parts;"
+  },
+  {
+    "label": "the spine takes back a parts list of any length, so a hook that answered a different shape half-applies",
+    "files": ["builder/publish-pages.mjs"],
+    "from": "      if (r && Array.isArray(r.parts) && r.parts.length === v.parts.length) {",
+    "to": "      if (r && Array.isArray(r.parts)) {"
+  },
+  {
+    "label": "the swept parts never reach the list the container is handed — the subtle half, since `sitePartsForBuild` is captured before the hook runs",
+    "files": ["builder/publish-pages.mjs"],
+    "from": "        sitePartsForBuild = v.parts;\n      }",
+    "to": "      }"
+  },
+  {
+    "label": "imageSources drops the parts, so the one reader of what the image steps operate on answers the pages again",
+    "files": ["builder/site-images.mjs"],
+    "from": "  return ps.concat(bs.map((p) => ({ ...p, path: partPath(p) })));",
+    "to": "  return ps;"
+  },
+  {
+    "label": "a band reaches the image steps with no path, so every finding in it reads `undefined: writes a @@IMG:@@ token`",
+    "files": ["builder/site-images.mjs"],
+    "from": "  return ps.concat(bs.map((p) => ({ ...p, path: partPath(p) })));",
+    "to": "  return ps.concat(bs);"
+  },
+  {
+    "label": "imageSources writes the path onto the caller's own part — a reader that mutates what it was handed",
+    "files": ["builder/site-images.mjs"],
+    "from": "  return ps.concat(bs.map((p) => ({ ...p, path: partPath(p) })));",
+    "to": "  return ps.concat(bs.map((p) => { p.path = partPath(p); return p; }));"
+  },
+  {
+    "label": "a part's path is spelled somewhere the project does not keep them",
+    "files": ["builder/site-images.mjs"],
+    "from": "export const partPath = (p) => \"src/routes/-parts/\" + String((p && p.name) || \"\") + \".tsx\";",
+    "to": "export const partPath = (p) => \"src/parts/\" + String((p && p.name) || \"\") + \".tsx\";"
+  },
+  {
+    "label": "the page rung stops sweeping its parts, so an edit that wrote a photograph into a component publishes the token",
+    "files": ["worker.js"],
+    "from": "              pValid.parts = applyImages(pValid.parts, {});",
+    "to": ""
+  },
+  {
+    "label": "the page rung counts the pages alone, so the customer is told about fewer empty frames than the edit really left",
+    "files": ["worker.js"],
+    "from": "              const pSlots = countImageSlots(imageSources(pValid.pages, pValid.parts));",
+    "to": "              const pSlots = countImageSlots(pValid.pages);"
+  },
+  {
+    "label": "the addon rung stops sweeping its parts — and a component IS what that step most often writes",
+    "files": ["worker.js"],
+    "from": "            aValid.parts = applyImages(aValid.parts, {});",
+    "to": ""
+  },
+  {
+    "label": "the addon rung counts the pages alone",
+    "files": ["worker.js"],
+    "from": "            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts));",
+    "to": "            const aSlots = countImageSlots(aValid.pages);"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": ["builder/site-images.mjs"],
+    "from": " * EVERY GENERATED FILE THAT CAN CARRY A PHOTOGRAPH TOKEN — the pages AND the",
+    "to": " * Every generated file that can carry a photograph token: the pages and the"
+  },
+  {
+    "label": "CONTROL — a second comment, in the Worker this time",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "  // ONE MAP, TWO SWEEPS, NEVER A UNION SLICED BACK APART. `applyImages` writes",
+    "to": "  // One map, two sweeps, and never a union sliced back apart. `applyImages` writes"
+  }
+]

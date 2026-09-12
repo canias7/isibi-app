@@ -1520,9 +1520,18 @@ test("a photo slot nobody can fill is said out loud", async () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   // COUNTED BEFORE THE SWEEP, or there is nothing left to count — `applyImages`
   // removes every token, which is the whole point of it.
-  for (const [c, a] of [["const aSlots = countImageSlots(aValid.pages);", "aValid.pages = applyImages"],
-                        ["const pSlots = countImageSlots(pValid.pages);", "pValid.pages = applyImages"]]) {
+  //
+  // ANCHORED ON THE ASSIGNMENT, NEVER ON ITS ARGUMENT LIST (re-anchored
+  // 2026-09-12). This spelled `countImageSlots(aValid.pages)` and went red when
+  // the count started reading the site's PARTS as well — reporting the count as
+  // gone from a route that still makes it. The property here is the ORDER; what
+  // the count is made over is a different property, and `test/image-parts` owns
+  // it. Both anchors are asserted, because `indexOf` answering -1 is less than
+  // anything and would pass this silently.
+  for (const [c, a] of [["const aSlots = countImageSlots(", "aValid.pages = applyImages"],
+                        ["const pSlots = countImageSlots(", "pValid.pages = applyImages"]]) {
     assert.ok(w.indexOf(c) > 0, "no slot count before " + a);
+    assert.ok(w.indexOf(a) > 0, "no sweep after " + c + " — rescope this guard");
     assert.ok(w.indexOf(c) < w.indexOf(a), "the count runs after the sweep, so it is always zero");
   }
   assert.match(w, /photos: aSlots/, "the addon answer never carries it");

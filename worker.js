@@ -128,7 +128,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, countImageSlots, imagePrompt, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -2437,7 +2437,13 @@ async function makeSitePhoto(env, slug, prompt) {
   }
 }
 
-async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock }) {
+// `parts` SITS BESIDE `pages` THE WHOLE WAY DOWN, because a band-split build
+// writes its sections as parts and a photograph planned into a band is written
+// into one of those files. Reading `pages` alone left the token in the source
+// for the browser to fetch — `builder/site-images.mjs`'s `imageSources` has the
+// full account. It is the FILES the model wrote that this step operates on, and
+// pages and parts are both of those.
+async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve, clock }) {
   let affordable = imagesAffordable(budget, { balance, reserve, usd: SITE_PHOTO_USD });
   // THE OWNER'S OWN IMAGE ALLOWANCE, respected rather than bypassed. Generated
   // photographs land in `uploads/<slug>/`, which is the same 200-file / 100 MB
@@ -2506,7 +2512,7 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock
   // and mutual exclusivity falls out of the ordering — a library clamp that
   // already zeroed it leaves `beforeClock` at 0, so this cannot also claim it.
   const outOfTime = affordable === 0 && !clockPlan.buy && beforeClock > 0;
-  const plan = planImages(pages, affordable);
+  const plan = planImages(imageSources(pages, parts), affordable);
   // `planned` is what the FAMILY asked for and `budget` is what the balance left
   // — they have to travel separately, or a site that could not afford its
   // pictures is indistinguishable from one that was never meant to have any.
@@ -2529,8 +2535,16 @@ async function buySitePhotos(env, { slug, pages, budget, balance, reserve, clock
   // wrote `@@IMG:@@` with nothing inside it, and a library with no room. Both
   // were computed and dropped — `planImages` has returned `empty` since it was
   // written and no caller had ever read it.
+  //
+  // ONE MAP, TWO SWEEPS, NEVER A UNION SLICED BACK APART. `applyImages` writes
+  // each file back into the list it came from, so each list is swept on its own
+  // with the SAME urls. Concatenating the two and slicing the answer by length
+  // is index arithmetic, and index arithmetic is exactly how a fix of this shape
+  // breaks again in silence — `imageSources` says so in as many words and is for
+  // READING only.
   const done = (urls, rest) => ({
-    pages: applyImages(pages, urls), planned, budget: affordable, overflow: plan.overflow,
+    pages: applyImages(pages, urls), parts: applyImages(parts, urls),
+    planned, budget: affordable, overflow: plan.overflow,
     ...(plan.empty ? { empty: plan.empty } : {}),
     ...(libraryFull ? { full: true } : {}),
     // The third cause of a zero, and it needs its own sentence for the same
@@ -10895,7 +10909,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // wrote. `publishPages` supplies the two numbers only it knows — the balance
     // it read before generating and what the generation really cost — and
     // site-images.mjs owns the rule that turns them into a count.
-    images: (pages, { balance, reserve }) => {
+    images: (pages, { balance, reserve, parts }) => {
       // GENERATION RETURNED — see the `gen` mark. Every photograph is its own
       // bounded fetch and they run together, so a hang here is the image models
       // and not the page model, which is a different provider and a different
@@ -10934,7 +10948,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // the honest reading of "this invocation did not make the call"; the
       // collector supplies the truth it does have (see `runResumedSiteBuild`).
       try { if (genPath.via) mark?.("img", { viaContainer: genPath.via === "container" ? 1 : 0 }); else mark?.("img"); } catch { /* a trace must never break a build */ }
-      return buySitePhotos(env, { slug, pages, budget: imgBudget, balance, reserve, clock: budget });
+      return buySitePhotos(env, { slug, pages, parts, budget: imgBudget, balance, reserve, clock: budget });
     },
     compile: async (pages, builtParts) => {
       // REMEMBERED FOR THE STORE BELOW. The publish path writes these to R2 so
@@ -21846,8 +21860,16 @@ async function handleRequest(request, env, ctx) {
                 partial: true,
                 knownRoutes: (eSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
               });
-              const pSlots = countImageSlots(pValid.pages);
+              // THE PARTS ARE COUNTED AND SWEPT BESIDE THE PAGES. This rung buys
+              // nothing (`images: 0`) and the sweep is the whole of what it does
+              // with a token — so a model that answered a photograph inside a
+              // COMPONENT had that token stored and published as a literal
+              // `src="@@IMG:…@@"`, which the browser cannot fetch. The build path
+              // shipped exactly that live on `hebden-bike-repair` (2026-09-12);
+              // `builder/site-images.mjs`'s `imageSources` has the account.
+              const pSlots = countImageSlots(imageSources(pValid.pages, pValid.parts));
               pValid.pages = applyImages(pValid.pages, {});
+              pValid.parts = applyImages(pValid.parts, {});
               // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
               // was wired into the build path alone, and these two lanes
               // generate whole pages exactly as that path does — so a model
@@ -23017,8 +23039,14 @@ async function handleRequest(request, env, ctx) {
             // if it is written regardless. The build path has both, and the one time
             // this repo relied on the model alone it shipped a broken image on the
             // first live site it made.
-            const aSlots = countImageSlots(aValid.pages);
+            // AND THE PARTS WITH THEM, because this step's whole subject is a
+            // COMPONENT — `add_to_site`'s `component` kind lands in `parts`, so
+            // the one file an addon most often writes was the one file nothing
+            // swept. A token stored there publishes as a literal
+            // `src="@@IMG:…@@"` and the page draws its alt text.
+            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts));
             aValid.pages = applyImages(aValid.pages, {});
+            aValid.parts = applyImages(aValid.parts, {});
             // AND LINTED. `validatePages` checks the SHAPE — a path, a Route
             // export, no duplicates. `lintPages` is the one that catches the
             // class of page that typechecks, bundles and then 403s or renders
