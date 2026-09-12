@@ -482,10 +482,10 @@ because after the deletion neither name survives in `worker.js` outside a
 COMMENT, and the walker reads identifiers, not comments. So no mutant of that
 line can die, and the property has exactly one observable half: the PLANTED
 call, which appends the defect to the real source and requires it found. That is
-the half the spec mutates now, and it dies. **Suite 6,082** (6,078 at stage 2b:
-one case retired with `/api/m/*`, and five added — the SSRF driver's self-test,
-the two worker free-identifier cases, the fal scrubber, and `eAnswer`'s driven
-status).
+the half the spec mutates now, and it dies. **Suite 6,083** (6,078 at stage 2b:
+one case retired with `/api/m/*`, and six added — the SSRF driver's self-test,
+the two worker free-identifier cases, the fal scrubber, `eAnswer`'s driven
+status, and the harness-filter census below).
 
 **WHAT STAYS, AND WHY, all checked rather than assumed**: `gen_charges` and
 `refund_charge` (a Postgres table with a live RPC over it — the credit machinery
@@ -501,6 +501,44 @@ kept for it), `docs/media-agent.md`, `fal-wm-test.yml`, and
 `COMPOSIO_API_KEY`, which deploy.yml still uploads and nothing now reads.
 **The customers' stored media is still a separate step, after the code is merged
 and proven, with one more explicit confirm.**
+
+**AND THE HARNESS THAT PROVES A SITE STILL COMPILES HAD NOT RUN SINCE STAGE 1
+(found while reading CI after this push).** `site-build.yml`'s `paths` filter
+named `builder/**` and a list of integration files — right for as long as the
+image carried only the build service, and WRONG since 2026-09-05, when
+`worker.js` and its module graph went into the image as the JOB RUNTIME (the
+Dockerfile's second COPY block). Nothing announced it. **MEASURED: stages 2a, 2b
+and 3 moved `worker.js` by ~2,900 lines between them and `site build` ran on
+none of the three** — its last run was 1114, on stage 1's sha.
+
+This is the recorded "a rule true because of a layer below it expires when that
+layer moves" trap sitting in the CI configuration, which is also the part this
+file records as the least guarded — *the thing that runs your guards is not
+itself guarded unless somebody writes it down*, for the third time (the merge
+triggers, the DO migrations, now the harness filter). The filter takes
+**globs, never the Dockerfile's list** (`worker.js`, `*.mjs`, `Dockerfile`,
+`.dockerignore`, `package.json`, `package-lock.json`), because 44 root modules
+and 100-odd builder ones copied here would be two lists of the same thing with
+nothing between them.
+
+**`test/dockerfile.test.mjs` is the census, DERIVED from the Dockerfile's own
+COPY lines in both trees, and it found two more on its first run**:
+`package.json` and `package-lock.json`, copied into `./worker/` so the job
+runtime can install — a dependency change is as much an image input as a code
+change and was triggering nothing either. It asserts COVERAGE and not equality
+(the filter may be broader, which costs a harness run nobody needed, and may not
+be narrower), refuses a glob shape it does not understand rather than shrugging,
+and proves its own reader alive by requiring `public/chat.js` to read as
+uncovered. **Sweep: 10 mutants, 10 killed, 0 survived, 0 never applied, 2
+comment-only controls survived — FOUR survived the first pass and the split
+between them is the useful part**: two were real (the Dockerfile coming off
+the filter, which a census derived from COPY SOURCES cannot see, because the
+COPY lines are written IN that file; and an unrecognised glob shape reading as
+covering, inert against a filter that uses only the three shapes the reader
+knows) and two were INERT and were deleted rather than hunted — weakening the
+census's own assertion is not a behaviour change, and the site Dockerfile has
+**zero** `--from=` COPY lines, measured, so its staged filter governs nothing.
+
 
 ## Working rules
 
@@ -3446,7 +3484,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   neither is local. Before that, CI had read `373 passed, 0 failed` on runs 1065
   and 1066 once the cap moved to 35 minutes. The other nine integration steps on
   the same run: 4 / 16 / 11 / 29 / 14 / 47, all 0 failed.
-  The unit suite is **6,082** (2026-09-12, 82.4 s local — stage 3 of the media
+  The unit suite is **6,083** (2026-09-12, 82.4 s local — stage 3 of the media
   deletion; CI has NOT read this number yet, and the last one it did read was
   6,072 on run 2473). The arithmetic across the deletion, because a falling
   count is the ordinary shape of one and is only honest written down:
@@ -3454,9 +3492,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `dockerfile`'s `SERVICES` lost its second entry, plus four elsewhere, against
   eight added), **6,072 → 6,078** at stage 2 (the four `media-deleted` cases and
   the driven view fallback, less what the UI removal retired), and
-  **6,078 → 6,082** at stage 3 (one retired with `/api/m/*`; five added — the
-  SSRF driver's self-test, two worker free-identifier cases, the fal scrubber
-  and `eAnswer`'s driven status) — **DOWN from 6,078, and the subtraction is the point**: the game
+  **6,078 → 6,083** at stage 3 (one retired with `/api/m/*`; six added — the
+  SSRF driver's self-test, two worker free-identifier cases, the fal scrubber,
+  `eAnswer`'s driven status, and the harness-filter census) — **DOWN from 6,078, and the subtraction is the point**: the game
   deletion retired its cases (ten at once when `test/dockerfile.test.mjs`'s
   `SERVICES` lost its second entry, plus four in `api-auth`, `build-lane` and
   `client-routes`) and added eight (the DO-migration census and the

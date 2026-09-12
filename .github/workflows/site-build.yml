@@ -15,8 +15,39 @@ on:
     # this already ran on the branch, so re-running it on main proves nothing
     # new.  Every other branch is unchanged.
     branches-ignore: [main]
+    # EVERY PATH THE SITE IMAGE COPIES, AS GLOBS (2026-09-12). This filter
+    # named `builder/**` and a list of integration files, which was right for
+    # as long as the image carried only the build service — and stopped being
+    # right on 2026-09-05, when `worker.js` and its whole module graph went
+    # into the image as the JOB RUNTIME (the Dockerfile's second COPY block).
+    # Nothing announced it: this repository's own "a rule true because of a
+    # layer below it expires when that layer moves" trap, in the CI config,
+    # which is also the part it records as being the least guarded.
+    #
+    # WHAT IT COST: stages 2a, 2b and 3 of the media deletion changed
+    # worker.js by ~2,900 lines between them and this harness — the only thing
+    # that proves a site can still be COMPILED — ran on none of them. It last
+    # ran on stage 1.
+    #
+    # GLOBS RATHER THAN THE DOCKERFILE'S LIST, deliberately: that list is 44
+    # root modules and 100-odd builder ones, and a copy of it here would be two
+    # lists of the same thing with nothing between them. `*.mjs` and
+    # `worker.js` cover the runtime whole and cannot drift when a module is
+    # added. `test/dockerfile.test.mjs` asserts the coverage from the
+    # Dockerfile's own COPY lines, so a path that escapes these globs fails.
     paths:
       - 'builder/**'
+      - 'worker.js'
+      - '*.mjs'
+      - 'Dockerfile'
+      - '.dockerignore'
+      # THE GUARD FOUND THESE TWO ON ITS FIRST RUN, which is the whole argument
+      # for deriving the list from the Dockerfile: the image installs the
+      # Worker's own dependencies for the job runtime, so a dependency change is
+      # as much an image input as a code change and was not triggering the
+      # harness either.
+      - 'package.json'
+      - 'package-lock.json'
       - 'test/integration/site-build.mjs'
       - 'test/integration/site-runtime.mjs'
       - 'test/integration/site-routing.mjs'

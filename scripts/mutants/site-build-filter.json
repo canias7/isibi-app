@@ -1,0 +1,100 @@
+[
+  {
+    "label": "worker.js comes off the harness filter again, so the file the image carries as the job runtime stops triggering the only check that proves a site still compiles",
+    "files": [
+      ".github/workflows/site-build.yml"
+    ],
+    "from": "      - 'worker.js'\n      - '*.mjs'",
+    "to": "      - '*.mjs'"
+  },
+  {
+    "label": "the root modules come off, so a change to site-builds.mjs or site-schema.mjs runs nothing",
+    "files": [
+      ".github/workflows/site-build.yml"
+    ],
+    "from": "      - 'worker.js'\n      - '*.mjs'",
+    "to": "      - 'worker.js'"
+  },
+  {
+    "label": "the two the guard found on its first run come off again — a dependency change is an image input",
+    "files": [
+      ".github/workflows/site-build.yml"
+    ],
+    "from": "      - 'package.json'\n      - 'package-lock.json'",
+    "to": ""
+  },
+  {
+    "label": "the coverage reader answers TRUE for everything, so the census passes over any filter at all",
+    "files": [
+      "test/dockerfile.test.mjs"
+    ],
+    "from": "  const covers = (glob, p) => {\n    if (glob === p) return true;",
+    "to": "  const covers = (glob, p) => {\n    if (true) return true;\n    if (glob === p) return true;"
+  },
+  {
+    "label": "an unrecognised glob shape reads as covering, so a reader that does not understand the filter reports full coverage",
+    "files": [
+      "test/dockerfile.test.mjs"
+    ],
+    "from": "    throw new Error(\"this guard does not understand the glob \" + JSON.stringify(glob));",
+    "to": "    return true;"
+  },
+  {
+    "label": "a `builder/**` glob matches nothing, so every builder module reads as uncovered (the census fails loudly rather than quietly — the direction that costs a false alarm)",
+    "files": [
+      "test/dockerfile.test.mjs"
+    ],
+    "from": "    if (glob.endsWith(\"/**\")) return p.startsWith(glob.slice(0, -2));",
+    "to": "    if (glob.endsWith(\"/**\")) return false;"
+  },
+  {
+    "label": "the Dockerfile itself comes off the filter — a census derived from COPY SOURCES cannot see the file the COPY lines are written in, which is why this survived the first pass and why the required set adds it explicitly",
+    "files": [
+      ".github/workflows/site-build.yml"
+    ],
+    "from": "      - 'Dockerfile'\n      - '.dockerignore'",
+    "to": "      - '.dockerignore'"
+  },
+  {
+    "label": "`.dockerignore` comes off the filter — it decides what the build context can even SEE, so every layer can change with it",
+    "files": [
+      ".github/workflows/site-build.yml"
+    ],
+    "from": "      - 'Dockerfile'\n      - '.dockerignore'",
+    "to": "      - 'Dockerfile'"
+  },
+  {
+    "label": "the reader refuses EVERY glob, so the two refusal cases pass over a census that can read nothing",
+    "files": [
+      "test/dockerfile.test.mjs"
+    ],
+    "from": "  const covers = (glob, p) => {\n    if (glob === p) return true;",
+    "to": "  const covers = (glob, p) => {\n    throw new Error(\"this guard does not understand the glob \" + JSON.stringify(glob));\n    if (glob === p) return true;"
+  },
+  {
+    "label": "the Dockerfile's own path is not added to the required set, so taking it off the filter goes unnoticed again",
+    "files": [
+      "test/dockerfile.test.mjs"
+    ],
+    "from": "    .concat([SITE.dockerfile.replace(ROOT, \"\"), \".dockerignore\"]);",
+    "to": "    .concat([]);"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": [
+      "test/dockerfile.test.mjs"
+    ],
+    "from": "  // THE FILTER THAT DECIDES WHETHER THE CONTAINER HARNESS RUNS AT ALL, and\n  // nothing read it until 2026-09-12.",
+    "to": "  // The filter that decides whether the container harness runs at all, which\n  // nothing had read before this."
+  },
+  {
+    "label": "CONTROL — a second comment, in the workflow this time",
+    "control": true,
+    "files": [
+      ".github/workflows/site-build.yml"
+    ],
+    "from": "    # EVERY PATH THE SITE IMAGE COPIES, AS GLOBS (2026-09-12). This filter",
+    "to": "    # Every path the site image copies, as globs (added this September). It"
+  }
+]

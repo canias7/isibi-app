@@ -745,3 +745,83 @@ test("the shared site server is the one copy, and it renders rather than looking
   assert.ok(users.length >= 3,
     "only " + users.length + " harnesses use the shared server, so the scan is not seeing them: " + users.join(", "));
 });
+
+test("every path the site image COPIES triggers the harness that proves it still builds", () => {
+  // THE FILTER THAT DECIDES WHETHER THE CONTAINER HARNESS RUNS AT ALL, and
+  // nothing read it until 2026-09-12.
+  //
+  // `site-build.yml` listed `builder/**` and a handful of integration files.
+  // That was exactly right while the image carried only the build service, and
+  // it stopped being right on 2026-09-05 when `worker.js` and its module graph
+  // went in as the JOB RUNTIME — the Dockerfile's second COPY block. Nothing
+  // announced the change, which is this repository's own "a rule true because
+  // of a layer below it expires when that layer moves" trap sitting in CI
+  // config, the part it also records as the least guarded.
+  //
+  // MEASURED COST: stages 2a, 2b and 3 of the media deletion moved worker.js by
+  // ~2,900 lines between them, and `site build` — the only thing that proves a
+  // site can still be COMPILED — ran on none of the three.
+  //
+  // DERIVED FROM THE DOCKERFILE'S OWN COPY LINES, in both trees, so a module
+  // added to either next month is covered without an edit here. What it asserts
+  // is COVERAGE, not equality: the workflow may be broader (it is — `*.mjs`
+  // covers root modules the image does not carry, which costs a harness run
+  // nobody needed and never a missed one), and it may not be narrower.
+  const wf = fs.readFileSync(new URL("../.github/workflows/site-build.yml", import.meta.url), "utf8");
+  const on = wf.slice(0, wf.indexOf("\njobs:"));
+  assert.ok(on.includes("branches-ignore: [main]"), "site-build.yml's trigger has been reshaped — re-read this guard");
+  const globs = [...on.matchAll(/^\s+- '([^']+)'$/gm)].map((m) => m[1]);
+  assert.ok(globs.length >= 5, `only ${globs.length} paths in the filter — this scan is reading nothing`);
+
+  // A path is covered if some glob matches it. Only the two glob shapes the
+  // filter uses are understood (`a/**` and `*.ext` and a literal), and an
+  // unrecognised glob is a hard failure rather than a silent pass — a reader
+  // that shrugged at a shape it could not parse would report full coverage over
+  // a filter it had not understood.
+  const covers = (glob, p) => {
+    if (glob === p) return true;
+    if (glob.endsWith("/**")) return p.startsWith(glob.slice(0, -2));
+    if (/^\*\.[a-z]+$/.test(glob)) return !p.includes("/") && p.endsWith(glob.slice(1));
+    if (/^[\w./-]+$/.test(glob)) return false;           // a literal that did not match
+    throw new Error("this guard does not understand the glob " + JSON.stringify(glob));
+  };
+
+  const copied = copySources(fs.readFileSync(SITE.dockerfile, "utf8")).filter((c) => !c.staged).map((c) => c.src)
+    // A directory source (`builder/theme-candidates/`) is covered by whatever
+    // covers the directory, so compare on the path without its trailing slash.
+    .map((s) => s.replace(/\/$/, ""))
+    // THE TWO INPUTS NO `COPY` LINE NAMES, and the sweep found them missing:
+    // the Dockerfile decides what the image IS, and `.dockerignore` decides
+    // what the build context can even see — change either and every layer can
+    // change. Taking `- 'Dockerfile'` off the filter survived the first sweep
+    // because a census derived from COPY sources cannot see the file the COPY
+    // lines are written in. Derived from the service fixture rather than typed,
+    // so a second image would bring its own.
+    .concat([SITE.dockerfile.replace(ROOT, ""), ".dockerignore"]);
+  assert.ok(copied.includes("Dockerfile"), "the Dockerfile's own path is not in the required set — check SITE.dockerfile");
+  assert.ok(copied.length > 50, `only ${copied.length} COPY sources — the parser has stopped reading`);
+  const missed = [...new Set(copied)].filter((p) => !globs.some((g) => covers(g, p)));
+  assert.deepEqual(missed, [],
+    "the site image copies these and a push that changes them does NOT run `site build`:\n  " + missed.join("\n  "));
+
+  // AND THE OBSERVER, PROVED ALIVE: the reader really does reject a path the
+  // filter does not cover. Without this, a `covers` that answered true for
+  // everything would pass the assertion above over any filter at all.
+  assert.equal(globs.some((g) => covers(g, "public/chat.js")), false,
+    "the coverage reader admits a path the filter does not name — it is answering true for everything");
+  assert.equal(globs.some((g) => covers(g, "worker.js")), true, "worker.js reads as uncovered by a filter that names it");
+  // AND A SHAPE IT DOES NOT UNDERSTAND MUST THROW, DRIVEN — every glob in
+  // today's filter is one of the three shapes above, so the refusal branch is
+  // reached by nothing and a mutant that turned it into `return true` survived
+  // the first sweep as inert. A reader that shrugs at a pattern it cannot parse
+  // reports full coverage over a filter it has not read, which is the worst
+  // direction for a census to be wrong in.
+  assert.throws(() => covers("builder/*.mjs", "builder/site-plan.mjs"), /does not understand the glob/,
+    "the coverage reader accepts a glob shape it cannot parse");
+  assert.throws(() => covers("**/*.mjs", "a.mjs"), /does not understand the glob/);
+  // …and the shapes it DOES understand are not thrown on, or the two above pass
+  // over a reader that refuses everything.
+  assert.doesNotThrow(() => covers("builder/**", "builder/x.mjs"));
+  assert.doesNotThrow(() => covers("*.mjs", "a.mjs"));
+  assert.doesNotThrow(() => covers("Dockerfile", "Dockerfile"));
+});
