@@ -1,0 +1,51 @@
+[
+  {
+    "label": "THE MANIFEST IS RENAMED AND THE LOCK IS FORGOTTEN — both of the lock's names still say the old brand, and `npm ci` refuses the pair at image build",
+    "files": ["builder/lovable/template/package-lock.json"],
+    "from": "{\n  \"name\": \"gofarther-site\",\n  \"lockfileVersion\": 3,\n  \"requires\": true,\n  \"packages\": {\n    \"\": {\n      \"name\": \"gofarther-site\",",
+    "to": "{\n  \"name\": \"isibi-lovable-clone\",\n  \"lockfileVersion\": 3,\n  \"requires\": true,\n  \"packages\": {\n    \"\": {\n      \"name\": \"isibi-lovable-clone\","
+  },
+  {
+    "label": "one of the lock's two names is missed — the top-level one disagrees with the manifest",
+    "files": ["builder/lovable/template/package-lock.json"],
+    "from": "{\n  \"name\": \"gofarther-site\",\n  \"lockfileVersion\": 3,",
+    "to": "{\n  \"name\": \"isibi-lovable-clone\",\n  \"lockfileVersion\": 3,"
+  },
+  {
+    "label": "one of the lock's two names is missed — the root package entry disagrees with the manifest",
+    "files": ["builder/lovable/template/package-lock.json"],
+    "from": "    \"\": {\n      \"name\": \"gofarther-site\",",
+    "to": "    \"\": {\n      \"name\": \"isibi-lovable-clone\","
+  },
+  {
+    "label": "the lock is renamed and the MANIFEST is forgotten — the other direction, and the one a find-and-replace over *.json would leave",
+    "files": ["builder/lovable/template/package.json"],
+    "from": "{\n  \"name\": \"gofarther-site\",\n  \"private\": true,",
+    "to": "{\n  \"name\": \"isibi-lovable-clone\",\n  \"private\": true,"
+  },
+  {
+    "label": "the manifest has no name at all — the observer-alive check, without which the comparisons below it pass over a name nobody wrote",
+    "files": ["builder/lovable/template/package.json"],
+    "from": "{\n  \"name\": \"gofarther-site\",\n  \"private\": true,",
+    "to": "{\n  \"private\": true,"
+  },
+  {
+    "label": "the lock has no root package entry — the second observer-alive check, and a lock npm cannot install from",
+    "files": ["builder/lovable/template/package-lock.json"],
+    "from": "    \"\": {\n      \"name\": \"gofarther-site\",\n      \"dependencies\": {",
+    "to": "    \"_notroot\": {\n      \"name\": \"gofarther-site\",\n      \"dependencies\": {"
+  },
+  {
+    "label": "a name npm refuses — an uppercase letter, which fails the install rather than any test, and which the manifest can carry while all three still agree",
+    "files": ["builder/lovable/template/package.json"],
+    "from": "  \"name\": \"gofarther-site\",\n  \"private\": true,",
+    "to": "  \"name\": \"GoFarther Site\",\n  \"private\": true,"
+  },
+  {
+    "label": "CONTROL: a comment-only change in a file the guard really reads, which must survive",
+    "control": true,
+    "files": ["builder/page-gen.mjs"],
+    "from": "// Generated from the component files by builder/gen-component-api.mjs. Kept in",
+    "to": "// Generated from the component files by builder/gen-component-api.mjs; kept in"
+  }
+]

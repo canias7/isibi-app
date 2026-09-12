@@ -29,6 +29,11 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const pkg = JSON.parse(readFileSync(ROOT + "builder/lovable/template/package.json", "utf8"));
 const rules = readFileSync(ROOT + "builder/page-gen.mjs", "utf8");
 const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+// npm's own shape for an unscoped package name: lowercase, starting on a letter
+// or a digit, then letters, digits, `.`, `_` or `-`. Kept here as ONE constant
+// because it is asked twice below — once of the real manifest, once of the
+// shapes npm refuses — and two copies of a rule drift.
+const NPM_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 
 test("every package the page rules offer is a real template dependency", () => {
   // DERIVED FROM THE PROMPT, not from a list kept beside it. The rules say
@@ -78,5 +83,66 @@ test("the lockfile carries the types, or `npm ci` in the container installs noth
   for (const p of ["three", "@react-three/fiber", "@types/three"]) {
     assert.ok(lock.includes('"node_modules/' + p + '"'),
       "`" + p + "` is in the template's package.json and not in its lockfile — `npm ci` will not install it");
+  }
+});
+
+test("the project's name says the same thing in all three places it is written", () => {
+  // `npm ci` REFUSES A LOCK FILE THAT DISAGREES WITH package.json ABOUT THE
+  // NAME, and the name is written THREE times: once in `package.json`, and
+  // twice in the lock — its own top-level `name` and the root package entry
+  // `packages[""]`.name. The container's image build is `npm ci` (see the
+  // Dockerfile's COPY of exactly these two files, pinned by
+  // `test/dockerfile.test.mjs`), so a rename that reaches one and not the
+  // others does not fail a test or a page — it fails the IMAGE BUILD, at
+  // deploy, after everything here has gone green.
+  //
+  // NOTHING ASSERTED THIS UNTIL 2026-09-12, when the name was changed for the
+  // first time: `isibi-lovable-clone` -> `gofarther-site` (owner: *"change the
+  // name and merge"*), because showing the whole project root put
+  // `package.json` in front of every customer and line two called the product a
+  // clone of a competitor. Until that day the three agreed by never having been
+  // touched, which is not a property — it is a habit, and this is the edit that
+  // ended it.
+  //
+  // DERIVED FROM package.json, never a fourth copy typed here. A constant in
+  // this file would be "two lists of the same thing" with the manifest as the
+  // other list, and the next rename would have to find this line to stay green
+  // — which is the same miss one layer up.
+  //
+  // AND THIS IS THE SECOND WALL, DELIBERATELY, WHICH A SWEEP CANNOT SAY.
+  // `test/foundation-files.test.mjs` re-runs the generator and compares, and
+  // both these files are bundled — so every wrong-name mutant makes the
+  // committed bundle stale and dies there too. MEASURED, not assumed: the
+  // seven mutants in `scripts/mutants/template-name.json` all die under either
+  // test file ALONE, which reads exactly like one of the two walls being
+  // pointless. It is not, and the case that separates them was measured by
+  // hand: apply a partial rename and then REGENERATE the bundle, and the
+  // staleness guard is satisfied (7 pass, 0 fail) while this one is the only
+  // thing that fails (3 pass, 1 fail). A rename with a regenerate in the middle
+  // of it is the likely mistake, not the unlikely one — so do not delete this
+  // because nothing appears to need it.
+  const lock = JSON.parse(readFileSync(ROOT + "builder/lovable/template/package-lock.json", "utf8"));
+  // THE OBSERVER IS ALIVE FIRST: a lock file with no root package entry would
+  // make the comparison below vacuous and pass over a name nobody wrote.
+  assert.ok(pkg.name, "the template's package.json has no name — `npm ci` refuses a nameless project");
+  assert.ok(lock.packages && lock.packages[""], "the lock file has no root package entry — this check is measuring nothing");
+  assert.equal(lock.name, pkg.name,
+    "the lock file's own name (" + lock.name + ") is not the project's (" + pkg.name + ") — `npm ci` refuses the pair and the container image fails to build");
+  assert.equal(lock.packages[""].name, pkg.name,
+    "the lock file's root package is named " + lock.packages[""].name + " and the project is " + pkg.name + " — `npm ci` refuses the pair and the container image fails to build");
+  // AND IT MUST BE A NAME npm WILL TAKE. An uppercase letter or a space is a
+  // refusal at install, which is the same deploy-time failure wearing a
+  // different message; the rule is npm's, not ours.
+  assert.match(pkg.name, NPM_NAME,
+    "`" + pkg.name + "` is not a name npm accepts — lowercase, and no spaces");
+  // DRIVEN, because one real value cannot prove a rule. `gofarther-site` passes
+  // a regex that says nothing at all, and a sweep cannot tell the two apart
+  // while only one name is ever asked: there is no second manifest to rename.
+  // So the rule is asked about the shapes npm refuses, and about one it takes.
+  for (const bad of ["GoFarther-Site", "gofarther site", " gofarther-site", "-gofarther", "", ".hidden"]) {
+    assert.ok(!NPM_NAME.test(bad), "the name rule accepts " + JSON.stringify(bad) + ", which npm does not");
+  }
+  for (const good of ["gofarther-site", "a", "site.v2", "go_farther"]) {
+    assert.ok(NPM_NAME.test(good), "the name rule refuses " + JSON.stringify(good) + ", which npm takes — a rule that refuses a valid rename blocks one");
   }
 });
