@@ -1065,6 +1065,57 @@ and **inside each one, the real directory tree.**
   the check meant to prove the bar was still there passed over a panel that had
   lost it. Both instances are in this file's markup now: assert `class="x"` with
   its quote, never the bare name.
+- **A CLICK REPAINTS A COLUMN, NEVER THE PANEL (2026-09-12, owner: *"screen
+  vibrates everytime i click on one of them"* — the SECOND report, on a panel
+  whose first vibration had been found and fixed the same night).** The width
+  regression above is real and was only half of it: it fires on a FOLD, because
+  it is about the column re-measuring. This one fires on **every click, a file
+  click included**, and the cause is one element over.
+  **`.st-code` CARRIES AN ENTRANCE ANIMATION** (`styles.css`, "builder
+  Preview/Code/More/Data panels re-render on switch → animate each in"), and
+  `drawSiteCode` rebuilt `.st-code` from scratch on every row and fold click — so
+  a brand-new element entered the document and the entrance ran again.
+  **MEASURED in a real browser, frame by frame: the whole panel drops 8.00px,
+  fades to opacity 0 and slides back over 220 ms, on every press**; rewriting only
+  the rows moves it **0.00px**, which is the control. `docs/edits/code-click-twitch.png`
+  is the same frame, 60 ms after the same click, both ways.
+  The animation was correct for as long as this panel was only ever built on a TAB
+  SWITCH — the recorded "a rule true because of a layer below it expires when that
+  layer moves", and nothing announced it when the Code tab started rebuilding
+  itself.
+  **`stCodeFileHtml` is the editor column's own renderer** and `paintFile` is the
+  one place that calls it, beside `paintTree` for the rows; `drawSiteCode` writes
+  an EMPTY shell and lets each fill its column, so neither is written twice. A row
+  click is `paintFile(); paintTree();` — the tree TOO, because with no stored fold
+  preference the open chain is derived from the file being read, so a click
+  changes which folders stand open and moving one `on` class by hand would leave
+  the tree describing the file before it. A fold click is `paintTree()` alone.
+  `drawSiteCode` now has exactly one caller: `loadSiteCode`.
+  **TWO OTHER DEFECTS CAME OUT WITH IT, both invisible while the panel was being
+  rebuilt anyway**: the tree's scroll offset was lost on every click (`innerHTML`
+  empties the box, which clamps `scrollTop` to 0 — so `paintTree` reads it before
+  and restores it after, and the SEARCH BOX resets to 0 itself, because a new set
+  of results is a new list), and folding a directory rebuilt the editor beside it,
+  scrolling the file being read back to line 1. Clicking the file already open is
+  refused for the same reason.
+  **A STILL SCREENSHOT CANNOT SEE THIS CLASS AT ALL** — the defect exists for a
+  fifth of a second — so "the render looks right" was never evidence. What sees it
+  is sampling one element's rect across `requestAnimationFrame`.
+  **Sweep: 20 mutants, 18 killed, 0 survived, 0 never applied, both comment-only
+  controls survived.** Five survived the first pass: ONE WAS INERT and was proven
+  so rather than hunted — it moved `const wasAt = rows.scrollTop` below the
+  `stCodeFind` call, which does not touch `rows`, so the read was still before the
+  wipe; replaced with one that moves it past the write. The other four were guard
+  gaps, every one a branch nothing drove: clicking the file already open, a row
+  naming a file the project has not got (which would reach `stCodeFileHtml(undefined)`
+  and throw), the 120,000-character clip, and whether the source is escaped. The
+  rest: either click rebuilding the panel, a click repainting one of the two, the
+  bar keeping the old name, the Download button not rebound after its element was
+  replaced, the shell writing the editor inline again, the scroll never restored.
+  **AND THE NEW COMMENT BLOCK LANDED CARRYING `—` ESCAPES** where the file
+  has 1,383 real em dashes against 21 pre-existing escapes — harmless inside a
+  comment, wrong-looking in source, and it made a mutant's anchor unfindable.
+  Mine were normalised; the 21 were left alone.
 - **A SHARED FILE MUST BE ONE THE REPOSITORY HAS, and the guard asks GIT rather
   than the filesystem.** `src/routeTree.gen.ts` was in the list: TanStack
   regenerates it per build, the template's own `.gitignore` names it, and
@@ -2839,9 +2890,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
   CI run of this workflow is what re-reads the number — a count nobody
   re-measured is a claim ahead of its evidence.
-  The unit suite is 6,053 (2026-09-12, the project-root census, the template
+  The unit suite is 6,061 (2026-09-12, the project-root census, the template
   name guard, the preview-error channel, the code tree's icons and sort, and
-  the search box, the tree column's width and the row menu; 86.4 s local).
+  the search box, the tree column's width, the row menu and the click twitch;
+  86.4 s local).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
@@ -3834,6 +3886,22 @@ worked, and that leaves a live mutant in the tree. **And the obvious fix is
 INERT**: adding `process.exit()` to a handler that never runs reads exactly like
 a fix. The loop awaits now. **A sweep cannot mutate its own runner**, so those
 guards are proved by hand — said out loud rather than counted.
+
+**A DEFECT THAT ONLY EXISTS IN TIME IS INVISIBLE TO EVERY STILL (2026-09-12).**
+An entrance animation on an element that something started rebuilding by itself is
+a twitch on every interaction — 8px and a fade, 220 ms, on every click of the Code
+tab's file tree (the explorer entry has it). **No markup assertion, no CSS
+existence check and no screenshot can see it**: the finished panel is pixel-perfect
+in every still, and the only reading that shows it is one element's rect sampled
+across `requestAnimationFrame` after the interaction. The screenshot rule two traps
+up is about a still lying; this is a still being SILENT, which is worse, because
+the picture looks like evidence. When an owner reports movement, measure across
+frames — and note that an animation is the one kind of rule whose correctness
+depends on how often its element is created, which nothing in a stylesheet can say.
+**And a first fix for the right symptom is not a fix for the right cause**: the
+width regression on the same panel the same night was real, measured, and covered
+only the FOLD path, so the file path went on twitching and the owner had to report
+it twice.
 
 **A CSS RULE CAN BE CORRECT AND STILL LOSE (2026-09-11).** `padding-left` written
 above a `.st-file { padding: … }` shorthand loses on source order alone, at equal

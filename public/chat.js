@@ -11912,6 +11912,41 @@ function siteCodeView(site) {
   }
   return '<div class="st-codewrap" id="stCode"><div class="st-empty">Loading your code\u2026</div></div>';
 }
+/**
+ * THE FILE BEING READ — the bar, the note and the source, as its own renderer so
+ * that clicking a row can repaint THE FILE without rebuilding the panel around it.
+ *
+ * IT IS ITS OWN FUNCTION BECAUSE OF AN ANIMATION, and that is worth saying out
+ * loud or the next session inlines it again. `.st-code` carries an entrance in
+ * `styles.css` — "builder Preview/Code/More/Data panels re-render on switch →
+ * animate each in" — which was written when this panel was only ever built on a
+ * TAB SWITCH. A file click rebuilding the panel's HTML puts a brand-new
+ * `.st-code` into the document, so that entrance runs again: MEASURED in a real
+ * browser, the whole panel drops 8px, fades to zero and slides back over 220ms,
+ * on every single row press. The owner's word for it was "the screen vibrates".
+ * Rewriting only the part that changed moves it 0.00px, which is the control.
+ *
+ * This is the file's own "a display control must not take down more of the panel
+ * than the thing it displays", one layer further in — and the recorded "a rule
+ * true because of a layer below it expires when that layer moves": the entrance
+ * was correct for as long as nothing rebuilt the panel by itself.
+ */
+function stCodeFileHtml(open) {
+  // CLIPPED FOR DISPLAY ONLY, and the zip gets the whole file. A `<pre>` of a
+  // megabyte locks the tab; a download that quietly lost the end of a page
+  // would be a lying instrument.
+  const raw = String(open.text).slice(0, 120000);
+  const gutter = Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n');
+  // THE "READ ONLY" PILL IS GONE (owner, 2026-09-12: "delete the thing that
+  // says read only"). It was added because the panel has never been editable
+  // and never said so; the owner's call is that the label was worth less than
+  // the space and the noise it cost. The panel is still read-only — nothing
+  // about the behaviour moved, only the sentence about it.
+  return '<div class="st-code-bar"><span class="st-code-fname">' + esc(open.name) + '</span>' +
+    '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this file">' + ic('download', 14) + ' Download</button></div>' +
+    (open.note ? '<div class="st-code-note">' + esc(open.note) + '</div>' : '') +
+    '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>';
+}
 // The fetched half. Answers rather than throws at every step, because a code
 // view that cannot load must say so and never take the workspace down with it.
 async function loadSiteCode(site) {
@@ -11964,24 +11999,13 @@ function drawSiteCode(src) {
   // would not bring their file back.
   let open = files.find((f) => f.name === siteCodeOpen) || files[0];
   siteCodeOpen = open.name;
-  // CLIPPED FOR DISPLAY ONLY, and the zip gets the whole file. A `<pre>` of a
-  // megabyte locks the tab; a download that quietly lost the end of a page
-  // would be a lying instrument.
-  const raw = String(open.text).slice(0, 120000);
-  const gutter = Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n');
+  // THE SHELL IS EMPTY IN BOTH COLUMNS, and each is filled by the one function
+  // that owns it — `paintFile` and `paintTree` below. Writing either one's
+  // markup here as well would be a second copy of it, and the copy that drifts
+  // is the one nothing clicks.
   host.innerHTML = '<div class="st-code">' +
     '<div class="st-code-tree">' + stFindBox(siteCodeFind) + '<div class="st-code-rows"></div></div>' +
-    '<div class="st-code-main">' +
-      // THE "READ ONLY" PILL IS GONE (owner, 2026-09-12: "delete the thing that
-      // says read only"). It was added because the panel has never been editable
-      // and never said so; the owner's call is that the label was worth less than
-      // the space and the noise it cost. The panel is still read-only — nothing
-      // about the behaviour moved, only the sentence about it.
-      '<div class="st-code-bar"><span class="st-code-fname">' + esc(open.name) + '</span>' +
-      '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this file">' + ic('download', 14) + ' Download</button></div>' +
-      (open.note ? '<div class="st-code-note">' + esc(open.note) + '</div>' : '') +
-      '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
-    '</div>' +
+    '<div class="st-code-main"></div>' +
   '</div>' + stRowMenuHtml();
   // THE MENU IS A SIBLING OF THE EDITOR, not a child of the scrolling row list.
   // It is `position: fixed` off the handle's own rect, so a menu written inside
@@ -11998,22 +12022,64 @@ function drawSiteCode(src) {
     if (menu) menu.classList.remove('open');
     host.querySelectorAll('[data-srcmore][aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
   };
-  // ONE PLACE BUILDS THE TREE AND BINDS ITS ROWS, called on the first paint and
-  // again on every keystroke in the search box. Two copies would be "two lists of
-  // the same thing" with the rows' own handlers inside them, and the failure is a
-  // filtered tree whose files do nothing when clicked.
+  // ONE PLACE BUILDS THE TREE AND BINDS ITS ROWS, called on the first paint, on
+  // every keystroke in the search box, and on every row and fold click. Two
+  // copies would be "two lists of the same thing" with the rows' own handlers
+  // inside them, and the failure is a filtered tree whose files do nothing when
+  // clicked.
   const rows = host.querySelector('.st-code-rows');
   const said = host.querySelector('.st-find-said');
   const box = host.querySelector('.st-code-find');
+  const main = host.querySelector('.st-code-main');
+  // ONE PLACE REPAINTS THE FILE BEING READ, and it replaces the editor column
+  // alone. Going back through `drawSiteCode` for a row click is what made the
+  // whole panel twitch (see `stCodeFileHtml`), and it also threw the tree's own
+  // scroll position back to the top on every press.
+  const paintFile = () => {
+    if (!main) return;
+    main.innerHTML = stCodeFileHtml(open);
+    // REBOUND HERE BECAUSE THE BUTTON IS INSIDE WHAT WE JUST REPLACED. It reads
+    // `open` at press time rather than closing over a file, so it downloads what
+    // is on screen and not whatever was open when the panel was drawn.
+    const dl = main.querySelector('#stCodeDl');
+    if (dl) dl.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());
+  };
   const paintTree = () => {
     if (!rows) return;
+    // THE LIST KEEPS ITS PLACE. `innerHTML` empties the box, which clamps
+    // `scrollTop` to zero, so without this a customer reading a file near the
+    // bottom of the tree is thrown back to PAGES every time they click one. A
+    // NEW QUERY is the one case where the top is right, and its own handler
+    // says so rather than this one guessing.
+    const wasAt = rows.scrollTop;
     const found = stCodeFind(files, siteCodeFind);
     rows.innerHTML = found.files.length
       ? stCodeTree(found.files, open.name, siteCodeOpenGroups, found.on)
       : '<div class="st-find-none">' + esc(stFindNone(siteCodeFind)) + '</div>';
     if (said) said.textContent = stFindSaid(found);
     if (box) box.classList.toggle('on', found.on);
-    rows.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => { closeMenu(); siteCodeOpen = b.dataset.srcname; drawSiteCode(src); });
+    // A ROW CLICK REPAINTS THE FILE AND THE TREE, NEVER THE PANEL. It used to
+    // call `drawSiteCode`, which rebuilds `.st-code` — and a new `.st-code`
+    // re-runs the entrance animation `styles.css` puts on it, so the whole
+    // panel dropped 8px and faded on every press. `stCodeFileHtml` carries the
+    // measurement and the reasoning.
+    //
+    // THE TREE IS REPAINTED TOO, rather than the `on` class being moved by hand,
+    // because with no stored fold preference the open chain is DERIVED from the
+    // file being read — so which folders stand open is part of what a row click
+    // changes, and moving one class would leave the tree describing the file
+    // before it.
+    rows.querySelectorAll('[data-srcname]').forEach((b) => b.onclick = () => {
+      closeMenu();
+      const next = files.find((f) => f.name === b.dataset.srcname);
+      // THE SAME FILE IS NOT A CHANGE. Repainting would scroll it back to its
+      // first line for nothing, which is the defect one row over.
+      if (!next || next.name === open.name) return;
+      open = next;
+      siteCodeOpen = next.name;
+      paintFile();
+      paintTree();
+    });
     // THE HANDLE OPENS THE ONE MENU AT ITS OWN ROW. `stopPropagation` is what
     // keeps it from ALSO opening the file underneath — the two buttons sit in one
     // row and the document's close handler is listening on the way back up.
@@ -12051,17 +12117,27 @@ function drawSiteCode(src) {
       const k = b.dataset.srcfold;
       if (now.has(k)) now.delete(k); else now.add(k);
       siteCodeOpenGroups = now;
-      drawSiteCode(src);
+      // THE TREE, NOT THE PANEL — the row click's argument, for the same reason
+      // and with one more: a fold changes nothing about the file being read, so
+      // rebuilding the editor beside it scrolled that file back to line 1.
+      paintTree();
     });
+    rows.scrollTop = wasAt;
   };
+  paintFile();
   paintTree();
   // THE SEARCH BOX REDRAWS THE TREE AND NOTHING ELSE. Calling `drawSiteCode` per
   // keystroke would destroy the input the customer is typing in — focus and caret
   // gone after one character — and would also rebuild the `<pre>` beside it, so
   // the file being read would jump back to its first line on every letter.
+  //
+  // AND A NEW QUERY STARTS AT THE TOP. `paintTree` keeps the list's place, which
+  // is right for a click on a tree that did not change; a different set of
+  // results is a different list, and holding a scroll offset into it lands the
+  // customer in the middle of matches they have not seen.
   const find = document.getElementById('stCodeFind');
   if (find) {
-    find.oninput = () => { siteCodeFind = find.value; paintTree(); };
+    find.oninput = () => { siteCodeFind = find.value; paintTree(); if (rows) rows.scrollTop = 0; };
     // ESCAPE CLEARS, AND STOPS THERE. The document has its own Escape handler that
     // closes whatever overlay is open, so without this a customer emptying the box
     // would also shut the panel they are searching in.
@@ -12069,15 +12145,13 @@ function drawSiteCode(src) {
       if (e.key !== 'Escape') return;
       e.stopPropagation();
       if (!find.value) return;
-      find.value = ''; siteCodeFind = ''; paintTree();
+      find.value = ''; siteCodeFind = ''; paintTree(); if (rows) rows.scrollTop = 0;
     };
   }
   const clear = document.getElementById('stCodeFindX');
   // FOCUS GOES BACK TO THE FIELD, because clearing a search is almost always the
   // start of the next one, and a cleared box the caret is not in costs a click.
-  if (clear && find) clear.onclick = () => { find.value = ''; siteCodeFind = ''; paintTree(); find.focus(); };
-  const one = document.getElementById('stCodeDl');
-  if (one) one.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());
+  if (clear && find) clear.onclick = () => { find.value = ''; siteCodeFind = ''; paintTree(); if (rows) rows.scrollTop = 0; find.focus(); };
 
   // THE MENU'S OWN WIRING, bound once per draw rather than per row — the entries
   // never change, only which file they are pointed at.

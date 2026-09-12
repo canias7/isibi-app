@@ -620,8 +620,15 @@ test("DRIVEN: a server that cannot answer is said, and the tab's list is used wh
  * file they are reading where they left it.
  */
 function codeHost(bind = () => []) {
-  const st = { shell: "", rows: "", said: "", on: false };
+  const st = { shell: "", rows: "", main: "", said: "", on: false, draws: 0 };
   const SLOT = '<div class="st-code-rows"></div>';
+  // THE EDITOR COLUMN IS A SLOT TOO. `drawSiteCode` writes an EMPTY shell and
+  // lets `paintFile` and `paintTree` fill a column each, so a fake that modelled
+  // only the rows would read the bar and the source as missing from a panel that
+  // has them — and, worse, would pass every "the panel was not rebuilt" case for
+  // the wrong reason, since nothing would ever be written to the column a row
+  // click repaints.
+  const MAIN = '<div class="st-code-main"></div>';
   // THE BINDER UNDERSTANDS `[attr]` AND NOTHING ELSE, so anything compound is
   // answered with the empty list rather than handed to it. `closeMenu` asks for
   // `[data-srcmore][aria-expanded="true"]`, which the binder's `slice(1, -1)`
@@ -631,23 +638,64 @@ function codeHost(bind = () => []) {
   const ask = (html, sel) => (simple(sel) ? bind(html, sel) : []);
   const text = (key) => ({
     get innerHTML() { return st[key]; },
-    set innerHTML(v) { st[key] = String(v); },
+    // A REAL BROWSER CLAMPS, AND SO DOES THIS. Writing `innerHTML` takes the box's
+    // children away, which collapses its scroll height and pulls `scrollTop` back
+    // to zero — so a fake that let the number sit there would pass "the tree keeps
+    // its place" with the restore deleted, which is the one thing that case exists
+    // to catch. The offset is PER BOX (`<key>At`): repainting the editor column
+    // must not move the tree beside it.
+    set innerHTML(v) {
+      st[key] = String(v);
+      st[key + "At"] = 0;
+      // THE BUTTON INSIDE IT IS DESTROYED WITH IT, which is the whole reason
+      // `paintFile` rebinds: the handler closes over a `let` that the row click
+      // reassigns, so a stale handler would read the RIGHT file — it is the
+      // ELEMENT that does not survive. A fake that kept one object here would
+      // make that case pass with the rebind deleted.
+      if (key === "main") st.dl = null;
+    },
     get textContent() { return st[key]; },
     set textContent(v) { st[key] = String(v); },
+    get scrollTop() { return st[key + "At"] || 0; },
+    set scrollTop(v) { st[key + "At"] = Number(v) || 0; },
+    addEventListener: () => {},
     querySelectorAll: (sel) => ask(st[key], sel),
   });
+  // THE EDITOR COLUMN ANSWERS `#stCodeDl` OUT OF WHAT IT WAS LAST TOLD, because
+  // the Download button lives inside the markup `paintFile` replaces — so a
+  // rebind that stopped happening would show up here as a button whose handler
+  // belongs to the file before it.
+  const column = () => {
+    const node = text("main");
+    node.querySelector = (sel) => (sel === "#stCodeDl" && st.main.includes('id="stCodeDl"') ? (st.dl = st.dl || { onclick: null }) : null);
+    return node;
+  };
   return {
-    get innerHTML() { return st.shell.includes(SLOT) ? st.shell.replace(SLOT, '<div class="st-code-rows">' + st.rows + "</div>") : st.shell; },
-    set innerHTML(v) { st.shell = String(v); st.rows = ""; },
+    get innerHTML() {
+      let out = st.shell;
+      if (out.includes(SLOT)) out = out.replace(SLOT, '<div class="st-code-rows">' + st.rows + "</div>");
+      if (out.includes(MAIN)) out = out.replace(MAIN, '<div class="st-code-main">' + st.main + "</div>");
+      return out;
+    },
+    // EVERY ASSIGNMENT IS COUNTED. Writing here is what puts a brand-new
+    // `.st-code` into the document and re-runs its entrance animation, so "the
+    // panel was not rebuilt" is exactly "this setter did not run again".
+    set innerHTML(v) { st.shell = String(v); st.rows = ""; st.main = ""; st.dl = null; st.draws += 1; },
+    get draws() { return st.draws; },
+    // The shell as `drawSiteCode` wrote it, with neither column spliced in — so
+    // a case can ask whether it carries markup a painter also owns.
+    get shell() { return st.shell; },
     // What the two nodes beside the rows were told, so a case can read the count
     // line and the clear button's class without a stylesheet.
     get said() { return st.said; },
     get filtering() { return st.on; },
+    get dl() { return st.dl; },
     querySelector: (sel) => (sel === ".st-code-rows" ? text("rows")
+      : sel === ".st-code-main" ? column()
       : sel === ".st-find-said" ? text("said")
       : sel === ".st-code-find" ? { classList: { toggle: (c, v) => { st.on = !!v; } } }
       : null),
-    querySelectorAll: (sel) => ask(st.shell + st.rows, sel),
+    querySelectorAll: (sel) => ask(st.shell + st.rows + st.main, sel),
   };
 }
 
@@ -658,7 +706,7 @@ function codeHost(bind = () => []) {
  * survives renders, and which file is open across a rebuild is exactly what is
  * being asked.
  */
-function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups = null, find = "", bind, host } = {}) {
+function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups = null, find = "", bind, host, save } = {}) {
   // BOTH HALVES, because they are one hop. `loadSiteCode` fetches and hands the
   // answer to `drawSiteCode`, which draws and wires; carrying only the first
   // would drive a function whose whole body is now one call.
@@ -674,7 +722,7 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
   const make = new Function("deps", [
     "const { document, apiFetch, stSrcFiles, stCodeTree, stOpenGroups, esc, ic, stSaveBlob } = deps;",
     "const { stCodeFind, stFindBox, stFindSaid, stFindNone } = deps;",
-    "const { ST_ROW_ACTS, stRowMenuHtml, stRowMenuAct, sbToast } = deps;",
+    "const { ST_ROW_ACTS, stRowMenuHtml, stRowMenuAct, sbToast, stCodeFileHtml } = deps;",
     "let siteCodeFiles = []; let siteCodeOpen = deps.open; let siteCodeOpenGroups = deps.groups;",
     "let siteCodeFind = deps.find;",
     body,
@@ -714,7 +762,7 @@ function codeTab({ answer, open = "", slug = "fretwork-1", fail = false, groups 
     // a driven function reaches for comes from the FILE. A stub answering "" for
     // every shape would leave the case passing for the wrong reason.
     ...TREE,
-    esc: escFake, ic: () => "", stSaveBlob: () => {},
+    esc: escFake, ic: () => "", stSaveBlob: save || (() => {}),
   });
   return { t, host, input, clear, site: { slug }, fetches: () => asked };
 }
@@ -737,9 +785,11 @@ const TREE = new Function("esc", "ic", "ST_CODE_GROUPS", [
   fn("function stDirCount("), fn("function stFileIcon("), fn("function stCodeFind("),
   fn("function stOpenGroups("), fn("function stFoldRow("), fn("function stCodeRows("),
   fn("function stCodeTree("), fn("function stFindBox("), fn("function stFindSaid("),
+  fn("function stCodeFileHtml("),
   fn("function stFindNone("),
   konstBlock("ST_ROW_ACTS", "];"), fn("function stRowMenuHtml("), fn("function stRowMenuAct("),
   "return { stDirTree, stSortTree, stFileIcon, stCollapse, stDirCount, stOpenGroups, stCodeTree,",
+  "  stCodeFileHtml,",
   "  stCodeFind, stFindBox, stFindSaid, stFindNone, ST_FIND_MAX,",
   "  ST_ROW_ACTS, stRowMenuHtml, stRowMenuAct };",
 ].join("\n"))(
@@ -995,10 +1045,21 @@ test("the source is fetched once the host is on the page, and the download asks 
   const draw = fn("function drawSiteCode(src)");
   assert.ok(draw.length > 800, "re-derive the draw function's window");
   assert.ok(!/loadSiteCode\(/.test(draw), "a click in the Code tab goes back to the network");
-  for (const [what, attr] of [["the file picker", "data-srcname"], ["the folder", "data-srcfold"]]) {
+  // RE-ANCHORED 2026-09-12, not appeased. This asked each handler for
+  // `drawSiteCode(src)` by name, and that spelling moved for a reason: rebuilding
+  // the panel re-ran the entrance animation `styles.css` puts on `.st-code`, so
+  // every click made the whole thing drop 8px and fade (measured; see
+  // `stCodeFileHtml`). What is being asserted has not changed — a click REDRAWS
+  // FROM THE ANSWER IN HAND rather than going back to the network — so each
+  // handler is now asked for the painter it calls instead. `paintTree` is on both
+  // because a fold and a file pick both change which rows are drawn.
+  for (const [what, attr, paints] of [
+    ["the file picker", "data-srcname", /paintFile\(\);[\s\S]{0,40}paintTree\(\)/],
+    ["the folder", "data-srcfold", /paintTree\(\)/],
+  ]) {
     const at = draw.indexOf("[" + attr + "]");
     assert.ok(at > 0, what + " is no longer wired");
-    assert.match(draw.slice(at, at + 400), /drawSiteCode\(src\)/, what + " does not redraw");
+    assert.match(draw.slice(at, at + 900), paints, what + " does not redraw");
   }
 
   // THE DOWNLOAD FETCHES RATHER THAN READING THE TAB'S CACHE ALONE. A customer
@@ -2242,6 +2303,223 @@ test("DRIVEN THROUGH THE TAB: the handle opens one menu, and it shuts again", as
   assert.ok(!/id="stRowMenu"[^>]*class="[^"]*open/.test(a.host.innerHTML), "the menu is drawn already open");
   assert.match(a.host.innerHTML, /data-srcmore="src\/routes\/menu\.tsx"[^>]*aria-expanded="false"/,
     "a handle does not say whether its menu is open");
+});
+
+/**
+ * A BINDER THAT ANSWERS REAL BUTTONS, so a case can press one.
+ *
+ * The menu case above only needs to COUNT rows, so it hands back bare objects.
+ * Everything below presses a row and reads what happened, which needs the
+ * `dataset` the real handler looks its file up by and somewhere for the handler
+ * to be written. `press` takes the LAST element bound under that value, because
+ * a repaint binds the whole tree again and the stale ones are what a customer
+ * cannot click.
+ */
+function pressable({ ghost = "" } = {}) {
+  const seen = [];
+  const row = (key, val) => {
+    const b = {
+      dataset: { [key]: val }, onclick: null,
+      getAttribute: () => "false", setAttribute: () => {},
+      classList: { add() {}, remove() {} },
+    };
+    seen.push(b);
+    return b;
+  };
+  const bind = (html, sel) => {
+    const attr = sel.slice(1, -1);
+    const key = attr.replace(/^data-/, "");
+    const out = [...String(html).matchAll(new RegExp(attr + '="([^"]*)"', "g"))].map((m) => row(key, m[1]));
+    // A ROW NAMING A FILE THE PROJECT HAS NOT GOT. The tree cannot draw one, so
+    // nothing reachable from the markup drives the handler's "I could not find
+    // it" leg — and that leg is what stands between a stale row and
+    // `stCodeFileHtml(undefined)`, which throws and takes the panel with it.
+    if (ghost && key === "srcname") out.push(row(key, ghost));
+    return out;
+  };
+  return {
+    bind,
+    press(key, val) {
+      const b = seen.filter((x) => x.dataset[key] === val).pop();
+      assert.ok(b, "nothing in the tree is marked " + key + '="' + val + '"');
+      assert.ok(b.onclick, key + '="' + val + '" was drawn with no handler — it does nothing when clicked');
+      b.onclick();
+    },
+  };
+}
+const TWO_PAGES = { ok: true, pages: [
+  { path: "src/routes/index.tsx", source: "// home\n" },
+  { path: "src/routes/menu.tsx", source: "// menu\n" },
+] };
+
+test("DRIVEN: a row click repaints the file and the tree, and NEVER the panel", async () => {
+  const hands = pressable();
+  const a = codeTab({ answer: TWO_PAGES, open: "src/routes/index.tsx", bind: hands.bind });
+  await a.t.run(a.site);
+  const drawn = a.host.draws;
+  assert.equal(drawn, 1, "the first draw did not happen exactly once");
+  assert.match(a.host.innerHTML, /class="st-code-fname">src\/routes\/index\.tsx</, "the bar does not name the open file");
+
+  hands.press("srcname", "src/routes/menu.tsx");
+
+  // THE PANEL WAS NOT REBUILT, and that is the whole of it. Writing the host's
+  // `innerHTML` puts a brand-new `.st-code` into the document, and `styles.css`
+  // gives that element an entrance animation — written for a TAB SWITCH, back
+  // when nothing else built this panel. MEASURED in a real browser: a rebuild
+  // here drops the whole panel 8px, fades it to zero and slides it back over
+  // 220ms, on every single row press. The owner's words were "the screen
+  // vibrates every time I click on one of them", twice.
+  assert.equal(a.host.draws, drawn,
+    "a row click rebuilt the whole panel, so its entrance animation runs again and the panel twitches on every press");
+  // AND IT REALLY REPAINTED, so the line above is not passing on a click that
+  // did nothing at all — which is the cheapest way for this case to go quiet.
+  assert.equal(a.t.open, "src/routes/menu.tsx", "the click did not change which file is open");
+  assert.match(a.host.innerHTML, /class="st-code-fname">src\/routes\/menu\.tsx</, "the bar still names the file before it");
+  assert.match(a.host.innerHTML, /class="st-file on"[^>]*data-srcname="src\/routes\/menu\.tsx"/, "the tree does not mark the file now open");
+  assert.ok(!/class="st-file on"[^>]*data-srcname="src\/routes\/index\.tsx"/.test(a.host.innerHTML),
+    "the tree still marks the file before it as open");
+});
+
+test("DRIVEN: a fold click repaints the tree and leaves the file being read alone", async () => {
+  const hands = pressable();
+  const a = codeTab({ answer: TWO_PAGES, open: "src/routes/index.tsx", bind: hands.bind });
+  await a.t.run(a.site);
+  const drawn = a.host.draws;
+  const main = a.host.querySelector(".st-code-main").innerHTML;
+  const rows = a.host.querySelector(".st-code-rows").innerHTML;
+  assert.ok(main.includes("st-code-pre"), "the editor column was never filled, so this case can prove nothing");
+  assert.ok(rows.includes('data-srcname="src/routes/menu.tsx"'), "the tree was never filled");
+
+  hands.press("srcfold", "page");
+
+  assert.equal(a.host.draws, drawn, "a fold click rebuilt the whole panel, which is the twitch one row over");
+  // A FOLD CHANGES NOTHING ABOUT THE FILE BEING READ, so rebuilding the editor
+  // beside it is a `<pre>` thrown back to its first line for a click that was
+  // about the tree. The search box's own argument, one control over.
+  assert.equal(a.host.querySelector(".st-code-main").innerHTML, main,
+    "folding a directory rebuilt the editor beside it, scrolling the file being read back to the top");
+  assert.notEqual(a.host.querySelector(".st-code-rows").innerHTML, rows, "the fold changed nothing in the tree");
+  assert.ok(!a.host.querySelector(".st-code-rows").innerHTML.includes('data-srcname="src/routes/menu.tsx"'),
+    "the group was folded and its files are still drawn");
+});
+
+test("DRIVEN: the Download button follows the file that is open NOW", async () => {
+  const saved = [];
+  const hands = pressable();
+  const a = codeTab({
+    answer: TWO_PAGES, open: "src/routes/index.tsx", bind: hands.bind,
+    save: (blob, name) => saved.push(name),
+  });
+  await a.t.run(a.site);
+  assert.ok(a.host.dl && a.host.dl.onclick, "the Download button was never bound on the first draw");
+  a.host.dl.onclick();
+  assert.deepEqual(saved, ["index.tsx"], "the first press did not save the open file");
+
+  hands.press("srcname", "src/routes/menu.tsx");
+
+  // THE BUTTON LIVES INSIDE WHAT `paintFile` REPLACES, so the element that was
+  // bound no longer exists — a repaint that did not rebind leaves a dead control
+  // in the bar, and a dead control is this app's own recorded finding.
+  assert.ok(a.host.dl && a.host.dl.onclick, "the Download button is dead after a row click — nothing rebound it");
+  a.host.dl.onclick();
+  assert.deepEqual(saved, ["index.tsx", "menu.tsx"], "Download saved the file that WAS open, not the one on screen");
+});
+
+test("DRIVEN: the tree keeps its place across a click, and a NEW QUERY starts at the top", async () => {
+  const hands = pressable();
+  const a = codeTab({ answer: TWO_PAGES, open: "src/routes/index.tsx", bind: hands.bind });
+  await a.t.run(a.site);
+  const at = () => a.host.querySelector(".st-code-rows").scrollTop;
+
+  a.host.querySelector(".st-code-rows").scrollTop = 140;
+  hands.press("srcname", "src/routes/menu.tsx");
+  assert.equal(at(), 140, "a row click threw the tree back to the top — a customer reading a file near the bottom loses their place on every press");
+
+  a.host.querySelector(".st-code-rows").scrollTop = 90;
+  hands.press("srcfold", "page");
+  assert.equal(at(), 90, "a fold click threw the tree back to the top");
+
+  // AND A NEW SET OF RESULTS IS A NEW LIST. Holding an offset into it lands the
+  // customer in the middle of matches they have not seen, so the search box
+  // resets rather than `paintTree` guessing which of the two it is serving.
+  a.host.querySelector(".st-code-rows").scrollTop = 70;
+  a.input.value = "menu";
+  a.input.oninput();
+  assert.equal(at(), 0, "a new query kept a scroll offset into the list before it");
+});
+
+test("DRIVEN: clicking the file that is ALREADY open changes nothing at all", async () => {
+  const hands = pressable();
+  const a = codeTab({ answer: TWO_PAGES, open: "src/routes/index.tsx", bind: hands.bind });
+  await a.t.run(a.site);
+  // WHERE THE CUSTOMER HAD READ TO. Repainting the editor replaces the scroller
+  // inside it, so the file jumps back to line 1 — for a click that asked for the
+  // file already on screen. The cheapest possible way to lose somebody's place.
+  a.host.querySelector(".st-code-main").scrollTop = 300;
+  hands.press("srcname", "src/routes/index.tsx");
+  assert.equal(a.host.querySelector(".st-code-main").scrollTop, 300,
+    "clicking the open file repainted it, scrolling the customer back to its first line");
+  assert.equal(a.t.open, "src/routes/index.tsx", "the open file changed");
+});
+
+test("DRIVEN: a row naming a file the project has not got does nothing, and does not throw", async () => {
+  const hands = pressable({ ghost: "src/routes/gone.tsx" });
+  const a = codeTab({ answer: TWO_PAGES, open: "src/routes/index.tsx", bind: hands.bind });
+  await a.t.run(a.site);
+  // A STALE ROW IS AN ORDINARY THING — the tree is rebuilt from a list that can
+  // have changed under it. Reading the file as `undefined` and painting anyway
+  // throws inside the renderer and leaves the panel half drawn, which is a worse
+  // answer than the click doing nothing.
+  hands.press("srcname", "src/routes/gone.tsx");
+  assert.equal(a.t.open, "src/routes/index.tsx", "a row naming nothing changed which file is open");
+  assert.match(a.host.innerHTML, /class="st-code-fname">src\/routes\/index\.tsx</, "the bar no longer names a file");
+});
+
+test("DRIVEN: the pane clips a huge file and escapes every file", async () => {
+  const big = "x".repeat(130000);
+  const a = codeTab({
+    answer: { ok: true, pages: [
+      { path: "src/routes/big.tsx", source: big },
+      { path: "src/routes/evil.tsx", source: '<script>alert(1)</script>\n' },
+    ] },
+    open: "src/routes/big.tsx",
+  });
+  await a.t.run(a.site);
+  // CLIPPED FOR DISPLAY ONLY. A `<pre>` of a megabyte locks the tab; the zip and
+  // the Download still carry the whole file, which `stSrcFiles` feeds and the
+  // saver reads — so the clip must not be able to reach either.
+  const shown = a.host.innerHTML.match(/<code>(x*)<\/code>/);
+  assert.ok(shown, "the source is not in the pane at all");
+  assert.equal(shown[1].length, 120000, "the pane is not clipping — it drew " + shown[1].length + " characters");
+  assert.equal(a.t.files.find((f) => f.name === "src/routes/big.tsx").text.length, 130000,
+    "the clip reached the stored file, so the download would lose the end of it");
+  // AND THE GUTTER COUNTS THE LINES IT ACTUALLY DREW, not the ones it clipped off.
+  assert.match(a.host.innerHTML, /<pre class="st-code-gutter" aria-hidden="true">1<\/pre>/, "the gutter is not numbering the clipped text");
+
+  // ESCAPED, because a customer's own page source is full of tags and one of them
+  // is `<script>`. The panel shows code; it must never run it.
+  const b = codeTab({
+    answer: { ok: true, pages: [{ path: "src/routes/evil.tsx", source: '<script>alert(1)</script>\n' }] },
+    open: "src/routes/evil.tsx",
+  });
+  await b.t.run(b.site);
+  assert.ok(!b.host.innerHTML.includes("<script>"), "the pane put the file's own <script> into the page unescaped");
+  assert.match(b.host.innerHTML, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/, "the file's source is not shown at all");
+});
+
+test("DRIVEN: the shell is empty in both columns, so neither is written in two places", async () => {
+  const a = codeTab({ answer: TWO_PAGES, open: "src/routes/index.tsx" });
+  await a.t.run(a.site);
+  // ONE PRODUCER PER COLUMN. The shell used to carry the whole editor inline, so
+  // a repaint needed a SECOND copy of that markup — two lists of the same thing,
+  // with the copy that drifts being the one nothing clicks.
+  assert.match(a.host.shell, /<div class="st-code-main"><\/div>/, "the shell writes the editor column itself");
+  assert.match(a.host.shell, /<div class="st-code-rows"><\/div>/, "the shell writes the tree itself");
+  assert.ok(!/st-code-pre|stCodeDl|st-code-fname/.test(a.host.shell), "the shell carries markup `paintFile` also owns");
+  assert.ok(!/st-file|st-code-h/.test(a.host.shell), "the shell carries markup `paintTree` also owns");
+  // AND BOTH WERE FILLED, or the four lines above pass on a panel that drew nothing.
+  assert.match(a.host.innerHTML, /st-code-pre/, "the editor column was never filled");
+  assert.match(a.host.innerHTML, /data-srcname=/, "the tree was never filled");
 });
 
 test("the row menu's classes are the ones the sheet paints, and the handle hides until you point at it", () => {

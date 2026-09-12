@@ -1,0 +1,162 @@
+[
+  {
+    "label": "the row click rebuilds the whole panel again (THE DEFECT ITSELF)",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      open = next;\n      siteCodeOpen = next.name;\n      paintFile();\n      paintTree();",
+    "to": "      open = next;\n      siteCodeOpen = next.name;\n      drawSiteCode(src);"
+  },
+  {
+    "label": "the fold click rebuilds the whole panel again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      // rebuilding the editor beside it scrolled that file back to line 1.\n      paintTree();",
+    "to": "      // rebuilding the editor beside it scrolled that file back to line 1.\n      drawSiteCode(src);"
+  },
+  {
+    "label": "the row click repaints the file and never the tree",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      paintFile();\n      paintTree();\n    });",
+    "to": "      paintFile();\n    });"
+  },
+  {
+    "label": "the row click repaints the tree and never the file",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      paintFile();\n      paintTree();\n    });",
+    "to": "      paintTree();\n    });"
+  },
+  {
+    "label": "the row click never re-points `open`, so the bar keeps naming the old file",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      open = next;\n      siteCodeOpen = next.name;",
+    "to": "      siteCodeOpen = next.name;"
+  },
+  {
+    "label": "the same file repaints anyway, scrolling it back to its first line",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      if (!next || next.name === open.name) return;",
+    "to": "      if (!next) return;"
+  },
+  {
+    "label": "a row naming no file repaints with nothing",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      if (!next || next.name === open.name) return;",
+    "to": "      if (next && next.name === open.name) return;"
+  },
+  {
+    "label": "the Download button is never rebound after a repaint",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    const dl = main.querySelector('#stCodeDl');\n    if (dl) dl.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());",
+    "to": "    const dl = null;\n    if (dl) dl.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());"
+  },
+  {
+    "label": "Download saves the whole path instead of the file's own name",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (dl) dl.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name.split('/').pop());",
+    "to": "    if (dl) dl.onclick = () => stSaveBlob(new Blob([open.text], { type: 'text/plain' }), open.name);"
+  },
+  {
+    "label": "the editor column is never painted at all",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  paintFile();\n  paintTree();",
+    "to": "  paintTree();"
+  },
+  {
+    "label": "the shell writes the editor inline again, so there are two copies of it",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    '<div class=\"st-code-main\"></div>' +",
+    "to": "    '<div class=\"st-code-main\">' + stCodeFileHtml(open) + '</div>' +"
+  },
+  {
+    "label": "the tree's scroll offset is never restored",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    rows.scrollTop = wasAt;\n  };",
+    "to": "  };"
+  },
+  {
+    "label": "the tree's scroll offset is read AFTER the rows are wiped, so it is always zero",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    const wasAt = rows.scrollTop;\n    const found = stCodeFind(files, siteCodeFind);\n    rows.innerHTML = found.files.length\n      ? stCodeTree(found.files, open.name, siteCodeOpenGroups, found.on)\n      : '<div class=\"st-find-none\">' + esc(stFindNone(siteCodeFind)) + '</div>';",
+    "to": "    const found = stCodeFind(files, siteCodeFind);\n    rows.innerHTML = found.files.length\n      ? stCodeTree(found.files, open.name, siteCodeOpenGroups, found.on)\n      : '<div class=\"st-find-none\">' + esc(stFindNone(siteCodeFind)) + '</div>';\n    const wasAt = rows.scrollTop;"
+  },
+  {
+    "label": "a new query keeps its offset into the list before it",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    find.oninput = () => { siteCodeFind = find.value; paintTree(); if (rows) rows.scrollTop = 0; };",
+    "to": "    find.oninput = () => { siteCodeFind = find.value; paintTree(); };"
+  },
+  {
+    "label": "the file pane drops the note a file needs",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    (open.note ? '<div class=\"st-code-note\">' + esc(open.note) + '</div>' : '') +",
+    "to": "    '' +"
+  },
+  {
+    "label": "the file pane stops clipping, so a megabyte file locks the tab",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const raw = String(open.text).slice(0, 120000);",
+    "to": "  const raw = String(open.text);"
+  },
+  {
+    "label": "the file pane names no file on the bar",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return '<div class=\"st-code-bar\"><span class=\"st-code-fname\">' + esc(open.name) + '</span>' +",
+    "to": "  return '<div class=\"st-code-bar\"><span class=\"st-code-fname\"></span>' +"
+  },
+  {
+    "label": "the file pane stops escaping the source it shows",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "<pre class=\"st-code-pre\"><code>' + esc(raw) + '</code></pre></div>';",
+    "to": "<pre class=\"st-code-pre\"><code>' + raw + '</code></pre></div>';"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  // ONE PLACE REPAINTS THE FILE BEING READ, and it replaces the editor column",
+    "to": "  // ONE PLACE REPAINTS THE FILE BEING READ (control), and it replaces the editor column"
+  },
+  {
+    "label": "CONTROL 2 — a comment only, in the renderer, which must survive",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": " * THE FILE BEING READ — the bar, the note and the source, as its own renderer so",
+    "to": " * THE FILE BEING READ (control) — the bar, the note and the source, as its own renderer so"
+  }
+]

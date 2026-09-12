@@ -5841,3 +5841,46 @@ three were my tests', not the code's. One of them was the same mistake I made an
 hour earlier: I checked for the text "st-code-bar" to prove the toolbar was still
 there, and "st-code-bar2" contains "st-code-bar", so the check would have passed
 over a toolbar that had been renamed away. Both are fixed and written down.
+
+## The click twitch — the second half of the vibration (12 Sept)
+
+You told me twice that the screen vibrates. The first time I found a real cause
+and fixed it, and it was only half the story: that one was about the column
+changing WIDTH when you folded a directory, so it only happened on folds. This
+one happens on **every click, including clicking a file**, and it is a different
+thing entirely.
+
+**What it was.** The panel carries a little entrance animation — it slides up 8px
+and fades in when you switch to Code, Preview, More or Data. That was written back
+when the panel was only ever built when you switched tabs. But clicking a file in
+the tree rebuilt the whole panel to show the new file, so the browser treated it
+as the panel arriving again and played the entrance. Every single click: the whole
+thing drops 8px, goes invisible, and slides back, over about a fifth of a second.
+
+I measured it in a real browser rather than guessing — 8.00px of travel on a
+click, and 0.00px when only the part that changed is redrawn. The picture I sent
+is the same frame, 60 milliseconds after the same click, both ways.
+
+**What it is now.** Clicking a file redraws the file and the tree; folding a
+directory redraws the tree. Nothing rebuilds the panel any more except opening
+the tab, which is what the animation was for. Two things you'd have noticed
+eventually came out in the wash:
+
+- **The tree keeps its place.** It used to jump back to the top on every click,
+  so reading anything near the bottom of the list meant scrolling down again each
+  time.
+- **The file you're reading keeps its place when you fold a directory.** It used
+  to jump back to line 1, for a click that had nothing to do with the file.
+
+**Why the first fix didn't catch it.** Both are "the screen moves when I click",
+and the width one was real, measurable and enough to explain what you'd shown me,
+so I stopped there. The honest lesson is that a still screenshot can't see this
+class of thing at all — the defect only exists for a fifth of a second — so
+"looks right" was never evidence either way.
+
+Tests green at 6,061. Sweep 20 of 20, both controls surviving. Five survived the
+first pass: one was a mutation that changed nothing at all (I proved that rather
+than assuming it, and replaced it), and the other four were real holes in my own
+tests — clicking the file that's already open, clicking a row for a file that no
+longer exists, the 120,000-character clip, and whether the code shown is escaped.
+All four have a test now.
