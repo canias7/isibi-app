@@ -87,11 +87,11 @@ function routes() {
 // The window is a fixed size CAPPED at the next route dispatch on a LATER line.
 //
 // Both halves are load-bearing, and each was learned from a wrong answer. A pure
-// next-match boundary collapses to zero lines where routes share a dispatch line
-// (`=== "/api/video" ? ... : === "/api/image"`) and reports gated routes as open.
-// A pure fixed window bleeds into the NEXT route's block and reports an open
-// route as gated — which is the dangerous direction, and it happened: the
-// published-site data API passed this test while calling no auth at all.
+// next-match boundary collapses to zero lines where routes share a dispatch
+// expression across several lines, and reports gated routes as open. A pure
+// fixed window bleeds into the NEXT route's block and reports an open route as
+// gated — which is the dangerous direction, and it happened: the published-site
+// data API passed this test while calling no auth at all.
 const WINDOW = 60;
 
 // RAISED FROM 45 when the edit and addon lanes added two matchers to the
@@ -104,9 +104,9 @@ const WINDOW = 60;
 // number's.
 
 // Consecutive dispatch lines are ONE decision only when they are arms of the
-// SAME expression — `/api/video`, `/api/image` and `/api/audio` are three arms
-// of one ternary, and the gate that covers them comes after all three. Capping
-// at the very next line would give each a one-line block and call them open.
+// SAME expression: the gate that covers them comes after the last arm, so
+// capping at the very next line would give each arm a one-line block and call
+// every one of them open.
 //
 // The signal is the source, not the line distance. An unfinished expression ends
 // in a continuation token (`?`, `:`, `||`, `&&`, `,`, `(`); a finished statement
@@ -114,18 +114,44 @@ const WINDOW = 60;
 // and that had a hole big enough to walk through: an UNGATED route written on
 // the line above a gated one was read as part of it and inherited its gate.
 // Demonstrated by wedging `/api/backdoor` in, which the suite happily passed.
+//
+// THE INSTANCE THAT MOTIVATED THIS LEFT THE FILE ON 2026-09-12, and saying so
+// is the point. It was `url.pathname === "/api/video" ? "video" : === "/api/image"
+// ? … : === "/api/audio" ? … : null` — three arms of one ternary over one gate —
+// and it went with the media side. worker.js has no multi-line dispatch
+// expression today, so the JOINING branch below now fires on nothing when this
+// test runs against the real source: a wall with no live case, which is exactly
+// what the next session deletes as dead weight. It is kept, and it is DRIVEN
+// against a synthetic three-arm ternary in its own case below, because a
+// multi-arm dispatch is an ordinary thing to write and the failure when this is
+// missing is silent and in the dangerous direction — gated routes reported open,
+// which trains somebody to loosen the reading rather than the router.
 export const CONTINUES = /[?:,(]\s*$|(\|\||&&)\s*$/;
-function nextDispatchAfter(i) {
+// PARAMETERISED ON ITS LINES so the real reading can be driven over a source
+// other than worker.js. It used to close over LINES and ROUTE_LINES, and the
+// wedge case below therefore carried its own copy of this loop — two lists of
+// the same thing, with the copy being the one every synthetic case exercised.
+// One function, three callers: the real scan, the wedge, and the joining case.
+export function dispatchEndAfter(lines, routeLines, i) {
   let last = i;
-  for (const j of ROUTE_LINES) {
+  for (const j of routeLines) {
     if (j <= last) continue;
     // Same expression only if every line between them is still mid-expression.
     let joined = true;
-    for (let k = last; k < j; k++) if (!CONTINUES.test(LINES[k])) { joined = false; break; }
+    for (let k = last; k < j; k++) if (!CONTINUES.test(lines[k])) { joined = false; break; }
     if (joined) { last = j; continue; }
     return j;
   }
   return Infinity;
+}
+// Where the /api dispatch lines are in whatever source is being read. Derived
+// from the same pattern `ROUTE_LINES` uses, so a synthetic case cannot be read
+// by a looser rule than the real one.
+export function dispatchLinesOf(lines) {
+  return lines.reduce((a, l, i) => (/url\.pathname\s*(?:===\s*"\/api\/|\.startsWith\("\/api\/)/.test(l) ? a.concat(i) : a), []);
+}
+function nextDispatchAfter(i) {
+  return dispatchEndAfter(LINES, ROUTE_LINES, i);
 }
 /**
  * Is this line nothing but a comment?
@@ -310,22 +336,63 @@ test("the scanner itself catches an ungated route written next to a gated one", 
   const wedged = LINES.slice();
   wedged.splice(target, 0, '    if (url.pathname === "/api/backdoor") { return Response.json({ ok: true }); }');
 
-  // Re-run the same analysis over the doctored source.
-  const routeLines = wedged.reduce((a, l, i) => (/url\.pathname\s*(?:===\s*"\/api\/|\.startsWith\("\/api\/)/.test(l) ? a.concat(i) : a), []);
-  const nextAfter = (i) => {
-    let last = i;
-    for (const j of routeLines) {
-      if (j <= last) continue;
-      let joined = true;
-      for (let k = last; k < j; k++) if (!CONTINUES.test(wedged[k])) { joined = false; break; }
-      if (joined) { last = j; continue; }
-      return j;
-    }
-    return Infinity;
-  };
+  // Re-run THE REAL analysis over the doctored source. This used to be a second
+  // copy of `dispatchEndAfter`'s loop written inline, which meant the only
+  // reading this case ever exercised was the copy.
+  const routeLines = dispatchLinesOf(wedged);
+  const nextAfter = (i) => dispatchEndAfter(wedged, routeLines, i);
   const block = wedged.slice(target, Math.max(Math.min(target + WINDOW, nextAfter(target)), target + 1)).join("\n");
   assert.ok(!/authUser\(|UNAUTHED\(|bearerUser\(/.test(block),
     "an ungated route adjacent to a gated one must NOT inherit its gate:\n" + block);
+});
+
+test("arms of one dispatch expression are read as ONE block, so the gate after the last arm covers them all", () => {
+  // THE WALL WHOSE LIVE CASE LEFT THE FILE. worker.js carried a three-arm
+  // ternary — `/api/video` / `/api/image` / `/api/audio`, one gate after all
+  // three — until the media side was deleted on 2026-09-12, and it was the only
+  // multi-line dispatch expression there has ever been here. With it gone the
+  // joining branch fires on nothing when the scan runs against the real source,
+  // so this case is what keeps the reading alive: driven over a synthetic
+  // router, with `dispatchEndAfter` and `dispatchLinesOf` the SAME functions the
+  // real scan uses rather than a retyped copy.
+  //
+  // The failure this prevents is silent and in the dangerous direction: without
+  // the joining rule each arm gets a one-line block, every arm reads as
+  // UNGATED, and the whole suite goes red naming routes that are gated — which
+  // trains the next session to loosen the reading instead of fixing the router.
+  const lines = [
+    '    const genKind =',
+    '      url.pathname === "/api/first" ? "first" :',
+    '      url.pathname === "/api/second" ? "second" :',
+    '      url.pathname === "/api/third" ? "third" : null;',
+    '    if (genKind && request.method === "POST") {',
+    '      const u = await authUser(request);',
+    '      if (!u) return UNAUTHED();',
+    '      return Response.json({ ok: true });',
+    '    }',
+    '    if (url.pathname === "/api/after") {',
+    '      return Response.json({ ok: true });',
+    '    }',
+  ];
+  const routeLines = dispatchLinesOf(lines);
+  assert.deepEqual(routeLines, [1, 2, 3, 9], "the synthetic router is not being read as four dispatch lines");
+
+  // Every arm's block must run past the last arm and reach the shared gate, and
+  // must stop before the next, genuinely separate route.
+  for (const arm of [1, 2, 3]) {
+    const end = dispatchEndAfter(lines, routeLines, arm);
+    assert.equal(end, 9, `arm on line ${arm} should run to the next real route (9), not to ${end}`);
+    const block = lines.slice(arm, Math.max(Math.min(arm + WINDOW, end), arm + 1)).join("\n");
+    assert.match(block, /authUser\(/, `arm on line ${arm} lost sight of the gate that covers it:\n` + block);
+  }
+
+  // AND THE CAP STILL BITES: the separate route after them is its own block and
+  // inherits nothing. Without this the case would pass under a reading that
+  // joins everything, which is the opposite mistake.
+  const after = dispatchEndAfter(lines, routeLines, 9);
+  const tail = lines.slice(9, Math.min(9 + WINDOW, after)).join("\n");
+  assert.ok(!/authUser\(|UNAUTHED\(/.test(tail),
+    "a route after a joined expression must not inherit its gate:\n" + tail);
 });
 
 test("the schema designer is told what makes a form able to accept a file", () => {

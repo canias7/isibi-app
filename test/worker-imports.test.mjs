@@ -280,29 +280,65 @@ test("no import into worker.js collides with a name it declares itself", () => {
   // whole platform stopped deploying over a name.
   //
   // Aliasing on import (`IMAGE_USD as SITE_PHOTO_USD`) is the fix, which is why
-  // this reads the binding rather than the exported name.
-  const imported = new Map();          // bound name -> the module it came from
-  for (const m of declared.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)) {
-    for (const part of m[1].split(",")) {
-      const t = part.trim();
-      if (!t) continue;
-      imported.set((t.split(/\s+as\s+/).pop() || t).trim(), m[2]);
+  // this reads the binding rather than the exported name. The alias survives the
+  // generator's deletion on 2026-09-12 — see the note at that import.
+  //
+  // THE OBSERVER IS PROVED BY A PLANTED COLLISION, NOT BY NAMING A SYMBOL.
+  // This used to assert `own.has("IMAGE_USD")` — "the declaration that caused
+  // this is not being found" — which was the liveness check pinned to the one
+  // declaration the bug was born from. Deleting the image generator took that
+  // declaration out of worker.js, and the guard went red reporting its own scan
+  // as broken on a change that did not touch it: the recorded "assert the
+  // property, not the spelling" trap, in a liveness assertion. Planting a
+  // collision proves the COMPARISON, which is strictly more than presence of a
+  // name ever proved, and it cannot be outlived by any one deletion.
+  const bindings = (src) => {
+    const m = new Map();               // bound name -> the module it came from
+    for (const i of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)) {
+      for (const part of i[1].split(",")) {
+        const t = part.trim();
+        if (!t) continue;
+        m.set((t.split(/\s+as\s+/).pop() || t).trim(), i[2]);
+      }
     }
-  }
-  assert.ok(imported.size > 40, `only ${imported.size} imported bindings — the scan broke`);
-  assert.ok(imported.has("SITE_PHOTO_USD"), "the alias this test exists for is not being read");
-
+    return m;
+  };
   // Top-level declarations only. A `const` inside a function shadows an import
   // legally and is not what breaks a build.
-  const own = new Set();
-  for (const m of code.matchAll(/^(?:async\s+)?(?:function|class)\s+([A-Za-z_$][\w$]*)/gm)) own.add(m[1]);
-  for (const m of code.matchAll(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/gm)) own.add(m[1]);
-  assert.ok(own.size > 100, `only ${own.size} top-level declarations — the scan broke`);
-  assert.ok(own.has("IMAGE_USD"), "the declaration that caused this is not being found");
+  const topLevel = (src) => {
+    const own = new Set();
+    for (const m of src.matchAll(/^(?:async\s+)?(?:function|class)\s+([A-Za-z_$][\w$]*)/gm)) own.add(m[1]);
+    for (const m of src.matchAll(/^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/gm)) own.add(m[1]);
+    return own;
+  };
+  const collisions = (importSrc, codeSrc) => {
+    const own = topLevel(codeSrc);
+    return [...bindings(importSrc)].filter(([name]) => own.has(name))
+      .map(([name, mod]) => name + " (imported from " + mod + ", also declared in worker.js)");
+  };
 
-  const clashes = [...imported].filter(([name]) => own.has(name))
-    .map(([name, mod]) => name + " (imported from " + mod + ", also declared in worker.js)");
-  assert.deepEqual(clashes, [], "these will fail the bundler at deploy time — alias the import");
+  const imported = bindings(declared);
+  assert.ok(imported.size > 40, `only ${imported.size} imported bindings — the scan broke`);
+  assert.ok(imported.has("SITE_PHOTO_USD"), "the alias this test exists for is not being read");
+  assert.ok(topLevel(code).size > 100, `only ${topLevel(code).size} top-level declarations — the scan broke`);
+
+  // DRIVEN: the exact shape that stopped the platform deploying, in miniature.
+  // Without this, every assertion here is satisfied by a comparison that always
+  // answers "no collisions".
+  const planted = collisions(
+    'import { publishPages, IMAGE_USD } from "./builder/publish-pages.mjs";',
+    'const IMAGE_USD = { "fal-ai/nano-banana-pro": 0.15 };\nconst other = 1;',
+  );
+  assert.deepEqual(planted, ['IMAGE_USD (imported from ./builder/publish-pages.mjs, also declared in worker.js)'],
+    "the collision finder cannot see the collision this test exists for");
+  // And the alias really is what clears it — the fix, not just the report.
+  assert.deepEqual(collisions(
+    'import { publishPages, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";',
+    'const IMAGE_USD = { "fal-ai/nano-banana-pro": 0.15 };\nconst other = 1;',
+  ), [], "aliasing the import must clear the collision, or the recorded fix is wrong");
+
+  assert.deepEqual(collisions(declared, code), [],
+    "these will fail the bundler at deploy time — alias the import");
 });
 
 test("no block-scoped const/let in worker.js is read after its block closes", () => {

@@ -754,15 +754,37 @@ test("the image price and the image model are not two answers to one question", 
   // `IMAGE_USD` in publish-pages.mjs prices exactly what `SITE_IMG_MODEL`
   // generates. Moving the model without moving the price silently re-prices
   // every build, in whichever direction is worse.
+  //
+  // RE-ANCHORED 2026-09-12, NOT APPEASED. This read the price out of worker.js's
+  // OWN `IMAGE_USD` — the per-model table for the image generator the customer
+  // drove directly, which happened to price the same model — and compared the
+  // two. The generator was deleted, that table went with it, and the guard went
+  // red saying "the model has a row in IMAGE_USD" about a row that is correctly
+  // gone. The property was never "worker.js has a row for it"; it is that
+  // NOBODY PRICES THIS MODEL TWICE WITH TWO DIFFERENT NUMBERS. So the check is
+  // a census now, derived from whatever in the tree states a price for it,
+  // rather than a comparison between two named files — which is also what keeps
+  // it honest through the rest of the deletion, as `public/chat.js`'s mirror
+  // table follows the composer out.
   assert.match(worker, /const SITE_IMG_MODEL = "fal-ai\/nano-banana-pro"/);
-  const priced = fs.readFileSync(path.join(ROOT, "worker.js"), "utf8")
-    .match(/"fal-ai\/nano-banana-pro":\s*([0-9.]+)/);
-  assert.ok(priced, "the model has a row in IMAGE_USD");
-  const table = fs.readFileSync(path.join(ROOT, "builder/publish-pages.mjs"), "utf8")
+  const build = fs.readFileSync(path.join(ROOT, "builder/publish-pages.mjs"), "utf8")
     .match(/export const IMAGE_USD = ([0-9.]+)/);
-  assert.ok(table, "and publish-pages states the build's own price");
-  assert.equal(Number(table[1]), Number(priced[1]),
-    "the build price and the generation price must be the same number");
+  assert.ok(build, "publish-pages no longer states the build's own price");
+
+  // Every `"fal-ai/nano-banana-pro": <number>` anywhere we ship, plus the build's
+  // own scalar. The demo copy is excluded by name — `public/demo-hero-2/` is a
+  // frozen snapshot of an older chat.js, not code anything serves.
+  const priced = new Map([["builder/publish-pages.mjs", Number(build[1])]]);
+  for (const f of ["worker.js", "public/chat.js"]) {
+    const src = fs.readFileSync(path.join(ROOT, f), "utf8");
+    for (const m of src.matchAll(/['"]fal-ai\/nano-banana-pro['"]\s*:\s*([0-9.]+)/g)) {
+      priced.set(f, Number(m[1]));
+    }
+  }
+  assert.ok(priced.size >= 1, "the price scan found nothing at all — it is broken");
+  const numbers = [...new Set(priced.values())];
+  assert.deepEqual(numbers, [Number(build[1])],
+    "this model is priced more than one way: " + JSON.stringify([...priced]));
 });
 
 test("every way out of buySitePhotos sweeps the tokens", () => {
