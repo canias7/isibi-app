@@ -1945,6 +1945,25 @@ function projectFromPath() {
  * how Back becomes a trap you cannot get out of.
  */
 function openProject(id, mode) {
+  // THE FOLD SET BELONGS TO A PROJECT, AND IT IS THE ONE CODE-TAB STATE THAT
+  // CANNOT SURVIVE A SWITCH (2026-09-12, owner, on a screenshot of four shut
+  // headings and no files).
+  //
+  // The paragraph beside `siteCodeFind` argues that a carried-over QUERY is fine
+  // because it is VISIBLE, and a carried-over FILENAME is fine because it falls
+  // back to `files[0]`. The fold set has neither property: `stOpenGroups` returns
+  // a stored Set wholesale (`chosen instanceof Set` short-circuits the derive),
+  // so a customer who folded every group on one site opened the next one to four
+  // shut headings, nothing on screen, and no sign of why — the first draw's
+  // "open the folder holding the file" default never ran, because from the
+  // renderer's side there WAS a choice to honour. It just belonged to a
+  // different project.
+  //
+  // Reset on a real CHANGE of project, not on every call: re-opening the site
+  // already open (the Data button, a re-render) must keep the folds the customer
+  // just made. `null` and not an empty Set, because those two mean different
+  // things here and the empty one is what the defect looked like.
+  if ((id || null) !== siteOpenId) siteCodeOpenGroups = null;
   siteOpenId = id || null;
   const path = siteOpenId ? '/projects/' + siteOpenId : '/projects';
   // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that

@@ -2599,3 +2599,73 @@ test("the row menu's classes are the ones the sheet paints, and the handle hides
   assert.match(CSS, /\.st-file-row \+ \.st-code-h/, "a group heading after files runs straight into them");
   assert.ok(!/\.st-file \+ \.st-code-h/.test(CSS), "the spacing rule still names a sibling that no longer exists");
 });
+
+// ── THE FOLD SET BELONGS TO A PROJECT ────────────────────────────────────────
+
+test("a project switch forgets the folds, and re-opening the same one keeps them", () => {
+  // THE DEFECT, FROM A SCREENSHOT OF FOUR SHUT HEADINGS AND NO FILES
+  // (2026-09-12). `siteCodeOpenGroups` is module state that outlived the project
+  // it was made in, and `stOpenGroups` takes a stored Set WHOLESALE —
+  // `chosen instanceof Set` short-circuits the derive — so a customer who folded
+  // every group on one site opened the next one to a panel with nothing in it and
+  // nothing to explain why. The first draw's "open the folder holding the file"
+  // default never ran: from the renderer's side there WAS a choice to honour, it
+  // just belonged to somewhere else.
+  //
+  // The two neighbouring states are fine and that is what makes this one the
+  // exception: a carried-over QUERY is visible in the box, and a carried-over
+  // FILENAME falls back to `files[0]`. A carried-over fold set is neither.
+  const files = [
+    { name: "src/routes/index.tsx", kind: "page", text: "x" },
+    { name: "src/lib/utils.ts", kind: "shared", text: "x" },
+  ];
+  // First: the mechanism, driven — a foreign Set really does suppress the default.
+  const foreign = new Set();
+  assert.equal(TREE.stOpenGroups(files, "src/routes/index.tsx", foreign), foreign,
+    "a stored Set is no longer returned wholesale — the reset below may be the wrong fix");
+  const shut = TREE.stCodeTree(files, "src/routes/index.tsx", foreign, false);
+  assert.equal((shut.match(/st-file-row/g) || []).length, 0, "the foreign Set no longer hides the files");
+  const fresh = TREE.stCodeTree(files, "src/routes/index.tsx", null, false);
+  assert.ok((fresh.match(/st-file-row/g) || []).length > 0,
+    "with no stored choice the tree draws nothing — the default is what the reset restores");
+
+  // Then the reset itself, RUN rather than read: a position in the file says
+  // nothing about whether the branch is taken (the recorded trap), and this one
+  // is a single `if` whose whole job is to be conditional.
+  const run = new Function("deps", [
+    "let siteOpenId = deps.start;",
+    "let siteCodeOpenGroups = deps.folds;",
+    "const history = deps.history; const location = deps.location;",
+    "const renderSites = () => {};",
+    fn("function openProject("),
+    "openProject(deps.to, 'none');",
+    "return { siteOpenId, siteCodeOpenGroups };",
+  ].join("\n"));
+  const fakes = (start, folds, to) => run({
+    start, folds, to,
+    history: { pushState() {}, replaceState() {} },
+    location: { pathname: "/projects" },
+  });
+  const kept = new Set(["page"]);
+
+  const switched = fakes("site_a", kept, "site_b");
+  assert.equal(switched.siteOpenId, "site_b");
+  assert.equal(switched.siteCodeOpenGroups, null,
+    "a project switch carried the previous project's folds into the new one");
+
+  const same = fakes("site_a", kept, "site_a");
+  assert.equal(same.siteCodeOpenGroups, kept,
+    "re-opening the project already open threw away the folds the customer just made");
+
+  const fromList = fakes(null, kept, "site_b");
+  assert.equal(fromList.siteCodeOpenGroups, null, "list → project kept a stale fold set");
+
+  const toList = fakes("site_a", kept, null);
+  assert.equal(toList.siteOpenId, null);
+  assert.equal(toList.siteCodeOpenGroups, null, "leaving for the project list kept a stale fold set");
+
+  // AND `null`, NEVER AN EMPTY SET — they mean different things here, and the
+  // empty one is exactly what the defect looked like on screen.
+  assert.ok(!(switched.siteCodeOpenGroups instanceof Set),
+    "the reset stores an empty Set, which reads as 'the customer closed everything'");
+});
