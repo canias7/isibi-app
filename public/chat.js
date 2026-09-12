@@ -10214,6 +10214,57 @@ function collectPreviewErr(err) {
   list.push({ msg, info: String((err && err.info) || '') });
   paintPreviewErrBadge();
 }
+// A PUBLISHED SITE REPORTS ITS OWN RUNTIME ERRORS, AND UNTIL 2026-09-12 NOTHING
+// LISTENED (owner: "fix"). Every generated site carries
+// `src/lib/error-reporting.ts`, which on any throw posts
+// `{type:"isibi:runtime-error", report}` to `window.parent` — written for
+// exactly this panel, and the panel only ever read `__siteErr`.
+//
+// THE TWO HALVES WERE BUILT TO MEET AND DID NOT, and which preview you are
+// looking at is what decided it. `errShim` — the reporter that DOES reach
+// `collectPreviewErr` — is injected by `sitePreviewHtml`, which serves the blob
+// DRAFT preview only. A published site is framed at its own URL with no shim,
+// so its own module is the only reporter it has, and that is the ordinary case
+// now: the throw reached the visitor's console and our `/error` endpoint, and
+// the owner watching the preview saw a blank panel and no badge.
+//
+// THE WIRE STRING STAYS `isibi:runtime-error`. Every site published before today bakes that
+// literal into its frozen bundle, so renaming the sender means accepting both
+// spellings here for as long as any un-republished site exists — the
+// `isibi-ambient` / `isibi-reveal` situation exactly. It is on the
+// do-not-rename table in owner-notes now, which is what puts it under guard.
+//
+// EVERY FIELD IS REFUSED RATHER THAN COERCED, because this arrives by
+// postMessage from a frame and `String(["a"])` is `"a"` — the recorded trap,
+// and the reason a hostile or a version-skewed payload cannot make a plausible
+// sentence out of an array. `collectPreviewErr` does the clipping, the
+// de-duplication and the six-per-page bound it already does for the shim.
+function previewErrFromReport(report) {
+  // THE TWO HALVES OF THIS LINE ARE NOT THE SAME KIND OF CHECK, and a sweep
+  // cannot say so. `!report` is load-bearing: without it `null.message` THROWS
+  // inside the message listener, which is measured, not assumed. The `typeof`
+  // half is INERT against everything postMessage can deliver — 18 shapes driven
+  // through both versions differ on none, because the message check below
+  // already refuses each one. The single shape that WOULD differ is a function
+  // carrying a string `.message`, and `structuredClone` answers `DataCloneError`
+  // for a function, so it cannot arrive in `e.data` at all.
+  //
+  // KEPT ANYWAY, DELIBERATELY, and said here because a sweep reports it as a
+  // test gap and the next session deletes what nothing appears to need: this is
+  // the one reader in the workspace fed by a frame, and a belt on the shape of
+  // an untrusted value costs nothing. What is NOT kept is a mutant for it —
+  // `scripts/mutants/preview-errors.json` cuts the load-bearing half instead.
+  if (!report || typeof report !== 'object') return null;
+  const msg = typeof report.message === 'string' ? report.message.trim() : '';
+  if (!msg) return null;
+  // WHERE it broke and WHAT caught it, which is what `info` carries for the
+  // shim ("promise", "blank"). A boundary-caught throw and an unhandled
+  // rejection need different fixes, so the source is worth the eight
+  // characters.
+  const route = typeof report.route === 'string' ? report.route : '';
+  const source = typeof report.source === 'string' ? report.source : '';
+  return { msg, info: [route, source].filter(Boolean).join(' · ') };
+}
 // Update the badge in place (NOT via renderSites — that would reload the iframe
 // and re-trigger the errors). Errors arrive async, a moment after the preview loads.
 function paintPreviewErrBadge() {
@@ -10467,6 +10518,10 @@ function bindSiteNav() {
   if (siteNavBound) return; siteNavBound = true;
   window.addEventListener('message', (e) => {
     if (e.data && e.data.__siteErr) { collectPreviewErr(e.data.__siteErr); return; }
+    // The published site's own reporter — the draft shim's counterpart, into
+    // the same collector. See previewErrFromReport for why the string is
+    // spelled the way it is.
+    if (e.data && e.data.type === 'isibi:runtime-error') { collectPreviewErr(previewErrFromReport(e.data.report)); return; }
     const nav = e.data && e.data.__siteNav;
     if (!nav) return;
     const s = siteById(siteOpenId); if (!s) return;
