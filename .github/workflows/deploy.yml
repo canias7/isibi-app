@@ -187,7 +187,6 @@ jobs:
             STRIPE_WEBHOOK_SECRET
             CREDITS_MINT_SECRET
             SUPABASE_SERVICE_KEY
-            COMPOSIO_API_KEY
             NEON_API_KEY
             SITE_SECRETS_KEY
             CLOUDFLARE_API_TOKEN
@@ -234,7 +233,17 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           CREDITS_MINT_SECRET: ${{ secrets.CREDITS_MINT_SECRET }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          COMPOSIO_API_KEY: ${{ secrets.COMPOSIO_API_KEY }}
+          # COMPOSIO_API_KEY CAME OFF BOTH LISTS ON 2026-09-12, with the media
+          # side. It was the Media Agent's Instagram/YouTube credential, and the
+          # engine that read it left in stage 3 — the auto-reply half rooted from
+          # `scheduled()`. MEASURED before the cut rather than assumed: zero
+          # readers in worker.js, in any root module and in anything under
+          # builder/. An uploaded secret nothing reads is a live credential with
+          # no consumer, which is worth removing for its own sake.
+          #
+          # The GitHub Actions SECRET is deliberately left in place: deleting it
+          # is the owner's, it costs nothing where it sits, and this deploy no
+          # longer asks for it either way.
           # Layer-2 per-site backend: provision + query each built site's own
           # Postgres database on Neon. One Neon PROJECT per Go Farther user (created
           # lazily on their first publish), one DATABASE inside it per site.

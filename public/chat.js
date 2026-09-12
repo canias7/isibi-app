@@ -114,13 +114,11 @@ const MODELS_TAB = {
   audio: { list: () => MODEL_LISTS.audio },
 };
 
-const GROUP_META = {
-  seedance:  { label: 'Seedance 2.0', variant: () => '' },
-  kling:     { label: 'Kling',        variant: () => '' },
-  // No active-variant chip on the Veo parent row (owner 2026-07-17: the
-  // "Lite" pill next to "Veo 3.1" read badly) — the flyout's ✓ shows the pick.
-  veo:       { label: 'Veo 3.1',      variant: () => '' },
-};
+// `GROUP_META` STOOD HERE and went in stage 4. It labelled the collapsed
+// video-family rows (Seedance, Kling, Veo) in the media model picker, and its
+// one reader left with that picker in stage 2b. `MODELS_ORDER` and `MODELS_TAB`
+// above it STAY: the landing's pipeline still walks them, which is the one piece
+// of the media side deliberately left standing.
 
 // ── Website-builder model picker (Auto / Sonnet 5 / Opus 4.8) — lives in the SITE-BUILDER composer (st-comp),
 // sent as `picker` on a react-build. Auto routes per agent (Opus plans, Sonnet builds); Sonnet/Opus pin every agent.
@@ -264,33 +262,20 @@ function wireBuildEffort() {
 // has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
 const CRED_MAX_KEY = 'zephyr_cred_max_v1';
 const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
-// The on-screen VIDEO badge is tri-state: shown only when the account is KNOWN
-// free. Until /api/credits resolves, `paidKnown` is false and we fail toward
-// "paid" (no badge) so a slow/failed credits call never defaces a paying user.
-// (Image watermarks don't depend on this — the server burns them on /api/save.)
+// THE PAID FLAG IS TRI-STATE and stays so: until /api/credits resolves,
+// `paidKnown` is false and every reader fails toward "paid", so a slow or failed
+// credits call never labels a paying member as free. Its three readers are the
+// account badge, the free-credits greeting and the start screen's plan pill.
+//
+// THE ON-SCREEN WATERMARK LEFT WITH THE MEDIA SIDE (2026-09-12, stage 4). A
+// "✦ gofarther.dev" mark went over video players for accounts known free, and
+// `refreshVideoBadges` put it on or took it off as the flag resolved — over
+// `.msg.video` and `.wm-spot`, the chat thread's clip bubbles, the gallery cards
+// and the lightbox. All three views went in stage 2b, so the query could not
+// match anything: a live call on every credits answer, over a document that
+// cannot hold what it is looking for.
 let isPaid = false;
 let paidKnown = false;
-// The on-screen "✦ gofarther.dev" mark free accounts see over video players —
-// chat thread, gallery cards and the lightbox all carry it (class wm-spot
-// marks the non-chat containers).
-function wmBadge() {
-  const wm = document.createElement('span');
-  wm.className = 'wm-badge';
-  wm.textContent = '✦ gofarther.dev';
-  return wm;
-}
-// Toggle the on-screen video badge on already-rendered clips once we learn the
-// account's paid state (buildMedia renders none while `paidKnown` is false).
-function refreshVideoBadges() {
-  document.querySelectorAll('.msg.video, .wm-spot').forEach((div) => {
-    const has = div.querySelector('.wm-badge');
-    if (paidKnown && !isPaid && !has) {
-      div.appendChild(wmBadge());
-    } else if ((isPaid || !paidKnown) && has) {
-      has.remove();
-    }
-  });
-}
 function setArcFill(el, frac) {
   if (el) el.style.strokeDashoffset = (CRED_ARC_LEN * (1 - frac)).toFixed(2);
 }
@@ -350,7 +335,7 @@ async function fetchCredits(attempt) {
     if (!r.ok) throw 0;
     const d = await r.json();
     if (typeof d.paid === 'boolean') {
-      isPaid = d.paid; paidKnown = true; refreshVideoBadges();
+      isPaid = d.paid; paidKnown = true;
       updatePlanTag();
     }
     if (typeof d.balance === 'number') { setCredits(d.balance); maybeShowWelcome(d.balance); }

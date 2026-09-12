@@ -16283,16 +16283,17 @@ async function handleRequest(request, env, ctx) {
       request = new Request(url.toString(), request);
     }
 
-    // Old full-app snapshots (public/demo-hero*) are kept in the repo as
-    // reference but must NOT be served — they're pre-scrub clones that name the
-    // provider and run against the live backend (owner 2026-07-18: keep the
-    // files, stop serving them). The `-2`/`-3` numbered variants MUST be covered
-    // too — demo-hero-2 is a full-app clone that still names the provider. Only
-    // /demo-hero*; the marketing /mkt/demo* cascade is a different path, stays live.
-    if (/^\/demo-hero(-\d+)?(\/|$)/i.test(url.pathname)) {
-      return new Response("Not found", { status: 404 });
-    }
-
+    // THE SNAPSHOT WALL LEFT WITH ITS SUBJECT (2026-09-12, stage 4). A refusal
+    // stood here for `/demo-hero*` because `public/demo-hero-2/` held a frozen
+    // pre-scrub clone of the whole media app — 672 KB that named the provider
+    // and ran against the live backend (owner 2026-07-18: keep the files, stop
+    // serving them). The files went with the media side, so the wall guarded a
+    // path nothing serves: `assets` has no `not_found_handling`, so the tail's
+    // `env.ASSETS.fetch(request)` 404s it anyway. CHECKED rather than reasoned —
+    // a single-page-application setting there would have made this wall the
+    // only thing stopping the app's own shell being served under that path.
+    //
+    // The marketing /mkt/demo* cascade is a different path and is untouched.
 
     // Serve a PUBLISHED Website-Builder site from R2: gofarther.dev/s/<slug>/<page>.
     // STATIC sites: each page is one HTML object (rest with no extension → .html).

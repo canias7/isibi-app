@@ -772,8 +772,9 @@ test("the image price and the image model are not two answers to one question", 
   assert.ok(build, "publish-pages no longer states the build's own price");
 
   // Every `"fal-ai/nano-banana-pro": <number>` anywhere we ship, plus the build's
-  // own scalar. The demo copy is excluded by name — `public/demo-hero-2/` is a
-  // frozen snapshot of an older chat.js, not code anything serves.
+  // own scalar. The scan names its two files rather than walking the tree, which
+  // is what kept `public/demo-hero-2/` — a frozen snapshot of an older chat.js,
+  // deleted in stage 4 — from reporting the media side's price as a second one.
   const priced = new Map([["builder/publish-pages.mjs", Number(build[1])]]);
   for (const f of ["worker.js", "public/chat.js"]) {
     const src = fs.readFileSync(path.join(ROOT, f), "utf8");

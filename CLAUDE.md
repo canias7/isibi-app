@@ -94,7 +94,12 @@ first deletion, not assumed.
    to delete** — the survey found no such paths; the avatar was a view (stage
    2b) and the memory was read inside the generation block (stage 2a);
 
-4. the sweep — dead CSS, tests, workflows, secrets, docs, the landing's copy.
+4. the sweep (DONE) — the frozen pre-scrub clone of the media client, the dead
+   media assets, the unread Composio credential, the watermark test bench and
+   the Media Agent's document. **The landing's copy and the dead CSS are NOT in
+   it**, each for a stated reason: the landing is a design job the owner directs,
+   and the CSS scan's false-alarm rate is not yet zero — the stage 4 section
+   below carries both measurements.
 **The customers' stored media is a SEPARATE step, after the code is merged and
 proven**, with one more explicit confirm: it is the only part that cannot be
 undone.
@@ -494,13 +499,157 @@ the whole credit ledger, the memberships, Stripe, `safeFetch` and `hostIsBlocked
 (the outbound webhook is the caller that matters — a webhook URL is typed by a
 customer and pointed wherever they like), `CHROME_UA`, `readCapped`,
 `tooLargeBody`, and the builder's photo path whole.
-**Stage 4 is the sweep**: the dead CSS (`styles.css` is 478 KB), the landing's
-own copy (the CRT channel selector, the model pipeline, the "generate or build"
-prompt line — deliberately left working, with `providerOf` and the model tables
-kept for it), `docs/media-agent.md`, `fal-wm-test.yml`, and
-`COMPOSIO_API_KEY`, which deploy.yml still uploads and nothing now reads.
 **The customers' stored media is still a separate step, after the code is merged
 and proven, with one more explicit confirm.**
+
+**AND THE CONTAINER HARNESS HAS NOW READ THE DELETION'S TREE — `site build` run
+1115, 2026-09-12 18:13→18:33Z, all twenty steps green**, `site-build.mjs` itself
+14m21s inside a 19m45s job. That is the proof stages 2a, 2b and 3 each lacked
+and which the filter fix above is what bought: **a site still compiles, renders
+and serves** after 11,000 lines came out of the Worker and the client.
+
+### Stage 4: the sweep (done, 2026-09-12)
+
+**93 files and 12,453 lines out of the tree, 6.7 MB of it assets**, plus the
+residue three stages of deletion left in code that still runs.
+
+- **`COMPOSIO_API_KEY` CAME OFF THE DEPLOY, AND THE CENSUS THAT KEEPS IT OFF IS
+  DERIVED BOTH WAYS.** It was the Media Agent's Instagram/YouTube credential,
+  uploaded to the Worker on every deploy for a whole stage after the engine that
+  read it left. MEASURED before the cut: **zero readers in `worker.js`, in any
+  root module and in anything under `builder/`.** An uploaded secret nothing
+  reads is a live credential with no consumer, and it is invisible — the deploy
+  succeeds, the binding exists, nothing calls it. The guard now requires **every
+  name in the workflow's `secrets:` block to be read by something we ship**, over
+  a **145-module ship set**, so the next unread credential fails by existing.
+  **The GitHub Actions SECRET is deliberately left in place**: deleting it is the
+  owner's, it costs nothing where it sits, and the deploy no longer asks for it.
+  Its `REQUIRED` entry in `test/deploy-secrets.test.mjs` went too — every
+  assertion there iterates the WORKFLOW's list, so an entry for an unlisted name
+  is inert until somebody re-lists it and then quietly makes it a deploy-stopper.
+  **Measured inert, which is why it is a deletion and not a mutant**: with the
+  name off the list, adding it to `REQUIRED` changes no answer.
+- **`public/demo-hero-2/` WAS A FROZEN PRE-SCRUB CLONE OF THE WHOLE MEDIA
+  CLIENT** — 672 KB of `chat.js`, `styles.css`, `auth.js` and `index.html` that
+  named the provider and ran against the live backend, kept as reference on
+  2026-07-18 (*"keep the files, stop serving them"*) and 404'd by a wall in the
+  Worker. **The wall left with its subject**: `assets` declares no
+  `not_found_handling`, so the tail's `env.ASSETS.fetch(request)` 404s the path
+  on its own — CHECKED rather than reasoned, because a single-page-application
+  setting there would have made that wall the only thing stopping the app's own
+  shell being served under it. The guard pins both halves.
+- **AND DELETING IT EXPOSED A GUARD THAT HAD BEEN PROVING ITS OWN LIVENESS OFF
+  THAT CLONE.** `test/service-table-grants.test.mjs` asks that no table the
+  browser reads DIRECTLY over PostgREST is revoked by the service-grants
+  migration, and proved its scanner alive with `seen.size >= 2` — **a floor on
+  the ANSWER**. The client's three direct reads were `chats`, `user_assets` and
+  `user_memory`: the chat sync, the asset sync and the universal memory, all
+  media-side, all deleted in stage 2b. The floor went on passing for one more
+  stage because the clone still named two of them, and it failed the hour the
+  clone went. **The set is legitimately EMPTY now** — everything goes through the
+  Worker, and the one `rest/v1/` literal left in `public/` is `auth.js`'s
+  `rpc/delete_account`, which the scan already drops. So the floor is on the
+  READING (files and characters), the loop re-arms itself the day a client
+  feature adds a direct table read back, and this is the recorded "a negative
+  assertion must prove its observer is alive" trap **with the observer alive off
+  a file nothing serves** — the third instance in two days, after the style axes
+  and the phone tile.
+- **THE FREE-TIER WATERMARK WENT AND THE PAID FLAG DID NOT, which is the half
+  worth guarding.** `wmBadge` put a "✦ gofarther.dev" mark over video players for
+  accounts known free and `refreshVideoBadges` ran on EVERY credits answer over
+  `.msg.video, .wm-spot` — the chat thread's clip bubbles, the gallery cards and
+  the lightbox, all three deleted in stage 2b. A live call over a document that
+  cannot hold what it is looking for. `isPaid`/`paidKnown` STAY: they are
+  membership, which the owner said to leave exactly as it is, and their three
+  readers are the account badge, the free-credits greeting and the start screen's
+  plan pill. The guard counts the readers as well as naming them, because **the
+  count is the only half that sees the flag never being SET** — the three named
+  readers survive that mutation and the count does not.
+- **NINE DEAD DECLARATIONS IN `chat.js` WERE NAMED AND LEFT, ONE WAS CUT, AND
+  THE SPLIT WAS MEASURED AGAINST THE BRANCH POINT.** A direct-reference scan
+  (stage 2b's method — a transitive closure answers "nearly everything", because
+  the wiring table roots the app's whole surface) found ten top-level
+  declarations nothing else names. Counted against `4d8ea151`, the real branch
+  base, **nine were already dead before any of this started**: `buildEffortHTML`
+  and `wireBuildEffort` (the effort dial, deliberately parked with the lines that
+  restore it), `moreStat`, `siteSecurityScan` (the open dead-control finding),
+  `stAgentsBody`, `cancelEditJob`, `readSiteStream`, `stFmtTime`, `VIEW_LABELS`.
+  **One was the deletion's orphan and went**: `GROUP_META`, the collapsed
+  video-family labels, whose one reader left with the media model picker.
+  **`MODELS_ORDER` and `MODELS_TAB` beside it STAY, for the landing.**
+  **THE BASE WAS WRONG ON THE FIRST PASS AND THE ANSWER WAS WRONG WITH IT**: the
+  first count used `785fb877`, a 2026-09-05 ancestor of main rather than the
+  branch point, and read `stAgentsBody` as a regression this deletion had caused.
+  `git log -S` named the commit that really dropped it. **A split measured
+  against the wrong base is not a measurement**, and the cheap check is
+  `git rev-parse <oldest branch commit>^`.
+- **`readSiteStream` IS A DEAD CYCLE AND IS LEFT WHOLE, named here.** It is an
+  older build-stream reader replaced by `readReactStream`; it calls
+  `siteBuildStatus`, which calls `paintBuildLog`, which calls `buildActiveText`
+  — each referenced only by another dead one, so a DIRECT-reference scan cannot
+  see any of them and only the least-fixed-point-on-LIVE walk stage 3 used can.
+  Pre-existing, not this deletion's, and a deletion that also tidies unrelated
+  dead code cannot say which of its own lines did what.
+- **WHAT ELSE WENT, every one measured unreferenced rather than recognised by
+  name**: `public/avatars/` (2.0 MB, 80 parts for the avatar builder),
+  `public/img/badge-orchestrator-cut.webp` and `badge-video-editor-cut.webp`
+  (364 KB), `public/wm-badge.png`, `public/login-bg.{jpg,mp4,webm}` (3.6 MB of
+  login-screen video backgrounds nothing has referenced since the auth gate was
+  restyled), `.github/workflows/fal-wm-test.yml` and
+  `.github/scripts/fal-wm-test.mjs` (a watermark-burn test bench pinned to a dead
+  branch, whose own comment said to delete it once `/api/save` shipped — and
+  `/api/save` left in stage 3), and `docs/media-agent.md`.
+- **NO TEST FILE WAS DELETED, and that is a measurement rather than an
+  oversight**: no test's whole subject was the media side. The media-only cases
+  were retired inline in stages 1–3, which is what the suite arithmetic records.
+- **`public/mkt/` (9.1 MB) AND `public/logos/` STAY**, because the landing still
+  serves them. **The landing's own copy is NOT in this sweep**: the CRT channel
+  selector, the model pipeline and the "generate or build" prompt line are a
+  design job the owner directs, and CLAUDE.md has recorded them as deliberately
+  left working since stage 2b.
+- **AND THE DEAD CSS IS NOT IN THIS SWEEP EITHER, with the measurement written
+  down so the next session does not re-derive it.** `public/styles.css` is 7,104
+  lines and 475,832 bytes. A reachability scan over the five pages that load it
+  (plus `worker.js`) reads **1,709 distinct classes, of which 980 appear nowhere
+  the app serves**, and at rule level — a compound read as a CONJUNCTION, so
+  `.view-gallery.active` dies on `view-gallery` however common `active` is, and a
+  descendant chain needing every ancestor — **1,404 of 3,053 rule blocks are
+  unreachable, 189,279 bytes in 269 regions**; bounded to the 23 sections whose
+  heading names a media feature, **879 of 976 rules across 126,571 bytes**.
+  **IT IS NOT CUT BECAUSE THE INSTRUMENT IS NOT GOOD ENOUGH YET, measured rather
+  than suspected.** The crude form of the scan produced real false alarms —
+  `mkt-c1`…`mkt-c5` come from `'mkt-c' + n` and `st-sev-low|medium|high` from
+  `'st-sev-' + severity`, so a class can be live without its literal appearing
+  anywhere — and this repo's bar is ZERO false alarms against the real corpus
+  before a lint ships. The corrected scan is prefix-aware and conjunctive, and
+  **section boundaries are not subject boundaries**: the heading at L2904 reads
+  "Avatar creator" and the rules under it include the AUTH GATE's, so cutting by
+  section would delete the sign-in screen's styling — the recorded overlapping-
+  window trap, in a stylesheet. A rule-level cut is the honest shape, and its
+  proof needs a render of the signed-in builder, which no headless instrument
+  here can reach. **Open, and the numbers above are the starting point.**
+
+**Guards**: `test/media-deleted.test.mjs` (5 → 8) — the secrets census above, the
+deleted files asked of `git ls-files` rather than the filesystem (with
+`wrangler.jsonc`'s `not_found_handling` absence beside it), and the watermark's
+removal with the paid flag's three readers counted; plus
+`test/service-table-grants.test.mjs`'s re-anchored liveness and
+`test/site-domains.test.mjs`'s ordering landmark, which had been
+`if (/^\/demo-hero` — the snapshot wall, simply the first route in the file —
+and is now the R2 site branch the host rewrite FEEDS, searched FROM the check's
+own offset so an earlier copy of the line cannot satisfy it.
+**Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived. THE FIRST PASS HAD 17 MUTANTS AND 10 SURVIVED, AND NOT ONE OF
+THE TEN WAS A GUARD GAP** — every one weakened a guard's OWN assertion, which is
+not a behaviour change and which no other test can catch. The fix was to give
+each property an OBSERVABLE half instead: the reader made to list nothing (the
+floor catches it), `not_found_handling` really added to `wrangler.jsonc`, the
+paid flag's assignment really dropped, the PostgREST floor really put back on the
+answer. Two were **measured inert and deleted rather than hunted**: the
+`REQUIRED` entry above, and `indexOf(needle)` without the offset — that spelling
+occurs **exactly once** in `worker.js`, at 977772, so both forms answer the same
+index and no mutant of it can die.
+**Suite 6,086** (6,083 at stage 3; the three new `media-deleted` cases).
 
 **AND THE HARNESS THAT PROVES A SITE STILL COMPILES HAD NOT RUN SINCE STAGE 1
 (found while reading CI after this push).** `site-build.yml`'s `paths` filter
@@ -635,11 +784,14 @@ census's own assertion is not a behaviour change, and the site Dockerfile has
   `site.live` and the early placeholder live), `source/` (page source),
   `uploads/`, `versions/` (the legacy copy archive), `backups/`, `sitemeta/`,
   `config/`, `orphans/`, `jobs/`.
-- **Media Agent** — Instagram/YouTube manager via Composio. Read + comment
-  auto-reply live; DM auto-reply blocked on Meta App Review. Details in
-  `docs/media-agent.md`.
-- **Universal memory** — auto-learned creative taste applied to every media
-  generation. Backend only, no UI, deliberately.
+- **The Media Agent and the universal memory are GONE** (stages 2b–4). The agent
+  was an Instagram/YouTube manager over Composio — read and comment auto-reply
+  live, DM auto-reply blocked on Meta App Review — and the memory was
+  auto-learned creative taste applied to every media generation, backend only and
+  deliberately with no UI. Both went with the media side, along with
+  `docs/media-agent.md` and the Composio credential. `git show
+  6393b134:CLAUDE.md` and the deleted document in history are where they are
+  described, if either is ever wanted back.
 
 ## Deploy
 
@@ -3484,7 +3636,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   neither is local. Before that, CI had read `373 passed, 0 failed` on runs 1065
   and 1066 once the cap moved to 35 minutes. The other nine integration steps on
   the same run: 4 / 16 / 11 / 29 / 14 / 47, all 0 failed.
-  The unit suite is **6,083** (2026-09-12, 82.4 s local — stage 3 of the media
+  **AND CI HAS READ THE DELETION'S OWN TREE — run 1115, 2026-09-12 18:13→18:33Z,
+  ALL TWENTY STEPS GREEN**, `site-build.mjs` 14m21s inside a 19m45s job, on
+  stage 3's sha plus the filter fix that is what made it run at all. Stages 2a,
+  2b and 3 moved ~2,900 lines of `worker.js` between them and none of the three
+  triggered this workflow. **The pass COUNT for 1115 is unread** — the log tail
+  fetched reached only step 20 (`site-runtime`, 47 passed) — and it is left
+  unstamped rather than carried over from 1114, which is the rule this line's
+  own history is about.
+  The unit suite is **6,086** (2026-09-12, 82.4 s local — stage 4 of the media
   deletion; CI has NOT read this number yet, and the last one it did read was
   6,072 on run 2473). The arithmetic across the deletion, because a falling
   count is the ordinary shape of one and is only honest written down:
@@ -3494,7 +3654,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   the driven view fallback, less what the UI removal retired), and
   **6,078 → 6,083** at stage 3 (one retired with `/api/m/*`; six added — the
   SSRF driver's self-test, two worker free-identifier cases, the fal scrubber,
-  `eAnswer`'s driven status, and the harness-filter census) — **DOWN from 6,078, and the subtraction is the point**: the game
+  `eAnswer`'s driven status, and the harness-filter census), and
+  **6,083 → 6,086** at stage 4 (three added, none retired — the unread-credential
+  census, the deleted-files census and the watermark's removal with the paid
+  flag's readers counted) — **DOWN from 6,078, and the subtraction is the point**: the game
   deletion retired its cases (ten at once when `test/dockerfile.test.mjs`'s
   `SERVICES` lost its second entry, plus four in `api-auth`, `build-lane` and
   `client-routes`) and added eight (the DO-migration census and the

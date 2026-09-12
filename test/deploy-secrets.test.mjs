@@ -36,9 +36,15 @@ const REQUIRED = new Set([
   // deploy reports success, which is the shape Anthropic running dry produced
   // and which took a session to spot. ANTHROPIC_API_KEY stays required too —
   // the router, the seed net, research and the edit lanes are all pinned to it.
+  //
+  // COMPOSIO_API_KEY LEFT THIS SET ON 2026-09-12 with the media side. It is off
+  // deploy.yml entirely (zero readers anywhere, measured), and a name kept here
+  // after leaving the workflow is worse than noise: every assertion above is
+  // driven by the WORKFLOW's list, so the entry would sit inert until somebody
+  // re-listed the name and then quietly make it required.
   "FAL_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY",
   "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "CREDITS_MINT_SECRET",
-  "SUPABASE_SERVICE_KEY", "COMPOSIO_API_KEY", "NEON_API_KEY",
+  "SUPABASE_SERVICE_KEY", "NEON_API_KEY",
   // Safe to require because the deploy step itself already reads it — a run
   // with it empty never reaches the upload — and dangerous to make optional,
   // since a fallback account id would send every site's script to a namespace

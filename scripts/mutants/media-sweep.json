@@ -1,0 +1,94 @@
+[
+  {
+    "label": "the Media Agent's credential goes back on the deploy's upload list, so an unread secret is bound to the Worker again",
+    "files": [".github/workflows/deploy.yml"],
+    "from": "            SUPABASE_SERVICE_KEY\n            NEON_API_KEY",
+    "to": "            SUPABASE_SERVICE_KEY\n            COMPOSIO_API_KEY\n            NEON_API_KEY"
+  },
+  {
+    "label": "the secrets census reads the whole tree again (a bare `*.mjs` pathspec matches every depth), so the tests that name a deleted credential keep it alive",
+    "files": ["test/media-deleted.test.mjs"],
+    "from": "git ls-files worker.js ':(glob)*.mjs' ':(glob)builder/*.mjs'",
+    "to": "git ls-files worker.js '*.mjs' builder"
+  },
+  {
+    "label": "the secrets census's reader lists nothing, so every uploaded name reads as unread — the floor on what it READ is what has to catch this",
+    "files": ["test/media-deleted.test.mjs"],
+    "from": "git ls-files worker.js ':(glob)*.mjs' ':(glob)builder/*.mjs'",
+    "to": "git ls-files ':(glob)nothing-matches-this/*.mjs'"
+  },
+  {
+    "label": "the deleted-files census's reader lists nothing, so every path reads as gone",
+    "files": ["test/media-deleted.test.mjs"],
+    "from": "  const tracked = execSync(\"git ls-files\", { cwd: ROOT, encoding: \"utf8\" }).trim().split(\"\\n\");",
+    "to": "  const tracked = execSync(\"git ls-files ':(glob)nothing-matches-this/*'\", { cwd: ROOT, encoding: \"utf8\" }).trim().split(\"\\n\");"
+  },
+  {
+    "label": "the deleted-files census reads the raw Worker, so the note left where the wall stood keeps the wall alive",
+    "files": ["test/media-deleted.test.mjs"],
+    "from": "  assert.ok(!/demo-hero/.test(WORKER_CODE), \"the snapshot wall is back with nothing to refuse\");",
+    "to": "  assert.ok(!/demo-hero/.test(WORKER), \"the snapshot wall is back with nothing to refuse\");"
+  },
+  {
+    "label": "the assets block declares not_found_handling, so `/demo-hero*` serves the app's own shell now that the wall refusing it is gone",
+    "files": ["wrangler.jsonc"],
+    "from": "    \"run_worker_first\": true\n  },",
+    "to": "    \"run_worker_first\": true,\n    \"not_found_handling\": \"single-page-application\"\n  },"
+  },
+  {
+    "label": "the free-tier watermark comes back, over three views that no longer exist",
+    "files": ["public/chat.js"],
+    "from": "let isPaid = false;\nlet paidKnown = false;",
+    "to": "let isPaid = false;\nlet paidKnown = false;\nfunction wmBadge() { const wm = document.createElement('span'); wm.className = 'wm-badge'; return wm; }"
+  },
+  {
+    "label": "the account badge stops reading the paid flag, so a paying member reads as free",
+    "files": ["public/chat.js"],
+    "from": "  if (paidKnown && isPaid) return 'Member';",
+    "to": "  if (paidKnown && false) return 'Member';"
+  },
+  {
+    "label": "the start screen's plan pill stops marking a paid account",
+    "files": ["public/chat.js"],
+    "from": "(isPaid ? ' paid' : '')",
+    "to": "('')"
+  },
+  {
+    "label": "the paid flag is never SET from the credits answer, so every account reads as unknown for ever — the count of readers is the only half that sees this, since the three named readers are all still there",
+    "files": ["public/chat.js"],
+    "from": "      isPaid = d.paid; paidKnown = true;\n      updatePlanTag();",
+    "to": "      updatePlanTag();"
+  },
+  {
+    "label": "the client's direct-PostgREST scan puts its floor back on the SIZE of its answer — the floor the frozen clone satisfied for a whole stage after the client's three direct reads were deleted",
+    "files": ["test/service-table-grants.test.mjs"],
+    "from": "  assert.ok(files >= 8 && chars > 200000,\n    `the walk read ${files} files and ${chars} characters of public/ — a scan that stops reading reports a clean file`);",
+    "to": "  assert.ok(seen.size >= 2,\n    `the walk read ${files} files and ${chars} characters of public/ — a scan that stops reading reports a clean file`);"
+  },
+  {
+    "label": "that scan counts no files and no characters, so a walker that stops reading reports a clean file",
+    "files": ["test/service-table-grants.test.mjs"],
+    "from": "      files++; chars += src.length;",
+    "to": "      files += 0; chars += 0;"
+  },
+  {
+    "label": "the custom-host ordering landmark is searched from the top of the file again, so an earlier copy of the same line would satisfy it",
+    "files": ["test/site-domains.test.mjs"],
+    "from": "  const served = worker.indexOf(\"const sm = url.pathname.match(\", check);",
+    "to": "  const served = worker.indexOf(\"const sm = url.pathname.match(\") - 400000;"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": ["test/media-deleted.test.mjs"],
+    "from": "// ── stage 4: the sweep ────────────────────────────────────────────────────────",
+    "to": "// ── the sweep that follows the three deletion stages ─────────────────────────"
+  },
+  {
+    "label": "CONTROL — a second comment, in the Worker this time",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "    // THE SNAPSHOT WALL LEFT WITH ITS SUBJECT (2026-09-12, stage 4). A refusal",
+    "to": "    // The snapshot wall left with its subject in the media deletion's sweep. A refusal"
+  }
+]

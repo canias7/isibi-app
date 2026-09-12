@@ -155,6 +155,73 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-12 — Stage 4: the last of the video side swept out
+
+The fourth and last stage. Nothing of the builder changed; this was clearing out
+what three stages of deleting left behind.
+
+**93 files and 12,453 lines went, most of it weight rather than code.** The big
+one was a folder called `demo-hero-2` — a frozen copy of the whole old video app,
+672 KB, kept months ago as a reference and blocked from being served. It still
+named the image provider and still pointed at the live backend, so with the real
+thing deleted there was no reason to keep a museum piece of it.
+
+Also out: 2 MB of avatar-builder parts, 3.6 MB of login-screen background videos
+nothing had pointed at in months, two badge images, the watermark image, a
+leftover test workflow for burning watermarks into video, and the Media Agent's
+own document.
+
+**A key we were handing the server on every deploy and nobody was reading.** The
+Media Agent's Instagram/YouTube credential (Composio) was still being uploaded to
+the Worker after the code that used it was gone. I checked every file we ship
+before removing it — zero readers. The key itself is still sitting in your GitHub
+settings; deleting it there is your call and costs nothing either way. There is
+now a check that every credential we upload is read by something, so the next one
+like this fails the moment somebody adds it.
+
+**A watermark that was being painted over screens that no longer exist.** Free
+accounts used to get a "✦ gofarther.dev" mark over video players. That code was
+still running on every credits check, looking for chat bubbles, gallery cards and
+a lightbox that all went in stage 2b. Gone. **Your membership and credits are
+untouched** — I specifically counted the places that read whether an account is
+paid (the account badge, the free-credits pop-up, the plan pill on the start
+screen) and added a check that keeps all three.
+
+**And deleting that old copy exposed a test that had been passing for the wrong
+reason.** One check makes sure a database migration never revokes access to
+tables the browser reads directly. It proved it was still working by finding at
+least two such tables — and the app's three had been deleted in stage 2b. It kept
+passing only because the frozen copy still mentioned two of them. It failed the
+hour that copy went. Fixed properly: it now proves it is reading the files rather
+than counting what it found, and re-arms itself if we ever add a direct read back.
+
+**Two things I did NOT do, both on purpose:**
+
+1. **The landing page's copy.** It still has the video/audio channel selector, the
+   list of AI models and the "generate or build" line. You direct design, so
+   rewriting it is your call rather than mine — it works as it is, and both doors
+   on it open the builder.
+2. **The dead stylesheet.** `styles.css` is 476 KB and roughly 40% of its rules
+   can no longer match anything. I measured it carefully and stopped, because the
+   tool I'd need to do it safely still gets some answers wrong — some class names
+   are built in code rather than written out, so they look unused when they are
+   not. Cutting on a scan like that risks breaking screens you'd only see later.
+   The measurements are written down so it can be picked up properly, and it is
+   worth doing: it would be the biggest single speed-up left on first page load.
+
+**Proof the builder still works.** The container test — the one that actually
+compiles and renders a real site — ran green on the deletion's own tree for the
+first time, all twenty steps, about twenty minutes. Stages 2a, 2b and 3 had each
+moved thousands of lines of the Worker without that test ever firing, because its
+trigger list had gone stale; that was fixed just before this stage, and this is
+the run that proves it.
+
+Full test suite 6,086, all green. Mutation sweep 13 of 13 caught.
+
+**Still outstanding, and it needs your word:** deleting customers' stored video
+and image files. That is the one part that cannot be undone, so I have not
+touched it and will ask again explicitly.
+
 ## 2026-09-12 — Stage 3: the server side of the video half is gone too
 
 You said *"go on stage 3"*, so the endpoints those deleted screens used to call

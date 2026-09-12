@@ -159,9 +159,11 @@ test("DRIVEN: the CSP grants no wasm permission, and the demo frame's relaxation
   // DERIVED FROM WHAT `public/` ACTUALLY NAMES, never from a list of hosts to
   // forbid: every non-Supabase, non-`self` host in the policy has to appear in a
   // served script or page, or it is a standing permission with no claimant.
-  // `demo-hero-2/` is excluded deliberately — it is a FROZEN copy of the old
-  // client kept for the landing's demo and served under its own path, so the
-  // hosts it names are the media side's and would re-admit every one of them.
+  // The scan names the served files rather than walking `public/`, which is
+  // what kept `public/demo-hero-2/` — a frozen pre-scrub clone of the whole
+  // media client, 404'd by the Worker and deleted in stage 4 — from re-admitting
+  // every host it mentioned. The clone is gone; the explicit list stays, because
+  // it is what makes "served" mean served rather than "on disk".
   const served = ["public/index.html", "public/chat.js", "public/auth.js", "public/confirm.js", "public/site-list.js"]
     .filter((p) => fs.existsSync(ROOT + p)).map((p) => read(p)).join("\n");
   assert.ok(served.length > 100000, `the served client read as ${served.length} characters — this scan is reading nothing`);
@@ -311,4 +313,111 @@ test("the one fal path the builder keeps does not put the provider's name on the
   // the error fails here.
   assert.ok(!/\$\{[^}]*\berror\b[^}]*\}|\+\s*i\.error|\+\s*images\.error/.test(read("builder/site-images.mjs")),
     "imageNote has started putting the raw image error into the customer's sentence");
+});
+
+// ── stage 4: the sweep ────────────────────────────────────────────────────────
+
+test("no credential is uploaded that nothing reads", () => {
+  // COMPOSIO_API_KEY was the Media Agent's Instagram/YouTube credential, and
+  // `deploy.yml` went on uploading it to the Worker for a stage after the engine
+  // that read it left. An unread secret is a live credential with no consumer,
+  // and it is invisible: the deploy succeeds, the binding exists, nothing calls
+  // it.
+  //
+  // DERIVED BOTH WAYS, which is what makes this more than a line saying one name
+  // is absent: every secret the workflow uploads must be read by something we
+  // ship, and the scan is over the Worker's whole module graph by directory
+  // rather than a list of files.
+  const yml = read(".github/workflows/deploy.yml");
+  const block = yml.slice(yml.indexOf("secrets: |") + "secrets: |".length);
+  const uploaded = [];
+  for (const line of block.split("\n")) {
+    if (!line.trim()) continue;
+    const m = line.match(/^\s+([A-Z][A-Z0-9_]*)\s*$/);
+    if (!m) break;
+    uploaded.push(m[1]);
+  }
+  assert.ok(uploaded.length >= 10, `the secrets block read as ${uploaded.length} names`);
+
+  // THE SHIP SET, and the first draft of this line is the lesson: `git ls-files
+  // worker.js '*.mjs' builder` answered 3,933 files, because a bare `*.mjs`
+  // pathspec matches every depth — so it swept in `test/` and the kit, and the
+  // absence check below then failed on the TESTS that name the credential while
+  // explaining that it is gone. Prose contains the thing it forbids, for the
+  // second time in one guard. Root modules and the builder's own, by depth.
+  const tracked = execSync("git ls-files worker.js ':(glob)*.mjs' ':(glob)builder/*.mjs'", { cwd: ROOT, encoding: "utf8" })
+    .trim().split("\n").filter(Boolean);
+  assert.ok(tracked.length > 100 && tracked.length < 400,
+    `${tracked.length} modules listed — the ship set is not the whole tree and is not empty`);
+  const src = tracked.map((f) => read(f)).join("\n");
+
+  // The two the Worker never reads by name are named here with their reason, so
+  // this is a decision and not a hole: `DEPLOY_ID` is a `vars:` entry rather than
+  // a secret and is read in builder/edit-job.mjs, and both are covered by the
+  // scan below anyway — the exception list is empty on purpose.
+  for (const name of uploaded) {
+    assert.ok(src.includes(name),
+      `${name} is uploaded to the Worker on every deploy and nothing we ship reads it`);
+  }
+  assert.ok(!uploaded.includes("COMPOSIO_API_KEY") && !src.includes("COMPOSIO"),
+    "the Media Agent's credential is back, and the engine that read it is gone");
+});
+
+test("the media side's own files and workflows are gone from the tree", () => {
+  // ASKED OF GIT, never of the filesystem — the recorded rule. A `readdirSync`
+  // answers about the machine it runs on, and a generated or untracked leftover
+  // would read as present on one machine and absent in CI.
+  //
+  // WHAT WENT, and every one of these was measured unreferenced before the cut
+  // rather than recognised by name: `public/demo-hero-2/` (a frozen pre-scrub
+  // clone of the whole media client, 404'd by the Worker and still naming the
+  // provider), `public/avatars/` (80 parts for the avatar builder), the two
+  // orchestrator/video-editor badges, the watermark PNG, the login-screen video
+  // backgrounds, the fal watermark test bench and its workflow, and the Media
+  // Agent's own document.
+  const tracked = execSync("git ls-files", { cwd: ROOT, encoding: "utf8" }).trim().split("\n");
+  assert.ok(tracked.length > 500, `git lists only ${tracked.length} files — this scan is reading nothing`);
+  const gone = [
+    "public/demo-hero-2/", "public/avatars/", "public/img/badge-",
+    "public/wm-badge.png", "public/login-bg.",
+    ".github/workflows/fal-wm-test.yml", ".github/scripts/fal-wm-test.mjs",
+    "docs/media-agent.md",
+  ];
+  for (const p of gone) {
+    const hit = tracked.filter((f) => f.startsWith(p));
+    assert.deepEqual(hit, [], `${p} is tracked again: ${hit.join(", ")}`);
+  }
+  // AND THE WALL WENT WITH ITS SUBJECT: the Worker refused `/demo-hero*` because
+  // those files existed. With them gone the asset tail 404s the path on its own,
+  // and `assets` declares no `not_found_handling` — checked, because a
+  // single-page-application setting there would make this wall load-bearing.
+  // READ OFF THE BLANKED SOURCE: the comment left where the wall stood says
+  // which path it used to refuse, so a raw read fails on the note explaining
+  // the deletion. The landmark is asserted to have survived the blanking first,
+  // or an absence check over an empty string passes for the wrong reason.
+  assert.ok(WORKER_CODE.includes("env.ASSETS.fetch(request)"), "the asset tail is gone — this scan is misreading the Worker");
+  assert.ok(!/demo-hero/.test(WORKER_CODE), "the snapshot wall is back with nothing to refuse");
+  assert.ok(!/not_found_handling/.test(read("wrangler.jsonc")),
+    "assets now declares not_found_handling, so `/demo-hero*` may serve the app shell — re-read that wall");
+});
+
+test("the free-tier watermark went, and the paid flag it read did not", () => {
+  // `wmBadge` put a "✦ gofarther.dev" mark over video players for accounts known
+  // free, and `refreshVideoBadges` ran on EVERY credits answer over
+  // `.msg.video, .wm-spot` — the chat thread's clip bubbles, the gallery cards
+  // and the lightbox, all three deleted in stage 2b. A live call over a document
+  // that cannot hold what it is looking for.
+  assert.ok(!/wmBadge|refreshVideoBadges|wm-spot/.test(CHAT_CODE),
+    "the on-screen watermark is back, and the three views it painted over are not");
+
+  // THE HALF THAT MUST NOT GO WITH IT, and this is the case's real job: the
+  // deletion touched the paid flag's neighbourhood, and that flag is membership,
+  // which the owner asked to leave exactly as it is. Its three readers are the
+  // account badge, the free-credits greeting and the start screen's plan pill —
+  // DERIVED by counting, so losing one fails here even if the flag survives.
+  const reads = [...CHAT_CODE.matchAll(/\b(isPaid|paidKnown)\b/g)].length;
+  assert.ok(reads >= 8, `the paid flag is read ${reads} times — a membership reader went with the watermark`);
+  assert.match(CHAT_CODE, /paidKnown && isPaid\) return 'Member'/, "the account badge stopped reading the paid flag");
+  assert.match(CHAT_CODE, /if \(isPaid\) return;/, "the free-credits greeting stopped reading the paid flag");
+  assert.match(CHAT_CODE, /isPaid \? ' paid' : ''/, "the start screen's plan pill stopped reading the paid flag");
 });

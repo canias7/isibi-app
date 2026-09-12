@@ -106,18 +106,38 @@ test("no table the browser reads directly is in this migration", () => {
   // few tables using the caller's own token; those depend on their grants, so
   // one appearing here would be a client feature about to break silently.
   const seen = new Set();
+  let files = 0, chars = 0;
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) { walk(p); continue; }
       if (!/\.(js|html)$/.test(e.name)) continue;
-      for (const m of fs.readFileSync(p, "utf8").matchAll(/rest\/v1\/([a-z_]+)/g)) seen.add(m[1]);
+      const src = fs.readFileSync(p, "utf8");
+      files++; chars += src.length;
+      for (const m of src.matchAll(/rest\/v1\/([a-z_]+)/g)) seen.add(m[1]);
     }
   };
   walk(new URL("../public/", import.meta.url).pathname);
   seen.delete("rpc");   // a function call, not a table
-  assert.ok(seen.size >= 2,
-    "the scan must still find the client's tables — it found " + seen.size + ", and a scan that stops matching reports a clean file");
+
+  // THE OBSERVER IS PROVED ALIVE BY WHAT IT READ, NOT BY THE SIZE OF ITS ANSWER
+  // (2026-09-12, stage 4 of the media deletion). This asked for `seen.size >= 2`
+  // — a floor on the ANSWER — and the client's three direct reads were `chats`,
+  // `user_assets` and `user_memory`: the chat sync, the asset sync and the
+  // universal memory, all media-side, all deleted in stage 2b. The floor went on
+  // passing for one more stage because `public/demo-hero-2/` — a frozen clone of
+  // the old client that the Worker 404'd — still named two of them, and it failed
+  // the hour that clone was deleted.
+  //
+  // So the set is legitimately EMPTY now: the app talks to PostgREST through the
+  // Worker, and the one `rest/v1/` literal left in `public/` is auth.js's
+  // `rpc/delete_account`, a function call this scan already drops. A floor on the
+  // answer cannot tell an empty truth from a broken reader — the recorded trap,
+  // with the observer alive off a file nothing serves — so the floor is on the
+  // READING instead, and the loop below re-arms itself the day a client feature
+  // adds a direct table read back.
+  assert.ok(files >= 8 && chars > 200000,
+    `the walk read ${files} files and ${chars} characters of public/ — a scan that stops reading reports a clean file`);
 
   // READ OUT OF THE FILE, not off the list above, and the first draft was the
   // other way round: it iterated `TABLES`, so a seventh line added to the

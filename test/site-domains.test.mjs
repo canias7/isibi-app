@@ -207,8 +207,16 @@ test("a custom host is resolved BEFORE anything else runs", () => {
   // one. Placed later, the app would answer first on somebody's own domain.
   const check = worker.indexOf("if (!isOwnHostname(url.hostname)");
   const handler = worker.indexOf("async function handleRequest(request, env, ctx)");
-  const firstRoute = worker.indexOf('if (/^\\/demo-hero');
-  assert.ok(check > handler && check < firstRoute, "between the handler opening and the first route");
+  // THE LANDMARK MOVED, NOT THE PROPERTY (2026-09-12). This read
+  // `if (/^\/demo-hero` — the snapshot wall, which was simply the first route
+  // in the file — and stage 4 deleted that wall with the frozen media clone it
+  // refused. The honest anchor is the branch the rewrite FEEDS: the host check
+  // turns `sharpfadebarbers.com/menu` into `/s/<slug>/menu`, so the R2
+  // site-serving match is what has to sit below it, and an `indexOf` from the
+  // check's own offset cannot be satisfied by an earlier copy of the same line.
+  const served = worker.indexOf("const sm = url.pathname.match(", check);
+  assert.ok(handler > 0 && check > handler, "the check is inside handleRequest");
+  assert.ok(served > check, "the R2 site branch reads the path the check rewrites, so it sits below it");
 });
 
 test("the hot path is free when the host is ours", () => {
