@@ -2670,9 +2670,20 @@ case now, and it is safe on walls that already existed.
   button on the very next line uses the escape. **Suite 6,135** (6,127 before;
   the eight new cases, and `site-source`'s count unchanged because its case was
   renamed rather than added to).
-  **Not proven live** — the deploy is the precondition. The push touches
-  `public/` and `test/` only, so no image input moves and the 15–20 minute hold
-  does not apply.
+  **MERGED AND LIVE — deploy 2106, 2026-09-12 23:36:06→23:36:58Z, green in 52
+  seconds.** The image step was **2 seconds** and the container answered no
+  change, because the whole push range (`2e50a90b..1b740101`, asked as the range
+  and not as the tip commit) touches `public/`, `test/`, `scripts/`, `docs/` and
+  the two `.md` files and moves **no image input** — so the 15–20 minute hold
+  does not apply. **Read back off the SERVED file and byte-for-byte**:
+  `gofarther.dev/chat.js` hashes **identical to the source** (sha256
+  `51f20eb354c36594`), 63 seconds from push, which is a stronger answer than any
+  needle and is the one to reach for first. Direct readings beside it: the
+  button and its handler each occur **once**, the dead `id="stPub"` **zero**
+  times, and no `isReact` wraps the button.
+  **Not proven live: a press.** The panel behind it is reached from the Cloud
+  card today and unchanged by this, so what a press has yet to prove is the new
+  door, not the panel.
 
 ---
 

@@ -6630,4 +6630,11 @@ change and were counted as applied-and-passed. A sweep that says "never applied"
 is saying it proved nothing, and it's as important to read as a failure. Fixed
 and re-run: 14 of 14.
 
-**Not live yet** — the next deploy is what puts it on your screen.
+**It's live now.** Deploy 2106 went green in 52 seconds at 23:36Z and I checked
+it the strict way — the `chat.js` your browser is served hashes byte-for-byte
+identical to the file here, so what's on your screen is exactly what I wrote.
+The container didn't roll (nothing it cares about changed), so there's no wait.
+
+**Reload the page and it's there, right of Share.** The one thing I haven't
+proven is a press — I have no way to sign in as you. If it opens the panel with
+your live link and the "Take it off the web" button, that's the whole feature.
