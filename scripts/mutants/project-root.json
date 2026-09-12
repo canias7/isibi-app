@@ -1,0 +1,69 @@
+[
+  {
+    "label": "THE STATE BEFORE THIS — the root is the four files the build reads, and the other eight are invisible",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \"README.md\",\n  \"AGENTS.md\",\n  \"package.json\",\n  \"tsconfig.json\",\n  \"tsconfig.kit.json\",\n  \"vite.config.ts\",\n  \"eslint.config.js\",\n  \"components.json\",\n  \".prettierrc\",\n  \".prettierignore\",\n  \".gitignore\",\n  \"package-lock.json\",",
+    "to": "  \"package.json\",\n  \"tsconfig.json\",\n  \"vite.config.ts\",\n  \"components.json\","
+  },
+  {
+    "label": "the lock file dropped — the download installs whatever is newest instead of what the site was built against",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \".gitignore\",\n  \"package-lock.json\",",
+    "to": "  \".gitignore\","
+  },
+  {
+    "label": "the readme dropped — a customer opens the zip and nothing says what it is or how to run it",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \"README.md\",\n  \"AGENTS.md\",",
+    "to": "  \"AGENTS.md\","
+  },
+  {
+    "label": "the AI map dropped — AGENTS.md is the file another coding tool is pointed at",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \"AGENTS.md\",\n  \"package.json\",",
+    "to": "  \"package.json\","
+  },
+  {
+    "label": "the ignore file dropped — the project goes to GitHub carrying node_modules",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \".prettierignore\",\n  \".gitignore\",",
+    "to": "  \".prettierignore\","
+  },
+  {
+    "label": "the linter config dropped",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \"eslint.config.js\",\n  \"components.json\",",
+    "to": "  \"components.json\","
+  },
+  {
+    "label": "the formatter settings dropped",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \".prettierrc\",\n  \".prettierignore\",",
+    "to": "  \".prettierignore\","
+  },
+  {
+    "label": "the kit's own compiler settings dropped",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "  \"tsconfig.kit.json\",\n  \"vite.config.ts\",",
+    "to": "  \"vite.config.ts\","
+  },
+  {
+    "label": "a missing template file is SKIPPED rather than thrown — the tree silently shrinks the day one is renamed",
+    "files": ["builder/gen-foundation.mjs"],
+    "from": "    out.push({ path: rel, source: fs.readFileSync(full, \"utf8\") });",
+    "to": "    try { out.push({ path: rel, source: fs.readFileSync(full, \"utf8\") }); } catch { /* skip */ }"
+  },
+  {
+    "label": "the committed bundle goes stale against the template it is a copy of",
+    "files": ["builder/foundation-files.mjs"],
+    "from": "export const FOUNDATION_FILES = [",
+    "to": "export const FOUNDATION_FILES = [\n  {\n    \"path\": \"src/ghost.ts\",\n    \"source\": \"// a file the template has not got\\n\"\n  },"
+  },
+  {
+    "label": "CONTROL: a comment-only change, which must survive",
+    "control": true,
+    "files": ["builder/gen-foundation.mjs"],
+    "from": " * THE ROOT IS COMPLETE RATHER THAN THE FOUR FILES A BUILD READS",
+    "to": " * The root is complete rather than the four files a build reads"
+  }
+]

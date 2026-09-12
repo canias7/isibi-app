@@ -20,9 +20,36 @@
  * into (owner, 2026-09-11: *"shared foundation files used by the project"*,
  * *"don't dump thousands of unused kit components or compiled bundles"*):
  *
- *   IN  — the app's own scaffold and its configuration: the router, the server
- *         entry, the root route, the data layer, the helpers, the hooks, and the
- *         four config files that decide how the project builds. 17 files.
+ *   IN  — the app's own scaffold: the router, the server entry, the root route,
+ *         the data layer, the helpers and the hooks — AND THE WHOLE PROJECT
+ *         ROOT, all twelve files. 25 files.
+ *
+ * THE ROOT IS COMPLETE RATHER THAN THE FOUR FILES A BUILD READS (owner,
+ * 2026-09-12, holding up Lovable's explorer beside ours: *"i [want] it to show
+ * it too"*). This listed `package.json`, `tsconfig.json`, `vite.config.ts` and
+ * `components.json` — the ones the BUILD consumes — and left the other eight
+ * out, which made the difference between showing a project and showing the part
+ * of it our pipeline happens to read. **Every one of the twelve was already in
+ * the template and already tracked**; nothing was generated for this and nothing
+ * new is stored. What the eight are: `README.md` and `AGENTS.md` (what this is,
+ * for a person and for the next AI tool), `eslint.config.js`, `.prettierrc` and
+ * `.prettierignore` (how the code is checked and laid out), `tsconfig.kit.json`
+ * (the kit's own compiler settings), `.gitignore`, and the lock file.
+ *
+ * AND THE LOCK FILE IS THE ONE THAT MAKES THE DOWNLOAD A PROJECT. `package.json`
+ * says "React 19"; `package-lock.json` says React 19.0.2 and four hundred others
+ * at exact versions, so an install next month resolves to what this site was
+ * built against rather than to whatever is newest. Without it the zip is a thing
+ * you read; with it, it is a thing you run.
+ *
+ * ITS COST, MEASURED BEFORE IT WENT IN, because it is 310,981 bytes against the
+ * other eleven's ~24,000 and the Worker hands the whole shared set to the
+ * browser on every Code-tab open (`worker.js`, `shared: FOUNDATION_FILES`).
+ * **Gzipped it is 62,346** — a lock file is the most repetitive JSON there is —
+ * and that is what actually travels. The bundle goes 168,387 -> ~489,000 raw,
+ * inside the 600,000 bound the size guard already held for the
+ * `theme-candidates/` precedent, and that bound is now close enough that the
+ * next thing added here is a decision rather than a habit.
  *   OUT — `src/components/**`: 3,394 kit files, 9.5 MB. A dependency, and no
  *         more part of a customer's project than `node_modules` is. Bundling it
  *         would also put 9.5 MB into every Worker isolate.
@@ -74,10 +101,21 @@ export const FOUNDATION_PATHS = [
   "src/lib/error-reporting.ts",
   "src/lib/spam-guard.tsx",
   "src/hooks/use-mobile.tsx",
+  // THE PROJECT ROOT, WHOLE — all twelve, in the order a reader wants them:
+  // what this is, what it needs, how it builds, how it is checked, and the
+  // machine-written list last.
+  "README.md",
+  "AGENTS.md",
   "package.json",
   "tsconfig.json",
+  "tsconfig.kit.json",
   "vite.config.ts",
+  "eslint.config.js",
   "components.json",
+  ".prettierrc",
+  ".prettierignore",
+  ".gitignore",
+  "package-lock.json",
 ];
 
 /** Read every foundation file, refusing rather than skipping a missing one. */

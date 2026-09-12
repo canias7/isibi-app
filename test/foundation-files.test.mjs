@@ -70,6 +70,40 @@ test("a foundation file is one the REPOSITORY has, never one a build made", () =
     "the generated route tree is back in the shared set");
 });
 
+test("THE PROJECT ROOT IS COMPLETE — every tracked root file is shown", () => {
+  // THIS IS THE CHECK THAT WAS MISSING, and its absence is what the owner found
+  // by holding Lovable's explorer up beside ours (2026-09-12). The list named
+  // the four root files the BUILD reads — `package.json`, `tsconfig.json`,
+  // `vite.config.ts`, `components.json` — and the other eight were in the
+  // template, tracked by git, and simply not listed. Nothing failed: the tree
+  // drew, the download worked, and what a customer got was the part of their
+  // project our pipeline happens to consume rather than their project.
+  //
+  // DERIVED FROM GIT, NEVER A SECOND HAND-TYPED LIST. A list here would be "two
+  // lists of the same thing" with the template as the other list, and it would
+  // drift the same silent way the first one did. Asking git also settles the
+  // generated-file question for free: `routeTree.gen.ts`, `.tanstack/` and
+  // `node_modules/` are untracked or ignored, so they can never arrive through
+  // this door — which is the red CI run of 2026-09-11, closed by derivation
+  // rather than by naming the one file that got in.
+  const rootFiles = execFileSync("git", ["ls-files", "-z", "--", "builder/lovable/template"], { cwd: path.join(here, ".."), encoding: "utf8" })
+    .split("\0").filter(Boolean)
+    .map((p) => p.replace(/^builder\/lovable\/template\//, ""))
+    .filter((p) => !p.includes("/"));
+  // THE OBSERVER IS ALIVE FIRST: an empty listing would make the loop vacuous
+  // and report a complete root over no data at all.
+  assert.ok(rootFiles.length >= 10, "the root listing came back short — this check is measuring nothing (" + rootFiles.length + ")");
+  for (const rel of rootFiles) {
+    assert.ok(FOUNDATION_PATHS.includes(rel),
+      "the project root has a file the explorer does not show: " + rel + " — add it to FOUNDATION_PATHS, or state here why a customer should not see it");
+  }
+  // AND THE LOCK FILE BY NAME, because it is the one whose absence makes the
+  // download unrunnable rather than merely incomplete, and the one whose size
+  // makes it the first candidate somebody later drops to save bytes.
+  assert.ok(FOUNDATION_PATHS.includes("package-lock.json"),
+    "the lock file is gone — a downloaded project installs whatever is newest instead of what it was built against");
+});
+
 test("DRIVEN: a missing template file THROWS; it is never skipped", () => {
   // SKIPPING WOULD QUIETLY SHRINK THE TREE the day somebody renames a template
   // file, and the explorer would then show a project with no router in it —
@@ -121,6 +155,15 @@ test("the bundle is the size it is meant to be, and the image carries it", () =>
   // A BOUND, NOT A NUMBER TO HIT. This text is in every isolate, so a change
   // that quietly multiplies it should be a decision somebody makes; the
   // existing precedent in this Worker is `builder/theme-candidates/` at ~292 KB.
+  //
+  // AND THE HEADROOM IS SMALL NOW, said out loud rather than discovered by a red
+  // run. Adding the whole project root on 2026-09-12 took this 168,387 ->
+  // 489,115, nearly all of it `package-lock.json` at 310,981. What TRAVELS is
+  // far less — the Worker hands the set to the browser on every Code-tab open
+  // and a lock file is the most repetitive JSON there is, so gzipped the whole
+  // payload went 60,781 -> 126,616, about 66 KB more per open — but the bound
+  // here is on the RAW text, because that is what sits in the isolate. So the
+  // next file added is a decision: there are ~110,000 bytes left under it.
   const bytes = FOUNDATION_FILES.reduce((n, f) => n + f.source.length, 0);
   assert.ok(bytes > 50_000, "the foundation is suspiciously small — " + bytes + " bytes");
   assert.ok(bytes < 600_000, "the foundation has grown past the bundled-data precedent — " + bytes + " bytes");
