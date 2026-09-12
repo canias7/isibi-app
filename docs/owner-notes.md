@@ -6367,3 +6367,31 @@ everything.
 
 Tests 6,088 green. Sweep 17 of 17, both controls survived. **Not seen live yet**
 — the next deploy is what puts it in front of you.
+
+**Seen live the same evening** — you opened the new tree and said "OK GOOD, I
+CAN SEE IT NOW". The folder tree and the components list both work.
+
+Worth writing down what that cost, because it was four rounds of you asking one
+question and me answering the wrong one.
+
+You opened Ben Crowe, saw no components folder, and asked where it was. The
+honest answer is that the list of which components a site uses is worked out
+**during a publish**, and Ben Crowe last published Sep 10 — two days before that
+existed. So there was nothing saved, and the tab drew nothing rather than saying
+so.
+
+**That site does use components — eighteen of them.** I read them straight off
+the live page: button, card, hero, faq, price-list, testimonial-grid,
+site-header, site-footer and ten more. So the number was never zero; the record
+was. Which is exactly why building a new site fixed it in one go.
+
+**Two things left open from this.**
+
+The tab should say "these appear after this site's next publish" instead of just
+drawing nothing. You shouldn't have had to ask me four times to find that out,
+and nor should a customer. Small fix, not done.
+
+And your other 51 sites are still in the same state. There's a platform rebuild
+that republishes all of them and **costs no credits** — that would fill in every
+one. It hasn't been run since it was made to do several sites at a time, so it's
+your call whether to fire it.

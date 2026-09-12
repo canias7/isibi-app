@@ -2005,6 +2005,39 @@ stale-snapshot trap): `gofarther.dev/styles.css` carries
 in the source, counted before it was used as the question — and the only
 `st-code-h` left in it is `st-code-hn`, the label span, which is the correct
 survivor.
+**AND THE OWNER HAS SEEN IT (2026-09-12: *"OK GOOD , I CAN SEE IT NOW"*).**
+
+**WHAT IT TOOK TO GET THERE IS THE PART WORTH KEEPING, because it cost four
+rounds of the owner asking one question.** They opened the new tree on
+`ben-crowe-guitar` and asked *"WHERE IS THE COMPONENTS ONE"*. The answer was
+that the kit closure is computed at PUBLISH time, and that site last published
+2026-09-10 — two days before `3f6fe2ff` shipped the closure — so its stored list
+is `[]` and the tab drew nothing. The arithmetic settles it: `src 15` is exactly
+the 13 shared files under `src/` plus `site-brand.ts` plus their one page, with
+no kit and no parts.
+**AND THE SITE REALLY USES EIGHTEEN, measured off the served page rather than
+argued**: every kit component stamps `data-slot`, so
+`curl --compressed ben-crowe-guitar.gofarther.app | grep -o 'data-slot="[^"]*"'`
+answers `button card cta-band faq figure hero label location-card
+practitioner-card price-list safe-image section-header service-card site-chrome
+site-footer site-header site-link testimonial-grid` — **18 distinct**, in the
+middle of the measured 9–53 band. **That one command is the instrument for
+"what does this site actually use", and it needs no auth and no publish.**
+**THE WORKER CANNOT BACKFILL IT and that is why a publish is the only door**:
+the closure walk needs each kit file's CONTENTS to follow its imports, and the
+2,112 kit files live only in the container image. Asked and answered rather than
+assumed.
+**WHAT THE EXPLORER SHOULD SAY AND DOES NOT — open.** A site published before
+`3f6fe2ff` draws no `Design system` folder and no sentence, so the customer is
+left to work out that the silence means "not recorded yet" rather than "your
+site uses none". The recorded shape of every dead-control finding in this file,
+inverted: not a control that promises what it cannot do, but an absence that
+explains nothing. A line in the tree ("these are recorded on this site's next
+publish") is the fix; the owner went and built a new site instead, which proved
+the feature and left the 51 older sites still silent.
+**THE FREE BACKFILL IS `site_rebuild`** — no credits, republishes every site and
+writes every closure. Not run; the owner's call, and still the measurement that
+entry has been waiting for.
 
 **OPEN, named and not fixed: the `tweak` rung targets pages by ROUTE**, so a
 layout tweak on a split site falls to the `page` rung (~1 → ~1–3 credits).
