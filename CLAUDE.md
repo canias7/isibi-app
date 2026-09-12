@@ -1994,6 +1994,17 @@ customer's). **And one of my own new assertions was the recorded substring
 trap on its first run**: `!/class="st-code-h/` is satisfied by a tree with no
 headings at all, because `st-code-hn` is the label span inside every fold row.
 `class="st-code-h[ "]`, with the quote.
+**MERGED AND LIVE (deploy 2102, 2026-09-12 20:23Z, green in 45 s).** Two assets
+uploaded — `chat.js` and `styles.css` — and the container answered **`no changes
+isibi-app-sitebuildcontainer`** with the image step at **1 second**: the whole
+push touched only `public/`, `test/`, `scripts/`, `docs/` and the two `.md`
+files, so no image input moved and **the 15–20 minute hold does not apply**.
+Read back off the SERVED file rather than the control plane (the recorded
+stale-snapshot trap): `gofarther.dev/styles.css` carries
+`.st-file-own { color: var(--text); }` — a needle that occurs **exactly once**
+in the source, counted before it was used as the question — and the only
+`st-code-h` left in it is `st-code-hn`, the label span, which is the correct
+survivor.
 
 **OPEN, named and not fixed: the `tweak` rung targets pages by ROUTE**, so a
 layout tweak on a split site falls to the `page` rung (~1 → ~1–3 credits).
