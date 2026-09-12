@@ -1116,6 +1116,38 @@ and **inside each one, the real directory tree.**
   has 1,383 real em dashes against 21 pre-existing escapes — harmless inside a
   comment, wrong-looking in source, and it made a mutant's anchor unfindable.
   Mine were normalised; the 21 were left alone.
+- **EVERY SCROLLING BOX IN THE PANEL RESERVES ITS SCROLLBAR'S LANE (2026-09-12,
+  owner on WINDOWS: *"still vibrates"* — the THIRD report of one symptom on this
+  panel in one night, and the third distinct cause).** Folding a group is exactly
+  what changes the rows box's HEIGHT, so it is exactly what makes the scrollbar
+  appear and disappear — MEASURED across the real fold states at a 760px panel:
+  open PAGES and it scrolls, fold it and it fits, open `shared/src` and it
+  scrolls again. **On Windows and Linux that bar is CLASSIC and takes ~17px out
+  of the CONTENT box**, so in a 210px column every file name jumps 8% of the
+  column sideways on every click. `scrollbar-gutter: stable` on `.st-code-rows`
+  and `.st-code-scroll`; **`stable`, never `stable both-edges`**, which reserves
+  a second lane the panel has no room for and which the guard pins by VALUE
+  rather than by prefix (a sweep survivor: `/scrollbar-gutter: stable/` matches
+  `stable both-edges` as a substring).
+  **THE RENDER CANNOT PROVE THIS ONE, WHICH IS WHY IT TOOK THREE GOES.** Headless
+  Chromium uses OVERLAY scrollbars, which take NO width, so the measurement reads
+  0px whether the column is steady or jumping — it read "nothing moves" in
+  precisely the case that moves, and `--disable-features=OverlayScrollbar` did
+  not change it. The recorded "a negative assertion must prove its observer is
+  alive", pointed at a browser: **a zero from a blind instrument is not evidence
+  of absence.** So the SHEET is the assertion and it is DERIVED — every
+  `.st-code-*` rule carrying `overflow: auto` must carry the gutter, found by
+  walking the rules rather than naming today's two, with a floor on how many were
+  found so the scan cannot go quiet.
+  **THE THREE CAUSES, because the shape is the lesson**: (1) the column growing to
+  its widest row, fold clicks only; (2) the panel replaying its entrance
+  animation, every click; (3) this, every fold but only where scrollbars take
+  width. Each was real, each was measured, and each explained only part of what
+  the owner saw — **a fix for the right symptom is not a fix for the right
+  cause**, and the honest tell was that the owner had to report it again.
+  **What cracked it was one fact from the owner's side of the screen** — which OS
+  — after two rounds of instruments that could not see past their own defaults.
+  Sweep 4/4, control survived.
 - **A SHARED FILE MUST BE ONE THE REPOSITORY HAS, and the guard asks GIT rather
   than the filesystem.** `src/routeTree.gen.ts` was in the list: TanStack
   regenerates it per build, the template's own `.gitignore` names it, and

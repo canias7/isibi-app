@@ -1167,6 +1167,37 @@ test("the Code host fills its stage, and the file tree keeps its scroll", () => 
   assert.match(col, /flex: 0 0 210px/, "the column lost its fixed basis");
   assert.match(col, /min-width: 0/,
     "the column can grow to its widest row again — every fold click moves the editor beside it");
+
+  // AND EVERY SCROLLING BOX IN THE PANEL RESERVES ITS SCROLLBAR'S LANE (owner on
+  // WINDOWS, 2026-09-12, the THIRD report of the same symptom on this panel).
+  // Folding a group is precisely what changes the rows box's height, so it is
+  // precisely what makes the scrollbar appear and disappear — measured across
+  // the real fold states: open PAGES and it scrolls, fold it and it fits, open
+  // `shared/src` and it scrolls again. On Windows that bar is CLASSIC and takes
+  // ~17px out of the CONTENT box, so in a 210px column every file name jumps
+  // sideways on every click.
+  //
+  // THIS IS THE ONE PROPERTY ON THIS PANEL THE RENDER CANNOT PROVE. Headless
+  // Chromium uses OVERLAY scrollbars, which take no width, so a render reads 0px
+  // whether the column is steady or jumping — the recorded "a negative assertion
+  // must prove its observer is alive", pointed at a browser. So the SHEET is the
+  // assertion, and it is derived: every box in the panel that scrolls must carry
+  // the gutter, found by walking the rules rather than naming today's two.
+  const scrollers = [...CSS.matchAll(/\.(st-code-[a-z-]+) \{([^}]*)\}/g)]
+    .filter((m) => /overflow(-[xy])?: auto/.test(m[2]));
+  assert.ok(scrollers.length >= 2,
+    "found " + scrollers.length + " scrolling boxes in the panel — the scan is not finding them, so what follows proves nothing");
+  for (const [, name, body] of scrollers) {
+    const gutter = body.match(/scrollbar-gutter:\s*([^;]+);/);
+    assert.ok(gutter,
+      "`." + name + "` scrolls without reserving the scrollbar's lane — on Windows its contents jump sideways every time it crosses between fitting and scrolling");
+    // ONE LANE, ON THE END SIDE. `stable both-edges` reserves a second lane at
+    // the start as well, which is ~17px more taken out of a 210px column for
+    // nothing — it stops the jump and costs a fifth of the tree's width, so the
+    // value is asserted rather than its prefix.
+    assert.equal(gutter[1].trim(), "stable",
+      "`." + name + "` reserves its gutter as `" + gutter[1].trim() + "` — a second lane the panel has no room for");
+  }
 });
 
 // ── THE WHOLE PROJECT, NOT TWO FILES ────────────────────────────────────────

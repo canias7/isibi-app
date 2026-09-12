@@ -2660,7 +2660,32 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-find-said { flex: none; margin: 0 .6rem .4rem; font-size: .68rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .st-find-said:empty { display: none; }
 .st-find-none { padding: .5rem .6rem; font-size: .76rem; line-height: 1.45; color: var(--muted); }
-.st-code-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 0 .5rem .6rem; }
+/* THE SCROLLBAR'S LANE IS RESERVED WHETHER OR NOT THERE IS A SCROLLBAR
+   (2026-09-12, owner on Windows: "screen vibrates everytime i click on one of
+   them", the third report).
+
+   FOLDING A GROUP IS EXACTLY THE THING THAT CHANGES THIS BOX'S HEIGHT, so it is
+   exactly the thing that makes the scrollbar appear and disappear — MEASURED
+   across the real fold states at a 760px panel: open PAGES and it scrolls, fold
+   it and it fits, open `shared/src` and it scrolls again. On WINDOWS (and Linux,
+   and any macOS set to "always show scroll bars") that bar is CLASSIC and takes
+   its ~17px out of the CONTENT box, so every file name in a 210px column jumps
+   sideways on every fold click. That is the vibration, and it is the third
+   distinct cause on this panel in one night.
+
+   IT IS INVISIBLE TO THE INSTRUMENT HERE. Headless Chromium uses OVERLAY
+   scrollbars, which take no width at all, so the measurement reads 0px in every
+   state and cannot tell a working column from a jumping one — and
+   `--disable-features=OverlayScrollbar` did not change that. A zero from a blind
+   instrument is not evidence of absence, which is this file's own "a negative
+   assertion must prove its observer is alive" pointed at a browser. What CAN be
+   measured here is the gutter itself: with it, the bar reads a constant 10px in
+   every fold state instead of coming and going.
+
+   `stable` and not `stable both-edges`: one lane, on the end side, which is
+   where the bar goes. And it is on BOTH scrolling boxes — the editor's own
+   scroller toggles the same way when you open a long file after a short one. */
+.st-code-rows { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 0 .5rem .6rem; }
 /* THE HEADING IS A FOLDER (owner, 2026-09-11: "components you click and the 8
    or 0 or whatever how many they appear"). A button, so it is reachable by
    keyboard and announces its own state; the type stays exactly what it was, so
@@ -2753,7 +2778,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-code-fname { font-size: .8rem; color: var(--text); font-family: ui-monospace, monospace; }
 .st-code-dl { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; font: inherit; font-size: .78rem; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .32rem .6rem; cursor: pointer; }
 .st-code-dl:hover { color: var(--text); }
-.st-code-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.55; }
+/* The editor's own scroller, and the same rule for the same reason: opening a
+   long file after a short one is what makes ITS bar appear, and the code would
+   shift sideways under the customer's eyes as they picked through the tree. */
+.st-code-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; display: flex; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.55; }
 .st-code-gutter { padding: .8rem .4rem .8rem .8rem; color: rgba(0,0,0,.3); text-align: right; user-select: none; margin: 0; white-space: pre; }
 .st-code-pre { padding: .8rem 1rem; margin: 0; color: var(--text); white-space: pre; }
 /* ── More view (Analytics / Cloud / Security / SEO) ── */

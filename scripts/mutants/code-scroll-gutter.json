@@ -1,0 +1,32 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the tree's scrollbar lane is not reserved, so folding shifts every row",
+    "files": ["public/styles.css"],
+    "from": ".st-code-rows { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 0 .5rem .6rem; }",
+    "to": ".st-code-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 0 .5rem .6rem; }"
+  },
+  {
+    "label": "the editor's scroller loses its lane, so the code shifts when a long file follows a short one",
+    "files": ["public/styles.css"],
+    "from": ".st-code-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; display: flex;",
+    "to": ".st-code-scroll { flex: 1; min-height: 0; overflow: auto; display: flex;"
+  },
+  {
+    "label": "the gutter is asked for on both edges, which takes a lane the panel does not need",
+    "files": ["public/styles.css"],
+    "from": "overflow-y: auto; scrollbar-gutter: stable; padding: 0 .5rem .6rem; }",
+    "to": "overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 0 .5rem .6rem; }"
+  },
+  {
+    "label": "the scan stops finding the scrolling boxes, so the guard proves nothing",
+    "files": ["test/site-source.test.mjs"],
+    "from": "    .filter((m) => /overflow(-[xy])?: auto/.test(m[2]));",
+    "to": "    .filter((m) => /overflow-z: auto/.test(m[2]));"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "files": ["public/styles.css"],
+    "from": "   `stable` and not `stable both-edges`: one lane, on the end side, which is",
+    "to": "   `stable` and not `stable both-edges` (control): one lane, on the end side, which is"
+  }
+]

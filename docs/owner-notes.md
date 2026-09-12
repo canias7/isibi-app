@@ -5884,3 +5884,40 @@ than assuming it, and replaced it), and the other four were real holes in my own
 tests — clicking the file that's already open, clicking a row for a file that no
 longer exists, the 120,000-character clip, and whether the code shown is escaped.
 All four have a test now.
+
+## The third cause: Windows scrollbars (12 Sept)
+
+You told me it still vibrates, and then you told me you're on Windows. That
+second thing is what I'd been missing.
+
+**The tree has a scrollbar, and folding a group is exactly what makes it come and
+go.** I measured that part earlier and walked straight past it: at a normal panel
+height, opening PAGES makes the list long enough to scroll, folding it makes it
+short enough to fit, opening `shared/src` makes it scroll again. Every fold click
+flips it.
+
+**On Windows a scrollbar is a solid bar that takes about 17px of real width out of
+the column.** The tree column is 210px. So every time that bar appears or
+disappears, every file name in the list jumps sideways by 8% of the column — on
+every click. On a Mac the scrollbar floats on top and takes no width, which is why
+it never showed up in any of my tests.
+
+The fix is one line on each of the two scrolling boxes: reserve the scrollbar's
+lane permanently, so it's there whether or not the bar is. Measured: the lane is
+now a constant width in every fold state instead of coming and going, and nothing
+moves.
+
+**Why it took three goes.** Each of the three causes was real and each one only
+explained part of what you were seeing:
+
+1. the column growing to fit its widest row — fold clicks only;
+2. the panel replaying its entrance animation — every click, both kinds;
+3. this one — every fold, but only on Windows and Linux.
+
+The first two are fixed and measured. The third I could not see at all from here:
+my headless browser uses floating scrollbars and reports zero width whether the
+column is steady or jumping, so it read "nothing moves" in exactly the case that
+moves. I tried to force it and couldn't. The thing that actually cracked it was
+you saying "Windows".
+
+Tests green at 6,061. Sweep 4 of 4, control survived.
