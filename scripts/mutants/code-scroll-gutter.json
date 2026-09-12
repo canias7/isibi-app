@@ -25,6 +25,7 @@
   },
   {
     "label": "CONTROL — a comment only, which must survive",
+    "control": true,
     "files": ["public/styles.css"],
     "from": "   `stable` and not `stable both-edges`: one lane, on the end side, which is",
     "to": "   `stable` and not `stable both-edges` (control): one lane, on the end side, which is"

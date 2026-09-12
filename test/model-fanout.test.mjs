@@ -274,6 +274,47 @@ test("the two bounds have one home each, and neither is the design's cap", () =>
   }
 });
 
+test("the container harness asks the module for the ceiling, never its own copy of the number", () => {
+  // WHY THIS GUARD EXISTS (2026-09-12, and it cost a merge a day).
+  // `test/integration/site-build.mjs` posted NINE requests at this wall, and was
+  // right to: it was written on 2026-09-10, when one constant answered both
+  // questions and nine was over it. The split the two cases above pin made nine
+  // LEGAL on 2026-09-11, and the harness then went red on a change that touched
+  // nothing near it — reporting a container that was doing exactly what we had
+  // just changed it to do. That is the same "two lists of the same thing" this
+  // file already refuses the CONTAINER, one layer out: a check carrying its own
+  // copy of a number the product exports is a second copy with no guard between
+  // them. It sat red for a day because the only thing that reads it is an
+  // 18-minute run, so the cheap half of the wall belongs here, in the suite that
+  // owns these two bounds and runs on every push.
+  const harness = fs.readFileSync(new URL("./integration/site-build.mjs", import.meta.url), "utf8");
+  assert.match(harness, /import \{[^}]*MAX_FANOUT_REQS[^}]*\} from "[^"]*model-fanout\.mjs";/,
+    "the harness does not read the shared list bound at all");
+  // The closing landmark is searched FROM the opening one and BOTH ends are
+  // proved, because `indexOf` answering -1 gives a slice that passes every
+  // assertion inside it — the recorded vacuous-window trap.
+  const at = harness.indexOf("const tooMany = await fetch(");
+  const end = harness.indexOf("a fan-out over the container's own ceiling is refused", at);
+  assert.ok(at > 0 && end > at,
+    "the over-the-ceiling case is gone, or its two landmarks no longer bracket it");
+  const posted = harness.slice(at, end).match(/length:\s*([^,}]+)/);
+  assert.ok(posted, "the over-the-ceiling case no longer posts a list of a stated length");
+  // DRIVEN, NOT READ. Asserting the spelling `MAX_FANOUT_REQS + 1` would pass on
+  // `MAX_FANOUT_REQS - 1`, which is under the wall and asserts a refusal that
+  // cannot happen; asserting merely that the name appears would pass on the same
+  // thing. So the length expression is EVALUATED — once at the real bound, and
+  // once at a bound moved far past it, which is the only shape that separates a
+  // derived count from a literal big enough to be over the wall today.
+  const count = (bound) => Function("MAX_FANOUT_REQS", "return (" + posted[1] + ");")(bound);
+  const now = count(MAX_FANOUT_REQS);
+  assert.ok(Number.isFinite(now) && now > MAX_FANOUT_REQS,
+    "the harness posts " + now + " against a ceiling of " + MAX_FANOUT_REQS +
+      " — at or under the wall, so the refusal it asserts can never happen and the run goes red on a healthy container");
+  const far = MAX_FANOUT_REQS + 1000;
+  assert.ok(count(far) > far,
+    "the count does not move with the bound — a literal that is over the wall today and under it after the next raise");
+});
+
 test("A LIST LONGER THAN THE BOUND QUEUES — it is never refused and never truncated", async () => {
   // THE OWNER'S RULE, DRIVEN (2026-09-11: "whatever the designer does then it
   // should go to the generate, if the designer does 9 the generate needs 9 if 8,

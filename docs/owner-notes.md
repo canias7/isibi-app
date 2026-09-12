@@ -5878,7 +5878,7 @@ so I stopped there. The honest lesson is that a still screenshot can't see this
 class of thing at all — the defect only exists for a fifth of a second — so
 "looks right" was never evidence either way.
 
-Tests green at 6,061. Sweep 20 of 20, both controls surviving. Five survived the
+Tests green at 6,061. Sweep 18 of 18, both controls surviving. Five survived the
 first pass: one was a mutation that changed nothing at all (I proved that rather
 than assuming it, and replaced it), and the other four were real holes in my own
 tests — clicking the file that's already open, clicking a row for a file that no
@@ -5968,3 +5968,21 @@ on the way: six mutants survived the first pass and three of them were the same
 mistake — I checked that a line *existed* rather than that it *runs*, so wrapping
 it in `if (false)` slipped straight past. That's a trap already written down here
 and I walked into it anyway; the checks read each call's own condition now.
+
+**One test was already broken before I started, and it held this up.** The big
+build test — the slow one that compiles a real site, the only thing here that
+proves a build actually works — came back with one failure. It wasn't mine. A
+check written on the 10th posts nine jobs at once and expects the container to
+refuse them; on the 11th we deliberately raised that limit so nine would be
+allowed, and nobody re-ran this test. So it has been sitting red for a day,
+reporting the builder as broken when the builder was doing exactly what we
+changed it to do. The check asks the code what the limit is now instead of
+having its own copy of the number. Everything else in that run passed.
+
+Both runs green after the fix: the big build test **382 of 382**, and the normal
+test suite **6,077**. And a smaller thing I found while in there — our mutation
+tool has a way of marking one test as the "control" (a change that must NOT
+break anything, which proves the run is honest). Four recent batches named theirs
+in the label only, not the way the tool reads it, so the tool's own check on
+itself was switched off in exactly the runs that reported it working. Fixed and
+all four re-run: 18, 4, 25 and 7, every control surviving.

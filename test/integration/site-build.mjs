@@ -17,6 +17,9 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// THE SERVER'S OWN CEILING, imported rather than re-typed — see the fan-out
+// refusal below for what a hand-typed copy of it cost.
+import { MAX_FANOUT_REQS } from "../../builder/model-fanout.mjs";
 import { validatePages } from "../../builder/page-gen.mjs";
 // The REAL stub, not a copy of it. A hand-written imitation here would prove that
 // some file compiles and say nothing about the one the salvage actually writes.
@@ -1042,11 +1045,28 @@ try {
     // truncated instead of refused is a page missing a section with nothing
     // anywhere saying so; an empty one is a job holding no calls that never
     // answers; junk inside it is a silent drop.
+    // THE CEILING IS DERIVED, NEVER TYPED (2026-09-12). This check sent NINE and
+    // was right to: it was written on 2026-09-10, when one constant answered two
+    // questions and nine was over the wall. The two bounds split on 2026-09-11 —
+    // `MAX_MODEL_FANOUT` (8) is how many calls may be IN THE AIR, `MAX_FANOUT_REQS`
+    // (16) how long a list one job may carry, and the whole point of the split was
+    // that a plan of nine pieces can now be SENT and queues — so nine became legal
+    // and the check went red against a server that is behaving correctly. It is
+    // the recorded "a rule true because of a layer below it expires when that
+    // layer moves" trap, and the honest fix is to ask the module rather than
+    // re-type today's number: `MAX_FANOUT_REQS + 1` is over the wall whatever the
+    // wall is. The observer is alive without a second case — the three-request job
+    // above is accepted and driven to completion, so a ceiling mutated down to
+    // nothing fails there.
     const tooMany = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reqs: Array.from({ length: 9 }, () => ({ model: "grok-4.6", messages: [] })), callMs: 5000 }),
+      body: JSON.stringify({
+        reqs: Array.from({ length: MAX_FANOUT_REQS + 1 }, () => ({ model: "grok-4.6", messages: [] })),
+        callMs: 5000,
+      }),
     });
-    ok("a fan-out over the container's own ceiling is refused, never truncated", tooMany.status === 400);
+    ok("a fan-out over the container's own ceiling is refused, never truncated", tooMany.status === 400,
+      "sent " + (MAX_FANOUT_REQS + 1) + " against a ceiling of " + MAX_FANOUT_REQS + ", got " + tooMany.status);
     const empty = await fetch(`http://127.0.0.1:${PORT}/model/start`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reqs: [], callMs: 5000 }),
     });

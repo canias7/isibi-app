@@ -145,6 +145,7 @@
   },
   {
     "label": "CONTROL — a comment only, which must survive",
+    "control": true,
     "files": [
       "public/chat.js"
     ],
@@ -153,6 +154,7 @@
   },
   {
     "label": "CONTROL 2 — a comment only, in the renderer, which must survive",
+    "control": true,
     "files": [
       "public/chat.js"
     ],

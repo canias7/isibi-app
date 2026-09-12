@@ -151,12 +151,14 @@
   },
   {
     "label": "CONTROL — a comment only, which must survive",
+    "control": true,
     "files": ["builder/kit-closure.mjs"],
     "from": " * THE KIT FILES A SITE ACTUALLY HAS.",
     "to": " * THE KIT FILES A SITE ACTUALLY HAS (control)."
   },
   {
     "label": "CONTROL 2 — a comment only in the Worker, which must survive",
+    "control": true,
     "files": ["worker.js"],
     "from": " * THE KIT FILES THE SITE'S OWN PROJECT NEEDS",
     "to": " * THE KIT FILES THE SITE'S OWN PROJECT NEEDS (control)"

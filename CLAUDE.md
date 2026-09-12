@@ -1101,7 +1101,7 @@ and **inside each one, the real directory tree.**
   **A STILL SCREENSHOT CANNOT SEE THIS CLASS AT ALL** — the defect exists for a
   fifth of a second — so "the render looks right" was never evidence. What sees it
   is sampling one element's rect across `requestAnimationFrame`.
-  **Sweep: 20 mutants, 18 killed, 0 survived, 0 never applied, both comment-only
+  **Sweep: 18 mutants, 18 killed, 0 survived, 0 never applied, 2 comment-only
   controls survived.** Five survived the first pass: ONE WAS INERT and was proven
   so rather than hunted — it moved `const wasAt = rows.scrollTop` below the
   `stCodeFind` call, which does not touch `rows`, so the read was still before the
@@ -1200,7 +1200,7 @@ and **inside each one, the real directory tree.**
   **A site that has not published since this shipped gets `[]`** — the explorer
   shows exactly what it showed before, no error and nothing to explain, and it
   fills in on that site's next publish.
-  **Sweep: 27 mutants, 25 killed, 0 survived, none unapplied, both comment-only
+  **Sweep: 25 mutants, 25 killed, 0 survived, none unapplied, both comment-only
   controls survived. SIX survived the first pass and every one was a guard gap**
   — and THREE were the same recorded trap: **a positional guard cannot see a
   dead branch.** `if (false) await saveSiteKit(…)` leaves the call exactly where
@@ -2991,17 +2991,21 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   pageloads in the 7 days to 2026-08-28 across ~25 hostnames. Config
   `53fa6238…`, token `16ed2075…`, `auto_install: true`. `rum report` reads it
   free and read-only.
-- **`site build` is 382/382** against the real container — **and CI has read
-  that number since the cap moved to 35 minutes**: runs 1065 and 1066 both
-  printed `373 passed, 0 failed`, where stage 5b/5c's own run had been killed
-  at the 25-minute wall and the count stood on a local run alone. **382 is a
-  LOCAL run (2026-09-09)**: the nine added are the band fan-out's, and the next
-  CI run of this workflow is what re-reads the number — a count nobody
-  re-measured is a claim ahead of its evidence.
-  The unit suite is 6,061 (2026-09-12, the project-root census, the template
-  name guard, the preview-error channel, the code tree's icons and sort, and
-  the search box, the tree column's width, the row menu and the click twitch;
-  86.4 s local).
+- **`site build` is 382/382, RE-MEASURED LOCALLY 2026-09-12** — and the
+  re-measure is why it is trustworthy today. The 382 was stamped on 2026-09-09
+  from a local run and nothing re-read it for three days; the line then said
+  "the next CI run of this workflow is what re-reads the number", and what
+  actually re-read it was this one, which came back **381 passed, 1 failed**.
+  The failure was the harness's own hardcoded fan-out ceiling, not the product
+  (the trap entry has it): the count was right and the run was red, and a count
+  nobody re-measured is a claim ahead of its evidence in BOTH directions.
+  Before that, CI had read `373 passed, 0 failed` on runs 1065 and 1066 once
+  the cap moved to 35 minutes.
+  The unit suite is 6,077 (2026-09-12, the project-root census, the template
+  name guard, the preview-error channel, the code tree's icons and sort, the
+  search box, the tree column's width, the row menu, the click twitch, the
+  scrollbar gutter, the kit closure and the derived harness ceiling; 86.6 s
+  local).
   **Run it as `node --test "test/*.test.mjs"`** — the quoted glob, which is what
   `package.json` runs. `node --test test/` reads the directory as a MODULE path
   on this Node and answers `MODULE_NOT_FOUND` as one failing "test", which is a
@@ -3154,6 +3158,23 @@ applied is a sweep with no control.**
 **Two lists of the same thing.** Routes in a matcher and in a dispatch condition;
 a scanner's list and the kit's. They drift, and the drift is silent. Derive one
 from the other, in BOTH directions where the scan can stop matching.
+**AND A HAND-TYPED CONSTANT IN A CHECK IS ONE OF THEM (2026-09-12, the container
+harness).** `site build` came back **381 passed, 1 failed** on a change that
+touches neither the fan-out nor the model path: "a fan-out over the container's
+own ceiling is refused, never truncated" posted NINE requests, and nine was over
+the wall on 2026-09-10 when the check was written and legal from 2026-09-11 when
+the two bounds split (`MAX_MODEL_FANOUT` 8 sockets, `MAX_FANOUT_REQS` 16 list
+length — the split's whole point being that a plan of nine pieces can be SENT).
+`git merge-base --is-ancestor` settles the order in one command: the check came
+first, the ceiling moved under it. **So the failure named the product and the
+defect was in the check**, which is this file's own "a rule true because of a
+layer below it expires when that layer moves" trap wearing a red test as its
+costume — and the reason it went unread for a day is the Live-state line already
+flagging `382/382` as a local number nobody re-measured. It imports
+`MAX_FANOUT_REQS` and sends `+ 1` now. **A check that hardcodes a number the
+product exports is a second copy of that number with no guard between them**, and
+the three-request job above it is what keeps the observer alive without a second
+case.
 
 **A LOOKUP KEYED AT A DIFFERENT GRANULARITY THAN THE THING YOU ASK IT
 (2026-09-08).** `LANE_LAYER` is keyed by GROUP and `laneLayer(field)` is the
@@ -3994,6 +4015,18 @@ worked, and that leaves a live mutant in the tree. **And the obvious fix is
 INERT**: adding `process.exit()` to a handler that never runs reads exactly like
 a fix. The loop awaits now. **A sweep cannot mutate its own runner**, so those
 guards are proved by hand — said out loud rather than counted.
+**AND A CONTROL MUST BE DECLARED, NOT MERELY LABELLED (2026-09-12).** The runner
+reads `control: true` off a spec entry; four recent specs named theirs only in
+the LABEL (`"CONTROL — a comment only, which must survive"`), so `isControl` was
+false for every one of them. Two consequences, and the second is the real one.
+The tally printed the controls as ordinary survivors, which is why entries here
+carried hand-adjusted numbers that no run ever produced (`20 mutants, 18 killed,
+0 survived` — 20 counting the controls, 18 not). And **the runner's own
+`CONTROL WAS KILLED` branch was never armed**, so a control that stopped being
+comment-only would have printed as a kill and read as a win: the sweep's one
+check on its own honesty, off, in the sweeps that reported it working. Declared
+now in all four, and re-run: **18/18, 4/4, 25/25, 7/7, every control surviving**
+— the numbers above are what the runner printed, not what was reasoned from it.
 
 **A DEFECT THAT ONLY EXISTS IN TIME IS INVISIBLE TO EVERY STILL (2026-09-12).**
 An entrance animation on an element that something started rebuilding by itself is

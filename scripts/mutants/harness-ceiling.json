@@ -1,0 +1,51 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the harness types 9 again, which is legal now, so the run goes red on a healthy container",
+    "files": ["test/integration/site-build.mjs"],
+    "from": "        reqs: Array.from({ length: MAX_FANOUT_REQS + 1 }, () => ({ model: \"grok-4.6\", messages: [] })),",
+    "to": "        reqs: Array.from({ length: 9 }, () => ({ model: \"grok-4.6\", messages: [] })),"
+  },
+  {
+    "label": "a literal that is over the wall TODAY and under it after the next raise",
+    "files": ["test/integration/site-build.mjs"],
+    "from": "length: MAX_FANOUT_REQS + 1 }",
+    "to": "length: 99 }"
+  },
+  {
+    "label": "the count names the bound and sits UNDER it, so the refusal it asserts can never happen",
+    "files": ["test/integration/site-build.mjs"],
+    "from": "length: MAX_FANOUT_REQS + 1 }",
+    "to": "length: MAX_FANOUT_REQS - 1 }"
+  },
+  {
+    "label": "the count is exactly the ceiling — off by one in the direction that passes a read",
+    "files": ["test/integration/site-build.mjs"],
+    "from": "length: MAX_FANOUT_REQS + 1 }",
+    "to": "length: MAX_FANOUT_REQS }"
+  },
+  {
+    "label": "the harness stops reading the shared bound at all",
+    "files": ["test/integration/site-build.mjs"],
+    "from": "import { MAX_FANOUT_REQS } from \"../../builder/model-fanout.mjs\";",
+    "to": "const MAX_FANOUT_REQS = 16;"
+  },
+  {
+    "label": "the list is built some other way, so nothing states its length and the case posts one request at a ceiling",
+    "files": ["test/integration/site-build.mjs"],
+    "from": "        reqs: Array.from({ length: MAX_FANOUT_REQS + 1 }, () => ({ model: \"grok-4.6\", messages: [] })),",
+    "to": "        reqs: [{ model: \"grok-4.6\", messages: [] }],"
+  },
+  {
+    "label": "the container hardcodes the ceiling instead of importing it — the same two lists, on the product side",
+    "files": ["builder/build-server.mjs"],
+    "from": "      if (mReqs && mReqs.length > MAX_FANOUT_REQS) return send(res, 400,",
+    "to": "      if (mReqs && mReqs.length > 16) return send(res, 400,"
+  },
+  {
+    "label": "CONTROL — a comment only, which must survive",
+    "control": true,
+    "files": ["test/integration/site-build.mjs"],
+    "from": "// THE SERVER'S OWN CEILING, imported rather than re-typed",
+    "to": "// THE SERVER'S OWN CEILING (control), imported rather than re-typed"
+  }
+]
