@@ -2546,6 +2546,23 @@ rolls the container, so leave 15–20 minutes after it deploys.
 
 ## Open — waiting on you
 
+**0w. WHAT SHOULD THE PUBLISH BUTTON DO? (2026-09-12, your "WE WILL WORK ON IT
+LATER").** The button is live on the workspace bar, right of Share, and it opens
+the panel that already existed: your live link, Copy link, and Take it off the
+web / Put it back online. **It does not publish**, because your sites publish
+themselves — every change goes live on its own, which is what the panel says in
+a sentence and what the tooltip says before you press it.
+
+That is the whole open question: **is a door the right answer, or did you want
+the button to do something?** Nothing needs deciding for it to keep working as
+it is — this is a "what did you mean" item, not a bug. Free to change either
+way; it is browser-only code, so no credits and no container wait.
+
+Worth knowing when you come back to it: there IS no unpublished state to act on
+today. If you want Publish to mean something, the honest candidates are a
+**republish** of the current site (free, no credits) or a **draft/live split**,
+which is a real feature and a much bigger one.
+
 **0x. BOTH SPLITS ARE ON FOR YOUR ACCOUNT — ONE BUILD MEASURES THEM
 (2026-09-10, your "switch it on").** Step 1 of what this item used to say is
 done: both canaries name your account id, and no customer is on either path.
