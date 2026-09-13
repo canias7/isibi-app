@@ -7102,10 +7102,30 @@ about what the sentence contains, and the broken sentence contained all of it.
 **One thing I found on the way that is NOT mine and is NOT fixed.** Tables that
 ask for "keep track of when a row was last changed" get an `updated_at` column
 that is set when the row is created and **never updated afterwards**. The code's
-own comment says it is bumped on every change; nothing bumps it. The
-offline-sync feature reads that column to work out what changed, so it would
-miss every edit. I've written it down rather than fixing it — it's a different
-feature and changing it is a live behaviour change I'd want you to okay first.
+own comment says it is bumped on every change; nothing bumps it. I've written it
+down rather than fixing it — it's a different feature and changing it is a live
+behaviour change I'd want you to okay first.
+
+**And I got the reason wrong the first time, so here it is corrected.** I told
+you the offline-sync feature reads that column. It does not — **there is no
+offline-sync feature.** I'd read a code comment describing one and repeated it as
+if it were real; you were right to make me check. What is actually true is worse
+in one place and better in another:
+
+- **A customer's own page is what reads it.** The page kit has a note in it
+  saying the models wrote "show when this was last updated" twice in a row, which
+  is why the column is even typed. So a site that shows "last updated" shows the
+  date the row was **created**, for ever, however many times it's been edited.
+  That one is real and a visitor can see it.
+- **The sync half is worse than broken — nothing has ever been able to read it.**
+  Asking a table to track deletions builds real machinery in the database on
+  every site that asks, and nothing anywhere can get at it: there's no address
+  for it and the browser is explicitly denied. Work done on every such site,
+  reachable by nobody.
+
+**The lesson I'd keep**: a comment saying something reads a value is not evidence
+anything does. One search of the whole codebase settled it in a second, and I
+should have done that before telling you.
 
 **What's left, and all three need you:**
 

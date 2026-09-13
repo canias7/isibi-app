@@ -4640,11 +4640,31 @@ fixed.** `site-schema.mjs:1121` creates it as a column DEFAULT whose comment say
 "set on insert, bumped on every UPDATE", and a Postgres default applies only when
 the column is omitted from an INSERT. There is no trigger, no route and no
 statement anywhere that touches a site table's `updated_at` on an update — every
-hit in the tree is a Supabase platform table. `:1187` then says `updated_at`
-"covers inserts+edits" for `/changes?sync=`, so incremental sync misses every
-edit while the `_deletes` tombstone trigger makes its delete half real. **Open,
-and outside this change** — it is a `timestamps`/`sync` defect, not a coverage
-one.
+hit in the tree is a Supabase platform table. **Open, and outside this change** —
+it is a `timestamps`/`sync` defect, not a coverage one.
+
+**AND THE FIRST WRITE-UP OF IT WAS WRONG, CORRECTED HERE RATHER THAN QUIETLY
+DROPPED (2026-09-13).** It said the defect matters because `/changes?sync=`
+"reads `updated_at`", which repeated a CODE COMMENT as though it were a live
+consumer. **`/changes?sync=` occurs exactly once in the whole tree and it is
+inside that comment** (`site-schema.mjs:1187`); there is no such route anywhere.
+The earlier audit that said so was right. **The corrected record is sharper in
+both directions:**
+- **The real live consumer is a GENERATED PAGE.** The kit's `Row` type declares
+  `updated_at?: string` (`lovable/template/src/lib/rows.ts:66`) precisely because
+  models wrote `deal.updated_at ?? deal.created_at` in **two consecutive evals** —
+  its own comment records that. So a site whose page shows "last updated" shows
+  the CREATION time for ever, on every row that has ever been edited, and the
+  page is correct code reading a column the engine never moves.
+- **`sync` has NO READER AT ALL, which is the larger finding.** The flag creates
+  `_deletes` and a tombstone trigger per table (`:1189`, `:1193`) — real DDL, on
+  every site that declares it — and `_deletes` is on `INTERNAL_TABLES` (`:61`),
+  denied to the browser, with no route serving it. Every byte of that machinery
+  is unreachable from outside Postgres. This repository's own most-repeated
+  defect — a value computed and never forwarded — in DDL.
+**The method that settled it is worth more than the finding**: a comment
+describing a consumer is not evidence the consumer exists, and the check is one
+grep for the literal over the whole tree.
 
 **STILL NOT PROVEN, and each needs the owner:** the three real addon requests
 (they need the deploy, a real Neon project and credits — and the harness's asks
