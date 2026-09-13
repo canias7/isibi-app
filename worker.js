@@ -1,7 +1,3 @@
-// Photon (WASM) for server-side image watermarking — the workerd build
-// instantiates the wasm synchronously on import, so the functions are ready to
-// call. Bundled by wrangler at deploy (see package.json).
-import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
 import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone } from "./site-jobs.mjs";
@@ -220,7 +216,6 @@ import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
-import { toCents, depreciationSchedule, amortizationSchedule, investmentAnalysis, eoqCalc, breakevenCalc, demandForecast, installmentPlan, taxCalc, commissionCalc } from "./worker-finance.mjs";
 import { currentStateNote, EDIT_RULE, EDIT_REQUIRED, EDIT_FIELDS, hasValue, keepStoredAccess, mergeLook, movedFields } from "./builder/site-edit.mjs";
 import { PLAN_FIELDS, PLAN_KEYS, PLAN_REQUIRED, SHAPE_FIELD, IMAGES_FIELD, ACTION_FIELD, BEHAVIOR_FIELD, TSX_FIELD, normalizePlan } from "./builder/site-plan.mjs";
 // The designer-drawn tab icon (2026-08-28, owner's call). The FIELD is the ask;
@@ -719,48 +714,6 @@ async function readCredits(authHeader) {
   });
   if (!r.ok) throw new Error("credits rpc " + r.status);
   return Number(await r.json());
-}
-
-// ---- AI-as-a-primitive: a built app calls an LLM through the platform ----------
-// The platform holds the key; each call is metered to the app OWNER's credits (their
-// app's visitors trigger it, so we can't charge the caller). use_credits_for is
-// service_role-only + mint-gated, returns the new balance or -1 when the owner can't
-// afford it. Flat fee per call — Haiku with a capped output makes the real cost small.
-const AI_FEE = 1; // credits per app AI call
-async function chargeOwnerAI(env, ownerUid, credits) {
-  if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET || !ownerUid || !(credits > 0)) return -1;
-  try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/use_credits_for`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-      body: JSON.stringify({ target: ownerUid, amount: credits, mint_key: env.CREDITS_MINT_SECRET }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) return -1;
-    return Number(await r.json());
-  } catch { return -1; }
-}
-// Owner (Go Farther user) id for a built app, from the D1 backend ledger, then the source.
-async function runSiteAI(env, ownerUid, opts) {
-  const prompt = String((opts && opts.prompt) || "").slice(0, 6000);
-  if (!prompt.trim()) return { error: "Ask a question first." };
-  if (!env.ANTHROPIC_API_KEY || !ownerUid) return { error: "This app's AI isn't available right now." };
-  const bal = await chargeOwnerAI(env, ownerUid, AI_FEE);
-  if (bal < 0) return { error: "This app's AI is temporarily unavailable." }; // owner out of credits (generic)
-  const system = String((opts && opts.system) || "").slice(0, 2000);
-  try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify(Object.assign({ model: "claude-haiku-4-5", max_tokens: 800, messages: [{ role: "user", content: prompt }] }, system ? { system } : {})),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!r.ok) { await creditBack(env, ownerUid, AI_FEE); return { error: "The AI is busy — try again in a moment." }; }
-    const j = await r.json();
-    const text = (Array.isArray(j.content) ? j.content.filter((b) => b && b.type === "text").map((b) => b.text).join("") : "").trim();
-    if (!text) { await creditBack(env, ownerUid, AI_FEE); return { error: "The AI returned nothing — try rewording." }; }
-    return { text };
-  } catch { await creditBack(env, ownerUid, AI_FEE); return { error: "The AI is busy — try again in a moment." }; }
 }
 
 // Per-user daily quota, enforced by the Postgres side (use_quota is
@@ -1835,16 +1788,6 @@ function logSiteHit(env, ctx, slug, path, request) {
   if (ctx && ctx.waitUntil) ctx.waitUntil(p);
 }
 
-// Resolve one path to its RAW value (not stringified) — used when a template value
-// is a SOLE `{{placeholder}}`, so `"{{steps.list.records}}"` embeds the actual array
-// (a function can respond with structured data), not a JSON string of it.
-function resolveRaw(path, data, secrets) {
-  const parts = path.split(".");
-  if (parts[0] === "secret") { const name = parts[1] || ""; return secrets && Object.prototype.hasOwnProperty.call(secrets, name) ? secrets[name] : ""; }
-  let cur = parts[0] === "input" ? data.input : parts[0] === "steps" ? data.steps : undefined;
-  for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
-  return cur;
-}
 // Send an email through a provider (Resend/SendGrid/Postmark) — shared by the
 // `email` function action and password-reset. Key + recipient go only to the
 // provider; returns {ok, status}.
@@ -2689,13 +2632,6 @@ function siteDbConfigured(env) { return neonConfigured(env); }
 // Run SQL against ONE site's database. Returns the result rows.
 // Always parameterize — never string-concat user input into `sql`.
 async function siteQuery(env, db, sql, params) { return sqlQuery(db, sql, params); }
-// Same as siteQuery but also reports how many rows the statement changed — used by
-// scoped UPDATE/DELETE to tell "done" from "matched nothing" (e.g. a visitor trying
-// to edit a row that isn't theirs → 0 changes).
-async function siteExec(env, db, sql, params) { return sqlExec(db, sql, params); }
-// Declared column type → Postgres type. TEXT/INTEGER/REAL/NUMERIC are spelled the
-// same in both dialects, so only the aliases below need mapping.
-function tableDef(spec, name) { return (spec && Array.isArray(spec.tables)) ? spec.tables.find((t) => t && String(t.name).toLowerCase() === String(name).toLowerCase()) : null; }
 // Does this Go Farther user own the React site <slug>? Proven from the generated source's
 // stored uid (sitesrc/<slug>.json), falling back to the D1 backend ledger.
 const _metBuf = new Map();
@@ -2719,25 +2655,6 @@ async function flushSiteMetrics(env, slug, agg) {
 // visitor never waits. Written per-event (not buffered) so the counts are EXACT even at
 // low traffic — unlike ops `_metrics`, product view-counts need to be trustworthy. The
 // `_analytics` table is ensured once per isolate.
-// In-app notifications for a site's members. Kept: the `notify` step of the
-// D1-era site-functions runner still calls this, and that runner is a separate
-// feature from auth — removing it is a different decision from this one.
-const _notifsReady = new Set();
-// Invite-only signup — the owner can require a valid invite code to register.
-// Flag in _meta ('invite_only'='1'); codes live in `_invites` (code, uses_left).
-const _sbEnc = new TextEncoder();
-function _b64(bytes) { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); }
-function _b64url(s) { return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
-async function _hmac(secret, msg) {
-  const key = await crypto.subtle.importKey("raw", _sbEnc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, _sbEnc.encode(msg));
-  return _b64(new Uint8Array(sig));
-}
-// Newer _users columns (roles, email verification) added after some sites were
-// created. ALTER them in once per site per warm isolate (the Set caches it, so this
-// is not paid on every auth call); each ALTER is idempotent-by-catch. NEW sites get
-// the columns from the CREATE below, so the ALTERs just no-op for them.
-const _authExtrasDone = new Set();
 // What one build costs the caller. The designer is a single Sonnet call with a
 // small output, so this sits alongside the other orchestrator fees rather than
 // being priced like a generation.
@@ -3990,22 +3907,6 @@ const modelKeyMissing = (env, model) => {
  * cross-engine string comparison this repo has already been bitten by twice.
  */
 const isCallTimeout = (e) => !!e && (e.name === "TimeoutError" || e.name === "AbortError");
-
-async function anthropicMessages(env, body) {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!r.ok) {
-    const e = new Error("anthropic " + r.status);
-    e.status = r.status;
-    e.detail = (await r.text().catch(() => "")).slice(0, 300);
-    throw e;
-  }
-  return r.json();
-}
 
 // `model` comes from `modelsFor(body.picker)` — the composer's Builder control,
 // which chose nothing at all until 2026-08-08. Defaulted here only so this can
@@ -6063,17 +5964,6 @@ async function freeSlugFor(env, wanted, uid) {
 // (or deliberate lack of one, for every site built before 2026-09-08) was
 // settled when it was built. Only a first build binds.
 async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
-  const write = async (table, body) => {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: "POST",
-      headers: svcHeaders(env, { "content-type": "application/json", Prefer: "resolution=merge-duplicates" }),
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
-    });
-    // The result was previously not looked at, so a failed write left a Neon
-    // project or database that nothing recorded.
-    return r.ok ? { ok: true } : { ok: false, detail: (await r.text().catch(() => "")).slice(0, 300) };
-  };
   // CLAIMS, not upserts, for the two slug-keyed tables. merge-duplicates is
   // what made the slug race silent (2026-08-13 audit): two overlapping first
   // builds of one free name both passed the pre-check, both created a Neon
@@ -7969,31 +7859,6 @@ async function loadSiteSourceForEdit(env, slug) {
 }
 
 /**
- * THE WHOLE OF THE SOURCE A JOB IS ABOUT TO EDIT — the pages AND the site's own
- * components, repaired once and read together.
- *
- * THE FUNCTION ABOVE IS NAMED FOR THIS JOB AND DOES HALF OF IT, which is worth
- * saying rather than quietly fixing: it answers the PAGES a job is about to
- * edit. That was the whole source while a component was a rarity; since the
- * band split began writing each section to its own file it is the smaller half,
- * and a rung reading only pages is a rung that cannot see the words on the
- * page. Its four callers publish what they read and are unchanged — they either
- * carry parts already (the page rung, the addon) or deliberately regenerate
- * them (a revise, the platform rebuild) — so this is a sibling rather than a
- * change of shape under them.
- *
- * ONE REPAIR, NOT TWO. `ensureEditableState` is what puts a copy one version
- * behind the live site back from that version's own state, and it covers both
- * stores in a single pass; asking for it twice would do the work twice and
- * leave a window between the two reads in which the site could move.
- *
- * A FAILED PARTS READ IS AN EMPTY LIST AND NEVER A FAILED EDIT: `loadSiteParts`
- * already answers null on any read failure, and a site that genuinely has no
- * components is the ordinary case, so the two are the same answer here — which
- * is safe precisely because nothing downstream WRITES parts on this path unless
- * a rung changed one.
- */
-/**
  * THE FILES A BUILD WRITES BESIDE THE PAGES, read out of what is already stored.
  *
  * NOTHING NEW IS PERSISTED FOR THIS. Every value here is a field the site's
@@ -8059,12 +7924,6 @@ function siteAssetFiles(config) {
     });
   }
   return out;
-}
-
-async function loadEditableFiles(env, slug) {
-  const pages = await loadSiteSourceForEdit(env, slug);
-  const parts = await loadSiteParts(env, slug);
-  return { pages: Array.isArray(pages) ? pages : [], parts: Array.isArray(parts) ? parts : [] };
 }
 
 /**
@@ -17367,7 +17226,6 @@ async function handleRequest(request, env, ctx) {
       // caller-chosen lane is one that could starve a real build.
       if (url.searchParams.get("sub") === "1") {
         if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, mode: "sub", error: "no container binding" }, { status: 503 });
-        const s0c = Date.now();
         try {
           const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
           const r = await c.fetch(new Request("http://build/slowreply?ms=" + ms, { method: "POST" }));

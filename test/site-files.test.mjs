@@ -151,18 +151,29 @@ test("the text lane reads BOTH stores, and both halves are published", () => {
   assert.match(lane, /pages: eSplit\.pages, parts: eSplit\.parts/, "the publish is handed one half of the source");
 });
 
-test("`loadSiteSourceForEdit` is named for a job it does HALF of, and the sibling does the whole", () => {
-  // Said out loud rather than quietly fixed: its docblock calls it "THE SOURCE A
-  // JOB IS ABOUT TO EDIT" and it answers the PAGES. Its four callers publish
-  // what they read and either carry parts already or regenerate them, so the
-  // whole-source reader is a sibling rather than a change of shape under them.
-  assert.match(WORKER, /async function loadEditableFiles\(env, slug\) \{/, "the whole-source reader is gone");
-  const at = WORKER.indexOf("async function loadEditableFiles(env, slug) {");
+test("`loadSiteSourceForEdit` answers the PAGES, and every rung that needs the components reads them itself", () => {
+  // RE-ANCHORED 2026-09-13, and the spelling that moved is named: this case used
+  // to assert a SIBLING — `loadEditableFiles`, "the whole source a job is about
+  // to edit" — existed beside this one and read both stores. That sibling had no
+  // callers on any path (the dead-code census: zero references in the ship set,
+  // in config and in scripts) and went with the rest of the dead declarations, so
+  // the property is now the simpler one it always rested on: this function is
+  // named for the whole and answers the PAGES, and a rung that needs the site's
+  // own components asks `loadSiteParts` where it needs them (the text lane's case
+  // above proves that hop for the lane that has it).
+  const at = WORKER.indexOf("async function loadSiteSourceForEdit(env, slug) {");
+  assert.ok(at > 0, "the pages reader moved — re-derive this landmark");
   const body = WORKER.slice(at, WORKER.indexOf("\n}", at));
-  assert.match(body, /loadSiteSourceForEdit\(env, slug\)/, "it does not go through the repair");
-  assert.match(body, /loadSiteParts\(env, slug\)/, "it does not read the components");
-  // ONE REPAIR, NOT TWO: `ensureEditableState` covers both stores in a single
-  // pass, and asking twice would leave a window in which the site could move
-  // between the two reads.
-  assert.ok(!body.includes("ensureEditableState"), "it repairs a second time instead of going through the one reader that does");
+  // ONE REPAIR, AND IT IS HERE: `ensureEditableState` is what puts a copy one
+  // version behind the live site back from that version's own state, and it
+  // covers BOTH stores in a single pass — which is why a second whole-source
+  // reader asking for it again was never needed.
+  assert.match(body, /ensureEditableState\(env, slug\)/, "the read no longer repairs the editable copy first");
+  assert.match(body, /return loadSiteSource\(env, slug\)/, "it answers something other than the stored pages");
+  assert.ok(!body.includes("loadSiteParts"), "it reads the components too — then it is the whole-source reader under a name that says half");
+  // THE OBSERVER IS PROVED ALIVE BEFORE THE ABSENCE: the landmark above must be
+  // findable for this to mean anything, and `loadSiteParts` must still exist
+  // somewhere, or "not in this body" is true of a name nothing has.
+  assert.match(WORKER, /async function loadSiteParts\(/, "the components reader is gone — this absence check is vacuous");
+  assert.ok(!WORKER.includes("loadEditableFiles"), "the callerless whole-source reader is back; it was deleted with the dead set");
 });

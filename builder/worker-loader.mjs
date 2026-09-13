@@ -22,9 +22,12 @@
 //                               as a shell; nothing instantiates one on this path.
 //   `@cloudflare/containers`  → containers-shim.mjs: `getContainer(…).fetch` is a
 //                               plain request to the build service on localhost.
-//   `@cf-wasm/photon`         → the package's own Node build. The media side's
-//                               image library; the job never calls it, but the
-//                               module graph imports it at the top.
+//
+// A THIRD MAPPING WAS HERE AND LEFT WITH ITS SUBJECT (2026-09-13). The media
+// side's image library was imported at the top of `worker.js` for a watermark
+// nothing calls any more, so the job's loader had to hand Node a build of it.
+// The import is gone, so the mapping is too; put both back together if a
+// server-side image library ever returns.
 //
 // And one repair: the containers library's internal `./lib/container` import has
 // no extension, which workerd's bundler resolves and Node's resolver refuses.
@@ -61,9 +64,6 @@ export function extensionCandidates(specifier, parentURL) {
 export async function resolve(specifier, context, next) {
   const shim = shimFor(specifier);
   if (shim) return { url: shim, shortCircuit: true };
-  if (specifier === "@cf-wasm/photon") {
-    try { return await next("@cf-wasm/photon/node", context); } catch { /* the default export below */ }
-  }
   try { return await next(specifier, context); }
   catch (e) {
     if (e && e.code === "ERR_MODULE_NOT_FOUND") {
