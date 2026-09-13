@@ -185,13 +185,18 @@ read by two different bits of the bar — you can see both change in the picture
 
 `docs/edits/page-picker.png` — before, after, and the picker open with all three.
 
+**Merged and live** — deploy 2109, green in 2m37s. This one rebuilt the
+container (the last three didn't), so anything that needs the build service was
+held until about 01:20Z. The app file on the server matches my copy exactly, and
+the new route answers correctly to a request with no sign-in.
+
 **One thing I could not prove from here, and it decides whether you see a
 difference.** The page list is read from what the site stored when it last
 published, and `lido-free-a` last published 2026-08-22. If that record is there,
-the picker fills in after the next deploy. If it isn't, the picker stays exactly
-as it is — no error, nothing broken, just the same label. **The free check is the
-Code tab on that site**: if it lists `menu.tsx` and `book.tsx`, the record is
-there and the picker will work.
+the picker fills in. If it isn't, the picker stays exactly as it is — no error,
+nothing broken, just the same label. **The free check is the Code tab on that
+site**: if it lists `menu.tsx` and `book.tsx`, the record is there and the picker
+will work.
 
 **The cost, measured rather than guessed**: when the answer lands the bar settles
 by about 39px, because the picker and that subtitle both get wider at the same

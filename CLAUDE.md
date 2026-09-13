@@ -2663,11 +2663,27 @@ case now, and it is safe on walls that already existed.
   the recorded "a fixture too shallow to separate the two readings": the pages
   arrived home-first with no duplicates, so the sort and the de-dup were no-ops
   against every case in the file. **Suite 6,161.**
-  **NOT PROVEN LIVE, and the precondition is named rather than assumed**: the
-  route reads what a site stored at its last publish, and `lido-free-a` published
-  2026-08-22. If `source/<slug>/pages.json` is absent for a site that old, the
-  answer is `[]` and the picker is exactly what it was. The free check is the
-  Code tab on that site, which reads the same store through its own route.
+  **MERGED AND LIVE — deploy 2109, 2026-09-13 00:58:37→01:01:14Z, green in
+  2m37s.** The image **BUILT** (step 1m54s, `77276a…3353e3fe4` →
+  `a6024…565ae7bb0b`) and the container `EDIT`ed at **01:01:05Z**, so the 15–20
+  minute hold ran to ~01:16–01:21Z — **the first deploy in four to roll anything**,
+  because 2106/2107/2108 were `public/`-only and this range moves `worker.js`.
+  Wrangler uploaded exactly **one** asset, `/chat.js` (85 already uploaded),
+  which is right: `worker.js` is bundled into the script and is never an asset.
+  **Served `chat.js` sha256 IDENTICAL to source** (`e1f0192dfb15f627`) — the
+  stronger answer than any needle, and the one to reach for first.
+  **AND THE ROUTE IS PROVEN MATCHED AND GATED WITHOUT A TOKEN**:
+  `/api/site/routes?slug=lido-free-a` answers **401**, `/api/site/source` beside
+  it **401**, and a made-up `/api/nope-not-a-route` **404** — an unmatched path
+  falls to `env.ASSETS`, so 401-against-404 is the free discriminator for a new
+  owner-gated route.
+  **WHAT IS STILL NOT PROVEN, and the precondition is named rather than
+  assumed**: the route reads what a site stored at its last publish, and
+  `lido-free-a` published 2026-08-22. If `source/<slug>/pages.json` is absent for
+  a site that old, the answer is `[]` and the picker is exactly what it was — no
+  error, nothing to explain. The free check is the Code tab on that site, which
+  reads the same store through its own route. A real authenticated round trip is
+  owner-only; the seventeen driven cases are what stands in.
   **OPEN, named and not built**: the preview frame runs the site's own JavaScript,
   so a click inside it really navigates — and nothing tells the picker or the URL
   chip that the frame moved. It needs the published site to report its own route.
