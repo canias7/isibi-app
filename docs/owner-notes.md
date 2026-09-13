@@ -6741,4 +6741,9 @@ caused. Not fixed either.
 
 Tests 6,146 green. Sweep 9 of 9, both controls survived.
 
-**Not live yet** — say the word and I'll merge.
+**It's live.** Deploy 2108 went green in 51 seconds, and both files your
+browser gets — the script and the stylesheet — are byte-for-byte what's here.
+Nothing rolled, so no wait: reload and switch between Preview and Code.
+
+**The proof left is one tab switch:** the four should vanish on Code, and the
+Preview/Code/Data/More tabs should not budge.

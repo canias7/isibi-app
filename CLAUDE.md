@@ -2809,8 +2809,15 @@ case now, and it is safe on walls that already existed.
   `(siteView === 'preview' ? '' : ' aria-hidden="true"') + '>' +`, is a SUBSTRING
   of the picker block's identical line, the recorded ambiguous-anchor trap;
   re-anchored with its neighbour and killed. **Suite 6,146.**
-  **Not proven live** — `public/` and `test/` only, so no image input moves and
-  the 15–20 minute hold does not apply.
+  **MERGED AND LIVE — deploy 2108, 2026-09-13 00:11:20→00:12:11Z, green in 51
+  seconds**, and **BOTH served files hash byte-for-byte identical to source**
+  (`chat.js` `92aeb8058541ef99`, `styles.css` `8dcda96764c9c259`) 56 seconds
+  from push. No image input moved, so nothing rolled and the hold does not
+  apply. **Both files asked, not just the one that changed most** — this change
+  is half markup and half stylesheet, and a check that reads only the script
+  would certify a deploy that shipped the old CSS.
+  **Not proven live: a tab switch** — the proof is clicking Code and seeing the
+  four gone with the tabs still.
 
 ---
 
