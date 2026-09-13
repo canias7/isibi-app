@@ -2595,6 +2595,31 @@ case now, and it is safe on walls that already existed.
   can never report an admission a browser would refuse. Re-worded to say that
   rather than to state something untrue about browsers.
 
+- **NO GUTTER BETWEEN THE CHAT AND THE PREVIEW (2026-09-13, owner on a crop of
+  exactly that strip: *"CLOSE THIS SEPARATION"*).** `.st-body` carried
+  `gap: .8rem` — **12.8px** of page background between two rounded cards that
+  are one workspace. **MEASURED rather than reasoned**: the visible gutter IS
+  the flex gap, because at `data-dev="desktop"` `.st-frame` is `width: 100%` of
+  the stage, so nothing stands between the rail's right border and the frame's
+  left. 12.8 → 0, and **the preview gains all of it** (825.2 → 838px at a
+  1320px viewport).
+  **IT ONLY EVER SEPARATED THOSE TWO, checked both ways**: the mobile panel is
+  `position: absolute` against this row (deliberately, since 2026-09-09 — "the
+  stuff in the site shouldnt shrink"), so it was never a flex item and never
+  took the gap; and with the rail hidden there is ONE item, which a gap does not
+  separate from anything. So this closes one seam and moves nothing else.
+  **The two 16px radii leave a small pinch of background where they meet** — what
+  two rounded cards butting together look like. Flattening the facing corners is
+  the follow-up if the owner wants them flush; not done, because they asked to
+  close the gap and not to restyle the corners.
+  **Guard: in `test/mobile-panel.test.mjs`, READ BY VALUE** — a rule that exists
+  and says `.8rem` satisfies any presence check, the recorded "a CSS rule can be
+  correct and still lose". It lives there because that file owns the REASON: its
+  neighbouring assertion is that the panel is absolute, which is what makes "the
+  gap separated exactly two things" true. **Sweep: 4 mutants, 4 killed, 0
+  survived, 0 never applied, 1 comment-only control survived** — the gutter back,
+  a 2px gutter no presence check can see, the declaration dropped entirely, and
+  the row losing `position: relative`. **Suite 6,163.**
 - **THE PAGE LIST ONLY EVER EXISTED IN THE BROWSER THAT BUILT THE SITE
   (2026-09-13, owner on `lido-free-a`, a live three-page site whose picker read a
   dead "Homepage": *"OK THIS SITE SUPPOSLTY HAS COU7PLE PAGES , RIGHT ?"* →

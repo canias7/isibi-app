@@ -488,6 +488,27 @@ test("the tab wears the panel's own edge, and goes when the panel arrives", () =
   assert.match(CSS_BARE, /\.st-body \{[^}]*position: relative/,
     "`.st-body` is not a containing block, so the tab positions against the page instead of the row");
 
+  // AND THE ROW HAS NO GUTTER (2026-09-13, owner on a crop of exactly that
+  // strip: "CLOSE THIS SEPARATION"). `gap: .8rem` put 12.8px of page background
+  // between the chat and the preview, which are one workspace.
+  //
+  // IT IS READ BY VALUE, never by presence. A rule that exists and says `.8rem`
+  // satisfies every check that only asks whether `gap` is there — the recorded
+  // "a CSS rule can be correct and still lose", where nothing read what it said.
+  //
+  // AND IT LIVES IN THIS FILE BECAUSE THIS FILE OWNS THE REASON. The gap only
+  // ever separated the rail from the stage, and the assertion two lines down is
+  // why: the mobile panel is ABSOLUTE against this row, so it was never a flex
+  // item and never took the gap. If it ever becomes one again, this closes to
+  // zero between three things instead of two, and that is a decision somebody
+  // has to make rather than inherit.
+  const bodyRule = (CSS_BARE.match(/^\.st-body \{[^}]*\}$/m) || [])[0];
+  assert.ok(bodyRule, "the `.st-body` rule is gone; the gutter check reads nothing");
+  assert.match(bodyRule, /gap: 0/, "the chat/preview gutter is back — this row has no gap between the two");
+  assert.doesNotMatch(bodyRule, /gap: [^0]/, "`.st-body` carries a non-zero gap: " + bodyRule.trim());
+  assert.match(CSS_BARE, /\.st-mob \{[^}]*position: absolute/,
+    "the mobile panel is a flex item again, so closing the row's gap now butts it against the preview too");
+
   // THE DIRECTION IS THE PROPERTY. Hidden when OPEN; a rule hiding it when
   // CLOSED is the defect this whole change exists to fix, and it would still
   // match a looser "there is a display:none somewhere" check.

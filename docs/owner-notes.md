@@ -155,6 +155,28 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-13 — The chat and the preview sit together now
+
+You sent a crop of the strip between them: *"CLOSE THIS SEPARATION"*.
+
+There were **12.8px** of page background between the chat panel and the preview
+— a flex gap on the row that holds them both. It's zero now, and the preview
+gains all 12.8px of it (measured: 825.2px wide → 838px at a 1320px window).
+
+`docs/edits/rail-stage-gap.png` — before and after, side by side.
+
+**Nothing else moves.** That gap only ever separated those two: the mobile-app
+panel floats over the preview rather than sitting in the row, and when you hide
+the chat there's only one thing left, which a gap can't separate from anything.
+I checked both rather than assuming.
+
+The two panels now touch, and where their rounded corners meet there's a small
+pinch of background at the top and bottom. That's what two 16px-rounded cards
+butting together look like. If you'd rather they met flat, flattening the two
+facing corners is a one-line follow-up — say the word.
+
+---
+
 ## 2026-09-13 — The page picker knew about one page. It knows them all now.
 
 You opened `lido-free-a` and asked *"OK THIS SITE SUPPOSLTY HAS COU7PLE PAGES ,

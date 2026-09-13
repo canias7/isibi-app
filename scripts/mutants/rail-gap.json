@@ -1,0 +1,33 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the gutter comes back between the chat and the preview",
+    "files": ["public/styles.css"],
+    "from": ".st-body { display: flex; gap: 0; flex: 1; min-height: 0; position: relative; }",
+    "to": ".st-body { display: flex; gap: .8rem; flex: 1; min-height: 0; position: relative; }"
+  },
+  {
+    "label": "a gutter that is small rather than absent, which no presence check can see",
+    "files": ["public/styles.css"],
+    "from": ".st-body { display: flex; gap: 0; flex: 1; min-height: 0; position: relative; }",
+    "to": ".st-body { display: flex; gap: 2px; flex: 1; min-height: 0; position: relative; }"
+  },
+  {
+    "label": "the gap declaration is dropped entirely, so the browser default and any later rule decide it",
+    "files": ["public/styles.css"],
+    "from": ".st-body { display: flex; gap: 0; flex: 1; min-height: 0; position: relative; }",
+    "to": ".st-body { display: flex; flex: 1; min-height: 0; position: relative; }"
+  },
+  {
+    "label": "the row stops being a containing block, so the mobile tab positions against the page",
+    "files": ["public/styles.css"],
+    "from": ".st-body { display: flex; gap: 0; flex: 1; min-height: 0; position: relative; }",
+    "to": ".st-body { display: flex; gap: 0; flex: 1; min-height: 0; }"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the stylesheet, which must survive",
+    "files": ["public/styles.css"],
+    "from": "/* NO GUTTER BETWEEN THE CHAT AND THE PREVIEW (2026-09-13, owner on a crop of",
+    "to": "/* NO GUTTER BETWEEN THE CHAT AND PREVIEW (2026-09-13, owner on a crop of"
+  }
+]

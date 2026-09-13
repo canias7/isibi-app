@@ -1925,7 +1925,19 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* `position: relative` is the mobile tab's containing block — it is absolutely
    positioned against THIS row's right edge, which with the panel closed is the
    stage's edge and with it open is the panel's. Nothing else here positions. */
-.st-body { display: flex; gap: .8rem; flex: 1; min-height: 0; position: relative; }
+/* NO GUTTER BETWEEN THE CHAT AND THE PREVIEW (2026-09-13, owner on a crop of
+   exactly that strip: "CLOSE THIS SEPARATION"). It was `gap: .8rem` — 12.8px of
+   page background between two rounded cards that are one workspace.
+   MEASURED: the visible gutter is the flex gap itself, because at `data-dev
+   ="desktop"` `.st-frame` is `width: 100%` of the stage, so nothing else stands
+   between the rail's right border and the frame's left. 12.8px -> 0, and the
+   preview gains all 12.8px of it (825.2px -> 838px at a 1320px viewport).
+   THE GAP IS ONLY EVER BETWEEN THOSE TWO. The mobile panel is absolutely
+   positioned against this row (see below), so it was never a flex item and
+   never took the gap; and with the rail hidden there is one item, which a gap
+   does not separate from anything. So this closes one seam and moves nothing
+   else. */
+.st-body { display: flex; gap: 0; flex: 1; min-height: 0; position: relative; }
 .st-rail { flex: 0 0 450px; display: flex; flex-direction: column; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; }
 /* Collapsible chat rail — hide it and let the preview stage take the full width. */
 .st-ws.st-rail-hidden .st-rail { display: none; }
