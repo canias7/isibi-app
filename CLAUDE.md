@@ -745,6 +745,143 @@ knows) and two were INERT and were deleted rather than hunted — weakening the
 census's own assertion is not a behaviour change, and the site Dockerfile has
 **zero** `--from=` COPY lines, measured, so its staged filter governs nothing.
 
+---
+
+## The dead-code deletion (2026-09-13)
+
+Owner, after a read-only census of the whole tree: *"CAR4EFULLY DELETE THE DEAD
+CODE"*. Four commits, each with the suite green before the next, and the split
+between what went and what stayed is the part worth keeping.
+
+**THE LINE IS "DEAD BY CONSTRUCTION" versus "DEAD ONLY GIVEN STORED DATA", and
+it is the whole method.** A declaration nothing references, or a branch whose
+condition cannot be true from the code alone, is measurable here and went. A
+branch reachable only from a record in a customer's localStorage is not
+measurable from this machine at all, and those stayed — `public/chat.js` still
+carries the legacy-`html` arms (`sitePages`' single-page fallback, `siteRestore`'s
+tail, `switchSitePage`'s stored-draft loader, the Refresh button's legacy branch,
+`siteInbox`'s tail). **The repo had already decided this**: the Refresh entry
+below records "The legacy branch is KEPT, not deleted — it is what a site with
+stored HTML is for". Nothing today writes a non-empty `html` (every creator
+writes `''`, and a successful build runs `delete s.html`), so those branches are
+unreachable for every site the platform can make — and cannot be proven
+unreachable for a record written by a version of the app that no longer exists.
+
+**What went, by commit:**
+
+- **The server side** (`8b86bda8`, 10 files, 1,429 deletions). `worker.js` lost
+  the AI-as-a-primitive block (`AI_FEE`, `chargeOwnerAI`, `runSiteAI` — pinned to
+  `claude-haiku-4-5` on `api.anthropic.com`), `anthropicMessages`, `resolveRaw`,
+  `siteExec`, `tableDef`, `loadEditableFiles`, the four `_hmac`/`_b64` helpers,
+  `_notifsReady`, `_authExtrasDone`, an unread `write` closure and a dead timer.
+  Four files went whole: `worker-finance.mjs` (319), `builder/components-third.mjs`
+  (284), `builder/components-fourth.mjs` (293),
+  `builder/theme-candidates/assign-worlds.mjs` (358). **And a 1.5 MB wasm
+  dependency with it**: `@cf-wasm/photon` was imported at the top of `worker.js`
+  for a watermark nothing calls, so the loader hook that handed Node a build of it
+  went too — both halves together, said in the loader's own comment.
+- **The browser side** (`65a64455`). Six functions and a table (`moreStat`,
+  `siteSecurityScan`, `stAgentsBody`, `siteBuildStatus`, `readSiteStream`,
+  `stFmtTime`, `VIEW_LABELS`) plus `siteBuildMsg`, a `let` written seven times
+  and read nowhere. `siteBuildStatus` and `readSiteStream` are a DEAD CYCLE — each
+  referenced only by the other — which a direct-reference scan cannot see and
+  only a least-fixed-point-on-live walk can.
+- **The pre-React activity log and the draft-preview POST** (`9b3ca71a`).
+  `siteSend` read `if (reactPath) siteBuildStart(true); else if (isBuild)
+  siteBuildStart();` with `reactPath = isBuild || site.react`, so the middle arm
+  needs `!isBuild && isBuild`. Provably dead from one line, which is what let
+  everything behind `!siteBuild.react` go with it: `ST_TICK`, `buildActiveText`,
+  `paintBuildLog`, the ticker's second arm, the empty state's classic log box,
+  and the `phase`/`pages`/`done`/`tick` fields whose only readers were that pair.
+  **`react` STAYS a parameter and a field** (`stBuildRunning` reads it) and
+  `build-panel.test.mjs` DERIVES every `siteBuildStart(` call and requires each to
+  pass `true` — the definition excluded by what PRECEDES it, never by what is
+  inside its parentheses, since `(react)` and `(true)` are the same shape.
+  `loadSitePreview`'s POST to `/api/site/preview` went too: there has never been
+  such a route, so it 404'd on every call and the blob below it has always been
+  the only path.
+- **The stylesheet** (`9178fa6b`) — the section below.
+
+**AND THE SERVER HALF OF THE DRAFT PREVIEW IS DEAD TOO, named rather than cut.**
+`worker.js` serves `GET /preview/<uid>/<nonce>` out of `preview/<uid>.html`, and
+**nothing in the tree writes that object** — so it has answered "Preview not
+ready" to every request it has ever had. That is a route with no WRITER, a shape
+`client-routes.test.mjs` cannot see, so it is recorded in that file's `KNOWN_DEAD`
+prose instead of folded into a census it does not belong to. **Open.**
+
+**Two names left the `KNOWN_DEAD` ratchet and neither because a route was built**
+— `/api/site/scan` and `/api/site/preview`, both because their CALLER went. A
+client route with no caller is not a dead route; it is no route.
+
+**The corrections to the previously-recorded "already dead" list**: `runContainerJob`
+is ALIVE — called as `worker.runContainerJob` from `builder/container-job.mjs`
+through a dynamic import, which a JS-only walk reads as dead — and
+`SiteBuildContainer` is config-referenced. 14 of the 17 were really dead.
+
+**Deliberately parked, each for a stated reason**: `cancelEditJob` (it is the
+CLOSING LANDMARK of eight guard windows, so deleting it silently widens all
+eight — re-anchor first, then cut), the effort dial (`buildEffortHTML` /
+`setBuildEffort` / `wireBuildEffort`, which this file already records as parked
+WITH the lines that restore it), and the 80 test-only exports, which are a
+decision about how much of a module a test may reach.
+
+### The stylesheet: the unreachable third, cut and guarded
+
+**`public/styles.css` was 7,210 lines and 484,036 bytes, and 1,293 of its 3,082
+rules could not match any element this app is able to produce — 2,280 lines and
+156,133 bytes, 32.3% of the file, shipped to every visitor on every page load.**
+It is 4,930 lines and 327,903 bytes now, and `test/css-reachable.test.mjs` holds
+it at ZERO unreachable rules with an EMPTY `KEEP` list.
+
+**WHAT UNBLOCKED IT WAS THE INSTRUMENT, exactly as this file said it would be.**
+The entry above had the cut DEFERRED under "IT IS NOT CUT BECAUSE THE INSTRUMENT
+IS NOT GOOD ENOUGH YET", and the reason was real: a class can be LIVE with its
+literal appearing nowhere. **The fix is that a prefix is the TAIL of a literal
+before a `+`, not the literal** — the first draft anchored on the opening quote
+and so missed `'<div class="mkt-cell mkt-c' + n + '">'`, the exact recorded false
+alarm, because that string starts with `<`. The reading is conjunctive: `.a.b`
+dies on either half, a descendant chain needs every ancestor.
+
+**THE FALSE-ALARM RATE WAS MEASURED FOUR WAYS AND IS ZERO.** 781 dead class
+names, none of which occurs anywhere in the served code; both recorded false
+alarms handled (`mkt-c*` live through the prefix rule, `st-sev-*` genuinely dead
+since the handler that built it went the same day); the three construction shapes
+a prefix/suffix reader CANNOT see — `cls += '…'`, `[a,b].join('-')`, and a class
+that is a bare variable — searched for and absent; and a real Chromium comparing
+the FULL computed style of all 1,744 elements across five served pages at two
+widths, before and after.
+
+**AND THE RENDER IS WHAT CAUGHT THE CUTTER'S OWN BUG, which is why this needed
+one.** The first pass tidied empty at-rules with
+`/@media[^{}]*\{\s*(?:\/\*[\s\S]*?\*\/\s*)*\}\n?/g`, and `[\s\S]*?` inside a `*`
+quantifier runs from one comment PAST the rules between them to a later `*/` — so
+any media query written as `@media X { /* a */ .rule{…} /* b */ }` matched whole.
+It took `.mkt-crt .crtl-stage{flex:1;…}` among others and **963 of 1,744 elements
+changed**. A regex cannot count braces. **The control is what made the clean run
+believable**: after the fix the diff was 3 elements, all one running marquee's
+`transform`, and rendering the SAME stylesheet twice differed the same way.
+
+**A CSS SYNTAX ERROR HAD BEEN SHIPPING SINCE 2026-09-12, found on the way.**
+`62a8a873` (the game-builder deletion) removed `.lp-arc-body`, `.lp-arc-frame`
+and the FIRST LINE of `.lp-arc-tag`, leaving its second and third lines as an
+orphaned declaration block and a stray `}`. A browser recovers by discarding text
+until the next `}` — silently, so the only tell is a rule that stopped applying.
+**A deletion that cuts a two-line rule in half leaves no error anybody sees**, and
+the guard asserts the braces balance now, proven red by putting the orphan back.
+
+**The heading rule: a comment goes only when EVERY rule it introduces goes.**
+"Section boundaries are not subject boundaries" is this file's own trap — the
+heading reading "Avatar creator" covers the auth gate's rules — so the unit is
+the span from one comment to the NEXT comment and a heading survives whenever one
+rule under it survives. 65 headings went with their sections.
+
+**The cutter refuses to write** unless every selector the scan said would survive
+is still in its output. Its first self-check was itself a false alarm: the needle
+was `selector + "{"` and the file writes `.sidebar {` with a space, so it reported
+four untouched rules lost. It finds the text and requires the next non-space
+character to be the brace.
+
+---
 
 ## Working rules
 
@@ -4621,8 +4758,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   count is unchanged from 1114 because this change adds no container case** —
   its guards are unit-level, and what the harness proves here is that a site
   still compiles, renders and serves with the image steps reading the parts.
-  The unit suite is **6,126** (2026-09-12, local — the SEO tab's twenty-six;
-  **6,100** before it, the photograph
+  The unit suite is **6,197** (2026-09-13, local — the dead-code deletion's six
+  new `css-reachable` cases and the `siteBuildStart` call census, against one
+  retired when `site-ask`'s two windows became one `declBlock` helper; **6,190**
+  before it, the model-context and model-limits work; **6,126** before that, the
+  SEO tab's twenty-six; **6,100** before it, the photograph
   pipeline reading the parts; **6,088** before that, plus `image-parts`' twelve;
   6,086 at stage 4 of the media deletion, plus two cases for the one tree and the
   row's ink; CI has NOT read this number yet, and the last one it did read was

@@ -155,6 +155,72 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-13 — The dead code is out: 3,954 lines, and a third of the stylesheet
+
+Your call: *"CAR4EFULLY DELETE THE DEAD CODE"*, off the census I ran read-only
+first. Four commits, the whole test suite green before each one, and nothing a
+customer can see has changed.
+
+**What went — 3,954 lines deleted against 540 added, and most of what was added
+is the new check that stops the stylesheet growing dead rules again.**
+
+| | lines deleted |
+|---|---|
+| `worker.js` and four whole files on the server | 1,429 |
+| seven dead functions in the browser | 85 |
+| the pre-React activity log and a dead preview request | 119 |
+| **the stylesheet** | **2,327** |
+
+Plus a **1.5 MB image library** that was being bundled into the Worker on every
+deploy for a watermark nothing has called since the video side went.
+
+**The stylesheet is the one worth knowing about.** `public/styles.css` was 7,210
+lines, and **1,293 of its 3,082 rules could not match anything this app is able
+to put on a screen** — a third of the file, downloaded by every visitor on every
+page load. It is 4,930 lines now and **156 KB smaller on the wire**.
+
+I had flagged that cut and *not* made it back on the 12th, because the tool I had
+would have deleted live rules: some class names are assembled in code (the
+marketing reel's stills are built as `"mkt-c" + n`), so "this name appears
+nowhere" is not the same as "this rule is dead". The reader understands that
+now, and I measured the false-alarm rate at **zero** four separate ways before
+cutting anything — including a real browser rendering all five pages at two
+widths, before and after, and comparing every computed style on all 1,744
+elements. Three differed, all of them one scrolling marquee mid-animation, and
+rendering the *same* stylesheet twice differed the same way.
+
+**That render is what caught a bug in my own cutter**, which is exactly why it
+was worth doing: the first pass quietly ate some live rules on the landing page,
+and the picture showed it immediately. Fixed, and the cutter now refuses to save
+its work unless every rule it promised to keep is still there.
+
+**And it turned up something already broken.** When the game builder was deleted
+on the 12th, that deletion cut a two-line style rule in half and left the second
+half behind — so `styles.css` has been shipping a syntax error for a day. A
+browser silently throws away the broken part and carries on, so there was nothing
+to see. It is fixed, and there is now a check that would have caught it.
+
+**What I deliberately did NOT delete, and why**
+
+- **Anything that only old data can reach.** Some branches in the app can only
+  run for a project saved by a much older version of the builder, sitting in your
+  browser's own storage. I cannot see your storage from here, so I cannot prove
+  those are dead — they stay.
+- **The build-effort dial**, which is parked on purpose with the lines that bring
+  it back.
+- **One function that eight tests use as a landmark** — deleting it would quietly
+  widen all eight and make them stop checking what they say they check. It needs
+  those eight re-pointed first. Your call whether that is worth a session.
+
+**Still open, found on the way**: the draft-preview feature is dead on BOTH
+sides. The browser was sending a request to a route that has never existed, and
+the Worker still answers a preview address by reading a file that nothing
+anywhere writes. I removed the browser half; the server half is named in the code
+rather than cut, because making it work again is a feature decision, not a
+deletion.
+
+---
+
 ## 2026-09-13 — Model context: how full the window gets, and what fills it
 
 You held up Claude Code's own panel: *"KINDA WANT SOMETHING LIKE THIS THAT TRACKS
