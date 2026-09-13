@@ -7476,3 +7476,104 @@ that way.
 **Status: still on the branch, still not merged, still not deployed.** No
 database migration is needed. Suite 6,256 green; 19 of 19 deliberate breakages
 of the new backfill caught.
+
+---
+
+## The fix is live, and here are the exact buttons for the three requests (2026-09-13)
+
+You said the local PostgreSQL results were enough to move forward, so I put the
+permission fix through the release checks and merged it.
+
+### Deployed
+
+| | |
+|---|---|
+| checks before the merge | unit tests **green** (run 2510); the container harness **green** (run 1126, all twenty steps) |
+| `main` | `9d2c8e7c` |
+| deploy | run **2114**, green, **22:16:21 → 22:19:29Z** |
+| the container image | **rebuilt**, and the container **swapped onto it at 22:19:18Z** |
+| the 15–20 minute settle | ran to about **22:39Z** — past now |
+| database migration | **none needed** |
+
+I read the image rebuild and the container swap out of the deploy's own log
+rather than guessing from how long the step took — this repo has been wrong in
+both directions doing that.
+
+**One thing I can't prove from here, so I'm saying it rather than implying it**:
+that a *cold* container start really picks up the new image. The route that
+answers that (`/api/site/build-health`) needs you signed in, and I have no
+session. What I could check is that the route is there and refusing anonymous
+callers, which it is. The first of the three requests below is the real proof.
+
+### The three requests — the exact pages and what to type
+
+I still can't press these myself; GitHub refuses workflow dispatches from this
+session. Everything is written out so it's copy-and-paste.
+
+**First, the throwaway site.** Open
+<https://github.com/canias7/isibi-app/actions/workflows/build-as-owner.yml>,
+click *Run workflow*, and **leave the branch as `main`** (from any other branch
+it waits ten minutes for a deploy that doesn't exist, then gives up — costing
+nothing, but wasting the ten minutes).
+
+- `mode`: **build**
+- `slug`: **repairbench-1**
+- `picker`: **grok**
+- `brief`: the bicycle-workshop paragraph in `docs/addon-runbook.md`, Step 0
+- everything else: leave alone
+
+Then check `https://repairbench-1.gofarther.app` loads and its Data panel shows
+**no database**. That's the starting condition all three requests depend on.
+
+**Then the three requests.** Open
+<https://github.com/canias7/isibi-app/actions/workflows/lane-sweep.yml>, *Run
+workflow*, **once each, in order, reading the result before firing the next**.
+Same settings every time — `confirm`: **spend**, `harness`: **addon**, `site`:
+**repairbench-1**, `picker`: **grok**, `budget`: **80** — and only the `ask` box
+changes:
+
+1. `Let customers submit repair requests and log in to see their own requests and status updates.`
+2. `On each repair request, keep a record of every change to its status, so we can see who changed what and when.`
+3. `Let customers pick a drop-off slot when they book a repair, and stop two people taking the same slot.`
+
+What counts as a pass for each is written out in `docs/addon-runbook.md` — the
+run's own green tick is not the answer, and for the first request the third
+part of it (*see **their own** requests*) is the one with a security
+consequence.
+
+Roughly 35–45 credits for all three, plus the build.
+
+### The backfill: still preview only, as you asked
+
+I have not touched a single existing site, and the script writes nothing unless
+it is explicitly told to apply.
+
+I've added a page for it:
+<https://github.com/canias7/isibi-app/actions/workflows/grants-preview.yml> —
+run it with every box left alone and it reads, lists and changes nothing. It
+won't appear in your Actions list until this push lands on `main`.
+
+**What I can report without it**, from the read-only inventory: **70 sites, 31
+with a database, 39 with none and therefore nothing to fix.** Which of the 31
+actually carry the old broad permission needs each site's own database opened,
+and doing that here would mean pulling 31 live database passwords into this
+conversation. The preview answers it exactly, from the machine that already
+holds them.
+
+**The unresolved database identities, named**: `northgroup-5`, `ashgrove-1`,
+`washhouse-1`, `fretwork-1` — the four whose database exists but whose name was
+never written back onto the site's record (the separate problem from my last
+note). The backfill works out their names rather than skipping them, and says
+which sites it reached that way. Tracking that as its own issue, not folded into
+this one.
+
+**And nothing this script prints can carry a database password.** That needed
+real work rather than care: the danger isn't printing one on purpose, it's a
+database error whose *own* message quotes the connection string it was handed —
+which is how passwords usually end up in logs. Everything it prints now goes
+through one filter that strips the username and password out of any address and
+keeps the rest, so a failure is still readable.
+
+Suite **6,266** green. 36 of 36 deliberate breakages caught — one got through
+the first pass, and it was my own test checking only that the password was gone
+from a message that had quietly stopped saying anything at all.

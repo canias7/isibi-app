@@ -42,6 +42,24 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.s
 
 /** ACL letters Postgres records, and the privilege each one is. */
 const ACL_LETTERS = { r: "SELECT", a: "INSERT", w: "UPDATE", d: "DELETE", D: "TRUNCATE", x: "REFERENCES", t: "TRIGGER" };
+
+/**
+ * NOTHING THIS SCRIPT PRINTS MAY CARRY A CONNECTION STRING.
+ *
+ * It holds one per site — `site_project.neon_conn`, a live database credential —
+ * and never logs it deliberately. The risk is the accidental path: a driver
+ * error, or a `fetch` failure, whose MESSAGE quotes the URL it was given. That
+ * is not a hypothetical shape; it is how credentials usually reach a log.
+ *
+ * So every message that reaches the console goes through here first, and the
+ * rule is the URL's own grammar rather than a list of secrets to look for: any
+ * `scheme://user:password@` becomes `scheme://***@`. A list of what to redact is
+ * a list that has to be kept, and the one it misses is the one that leaks.
+ */
+export function safeErr(e) {
+  const text = String((e && (e.detail || e.message)) || e || "");
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]*@/gi, "$1***@");
+}
 /**
  * The roles Neon's Data API runs a request as. Nothing else is touched.
  *
@@ -182,7 +200,7 @@ export async function applyPlan(sql, plan, { log = () => {} } = {}) {
     if (t.skipped) { log(`    ${t.table}: skipped — ${t.skipped}`); continue; }
     for (const s of t.statements) {
       try { await sql(s, []); }
-      catch (e) { failures.push({ table: t.table, sql: s, err: String((e && (e.detail || e.message)) || e) }); }
+      catch (e) { failures.push({ table: t.table, sql: s, err: safeErr(e) }); }
     }
     log(`    ${t.table}: ${t.statements.length} statements`);
   }
@@ -293,7 +311,7 @@ async function main() {
     const sql = (text, params) => sqlQuery(conn, text, params);
     let plan;
     try { plan = await planSite(sql, site.slug); }
-    catch (e) { console.log(`${site.slug}: could not read — ${String((e && e.message) || e)}`); failedSites++; continue; }
+    catch (e) { console.log(`${site.slug}: could not read — ${safeErr(e)}`); failedSites++; continue; }
     if (plan.error) { console.log(`${site.slug}: ${plan.error}`); continue; }
 
     const hits = plan.tables.filter((t) => t.changes);
@@ -323,7 +341,7 @@ async function main() {
       if (!s) { console.log(`    no recorded state for ${site.slug} in ${args.file} — left alone`); continue; }
       for (const t of s.tables) {
         for (const stmt of grantsFromAcls(t.table, t.beforeAcls || [])) {
-          try { await sql(stmt, []); } catch (e) { console.log(`    REFUSED ${stmt} — ${String((e && e.message) || e)}`); }
+          try { await sql(stmt, []); } catch (e) { console.log(`    REFUSED ${stmt} — ${safeErr(e)}`); }
         }
         console.log(`    ${t.table}: put back as recorded`);
       }
@@ -340,5 +358,7 @@ async function main() {
 
 // Only when run, never when imported by a guard.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => { console.error(String((e && e.stack) || e)); process.exit(1); });
+  // THE TOP-LEVEL CATCH TOO, and it is the one that matters most: a stack from
+  // deep in a driver is exactly where a DSN would surface.
+  main().catch((e) => { console.error(safeErr((e && e.stack) || e)); process.exit(1); });
 }

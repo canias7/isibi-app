@@ -1,0 +1,110 @@
+# WHAT EACH SITE'S TABLES GRANT A CLIENT TODAY, AND WHAT THE FIX WOULD CHANGE.
+#
+# WHY IT IS A WORKFLOW AND NOT A LOCAL SCRIPT — the same reason `answer read`
+# gives. Every site's database is reached through `site_project.neon_conn`, and
+# that column is only readable with the Supabase service key, which lives in
+# Actions secrets and nowhere else. A session cannot run this from anywhere but
+# here, and reading those connection strings into a session transcript to count
+# tables is not a trade worth making.
+#
+# PREVIEW IS THE DEFAULT AND IT WRITES NOTHING. Every statement `--preview`
+# issues is a SELECT; it is driven against a real Postgres in
+# test/integration/local-pg-grants.mjs, which asserts the rows and the privileges
+# are identical before and after it runs.
+#
+# APPLY NEEDS THE WORD. `mode: apply` runs only when `confirm` is the word
+# `apply`, the wall `lane sweep` uses for spending — because this one writes to
+# customers' databases, and a default that could ever apply by accident would be
+# the irreversible thing being the default. It is not irreversible in fact: every
+# run uploads its before-state as an artifact, and `mode: rollback` with that
+# file puts every site back exactly as it was.
+#
+# IT TOUCHES GRANTS AND NOTHING ELSE. No DDL, no policy, no `_meta` write, and
+# no statement anywhere in the script that can reach a row — which is why
+# "preserve site data" is a property of the thing rather than a promise about it.
+#
+# DISPATCH ONLY. No push trigger: test/merge-triggers.test.mjs is a census over
+# this directory and requires `deploy.yml` to be the only workflow a push to main
+# starts. There is nothing to run on a push here anyway — the answer is about the
+# state of live databases, not about the tree.
+name: grants preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preview (reads only) | verify (reads only) | apply (WRITES grants) | rollback'
+        required: true
+        default: 'preview'
+        type: choice
+        options: [preview, verify, apply, rollback]
+      confirm:
+        description: 'For apply ONLY, type the word: apply'
+        required: false
+        default: ''
+      slug:
+        description: 'One site, e.g. fretwork-1. Blank = every site with a Neon project.'
+        required: false
+        default: ''
+      run_id:
+        description: 'For rollback ONLY: the run number whose before-state artifact to restore from'
+        required: false
+        default: ''
+
+# `actions: read` IS THE ROLLBACK'S OWN PRECONDITION, not boilerplate.
+# Downloading an artifact from ANOTHER run needs it, and the recovery path is
+# exactly that download — so without it the rollback 403s at the one moment it
+# is needed. `contents: read` because this workflow writes nothing to the tree,
+# unlike `lane sweep`, which keeps its screenshots.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  grants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund --loglevel=error
+      # THE WORD IS READ AS A WORD, the way `lane sweep` reads its own: run 9
+      # typed `gap ` with a trailing space and got the wrong harness. Whitespace
+      # and case are forgiven; anything else is not the word.
+      - name: refuse an apply that was not asked for
+        if: ${{ github.event.inputs.mode == 'apply' }}
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
+        run: |
+          W=$(printf '%s' "$CONFIRM" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); if [ "$W" != "apply" ]; then echo "mode is apply and confirm is not the word 'apply' — refusing, nothing was written"; exit 1; fi
+      - name: the run whose before-state a rollback restores from
+        if: ${{ github.event.inputs.mode == 'rollback' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: grants-before-state
+          path: restore
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.inputs.run_id }}
+      # ONE LINE, because test/ci-browser-order.test.mjs reads the first line of
+      # a `run:` block and must see the script name there.
+      - name: grants
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MODE: ${{ github.event.inputs.mode }}
+          SLUG: ${{ github.event.inputs.slug }}
+        run: |
+          S=""; if [ -n "$SLUG" ]; then S="--slug $SLUG"; fi; if [ "$MODE" = "rollback" ]; then node scripts/grants-backfill.mjs --rollback "$(ls restore/*.json | head -1)" $S; else node scripts/grants-backfill.mjs --"${MODE:-preview}" $S --out grants-before-state.json; fi
+      # THE BEFORE-STATE IS THE RECOVERY AND IT LANDS WHETHER OR NOT THE RUN
+      # PASSED. A run that applied half a site and then failed is exactly the one
+      # whose recorded state is worth having.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grants-before-state
+          path: grants-before-state.json
+          if-no-files-found: ignore
+          retention-days: 90

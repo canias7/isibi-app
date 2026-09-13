@@ -553,26 +553,126 @@ is the probe for that and needs `NEON_API_KEY`, which no session here has.
 
 ## Deployment and migration status
 
-Read 2026-09-13, after the push.
+**The permission fix is MERGED AND LIVE.** Owner, 2026-09-13: *"The local
+PostgreSQL results are sufficient to move forward with the permission fix.
+Deploy the tested fix through the required release checks."*
 
 | | state |
 |---|---|
-| **`main`** | `ec2ee66f` |
-| **last deploy** | run **2113**, green, on `00f6edfb` — `ec2ee66f` itself touched only `CLAUDE.md`, `docs/`, `scripts/` and `test/`, all in `deploy.yml`'s `paths-ignore`, so **no deploy run exists for it, by design** |
-| **Permission fix** | **committed and pushed to `claude/help-needed-ehlwlj`, NOT merged, NOT deployed** — `8e8ac5eb` |
-| **Tables-step / coverage change** | merged and live before this session |
-| **Database migration needed** | **none** — the fix changes emitted DDL only; there is no schema migration, no RPC change and nothing to apply to Supabase |
-| **Backfill for existing sites** | **written, guarded, driven against a real Postgres, NOT executed** — `scripts/grants-backfill.mjs` |
+| **`main`** | `9d2c8e7c` (fast-forward from `ec2ee66f`) |
+| **deploy** | run **2114**, green, 2026-09-13 **22:16:21 → 22:19:29Z**, 3m08s |
+| **release checks before the merge** | `unit tests` run **2510** green on the branch tip; `site build` run **1126** green on `8e8ac5eb`, all 20 steps, `site-build.mjs` 14m44s |
+| **the image** | **BUILT** — the step's own line: `built isibi-app-sitebuildcontainer:84b673ca78ee27ae (registry answered 404; 174 inputs off ./Dockerfile)`, step 22:16:45 → 22:19:04 = 2m19s |
+| **the container** | **ROLLED** — `EDIT isibi-app-sitebuildcontainer` at **22:19:18Z**, `de4c74e6aa86…d32` → `84b673ca78ee27ae`, `SUCCESS Modified application` |
+| **the 15–20 minute hold** | ran to **~22:34–22:39Z** |
+| **deploy gate** | left to expire on success |
+| **Database migration needed** | **none** — the fix changes emitted DDL only; no schema migration, no RPC change, nothing to apply to Supabase |
+| **Backfill for existing sites** | **written, guarded, driven against a real Postgres, NOT executed** — `scripts/grants-backfill.mjs`, and the owner's standing instruction is preview only |
 | **Live addon tests** | **all unrun** |
 | **`workflow_dispatch` from a session** | **403**, re-measured 2026-09-13 against `lane-sweep.yml` |
 
-**When it merges**, it touches `site-rls.mjs` and `site-schema.mjs`, both in the
-Worker's module graph and therefore image inputs — so the container rebuilds and
-rolls, and the **15–20 minute hold** applies before firing anything that must run
-the new code.
+**The roll was read out of the log, never inferred from the step's duration** —
+this repository warns against that inference in both directions, and the 2m19s
+image step is consistent with a build only by coincidence.
 
-**Ordering.** Running the three asks after the fix deploys proves both changes at
-once and gives the new grants on the disposable site's tables. Running them
-before proves only the tables step. The site is disposable, so nothing is lost
-either way — but the permission tests in the section above require the fix to be
-live, so they are the deciding factor.
+**What is NOT proven about the container, named rather than glossed.** That a
+COLD START really lands on `84b673ca78ee27ae` is answered by
+`GET /api/site/build-health`, which is auth-gated and needs a signed-in session
+no agent here has. Without a token it answers **401**, and a made-up path
+answers **404** — so the route is matched and gated, which is as far as this
+goes. The first container job after the hold is the other proof, and the three
+asks below are that job.
+
+**No served asset changed**, so there is no file-hash check for this deploy:
+the push moves `site-rls.mjs` and `site-schema.mjs`, both bundled into the
+Worker script rather than served, and `public/` is untouched. Wrangler's
+`Current Version ID: 095520ae-357…-453c-8a36-65a620774e88` is the deploy's own
+record of what went up.
+
+**Ordering, now settled.** The fix is live, so running the three asks now proves
+both changes at once and gives the disposable site's tables the new
+column-scoped grants from the moment they are created.
+
+---
+
+## The exact runs to fire
+
+A session cannot dispatch any of these — `workflow_dispatch` answers **403**
+for this integration — so each is a page to open and a form to fill.
+
+### 1. The disposable site
+
+**<https://github.com/canias7/isibi-app/actions/workflows/build-as-owner.yml>**
+→ *Run workflow*. **Use branch `main`**: the first step polls
+`deploy.yml`'s runs for its own sha, and `deploy.yml` fires only on a push to
+`main`, so a dispatch from a feature branch finds nothing and dies at ten
+minutes having spent nothing.
+
+| field | value to type |
+|---|---|
+| Use workflow from | `main` |
+| `mode` | `build` |
+| `slug` | `repairbench-1` |
+| `instruction` | *(leave blank)* |
+| `layer` | `look` *(ignored on a build)* |
+| `picker` | `grok` |
+| `brief` | the paragraph in **Step 0** above, copied whole |
+
+Then check, before going on: `https://repairbench-1.gofarther.app` answers 200,
+and its Data panel shows **no database**.
+
+### 2–4. The three asks
+
+**<https://github.com/canias7/isibi-app/actions/workflows/lane-sweep.yml>**
+→ *Run workflow*, **once per ask, in order, reading each before firing the
+next**. A site is claimed while a job runs, so two at once answers `site-busy`.
+
+| field | value to type |
+|---|---|
+| Use workflow from | `main` |
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `lanes` | `all` *(ignored when `ask` is given; the run says so)* |
+| `site` | `repairbench-1` |
+| `dbsite` | *(leave default)* |
+| `ask` | **one of the three below** |
+| `picker` | `grok` |
+| `budget` | `80` |
+
+**Ask A** — copy this line exactly:
+
+```
+Let customers submit repair requests and log in to see their own requests and status updates.
+```
+
+**Ask B**:
+
+```
+On each repair request, keep a record of every change to its status, so we can see who changed what and when.
+```
+
+**Ask C**:
+
+```
+Let customers pick a drop-off slot when they book a repair, and stop two people taking the same slot.
+```
+
+What to check in each run's output is in **Ask A / B / C** above — those
+acceptance checks are what decide a pass, not the run's own green tick.
+
+### 5. The backfill preview (reads only, writes nothing)
+
+**<https://github.com/canias7/isibi-app/actions/workflows/grants-preview.yml>**
+→ *Run workflow*. Leave every field at its default:
+
+| field | value |
+|---|---|
+| `mode` | `preview` |
+| `confirm` | *(blank)* |
+| `slug` | *(blank — every site with a Neon project)* |
+| `run_id` | *(blank)* |
+
+Every statement a preview issues is a SELECT, and
+`test/integration/local-pg-grants.mjs` drives that against a real Postgres:
+the rows and the privileges are identical before and after it runs. **It does
+not appear in the Actions sidebar until this workflow is on `main`.**

@@ -4968,6 +4968,69 @@ re-measured 2026-09-13); and whether Neon's PostgREST presents these refusals to
 a browser the way the panel expects, which is `test/integration/neon-e2e.mjs`'s
 and needs `NEON_API_KEY`.
 
+#### MERGED AND LIVE, and the credential rule the preview needed (2026-09-13)
+
+Owner: *"The local PostgreSQL results are sufficient to move forward with the
+permission fix. Deploy the tested fix through the required release checks"* —
+the explicit approval the entry above was holding for. **`unit tests` run 2510
+green on the branch tip and `site build` run 1126 green on `8e8ac5eb`** (all
+twenty steps, `site-build.mjs` 14m44s) before the fast-forward `ec2ee66f` →
+`9d2c8e7c`.
+**The harness tree was checked EQUAL to the image tree before the run was
+trusted**: `site build` ran on `8e8ac5eb` and the branch tip was two commits
+later, both touching only `CLAUDE.md`, `docs/`, `scripts/` and `test/` — none of
+which the Dockerfile COPYs. A green harness on an ancestor is only evidence when
+nothing between it and the tip is an image input.
+**Deploy 2114, 2026-09-13 22:16:21→22:19:29Z, green in 3m08s.** The image
+**BUILT** — the step's own line, `built
+isibi-app-sitebuildcontainer:84b673ca78ee27ae (registry answered 404; 174 inputs
+off ./Dockerfile)`, step 2m19s — and the container **`EDIT`ed at 22:19:18Z**,
+`de4c74e6aa86…d32` → `84b673ca78ee27ae`, `SUCCESS Modified application`, so **the
+15–20 minute hold ran to ~22:34–22:39Z**. Read out of the log, never inferred
+from the step's duration.
+**NO SERVED ASSET CHANGED, so there is no file-hash check for this deploy** —
+`site-rls.mjs` and `site-schema.mjs` are bundled into the script rather than
+served, and `public/` is untouched. What stands in is the gate discriminator:
+`/api/site/build-health` **401**, `/api/site/runtime` **401**, a made-up path
+**404**. **That a COLD START really lands on `84b673ca78ee27ae` is NOT proven
+here** — `build-health` needs a signed-in session and no agent has one.
+
+**AND THE PREVIEW WORKFLOW IS WHERE THE CREDENTIAL RULE HAD TO GO** (owner:
+*"Report affected tables and any unresolved database identities without
+exposing credentials"*). `scripts/grants-backfill.mjs` holds one live database
+credential per site and never logs one deliberately; the risk is the accidental
+path — **a driver error whose MESSAGE quotes the URL it was handed**, which is
+how credentials usually reach a log. `safeErr` is the one scrubber every message
+goes through, and **the rule is the URL's own grammar rather than a list of
+secrets to look for**: any `scheme://user:password@` becomes `scheme://***@`. A
+list has to be kept, and the one it misses is the one that leaks.
+**THE HOST IS DELIBERATELY KEPT**, because the owner asked for the database
+identities reported and the credential is the half that must go.
+**`.github/workflows/grants-preview.yml` is dispatch-only**: `preview` is the
+default and writes nothing, `apply` runs only when `confirm` is the word
+`apply` (read as a word — whitespace and case forgiven, run 9's `gap ` one
+workflow over), and every run uploads its before-state `if: always()`, because a
+run that applied half a site and then failed is exactly the one whose recorded
+state is worth having. It carries **no push trigger**, which
+`test/merge-triggers.test.mjs` already polices as a census over the directory —
+so that rule is not restated here, which would be two lists of one thing.
+**Guards**: `test/grants-backfill.test.mjs` (16 → 26) — the scrubber driven for
+what it must remove AND for the four shapes it must leave byte for byte (the
+no-false-alarm control), `applyPlan`'s reported failure DRIVEN through a
+DSN-carrying throw rather than read, a **census that every `catch` reading its
+error names `safeErr`** (with the line window's soundness asserted, so a
+multi-line catch fails loudly rather than being half-read), and the workflow's
+four safety properties.
+**Sweep: 36 mutants, 36 killed, 0 survived, 0 never applied, 3 comment-only
+controls survived. ONE SURVIVED THE FIRST PASS and it was the recorded "a
+negative assertion must prove its observer is alive", in a case one hour old**:
+cutting `e.detail` from the scrubber makes it answer `"[object Object]"`, which
+carries no password and satisfies an absence check perfectly while the failure
+stops being diagnosable. The case asserts BOTH halves now. **And a pre-existing
+mutant's anchor had gone stale** — it still spelled the pre-`safeErr` line —
+caught by checking every anchor occurs exactly once BEFORE the run rather than
+reading NOT APPLIED afterwards. **Suite 6,266.**
+
 ---
 
 Every cheap edit republishes through `recompileAndPublish` — the shared spine.
