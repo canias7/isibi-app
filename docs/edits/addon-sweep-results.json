@@ -1,19 +1,19 @@
 {
-  "at": "2026-09-04T18:56:07.012Z",
-  "site": "fretwork-1",
-  "start": 24,
-  "end": 7,
+  "at": "2026-09-13T23:36:35.965Z",
+  "site": "repairbench-1",
+  "start": 189,
+  "end": 182,
   "results": [
     {
       "name": "component",
       "kinds": [
         "component"
       ],
-      "verdict": "BROKEN",
-      "note": "changed [\"/\"]; home text 2356→2689 chars; everything it said is still there; built the way the first one is; the site's own render check: 2 serious findings — / threw: React error #418 (hydration mismatch) — the server rendered “Llun” where the browser then rendered “Mon” (at div>div[week-strip]>button>span; repair time for /",
-      "cost": 17,
-      "wall": 541,
-      "build": "mtnbaddj-a3d38n",
+      "verdict": "LIE",
+      "note": "reply says ok, build moved, but the addition is not on the site; changed [\"/\"]; home text 4552→4967 chars; LOST what the page said: \"Find us Two mechanics at a scarred wooden bench in the Hebden Bike Repair workshop, with muddy bikes queued along the stone wall The workshop Two mechanics, a bench, and a queue of bikes Hebden Bike Repair sits down a back street in the old mill town — not a showroom, not a waiting lounge.\"; built the way the first one is; repair clean",
+      "cost": 7,
+      "wall": 221,
+      "build": "mu0gbc8t-ba1r4i",
       "pickedRight": true,
       "shots": []
     }
