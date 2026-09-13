@@ -136,3 +136,102 @@ export function modelsFor(picker) {
   const key = typeof picker === "string" && Object.hasOwn(BUILD_MODELS, picker) ? picker : DEFAULT_PICKER;
   return { picker: key, ...BUILD_MODELS[key] };
 }
+
+// ── WHAT EACH MODEL WILL ACTUALLY ACCEPT ────────────────────────────────────
+//
+// Owner, 2026-09-13, pointing at the context-window column of the three
+// providers' own docs: "THIS IS THE NUMBER I WANT."
+//
+// Until now the platform knew each model's NAME and nothing else about it. Every
+// ceiling it sends — SITE_PAGES_MAX_TOKENS, LANE_EDIT_MAX_TOKENS, the eleven
+// others — is a number somebody chose against no stated limit, and the same
+// number goes out whichever of the three is picked. This table is the missing
+// half: what the model on the other end is willing to take.
+//
+// KEYED BY MODEL ID, NEVER BY PICKER, and the reason is eighty lines up in this
+// file: `design` and `pages` are kept as separate entries "for what a mixed
+// picker would need". The moment one exists — `design: claude-opus-5,
+// pages: grok-4.6` — a limit hung on the picker is wrong for one of the two
+// calls, and wrong in the direction that looks fine. A limit is a fact about the
+// model, so it is stored against the model and asked for by model id. That is
+// this repository's own recorded "a lookup keyed at a different granularity than
+// the thing you ask it" trap, which cost a session when `LANE_LAYER` was keyed
+// by group and read by field.
+//
+// READ FROM THE PROVIDERS' OWN DOCS ON 2026-09-13, not from memory:
+// platform.claude.com/docs/en/about-claude/models/overview and
+// docs.x.ai/developers/grok-4-6. These numbers move — Claude was 200K a
+// generation ago — so re-read them rather than trusting this block, exactly as
+// the design-tool property order says to re-derive itself.
+//
+// THREE STATES FOR AN OUTPUT LIMIT, AND THEY MUST NOT COLLAPSE INTO TWO.
+// A number is a stated cap. `Infinity` is a provider that states NO cap (xAI:
+// "No text output limit"). `null` — the resolver's answer for a model with no
+// entry — is WE DO NOT KNOW. Writing "no limit" as null too would be two nulls
+// meaning opposite things, which is the exact shape that put a wrong link on a
+// live site when `readAction` answered null for both "no button" and "a computed
+// button". `Infinity` also makes every "does our ceiling fit" test plain
+// arithmetic with no special case. Nothing serialises this table today; if
+// something ever does, note that JSON turns Infinity into null and that is
+// precisely the collapse this avoids.
+export const MODEL_LIMITS = {
+  "grok-4.6": { context: 500_000, maxOutput: Infinity },
+  "claude-sonnet-5": { context: 1_000_000, maxOutput: 128_000 },
+  "claude-opus-5": { context: 1_000_000, maxOutput: 128_000 },
+};
+
+// NOTHING IN THE PRODUCT READS THIS YET, AND THAT IS THE OWNER'S CALL: know the
+// number first, spend it second. Said out loud because a value nothing reads is
+// this repository's most repeated defect — twelve features have shipped dead
+// with the module correct and one hop cut — so it is named here rather than left
+// to be discovered as a mistake.
+//
+// WHAT KEEPS IT FROM BEING DEAD ON DAY ONE is `test/model-limits.test.mjs`: a
+// census DERIVED from BUILD_MODELS in both directions, so a picker added next
+// month naming a fourth model fails by existing, and a model that leaves takes
+// its row with it. Plus the one assertion with teeth today — every output
+// ceiling this platform sends must fit inside the SMALLEST maxOutput any picker
+// can reach, because the ceiling is chosen once and the picker is chosen per
+// request. Measured when this shipped: the largest we send is 30,000 against a
+// floor of 128,000, so there is 4x of room and the guard is quiet until somebody
+// takes it.
+//
+// WHAT THE CONTEXT NUMBER IS NOT, measured rather than assumed: a constraint.
+// The biggest thing this platform sends is `design_schema` at 64,076 characters
+// on a first build plus 1,962 of system — call it ~20,000 tokens against a
+// 500,000 floor. The wall a build actually meets is the WIRE (`QUICK_CALL_MS`
+// 240s against an egress that hangs up an idle connection at ~270s, 480s
+// streamed), which run 40 proved by timing out a lane that had never reached its
+// own token ceiling.
+
+/**
+ * The context window of one model, in tokens — or `null` if we have no entry.
+ *
+ * `null` MEANS WE DO NOT KNOW, and a caller must never read it as zero. Zero is
+ * "there is no room", which would gate off a call to a perfectly healthy model;
+ * not-knowing must fall through to sending the request, exactly as a config read
+ * that fails lets an edit lane run rather than refusing it. The recorded rule is
+ * "cannot-tell must never read as nothing-there", and this is its arithmetic
+ * form.
+ *
+ * `Object.hasOwn` and a string test for the same reason `modelsFor` uses them:
+ * `MODEL_LIMITS["constructor"]` is truthy, and `String(["grok-4.6"])` is
+ * "grok-4.6", so coercion would resolve an array through a table that is
+ * supposed to be an allow-list.
+ */
+export function contextWindow(model) {
+  if (typeof model !== "string" || !Object.hasOwn(MODEL_LIMITS, model)) return null;
+  return MODEL_LIMITS[model].context;
+}
+
+/**
+ * The largest answer one model will produce, in tokens.
+ *
+ * A number is a stated cap; `Infinity` is a provider that states none; `null` is
+ * a model we have no entry for. See the three-states note above — the whole
+ * value of this resolver is that those three stay three.
+ */
+export function maxOutputTokens(model) {
+  if (typeof model !== "string" || !Object.hasOwn(MODEL_LIMITS, model)) return null;
+  return MODEL_LIMITS[model].maxOutput;
+}

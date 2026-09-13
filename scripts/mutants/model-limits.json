@@ -1,0 +1,76 @@
+[
+  {
+    "label": "a model a picker can reach loses its limits row",
+    "files": ["builder/build-models.mjs"],
+    "from": "  \"grok-4.6\": { context: 500_000, maxOutput: Infinity },\n",
+    "to": ""
+  },
+  {
+    "label": "a stale row survives a model leaving the platform",
+    "files": ["builder/build-models.mjs"],
+    "from": "  \"claude-opus-5\": { context: 1_000_000, maxOutput: 128_000 },\n};",
+    "to": "  \"claude-opus-5\": { context: 1_000_000, maxOutput: 128_000 },\n  \"claude-haiku-4-5\": { context: 200_000, maxOutput: 64_000 },\n};"
+  },
+  {
+    "label": "an unknown model answers zero, which a caller reads as 'no room'",
+    "files": ["builder/build-models.mjs"],
+    "from": "  if (typeof model !== \"string\" || !Object.hasOwn(MODEL_LIMITS, model)) return null;\n  return MODEL_LIMITS[model].context;",
+    "to": "  if (typeof model !== \"string\" || !Object.hasOwn(MODEL_LIMITS, model)) return 0;\n  return MODEL_LIMITS[model].context;"
+  },
+  {
+    "label": "contextWindow resolves through the prototype (hasOwn dropped)",
+    "files": ["builder/build-models.mjs"],
+    "from": "  if (typeof model !== \"string\" || !Object.hasOwn(MODEL_LIMITS, model)) return null;\n  return MODEL_LIMITS[model].context;",
+    "to": "  if (typeof model !== \"string\" || !MODEL_LIMITS[model]) return null;\n  return MODEL_LIMITS[model].context;"
+  },
+  {
+    "label": "contextWindow coerces, so an array picks a model through String()",
+    "files": ["builder/build-models.mjs"],
+    "from": "  if (typeof model !== \"string\" || !Object.hasOwn(MODEL_LIMITS, model)) return null;\n  return MODEL_LIMITS[model].context;",
+    "to": "  if (!Object.hasOwn(MODEL_LIMITS, String(model))) return null;\n  return MODEL_LIMITS[String(model)].context;"
+  },
+  {
+    "label": "maxOutputTokens resolves through the prototype (hasOwn dropped)",
+    "files": ["builder/build-models.mjs"],
+    "from": "  if (typeof model !== \"string\" || !Object.hasOwn(MODEL_LIMITS, model)) return null;\n  return MODEL_LIMITS[model].maxOutput;",
+    "to": "  if (typeof model !== \"string\" || !MODEL_LIMITS[model]) return null;\n  return MODEL_LIMITS[model].maxOutput;"
+  },
+  {
+    "label": "THE THREE STATES COLLAPSE TO TWO: 'no stated cap' written as null, the same value as 'we do not know'",
+    "files": ["builder/build-models.mjs"],
+    "from": "  \"grok-4.6\": { context: 500_000, maxOutput: Infinity },",
+    "to": "  \"grok-4.6\": { context: 500_000, maxOutput: null },"
+  },
+  {
+    "label": "a model's real output cap is recorded lower than a ceiling we already send",
+    "files": ["builder/build-models.mjs"],
+    "from": "  \"claude-sonnet-5\": { context: 1_000_000, maxOutput: 128_000 },",
+    "to": "  \"claude-sonnet-5\": { context: 1_000_000, maxOutput: 20_000 },"
+  },
+  {
+    "label": "THE ONE WITH TEETH: a ceiling is raised past what a picker's model will accept",
+    "files": ["builder/page-gen.mjs"],
+    "from": "export const SITE_PAGES_MAX_TOKENS = 30000;",
+    "to": "export const SITE_PAGES_MAX_TOKENS = 200000;"
+  },
+  {
+    "label": "the floor is taken as the MAX, so the uncapped model makes the whole check vacuous",
+    "files": ["test/model-limits.test.mjs"],
+    "from": "  const floor = Math.min(...limits);",
+    "to": "  const floor = Math.max(...limits);"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the model table, which must survive",
+    "files": ["builder/build-models.mjs"],
+    "from": "// ── WHAT EACH MODEL WILL ACTUALLY ACCEPT ──",
+    "to": "// ── WHAT EACH MODEL ACTUALLY ACCEPTS ──"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the guard, which must survive",
+    "files": ["test/model-limits.test.mjs"],
+    "from": "// What each model will accept, and the census that keeps the table honest.",
+    "to": "// What each model accepts, and the census that keeps the table honest."
+  }
+]

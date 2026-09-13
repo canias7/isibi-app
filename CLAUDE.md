@@ -2595,6 +2595,73 @@ case now, and it is safe on walls that already existed.
   can never report an admission a browser would refuse. Re-worded to say that
   rather than to state something untrue about browsers.
 
+- **THE PLATFORM KNOWS WHAT EACH MODEL WILL ACCEPT (2026-09-13, owner pointing
+  at the context-window column of the three providers' docs: *"THIS IS THE
+  NUMBER I WANT"*).** Until now `BUILD_MODELS` carried each model's NAME and
+  nothing else, so every ceiling the platform sends was a number chosen against
+  no stated limit, and the same number went out whichever of the three was
+  picked. **READ FROM THE PROVIDERS' OWN DOCS, not from memory** — these move,
+  Claude was 200K a generation ago, so re-read rather than trusting this table:
+
+  | model | context | max output | $ / MTok in · out |
+  |---|---|---|---|
+  | `grok-4.6` (default) | **500K** | **no stated limit** | $2 · $6 |
+  | `claude-sonnet-5` | **1M** | 128K | $2 · $10 |
+  | `claude-opus-5` | **1M** | 128K | $5 · $25 |
+
+  **CONTEXT IS NOT A CONSTRAINT ANYWHERE TODAY, measured rather than assumed**:
+  the biggest thing the platform sends is `design_schema` at 64,076 characters on
+  a first build plus 1,962 of system — ~20,000 tokens against a 500,000 floor,
+  25× of headroom on the smallest of the three. **The wall a build meets is the
+  WIRE** (`QUICK_CALL_MS` 240 s against an egress that hangs up an idle
+  connection at ~270 s, 480 s streamed), which run 40 proved by timing out a lane
+  that had never reached its own token ceiling. Every `*_MAX_TOKENS` in the tree
+  is an OUTPUT ceiling; not one is an input bound.
+  **KEYED BY MODEL ID, NEVER BY PICKER**, and this file's own comment is why:
+  `design` and `pages` are kept as separate entries "for what a mixed picker
+  would need", so a limit hung on the picker is wrong for one of the two the day
+  one exists — the recorded "a lookup keyed at a different granularity than the
+  thing you ask it" trap, which already cost a session on `LANE_LAYER`.
+  **THREE STATES FOR AN OUTPUT LIMIT AND THEY MUST NOT COLLAPSE INTO TWO**: a
+  number is a stated cap, **`Infinity`** is a provider that states none, `null`
+  is a model we have no row for. Writing "no limit" as null too would be two
+  nulls meaning opposite things — the shape that put a wrong link on a live site
+  when `readAction` answered null for both "no button" and "a computed button" —
+  and `Infinity` makes every does-it-fit test plain arithmetic. **An unknown
+  model answers `null` and never 0**: zero reads as "no room" and would gate off
+  a call to a healthy model, so cannot-tell must fall through to sending.
+  **NOTHING IN THE PRODUCT READS IT YET AND THAT IS THE OWNER'S CALL** — know the
+  number, spend it second. Said out loud because a value nothing reads is this
+  repository's most repeated defect. **What keeps it from being dead on day one**
+  is `test/model-limits.test.mjs` (11): a census DERIVED from `BUILD_MODELS` in
+  both directions, so a picker naming a fourth model fails by existing and a
+  departed model cannot leave a stale row; the resolvers driven over unknowns,
+  non-strings and prototype keys; the three states proved distinguishable; and
+  **the one with teeth — every ceiling the platform really sends must fit inside
+  the SMALLEST `maxOutput` any picker can reach**, because the ceiling is chosen
+  once and the picker is the customer's choice per request. Measured: the largest
+  we send is 30,000 against a floor of 128,000, so it is quiet until somebody
+  takes that room.
+  **THE GUARD'S FIRST RUN FOUND ITS OWN BLIND SPOT**: it resolved
+  `export const NAME = <n>` and missed `SITE_SCHEMA_MAX_TOKENS`, which
+  `worker.js` declares as a module-private `const` and sends on the design call —
+  a whole class of ceiling the check claimed to cover and did not. It matches
+  both forms now, and a computed ceiling is NAMED rather than dropped, so a
+  fourth one fails instead of quietly shrinking what is covered.
+  **AND THE FLOOR IS ASSERTED FINITE, which is what stops the check going
+  vacuous**: one model is uncapped, so taking the MAX of the set by mistake makes
+  the floor `Infinity`, every ceiling passes and the assertion says nothing while
+  staying green. That mutant is in the sweep and it dies on that line.
+  **WHAT NO TEST HERE CAN CHECK, named rather than hunted**: whether the numbers
+  are RIGHT. A mutant raising a context window reads as correct from inside the
+  repository — there is no oracle short of the providers' docs. A mutant lowering
+  a `maxOutput` below a ceiling we already send DOES die, through the fits check,
+  which is the one direction that is falsifiable.
+  **Sweep: 10 mutants, 10 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived** — a model losing its row, a stale row surviving, an unknown
+  answering zero, both resolvers' `hasOwn` and the string test, the three states
+  collapsed to two, a cap recorded under a live ceiling, a ceiling raised past
+  what a picker can reach, and the floor taken as a max. **Suite 6,174.**
 - **NO GUTTER BETWEEN THE CHAT AND THE PREVIEW (2026-09-13, owner on a crop of
   exactly that strip: *"CLOSE THIS SEPARATION"*).** `.st-body` carried
   `gap: .8rem` — **12.8px** of page background between two rounded cards that

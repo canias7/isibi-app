@@ -155,6 +155,51 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-13 — The builder knows what each model will take
+
+You pointed at the context-window column: *"THIS IS THE NUMBER I WANT."*
+
+It's in the code now. Until today the platform knew each model's **name** and
+nothing else about it — so every size limit it sends was a number somebody picked
+against no stated limit, and the same number went out whichever model you'd
+chosen.
+
+| model | context window | longest answer | $ / MTok in · out |
+|---|---|---|---|
+| `grok-4.6` (your default) | **500K** | **no stated limit** | $2 · $6 |
+| `claude-sonnet-5` | **1M** | 128K | $2 · $10 |
+| `claude-opus-5` | **1M** | 128K | $5 · $25 |
+
+**Nothing uses it yet, which is what you asked for** — know the number first,
+spend it second. I've said that plainly in the code too, because a value nothing
+reads is the single most repeated bug in this repository and I'd rather it be a
+decision on the record than something found later and mistaken for an oversight.
+
+**Two things the numbers settle, both measured rather than guessed:**
+
+**Context isn't what's limiting us.** The biggest thing we send is the design
+step's tool — about 20,000 tokens against a 500,000 floor. That's 25× of room on
+the *smallest* of the three. What actually stops a call is the connection timing
+out at ~270 seconds, which is a completely different problem.
+
+**We're using a quarter of the answer length we're allowed.** The page call is
+capped at 30,000 tokens where Claude allows 128,000 and Grok states no limit at
+all. Whether that's worth raising is a real question and it's yours — the catch
+is that a longer answer takes longer to write, and the connection closes before
+the model would finish. So it buys nothing on its own.
+
+**What I did build is a wall.** A test now derives every size limit the platform
+sends and checks each one fits inside the smallest model any customer can land
+on. It's quiet today (30,000 against 128,000) and it fires the moment somebody
+raises one past what a model will take — which would otherwise be a request
+refused outright, on whichever customer happened to pick that model.
+
+Writing that test found a real gap in my own first version of it: it was reading
+only half the size limits in the codebase and would have claimed to cover all of
+them. Fixed before it shipped.
+
+---
+
 ## 2026-09-13 — The chat and the preview sit together now
 
 You sent a crop of the strip between them: *"CLOSE THIS SEPARATION"*.
