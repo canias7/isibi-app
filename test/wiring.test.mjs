@@ -221,8 +221,14 @@ test("the DESIGN call is cached, like the page call", () => {
   // It carries ~6,800 tokens that are byte-identical every build and was paying
   // full price for all of them, while the page call — three and a half times
   // bigger — was a cache read. The small call was the expensive one.
-  const i = worker.indexOf("async function designSiteSchema");
-  assert.ok(i > 0, "designSiteSchema moved");
+  // THIRD TIME THIS WENT RED FOR A CORRECT CHANGE, and the comment below already
+  // records the first two. On 2026-09-13 the request moved out of
+  // `designSiteSchema` into `designRequest`, so the context panel could weigh
+  // the real object rather than build a second copy of it — the caching did not
+  // move, the window did. A guard about a REQUEST belongs on the function that
+  // builds one, which is what it reads now.
+  const i = worker.indexOf("function designRequest(");
+  assert.ok(i > 0, "designRequest moved");
   const call = worker.slice(i, i + 3500);
   // THE PROPERTY, NOT THE SPELLING. This pinned `{ ...SITE_SCHEMA_TOOL, … }`
   // exactly, and went red the day a SECOND tool arrived — the frontend variant,

@@ -1228,9 +1228,14 @@ test("attachments ride in the designer's user message, after the cached blocks",
   // Anywhere in `system` or `tools` and every attachment is a cache MISS on
   // ~10,800 identical tokens — which costs far more than the files do. This is
   // the same placement `pagesRequest` uses and for the same measured reason.
-  const i = WORKER_SRC.indexOf("async function designSiteSchema(");
+  // WINDOWED ON THE BUILDER, NOT ON THE CALLER. Both landmarks named
+  // `designSiteSchema` until 2026-09-13, when the request moved into
+  // `designRequest` so the context panel could weigh the very same object
+  // instead of assembling a second copy of it. The property is about the
+  // REQUEST, so it reads the function that builds one.
+  const i = WORKER_SRC.indexOf("function designRequest(");
   const fn = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n}\n", i));
-  assert.ok(fn.length > 800, "designSiteSchema was not found whole: " + fn.length);
+  assert.ok(i > 0 && fn.length > 800, "designRequest was not found whole: " + fn.length);
   const sys = fn.indexOf("system: [");
   const msg = fn.indexOf('messages: [{ role: "user"');
   assert.ok(sys > 0 && msg > sys, "the user message no longer comes after the system block");
@@ -1245,8 +1250,10 @@ test("a build with no attachments sends the shape it always sent", () => {
   // The content stays a plain STRING rather than a one-element array, so no
   // request that does not use the feature changes at all — the property that
   // makes this safe to add to the most expensive call on the platform.
-  const i = WORKER_SRC.indexOf("async function designSiteSchema(");
+  // The builder, not the caller — see the note in the case above.
+  const i = WORKER_SRC.indexOf("function designRequest(");
   const fn = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n}\n", i));
+  assert.ok(i > 0, "designRequest moved");
   assert.match(fn, /blocks\.length \? \[\.\.\.blocks, \{ type: "text", text \}\] : text/,
     "an empty attachment list must fall back to a plain string");
   // And the parameter DEFAULTS to empty, so the two callers that pass nothing

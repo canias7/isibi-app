@@ -3349,6 +3349,12 @@ const ST_ICONS = {
   cloud: '<path d="M17.5 18.5a4.5 4.5 0 0 0 .3-9A6 6 0 0 0 6 10a4 4 0 0 0 0 8.5z"/>',
   shield: '<path d="M12 3l7 3v5.5c0 4.4-3 7.4-7 8.9-4-1.5-7-4.5-7-8.9V6l7-3z"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  // A DIAL, for the model-context panel: how full the window is. Drawn as a
+  // half-round sweep with a needle rather than a full circle, because a full one
+  // at 17px reads as the `cloud` blob beside it in the same nav column — checked
+  // against the real strip rather than guessed, which is the lesson the file
+  // tree's cog-versus-sliders choice already records.
+  gauge: '<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4.5-4"/><circle cx="12" cy="16" r="1.1"/>',
   database: '<ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v13c0 1.6 3.4 3 7.5 3s7.5-1.4 7.5-3v-13"/><path d="M4.5 12c0 1.6 3.4 3 7.5 3s7.5-1.4 7.5-3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6 8.5-6"/>',
   key: '<circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8l8-8"/><path d="M17 6l2.5 2.5"/><path d="M14.5 8.5L17 11"/>',
@@ -4442,9 +4448,9 @@ function stSaveBlob(blob, filename) {
 }
 function moreStat(label, val) { return '<div class="st-stat"><span class="st-stat-l">' + label + '</span><span class="st-stat-v">' + val + '</span></div>'; }
 function siteMoreView(site) {
-  const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search']];
+  const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search'], ['context', 'gauge', 'Model context']];
   const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + ic(it[1], 17) + '</span>' + it[2] + '</button>').join('');
-  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity(site) : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics(site);
+  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity(site) : siteMoreTab === 'seo' ? moreSeo(site) : siteMoreTab === 'context' ? moreContext(site) : moreAnalytics(site);
   return '<div class="st-more"><div class="st-mnav-col">' + nav + '</div><div class="st-more-body">' + body + '</div></div>';
 }
 function moreAnalytics(site) {
@@ -4685,6 +4691,129 @@ async function loadSiteData(site) {
     siteDataForm = null; loadSiteData(site);
   });
 }
+// ── MODEL CONTEXT: how full the window gets, and what fills it ──────────────
+//
+// Owner, 2026-09-13, holding up Claude Code's own context panel: "KINDA WANT
+// SOMETHING LIKE THIS THAT TRACKS THE CONTEXT WINDOW THING."
+//
+// IT ANSWERS WHAT THE NEXT CALL CARRIES, not only what the last one did, and
+// that is why it has something to draw on a site that has never built since this
+// shipped — which is every site the account owns. A purely historical panel is
+// the kit closure's own `Design system` folder again: correct, empty, and
+// unexplained.
+const siteCtx = {};
+const siteCtxAsked = new Set();
+function siteCtxFetch(site) {
+  if (!site || !site.slug || siteCtxAsked.has(site.slug)) return;
+  siteCtxAsked.add(site.slug);
+  apiFetch('/api/site/context?slug=' + encodeURIComponent(site.slug)).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.ok !== true || !Array.isArray(d.shapes)) return;
+    siteCtx[site.slug] = d;
+    // Only redraw if this is still the panel being looked at — the answer can
+    // land after the customer has moved on, and rebuilding the workspace under
+    // them to paint a tab they left is the twitch the Code tab already records.
+    if (siteOpenId === site.id && siteView === 'more' && siteMoreTab === 'context') renderSites();
+  }).catch(() => {});
+}
+// 31915 -> "31,915". Plain grouping: these are counts, and a reader comparing
+// two rows wants the digits to line up rather than to be rounded into agreement.
+function ctxNum(n) { return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+// 500000 -> "500K", 1000000 -> "1M". The DENOMINATOR is rounded where the
+// numerator is not, because a window is a headline figure and nobody needs to
+// read it to the digit.
+function ctxCap(n) {
+  const v = Number(n) || 0;
+  if (v >= 1000000) return (v % 1000000 ? (v / 1000000).toFixed(1) : v / 1000000) + 'M';
+  if (v >= 1000) return Math.round(v / 1000) + 'K';
+  return String(v);
+}
+// The four parts, in the order they are sent, each with its own colour. A fixed
+// order rather than sorted by size: the chart is read against itself across two
+// shapes and across builds, and a bar whose bands reorder when one grows is a
+// chart nobody can compare.
+const CTX_PARTS = [
+  ['tools', 'Design tool', 'a'],
+  ['system', 'System rules', 'b'],
+  ['message', 'Brief + stored state', 'c'],
+  ['attachments', 'Attachments', 'd'],
+];
+// THE BAR IS A FILL GAUGE AGAINST THE WINDOW, NOT A COMPOSITION CHART, and the
+// difference is the whole honesty of the picture. Drawn as composition alone —
+// each part taking its share of the full bar — every row is 100% full whatever
+// the model, so three rows reading 2.2%, 2.2% and 4.4% looked identical and
+// brim-full. The number and the picture said opposite things.
+//
+// So each band is its share of the CALL times the call's share of the WINDOW,
+// and the track behind it is the free space. FOUND BY RENDERING IT: no markup
+// assertion and no reading of this function could have shown it, because the
+// code was correct about the thing it was computing and wrong about what the
+// reader would take it to mean.
+//
+// AND THE SLIVER IS THE POINT rather than a problem to pad away. At 4% of a
+// window the ink is a few pixels, and that IS the finding — this builder uses
+// almost none of what it is given. A minimum band width would make every row
+// legible by making every row a lie; the legend underneath carries the
+// composition at full width, so nothing is lost by telling the truth here.
+function ctxBar(parts, used) {
+  const fill = typeof used === 'number' && used > 0 ? Math.min(1, used) : 0;
+  const seg = CTX_PARTS.map(([key, , tone]) => {
+    const p = (parts || []).find((x) => x && x.name === key);
+    const pct = p ? p.share * fill * 100 : 0;
+    if (pct <= 0) return '';
+    return '<span class="st-ctx-seg st-ctx-' + tone + '" style="width:' + pct.toFixed(3) + '%"></span>';
+  }).join('');
+  return '<div class="st-ctx-bar">' + seg + '</div>';
+}
+function moreContext(site) {
+  const head = '<div class="st-panel"><div class="st-panel-head"><h3>Model context</h3></div>';
+  if (!site.slug) {
+    return head + '<p class="st-ctx-none">Build your site to see what its next call carries.</p></div>';
+  }
+  const d = siteCtx[site.slug];
+  if (!d) {
+    siteCtxFetch(site);
+    return head + '<p class="st-ctx-none">Reading what this site sends…</p></div>';
+  }
+
+  const shapes = d.shapes.map((s) => {
+    const rows = (s.models || []).map((m) => {
+      const pct = typeof m.used === 'number' ? (m.used * 100) : null;
+      return '<div class="st-ctx-row">'
+        + '<span class="st-ctx-model">' + esc(String(m.model || '')) + '</span>'
+        + ctxBar(s.parts, m.used)
+        + '<span class="st-ctx-of">' + ctxNum(m.tokens) + ' / ' + ctxCap(m.window) + '</span>'
+        // A window we do not know gets an em dash, never 0% — a bar at zero says
+        // "nothing was sent", which is the opposite of "we cannot say".
+        + '<span class="st-ctx-pct">' + (pct === null ? '—' : pct.toFixed(1) + '%') + '</span>'
+        + '</div>';
+    }).join('');
+    const legend = CTX_PARTS.map(([key, label, tone]) => {
+      const p = (s.parts || []).find((x) => x && x.name === key);
+      const share = p ? p.share * 100 : 0;
+      return '<div class="st-ctx-key">'
+        + '<span class="st-ctx-dot st-ctx-' + tone + '"></span>'
+        + '<span class="st-ctx-key-l">' + label + '</span>'
+        + '<span class="st-ctx-key-v">' + ctxNum(p ? p.chars : 0) + ' chars</span>'
+        + '<span class="st-ctx-key-p">' + share.toFixed(1) + '%</span>'
+        + '</div>';
+    }).join('');
+    return '<div class="st-ctx-shape"><h4 class="st-ctx-h">' + esc(String(s.name || '')) + '</h4>'
+      + rows + '<div class="st-ctx-legend">' + legend + '</div></div>';
+  }).join('');
+
+  // THE HONESTY LINE, and it is not decoration. Every number above is characters
+  // divided by three, because there is no tokenizer in a browser or a Worker for
+  // either provider. Saying so is what keeps this from being the SEO tab, which
+  // stated three confident falsehoods about a customer's own business.
+  const note = '<p class="st-ctx-note">Estimated from what we send — characters at three per token. '
+    + 'A build measures it exactly.</p>';
+  const measured = d.measured && typeof d.measured === 'object'
+    ? '<p class="st-ctx-note">Last build measured ' + ctxNum(d.measured.tokens) + ' tokens.</p>'
+    : '';
+  return head + shapes + note + measured + '</div>';
+}
+
 function moreCloud(site) {
   const isReact = !!site.react;
   const hasBackend = !!(isReact && site.backend);

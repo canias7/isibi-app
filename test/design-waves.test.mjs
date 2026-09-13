@@ -630,7 +630,11 @@ test("one chooser for the tool and the system text, asked by both designers", ()
   assert.ok(/const designKit = \(frontendOnly\) => \(\{/.test(WCODE));
   // The single call must ASK it rather than keep its own ternary — two lists of
   // the same thing, with a cache miss per agent as the failure nobody sees.
-  const single = between(WCODE, "async function designSiteSchema(", "const j = await callBuilderModel", "the single design call");
+  // WINDOWED ON THE BUILDER. The request moved out of `designSiteSchema` into
+  // `designRequest` on 2026-09-13 so the context panel could weigh the real
+  // object rather than assemble a second copy of it; the chooser did not move,
+  // the window did. The property is about which tool the REQUEST carries.
+  const single = between(WCODE, "function designRequest(", "\n}\n", "the single design call's request");
   assert.ok(/designKit\(frontendOnly\)\.tool/.test(single), "the single call must take its tool from the chooser");
   assert.ok(/designKit\(frontendOnly\)\.system/.test(single), "…and its system text");
   assert.ok(!/frontendOnly \? FRONTEND_SCHEMA_TOOL : SITE_SCHEMA_TOOL/.test(single), "a second ternary is a second list");

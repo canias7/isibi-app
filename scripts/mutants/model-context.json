@@ -1,0 +1,106 @@
+[
+  {
+    "label": "THE DEFECT THE RENDER CAUGHT — the bar goes back to composition, so every row draws 100% full",
+    "files": ["public/chat.js"],
+    "from": "    const pct = p ? p.share * fill * 100 : 0;",
+    "to": "    const pct = p ? p.share * 100 : 0;"
+  },
+  {
+    "label": "an unknown window draws a FULL bar instead of no ink",
+    "files": ["public/chat.js"],
+    "from": "  const fill = typeof used === 'number' && used > 0 ? Math.min(1, used) : 0;",
+    "to": "  const fill = typeof used === 'number' && used > 0 ? Math.min(1, used) : 1;"
+  },
+  {
+    "label": "a call over the window overflows its track instead of clamping",
+    "files": ["public/chat.js"],
+    "from": "  const fill = typeof used === 'number' && used > 0 ? Math.min(1, used) : 0;",
+    "to": "  const fill = typeof used === 'number' && used > 0 ? used : 0;"
+  },
+  {
+    "label": "cached reads stop counting toward the window, so a warm build reads nearly empty",
+    "files": ["builder/context-report.mjs"],
+    "from": "  const total = n(usage.input_tokens) + n(usage.cache_read_input_tokens) + n(usage.cache_creation_input_tokens);",
+    "to": "  const total = n(usage.input_tokens);"
+  },
+  {
+    "label": "a usage object with none of the three kinds reads as a measurement of zero",
+    "files": ["builder/context-report.mjs"],
+    "from": "  return sawOne ? total : null;",
+    "to": "  return total;"
+  },
+  {
+    "label": "the parts are never scaled to the exact total, so they sum to something else",
+    "files": ["builder/context-report.mjs"],
+    "from": "  const scale = exact !== null && totalChars > 0 ? exact / totalChars : 1 / CHARS_PER_TOKEN;",
+    "to": "  const scale = 1 / CHARS_PER_TOKEN;"
+  },
+  {
+    "label": "an estimated report claims to be exact",
+    "files": ["builder/context-report.mjs"],
+    "from": "    exact: exact !== null,",
+    "to": "    exact: true,"
+  },
+  {
+    "label": "an unknown model answers 0% instead of no percentage",
+    "files": ["builder/context-report.mjs"],
+    "from": "    used: usable ? tokens / window : null,",
+    "to": "    used: usable ? tokens / window : 0,"
+  },
+  {
+    "label": "an attachment is counted as message text, so a PDF swamps the brief's band",
+    "files": ["builder/context-report.mjs"],
+    "from": "        else attachments += JSON.stringify(b || null).length;",
+    "to": "        else message += JSON.stringify(b || null).length;"
+  },
+  {
+    "label": "the summary headlines the FIRST call rather than the fullest",
+    "files": ["builder/context-report.mjs"],
+    "from": "    if (!fullest || c.used > fullest.used) fullest = c;",
+    "to": "    if (!fullest) fullest = c;"
+  },
+  {
+    "label": "one estimated call no longer makes the whole record an estimate",
+    "files": ["builder/context-report.mjs"],
+    "from": "    exact: list.every((c) => c.exact === true),",
+    "to": "    exact: list.some((c) => c.exact === true),"
+  },
+  {
+    "label": "the two shapes are built identically, so a first build and a revise weigh the same",
+    "files": ["worker.js"],
+    "from": "        { name: \"first build\", req: designRequest(cBrief, modelsFor().design, null, [], true) },",
+    "to": "        { name: \"first build\", req: designRequest(cBrief, modelsFor().design, cLook, [], false) },"
+  },
+  {
+    "label": "the route ships the request it weighed, putting 93,598 characters of tool on the wire",
+    "files": ["worker.js"],
+    "from": "          parts: contextReport({ name: s.name, req: s.req }).parts,",
+    "to": "          parts: contextReport({ name: s.name, req: s.req }).parts, req: s.req,"
+  },
+  {
+    "label": "a stranger gets a distinct refusal, which says the slug is taken",
+    "files": ["worker.js"],
+    "from": "      if (!cown || cown !== cu.id) return Response.json({ ok: false, error: \"not found\" }, { status: 404 });",
+    "to": "      if (!cown || cown !== cu.id) return Response.json({ ok: false, error: \"forbidden\" }, { status: 403 });"
+  },
+  {
+    "label": "an unreadable bucket takes the whole route down instead of costing the record",
+    "files": ["worker.js"],
+    "from": "        const obj = await env.SITES_BUCKET.get(\"source/\" + cslug + \"/context.json\");\n        if (obj) cMeasured = JSON.parse(await obj.text());\n      } catch (e) {}",
+    "to": "        const obj = await env.SITES_BUCKET.get(\"source/\" + cslug + \"/context.json\");\n        if (obj) cMeasured = JSON.parse(await obj.text());\n      } finally {}"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the report module, which must survive",
+    "files": ["builder/context-report.mjs"],
+    "from": "// How full the model's context window was, and what filled it.",
+    "to": "// How full the model's context window got, and what filled it."
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the guard, which must survive",
+    "files": ["test/model-context.test.mjs"],
+    "from": "// HOW FULL THE MODEL'S CONTEXT WINDOW GETS, AND WHAT FILLS IT (2026-09-13).",
+    "to": "// HOW FULL THE MODEL'S CONTEXT WINDOW GETS, AND WHAT FILLS IT (2026-09-13.)"
+  }
+]

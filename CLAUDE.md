@@ -2595,6 +2595,98 @@ case now, and it is safe on walls that already existed.
   can never report an admission a browser would refuse. Re-worded to say that
   rather than to state something untrue about browsers.
 
+- **HOW FULL THE MODEL'S CONTEXT WINDOW GETS, AND WHAT FILLS IT (2026-09-13,
+  owner holding up Claude Code's own context panel — a bar reading `527.1k / 1M
+  (53%)` over a breakdown by part: *"KINDA WANT SOMETHING LIKE THIS THAT TRACKS
+  THE CONTEXT WINDOW THING"*).** More → **Model context**, drawing the real
+  numbers for the site being looked at.
+  **IT ANSWERS WHAT THE NEXT CALL CARRIES, not only what the last one did**, and
+  that decision is the whole reason it has anything to draw: a historical-only
+  panel is empty on every site that has not built since it shipped — all 51 —
+  which is the kit closure's `Design system` folder again, the shape the owner
+  met with *"WHERE IS THE COMPONENTS ONE"*. A measured record enriches it when a
+  build writes one.
+  **TWO SHAPES, because they are genuinely different sizes**: a first build drops
+  the whole `backend` property and carries no stored state; a revise sends the
+  tool whole plus the current-state note. MEASURED: **first build 64,115 chars of
+  tool + 1,962 system ≈ 22,070 tokens; a revise 93,637 + 1,962 ≈ 32,718** — so
+  **2.2% of Claude's window and 4.4% of Grok's** on a first build. **The design
+  tool is 96.8% of that call and the customer's brief is 0.2%.**
+  **BUILT FROM `designRequest`, WHICH IS WHY THAT FUNCTION NOW EXISTS.** The
+  request was lifted out of `designSiteSchema` so the panel weighs the real
+  object; a projection assembling its own approximation drifts in the direction
+  that reads as fine — forget the stored-state note and the bar is merely
+  optimistic, with nothing to show it is wrong. **Four older guards went red for
+  the lift and were re-anchored, not appeased** (two in `api-auth`, the caching
+  one in `wiring` — whose own comment already recorded going red twice for
+  correct changes, so this is the third — and the chooser in `design-waves`),
+  every one windowed on `designSiteSchema` by name where the property is about
+  the REQUEST.
+  **THE TOTAL IS EXACT AND THE PARTS ARE ESTIMATED, and the report says which.**
+  There is no tokenizer here for either provider, so a part's share is
+  CHARACTERS at this repository's own 3:1 (`laneMaxTokens`' ratio, not a new
+  guess). The provider hands back the real input total on every call, so the
+  parts are SCALED to sum to it — the percentages are then sound even though no
+  single part's absolute count is. **All three input kinds count toward the
+  window**: billing prices a cached read at a tenth, but the window does not care
+  what anything cost, only how much the model had to hold.
+  **THE BAR IS A FILL GAUGE AGAINST THE WINDOW, AND THE RENDER IS THE ONLY THING
+  THAT COULD HAVE CAUGHT THE FIRST VERSION.** Drawn as composition alone — each
+  part taking its share of the full bar — every row was 100% full whatever the
+  model, so three rows reading 2.2%, 2.2% and 4.4% looked identical and
+  brim-full: **the picture and the figure beside it said opposite things.** No
+  markup assertion and no reading of that function could see it, because the code
+  was correct about what it computed and wrong about what a reader would take it
+  to mean. **And the sliver that results is the point rather than a problem to
+  pad away** — at 4% of a window the ink is a few pixels, and that IS the
+  finding; a minimum band width would make every row legible by making every row
+  a lie.
+  **AN UNKNOWN MODEL HAS NO PERCENTAGE — never a percentage of a guessed
+  denominator, and never 0%**, which reads as "nothing was sent". The bar draws
+  no ink at all rather than a full one.
+  **THE BRIEF IS DELIBERATELY NOT READ, and the first draft got it wrong in the
+  way this repository has a guard for.** The route called `siteBackendBySlug` and
+  read `.brief` off the answer — that function returns a connection **STRING**,
+  so the property was `undefined` on every call. `test/site-apply.test.mjs`
+  caught it, because the identical property access on the identical function once
+  shipped every publish through the spine with no theme and the site's slug in
+  place of its brand. Left out rather than re-plumbed: a real brief is 132
+  characters of 95,744 — **0.14%** — so the `message` band is the stored-state
+  note and a customer's sentence adds its own length on the day.
+  **Guards**: `test/model-context.test.mjs` (16) — the module driven (both
+  message shapes, all three usage kinds, an absence answering null and never
+  zero, the reconciliation summing to the exact total, the shares identical
+  either way, an unknown window over six nonsense denominators, the summary's
+  fullest-not-average and its every-not-some); the panel's bar DRIVEN for the
+  scaling defect, no-window drawing nothing and an over-full call clamping; the
+  legend's order asserted EQUAL to the module's own part order; the route driven
+  through `worker.fetch` for the 401, the stranger's 404, both shapes, the
+  derived model list, a first build weighing less than a revise, **an answer
+  under 4,000 bytes carrying no `input_schema`** (the panel needs counts, not the
+  93,598-character tool), both best-effort reads failing, and the stored record
+  handed back.
+  **`builder/context-report.mjs` IS AN IMAGE INPUT** — `worker.js` imports it and
+  the Worker's module graph is the job runtime, so it went on the Dockerfile's
+  COPY line. `test/dockerfile.test.mjs` caught the omission, and
+  `test/container-images.test.mjs` then refused it a second time for a different
+  reason worth knowing: it asks `git rev-parse HEAD:<path>`, the **committed**
+  tree rather than the index, so a Dockerfile naming an uncommitted file is an
+  image that cannot be built from that commit. Staging is not enough.
+  **Sweep: 15 mutants, 15 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived** — the composition bar returning, an unknown window drawing
+  full, an over-full call overflowing its track, cached reads dropped from the
+  total, an absence read as zero, the parts never scaled, an estimate claiming to
+  be exact, an unknown model answering 0%, an attachment counted as message text,
+  the summary taking the first call, `every` weakened to `some`, both shapes
+  built identically, the tool shipped on the wire, a stranger given a distinct
+  403, and the bucket's catch turned into a finally. **Suite 6,190.**
+  **NOT PROVEN LIVE, and two halves are named rather than glossed**: no
+  authenticated round trip exists here (the route is owner-gated by design and
+  the sixteen driven cases stand in), and **nothing writes the measured record
+  yet** — `designSiteSchema` returns the usage the report needs, but storing it
+  at `source/<slug>/context.json` on the publish path is not in this change. The
+  panel says "A build measures it exactly" and today that is a promise about the
+  next commit, not this one.
 - **THE PLATFORM KNOWS WHAT EACH MODEL WILL ACCEPT (2026-09-13, owner pointing
   at the context-window column of the three providers' docs: *"THIS IS THE
   NUMBER I WANT"*).** Until now `BUILD_MODELS` carried each model's NAME and

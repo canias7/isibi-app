@@ -155,6 +155,49 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-13 — Model context: how full the window gets, and what fills it
+
+You held up Claude Code's own panel: *"KINDA WANT SOMETHING LIKE THIS THAT TRACKS
+THE CONTEXT WINDOW THING."*
+
+It's in **More → Model context**, per site. `docs/edits/model-context-panel.png`.
+
+**The finding, and it's worth sitting with:**
+
+| | tokens | of Grok's 500K | of Claude's 1M |
+|---|---|---|---|
+| a first build | ~22,070 | **4.4%** | 2.2% |
+| a revise | ~32,718 | **6.5%** | 3.3% |
+
+**The design tool is 96.8% of that. The customer's brief is 0.2%.** We are
+sending the model a 94,000-character instruction sheet and two sentences about
+their business, and using about one twentieth of the room we have.
+
+**It shows what your next call carries, not just what the last build sent.** If
+it only showed history it would be blank on all 51 of your sites until each one
+rebuilt — the same thing that happened with the components folder, where you
+opened a site and asked where it was.
+
+**One thing I got wrong, and the picture is what caught it.** My first version
+drew the *composition* of the call, so every bar was completely full while the
+number beside it said 2.2%. The picture and the figure contradicted each other.
+No test could have seen that — the code was correct about what it was computing
+and wrong about what you'd read it as. The bars are nearly empty now, and that
+emptiness is the real answer.
+
+**And a genuine bug, caught by a guard that exists for exactly it.** I read the
+site's brief off the wrong function — one that returns a connection string, not
+a record — so it was silently empty. The same mistake on the same function once
+shipped every publish with no theme and the slug in place of the business name.
+I've left the brief out rather than re-plumbing it: it's 0.14% of the call.
+
+**What it does not do yet, named rather than glossed:** nothing writes the
+measured number from a real build. The panel says "a build measures it exactly"
+and that's currently a promise about the next change, not this one. The estimate
+is characters at three per token, and it says so on the panel.
+
+---
+
 ## 2026-09-13 — The builder knows what each model will take
 
 You pointed at the context-window column: *"THIS IS THE NUMBER I WANT."*

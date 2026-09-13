@@ -215,7 +215,8 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
 import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec } from "./builder/site-add.mjs";
-import { modelsFor } from "./builder/build-models.mjs";
+import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
+import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
 import { verifyStripeSignature, mintFromEvent } from "./stripe-webhook.mjs";
 import { selectPurchase, checkoutForm, LIVE_SUBSCRIPTION_STATUSES, falRequestId, refundVerdict, refundOnResultStatus } from "./billing.mjs";
@@ -4048,10 +4049,18 @@ const designKit = (frontendOnly) => ({
   system: frontendOnly ? FRONTEND_SCHEMA_SYSTEM : SITE_SCHEMA_SYSTEM,
 });
 
-async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, frontendOnly = false) {
-  // The request is built FIRST and the usage below is stamped from `req.model`,
-  // so what we bill and what we sent cannot disagree — the same by-construction
-  // discipline as pricing from one table instead of two.
+// THE DESIGN REQUEST, BUILT IN ONE PLACE — lifted out of `designSiteSchema` on
+// 2026-09-13 so the context panel can weigh exactly what a build would send
+// rather than assembling a second copy of it.
+//
+// A PROJECTION THAT BUILDS ITS OWN REQUEST IS TWO LISTS OF THE SAME THING, and
+// this one would drift in the direction that reads as fine: a panel that forgets
+// the `current` state note, or the free-CSS arm, still shows a plausible bar and
+// quietly understates how full the window really gets. The only honest reading
+// is the real object, so there is one builder and both callers take it.
+//
+// Every decision inside it is unchanged and its own comments still stand.
+function designRequest(brief, model, current = null, files = [], frontendOnly = false) {
   const req = {
       model,
       max_tokens: SITE_SCHEMA_MAX_TOKENS,
@@ -4122,6 +4131,15 @@ async function designSiteSchema(env, brief, model = modelsFor().design, current 
   // `req.tools[0]`, so whichever `required` that line settled on survives. Two
   // lines each rebuilding from `SITE_SCHEMA_TOOL` would mean the second silently
   // undoing the first, which on a revise is the whole edit contract lost.
+  return req;
+}
+
+async function designSiteSchema(env, brief, model = modelsFor().design, current = null, files = [], budget = null, frontendOnly = false) {
+  // The request is built FIRST and the usage below is stamped from `req.model`,
+  // so what we bill and what we sent cannot disagree — the same by-construction
+  // discipline as pricing from one table instead of two. `designRequest` is the
+  // one builder; the context panel weighs the very same object.
+  const req = designRequest(brief, model, current, files, frontendOnly);
   // Provider decided in ONE place — see callBuilderModel, which also carries the
   // status and detail onto the error so the caller can say WHICH failure this
   // was. The builder's main path has gone down twice behind one unchanging "the
@@ -17930,6 +17948,100 @@ async function handleRequest(request, env, ctx) {
         slug: rslug,
         routes: uniq,
         ...(uniq.length ? {} : { why: "nothing stored — this site has not published a build yet" }),
+      });
+    }
+
+    // HOW FULL THE MODEL'S CONTEXT WINDOW GETS, AND WHAT FILLS IT (2026-09-13,
+    // owner holding up Claude Code's own context panel: "KINDA WANT SOMETHING
+    // LIKE THIS THAT TRACKS THE CONTEXT WINDOW THING").
+    //
+    // IT ANSWERS WHAT THE NEXT CALL WOULD CARRY, not only what the last one did,
+    // and that is the decision this route turns on. A purely historical panel is
+    // empty on every site that has not built since it shipped — which is all 51
+    // of them — and this repository has already paid for that shape once, when
+    // the kit closure shipped and the owner opened a site published two days
+    // earlier and asked where the components were. A projection is available for
+    // every site on day one, and the measured record enriches it when there is
+    // one.
+    //
+    // BUILT FROM `designRequest`, THE REAL BUILDER. A panel that assembled its
+    // own approximation of the request would drift in the direction that reads
+    // as fine — forget the stored-state note and the bar is merely optimistic,
+    // with nothing to show that it is wrong.
+    //
+    // OWNER-GATED WITH THE 404 its neighbours use: a signed-in stranger gets
+    // exactly what a missing site gets, so the route cannot be used to ask
+    // whether a slug is taken.
+    if (url.pathname === "/api/site/context" && request.method === "GET") {
+      const cu = await authUser(request);
+      if (!cu) return UNAUTHED();
+      const cslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!cslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const cown = await siteOwnerBySlug(cslug, env);
+      if (!cown || cown !== cu.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+
+      // THE SITE'S OWN STORED LOOK, so the projection is this site's rather than
+      // a specimen's. Best-effort: a bucket blip must cost the accuracy of one
+      // band, never the route.
+      //
+      // THE BRIEF IS DELIBERATELY NOT READ, and the first draft of this route got
+      // it wrong in a way worth recording: it called `siteBackendBySlug` and read
+      // `.brief` off the answer — and that function returns a connection STRING,
+      // so the property was `undefined` on every call. `test/site-apply.test.mjs`
+      // caught it, because a guard already exists for exactly that mistake: the
+      // same property access on the same function once shipped every publish
+      // through the spine with no theme and the site's slug in place of its
+      // brand. It is left out rather than re-plumbed because it is not worth a
+      // second Supabase read: MEASURED, a real brief is 132 characters of 95,744
+      // — 0.14% of the call — so the `message` band here is the stored-state
+      // note, and a customer's own sentence adds its own length on the day.
+      const cBrief = "";
+      let cLook = null;
+      try {
+        const ccfg = await readSiteConfig(env, cslug, null);
+        cLook = ccfg && ccfg.ok ? lookWithMarks(ccfg.config) : null;
+      } catch (e) {}
+
+      // TWO SHAPES, BECAUSE THEY ARE GENUINELY DIFFERENT SIZES and a single
+      // number would be right about one of them. A first build drops the whole
+      // `backend` property (31% of the tool) and carries no stored state; a
+      // revise sends the tool whole and the current-state note with it.
+      const cShapes = [
+        { name: "first build", req: designRequest(cBrief, modelsFor().design, null, [], true) },
+        { name: "revise", req: designRequest(cBrief, modelsFor().design, cLook, [], false) },
+      ];
+
+      // EVERY MODEL A PICKER CAN REACH, DERIVED — never a typed list of three,
+      // which would be a second copy of BUILD_MODELS with nothing between them.
+      const cModels = [...new Set(Object.values(BUILD_MODELS).map((m) => m.design))];
+
+      // The last real call, if a build has recorded one. Absent is `null` and
+      // says so; it is not an error and it is not a zero.
+      let cMeasured = null;
+      try {
+        const obj = await env.SITES_BUCKET.get("source/" + cslug + "/context.json");
+        if (obj) cMeasured = JSON.parse(await obj.text());
+      } catch (e) {}
+
+      return Response.json({
+        ok: true,
+        slug: cslug,
+        picker: modelsFor().picker,
+        shapes: cShapes.map((s) => ({
+          name: s.name,
+          // The parts are identical across models — the same bytes go to all
+          // three — so they are reported once rather than repeated per row.
+          parts: contextReport({ name: s.name, req: s.req }).parts,
+          models: cModels.map((m) => {
+            const r = contextReport({ name: s.name, model: m, window: contextWindow(m), req: s.req });
+            return { model: m, window: r.window, tokens: r.tokens, used: r.used };
+          }),
+        })),
+        // ESTIMATED, AND THE FLAG IS NOT DECORATION: a projection has no usage to
+        // scale against, so every number above is characters divided by three.
+        // The panel must draw it differently from a measured one.
+        estimated: true,
+        measured: cMeasured,
       });
     }
 
