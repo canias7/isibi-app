@@ -196,6 +196,13 @@ measured number from a real build. The panel says "a build measures it exactly"
 and that's currently a promise about the next change, not this one. The estimate
 is characters at three per token, and it says so on the panel.
 
+**Live** — deploy 2111, green in 3m11s, and both served files are byte-for-byte
+what's in the repository. **This one rebuilt the container image and rolled it at
+01:58:43Z**, so anything fired at a site before about 02:15 would have run on the
+old code. That window has passed.
+
+Open it at **More → Model context** on any site.
+
 ---
 
 ## 2026-09-13 — The builder knows what each model will take

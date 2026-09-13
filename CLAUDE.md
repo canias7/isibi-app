@@ -2680,6 +2680,23 @@ case now, and it is safe on walls that already existed.
   the summary taking the first call, `every` weakened to `some`, both shapes
   built identically, the tool shipped on the wire, a stranger given a distinct
   403, and the bucket's catch turned into a finally. **Suite 6,190.**
+  **MERGED AND LIVE — deploy 2111, 2026-09-13 01:55:38→01:58:49Z, green in
+  3m11s.** The image **BUILT** (step 2m24s; the log's own line: `built
+  isibi-app-sitebuildcontainer:d…2925f7f453fdbe (registry answered 404; 174
+  inputs off ./Dockerfile)`) and the container **`EDIT`ed at 01:58:43Z**,
+  `a6024…565ae7bb0b` → `d…2925f7f453fdbe`, `SUCCESS Modified application` — so
+  **the 15–20 minute hold ran to ~02:13–02:18Z**. The drain found no live leases
+  and the gate was left to expire on success. **The roll was read out of the log
+  rather than inferred from the step's duration**, which this file warns against
+  in both directions.
+  Wrangler uploaded exactly **two** assets, `chat.js` and `styles.css`, and
+  **both hash byte-for-byte identical to source** (`chat.js` `a9fdbb740e2f4a6f`,
+  `styles.css` `6a16f14daedd0435`) — asked as an until-loop on the served file,
+  which matched **155 seconds** after the push and is the strongest available
+  proof. **And the route is matched and gated without a token**:
+  `/api/site/context?slug=fretwork-1` answers **401**, `/api/site/routes` beside
+  it **401**, a made-up `/api/nope-not-a-route` **404** — the 401-against-404
+  discriminator this file records for every new owner-gated route.
   **NOT PROVEN LIVE, and two halves are named rather than glossed**: no
   authenticated round trip exists here (the route is owner-gated by design and
   the sixteen driven cases stand in), and **nothing writes the measured record
