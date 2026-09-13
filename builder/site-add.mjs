@@ -64,6 +64,12 @@
 
 import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs";
+// A LEAF MODULE WITH NO IMPORTS OF ITS OWN, so this adds no cycle — the same
+// reasoning `builder/page-gen.mjs` records for importing it. `accessLabel`
+// resolves the read/write PAIR rather than believing the stored `access`
+// string, which `normalizeSchema` stamps `collect` on any table that did not
+// declare a recognised preset.
+import { accessLabel } from "../site-access.mjs";
 import { routeOf } from "./site-addon.mjs";
 // THE ADD STEP'S OWN REPAIR (below) shares the MECHANISM with the build's —
 // the tweak rung, whose guards keep the words and the route; the render
@@ -74,6 +80,11 @@ import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
 // kind ADDS one beside the others and refuses only a duplicate.
 import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
+// THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
+// part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
+// so anything added there enlarges the build's tool and becomes a promise the
+// engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
+import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, cleanRequirements, requirementBrief } from "./site-requirements.mjs";
 import { modelsFor } from "./build-models.mjs";
 
 /** The picked model, never a hardcoded one — the rule `site-lanes.mjs` states at length. */
@@ -313,7 +324,23 @@ export const ADD_LAYER = { picture: "picture" };
  */
 const ADDS = {
   table: {
-    hint: "Something the site has to STORE that it has no table for — bookings, orders, enquiries, listings, members' things, a price list the owner edits. A form that SENDS somewhere needs one; a page that only shows words does not.",
+    // A FEATURE THAT NEEDS STORAGE NEEDS A TABLE WHETHER OR NOT ANYBODY SAID
+    // "DATABASE" (owner, 2026-09-13). The old hint listed the nouns — bookings,
+    // orders, enquiries — and a customer asking for "a members area" or "let
+    // people save their favourites" names none of them. The picker is the one
+    // call that decides whether this step runs at all, so a feature whose
+    // storage is implied rather than stated was never routed here.
+    hint: "Something the site has to STORE that it has no table for. Say `table` whenever the feature CANNOT WORK " +
+      "WITHOUT REMEMBERING SOMETHING BETWEEN VISITS, whether or not they mention a database, storing or a table: " +
+      "bookings, orders, enquiries, listings, a price list the owner edits — and also sign-in, accounts, members, " +
+      "profiles, saved items, favourites, a wishlist, reviews, comments, messages, applications, registrations, " +
+      "anything \"my\" or \"their\" (my bookings, their orders), and anything the owner edits later without asking " +
+      "us. A form that SENDS somewhere needs one. A page that only shows words does not.",
+    // THE COVERAGE METADATA RIDES THIS KIND'S TOOL. One flag rather than a
+    // second tool builder: a kind that should also answer it sets this, and
+    // `addTool` does the rest. Only `table` today — it is the step where a
+    // requirement is most often bigger than what the tool can express.
+    requirements: true,
     shape: {
       type: "array",
       maxItems: MAX_ADD_TABLES,
@@ -338,27 +365,82 @@ const ADDS = {
               "The page that lists it or collects it, as its route — \"/\" for the home page, \"/book\". One of " +
               "the pages the site has, or a page being added in this same change.",
           },
+          // WHY A SUPPORTING TABLE EXISTS (owner, 2026-09-13). The old ceiling
+          // was a COUNT — "as many tables as the things they named, and not one
+          // more" — which is a rule against the smallest complete model, not
+          // for it: a bookings table that needs a services table to point at
+          // was one table over the line. Replacing the count with a
+          // justification keeps the same wall (a table nobody can justify is
+          // still refused) without forbidding the one the model is right about.
+          because: {
+            type: "string",
+            description:
+              "For a SUPPORTING table only — one they did not name, that another table here needs to work. One " +
+              "short clause saying which table needs it and what breaks without it: \"bookings point at a slot, " +
+              "and without slots there is nothing to stop two people taking the same one\". Leave it out for a " +
+              "table they asked for by name. A supporting table you cannot finish this sentence for is one to " +
+              "leave out.",
+          },
         },
         required: ["table"],
       },
     },
     add: {
-      is: "The tables this change needs — each with what it is called, its columns, who may read and write it, and the guarantees the database keeps for it. One entry per table.",
+      // WORK OUT THE REQUIREMENT FIRST, THEN THE TABLES (owner, 2026-09-13).
+      // The old sentence asked for "the tables this change needs", which is the
+      // ANSWER — so a model that read the ask narrowly designed a narrow table
+      // and nothing recorded what it had not covered.
+      // ONE LINE PER PART. `composeRule` joins the four with a newline and the
+      // guard splits on one to count them, so a part carrying its own newline
+      // reads as several parts and a missing one stops being detectable. The
+      // four aspects are separated inline instead.
+      is: "The data this change needs, designed as tables. Before you name a single table, work out four things " +
+        "about what they asked for — including what it IMPLIES rather than only what it says. " +
+        "DATA: what has to be remembered between visits for this to work at all. " +
+        "RELATIONSHIPS: what points at what, and which of those the database should REFUSE to break. " +
+        "PERMISSIONS: who may read each thing and who may write it — the public, a signed-in member about " +
+        "their own rows, members about each other's, the owner alone. " +
+        "RULES: what must never be allowed to happen — the same slot taken twice, a negative quantity, an " +
+        "order with no customer, a row nobody may edit after it is made. " +
+        "Then answer the tables that carry all four: what each is called, its columns, who may read and write it, " +
+        "and the guarantees the database keeps for it. One entry per table.",
       yours:
         "EVERY TABLE IS YOURS TO DESIGN: its columns, its access, a unique slot, a confirmation email, " +
         "payment, a public view — every guarantee the shape offers is available, and you may ALSO name a " +
         "table the site already has to give it a new column, PAYMENT or a public view. On a table that " +
         "already exists only those three are taken; its access, read and write levels are the site's own and " +
         "an answer for them is discarded.",
+      // THE SMALLEST COMPLETE DATA MODEL, NOT A COUNT OF WHAT THEY SAID
+      // (owner, 2026-09-13). The old ceiling was "as many tables as the things
+      // they NAMED to store, and not one more", which refuses the supporting
+      // table the feature cannot work without — a bookings table pointing at a
+      // slot nothing defines. The wall is not weaker: every table still has to
+      // be one the feature genuinely needs, and a supporting one has to say in
+      // `because` what breaks without it.
       wide:
-        "AS MANY TABLES AS THE THINGS THEY NAMED TO STORE, AND NOT ONE MORE. \"Add a booking form\" is a " +
-        "bookings table; \"bookings and a waiting list\" is two. Not bookings plus services plus customers " +
-        "plus staff to round it off. Do not redesign what the site already stores: the tables it has are " +
-        "listed, and a second table for a thing one of them already holds is a site that disagrees with itself.",
+        "THE SMALLEST SET OF TABLES THAT MAKES WHAT THEY ASKED FOR ACTUALLY WORK — no smaller, and not one " +
+        "table larger. Smallest: leave out anything the feature runs perfectly well without. Complete: a table " +
+        "another one has to point at is part of the feature, not an extra, and leaving it out ships something " +
+        "that cannot do what they asked. \"Add a booking form\" is usually a bookings table alone; \"let people " +
+        "book a slot and stop two people taking the same one\" needs the slot to be a real thing there is one " +
+        "of. Every table you add that they did not name must fill in `because` with what breaks without it — " +
+        "and a supporting table you cannot finish that sentence for is one to leave out. Do not round the " +
+        "model off: no customers, staff or categories table because a real system would have one. Do not " +
+        "redesign what the site already stores: the tables it has are listed with their columns, their access " +
+        "and their guarantees, and a second table for a thing one of them already holds is a site that " +
+        "disagrees with itself.",
       keep:
         "NOTHING ELSE ABOUT THE SITE MOVES. This is the tables and their rows; the pages that show them are " +
         "designed beside them and written by the next step. If the change needs no table — it is words, a " +
-        "component, a code — answer nothing here.",
+        "component, a code — answer nothing here. " +
+        // THE COVERAGE LIST IS ANSWERED EVEN WHEN NO TABLE IS (owner,
+        // 2026-09-13). The shape it matters most in is the one where this step
+        // designs nothing: a requirement the tool cannot express is exactly the
+        // case where `tables` is empty and, until now, nothing said why.
+        // ONE LINE, like every other part — see the note on `is` above.
+        "AND ANSWER `requirements` WHATEVER ELSE YOU ANSWER, including when you answer no tables at all: it " +
+        "is the list of what this change has to be able to do and what became of each one, and a requirement " +
+        "you could not express is `unsupported` with a reason, never a requirement left out.",
     },
   },
   // ── THE OTHER THREE TIERS OF THE BACKEND (owner, 2026-09-03) ────────────
@@ -694,6 +776,18 @@ export const OWN_ADDS = ADD_KINDS.filter((k) => !ADDS[k].elsewhere);
 export const DISPATCHED_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere);
 
 /**
+ * The kinds whose tool carries the coverage list (owner, 2026-09-13).
+ *
+ * DERIVED FROM THE TABLE, never typed again — the flag lives on the kind and
+ * this reads it, so adding a second kind is one word and no list anywhere
+ * disagrees with it. `table` alone today: it is the step where a requirement is
+ * most often bigger than the tool can express, and the owner asked to keep this
+ * change to the Tables flow. Exported so a guard asserts the tool's property
+ * set against what the kind really declares rather than against a fixture.
+ */
+export const REQUIREMENT_ADDS = ADD_KINDS.filter((k) => !!ADDS[k].requirements);
+
+/**
  * The edit layer this kind's work really happens on, or `null` when this
  * module does the work itself.
  *
@@ -712,6 +806,11 @@ for (const k of ADD_KINDS) {
   if (ADDS[k].elsewhere && !addLayer(k)) throw new Error("site-add: `" + k + "` dispatches nowhere");
   if (!ADDS[k].elsewhere && (!ADDS[k].shape || !ADDS[k].add)) throw new Error("site-add: `" + k + "` neither acts here nor dispatches");
   if (!ADDS[k].hint) throw new Error("site-add: `" + k + "` has no hint for the picker");
+  // A DISPATCHED KIND HAS NO TOOL OF ITS OWN, so it has nowhere to answer a
+  // coverage list and `addTool` would throw before it could. Caught at LOAD,
+  // where the name is still in hand, rather than on the first customer who
+  // asks for that kind.
+  if (ADDS[k].elsewhere && ADDS[k].requirements) throw new Error("site-add: `" + k + "` dispatches and cannot answer requirements");
 }
 
 /* --------------------------------------------------------------- the picker */
@@ -763,7 +862,23 @@ const PICK_SYSTEM =
   "You are routing one message inside a website builder. The person you are reading owns the site and has asked " +
   "for something ADDED to it — something it does not have yet. Your only job is to say WHAT KIND of thing that " +
   "is, so the right designer can be handed it. You are not designing it and you are not replying to them.\n\n" +
-  "Name every kind they asked for and none they did not. One is the ordinary answer.";
+  "Name every kind they asked for and none they did not. One is the ordinary answer.\n\n" +
+  // ── WHAT THE ASK IMPLIES, NOT ONLY WHAT IT SAYS (owner, 2026-09-13) ───────
+  //
+  // This call decides whether the table designer RUNS AT ALL, and it saw only
+  // the customer's sentence: 402 characters of system text, no site, no
+  // vocabulary connecting a feature to its storage. "Add a login page" names
+  // no table, no database and nothing to store, so `table` was never picked —
+  // and the step that knows accounts exist is the page call, four steps later,
+  // by which time there is no database to hold them.
+  "READ WHAT THE ASK NEEDS, NOT ONLY WHAT IT NAMES. Almost nobody says \"database\", \"table\" or \"store\": " +
+  "they say what the site should let somebody DO. If what they describe cannot work unless the site remembers " +
+  "something between one visit and the next, it needs a `table` — say so even though they never used any of " +
+  "those words. Signing in, accounts, members, profiles, saved or favourite things, bookings, orders, " +
+  "enquiries, applications, reviews, messages, anything the owner edits later, and anything phrased as \"my\" " +
+  "or \"their\" all need one. A page that only shows words does not.\n\n" +
+  "The site as it stands is below, with what it already stores. A thing it ALREADY has a table for needs no " +
+  "second one — but a feature with nothing behind it needs its own, whatever the page is called.";
 
 /** The routing request. Shaped like `pickRequest` in site-lanes.mjs, for the same reasons. */
 export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL }) {
@@ -776,7 +891,15 @@ export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = 
     tools: [{ ...tool, cache_control: { type: "ephemeral" } }],
     tool_choice: { type: "tool", name: "pick_adds" },
     system: [{ type: "text", cache_control: { type: "ephemeral" }, text: PICK_SYSTEM }],
-    messages: [{ role: "user", content: (current ? current + "\n\n" : "") + "Their message:\n" + String(message || "").slice(0, MAX_MESSAGE) }],
+    // THE SITE IS THE PER-CALL BYTE, NEVER THE CACHED PREFIX. It rides the user
+    // message exactly as `addRequest`'s does, so the tool and the system text
+    // stay byte-identical for every customer and the prefix still caches.
+    // LABELLED HERE rather than by the caller, so both requests say the same
+    // words for the same thing — a caller that composed its own heading would
+    // be the second copy of a sentence this module owns.
+    messages: [{ role: "user", content:
+      (current ? "Their site as it stands:\n" + current + "\n\n" : "") +
+      "Their message:\n" + String(message || "").slice(0, MAX_MESSAGE) }],
   };
 }
 
@@ -847,14 +970,33 @@ export function addTool(kind) {
   if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind)) throw new Error("addTool: no add for kind: " + kind);
   const add = ADDS[kind];
   if (add.elsewhere) throw new Error("addTool: `" + kind + "` does not act here — it runs on the " + addLayer(kind) + " layer");
+  const properties = { [kind]: { ...add.shape, description: addRule(kind) } };
+  // THE COVERAGE LIST IS A SIBLING OF THE KIND, NOT A FIELD INSIDE IT, and both
+  // halves of that are load-bearing. Inside the kind's own shape it would be
+  // inside `TABLE_ITEM` — shared by identity with `design_schema`, so it would
+  // grow the build's tool and become a guarantee the schema engine has to keep.
+  // A sibling is metadata about the answer, which is what it is.
+  //
+  // IT IS ALSO WHY `readAddAnswer` HAD TO CHANGE. That reader returned
+  // `use.input[kind]` and nothing else, so any sibling was dropped one hop
+  // after the model wrote it — the recorded wiring trap, and the reason this
+  // could not have been added without touching the reader.
+  if (add.requirements) {
+    properties.requirements = {
+      type: "array",
+      maxItems: MAX_REQUIREMENTS,
+      items: REQUIREMENT_ITEM,
+      description:
+        "What this change has to be able to do, and what became of each one. One entry per requirement you " +
+        "worked out above — what they asked for AND what it implies. Answer this even when you answer no " +
+        "design at all: a requirement you could not express is the single most useful thing you can tell us, " +
+        "and leaving it out is the one outcome that reaches the customer as silence.",
+    };
+  }
   return {
     name: "add_to_site",
     description: "Design the one thing they asked to add to their site.",
-    input_schema: {
-      type: "object",
-      properties: { [kind]: { ...add.shape, description: addRule(kind) } },
-      required: [],
-    },
+    input_schema: { type: "object", properties, required: [] },
   };
 }
 
@@ -1052,10 +1194,42 @@ export function siteNote(site) {
   // column is a function that fails to exist. Names alone when none are given,
   // so a site described without them reads exactly as before.
   const cols = s.columns && typeof s.columns === "object" && !Array.isArray(s.columns) ? s.columns : {};
+  // ── AND ITS RELATIONSHIPS, PERMISSIONS AND CONSTRAINTS (owner, 2026-09-13) ─
+  //
+  // "Give the picker and Tables designer relevant existing-site context,
+  // including table structures, relationships, permissions, and constraints."
+  //
+  // The columns alone were never enough to design ALONGSIDE a site. A designer
+  // that cannot see `bookings` is member-private writes a second table to hold
+  // the same rows publicly; one that cannot see `bookings.slot_id` already
+  // points at `slots` invents a second slots table; one that cannot see the
+  // unique slot re-declares it, or worse, designs around its absence. All
+  // three are the "a site that disagrees with itself" failure the `wide` rule
+  // has always forbidden without ever supplying the facts to obey it.
+  //
+  // WORDED HERE, FROM ONE READER. `accessLabel` resolves the read/write PAIR
+  // rather than trusting the stored `access` string — `normalizeSchema` stamps
+  // `collect` on any table that did not declare a recognised preset, so a
+  // pair-declared display table reads as `collect` to anything that believes
+  // the field. A leaf module with no imports of its own, so this adds no cycle.
+  const info = s.tableInfo && typeof s.tableInfo === "object" && !Array.isArray(s.tableInfo) ? s.tableInfo : {};
+  const detail = (t) => {
+    const d = info[t] && typeof info[t] === "object" ? info[t] : null;
+    if (!d) return "";
+    const bits = [];
+    const perm = str(d.access, 60);
+    if (perm) bits.push("access " + perm);
+    const refs = d.refs && typeof d.refs === "object" && !Array.isArray(d.refs) ? d.refs : {};
+    const pairs = Object.entries(refs).filter(([c, p]) => typeof c === "string" && typeof p === "string").slice(0, 8);
+    if (pairs.length) bits.push(pairs.map(([c, p]) => c + " points at " + p).join(", "));
+    const keeps = (Array.isArray(d.guarantees) ? d.guarantees : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 10);
+    if (keeps.length) bits.push("keeps " + keeps.join(", "));
+    return bits.length ? " — " + bits.join("; ") : "";
+  };
   const tables = (Array.isArray(s.tables) ? s.tables : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 24)
     .map((t) => {
       const c = (Array.isArray(cols[t]) ? cols[t] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 40);
-      return c.length ? t + " (" + c.join(", ") + ")" : t;
+      return (c.length ? t + " (" + c.join(", ") + ")" : t) + detail(t);
     });
   // A SITE WITH NO DATABASE IS SAID IN AS MANY WORDS, and what it means is said
   // too: a table designed for it is refused by name, so the model should not
@@ -1093,6 +1267,48 @@ export function siteNote(site) {
   return lines.join("\n");
 }
 
+/**
+ * A stored spec's tables, as the facts `siteNote` prints: permissions,
+ * relationships, constraints. `{ <table>: { access, refs, guarantees } }`.
+ *
+ * HERE RATHER THAN IN THE ROUTE, so the wording has one home and a test can
+ * drive it against a real stored spec instead of against a hand-typed fixture
+ * of what one looks like — the recorded "a fixture in a different shape from
+ * reality" trap, which this repository has met with a trailing slash and with
+ * a `TWO_CONTAINERS` list of one.
+ *
+ * THE GUARANTEE NAMES ARE DERIVED FROM `TABLE_ITEM`, never listed again. Two
+ * things follow: a guarantee the tool does not offer is not named to a
+ * designer that could not ask for it anyway, and a property added to the item
+ * next month appears here by existing. The structural five are excluded
+ * because they are printed already or are not guarantees.
+ */
+const NOT_A_GUARANTEE_HERE = new Set(["name", "columns", "access", "read", "write", "retired"]);
+
+export function tableFacts(spec) {
+  const tables = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
+  const names = Object.keys(TABLE_ITEM.properties || {}).filter((k) => !NOT_A_GUARANTEE_HERE.has(k));
+  const out = {};
+  for (const t of tables) {
+    if (!t || typeof t !== "object" || !t.name) continue;
+    const refs = {};
+    const r = t.refs && typeof t.refs === "object" && !Array.isArray(t.refs) ? t.refs : {};
+    for (const [c, p] of Object.entries(r)) if (typeof c === "string" && typeof p === "string" && p) refs[c] = p;
+    const guarantees = [];
+    for (const k of names) {
+      const v = t[k];
+      // A FALSY OR EMPTY DECLARATION IS THE SAME AS ABSENCE — `refusedFields`
+      // and `droppedFields` both make exactly this test, for the same reason:
+      // naming `fts: false` on every table that has none buries the signal.
+      if (!v) continue;
+      if (Array.isArray(v) ? !v.length : (typeof v === "object" && !Object.keys(v).length)) continue;
+      guarantees.push(k);
+    }
+    out[t.name] = { access: accessLabel(t), refs, guarantees };
+  }
+  return out;
+}
+
 export function addRequest({ kind, message, site, model }) {
   const tool = addTool(kind);
   return {
@@ -1112,17 +1328,36 @@ export function addRequest({ kind, message, site, model }) {
 }
 
 /**
- * What the kind answered — its designed object, or `undefined` for nothing.
+ * What the kind answered, as an EXPLICIT SHAPE rather than a bare value:
  *
- * `undefined` AND `null` ARE BOTH NOTHING. A kind that declines is the ordinary
- * shape here: the picker named it and the model found the message was not
+ *   { value, requirements, skipped }
+ *
+ * `value` is the designed object, or `undefined` for nothing — unchanged, and
+ * `undefined` AND `null` ARE BOTH NOTHING: a kind that declines is the ordinary
+ * shape here, the picker named it and the model found the message was not
  * really asking for one of these.
+ *
+ * `requirements` is the coverage list, CLEANED, and `skipped` the entries that
+ * could not be read. Both are always arrays, so every consumer can iterate
+ * without asking whether the kind offers them.
+ *
+ * THE RETURN SHAPE CHANGED ON 2026-09-13 AND THAT IS THE POINT. It used to be
+ * the bare value, which meant a sibling property the model wrote was dropped
+ * here — one hop after it was written, invisibly, with the tool, the model and
+ * every later step all correct. That is this repository's most-repeated defect
+ * and the reason the coverage list could not simply be added to the tool.
+ *
+ * A REQUIREMENT LIST SURVIVES AN ANSWER THAT DESIGNED NOTHING. `value` being
+ * `undefined` says nothing about `requirements`: the case this exists for is
+ * precisely the one where the model could not express the ask.
  */
 export function readAddAnswer(reply, kind) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
-  const v = use && use.input && typeof use.input === "object" ? use.input[kind] : undefined;
-  return v === null ? undefined : v;
+  const input = use && use.input && typeof use.input === "object" ? use.input : null;
+  const v = input ? input[kind] : undefined;
+  const req = cleanRequirements(input ? input.requirements : null);
+  return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped };
 }
 
 /**
@@ -1132,22 +1367,39 @@ export function readAddAnswer(reply, kind) {
  * the design and pages calls make.
  */
 export async function runAdd(deps, { kind, message, site, model }) {
+  // EVERY RETURN CARRIES BOTH ARRAYS, including the failures. A consumer that
+  // has to ask whether this kind answers requirements before it can iterate is
+  // a consumer that will one day forget to — and the failure shapes are where
+  // that costs most, since a truncated answer is exactly when a half-read list
+  // would be silently dropped.
+  const none = { requirements: [], reqSkipped: [] };
   let reply;
   try {
     reply = await deps.send(addRequest({ kind, message, site, model }));
   } catch (e) {
-    return { kind, value: undefined, usage: null, failed: true, error: e };
+    return { kind, value: undefined, ...none, usage: null, failed: true, error: e };
   }
   if (reply && reply.stop_reason === "max_tokens") {
     const e = new Error("add truncated at max_tokens");
     e.truncated = true;
-    return { kind, value: undefined, usage: addUsage(reply, model), failed: true, error: e };
+    return { kind, value: undefined, ...none, usage: addUsage(reply, model), failed: true, error: e };
   }
   // THE RAW REPLY RIDES OUT TOO (run 28, 2026-09-03): three live declines in a
   // row and nothing anywhere recorded what the model had said — the answer
   // existed only in a Worker's memory, run 90's shape again. The route keeps
   // it for the owner to read; this function only hands it up.
-  return { kind, value: readAddAnswer(reply, kind), usage: addUsage(reply, model), failed: false, raw: reply };
+  const answer = readAddAnswer(reply, kind);
+  return {
+    kind,
+    value: answer.value,
+    // HOP 3 OF EIGHT. The coverage list rides BESIDE `value`, never inside it,
+    // so a cleaner that refuses every table cannot take the reason with it.
+    requirements: answer.requirements,
+    reqSkipped: answer.skipped,
+    usage: addUsage(reply, model),
+    failed: false,
+    raw: reply,
+  };
 }
 
 /* --------------------------------------------------------- what came back */
@@ -1615,7 +1867,15 @@ export function addDirective(kind, value, site) {
  */
 export function foldAdds(answers, priorLook, site) {
   const prior = priorLook && typeof priorLook === "object" ? priorLook : {};
-  const list = Array.isArray(answers) ? answers.filter((a) => a && typeof a === "object" && a.kind && a.value) : [];
+  const all = Array.isArray(answers) ? answers.filter((a) => a && typeof a === "object" && a.kind) : [];
+  const list = all.filter((a) => a.value);
+  // HOP 4 OF EIGHT, AND THE FILTER ABOVE IS WHY IT IS ITS OWN LINE. The fold
+  // has always dropped an answer with no `value` — correctly, since there is
+  // nothing to fold — and a coverage list read off `list` would therefore
+  // vanish for exactly the answer that matters most: the one that designed
+  // nothing because it could not. Read off `all`.
+  const requirements = [];
+  for (const a of all) for (const r of Array.isArray(a.requirements) ? a.requirements : []) requirements.push(r);
   const designed = {};
   const components = [];
   const blocks = [];
@@ -1674,7 +1934,20 @@ export function foldAdds(answers, priorLook, site) {
   // merge, and re-sending the stored list unchanged is a no-op either way —
   // but a site with none and an answer with none must not store `[]`.
   if (tsx.length) designed.tsx = tsx;
-  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files };
+  // ── A REQUIREMENT HANDED TO THE PAGE STEP REACHES THE PAGE STEP ──────────
+  //
+  // Owner, 2026-09-13: "Pass them to the appropriate downstream step where
+  // supported; otherwise explain the remaining limitation to the customer."
+  // The page call is the one downstream step this fold speaks to, so an
+  // `elsewhere: "page"` requirement joins its directive here. Everything else
+  // (`function`, `job`, `edit`, …) has no directive of ours to ride and is the
+  // route's to explain — `requirementNote` is that half.
+  //
+  // APPENDED LAST, AFTER EVERY ADDITION'S OWN BLOCK, so the page writer reads
+  // what it is building before it reads what the change still owes.
+  const pageBrief = requirementBrief(requirements, "page");
+  if (pageBrief) blocks.push(pageBrief);
+  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements };
 }
 
 /**

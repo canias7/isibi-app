@@ -7461,6 +7461,20 @@ function addonReplyText(a) {
     if (!n || !n.msg) continue;
     out += ' I left out ' + (n.name ? '“' + n.name + '”' : 'one ' + (n.kind || 'entry')) + ': ' + n.msg;
   }
+  // ── WHAT THE CHANGE STILL OWES (owner, 2026-09-13) ────────────────────────
+  //
+  // "Make unresolved requirements affect completion reporting."
+  //
+  // The server composes the sentence (`requirementNote`), because deciding what
+  // is still outstanding needs the list AND which steps really ran, and this
+  // file cannot import the module that knows. Printed VERBATIM: a second
+  // composer here would be two sentences about one fact, and the one with the
+  // facts is the server's.
+  //
+  // AFTER the "Done" clause and before the refusals, so the order reads as it
+  // happened: what landed, then what did not. A `✅ Done.` with nothing after
+  // it still means nothing was left over, which is what it has always meant.
+  if (typeof a.coverNote === 'string' && a.coverNote) out += ' ' + a.coverNote;
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY. Keeping it quietly is the
   // silent partial this lane already had once: asked for gone, told it worked,
   // still there.

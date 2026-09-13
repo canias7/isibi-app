@@ -210,7 +210,10 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts } from "./builder/site-add.mjs";
+// THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
+// part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
+import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -22567,6 +22570,14 @@ async function handleRequest(request, env, ctx) {
               // guessed column is a function that does not exist.
               columns: Object.fromEntries(((aSpec && aSpec.tables) || []).filter((t) => t && t.name).map((t) => [t.name,
                 (Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? c : (c && c.name ? c.name + (c.type ? " " + c.type : "") : ""))).filter(Boolean)])),
+              // AND EACH TABLE'S PERMISSIONS, RELATIONSHIPS AND GUARANTEES
+              // (owner, 2026-09-13). The columns alone cannot stop a designer
+              // writing a second table to hold rows one already holds
+              // privately, or inventing a parent one already points at, or
+              // re-declaring a unique slot that is already enforced. Worded in
+              // `tableFacts` so the sentence has one home and a test can drive
+              // it against a real stored spec.
+              tableInfo: tableFacts(aSpec),
               // THE OTHER THREE TIERS BY NAME (2026-09-03): a designer adding
               // one names a new one, and a job names a function the site has
               // — an INTERNAL one, `jobFns`, which is the only kind the engine
@@ -22606,7 +22617,15 @@ async function handleRequest(request, env, ctx) {
             aMark("pick_adds", "start");
             const aPicked = await pickAdds(
               { send: aQuick("pick_adds") },
-              { message: aInstruction, current: siteDigest({ pages: aSite.pages, tables: aSite.tables }), model: aModels.quick },
+              // THE PICKER GETS THE SITE, NOT A DIGEST OF IT (owner,
+              // 2026-09-13). `siteDigest` gave it routes and table NAMES; this
+              // is the one call that decides whether the table designer runs at
+              // all, and a name list cannot answer "does the site already store
+              // this" — which is the question standing between an unnecessary
+              // second table and a feature with nothing behind it. The same
+              // note the designers read, so both halves of the step see one
+              // description of the site rather than two that can disagree.
+              { message: aInstruction, current: siteNote(aSite), model: aModels.quick },
             );
             aMark("pick_adds", aPicked.failed ? "fail" : "ok", { kinds: aPicked.kinds });
             // EVERY USAGE ON ONE BILL: the picker's and each add's, priced
@@ -22657,21 +22676,102 @@ async function handleRequest(request, env, ctx) {
             // loop ends, before a decline can return. Three live declines had
             // left nothing to read but a boolean.
             const aKept = [];
+            // ── WHAT THE CHANGE NEEDED, AND WHAT BECAME OF IT ───────────────
+            //
+            // Owner, 2026-09-13. Collected OUTSIDE the answer list on purpose:
+            // the shape this exists for is a designer that answered no tables
+            // because it could not express the ask, and `aAnswers` holds only
+            // the ones that designed something. Read off the runner's result,
+            // which carries both arrays on every return including its failures.
+            const aReq = [];
+            const aReqSkipped = [];
+            // AND THE PROPERTIES THE MODEL WROTE THAT THE ENGINE CANNOT KEEP
+            // (owner, 2026-09-13: "Validate model-authored properties before
+            // applying changes"). Names only, and the customer never sees them.
+            const aBadProps = new Set();
+            // ── ONE COMPOSER FOR EVERY EXIT (owner, 2026-09-13) ─────────────
+            //
+            // "Make unresolved requirements affect completion reporting."
+            //
+            // Declared ABOVE the loop because two of the exits that need it are
+            // INSIDE the loop — a cleaner's refusal returns from there — and a
+            // composer written after it could not be reached by them. Closures
+            // read the arrays as they stand when called, so the early exits get
+            // whatever had been collected by the time they fired, which is the
+            // honest answer rather than an empty one.
+            //
+            // `ran` is the kinds that really produced something: a requirement
+            // handed to a step that never ran is still outstanding, and saying
+            // otherwise is the "doing less than was asked while reporting
+            // success" failure this whole path exists to avoid.
+            const aCoverage = (ranKinds) => {
+              const open = unresolvedRequirements(aReq);
+              const bad = [...aBadProps];
+              return {
+                // THE CUSTOMER'S HALF: a sentence, or nothing at all. Never the
+                // property names, never the counts, never the status tokens.
+                // NAMED `coverNote`, NOT `note` — the reply already carries
+                // `notes` (the salvage note, which is the model's own field and
+                // has its own rule about never gluing a sentence onto it), and
+                // two fields one character apart on one object is how a reader
+                // ends up printing the wrong one.
+                coverNote: requirementNote(aReq, { ran: ranKinds || [], invalid: bad }),
+                // THE WIRE'S HALF, for the browser to render and a test to read.
+                requirements: open.length ? open.slice(0, 12) : undefined,
+                // THE DEVELOPER'S HALF, kept off the customer's sentence.
+                coverage: requirementCounts(aReq, aReqSkipped),
+                invalidProps: bad.length ? bad.slice(0, 12) : undefined,
+              };
+            };
             for (const k of aKinds) {
               if (addLayer(k)) continue;
               aMark("add:" + k, "start");
               const ran = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick });
-              aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined });
+              // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
+              // BELOW IT. A coverage list read after the decline check, after
+              // the cleaner's refusal or after the truncation check is a list
+              // that vanishes in exactly the three cases worth reading it in.
+              for (const r of Array.isArray(ran.requirements) ? ran.requirements : []) aReq.push(r);
+              for (const r of Array.isArray(ran.reqSkipped) ? ran.reqSkipped : []) aReqSkipped.push(r);
+              aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined, needs: (ran.requirements || []).length });
               if (ran.usage) aDesignUsage.push(ran.usage);
               if (ran.failed) return aDown(ran.error, "The builder is busy — try again in a moment.");
               aKept.push({ kind: k, answered: ran.value !== undefined, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
               if (ran.value === undefined) { aDeclined.push(k); continue; }
               const clean = cleanAdd(k, ran.value, aSite);
               if (!clean.ok) {
-                return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k) }, { status: 422 });
+                // A REFUSAL CARRIES THE COVERAGE TOO. The model told us what
+                // the change needed before we decided its design was unusable,
+                // and throwing that away here is how the one case worth reading
+                // — "it could not express this" — reaches a customer as a bare
+                // refusal sentence. Nothing ran, so nothing is claimed covered.
+                return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage([]) }, { status: 422 });
+              }
+              // ── VALIDATED BEFORE ANYTHING IS APPLIED (owner, 2026-09-13) ──
+              //
+              // The MODEL'S OWN tables, taken from `clean.value` — never the
+              // folded spec and never the normaliser's output. That is the
+              // difference between "the model asked for something the engine
+              // cannot do" and "the engine derived a field", and only the first
+              // is feedback anybody can act on.
+              //
+              // `droppedFields` is the existing derived reader and it is used
+              // rather than a third list: a property is reported only when
+              // removing it changes NOTHING the engine keeps, so every
+              // documented alias survives by construction — `softDelete` maps
+              // onto `trash` and therefore changes the answer. A list of
+              // accepted names here would be the second copy of the parser's
+              // alias map, which is the drift this repository has a name for.
+              if (k === "table") {
+                const mine = (Array.isArray(clean.value) ? clean.value : [clean.value])
+                  .map((e) => e && e.table).filter((t) => t && typeof t === "object");
+                if (mine.length) {
+                  for (const n of droppedFields({ tables: mine })) aBadProps.add(n);
+                  for (const n of refusedFields({ tables: mine })) aBadProps.add(n);
+                }
               }
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
-              aAnswers.push({ kind: k, value: clean.value });
+              aAnswers.push({ kind: k, value: clean.value, requirements: ran.requirements });
               // WHAT THE FUNCTION DESIGNER DECLARED IS TOLD TO THE DESIGNERS
               // AFTER IT (2026-09-03). Each kind is its own call, and a job
               // names its function BY NAME — so the functions just designed
@@ -22695,14 +22795,33 @@ async function handleRequest(request, env, ctx) {
                 for (const j of Array.isArray(clean.value) ? clean.value : []) if (j && j.at) j.tz = aTz;
               }
             }
-            await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept });
+            // HOP 7 OF EIGHT: the developer-facing record, beside the raw
+            // replies run 28 is the reason for. Everything the customer is not
+            // told — the counts, the unreadable entries, the invalid property
+            // names, which step each requirement was handed to — lives here.
+            await saveAddonAnswer(env, ownerSlug, {
+              message: aInstruction, site: aSite, kinds: aKinds, replies: aKept,
+              coverage: requirementRecord({ list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], ran: aAnswers.map((a) => a.kind) }),
+            });
             if (!aAnswers.length) {
-              return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing") }, { status: 422 });
+              // THE SHAPE THIS WAS BUILT FOR. Every designer declined, so there
+              // is no design to read and, until now, nothing but a boolean to
+              // say why — run 28's three blind declines. The coverage list
+              // survives an answer that designed nothing, which is the whole
+              // reason it rides beside `value` rather than inside it.
+              return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing"), ...aCoverage([]) }, { status: 422 });
             }
             // THE FOLD: what the look and the schema store, what the page call
             // is told, and the union of kit parts it is shown the props of.
             const aFold = foldAdds(aAnswers, aLook, aSite);
             const aDesigned = aFold.designed;
+            // HOP 8 OF EIGHT: the trace. Counts only — a mark keeps finite
+            // numbers and drops everything else (`tr.at`), and the needs
+            // themselves are the customer's words, which belong in the stored
+            // record and not in a telemetry row. `bad` is what the validator
+            // found, so a run that quietly dropped a property is readable here
+            // without opening the answer file.
+            aMark("coverage", "ok", { ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size });
 
             // ── THE CHARGE, ONE FUNCTION FOR BOTH ROADS ────────────────────
             //
@@ -23023,6 +23142,12 @@ async function handleRequest(request, env, ctx) {
                 ok: true,
                 kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
                 notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
+                // AN `ok: true` THAT STILL OWES SOMETHING SAYS SO. A job or an
+                // internal function changes no page, so this reply is the whole
+                // of what the customer hears — and a requirement handed to the
+                // `page` step is outstanding here by construction, since no
+                // page step ran. `ran` is the kinds that really produced work.
+                ...aCoverage(aAnswers.map((a) => a.kind)),
                 added: [], changed: [], removed: [], moved: [],
                 functions: aFunctions, jobs: aJobs,
                 functionErrors: aFnErrors.length ? aFnErrors : undefined,
@@ -23440,6 +23565,11 @@ async function handleRequest(request, env, ctx) {
               // rung — so the reply can say "the photograph needs its own ask".
               kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
               notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
+              // WHAT THE CHANGE STILL OWES, AFTER THE WHOLE OF IT RAN. A
+              // requirement handed to the page step IS covered here, because
+              // the page step really ran — which is why this is computed from
+              // the kinds that produced work rather than from the list alone.
+              ...aCoverage(aAnswers.map((a) => a.kind)),
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
               reverted: aMerge.reverted,
               // The design fields this addon gave the site (a `qr`, a `three`),

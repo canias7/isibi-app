@@ -30,12 +30,14 @@ import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
 import { MAX_QRS } from "../builder/site-qr-list.mjs";
 import { MIN_EVERY_MINUTES, AT_RE as JOBS_AT_RE } from "../site-jobs.mjs";
+import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
 import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, AT_RE, backendDesigned, pageless, jobEvery,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
+  REQUIREMENT_ADDS, tableFacts,
 } from "../builder/site-add.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -128,9 +130,19 @@ test("every field the edit path refuses to create has a kind here, and the route
   // moment the loop ends and before a decline can return — then read back by
   // the owner through the answer route with `kind=addon`.
   const runAt = at(b, "const ran = await runAdd(", "run");
-  const keep = b.indexOf("await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept });", runAt);
+  // ANCHORED ON THE CALL, NOT ON ITS ARGUMENT LIST. This read the whole literal
+  // and went red on 2026-09-13 for an honest extra argument — the coverage
+  // record — reporting the keep as gone when it had only grown. The property is
+  // the ORDER: kept, then the decline may return.
+  const keep = b.indexOf("await saveAddonAnswer(env, ownerSlug, {", runAt);
   const decline = b.indexOf('error: "declined"', runAt);
   assert.ok(keep > runAt && decline > keep, "the designers' replies are not kept before the decline returns");
+  // AND THE DEVELOPER RECORD GOES WITH THEM (owner, 2026-09-13): the counts,
+  // the unreadable entries and the invalid property names, none of which the
+  // customer is told. Read inside the call's own span, so a record written
+  // somewhere else entirely cannot satisfy it.
+  assert.match(b.slice(keep, decline), /coverage: requirementRecord\(\{ list: aReq, skipped: aReqSkipped, invalid: \[\.\.\.aBadProps\], ran:/,
+    "the coverage record is not stored beside the replies");
   assert.match(b.slice(runAt, keep), /aKept\.push\(\{ kind: k, answered: ran\.value !== undefined, stop_reason: [^}]*content: \(ran\.raw && ran\.raw\.content\) \|\| null \}\);/, "a reply is kept without its content");
   // POSITION, NOT PRESENCE (the sweep's survivor): the push must sit BEFORE
   // the decline's `continue`, or an unanswered designer — the one reply
@@ -165,7 +177,16 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // serious kinds (`site-render.mjs`) and the variant-to-primary reading
     // (`site-langs.mjs`). Its wording is its own, asserted below; the BUILD's
     // repair module is never imported, asserted next.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs"].includes(from),
+    // `site-requirements.mjs` (2026-09-13) is this step's OWN metadata shape —
+    // the coverage list — and is deliberately not part of `TABLE_ITEM`, which
+    // `design_schema` binds by identity. `../site-access.mjs` is a LEAF with no
+    // imports of its own, and is the platform's single answer to "what does
+    // this table's access mean": `site-schema.mjs`, `site-rls.mjs`,
+    // `site-owner.mjs`, `builder/page-gen.mjs`, `builder/site-rules.mjs` and
+    // `builder/site-seed.mjs` all read it. It carries VOCABULARY (the five
+    // preset names) and no path's wording, which is the property this test is
+    // really about — the wording check below is what enforces that half.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "../site-access.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -214,10 +235,29 @@ test("a message may name every kind, and the kinds that come in numbers answer l
   assert.ok(MAX_ADD_FUNCTIONS >= 3 && MAX_ADD_FUNCTIONS <= 8 && MAX_ADD_APIS >= 2 && MAX_ADD_APIS <= 8 && MAX_ADD_JOBS >= 2 && MAX_ADD_JOBS <= 8,
     "a backend cap outruns the engine's eight, or promises fewer than a lookup, its cancel and its amend");
   // And the rules say "as many as they asked for", never "one".
-  for (const k of LIST_ADDS) {
+  //
+  // `table` IS THE EXCEPTION AND IT IS A DELIBERATE REVERSAL (owner,
+  // 2026-09-13: "Replace the restriction based on how many things the customer
+  // explicitly named with the smallest complete data model"). The count rule —
+  // as many tables as the things they NAMED, and not one more — refuses the
+  // supporting table a feature cannot work without: bookings that point at a
+  // slot nothing defines. So the assertion moves off the COUNT and onto the
+  // two halves that replaced it, which are the same wall said the other way
+  // round: smallest, and every unnamed table justified.
+  for (const k of LIST_ADDS.filter((x) => x !== "table")) {
     assert.match(addRule(k), /AS MANY [A-Z ]+ AS (THEY|THE THINGS THEY) (ASKED FOR|NAMED)/, k + "'s rule still caps the count at one");
     assert.match(addRule(k), /NOT ONE MORE/, k + "'s rule has no ceiling");
   }
+  const tableRule = addRule("table");
+  assert.match(tableRule, /THE SMALLEST SET OF TABLES THAT MAKES WHAT THEY ASKED FOR ACTUALLY WORK/,
+    "the table rule no longer asks for the smallest COMPLETE model");
+  assert.match(tableRule, /not one table larger/i, "the table rule lost its ceiling — smallest with no upper bound is a quota");
+  assert.match(tableRule, /`because`/, "a supporting table is no longer made to justify itself");
+  // AND THE OLD COUNT RULE IS GONE RATHER THAN SITTING BESIDE THE NEW ONE.
+  // Both at once is a contradiction the model resolves by picking one, and
+  // which one it picks is not something this repository can observe.
+  assert.doesNotMatch(tableRule, /AS MANY TABLES AS THE THINGS THEY NAMED/,
+    "the count rule is still in the table rule, contradicting the smallest-complete one");
 });
 
 // ── THE UNIVERSAL RULE (owner, 2026-09-02) ──────────────────────────────────
@@ -243,7 +283,25 @@ test("one property per tool, named by the kind, nothing required at the top, the
   for (const k of OWN_ADDS) {
     const t = addTool(k);
     assert.equal(t.name, "add_to_site");
-    assert.deepEqual(Object.keys(t.input_schema.properties), [k], k + ": the tool has a property that is not the kind");
+    // THE KIND, AND AT MOST THIS STEP'S OWN METADATA BESIDE IT (owner,
+    // 2026-09-13). `requirements` is a sibling of the kind and never a field
+    // inside it: inside, it would land in `TABLE_ITEM`, which `design_schema`
+    // binds by identity — so it would enlarge the build's tool and become a
+    // promise `declarable-enforced` requires the schema engine to keep. It is
+    // neither: no DDL is emitted from it and nothing is stored in `_meta`.
+    //
+    // DERIVED FROM WHETHER THE KIND ASKS FOR IT, so a kind that does not
+    // declare `requirements` still has exactly one property and a kind that
+    // does cannot quietly gain a third.
+    const want = REQUIREMENT_ADDS.includes(k) ? [k, "requirements"] : [k];
+    assert.deepEqual(Object.keys(t.input_schema.properties).sort(), want.slice().sort(),
+      k + ": the tool has a property that is neither the kind nor this step's own metadata");
+    if (REQUIREMENT_ADDS.includes(k)) {
+      assert.equal(t.input_schema.properties.requirements.items, REQUIREMENT_ITEM,
+        k + ": the coverage list is not the shared item");
+      assert.ok(!Object.keys(TABLE_ITEM.properties).includes("requirements"),
+        "the coverage list leaked into TABLE_ITEM, which design_schema binds by identity");
+    }
     assert.deepEqual(t.input_schema.required, [], k + ": something is required of a kind that may decline");
     const p = t.input_schema.properties[k];
     assert.equal(p.description, addRule(k), k + ": the property does not carry the kind's rule");
@@ -309,7 +367,23 @@ test("the picking request and the add request are cached where they must be and 
   assert.equal(p.model, "sentinel-model");
   assert.equal(p.tool_choice.name, "pick_adds");
   assert.ok(p.tools[0].cache_control && p.system[0].cache_control, "the picker's fixed blocks are not cached");
-  assert.match(p.messages[0].content, /^The site is called X\.\n\nTheir message:\nAdd a gallery page$/);
+  // THE SITE IS LABELLED BY THE MODULE, NOT BY THE CALLER (owner, 2026-09-13).
+  // The picker used to get `siteDigest` — routes and table names — and now gets
+  // the same note the designers read, because this is the one call that decides
+  // whether the table designer runs at all and a name list cannot answer "does
+  // the site already store this". Labelled here so both requests say the same
+  // words for the same thing; a caller composing its own heading would be the
+  // second copy of a sentence this module owns.
+  assert.match(p.messages[0].content, /^Their site as it stands:\nThe site is called X\.\n\nTheir message:\nAdd a gallery page$/);
+  // AND THE SITE STILL RIDES THE PER-CALL BYTES, never the cached prefix: the
+  // tool and the system text must stay byte-identical for every customer or the
+  // prefix stops caching and every addition on the platform pays for a cold one.
+  const p2 = pickRequest({ message: "Add a gallery page", current: "The site is called Y.", model: "sentinel-model" });
+  assert.equal(JSON.stringify(p2.tools), JSON.stringify(p.tools), "the site leaked into the picker's cached tool");
+  assert.equal(JSON.stringify(p2.system), JSON.stringify(p.system), "the site leaked into the picker's cached system text");
+  // NO SITE AT ALL STILL WORKS, and carries no empty heading: an addon on a
+  // site whose note could not be read is not an addon with a blank label.
+  assert.match(pickRequest({ message: "hi", model: "m" }).messages[0].content, /^Their message:\nhi$/);
   const a = addRequest({ kind: "component", message: "x".repeat(MAX_MESSAGE + 50), site: SITE, model: "sentinel-model" });
   assert.equal(a.model, "sentinel-model");
   assert.equal(a.tool_choice.name, "add_to_site");
@@ -417,7 +491,16 @@ test("pickAdds and runAdd are driven through a fake send: a throw is carried, a 
   // three live runs.
   assert.ok(Array.isArray(declined.raw && declined.raw.content), "a declined call's raw reply is not handed up");
   assert.ok(Array.isArray(ran.raw && ran.raw.content), "an answered call's raw reply is not handed up");
-  assert.equal(readAddAnswer(toolReply("add_to_site", {}), "page"), undefined);
+  // THE READER ANSWERS AN EXPLICIT SHAPE (owner, 2026-09-13), not a bare value:
+  // it used to return `use.input[kind]` and nothing else, so a sibling property
+  // the model wrote was dropped one hop after it was written — this
+  // repository's most-repeated defect, and the reason the coverage list could
+  // not simply be added to the tool. Both arrays are ALWAYS arrays, so a
+  // consumer never has to ask whether this kind offers them.
+  const bare = readAddAnswer(toolReply("add_to_site", {}), "page");
+  assert.equal(bare.value, undefined);
+  assert.deepEqual(bare.requirements, []);
+  assert.deepEqual(bare.skipped, []);
   assert.equal(addUsage({}, "m"), null);
 });
 
@@ -645,7 +728,11 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
   assert.equal(bare.designed.tsx, undefined);
   assert.equal(bare.designed.tables, undefined);
   assert.deepEqual(bare.components, []);
-  assert.deepEqual(foldAdds([], null, null), { designed: {}, components: [], directive: "", files: [] });
+  // `requirements` JOINED THE FOLD'S ANSWER (owner, 2026-09-13) — hop 4 of the
+  // eight. An empty fold carries an empty list, never an absent one, for the
+  // reason every other field here is an array: a consumer that has to test for
+  // undefined before it can iterate is one that will forget to.
+  assert.deepEqual(foldAdds([], null, null), { designed: {}, components: [], directive: "", files: [], requirements: [] });
 });
 
 test("every refusal token has a sentence of its own, and the already-reply names the door that changes it", () => {
@@ -820,7 +907,12 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   // THE FUNCTION DESIGNER'S ANSWERS REACH THE JOB DESIGNER: appended to the
   // site's lists as they are cleaned, the internal ones to `jobFns`, under
   // the kind's own name.
-  const push = at(b, "aAnswers.push({ kind: k, value: clean.value });", "answer kept");
+  // THE ANSWER CARRIES ITS COVERAGE LIST WITH IT (owner, 2026-09-13) — hop 4's
+  // input. Anchored on the call's head rather than its whole argument list, the
+  // lesson of the `saveAddonAnswer` landmark two hundred lines up.
+  const push = at(b, "aAnswers.push({ kind: k, value: clean.value,", "answer kept");
+  assert.match(b.slice(push, push + 200), /aAnswers\.push\(\{ kind: k, value: clean\.value, requirements: ran\.requirements \}\);/,
+    "the kept answer drops the coverage list the designer answered");
   const feed = b.slice(push, at(b, "await saveAddonAnswer(", "kept replies"));
   assert.match(feed, /if \(k === "function"\) \{/, "the feed is not gated on the function kind");
   assert.match(feed, /if \(!aSite\.functions\.includes\(f\.name\)\) aSite\.functions\.push\(f\.name\);/, "a designed function does not join the site's list");
