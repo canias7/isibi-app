@@ -4453,6 +4453,122 @@ customer ──► pick_adds ──► add_to_site ──► [make the db] ─�
   verdict or its note, the kind matched by any section, a nested section
   read twice. Full suite 5,018 green. **PROVEN LIVE by run 37** (in git).
 
+### THE TABLES STEP SAYS WHAT IT COULD NOT COVER (2026-09-13)
+
+Owner, after the read-only audit of this step: *"Improve the design
+instructions… Give the picker and Tables designer relevant existing-site
+context… Implement structured requirement coverage, not just free-text notes…
+Keep this metadata separate from database definitions… Make unresolved
+requirements affect completion reporting… Validate model-authored properties
+before applying changes."*
+
+**THE AUDIT THAT PROMPTED IT INVERTED ITS OWN PREMISE, and that number decides
+what this change is.** `normalizeSchema` keeps **51** table keys and
+`TABLE_ITEM` offers **27**, so 24 are never offered — and **18 of those 24 do
+nothing at all.** Six do real work (`trash`, `slug`, `writeRoles` fully;
+`ordered` on insert only; `audit` and `history` writing correctly to tables
+nothing can read), and of 9 unverified COLUMN properties **two** do
+(`unique`, `default`). So the tool is not hiding 24 capabilities; it is hiding
+**6** and carrying 18 names that read as capability in `_meta` and cost nothing
+to remove. **Nothing is exposed and nothing is removed in this change**, by the
+owner's instruction: verify behaviour through the real application path first,
+and establish compatibility with saved configurations before removing anything
+parsed.
+
+**THE METADATA RIDES BESIDE THE DESIGN, NEVER INSIDE IT, and that is what made
+it possible at all.** `builder/site-requirements.mjs` (dependency-free) owns
+`REQUIREMENT_ITEM` — `need` · `status` (`covered` | `elsewhere` |
+`unsupported`) · `by` | `step` | `why` — and it is a SIBLING of the kind on the
+add tool. Inside `TABLE_ITEM` it would reach `design_schema`, which binds that
+item by identity: it would enlarge the build's 93,598-character tool and become
+a promise `declarable-enforced.test.mjs` requires the schema ENGINE to keep. It
+is neither — no DDL, nothing in `_meta` — **driven rather than reasoned**:
+`normalizeSchema` handed one on a table keeps nothing.
+
+**AND THAT IS WHY `readAddAnswer` HAD TO CHANGE SHAPE.** It returned
+`use.input[kind]` and nothing else, so any sibling the model wrote was dropped
+**one hop after it was written** — the tool correct, the model correct, every
+later step correct, the value gone. The repo's most-repeated defect, met head on:
+the reader answers `{ value, requirements, skipped }` now and every consumer
+moved with it.
+
+**THE EIGHT HOPS, AND TWO OF THEM ARE THE SHAPES IT EXISTS FOR.** The list is
+collected **above** the decline check, the cleaner's refusal and the truncation
+check, so it survives an answer that designed nothing and an entry the cleaner
+skipped — precisely when the reason is the only thing worth reading.
+`foldAdds` reads it off **all** the answers rather than the folded ones, because
+the fold drops an answer with no `value`. Every exit carries it, the two
+failures included; it is stored in the developer record beside the raw replies
+(run 28's file) and left as **counts only** on the trace, because `tr.at` keeps
+finite numbers and the needs are the customer's own words.
+
+**WHAT THE CUSTOMER HEARS, AND WHAT THEY DO NOT.** `requirementNote` says only
+what is outstanding **after the whole change ran** — `ran` is the kinds that
+really produced work, so a requirement handed to the page step is covered when
+that step ran and outstanding when a job-only addition changed no page. An
+invalid property is said as *"a guarantee it doesn't offer"* **without its
+name**: `encryptAtRest` is no use to anybody, and the count is what they can act
+on. The names, the counts, the unreadable entries and the hand-off map go to
+`source/<slug>/addon-answer.json`.
+
+**THE INSTRUCTIONS, AND ONE DELIBERATE REVERSAL.** The rule asked for "the
+tables this change needs", which is the ANSWER; it asks for the **data,
+relationships, permissions and rules** first. And the ceiling moved off a COUNT
+— *"as many tables as the things they NAMED, and not one more"* — onto the
+**smallest COMPLETE data model**, because the count refuses the supporting table
+a feature cannot work without: bookings pointing at a slot nothing defines. The
+wall is not weaker: a table they did not name must fill in `because` with what
+breaks without it. **The old count rule is asserted GONE, not merely
+outnumbered** — both at once is a contradiction the model resolves by picking
+one, and which one is not something this repository can observe.
+
+**THE PICKER WAS 402 CHARACTERS AND THE CUSTOMER'S SENTENCE.** No site, and no
+word connecting a feature to its storage — so *"add a login page"* had nothing
+to route on, which is the shape the owner's original question found. It gets the
+same note the designers read now (so both halves of the step see one description
+of the site rather than two that can disagree), and the instruction to read what
+an ask **needs** rather than only what it names: signing in, accounts, members,
+saved items, anything "my" or "their". **The live behavioural half is unproven**
+— whether a real model now picks `table` for that sentence needs a paid call.
+
+**THE SITE NOTE CARRIES PERMISSIONS, RELATIONSHIPS AND CONSTRAINTS.**
+`tableFacts` words it once, and **the guarantee names are derived from
+`TABLE_ITEM`** so a guarantee the tool does not offer is never named to a
+designer that could not ask for it, and a property added there appears by
+existing. Columns alone could not stop a designer writing a second table for
+rows one already holds privately, or inventing a parent one already points at.
+
+**VALIDATION BEFORE ANYTHING IS APPLIED, OVER THE MODEL'S OWN TABLES** — never
+the folded spec and never the normaliser's output, which is the difference
+between feedback somebody can act on and a derived field. `droppedFields` and
+`refusedFields` are **reused rather than a third list**: a property is reported
+only when removing it changes nothing the engine keeps, so **every documented
+alias survives by construction** (six are driven as the control —
+`softDelete`→`trash`, `optimisticLock`→`version`, `revisions`→`history`, …).
+
+**TWO UNCERTAINTIES RESOLVED BY READING THE CODE, AND ONE OF THEM WAS NOT A
+CONFLICT AT ALL.** (1) `enforceRefs` **is** enforced — `site-schema.mjs:1379`,
+BEFORE INSERT and BEFORE UPDATE OF triggers per ref column raising
+`'missing parent'`, a NULL reference allowed. There is no FK DDL anywhere
+(`:1044`, deliberate, about `owner_id` → Neon's own schema), so both earlier
+findings are true and about different mechanisms; `test/integration/neon-e2e.mjs:252`
+is the live proof and **was not run here**. (2) **No emitted grant is
+column-scoped** — driven over all sixteen read/write cells plus the five presets
+— so the managed-column rule (`pinned`, `position`, `archived_at`) is enforced
+on OUR routes and by nothing in the SQL. **That a member can therefore PATCH one
+through PostgREST is INFERENCE and is left open**: RLS is a second gate and
+settling it needs a live project.
+
+**Guards**: `test/requirement-coverage.test.mjs` (21) and
+`test/schema-uncertainties.test.mjs` (3), with the acceptance case driven — the
+reproduced omitted requirement (*"see the history of what changed"*, 0 mentions
+in the tool, live in the engine, invisible to both diagnostics) now reaches the
+customer's sentence with its reason. **Eight older assertions in
+`site-add.test.mjs` were re-anchored on their property, not appeased**, each
+naming the spelling that moved. `builder/site-requirements.mjs` joined the
+Dockerfile's COPY line — the import census caught it, and `container-images`
+then refused it a second time because it asks git for the **committed** tree.
+
 **DELETE deferred** (owner's call).
 
 ---

@@ -283,15 +283,33 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   const runAt = at("const ran = await runAdd(", "the designer call");
   // HOP 3 IS ABOVE EVERY EXIT BELOW IT. A list collected after the decline
   // check, after the cleaner's refusal or after the truncation check is a list
-  // that vanishes in exactly the three cases worth reading it in. POSITION, not
-  // presence — the recorded "a positional guard cannot see a dead branch" has a
-  // mirror, and this is the case where position IS the property.
+  // that vanishes in exactly the three cases worth reading it in.
   const collect = at("for (const r of Array.isArray(ran.requirements) ? ran.requirements : []) aReq.push(r);", "the collect");
   const decline = W.indexOf("if (ran.value === undefined) { aDeclined.push(k); continue; }", runAt);
   const refuse = W.indexOf('error: "add", kind: k, reason: clean.why', runAt);
   assert.ok(collect > runAt, "the coverage is collected before the designer ran");
   assert.ok(decline > collect, "a declined designer's coverage is collected after the decline returns — it never is");
   assert.ok(refuse > collect, "a refused answer's coverage is collected after the refusal returns");
+  // ── AND IT IS UNCONDITIONAL, WHICH POSITION CANNOT SEE ───────────────────
+  //
+  // A SWEEP SURVIVOR, and it is the recorded "a positional guard cannot see a
+  // dead branch" landing in a guard written the same hour. Wrapping the two
+  // lines in `if (ran.value !== undefined) { … }` leaves them at exactly the
+  // offset the three assertions above look for, so all three pass over a route
+  // that collects nothing from the answer that declined — which is the one
+  // answer this whole shape exists to read. The span between the designer call
+  // and the collect must open no branch at all.
+  // MEASURED FROM THE END OF THE `runAdd` STATEMENT, not from its head: the
+  // call's own argument object carries braces (`{ send: aQuick(…) }`), so a
+  // brace check from the head reports the call itself. The first `;` after the
+  // call closes it.
+  const runEnd = W.indexOf(";", W.indexOf("model: aModels.quick });", runAt)) + 1;
+  assert.ok(runEnd > runAt && runEnd < collect, "the designer call's own end could not be found");
+  const between = W.slice(runEnd, collect);
+  assert.doesNotMatch(between, /\bif\s*\(/, "the collect sits behind a condition — a declined designer's reason is lost again");
+  assert.doesNotMatch(between, /[{}]/, "a block opens between the designer call and the collect");
+  // …AND THE SPAN IS REAL: an empty one satisfies both absences perfectly.
+  assert.ok(between.length > 100, "the span is too short to have tested anything: " + between.length);
   // HOP 5 AND 6: every exit carries it. Four of them, and the two failures are
   // the ones that matter — an `ok: false` is where a customer most needs to
   // hear what the change could not do.
@@ -305,6 +323,22 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // a requirement handed to the page step is still outstanding; `aCoverage(kinds)`
   // on a success says the steps that really produced work are done.
   assert.match(W, /\.\.\.aCoverage\(aAnswers\.map\(\(a\) => a\.kind\)\)/, "a success claims no step ran");
+  // ── AND THE COMPOSER USES THE ARGUMENT IT WAS GIVEN ──────────────────────
+  //
+  // A SWEEP SURVIVOR, the same shape one layer in: every call site can pass the
+  // right kinds and the closure reassign `ranKinds = aKinds` on its first line,
+  // so a requirement handed to a step that never ran reads as covered and the
+  // customer is told a change is finished that is not. Reading the call sites
+  // cannot see it. Read the BODY.
+  const covAt = at("const aCoverage = (ranKinds) => {", "the coverage composer");
+  const covBody = W.slice(covAt, W.indexOf("\n            };", covAt));
+  assert.ok(covBody.length > 200, "the composer's body could not be found: " + covBody.length);
+  assert.doesNotMatch(covBody, /ranKinds\s*=[^=]/, "the composer overwrites the kinds it was told really ran");
+  assert.match(covBody, /ran: ranKinds \|\| \[\]/, "the note is not told which steps ran, or is told something else");
+  // AND IT DOES NOT REACH PAST ITS ARGUMENT for that answer: `aKinds` is every
+  // kind the PICKER named, including ones that declined, and using it here is
+  // precisely the lie above.
+  assert.doesNotMatch(covBody, /\baKinds\b/, "the composer reads the picked kinds instead of the ones that ran");
   // HOP 7: the developer record, beside the raw replies.
   assert.match(W, /coverage: requirementRecord\(\{ list: aReq, skipped: aReqSkipped, invalid: \[\.\.\.aBadProps\], ran: aAnswers\.map\(\(a\) => a\.kind\) \}\)/,
     "the developer record is not stored with the answer");
@@ -315,6 +349,17 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // AND THE PICKER GETS THE SITE, not a digest of names.
   assert.match(W, /\{ message: aInstruction, current: siteNote\(aSite\), model: aModels\.quick \}/,
     "the picker is still shown a digest instead of the site");
+  // ── THE ROUTE REALLY HANDS THE TABLE FACTS IN ────────────────────────────
+  //
+  // A SWEEP SURVIVOR: `tableFacts` is driven in its own case and `siteNote`
+  // prints what it is given, so both halves passed while the route handed in
+  // `{}` — the module perfect, the note correct, and every designer shown a
+  // site with no permissions, relationships or constraints on it. The recorded
+  // wiring trap, and the reason a module test is never the whole of one.
+  const siteLit = W.slice(W.indexOf("const aSite = {"), W.indexOf("};", W.indexOf("const aSite = {")));
+  assert.ok(siteLit.length > 500, "the site literal could not be read: " + siteLit.length);
+  assert.match(siteLit, /tableInfo: tableFacts\(aSpec\),/, "the designers are shown a site with no table facts on it");
+  assert.match(W, /import \{[^}]*\btableFacts\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "tableFacts is called and never imported");
 });
 
 test("HOP 6b: the browser prints the server's sentence and composes none of its own", () => {
@@ -458,6 +503,32 @@ test("the site note carries structures, relationships, permissions and constrain
   // drift and a property added there appears here by existing.
   const offered = Object.keys(TABLE_ITEM.properties);
   for (const g of facts.bookings.guarantees) assert.ok(offered.includes(g), "the note names a guarantee the tool does not offer: " + g);
+  // ── AND EVERY OFFERED GUARANTEE THE TABLE DECLARES IS NAMED ───────────────
+  //
+  // A SWEEP SURVIVOR. The check above is one-directional — it catches a name
+  // the tool does not offer and passes over a reader that names only a handful
+  // it happens to know. Replacing the derived set with a hand-typed list
+  // survived every case in this file, because the fixture declared one
+  // guarantee the list happened to contain. DRIVEN over a table declaring many,
+  // so a reader missing any of them dies.
+  const rich = normalizeSchema({
+    tables: [{
+      name: "orders", access: "feed",
+      columns: [{ name: "email", type: "text" }, { name: "total", type: "integer" }],
+      unique: ["email"], uniqueCI: ["email"], maxRows: 500, timestamps: true, expires: "email",
+      scheduled: true, enforceRefs: true, oncePerUser: ["email"], defaultSort: "total",
+    }],
+  });
+  const declared = Object.keys(TABLE_ITEM.properties)
+    .filter((k) => !["name", "columns", "access", "read", "write", "retired"].includes(k))
+    .filter((k) => {
+      const v = rich.tables[0][k];
+      if (!v) return false;
+      return Array.isArray(v) ? v.length > 0 : (typeof v === "object" ? Object.keys(v).length > 0 : true);
+    });
+  assert.ok(declared.length >= 8, "the rich fixture declares too few guarantees to have tested anything: " + declared.length);
+  assert.deepEqual(tableFacts(rich).orders.guarantees.slice().sort(), declared.slice().sort(),
+    "the note names a different set than the table declares — a hand-typed list drifts from what the tool offers");
   // AND IT REACHES THE NOTE, worded once.
   const note = siteNote({ name: "X", hasDatabase: true, tables: ["bookings", "slots"], columns: { bookings: ["slot_id integer"] }, tableInfo: facts });
   assert.match(note, /bookings \(slot_id integer\) — access user; slot_id points at slots; keeps unique/);

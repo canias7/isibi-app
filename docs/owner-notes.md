@@ -155,6 +155,51 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-13 — The Tables step now says what it could not do
+
+You asked why "add a login page" doesn't work, and the answer turned out to be
+two separate things. This fixes the one that was silent.
+
+**What was wrong.** The step that designs tables had no way to tell you about
+anything it couldn't do. If you asked for something it couldn't express, the
+word just left the design and nothing recorded it — not the reply, not the
+stored answer, not the trace. And the picker that decides whether the table
+designer runs at all was shown 402 characters of instructions and your sentence:
+no site, and no vocabulary connecting a feature to the fact it needs storing. So
+"add a login page" had nothing to route on.
+
+**What it does now.** Every Tables answer comes with a list of what the change
+had to be able to do and what became of each one: covered (and how), handed to
+another step in the same change, or **not supported, with a reason**. The
+reason reaches you in the reply. It survives the two cases it exists for — an
+answer that designed nothing, and an entry we had to leave out.
+
+**The instructions changed in one way worth knowing about.** The old rule was
+"as many tables as the things you named, and not one more". That refused the
+supporting table a feature genuinely needs — bookings that point at a slot
+nothing defines. It now asks for the smallest COMPLETE model, and any table you
+didn't name has to justify itself in one clause. Same wall, said the other way.
+
+**The audit's headline, because it changes what is worth doing next.** The
+schema engine keeps 51 table settings and the tool offers 27 — but of the 24
+never offered, **18 do nothing at all**. Six do real work. So the tool is not
+hiding two dozen capabilities; it is hiding six and carrying eighteen dead
+names. Nothing was added or removed here — you asked to verify behaviour through
+the real path first, and that is the right order.
+
+**Two things I checked rather than guessed.** `enforceRefs` really is enforced —
+by a trigger that refuses a write pointing at a missing parent, not by a foreign
+key, which is why the two earlier findings looked contradictory and were not.
+And no grant the engine writes is column-scoped, so the "never writable through
+the API" rule on `pinned`, `position` and `archived_at` is enforced by our own
+routes and by nothing in the database. Whether that means a signed-in member
+could set one directly is inference, not measurement — settling it needs a live
+database, and I've left it open rather than written down as fact.
+
+**Not proven live.** Whether a real model now picks `table` for "add a login
+page" needs a paid call — say the word and it's one dispatch. Everything else is
+driven in tests.
+
 ## 2026-09-13 — The dead code is out: 3,954 lines, and a third of the stylesheet
 
 Your call: *"CAR4EFULLY DELETE THE DEAD CODE"*, off the census I ran read-only
