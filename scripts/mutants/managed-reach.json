@@ -1,0 +1,57 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the new case",
+    "control": true,
+    "files": ["test/schema-uncertainties.test.mjs"],
+    "from": "  // THE PRECONDITION THE FIRST TWO CASES SKIPPED, and it turns the inference",
+    "to": "  // The precondition the first two cases skipped, and it turns the inference"
+  },
+  {
+    "label": "THE DEFECT ITSELF: a write:anyone table grants a member UPDATE, so every payment column comes within reach",
+    "files": ["site-rls.mjs"],
+    "from": "    out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`);",
+    "to": "    out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT, UPDATE ON ${tn} TO ${user};`);"
+  },
+  {
+    "label": "A member-write table stops granting UPDATE, so the census's `true` half goes silent",
+    "files": ["site-rls.mjs"],
+    "from": "    const verbs = read === \"none\" ? \"INSERT, UPDATE, DELETE\" : \"SELECT, INSERT, UPDATE, DELETE\";",
+    "to": "    const verbs = read === \"none\" ? \"INSERT, DELETE\" : \"SELECT, INSERT, DELETE\";"
+  },
+  {
+    "label": "A payable table stops being exempt from write grants, so payment columns come within reach that way",
+    "files": ["site-rls.mjs"],
+    "from": "  if (t && t.payment) return out;",
+    "to": "  if (false) return out;"
+  },
+  {
+    "label": "The `user` preset crosses the line — its write level drops, and the preset map must notice",
+    "files": ["site-access.mjs"],
+    "from": "  user: { read: \"own\", write: \"own\" },",
+    "to": "  user: { read: \"own\", write: \"none\" },"
+  },
+  {
+    "label": "The `collect` preset crosses the line the other way, so a booking form becomes member-writable",
+    "files": ["site-access.mjs"],
+    "from": "  collect: { read: \"none\", write: \"anyone\" },",
+    "to": "  collect: { read: \"none\", write: \"members\" },"
+  },
+  {
+    "label": "A write level leaves the matrix, so the census covers less than it says",
+    "files": ["site-access.mjs"],
+    "from": "export const WRITE_LEVELS = [\"none\", \"own\", \"members\", \"anyone\"];",
+    "to": "export const WRITE_LEVELS = [\"none\", \"own\", \"members\"];"
+  },
+  {
+    "label": "The verb is read across the whole statement, so `GRANT SELECT ON \"update\"` reads as a member UPDATE grant",
+    "files": ["test/schema-uncertainties.test.mjs"],
+    "from": "/\\bUPDATE\\b/i.test(s.split(/\\bON\\b/i)[0]));",
+    "to": "/\\bUPDATE\\b/i.test(s));"
+  },
+  {
+    "label": "The census drops the table named `update`, so the ON-split stops being load-bearing",
+    "files": ["test/schema-uncertainties.test.mjs"],
+    "from": "  for (const name of [\"t\", \"update\"]) {",
+    "to": "  for (const name of [\"t\"]) {"
+  }
+]

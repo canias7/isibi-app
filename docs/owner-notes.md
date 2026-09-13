@@ -7127,6 +7127,38 @@ in one place and better in another:
 anything does. One search of the whole codebase settled it in a second, and I
 should have done that before telling you.
 
+**The permissions question you asked about — here's the straight answer.**
+I asked, for every combination of who-can-read and who-can-write a table:
+**can a signed-in member of that site change one of the columns the platform
+manages for them** (the row's id, when it was created, whether it's pinned,
+where it sits in a list, whether it's been deleted)? The answer splits cleanly
+in half:
+
+- **Safe — tables nobody signs in to write.** A price list, a booking form, an
+  owner-only table. Members get no permission to change rows at all, so none of
+  the managed columns is reachable. **Every payment column is in this half** —
+  what was paid, how much, in what currency, when. That's the half I'd have
+  worried about, and it holds.
+- **Not safe — tables members write.** Somebody's own saved items, or a shared
+  feed. Here a signed-in member has permission to change rows, and nothing in
+  the database stops them changing a managed column specifically. On the
+  "their own stuff" kind they can only reach their own rows. On the "any member
+  can post" kind they can reach **anybody's** row — so in principle a member
+  could pin, reorder, or mark-as-deleted another member's row by talking to the
+  database directly rather than going through our site.
+
+Our own code blocks all of this. What's missing is a second lock in the
+database itself, for someone who bypasses our code. **No site you have today is
+in the unsafe half** — none of them has a members-write table. It's a thing to
+fix before one does, not a fire.
+
+**Two things I got wrong on the way, both caught before they reached you.** My
+first measuring tool returned "no protection anywhere" — which was the answer I
+was looking for and was actually the tool not running at all. My second one
+reported eight problems on the payments table, on a table members can't write
+to in the first place. Both are the same lesson this project keeps re-learning:
+when the instrument agrees with you, check the instrument.
+
 **What's left, and all three need you:**
 
 1. **The three real requests on a throwaway site.** They need the deploy, a real

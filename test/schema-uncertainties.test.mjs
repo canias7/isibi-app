@@ -213,3 +213,94 @@ test("UNCERTAINTY 2b: a managed column is refused on OUR routes, which is the ha
   assert.equal(t.archivable, true);
   assert.match(S, /if \(t\.pinnable\) cols\.push\('"pinned" INTEGER DEFAULT 0'\)/, "the pinned column is no longer created");
 });
+
+test("UNCERTAINTY 2c: which access cells put a managed column within a member's reach at all", () => {
+  // THE PRECONDITION THE FIRST TWO CASES SKIPPED, and it turns the inference
+  // above into a bounded pass/fail without a live project (owner, 2026-09-13:
+  // "Turn the observed behavior into a clear pass/fail result for the intended
+  // permissions").
+  //
+  // INTENDED: a member may not write a platform-managed column.
+  //
+  // Case 2 establishes that no grant is column-scoped, so nothing in the SQL
+  // distinguishes a managed column from any other. What it did not ask is the
+  // question that comes FIRST: on which tables can a member issue an UPDATE at
+  // all? Where there is no member UPDATE grant, every managed column on that
+  // table is out of reach whatever the policies say — and that is not a corner
+  // case, it is half the matrix and it is where the money lives.
+  //
+  // A PROBE THAT SKIPPED THIS REPORTED EIGHT FALSE ALARMS, which is why the
+  // precondition is the first thing here: run over a `collect` table carrying
+  // the five payment columns, "is this column constrained" answered FAIL for
+  // every one of them — on a table no member can update at all.
+  const memberUpdate = (t) => grantsFor(t).some((s) =>
+    /^\s*GRANT\b/i.test(s) && /TO\s+authenticated/i.test(s) && /\bUPDATE\b/i.test(s.split(/\bON\b/i)[0]));
+
+  // THE VERB IS READ BEFORE THE `ON`, AND A TABLE CALLED `update` IS WHY —
+  // measured, not guessed. `GRANT SELECT ON "update" TO authenticated` contains
+  // the word UPDATE, so a reader that scans the whole statement calls it a
+  // member-UPDATE grant: the readings diverge on 7 of the 16 cells for that
+  // name, and on 0 of 16 for any name that does not contain the verb (`updates`
+  // included — `\b` after UPDATE refuses the trailing `s`). A customer can name
+  // a table `update`, so the census runs over BOTH names and the split is
+  // load-bearing rather than decorative.
+  const reach = [];
+  for (const name of ["t", "update"]) {
+    for (const read of READ_LEVELS) for (const write of WRITE_LEVELS) {
+      reach.push({ name, read, write, member: memberUpdate({ name, read, write }) });
+    }
+  }
+  assert.equal(reach.length, 32, "the access matrix changed shape and this census is stale");
+
+  // MEASURED, and the answer depends only on WRITE — the read level and the
+  // table's NAME change nothing, which is itself worth pinning: a future read
+  // level that quietly granted UPDATE would be a silent widening.
+  //
+  // THIS LOOP IS THE ALIVE OBSERVER. It asserts all 32 cells exactly, both
+  // true and false, so a reader that answered one way for everything fails
+  // here — which is why no separate count or floor sits beside it. Both were
+  // written, MEASURED redundant against this loop (it pins the count at 8 per
+  // name by construction) and deleted rather than left as checks a sweep can
+  // weaken with nothing to notice.
+  for (const r of reach) {
+    const expected = r.write === "own" || r.write === "members";
+    assert.equal(r.member, expected,
+      `${r.name} read:${r.read} write:${r.write} — member UPDATE is ${r.member}, expected ${expected}`);
+  }
+
+  // THE PRESETS, which is what a spec actually names most of the time.
+  const byPreset = Object.fromEntries(Object.keys(ACCESS_PRESETS).map((p) => [p, memberUpdate({ name: "t", access: p })]));
+  assert.deepEqual(byPreset, { display: false, collect: false, user: true, feed: true, admin: false },
+    "a preset changed which side of the line it is on");
+
+  // ── THE PASS/FAIL, stated as the intended permission ──────────────────────
+  //
+  // PASS — `write: none` and `write: anyone`, which is `display`, `collect` and
+  // `admin`: no member UPDATE grant exists, so no managed column on such a
+  // table is writable by a member through the Data API. **Every payment column
+  // is in this class**, because payment rides on `collect`; that is the half
+  // that matters most and it holds.
+  //
+  // FAIL — `write: own` and `write: members`, which is `user` and `feed`: a
+  // member UPDATE grant exists, no grant is column-scoped (case 2), and the
+  // UPDATE policy names only `owner_id`. So on such a table `id`,
+  // `created_at`, `updated_at`, and — where the flags create them — `pinned`,
+  // `position` and `deleted_at` have NOTHING in the emitted SQL that stops a
+  // member writing them. On `write: own` the blast radius is the member's own
+  // row; on `write: members` the policy is `app_user_id() IS NOT NULL` for both
+  // USING and WITH CHECK, so it is ANY row.
+  //
+  // WHAT IS STILL INFERENCE, unchanged and still named: that Postgres and
+  // PostgREST then behave as the SQL says. Nothing here is in doubt about it —
+  // but this file proves what the engine EMITS, not what the database does, and
+  // `test/integration/neon-e2e.mjs` is the probe that closes it. It needs
+  // NEON_API_KEY and a real project.
+  const own = grantsFor({ name: "t", read: "own", write: "own" }).join("\n");
+  const members = grantsFor({ name: "t", read: "public", write: "members" }).join("\n");
+  assert.match(own, /GRANT[^;]*\bUPDATE\b[^;]*ON "t" TO authenticated/i, "the write:own grant this reads is gone");
+  assert.match(members, /GRANT[^;]*\bUPDATE\b[^;]*ON "t" TO authenticated/i, "the write:members grant this reads is gone");
+  const collect = grantsFor({ name: "t", access: "collect" }).join("\n");
+  assert.doesNotMatch(collect, /\bUPDATE\b[^;]*TO authenticated/i,
+    "a collect table now grants a member UPDATE — every payment column just came within reach");
+  assert.ok(collect.length > 0, "the collect reader produced nothing, so its absence check says nothing");
+});

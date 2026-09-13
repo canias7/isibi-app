@@ -4666,6 +4666,75 @@ both directions:**
 describing a consumer is not evidence the consumer exists, and the check is one
 grep for the literal over the whole tree.
 
+#### The managed-column question, answered as a pass/fail from the emitted SQL
+
+Owner: *"Run the managed-column probe too. Turn the observed behavior into a
+clear pass/fail result for the intended permissions."*
+
+**THE PRECONDITION THE EARLIER READING SKIPPED IS WHAT MAKES IT ANSWERABLE
+WITHOUT NEON.** "No emitted grant is column-scoped" is true and is only half the
+question; the half that comes FIRST is **on which tables can a member issue an
+UPDATE at all**. Where there is none, every managed column on that table is out
+of reach whatever the policies say — and that is not a corner case, it is half
+the matrix.
+
+**INTENDED: a member may not write a platform-managed column. MEASURED over all
+16 read×write cells by driving `grantsFor`:**
+- **PASS — `write: none` and `write: anyone`** (the `display`, `collect` and
+  `admin` presets): no member UPDATE grant is emitted at all. **Every payment
+  column is in this class**, because payment rides on `collect` and
+  `if (t && t.payment) return out` takes a payable table out of the write grants
+  entirely. That is the half that matters most and it holds.
+- **FAIL — `write: own` and `write: members`** (`user` and `feed`): the grant is
+  `SELECT, INSERT, UPDATE, DELETE ON "<t>" TO authenticated`, no grant is
+  column-scoped, and the UPDATE policy names only `owner_id`. So `id`,
+  `created_at`, `updated_at` — and where the flags create them `pinned`,
+  `position`, `deleted_at` — have **nothing in the emitted SQL** stopping a
+  member writing them. On `write: own` the reach is the member's own row
+  (`owner_id = app_user_id()` in both USING and WITH CHECK); on `write: members`
+  the policy is `app_user_id() IS NOT NULL` on both, so it is **any row**.
+- **The answer depends only on the WRITE axis** — the read level changes nothing,
+  which is itself pinned, because a future read level that quietly granted UPDATE
+  would be a silent widening.
+
+**MY OWN PROBE WAS WRONG BEFORE THE PRODUCT WAS, TWICE, AND BOTH ARE RECORDED
+TRAPS.** The first draft injected a fake `sqlQuery` into `applySiteSchema`, which
+takes no deps — it answered **0 statements**, and 0 reads exactly like "no
+constraint anywhere", which is the answer being looked for. *A zero from a blind
+instrument is not evidence of absence*, caught only by the control (0 statements
+is impossible). Rebuilt by stubbing `fetch`, since `neon()` is HTTP. The second
+draft then skipped the UPDATE-grant precondition and **reported eight false
+alarms on a `collect` table carrying the five payment columns** — every one on a
+table no member can update at all.
+
+**AND THE ON-SPLIT IS LOAD-BEARING ON A TABLE CALLED `update`, measured rather
+than asserted.** The reader takes the verb from BEFORE the `ON`, because
+`GRANT SELECT ON "update" TO authenticated` contains the word UPDATE: the two
+readings **diverge on 7 of 16 cells** for that name and on **0 of 16** for any
+name that does not contain the verb — `updates` included, since `\b` refuses the
+trailing `s`. A customer can name a table `update`, so the census runs over both
+names.
+
+**Guard**: `test/schema-uncertainties.test.mjs` gained UNCERTAINTY 2c — the 32-cell
+census (two names × 16), the preset split asserted exactly, and `collect`'s
+absence of a member UPDATE grant with a live observer beside it. **A count and a
+floor were written, MEASURED redundant against the per-cell loop (which pins both
+by construction) and DELETED rather than left as checks a sweep can weaken with
+nothing to notice.**
+**Sweep: 8 mutants, 8 killed, 0 survived, 0 never applied, 1 comment-only control
+survived — and the FIRST PASS HAD SIX SURVIVORS, EVERY ONE A TEST-SIDE MUTANT
+weakening the guard's own assertion**, which is not a behaviour change and which
+no other test can catch. The fix was the recorded one: give each property an
+observable half and mutate THAT. All five are product-side now — a preset
+crossing the line in each direction, a write level leaving the matrix, the
+payable exemption cut, the member grant losing its verb — and each dies.
+**Suite 6,231.**
+
+**WHAT IS STILL INFERENCE, unchanged and still named**: that Postgres and
+PostgREST then behave as the SQL says. Nothing is in doubt about it, but this is
+a proof about what the engine EMITS, and `test/integration/neon-e2e.mjs` is the
+probe that closes it. It needs `NEON_API_KEY`, which no session here has.
+
 **STILL NOT PROVEN, and each needs the owner:** the three real addon requests
 (they need the deploy, a real Neon project and credits — and the harness's asks
 are FIXED per kind, with no free-text input, so ask A, "add a login page…", which
