@@ -881,6 +881,31 @@ was `selector + "{"` and the file writes `.sidebar {` with a space, so it report
 four untouched rules lost. It finds the text and requires the next non-space
 character to be the brace.
 
+**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived. THE FIRST PASS GOT THROUGH SEVEN AND THREE OF THOSE SURVIVED,
+and the split between them is the whole of what it taught.** One was a real gap
+in a guard written the same day: `if (siteBuild) return;` above `paintReactLive()`
+leaves every landmark exactly where a text read looks for them — the recorded
+"a positional guard cannot see a dead branch" — so the ticker is DRIVEN now (a
+fake `setInterval`, two ticks, then the build ends), proved red before green.
+**THE OTHER TWO WERE INERT AND WERE MEASURED RATHER THAN HUNTED.** The
+`siteBuildStart` census's definition filter was mutated from "excluded by what
+PRECEDES it" to "excluded by its ARGUMENT", and **both filters answer the
+identical set** — the definition takes `(react)` and no call site passes that
+name — while over three calls a floor of `>= 3` and one of `>= 0` both hold.
+**Five test-side mutants went on that reading**, every one because weakening a
+guard's own assertion is not a behaviour change and no other test can catch it,
+and every one because the property already HAS an observable half that dies:
+`siteBuildStart(false)` at a real call site, the draft-preview POST coming back
+in front of the blob, and `loadSiteSourceForEdit` reading the components.
+**AND THE CSS GUARD'S OWN PARSE CHECK WAS A NEGATIVE ASSERTION WITH NO LIVE
+OBSERVER** — this file's most-recorded trap, in a guard one day old. Its three
+findings are all absences over today's file, which a reader that can see nothing
+at all satisfies perfectly. `braceReport(src)` is exported and DRIVEN now: the
+real 2026-09-12 orphan (a stray `}` at line 3), an unclosed block and an empty
+rule body, each with a clean fixture beside it as the control. Two of the
+sweep's mutants are that half and both die. **Suite 6,197.**
+
 ---
 
 ## Working rules

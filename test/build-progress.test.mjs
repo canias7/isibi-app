@@ -499,13 +499,34 @@ test("THE WIRING: the clock has an origin, a tick, and a stop", () => {
   // called with `true` from every call site, which the case below derives), so
   // the log and the branch went and the tick is one call. The property is
   // unchanged and is now held by construction: every tick repaints the rail.
+  //
+  // AND IT IS DRIVEN, NOT READ, because a text read cannot see a dead branch.
+  // The first version of this re-anchor matched `paintReactLive\(\);` in the
+  // tick's source, and a sweep mutant that put `if (siteBuild) return;` ABOVE
+  // that call SURVIVED: every landmark stayed exactly where a text read finds
+  // it while the clock stopped between polls. That is the recorded "a positional
+  // guard cannot see a dead branch", landing in a guard written the same day for
+  // the deletion that made the tick one call. So the ticker is cut out and RUN,
+  // with `setInterval` handed in to capture the callback.
   const startFn = fn("function siteBuildStart(", src);
-  const tick = startFn.slice(startFn.indexOf("setInterval("));
-  assert.ok(tick.length > 40, "the ticker is gone — re-derive this landmark");
-  assert.match(tick, /paintReactLive\(\);/,
-    "the ticker no longer repaints a react build — the clock stops between polls");
-  assert.match(tick, /if \(!siteBuild\) return;/,
-    "the tick no longer checks the build is still running — a clock outliving its build");
+  assert.ok(startFn.includes("setInterval("), "the ticker is gone — re-derive this landmark");
+  const run = new Function("paintReactLive", "setInterval", "clearInterval", "Date",
+    "let siteBuild = null, siteTicker = null;\n" + startFn + "\n"
+    + "return { start: siteBuildStart, end: () => { siteBuild = null; }, ticker: () => siteTicker };");
+  let painted = 0, cb = null;
+  const api = run(() => { painted++; }, (f) => { cb = f; return 7; }, () => {}, Date);
+  api.start(true);
+  assert.equal(typeof cb, "function", "the ticker registered no callback");
+  assert.equal(api.ticker(), 7, "the interval handle is not kept, so nothing can clear it");
+  cb();
+  assert.equal(painted, 1, "the tick did not repaint — the clock stops between polls");
+  cb();
+  assert.equal(painted, 2, "the tick repaints once and then stops");
+  // AND IT STOPS WITH ITS BUILD. A clock outliving its build is this repo's
+  // recorded shape, and the same drive answers it.
+  api.end();
+  cb();
+  assert.equal(painted, 2, "the tick repainted after the build ended");
   // AND IT IS CLEARED. A timer outliving its build is this repo's recorded shape.
   assert.match(fn("function siteBuildStop(", src), /clearInterval\(siteTicker\)/,
     "the ticker is not cleared when the build ends");

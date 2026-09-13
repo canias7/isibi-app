@@ -157,6 +157,33 @@ export function deadClassesIn(sel, v) {
   return out;
 }
 
+/**
+ * Does this stylesheet PARSE: a stray `}`, an unclosed block, an empty rule.
+ *
+ * A FUNCTION RATHER THAN A WALK INSIDE THE CASE, so the three findings can be
+ * put in front of it deliberately. Over today's file all three answer "nothing",
+ * and an assertion that nothing is wrong is satisfied by a reader that cannot
+ * see anything at all — the recorded trap, in the guard written for it.
+ */
+export function braceReport(src) {
+  let d = 0, i = 0, line = 1;
+  const stray = [];
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\n") line++;
+    if (c === "/" && src[i + 1] === "*") {
+      const e = src.indexOf("*/", i);
+      line += (src.slice(i, e < 0 ? src.length : e + 2).match(/\n/g) || []).length;
+      i = e < 0 ? src.length : e + 2; continue;
+    }
+    if (c === '"' || c === "'") { let j = i + 1; while (j < src.length && src[j] !== c) { if (src[j] === "\\") j++; j++; } i = j + 1; continue; }
+    if (c === "{") d++;
+    if (c === "}") { d--; if (d < 0) { stray.push(line); d = 0; } }
+    i++;
+  }
+  return { stray, unclosed: d, empty: (src.match(/\{\s*\}/g) || []).length };
+}
+
 /** Every rule no element the app can build would match. */
 export function unreachable(css, v) {
   const found = [];
@@ -259,23 +286,21 @@ test("the stylesheet parses: braces balance and no rule is left empty", () => {
   // and third, so `public/styles.css` shipped an orphaned declaration block and
   // a stray `}` for a day. A browser recovers from that by discarding text until
   // the next `}` — silently, so the only tell is a rule that stopped applying.
-  let d = 0, i = 0, line = 1;
-  const stray = [];
-  while (i < CSS.length) {
-    const c = CSS[i];
-    if (c === "\n") line++;
-    if (c === "/" && CSS[i + 1] === "*") {
-      const e = CSS.indexOf("*/", i);
-      line += (CSS.slice(i, e < 0 ? CSS.length : e + 2).match(/\n/g) || []).length;
-      i = e < 0 ? CSS.length : e + 2; continue;
-    }
-    if (c === '"' || c === "'") { let j = i + 1; while (j < CSS.length && CSS[j] !== c) { if (CSS[j] === "\\") j++; j++; } i = j + 1; continue; }
-    if (c === "{") d++;
-    if (c === "}") { d--; if (d < 0) { stray.push(line); d = 0; } }
-    i++;
-  }
-  assert.deepEqual(stray, [], "a closing brace with nothing open at line(s) " + stray.join(", ")
+  const real = braceReport(CSS);
+  assert.deepEqual(real.stray, [], "a closing brace with nothing open at line(s) " + real.stray.join(", ")
     + " — a rule lost its selector, and everything after it until the next `}` is silently discarded");
-  assert.equal(d, 0, d + " unclosed block(s) — the rest of the file is swallowed by one of them");
-  assert.equal((CSS.match(/\{\s*\}/g) || []).length, 0, "a rule with an empty body is left over");
+  assert.equal(real.unclosed, 0, real.unclosed + " unclosed block(s) — the rest of the file is swallowed by one of them");
+  assert.equal(real.empty, 0, "a rule with an empty body is left over");
+
+  // PLANTED: THE REAL 2026-09-12 DEFECT, PUT BACK IN FRONT OF THE READER. All
+  // three assertions above are absences, and every one of them is satisfied by a
+  // reader that finds nothing ever — so each finding is driven here, with a clean
+  // fixture beside it as the control that separates "sees the defect" from "says
+  // defect about everything".
+  const orphan = braceReport(".a{color:red}\n  text-transform:uppercase;\n  padding:3px}\n.b{color:blue}\n");
+  assert.deepEqual(orphan.stray, [3], "an orphaned declaration block's stray `}` is not found — this reader cannot see the defect it exists for");
+  assert.deepEqual(braceReport(".a{color:red}\n.b{color:blue}\n").stray, [], "the observer is alive: a clean sheet reports a stray");
+  assert.equal(braceReport(".a{color:red}\n@media (x){.b{color:blue}\n").unclosed, 1, "an unclosed block is not counted");
+  assert.equal(braceReport(".a{}\n").empty, 1, "a rule with an empty body is not found");
+  assert.equal(braceReport(".a{color:red}\n").empty, 0, "the observer is alive: a real rule reads as empty");
 });

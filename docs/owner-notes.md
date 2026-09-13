@@ -219,6 +219,15 @@ anywhere writes. I removed the browser half; the server half is named in the cod
 rather than cut, because making it work again is a feature decision, not a
 deletion.
 
+**The check on the checks came out clean: 16 deliberate defects planted, 16
+caught.** Two of the two dummy changes that are supposed to survive did. The
+first run of that exercise found a real hole in one of the new checks I had
+written the same day — it was reading the code rather than running it, so a
+one-line sabotage slipped past — and it runs the code now. Three others looked
+like holes and were not: I measured them, and they turn out to be changes that
+cannot alter any answer, so they were deleted rather than chased. Whole suite:
+**6,197 checks, all green.**
+
 ---
 
 ## 2026-09-13 — Model context: how full the window gets, and what fills it
