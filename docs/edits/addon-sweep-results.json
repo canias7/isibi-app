@@ -1,18 +1,16 @@
 {
-  "at": "2026-09-13T23:36:35.965Z",
+  "at": "2026-09-13T23:56:36.571Z",
   "site": "repairbench-1",
-  "start": 189,
+  "start": 182,
   "end": 182,
   "results": [
     {
-      "name": "component",
-      "kinds": [
-        "component"
-      ],
-      "verdict": "LIE",
-      "note": "reply says ok, build moved, but the addition is not on the site; changed [\"/\"]; home text 4552→4967 chars; LOST what the page said: \"Find us Two mechanics at a scarred wooden bench in the Hebden Bike Repair workshop, with muddy bikes queued along the stone wall The workshop Two mechanics, a bench, and a queue of bikes Hebden Bike Repair sits down a back street in the old mill town — not a showroom, not a waiting lounge.\"; built the way the first one is; repair clean",
-      "cost": 7,
-      "wall": 221,
+      "name": "ask",
+      "kinds": [],
+      "verdict": "failed (server)",
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"table\",\"page\"]\n      database: nothing\n      pages: []; build UNMOVED\n      home text 4967→4967 chars\n      coverage: the answer carried none\n      nothing left outstanding\n      no coverage sentence to the customer\n      refused: time\n      503 time — That took longer than the time we allow for one change, so I stopped before publishing — your site is untouched and nothing was charged. Try again, or ask for it in two smaller steps.",
+      "cost": 0,
+      "wall": 748,
       "build": "mu0gbc8t-ba1r4i",
       "pickedRight": true,
       "shots": []
