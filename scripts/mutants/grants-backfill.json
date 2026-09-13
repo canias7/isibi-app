@@ -1,0 +1,130 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the backfill",
+    "control": true,
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "/** ACL letters Postgres records, and the privilege each one is. */",
+    "to": "/** ACL letters Postgres records, and which privilege each one is. */"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the guard",
+    "control": true,
+    "files": ["test/grants-backfill.test.mjs"],
+    "from": "/** A pre-fix `collect` table: table-wide INSERT to both client roles. */",
+    "to": "/** A pre-fix `collect` table: table-wide INSERT to each client role. */"
+  },
+  {
+    "label": "the backfill forgets one of the two Data API roles",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "export const CLIENT_ROLES = Object.values(DATA_API_ROLES);",
+    "to": "export const CLIENT_ROLES = [DATA_API_ROLES.user];"
+  },
+  {
+    "label": "readAcls stops filtering, so a grant to the OWNER is read as a client's",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "  return (rows || []).filter((r) => CLIENT_ROLES.includes(r.grantee));",
+    "to": "  return (rows || []);"
+  },
+  {
+    "label": "tableWideWrites counts a COLUMN grant, so a table already put right reports as needing work",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "  return acls.filter((a) => a.kind === \"table\" && (a.priv === \"INSERT\" || a.priv === \"UPDATE\"))",
+    "to": "  return acls.filter((a) => (a.priv === \"INSERT\" || a.priv === \"UPDATE\"))"
+  },
+  {
+    "label": "tableWideWrites counts SELECT and DELETE, which the fix deliberately leaves table-wide",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "a.kind === \"table\" && (a.priv === \"INSERT\" || a.priv === \"UPDATE\"))",
+    "to": "a.kind === \"table\")"
+  },
+  {
+    "label": "the plan takes the DECLARED columns, so a grant can name a column the table has not got and fail whole",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    const statements = grantsFor(t, present);",
+    "to": "    const statements = grantsFor(t);"
+  },
+  {
+    "label": "the plan stops naming the columns it left out",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    const missing = declared.filter((c) => !real[name].has(c));",
+    "to": "    const missing = [];"
+  },
+  {
+    "label": "the plan grants on a table the database has not got",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    if (!real[name]) { tables.push({ table: name, skipped: \"the table does not exist in this database\" }); continue; }",
+    "to": "    if (!real[name]) { real[name] = new Set(); }"
+  },
+  {
+    "label": "the census flags every table, so a read-only one reads as needing work",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "      changes: tableWideWrites(before).length > 0,",
+    "to": "      changes: true,"
+  },
+  {
+    "label": "the rollback issues its GRANTs before its REVOKEs, taking the restored privilege straight back off",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "  return out;\n}\n\n/** A compact, comparable reading of what the client roles hold on a table. */",
+    "to": "  return [...out.filter((s) => !/^REVOKE /.test(s)), ...out.filter((s) => /^REVOKE /.test(s))];\n}\n\n/** A compact, comparable reading of what the client roles hold on a table. */"
+  },
+  {
+    "label": "the rollback drops the REVOKE, so it adds privileges beside whatever is there",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "  for (const role of CLIENT_ROLES) out.push(`REVOKE ALL ON ${q(table)} FROM ${role};`);",
+    "to": "  for (const role of CLIENT_ROLES) { void role; }"
+  },
+  {
+    "label": "the rollback restores a column grant one VERB at a time, a shape the site was never in",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    if (parts.length) out.push(`GRANT ${parts.join(\", \")} ON ${q(table)} TO ${role};`);",
+    "to": "    for (const p of parts) out.push(`GRANT ${p} ON ${q(table)} TO ${role};`);"
+  },
+  {
+    "label": "the rollback stops sorting, so a before and an after never compare equal",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    const parts = Object.keys(cv).sort().map((priv) => `${priv} (${[...cv[priv]].sort().map(q).join(\", \")})`);",
+    "to": "    const parts = Object.keys(cv).map((priv) => `${priv} (${[...cv[priv]].map(q).join(\", \")})`);"
+  },
+  {
+    "label": "aclSummary stops sorting, so an unchanged site reads as changed",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "  for (const r of Object.keys(byRole)) byRole[r] = byRole[r].sort();",
+    "to": "  for (const r of Object.keys(byRole)) byRole[r] = byRole[r];"
+  },
+  {
+    "label": "VERIFY drops its second half, so a table left with NO grant at all passes",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "      ok: wide.length === 0 && (!wantsWrite || t.writable.length === 0 || sameSet),",
+    "to": "      ok: wide.length === 0,"
+  },
+  {
+    "label": "VERIFY demands a write grant on a read-only table, which correctly has none",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    const wantsWrite = t.access && t.access.write !== \"none\";",
+    "to": "    const wantsWrite = true;"
+  },
+  {
+    "label": "an apply that is refused throws, so one bad table stops the whole sweep",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "      try { await sql(s, []); }\n      catch (e) { failures.push({ table: t.table, sql: s, err: String((e && (e.detail || e.message)) || e) }); }",
+    "to": "      await sql(s, []);"
+  },
+  {
+    "label": "the apply runs statements for a table it just said it was skipping",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    if (t.skipped) { log(`    ${t.table}: skipped — ${t.skipped}`); continue; }",
+    "to": "    if (t.skipped) { log(`    ${t.table}: skipped — ${t.skipped}`); }"
+  },
+  {
+    "label": "the preview writes: the plan issues its grants while pretending to be read-only",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "    const before = await readAcls(sql, name);\n    const statements = grantsFor(t, present);",
+    "to": "    const before = await readAcls(sql, name);\n    const statements = grantsFor(t, present);\n    for (const s of statements) await sql(s, []);"
+  },
+  {
+    "label": "nothing stored reads as nothing to do instead of saying why",
+    "files": ["scripts/grants-backfill.mjs"],
+    "from": "  if (!raw) return { slug, error: \"no _meta.schema — nothing to plan from\", tables: [] };",
+    "to": "  if (!raw) return { slug, tables: [] };"
+  }
+]
