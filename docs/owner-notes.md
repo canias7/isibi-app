@@ -7056,3 +7056,79 @@ Nothing rolled, so no wait: reload and switch between Preview and Code.
 
 **The proof left is one tab switch:** the four should vanish on Code, and the
 Preview/Code/Data/More tabs should not budge.
+
+---
+
+## 2026-09-13 — I checked the Tables work as far as I can without touching what's live
+
+You asked me to verify it end to end on a throwaway site, and to **keep
+production unchanged while I did**. Those two pull against each other, so here
+is exactly where the line fell.
+
+**The honest shape of it.** The "add something to my site" step runs in the
+Worker that's deployed. The Tables work is on its branch and has not been
+merged, so the live site is still running the old version. Exercising it for
+real means merging and deploying — which *is* changing production. So I did
+every check that doesn't need a deploy, and stopped at the ones that do.
+
+**What I proved, and each of these is a number I read after the run, not before:**
+
+- **The container still builds a site: 382 checks, none failed.** That's the big
+  one — it's the only thing that proves a customer's site can still be compiled,
+  rendered and served with the new code in it. Same count as the last clean run
+  in CI.
+- **The container image would actually start.** I rebuilt the image's file list
+  from the Dockerfile itself and loaded the Worker out of it — 132 files, loads
+  clean. Then I deleted the one new file and watched it fail, so I know the
+  check can tell. This is the failure that would otherwise show up as "our build
+  service was restarting" on a customer's screen.
+- **The build step is untouched, to the byte.** The design tool a first build
+  sends is 93,598 characters — exactly what it was before. None of the new
+  coverage wording is in it. That was the thing most likely to go wrong quietly.
+- **All 6,221 tests green, and 43 out of 43 deliberate sabotages caught.**
+
+**And printing the actual prompt caught a real bug before any money was spent.**
+The new "here is what your site already stores" note read:
+
+> It stores: bookings (…) — access user; keeps oncePerUser, enforceRefs,
+> unique, sessions (title text) — access display.
+
+Read that as the model would: is `sessions` a *table*, or a fourth thing
+`bookings` keeps? You can't tell. A designer that reads it the wrong way builds
+a second table to hold sessions — the exact mess this note was added to prevent.
+It's one table per line now. **No test could have found this**: every check was
+about what the sentence contains, and the broken sentence contained all of it.
+
+**One thing I found on the way that is NOT mine and is NOT fixed.** Tables that
+ask for "keep track of when a row was last changed" get an `updated_at` column
+that is set when the row is created and **never updated afterwards**. The code's
+own comment says it is bumped on every change; nothing bumps it. The
+offline-sync feature reads that column to work out what changed, so it would
+miss every edit. I've written it down rather than fixing it — it's a different
+feature and changing it is a live behaviour change I'd want you to okay first.
+
+**What's left, and all three need you:**
+
+1. **The three real requests on a throwaway site.** They need the deploy, a real
+   database and credits. Worth knowing: the test harness sends a *fixed* sentence
+   per kind, so the most important of the three — "add a login page so people can
+   save the lessons they've booked", which deliberately never says *database* —
+   can't go through it as it stands. Either I add a free-text box to the harness
+   (small, safe, it only runs when you press it), or you type the three into the
+   app yourself after a deploy.
+2. **The database permissions question** — can an ordinary member edit a
+   protected field directly? I've measured what we *generate*: on a member-
+   writable table we hand out a plain table-wide UPDATE, and the only protected
+   field the rule mentions is "this row is yours". So on paper, yes they could.
+   I've added a probe that asks a real database and reports what it actually
+   allows and refuses — it's a button you press, and it costs nothing.
+3. **Whether the model now behaves differently.** I can show you the exact words
+   it's given, and they now say "whether or not they mention a database… also
+   sign-in, accounts, members, profiles". What it *does* with them takes a real
+   call.
+
+**My read: the code is ready to merge, and it is not ready to call proven.** The
+risky parts — the build step, the container, the image — are checked. What's
+unchecked is whether a real model uses the new instructions well, and that needs
+a deploy and about three requests' worth of credits. Say the word and I'll do
+the merge and run them.

@@ -4571,6 +4571,90 @@ then refused it a second time because it asks git for the **committed** tree.
 
 **DELETE deferred** (owner's call).
 
+#### What the verification round proved, and the two things it could not
+
+Owner: *"Run the required container verification against the exact updated
+commit and rebuilt image… Run a small set of real addon requests… Keep
+production unchanged during this verification."*
+
+**THE LAST TWO SENTENCES CANNOT BOTH HOLD, and naming that is the finding.** The
+addon route runs in the **deployed** Worker; this change is on
+`claude/help-needed-ehlwlj` and `main` is still `7c467b42`. A rebuilt image only
+exists after a merge-triggered deploy, and that deploy IS a production change.
+So *"the exact updated commit"* and *"keep production unchanged"* are reachable
+together; *"and rebuilt image"* and the three live addon requests are not.
+**And the harness's `workflow_dispatch` is 403 for this session's GitHub
+integration** (the recorded 2026-09-03 limitation), so the container run was
+done locally instead — which covers the commit and not the image.
+
+**WHAT WAS PROVED, every number read after its run:**
+- **`site build` 382/382, 0 failed**, run locally against this tree — the same
+  count CI run 1117 printed, so a site still compiles, renders and serves with
+  the coverage module in the graph.
+- **THE IMAGE'S OWN MODULE TREE IMPORTS.** A probe builds a directory from the
+  **Dockerfile's own COPY lines** and imports `worker.js` out of it under the
+  container's real loader (`worker-register.mjs`): **132 files, 9 exports, a
+  default handler**. **Proven red by removing `builder/site-requirements.mjs`
+  from that tree** — `ERR_MODULE_NOT_FOUND` — then green. A census reads the
+  COPY line; this RUNS the resolution, which is what the container does.
+- **THE SHARED CONTRACT IS BYTE-IDENTICAL.** `design_schema` **93,598** bytes,
+  23 properties, 15 required; the first build's tool **64,076**, 22 and 14;
+  system **1,962** — every one exactly the figure recorded above, so the
+  metadata added nothing to the build's tool. None of `covered` / `elsewhere` /
+  `unsupported` / `because` appears in it; the one `requirements` hit is the kit
+  component `entry-requirements`, and `backend` is the alive-observer control.
+- **Suite 6,221 / 6,221. Sweep 43 mutants, 43 killed, 0 survived, 0 never
+  applied, 2 comment-only controls survived.**
+
+**AND READING THE REAL PROMPT FOUND A DEFECT NO GUARD COULD.** Printed back for
+the owner's own three asks before spending anything (run 26's method), the note
+read `… keeps oncePerUser, enforceRefs, unique, sessions (title text) — access
+display` — the table list joined with the guarantee list's own separator, so
+`sessions` is indistinguishable from a fourth guarantee of `bookings`. **Every
+assertion on that sentence was about what it CONTAINS, and the broken sentence
+contained all of it.** One table per line now; a caller with no table facts gets
+the old one-liner byte for byte.
+
+**TWO OF MY OWN PROBES WERE IN A DIFFERENT SHAPE FROM REALITY BEFORE THE CODE
+WAS** — the recorded fixture trap, twice in an hour, and both times the
+committed guard was right. `resolveAccess` reads `t.read`/`t.write` at the TOP
+level (`t.access` is the preset NAME), so a probe passing the pair under
+`access` made all sixteen cells answer as `collect`; and `refs` is derived at
+APPLY time, not by the normaliser, so a probe over `normalizeSchema` output sees
+none. **Confirmed `_meta.schema` really carries them**: `mergedTables = norm`,
+and `norm` is the DDL loop's own push.
+
+**THE MANAGED-COLUMN ANSWER, sharpened from "no column-scoped grant" to the
+whole emitted shape.** On every member-write cell the engine emits
+`GRANT SELECT, INSERT, UPDATE, DELETE ON "<t>" TO authenticated` — table-wide —
+and the UPDATE policy is `USING (owner_id = app_user_id()) WITH CHECK (owner_id
+= app_user_id())` for `write: own`, or `USING (app_user_id() IS NOT NULL)` for
+`write: members`. **The only managed column either clause names is `owner_id`**;
+the other twelve are unconstrained by the SQL. (A first reading counted `id`
+too — `"notes"."owner_id"` CONTAINS it: the substring-observer trap, in a probe.)
+`test/integration/neon-e2e.mjs` now carries the probe that turns the rest into
+measurement; it needs `NEON_API_KEY` and is the owner's to run.
+
+**AND `updated_at` IS NEVER BUMPED — found on the way, named rather than
+fixed.** `site-schema.mjs:1121` creates it as a column DEFAULT whose comment says
+"set on insert, bumped on every UPDATE", and a Postgres default applies only when
+the column is omitted from an INSERT. There is no trigger, no route and no
+statement anywhere that touches a site table's `updated_at` on an update — every
+hit in the tree is a Supabase platform table. `:1187` then says `updated_at`
+"covers inserts+edits" for `/changes?sync=`, so incremental sync misses every
+edit while the `_deletes` tombstone trigger makes its delete half real. **Open,
+and outside this change** — it is a `timestamps`/`sync` defect, not a coverage
+one.
+
+**STILL NOT PROVEN, and each needs the owner:** the three real addon requests
+(they need the deploy, a real Neon project and credits — and the harness's asks
+are FIXED per kind, with no free-text input, so ask A, "add a login page…", which
+must never name storage, cannot be sent through it as it stands); the
+managed-column probe; and whether a real model now picks `table` for an ask that
+implies storage without naming it. The picker's hint carries the words —
+verbatim: *"whether or not they mention a database, storing or a table … and also
+sign-in, accounts, members, profiles"* — which is the input, not the behaviour.
+
 ---
 
 Every cheap edit republishes through `recompileAndPublish` — the shared spine.
