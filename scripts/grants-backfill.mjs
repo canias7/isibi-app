@@ -256,7 +256,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const svc = process.env.SUPABASE_SERVICE_KEY || "";
   if (!svc) { console.error("SUPABASE_SERVICE_KEY is required"); process.exit(1); }
-  const { connForDatabase, sqlQuery } = await import("../site-db.mjs");
+  const { connForDatabase, sqlQuery, dbNameForSite } = await import("../site-db.mjs");
   const fs = await import("node:fs");
 
   const sites = await listSites(svc, args.slugs);
@@ -266,12 +266,30 @@ async function main() {
   let needing = 0, tablesNeeding = 0, failedSites = 0;
 
   for (const site of sites) {
-    // A SITE WITH NO RECORDED DATABASE NAME IS NAMED, NEVER SKIPPED IN SILENCE.
+    // A SITE WITH NO RECORDED DATABASE NAME IS STILL REACHED, AND SAID.
+    //
     // `site_backends.neon_db` is what every platform reader resolves through,
-    // so a site with a project and no database name is unreachable by the
-    // product too — a fact about the site, not about this script.
-    if (!site.db) { console.log(`${site.slug}: no neon_db on its site_backends row — the platform's own reader cannot resolve it either`); failedSites++; continue; }
-    const conn = connForDatabase(site.conn, site.db);
+    // and it is EMPTY on a site whose first build was frontend-only and whose
+    // database arrived later: `claimSiteSlug` writes the row with `neon_db: ""`
+    // and the only writer of that column is `saveBackend`, a POST carrying
+    // `resolution=ignore-duplicates` — an insert, which cannot update the row
+    // that is already there. Nothing else in the Worker ever PATCHes it
+    // (measured: the only two PATCHes to `site_backends` are the offline flag
+    // and the notify flag). So the column stays empty for ever and
+    // `siteBackendBySlug` answers `conn: null` for that site.
+    //
+    // Measured 2026-09-13: FOUR of the thirty-one sites with a Neon project are
+    // in this state. Recorded as its own finding; this script must not inherit
+    // it, because a backfill that silently skips the sites the platform cannot
+    // resolve leaves exactly the sites nobody is watching un-fixed.
+    //
+    // THE NAME IS DERIVABLE: a site's database is `dbNameForSite(slug)`, which
+    // is what the build smoke already uses to reach a site's own database. The
+    // recorded name is preferred when there is one, so a site that does not
+    // follow the derivation is still read at the name it really has.
+    const dbName = site.db || dbNameForSite(site.slug);
+    if (!site.db) console.log(`${site.slug}: no neon_db recorded — reaching it at the derived name ${dbName} (the platform's own reader cannot resolve this site)`);
+    const conn = connForDatabase(site.conn, dbName);
     const sql = (text, params) => sqlQuery(conn, text, params);
     let plan;
     try { plan = await planSite(sql, site.slug); }

@@ -7362,3 +7362,117 @@ loose", and they need opposite fixes.
 **Status: the fix is on the branch, not merged, not deployed. No database
 migration is needed — it changes generated permissions only. Suite 6,240 green,
 17 of 17 deliberate breakages caught.**
+
+---
+
+## The permission fix is now proved on a real database, and the backfill is ready (2026-09-13)
+
+You asked me to verify it on a disposable site — new tables *and* an existing
+table with the old permissions — and to run whatever checks I can.
+
+**There was a real Postgres on this machine.** So instead of a disposable site
+on Neon, I stood up a local PostgreSQL 16 and ran the platform's own statements
+into it. Every check you listed now has a measured answer rather than a reasoned
+one.
+
+**Nothing in the test is typed by hand.** The tables are built by the real build
+engine. The *old* permissions come out of git — the actual code from before the
+fix — so "an existing table with the old permissions" is the state a real site
+is in, not my impression of it. The new permissions come from the shipping code.
+
+### What a client could really do before the fix
+
+On a booking form, a visitor who is not signed in to anything could:
+
+- choose the row's own id,
+- backdate it to 2001,
+- forge its "last updated" stamp.
+
+A signed-in member could edit its own row's timestamps, and set `pinned` and
+`position` — the two fields that decide what sorts to the top of a feed.
+
+**Every one of those is now refused**, and every legitimate write still works:
+submitting the form, adding a row, editing your own words, reading your own
+rows, deleting your own row. The rows already in the tables were untouched, and
+running the fix a second time changed nothing at all.
+
+**Two of them were already safe and I'm saying so rather than taking the
+credit**: handing your row to someone else, and hand-deleting it, were already
+blocked by the row rules. The new permissions add a second lock on those two.
+They are the *only* lock on id, the timestamps, pinned and position.
+
+**One thing I got wrong on the way, worth knowing because it is the kind of
+mistake that reads as success.** My first version counted "the database didn't
+complain" as "the write was allowed". But an update that matches no rows
+*succeeds* — it just does nothing — and the row rules filter rows out silently.
+So three checks were reporting writes that never happened as if they had. I now
+read how many rows actually changed. Two of the results in this report changed
+once I fixed that.
+
+### The inventory
+
+| | |
+|---|---|
+| sites in total | **70** |
+| with a database (so anything to fix) | **31** |
+| frontend-only, nothing to fix | **39** |
+
+66 of the 70 are yours; the other four are automated smoke fixtures.
+
+**I did not open the 31 databases to count which tables are affected**, and that
+was deliberate: it would mean pulling each site's live database password into
+this conversation, which isn't something to do for a count. The backfill's
+preview answers it exactly, from the machine that already holds those
+credentials, and writes nothing.
+
+### The backfill — written, tested, NOT run
+
+`scripts/grants-backfill.mjs`. Four modes:
+
+- **preview** (the default) — writes nothing at all. Lists every table on every
+  site, what it allows now, and what it would allow.
+- **apply** — makes the change, then immediately checks it.
+- **verify** — re-reads and reports.
+- **rollback** — puts a site back exactly as it was, from a file the preview and
+  the apply both write automatically.
+
+It only ever changes permissions. There is no statement anywhere in it that can
+touch a row, and I proved that rather than asserting it: I ran the whole cycle
+against the real Postgres — preview, apply, verify, apply again, rollback — and
+the rows were identical at every step, with a read-only table alongside as a
+control that correctly reported needing nothing.
+
+**Suggested order when you want it run**: preview and read it; apply to **one**
+site that has a form and test a real submission on it; then the rest; then
+verify. Keep the rollback file until you're happy.
+
+### Something I found while counting, and it's a separate problem
+
+**Four of your sites have a database the platform can't find**: `northgroup-5`,
+`ashgrove-1`, `washhouse-1` and `fretwork-1`.
+
+When a site is first built it has no database, and the record says so. When you
+later add something that needs one, the database really is created — but the
+line that was supposed to write its name back onto the site's record is an
+"insert, and skip if it already exists". The record already exists, so it's
+skipped, and the name is never written. Nothing else in the whole Worker ever
+fills it in.
+
+I haven't verified what that costs those four sites day to day — the add-on
+path finds the database another way, which is why the tests on fretwork-1 worked
+while this was true. But it's real, it's on the backlog, and it mattered here:
+a backfill that looked sites up the normal way would have silently skipped
+exactly those four. It derives the name instead, and says which sites it reached
+that way.
+
+### What I could not run, and what you'd need to run it
+
+| | why |
+|---|---|
+| **the three addon requests** | needs the fix deployed, a real site, and credits — and a session cannot start a workflow here (GitHub answers 403, re-checked today) |
+| **the backfill against your real sites** | needs the service key, and your go-ahead |
+| **the Neon-specific half** | whether Neon's API surface shows these refusals the way the panel expects; needs the Neon key |
+
+**Status: still on the branch, still not merged, still not deployed.** No
+database migration is needed. Suite 6,256 green; 19 of 19 deliberate breakages
+of the new backfill caught.

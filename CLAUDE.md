@@ -4858,14 +4858,115 @@ has never heard of. The three REVOKE mutants (the pair dropped, one role
 dropped, the order inverted) were added with the reach case and all three die on
 it. **Suite 6,240** (6,231 before; the nine new cases).
 
-**WHAT IS STILL INFERENCE, and it is the same sentence as the pass/fail above**:
-that Postgres then enforces the grant as written. This is a proof about what the
-engine EMITS; `test/integration/neon-e2e.mjs` is the probe that closes it, and it
-needs `NEON_API_KEY`, which no session here has.
-
 **AND TWO THINGS FOUND BESIDE IT ARE DELIBERATELY NOT IN IT** (owner: *"Keep
 timestamps and sync as separate follow-up issues"*) — `updated_at` never being
 bumped, and `sync` having no reader at all. Both are in the backlog.
+
+#### The inference is closed: a real Postgres, and the backfill (2026-09-13)
+
+Owner: *"verify the permission fix on a disposable site, covering both new
+tables and an existing table with the old permissions… Then inventory existing
+sites that need their permissions updated. Prepare a targeted backfill."*
+
+**EVERY ENTRY ABOVE ENDS "THIS IS A PROOF ABOUT WHAT THE ENGINE EMITS", AND THIS
+IS WHERE THAT ENDS.** `test/integration/local-pg-grants.mjs` runs the engine's
+own statements into a real **PostgreSQL 16** — no Neon, no Supabase, no network,
+its own throwaway database and roles, dropped at the end. **29 cases, all as
+expected.**
+**NOTHING IS TYPED IN IT.** The DDL comes out of the real `applySiteSchema`
+through the `fetch` seam; the OLD grants come out of GIT at run time
+(`git show 8e8ac5eb^:site-rls.mjs`), so the "existing table with the old
+permissions" half is the state a real pre-fix apply LEFT and not a fixture of
+one; the new grants come from the shipping emitter. The extracted file is
+required NOT to contain `writableColumns` — the alive-observer check, proved by
+pointing `PRE_FIX_REF` at the post-fix commit and watching it refuse.
+
+**MEASURED UNDER THE OLD GRANTS, which is the state every un-touched site is in
+today**: an anonymous visitor could choose `id`, backdate `created_at` and forge
+`updated_at` on a booking form; a member could edit `created_at` and set
+`pinned` and `position` on its own feed row. **Under the fix each one is
+`permission denied for table`**, every legitimate write still succeeds
+(anonymous submits, member inserts, edits, reads and deletes), the rows are
+untouched, and a second apply is byte-identical in privileges and rows.
+
+**TWO MANAGED COLUMNS WERE ALREADY OUT OF REACH AND RLS IS WHY** — `owner_id`
+fails the UPDATE policy's `WITH CHECK (owner_id = app_user_id())` and
+`deleted_at` fails the same clause's live-row predicate. Said out loud rather
+than letting the fix take credit for a wall it did not build: it adds a SECOND
+gate over those two and is the ONLY gate over `id`, `created_at`, `updated_at`,
+`pinned` and `position`.
+
+**AND EVERY ANSWER IS READ FOR ITS REASON, IN BOTH DIRECTIONS — the recorded
+blind-instrument trap, twice in one file, and the second half is the one worth
+keeping.** A refusal from the wrong gate reads exactly like the fix working (a
+missing column, a NOT NULL violation, RLS instead of the grant), so each case
+NAMES the gate it is about and a refusal from another one fails it. And **an
+ALLOWED that touched no row is not an allowed write**: `UPDATE … WHERE` matching
+nothing SUCCEEDS, and RLS's USING clause filters rows out in SILENCE — so a
+member's attempt on somebody else's row comes back with no error at all. **Three
+cases read as successful writes until the command tag was parsed**, and the
+wrong reading had already gone into a draft of this entry.
+
+**THE INVENTORY, read-only: 70 sites, 31 with a Neon project, 39 frontend-only
+and therefore nothing to fix.** 66 of the 70 belong to the building account; the
+other four are smoke fixtures on three other accounts. **Which of the 31 carry a
+table-wide client write is deliberately NOT measured here**: answering it means
+reading each site's `_meta.schema` out of its own Neon database through the
+connection string in `site_project.neon_conn`, and a live credential does not go
+into a session transcript for a count. `--preview` answers it exactly, from
+where the credentials already live.
+
+**`scripts/grants-backfill.mjs` — preview (the default, writes nothing), apply,
+verify, rollback.** Grants only: the REVOKE pair and the GRANTs `grantsFor`
+emits, per table. No DDL, no policy, no `_meta` write — targeted rather than
+"call `applySiteSchema` on everything", which re-runs a hundred statements per
+site to change two. The column list is the INTERSECTION of the stored schema and
+what the table really has, and anything the spec claims and the table lacks is
+NAMED, because a GRANT naming a missing column fails WHOLE and `applySiteSchema`
+logs and carries on — one absent name would leave a site silently refusing form
+submissions. **Verification has two halves and the second is what stops the
+first being vacuous**: no client role holds a table-level INSERT or UPDATE, AND
+the column grants name exactly the writable columns — a table where the REVOKE
+landed and the GRANT did not satisfies the first perfectly and cannot take a
+booking. **Rollback is a real recovery**: the before-state file carries each
+table's real `relacl` and `attacl`, and the rollback rebuilds GRANT statements
+from them.
+**DRIVEN END TO END AGAINST THE REAL POSTGRES**: preview writes nothing
+(measured — every statement it issues is a read, and both the rows and the
+privileges are identical after it), apply verifies, a second apply is
+byte-identical, and the rollback puts all four tables back exactly as recorded
+with the rows untouched. A read-only `display` table is the live control
+throughout: reported, and reported as needing nothing.
+
+**FOUR SITES THE PLATFORM'S OWN READER CANNOT RESOLVE, found taking the
+inventory and recorded as its own defect.** `northgroup-5`, `ashgrove-1`,
+`washhouse-1` and `fretwork-1` each have a `site_project` row and an EMPTY
+`site_backends.neon_db`. `claimSiteSlug` writes the row with `neon_db: ""` on a
+first build (frontend-only is the default) and the ONLY writer of that column is
+`saveBackend`, a POST carrying `resolution=ignore-duplicates` — an INSERT, which
+cannot update the row already there. Measured: the only two PATCHes to
+`site_backends` anywhere in the Worker are the offline flag and the notify flag.
+So a database provisioned later leaves the column empty for ever and
+`siteBackendBySlug` answers `conn: null`. **The backfill must not inherit it** —
+a sweep that skips the sites the platform cannot resolve leaves exactly the
+sites nobody is watching un-fixed — so it derives the name with
+`dbNameForSite(slug)` (what `build-smoke` already does), prefers a recorded name
+when there is one, and says which sites it reached the derived way. **Open.**
+
+**Guards**: `test/grants-backfill.test.mjs` (16) drives the plan, the statements
+(asserted by IDENTITY against `grantsFor`, never respelled), the two-half
+verification, the rollback and the refusal handling against a fake; the client
+roles are DERIVED from `DATA_API_ROLES` rather than typed again.
+**Sweep: 19 mutants, 19 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** **Suite 6,256** (6,240 before; the 16 new cases).
+
+**WHAT IS STILL NOT RUN, named rather than glossed**: the backfill against
+production (the owner's call, and the script writes nothing until `--apply`);
+the three addon acceptance requests (they need the deploy, a real Neon project
+and credits, and `workflow_dispatch` answers **403** for this integration —
+re-measured 2026-09-13); and whether Neon's PostgREST presents these refusals to
+a browser the way the panel expects, which is `test/integration/neon-e2e.mjs`'s
+and needs `NEON_API_KEY`.
 
 ---
 
@@ -6790,6 +6891,26 @@ write; check the name is free.
   from outside Postgres. This repository's own most-repeated defect — a value
   computed and never forwarded — in DDL. Decide per the standing rule: build the
   reader, or delete the flag and its DDL.
+- **A DATABASE PROVISIONED AFTER THE FIRST BUILD IS NEVER RECORDED ON THE
+  OWNERSHIP ROW (open, 2026-09-13, found taking the grants inventory).**
+  `claimSiteSlug` writes `site_backends` with `neon_db: ""` — correct, since a
+  first build is frontend-only by default — and the ONLY writer of that column is
+  `saveBackend`, a POST carrying `resolution=ignore-duplicates`, which is an
+  INSERT and cannot update the row already there. Measured: the only two PATCHes
+  to `site_backends` anywhere in the Worker are the offline flag and the notify
+  flag. So when an addon later provisions the database, `site_project` gets its
+  row and `neon_db` stays empty for ever, and `siteBackendBySlug` — which every
+  platform reader resolves through — answers `conn: null`.
+  **MEASURED: four of the thirty-one sites with a Neon project are in this
+  state** — `northgroup-5`, `ashgrove-1`, `washhouse-1`, `fretwork-1`, every one
+  created after frontend-only became the default. **What that costs those sites
+  is NOT verified**, only that the reader cannot resolve them; the addon path
+  reaches its database through `ensureSiteBackend`'s own return, which is why
+  runs 30–34 worked on fretwork-1 while this was true.
+  The fix shape is a PATCH beside the claim, or a heal on read. The name is
+  derivable either way (`dbNameForSite(slug)`), which is what
+  `scripts/grants-backfill.mjs` and `build-smoke` both use to reach a site's own
+  database without it.
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The availability calendar's own legend (open, live on `fretwork-1` since
   run 16).** `availability-calendar.tsx` prints "Each square is the night

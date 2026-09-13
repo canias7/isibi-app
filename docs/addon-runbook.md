@@ -4,12 +4,19 @@ Owner, 2026-09-13: *"Prepare the exact three addon test requests and the GitHub
 Lane Sweep settings I need to run them manually. Include how to create the
 disposable test site first and what result to check for each request."*
 
-> **STATUS: NOTHING HERE HAS BEEN RUN.** Every acceptance check below is written
-> and unexecuted. No disposable site exists, no request has been sent, no credit
-> has been spent. A session cannot fire either workflow —
-> `workflow_dispatch` answers **403** for this integration, and no
-> `SUPABASE_SERVICE_KEY` exists here — so this is a document, and every result
-> in it is a prediction until you run it.
+> **STATUS: NO ADDON REQUEST HAS BEEN RUN.** Every acceptance check in
+> Steps 0–3 below is written and unexecuted. No disposable site exists, no
+> request has been sent, no credit has been spent. A session cannot fire either
+> workflow — `workflow_dispatch` answers **403** for this integration
+> (re-measured 2026-09-13), and no `SUPABASE_SERVICE_KEY` exists here — so this
+> half is a document, and every result in it is a prediction until you run it.
+>
+> **THE PERMISSION WORK IS DIFFERENT AND HAS BEEN RUN.** Its four checks are
+> measured against a real PostgreSQL 16 — see *These two tests have now been
+> run* below — and the backfill's whole cycle (preview, apply, verify, apply
+> again, rollback) is driven against one too. What is **not** run is the
+> backfill itself against production, which is deliberate and waiting on the
+> owner.
 
 **ACCEPTANCE CHECKS CORRECTED 2026-09-13** after the owner read the first draft.
 The five corrections are marked ⚠ where they apply, because each one was a check
@@ -381,13 +388,90 @@ lazy.** Sites created after the deploy get it on their first backend touch;
 existing sites get it whenever their owner next changes something schema-shaped,
 which may be never.
 
-**How many sites this leaves exposed is unmeasured.** CLAUDE.md records 20 of
-47 sites with `neon_db` empty (so no tables at all); the rest need counting
-against which have a `collect` or member-write table. That count, and whether to
-write a backfill that calls `applySiteSchema` over every site's stored spec, is
-a decision rather than a bug fix — and it is the one thing about this change
-worth deciding before the three asks run, because a disposable site built after
-the deploy tests the new path and tells you nothing about the old ones.
+So the honest statement is: **the fix is correct and its reach is per-site and
+lazy** — which is why the backfill below exists.
+
+### The inventory, measured 2026-09-13 (read-only)
+
+| | count |
+|---|---|
+| sites in `site_backends` | **70** |
+| of those, with a Neon project (`site_project` row) | **31** |
+| frontend-only, so no tables and nothing to fix | **39** |
+| **candidates for the backfill** | **31** |
+
+Ownership: **66** of the 70 sites belong to the building account; the other
+**four** belong to three other accounts (`esmoke-fixture`, `esmoke-fixture-r1`,
+`smoke-mt5igr76-jdd38`, `smoke-mt6fxehk-vt4l1` — all smoke fixtures).
+
+**Which of the 31 actually carry a table-wide client write is NOT measured
+here**, and the reason is deliberate: answering it means reading each site's
+`_meta.schema`, which lives inside that site's own Neon database and needs the
+connection string out of `site_project.neon_conn`. That is a live credential,
+and reading it into a session transcript is not something to do for a count.
+`scripts/grants-backfill.mjs --preview` answers it exactly, from where the
+credentials already live, and writes nothing.
+
+### ⚠ Four sites the platform's own reader cannot resolve
+
+Found while taking the inventory, and it decides what the backfill can reach:
+**`northgroup-5`, `ashgrove-1`, `washhouse-1` and `fretwork-1` each have a Neon
+project and an EMPTY `site_backends.neon_db`.**
+
+`claimSiteSlug` writes the row with `neon_db: ""` on a first build (frontend-only
+is the default), and the only writer of that column is `saveBackend` — a POST
+carrying `resolution=ignore-duplicates`, which is an insert and cannot update the
+row that is already there. Measured: the only two PATCHes to `site_backends`
+anywhere in the Worker are the offline flag and the notify flag. So when a later
+addon provisions the database, `site_project` gets its row and `neon_db` stays
+empty for ever, and `siteBackendBySlug` answers `conn: null` for that site.
+
+**This is its own defect, outside the permission work**, and it is recorded as
+one. What it means here is that a backfill resolving through `neon_db` would
+silently skip exactly the four sites nobody is watching — so the script derives
+the name with `dbNameForSite(slug)` instead (what `build-smoke` already does),
+prefers the recorded name when there is one, and says out loud which sites it
+reached the derived way.
+
+### The backfill: `scripts/grants-backfill.mjs`
+
+Grants only — the REVOKE pair and the GRANTs `grantsFor` emits, per table. No
+DDL, no policy, no `_meta` write. That is what makes it *targeted* rather than
+"call `applySiteSchema` on everything", which would re-run a hundred statements
+per site to change two.
+
+```
+node scripts/grants-backfill.mjs --preview                      # writes NOTHING
+node scripts/grants-backfill.mjs --apply --slug <one-site>      # one site first
+node scripts/grants-backfill.mjs --verify
+node scripts/grants-backfill.mjs --rollback <before-state.json>
+```
+
+Needs `SUPABASE_SERVICE_KEY` only, so it runs from CI or a machine that has one.
+
+- **Preview** lists every table on every site with its access pair, what it
+  grants now, and what it would grant — plus anything the stored schema names
+  that the table has not got, which is left out of the grant on purpose (a GRANT
+  naming a missing column fails WHOLE, and `applySiteSchema` logs a failed
+  statement and carries on, so one absent name would leave a site silently
+  refusing form submissions). It writes a **before-state file** either way.
+- **Apply** issues the statements and verifies immediately.
+- **Verify** has two halves and the second is what stops the first being
+  vacuous: no client role holds a table-level INSERT or UPDATE, **and** the
+  column grants that replaced them name exactly the writable columns. A site
+  where the REVOKE ran and the GRANT did not satisfies the first perfectly and
+  cannot take a booking.
+- **Rollback** re-issues the recorded ACLs. It is a real recovery, not a
+  hand-wave: the before-state file carries each table's real `relacl` and
+  `attacl` entries and the rollback rebuilds GRANT statements from them.
+
+**Recommended order**: `--preview` and read it; `--apply --slug` on ONE site that
+has a form, and test a real submission on it; then `--apply` for the rest;
+`--verify`. Keep the before-state file until you are satisfied.
+
+**Data safety**: every statement is a GRANT or a REVOKE. There is no DML and no
+DDL anywhere in the script, so no row can be touched — proved rather than
+asserted, against a real Postgres, in the drive described below.
 
 ### ⚠ Test legitimate writes and refused managed writes separately
 
@@ -417,22 +501,70 @@ is worth reporting immediately.
 Run test 1 first: if legitimate writes are broken, test 2's refusals prove
 nothing about permissions.
 
-**Both tests are against Postgres through PostgREST, so they close the one thing
-the unit guards cannot.** Everything proved so far is about what the engine
-*emits*; `test/integration/neon-e2e.mjs` carries the probe that drives real
-Postgres and needs `NEON_API_KEY`, which no session here has.
+### These two tests have now been run — against a real Postgres, not against Neon
+
+`test/integration/local-pg-grants.mjs` runs the engine's own statements into a
+local PostgreSQL 16 and measures what Postgres does with them. It needs no Neon,
+no Supabase and no network:
+
+```
+pg_ctlcluster 16 main start
+node test/integration/local-pg-grants.mjs
+```
+
+**29 cases, all as expected.** Three tables shaped like the ones the builder
+really makes (`collect`, `user`, `feed` — the last two with `trash`, `ordered`
+and `pinnable` so `deleted_at`, `position` and `pinned` are real columns), plus
+a read-only `display` table as the control.
+
+| | under the OLD grants | under the fix |
+|---|---|---|
+| anonymous submits a legitimate form | allowed | **allowed** |
+| anonymous chooses `id` | **allowed** | `permission denied for table` |
+| anonymous backdates `created_at` | **allowed** | `permission denied for table` |
+| anonymous forges `updated_at` | **allowed** | `permission denied for table` |
+| member edits its own row's words | allowed | **allowed** |
+| member edits `created_at` / `id` | **allowed** | `permission denied for table` |
+| member pins / positions its own feed row | **allowed** | `permission denied for table` |
+| member reads and deletes its own rows | allowed | **allowed** |
+
+Plus: **rows untouched** (the pre-fix seeded row still reads back), and a
+**second apply is byte-identical** in privileges and rows.
+
+**Two managed columns were already out of reach and RLS is why** — `owner_id`
+fails the UPDATE policy's `WITH CHECK (owner_id = app_user_id())`, and
+`deleted_at` fails the same clause's live-row predicate. Said here rather than
+letting the fix take credit for a wall it did not build. The fix adds a second
+gate over both; it is the **only** gate over `id`, `created_at`, `updated_at`,
+`pinned` and `position`.
+
+**Every answer is read for its reason, and both directions mattered.** A refusal
+from the wrong gate reads exactly like the fix working, so each case names the
+gate it is about and a refusal from a different one fails it. And an ALLOWED
+that touched no row is not an allowed write: `UPDATE … WHERE` matching nothing
+SUCCEEDS and RLS filters rows out in silence, so three cases read as successful
+writes until the command tag was parsed.
+
+**What is still not closed**: that Neon's PostgREST layer presents these
+refusals to a browser the way the panel expects. `test/integration/neon-e2e.mjs`
+is the probe for that and needs `NEON_API_KEY`, which no session here has.
 
 ---
 
 ## Deployment and migration status
 
+Read 2026-09-13, after the push.
+
 | | state |
 |---|---|
-| **Permission fix** | **committed and pushed to `claude/help-needed-ehlwlj`, NOT merged, NOT deployed** |
+| **`main`** | `ec2ee66f` |
+| **last deploy** | run **2113**, green, on `00f6edfb` — `ec2ee66f` itself touched only `CLAUDE.md`, `docs/`, `scripts/` and `test/`, all in `deploy.yml`'s `paths-ignore`, so **no deploy run exists for it, by design** |
+| **Permission fix** | **committed and pushed to `claude/help-needed-ehlwlj`, NOT merged, NOT deployed** — `8e8ac5eb` |
 | **Tables-step / coverage change** | merged and live before this session |
 | **Database migration needed** | **none** — the fix changes emitted DDL only; there is no schema migration, no RPC change and nothing to apply to Supabase |
-| **Backfill for existing sites** | **none exists**, and one is not part of this change — see the gap above |
-| **Live tests** | **all unrun** |
+| **Backfill for existing sites** | **written, guarded, driven against a real Postgres, NOT executed** — `scripts/grants-backfill.mjs` |
+| **Live addon tests** | **all unrun** |
+| **`workflow_dispatch` from a session** | **403**, re-measured 2026-09-13 against `lane-sweep.yml` |
 
 **When it merges**, it touches `site-rls.mjs` and `site-schema.mjs`, both in the
 Worker's module graph and therefore image inputs — so the container rebuilds and
