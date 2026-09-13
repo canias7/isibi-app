@@ -159,21 +159,25 @@ test("a react message of unknown shape leaves the panel exactly as it was", () =
   const end = BARE.indexOf('<div class="st-fixbar"', at);
   const stage = BARE.slice(at, end);
 
-  // THE CLASSIC LOG BOX IS THE CLASSIC BUILD'S. `paintBuildLog` returns early
-  // for a react build, so that div is one nothing ever fills — and the moment
-  // the gate above narrowed, a react build in `thinking` fell into it and got a
-  // blank right-hand side where the invitation had been.
-  assert.match(stage, /siteBusy && siteBuild && !siteBuild\.react\s*\n?\s*\? '<div class="st-empty"><div class="st-livelog st-livelog-stage">/,
-    "the empty-state branch hands a react build the classic log box, which nothing paints");
-  // THE SKIP IS AT THE CALL SITE, not inside the painter — asserted where it
-  // lives rather than where I first guessed it did. Nothing paints that box for
-  // a react build, which is what makes handing one the box a blank panel.
-  const calls = [...BARE.matchAll(/paintBuildLog\(\)/g)];
-  assert.ok(calls.length >= 1, "paintBuildLog is never called — the classic box is dead for every build");
-  assert.match(BARE, /if \(siteBusy && siteBuild && !siteBuild\.react\) paintBuildLog\(\);/,
-    "the classic log painter is no longer skipped for react builds — re-derive why the box is gated");
-  assert.match(fn("function siteBuildStart("), /if \(siteBuild\.react\) \{ paintReactLive\(\); return; \}/,
-    "the ticker no longer skips the classic painter for a react build");
+  // THE CLASSIC LOG BOX WAS THE CLASSIC BUILD'S, AND IT IS GONE (re-anchored
+  // 2026-09-13 — the spelling that moved is named). This case used to assert the
+  // GATE: `siteBusy && siteBuild && !siteBuild.react ? '<div class="st-empty">
+  // <div class="st-livelog st-livelog-stage">' : …`, because `paintBuildLog`
+  // returned early for a react build, so that div was one nothing ever filled
+  // and a react build in `thinking` fell into it and got a blank right-hand side
+  // where the invitation had been.
+  //
+  // The dead-code census then proved the whole classic arm unreachable — the
+  // case below derives every `siteBuildStart(` call and requires each to pass
+  // `true` — so the box, its painter and its phrase table went. The property
+  // this case is named for is unchanged and is now held BY CONSTRUCTION rather
+  // than by a gate: there is no other branch for a react message of unknown
+  // shape to fall into. Both halves are asserted, because a tree that rebuilt
+  // the box under a new class name would satisfy only the first.
+  assert.ok(!/st-livelog-stage/.test(BARE), "the classic log box is back in the empty state");
+  assert.ok(!/paintBuildLog/.test(BARE), "the classic log painter is back — re-derive whether its box can be reached");
+  assert.ok(!/siteBuild\.react\s*\n?\s*\?/.test(stage),
+    "the empty state branches on the build's engine again");
 
   // AND THE SENTENCE DOES NOT CLAIM A BUILD EITHER. "Building your site" over a
   // question is the same false statement one font size down.
@@ -181,6 +185,42 @@ test("a react message of unknown shape leaves the panel exactly as it was", () =
     "the empty state says a site is being built for a message nobody has classified yet");
   assert.match(stage, /Describe your site on the left to build the first draft\./,
     "the observer is alive: the invitation is still the other half of that sentence");
+});
+
+test("every build starts as a react build — the census that lets the classic arm stay deleted", () => {
+  // WHAT MADE THE DELETION SAFE, DERIVED RATHER THAN REMEMBERED (2026-09-13).
+  //
+  // `siteBuild.react` was a two-way switch: one arm drove the React step rail,
+  // the other the pre-React rotating activity log. The log, its phrase table and
+  // its two painters are gone, and the ONLY thing that keeps them gone is that
+  // nothing can start a build whose `react` is false. That was provable from one
+  // line — `siteSend` read `const reactPath = isBuild || site.react;` and then
+  // `if (reactPath) siteBuildStart(true); else if (isBuild) siteBuildStart();`,
+  // whose middle arm needs `!isBuild && isBuild` — but "provable from one line
+  // in September" is a habit, not a property. So the CALL SITES are the check.
+  //
+  // Every call, derived from the file, with no list of today's three typed here.
+  // THE DEFINITION IS NOT A CALL, and it is excluded by what precedes it rather
+  // than by its argument — `siteBuildStart(react)` and `siteBuildStart(true)`
+  // are the same shape, so a filter on the text inside the parentheses would
+  // exclude whichever one it was written against.
+  const calls = [...BARE.matchAll(/siteBuildStart\(([^)]*)\)/g)]
+    .filter((m) => BARE.slice(Math.max(0, m.index - 9), m.index) !== "function ");
+  assert.ok(calls.length >= 3, "siteBuildStart is called " + calls.length + " times — re-derive this scan");
+  for (const m of calls) {
+    assert.equal(m[1].trim(), "true",
+      "a build is started with `" + m[1].trim() + "` — the classic activity log was deleted because nothing could reach it, "
+      + "so a build whose `react` is false now paints NOTHING while it runs. Put the log back, or pass true.");
+  }
+  // AND THE UNREACHABLE ARM STAYS GONE. A `siteBuildStart()` with no argument
+  // would be caught above; this catches the shape that put one there.
+  assert.ok(!/else if \(isBuild\) siteBuildStart\(\)/.test(BARE),
+    "the unreachable classic-start arm is back in siteSend");
+  // THE OBSERVER IS ALIVE: the line that made the arm unreachable is still the
+  // line above it, so "no classic arm" is a statement about this dispatch and
+  // not about a function that moved.
+  assert.match(BARE, /const reactPath = isBuild \|\| site\.react;/,
+    "the react/classic dispatch moved — re-derive why every start is a react start");
 });
 
 // ── THE DECORATION UNDER THE RAIL ───────────────────────────────────────────

@@ -299,6 +299,25 @@ test("the router is BILLED, and only when the model answered", () => {
   assert.match(block, /if \(routed\.usage\)/, "a failed routing call would be billed");
 });
 
+// A named declaration's body, closed on the NEXT top-level declaration whatever
+// it is called (2026-09-13). Lifted out of `routeBlock` below, which had already
+// been re-anchored this way once, because two windows in this file closed on
+// `"function buildActiveText("` — a literal that names a NEIGHBOUR — and that
+// neighbour was deleted with the pre-React activity log. A missing END landmark
+// is a window that swallows the file; here the guards had an alive check and
+// failed loudly rather than quietly, which is the only reason this was a red run
+// and not a silent one. Deriving the end is what stops the next neighbour's
+// departure being either.
+const declBlock = (src, from) => {
+  const i = src.indexOf(from);
+  const re = /\n(?:async )?function |\nconst |\nlet /g;
+  re.lastIndex = i + 1;
+  const m = re.exec(src);
+  const end = m ? m.index : -1;
+  assert.ok(i > 0 && end > i, from + " moved — this guard now checks nothing");
+  return src.slice(i, end);
+};
+
 // The router's own body, to its closing brace rather than to a byte count.
 const routeBlock = () => {
   const src = chat();
@@ -454,14 +473,11 @@ test("no builder reply states what it cost", () => {
   // the whole file — `openCredits` and the not-enough-credits messages legitimately
   // talk about the ✦ balance, and a file-wide check would forbid those too.
   const src = chat();
-  for (const [name, from, to] of [
-    ["the React engine", "function reactSend(", "function buildActiveText("],
-    ["the router", "function siteRoute(", "// The React build/revise send path"],
+  for (const [name, from] of [
+    ["the React engine", "function reactSend("],
+    ["the router", "function siteRoute("],
   ]) {
-    const a = src.indexOf(from);
-    const b = src.indexOf(to, a);
-    assert.ok(a > 0 && b > a, name + ": the send path was renamed — this guard now checks nothing");
-    const block = src.slice(a, b).replace(/\/\/[^\n]*/g, "");
+    const block = declBlock(src, from).replace(/\/\/[^\n]*/g, "");
     assert.ok(!/✦'?\s*\+/.test(block), name + " still prints the cost into the reply");
     assert.ok(!/used\)/.test(block), name + " still appends a used-credits suffix");
   }
@@ -477,13 +493,10 @@ test("...and the meter is refreshed instead, which is the half that matters", ()
   // it has been answering 404 to every message on a pre-React project. It makes
   // no request at all now, so there is no balance for it to re-read.
   const src = chat();
-  for (const [name, from, to] of [
-    ["the React engine", "function reactSend(", "function buildActiveText("],
+  for (const [name, from] of [
+    ["the React engine", "function reactSend("],
   ]) {
-    const a = src.indexOf(from);
-    const b = src.indexOf(to, a);
-    assert.ok(a > 0 && b > a, name + ": the send path was renamed — this guard now checks nothing");
-    assert.match(src.slice(a, b), /scheduleCreditRefresh\(\)/,
+    assert.match(declBlock(src, from), /scheduleCreditRefresh\(\)/,
       name + " spends credits and nothing re-reads the balance");
   }
   // And the retired path really does spend nothing — asserted, or "we removed

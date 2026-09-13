@@ -38,13 +38,26 @@ const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
 // is the mechanism working: the list is only useful while it is exactly true.
 const KNOWN_DEAD = [
   "/api/site/collections", // the Database panel's collections card
-  "/api/site/preview",     // posts `html` — the D1 page format
-  // `/api/site/scan` LEFT THIS LIST BY THE RATCHET BELOW (2026-09-13), and not
-  // because the route was built: the dead-code census found `siteSecurityScan`
-  // had no caller at all — the Security panel's own button has been drawn
-  // `disabled` with "Not available yet" since the dead-control finding — so the
-  // handler that posted to it went with the rest of the dead set. A client
-  // route with no caller is not a dead route; it is no route.
+  // TWO NAMES LEFT THIS LIST BY THE RATCHET BELOW ON 2026-09-13, and neither
+  // because the route was built. A client route with no caller is not a dead
+  // route; it is no route — so the ratchet forced them out exactly as it forced
+  // `/api/site/functions` out when its panel was rewritten, which is the
+  // mechanism working in the other direction.
+  //
+  // `/api/site/scan` — the dead-code census found `siteSecurityScan` had no
+  // caller at all: the Security panel's own button has been drawn `disabled`
+  // with "Not available yet" since the dead-control finding, so the handler that
+  // posted to it went with the rest of the dead set.
+  //
+  // `/api/site/preview` — posted `html` in the D1 page format, and the census
+  // found it 404ing on EVERY call with the blob fallback below it doing the
+  // actual work, so the POST went and `loadSitePreview` builds the blob
+  // directly. THE SERVER HALF IS STILL THERE AND IS STILL DEAD: `worker.js`
+  // serves `GET /preview/<uid>/<nonce>` out of `preview/<uid>.html`, and nothing
+  // anywhere writes that object — so the route has answered "Preview not ready"
+  // to every request it has ever had. That is a route with no WRITER rather than
+  // a client call with no route, which is not a shape this file can see, so it
+  // is named here rather than tracked here.
 ];
 
 /** Comments blanked, so a comment EXPLAINING a dead route is not a finding. */

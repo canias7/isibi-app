@@ -491,9 +491,21 @@ test("THE WIRING: the clock has an origin, a tick, and a stop", () => {
   // The 6-second poll cannot drive a seconds display; the ticker does, and it
   // returned early for react builds because they were meant to repaint on a
   // stream that never arrives.
+  //
+  // RE-ANCHORED 2026-09-13, and the spelling that moved is named: this read
+  // `if (siteBuild.react) { paintReactLive(); return; }` — the react ARM of a
+  // two-way tick whose other arm drove the pre-React rotating activity log. The
+  // dead-code census proved that other arm unreachable (`siteBuildStart` is
+  // called with `true` from every call site, which the case below derives), so
+  // the log and the branch went and the tick is one call. The property is
+  // unchanged and is now held by construction: every tick repaints the rail.
   const startFn = fn("function siteBuildStart(", src);
-  assert.match(startFn, /if \(siteBuild\.react\) \{ paintReactLive\(\); return; \}/,
+  const tick = startFn.slice(startFn.indexOf("setInterval("));
+  assert.ok(tick.length > 40, "the ticker is gone — re-derive this landmark");
+  assert.match(tick, /paintReactLive\(\);/,
     "the ticker no longer repaints a react build — the clock stops between polls");
+  assert.match(tick, /if \(!siteBuild\) return;/,
+    "the tick no longer checks the build is still running — a clock outliving its build");
   // AND IT IS CLEARED. A timer outliving its build is this repo's recorded shape.
   assert.match(fn("function siteBuildStop(", src), /clearInterval\(siteTicker\)/,
     "the ticker is not cleared when the build ends");

@@ -116,8 +116,16 @@ test("THE WIRING: every place the preview frame is pointed goes through loadSite
   // THE CALL SITES. Cutting the call out of any one of them leaves the function
   // perfect and that surface dead — the wiring trap, which survived twelve
   // features here and was caught on the card icons by exactly this check.
+  //
+  // 6 → 5 ON 2026-09-13, and the spelling that went is named: `loadSiteFrame(fr,
+  // d.url)` was the DRAFT PREVIEW's — the frame pointed at the `/preview/` URL a
+  // POST to `/api/site/preview` answered with. The dead-code census found that
+  // POST 404ing on every call (there has never been a route) with the blob
+  // fallback one line below doing the work, so the request went and the blob is
+  // the one path. The property is unchanged: every remaining surface points the
+  // frame through the setter.
   const calls = (src.match(/loadSiteFrame\(/g) || []).length;
-  assert.equal(calls, 6, "one definition plus five call sites; a changed count means one moved or went");
+  assert.equal(calls, 5, "one definition plus four call sites; a changed count means one moved or went");
 
   // Named individually, so the count above cannot be satisfied by copies in one
   // place.
@@ -131,8 +139,7 @@ test("THE WIRING: every place the preview frame is pointed goes through loadSite
   assert.match(src, /loadSiteFrame\(fr, sitePreviewSrc\(site,/, "the workspace render must point the frame through it");
   assert.match(src, /loadSiteFrame\(f, sitePreviewSrc\(s,/, "the page picker must point the frame through it");
   assert.match(src, /loadSiteFrame\(f, sitePreviewSrc\(site,/, "Refresh must point the frame through it");
-  assert.match(src, /loadSiteFrame\(fr, d\.url\)/, "the draft preview must point the frame through it");
-  assert.match(src, /loadSiteFrame\(fr, sitePrevUrl\)/, "the blob fallback must point the frame through it");
+  assert.match(src, /loadSiteFrame\(fr, sitePrevUrl\)/, "the draft preview's blob must point the frame through it");
 
   // AND NO ROUTE AROUND IT, asked per function rather than across the file:
   // the card thumbnail assigns `fr.src` directly and is meant to, so a file-wide

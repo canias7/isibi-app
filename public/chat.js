@@ -1997,8 +1997,8 @@ window.addEventListener('popstate', () => {
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
 let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
-let siteBuild = null;       // { phase, pages[], done[], tick } — running build activity log
-let siteTicker = null;      // setInterval handle rotating the active "live" line
+let siteBuild = null;       // { react, rphase, code, file, filesSeen[], agents, images[] } — the running build
+let siteTicker = null;      // setInterval handle repainting the live step rail
 let siteView = 'preview';   // workspace stage: preview | code | more | data
 // WHICH VIEW THE STAGE IS ACTUALLY SHOWING, which is not always the one that was
 // asked for. `siteView` is module scope and outlives the site it was set on, and
@@ -2646,21 +2646,30 @@ function loadSiteFrame(fr, url) {
 // the app CSP, which blocks the generated site's own inline scripts. One live
 // URL at a time; the previous one is revoked so long sessions don't leak.
 let sitePrevUrl = null;
-// Build the shim-injected preview HTML (error watcher + draft slug + nav shim),
-// then hand it to the Worker so the iframe loads it from a real /preview/ URL
-// served under the WEBSITE CSP — the generated page's own inline <script>/<style>
-// run, exactly like the live site. A blob/srcdoc iframe inherits the APP's strict
-// CSP (script-src 'self', no inline) and renders the page blank; that was the bug.
+// Build the shim-injected preview HTML (error watcher + draft slug + nav shim)
+// and load it into the frame from a blob URL.
+//
+// THE ROUND TRIP THAT USED TO COME FIRST IS GONE (2026-09-13, the dead-code
+// census). It POSTed the shimmed document to `/api/site/preview` so the frame
+// could load it from a real `/preview/` URL under the WEBSITE CSP, where the
+// generated page's own inline <script>/<style> run — a blob inherits the APP's
+// strict `script-src 'self'`, so dynamic content stays inert. That is still
+// true and is still the cost; what changed is that the POST has had no route
+// since the D1 page format went, so it has 404'd on every single call and the
+// blob below has been the only path for as long as this function has had a
+// caller. A request that cannot succeed is not a fallback chain, it is a failed
+// request in front of the thing that runs. `client-routes.test.mjs` carried
+// `/api/site/preview` on its KNOWN_DEAD ratchet, which is where that was
+// written down.
+//
+// PUTTING IT BACK IS TWO HALVES, AND THE SERVER ONE IS STILL THERE: the Worker
+// still serves `GET /preview/<uid>/<nonce>` out of `preview/<uid>.html`, and
+// NOTHING WRITES THAT OBJECT — so the route answers "Preview not ready" to
+// every request it has ever had. A working draft preview needs the POST route
+// that writes it, and then this call in front of the blob again.
 async function loadSitePreview(fr, html, slug) {
   if (!fr) return;
   const withShim = sitePreviewHtml(html, slug);
-  try {
-    const r = await apiFetch('/api/site/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html: withShim }) });
-    if (r && r.ok) { const d = await r.json().catch(() => ({})); if (d && d.url) { loadSiteFrame(fr, d.url); return; } }
-  } catch (e) {}
-  // Fallback only if the round-trip fails (offline / not signed in): a blob URL.
-  // Styled but its inline scripts are blocked by the app CSP, so dynamic content
-  // won't run — still better than a hard failure.
   if (sitePrevUrl) { try { URL.revokeObjectURL(sitePrevUrl); } catch (e) {} sitePrevUrl = null; }
   sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
   loadSiteFrame(fr, sitePrevUrl);
@@ -5565,16 +5574,17 @@ function renderSiteWorkspace(view, site) {
             // whole run. See those two functions.
             ? stBuildFrameHTML(site)
             : !hasSite
-              // THE CLASSIC LOG BOX IS THE CLASSIC BUILD'S, and it took a react
-              // build's thinking window with it once the gate above narrowed:
-              // `paintBuildLog` returns early for a react build, so that div is
-              // one nothing ever fills — a blank right-hand side where the
-              // invitation used to be. A react build in `thinking` is a message
-              // we do not yet know the shape of, so the panel stays exactly what
-              // it was before it was sent.
-              ? (siteBusy && siteBuild && !siteBuild.react
-                  ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
-                  : '<div class="st-empty">' + (siteBusy && stBuildRunning() ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
+              // THE CLASSIC LOG BOX WAS THE CLASSIC BUILD'S, and it took a react
+              // build's thinking window with it once the gate above narrowed: the
+              // painter returned early for a react build, so that div was one
+              // nothing ever filled — a blank right-hand side where the invitation
+              // used to be. It was gated off for a react build and is DELETED now
+              // (2026-09-13), since every caller starts a react build, so a react
+              // message of unknown shape reaches the invitation by construction.
+              // A react build in `thinking` is a message we do not yet know the
+              // shape of, so the panel stays exactly what it was before it was
+              // sent.
+              ? ('<div class="st-empty">' + (siteBusy && stBuildRunning() ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
               // THE PANE IS NOT GATED ON `isReact`, AND THAT WAS THE DEFECT THE
               // TAB'S OWN FIX LEFT BEHIND. Making Code real took three hops —
               // draw the tab, render the host, fetch into it — and only two were
@@ -5660,12 +5670,9 @@ function renderSiteWorkspace(view, site) {
       : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
-          ? (siteBuild.react
-              ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
-              : '<div class="st-msg a st-busy"><div class="st-livelog"></div></div>')
+          ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
           : '<div class="st-msg a st-busy">Working</div>')
       : '');
-    if (siteBusy && siteBuild && !siteBuild.react) paintBuildLog();
     thread.scrollTop = thread.scrollHeight;
     thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
       const txt = (b.closest('.st-msg') || {}).textContent || '';
@@ -6057,26 +6064,26 @@ function renderSiteWorkspace(view, site) {
   wireBuildPicker();
 }
 // #4 — LIVE build activity (Claude-Code-style running log). The server only
-// speaks at a few checkpoints (plan done, each page done, photos), which leaves
-// long silent gaps during the actual Gemini calls. So the CLIENT runs a ticker
-// that keeps the words moving the whole time — a rotating "current step" line
-// over an accumulating list of finished steps (✓). It starts the instant Send is
-// hit (before any server event) so there's zero dead air.
-const ST_TICK = {
-  plan: ['Reading your brief', 'Planning the pages', 'Choosing a design direction', 'Picking fonts & colors', 'Setting the brand voice', 'Sketching the layout'],
-  design: ['Designing {p}', 'Laying out {p}', 'Writing the copy for {p}', 'Styling the components', 'Building the sections', 'Refining the spacing', 'Wiring the buttons & links'],
-  photos: ['Art-directing the photos', 'Generating the imagery', 'Placing the hero shot', 'Optimizing the images', 'Polishing the details'],
-  finish: ['Reviewing the code', 'Final touches', 'Wrapping up'],
-};
+// THE CLASSIC ROTATING ACTIVITY LOG IS GONE (2026-09-13, the dead-code census).
+// A `ST_TICK` table of phrases, `buildActiveText` and `paintBuildLog` drove a
+// rotating "current step" line for the pre-React engine, behind `!siteBuild.react`
+// — and `siteBuildStart` is CALLED WITH `true` FROM EVERY CALL SITE, so that
+// field has been constant since the classic engine's own send path went. Dead by
+// construction rather than by stored data, which is what separated this from the
+// legacy-`html` branches the same census left standing.
+//
+// `react` STAYS ON THE OBJECT and stays a parameter. `stBuildRunning` reads it,
+// and a parameter with one live value is only a second copy of that value while
+// nothing can pass the other one — the guard derives the call sites and requires
+// every one to pass `true`, so a classic caller coming back fails by existing
+// rather than quietly re-arming a branch that is no longer there to take.
 function siteBuildStart(react) {
   // STARTS IN `thinking`, NOT `generating`. This runs the instant a message is
   // sent — before the router has said whether it is even a build — and starting
   // at `generating` is what made "hey" paint "Writing the code".
-  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'thinking', images: [], filesSeen: [], agents: {}, startedAt: Date.now() };
+  siteBuild = { react: !!react, code: '', file: '', rphase: 'thinking', images: [], filesSeen: [], agents: {}, startedAt: Date.now() };
   if (siteTicker) clearInterval(siteTicker);
-  // React builds repaint on stream events, not on a timer — the timer only drives
-  // the classic rotating activity log.
-    // A REACT BUILD REPAINTS ON THIS TICK NOW, for the clock alone (2026-09-07).
+  // A REACT BUILD REPAINTS ON THIS TICK NOW, for the clock alone (2026-09-07).
   // It returned early here because a react build was meant to repaint on stream
   // events — from a stream that has never arrived on this path — so between
   // six-second polls nothing moved at all. A repaint can lose no expand state
@@ -6087,8 +6094,7 @@ function siteBuildStart(react) {
   // `siteBuild` — a clock outliving its build is this repo's recorded shape.
   siteTicker = setInterval(() => {
     if (!siteBuild) return;
-    if (siteBuild.react) { paintReactLive(); return; }
-    siteBuild.tick++; paintBuildLog();
+    paintReactLive();
   }, 1500);
 }
 function siteBuildStop() { siteBuild = null; if (siteTicker) { clearInterval(siteTicker); siteTicker = null; } }
@@ -8109,40 +8115,6 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
     siteErr = { chatId: origin }; finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
   }).finally(() => { siteAbort = null; });
 }
-function buildActiveText() {
-  if (!siteBuild) return 'Working';
-  const set = ST_TICK[siteBuild.phase] || ST_TICK.finish;
-  let s = set[siteBuild.tick % set.length];
-  if (s.indexOf('{p}') >= 0) {
-    // Prefer pages still in progress (not yet ticked ✓), so the active line reads
-    // as what it's actually working on.
-    const pending = siteBuild.pages.filter((p) => !siteBuild.done.includes(p));
-    const pool = pending.length ? pending : (siteBuild.pages.length ? siteBuild.pages : ['the page']);
-    s = s.replace('{p}', pool[siteBuild.tick % pool.length]);
-  }
-  return s;
-}
-// Paint the running log in place — no full re-render (that would reload the
-// preview iframe mid-build). Finished steps stay (dim, ✓); the active line
-// pulses and rotates.
-function paintBuildLog() {
-  const active = buildActiveText();
-  const done = siteBuild ? siteBuild.done : [];
-  const html = done.map((d) => '<div class="st-ll done">' + esc(d) + '</div>').join('') +
-    '<div class="st-ll active"><span class="st-ll-dot"></span>' + esc(active) + '…</div>';
-  const host = document.querySelector('.st-thread .st-livelog');
-  if (host) { host.innerHTML = html; const th = document.querySelector('.st-thread'); if (th) th.scrollTop = th.scrollHeight; }
-  const stageHost = document.querySelector('.st-stage .st-livelog');
-  if (stageHost) stageHost.innerHTML = html;
-  const empty = document.querySelector('.st-stage .st-empty'); if (empty && !stageHost) empty.textContent = active + '…';
-}
-// The REAL engine (2026-07-18, Gemini-only, multi-page): the FIRST message on a
-// project builds the whole site (a plan pass decides the pages + a shared design
-// system, then each page is generated to match); every later message revises the
-// ACTIVE page. Metered charge-after-success (no reserve/refund): the worker bills
-// the measured Gemini cost + each generated Nano Banana Pro image, only once each
-// step lands, so a failure costs nothing. Builds take a minute or two, streamed
-// as NDJSON so the chat shows live steps.
 // Answering the builder's own question, or refusing to.
 //
 // `label` is the option they clicked, or what they typed while a question was on
@@ -8277,7 +8249,13 @@ function siteSend(text) {
   // The React engine (build = new project, revise = any React site) drives its own
   // live step-rows; legacy static sites keep the classic activity log / no log.
   const reactPath = isBuild || site.react;
-  if (reactPath) siteBuildStart(true); else if (isBuild) siteBuildStart(); else siteBuildStop();
+  // THE MIDDLE ARM WAS UNREACHABLE AND IS GONE (2026-09-13, the dead-code census).
+  // It read `else if (isBuild) siteBuildStart();` — the classic engine's own
+  // start — and `reactPath` is `isBuild || site.react`, so reaching it needed
+  // `!isBuild && isBuild`. Provably dead from this line alone, which is what let
+  // the classic activity log go with it: nothing could ever start a build whose
+  // `react` was false.
+  if (reactPath) siteBuildStart(true); else siteBuildStop();
   sitesSave();
   renderSites();
   const origin = siteOpenId;
