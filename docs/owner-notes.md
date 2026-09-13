@@ -175,6 +175,10 @@ pinch of background at the top and bottom. That's what two 16px-rounded cards
 butting together look like. If you'd rather they met flat, flattening the two
 facing corners is a one-line follow-up — say the word.
 
+**Live** — deploy 2110, green in 48 seconds, and the stylesheet the site is
+serving is byte-for-byte the one in the repository. Nothing rebuilt and no
+container rolled, so it's there the moment you reload.
+
 ---
 
 ## 2026-09-13 — The page picker knew about one page. It knows them all now.

@@ -2620,6 +2620,14 @@ case now, and it is safe on walls that already existed.
   survived, 0 never applied, 1 comment-only control survived** — the gutter back,
   a 2px gutter no presence check can see, the declaration dropped entirely, and
   the row losing `position: relative`. **Suite 6,163.**
+  **MERGED AND LIVE — deploy 2110, 2026-09-13 01:09:38→01:10:26Z, green in 48
+  seconds**, and **both served files hash byte-for-byte identical to source**
+  (`styles.css` `c368fa9d03310997`, `chat.js` `e1f0192dfb15f627`) two minutes
+  from push. The image step was **2 seconds** and nothing rolled — the push
+  touches `public/`, `test/` and the two `.md` files and moves no image input —
+  so the 15–20 minute hold does not apply. **Both files asked, not only the one
+  that changed**: this is a stylesheet-only change, and a check that read only
+  `chat.js` would certify a deploy that shipped the old CSS.
 - **THE PAGE LIST ONLY EVER EXISTED IN THE BROWSER THAT BUILT THE SITE
   (2026-09-13, owner on `lido-free-a`, a live three-page site whose picker read a
   dead "Homepage": *"OK THIS SITE SUPPOSLTY HAS COU7PLE PAGES , RIGHT ?"* →
