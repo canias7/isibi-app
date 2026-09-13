@@ -176,5 +176,17 @@
   { "label": "UNCERTAINTY 2: a managed column stops being managed on our own routes",
     "files": ["site-access.mjs"],
     "from": "  \"_version\", \"_fts\", \"position\", \"archived_at\", \"expires_at\", \"pinned\",",
-    "to": "  \"_version\", \"_fts\", \"archived_at\", \"expires_at\"," }
+    "to": "  \"_version\", \"_fts\", \"archived_at\", \"expires_at\"," },
+  { "label": "THE AMBIGUOUS NOTE: the tables join with the guarantee list's own separator, so the next table reads as a guarantee",
+    "files": ["builder/site-add.mjs"],
+    "from": "      ? (anyDetail ? \"It stores:\\n- \" + tables.join(\"\\n- \") : \"It stores: \" + tables.join(\", \") + \".\")",
+    "to": "      ? (anyDetail ? \"It stores: \" + tables.join(\", \") + \".\" : \"It stores: \" + tables.join(\", \") + \".\")" },
+  { "label": "The rows form never fires: a site that DOES carry detail reads as the ambiguous one-liner",
+    "files": ["builder/site-add.mjs"],
+    "from": "      if (tail) anyDetail = true;",
+    "to": "      if (false) anyDetail = true;" },
+  { "label": "The rows form fires for a site with NO detail, changing every caller that passes no tableInfo",
+    "files": ["builder/site-add.mjs"],
+    "from": "      const tail = detail(t);",
+    "to": "      const tail = detail(t) || \" \";" }
 ]

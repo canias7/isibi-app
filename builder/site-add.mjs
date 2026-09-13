@@ -1226,10 +1226,13 @@ export function siteNote(site) {
     if (keeps.length) bits.push("keeps " + keeps.join(", "));
     return bits.length ? " — " + bits.join("; ") : "";
   };
+  let anyDetail = false;
   const tables = (Array.isArray(s.tables) ? s.tables : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 24)
     .map((t) => {
       const c = (Array.isArray(cols[t]) ? cols[t] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 40);
-      return (c.length ? t + " (" + c.join(", ") + ")" : t) + detail(t);
+      const tail = detail(t);
+      if (tail) anyDetail = true;
+      return (c.length ? t + " (" + c.join(", ") + ")" : t) + tail;
     });
   // A SITE WITH NO DATABASE IS SAID IN AS MANY WORDS, and what it means is said
   // too: a table designed for it is refused by name, so the model should not
@@ -1238,8 +1241,30 @@ export function siteNote(site) {
   // first table, function, connection or job designed for it is what makes
   // it, so the note says so instead of refusing — the old sentence ("a table
   // cannot be added to it in this step") was the wall this step no longer has.
+  // ONE LINE PER TABLE ONCE THERE IS DETAIL TO CARRY, and the reason is the
+  // OUTPUT rather than taste. Joined with ", " the real note read
+  //
+  //   It stores: bookings (slot text, phone text) — access user; keeps
+  //   oncePerUser, enforceRefs, unique, sessions (title text) — access display.
+  //
+  // in which `sessions` is indistinguishable from a fourth guarantee of
+  // `bookings`: the guarantee list and the table list used the same separator.
+  // A designer that cannot tell where one table ends and the next begins is
+  // exactly the "a site that disagrees with itself" failure this context was
+  // added to prevent — it would read `sessions` as something bookings keeps and
+  // then design a table to hold sessions.
+  //
+  // FOUND BY READING THE REAL NOTE BACK, not by a guard: every assertion was
+  // about what the sentence CONTAINS, and it contained all of it. Run 26's
+  // method — print the prompt before buying a call.
+  //
+  // A CALLER THAT PASSES NO `tableInfo` gets no detail and therefore the
+  // one-line list it always got, byte for byte, which is the same rule the
+  // columns three lines up already follow.
   lines.push(s.hasDatabase
-    ? (tables.length ? "It stores: " + tables.join(", ") + "." : "It has a database with no tables yet.")
+    ? (tables.length
+      ? (anyDetail ? "It stores:\n- " + tables.join("\n- ") : "It stores: " + tables.join(", ") + ".")
+      : "It has a database with no tables yet.")
     : "It has NO database yet: nothing on it is stored. The first table, function, outside connection or scheduled job you design for it creates one.");
   // AND THE REST OF ITS BACKEND BY NAME (2026-09-03), so a designer adding a
   // function, a connection or a job names a new one and a job can name a

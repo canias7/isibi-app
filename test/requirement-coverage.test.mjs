@@ -536,6 +536,39 @@ test("the site note carries structures, relationships, permissions and constrain
   // caller that does not supply them is unaffected.
   assert.match(siteNote({ name: "X", hasDatabase: true, tables: ["bookings"], columns: { bookings: ["slot_id integer"] } }),
     /It stores: bookings \(slot_id integer\)\./);
+
+  // ── ONE TABLE PER LINE, AND WHY A CONTAINS-CHECK CANNOT SEE THIS ──────────
+  //
+  // FOUND BY PRINTING THE REAL NOTE, not by a guard: every assertion above is
+  // about what the sentence CONTAINS, and the broken sentence contained all of
+  // it. Joined with ", " the tables ran into one another —
+  //
+  //   It stores: bookings (…) — access user; keeps oncePerUser, enforceRefs,
+  //   unique, sessions (title text) — access display.
+  //
+  // — in which `sessions` is indistinguishable from a fourth guarantee of
+  // `bookings`, because the guarantee list and the table list used the same
+  // separator. A designer that reads it that way designs a second table to
+  // hold sessions, which is the exact failure this context exists to prevent.
+  const two = siteNote({
+    name: "X", hasDatabase: true, tables: ["bookings", "sessions"],
+    columns: { bookings: ["slot text"], sessions: ["title text"] },
+    tableInfo: {
+      bookings: { access: "user", refs: {}, guarantees: ["oncePerUser", "enforceRefs", "unique"] },
+      sessions: { access: "display", refs: {}, guarantees: [] },
+    },
+  });
+  const rows = two.split("\n").filter((l) => l.startsWith("- "));
+  assert.equal(rows.length, 2, "the two tables are not two rows: " + JSON.stringify(two));
+  assert.ok(rows[0].startsWith("- bookings ") && rows[1].startsWith("- sessions "),
+    "a table does not begin its own row: " + JSON.stringify(rows));
+  // THE PROPERTY ITSELF: no row may name another table, so a guarantee list
+  // cannot swallow the next table's name however long it gets.
+  assert.ok(!rows[0].includes("sessions"), "bookings' row names the next table: " + rows[0]);
+  // AND THE OBSERVER IS ALIVE — this is partly an absence check, and a note
+  // that said nothing at all would satisfy it perfectly.
+  assert.match(rows[0], /keeps oncePerUser, enforceRefs, unique$/, "the guarantees left the row");
+  assert.match(two, /It stores:\n- /, "the list lost its heading");
 });
 
 test("the picker is told a feature needing storage needs a table, without the word", () => {
