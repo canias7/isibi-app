@@ -7184,3 +7184,113 @@ risky parts — the build step, the container, the image — are checked. What's
 unchecked is whether a real model uses the new instructions well, and that needs
 a deploy and about three requests' worth of credits. Say the word and I'll do
 the merge and run them.
+
+---
+
+## The database lock is in, and the wider half was the one I'd called safe (2026-09-13)
+
+You said: *"fix the managed-column permission gap, covering INSERT and UPDATE
+while preserving legitimate operations."*
+
+**"Covering INSERT" is what caught my own mistake.** The note above this one
+splits the tables into a safe half and an unsafe half and puts every booking
+form and contact form in the SAFE half. That was right about editing and wrong
+about adding. A contact form is the commonest table this thing builds, and we
+were handing a visitor who isn't signed in to anything permission to write
+**every column of it** — including the ones the platform fills in itself. I only
+ever asked "can a member EDIT this table", which is the right question for
+editing and skips the whole of adding.
+
+**What changed.** Every permission we hand out now lists the columns it covers,
+by name, for both adding and editing. A visitor filling in your repair form can
+write `name`, `email` and `detail`, and nothing else — not the row's id, not
+when it was made, not who it belongs to, not whether it's pinned or deleted.
+Before, they could write any of those by talking to the database directly
+instead of going through your site.
+
+**Nothing you have stops working.** Reading is untouched — a member still has to
+read the row id to show you the row. Deleting is untouched. Every column the
+platform fills in is one it fills in *by itself* when nobody sends it, so
+listing them out of the permission doesn't leave a hole; it just means nobody
+else can set them. I checked every one of those before touching anything.
+
+**I did it with a permission rather than a rule inside the database**, because a
+rule would have meant writing down all those defaults a second place, and two
+copies of the same list is how this project has broken itself about ten times.
+
+**One thing my tests were too easy on themselves about, and the sweep caught
+it.** Every test table I'd written declared exactly the columns the engine ends
+up making — so a version of the fix that used the *asked-for* list instead of
+the *actually-made* list passed everything. That matters: a permission naming a
+column that isn't there is refused **whole** by the database, which would leave
+a site quietly rejecting every form submission. Two tests now use tables where
+the two lists genuinely differ.
+
+**Where it stands:** 14 of 14 deliberate breakages caught, the whole suite green
+at 6,239, and it is **on the branch, not merged** — you asked to see the changes
+before anything deploys.
+
+---
+
+## The run book for the three requests (2026-09-13)
+
+`docs/addon-runbook.md`, and it is a document rather than a run because I still
+cannot press either button from here: GitHub refuses this session's dispatches
+(403), and the sign-in key the harness needs isn't in a session. Either one
+alone is enough.
+
+It has the throwaway site first — which workflow, which settings, and why the
+brief must **not** ask for a database (the first time anything touches the
+backend is what creates it, and that is half of what request one is testing) —
+then the three requests with the exact Lane Sweep settings, then what to look
+at for each.
+
+**The three, and what each is for:**
+
+1. Yours, word for word: *"Let customers submit repair requests and log in to
+   see their own requests and status updates."* Not one of the words *database*,
+   *table* or *store* is in it, and it can't work without one. That's the test.
+2. *"On each repair request, keep a record of every change to its status, so we
+   can see who changed what and when."* We can genuinely do this and the design
+   step has no way to ask for it — so the right answer is to say so. Before this
+   change it just went quiet. The line to look for opens **"One thing your site
+   can't do yet:"**.
+3. *"Let customers pick a drop-off slot when they book a repair, and stop two
+   people taking the same slot."* This needs a second table nobody asked for —
+   the slot itself — and the old rule would have refused it for not being named.
+
+Run them in order on the same site; two and three build on what one makes. The
+whole thing is roughly **50–90 credits**: 11–45 for the build (that range is
+measured, not a guess — two real builds on the same model came out four times
+apart) and around 12–15 each for the requests.
+
+**One ordering call is yours.** The permission fix changes the permissions we
+hand out. Tables made by these three requests get the new, tighter ones only if
+that fix is live when they run. The site is disposable so nothing is lost either
+way — but running them after it deploys proves both changes at once.
+
+---
+
+## Two things I found on the way and deliberately did not fix (2026-09-13)
+
+You said to keep timestamps and sync as separate follow-ups, so they are.
+
+**`updated_at` never changes.** Every table with timestamps switched on gets a
+"last updated" column, and nothing anywhere ever moves it — so it shows the time
+the row was *created*, for ever, however many times it's edited. The thing
+reading it is a generated page: models keep writing "last updated" onto screens,
+often enough that the template has a note about it. It's a small fix and it
+belongs with timestamps, not with permissions.
+
+**And I corrected my own earlier account of this one.** I told you it mattered
+because an offline-sync feature reads that column. There is no such feature —
+I'd read a *comment* describing one and repeated it as though it existed. One
+search of the whole codebase settles it, and I should have run that search
+before telling you.
+
+**The offline-sync switch does nothing at all.** That's the bigger of the two.
+Turning it on really does build the machinery — a hidden table, a trigger on
+every table — and **nothing can read any of it**. It's blocked from the browser
+and there's no route serving it. So it's real work being done on every site that
+declares it, reaching nobody. Either build the half that reads it, or take the
+switch out; that's a call rather than a bug fix, which is why it's sitting here.

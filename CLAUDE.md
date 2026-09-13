@@ -4735,14 +4735,112 @@ PostgREST then behave as the SQL says. Nothing is in doubt about it, but this is
 a proof about what the engine EMITS, and `test/integration/neon-e2e.mjs` is the
 probe that closes it. It needs `NEON_API_KEY`, which no session here has.
 
-**STILL NOT PROVEN, and each needs the owner:** the three real addon requests
-(they need the deploy, a real Neon project and credits — and the harness's asks
-are FIXED per kind, with no free-text input, so ask A, "add a login page…", which
-must never name storage, cannot be sent through it as it stands); the
-managed-column probe; and whether a real model now picks `table` for an ask that
-implies storage without naming it. The picker's hint carries the words —
-verbatim: *"whether or not they mention a database, storing or a table … and also
-sign-in, accounts, members, profiles"* — which is the input, not the behaviour.
+**STILL NOT PROVEN, and it needs the owner:** the three real addon requests,
+which need the deploy, a real Neon project and credits. **The two things this
+line used to name beside them have since been answered**: the harness's asks are
+no longer fixed per kind — `lane sweep` has a free-text `ask` box that replaces
+the case list entirely — and the managed-column probe ran (the section above).
+What is left is whether a real model now picks `table` for an ask that implies
+storage without naming it. The picker's hint carries the words — verbatim:
+*"whether or not they mention a database, storing or a table … and also sign-in,
+accounts, members, profiles"* — which is the input, not the behaviour.
+**`docs/addon-runbook.md` is the run book**: the disposable site, the three asks
+with the owner's own wording for the first, the exact `lane sweep` inputs, and
+what to read off each of the four places a result lands. A session cannot fire
+either workflow — `workflow_dispatch` answers 403 for this integration, and no
+`SUPABASE_SERVICE_KEY` exists here — so it is a document rather than a run.
+
+### The write grants are column-scoped (2026-09-13)
+
+Owner, after the pass/fail above: *"fix the managed-column permission gap,
+covering INSERT and UPDATE while preserving legitimate operations."*
+
+**THE INSERT HALF WAS THE WIDER ONE AND MY OWN PASS/FAIL HAD CALLED IT A PASS.**
+That reading asked *can a member UPDATE this table at all*, which is the right
+precondition for UPDATE and the wrong question for INSERT: `write: anyone` — the
+`collect` preset, a booking or contact form, **the commonest table this platform
+builds** — emitted `GRANT INSERT ON "<t>" TO anonymous`, table-wide, to a
+visitor who is not signed in to anything. The owner's "covering INSERT and
+UPDATE" is what caught it. Both verbs carry a column list now:
+
+    GRANT INSERT ("name", "email", "detail") ON "requests" TO anonymous;
+    GRANT SELECT, DELETE ON "requests" TO authenticated;
+    GRANT INSERT ("title"), UPDATE ("title") ON "requests" TO authenticated;
+
+**POSTGRES HAS TWO GRAMMARS AND THEY CANNOT BE MIXED** — `GRANT SELECT, INSERT
+(a)` is a syntax error — so the table verbs and the column verbs are separate
+statements. `DELETE` takes no column list (it is a row verb) and `SELECT` stays
+table-wide deliberately: a member must read `id` and `created_at` to render a
+row at all, and reading a managed column was never the exposure.
+
+**A GRANT, NOT A TRIGGER, AND THAT IS THE WHOLE DESIGN.** A BEFORE INSERT
+trigger forcing the managed columns would re-state every DDL DEFAULT
+(`app_user_id()`, both timestamps, `pinned` 0) in a second place — the recorded
+"two lists of the same thing", with the engine's own defaults as the subject. A
+column grant says it once and the DEFAULT fills in, so **nothing legitimate
+loses a write**: every managed column is a DEFAULT, a trigger or NULL-start,
+`pickWritable` already refuses them on our own routes, and the kit's
+`useUpdateRow` sends a partial that excludes `id`.
+
+**`writableColumns(t, created)` IS ONE RULE, SHARED WITH `pickWritable`'s
+INTENT, AND `created` WINS.** It refuses a non-string rather than coercing
+(`String(["id"])` is `"id"`, shipped here three times), refuses anything that is
+not an identifier, drops the managed ones and de-duplicates. **Why the really-
+created list rather than the declared one**: a GRANT naming a column the table
+has not got fails WHOLE, and `applySiteSchema` logs a failed statement and
+carries on — so one absent name leaves a site silently refusing every form
+submission. `publicViewSql` already took `colNames` for exactly this reason; the
+same list reaches the grants now.
+
+**THE LIFECYCLE IS POSTGRES'S OWN, READ FROM THE DOCS RATHER THAN ASSUMED**:
+*"When revoking privileges on a table, the corresponding column privileges (if
+any) are automatically revoked on each column of the table, as well."* So the
+`REVOKE ALL ON <table> FROM <role>` already at the head of `grantsFor` covers a
+table moving `user` → `display`, and no second revoke was needed.
+
+**A TABLE WITH NOTHING DECLARABLE IS REPORTED, NOT QUIETLY MADE READ-ONLY.**
+`GRANT INSERT ()` is not a statement, so a column-less writable table gets no
+write grant — and that is REACHABLE (the design tool requires `columns` and sets
+no minimum length), so the apply loop pushes a `refusedRules` entry saying why.
+
+**Guards**: `test/managed-column-writes.test.mjs` (8) — no write grant is
+table-wide across all sixteen read×write cells plus the five presets (with a
+floor on how many grants were found, since a reader that matched none satisfies
+every assertion); the granted set asserted EQUAL to the declared unmanaged one;
+every managed column named one at a time with `"title"` as the live control;
+SELECT, DELETE and the public read asserted intact; the payable exemption with
+its control; `writableColumns` driven over non-strings, junk and duplicates; and
+the column-less refusal DRIVEN through `applySiteSchema`.
+**THE DRIVE IS THROUGH `fetch`, BECAUSE THE MODULE TAKES NO INJECTABLE QUERY** —
+an earlier probe passed a fake `sqlQuery` as a second argument the function does
+not accept and answered **zero statements**, which reads exactly like "no grant
+anywhere", the answer being looked for. The recorded "a zero from a blind
+instrument is not evidence of absence"; a floor of 20 statements is what catches
+it now.
+**SIX OLDER GUARDS WENT RED AND WERE RE-ANCHORED, NOT APPEASED — and every one
+was a COLUMN-LESS FIXTURE**, the recorded "a fixture in a different shape from
+reality": a table with no `columns` is one the builder cannot produce, and the
+fixture shape became load-bearing the day the grants read it. One of them also
+split a grant's verbs on commas, which a column list contains — it strips the
+lists before splitting now.
+**Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived. ONE SURVIVED THE FIRST PASS and it was a real gap of the
+recorded "fixture too shallow to separate the two readings" shape**: cutting
+`colNames` off the apply loop changed no answer, because every fixture declared
+exactly what the engine creates. The real loop diverges in BOTH directions and
+both are driven now — `slug: "c1"` makes the engine add a column nobody
+declared, and `t.columns.slice(0, 48)` means a table declaring fifty gets
+forty-eight, so a grant built from the declared list names two columns Postgres
+has never heard of. **Suite 6,239** (6,231 before; the eight new cases).
+
+**WHAT IS STILL INFERENCE, and it is the same sentence as the pass/fail above**:
+that Postgres then enforces the grant as written. This is a proof about what the
+engine EMITS; `test/integration/neon-e2e.mjs` is the probe that closes it, and it
+needs `NEON_API_KEY`, which no session here has.
+
+**AND TWO THINGS FOUND BESIDE IT ARE DELIBERATELY NOT IN IT** (owner: *"Keep
+timestamps and sync as separate follow-up issues"*) — `updated_at` never being
+bumped, and `sync` having no reader at all. Both are in the backlog.
 
 ---
 
@@ -6636,6 +6734,37 @@ write; check the name is free.
 
 ## Backlog
 
+- **`updated_at` IS NEVER BUMPED (open, 2026-09-13, kept as its own issue at the
+  owner's word: *"Keep timestamps and sync as separate follow-up issues"*).**
+  `site-schema.mjs:1121` creates it as a column DEFAULT whose own comment says
+  "set on insert, bumped on every UPDATE", and a Postgres default applies only
+  when the column is OMITTED from an INSERT. There is no trigger, no route and
+  no statement anywhere that touches a site table's `updated_at` on an update —
+  every other hit in the tree is a Supabase platform table.
+  **The live consumer is a GENERATED PAGE**, not a platform route: the kit's
+  `Row` type declares `updated_at?: string`
+  (`lovable/template/src/lib/rows.ts:66`) precisely because models wrote
+  `deal.updated_at ?? deal.created_at` in two consecutive evals — its own
+  comment records that. So a site showing "last updated" shows the CREATION time
+  for ever, on every row that has ever been edited, and the page is correct code
+  reading a column the engine never moves.
+  **The first write-up of this was wrong and is corrected here rather than
+  quietly dropped**: it said the defect matters because `/changes?sync=` reads
+  the column, which repeated a CODE COMMENT as though it were a live consumer.
+  `/changes?sync=` occurs exactly once in the whole tree and it is inside that
+  comment (`site-schema.mjs:1187`); there is no such route. **A comment
+  describing a consumer is not evidence the consumer exists, and one grep for
+  the literal over the whole tree settles it.**
+  The fix shape is a trigger or the `timestamps` flag's own write path; it is a
+  `timestamps` defect and was deliberately kept out of the column-grant change.
+- **`sync` HAS NO READER AT ALL (open, 2026-09-13, its own issue for the same
+  reason).** The flag creates `_deletes` and a tombstone trigger per table
+  (`site-schema.mjs:1189`, `:1193`) — real DDL, emitted on every site that
+  declares it — and `_deletes` is on `INTERNAL_TABLES` (`:61`), denied to the
+  browser, with no route serving it. Every byte of that machinery is unreachable
+  from outside Postgres. This repository's own most-repeated defect — a value
+  computed and never forwarded — in DDL. Decide per the standing rule: build the
+  reader, or delete the flag and its DDL.
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The availability calendar's own legend (open, live on `fretwork-1` since
   run 16).** `availability-calendar.tsx` prints "Each square is the night

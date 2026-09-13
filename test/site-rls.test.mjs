@@ -524,7 +524,7 @@ test("the cell this was built for: anyone reads, members write their own", () =>
   // The marketplace / classifieds / job board / public reviews shape, which the
   // five names could not express at all — `display` is public but nobody writes,
   // `feed` is member-written but needs a sign-in to read.
-  const t = { name: "listings", read: "public", write: "own" };
+  const t = { name: "listings", read: "public", write: "own", columns: [{ name: "title", type: "text" }, { name: "price", type: "number" }] };
   const p = policiesFor(t), g = grantsFor(t);
   assert.match(p.find((x) => /FOR SELECT/.test(x)), /USING \(true/, "the public cannot read the listings");
   assert.match(p.find((x) => /FOR INSERT/.test(x)), /owner_id" = app_user_id\(\)/, "a member could post as somebody else");
@@ -535,7 +535,17 @@ test("the cell this was built for: anyone reads, members write their own", () =>
   // by printing the new cells rather than by trusting the composition.
   assert.ok(g.some((x) => /GRANT SELECT ON "listings" TO anonymous/.test(x)),
     "the public has no SELECT grant, so the listings 403 however open the policy is");
-  assert.ok(g.some((x) => /GRANT SELECT, INSERT, UPDATE, DELETE ON "listings" TO authenticated/.test(x)));
+  // RE-ANCHORED, NOT APPEASED (2026-09-13): the member's four verbs used to be
+  // one table-wide statement and are now two — the table verbs it keeps, and the
+  // two that are column-scoped so a member cannot write `id` or `created_at`.
+  // The property is unchanged (a member may read, insert, update and delete);
+  // only which columns the write verbs reach has narrowed.
+  assert.ok(g.some((x) => /GRANT SELECT, DELETE ON "listings" TO authenticated/.test(x)),
+    "the member lost their table-wide read or delete");
+  assert.ok(g.some((x) => /GRANT INSERT \("title", "price"\), UPDATE \("title", "price"\) ON "listings" TO authenticated/.test(x)),
+    "the member's write grant is not scoped to the declared columns");
+  assert.ok(!g.some((x) => /^GRANT [^(]*\b(INSERT|UPDATE)\b[^(]*ON "listings"/.test(x)),
+    "a table-wide INSERT or UPDATE came back, so every managed column is writable again");
 });
 
 test("own-read with anyone-write is refused, because it cannot mean anything", () => {
@@ -560,7 +570,7 @@ test("a payable table gets no public insert, however its access was spelled", ()
   }
   // …and without payment it IS insertable, or the loop passes on a builder that
   // grants nothing to anybody.
-  assert.ok(grantsFor({ name: "orders", access: "collect" }).some((x) => /GRANT INSERT/.test(x)));
+  assert.ok(grantsFor({ name: "orders", access: "collect", columns: [{ name: "qty", type: "number" }] }).some((x) => /GRANT INSERT/.test(x)));
 });
 
 test("every column a policy names is one the engine actually stamps", () => {
@@ -692,9 +702,15 @@ test("a payable table gets no write policy on any pair", () => {
 const READS = ["none", "own", "members", "public"];
 const WRITES = ["none", "own", "members", "anyone"];
 /** Every way a table's access can be spelled: the 16 cells and the 5 shorthands. */
+// A REAL TABLE HAS COLUMNS, and until 2026-09-13 these fixtures did not —
+// harmless while every write grant named the TABLE, load-bearing the hour they
+// became column-scoped, because a table with nothing declarable gets no write
+// grant at all. The recorded "a fixture in a different shape from reality",
+// found by the change rather than by reading.
+const CELL_COLS = [{ name: "title", type: "text" }, { name: "body", type: "text" }];
 const CELLS = [];
-for (const read of READS) for (const write of WRITES) CELLS.push({ read, write });
-for (const access of Object.keys(ACCESS_PRESETS)) CELLS.push({ access });
+for (const read of READS) for (const write of WRITES) CELLS.push({ read, write, columns: CELL_COLS });
+for (const access of Object.keys(ACCESS_PRESETS)) CELLS.push({ access, columns: CELL_COLS });
 const cellName = (c) => c.access ? `access:${c.access}` : `read:${c.read} write:${c.write}`;
 
 /** The projection a real booking table declares — the case both view findings name. */
@@ -843,7 +859,14 @@ test("EVERY cell revokes before it grants, and no privilege is granted twice", (
     const granted = g.filter((s) => /^GRANT /.test(s)).map((s) => {
       const m = /^GRANT (.+) ON (".*?") TO (\w+);$/.exec(s);
       assert.ok(m, where + ": a grant this test cannot read — retarget it: " + s);
-      return { stmt: s, table: m[2], role: m[3], verbs: new Set(m[1].split(",").map((v) => v.trim())) };
+      // THE COLUMN LIST IS STRIPPED BEFORE THE VERBS ARE SPLIT, and without this
+      // the split lands INSIDE it: `GRANT INSERT ("a", "b"), UPDATE ("a", "b")`
+      // reads as the four verbs `INSERT ("a"` / `"b")` / `UPDATE ("a"` / `"b")`,
+      // and the redundancy check below then compares nonsense. The property is
+      // about VERBS; the columns a verb reaches are a different assertion.
+      const verbs = new Set(m[1].replace(/\s*\([^)]*\)/g, "").split(",").map((v) => v.trim()).filter(Boolean));
+      assert.ok(verbs.size, where + ": no verb survived the column strip: " + s);
+      return { stmt: s, table: m[2], role: m[3], verbs };
     });
     for (const a of granted) for (const b of granted) {
       if (a === b || a.role !== b.role || a.table !== b.table) continue;

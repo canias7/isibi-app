@@ -244,10 +244,15 @@ test("UNCERTAINTY 2c: which access cells put a managed column within a member's 
   // included — `\b` after UPDATE refuses the trailing `s`). A customer can name
   // a table `update`, so the census runs over BOTH names and the split is
   // load-bearing rather than decorative.
+  // THE FIXTURE CARRIES COLUMNS, and since 2026-09-13 that is load-bearing
+  // rather than cosmetic: the write grants are column-scoped, so a table with
+  // no declarable column gets no write grant and every cell would read `false`
+  // — an answer about the fixture, not about the matrix.
+  const COLS = [{ name: "title", type: "text" }];
   const reach = [];
   for (const name of ["t", "update"]) {
     for (const read of READ_LEVELS) for (const write of WRITE_LEVELS) {
-      reach.push({ name, read, write, member: memberUpdate({ name, read, write }) });
+      reach.push({ name, read, write, member: memberUpdate({ name, read, write, columns: COLS }) });
     }
   }
   assert.equal(reach.length, 32, "the access matrix changed shape and this census is stale");
@@ -269,7 +274,7 @@ test("UNCERTAINTY 2c: which access cells put a managed column within a member's 
   }
 
   // THE PRESETS, which is what a spec actually names most of the time.
-  const byPreset = Object.fromEntries(Object.keys(ACCESS_PRESETS).map((p) => [p, memberUpdate({ name: "t", access: p })]));
+  const byPreset = Object.fromEntries(Object.keys(ACCESS_PRESETS).map((p) => [p, memberUpdate({ name: "t", access: p, columns: COLS })]));
   assert.deepEqual(byPreset, { display: false, collect: false, user: true, feed: true, admin: false },
     "a preset changed which side of the line it is on");
 
@@ -295,11 +300,11 @@ test("UNCERTAINTY 2c: which access cells put a managed column within a member's 
   // but this file proves what the engine EMITS, not what the database does, and
   // `test/integration/neon-e2e.mjs` is the probe that closes it. It needs
   // NEON_API_KEY and a real project.
-  const own = grantsFor({ name: "t", read: "own", write: "own" }).join("\n");
-  const members = grantsFor({ name: "t", read: "public", write: "members" }).join("\n");
+  const own = grantsFor({ name: "t", read: "own", write: "own", columns: COLS }).join("\n");
+  const members = grantsFor({ name: "t", read: "public", write: "members", columns: COLS }).join("\n");
   assert.match(own, /GRANT[^;]*\bUPDATE\b[^;]*ON "t" TO authenticated/i, "the write:own grant this reads is gone");
   assert.match(members, /GRANT[^;]*\bUPDATE\b[^;]*ON "t" TO authenticated/i, "the write:members grant this reads is gone");
-  const collect = grantsFor({ name: "t", access: "collect" }).join("\n");
+  const collect = grantsFor({ name: "t", access: "collect", columns: COLS }).join("\n");
   assert.doesNotMatch(collect, /\bUPDATE\b[^;]*TO authenticated/i,
     "a collect table now grants a member UPDATE — every payment column just came within reach");
   assert.ok(collect.length > 0, "the collect reader produced nothing, so its absence check says nothing");

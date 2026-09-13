@@ -1,0 +1,132 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the grant block",
+    "control": true,
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  // \u2500\u2500 THE WRITE GRANTS ARE COLUMN-SCOPED (2026-09-13) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "to": "  // \u2500\u2500 The write grants are column-scoped (2026-09-13) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the guard",
+    "control": true,
+    "files": [
+      "test/managed-column-writes.test.mjs"
+    ],
+    "from": "/** A table shaped like the ones the builder really produces. */",
+    "to": "/** A table shaped like the ones the builder really makes. */"
+  },
+  {
+    "label": "THE DEFECT ITSELF: the member's write grant is table-wide again",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    if (wcols.length) out.push(`GRANT INSERT (${cols}), UPDATE (${cols}) ON ${tn} TO ${user};`);",
+    "to": "    out.push(`GRANT INSERT, UPDATE ON ${tn} TO ${user};`);"
+  },
+  {
+    "label": "THE WIDER HALF: an anonymous visitor gets table-wide INSERT on a booking form again",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    if (wcols.length) out.push(`GRANT INSERT (${cols}) ON ${tn} TO ${anon};`, `GRANT INSERT (${cols}) ON ${tn} TO ${user};`);",
+    "to": "    out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`);"
+  },
+  {
+    "label": "writableColumns stops dropping the managed ones",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    if (isManagedColumn(name) || seen.has(name)) continue;",
+    "to": "    if (seen.has(name)) continue;"
+  },
+  {
+    "label": "writableColumns coerces a non-string instead of refusing it",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    if (typeof raw !== \"string\") continue;\n    const name = raw.toLowerCase();",
+    "to": "    const name = String(raw == null ? \"\" : raw).toLowerCase();"
+  },
+  {
+    "label": "writableColumns admits a name that is not an identifier",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    if (!/^[a-z_][a-z0-9_]{0,62}$/.test(name)) continue;",
+    "to": "    if (!name) continue;"
+  },
+  {
+    "label": "the declared list wins over the columns really created",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  const src = Array.isArray(created) && created.length\n    ? created\n    : ((t && Array.isArray(t.columns) ? t.columns : []).map((c) => c && c.name));",
+    "to": "  const src = ((t && Array.isArray(t.columns) ? t.columns : []).map((c) => c && c.name));"
+  },
+  {
+    "label": "the created list is taken even when empty, so every grant blanks",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  const src = Array.isArray(created) && created.length",
+    "to": "  const src = Array.isArray(created)"
+  },
+  {
+    "label": "the apply loop stops handing the really-created columns to the grants",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "grantsFor({ ...t, access }, colNames)",
+    "to": "grantsFor({ ...t, access })"
+  },
+  {
+    "label": "the member loses SELECT, so a table they write is a table they cannot read",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    const tableVerbs = read === \"none\" ? [] : [\"SELECT\"];",
+    "to": "    const tableVerbs = [];"
+  },
+  {
+    "label": "a read-less cell is granted SELECT it can never use",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    const tableVerbs = read === \"none\" ? [] : [\"SELECT\"];\n    tableVerbs.push(\"DELETE\");",
+    "to": "    const tableVerbs = [\"SELECT\"];\n    tableVerbs.push(\"DELETE\");"
+  },
+  {
+    "label": "the member loses DELETE",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    tableVerbs.push(\"DELETE\");",
+    "to": "    if (false) tableVerbs.push(\"DELETE\");"
+  },
+  {
+    "label": "UPDATE leaves the column grant, so a member can insert and never edit",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "`GRANT INSERT (${cols}), UPDATE (${cols}) ON ${tn} TO ${user};`",
+    "to": "`GRANT INSERT (${cols}) ON ${tn} TO ${user};`"
+  },
+  {
+    "label": "a payable table stops being exempt, so the money columns come within reach",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  if (t && t.payment) return out;\n  // \u2500\u2500 THE WRITE GRANTS ARE COLUMN-SCOPED",
+    "to": "  if (false) return out;\n  // \u2500\u2500 THE WRITE GRANTS ARE COLUMN-SCOPED"
+  },
+  {
+    "label": "a table with nothing declarable is silently unwritable, with no refusal",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "      refused.push({ table: t.name, feature: \"write\", rule: \"columns\", why: \"no declared columns, so nothing can be written through the data API\" });",
+    "to": "      if (false) refused.push({ table: t.name, feature: \"write\", rule: \"columns\", why: \"no declared columns, so nothing can be written through the data API\" });"
+  }
+]

@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, publicViewSql, functionSql, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
 import { resolveAccess, accessNameFor, accessLabel } from "./site-access.mjs";
 import { normalizeConfirm } from "./site-mail.mjs";
@@ -1525,7 +1525,20 @@ export async function applySiteSchema(uuid, spec) {
     // for the same reason the grants come after the policies: the object is only
     // reachable once the thing it reads from is settled.
     const pubSql = publicViewSql({ ...t, access }, colNames, new Set((spec.tables || []).map((x) => String(x && x.name))));
-    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access })).concat(pubSql)) {
+    // `colNames` REACHES THE GRANTS TOO, for the reason the projection above
+    // already takes it: the write grants are column-scoped now, and a GRANT
+    // naming a column that was not created fails whole — which the catch below
+    // would log and carry on from, leaving the table unwritable.
+    // AND A TABLE WITH NOTHING A CLIENT MAY WRITE SAYS SO, rather than quietly
+    // becoming read-only. The column-scoped write grants need at least one
+    // declarable column to name; with none there is no statement to emit, which
+    // is the right answer and is invisible from outside — the same channel every
+    // other refused guarantee uses, for the same reason.
+    if (!writableColumns({ ...t, access }, colNames).length && resolveAccess({ ...t, access }).write !== "none" && !t.payment && !t.retired) {
+      refused.push({ table: t.name, feature: "write", rule: "columns", why: "no declared columns, so nothing can be written through the data API" });
+      console.error("no writable columns, write grant skipped:", t.name);
+    }
+    for (const stmt of policiesFor({ ...t, access }).concat(grantsFor({ ...t, access }, colNames)).concat(pubSql)) {
       try { await sqlQuery(uuid, stmt); }
       catch (e) { console.error("rls failed:", t.name, stmt.slice(0, 80), e && (e.detail || e.message)); }
     }

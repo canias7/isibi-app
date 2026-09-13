@@ -755,8 +755,12 @@ test("a retired table is offered to the generator by nothing", async () => {
 
 test("a retired table is reachable from the web by nobody", async () => {
   const { grantsFor } = await import("../site-rls.mjs");
+  // A REAL TABLE HAS COLUMNS (2026-09-13) — the un-retired control below needs
+  // one, because the write grants are column-scoped and a table with nothing
+  // declarable gets none.
+  const COLS = [{ name: "note", type: "text" }];
   for (const access of ["display", "collect", "user", "feed", "admin"]) {
-    const retired = grantsFor({ name: "t", access, retired: true });
+    const retired = grantsFor({ name: "t", access, columns: COLS, retired: true });
     assert.deepEqual(retired.filter((s) => /^GRANT /.test(s)), [],
       access + ": a retired table must have no grants at all");
     // AND THE WITHDRAWAL HAS TO BE ACTIVE. Emitting no grant removes nothing —
@@ -767,7 +771,7 @@ test("a retired table is reachable from the web by nobody", async () => {
     assert.ok(retired.some((s) => /^REVOKE ALL ON "t" FROM anonymous;/.test(s)),
       access + ": retiring emits no REVOKE, so an earlier grant still stands");
     assert.ok(retired.some((s) => /^REVOKE ALL ON "t" FROM authenticated;/.test(s)), access);
-    assert.ok(grantsFor({ name: "t", access }).filter((s) => /^GRANT /.test(s)).length > 0 || access === "admin",
+    assert.ok(grantsFor({ name: "t", access, columns: COLS }).filter((s) => /^GRANT /.test(s)).length > 0 || access === "admin",
       access + ": the un-retired case must still grant something, or this proves nothing");
   }
 });

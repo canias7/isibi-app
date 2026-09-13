@@ -557,14 +557,18 @@ test("each grant names ONE role, so a bad name cannot take the other down", () =
   // a single statement, so the bad name took `authenticated` with it and even a
   // signed-in member got nothing.
   return import("../site-rls.mjs").then((rls) => {
+    // A REAL TABLE HAS COLUMNS (2026-09-13). The write grants are column-scoped
+    // now, so a fixture declaring none gets no write grant — which is the right
+    // answer about that fixture and the wrong shape for what this case is about.
+    const COLS = [{ name: "name", type: "text" }];
     for (const access of ["display", "collect", "admin", "user"]) {
-      for (const stmt of rls.grantsFor({ name: "services", access })) {
+      for (const stmt of rls.grantsFor({ name: "services", access, columns: COLS })) {
         assert.ok(!/TO [a-z]+, /.test(stmt), `two roles in one statement: ${stmt}`);
       }
     }
     // display and collect must still reach BOTH roles, across two statements.
     for (const access of ["display", "collect"]) {
-      const all = rls.grantsFor({ name: "services", access }).join(" ");
+      const all = rls.grantsFor({ name: "services", access, columns: COLS }).join(" ");
       assert.match(all, /TO anonymous;/, `${access} is unreachable by a visitor`);
       assert.match(all, /TO authenticated;/, `${access} is unreachable by a member`);
     }

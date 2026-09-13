@@ -32,7 +32,7 @@
 // Pure string building. Every statement this produces is asserted in
 // test/site-rls.test.mjs and applied against a real Postgres in the e2e.
 
-import { hasPublicView, publicViewName, resolveAccess } from "./site-access.mjs";
+import { hasPublicView, publicViewName, resolveAccess, isManagedColumn } from "./site-access.mjs";
 
 /**
  * Who the caller is, according to the database.
@@ -365,7 +365,49 @@ export function policiesFor(t) {
  */
 export const DATA_API_ROLES = { anon: "anonymous", user: "authenticated" };
 
-export function grantsFor(t) {
+/**
+ * The columns a CLIENT may name in an INSERT or an UPDATE: declared, and not
+ * platform-managed.
+ *
+ * ONE RULE, SHARED WITH `pickWritable` — `columnNames(def).filter(c =>
+ * !isManagedColumn(c))` is what site-owner.mjs has always asked of the owner's
+ * own door, and asking it here is what makes the two doors agree. Two copies of
+ * "which columns may a client write" is this repository's recorded
+ * two-lists-of-the-same-thing trap on the one question that decides whether a
+ * visitor can stamp their own `created_at`.
+ *
+ * `created` IS THE COLUMNS REALLY CREATED, never the ones the spec asked for,
+ * and that is what makes a column grant safe to emit at all: a GRANT naming a
+ * column the table has not got fails WHOLE, and `applySiteSchema` logs a failed
+ * statement and carries on — so one absent name would leave the table with no
+ * write grant and a site that silently stopped accepting form submissions. The
+ * public projection one line below in the apply loop takes the same list for
+ * the same reason, and its comment says so.
+ *
+ * The declared list is the fallback so a caller that has not applied anything
+ * yet — every guard, and the census in the schema audit — still gets an answer
+ * about the spec it is holding.
+ */
+export function writableColumns(t, created) {
+  const src = Array.isArray(created) && created.length
+    ? created
+    : ((t && Array.isArray(t.columns) ? t.columns : []).map((c) => c && c.name));
+  const out = [], seen = new Set();
+  for (const raw of src) {
+    // A NON-STRING IS REFUSED, NEVER COERCED. `String(["id"])` is `"id"`, which
+    // this repository has shipped three times as a real defect — and here it
+    // would put an attacker-chosen name into DDL.
+    if (typeof raw !== "string") continue;
+    const name = raw.toLowerCase();
+    if (!/^[a-z_][a-z0-9_]{0,62}$/.test(name)) continue;
+    if (isManagedColumn(name) || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+export function grantsFor(t, colNames) {
   // A RETIRED TABLE GETS NO GRANTS AT ALL, which is how a site removes a
   // feature without destroying what it collected.
   //
@@ -477,8 +519,66 @@ export function grantsFor(t) {
   // through /checkout, which prices the basket from the site's own rows and
   // inserts on the owner's connection.
   if (t && t.payment) return out;
+  // ── THE WRITE GRANTS ARE COLUMN-SCOPED (2026-09-13) ──────────────────────
+  //
+  // INTENDED, and it was true on our own routes and nowhere else: a client may
+  // write the columns the site DECLARED, and never a platform-managed one.
+  // `pickWritable` in site-owner.mjs has enforced exactly that on the owner's
+  // door since it was written; the Data API is PostgREST talking to Postgres
+  // directly, so the only thing that can say it there is the GRANT.
+  //
+  // MEASURED BEFORE THE FIX, over all sixteen read x write cells: every write
+  // grant named the TABLE, so `id`, `created_at`, `updated_at`, `owner_id`,
+  // `pinned`, `position`, `deleted_at` and the rest were writable by whoever
+  // held the grant. Two reachable shapes, and the INSERT one is the wider:
+  //
+  //   * `write: anyone` — the `collect` preset, a booking or contact form, the
+  //     commonest table on the platform — granted table-wide INSERT to
+  //     ANONYMOUS. A visitor could post a row with a chosen `created_at`, a
+  //     `pinned` of 1 or a `position` that sorts it above everything.
+  //   * `write: own` / `write: members` granted table-wide INSERT and UPDATE to
+  //     any signed-in member; on `members` the UPDATE policy is "signed in" on
+  //     both clauses, so that reached ANY row, not only their own.
+  //
+  // WHY A GRANT RATHER THAN A TRIGGER, decided rather than defaulted. A
+  // BEFORE INSERT trigger forcing each managed column would have to re-state
+  // every DEFAULT this engine writes (`app_user_id()`, the two timestamps, the
+  // `pinned` zero) — a second copy of the DDL, which is this repository's
+  // most expensive recurring mistake. A column grant says the same thing once,
+  // in the layer that already decides it, and the DEFAULT then fills the column
+  // in exactly as it does for a client that omits it.
+  //
+  // NOTHING LEGITIMATE LOSES A WRITE, checked rather than assumed: every
+  // managed column is filled by a DEFAULT (`owner_id`, `team_id`, `created_at`,
+  // `updated_at`, `_version`, `pinned`), by a trigger (`position`), or by
+  // nothing at all (`deleted_at`, `expires_at`, `publish_at`, `archived_at`
+  // start NULL) — and the kit's own `useUpdateRow` takes a PARTIAL with `id`
+  // excluded from its type, so it never names one. `owner_id` is the case worth
+  // stating: the INSERT policy's `WITH CHECK (owner_id = app_user_id())` still
+  // needs the column to hold the caller's id, and the DEFAULT is what puts it
+  // there — a client that tries to send somebody else's now gets a named column
+  // refusal instead of a policy violation.
+  //
+  // THE LIFECYCLE IS ALREADY COVERED BY THE `REVOKE ALL` ABOVE, and that is
+  // READ OUT OF THE POSTGRES DOCUMENTATION rather than assumed, because getting
+  // it wrong leaves a member writing a table the site has since made read-only:
+  // "When revoking privileges on a table, the corresponding column privileges
+  // (if any) are automatically revoked on each column of the table, as well."
+  // So a table moving `user` -> `display`, or losing a column, drops its column
+  // grants on the next apply exactly as it dropped its table grants before.
+  //
+  // A TABLE WITH NO DECLARED COLUMNS GETS NO WRITE GRANT, which is the same
+  // rule rather than a special case: there is nothing it could legitimately
+  // write, and `GRANT INSERT ()` is not a statement. It is REACHABLE — the
+  // design tool requires `columns` and sets no minimum length — and no corpus
+  // of real specs exists here to measure how often, so it is named as a
+  // behaviour change rather than claimed to be unreachable.
+  const wcols = writableColumns(t, colNames);
+  const cols = wcols.map(q).join(", ");
   if (write === "anyone") {
-    out.push(`GRANT INSERT ON ${tn} TO ${anon};`, `GRANT INSERT ON ${tn} TO ${user};`);
+    // SELECT IS NOT GRANTED HERE and must not be: `anyone` writes and never
+    // reads. The column list narrows the INSERT alone.
+    if (wcols.length) out.push(`GRANT INSERT (${cols}) ON ${tn} TO ${anon};`, `GRANT INSERT (${cols}) ON ${tn} TO ${user};`);
   } else if (memberWrite) {
     // ONE STATEMENT FOR THE MEMBER, matching what `user` and `feed` have always
     // emitted: they may ask for all four verbs and the POLICIES decide which
@@ -494,8 +594,21 @@ export function grantsFor(t) {
     // per-member and reads NOTHING gets no SELECT: the policy would never return
     // a row anyway, so the grant buys nothing — and a privilege with no purpose
     // is one that stops being harmless the day somebody adds a policy by mistake.
-    const verbs = read === "none" ? "INSERT, UPDATE, DELETE" : "SELECT, INSERT, UPDATE, DELETE";
-    out.push(`GRANT ${verbs} ON ${tn} TO ${user};`);
+    //
+    // SPLIT IN TWO BECAUSE POSTGRES HAS TWO GRAMMARS, not for tidiness: a
+    // GRANT is either a list of table privileges or a list of COLUMN
+    // privileges, and `GRANT SELECT, INSERT (a)` is a syntax error. So the
+    // table-wide verbs stay in one statement and the two column-scoped ones go
+    // in another.
+    //
+    // SELECT AND DELETE STAY TABLE-WIDE, each for its own reason. A member must
+    // read `id` and `created_at` to render a row at all, and reading a managed
+    // column was never the exposure. DELETE takes no column list in Postgres —
+    // it is a row verb — and the RLS policy is what scopes which rows.
+    const tableVerbs = read === "none" ? [] : ["SELECT"];
+    tableVerbs.push("DELETE");
+    out.push(`GRANT ${tableVerbs.join(", ")} ON ${tn} TO ${user};`);
+    if (wcols.length) out.push(`GRANT INSERT (${cols}), UPDATE (${cols}) ON ${tn} TO ${user};`);
   }
   return out;
 }
