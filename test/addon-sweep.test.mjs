@@ -4,14 +4,42 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun } from "../scripts/addon-sweep.mjs";
-import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer } from "../builder/site-add.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines } from "../scripts/addon-sweep.mjs";
+import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer, MAX_MESSAGE } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 // The served page's bands, one copy shared with test/copy-design.test.mjs.
 import { SECOND_QUOTES, gridBand, page } from "./fixtures/testimonial-bands.mjs";
 
 const SRC = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8");
+/**
+ * Length-preserving, LINE COMMENTS FIRST — the recorded blanker-order trap, and
+ * this file needed one the hour `shipped()` was written: its own comment names
+ * `verdict.startsWith("ok")` while explaining why that spelling went, so the
+ * absence check below read its own prose as a surviving call site. "Prose
+ * contains the thing it forbids", inside the guard written for it.
+ */
+function blank(src) {
+  let out = "", i = 0;
+  while (i < src.length) {
+    if (src[i] === "/" && src[i + 1] === "/") {
+      let j = i; while (j < src.length && src[j] !== "\n") j++;
+      out += " ".repeat(j - i); i = j; continue;
+    }
+    if (src[i] === "/" && src[i + 1] === "*") {
+      let j = src.indexOf("*/", i + 2); j = j < 0 ? src.length : j + 2;
+      out += src.slice(i, j).replace(/[^\n]/g, " "); i = j; continue;
+    }
+    out += src[i]; i++;
+  }
+  return out;
+}
+const CODE = blank(SRC);
+// THE BLANKER'S OWN OBSERVER: the landmarks the absence checks are about to
+// look for must have survived it, or a reader that ate the file satisfies every
+// one of them perfectly.
+assert.ok(CODE.includes("export function shipped(verdict)"), "the blanker ate the harness");
+assert.ok(CODE.includes("if (shipped(verdict) && crashed.length)"), "the blanker ate the render downgrade");
 const WF = readFileSync(new URL("../.github/workflows/lane-sweep.yml", import.meta.url), "utf8");
 const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 
@@ -403,8 +431,286 @@ test("a publish the site's render check calls broken is BROKEN, red, and stops t
   const src = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8");
   const loop = src.slice(src.indexOf("    const crashed = crashedRoutes(body);"), src.indexOf("    before = after;\n  }"));
   assert.ok(loop.length > 100, "the loop no longer reads the render verdict, or reads it after the record");
-  assert.match(loop, /verdict\.startsWith\("ok"\) && crashed\.length/, "a verdict that was not ok is downgraded, or an ok one is not");
+  // RE-ANCHORED, NOT APPEASED (2026-09-13): the spelling moved to `shipped()`
+  // when the free-text ask gained a pass word of its own ("reported"), and the
+  // property — a verdict that SHIPPED is downgraded, one that did not is left
+  // alone — is what this asserts.
+  assert.match(loop, /shipped\(verdict\) && crashed\.length/, "a verdict that was not ok is downgraded, or an ok one is not");
   assert.match(loop, /verdict = "BROKEN";/);
   assert.ok(loop.indexOf('verdict = "BROKEN";') < loop.indexOf("results.push("), "the record is taken before the downgrade");
   assert.match(loop, /if \(stopsRun\(verdict\)\)/, "the loop does not ask stopsRun");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A SENTENCE A PERSON TYPED (owner, 2026-09-13)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a free-text ask replaces the case table, and says so rather than dropping it", () => {
+  // THE DEFAULT IS UNTOUCHED. Every run that gives no ask reads exactly the
+  // table it always read — asserted by IDENTITY, because a copy that happens to
+  // be equal today is a second list of the same thing.
+  assert.equal(casesFor(""), CASES);
+  assert.equal(casesFor("   "), CASES);
+  assert.equal(casesFor(null), CASES);
+  assert.equal(casesFor(undefined), CASES);
+  // AND AN ASK REPLACES IT WHOLE — one case, never a table with one more in it,
+  // because the budget and the loop are both per-case and a stranger's sentence
+  // beside nine fixtures is nine paid runs nobody asked for.
+  const one = casesFor("Let people save the lessons they have booked");
+  assert.equal(one.length, 1, "a free-text ask did not replace the table");
+  assert.equal(one[0].name, "ask");
+  assert.equal(one[0].ask, "Let people save the lessons they have booked");
+  assert.equal(one[0].freeText, true);
+  // NO KIND IS FORCED: which kind the sentence routes to is the answer under
+  // test, so a fixture that named one would be marking its own homework.
+  assert.deepEqual(one[0].kinds, []);
+  // THE CHOOSER ACCEPTS IT, which is the hop that would silently drop it — run
+  // 16's `kind,slug.` is this repository's own record of a filter eating the
+  // one input that decides what the money buys.
+  assert.deepEqual(chooseCases("all", one), ["ask"]);
+  assert.deepEqual(chooseCases("ask", one), ["ask"]);
+  // AND THE HARNESS REALLY USES THE RUN LIST, both where it chooses the names
+  // and where it looks the case up. Two call sites, and a fix that moved only
+  // the first would pick the name "ask" and then find no case for it.
+  assert.match(SRC, /const RUN_CASES = casesFor\(ASK\);/, "main no longer builds the run list");
+  assert.match(SRC, /chooseCases\(ASK \? "all" : WANT, RUN_CASES\)/, "the lane list still filters a free-text run");
+  assert.match(SRC, /RUN_CASES\.find\(\(x\) => x\.name === name\)/, "the loop still looks the case up in the fixed table");
+  assert.doesNotMatch(SRC, /chooseCases\(WANT, CASES\)/, "the old unconditional chooser is still there");
+  // THE IGNORED LANE LIST IS SAID OUT LOUD, never dropped in silence.
+  assert.match(SRC, /an ask was given, so the case list/, "a lane list given beside an ask disappears without a word");
+});
+
+test("the ask is capped at the route's OWN cap, taken from the route", () => {
+  // DERIVED, NOT TYPED. A second number here would let the harness send words
+  // the addon route slices off and then judge the answer on them.
+  assert.match(SRC, /import \{ MAX_MESSAGE \} from "\.\.\/builder\/site-add\.mjs";/,
+    "the cap is no longer the route's own");
+  assert.match(SRC, /process\.env\.SWEEP_ASK \|\| ""\)\.trim\(\)\.slice\(0, MAX_MESSAGE\)/,
+    "the ask is not bounded at the route's cap");
+  assert.equal(typeof MAX_MESSAGE, "number");
+  assert.ok(MAX_MESSAGE > 0);
+  // A SENTENCE IS NOT A CASE NAME: it keeps its case and its punctuation, or
+  // the step is asked a question no customer typed.
+  const said = "Add a Members area — so people can SAVE what they booked.";
+  assert.equal(casesFor(said)[0].ask, said);
+});
+
+test("the free-text verdict reports every outcome, and fails only the hollow one", () => {
+  const c = askCase("anything");
+  const before = { build: "b1", text: "x".repeat(100), routes: ["/"] };
+  const after = (build, len = 100) => ({ build, text: "x".repeat(len), routes: ["/"] });
+  // A PUBLISH THAT MADE SOMETHING: reported, and the note carries the database,
+  // the pages and the coverage.
+  const made = c.check(before, after("b2", 400), {
+    ok: true, added: ["src/routes/account.tsx"], changed: [], tables: [{ name: "saved_lessons" }],
+    coverage: { total: 3, covered: 2, elsewhere: 1, unsupported: 0, unreadable: 0 },
+    requirements: [{ need: "a member sees only their own saved lessons", status: "elsewhere", step: "page" }],
+    coverNote: "Still to do: a member sees only their own saved lessons.",
+  }, { askKinds: ["table", "page"] });
+  assert.equal(made.ok, true);
+  assert.match(made.note, /tables \["saved_lessons"\]/);
+  assert.match(made.note, /routed to: \["table","page"\]/);
+  assert.match(made.note, /coverage 2\/3 covered, 1 handed on, 0 unsupported, 0 unreadable/);
+  assert.match(made.note, /STILL OWED: "a member sees only their own saved lessons" \(elsewhere → page\)/);
+  assert.match(made.note, /the customer was told:/);
+  assert.match(made.note, /build moved/);
+  // AN HONEST REFUSAL IS REPORTED, NOT FAILED — refusing with a reason is the
+  // product working, which the canary entry records as a decision.
+  const refused = c.check(before, after("b1"), { ok: false, error: "already", msg: "your site already has one" }, {});
+  assert.equal(refused.ok, true, "a named refusal is being read as a failure");
+  assert.match(refused.note, /refused: already/);
+  // THE ONE FALSIFIABLE CLAUSE: success, and nothing made, changed or said.
+  const hollow = c.check(before, after("b1"), { ok: true }, {});
+  assert.equal(hollow.ok, false, "a success that did nothing and said nothing is passing");
+  assert.match(hollow.note, /FAILED: it reported success and added nothing/);
+  // AND A SUCCESS THAT MADE NOTHING BUT EXPLAINED ITSELF IS NOT HOLLOW — that
+  // is the whole point of the coverage work, and reading it as a failure would
+  // punish the step for telling the truth.
+  const explained = c.check(before, after("b1"), {
+    ok: true, coverage: { total: 1, covered: 0, elsewhere: 0, unsupported: 1, unreadable: 0 },
+    requirements: [{ need: "see the history of what changed", status: "unsupported", why: "nothing here can show it" }],
+  }, {});
+  assert.equal(explained.ok, true);
+  assert.match(explained.note, /STILL OWED: "see the history of what changed" \(unsupported: nothing here can show it\)/);
+  // AN ANSWER WITH NO COVERAGE AT ALL IS SAID, because "nothing outstanding"
+  // and "the question was never answered" are different readings.
+  assert.match(c.check(before, after("b2"), { ok: true, changed: ["src/routes/index.tsx"] }, {}).note,
+    /coverage: the answer carried none/);
+  // AND AN INVALID PROPERTY IS COUNTED AND NAMED to the developer.
+  assert.match(c.check(before, after("b2"), { ok: true, tables: [{ name: "t" }], invalidProps: ["encryptAtRest"] }, {}).note,
+    /guarantee\(s\) the tool does not offer: \["encryptAtRest"\]/);
+});
+
+test("a free-text run is judged as SHIPPED where a case run is, so a broken publish is still BROKEN", () => {
+  // THE TWO WORDS THAT MEAN SHIPPED. `startsWith("ok")` was written inline
+  // twice and is right for the table and silently wrong for "reported" — a
+  // stranger's sentence could publish a page the site's own render check calls
+  // broken and print a clean word with no picture.
+  assert.equal(shipped("ok"), true);
+  assert.equal(shipped("ok (honest refusal)"), true);
+  assert.equal(shipped("reported"), true);
+  for (const v of ["refused", "escalated", "failed", "failed (server)", "LIE", "BROKEN", "NO ANSWER", ""]) {
+    assert.equal(shipped(v), false, `${v} is being read as a shipped verdict`);
+  }
+  // AND BOTH CALL SITES ASK IT — the render downgrade and the screenshot.
+  assert.doesNotMatch(CODE, /verdict\.startsWith\("ok"\)/, "a call site still reads the word inline");
+  assert.match(SRC, /if \(shipped\(verdict\) && crashed\.length\)/, "the render downgrade no longer covers a reported publish");
+  assert.match(SRC, /if \(shipped\(verdict\) && after\.build !== before\.build\)/, "a reported publish takes no screenshot");
+  // A REPORTED VERDICT DOES NOT STOP THE RUN; a lie still does.
+  assert.equal(stopsRun("reported"), false);
+  assert.equal(stopsRun("refused"), false);
+  assert.equal(stopsRun("LIE"), true);
+});
+
+test("the free-text branch runs the check on EVERY outcome, and reads the record before it", () => {
+  // Every other branch decides a verdict first and calls the check only on the
+  // shapes it expects, so a refusal or an escalate on a stranger's sentence
+  // would print one line and never reach the coverage lines the run was bought
+  // for. Read by its own condition, never by position: `if (false)` leaves a
+  // call exactly where a position check looks for it.
+  const chain = SRC.slice(SRC.indexOf("    let verdict, note;"), SRC.indexOf("    // THE SITE'S OWN RENDER VERDICT IS READ"));
+  assert.ok(chain.length > 400, "the verdict chain moved and this window is empty");
+  assert.match(chain, /else if \(c\.freeText\) \{/, "the free-text branch is gone from the verdict chain");
+  const branch = chain.slice(chain.indexOf("else if (c.freeText) {"));
+  assert.match(branch.slice(0, 400), /const chk = c\.check\(before, after, body, extra\);/,
+    "the free-text branch no longer runs the check");
+  // RE-ANCHORED, NOT APPEASED (2026-09-13): this read the ternary's own
+  // spelling, and the ternary went — the sweep survived `refused` mutated to
+  // `LIE` right here, because nothing could DRIVE it, so the decision became
+  // `askVerdict()` and the case above drives all five outcomes. What stays is
+  // the property this window is about: the branch must not decide its own word.
+  assert.match(branch.slice(0, 700), /verdict = askVerdict\(\{/, "the free-text branch decides a verdict the guards cannot drive");
+  assert.doesNotMatch(branch.slice(0, 700), /\? "failed \(server\)"/, "the chain is back to inline arms");
+  // THE RECORD IS READ BEFORE THE VERDICT, because the check PRINTS the kinds
+  // and a record fetched after it has nothing to print into.
+  const readAt = SRC.indexOf("      extra.askKinds = Array.isArray(ans.kinds)");
+  const chainAt = SRC.indexOf("    let verdict, note;");
+  assert.ok(readAt > 0, "the developer record is no longer read for a free-text ask");
+  assert.ok(readAt < chainAt, "the record is read after the verdict, so the kinds cannot reach the note");
+  // AND THE COVERAGE RECORD REACHES THE DEVELOPER. Its three lines were three
+  // separate survivors as inline `console.log`s; they are `askLines()` now and
+  // the case above drives every one of them. Here: only that the call is made,
+  // read by its own condition rather than by position.
+  assert.match(SRC, /if \(c\.freeText\) for \(const line of askLines\(ans, extra\.askKinds\)\) console\.log\(line\);/,
+    "the coverage record is not printed, which is what the run was bought for");
+});
+
+test("the workflow offers the ask, and hands it to the harness", () => {
+  // A NEW `workflow_dispatch` INPUT ONLY EXISTS ONCE THE WORKFLOW IS ON THE
+  // DEFAULT BRANCH — GitHub reads the form off the default branch's copy — so
+  // this pair is what makes the box appear at all.
+  assert.match(WF, /^ {6}ask:$/m, "the workflow has no ask input");
+  assert.match(WF, /SWEEP_ASK: \$\{\{ github\.event\.inputs\.ask \}\}/, "the ask never reaches the harness");
+  // The description must say what it DOES to the case list, because a box that
+  // silently overrides another box is the run-16 shape in a form.
+  const block = WF.slice(WF.indexOf("      ask:"), WF.indexOf("      picker:"));
+  assert.match(block, /replaces the case list/i, "the input does not say that it replaces the case list");
+  assert.match(block, /REPORTS/, "the input does not say the run reports rather than judges");
+});
+
+// ── THE THREE DECISIONS THE FIRST SWEEP COULD NOT OBSERVE ──────────────────
+//
+// Five mutants survived the first pass and every one of them was the same
+// shape: an inline expression inside `main()` — a `console.log`, a ternary arm
+// — that no test could reach, so `if (false)` around it left every landmark
+// exactly where a source read looks for them. The recorded "a positional guard
+// cannot see a dead branch". Each is a named function now, driven here.
+
+test("a refusal is the product working, and a free-text verdict says so", () => {
+  // THE ONE THAT MATTERS: `refused` and `LIE` are both unshipped, so the
+  // screenshot and the render downgrade behave identically — the only thing
+  // that differs is the RUN'S EXIT CODE, which is why nothing caught it.
+  assert.equal(askVerdict({ status: 422, escalated: false, claimedOk: false, checkOk: true }), "refused");
+  assert.equal(askVerdict({ status: 422, escalated: false, claimedOk: false, checkOk: false }), "refused",
+    "a refusal is being judged by a check written for words the customer never used");
+  // Every other outcome, in the order the shape decides them.
+  assert.equal(askVerdict({ status: 503, escalated: false, claimedOk: false, checkOk: true }), "failed (server)");
+  assert.equal(askVerdict({ status: 500, escalated: true, claimedOk: true, checkOk: true }), "failed (server)",
+    "a 5xx must outrank an escalate — a server that died did not decide anything");
+  assert.equal(askVerdict({ status: 200, escalated: true, claimedOk: true, checkOk: true }), "escalated");
+  assert.equal(askVerdict({ status: 200, escalated: false, claimedOk: true, checkOk: true }), "reported");
+  assert.equal(askVerdict({ status: 200, escalated: false, claimedOk: true, checkOk: false }), "LIE",
+    "the one failing shape — a success that did nothing and said nothing");
+  // And the shipped/unshipped split those words land in.
+  assert.equal(shipped(askVerdict({ status: 200, escalated: false, claimedOk: true, checkOk: true })), true);
+  for (const v of [{ status: 422, escalated: false, claimedOk: false, checkOk: true },
+                   { status: 200, escalated: true, claimedOk: true, checkOk: true },
+                   { status: 200, escalated: false, claimedOk: true, checkOk: false }]) {
+    assert.equal(shipped(askVerdict(v)), false, "an unshipped verdict is being photographed");
+  }
+  assert.match(SRC, /verdict = askVerdict\(\{ status: p\.status, escalated, claimedOk, checkOk: chk\.ok \}\);/,
+    "the free-text branch decides its own word inline again");
+});
+
+test("an ignored case list is a sentence, never a silent drop", () => {
+  // RUN 16: a filter on a person's input is a silent drop; a check is a
+  // sentence. Two boxes decide what the money buys and one of them loses.
+  assert.deepEqual(ignoredNote("", "component"), [], "a run with no ask says something about a list it is using");
+  assert.deepEqual(ignoredNote("   ", "component"), []);
+  assert.deepEqual(ignoredNote("add a thing", ""), [], "there was no list to ignore");
+  assert.deepEqual(ignoredNote("add a thing", "all"), [], "`all` is the default, not a choice being overridden");
+  const said = ignoredNote("add a thing", "component,page");
+  assert.equal(said.length, 1);
+  assert.match(said[0], /component,page/, "the sentence does not name the list it is dropping");
+  assert.match(said[0], /not used/i, "the sentence does not say the list was dropped");
+  // The cut is its own sentence, and it reads the RAW ask — the bounded one
+  // can never be over the cap, so reading it would make this unsayable.
+  const long = "x".repeat(MAX_MESSAGE + 40);
+  const cut = ignoredNote(long.slice(0, MAX_MESSAGE), "all", long);
+  assert.equal(cut.length, 1, "a cut ask says nothing about having been cut");
+  assert.match(cut[0], new RegExp(String(MAX_MESSAGE)), "the sentence does not say what it was cut to");
+  assert.deepEqual(ignoredNote("short", "all", "short"), [], "an uncut ask is being reported as cut");
+  // Both at once.
+  assert.equal(ignoredNote(long.slice(0, MAX_MESSAGE), "qr", long).length, 2);
+  assert.match(SRC, /for \(const line of ignoredNote\(ASK, WANT, process\.env\.SWEEP_ASK\)\) console\.log\(line\);/,
+    "main says it inline again, where nothing can drive it");
+});
+
+test("the coverage record reaches the developer, line by line", () => {
+  // THIS IS WHAT THE RUN WAS BOUGHT FOR. Three separate mutants silenced three
+  // of these lines and the whole suite stayed green.
+  const kinds = ["table", "page"];
+  const full = askLines({
+    coverage: {
+      counts: { covered: 1, elsewhere: 1, unsupported: 1 },
+      requirements: [
+        { need: "keep a record of every change", status: "unsupported", why: "the tool offers no history guarantee" },
+        { need: "show them on the page", status: "elsewhere", step: "page" },
+        { need: "store the bookings", status: "covered", by: "bookings" },
+      ],
+      unreadable: [{ need: 17, why: "not a string" }],
+      invalidProps: ["encryptAtRest"],
+      handedTo: { page: 1 },
+    },
+  }, kinds);
+  const all = full.join("\n");
+  assert.match(full[0], /the picker chose: \["table","page"\]/, "the run cannot say which kinds were chosen");
+  assert.match(all, /coverage record: .*"covered":1/, "the counts are not printed");
+  assert.match(all, /unsupported: "keep a record of every change" — the tool offers no history guarantee/,
+    "a requirement's own reason is not printed");
+  assert.match(all, /elsewhere: "show them on the page" → page/, "the hand-off is not printed");
+  assert.match(all, /covered: "store the bookings" — bookings/, "what covered it is not printed");
+  assert.match(all, /UNREADABLE \(not a string\): 17/, "an unreadable requirement is dropped in silence");
+  assert.match(all, /properties the tool does not offer: \["encryptAtRest"\]/,
+    "a model-authored property the engine drops is never named");
+  assert.match(all, /handed to: \{"page":1\}/, "the hand-off map is not printed");
+  // ABSENCE IS A SENTENCE. "Nothing was recorded" and "nothing was
+  // outstanding" are two readings a blank collapses into one.
+  const none = askLines({}, []);
+  assert.equal(none.length, 2, "an answer with no coverage prints something other than the two lines");
+  assert.match(none[1], /no coverage record/i, "an answer with no coverage reads as nothing outstanding");
+  assert.deepEqual(askLines({ coverage: null }, []), none);
+  assert.deepEqual(askLines(null, null), none, "a missing record is not said");
+  // An empty record still says it IS a record — the counts line separates it.
+  const bare = askLines({ coverage: { counts: {} } }, ["qr"]);
+  assert.equal(bare.length, 2);
+  assert.match(bare[1], /coverage record: \{\}/, "an empty coverage record reads as no record at all");
+  // And nothing in it may throw on a hostile shape: this is a model's answer,
+  // read back off R2, not something the harness wrote.
+  for (const junk of [{ coverage: { requirements: "no", unreadable: 3, invalidProps: {} } },
+                      { coverage: { counts: null, handedTo: "x" } }]) {
+    assert.doesNotThrow(() => askLines(junk, "not a list"));
+  }
+  assert.match(SRC, /if \(c\.freeText\) for \(const line of askLines\(ans, extra\.askKinds\)\) console\.log\(line\);/,
+    "the record block prints inline again");
 });

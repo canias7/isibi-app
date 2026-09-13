@@ -83,7 +83,14 @@ test("the spine tells the clock apart from the code: a timed-out container call 
 });
 
 test("the harness keeps a verdict it already gave: a 422 is `failed` with the route's reason, never `LIE: reply says ok`", () => {
-  const chain = between(harness, 'if (verdict === "failed" && String(body.error) === "declined") {', "const kinds = Array.isArray(body.kinds) ? body.kinds : [];", "the verdict chain");
+  // RE-ANCHORED, NOT APPEASED (2026-09-13). The opening landmark was the whole
+  // line `if (verdict === "failed" && String(body.error) === "declined") {`, and
+  // the free-text ask widened that condition to read the developer record on
+  // every one of its runs — so the window vanished and this reported the
+  // verdict chain as gone on a change that did not touch it. The PROPERTY is
+  // the order of three branches; the anchor is now the clause that decides a
+  // decline, which is what this test is downstream of.
+  const chain = between(harness, 'String(body.error) === "declined"', "const kinds = Array.isArray(body.kinds) ? body.kinds : [];", "the verdict chain");
   const keep = chain.indexOf("else if (verdict) {");
   const pageless = chain.indexOf("else if (c.pageless) {");
   // Searched AFTER the pageless branch: the guard's own comment quotes the

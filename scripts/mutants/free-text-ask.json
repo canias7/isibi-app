@@ -1,0 +1,244 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the harness's ask block",
+    "control": true,
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "// ── A SENTENCE A PERSON TYPED ──────────────────────────────────────────────",
+    "to": "// ── A sentence a person typed ──────────────────────────────────────────────"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the guard",
+    "control": true,
+    "files": [
+      "test/addon-sweep.test.mjs"
+    ],
+    "from": "// A SENTENCE A PERSON TYPED (owner, 2026-09-13)",
+    "to": "// A sentence a person typed (owner, 2026-09-13)"
+  },
+  {
+    "label": "THE DEFECT ITSELF: the ask is dropped and the fixture table runs instead",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  return said ? [askCase(said)] : cases;",
+    "to": "  return cases;"
+  },
+  {
+    "label": "The ask JOINS the table instead of replacing it — nine paid runs nobody asked for",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  return said ? [askCase(said)] : cases;",
+    "to": "  return said ? [...cases, askCase(said)] : cases;"
+  },
+  {
+    "label": "A run with no ask stops reading the table it always read",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  return said ? [askCase(said)] : cases;",
+    "to": "  return said ? [askCase(said)] : cases.slice();"
+  },
+  {
+    "label": "The free-text case forces a kind, so the picker is no longer what is under test",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    kinds: [],\n    ask: said,\n    freeText: true,",
+    "to": "    kinds: [\"table\"],\n    ask: said,\n    freeText: true,"
+  },
+  {
+    "label": "The ask is sent unbounded, past the cap the route itself keeps",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "const ASK = String(process.env.SWEEP_ASK || \"\").trim().slice(0, MAX_MESSAGE);",
+    "to": "const ASK = String(process.env.SWEEP_ASK || \"\").trim();"
+  },
+  {
+    "label": "The lane list still filters a free-text run, so a stranger's sentence can be dropped by it",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  try { names = chooseCases(ASK ? \"all\" : WANT, RUN_CASES); }",
+    "to": "  try { names = chooseCases(WANT, RUN_CASES); }"
+  },
+  {
+    "label": "The loop looks the case up in the fixed table again, so the name resolves to nothing",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const c = RUN_CASES.find((x) => x.name === name);",
+    "to": "    const c = CASES.find((x) => x.name === name);"
+  },
+  {
+    "label": "An ignored case list disappears without a word — run 16's silent drop",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (list && list !== \"all\") out.push(`(an ask was given, so the case list \"${list}\" is not used)`);",
+    "to": "  if (false) out.push(`(an ask was given, so the case list \"${list}\" is not used)`);"
+  },
+  {
+    "label": "`shipped` forgets the free-text pass word, so a broken publish prints a clean verdict",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  return v.startsWith(\"ok\") || v === \"reported\";",
+    "to": "  return v.startsWith(\"ok\");"
+  },
+  {
+    "label": "`shipped` says yes to everything, so a refusal is downgraded and photographed",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  return v.startsWith(\"ok\") || v === \"reported\";",
+    "to": "  return true;"
+  },
+  {
+    "label": "The render downgrade reads the word inline again and misses a reported publish",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (shipped(verdict) && crashed.length) {",
+    "to": "    if (verdict.startsWith(\"ok\") && crashed.length) {"
+  },
+  {
+    "label": "A reported publish takes no screenshot",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (shipped(verdict) && after.build !== before.build) {",
+    "to": "    if (verdict.startsWith(\"ok\") && after.build !== before.build) {"
+  },
+  {
+    "label": "The free-text branch leaves the verdict chain, so a refusal prints one line and no coverage",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    else if (c.freeText) {\n      const chk = c.check(before, after, body, extra);",
+    "to": "    else if (false) {\n      const chk = c.check(before, after, body, extra);"
+  },
+  {
+    "label": "A 5xx on a free-text ask reads as a report rather than a failure",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (Number(status) >= 500) return \"failed (server)\";",
+    "to": "  if (false) return \"failed (server)\";"
+  },
+  {
+    "label": "The developer record is never read, so the run cannot say which kinds were chosen",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      extra.askKinds = Array.isArray(ans.kinds) ? ans.kinds : [];\n      extra.askRecord = ans;",
+    "to": "      extra.askRecord = ans;"
+  },
+  {
+    "label": "The coverage record is not printed, which is what the run was bought for",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  out.push(`   coverage record: ${JSON.stringify(cv.counts || {})}`);",
+    "to": "  if (false) out.push(`   coverage record: ${JSON.stringify(cv.counts || {})}`);"
+  },
+  {
+    "label": "Properties the tool does not offer are not named to the developer",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (arr(cv.invalidProps).length) out.push(`     · properties the tool does not offer: ${JSON.stringify(cv.invalidProps)}`);",
+    "to": "  if (false) out.push(`     · properties the tool does not offer: ${JSON.stringify(cv.invalidProps)}`);"
+  },
+  {
+    "label": "An unreadable requirement is not printed",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  for (const u of arr(cv.unreadable)) out.push(`     · UNREADABLE (${u.why}): ${JSON.stringify(u.need)}`);",
+    "to": "  for (const u of []) out.push(`     · UNREADABLE (${u.why}): ${JSON.stringify(u.need)}`);"
+  },
+  {
+    "label": "The hollow test is gone: a success that did nothing and said nothing passes",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      const hollow = claimed && !didSomething && !explained;",
+    "to": "      const hollow = false;"
+  },
+  {
+    "label": "An explained success is read as hollow, punishing the step for telling the truth",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      const hollow = claimed && !didSomething && !explained;",
+    "to": "      const hollow = claimed && !didSomething;"
+  },
+  {
+    "label": "A named refusal is read as a failure rather than as the product working",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!claimedOk) return \"refused\";",
+    "to": "  if (!claimedOk) return \"LIE\";"
+  },
+  {
+    "label": "An answer with no coverage reads as nothing outstanding",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "        : \"coverage: the answer carried none\";",
+    "to": "        : \"nothing outstanding\";"
+  },
+  {
+    "label": "The open requirements are dropped from the note",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      const outstanding = open.length",
+    "to": "      const outstanding = false"
+  },
+  {
+    "label": "The workflow offers the box and never hands it to the harness",
+    "files": [
+      ".github/workflows/lane-sweep.yml"
+    ],
+    "from": "          SWEEP_ASK: ${{ github.event.inputs.ask }}\n",
+    "to": ""
+  },
+  {
+    "label": "The input no longer says that it replaces the case list",
+    "files": [
+      ".github/workflows/lane-sweep.yml"
+    ],
+    "from": "Given, it replaces the case list entirely and runs that single ask",
+    "to": "Given, it runs that single ask"
+  },
+  {
+    "label": "An answer with no coverage record prints a blank instead of a sentence",
+    "from": "  if (!cv) { out.push(`   (no coverage record on the stored answer)`); return out; }",
+    "to": "  if (!cv) { return out; }",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ]
+  },
+  {
+    "label": "The hand-off map is not printed, so a requirement handed on says who to nobody",
+    "from": "  if (cv.handedTo && Object.keys(cv.handedTo).length) out.push(`     · handed to: ${JSON.stringify(cv.handedTo)}`);",
+    "to": "  if (false) out.push(`     · handed to: ${JSON.stringify(cv.handedTo)}`);",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ]
+  },
+  {
+    "label": "The cut sentence reads the BOUNDED ask, which can never be over the cap",
+    "from": "  if (String(rawAsk === undefined ? ask : rawAsk || \"\").trim().length > MAX_MESSAGE) {",
+    "to": "  if (said.length > MAX_MESSAGE) {",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ]
+  }
+]

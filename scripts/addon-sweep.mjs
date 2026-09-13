@@ -41,6 +41,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { confirmed } from "./lane-sweep.mjs";
 import { SERIOUS } from "../builder/site-render.mjs";
+// THE CAP IS THE ROUTE'S OWN, never a second number beside it: the addon route
+// slices the customer's message at `MAX_MESSAGE`, so a harness that took more
+// would send words the step silently drops and then judge the answer on them.
+import { MAX_MESSAGE } from "../builder/site-add.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -53,6 +57,11 @@ const PICKER = String(process.env.SWEEP_PICKER || "grok").trim().toLowerCase();
 const BUDGET = Number(process.env.SWEEP_BUDGET || 40);
 const WANT = String(process.env.SWEEP_LANES || "all").trim().toLowerCase();
 const SHOTS = String(process.env.GAP_SHOTS_DIR || "docs/edits").trim();
+// THE CUSTOMER'S OWN WORDING (owner, 2026-09-13: "Add free-text input to the
+// harness so it can test the actual customer wording"). Not lowercased and not
+// trimmed of its punctuation the way a case NAME is — this is a sentence a
+// person typed, and the step's whole job is to read it as written.
+const ASK = String(process.env.SWEEP_ASK || "").trim().slice(0, MAX_MESSAGE);
 
 /** `node:https` rather than fetch — undici gives up at 300s and an addon outlives that. */
 function call(method, urlOrPath, { body, headers, token } = {}) {
@@ -236,6 +245,88 @@ export function crashedRoutes(body) {
 /** A case that ends the run: a lie, a lost answer, or a site that says one of its own pages is down. */
 export function stopsRun(verdict) {
   return verdict === "LIE" || verdict === "NO ANSWER" || verdict === "BROKEN";
+}
+
+/**
+ * A verdict that says the addition SHIPPED — the two things a shipped verdict
+ * earns: the site's own render findings applied to it, and a screenshot.
+ *
+ * IT IS A FUNCTION BECAUSE THERE ARE TWO SUCH WORDS NOW. Both were written as
+ * `verdict.startsWith("ok")` inline, which is exactly right for the case table
+ * (whose passes all begin "ok") and silently wrong for the free-text ask, whose
+ * pass is "reported": a stranger's sentence could publish a page the site's own
+ * render check calls broken, and the run would have printed a clean word and no
+ * picture. Two copies of a rule drift; this is one.
+ */
+export function shipped(verdict) {
+  const v = String(verdict || "");
+  return v.startsWith("ok") || v === "reported";
+}
+
+/**
+ * The verdict word for a free-text ask, from the SHAPE of what came back.
+ *
+ * A FUNCTION BECAUSE A REFUSAL IS THE PRODUCT WORKING. Written inline, the one
+ * decision that separates "the step refused and said why" from "the step lied"
+ * had no observable half: both words are unshipped, so the screenshot and the
+ * render downgrade behave identically and only the RUN'S EXIT CODE differs —
+ * which no unit test reached. Calling a named refusal a LIE fails a run that
+ * found nothing wrong, and this repository rates a false alarm worse than a
+ * miss.
+ */
+export function askVerdict({ status, escalated, claimedOk, checkOk }) {
+  if (Number(status) >= 500) return "failed (server)";
+  if (escalated) return "escalated";
+  if (!claimedOk) return "refused";
+  return checkOk ? "reported" : "LIE";
+}
+
+/**
+ * What a free-text run says before it spends anything: which of its two inputs
+ * lost, and whether the sentence was cut.
+ *
+ * RUN 16'S LESSON IS THE WHOLE REASON IT EXISTS — a filter on a person's input
+ * is a silent drop and a check is a sentence — so the sentence itself must be
+ * something a guard can read. Inline it was a bare `console.log` nothing could
+ * drive, and `if (false)` around it left every landmark exactly where a source
+ * read looks for them.
+ */
+export function ignoredNote(ask, want, rawAsk) {
+  const out = [];
+  const said = String(ask || "").trim();
+  if (!said) return out;
+  const list = String(want || "").trim();
+  if (list && list !== "all") out.push(`(an ask was given, so the case list "${list}" is not used)`);
+  if (String(rawAsk === undefined ? ask : rawAsk || "").trim().length > MAX_MESSAGE) {
+    out.push(`(the ask was cut to ${MAX_MESSAGE} characters, which is what the route itself keeps)`);
+  }
+  return out;
+}
+
+/**
+ * The developer's half of a free-text run: which kinds the picker chose, and
+ * every line of the coverage record behind it.
+ *
+ * THIS IS WHAT THE RUN WAS BOUGHT FOR, and as inline `console.log`s it was the
+ * one part of the harness nothing could observe — three sweep mutants silenced
+ * three different lines and every guard stayed green. Lines out, printing at the
+ * call site: the absence of a record is a SENTENCE and never a blank, because
+ * "nothing was recorded" and "nothing was outstanding" are the two readings a
+ * blank collapses.
+ */
+export function askLines(record, kinds) {
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const out = [`   the picker chose: ${JSON.stringify(arr(kinds))}`];
+  const cv = record && typeof record.coverage === "object" && record.coverage ? record.coverage : null;
+  if (!cv) { out.push(`   (no coverage record on the stored answer)`); return out; }
+  out.push(`   coverage record: ${JSON.stringify(cv.counts || {})}`);
+  for (const q of arr(cv.requirements)) {
+    out.push(`     · ${q.status}: ${JSON.stringify(q.need)}${q.by ? " — " + q.by : ""}${q.why ? " — " + q.why : ""}${q.step ? " → " + q.step : ""}`);
+  }
+  for (const u of arr(cv.unreadable)) out.push(`     · UNREADABLE (${u.why}): ${JSON.stringify(u.need)}`);
+  if (arr(cv.invalidProps).length) out.push(`     · properties the tool does not offer: ${JSON.stringify(cv.invalidProps)}`);
+  if (cv.handedTo && Object.keys(cv.handedTo).length) out.push(`     · handed to: ${JSON.stringify(cv.handedTo)}`);
+  return out;
 }
 
 // ── THE CASES ──────────────────────────────────────────────────────────────
@@ -519,6 +610,105 @@ export function chooseCases(want, cases) {
   return names;
 }
 
+// ── A SENTENCE A PERSON TYPED ──────────────────────────────────────────────
+//
+// Owner, 2026-09-13: "Add free-text input to the harness so it can test the
+// actual customer wording."
+//
+// WHY IT IS A CASE OF ITS OWN AND NEVER A SWAPPED-IN `ask`. Every case in the
+// table above pairs its ask with a check written FOR that ask — the component
+// case matches /testimonial|student|lesson/, the page case counts new routes.
+// Putting a stranger's sentence behind one of those checks produces a verdict
+// about words the customer never used, which is worse than no verdict: this
+// repository rates a false alarm above a miss and a false ALL-CLEAR above
+// either.
+//
+// SO IT REPORTS, AND IT JUDGES EXACTLY ONE THING. What the run is FOR is
+// reading what the step did — which tables, which pages, what it said it could
+// not cover — and none of that is knowable in advance. The one property that
+// IS knowable is this repository's own rule: an answer may do less than was
+// asked, and it may not do less while saying it did. So `ok` is false for a
+// success that added nothing, changed nothing, moved nothing and explained
+// nothing; for a 5xx; and for no answer at all. A NAMED refusal is `ok` —
+// refusing with a reason is the product working, and the canary entry records
+// that decision.
+export function askCase(ask) {
+  const said = String(ask || "");
+  return {
+    name: "ask",
+    // NO KINDS ARE FORCED. The picker is the thing under test: which kind a
+    // sentence routes to is the answer, not the input.
+    kinds: [],
+    ask: said,
+    freeText: true,
+    check: (b, a, r, x) => {
+      const list = (v) => (Array.isArray(v) ? v : []);
+      const names = (v) => list(v).map((e) => (e && typeof e === "object" ? (e.name || e.path || "") : e)).filter(Boolean);
+      const pages = [...list(r && r.added), ...list(r && r.changed)].map(sitePathOf).filter(Boolean);
+      const moved = list(r && r.moved);
+      const built = a.build !== b.build;
+      // WHAT IT MADE IN THE DATABASE, each read off the reply's own field —
+      // the database leaves no mark on the page, so the reply is the record.
+      const db = [
+        names(r && r.tables).length ? `tables ${JSON.stringify(names(r.tables))}` : "",
+        names(r && r.functions).length ? `functions ${JSON.stringify(names(r.functions))}` : "",
+        names(r && r.apis).length ? `connections ${JSON.stringify(names(r.apis))}` : "",
+        names(r && r.jobs).length ? `jobs ${JSON.stringify(names(r.jobs))}` : "",
+        r && r.provisioned ? "AND THE SITE GOT ITS DATABASE FOR IT" : "",
+        names(r && r.functionErrors).length ? `FAILED to create ${JSON.stringify(names(r.functionErrors))}` : "",
+      ].filter(Boolean);
+      // WHAT IT COULD NOT COVER. The counts are the step's own; the open list
+      // is what the customer is owed. Printed even when empty, because "it
+      // said nothing was outstanding" and "it never answered the question"
+      // are different readings and an absent line collapses them.
+      const cov = (r && typeof r.coverage === "object" && r.coverage) || null;
+      const open = list(r && r.requirements);
+      const bad = list(r && r.invalidProps).filter((s) => typeof s === "string");
+      const coverage = cov
+        ? `coverage ${cov.covered}/${cov.total} covered, ${cov.elsewhere} handed on, ${cov.unsupported} unsupported, ${cov.unreadable} unreadable`
+        : "coverage: the answer carried none";
+      const outstanding = open.length
+        ? "STILL OWED: " + open.slice(0, 6).map((q) => `${JSON.stringify(q && q.need)} (${q && q.status}${q && q.why ? ": " + q.why : ""}${q && q.step ? " → " + q.step : ""})`).join("; ")
+        : "nothing left outstanding";
+      const said2 = r && typeof r.coverNote === "string" && r.coverNote ? `the customer was told: ${JSON.stringify(r.coverNote)}` : "no coverage sentence to the customer";
+      const props = bad.length ? `; asked for ${bad.length} guarantee(s) the tool does not offer: ${JSON.stringify(bad.slice(0, 6))}` : "";
+      const refused = r && r.error ? String(r.error) : "";
+      const claimed = r && r.ok === true;
+      const didSomething = pages.length > 0 || moved.length > 0 || db.length > 0 || built;
+      const explained = !!(refused || (r && r.notAdded && list(r.notAdded).length) || open.length || (r && r.coverNote));
+      // THE ONE FALSIFIABLE CLAUSE, and it is the repo's own rule: doing less
+      // than was asked while saying it was done.
+      const hollow = claimed && !didSomething && !explained;
+      return {
+        ok: !hollow,
+        note: `REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.` +
+          `\n      routed to: ${JSON.stringify(list(x && x.askKinds))}` +
+          `\n      database: ${db.length ? db.join("; ") : "nothing"}` +
+          `\n      pages: ${JSON.stringify(pages)}${moved.length ? `; look fields moved ${JSON.stringify(moved)}` : ""}; build ${built ? "moved" : "UNMOVED"}` +
+          `\n      home text ${b.text.length}→${a.text.length} chars` +
+          `\n      ${coverage}` +
+          `\n      ${outstanding}${props}` +
+          `\n      ${said2}` +
+          (refused ? `\n      refused: ${refused}` : "") +
+          (hollow ? `\n      FAILED: it reported success and added nothing, changed nothing and explained nothing.` : ""),
+      };
+    },
+  };
+}
+
+/**
+ * The cases this run will use: the table, or the one sentence a person typed.
+ *
+ * A FREE-TEXT ASK REPLACES THE TABLE RATHER THAN JOINING IT, and the caller
+ * SAYS SO when a lane list was also given. Run 16's lesson is that a filter on
+ * a person's input is a silent drop and a check is a sentence — so the one
+ * input that decides what the money buys never quietly loses to the other.
+ */
+export function casesFor(ask, cases = CASES) {
+  const said = String(ask || "").trim();
+  return said ? [askCase(said)] : cases;
+}
+
 // ── A BROWSER, IF THERE IS ONE ─────────────────────────────────────────────
 //
 // Screenshots of every addition (owner: "always show UI changes as
@@ -551,8 +741,14 @@ async function shot(url, file) {
 async function main() {
   if (!confirmed(process.env.SWEEP_CONFIRM)) { console.error("SWEEP_CONFIRM must be the word `spend` — this harness costs real credits on a live site."); process.exit(1); }
   if (!EMAIL || !SERVICE_KEY || !SLUG) { console.error("OWNER_EMAIL, SUPABASE_SERVICE_KEY and SWEEP_SLUG are required"); process.exit(1); }
+  // THE SENTENCE WINS OVER THE TABLE, AND IT IS SAID OUT LOUD. Run 16's lesson
+  // is that a filter on a person's input is a silent drop and a check is a
+  // sentence; the one input that decides what the money buys must never lose
+  // to the other without a word.
+  const RUN_CASES = casesFor(ASK);
+  for (const line of ignoredNote(ASK, WANT, process.env.SWEEP_ASK)) console.log(line);
   let names;
-  try { names = chooseCases(WANT, CASES); } catch (e) { console.error(String(e && e.message)); process.exit(1); }
+  try { names = chooseCases(ASK ? "all" : WANT, RUN_CASES); } catch (e) { console.error(String(e && e.message)); process.exit(1); }
   if (!names.length) { console.error("no cases selected"); process.exit(1); }
 
   const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
@@ -579,7 +775,7 @@ async function main() {
   const results = [];
   let n = 0;
   for (const name of names) {
-    const c = CASES.find((x) => x.name === name);
+    const c = RUN_CASES.find((x) => x.name === name);
     n++;
     const spent = start - (await balance());
     if (spent > BUDGET) { console.log(`BUDGET EXHAUSTED (${spent} > ${BUDGET}) — stopping before ${name}`); break; }
@@ -670,8 +866,33 @@ async function main() {
     }
     const claimedOk = body.ok === true;
     const escalated = body.escalate === true;
+    // THE DEVELOPER RECORD IS READ BEFORE THE VERDICT ON A FREE-TEXT ASK, and
+    // the order is the whole of why this sits here rather than beside the
+    // decline reader below: the check PRINTS which kinds the picker chose, and
+    // a record fetched after the check has nothing to print into. The recorded
+    // "a value computed and never forwarded", avoided by reading first.
+    if (c.freeText) {
+      const kept = await call("GET", `/api/site/answer?slug=${encodeURIComponent(SLUG)}&kind=addon`, { token: TOKEN });
+      const ans = (kept.json && kept.json.answer) || {};
+      extra.askKinds = Array.isArray(ans.kinds) ? ans.kinds : [];
+      extra.askRecord = ans;
+    }
     let verdict, note;
     if (p.status === 0) { verdict = "NO ANSWER"; note = `the request died: ${p.why || "?"}`; }
+    // ── A FREE-TEXT ASK IS ALWAYS REPORTED, WHATEVER HAPPENED ──────────────
+    //
+    // Every branch below this one decides a verdict FIRST and calls the check
+    // only on the shapes it expects — so a refusal, an escalate or a 5xx on a
+    // stranger's sentence would print a one-line reason and never reach the
+    // coverage lines, which are the whole reason the run was bought. This
+    // branch runs the check on every outcome and lets the SHAPE pick the word.
+    else if (c.freeText) {
+      const chk = c.check(before, after, body, extra);
+      verdict = askVerdict({ status: p.status, escalated, claimedOk, checkOk: chk.ok });
+      note = chk.note +
+        (escalated ? `\n      escalate ${body.reason} layer ${body.layer || "-"}` : "") +
+        (!claimedOk && !escalated ? `\n      ${p.status} ${String(body.error || "")} — ${String(body.detail || body.msg || "").slice(0, 200)}` : "");
+    }
     else if (c.hop) {
       const chk = c.check(before, after, body, extra);
       verdict = chk.ok ? "ok (hopped)" : (escalated ? "escalated" : (claimedOk ? "LIE" : "failed"));
@@ -687,9 +908,15 @@ async function main() {
     // A DECLINE IS READ, NOT GUESSED (run 28, 2026-09-03): the route keeps
     // every designer's raw reply on the site's own store, and three declines
     // in a row were diagnosed from a boolean because nobody could see it.
-    if (verdict === "failed" && String(body.error) === "declined") {
-      const kept = await call("GET", `/api/site/answer?slug=${encodeURIComponent(SLUG)}&kind=addon`, { token: TOKEN });
-      const replies = kept.json && kept.json.answer && Array.isArray(kept.json.answer.replies) ? kept.json.answer.replies : [];
+    // A FREE-TEXT ASK READS IT EVERY TIME, whatever the verdict. The record is
+    // where the kinds the picker chose and the coverage the designers answered
+    // live — a decline is only the loudest reason to want them, and on a
+    // stranger's sentence "what did it decide to do" is the question itself.
+    if (c.freeText || (verdict === "failed" && String(body.error) === "declined")) {
+      const ans = c.freeText ? (extra.askRecord || {})
+        : ((await call("GET", `/api/site/answer?slug=${encodeURIComponent(SLUG)}&kind=addon`, { token: TOKEN })).json || {}).answer || {};
+      if (c.freeText) for (const line of askLines(ans, extra.askKinds)) console.log(line);
+      const replies = Array.isArray(ans.replies) ? ans.replies : [];
       for (const r of replies) {
         const said = (Array.isArray(r.content) ? r.content : []).map((b) => b && b.type === "text" ? String(b.text || "") : b && b.type === "tool_use" ? "tool_use " + JSON.stringify(b.input) : "").filter(Boolean).join(" | ");
         console.log(`   the ${r.kind} designer ${r.answered ? "answered" : "answered NOTHING"} (${r.stop_reason || "?"}): ${said.slice(0, 600) || "(empty reply)"}`);
@@ -720,7 +947,7 @@ async function main() {
     // `crashedRoutes`. A publish the site itself says broke a page is BROKEN:
     // shipped, and down.
     const crashed = crashedRoutes(body);
-    if (verdict.startsWith("ok") && crashed.length) {
+    if (shipped(verdict) && crashed.length) {
       verdict = "BROKEN";
       note += `; the site's own render check: ${crashed.length} serious finding${crashed.length === 1 ? "" : "s"} — ${crashed[0].route} ${crashed[0].kind}: ${String(crashed[0].detail || "").slice(0, 140)}`;
     }
@@ -735,10 +962,15 @@ async function main() {
         : `; repair ${rp.why || "skipped"}${(rp.routes || []).length ? " for " + rp.routes.join(", ") : ""}`;
     }
     const kinds = Array.isArray(body.kinds) ? body.kinds : [];
-    const pickedRight = !kinds.length || kinds.some((k) => c.kinds.includes(k));
+    // A FREE-TEXT ASK FORCES NO KIND — which kind a sentence routes to is the
+    // answer under test, so "the picker named the wrong kind" is not a thing
+    // this case can say. Written as its own clause rather than left to fall
+    // out of an empty `c.kinds`, which reads as wrong the day a reply carries
+    // its kinds.
+    const pickedRight = c.freeText || !kinds.length || kinds.some((k) => c.kinds.includes(k));
     // THE PICTURES, on a publish only: the home page, and the new page if one.
     const shots = [];
-    if (verdict.startsWith("ok") && after.build !== before.build) {
+    if (shipped(verdict) && after.build !== before.build) {
       const tag = String(n).padStart(2, "0") + "-" + name;
       const a = await shot(SITE + "/", path.join(SHOTS, `addon-${tag}.png`)); if (a) shots.push(a);
       for (const [i, p] of (extra.newRoutes || []).entries()) { const b = await shot(SITE + p, path.join(SHOTS, `addon-${tag}-page${extra.newRoutes.length > 1 ? "-" + (i + 1) : ""}.png`)); if (b) shots.push(b); }

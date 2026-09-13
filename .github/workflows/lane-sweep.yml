@@ -54,6 +54,10 @@ on:
         description: 'gap harness only: the site with a database, for move / remove / data / rules / backend'
         required: false
         default: 'the-lido-cafe'
+      ask:
+        description: 'addon harness only: ONE request in the customer''s own words. Given, it replaces the case list entirely and runs that single ask — the picker chooses the kind, and the run REPORTS what was made, what changed and what the step said it could not cover, rather than judging against words a fixture cannot know.'
+        required: false
+        default: ''
       picker:
         description: 'grok | sonnet | opus'
         required: false
@@ -102,6 +106,7 @@ jobs:
           SWEEP_CONFIRM: ${{ github.event.inputs.confirm }}
           SWEEP_HARNESS: ${{ github.event.inputs.harness }}
           SWEEP_LANES: ${{ github.event.inputs.lanes }}
+          SWEEP_ASK: ${{ github.event.inputs.ask }}
           SWEEP_SLUG: ${{ github.event.inputs.site }}
           SWEEP_PICKER: ${{ github.event.inputs.picker }}
           SWEEP_BUDGET: ${{ github.event.inputs.budget }}
