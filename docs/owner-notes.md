@@ -7492,7 +7492,7 @@ permission fix through the release checks and merged it.
 | `main` | `9d2c8e7c` |
 | deploy | run **2114**, green, **22:16:21 → 22:19:29Z** |
 | the container image | **rebuilt**, and the container **swapped onto it at 22:19:18Z** |
-| the 15–20 minute settle | ran to about **22:39Z** — past now |
+| the 15–20 minute settle | runs to about **22:34–22:39Z** |
 | database migration | **none needed** |
 
 I read the image rebuild and the container swap out of the deploy's own log
