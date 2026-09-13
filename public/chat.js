@@ -1997,7 +1997,6 @@ window.addEventListener('popstate', () => {
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
 let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
-let siteBuildMsg = '';      // live streamed build step ("Designing 3 pages…") shown while busy
 let siteBuild = null;       // { phase, pages[], done[], tick } — running build activity log
 let siteTicker = null;      // setInterval handle rotating the active "live" line
 let siteView = 'preview';   // workspace stage: preview | code | more | data
@@ -4446,7 +4445,6 @@ function stSaveBlob(blob, filename) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(u), 5000);
 }
-function moreStat(label, val) { return '<div class="st-stat"><span class="st-stat-l">' + label + '</span><span class="st-stat-v">' + val + '</span></div>'; }
 function siteMoreView(site) {
   const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search'], ['context', 'gauge', 'Model context']];
   const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + ic(it[1], 17) + '</span>' + it[2] + '</button>').join('');
@@ -4919,28 +4917,6 @@ function moreSecurity(site) {
     '<div class="st-panel-sub">Detected issues</div>' +
     '<div id="secResults"><div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div></div>' +
   '</div>';
-}
-// Deep scan — send the site's code to Opus (/api/site/scan) and render findings.
-function siteSecurityScan(site) {
-  const box = document.getElementById('secResults'); if (!box) return;
-  const btn = document.getElementById('secScan'); if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
-  box.innerHTML = '<div class="st-sec-empty"><b>Opus is reviewing your code…</b><span>This takes a few seconds.</span></div>';
-  apiFetch('/api/site/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pages: (sitePages(site) || []).map((p) => ({ path: p.path, name: p.name, html: p.html })) }) })
-    .then(async (r) => {
-      const d = await r.json().catch(() => ({}));
-      if (btn) { btn.disabled = false; btn.textContent = 'Run scan'; }
-      if (r.status === 402) { box.innerHTML = '<div class="st-sec-empty"><b>Not enough credits</b><span>A deep scan needs ~8 credits. Tap your ✦ balance up top.</span></div>'; return; }
-      if (!r.ok || !d.ok) { box.innerHTML = '<div class="st-sec-empty"><b>Scan didn’t run</b><span>Try again in a moment.</span></div>'; return; }
-      const f = Array.isArray(d.findings) ? d.findings : [];
-      if (!f.length) { box.innerHTML = '<div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No issues found</b><span>Opus reviewed your code and it looks clean.</span></div>'; }
-      else {
-        const order = { critical: 0, high: 1, medium: 2, low: 3 };
-        f.sort((a, b) => (order[a.severity] == null ? 9 : order[a.severity]) - (order[b.severity] == null ? 9 : order[b.severity]));
-        box.innerHTML = '<div class="st-sec-count">' + f.length + ' issue' + (f.length === 1 ? '' : 's') + ' found</div><div class="st-sec-issues">' + f.map((i) =>
-          '<div class="st-issue st-sev-' + esc(i.severity || 'low') + '"><div class="st-issue-top"><span class="st-issue-sev">' + esc(i.severity || 'low') + '</span><b>' + esc(i.title || 'Issue') + '</b>' + (i.page ? '<span class="st-issue-pg">' + esc(i.page) + '</span>' : '') + '</div><p>' + esc(i.detail || '') + '</p></div>').join('') + '</div>';
-      }
-      if (typeof fetchCredits === 'function') fetchCredits();
-    }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = 'Run scan'; } box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
 }
 // SEO & social — what the site says about itself WHERE IT IS NOT THE SITE: the
 // Google result, the grey line under it, and the picture a chat app unfurls.
@@ -6162,17 +6138,6 @@ function stCodeBody(txt, cursor, from) {
     .map((l, i) => '<span class="st-lc-n">' + (n + i) + '</span>' + stHlCode(l)).join('\n');
   return '<pre class="st-lc st-lc-num">' + body + cur + '</pre>';
 }
-// Multi-agent fan-out: one chip per agent with its model + running/done state (shown when MULTI_AGENT streams).
-function stAgentsBody(agents) {
-  const keys = Object.keys(agents || {});
-  if (!keys.length) return '';
-  const short = (m) => /opus/i.test(m || '') ? 'Opus' : /sonnet/i.test(m || '') ? 'Sonnet' : (m || '');
-  const nice = (k) => k === 'shell' ? 'shell' : k === 'design' ? 'design' : k === 'backend' ? 'backend' : k.replace(/^page:/, '');
-  return '<div class="st-agents">' + keys.map((k) => {
-    const a = agents[k]; const done = a.status === 'done';
-    return '<span class="st-agent' + (done ? ' done' : ' run') + '">' + (done ? '✓' : '<span class="st-agent-run"></span>') + ' ' + esc(nice(k)) + ' <em>' + esc(short(a.model)) + '</em></span>';
-  }).join('') + '</div>';
-}
 // Finished build, stored on an assistant message — collapsed by default.
 function reactStepsHTML(b) {
   const rows = [];
@@ -6599,7 +6564,7 @@ function buildWhy(d) {
 }
 
 function siteFinishBuild(origin, reply, build, note, why) {
-  siteBusy = false; siteBuildMsg = ''; siteBuildStop();
+  siteBusy = false; siteBuildStop();
   const s = siteById(origin); if (!s) return;
   // `note` is its OWN field rather than being prepended to `t` with a blank
   // line. `.st-msg` has no `white-space: pre-wrap`, so a newline inside the
@@ -6695,7 +6660,6 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // the site so the answer can be put back together with the brief.
     if (d.intent === 'clarify' && d.question && Array.isArray(d.question.options) && d.question.options.length >= 2) {
       siteBusy = false;
-      siteBuildMsg = '';
       siteBuildStop();
       const s0 = siteById(origin);
       if (!s0) return;
@@ -6726,7 +6690,6 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // is an ordinary assistant message — no build steps, because there was no
     // build and a steps block over an answer would claim one.
     siteBusy = false;
-    siteBuildMsg = '';
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
@@ -7233,7 +7196,6 @@ function resumeOpenSite(site) {
   const origin = site.id;
   const finish = (reply) => {
     siteBusy = false;
-    siteBuildMsg = '';
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
@@ -8165,7 +8127,6 @@ function buildActiveText() {
 // pulses and rotates.
 function paintBuildLog() {
   const active = buildActiveText();
-  siteBuildMsg = active;
   const done = siteBuild ? siteBuild.done : [];
   const html = done.map((d) => '<div class="st-ll done">' + esc(d) + '</div>').join('') +
     '<div class="st-ll active"><span class="st-ll-dot"></span>' + esc(active) + '…</div>';
@@ -8174,43 +8135,6 @@ function paintBuildLog() {
   const stageHost = document.querySelector('.st-stage .st-livelog');
   if (stageHost) stageHost.innerHTML = html;
   const empty = document.querySelector('.st-stage .st-empty'); if (empty && !stageHost) empty.textContent = active + '…';
-}
-// Fold a streamed checkpoint into the running log (advances the phase, appends
-// finished steps). Called from readSiteStream with the raw event object.
-function siteBuildStatus(origin, ev) {
-  if (siteOpenId !== origin || !siteBuild) return;
-  if (ev.ev === 'status') {
-    if (ev.phase === 'design') { if (!siteBuild.done.includes('Planned the pages')) siteBuild.done.push('Planned the pages'); siteBuild.phase = 'design'; if (Array.isArray(ev.pages)) siteBuild.pages = ev.pages.slice(0, 8); }
-    else if (ev.phase === 'photos') { siteBuild.phase = 'photos'; }
-    else if (ev.phase === 'plan') { siteBuild.phase = 'plan'; }
-    siteBuild.tick = 0;
-  } else if (ev.ev === 'page') {
-    if (ev.name && !siteBuild.done.includes(ev.name)) siteBuild.done.push(ev.name);
-  }
-  paintBuildLog();
-}
-// Read the NDJSON build stream: fold each {ev:"status"|"page"} into the live log,
-// and return the terminal {ev:"done"|"error"} payload shaped like the old JSON
-// body (so the existing result-handling branches below need no change).
-async function readSiteStream(r, origin) {
-  const reader = r.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '', final = null;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let nl;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-      if (!line) continue;
-      let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
-      if (ev.ev === 'status' || ev.ev === 'page') siteBuildStatus(origin, ev);
-      else if (ev.ev === 'done') final = ev;
-      else if (ev.ev === 'error') final = { error: true, code: ev.code };
-    }
-  }
-  return final || { error: true };
 }
 // The REAL engine (2026-07-18, Gemini-only, multi-page): the FIRST message on a
 // project builds the whole site (a plan pass decides the pages + a shared design
@@ -8310,7 +8234,6 @@ function siteAnswer(label, skip) {
   renderSites();
   const finish = (reply) => {
     siteBusy = false;
-    siteBuildMsg = '';
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
@@ -8360,7 +8283,6 @@ function siteSend(text) {
   const origin = siteOpenId;
   const finish = (reply) => {
     siteBusy = false;
-    siteBuildMsg = '';
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
@@ -8491,8 +8413,6 @@ function stCloudModal(id, title) {
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   return { box, bodyEl: box.querySelector('.si-body'), close };
 }
-function stFmtTime(t) { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } }
-
 // Insights — visitor traffic (page views + key actions) and the app's API request/error
 // counts. Read-only; owner-scoped.
 // The auth audit log — who signed in, who failed, and what the owner changed.
@@ -9513,9 +9433,6 @@ function sbToast(text) {
 }
 
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
-// Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
-// on Home only, so every other view gets the full width.
-const VIEW_LABELS = { sites: 'Builder', settings: 'Settings' };
 // Every view this app has. `showView` falls back to the builder for anything
 // else — including a remembered value from before the media side was deleted,
 // which is the case that would otherwise paint a blank main: a refresh-proof

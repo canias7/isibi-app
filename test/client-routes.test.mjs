@@ -39,7 +39,12 @@ const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
 const KNOWN_DEAD = [
   "/api/site/collections", // the Database panel's collections card
   "/api/site/preview",     // posts `html` — the D1 page format
-  "/api/site/scan",        // posts `p.html` — same
+  // `/api/site/scan` LEFT THIS LIST BY THE RATCHET BELOW (2026-09-13), and not
+  // because the route was built: the dead-code census found `siteSecurityScan`
+  // had no caller at all — the Security panel's own button has been drawn
+  // `disabled` with "Not available yet" since the dead-control finding — so the
+  // handler that posted to it went with the rest of the dead set. A client
+  // route with no caller is not a dead route; it is no route.
 ];
 
 /** Comments blanked, so a comment EXPLAINING a dead route is not a finding. */
