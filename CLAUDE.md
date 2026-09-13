@@ -2762,6 +2762,55 @@ case now, and it is safe on walls that already existed.
   needs the same blanker the unit guards have had for months.**
   **Not proven live: a press** — the proof is one click, the preview visibly
   reloading.
+- **THE WHOLE RIGHT-HAND GROUP IS PREVIEW-ONLY (2026-09-13, owner on a crop of
+  exactly those four: *"THIS STUFF SHOULD ONLY BE THERE ON PREVIEW ONLY"*).** The
+  three device widths, Download, Share and Publish say nothing about the Code,
+  Data or More tabs, so on those screens they were four controls describing
+  something that is not on the screen. The page picker and Refresh beside them
+  had been preview-only since the bar was built; this finishes the group.
+  **THE DANGER IS THE ONE `topbar-layout.test.mjs` ALREADY EXISTS FOR, which is
+  why the new cases live there rather than in a file of their own.** Both side
+  groups are `flex: 1 1 0` and split the bar down to each one's MIN-CONTENT, so
+  a block REMOVED on a view change shrinks this group, the difference comes out
+  of the left group, and **the centred tabs move at every width** — the bug three
+  earlier attempts had to learn. So the four wear `st-tb-pv-off`, the picker
+  block's own class: `visibility: hidden`, never `display: none`, space
+  reserved. Hiding them any other way would have looked right in every source
+  check.
+  **ONE WRAPPER, NOT FOUR CLASSES**: the space to reserve is the GROUP's, and
+  four separately-hidden children still collapse the gaps between them.
+  `.st-tb-end`'s `gap` is asserted EQUAL to `.st-tb-right`'s, so Preview's
+  spacing is what it was.
+  **MEASURED IN A BROWSER ACROSS SIX WIDTHS (1024–1920): 0.00px tab shift**, the
+  right group **375.4px in both views**, and the four `visible` on Preview /
+  `hidden` on Code. `docs/edits/topbar-preview-only.png`.
+  **AND THE BAR'S WRAPPING BELOW ~1180px IS PRE-EXISTING, measured rather than
+  assumed** — the baseline read out of `git show HEAD:` rather than by stashing
+  (a measurement that mutates the tree is one interrupted call from leaving it
+  wrong): **48.97px at 1180+, 57.19 at 1100, 71.19 at 1024, 85.19 at 960, and
+  byte-identical before and after**. Not caused here, not fixed here.
+  **THE ONE COST, NAMED RATHER THAN HIDDEN**: the whole-project Download leaves
+  the Code tab, where you would most want it. The Code tab's own bar keeps
+  `stCodeDl`, which downloads the **open file**, not the project — so it is a
+  real if small loss, and putting Download back is one name off the wrapper.
+  **Guards**: `test/topbar-layout.test.mjs` (+3) — the wrapper always rendered
+  and never conditional, wearing the shared off-class with `aria-hidden`; a
+  census that the four are NOT emitted before it and the always-visible controls
+  (Back, the chat toggle, the name, history, the tabs) are not inside it; and the
+  gap held equal to the group's.
+  **THE CENSUS'S FIRST DRAFT WAS VACUOUS AND THE MUTANTS ARE WHAT SHOWED IT.** It
+  windowed from the wrapper's open to `.st-body` and asked what was INSIDE — but
+  that window runs PAST the wrapper's own close, so every control in the group
+  answered "inside" and a mutant moving one out would have passed. The wrapper is
+  the LAST thing in the group, so "outside it" can only mean "emitted before it";
+  the window is the group's HEAD now.
+  **Sweep: 9 mutants, 9 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived.** One never applied on the first pass — its anchor,
+  `(siteView === 'preview' ? '' : ' aria-hidden="true"') + '>' +`, is a SUBSTRING
+  of the picker block's identical line, the recorded ambiguous-anchor trap;
+  re-anchored with its neighbour and killed. **Suite 6,146.**
+  **Not proven live** — `public/` and `test/` only, so no image input moves and
+  the 15–20 minute hold does not apply.
 
 ---
 

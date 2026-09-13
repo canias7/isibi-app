@@ -1904,6 +1904,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    `visibility: hidden` and not `display: none` — the space has to stay. It is
    already out of the tab order and the accessibility tree. */
 .st-tb-pv-off { visibility: hidden; }
+/* The widths, the download, Share and Publish (2026-09-13, owner: "THIS STUFF
+   SHOULD ONLY BE THERE ON PREVIEW ONLY"). One wrapper so the GROUP's space is
+   what gets reserved — hiding the four children separately still collapses the
+   gaps between them, and the centre moves. `gap` matches `.st-tb-right`'s, so
+   the spacing on Preview is byte-for-byte what it was. */
+.st-tb-end { display: flex; align-items: center; gap: .5rem; }
 .st-share { font: inherit; font-size: .84rem; font-weight: 650; color: var(--text); background: none; border: 1px solid var(--line-2); border-radius: 11px; padding: .5rem .95rem; cursor: pointer; }
 .st-share:hover { border-color: rgba(0, 0, 0, .45); }
 .st-publish {

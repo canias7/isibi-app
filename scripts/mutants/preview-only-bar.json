@@ -1,0 +1,70 @@
+[
+  {
+    "label": "THE DANGER — the wrapper is REMOVED off-preview instead of hidden, so the group shrinks and the centred tabs move at every width",
+    "files": ["public/chat.js"],
+    "from": "          '<div class=\"st-tb-end' + (siteView === 'preview' ? '' : ' st-tb-pv-off') + '\"' +",
+    "to": "          (siteView === 'preview' ? '<div class=\"st-tb-end\"' : '') + '' +"
+  },
+  {
+    "label": "the off-class is never applied, so the four show on Code, Data and More after all",
+    "files": ["public/chat.js"],
+    "from": "'<div class=\"st-tb-end' + (siteView === 'preview' ? '' : ' st-tb-pv-off') + '\"' +",
+    "to": "'<div class=\"st-tb-end' + '' + '\"' +"
+  },
+  {
+    "label": "hidden controls stay in the accessibility tree",
+    "files": ["public/chat.js"],
+    "from": "            (siteView === 'preview' ? '' : ' aria-hidden=\"true\"') + '>' +\n          '<div class=\"st-devs\">' +",
+    "to": "            '>' +\n          '<div class=\"st-devs\">' +"
+  },
+  {
+    "label": "the device widths are emitted before the wrapper, so they survive on every tab",
+    "files": ["public/chat.js"],
+    "from": "            (siteView === 'preview' ? '' : ' aria-hidden=\"true\"') + '>' +\n          '<div class=\"st-devs\">' +",
+    "to": "            (siteView === 'preview' ? '' : ' aria-hidden=\"true\"') + '>' +\n          '<div class=\"st-devs2\">' +"
+  },
+  {
+    "label": "Back is put inside the wrapper, stranding anybody who switches to Code",
+    "files": ["public/chat.js"],
+    "from": "            (siteView === 'preview' ? '' : ' aria-hidden=\"true\"') + '>' +\n          '<div class=\"st-devs\">' +\n            '<button",
+    "to": "            (siteView === 'preview' ? '' : ' aria-hidden=\"true\"') + '>' + '<button id=\"stBack\"></button>' +\n          '<div class=\"st-devs\">' +\n            '<button"
+  },
+  {
+    "label": "the wrapper stops being a row, so the four stack on Preview",
+    "files": ["public/styles.css"],
+    "from": ".st-tb-end { display: flex; align-items: center; gap: .5rem; }",
+    "to": ".st-tb-end { align-items: center; gap: .5rem; }"
+  },
+  {
+    "label": "the wrapper sets no gap, so Preview's spacing silently closes up",
+    "files": ["public/styles.css"],
+    "from": ".st-tb-end { display: flex; align-items: center; gap: .5rem; }",
+    "to": ".st-tb-end { display: flex; align-items: center; }"
+  },
+  {
+    "label": "the wrapper's gap drifts from the group's, so Preview's spacing changes by a hair nobody reads",
+    "files": ["public/styles.css"],
+    "from": ".st-tb-end { display: flex; align-items: center; gap: .5rem; }",
+    "to": ".st-tb-end { display: flex; align-items: center; gap: .35rem; }"
+  },
+  {
+    "label": "the off-state reclaims its space — display:none, which is the tabs-move bug in one word",
+    "files": ["public/styles.css"],
+    "from": ".st-tb-pv-off { visibility: hidden; }",
+    "to": ".st-tb-pv-off { display: none; }"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only, which must survive",
+    "files": ["public/chat.js"],
+    "from": "          // EVERYTHING ELSE ON THIS SIDE IS PREVIEW-ONLY TOO (2026-09-13, owner",
+    "to": "          // EVERYTHING ELSE ON THAT SIDE IS PREVIEW-ONLY TOO (2026-09-13, owner"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the stylesheet, which must survive",
+    "files": ["public/styles.css"],
+    "from": "/* The widths, the download, Share and Publish (2026-09-13, owner: \"THIS STUFF",
+    "to": "/* The widths, the download, Share and Publish (2026-09-13, owner said: \"THIS STUFF"
+  }
+]

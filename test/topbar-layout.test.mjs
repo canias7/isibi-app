@@ -69,6 +69,90 @@ test("the block parks at the left edge of the right-hand group", () => {
   assert.match(m[0], /margin-right:\s*auto/, "it will sit against the Share button instead of beside the tabs");
 });
 
+// ── the rest of the right-hand group is preview-only too (2026-09-13) ────────
+//
+// Owner, on a crop of exactly these four: "THIS STUFF SHOULD ONLY BE THERE ON
+// PREVIEW ONLY". The widths, the download, Share and Publish say nothing about
+// the Code, Data or More tabs.
+//
+// THE DANGER IS THE SAME ONE THIS FILE EXISTS FOR, which is why the cases live
+// here rather than in a file of their own: hiding four controls by REMOVING
+// them shrinks this group's min-content, the difference comes out of the left
+// group, and the centred tabs move at every width. Measured across six widths
+// after the change: 0.00px shift, and the right group 375.4px in both views.
+
+test("the four preview-only controls are one wrapper, always rendered", () => {
+  const src = chat();
+  const i = src.indexOf('<div class="st-tb-end');
+  assert.ok(i > 0, "the preview-only wrapper is gone — the four controls are loose in the group again");
+
+  // NOT BEHIND A CONDITIONAL THAT CAN DROP IT. The class is toggled; the
+  // element is not. This is the exact shape `.st-tb-pv` is held to above, and
+  // the reason is identical.
+  assert.ok(!/siteView === 'preview'\s*\?\s*'<div class="st-tb-end/.test(src),
+    "the wrapper is conditional, so the group shrinks off-preview and the tabs move");
+
+  // It wears the SAME off-class as the picker block, which is what reserves the
+  // space. A new class that merely hid it would reintroduce the bug.
+  const decl = src.slice(i, src.indexOf(">'", i) + 2);
+  assert.match(decl, /st-tb-pv-off/, "the wrapper no longer reserves its space when hidden");
+  assert.match(decl, /aria-hidden/, "hidden controls are still announced");
+});
+
+test("...and it holds exactly the four, and nothing that must always show", () => {
+  const src = chat();
+  const groupAt = src.indexOf('<div class="st-tb-right">');
+  const wrapAt = src.indexOf('<div class="st-tb-end', groupAt);
+  const bodyAt = src.indexOf("'<div class=\"st-body\"", wrapAt);
+  assert.ok(groupAt > 0 && wrapAt > groupAt && bodyAt > wrapAt, "the right group was restructured — rescope this guard");
+
+  // THE WINDOW IS THE HEAD, NOT THE BLOCK, and that correction is the whole
+  // reason this reads the way it does. The first draft windowed from the
+  // wrapper's open to `.st-body` and asked what was INSIDE — but that window
+  // runs past the wrapper's own close, so every control in the group answered
+  // "inside" and a mutant that moved one out passed. The wrapper is the LAST
+  // thing in `.st-tb-right`, so "outside it" can only mean "emitted before it",
+  // which is exactly what this window holds.
+  const head = src.slice(groupAt, wrapAt);
+  for (const inside of ["st-devs", "stDl", "stShare", "stPublish"]) {
+    assert.ok(!head.includes(inside), inside + " is emitted before the preview-only wrapper — it will show on Code and More");
+  }
+  // …and they really are in the group at all, so the absence above is not
+  // satisfied by the control having been deleted outright.
+  const block = src.slice(wrapAt, bodyAt);
+  for (const inside of ["st-devs", "stDl", "stShare", "stPublish"]) {
+    assert.ok(block.includes(inside), inside + " is gone from the top bar entirely");
+  }
+  // THE PICKER BLOCK IS LEGITIMATELY OUTSIDE and keeps its own off-class: it
+  // parks at the group's left edge with `margin-right: auto`, which a child of
+  // this wrapper could not do. The head must still hold it, or the two blocks
+  // have been merged and the tabs move.
+  assert.ok(head.includes("st-tb-pv"), "the picker block left the group's head — it can no longer park at the left edge");
+
+  // THE CONTROLS THAT MUST SURVIVE A VIEW CHANGE. Back, the chat toggle, the
+  // site's name and the history rail are how you leave or orient yourself on
+  // every tab; hiding them would strand somebody on the Code screen.
+  for (const outside of ["stBack", "stRailToggle", "st-ws-name", "stHist", "st-vtabs"]) {
+    assert.ok(!block.includes(outside), outside + " is inside the preview-only wrapper and would vanish off Preview");
+  }
+});
+
+test("the wrapper keeps the group's own spacing on Preview", () => {
+  // It became a flex ITEM, so the gaps that used to come from `.st-tb-right`
+  // now have to come from inside it. A wrapper with no gap silently closes the
+  // spacing up on the one view where all four are visible.
+  const src = css();
+  const end = src.match(/^\.st-tb-end\s*\{[^}]*\}/m);
+  assert.ok(end, "the .st-tb-end rule is gone — the four controls bunch together on Preview");
+  assert.match(end[0], /display:\s*flex/, "it is not a row");
+  const right = src.match(/^\.st-tb-right\s*\{[^}]*\}/m);
+  assert.ok(right, "the .st-tb-right rule was renamed");
+  const gapOf = (rule) => (rule.match(/gap:\s*([^;]+);/) || [])[1];
+  assert.ok(gapOf(end[0]), "the wrapper sets no gap");
+  assert.equal(gapOf(end[0]), gapOf(right[0]),
+    "the wrapper's gap no longer matches the group's, so Preview's spacing changed");
+});
+
 test("the end buttons never wrap", () => {
   // Reserving the picker's space makes the non-Preview views tighter than they
   // were, and "Live ↗" broke onto a second line at 1180px — which grows the

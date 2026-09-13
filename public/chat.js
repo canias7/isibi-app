@@ -5186,6 +5186,30 @@ function renderSiteWorkspace(view, site) {
           '<div class="st-tb-pv' + (siteView === 'preview' ? '' : ' st-tb-pv-off') + '"' +
             (siteView === 'preview' ? '' : ' aria-hidden="true"') + '>' + picker +
             '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">' + ic('reload', 15) + '</button></div>' +
+          // EVERYTHING ELSE ON THIS SIDE IS PREVIEW-ONLY TOO (2026-09-13, owner
+          // on a crop of exactly these four: "THIS STUFF SHOULD ONLY BE THERE ON
+          // PREVIEW ONLY"). The widths, the download, Share and Publish — none
+          // of them says anything about the Code, Data or More tabs, and on
+          // those screens they are four controls describing something that is
+          // not on the screen.
+          //
+          // IT WEARS `st-tb-pv-off`, THE SAME CLASS THE PICKER AND RELOAD WEAR,
+          // and the class is the hard-won part rather than the markup. It is
+          // `visibility: hidden`, NEVER `display: none`, because both side
+          // groups are `flex: 1 1 0` and split the bar between them: a block
+          // REMOVED on a view change shrinks this group's min-content, the
+          // difference comes out of the left group, and the centred tabs move at
+          // every width. Three attempts were needed to learn that; reserving the
+          // space is what makes the two sides measure the same in every view.
+          // Hiding four more controls without reserving their space would have
+          // reintroduced exactly the bug the class exists to prevent, and it
+          // would have looked right in every source check.
+          //
+          // ONE WRAPPER, NOT FOUR CLASSES, because the space to reserve is the
+          // GROUP's — four separately-hidden children still collapse the gaps
+          // between them, and `.st-tb-right`'s own `gap` would close up.
+          '<div class="st-tb-end' + (siteView === 'preview' ? '' : ' st-tb-pv-off') + '"' +
+            (siteView === 'preview' ? '' : ' aria-hidden="true"') + '>' +
           '<div class="st-devs">' +
             '<button type="button" class="st-dev' + (siteDevice === 'desktop' ? ' on' : '') + '" data-dev="desktop" title="Desktop">' + ic('desktop', 16) + '</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">' + ic('tablet', 16) + '</button>' +
@@ -5305,6 +5329,7 @@ function renderSiteWorkspace(view, site) {
           // lives instead. Cloud is the established home for a panel — it is
           // where the two icons removed on 2026-09-07 point — and the whole of
           // "take it off the web / put it back" is reached from there.
+          '</div>' +
         '</div>' +
       '</div>' +
       '<div class="st-body">' +

@@ -6708,3 +6708,37 @@ live file for the old broken line found it — in **my own comment explaining th
 bug**. Read properly, with comments ignored, the broken line is gone and the fix
 is there. That is the second time tonight a check has been fooled by prose about
 the thing it was looking for.
+
+---
+
+## The top-right controls are Preview-only now (13 Sept)
+
+You cropped the widths, the download, Share and Publish and said they should
+only be there on Preview. They are.
+
+On **Preview** the bar is exactly as it was. On **Code**, **Data** and **More**
+those four are gone — along with the page picker and Refresh, which had always
+been Preview-only. `docs/edits/topbar-preview-only.png` shows both.
+
+**The tricky part isn't hiding them, it's hiding them without moving the tabs.**
+The two halves of the bar share the space between them, so anything that stops
+taking up room on one side drags the centre across — and the Preview/Code/Data/
+More tabs slide. That exact bug took three goes to fix once before. So the four
+are made **invisible while keeping their space**, which is what the picker
+already does. Measured in a real browser at six window widths: the tabs move
+**0.00px**.
+
+**One thing you lose, and it's your call whether you mind.** The download button
+that zips your whole project now only shows on Preview — and the Code tab is
+arguably where you'd reach for it. The Code tab has its own download, but that
+one saves the **single file** you're looking at, not the project. Say the word
+and I'll leave Download visible everywhere; it's one word in the code.
+
+Also checked, since it would have been easy to blame on this: the bar grows a
+second row on narrow windows (below about 1180px). That is **exactly the same
+before and after** — I measured both — so it's an old thing, not something I
+caused. Not fixed either.
+
+Tests 6,146 green. Sweep 9 of 9, both controls survived.
+
+**Not live yet** — say the word and I'll merge.
