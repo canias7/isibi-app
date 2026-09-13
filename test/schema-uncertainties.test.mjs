@@ -171,11 +171,22 @@ test("UNCERTAINTY 2: no emitted grant is column-scoped, over every access cell",
   // member token — neither of which exists in a unit test — so it is reported
   // as inference and left open rather than written down as fact.
   //
-  // The one thing that WOULD settle it cheaply is a case in
-  // `test/integration/neon-e2e.mjs`: sign in as a member, PATCH a managed
-  // column over the Data API, and read what comes back. Not added here, because
-  // that file runs against a real project and adding a case to it is a change
-  // to a paid harness rather than to this check.
+  // ── AND THE THING THAT SETTLES IT NOW EXISTS (owner, 2026-09-13: "Resolve
+  // the managed-column question on the test project … Report actual allowed and
+  // denied behavior") ──
+  //
+  // `test/integration/neon-e2e.mjs` carries a `notes` table — member-writable,
+  // with the managed columns really on it — and probes each one as the role a
+  // Data API request runs under, with an ordinary column as the control. It
+  // needs NEON_API_KEY and a real project, so it does not run here; named
+  // rather than re-derived, and its landmarks asserted so a rename cannot leave
+  // this paragraph describing a check that is gone.
+  const e2e2 = fs.readFileSync(new URL("./integration/neon-e2e.mjs", import.meta.url), "utf8");
+  assert.match(e2e2, /name: "notes"/, "the managed-column fixture table is gone from the integration harness");
+  assert.match(e2e2, /SET LOCAL ROLE authenticated/, "the harness no longer assumes the Data API's own role");
+  assert.match(e2e2, /a member can write an ORDINARY column on their own row \(the control\)/,
+    "the probe lost its control, so every 'denied' it reports would be unfalsifiable");
+  assert.match(e2e2, /MANAGED COLUMNS A MEMBER COULD WRITE/, "the probe no longer reports what it found");
 });
 
 test("UNCERTAINTY 2b: a managed column is refused on OUR routes, which is the half that is real today", () => {

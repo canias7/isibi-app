@@ -11,6 +11,7 @@ import {
   connForDatabase, sqlQuery, sqlExec, neonConfigured,
 } from "../../site-db.mjs";
 import { applySiteSchema, normalizeSchema } from "../../site-schema.mjs";
+import { isManagedColumn } from "../../site-access.mjs";
 
 const env = { NEON_API_KEY: process.env.NEON_API_KEY };
 if (!neonConfigured(env)) {
@@ -110,6 +111,37 @@ const SCHEMA = normalizeSchema({
         { name: "value", type: "integer" },
       ],
       teamScope: true,
+    },
+    {
+      // ── THE MANAGED COLUMNS, ON A TABLE A MEMBER CAN WRITE ────────────────
+      //
+      // Owner, 2026-09-13: "Resolve … direct PostgREST access to managed
+      // columns using ordinary member permissions. Report actual allowed and
+      // denied behavior."
+      //
+      // `MANAGED_COLUMNS` says of every name on it: set by the engine, not the
+      // app, never writable through the API at any level. `isManagedColumn`
+      // enforces that on OUR routes. The Data API is PostgREST talking to
+      // Postgres directly, so the only things between a member and `pinned`
+      // there are the column privilege and the UPDATE policy — and
+      // `test/schema-uncertainties.test.mjs` drives every grant the engine
+      // emits and finds NO column-scoped one anywhere. That is what the engine
+      // WRITES. This table is what lets a real Postgres say what it DOES.
+      //
+      // NO TABLE HERE COULD ANSWER IT BEFORE, which is why one is added rather
+      // than a flag moved: `deals` is the only member-writable table in this
+      // fixture and declares none of these flags, and every table that declares
+      // them is `collect` or `display`, which grant no UPDATE to anybody.
+      name: "notes",
+      access: "user",
+      columns: [{ name: "title", type: "text" }],
+      ordered: true,     // position
+      pinnable: true,    // pinned
+      trash: true,       // deleted_at
+      version: true,     // _version
+      timestamps: true,  // updated_at
+      scheduled: true,   // publish_at
+      expires: true,     // expires_at
     },
     {
       name: "comments",
@@ -377,6 +409,102 @@ try {
     // things" is all this proves.
     const nosy = await asRole("anonymous", 'SELECT count(*) INTO n FROM "bookings";');
     ok("and still cannot read a collect table", /permission denied/i.test(String(nosy)), String(nosy));
+  }
+
+  // --- what a member may ACTUALLY write on a managed column ------------------
+  //
+  // ACTUAL BEHAVIOUR, read off a real Postgres under the real role, and kept
+  // apart from inference on purpose (owner, 2026-09-13: "Report actual behavior
+  // separately from inference"). The unit guard drives what the engine EMITS —
+  // no grant it writes is column-scoped — and stops there, because what
+  // Postgres then does with those statements is not something a unit test can
+  // answer. This is the half that answers it.
+  //
+  // WHY THIS IS THE SAME QUESTION AS "through PostgREST". A Data API request is
+  // run as: assume `authenticated`, set the request's JWT claims, run the SQL.
+  // `asMember` below is those three steps, so a column this lets through is a
+  // column a member can PATCH. What PostgREST adds on top — parsing the body,
+  // choosing the columns — is not a privilege gate.
+  const MEMBER_UID = "11111111-2222-3333-4444-555555555555";
+  const asMember = async (body) => {
+    try {
+      await sqlQuery(db, "DO $isibi$ BEGIN SET LOCAL ROLE authenticated; " +
+        "PERFORM set_config('request.jwt.claims', '{\"sub\":\"" + MEMBER_UID + "\"}', true); " +
+        body + " END $isibi$;");
+      return null;
+    } catch (e) { return String((e && (e.detail || e.message)) || e); }
+  };
+  // A FRESH ROW PER PROBE, written as the OWNER so RLS is out of the way while
+  // it is created. One row reused would make the probes depend on each other —
+  // setting `deleted_at` hides the row from its own member, and re-pointing
+  // `owner_id` takes it away — so a later "denied" could be an earlier probe's
+  // doing rather than the database's.
+  const freshNote = async () => {
+    await sqlQuery(db, 'INSERT INTO "notes" ("title","owner_id") VALUES (?, ?::uuid)', ["Draft", MEMBER_UID]);
+    const r = await sqlQuery(db, 'SELECT "id" FROM "notes" ORDER BY "id" DESC LIMIT 1');
+    return r[0] && r[0].id;
+  };
+  const roleProbe = await asMember("PERFORM 1;");
+  if (roleProbe && /permission denied to set role/i.test(roleProbe)) {
+    // An honest skip, never silence: a check that did not run must say so, or
+    // its absence reads as coverage.
+    console.log("   (cannot SET ROLE from this connection — the managed-column question was NOT answered here)");
+  } else {
+    // THE CONTROL FIRST. If an ordinary column cannot be written either, every
+    // "denied" below is this fixture's doing and means nothing — the recorded
+    // "a negative assertion must prove its observer is alive".
+    const ctlId = await freshNote();
+    const ctlErr = await asMember('UPDATE "notes" SET "title" = \'Edited\' WHERE "id" = ' + ctlId + ';');
+    const ctlRow = await sqlQuery(db, 'SELECT "title" FROM "notes" WHERE "id" = ?', [ctlId]);
+    const ctlWorked = !ctlErr && ctlRow[0] && ctlRow[0].title === "Edited";
+    ok("a member can write an ORDINARY column on their own row (the control)", ctlWorked,
+      String(ctlErr || JSON.stringify(ctlRow[0] || {})));
+
+    if (ctlWorked) {
+      // DERIVED FROM THE COLUMNS POSTGRES REPORTS, never a list typed here, so a
+      // managed column added to the engine appears in this answer by existing.
+      const cols = await sqlQuery(db,
+        "SELECT column_name FROM information_schema.columns WHERE table_name='notes' ORDER BY column_name");
+      const present = cols.map((c) => String(c.column_name)).filter((c) => isManagedColumn(c));
+      ok("the fixture really carries managed columns", present.length >= 6, JSON.stringify(present));
+      // A value that is genuinely DIFFERENT from what the row holds, or an
+      // allowed write would read as a refusal. `owner_id` gets a stranger's id
+      // for the same reason — re-pointing it at the member changes nothing.
+      const VALUE = {
+        id: "999999", pinned: "1", position: "99", _version: "99",
+        created_at: "'2026-01-01 00:00:00'", updated_at: "'2026-01-01 00:00:00'",
+        deleted_at: "'2026-01-01 00:00:00'", publish_at: "'2026-01-01 00:00:00'",
+        expires_at: "'2026-01-01 00:00:00'", archived_at: "'2026-01-01 00:00:00'",
+        owner_id: "'99999999-8888-7777-6666-555555555555'::uuid",
+        team_id: "'99999999-8888-7777-6666-555555555555'::uuid",
+      };
+      const allowed = [], denied = [], unprobed = [];
+      for (const c of present) {
+        if (!VALUE[c]) { unprobed.push(c); continue; }
+        const id = await freshNote();
+        const before = await sqlQuery(db, 'SELECT "' + c + '"::text AS v FROM "notes" WHERE "id" = ?', [id]);
+        const err = await asMember('UPDATE "notes" SET "' + c + '" = ' + VALUE[c] + ' WHERE "id" = ' + id + ';');
+        // Read back as the OWNER, which bypasses RLS — so a row the member's own
+        // read policy would now hide is still visible to this check.
+        const after = await sqlQuery(db, 'SELECT "' + c + '"::text AS v FROM "notes" WHERE "id" = ' +
+          (c === "id" ? VALUE.id : String(id)));
+        const was = String((before[0] && before[0].v) === null ? "" : (before[0] && before[0].v));
+        const now = String((after[0] && after[0].v) === null ? "" : (after[0] && after[0].v));
+        if (!err && after.length && now !== was) allowed.push(c);
+        else denied.push(c + (err ? " [" + String(err).slice(0, 70) + "]" : " [no error, nothing changed]"));
+      }
+      console.log("   MANAGED COLUMNS A MEMBER COULD WRITE: " + (allowed.join(", ") || "(none)"));
+      console.log("   MANAGED COLUMNS A MEMBER COULD NOT:   " + (denied.join(" | ") || "(none)"));
+      if (unprobed.length) console.log("   NOT PROBED (no value defined):        " + unprobed.join(", "));
+      // REPORTED, NOT ASSERTED EITHER WAY, and that is the decision rather than
+      // an omission. The audit's finding is that nothing in the SQL
+      // distinguishes a managed column from any other one; which of the two
+      // lists SHOULD be empty is a product call the owner has not made, and an
+      // assertion here would pin today's answer as though it were intended.
+      // What IS asserted is that the question was really asked.
+      ok("the managed-column question was answered by a real database",
+        allowed.length + denied.length >= 6, "allowed=" + allowed.length + " denied=" + denied.length);
+    }
   }
 
   const opts = await sqlQuery(db, "SELECT reloptions FROM pg_class WHERE relname='bookings_public'");
