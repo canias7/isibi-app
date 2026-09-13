@@ -171,6 +171,42 @@ test("writableColumns is one rule, and refuses what it should", () => {
   assert.deepEqual(writableColumns({ columns: [{ name: "asked_for" }] }, []), ["asked_for"], "an empty created list must fall back, not blank the grant");
 });
 
+test("an EXISTING table's old table-wide grant is revoked before the narrow one lands", async () => {
+  // THE HALF THAT DECIDES WHETHER THIS FIX IS WORTH ANYTHING ON A LIVE SITE.
+  // `GRANT INSERT (a, b) ON t TO r` does NOT replace `GRANT INSERT ON t TO r` —
+  // Postgres keeps both, and the table-level privilege still covers every
+  // column. So a narrower grant ADDED beside the old one changes nothing at
+  // all: every site built before today would keep its table-wide write.
+  //
+  // What makes it real is the `REVOKE ALL ON <table> FROM <role>` pair that
+  // heads `grantsFor`, which was written for a different reason (a retired
+  // table keeping its INSERT) and does this job too. `site-rls.test.mjs` pins
+  // the ORDER inside one list; this pins the REACH — that the apply loop
+  // re-issues the pair for EVERY table in the spec, including ones that
+  // already exist, because the loop walks `spec.tables` rather than a delta.
+  //
+  // DRIVEN THROUGH THE REAL LOOP, because the property is about what the loop
+  // does per table and not about what one call to `grantsFor` returns.
+  const { statements } = await applied({ tables: [
+    { name: "old_form", read: "none", write: "anyone", columns: [{ name: "name", type: "text" }] },
+    { name: "old_saved", read: "own", write: "own", columns: [{ name: "title", type: "text" }] },
+  ] });
+  for (const t of ["old_form", "old_saved"]) {
+    const mine = statements.filter((q) => new RegExp(`(GRANT|REVOKE)[^;]*ON "${t}"`).test(q));
+    const lastRevoke = mine.findLastIndex((q) => /^REVOKE /.test(q));
+    const firstGrant = mine.findIndex((q) => /^GRANT /.test(q));
+    assert.ok(mine.some((q) => new RegExp(`^REVOKE ALL ON "${t}" FROM anonymous;`).test(q)),
+      t + ": the anonymous revoke never reached the database");
+    assert.ok(mine.some((q) => new RegExp(`^REVOKE ALL ON "${t}" FROM authenticated;`).test(q)),
+      t + ": the authenticated revoke never reached the database");
+    assert.ok(firstGrant > lastRevoke,
+      t + ": a GRANT was issued before the REVOKE, which takes it straight back off");
+    // AND THE OBSERVER IS ALIVE: this table really did get a narrow grant, so
+    // the ordering above is about statements that exist.
+    assert.ok(mine.some((q) => /^GRANT [^;]*\([^)]*\)/.test(q)), t + ": no column-scoped grant was emitted at all");
+  }
+});
+
 test("the grant names the columns the table REALLY HAS, not the ones it declared", async () => {
   // A SWEEP SURVIVOR IS WHAT BOUGHT THIS CASE, and it is the recorded "a fixture
   // too shallow to separate the two readings": cutting `colNames` off the apply

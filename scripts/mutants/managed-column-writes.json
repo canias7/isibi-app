@@ -122,6 +122,30 @@
     "to": "  if (false) return out;\n  // \u2500\u2500 THE WRITE GRANTS ARE COLUMN-SCOPED"
   },
   {
+    "label": "THE REACH: the old table-wide grant is never revoked, so a narrow grant lands beside it and changes nothing",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  const revoke = [\n    `REVOKE ALL ON ${q(t.name)} FROM ${DATA_API_ROLES.anon};`,\n    `REVOKE ALL ON ${q(t.name)} FROM ${DATA_API_ROLES.user};`,\n  ];",
+    "to": "  const revoke = [];"
+  },
+  {
+    "label": "THE REACH, HALF OF IT: only the member's grant is revoked, so an anonymous visitor keeps a table-wide INSERT",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    `REVOKE ALL ON ${q(t.name)} FROM ${DATA_API_ROLES.anon};`,\n    `REVOKE ALL ON ${q(t.name)} FROM ${DATA_API_ROLES.user};`,",
+    "to": "    `REVOKE ALL ON ${q(t.name)} FROM ${DATA_API_ROLES.user};`,"
+  },
+  {
+    "label": "THE ORDER: the revokes run AFTER the grants, taking the new privilege straight back off",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    if (wcols.length) out.push(`GRANT INSERT (${cols}), UPDATE (${cols}) ON ${tn} TO ${user};`);\n  }\n  return out;",
+    "to": "    if (wcols.length) out.push(`GRANT INSERT (${cols}), UPDATE (${cols}) ON ${tn} TO ${user};`);\n  }\n  return [...out.filter((s) => !/^REVOKE /.test(s)), ...out.filter((s) => /^REVOKE /.test(s))];"
+  },
+  {
     "label": "a table with nothing declarable is silently unwritable, with no refusal",
     "files": [
       "site-schema.mjs"

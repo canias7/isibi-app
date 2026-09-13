@@ -7294,3 +7294,71 @@ every table — and **nothing can read any of it**. It's blocked from the browse
 and there's no route serving it. So it's real work being done on every site that
 declares it, reaching nobody. Either build the half that reads it, or take the
 switch out; that's a call rather than a bug fix, which is why it's sitting here.
+
+---
+
+## You caught five things in the acceptance checks, and one of them was load-bearing (2026-09-13)
+
+All five are corrected in `docs/addon-runbook.md`, marked ⚠ where they apply.
+**Nothing has been run.** The run book says so at the top now, because the first
+draft read like a report of tests that had happened.
+
+**The one that could have made the permission fix worthless.** You asked me to
+verify the old table-wide grants are actually removed, and you were right that
+adding a narrow grant beside an old one changes nothing — Postgres keeps both,
+and the table-wide one still covers every column.
+
+I checked. There **is** a `REVOKE ALL` pair that runs before every grant, it's
+emitted for every table, and revoking a table permission automatically revokes
+the column ones too. So the mechanism is right. **But the reach is lazy, and
+that's a real gap I hadn't stated**: the only three things that re-issue
+permissions are a build, a schema edit, and a backend addition — all
+customer-driven. There's no backfill. So a site whose database nobody touches
+again keeps the old wide permission indefinitely, possibly for ever. New sites
+are fine from their first backend touch.
+
+How many of your live sites that leaves is **not measured yet**, and whether to
+write a backfill is your call rather than a bug fix. Worth deciding before the
+three test requests run, because a brand-new throwaway site tests the new path
+and tells you nothing about the old ones.
+
+I also added a test that drives the real apply loop over tables that already
+exist and checks the revoke reaches the database *before* the new permission —
+and three deliberate breakages of it, all caught.
+
+**The other four, briefly:**
+
+- **Request A** was checking that a form appeared and a table existed. That's
+  the shape of the feature, not the feature. It now checks a submission actually
+  persists, and that **two separate customers each see only their own** — tested
+  through the page *and* through the data API directly, because the page could
+  be filtering in the browser, which isn't isolation at all.
+- **Request B** demanded the answer be "we can't do that". Wrong in both
+  directions: a change history is perfectly buildable as an ordinary table using
+  only what the design step already offers, so a working one is the **best**
+  outcome. A working feature, a named partial, or an honest limitation all pass.
+  Only silence fails. And if it builds one, I check it actually records a change
+  rather than just existing.
+- **Request C** was checking for two tables and a unique slot. Both wrong — you
+  put it exactly right: a unique *slot* stops two slots with one name and says
+  nothing about two *bookings* pointing at one slot. It now looks for a
+  constraint on the **booking** table, and tests two simultaneous bookings with
+  a real concurrent request. Both mechanisms the engine can emit are genuine
+  database constraints, so a race is refused by Postgres rather than by timing —
+  **but one of them is silently skipped unless the time columns are integers**,
+  and that's now an explicit thing to read, because the design can declare
+  exclusivity and quietly not have it.
+- **"Handed to the page step" is not done.** I was treating a requirement as
+  covered because the page step ran. That only says the step executed. Every one
+  of those now means open the page and confirm the thing is actually there —
+  it's the most likely silent failure of the three, because every automated
+  signal says covered.
+
+**And the two permission tests are separate**, as you asked: first that a normal
+submission still works (if that broke, this change caused it), then that a
+protected field is refused. One combined test can't tell "too tight" from "too
+loose", and they need opposite fixes.
+
+**Status: the fix is on the branch, not merged, not deployed. No database
+migration is needed — it changes generated permissions only. Suite 6,240 green,
+17 of 17 deliberate breakages caught.**

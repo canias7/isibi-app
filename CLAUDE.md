@@ -4823,7 +4823,30 @@ reality": a table with no `columns` is one the builder cannot produce, and the
 fixture shape became load-bearing the day the grants read it. One of them also
 split a grant's verbs on commas, which a column list contains — it strips the
 lists before splitting now.
-**Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
+**AND THE REACH IS THE HALF THAT DECIDES WHETHER THIS IS WORTH ANYTHING ON A
+LIVE SITE** (owner, on reading the first draft: *"Verify that previous
+table-wide write grants are removed; adding narrower column grants alone does
+not remove the old permissions"*). Correct, and it is why the `REVOKE ALL`
+pair matters rather than being incidental: Postgres keeps BOTH a table-level
+and a column-level grant, and the table-level one still covers every column —
+so a narrow grant added beside the old one would change nothing at all on any
+site built before today. Three things verified rather than assumed: the pair is
+emitted for every table on every cell (`site-rls.test.mjs` already pins that the
+last REVOKE precedes the first GRANT in all sixteen), revoking a table
+privilege automatically revokes its column privileges (the Postgres docs
+sentence above), and **the apply loop walks `spec.tables` rather than a delta**,
+so one call re-issues REVOKE-then-GRANT for EVERY table on the site.
+**THE GAP, NAMED RATHER THAN GLOSSED: nothing triggers that on its own.**
+`applySiteSchema` has exactly three callers and all three are customer-driven —
+the build path, the `rules` rung and the addon route. There is no backfill, no
+migration and no cron, and `site_rebuild` republishes the bundle without calling
+it. So the fix is correct and its reach is **per-site and lazy**: sites built
+after the deploy get it on their first backend touch, and an existing site keeps
+its table-wide grants until its owner next changes something schema-shaped,
+which may be never. How many live sites that leaves is **unmeasured**, and
+whether to write a backfill over every stored spec is a decision rather than a
+bug fix. **Open.**
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
 controls survived. ONE SURVIVED THE FIRST PASS and it was a real gap of the
 recorded "fixture too shallow to separate the two readings" shape**: cutting
 `colNames` off the apply loop changed no answer, because every fixture declared
@@ -4831,7 +4854,9 @@ exactly what the engine creates. The real loop diverges in BOTH directions and
 both are driven now — `slug: "c1"` makes the engine add a column nobody
 declared, and `t.columns.slice(0, 48)` means a table declaring fifty gets
 forty-eight, so a grant built from the declared list names two columns Postgres
-has never heard of. **Suite 6,239** (6,231 before; the eight new cases).
+has never heard of. The three REVOKE mutants (the pair dropped, one role
+dropped, the order inverted) were added with the reach case and all three die on
+it. **Suite 6,240** (6,231 before; the nine new cases).
 
 **WHAT IS STILL INFERENCE, and it is the same sentence as the pass/fail above**:
 that Postgres then enforces the grant as written. This is a proof about what the
