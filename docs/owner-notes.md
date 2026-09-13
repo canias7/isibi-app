@@ -155,6 +155,58 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-13 — The page picker knew about one page. It knows them all now.
+
+You opened `lido-free-a` and asked *"OK THIS SITE SUPPOSLTY HAS COU7PLE PAGES ,
+RIGHT ?"* — then *"YES FIX THE PICKER"*.
+
+It has three, all live: `/`, `/menu` and `/book`. The picker said "Homepage" and
+offered nothing.
+
+**Why, and it is worth knowing because it affects every older site.** The list of
+a site's pages only ever existed in the browser that BUILT it. When you open a
+site on a different machine — or after clearing the browser, or one built months
+ago — the app gets that site from the server, and the server's answer carried the
+name, the address, whether it has a database, and no pages at all. So the picker
+rendered an empty list, which looks exactly like a one-page site.
+
+Nothing failed and nothing logged. A label over an empty list is a correct
+drawing of an empty list; the list was just never filled in.
+
+**The fix**: the app now asks the server which pages a site has, once, when it
+opens a site it doesn't already know the pages for. Tiny request — the page
+addresses and nothing else. Your own site's source is never handed over for this;
+there is already a route that does that for the Code tab, and it sends the whole
+project, which is a third of a megabyte to fill in a dropdown.
+
+**A second thing fixes itself with it**: the line under the site's name said
+*"Previewing last saved version"* and now says **"3 pages"**. Same empty list,
+read by two different bits of the bar — you can see both change in the picture.
+
+`docs/edits/page-picker.png` — before, after, and the picker open with all three.
+
+**One thing I could not prove from here, and it decides whether you see a
+difference.** The page list is read from what the site stored when it last
+published, and `lido-free-a` last published 2026-08-22. If that record is there,
+the picker fills in after the next deploy. If it isn't, the picker stays exactly
+as it is — no error, nothing broken, just the same label. **The free check is the
+Code tab on that site**: if it lists `menu.tsx` and `book.tsx`, the record is
+there and the picker will work.
+
+**The cost, measured rather than guessed**: when the answer lands the bar settles
+by about 39px, because the picker and that subtitle both get wider at the same
+moment. It happens once, shortly after you open the site, and only on a site this
+browser didn't build. Blocking the panel on a network call to avoid it would be
+the worse trade.
+
+**Still open, and it is the thing you actually spotted**: the preview was showing
+`/menu` while the label said `/`. The preview runs the site's own JavaScript now,
+so clicking a link inside it really navigates — but nothing tells the picker the
+frame moved. Fixing that needs the published site to report its own route, which
+is a bigger change. Named, not built.
+
+---
+
 ## 2026-09-12 — The SEO & social tab was a mockup. It's real now.
 
 You opened it and asked *"WHAT IS THIS"*, then *"BUT WHAT IT IS SUPPOSED TO

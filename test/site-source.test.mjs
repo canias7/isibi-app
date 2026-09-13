@@ -468,10 +468,34 @@ test("the route READS and never repairs — it takes no lease and moves nothing"
   const src = bare(read("../worker.js"));
   const at = src.indexOf('url.pathname === "/api/site/source"');
   assert.ok(at > 0, "the source route is gone");
-  const block = src.slice(at, src.indexOf('url.pathname === "/api/site/reconcile"', at));
-  // The window grew when the explorer began carrying the assets and the shared
-  // foundation; the bound is re-derived rather than the property loosened.
-  assert.ok(block.length > 200 && block.length < 8000, "re-derive this window");
+  // THE WINDOW CLOSES ON THE NEXT ROUTE, WHICHEVER ROUTE THAT IS. It used to
+  // close on `/api/site/reconcile` by name — correct only while nothing was ever
+  // written between the two, which is not a property of a router. The page
+  // picker's route (`/api/site/routes`) landed there on 2026-09-13 and this
+  // window silently grew to hold both, so every assertion below was reading a
+  // region twice the size it describes and the length bound was the only thing
+  // that noticed. That is the recorded overlapping-window trap, and the recorded
+  // fix is this: derive the closing landmark from the NEXT SIBLING, searched
+  // FROM the opener's own offset so an earlier copy cannot satisfy it.
+  const nextRoute = src.indexOf("url.pathname === ", at + 20);
+  assert.ok(nextRoute > at, "the source route has no sibling after it — this window is the rest of the file");
+  // CLOSED AT THE START OF THE NEXT ROUTE'S OWN LINE, then trimmed — and both
+  // halves are the bound's own meaning rather than a loosening.
+  //
+  // A matcher shares its line with the `if (` that opens it, so closing ON the
+  // matcher leaves that fragment inside the window and stops any trim dead.
+  // And blanking preserves LENGTH — a comment line becomes that many spaces —
+  // so whatever prose the next route wrote above itself rides along as
+  // whitespace. Measured when this was derived: the source route is 6,422
+  // characters, and the picker route added 1,801 spaces and an `if (` after it,
+  // tipping a bound that is supposed to say "this window swallowed a neighbour"
+  // into saying "the neighbour wrote a long comment".
+  const nextLine = src.lastIndexOf("\n", nextRoute);
+  assert.ok(nextLine > at, "the next route's matcher is not on a line of its own");
+  const block = src.slice(at, nextLine).trimEnd();
+  // AND THE LENGTH BOUND STAYS, as the tell that the derivation broke: a window
+  // that grew past this is one that swallowed a neighbour's CODE.
+  assert.ok(block.length > 200 && block.length < 8000, "re-derive this window (" + block.length + " chars)");
   assert.match(block, /loadSiteSource\(env, sslug\)/, "it no longer reads the page source");
   assert.match(block, /loadSiteParts\(env, sslug\)/, "it no longer reads the site's own components");
   // THE THIRD ARGUMENT IS PINNED AS `null`, and that is the whole assertion:

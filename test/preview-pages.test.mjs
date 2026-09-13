@@ -25,18 +25,33 @@ const zoneConst = (chat.match(/^const SITE_ZONE = '[^']+';$/m) || [])[0];
 const liveConst = (chat.match(/^const SITE_ZONE_LIVE = (?:true|false);$/m) || [])[0];
 assert.ok(zoneConst && liveConst, "the site-zone constants are gone from chat.js; the chip tests check nothing");
 
-/** Lift a function, optionally forcing the site zone on so both states are covered. */
-const lift = (name, { live = null } = {}) => {
+/**
+ * A named function's own source, out of chat.js.
+ *
+ * SPLIT OUT 2026-09-13 so a lifted function can be given the helpers it calls.
+ * `reactRoutePages` stopped being self-contained that day: it composes a page
+ * through `pageFromPath`, which the server-fed list also uses, so that the
+ * picker's label cannot depend on which door told us the route exists. A lifted
+ * function whose new free name is missing from its scope throws when the line
+ * RUNS — this repository's recorded free-identifier trap, and it arrived here
+ * exactly as recorded, through a helper extracted for a good reason.
+ */
+const cut = (name) => {
   const i = chat.indexOf("function " + name + "(");
   assert.ok(i > 0, name + " is gone; this file checks nothing");
   const end = chat.indexOf("\nfunction ", i + 10);
   assert.ok(end > i, "could not find the end of " + name);
+  return chat.slice(i, end);
+};
+/** Lift a function, optionally forcing the site zone on so both states are covered. */
+const lift = (name, { live = null, needs = [] } = {}) => {
   const consts = zoneConst + "\n"
     + (live === null ? liveConst : "const SITE_ZONE_LIVE = " + String(live) + ";") + "\n";
+  const helpers = needs.map((n) => cut(n) + "\n").join("");
   // eslint-disable-next-line no-eval
-  return eval(consts + chat.slice(i, end) + "\n" + name);   // newline: the slice can end on a comment
+  return eval(consts + helpers + cut(name) + "\n" + name);   // newline: the slice can end on a comment
 };
-const reactRoutePages = lift("reactRoutePages");
+const reactRoutePages = lift("reactRoutePages", { needs: ["pageFromPath"] });
 const siteChipUrl = lift("siteChipUrl");
 // BOTH STATES, DRIVEN EXPLICITLY, rather than whichever the flag happens to be.
 // Pinned to one, half the behaviour goes uncovered the moment somebody flips

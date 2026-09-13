@@ -1,0 +1,148 @@
+[
+  {
+    "label": "THE DEFECT ITSELF — the picker's route is not matched, so the browser asks for a page the Worker does not answer",
+    "files": ["worker.js"],
+    "from": "    if (url.pathname === \"/api/site/routes\" && request.method === \"GET\") {",
+    "to": "    if (false) {"
+  },
+  {
+    "label": "the route is not owner-gated — a signed-in stranger reads another customer's page list",
+    "files": ["worker.js"],
+    "from": "      if (!rown || rown !== ru2.id) return Response.json({ ok: false, error: \"not found\" }, { status: 404 });",
+    "to": "      if (false) return Response.json({ ok: false, error: \"not found\" }, { status: 404 });"
+  },
+  {
+    "label": "a stranger gets a 403, which says the slug is taken",
+    "files": ["worker.js"],
+    "from": "      if (!rown || rown !== ru2.id) return Response.json({ ok: false, error: \"not found\" }, { status: 404 });",
+    "to": "      if (!rown || rown !== ru2.id) return Response.json({ ok: false, error: \"forbidden\" }, { status: 403 });"
+  },
+  {
+    "label": "signed out is not refused — the page list leaves without a token",
+    "files": ["worker.js"],
+    "from": "      const ru2 = await authUser(request);\n      if (!ru2) return UNAUTHED();",
+    "to": "      const ru2 = (await authUser(request)) || { id: \"anon\" };"
+  },
+  {
+    "label": "a part is offered as a page, which is a 404 in the customer's own menu",
+    "files": ["worker.js"],
+    "from": "        .filter((p) => p && !/(^|\\/)-/.test(p));",
+    "to": "        .filter((p) => p);"
+  },
+  {
+    "label": "the part filter reads any hyphen, so an ordinary page like /book-a-table is dropped",
+    "files": ["worker.js"],
+    "from": "        .filter((p) => p && !/(^|\\/)-/.test(p));",
+    "to": "        .filter((p) => p && !/-/.test(p));"
+  },
+  {
+    "label": "home is not first, so the picker opens on whichever page the model wrote first",
+    "files": ["worker.js"],
+    "from": "      uniq.sort((a, b) => (a === \"/\" ? -1 : b === \"/\" ? 1 : 0));",
+    "to": "      uniq.sort((a, b) => 0);"
+  },
+  {
+    "label": "the duplicate filter is dropped, so one page can appear twice in the menu",
+    "files": ["worker.js"],
+    "from": "      const uniq = routes.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));",
+    "to": "      const uniq = routes.slice();"
+  },
+  {
+    "label": "THE WHOLE REASON IT IS ITS OWN ROUTE — it ships the page source, so a dropdown costs a third of a megabyte",
+    "files": ["worker.js"],
+    "from": "        routes: uniq,",
+    "to": "        routes: uniq,\n        pages: rPages,"
+  },
+  {
+    "label": "the picker's read takes a lease, so drawing a dropdown can make a site busy",
+    "files": ["worker.js"],
+    "from": "      const rPages = await loadSiteSource(env, rslug);",
+    "to": "      const rPages = await loadSiteSourceForEdit(env, rslug);"
+  },
+  {
+    "label": "a site that never published wears the 404, which says \"not your site\" about a site they own",
+    "files": ["worker.js"],
+    "from": "      return Response.json({\n        ok: true,\n        slug: rslug,\n        routes: uniq,",
+    "to": "      if (!uniq.length) return Response.json({ ok: false, error: \"not found\" }, { status: 404 });\n      return Response.json({\n        ok: true,\n        slug: rslug,\n        routes: uniq,"
+  },
+  {
+    "label": "the workspace never asks, so an adopted site keeps its dead label",
+    "files": ["public/chat.js"],
+    "from": "  if (pages.length <= 1) siteRoutesFetch(site);",
+    "to": "  if (false) siteRoutesFetch(site);"
+  },
+  {
+    "label": "the workspace asks on every render whatever it already knows",
+    "files": ["public/chat.js"],
+    "from": "  if (pages.length <= 1) siteRoutesFetch(site);",
+    "to": "  siteRoutesFetch(site);"
+  },
+  {
+    "label": "the latch is dropped, so the picker asks the server once per render",
+    "files": ["public/chat.js"],
+    "from": "  if (siteRoutesAsked.has(site.slug)) return;\n  siteRoutesAsked.add(site.slug);",
+    "to": "  if (false) return;"
+  },
+  {
+    "label": "the answer clobbers a list this browser built",
+    "files": ["public/chat.js"],
+    "from": "    if (!s || (Array.isArray(s.pages) && s.pages.length > 1)) return;",
+    "to": "    if (!s) return;"
+  },
+  {
+    "label": "the pages land but nothing re-renders, so the picker stays a label until something else redraws",
+    "files": ["public/chat.js"],
+    "from": "    if (siteOpenId === s.id) renderSites();",
+    "to": "    if (false) renderSites();"
+  },
+  {
+    "label": "the pages are never saved, so a reload loses them and asks again",
+    "files": ["public/chat.js"],
+    "from": "    s.pages = paths.map(pageFromPath);\n    sitesSave();",
+    "to": "    s.pages = paths.map(pageFromPath);"
+  },
+  {
+    "label": "a route that is not a string is coerced into a page nobody can open",
+    "files": ["public/chat.js"],
+    "from": "    const paths = d.routes.filter((p) => typeof p === 'string' && p.charAt(0) === '/');",
+    "to": "    const paths = d.routes.map(String);"
+  },
+  {
+    "label": "ok:false is read as an answer",
+    "files": ["public/chat.js"],
+    "from": "    if (!r.ok || !d || d.ok !== true || !Array.isArray(d.routes) || !d.routes.length) return;",
+    "to": "    if (!d || !Array.isArray(d.routes)) return;"
+  },
+  {
+    "label": "a page carries no html, so switchSitePage takes the stored-draft branch and the frame never moves",
+    "files": ["public/chat.js"],
+    "from": "  return { path: p, name: last.charAt(0).toUpperCase() + last.slice(1), html: '' };",
+    "to": "  return { path: p, name: last.charAt(0).toUpperCase() + last.slice(1) };"
+  },
+  {
+    "label": "an empty path becomes a page at \"\" rather than home",
+    "files": ["public/chat.js"],
+    "from": "  const p = String(path || '/') || '/';",
+    "to": "  const p = String(path);"
+  },
+  {
+    "label": "the two page-list producers name a route differently again",
+    "files": ["public/chat.js"],
+    "from": "    out.push(pageFromPath(path));",
+    "to": "    out.push({ path, name: path, html: '' });"
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the Worker, which must survive",
+    "files": ["worker.js"],
+    "from": "    // GET /api/site/routes — WHICH PAGES THIS SITE HAS, FOR THE PAGE PICKER.",
+    "to": "    // GET /api/site/routes — WHAT PAGES THIS SITE HAS, FOR THE PAGE PICKER."
+  },
+  {
+    "control": true,
+    "label": "CONTROL — a comment only in the browser, which must survive",
+    "files": ["public/chat.js"],
+    "from": "// ONE NAMER FOR A ROUTE, whatever told us the route exists.",
+    "to": "// ONE NAMER FOR A ROUTE, whichever thing told us the route exists."
+  }
+]

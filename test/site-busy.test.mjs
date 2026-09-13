@@ -617,9 +617,18 @@ test("the editable copy: four editing readers read through the repairing reader,
   // through `loadSiteSourceForEdit` would have a read-only tab rewriting the
   // editable copy out of the pointer's build. The count moved; the property did
   // not, and a sixth still has to be argued for here.
+  //
+  // RE-ANCHORED AGAIN 2026-09-13, and this IS that argument. The page picker's
+  // route (`GET /api/site/routes`) is a sixth bare read and sits beside the Code
+  // tab's for the same reason, one word stronger: it answers the PATHS of a
+  // site's pages and never opens a file. A picker that repaired the editable
+  // copy would make a site busy for drawing a dropdown — and it is drawn on
+  // every workspace render. The property is still "every read that goes on to
+  // PUBLISH goes through the repairing reader"; the count is what moved.
   const bare = [...W.matchAll(/(?<!function )\bloadSiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
-  assert.equal(bare.length, 5, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.equal(bare.length, 6, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(bare.includes("loadSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
+  assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
   const wrap = fnW("loadSiteSourceForEdit");
   assert.match(wrap, /try \{ await ensureEditableState\(env, slug\); \}\s+catch/, "the wrapper does not repair before it reads, or a failed check costs the read");
   assert.match(wrap, /return loadSiteSource\(env, slug\);/);

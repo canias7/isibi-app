@@ -2457,6 +2457,25 @@ function lastBuildFiles(site) {
   }
   return [];
 }
+// ONE NAMER FOR A ROUTE, whatever told us the route exists.
+//
+// Two things now produce a page list — the file list on a build message in this
+// browser's own thread (`reactRoutePages`, below) and the server's answer for a
+// site this browser adopted (`siteRoutesFetch`) — and they must name a page the
+// same way or the picker's label changes depending on which door the customer
+// came through. That is the recorded "two lists of the same thing" with a
+// display name as its subject, and the drift would be silent: both labels read
+// fine on their own.
+//
+// `html: ''` IS PART OF THE SHAPE, not an omission. `switchSitePage` branches on
+// `target.html` to choose the stored-draft loader over the live frame, so a page
+// with no stored HTML must carry the empty string rather than nothing — this is
+// a React page and the live frame is the right loader for it.
+function pageFromPath(path) {
+  const p = String(path || '/') || '/';
+  const last = p === '/' ? 'Home' : p.split('/').pop().replace(/[-_]+/g, ' ');
+  return { path: p, name: last.charAt(0).toUpperCase() + last.slice(1), html: '' };
+}
 // The route files a React build wrote, as pages the picker can offer.
 //
 // A REACT BUILD USED TO STORE EXACTLY ONE PAGE — `{path:'/', name:'App'}` —
@@ -2493,13 +2512,59 @@ function reactRoutePages(files) {
     const path = rel === 'index' ? '/' : '/' + rel.replace(/\/index$/, '');
     if (seen.has(path)) continue;
     seen.add(path);
-    const last = path === '/' ? 'Home' : path.split('/').pop().replace(/[-_]+/g, ' ');
-    out.push({ path, name: last.charAt(0).toUpperCase() + last.slice(1), html: '' });
+    out.push(pageFromPath(path));
   }
   // Home first; the rest keep the order the model wrote them, which matches the
   // site's own nav far more often than alphabetical would.
   out.sort((a, b) => (a.path === '/' ? -1 : b.path === '/' ? 1 : 0));
   return out;
+}
+// WHICH PAGES A SITE HAS, ASKED OF THE SERVER (2026-09-13, owner on a
+// three-page site whose picker read a dead "Homepage": "YES FIX THE PICKER").
+//
+// THE PAGE LIST ONLY EVER EXISTED IN THE BROWSER THAT BUILT THE SITE. `sitePages`
+// above reads `site.pages` out of localStorage and recovers an older React
+// site's list from the FILES on a build message in the thread — and a site this
+// browser adopted off `/api/site/list` has neither, because `fromRow` in
+// `site-list.js` carries no pages and no messages. So every site opened on a
+// second machine showed one page however many it really had, and the other pages
+// were unreachable in the preview. Nothing failed and nothing logged; the label
+// is a legitimate rendering of an empty list.
+//
+// ONCE PER SLUG PER PAGE LOAD. `renderSiteWorkspace` runs on every render and
+// every reply triggers one, so without the latch this is a request per render —
+// `editWatched`'s reasoning one panel over. The latch is deliberately NOT
+// cleared on a successful write: a site that publishes a new page mid-session
+// has its list written by the build itself, and a site that answered nothing
+// will answer nothing again this load.
+//
+// IT NEVER OVERWRITES A LIST THIS BROWSER ALREADY HAS, and the check is made at
+// APPLY time rather than at fetch time — a build can land while the request is
+// in the air, and that list is the better one: it is what was just written,
+// where this answer is what was last published.
+//
+// SILENT ON EVERY FAILURE. A blip leaves the picker exactly as it was, which is
+// the screen that shipped before this existed. There is nothing to tell the
+// customer: they did not ask for this and cannot act on it.
+const siteRoutesAsked = new Set();
+function siteRoutesFetch(site) {
+  if (!site || !site.slug || !site.react || !site.id) return;
+  if (siteRoutesAsked.has(site.slug)) return;
+  siteRoutesAsked.add(site.slug);
+  apiFetch('/api/site/routes?slug=' + encodeURIComponent(site.slug)).then(async (r) => {
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.ok !== true || !Array.isArray(d.routes) || !d.routes.length) return;
+    const s = siteById(site.id);
+    if (!s || (Array.isArray(s.pages) && s.pages.length > 1)) return;
+    // STRINGS ONLY. This is a decoded JSON body: `String(["/menu"])` is "/menu",
+    // the recorded coercion that has shipped three times here, so a shape we did
+    // not send is dropped rather than made into a page nobody can open.
+    const paths = d.routes.filter((p) => typeof p === 'string' && p.charAt(0) === '/');
+    if (!paths.length) return;
+    s.pages = paths.map(pageFromPath);
+    sitesSave();
+    if (siteOpenId === s.id) renderSites();
+  }).catch(() => {});
 }
 function siteActivePage(site) {
   const pages = sitePages(site);
@@ -5102,6 +5167,14 @@ function siteSetLive(site, live) {
 // and the stage (Preview / Code / More). Skinned in Go Farther's own dark + pink→amber.
 function renderSiteWorkspace(view, site) {
   const pages = sitePages(site);
+  // AND IF THAT LIST IS SHORT, ASK THE SERVER WHAT PAGES THIS SITE REALLY HAS.
+  // Fire-and-forget and re-renders when it lands — `sitesFetchRemote`'s own
+  // pattern in `renderSites`, and for the same reason: this function is
+  // synchronous, so the first paint is still the list this browser holds and
+  // nothing waits on the network. Gated on the list being short because that is
+  // the only state the answer can improve; a browser that built the site already
+  // has the real list and must not spend a request per render to confirm it.
+  if (pages.length <= 1) siteRoutesFetch(site);
   const active = siteActivePage(site);
   const curHtml = active ? active.html : '';
   const isReact = !!(site.react && site.url);

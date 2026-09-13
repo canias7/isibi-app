@@ -2595,6 +2595,82 @@ case now, and it is safe on walls that already existed.
   can never report an admission a browser would refuse. Re-worded to say that
   rather than to state something untrue about browsers.
 
+- **THE PAGE LIST ONLY EVER EXISTED IN THE BROWSER THAT BUILT THE SITE
+  (2026-09-13, owner on `lido-free-a`, a live three-page site whose picker read a
+  dead "Homepage": *"OK THIS SITE SUPPOSLTY HAS COU7PLE PAGES , RIGHT ?"* →
+  *"YES FIX THE PICKER"*).** `sitePages` reads `site.pages` out of localStorage,
+  and its one recovery path derives the list from the FILES on a build message in
+  the chat thread. A site adopted off `/api/site/list` has neither — `fromRow` in
+  `site-list.js` carries id, slug, name, url, brief, backend, chat, offline and
+  createdAt, and **no pages** — so `sitePages()` answered `[]`, `siteActivePage()`
+  answered `null`, and every page but the home page was unreachable in the preview
+  on every machine except the one that typed the brief. **Nothing failed and
+  nothing logged**: a label is a correct rendering of an empty list.
+  **TWO READERS OF THAT EMPTY LIST, AND THE SECOND IS THE TELL.** The subtitle is
+  `pages.length > 1 ? pages.length + ' pages' : 'Previewing last saved version'`,
+  so a three-page site also said "Previewing last saved version" — the same
+  wrongness twice in one bar, visible in the owner's own screenshot, which is
+  what a shared empty input looks like from outside.
+  **`GET /api/site/routes?slug=` IS ITS OWN ROUTE, AND THE MEASUREMENT IS WHY.**
+  `/api/site/source` already answers these paths — and hands back the whole
+  project with them: the page source, the parts, the kit closure, the assets and
+  the 25 shared files, **489,100 bytes of bundle alone**. The picker needs the
+  paths, which are a few dozen. Both read `source/<slug>/pages.json` through one
+  reader function, so this is not the recorded "two lists of the same thing";
+  they answer different questions about one store. **Owner-gated with the source
+  route's 404** (a distinct 403 says the slug is taken), **`loadSiteSource` and
+  never `loadSiteSourceForEdit`** (a picker that repaired the editable copy would
+  make a site busy for drawing a dropdown, on every workspace render), and
+  **nothing stored is `ok: true` with `[]`**, never the 404.
+  **PATHS ONLY, AND THE NAMING IS THE BROWSER'S** — the source route's own stated
+  reason: the browser composes display names anyway, so a second composer on the
+  wire would be two lists of one thing. `pageFromPath` is that one composer and
+  `reactRoutePages` shares it, so a page's label cannot depend on which door told
+  us the route exists. **`html: ''` is part of its shape**, because
+  `switchSitePage` branches on `target.html` to choose the stored-draft loader
+  over the live frame.
+  **THE FETCH IS `sitesFetchRemote`'s PATTERN**: fire-and-forget, re-renders when
+  it lands, latched once per slug (`renderSiteWorkspace` runs on every render and
+  every reply triggers one), gated on the held list being SHORT, never
+  overwriting a longer list — checked at APPLY time, because a build can land
+  while the request is in the air and that list is the better one — and silent on
+  every failure.
+  **THE COST, MEASURED: the bar settles ~39px once**, because the picker and the
+  subtitle widen together when the answer lands. Once per adopted site per
+  session; blocking the paint on a network call is the worse trade and is against
+  this file's own "THE DRAW IS NOT THE FETCH".
+  **Guards**: `test/page-picker.test.mjs` (17) — the route driven through
+  `worker.fetch` against a fake R2 (401, the stranger's 404, the three real
+  routes, home first **from a store that holds it last**, one page offered once
+  **from two files that resolve to it**, a part and `__root` never offered with a
+  hyphenated route as the alive observer, nothing-stored, a dead bucket), the
+  answer asserted to carry **no source and under 400 bytes**, `pageFromPath`
+  driven with `reactRoutePages` DERIVED against it, the browser's fetch driven
+  for seven failure shapes, and the call site read by its OWN condition.
+  **Three older guards went red and were re-anchored, not appeased**, each a
+  recorded trap: `site-busy`'s bare-read census asked that a sixth read "be
+  argued for here" and now carries the argument; `preview-pages`' carrier hit the
+  free-identifier trap IN A TEST SCOPE (`reactRoutePages` gained `pageFromPath`
+  and the lifted scope had neither), so `lift` takes the helpers a function
+  needs; and **`site-source`'s window closed on `/api/site/reconcile` BY NAME**
+  and this route landed between them — the recorded overlapping-window trap. It
+  derives its closing landmark from the next sibling now, **closed at the start
+  of that sibling's LINE and trimmed**, because a matcher shares its line with
+  its `if (` and blanking preserves length, so the neighbour's prose rides along
+  as whitespace: measured 6,422 characters of route against 8,223 of window.
+  **Sweep: 22 mutants, 22 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived. TWO SURVIVED THE FIRST PASS AND BOTH WERE MY OWN FIXTURE** —
+  the recorded "a fixture too shallow to separate the two readings": the pages
+  arrived home-first with no duplicates, so the sort and the de-dup were no-ops
+  against every case in the file. **Suite 6,161.**
+  **NOT PROVEN LIVE, and the precondition is named rather than assumed**: the
+  route reads what a site stored at its last publish, and `lido-free-a` published
+  2026-08-22. If `source/<slug>/pages.json` is absent for a site that old, the
+  answer is `[]` and the picker is exactly what it was. The free check is the
+  Code tab on that site, which reads the same store through its own route.
+  **OPEN, named and not built**: the preview frame runs the site's own JavaScript,
+  so a click inside it really navigates — and nothing tells the picker or the URL
+  chip that the frame moved. It needs the published site to report its own route.
 - **PUBLISH IS A DOOR ON THE WORKSPACE BAR, AND IT IS NOT THE BUTTON THAT WAS
   DELETED (2026-09-12, owner: *"NEXT TO SHARE ADD A PUBLISH BUTTON"*).** There
   was a Publish button until 2026-09-08 and this repo deleted it, so the first

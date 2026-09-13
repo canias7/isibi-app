@@ -17859,6 +17859,80 @@ async function handleRequest(request, env, ctx) {
       });
     }
 
+    // GET /api/site/routes — WHICH PAGES THIS SITE HAS, FOR THE PAGE PICKER.
+    //
+    // Owner, 2026-09-13, looking at `lido-free-a` — a three-page site — with the
+    // workspace picker reading a dead "Homepage": *"OK THIS SITE SUPPOSLTY HAS
+    // COU7PLE PAGES , RIGHT ?"* → *"YES FIX THE PICKER"*.
+    //
+    // THE PAGE LIST ONLY EVER EXISTED IN THE BROWSER THAT BUILT THE SITE, and
+    // that is the whole defect. `sitePages()` reads `site.pages` out of
+    // localStorage, and its one recovery path derives the list from the FILES on
+    // a build message in the chat thread — so a site this browser adopted off
+    // `/api/site/list` has neither: `fromRow` carries id, slug, name, url,
+    // brief, backend, chat, offline and createdAt, and no pages. The picker then
+    // renders its `pages.length > 1` fallback, which is a label, and the other
+    // two pages are unreachable in the preview on every machine but the one that
+    // typed the brief. Nothing failed and nothing logged.
+    //
+    // WHY THIS IS ITS OWN ROUTE AND NOT `/api/site/source`, which already
+    // answers these paths: that one hands back the whole project — the page
+    // source, the parts, the site's kit closure, the assets and the 25 shared
+    // files, measured at 489,100 bytes of bundle alone. The picker needs the
+    // PATHS, which are a few dozen. Reusing it would put a third of a megabyte
+    // on the wire on every workspace open of an adopted site, to fill a
+    // dropdown. Both read `source/<slug>/pages.json`; they answer different
+    // questions about it, which is not the recorded "two lists of the same
+    // thing" — there is one store and one reader function under both.
+    //
+    // PATHS ONLY — NO SOURCE, AND NO DISPLAY NAMES. The naming is the browser's,
+    // for the reason the source route above states in its own words: the browser
+    // composes display names anyway, so a second composer here would be two
+    // lists of one thing. `pageFromPath` in `public/chat.js` is that one
+    // composer, and `reactRoutePages` shares it.
+    //
+    // OWNERSHIP, NOT MERELY AUTH, and the 404 with it — the source route's rule
+    // verbatim, and for its reason: a distinct 403 tells whoever asks that the
+    // slug is taken.
+    //
+    // NOTHING STORED IS ITS OWN ANSWER, never the 404 above: a site that has
+    // never published has no `pages.json`, and answering "not found" there would
+    // say "not your site" about a site they own.
+    if (url.pathname === "/api/site/routes" && request.method === "GET") {
+      const ru2 = await authUser(request);
+      if (!ru2) return UNAUTHED();
+      const rslug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60).replace(/^-+|-+$/g, "");
+      if (!rslug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      const rown = await siteOwnerBySlug(rslug, env);
+      if (!rown || rown !== ru2.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      // READ, NEVER REPAIRED — `loadSiteSource`, not `loadSiteSourceForEdit`:
+      // this only shows what is stored, so it takes no lease and cannot make a
+      // site busy. The source route beside it makes the same choice.
+      const rPages = await loadSiteSource(env, rslug);
+      // A PART IS NOT A ROUTE, and the filter is the container's own rule rather
+      // than a name we happen to use: `routeFileIgnorePrefix` is `-` in the
+      // template's vite config, so a leading `-` on any segment is what keeps a
+      // component from being published as a page. `render-check.mjs` already
+      // records `/-parts/...` as a 404 finding; offering one here would put that
+      // finding in a customer's own page menu.
+      const routes = (Array.isArray(rPages) ? rPages : [])
+        .map((p) => (p && typeof p.path === "string" ? p.path : ""))
+        .map((p) => routeOf(p))
+        .filter((p) => p && !/(^|\/)-/.test(p));
+      const seen = new Set();
+      const uniq = routes.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));
+      // HOME FIRST, the rest in the order the model wrote them — the picker's own
+      // ordering rule, which matches a site's own nav far more often than
+      // alphabetical does.
+      uniq.sort((a, b) => (a === "/" ? -1 : b === "/" ? 1 : 0));
+      return Response.json({
+        ok: true,
+        slug: rslug,
+        routes: uniq,
+        ...(uniq.length ? {} : { why: "nothing stored — this site has not published a build yet" }),
+      });
+    }
+
     // GET /api/site/reconcile?slug=&job=&apply=1 — WHAT BECAME OF A CHANGE
     // THAT STOPPED MID-PUBLISH (stage 3b, 2026-09-05).
     //
