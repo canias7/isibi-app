@@ -228,6 +228,17 @@ like holes and were not: I measured them, and they turn out to be changes that
 cannot alter any answer, so they were deleted rather than chased. Whole suite:
 **6,197 checks, all green.**
 
+**Merged and live** — deploy 2112, green in 2m47s, and the two files a visitor
+downloads match the source byte for byte three minutes after the push. The
+stylesheet is now **327,903 bytes on the wire against 484,036 — 156 KB less on
+every page load, for everyone**. The broken rule from the 12th is gone from the
+live file, checked against the bytes a browser actually receives rather than
+against the repository.
+
+The container rebuilt and rolled at 07:53:37Z, so **anything that needs the new
+code inside a build should wait until ~08:10** — normal after a change that
+touches the Worker, and worth knowing if you fire a build right after a merge.
+
 ---
 
 ## 2026-09-13 — Model context: how full the window gets, and what fills it

@@ -906,6 +906,32 @@ real 2026-09-12 orphan (a stray `}` at line 3), an unclosed block and an empty
 rule body, each with a clean fixture beside it as the control. Two of the
 sweep's mutants are that half and both die. **Suite 6,197.**
 
+**MERGED AND LIVE — deploy 2112, 2026-09-13 07:50:58→07:53:45Z, green in 2m47s.**
+The image **BUILT** and the container **`EDIT`ed at 07:53:37Z**,
+`d…2925f7f453fdbe` → `4c8a08e05acecfd…`, `SUCCESS Modified application` — **read
+out of the log rather than inferred from the step's 2m02s**, which this file
+warns against in both directions — so **the 15–20 minute hold ran to
+~08:08–08:13Z**. The gate was left to expire on success and the drain found no
+live leases. Wrangler uploaded exactly **two** assets, `/styles.css` and
+`/chat.js` (84 already uploaded), which is the whole of what `public/` changed.
+**Both hash byte-for-byte identical to source** (`chat.js` `ad05d8f2c0a4a7a5`,
+`styles.css` `f8fc72b9b45a5732`), matched by an until-loop on the served file
+**178 seconds after the push**.
+**AND THE STYLESHEET'S TWO PROOFS ARE LIVE READINGS, not repository ones.** The
+served sheet is **327,903 bytes against 484,036 — 156,133 off the wire on every
+page load for every visitor** — and `braceReport` run over the SERVED file
+answers `stray []`, `unclosed 0`, `empty 0`: the syntax error that had been
+shipping since 2026-09-12 is gone from the bytes a browser really gets, which no
+reading of the repository could have said. `.st-file-own` survives once and
+`.st-code-h` is gone, the two halves of the cut asked together.
+**Nine deleted names read 0 over COMMENT-BLANKED served source** —
+`siteSecurityScan`, `readSiteStream`, `siteBuildStatus`, `stAgentsBody`,
+`VIEW_LABELS`, `paintBuildLog`, `/api/site/scan`, `/api/site/preview`,
+`st-livelog-stage` — with `siteBuildStart(true)` at **3**, the census's own
+number. **Blanked, because this repository has hit "prose contains the thing it
+forbids" in a LIVE check twice in one session**: my own comments in `chat.js`
+name most of those while explaining why they went, and a raw grep reads each as 1.
+
 ---
 
 ## Working rules
