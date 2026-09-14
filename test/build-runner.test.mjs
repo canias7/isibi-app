@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadWorker, loadWorkerModule, makeCtx, hit } from "./fixtures/worker-harness.mjs";
 import { JOB_KIND, jobKey, resultKey, packJob, readResult, BUILD_JOB_MS } from "../builder/build-job.mjs";
-import { EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, JOB_TOKEN_GRACE_S, LEASE_TTL_S } from "../builder/edit-job.mjs";
+import { EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, JOB_TOKEN_GRACE_S, LEASE_TTL_S, FIRE_RETRY_MAX } from "../builder/edit-job.mjs";
 import { CONTAINER_BUILD_BUDGET_MS, BUILD_BUDGET_MS, makeBudget } from "../builder/build-budget.mjs";
 import { gatewayKey, verifyJobToken, signJobToken, allowedJobKey, allowedJobPrefix, sbDecision, gatewayHandler, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv, refusingQueue, rescopeJob, GatewayBucket } from "../builder/container-env.mjs";
@@ -493,16 +493,30 @@ test("with the flags off, nothing is fired, no site row is read, and the consume
   assert.equal(d.acked, 1);
 });
 
-test("a container without the endpoint, refusing, or full is the inline path after the fire: one claim, the object taken back, the build run here", async () => {
+// INVERTED 2026-09-14 for the same reason as its twin in container-job.test.mjs,
+// and it is a reversal the owner asked for rather than a guard being appeased:
+// *"Remove the silent Worker fallback for container-routed jobs."* A build that
+// fell back here ran under BUILD_BUDGET_MS — thirteen minutes, sized for an
+// isolate — with nothing recording that it had. Now a refusal is retried when
+// it is transient and said clearly when it is not.
+test("a container that refuses does NOT quietly run the build in the Worker", async () => {
   let n = 0;
-  for (const [status, body] of [[404, "nf"], [429, JSON.stringify({ ok: false, error: "too many jobs" })], [500, JSON.stringify({ ok: false })], [200, JSON.stringify({ ok: false, error: "x" })]]) {
+  const cases = [
+    [404, "nf", 1],
+    [429, JSON.stringify({ ok: false, error: "too many jobs" }), 1],
+    [500, JSON.stringify({ ok: false }), FIRE_RETRY_MAX],
+    [200, JSON.stringify({ ok: false, error: "x" }), 1],
+  ];
+  for (const [status, body, fires] of cases) {
     const slug = "own-site-e" + (n++);
     const d = await driveBuild({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_EVERYONE: "on" }, body: { brief: "x", slug }, owners: { [slug]: UID }, answer: () => new Response(body, { status }) });
-    assert.equal(d.ns.calls.length, 1, "no fire on " + status);
-    assert.equal(d.ranHere, true, "on " + status + " the consumer did not run the build itself");
-    assert.equal(d.bucket.store.has(jobKey(ID)), false, "on " + status + " the object was left behind");
+    assert.equal(d.ns.calls.length, fires, `on ${status} the container was asked ${d.ns.calls.length} times, expected ${fires}`);
+    assert.equal(d.ranHere, false, "on " + status + " the consumer ran the build itself — the silent fourteen-minute path is back");
     assert.equal(d.rpcs.filter((r) => r === "edit_claim").length, 1, "on " + status + " the consumer claimed " + d.rpcs.filter((r) => r === "edit_claim").length + " times");
-    assert.ok(d.result && d.result.status === 401, "on " + status + " no answer was written");
+    assert.ok(d.rpcs.includes("edit_finalize"), "on " + status + " the row was not finalized, so the customer's poll would spin for ever");
+    // NOTHING WAS SPENT: the fire precedes every model call, so there is no
+    // reserve to reverse.
+    assert.equal(d.rpcs.includes("edit_reserve"), false, "on " + status + " the build reserved before it was even fired");
   }
 });
 
@@ -599,7 +613,11 @@ test("the build consumer and the runner's dispatch, read off the Worker: the fir
   const putBack = q.slice(identAt, fireAt);
   assert.match(putBack, /SITES_BUCKET\.put\(jobKey\(id\), raw\)/, "the object is not put back for the runner before the fire");
   const afterFire = q.slice(fireAt, at(q, "const rec = makeRecorder({"));
-  assert.match(afterFire, /if \(fire\.fired\)[\s\S]*?return;/, "a fired build does not end the consumer's work");
+  // RE-ANCHORED 2026-09-14: the two-way `fire.fired` branch became the three-way
+  // `fireOutcome` decision. The property is unchanged — a fired build ends this
+  // consumer's work rather than also running here.
+  assert.match(afterFire, /if \(act === "fired"\)[\s\S]*?return;/, "a fired build does not end the consumer's work");
+  assert.match(afterFire, /if \(act !== "inline"\)[\s\S]{0,700}?no-container[\s\S]{0,300}?return;/, "a build the container refused is not failed clearly — it would fall through to the Worker");
   assert.match(afterFire, /SITES_BUCKET\.delete\(jobKey\(id\)\)/, "the object is not taken back when the fire fails");
   // The budget reads the stop signal; the container hands its longer one in.
   // RE-ANCHORED 2026-09-06 (stage 5e): the first argument was `budgetMs` and is
@@ -626,7 +644,13 @@ test("the fire, read off the Worker: a build's clock and token expiry, the place
   // refused above it — so both arms name a container's clock and neither names
   // an isolate's. The property is what it was: the launch's deadline and the
   // token's expiry are the KIND's own number, never a literal.
-  assert.match(fire, /const budgetMs = kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;/, "the launch's clock is not the kind's");
+  // AND SINCE THE SAME DAY the deploy may shorten it: `readJobMaxMs` is the one
+  // door, the kind's constant is its fallback, and `budgetMs` is what it
+  // answered — so the deadline and the token still cannot disagree, and a
+  // reader that nothing called would be a setting in name only.
+  assert.match(fire, /kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS/, "the launch's clock is not the kind's");
+  assert.match(fire, /readJobMaxMs\(env, kindMs\)/, "the deploy's setting is not read, or not with the kind's clock as its fallback");
+  assert.match(fire, /const budgetMs = setting\.ms;/, "the launch's clock is no longer the setting's answer");
   assert.doesNotMatch(fire, /:\s*EDIT_JOB_MS\b/, "the fire mints a Worker isolate's clock for a job that runs in a container");
   assert.match(fire, /deadlineAt: Date\.now\(\) \+ budgetMs,/);
   assert.match(fire, /exp: Math\.floor\(\(Date\.now\(\) \+ budgetMs\) \/ 1000\) \+ JOB_TOKEN_GRACE_S/, "the token's expiry is not the kind's clock plus the grace");

@@ -55,7 +55,7 @@ import {
   // hold back for a compile, read from where it lives.
   MIN_BUILD_MS,
   // The job runner (2026-09-04): who runs a queued job, what it is handed.
-  jobRunnerOn, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
+  jobRunnerOn, fireOutcome, FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
   // One job per site at a time (stage 6, 2026-09-05): how long a refused
   // claim waits before its message is re-sent.
   SITE_BUSY_DEFER_S,
@@ -262,6 +262,9 @@ import { newTrace, traceRow } from "./builder/edit-trace.mjs";
 // changes no behaviour look like a change that does.
 import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
+// HOW LONG A CONTAINER JOB MAY RUN — the one setting, read here so the deploy
+// can shorten it without a code change. `fireContainerJob` is its one consumer.
+import { readJobMaxMs } from "./builder/job-duration.mjs";
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
@@ -1361,7 +1364,7 @@ export default {
             // JOB_FIRE_MS), so a slow container cannot let it lapse under the
             // sweep; cleared before the inline run, which beats for itself.
             const beat = buildRowBeat(env, edit.id, owner);
-            let fire;
+            let act = "stop", why = "";
             try {
               // ── THE JOB RUNS IN THE SITE'S CONTAINER WHEN IT CAN (2026-09-04) ──
               //
@@ -1374,13 +1377,49 @@ export default {
               // take it (no room after the wait, an image without the endpoint,
               // a refusal) is this consumer running the job exactly as it did
               // before, said so in the log.
-              fire = await fireContainerJob(env, edit.id, { holder: owner });
+              // ── BOUNDED RETRY, THEN A CLEAR FAILURE (2026-09-14) ──────────
+              //
+              // Owner: *"If the container cannot start, use a bounded retry or
+              // return a clear failure. Don't quietly run the same job under
+              // the Worker's 14-minute limit."*
+              //
+              // `fireOutcome` splits the answers by what they MEAN rather than
+              // by whether the fire worked — see its table. Only `inline` runs
+              // here, and it means this job was never the container's.
+              //
+              // NOTHING HAS BEEN SPENT YET, which is what makes the refusal
+              // safe: the fire happens before any model call, so a job that
+              // never starts is finalized with no charge to reverse. And a
+              // retry cannot double-run one — the container refuses a second
+              // launch of the same id with 409, which `fireOutcome` reads as
+              // `fired`.
+              for (let n = 0; ; n++) {
+                const fire = await fireContainerJob(env, edit.id, { holder: owner });
+                act = fireOutcome(fire);
+                why = String((fire && fire.why) || "");
+                if (act !== "retry" || n + 1 >= FIRE_RETRY_MAX) break;
+                console.log("job runner: asking again for", edit.id, "—", why, "(" + (n + 1) + "/" + FIRE_RETRY_MAX + ")");
+                await new Promise((r) => setTimeout(r, FIRE_RETRY_MS));
+              }
             } finally { clearInterval(beat); }
-            if (fire.fired) {
-              console.log("job runner: fired", edit.id, "into the site's container");
-            } else {
-              if (fire.why !== "off") console.log("job runner: inline", edit.id, "—", fire.why);
+            if (act === "fired") {
+              console.log("job runner: fired", edit.id, "into the site's container", why || "");
+            } else if (act === "inline") {
+              // NOT A CONTAINER JOB AT ALL — the runner is off, there is no
+              // binding, or the flags do not name this identity. The Worker is
+              // the right place and the trace says `where: "worker"`.
+              if (why !== "off") console.log("job runner: inline", edit.id, "—", why);
               await runQueuedSiteEdit(env, ctx, edit.id, { lease: owner, claim, startedAt: deliveredAt });
+            } else {
+              // THE CONTAINER COULD NOT TAKE IT, and this job was meant for the
+              // container. Said out loud instead of run where nobody can see
+              // it: the customer is told, the row is terminal, and the poll
+              // stops rather than spinning.
+              console.error("job runner: the container could not take", edit.id, "after", FIRE_RETRY_MAX, "tries —", why);
+              await editRpc(env, "edit_finalize", {
+                p_id: edit.id, p_ok: false,
+                p_result: { status: 503, type: "application/json", body: JSON.stringify({ ok: false, error: "no-container", job: edit.id, detail: why.slice(0, 120), msg: NO_CONTAINER_MSG }) },
+              });
             }
           }
         } else if (msg) {
@@ -12003,14 +12042,43 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
       catch (e) { console.error("build queue: could not put the job back for the runner", id, String((e && e.message) || e)); }
       if (kept) {
         const beat = buildRowBeat(env, id, lease);
-        let fire;
-        try { fire = await fireContainerJob(env, id, { holder: lease, kind: "build", who }); }
-        finally { clearInterval(beat); }
-        if (fire.fired) {
-          console.log("job runner: fired build", id, "into", who.pre ? "a lane of its own (pre-scoped)" : who.slug + "'s lane");
+        // THE SAME SPLIT AS THE EDIT CONSUMER (2026-09-14): a bounded retry on
+        // a transient refusal, the Worker ONLY for a build that was never the
+        // container's, and a clear failure otherwise — never a silent fall back
+        // to `BUILD_BUDGET_MS`, which is thirteen minutes sized for an isolate.
+        // A 409 from the container is `fired`: it refuses a duplicate launch by
+        // id, so a retry that races an accepted fire cannot double-run a build
+        // or double-charge for one.
+        let act = "stop", why = "";
+        try {
+          for (let n = 0; ; n++) {
+            const fire = await fireContainerJob(env, id, { holder: lease, kind: "build", who });
+            act = fireOutcome(fire);
+            why = String((fire && fire.why) || "");
+            if (act !== "retry" || n + 1 >= FIRE_RETRY_MAX) break;
+            console.log("job runner: asking again for build", id, "—", why, "(" + (n + 1) + "/" + FIRE_RETRY_MAX + ")");
+            await new Promise((r) => setTimeout(r, FIRE_RETRY_MS));
+          }
+        } finally { clearInterval(beat); }
+        if (act === "fired") {
+          console.log("job runner: fired build", id, "into", who.pre ? "a lane of its own (pre-scoped)" : who.slug + "'s lane", why || "");
           return;
         }
-        if (fire.why !== "off") console.log("job runner: inline build", id, "—", fire.why);
+        // NOT `stop` — ANYTHING BUT `inline`. A retry that ran out of tries is
+        // still `retry`, and reading only `stop` here let it fall through to the
+        // very inline path this change removes. Caught by the inverted guard on
+        // its first run, which is what inverting a guard is for.
+        if (act !== "inline") {
+          console.error("job runner: the container could not take build", id, "after", FIRE_RETRY_MAX, "tries —", why);
+          // NOTHING IS SPENT BEFORE THE FIRE, so the row is finalized with no
+          // charge to reverse and the object is left for the token to expire.
+          await editRpc(env, "edit_finalize", {
+            p_id: id, p_ok: false,
+            p_result: { status: 503, type: "application/json", body: JSON.stringify({ ok: false, stage: "queue", error: "no-container", job: id, detail: why.slice(0, 120), msg: NO_CONTAINER_MSG }) },
+          });
+          return;
+        }
+        if (why !== "off") console.log("job runner: inline build", id, "—", why);
         try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the token expires on its own */ }
       }
     }
@@ -12908,7 +12976,17 @@ async function fireContainerJob(env, id, { holder = "", kind = "edit", who: iden
   // fourteen-minute token and deadline for a job that had twenty-seven
   // minutes of room — the runner's child was killed by its own deadline long
   // before the work ran out.
-  const budgetMs = kind === "build" ? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;
+  //
+  // AND THIS IS THE SETTING'S ONE CONSUMER. `readJobMaxMs` lets the duration be
+  // moved from the deploy without a code change, which is what "one explicit,
+  // configurable setting" means — a reader nothing calls is not a setting, it is
+  // this repository's most-repeated defect. It may only SHORTEN (the module's
+  // header says why), so the kind's own constant is the fallback and the ceiling
+  // both. ONE value for the deadline and the token, so they cannot disagree.
+  const kindMs = kind === "build" ? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;
+  const setting = readJobMaxMs(env, kindMs);
+  if (setting.why) console.warn("job runner: JOB_MAX_MINUTES refused —", setting.why);
+  const budgetMs = setting.ms;
   const pre = who.pre === true;
   const token = await signJobToken({ id, slug: pre ? preScopeSlug(id) : who.slug, uid: who.uid, exp: Math.floor((Date.now() + budgetMs) / 1000) + JOB_TOKEN_GRACE_S, pre }, key);
   const payload = JSON.stringify({

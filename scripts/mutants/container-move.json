@@ -1,0 +1,250 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the transport module",
+    "control": true,
+    "files": ["builder/long-post.mjs"],
+    "from": " * THE TRANSPORT UNDER EVERY MODEL CALL MADE FROM INSIDE THE CONTAINER.",
+    "to": " * THE TRANSPORT UNDER EVERY MODEL CALL MADE INSIDE THE CONTAINER."
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the duration guard",
+    "control": true,
+    "files": ["test/job-duration.test.mjs"],
+    "from": "// ONE SETTING, AND EVERY NUMBER DOWNSTREAM OF IT.",
+    "to": "// ONE SETTING, AND EVERY NUMBER THAT FOLLOWS FROM IT."
+  },
+
+  {
+    "label": "the job's transport never reaches the model call — run 45's defect exactly",
+    "files": ["worker.js"],
+    "from": "const modelSend = (env) => (env && typeof env.MODEL_SEND === \"function\" ? env.MODEL_SEND : null);",
+    "to": "const modelSend = () => null;"
+  },
+  {
+    "label": "the stream flag is never asked for",
+    "files": ["worker.js"],
+    "from": "const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { ...(opts || {}), stream: true } : opts);",
+    "to": "const modelOpts = (env, opts) => opts;"
+  },
+  {
+    "label": "the stream flag REPLACES the caller's opts instead of joining them",
+    "files": ["worker.js"],
+    "from": "const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { ...(opts || {}), stream: true } : opts);",
+    "to": "const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { stream: true } : opts);"
+  },
+  {
+    "label": "the wrapper stops forwarding opts — run 40's defect",
+    "files": ["worker.js"],
+    "from": "const callBuilderModel = (env, req, budget = null, opts = null) => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts));",
+    "to": "const callBuilderModel = (env, req, budget = null, opts = null) => callModel(keysFrom(env), req, budget, modelSend(env), null);"
+  },
+  {
+    "label": "the PAGE call goes back to the module's default transport",
+    "files": ["worker.js"],
+    "from": "  return (keys, req, budget) => callModel(keys, req, budget, modelSend(env), modelOpts(env, null));",
+    "to": "  return (keys, req, budget) => callModel(keys, req, budget, null, null);"
+  },
+  {
+    "label": "the runner stops handing its sender to the job env",
+    "files": ["builder/container-job.mjs"],
+    "from": "pre: launch.pre === true, send: longPost, deadlineAt: launch.deadlineAt });",
+    "to": "pre: launch.pre === true, deadlineAt: launch.deadlineAt });"
+  },
+  {
+    "label": "the job env drops the sender it was handed",
+    "files": ["builder/container-env.mjs"],
+    "from": "  if (typeof send === \"function\") env.MODEL_SEND = send;",
+    "to": "  if (false) env.MODEL_SEND = send;"
+  },
+  {
+    "label": "the job env never asks for the stream",
+    "files": ["builder/container-env.mjs"],
+    "from": "  env.MODEL_STREAM = stream === true;",
+    "to": "  env.MODEL_STREAM = false;"
+  },
+
+  {
+    "label": "a failed call drops error.cause — the field run 45 needed and did not have",
+    "files": ["builder/build-call.mjs"],
+    "from": "    if (typeof c.code === \"string\" && c.code) out.cause = c.code.slice(0, 60);",
+    "to": "    if (false) out.cause = c.code.slice(0, 60);"
+  },
+  {
+    "label": "a failed call drops the wire's account — no way to tell a quiet kill from a lifetime cap",
+    "files": ["builder/build-call.mjs"],
+    "from": "    if (Number.isFinite(w.headersMs)) out.headersMs = w.headersMs;",
+    "to": "    if (false) out.headersMs = w.headersMs;"
+  },
+  {
+    "label": "the addon's page failure records only the message again",
+    "files": ["worker.js"],
+    "from": "              aMark(\"pages\", \"fail\", { error: String((e && e.message) || e).slice(0, 200), ms: Date.now() - aPagesT0, ...callFailure(e) });",
+    "to": "              aMark(\"pages\", \"fail\", { error: String((e && e.message) || e).slice(0, 200) });"
+  },
+
+  {
+    "label": "the container stops saying where the job ran",
+    "files": ["builder/container-env.mjs"],
+    "from": "  env.JOB_WHERE = \"container\";",
+    "to": "  env.JOB_WHERE = \"\";"
+  },
+  {
+    "label": "the Worker flatters itself as the container",
+    "files": ["worker.js"],
+    "from": "const jobWhere = (env) => (env && env.JOB_WHERE === \"container\" ? \"container\" : \"worker\");",
+    "to": "const jobWhere = () => \"container\";"
+  },
+  {
+    "label": "the deadline never reaches the record",
+    "files": ["builder/container-env.mjs"],
+    "from": "  if (Number.isFinite(deadlineAt) && deadlineAt > 0) env.JOB_DEADLINE_AT = deadlineAt;",
+    "to": "  if (false) env.JOB_DEADLINE_AT = deadlineAt;"
+  },
+
+  {
+    "label": "a build's deadline is typed again instead of derived",
+    "files": ["builder/build-job.mjs"],
+    "from": "export const BUILD_JOB_MS = JOB_MAX_MS;",
+    "to": "export const BUILD_JOB_MS = 30 * 60_000;"
+  },
+  {
+    "label": "an edit's deadline is typed again instead of derived",
+    "files": ["builder/edit-job.mjs"],
+    "from": "export const CONTAINER_EDIT_JOB_MS = JOB_MAX_MS;",
+    "to": "export const CONTAINER_EDIT_JOB_MS = 27 * 60_000;"
+  },
+  {
+    "label": "the hold equals the deadline again — the SHIPPED defect, the graceful stop unreachable",
+    "files": ["builder/container-hold.mjs"],
+    "from": "export const MAX_BUSY_HOLD_MS = jobDurationPlan().holdMs;",
+    "to": "export const MAX_BUSY_HOLD_MS = jobDurationPlan().workMs;"
+  },
+  {
+    "label": "the hold keeps the SIGTERM grace and drops the SIGKILL's",
+    "files": ["builder/job-duration.mjs"],
+    "from": "  const holdMs = killAt + HOLD_SLACK_MS;",
+    "to": "  const holdMs = termAt + HOLD_SLACK_MS;"
+  },
+  {
+    "label": "the database's ttl is typed rather than derived",
+    "files": ["builder/build-lease.mjs"],
+    "from": "export const HANDOFF_TTL_S = jobDurationPlan().handoffTtlS;",
+    "to": "export const HANDOFF_TTL_S = 1800;"
+  },
+  {
+    "label": "a setting past what edit_handoff accepts reads as fitting",
+    "files": ["builder/job-duration.mjs"],
+    "from": "    fits: Number.isFinite(work) && work > 0 && handoffTtlS <= HANDOFF_MAX_S,",
+    "to": "    fits: Number.isFinite(work) && work > 0,"
+  },
+  {
+    "label": "the environment's setting is coerced instead of refused",
+    "files": ["builder/job-duration.mjs"],
+    "from": "  if (typeof raw !== \"string\" || !raw.trim()) return { ms: fallback, from: \"default\", why: \"\" };",
+    "to": "  if (raw === undefined || raw === null) return { ms: fallback, from: \"default\", why: \"\" };"
+  },
+  {
+    "label": "an environment setting longer than the compiled chain is taken anyway",
+    "files": ["builder/job-duration.mjs"],
+    "from": "  if (ms > JOB_MAX_MS) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "the ceiling is the DATABASE's rather than the compiled chain's — 55 minutes taken against a 52.5-minute hold",
+    "files": ["builder/job-duration.mjs"],
+    "from": "  if (ms > JOB_MAX_MS) {",
+    "to": "  if (!jobDurationPlan(ms).fits) {"
+  },
+  {
+    "label": "the setting has no consumer again — the reader ships unwired, which is a constant with extra steps",
+    "files": ["worker.js"],
+    "from": "  const budgetMs = setting.ms;",
+    "to": "  const budgetMs = kindMs;"
+  },
+  {
+    "label": "the deadline reads the setting and the TOKEN does not — a killed job's gateway calls keep working",
+    "files": ["worker.js"],
+    "from": "exp: Math.floor((Date.now() + budgetMs) / 1000) + JOB_TOKEN_GRACE_S",
+    "to": "exp: Math.floor((Date.now() + kindMs) / 1000) + JOB_TOKEN_GRACE_S"
+  },
+  {
+    "label": "the refusal does not say how long a job the chain WOULD carry",
+    "files": ["builder/job-duration.mjs"],
+    "from": "      + \"s — the largest setting this chain can carry is \" + Math.floor(maxJobMs() / 60_000)\n      + \" minutes, and going past it is a migration, not a constant\");",
+    "to": "      + \"s — raising it is a migration, not a constant\");"
+  },
+
+  {
+    "label": "the browser gives up before the job's own deadline",
+    "files": ["public/edit-poll.js"],
+    "from": "  var POLL_GIVE_UP_MS = 3150000;",
+    "to": "  var POLL_GIVE_UP_MS = 600000;"
+  },
+  {
+    "label": "a watch with no start time is abandoned — cannot-tell read as expired",
+    "files": ["public/edit-poll.js"],
+    "from": "    if (!started || !isFinite(started)) return false;",
+    "to": "    if (!started || !isFinite(started)) return true;"
+  },
+  {
+    "label": "the watch stops recording when it started, so the clock cannot work",
+    "files": ["public/edit-poll.js"],
+    "from": "      startedAt: typeof now === \"number\" ? now : Date.now(),",
+    "to": "      startedAt: 0,"
+  },
+  {
+    "label": "a queued job gives up before the job it waits for can finish",
+    "files": ["builder/edit-job.mjs"],
+    "from": "export const SITE_BUSY_DEFER_S = Math.ceil(JOB_MAX_MS / 1000 / MAX_SITE_BUSY_DEFERRALS);",
+    "to": "export const SITE_BUSY_DEFER_S = 60;"
+  },
+
+  {
+    "label": "an unknown fire reason reads as inline — the silent fourteen-minute path returns",
+    "files": ["builder/edit-job.mjs"],
+    "from": "  return \"stop\";\n}",
+    "to": "  return \"inline\";\n}"
+  },
+  {
+    "label": "a 409 is not read as already-running — one job becomes two sets of calls and two charges",
+    "files": ["builder/edit-job.mjs"],
+    "from": "  if (/^answered 409\\b/.test(why)) return \"fired\";",
+    "to": "  if (/^answered 409\\b/.test(why)) return \"retry\";"
+  },
+  {
+    "label": "a transient 5xx is never retried",
+    "files": ["builder/edit-job.mjs"],
+    "from": "  if (m && Number(m[1]) >= 500) return \"retry\";",
+    "to": "  if (m && Number(m[1]) >= 500) return \"stop\";"
+  },
+  {
+    "label": "no room after the wait reads as the Worker's job",
+    "files": ["builder/edit-job.mjs"],
+    "from": "  if (why.startsWith(\"room:\") || why.startsWith(\"fetch:\")) return \"retry\";",
+    "to": "  if (why.startsWith(\"room:\") || why.startsWith(\"fetch:\")) return \"inline\";"
+  },
+  {
+    "label": "the BUILD path reads only `stop`, so an exhausted retry falls through to the Worker",
+    "files": ["worker.js"],
+    "from": "        if (act !== \"inline\") {",
+    "to": "        if (act === \"stop\") {"
+  },
+  {
+    "label": "the edit consumer runs a refused job in the Worker anyway",
+    "files": ["worker.js"],
+    "from": "            } else if (act === \"inline\") {",
+    "to": "            } else if (act !== \"fired\") {"
+  },
+  {
+    "label": "the retry is unbounded",
+    "files": ["builder/edit-job.mjs"],
+    "from": "export const FIRE_RETRY_MAX = 3;",
+    "to": "export const FIRE_RETRY_MAX = 1;"
+  },
+  {
+    "label": "a refused job is never finalized, so the customer's poll spins for ever",
+    "files": ["worker.js"],
+    "from": "              await editRpc(env, \"edit_finalize\", {\n                p_id: edit.id, p_ok: false,",
+    "to": "              if (false) await editRpc(env, \"edit_finalize\", {\n                p_id: edit.id, p_ok: false,"
+  }
+]

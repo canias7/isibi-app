@@ -3522,6 +3522,170 @@ read DEPTH-AWARE (a flat `\{[^)]*\}` is greedy past `} = {})` to the empty
 default), with each caller's real options object going in.
 **Suite 6,270** (6,269 after the first round; the unbounded-budget case).
 
+### AND THE JOB'S MODEL CALLS WERE STILL THE WORKER'S (2026-09-14, run 45)
+
+Owner, after the clock shipped: *"My goal is for the entire build, edit, and
+addon job to run in the container and support longer work."* The clock was
+necessary and it was not sufficient — **run 45 died at 270,025 ms with `fetch
+failed`**, which is not a coincidence: `builder/build-call.mjs` has carried the
+container's own log line since 2026-08-26 (`d515a462`), `model call failed after
+270036 ms — socket hang up`. **Eleven milliseconds apart.**
+
+**THE CAUSE, FOUND BY READING WHO PASSES THE TRANSPORT RATHER THAN BY GUESSING
+AT THE NETWORK.** `longPost` and `{ stream: true }` were handed in from exactly
+**three call sites, all in `builder/build-server.mjs`** — the container's BUILD
+service. The addon and edit page call goes `worker.js` → `generateSitePages` →
+`callBuilderModel`, which took the module's default sender: **Node's undici
+global `fetch`, unstreamed.** `installGatewayFetch` passes a non-Supabase origin
+straight through (`if (u.origin !== origin) return f(input, init)`), so nothing
+between the two noticed.
+
+**AND MY OWN FLIP IS WHAT MADE IT REACHABLE.** That path was safe for months
+because it only ever ran in workerd, where Cloudflare's own egress has no such
+wall. Turning `JOB_RUNNER_EVERYONE` on moved it into a Node process behind the
+container's egress — the recorded "a rule true because of a layer below it
+expires when that layer moves", where the layer moved because I moved it.
+
+- **`builder/long-post.mjs` is the transport, lifted out of `build-server.mjs`
+  verbatim so the JOB CHILD can use it.** `worker.js` must NEVER import it: it
+  pulls `node:http` in, which workerd has no business loading. The job env
+  carries it instead — `MODEL_SEND` and `MODEL_STREAM` set by
+  `makeContainerEnv`, read by `modelSend(env)` / `modelOpts(env, opts)`, so one
+  `callBuilderModel` serves both sides and the Worker's own path is byte for byte
+  what it was (`env.MODEL_SEND` is undefined in workerd, `modelSend` answers
+  `null`, `callModel` takes its default).
+- **TWO TRANSPORTS, TWO PROBLEMS, SEPARABLE ON PURPOSE.** undici's 300 s HEADERS
+  timeout cannot be raised by an `AbortSignal` at all — that is what the
+  `node:https` sender beats. A connection closed for carrying NO BYTES is what
+  `stream: true` beats. Either alone leaves the other.
+- **`pagesCall(env)` IS A NAMED FUNCTION WITH THE RIGHT PARAMETER NAMES**, not an
+  inline arrow: `build-call.test.mjs` DERIVES the forwarder's contract as
+  `(X, req, budget) =>` and an arrow spelling `(keys, req, b)` broke it. The
+  guard was right and the change was wrong.
+
+**`callFailure(e)` IS THE FALSIFIER, and it is what run 45 needed and did not
+have.** `error.cause.code`, the error's `name`, and `e.wire` — `{ headersMs,
+chars }` attached by `longPost`. **`headersMs: -1, chars: 0` is a quiet
+connection killed by the egress, which streaming fixes; `chars > 0` is a
+LIFETIME cap, which streaming cannot.** Until this, a failed page call recorded
+one word. **The 270-second explanation stays a HYPOTHESIS until a run carries
+that field** — the owner asked for exactly that and it is the honest state.
+
+### WHERE THE JOB RAN IS RECORDED, AND THE WORKER FALLBACK IS NOT SILENT
+
+**`runner: true` IS ELIGIBILITY, NOT EXECUTION — the owner's own correction, and
+it was right.** `fireContainerJob`'s answer was only `console.log`'d and
+`lease_owner` is minted BEFORE the fire, so nothing stored anywhere said whether
+a job ran in the container or fell back to the Worker. Three readers now, and the
+container is what asserts it rather than the Worker inferring it: `JOB_WHERE`
+and `JOB_DEADLINE_AT` are set by `makeContainerEnv`, and `jobRunDetail(env)`
+rides the `run` mark on both trace creation points — `{ where, deadlineAt,
+deadlineInMs }`. **The Worker's own answer is `"worker"` by DEFAULT**, so a
+record that cannot tell reads as the Worker and never flatters itself.
+
+**AND A REFUSED FIRE NO LONGER RUNS THE SAME JOB UNDER THE WORKER'S FOURTEEN
+MINUTES.** `fireOutcome(fire)` splits every answer four ways by what it MEANS,
+and the default is the strict one:
+
+| answer | means |
+|---|---|
+| `fired` — including **HTTP 409** | the container has it. 409 is `/job/run`'s own duplicate guard: reading it as anything else makes one job two sets of calls and two charges |
+| `inline` — `off`, `no-binding`, `not-this-one` | the runner was never asked for; the Worker's path is correct |
+| `retry` — `room:`, `fetch:`, any 5xx | transient. `FIRE_RETRY_MAX` 3, `FIRE_RETRY_MS` 2000 |
+| `stop` — **everything else, unknown reasons included** | finalize the row 503 `no-container` with `NO_CONTAINER_MSG`, nothing charged |
+
+**`stop` IS SAFE BECAUSE NOTHING IS SPENT BEFORE THE FIRE** — there is no reserve
+to reverse, which is the whole reason a refusal can be a refusal rather than a
+fallback. And the customer is told; a row that stopped without a finalize is a
+poll that spins for ever.
+
+### ONE JOB-DURATION SETTING, AND IT HAS A CONSUMER
+
+`builder/job-duration.mjs`. **`JOB_MAX_MS` is THE setting** and everything else is
+`jobDurationPlan()`: `BUILD_JOB_MS`, `CONTAINER_EDIT_JOB_MS`, `MAX_BUSY_HOLD_MS`,
+`HANDOFF_TTL_S`, `SITE_BUSY_DEFER_S` and the browser's `POLL_GIVE_UP_MS`. Before
+it, fifty minutes was typed in two places with four numbers derived by hand off
+one of them.
+
+- **`readJobMaxMs(env)` READS `JOB_MAX_MINUTES` AND MAY ONLY SHORTEN.** Every
+  other number in the chain is fixed at IMPORT from the built-in default — the
+  browser's horizon is a literal in a file that cannot import at all — so a
+  LONGER setting moves the deadline past all of them and nothing moves with it:
+  the hold ends before the SIGTERM (the shipped defect, one layer over) and the
+  page tells a customer a running edit is lost. **The database's own cap is NOT
+  re-asked there**, deliberately: the chain is monotonic and CI asserts the
+  shipped default fits, so a value at or under it cannot breach a ceiling the
+  default already clears. `assertJobDuration` guards the COMPILED setting against
+  the live function; `readJobMaxMs` guards an ENVIRONMENT value against the
+  compiled setting. Two walls, two subjects.
+- **AND IT SHIPPED WITH NO CALL SITE, in the first cut of the change whose whole
+  point was that the setting be configurable** — this repository's most-repeated
+  defect, written into its own fix. `fireContainerJob` is the one consumer,
+  because it is the one place a job's clock is minted and the launch's
+  `deadlineAt` and the token's `exp` both come off it. **A source read cannot
+  tell a wired reader from an unwired one**, so `container-job.test.mjs` DRIVES
+  it: `JOB_MAX_MINUTES: "20"` really moves both, with the default asserted
+  distinguishable as the alive observer, and `"600"` really changes nothing.
+  Proved red by unwiring it.
+- **THE CEILING IS A LIVE RPC AND NOT A PREFERENCE.** `edit_handoff` raises
+  `bad ttl` past **3600 s**, so `deadline + 60s + 30s + 60s ≤ 3600s` caps the
+  setting at **57.5 minutes**; fifty leaves 450 s. Going past it is a migration,
+  and `assertJobDuration`'s refusal now NAMES the largest setting that would work
+  rather than leaving somebody to do the arithmetic.
+- **THE QUEUE WAS SILENTLY SHORT AND THE NEW GUARD IS WHAT FOUND IT.** A job
+  behind another waited `60s × 45 = 2,700s` in front of a job that may run
+  **3,000**, so it was failed — nothing charged, the customer told to ask again —
+  before the job it waited for could finish. `SITE_BUSY_DEFER_S` is derived now
+  (**67 s**), because the 45 is the database's literal and the cadence is what
+  gives. The old guard pinned `1800`, a number the bound had already outgrown.
+
+**Guards**: `test/job-duration.test.mjs` (12) — every downstream number asserted
+BY IDENTITY rather than by matching, the hold above the SIGKILL with the shipped
+defect as its own case, the reader over junk and over every longer setting, an
+accepted setting proved serveable by all four compiled numbers, and a CENSUS that
+`readJobMaxMs` is imported and called **exactly once**; `test/container-transport.test.mjs`
+(7) — the sender and the stream flag from the runner to the call, `callFailure`
+driven over the two wire shapes, the record's `where`; `test/container-job.test.mjs`
+gained the driven setting case. **Older guards re-anchored, not appeased**: the
+two that pinned the fire's clock as one long literal now assert the three things
+it says (the kind picks a constant, the setting is read with it as the fallback,
+`budgetMs` is the answer) — one literal asserted all three by accident and none
+on purpose.
+
+**Sweep: 38 mutants, 36 killed, 2 survived, 0 never applied, 2 comment-only
+controls survived — AND BOTH SURVIVORS WERE MY OWN FILE LIST, which is the
+recorded rule working rather than a gap.** `test/lane-stream.test.mjs` is the
+guard whose whole subject is the wrapper forwarding `opts`, and it was not on the
+list; re-run against the whole suite, both die. *A narrow list can only produce a
+false survivor, never a false kill* — so a survivor is re-checked against
+everything before it is believed, and this is the first time that rule has paid.
+**The first pass had 10 survivors and every one was real**: the transport and
+record halves had shipped with re-anchored guards and no new coverage at all,
+which is what `container-transport.test.mjs` exists for.
+**Suite 6,291.**
+
+**FOUR TRAPS HIT WHILE BUILDING IT, all recorded ones, all mine:**
+- **I reported a job as "13m19s and still alive" when it had been dead 4m37s.** I
+  was polling the published `x-site-build` header, which carries NO liveness
+  signal at all — the blind-instrument error one message after flagging it.
+- **`builder/build-job.mjs` HAS NO IMPORT LINES**, so an anchor-based insertion
+  put `JOB_MAX_MS` below its use: `node --check` passed and the module threw
+  `ReferenceError` on LOAD. Parsing is not loading.
+- **The build consumer read `if (act === "stop")`**, so an EXHAUSTED retry fell
+  through to the inline path — caught by my own inverted guard, which is the one
+  half of a four-way split a positive check cannot see.
+- **`container-job.test.mjs`'s fake worker tree was a hand-typed eight-file
+  list** and missed `long-post.mjs`. Derived from the Dockerfile now — and the
+  walk has to match any `"./x.mjs"`, because the loader uses `new URL()` and
+  `register()` rather than `from`: a `from`-only walk found 6 of 9.
+
+**WHAT IS NOT PROVEN, named rather than glossed.** Nothing here has run in a real
+container: the transport fix, the record, the refusal and the setting are all
+unit-driven only, and **the 270-second reading stays a hypothesis** until a run
+carries `callFailure`'s `wire` field. The two probes that would settle it without
+a model call are the next commit; `workflow_dispatch` answers **403** for this
+session's GitHub integration, so firing them is the owner's.
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:
@@ -5577,7 +5741,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
   site-runtime 47 beside it. Two independent runs a day apart agreeing on the
   count is what makes 382 a measurement rather than a stamp.
-  The unit suite is **6,270** (2026-09-14, local — the container's clock, both
+  The unit suite is **6,291** (2026-09-14, local — the container move, whose new
+  cases are `container-transport`'s seven, `job-duration`'s consumer census and
+  `container-job`'s driven setting. **The delta from 6,270 is NOT derivable and
+  is deliberately not claimed**: that stamp was taken before the transport and
+  record halves were written, and their guards were never counted on their own —
+  which is this file's own rule about a number nobody re-measured, in the one
+  direction that looks like arithmetic. **6,270** before them, the container's
+  clock, both
   rounds: three cases for the pair and one for the unbounded budget; **6,266**
   before them, the grants backfill's credential rule; **6,256** before that, the
   local-Postgres proof and the backfill script; **6,197** on 2026-09-13, the

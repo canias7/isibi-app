@@ -155,6 +155,83 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — The clock was right and the phone line was still the Worker's
+
+You asked seven questions about run 45 and every one of them was worth asking.
+Three of my answers were wrong, and the one that mattered most was wrong in the
+direction that wastes your money: **I told you a job was "13 minutes 19 seconds
+in and still alive" when it had been dead for four and a half minutes.** I was
+watching the published site's version header, which cannot tell you whether a job
+is running — it only changes when one finishes. A thing that never moves looks
+exactly the same whether the job is working or gone.
+
+**What actually killed run 45, with the evidence rather than a guess.** It failed
+at **270,025 milliseconds**. This repository already records the container's own
+error from 26 August: *"model call failed after 270036 ms — socket hang up"*.
+**Eleven milliseconds apart.** The container's network hangs up a connection that
+has sat quiet for about 270 seconds, and the fix for that — send the answer in
+pieces as it is written, so the line is never quiet — was built weeks ago and was
+being handed to **only three places, all in the build service**. The addon and
+edit page call was not one of them. It went out on Node's plain networking with
+no streaming at all.
+
+**And it was my flip that made it reachable.** That code was perfectly safe for
+months because it only ever ran inside Cloudflare, where there is no such
+hang-up. Turning the container runner on for everyone moved it somewhere with
+one. I own that.
+
+**What I changed, in four parts:**
+
+1. **The job now uses the same phone line the build service uses** — the
+   streaming sender, handed to the job when it starts. One place decides, both
+   sides use it, and the Worker's own path is untouched.
+2. **A failed call now says what died.** Before, it recorded one word. Now it
+   records the underlying error code and two numbers: how long before any answer
+   arrived, and how many characters came back. **Those two numbers settle the
+   270-second question one way or the other** — if the answer is "nothing ever
+   arrived", streaming is the fix; if characters did arrive and it still died,
+   the cause is something else and I will say so. **Until a real run carries that
+   field, the 270-second story is a hypothesis, not a finding.** You asked me not
+   to treat it as proven and I am not.
+3. **Every job now records where it ran and what deadline it was given.** You
+   were right that the flag I quoted only says a job is *allowed* in the
+   container, not that it got there. The container itself stamps that now, and
+   the Worker's answer defaults to "worker" — so a record that cannot tell never
+   claims the container.
+4. **A job the container refuses no longer runs quietly in the Worker.** It tries
+   three times for a transient problem, and for anything else it stops and tells
+   you: *"Our build service could not pick this up just now, so nothing was
+   changed and nothing was charged."* That is safe because nothing is spent
+   before the job is handed over, so there is nothing to give back. Before this,
+   a refused hand-off silently became a fourteen-minute Worker job — the exact
+   thing you asked to stop happening.
+
+**And the job length is now ONE setting.** Fifty minutes, in one place, with the
+container's hold, the database's allowance, the queue's patience and the page's
+patience all worked out from it instead of typed separately. It can be shortened
+from the deploy without a code change. **It cannot be lengthened** — everything
+downstream is fixed when the code is built, so a longer setting would move the
+deadline past all of them. Going past fifty means a database change, and the
+refusal now tells you the largest number that would work (57.5 minutes).
+
+**One real misalignment fell out of writing that guard.** A job waiting behind a
+long one gave up after **45 minutes** in front of a job allowed to run **50** —
+so it would have been failed, with nothing charged but you told to ask again,
+before the job it was waiting for could possibly finish. Fixed by deriving the
+waiting time instead of typing it.
+
+**What is proven and what is not.** Everything above is proven by tests only —
+**6,291 passing, and a mutation sweep of 38 deliberate breakages, 36 caught.**
+The two that survived were my own mistake in choosing which tests to run; re-run
+against everything, both are caught. **Nothing here has run in a real container
+yet.** Two things are still to come: a controlled test that runs for more than
+fifteen minutes inside the container and then publishes, and a separate test of
+the long connection that does not depend on a model happening to answer slowly —
+you asked for both and they are next. **I cannot fire either one from here** (my
+GitHub access refuses to start workflows, 403), so those runs are yours.
+
+---
+
 ## 2026-09-14 — Edits and addons run on the container, and the container has no time limit
 
 Two rounds, and your second sentence deleted a number the first one had just

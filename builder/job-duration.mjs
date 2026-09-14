@@ -43,10 +43,28 @@
 // The setting is read from the environment so it can be moved without a code
 // change, and the reader REFUSES anything that is not a finite positive number
 // of minutes — `String(["50"])` is `"50"`, which this repository has shipped as
-// a real bug three times — and refuses anything the database would reject, so
-// a typo cannot quietly buy a chain no handoff can serve. A refusal falls back
-// to the built-in default and says so; it never throws at import, because a bad
-// environment value must not take the whole Worker down.
+// a real bug three times. A refusal falls back to the built-in default and says
+// so; it never throws at import, because a bad environment value must not take
+// the whole Worker down.
+//
+// ── THE ENVIRONMENT MAY SHORTEN THE JOB AND MAY NEVER LENGTHEN IT ───────────
+//
+// EVERY OTHER NUMBER IN THE CHAIN IS COMPILED. `MAX_BUSY_HOLD_MS` and
+// `HANDOFF_TTL_S` are `jobDurationPlan()` evaluated at import against the
+// built-in default; `SITE_BUSY_DEFER_S` is arithmetic on it; the browser's
+// horizon is a literal in a file that cannot import at all. So a setting ABOVE
+// the default moves the deadline and moves NOTHING ELSE — the hold ends before
+// the SIGTERM (the exact defect this file exists for, one layer over), and the
+// page tells a customer their running edit is lost. A setting BELOW it leaves
+// every one of those generous, which is safe in every direction.
+//
+// That one comparison is also the whole of the database check, and it is worth
+// saying why rather than keeping a second wall that can never fire: the chain is
+// monotonic in `maxMs`, and CI asserts the shipped default fits (`assertJobDuration`
+// with no argument), so a value at or under the default cannot breach a ceiling
+// the default already clears. `assertJobDuration` guards the COMPILED setting
+// against the live function; this guards an ENVIRONMENT value against the
+// compiled setting. Two walls, two subjects, neither redundant.
 
 import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS } from "./job-clock.mjs";
 
@@ -112,8 +130,12 @@ export function readJobMaxMs(env, fallback = JOB_MAX_MS) {
   const mins = Number(raw.trim());
   if (!Number.isFinite(mins) || mins <= 0) return { ms: fallback, from: "default", why: "JOB_MAX_MINUTES is not a positive number of minutes" };
   const ms = Math.round(mins * 60_000);
-  if (!jobDurationPlan(ms).fits) {
-    return { ms: fallback, from: "default", why: "JOB_MAX_MINUTES is past what edit_handoff accepts (" + Math.floor(maxJobMs() / 60_000) + " minutes without a migration)" };
+  // THE CEILING IS THE COMPILED SETTING, NOT THE DATABASE'S — see the header.
+  // The hold, the handoff ttl, the queue's cadence and the browser's horizon are
+  // all fixed at build time from `JOB_MAX_MS`, so lengthening the job here moves
+  // the deadline past every one of them.
+  if (ms > JOB_MAX_MS) {
+    return { ms: fallback, from: "default", why: "JOB_MAX_MINUTES may only shorten the job: the hold, the handoff ttl and the page's horizon are compiled from " + Math.round(JOB_MAX_MS / 60_000) + " minutes, so a longer setting moves the deadline past all three" };
   }
   return { ms, from: "env", why: "" };
 }
@@ -126,9 +148,12 @@ export function readJobMaxMs(env, fallback = JOB_MAX_MS) {
 export function assertJobDuration(maxMs = JOB_MAX_MS) {
   const p = jobDurationPlan(maxMs);
   if (!p.fits) {
+    // NAME THE LARGEST SETTING THAT WOULD WORK, because "too big" without it is
+    // a refusal somebody has to go and do the arithmetic for.
     throw new Error("a job of " + maxMs + "ms needs a handoff ttl of " + p.handoffTtlS
       + "s, and edit_handoff refuses anything past " + HANDOFF_MAX_S
-      + "s — raising it is a migration, not a constant");
+      + "s — the largest setting this chain can carry is " + Math.floor(maxJobMs() / 60_000)
+      + " minutes, and going past it is a migration, not a constant");
   }
   return p;
 }

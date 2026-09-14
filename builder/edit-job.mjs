@@ -1069,3 +1069,70 @@ export function editAsyncFor(env, { uid = "", slug = "" } = {}) {
   if (!list.length) return false;
   return (!!u && list.includes(u)) || (!!s && list.includes(s));
 }
+
+// ── A CONTAINER-ROUTED JOB DOES NOT QUIETLY RUN IN THE WORKER (2026-09-14) ──
+//
+// Owner: *"Remove the silent Worker fallback for container-routed jobs. If the
+// container cannot start, use a bounded retry or return a clear failure. Don't
+// quietly run the same job under the Worker's 14-minute limit."*
+//
+// The consumer used to read `fire.fired === false` — for ANY reason — as "run it
+// here", which is correct for a job that was never meant for the container and
+// wrong for one that was: the work silently lands under `EDIT_JOB_MS`, fourteen
+// minutes, sized for an isolate Cloudflare stops at fifteen. That is exactly the
+// wall run 44 died on, reachable again by accident, and INVISIBLE: nothing but a
+// console line said which path a job took.
+//
+// So the reasons are split by what they MEAN, not by whether the fire worked.
+//
+//   inline   this job was never the container's — the runner is off, there is
+//            no binding, or the flags do not name this identity. Running it in
+//            the Worker is the correct and only answer, and its trace says
+//            `where: "worker"`.
+//   fired    it is running in the container. `409 already running here` is in
+//            this set DELIBERATELY: the container refuses a duplicate launch by
+//            id (build-server.mjs), so a retry that races an accepted fire is
+//            told so, and reading it as anything else is how one job becomes
+//            two sets of model calls and two charges.
+//   retry    a transient refusal — no room after the wait, a socket that
+//            failed, a 5xx from the service. Worth asking again, bounded.
+//   stop     the container cannot take this job and asking again will not
+//            change that (no gateway key, no stored object, a 4xx). A CLEAR
+//            FAILURE, not a fourteen-minute run nobody can see.
+//
+// NOTHING HAS BEEN SPENT AT THIS POINT, which is what makes `stop` safe: the
+// fire happens before any model call, so a job that never starts is finalized
+// with no charge to reverse. That is the whole of "preserve protection against
+// duplicate execution and charges" on this path — the other half is the 409.
+
+/** How many times the consumer asks a container that answered transiently. */
+export const FIRE_RETRY_MAX = 3;
+
+/** How long it waits between those asks. */
+export const FIRE_RETRY_MS = 2000;
+
+/** What the customer is told when the container could not take their job. */
+export const NO_CONTAINER_MSG = "Our build service could not pick this up just now, so nothing was changed and nothing was charged. Please try again in a few minutes.";
+
+/**
+ * What to do with one `fireContainerJob` answer. See the table above.
+ *
+ * UNKNOWN REASONS ARE `stop`, NOT `inline`. A reason nobody has seen is not
+ * evidence that this job belongs in the Worker — and guessing `inline` is how
+ * the silent fourteen-minute path comes back the first time the fire grows a
+ * new failure. Failing clearly is recoverable; running unwatched is not.
+ */
+export function fireOutcome(fire) {
+  if (!fire || typeof fire !== "object") return "stop";
+  if (fire.fired === true) return "fired";
+  const why = typeof fire.why === "string" ? fire.why : "";
+  // NEVER MEANT FOR THE CONTAINER — the Worker is the right place.
+  if (why === "off" || why === "no-binding" || why === "not-this-one") return "inline";
+  // ALREADY THERE. The container's own duplicate guard, by job id.
+  if (/^answered 409\b/.test(why)) return "fired";
+  // TRANSIENT: no room after the wait, a socket failure, the service 5xx-ing.
+  if (why.startsWith("room:") || why.startsWith("fetch:")) return "retry";
+  const m = /^answered (\d{3})\b/.exec(why);
+  if (m && Number(m[1]) >= 500) return "retry";
+  return "stop";
+}

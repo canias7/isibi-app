@@ -74,8 +74,15 @@ test("the DATABASE's ceiling is respected, and it is the real cap on the setting
 
 test("assertJobDuration REFUSES a setting the database cannot serve, and names the migration", () => {
   assert.deepEqual(assertJobDuration(JOB_MAX_MS), jobDurationPlan(JOB_MAX_MS));
-  assert.throws(() => assertJobDuration(90 * 60_000), /edit_handoff refuses|migration/,
+  assert.throws(() => assertJobDuration(90 * 60_000), /edit_handoff refuses/,
     "an hour-and-a-half setting was accepted — the handoff would fail at the first long job");
+  // AND IT NAMES THE LARGEST SETTING THAT WOULD WORK. "Too big" on its own is a
+  // refusal somebody has to go and do the arithmetic for, and it is the one
+  // thing `maxJobMs()` is for outside a test — an exported function whose only
+  // reader is the suite is a value nothing forwards, one layer over.
+  assert.throws(() => assertJobDuration(90 * 60_000),
+    new RegExp("largest setting this chain can carry is " + Math.floor(maxJobMs() / 60_000) + " minutes"),
+    "the refusal does not say how long a job the chain WOULD carry");
   // AND THE OBSERVER IS ALIVE: the shipped default must pass, or this case is
   // an absence check over a function that refuses everything.
   assert.doesNotThrow(() => assertJobDuration());
@@ -92,14 +99,47 @@ test("readJobMaxMs takes a real setting, refuses junk, and NEVER throws", () => 
     assert.equal(r.ms, JOB_MAX_MS, "junk setting " + JSON.stringify(junk) + " was taken");
     assert.equal(r.from, "default");
   }
-  // A setting past what the database accepts falls back AND SAYS WHY, rather
-  // than being taken and failing at the first handoff.
-  const past = readJobMaxMs({ JOB_MAX_MINUTES: "90" });
-  assert.equal(past.ms, JOB_MAX_MS);
-  assert.match(past.why, /edit_handoff|migration|minutes/);
-  // And an accepted value is reported as the env's, so a deploy can tell
-  // "taken" from "fell back" — the two are the same number otherwise.
+  // THE ENVIRONMENT MAY ONLY SHORTEN. Every other number in the chain is
+  // compiled from the built-in default — the hold, the handoff ttl, the queue's
+  // cadence, and a literal in a browser file that cannot import at all — so a
+  // LONGER setting moves the deadline past all four and nothing moves with it.
+  // Refused, and it SAYS WHY rather than being taken and going wrong silently.
+  for (const longer of ["51", "90", "57.5", "600", String(JOB_MAX_MS / 60_000 + 0.001)]) {
+    const past = readJobMaxMs({ JOB_MAX_MINUTES: longer });
+    assert.equal(past.ms, JOB_MAX_MS, "a setting longer than the compiled chain was taken: " + longer);
+    assert.equal(past.from, "default");
+    assert.match(past.why, /shorten|compiled/, "the refusal does not say why: " + past.why);
+  }
+  // …AND THE OBSERVER IS ALIVE IN BOTH DIRECTIONS: the setting's own value is
+  // taken (the edge, not merely something smaller), and a shorter one is taken
+  // as the env's — so a deploy can tell "taken" from "fell back", which the two
+  // are otherwise indistinguishable on.
+  assert.deepEqual(readJobMaxMs({ JOB_MAX_MINUTES: String(JOB_MAX_MS / 60_000) }), { ms: JOB_MAX_MS, from: "env", why: "" });
   assert.equal(readJobMaxMs({ JOB_MAX_MINUTES: "30" }).from, "env");
+  // A SHORTENED SETTING IS SERVEABLE BY EVERY COMPILED NUMBER, which is the
+  // reason the ceiling is the compiled default and not the database's.
+  for (const shorter of [1, 5, 30, 49, JOB_MAX_MS / 60_000]) {
+    const ms = readJobMaxMs({ JOB_MAX_MINUTES: String(shorter) }).ms;
+    assert.ok(jobDurationPlan(ms).fits, "a setting the reader accepted does not fit the chain: " + shorter);
+    assert.ok(MAX_BUSY_HOLD_MS > ms + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS, "the compiled hold is short of an accepted setting's SIGKILL: " + shorter);
+    assert.ok(HANDOFF_TTL_S * 1000 >= ms, "the compiled handoff ttl is short of an accepted setting: " + shorter);
+    assert.ok(SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS * 1000 >= ms, "a queued job gives up before an accepted setting can finish: " + shorter);
+  }
+});
+
+test("readJobMaxMs has a CONSUMER — a setting nothing reads is not a setting", () => {
+  // THIS REPOSITORY'S MOST-REPEATED DEFECT, and it was in the first cut of this
+  // very change: the reader shipped with no call site, which reads exactly like
+  // a configurable setting and is a constant with extra steps. `fireContainerJob`
+  // is the ONE place a job's clock is minted — the launch's `deadlineAt` and the
+  // token's `exp` both come off `budgetMs` — so it is the one place the setting
+  // has to be asked, and the guards in build-runner/job-stop pin the hops.
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
+    // Prose about the reader names the reader — the recorded own-goal.
+    .split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
+  assert.match(src, /import \{ readJobMaxMs \} from "\.\/builder\/job-duration\.mjs";/, "worker.js no longer imports the setting's reader");
+  const calls = src.match(/readJobMaxMs\(/g) || [];
+  assert.equal(calls.length, 1, "the setting is read " + calls.length + " times — one mint, one read, or the deadline and the token can disagree");
 });
 
 test("the BROWSER watches at least as long as the job can run", () => {

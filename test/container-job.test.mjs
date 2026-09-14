@@ -23,6 +23,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, packEditJob,
   JOB_ENV_NAMES, jobSecrets, jobRunnerOn, jobRunnerFor, jobRunnerEveryone, readCanaryList, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
+  FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, fireOutcome,
 } from "../builder/edit-job.mjs";
 import { gatewayKey, verifyJobToken, signJobToken, SB_MARKER } from "../builder/job-gateway.mjs";
 import { makeTerminator, readDeadline } from "../builder/job-clock.mjs";
@@ -431,6 +432,10 @@ async function drive({ env, answer = () => new Response(JSON.stringify({ ok: tru
   const bucket = fakeBucket({ [EDIT_JOB_PREFIX + ID]: JSON.stringify(packEditJob({ url: "https://" + APP_ZONE + "/api/site/edit", body: "{}", uid: UID, slug: SLUG, secret: SECRET, at: Date.now() })) });
   const ns = fakeNamespace(answer);
   const supabase = [];
+  // THE BODIES TOO (2026-09-14): `ran()` reads a finalize OR a refund, and the
+  // no-container refusal finalizes as well — so the URL alone stopped being able
+  // to tell "ran the job here" from "said it could not". The body can.
+  const rpcs = [];
   const realFetch = globalThis.fetch;
   // THE CLAIM IS ANSWERED (stage 6): the consumer claims the row BEFORE it
   // asks a container, so a stub that refused every claim would fire nothing
@@ -439,6 +444,7 @@ async function drive({ env, answer = () => new Response(JSON.stringify({ ok: tru
   globalThis.fetch = async (url, init) => {
     const u = String(url);
     supabase.push(u);
+    try { rpcs.push({ u, body: JSON.parse(String((init && init.body) || "{}")) }); } catch { rpcs.push({ u, body: {} }); }
     const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { "content-type": "application/json" } });
     if (/rpc\/edit_claim$/.test(u)) return json({ ok: true, claimed: true, state: "claimed", billing: "none", uid: UID, slug: SLUG, needs_review: false, deferrals: 0 });
     return json({ claimed: false, error: "test" });
@@ -448,7 +454,7 @@ async function drive({ env, answer = () => new Response(JSON.stringify({ ok: tru
     await worker.queue({ messages: [{ body: { kind: EDIT_JOB_KIND, id: ID }, ack() { acked++; } }] },
       { SITES_BUCKET: bucket, SITE_BUILD_CONTAINER: ns, SUPABASE_SERVICE_KEY: "svc", CREDITS_MINT_SECRET: "mint", STRIPE_SECRET_KEY: "never", ...env }, makeCtx());
   } finally { globalThis.fetch = realFetch; }
-  return { bucket, ns, supabase, acked };
+  return { bucket, ns, supabase, rpcs, acked };
 }
 
 test("with the canary naming the site, the consumer FIRES the job at the site's lane and does not run it", async () => {
@@ -505,6 +511,40 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.equal(acked, 1);
 });
 
+test("the DEPLOY's setting reaches the wire: JOB_MAX_MINUTES moves the launch's deadline AND the token together — DRIVEN", async () => {
+  // "One explicit, configurable setting" (owner, 2026-09-14) is only true if the
+  // reader has a consumer. `readJobMaxMs` shipped in the first cut of that change
+  // with NO call site — this repository's most-repeated defect, in its own fix —
+  // and a source read cannot tell a wired reader from an unwired one, because
+  // both leave the import and the function exactly where a text check looks.
+  // So this drives the real consumer and reads what really went out.
+  const short = 20 * 60_000;
+  const { ns } = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_CANARY: SLUG, JOB_MAX_MINUTES: "20" } });
+  assert.equal(ns.calls.length, 1, "the container was not asked to run the job");
+  const launch = JSON.parse(ns.calls[0].body);
+  assert.ok(launch.deadlineAt <= Date.now() + short && launch.deadlineAt >= Date.now() + short - 60_000,
+    "the deploy's setting did not reach the launch's deadline: " + (launch.deadlineAt - Date.now()) + "ms");
+  // AND THE OBSERVER IS ALIVE: twenty minutes has to be DISTINGUISHABLE from the
+  // default, or a consumer that ignores the setting passes this case perfectly.
+  assert.ok(launch.deadlineAt < Date.now() + CONTAINER_EDIT_JOB_MS - 60_000,
+    "the launch still carries the built-in clock, so this case cannot see the setting at all");
+  // THE TOKEN MOVES WITH IT. They are minted from one variable precisely so they
+  // cannot disagree; a token that outlived a shortened job would let a killed
+  // job's gateway calls keep working, and one that died first would lose the
+  // finalize. Read from the wire, not from the spelling.
+  const who = await verifyJobToken(launch.gateway.token, await gatewayKey("platform-secret"), Date.now());
+  assert.ok(who, "the minted token does not verify");
+  assert.ok(who.exp * 1000 > Date.now() + short, "the token expires before the shortened job's own clock");
+  assert.ok(who.exp * 1000 <= Date.now() + short + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the shortened job by more than its grace");
+  // A SETTING THE READER REFUSES CHANGES NOTHING — it may only shorten, and
+  // `builder/job-duration.mjs` says why. Driven beside the accepted one so the
+  // fallback is a measured answer rather than an assumption about the module.
+  const { ns: ns2 } = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_CANARY: SLUG, JOB_MAX_MINUTES: "600" } });
+  const longer = JSON.parse(ns2.calls[0].body);
+  assert.ok(longer.deadlineAt >= Date.now() + CONTAINER_EDIT_JOB_MS - 60_000 && longer.deadlineAt <= Date.now() + CONTAINER_EDIT_JOB_MS,
+    "a setting longer than the compiled chain was taken: " + (longer.deadlineAt - Date.now()) + "ms");
+});
+
 test("with the claim refused for the site being busy, nothing is fired: the message is re-sent with a delay instead (stage 6)", async () => {
   const worker = await loadWorker();
   const bucket = fakeBucket({ [EDIT_JOB_PREFIX + ID]: JSON.stringify(packEditJob({ url: "https://" + APP_ZONE + "/api/site/edit", body: "{}", uid: UID, slug: SLUG, secret: SECRET, at: Date.now() })) });
@@ -538,12 +578,40 @@ test("with the flags off, nothing is fired and the consumer runs the job itself 
 const claims = (urls) => urls.filter((u) => /rpc\/edit_claim$/.test(u)).length;
 const ran = (urls) => urls.some((u) => /rpc\/edit_(finalize|refund)$/.test(u));
 
-test("a container without the endpoint (an older image), or refusing, is the inline path", async () => {
-  for (const [status, body] of [[404, "nf"], [429, JSON.stringify({ ok: false, error: "too many jobs on this container" })], [500, JSON.stringify({ ok: false })], [200, JSON.stringify({ ok: false, error: "x" })]]) {
-    const { ns, supabase } = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_CANARY: SLUG }, answer: () => new Response(body, { status }) });
-    assert.equal(ns.calls.length, 1, "no fire on " + status);
+// INVERTED 2026-09-14, deliberately, and the decision it used to pin is the one
+// the owner reversed: *"Remove the silent Worker fallback for container-routed
+// jobs. If the container cannot start, use a bounded retry or return a clear
+// failure. Don't quietly run the same job under the Worker's 14-minute limit."*
+//
+// This case asserted that EVERY refusal fell back to the Worker — where
+// `EDIT_JOB_MS` is fourteen minutes, sized for an isolate, which is the wall run
+// 44 died on. Holding the code to that would pin a behaviour that has been
+// reversed. What replaces it is the same four answers judged by what they MEAN.
+test("a container that refuses does NOT quietly run the job in the Worker", async () => {
+  const cases = [
+    // status, body, how many fires, why
+    [404, "nf", 1, "an older image with no endpoint: asking again cannot help"],
+    [429, JSON.stringify({ ok: false, error: "too many jobs on this container" }), 1, "a JSON 429 is the service judging, not the platform's room answer"],
+    [500, JSON.stringify({ ok: false }), FIRE_RETRY_MAX, "a 5xx is transient, so it is asked again — bounded"],
+    [200, JSON.stringify({ ok: false, error: "x" }), 1, "the service took the request and refused the job"],
+  ];
+  for (const [status, body, fires, why] of cases) {
+    const { ns, supabase, rpcs } = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_CANARY: SLUG }, answer: () => new Response(body, { status }) });
+    assert.equal(ns.calls.length, fires, `on ${status} the container was asked ${ns.calls.length} times, expected ${fires} — ${why}`);
     assert.equal(claims(supabase), 1, "on " + status + " the consumer claimed " + claims(supabase) + " times");
-    assert.ok(ran(supabase), "on " + status + " the consumer did not run the job itself");
+    // THE CLEAR FAILURE, BY ITS OWN NAME. `ran()` cannot be used here: it reads
+    // a finalize, and this path finalizes too — the body is what separates
+    // "said it could not" from "ran it in the Worker anyway".
+    const fin = rpcs.filter((r) => /rpc\/edit_finalize$/.test(r.u));
+    assert.equal(fin.length, 1, "on " + status + " the row was not finalized exactly once");
+    const reply = JSON.parse(String(fin[0].body.p_result.body));
+    assert.equal(reply.error, "no-container", "on " + status + " the failure does not name itself");
+    assert.equal(fin[0].body.p_ok, false);
+    assert.match(String(reply.msg), /nothing was charged/i, "the customer is not told they were not charged");
+    // AND NOTHING WAS SPENT: the fire happens before any model call, so there
+    // is no reserve to reverse and no refund to make.
+    assert.equal(rpcs.some((r) => /rpc\/edit_(reserve|refund)$/.test(r.u)), false,
+      "on " + status + " the job reserved or refunded — the fire is supposed to precede all spending");
   }
 });
 
@@ -573,16 +641,28 @@ test("the fire waits for room and shares one clock across its attempts, read off
   assert.match(fn, /signal: AbortSignal\.timeout\(Math\.max\(1000, deadline - Date\.now\(\)\)\)/, "an attempt is not bounded by what is left");
   assert.match(fn, /if \(out\.room\) return \{ fired: false, why: "room:" \+ out\.room\.kind \};/);
   assert.doesNotMatch(fn, /SITES_BUCKET\.delete\(/, "the fire deletes the job object the runner must read");
-  // The queue handler falls back for every non-fired answer but says nothing for "off".
   const q = src.slice(src.indexOf("async queue(batch, env, ctx)"), src.indexOf("async function runQueuedSiteBuild("));
   // RE-ANCHORED 2026-09-05 (stage 6): the consumer claims before it fires,
   // the launch carries its lease name, and the inline run is under that lease.
-  assert.match(q, /fire = await fireContainerJob\(env, edit\.id, \{ holder: owner \}\);/);
-  // RE-ANCHORED 2026-09-06 (stage 5e): the inline call gained `startedAt` —
-  // this delivery's clock, since the wait above comes out of the invocation
-  // the job must finish inside. The property is the FALLBACK: a fire that did
-  // not fire runs the job here, under the claim's own lease.
-  assert.match(q, /if \(fire\.fired\)[\s\S]*?else \{[\s\S]*?await runQueuedSiteEdit\(env, ctx, edit\.id, \{ lease: owner, claim[,)} ]/);
+  assert.match(q, /const fire = await fireContainerJob\(env, edit\.id, \{ holder: owner \}\);/);
+  // RE-ANCHORED 2026-09-14: the fallback is no longer "every answer that is not
+  // `fired`". It used to be, and that is exactly what the owner removed — a
+  // container-routed job silently landing under the Worker's fourteen minutes.
+  // The property now is the THREE-WAY decision: only `inline` runs here, and it
+  // means the job was never the container's.
+  assert.match(q, /act = fireOutcome\(fire\);/, "the consumer no longer judges the fire's answer");
+  assert.match(q, /if \(act === "inline"\) \{[\s\S]*?await runQueuedSiteEdit\(env, ctx, edit\.id, \{ lease: owner, claim[,)} ]/,
+    "the Worker no longer runs the jobs that were never the container's");
+  // AND THE FAILING PATH DOES NOT RUN IT. A window that merely CONTAINS the
+  // inline call proves nothing about which branch reaches it, so the shape is
+  // read: the run sits inside the `inline` arm and the `else` finalizes.
+  const inlineAt = q.indexOf(`if (act === "inline")`);
+  const runAt = q.indexOf("await runQueuedSiteEdit(env, ctx, edit.id, { lease: owner, claim");
+  const elseAt = q.indexOf("} else {", inlineAt);
+  assert.ok(inlineAt > 0 && runAt > inlineAt && elseAt > runAt,
+    "the inline run is not inside the `inline` arm — a refusal could reach it");
+  assert.match(q.slice(elseAt), /edit_finalize[\s\S]{0,400}no-container/,
+    "a container that could not take the job does not finalize with a named failure");
   // And the export the runner calls dispatches to the three consumers, the
   // edit under a takeover from the launch's holder.
   const ex = src.slice(src.indexOf("export async function runContainerJob("), src.indexOf("\n}\n", src.indexOf("export async function runContainerJob(")));
@@ -655,4 +735,52 @@ test("the Worker's gateway forwards a job's Supabase call with ITS OWN service k
   assert.equal(seen[0].headers.authorization, "Bearer svc-real");
   assert.equal(JSON.parse(seen[0].body).p_mint, "mint-real", "the Worker forwarded without its own mint");
   assert.equal(refused.status, 403, "a Worker-only RPC was forwarded for a job");
+});
+
+test("fireOutcome: every answer judged by what it MEANS, and an unknown one never reads as inline", () => {
+  // THE TABLE, DRIVEN. The consumer's three-way branch is only as good as this,
+  // and the two answers that matter most are the ones that look like failures:
+  //   409  the container already has this job — reading it as anything else is
+  //        how one job becomes two sets of model calls and two charges;
+  //   ???  a reason nobody has seen. `stop` is the safe direction, because
+  //        guessing `inline` is how the silent fourteen-minute path comes back
+  //        the first time the fire grows a new failure mode.
+  const cases = [
+    ["fired", { fired: true }],
+    ["fired", { fired: false, why: "answered 409: that job is already running here" }],
+    ["inline", { fired: false, why: "off" }],
+    ["inline", { fired: false, why: "no-binding" }],
+    ["inline", { fired: false, why: "not-this-one" }],
+    ["retry", { fired: false, why: "room:full" }],
+    ["retry", { fired: false, why: "room:rate" }],
+    ["retry", { fired: false, why: "fetch: socket hang up" }],
+    ["retry", { fired: false, why: "answered 500: {}" }],
+    ["retry", { fired: false, why: "answered 503: busy" }],
+    ["stop", { fired: false, why: "no-key" }],
+    ["stop", { fired: false, why: "no-object" }],
+    ["stop", { fired: false, why: "answered 404: nf" }],
+    ["stop", { fired: false, why: "answered 429: {}" }],
+    ["stop", { fired: false, why: "answered 200: {}" }],
+    ["stop", { fired: false, why: "a reason nobody has seen yet" }],
+    ["stop", { fired: false }],
+    ["stop", {}],
+    ["stop", null],
+    ["stop", undefined],
+    ["stop", "fired"],
+    ["stop", 1],
+  ];
+  for (const [want, fire] of cases) {
+    assert.equal(fireOutcome(fire), want, `fireOutcome(${JSON.stringify(fire)}) should be ${want}`);
+  }
+  // NO ANSWER IS BOTH. A reason that reached two arms would make the consumer's
+  // branch order load-bearing, which is not a property anybody wrote down.
+  const arms = new Set(cases.map(([w]) => w));
+  assert.deepEqual([...arms].sort(), ["fired", "inline", "retry", "stop"], "an arm of the decision is never exercised");
+  // THE RETRY IS BOUNDED AND THE WAIT IS REAL — the two numbers the consumer
+  // loops on, so a zero or a missing one cannot make it spin.
+  assert.ok(Number.isInteger(FIRE_RETRY_MAX) && FIRE_RETRY_MAX >= 2 && FIRE_RETRY_MAX <= 10, "the retry bound is not a small integer: " + FIRE_RETRY_MAX);
+  assert.ok(Number.isFinite(FIRE_RETRY_MS) && FIRE_RETRY_MS > 0 && FIRE_RETRY_MS <= 10000, "the retry wait is not a real pause: " + FIRE_RETRY_MS);
+  // AND THE CUSTOMER'S SENTENCE SAYS THE TWO THINGS THEY NEED.
+  assert.match(NO_CONTAINER_MSG, /nothing was charged/i, "the refusal does not say nothing was charged");
+  assert.match(NO_CONTAINER_MSG, /try again/i, "the refusal does not say what to do");
 });

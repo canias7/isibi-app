@@ -285,5 +285,11 @@ test("editStopped has the stopped sentence, and the fire names the deadline the 
   // is that the deadline the build service STOPS a child by is the same number
   // the job was given, and that is unchanged — it just got longer for an edit,
   // which is the whole of run 44's fix.
-  assert.match(fire, /const budgetMs = kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;/, "the launch's clock is not the kind's own");
+  // RE-ANCHORED AGAIN the same day, and split into the two things it says, so an
+  // honest reformat cannot break it and a real cut cannot slip past it: the kind
+  // picks a constant, and the deploy's setting is read WITH that constant as its
+  // fallback. One long literal asserted both by accident and neither on purpose.
+  assert.match(fire, /kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS/, "the launch's clock is not the kind's own");
+  assert.match(fire, /readJobMaxMs\(env, kindMs\)/, "the deploy's setting is not read, or not with the kind's clock as its fallback");
+  assert.match(fire, /const budgetMs = setting\.ms;/, "the launch's clock is no longer the setting's answer");
 });
