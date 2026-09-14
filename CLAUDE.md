@@ -3217,7 +3217,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   config-versus-checked split, and the offered-set/list/scan case the sweep
   asked for) and `job-sms-contract`'s **five**; 6,363 + 7 + 6 + 5 closes
   exactly. **Five re-anchors added no case** — they are assertions inside guards
-  that already existed. CI has NOT read this number.
+  that already existed. **CI HAS READ IT: `unit tests` run 2529, 2026-09-14
+  23:08:06→23:10:08Z, GREEN, the suite step 104 s** — and the two runs report
+  the same TOTAL with a different split: **local `# tests 6381 / # pass 6381 /
+  # skipped 0`, CI `# tests 6381 / # pass 6378 / # fail 0 / # skipped 3`.** The
+  three are environment skips, not a smaller suite, which is why the number to
+  carry is the TOTAL and why quoting a `pass` count alone drifts between the two
+  machines.
   **6,363** before it, the four outstanding fixes,
   whose new cases are `addon-route`'s **eight**: the five demonstrations the
   owner named (malformed privacy, explicit `definer: false`, public versus
