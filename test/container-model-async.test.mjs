@@ -29,6 +29,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const SERVER_SRC = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+// The transport moved to its own module on 2026-09-14 so the JOB CHILD could use
+// it too — see long-post.mjs. Read from where it lives, never from where it used
+// to: this guard failed "longPost is gone" about a function nothing had touched.
+const LONGPOST_SRC = fs.readFileSync(new URL("../builder/long-post.mjs", import.meta.url), "utf8");
 
 /** Whole-line comments blanked, length-preservingly. This route is documented
  *  at length in its own source — the prose spells `oneAtATime`, `await`,
@@ -292,7 +296,7 @@ test("every model call in the container carries longPost", () => {
   // And the transport is the node module's `.request`, with no fetch anywhere
   // inside it — the 300s wall coming back in through the function built to
   // avoid it would be the quietest possible regression.
-  const w = fnWindow("function longPost(");
+  const w = fnWindow("export function longPost(", LONGPOST_SRC);
   assert.match(w, /\.request\(/, "longPost does not use node http/https");
   assert.ok(!/\bfetch\(/.test(w), "longPost calls fetch — the exact ceiling it exists to avoid");
   // A rejection on abort carries the SIGNAL'S OWN REASON — a TimeoutError —
@@ -305,14 +309,14 @@ test("every model call in the container carries longPost", () => {
   assert.match(w, /e\.wire = wire/, "a socket error does not carry the wire meta — the next 270s death is undiagnosable again");
 });
 
-function fnWindow(anchor) {
-  const at = SERVER_SRC.indexOf(anchor);
+function fnWindow(anchor, SRC = SERVER_SRC) {
+  const at = SRC.indexOf(anchor);
   assert.ok(at > 0, anchor + " is gone — rescope this guard");
   let d = 0;
-  for (let i = SERVER_SRC.indexOf("{", at); i < SERVER_SRC.length; i++) {
-    const ch = SERVER_SRC[i];
+  for (let i = SRC.indexOf("{", at); i < SRC.length; i++) {
+    const ch = SRC[i];
     if (ch === "{") d++;
-    else if (ch === "}") { d--; if (d === 0) return SERVER_SRC.slice(at, i + 1); }
+    else if (ch === "}") { d--; if (d === 0) return SRC.slice(at, i + 1); }
   }
   assert.fail("unbalanced braces after " + anchor);
 }
@@ -325,7 +329,12 @@ test("longPost survives late headers, reports a refusal, and aborts as a Timeout
   const { createServer } = await import("node:http");
   const httpsMod = (await import("node:https")).default;
   const httpMod = (await import("node:http")).default;
-  const longPost = new Function("http", "https", "return " + fnWindow("function longPost("))(httpMod, httpsMod);
+  // IMPORTED, not lifted (2026-09-14). The old comment said the server "listens
+  // at import time, so it cannot be imported" — true of build-server.mjs and no
+  // longer true of the transport, which is its own leaf module now. Importing it
+  // proves the shipped function rather than a copy of its text.
+  const { longPost } = await import("../builder/long-post.mjs");
+  void httpMod; void httpsMod;
 
   let seen = null;
   const srv = createServer((req, res) => {

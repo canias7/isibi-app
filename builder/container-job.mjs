@@ -35,6 +35,7 @@
 
 import { readFileSync } from "node:fs";
 import { makeContainerEnv, makeContainerCtx, gatewayFetch } from "./container-env.mjs";
+import { longPost } from "./long-post.mjs";
 import { readDeadline, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE } from "./job-clock.mjs";
 
 /**
@@ -138,7 +139,12 @@ export async function runJob(launch, { importWorker, env, ctx, log = () => {}, s
   let onTerm = null;
   try {
     restore = installGatewayFetch(launch);
-    const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway, sb: launch.sb, pre: launch.pre === true });
+    // THE SENDER AND THE STREAM FLAG GO ON THE JOB'S ENV, so every model call
+    // `worker.js` makes in here is on `node:https` and asks the provider to
+    // stream. See `makeContainerEnv` for why they are two fields, and
+    // `long-post.mjs` for what it cost to have the service fixed and the child
+    // not. A test that hands its own `env` in is handing its own transport too.
+    const jobEnv = env || makeContainerEnv({ secrets: launch.secrets, gateway: launch.gateway, sb: launch.sb, pre: launch.pre === true, send: longPost, deadlineAt: launch.deadlineAt });
     const jobCtx = ctx || makeContainerCtx();
     let stopping = false;
     onTerm = () => {

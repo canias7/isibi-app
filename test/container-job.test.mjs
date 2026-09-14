@@ -238,9 +238,30 @@ test("checkWorkerTree, driven: the repository's own tree imports; no tree, or on
   // place, worker.js without the export the runner calls.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "old-tree-"));
   fs.mkdirSync(path.join(dir, "builder"));
-  for (const f of ["worker-register.mjs", "worker-loader.mjs", "cloudflare-shim.mjs", "containers-shim.mjs", "container-job.mjs", "container-env.mjs", "job-gateway.mjs", "job-clock.mjs"]) {
-    fs.copyFileSync(new URL("builder/" + f, ROOT).pathname, path.join(dir, "builder", f));
-  }
+  // DERIVED, NEVER TYPED. This was a hand-written list of eight names, and on
+  // 2026-09-14 the runner gained a ninth import (`long-post.mjs`, the container
+  // transport) — so the fixture built a tree the real runner cannot import and
+  // the case failed reporting ERR_MODULE_NOT_FOUND about a tree that was fine.
+  // "Two lists of the same thing", with this file on one end. The walk starts
+  // where the build service starts — the loader's registration hook and the
+  // runner — and follows every relative import but `../worker.js`, which is the
+  // one file this case deliberately replaces with a stub.
+  const need = new Set();
+  const walk = (rel) => {
+    if (need.has(rel)) return;
+    need.add(rel);
+    const src = fs.readFileSync(new URL("builder/" + rel, ROOT).pathname, "utf8");
+    // ANY `"./x.mjs"` SPECIFIER, not just `from "./x"`. The loader does not
+    // import its shims — it names them as URLs it rewrites specifiers to
+    // (`new URL("./cloudflare-shim.mjs", HERE)`), and the registration hook
+    // names the loader itself through `register(...)`. A walk that only
+    // followed `from` found six of nine and declared the tree broken.
+    for (const m of src.matchAll(/"\.\/([A-Za-z0-9._-]+\.mjs)"/g)) walk(m[1]);
+  };
+  walk("worker-register.mjs");
+  walk("container-job.mjs");
+  assert.ok(need.size >= 8, `the import walk found only ${need.size} modules — it has stopped following imports`);
+  for (const f of need) fs.copyFileSync(new URL("builder/" + f, ROOT).pathname, path.join(dir, "builder", f));
   fs.writeFileSync(path.join(dir, "worker.js"), "export const nothing = 1;\n");
   const older = await buildServerFns({ WORKER_DIR: dir }).checkWorkerTree();
   assert.equal(older.ok, false, "a tree without runContainerJob read as importing");

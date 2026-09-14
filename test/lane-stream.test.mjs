@@ -103,14 +103,51 @@ test("THE SYNCHRONOUS PATH KEEPS 240s — streaming to the provider does not mov
     "which streaming to a provider does nothing for");
 });
 
-test("the wrapper FORWARDS opts — the hop run 40 found missing", () => {
-  // Read as well as driven, because the driven test above stubs the very
-  // function this asserts about: it proves quickSend HANDS opts on, and this
-  // proves the thing it hands them to passes them to the module.
-  const at = WORKER.indexOf("const callBuilderModel = (env, req, budget = null");
-  assert.ok(at > 0, "the wrapper moved — rescope this");
-  const line = WORKER.slice(at, WORKER.indexOf("\n", at));
-  assert.match(line, /opts\s*=\s*null/, "the wrapper stopped taking opts");
-  assert.match(line, /callModel\(keysFrom\(env\), req, budget, null, opts\)/,
-    "the wrapper takes opts and does not pass them on — exactly the shape that cost run 40");
+test("the wrapper FORWARDS opts, and hands over the job's transport — DRIVEN", () => {
+  // DRIVEN, NOT MATCHED. This asserted the wrapper's exact spelling —
+  // `callModel(keysFrom(env), req, budget, null, opts)` — and went red on
+  // 2026-09-14 for a change that forwards `opts` perfectly well, because the
+  // fourth argument stopped being the literal `null`. "Assert the property,
+  // not the spelling", in the guard whose own subject is a dropped argument.
+  //
+  // So the three readers come out of the file and are RUN, with `callModel`
+  // recorded. What is proved is what run 40 was about — the arguments the
+  // module really receives — and it now covers the container's transport too,
+  // which is the same wiring trap one argument to the left: run 45's page call
+  // died because nothing handed the sender over.
+  const pick = (name) => {
+    const at = WORKER.indexOf("const " + name + " = (env");
+    assert.ok(at > 0, name + " moved — rescope this guard");
+    return WORKER.slice(at, WORKER.indexOf("\n", at));
+  };
+  const seen = [];
+  const scope = new Function("callModel", "keysFrom", `
+    ${pick("modelSend")}
+    ${pick("modelOpts")}
+    ${pick("callBuilderModel")}
+    return callBuilderModel;
+  `)((keys, req, budget, send, opts) => { seen.push({ keys, req, budget, send, opts }); return "called"; },
+     (env) => ({ from: env }));
+
+  // THE WORKER: no transport on the env, so both readers are transparent and
+  // the call is byte-for-byte the one that shipped before this change.
+  scope({}, { m: 1 }, 99, { stream: true });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].send, null, "the Worker invented a sender");
+  assert.deepEqual(seen[0].opts, { stream: true }, "the wrapper takes opts and does not pass them on — exactly the shape that cost run 40");
+  assert.deepEqual(seen[0].keys, { from: {} }, "the wrapper stopped reading the Worker's keys");
+  assert.equal(seen[0].budget, 99);
+
+  // THE CONTAINER: the runner's sender is handed over, and `stream` is added
+  // WITHOUT losing what the caller asked for.
+  const send = () => {};
+  scope({ MODEL_SEND: send, MODEL_STREAM: true }, { m: 2 }, null, { onPartial: "keep me" });
+  assert.equal(seen[1].send, send, "the job's transport never reached the module — run 45's defect");
+  assert.deepEqual(seen[1].opts, { onPartial: "keep me", stream: true }, "the stream flag replaced the caller's opts instead of joining them");
+
+  // A CONTAINER THAT ASKS FOR NO STREAM still gets its sender, and a caller
+  // that passes no opts stays null rather than becoming an empty object.
+  scope({ MODEL_SEND: send, MODEL_STREAM: false }, { m: 3 }, null, null);
+  assert.equal(seen[2].send, send);
+  assert.equal(seen[2].opts, null, "a no-stream call invented an opts object");
 });

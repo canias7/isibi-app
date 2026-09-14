@@ -260,7 +260,7 @@ import { newTrace, traceRow } from "./builder/edit-trace.mjs";
 // on the way in because `worker.js` keeps thin `env`-shaped wrappers of the same
 // names — eleven call sites read them, and renaming those would make a move that
 // changes no behaviour look like a change that does.
-import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, BUILDER_CALL_MS } from "./builder/build-call.mjs";
+import { callBuilderModel as callModel, keysFrom, keyEnv, retryHere, callFailure, BUILDER_CALL_MS } from "./builder/build-call.mjs";
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
@@ -3752,7 +3752,38 @@ const SITE_SCHEMA_MAX_TOKENS = 16000;
 // stream however much it needed to. The recorded wiring trap — a capability
 // that exists, and a hop that does not carry it — found by a live timeout
 // rather than by a guard, because every guard drove the MODULE.
-const callBuilderModel = (env, req, budget = null, opts = null) => callModel(keysFrom(env), req, budget, null, opts);
+// ── THE JOB'S OWN TRANSPORT, READ OFF `env` (2026-09-14) ────────────────────
+//
+// ONE PLACE, because every model call this module makes goes through the two
+// readers below, and the alternative is remembering at each of the dozen call
+// sites — which is how the page call ended up as the only long call in the
+// container still on Node's global fetch. Run 45: `TypeError: fetch failed` at
+// 270,025 ms, no status, nothing published. `build-call.mjs` had recorded that
+// exact wall at 270,036 ms three weeks earlier and fixed it for the build
+// SERVICE's three calls; the child running `worker.js` reached none of them.
+//
+// ABSENT IS THE WORKER, AND THAT IS THE WHOLE COMPATIBILITY ARGUMENT. In
+// workerd neither field exists: `modelSend` answers null and `modelOpts`
+// returns its argument by identity, so `callModel` is handed exactly the two
+// values it was handed before and the Worker's own consumer is byte for byte
+// unchanged. Only a job running inside the container can receive either.
+//
+// AND THEY ARE TWO QUESTIONS, NOT ONE — see `makeContainerEnv`. The sender
+// beats undici's unraisable 300-second headers timeout; the stream flag beats
+// a connection closed for carrying no bytes. Run 45 could not tell those
+// apart, and they are separable here so a test can.
+// WHERE THIS PROCESS IS, for the trace. Only the container's runner sets
+// `JOB_WHERE`, so absent is the Worker and the default cannot flatter itself.
+// `deadlineAt` is the launch's own clock, which is what makes the record answer
+// "and how long did it have" as well as "and where did it run".
+const jobWhere = (env) => (env && env.JOB_WHERE === "container" ? "container" : "worker");
+const jobRunDetail = (env) => ({
+  where: jobWhere(env),
+  ...(env && Number.isFinite(env.JOB_DEADLINE_AT) ? { deadlineAt: env.JOB_DEADLINE_AT, deadlineInMs: env.JOB_DEADLINE_AT - Date.now() } : {}),
+});
+const modelSend = (env) => (env && typeof env.MODEL_SEND === "function" ? env.MODEL_SEND : null);
+const modelOpts = (env, opts) => (env && env.MODEL_STREAM === true ? { ...(opts || {}), stream: true } : opts);
+const callBuilderModel = (env, req, budget = null, opts = null) => callModel(keysFrom(env), req, budget, modelSend(env), modelOpts(env, opts));
 
 // ── THE SMALL CALLS GO TO WHICHEVER PROVIDER THE MODEL BELONGS TO ───────────
 //
@@ -4456,8 +4487,22 @@ export async function siteWebResearch(env, brief, queries) {
  * brief. Moved to `builder/build-call.mjs` so the container can make it; this
  * is the `env`-to-keys hop and nothing else.
  */
+// THE LONGEST CALL ON THE PLATFORM, AND IT DID NOT GO THROUGH THE WRAPPER
+// ABOVE. `genPages` takes the call as an argument and defaults it to
+// `build-call.mjs`'s own export — which means the default send and no stream,
+// whichever side this is running on. That default is correct in workerd and was
+// fatal in the container (run 45, the comment on `modelSend`), so the call is
+// composed HERE from the same two readers every other call in this file uses.
+// An explicit `call` still wins: the eval harness hands its own in.
+// The call `generateSitePages` hands down, composed from this module's own two
+// readers. A NAMED FORWARDER rather than an inline arrow, because it is the same
+// drop-in shape `callBuilderModel` has — `(keys, req, budget)` — and this file's
+// guard derives that contract to prove no call site invents its keys.
+function pagesCall(env) {
+  return (keys, req, budget) => callModel(keys, req, budget, modelSend(env), modelOpts(env, null));
+}
 const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined) =>
-  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call);
+  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env));
 
 // HOW MUCH LONGER THE WORKER WAITS THAN THE CONTAINER DOES.
 //
@@ -19616,6 +19661,7 @@ async function handleRequest(request, env, ctx) {
             // in-memory pushes: no awaits, no subrequests, nothing that can
             // change what this route does or how long it takes.
             editTrace = newTrace({ slug: ownerSlug, uid: ou.id });
+            try { editTrace.mark("run", "ok", jobRunDetail(env)); } catch { /* the record never costs the job */ }
             cidForReply = editTrace.cid;
             // BOTH ARE `let` BECAUSE THE LANE ROUTER MAY REPOINT THEM. See the
             // hoisted `pick_lanes` block below: a message about a photograph is
@@ -22498,6 +22544,7 @@ async function handleRequest(request, env, ctx) {
             // the marks are in-memory pushes, and the `finally` below the
             // routes flushes them and writes the durations to the job row.
             editTrace = newTrace({ slug: ownerSlug, uid: ou.id });
+            try { editTrace.mark("run", "ok", jobRunDetail(env)); } catch { /* the record never costs the job */ }
             cidForReply = editTrace.cid;
             const aMark = (phase, status, detail) => { try { if (editTrace) editTrace.mark(phase, status, detail); } catch { /* never */ } };
             const aInstruction = String((ab && ab.instruction) || "").trim().slice(0, 2000);
@@ -23257,8 +23304,17 @@ async function handleRequest(request, env, ctx) {
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
             } catch (e) {
-              aMark("pages", "fail", { error: String((e && e.message) || e).slice(0, 200) });
-              console.error("addon generate failed:", ownerSlug, e && e.message);
+              // WHAT THE WIRE DID, NOT JUST THAT IT FAILED (2026-09-14). Run 45
+              // recorded `"fetch failed"` and nothing else — undici's message
+              // for every transport death there is — so the post-mortem came
+              // down to a duration matching a comment. `callFailure` keeps the
+              // four facts that tell our own abort from a connection closed for
+              // being quiet from one capped by total lifetime, and `ms` is how
+              // long the call had been running when it died: the number that
+              // makes "always ~270s" falsifiable instead of anecdotal. Machine
+              // fields and a bounded driver string; no header, body or URL.
+              aMark("pages", "fail", { error: String((e && e.message) || e).slice(0, 200), ms: Date.now() - aPagesT0, ...callFailure(e) });
+              console.error("addon generate failed:", ownerSlug, e && e.message, JSON.stringify(callFailure(e)));
               const aKind = upstreamKind(e && e.detail, e && e.status);
               return Response.json({
                 ok: false, error: "generate", cost: 0,

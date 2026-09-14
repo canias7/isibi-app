@@ -243,7 +243,7 @@ export function gatewayFetch({ gateway, sbUrl, fetch: f = globalThis.fetch } = {
  * designer names the site, and nothing else's env carries it. Every
  * non-string binding is either the shim, a signal, the hook, or absent.
  */
-export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, pre = false } = {}) {
+export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, pre = false, send = null, stream = true, deadlineAt = 0 } = {}) {
   if (!gateway || !gateway.url || !gateway.token) throw new Error("a job env needs its gateway");
   const env = {};
   for (const [k, v] of Object.entries(secrets || {})) if (typeof v === "string") env[k] = v;
@@ -259,6 +259,41 @@ export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, p
   // door instead of a death the sweep has to notice. A binding the Worker's
   // own consumer never has, and every read of it is optional-chained.
   env.JOB_STOP = new AbortController();
+  // ── THE MODEL TRANSPORT, AND WHY IT RIDES THE ENV (2026-09-14) ───────────
+  //
+  // Inside the container, `fetch` is Node's undici: a 300-second headers
+  // timeout that no AbortSignal can raise, in front of a provider that sends
+  // its headers only when the whole generation is done. `worker.js` cannot
+  // import `node:https` — it has to bundle for workerd, where that module does
+  // not exist — so the sender is handed in as an opaque function instead, and
+  // every `callBuilderModel` in the Worker reads it off `env`.
+  //
+  // TWO FIELDS, NOT ONE, BECAUSE THEY ARE TWO QUESTIONS. `MODEL_SEND` is which
+  // socket carries the call; `MODEL_STREAM` is whether the provider is asked to
+  // send tokens as it writes them. The 300-second undici ceiling is the
+  // sender's to beat; a connection closed for being QUIET is the stream's. Run
+  // 45 could not tell those apart — a single `fetch failed` with no cause — and
+  // testing them apart is the only way the next one can.
+  //
+  // ABSENT IS THE WORKER. In workerd both are undefined, `modelSend` answers
+  // null and `modelOpts` returns its argument unchanged, so the Worker's own
+  // consumer makes byte-for-byte the call it always made.
+  if (typeof send === "function") env.MODEL_SEND = send;
+  env.MODEL_STREAM = stream === true;
+  // ── WHERE THIS JOB IS RUNNING, AS A FACT ON THE ROW (2026-09-14) ─────────
+  //
+  // `fireContainerJob` answers `{fired, why}` and the consumer `console.log`s
+  // it. That is the whole record, so after run 45 there was no way to say
+  // whether the job had run in the container or fallen back to the Worker —
+  // `lease_owner` is minted by the consumer BEFORE the fire and reads the same
+  // either way, and `runner: true` on the runtime route is eligibility, not
+  // acceptance. A move nobody can verify is a move nobody can debug.
+  //
+  // The container's own process sets these, so the trace records what actually
+  // happened rather than what the flags allowed. Absent is the Worker, which is
+  // the honest default: only the runner can set them.
+  env.JOB_WHERE = "container";
+  if (Number.isFinite(deadlineAt) && deadlineAt > 0) env.JOB_DEADLINE_AT = deadlineAt;
   return env;
 }
 

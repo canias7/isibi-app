@@ -335,8 +335,10 @@ test("DRIVEN: callBuilderModel asks the transport for bytes and hands back code,
 });
 
 test("the transport really offers the hook, and both provider branches hand it over", () => {
-  const src = bare(SERVER);
-  const at = src.indexOf("function longPost(");
+  // The transport lives in its own module since 2026-09-14 (long-post.mjs), so
+  // the job child can use it too. Read where it IS.
+  const src = bare(fs.readFileSync(new URL("../builder/long-post.mjs", import.meta.url), "utf8"));
+  const at = src.indexOf("export function longPost(");
   assert.ok(at > 0, "longPost is gone — rescope this guard");
   const body = src.slice(at, src.indexOf("\n}", at));
   assert.match(body, /init && typeof init\.onData === "function"/, "longPost no longer takes an onData");

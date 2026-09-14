@@ -586,3 +586,61 @@ export function keyEnv(src) {
   }
   return out;
 }
+
+/**
+ * WHAT A FAILED MODEL CALL ACTUALLY WAS — the four facts that tell three
+ * different deaths apart, and none of which we were keeping (2026-09-14).
+ *
+ * ── WHY IT EXISTS ────────────────────────────────────────────────────────
+ *
+ * Run 45's page call died and every reader in the chain recorded exactly one
+ * string: `"fetch failed"`. That is undici's message for ANY transport
+ * failure — a refused connection, a DNS miss, a reset socket, its own headers
+ * timeout — and the thing that separates them lives in `error.cause`, which
+ * nothing read. So the diagnosis came down to a duration matching a number
+ * written in a comment three weeks earlier, which is a hypothesis and was
+ * reported as one.
+ *
+ * ── THE THREE DEATHS AND WHAT DISTINGUISHES THEM ────────────────────────
+ *
+ *   OUR OWN TIMER      `name` is TimeoutError (workerd) or AbortError (Node).
+ *                      Already distinguishable, already handled; kept here so
+ *                      a reader has one shape for all three.
+ *   A QUIET CONNECTION `wire.headersMs` is -1 — the response never began —
+ *                      and `cause` is ECONNRESET or "socket hang up". THIS is
+ *                      the one streaming is supposed to fix, because a stream
+ *                      puts bytes on the wire long before the answer is done.
+ *   A LIFETIME CAP     `wire.headersMs` is -1 but bytes HAD flowed
+ *                      (`wire.chars > 0`), or the death is at the same elapsed
+ *                      time however fast the answer starts. Streaming cannot
+ *                      beat this and the next fix would have to be different.
+ *
+ * `wire` is `longPost`'s own account, attached to the error by the sender
+ * above; on any other transport it is simply absent, and the reader says so
+ * rather than inventing zeroes.
+ *
+ * ── IT CARRIES NO SECRET, BY CONSTRUCTION ───────────────────────────────
+ *
+ * `code`, `name` and two integers are machine facts. The message is the one
+ * free-text field and it is bounded hard and taken from the CAUSE, which for a
+ * transport error is a driver string ("socket hang up"), never a request. No
+ * header, no body and no URL is read here, so there is nothing for a key to
+ * ride out on — the property a caller can check rather than trust.
+ */
+export function callFailure(e) {
+  if (!e || typeof e !== "object") return {};
+  const out = {};
+  const name = typeof e.name === "string" ? e.name : "";
+  if (name) out.kind = name.slice(0, 40);
+  const c = e.cause;
+  if (c && typeof c === "object") {
+    if (typeof c.code === "string" && c.code) out.cause = c.code.slice(0, 60);
+    else if (typeof c.message === "string" && c.message) out.cause = c.message.slice(0, 120);
+  } else if (typeof c === "string" && c) out.cause = c.slice(0, 120);
+  const w = e.wire;
+  if (w && typeof w === "object") {
+    if (Number.isFinite(w.headersMs)) out.headersMs = w.headersMs;
+    if (Number.isFinite(w.chars)) out.chars = w.chars;
+  }
+  return out;
+}
