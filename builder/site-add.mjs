@@ -1726,6 +1726,34 @@ export function cleanAdd(kind, value, site) {
       // function the site already lists is REPLACED when named; that is what
       // "add a cancel beside the lookup" needs, and the reply says `altered`.
       case "function": {
+        // ── PRIVACY IS NEVER COERCED, AND IT IS ASKED FIRST (2026-09-14) ────
+        //
+        // Owner: *"Reject malformed internal values before creating the
+        // function. Also treat explicit false as a meaningful value."*
+        //
+        // `internal: v.internal === true` read ANY non-`true` value as public.
+        // MEASURED: `internal: "yes"` — truthy, and a plausible thing for a
+        // model to write — cleaned to `internal: false`, so the function was
+        // created with `GRANT EXECUTE … TO anonymous` and any visitor could
+        // call it. `cleanAdd` answered `ok` and `skipped: []`: a permission
+        // inverted in silence, on the one field whose whole job is privacy.
+        // A value we cannot read is refused; cannot-tell must never read as
+        // "public", which is the most permissive answer available.
+        //
+        // AND `definer: false` IS A REQUEST, NOT NOISE. It asks for INVOKER
+        // rights — less privilege, not more — and the engine supports it
+        // (`site-functions.test.mjs` drives it). This step cannot express it:
+        // the cleaner does not carry the key and `normalizeSchema` applies
+        // `f.definer !== false`, so passing it through silently would create
+        // the opposite of what was asked. Refused by name, because quietly
+        // building a SECURITY DEFINER function for somebody who asked for the
+        // safer one is the worst of the three outcomes.
+        //
+        // BOTH ARE ASKED BEFORE ANYTHING ELSE about the item, so a privacy
+        // problem is always the reason the customer hears — never a complaint
+        // about the body from an item that should not be built at all.
+        if (v.internal !== undefined && typeof v.internal !== "boolean") return { ok: false, why: "bad-internal" };
+        if (v.definer === false) return { ok: false, why: "no-invoker" };
         const name = str(v.name, 63).toLowerCase();
         if (!TABLE_NAME.test(name) || ctx.functions.includes(name)) return { ok: false, why: "no-function" };
         // REFUSED, NEVER CUT. `str(v.body, 8000)` sliced here and the engine
@@ -1929,6 +1957,14 @@ export function addRefusal(why, kind) {
     // on, which is the whole point of refusing rather than slicing.
     case "body-too-long": return "That one needs more code than I can put in a single step — ask for it in smaller pieces and I'll add them one at a time. Nothing was changed.";
     case "over-cap": return "That's more of those than I can add in one go — ask for the rest in another message and I'll add them too.";
+    // ── THE TWO PERMISSION REFUSALS (2026-09-14) ────────────────────────────
+    //
+    // Both say what was NOT built rather than describing the setting, because
+    // the customer asked for a feature and not for a privilege model. The
+    // first is a value nobody could read; the second is a real request this
+    // step cannot carry, so it says which step can.
+    case "bad-internal": return "I couldn't tell whether that should be private to the site or callable from a page, so I didn't create it — nothing is worse than getting that one wrong. Say who should be able to use it and I'll add it.";
+    case "no-invoker": return "That one asked to run with reduced database permissions, which I can't set up from here — so I didn't create it rather than quietly giving it more access than was asked for. Nothing was changed.";
     default: return "I couldn't work out what to add from that" + (kind ? " (" + kind + ")" : "") + " — say what you want on the site and where.";
   }
 }
@@ -2420,8 +2456,67 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     const n = String(name || "").toLowerCase();
     if (n) out.push({ name: n, ...factsFor(n) });
   }
-  for (const n of (Array.isArray(functions) ? functions : [])) out.push({ name: n, holds: ["internal", "function"], fails: [] });
-  for (const n of (Array.isArray(apis) ? apis : [])) out.push({ name: n, holds: ["connection", "api"], fails: [] });
+  // ── A FUNCTION'S GUARANTEES ARE ITS APPLIED SETTINGS (2026-09-14) ─────────
+  //
+  // These were the literals `["internal", "function"]` on EVERY applied
+  // function, which is the defect this whole reader exists to close, written
+  // into the closure itself: a claim saying *"send_reminder is internal, so no
+  // visitor can call it"* scored `delivered` against a function created PUBLIC,
+  // because the word was in the list whatever the function was.
+  //
+  // WHAT IS REALLY CHECKABLE about an applied function: who may call it, what
+  // it returns, and what it takes. The visibility axis is the one that matters
+  // and it is two-sided — a claim that names the wrong side of it is a
+  // contradiction, not a silence.
+  const fnList = (spec && Array.isArray(spec.functions)) ? spec.functions : [];
+  for (const n of (Array.isArray(functions) ? functions : [])) {
+    const f = fnList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
+    if (!f) { out.push({ name: n, holds: [], fails: [] }); continue; }
+    const holds = [], fails = [];
+    if (f.internal) { holds.push("internal"); fails.push("public"); }
+    else { holds.push("public"); fails.push("internal"); }
+    if (typeof f.returns === "string" && f.returns) holds.push(...String(f.returns).toLowerCase().split(/[^a-z0-9_]+/).filter((w) => w.length >= 3));
+    for (const a of (Array.isArray(f.args) ? f.args : [])) if (a && a.name) holds.push(String(a.name).toLowerCase());
+    out.push({ name: n, holds, fails });
+  }
+  // ── A CONNECTION PROVES CONFIGURATION, NEVER BEHAVIOUR ───────────────────
+  //
+  // Owner, 2026-09-14: *"A stored connection proves configuration exists; it
+  // does not prove credentials work or the external service answers."* An api
+  // is not DDL — it lives in `_meta.schema`, so "applied" here means STORED,
+  // and storing a declaration is the entire extent of what this layer did.
+  // Nothing has called the service, nothing has checked the key.
+  //
+  // So the tokens are CONFIGURATION ONLY — the host it points at, the verb, the
+  // parameters it accepts, the cache window — and deliberately carry no word
+  // about what the page will see. A claim about behaviour ("customers see the
+  // live forecast") names none of them and stays `unverified`, which is the
+  // honest answer until somebody checks the credential against the service.
+  const apiList = (spec && Array.isArray(spec.apis)) ? spec.apis : [];
+  for (const n of (Array.isArray(apis) ? apis : [])) {
+    const a = apiList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
+    if (!a) { out.push({ name: n, holds: [], fails: [] }); continue; }
+    const holds = [], fails = [];
+    let host = "";
+    try { host = new URL(String(a.url || "")).hostname.toLowerCase(); } catch { host = ""; }
+    if (host) holds.push(host);
+    const method = String(a.method || "GET").toUpperCase() === "POST" ? "post" : "get";
+    holds.push(method);
+    fails.push(method === "post" ? "get" : "post");
+    for (const p of (Array.isArray(a.params) ? a.params : [])) if (p) holds.push(String(p).toLowerCase());
+    if (Number(a.ttl) > 0) holds.push(String(a.ttl));
+    out.push({ name: n, holds, fails });
+  }
+  // ── THE SECOND WALL, AND THE REDUNDANCY IS DELIBERATE ────────────────────
+  //
+  // Since 2026-09-14 the addon route BLOCKS a job whose new function failed —
+  // it is never registered and never reaches `jobs` here, so this skip fires on
+  // nothing on that path. It stays because the two walls answer different
+  // questions and a sweep cannot say so: the route's is about what the site
+  // really runs, this one is about what may be quoted back as evidence, and
+  // `appliedFacts` has other callers' shapes to survive (a job list assembled
+  // anywhere that does not know about `fnErrors`). Deleting it would make the
+  // evidence reader depend on a caller keeping a rule it does not state.
   const dead = new Set((Array.isArray(fnErrors) ? fnErrors : [])
     .map((e) => String((e && e.name) || "").toLowerCase()).filter(Boolean));
   for (const j of (Array.isArray(jobs) ? jobs : [])) {

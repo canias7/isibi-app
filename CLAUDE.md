@@ -2535,6 +2535,133 @@ against stubbed seams; nothing has run against a real customer message. The
 `repairbench-1` addon rerun is still the cheapest live proof and is the owner's
 call.
 
+### …AND FOUR OUTSTANDING FIXES, ALL FIVE CASES DRIVEN (2026-09-14)
+
+Owner: *"Correct requirement evidence… Prevent silent permission changes…
+Block failed dependencies… Make omission messages accurate"*, and the
+demonstrations named one by one: ***"malformed privacy input, explicit false,
+public versus internal functions, failed function → blocked job, and
+configuration present → behavior still unverified."***
+
+**1. THE EVIDENCE WAS HARDCODED, IN THE READER WRITTEN TO STOP EXACTLY THAT.**
+`appliedFacts` gave every applied function `holds: ["internal","function"]` and
+every connection `holds: ["connection","api"]` — literals, whatever was really
+applied — so *"send_reminder is internal, so no visitor can call it"* scored
+`delivered` against a function created PUBLIC. It reads the applied settings
+now: a function's visibility TWO-SIDED (`holds:["internal"], fails:["public"]`
+or the reverse, so a claim on the wrong side is a contradiction rather than a
+silence), its `returns` words and its argument names; a connection's HOST, verb
+(with the other verb in `fails`), parameters and cache window.
+**A CONNECTION PROVES CONFIGURATION AND NEVER BEHAVIOUR** (the owner's own
+sentence): an api is not DDL — it is stored in `_meta.schema` — so "applied"
+means STORED, nothing has called the service and nothing has checked the key.
+The vocabulary carries no word about what a page will SEE, so *"visitors see
+the live forecast"* stays `unverified` while *"the forecast is read from
+api.test"* is delivered. Measured through the route:
+`{"name":"send_reminder","holds":["internal","void"],"fails":["public"]}`,
+`{"name":"pub_fn","holds":["public","int","tok"],"fails":["internal"]}`,
+`{"name":"weather","holds":["api.test","get","city","300"],"fails":["post"]}`.
+
+**2. TWO PERMISSION VALUES WERE CHANGED IN SILENCE, AT THE HEAD OF THE
+CLEANER.** `internal: v.internal === true` read ANY non-`true` value as public:
+`internal: "yes"` — truthy, and a plausible thing for a model to write — was
+cleaned to `false`, the function created with `GRANT EXECUTE … TO anonymous`,
+`ok` returned and `skipped` empty. Refused by name now (`bad-internal`):
+cannot-tell must never read as the most permissive answer available.
+**AND `definer: false` IS A REQUEST, NOT NOISE** — it asks for INVOKER rights,
+LESS privilege, and the ENGINE supports it (`normalizeSchema` applies
+`f.definer !== false`); this step cannot carry the key, so it is refused
+(`no-invoker`) rather than silently inverted into a SECURITY DEFINER function.
+Both are asked BEFORE anything else about the item, so a privacy problem is
+always the reason the customer hears. `definer: true` still builds — the
+refusal is a refusal, not a ban on the tier.
+
+**3. A JOB WHOSE NEW FUNCTION FAILED WAS STILL REGISTERED.** The first pass took
+such a job out of the EVIDENCE only, so the reply stopped calling the
+requirement delivered and went on writing a row into `site_functions`: every
+firing would write *"this job is no longer part of the site"*, for ever, on a
+schedule the customer was told was set up. The block is **per job, by the name
+of the function IT runs** — a job on a function this change did not touch is
+untouched — and it takes the job off `aJobs`, off `merged.jobs` (which is what
+`persistSiteJobs` really upserts), marks the `job` step failed for the coverage,
+and **names the failed dependency**, because "couldn't be set up" gives nobody
+anything to do. `appliedFacts` keeps its own `dead` skip and **the redundancy is
+declared in the code**: the route's wall is about what the site really runs,
+this one about what may be quoted back as evidence.
+
+**4. ONE SENTENCE WAS ANSWERING TWO OPPOSITE FINDINGS.** *"I asked the database
+for a guarantee it doesn't offer"* was said about `encryptAtRest`, which the
+ENGINE has never heard of, and about `language`, which the engine supports
+perfectly (`normalizeSchema` reads `f.language`, the DDL says `LANGUAGE
+plpgsql`) and the ADDON's own cleaner drops. The second is false and sends the
+customer to argue with the wrong layer. **`engineWouldUse` asks the engine
+directly** — put the declared value onto what was really SENT and normalise
+again; if the answer moves the engine had a use for it and the addon lost it —
+so the two are separated by measurement rather than by a hand-kept list.
+`unexpressed` is the audit's fourth bucket, `unexpressedProps` its own field on
+the wire and on the record, and the customer gets its own clause: *"one setting
+the design asked for isn't something this kind of change can carry through…
+say it again on its own and I'll have another go."* **ALWAYS FALSE WITH NO
+`sent` MAP, and that is correct**: with nothing cleaned, the declaration IS what
+reached the engine. **Counts, never names** — the same rule as the clause above
+it, and naming them here would be the "expose hidden settings" the owner ruled
+out in the same message. Measured:
+`{"reached":["encryptAtRest"],"refused":[],"changed":[],"unexpressed":["language"]}`.
+
+**THE FIXTURE WAS THE LESS-CAPABLE FAKE, TWICE, AND BOTH HALVES WERE HIDING THE
+SUBJECT.** (a) `_meta` answered the site's ORIGINAL schema to every read, so the
+post-apply spec every verdict is decided from was frozen: nothing a change
+created could ever be found and every claim about a function or a connection
+scored `unverified` for the fixture's reason. It remembers what the apply wrote
+now, captured off `applySiteSchema`'s own statement and its own parameter.
+(b) The read was pinned to ONE SPELLING of the query — the route writes
+`WHERE k = 'schema'` and `loadSiteSchema` writes `WHERE k='schema'` — so every
+`loadSiteSchema` call fell to the catch-all and read as `{tables: []}`. **The
+recorded "assert the property, not the spelling" trap, on the answering side.**
+And `SUPABASE_SERVICE_KEY` is in the env now, because `persistSiteJobs` returns
+at its first line without one: a job blocked on the REPLY and a job blocked in
+the DATABASE were indistinguishable until the registry was stubbed.
+
+**A PUBLIC FUNCTION AND A CONNECTION CANNOT BE PAGELESS, and that is the product
+being right.** Both exist to be read BY A PAGE, so `pageless` is false and the
+route writes one — which is why those two demonstrations opt into
+`installCompiler()` and the dispatch stub and the other three do not. The
+compile and the script upload are the only things stubbed on that path.
+
+**Guards**: `test/addon-route.test.mjs` is **19** (12 + the seven here), each of
+the five named cases driven through `POST /api/site/<slug>/addon` and asserted
+on the customer's own sentence, plus the control that makes the job block a
+block rather than a ban — one function refused, one created, one job surviving
+and **`site_functions` agreeing with the reply**.
+
+**Three older guards went red and were re-anchored, not appeased.** The empty
+audit shape gained `unexpressed` (and now asserts the real answer's key set, so
+a bucket added next month cannot be reported by the route and missing here); the
+`internal: "yes"` divergence measurement lost its producer, since the cleaner
+now refuses that shape — the refusal is asserted first and the sent item built
+by hand, which is honest for a MODULE case about `auditTier`'s input contract;
+and `cleanAdd`'s own case stopped asserting that `internal` is coerced and
+started asserting that it is refused, with `definer: false` beside it.
+**AND ONE EXPECTATION MOVED RATHER THAN BROKE**: a claim resting on a function
+the database refused used to read `unverified` — nothing had failed and nothing
+could confirm it — and now reads `failed`, because the job step really does
+fail. Both are honest about the same change; the second is the stronger one.
+
+**KEPT RECORDED, NOT FIXED** (the owner's instruction): the api tier has **no
+credential-guidance field**, so a required secret reaches the owner as a bare
+name (`WEATHER_KEY`) with nothing saying where to get one; and `params` is a
+**name allow-list with no types and no required flag**, so a connection cannot
+say which parameter a page must supply. Both are capability work.
+**`search_path` STAYS EXPLICITLY UNRESOLVED** — every model function is
+`SECURITY DEFINER` with no `SET search_path`, and whether that is exploitable
+here depends on the role's real permissions and on which execution paths are
+reachable, neither of which has been checked. `scripts/grants-backfill.mjs
+--preview` is the pattern for asking where the credentials already live.
+
+**NOT PROVEN LIVE.** Every measurement is from driving the real route against
+stubbed seams. The `repairbench-1` addon rerun is still the cheapest live proof
+and is the owner's call.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -2922,11 +3049,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   site-runtime 47 — every count read out of that job's own log. **Four
   independent runs over three days agreeing is what makes 382 a measurement
   rather than a stamp.**
-  The unit suite is **6,355** (2026-09-14, local — the four route-level gaps,
+  The unit suite is **6,363** (2026-09-14, local — the four outstanding fixes,
+  whose new cases are `addon-route`'s **eight**: the five demonstrations the
+  owner named (malformed privacy, explicit `definer: false`, public versus
+  internal, failed function → blocked job, configuration versus behaviour), the
+  control that makes the job block a block rather than a ban, and the lone
+  unexpressed setting; 6,355 + 8 closes exactly. **The three re-anchors added no
+  case** — they are assertions inside guards that already existed. CI has NOT
+  read this number. **6,355** before it, the four route-level gaps,
   whose new cases are `addon-route`'s **twelve** (all four driven end to end
   through `POST /api/site/<slug>/addon`, asserting on the customer's own
-  sentence) and `addon-steps`' **seven**; 6,336 + 12 + 7 closes exactly. CI has
-  NOT read this number. **6,336** before it, the other five addon steps,
+  sentence) and `addon-steps`' **seven**; 6,336 + 12 + 7 closes exactly.
+  **6,336** before it, the other five addon steps,
   whose new cases were `addon-steps`' **nineteen** and `requirement-coverage`'s
   **one** (the three states and the asymmetric evidence); 6,316 + 19 + 1 closes
   exactly. **6,316** before it, the wire probe's hang fix and

@@ -1,0 +1,224 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the applied-settings reader",
+    "control": true,
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  // ── A CONNECTION PROVES CONFIGURATION, NEVER BEHAVIOUR ───────────────────",
+    "to": "  // ── A CONNECTION PROVES CONFIGURATION, AND NEVER BEHAVIOUR ───────────────"
+  },
+  {
+    "label": "CONTROL 2: a comment only, above the unexpressed clause",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  // ── A DIFFERENT SENTENCE, BECAUSE IT IS A DIFFERENT PARTY ────────────────",
+    "to": "  // ── A DIFFERENT SENTENCE, BECAUSE IT IS ANOTHER PARTY ────────────────────"
+  },
+
+  {
+    "label": "FIX 1: a function's guarantees are the literals again, whatever was applied",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (f.internal) { holds.push(\"internal\"); fails.push(\"public\"); }\n    else { holds.push(\"public\"); fails.push(\"internal\"); }",
+    "to": "    holds.push(\"internal\", \"function\");"
+  },
+  {
+    "label": "FIX 1: the visibility axis is one-sided, so a claim on the wrong side is not contradicted",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    else { holds.push(\"public\"); fails.push(\"internal\"); }",
+    "to": "    else { holds.push(\"public\"); }"
+  },
+  {
+    "label": "FIX 1: a function's applied settings are never read, so nothing about one is checkable",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const fnList = (spec && Array.isArray(spec.functions)) ? spec.functions : [];",
+    "to": "  const fnList = [];"
+  },
+  {
+    "label": "FIX 1: a connection's applied settings are never read",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const apiList = (spec && Array.isArray(spec.apis)) ? spec.apis : [];",
+    "to": "  const apiList = [];"
+  },
+  {
+    "label": "FIX 1: a connection is given a word about what the page will SEE, so behaviour reads as checked",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (host) holds.push(host);",
+    "to": "    if (host) holds.push(host, \"live\", \"see\", \"forecast\");"
+  },
+
+  {
+    "label": "FIX 2: an unreadable privacy value is coerced to public again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        if (v.internal !== undefined && typeof v.internal !== \"boolean\") return { ok: false, why: \"bad-internal\" };",
+    "to": ""
+  },
+  {
+    "label": "FIX 2: `definer: false` is read as noise, so the opposite is built silently",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        if (v.definer === false) return { ok: false, why: \"no-invoker\" };",
+    "to": ""
+  },
+  {
+    "label": "FIX 2: `definer: true` is refused too, so the refusal is a ban on the tier",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        if (v.definer === false) return { ok: false, why: \"no-invoker\" };",
+    "to": "        if (v.definer !== undefined) return { ok: false, why: \"no-invoker\" };"
+  },
+  {
+    "label": "FIX 2: the privacy refusal has no sentence of its own",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    case \"bad-internal\": return \"I couldn't tell whether that should be private to the site or callable from a page, so I didn't create it",
+    "to": "    case \"bad-internal-gone\": return \"I couldn't tell whether that should be private to the site or callable from a page, so I didn't create it"
+  },
+
+  {
+    "label": "FIX 3: no job is ever blocked, so a timer runs against a function that does not exist",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                const aDeadFns = new Set(aFnErrors.map((e) => String((e && e.name) || \"\").toLowerCase()).filter(Boolean));",
+    "to": "                const aDeadFns = new Set();"
+  },
+  {
+    "label": "FIX 3: the blocked job stays on the reply's scheduled list",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  aJobs = aJobs.filter((j) => !blockedNames.has(String(j.name || \"\").toLowerCase()));",
+    "to": ""
+  },
+  {
+    "label": "FIX 3: the blocked job is taken off the reply and still REGISTERED to run",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  merged.jobs = (merged.jobs || []).filter((j) => !blockedNames.has(String((j && j.name) || \"\").toLowerCase()));",
+    "to": ""
+  },
+  {
+    "label": "FIX 3: the block is decided by the JOB's name rather than by the function it runs",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                const aBlocked = aDeadFns.size ? aJobs.filter((j) => aDeadFns.has(String(j.fn || \"\").toLowerCase())) : [];",
+    "to": "                const aBlocked = aDeadFns.size ? aJobs.filter((j) => aDeadFns.has(String(j.name || \"\").toLowerCase())) : [];"
+  },
+  {
+    "label": "FIX 3: the job disappears with nothing said about it",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  aJobErrors = [...aJobErrors, ...aBlocked.map((j) => ({ name: j.name, error: \"the function it runs, \" + j.fn + \", could not be created\" }))].slice(0, 6);",
+    "to": "                  aJobErrors = [...aJobErrors].slice(0, 6);"
+  },
+  {
+    "label": "FIX 3: the failed dependency is not named, so there is nothing to ask for again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "error: \"the function it runs, \" + j.fn + \", could not be created\"",
+    "to": "error: \"it couldn't be set up\""
+  },
+  {
+    "label": "FIX 3: the job step is not marked failed, so its requirement reads as merely unconfirmable",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  aFailedKinds.add(\"job\");\n                  aMark(\"jobs\", \"blocked\", { n: aBlocked.length });",
+    "to": "                  aMark(\"jobs\", \"blocked\", { n: aBlocked.length });"
+  },
+
+  {
+    "label": "FIX 4: every dropped key is the engine's refusal again, whoever really dropped it",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "function engineWouldUse(context, tier, item, key, value, keptJson) {\n  const withIt = { ...item, [key]: value };\n  return JSON.stringify(keptItem(context, tier, withIt) || null) !== keptJson;\n}",
+    "to": "function engineWouldUse(context, tier, item, key, value, keptJson) {\n  return false;\n}"
+  },
+  {
+    "label": "FIX 4: every dropped key is read as this step's loss, so a real refusal is never said",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "function engineWouldUse(context, tier, item, key, value, keptJson) {\n  const withIt = { ...item, [key]: value };\n  return JSON.stringify(keptItem(context, tier, withIt) || null) !== keptJson;\n}",
+    "to": "function engineWouldUse(context, tier, item, key, value, keptJson) {\n  return true;\n}"
+  },
+  {
+    "label": "FIX 4: a setting this step lost is ALSO reported as one the database refuses",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  for (const n of audit.unexpressed) aUnexpressed.add(n);",
+    "to": "                  for (const n of audit.unexpressed) { aUnexpressed.add(n); aBadProps.add(n); }"
+  },
+  {
+    "label": "FIX 4: the two parties never reach the route, so one sentence covers both again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  for (const n of audit.unexpressed) aUnexpressed.add(n);",
+    "to": ""
+  },
+  {
+    "label": "FIX 4: the developer's half is off the wire",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                unexpressedProps: aUnexpressed.size ? [...aUnexpressed].slice(0, 12) : undefined,",
+    "to": "                unexpressedProps: undefined,"
+  },
+  {
+    "label": "FIX 4: the customer never hears the second party at all",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (lost.length) {\n    parts.push(lost.length === 1",
+    "to": "  if (false) {\n    parts.push(lost.length === 1"
+  },
+  {
+    "label": "FIX 4: a lost setting alone composes no note, so a clean-looking reply hides it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (!broke.length && !unsure.length && !bad.length && !lost.length) return \"\";",
+    "to": "  if (!broke.length && !unsure.length && !bad.length) return \"\";"
+  },
+  {
+    "label": "FIX 4: the customer's sentence names the hidden setting",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      ? \"One setting the design asked for isn't something this kind of change can carry through,",
+    "to": "      ? \"One setting the design asked for (\" + lost[0] + \") isn't something this kind of change can carry through,"
+  },
+  {
+    "label": "FIX 4: the record keeps no names, so nobody can tell WHICH setting to go and build",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    unexpressedProps: (Array.isArray(unexpressed) ? unexpressed : []).slice(0, MAX_REQUIREMENTS),",
+    "to": "    unexpressedProps: [],"
+  }
+]

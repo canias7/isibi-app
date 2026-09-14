@@ -95,9 +95,22 @@ test("`scanned` is the observer, and every other field is a negative assertion",
   // off a scan that read nothing is reporting silence. That is the class this
   // whole change is about, so the count rides beside the three lists.
   const ctx = BASE();
-  const EMPTY = { scanned: 0, reached: [], refused: [], changed: [], unbuilt: [] };
+  // RE-ANCHORED 2026-09-14 for `unexpressed`, the fourth report — a key the
+  // ENGINE would have used and this step could not carry. The list is stated
+  // here rather than spread from a real answer, because the point of this case
+  // is that the empty answer says every bucket is empty: deriving it from the
+  // reader would make the assertion agree with whatever the reader does.
+  const EMPTY = { scanned: 0, reached: [], refused: [], changed: [], unexpressed: [], unbuilt: [] };
   assert.deepEqual(auditTier({}, "job", ctx), EMPTY);
   assert.deepEqual(auditTier(null, "table"), EMPTY);
+  // …AND A REAL ANSWER CARRIES EXACTLY THOSE KEYS, so a bucket added next month
+  // cannot be reported by the route and silently missing from the empty shape,
+  // which is how a caller ends up reading an absent field as "nothing found".
+  assert.deepEqual(
+    Object.keys(auditTier({ jobs: [{ name: "r", fn: "cancel_booking", everyMinutes: 1440 }] }, "job", ctx)).sort(),
+    Object.keys(EMPTY).sort(),
+    "the reader answers a field the empty shape does not name",
+  );
   assert.deepEqual(auditTier({ jobs: [{}] }, "nonsense", ctx).scanned, 0, "an unknown tier scanned something");
   const real = auditTier({ jobs: [{ name: "remind", fn: "cancel_booking", everyMinutes: 1440 }] }, "job", ctx);
   assert.equal(real.scanned, 1, "a real declaration was not scanned");
@@ -559,9 +572,23 @@ test("normalising WHAT WAS SENT is not the same as normalising the declaration",
   //
   // Found by a mutation survivor, measured over ten shapes: this is the ONE of
   // them where the two readings diverge, and `refused` is the true one.
+  //
+  // ── RE-ANCHORED 2026-09-14, AND THE PRODUCT MOVED UNDER IT ────────────────
+  //
+  // This measurement is what bought the fix: `cleanAdd` now REFUSES a privacy
+  // value it cannot read instead of writing `false`, so the shape below is one
+  // the cleaner no longer produces. The refusal is asserted first, because it
+  // is the thing the measurement was for — and `sentItem` is then built by
+  // hand, which is honest for a MODULE case about `auditTier`: `sent` is that
+  // function's input contract and it must be right about any item handed to
+  // it, including one from a caller that is not this cleaner.
   const declared = { name: "f2", internal: "yes", returns: "void", body: "BEGIN END;" };
-  const sentItem = cleanAdd("function", [declared], { functions: [], jobFns: [] }).value[0];
-  assert.equal(sentItem.internal, false, "the cleaner kept a truthy non-true — this case tests nothing");
+  const cleaned = cleanAdd("function", [declared], { functions: [], jobFns: [] });
+  assert.equal(cleaned.ok, false, "an unreadable privacy value is cleaned instead of refused");
+  assert.equal(cleaned.why, "bad-internal");
+  // WHAT THE CLEANER USED TO SEND: `internal` binned to `false`, the function
+  // created PUBLIC and callable by every visitor.
+  const sentItem = { name: "f2", args: [], returns: "void", body: "BEGIN END;", internal: false, exists: false };
   const ctx = { tables: [], functions: [], apis: [], jobs: [] };
   const fromSent = auditTier({ functions: [declared] }, "function", ctx, { sent: new Map([["f2", sentItem]]) });
   const fromDecl = auditTier({ functions: [declared] }, "function", ctx, { sent: new Map([["f2", declared]]) });

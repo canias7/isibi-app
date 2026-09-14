@@ -834,13 +834,30 @@ test("cleanAdd: a function needs a name, a body and a return; a connection an ht
   const fn = cleanAdd("function", [
     { name: "Bookings_On_Day", args: [{ name: "d", type: "text" }, { nope: 1 }], returns: "int", body: "SELECT count(*)::int FROM bookings WHERE preferred_day = d" },
     { name: "nobody", returns: "int" },
-    { name: "booking_by_claim", args: [{ name: "tok", type: "text" }], returns: "setof bookings", body: "SELECT * FROM bookings WHERE claim_token = tok", internal: "yes" },
+    { name: "booking_by_claim", args: [{ name: "tok", type: "text" }], returns: "setof bookings", body: "SELECT * FROM bookings WHERE claim_token = tok", internal: true },
   ], DBF);
   assert.equal(fn.ok, true);
   assert.deepEqual(fn.value[0], { name: "bookings_on_day", args: [{ name: "d", type: "text" }], returns: "int", body: "SELECT count(*)::int FROM bookings WHERE preferred_day = d", internal: false, exists: false });
   assert.equal(fn.value[1].exists, true, "a function the site lists is not marked as replaced");
-  assert.equal(fn.value[1].internal, false, "`internal` is coerced from a non-boolean");
+  assert.equal(fn.value[1].internal, true, "a declared `internal: true` did not survive");
   assert.deepEqual(fn.skipped, [{ why: "no-function", name: "nobody" }]);
+  // ── RE-ANCHORED 2026-09-14: `internal` IS NO LONGER COERCED ───────────────
+  //
+  // This case used to hand `internal: "yes"` and assert it came back `false`.
+  // That WAS the behaviour and it was the defect: truthy-and-not-`true` created
+  // the function PUBLIC — `GRANT EXECUTE … TO anonymous` — on the one field
+  // whose whole job is privacy, with `ok` and an empty `skipped`. Refused now,
+  // by name, because cannot-tell must never read as the most permissive answer
+  // available. `definer: false` is its sibling: a REQUEST for invoker rights
+  // that this step cannot express, so it is refused rather than inverted.
+  const priv = cleanAdd("function", [
+    { name: "reads_private", returns: "int", body: "SELECT 1", internal: "yes" },
+    { name: "wants_invoker", returns: "int", body: "SELECT 1", definer: false },
+    { name: "plain_one", returns: "int", body: "SELECT 1", internal: true, definer: true },
+  ], DBF);
+  assert.equal(priv.ok, true, "one unreadable privacy value took the whole answer down");
+  assert.deepEqual(priv.value.map((f) => f.name), ["plain_one"], "a refused privacy value was built anyway");
+  assert.deepEqual(priv.skipped, [{ why: "bad-internal", name: "reads_private" }, { why: "no-invoker", name: "wants_invoker" }]);
   assert.equal(cleanAdd("function", [{ name: "Bad Name", returns: "int", body: "SELECT 1" }], DBF).why, "no-function");
   assert.equal(cleanAdd("function", [{ name: "twice", returns: "int", body: "SELECT 1" }, { name: "twice", returns: "int", body: "SELECT 2" }], DBF).value.length, 1, "a name repeated in one answer is kept twice");
   const api = cleanAdd("api", [

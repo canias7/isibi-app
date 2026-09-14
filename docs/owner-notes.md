@@ -155,6 +155,84 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — The four outstanding fixes, and all five cases driven
+
+You named four fixes and then named the five cases you wanted to see them in.
+All four are done and all five are driven through the real addon route, reading
+the sentence your customer gets.
+
+**1. The evidence was hardcoded — inside the reader written to stop exactly
+that.** Every function this platform created was recorded as carrying the word
+"internal", whatever it really was. So a claim saying *"send_reminder is
+internal, so no visitor can call it"* came back **delivered** against a function
+created PUBLIC and callable by anybody on the internet. It reads what was really
+applied now: a function's visibility is recorded both ways round, so a claim on
+the wrong side of it is a contradiction rather than a shrug, along with what it
+returns and what it takes. **And a stored connection proves configuration and
+never behaviour**, in your own words: an outside service connection is a stored
+declaration — nothing has called the service and nothing has checked the key —
+so *"the forecast is read from api.test"* counts and *"visitors see the live
+forecast"* gets *"I've set that up, but I can't confirm from here that…"*
+
+**2. Two permission settings were being changed in silence.** A model writing
+`internal: "yes"` — truthy, and a perfectly plausible thing to write — had it
+read as `false`: the function was created with execute granted to anonymous
+visitors, the reply said it worked, and nothing was listed as skipped. That is
+refused by name now; when we cannot read which way a privacy setting was meant,
+we do not guess the more permissive one. **And `definer: false` is a real
+request, not noise** — it asks for LESS database privilege, the engine supports
+it, and this step cannot express it, so it is refused with a sentence rather
+than quietly built the opposite way round. Asking for the ordinary setting still
+works: the refusal is a refusal, not a ban.
+
+**3. A job whose new function failed was still being registered to run.** The
+first pass at this took such a job off the evidence only — so the reply stopped
+claiming the reminder worked and went on writing the schedule into the database.
+Every firing, for ever, would have written "this job is no longer part of the
+site" against a function that does not exist, on a timer you were told was set
+up. It is blocked at the source now, **per job, by the function that job runs**
+— proven with one function refused and one created, one job surviving, and the
+database agreeing with the reply — and the reply **names the failed dependency**,
+because "couldn't be set up" gives you nothing to do and "the function it runs,
+send_reminder, could not be created" gives you the thing to ask for again.
+
+**4. One sentence was answering two opposite findings.** *"I asked the database
+for a guarantee it doesn't offer"* was said about a setting the database has
+never heard of AND about one it supports perfectly that our own step cannot
+carry. The second is simply false, and it sends you to argue with the wrong
+layer. They are separated by measurement now — the engine is asked directly
+whether it would have used the value — and the second gets its own sentence:
+*"one setting the design asked for isn't something this kind of change can carry
+through… say it again on its own and I'll have another go."* Neither sentence
+names the setting; the count is what you can act on, and the names are in the
+developer record.
+
+**One thing worth knowing about the test driver itself.** It was answering the
+site's ORIGINAL database layout to every read, whatever had just been applied —
+so nothing a change created could ever be found, and every one of these claims
+would have read "can't confirm" for the driver's reason rather than the
+product's. Two separate causes, both fixed; it now remembers what the apply
+wrote, and it stubs the job registry so "taken off the reply" and "taken off the
+database" are two different questions.
+
+**Checked**: 25 deliberate breakages, all caught, both do-nothing controls
+untouched — **four survived the first pass and every one was a gap in my own
+new tests**, each closed with a case that can tell the two readings apart.
+Whole suite green at 6,363.
+
+**Kept on the list rather than fixed, as you asked**: an outside-service
+connection has nowhere to say what a required key IS or where to get one (it
+reaches you as a bare name like `WEATHER_KEY`), and its parameter list carries
+no types and no way to mark one required. Both are capability work.
+**And `search_path` stays explicitly open** — whether it matters here depends on
+the database role's real permissions and on which paths can actually be reached,
+neither of which has been checked, so it is not being called safe or unsafe.
+
+**Not proven live.** All of this is driven against stubbed seams. The addon
+rerun on `repairbench-1` is still the cheapest real proof and is your call.
+
+---
+
 ## 2026-09-14 — Your four corrections, each reproduced through the real route
 
 You read the change above before it merged and named four places where it was

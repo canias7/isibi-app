@@ -2500,14 +2500,14 @@ function declaredTruthy(v) {
 export function auditTier(spec, tier = "table", context = null, { sent = null } = {}) {
   const offered = TOOL_FIELDS[tier];
   const identity = NOT_A_GUARANTEE[tier];
-  const empty = { scanned: 0, reached: [], refused: [], changed: [], unbuilt: [] };
+  const empty = { scanned: 0, reached: [], refused: [], changed: [], unexpressed: [], unbuilt: [] };
   if (!offered || !spec || typeof spec !== "object") return empty;
   const raw = declaredItems(spec, tier);
   // WHAT REALLY GOES INTO THE ENGINE, BY NAME. Never by position: a cleaner
   // that refuses one item shifts every index behind it, which is this
   // repository's own recorded rule about pairing two lists.
   const clean = sent instanceof Map ? sent : null;
-  const reached = new Set(), refused = new Set(), changed = new Set(), unbuilt = [];
+  const reached = new Set(), refused = new Set(), changed = new Set(), unexpressed = new Set(), unbuilt = [];
   let scanned = 0;
   for (const def of raw) {
     scanned++;
@@ -2527,7 +2527,8 @@ export function auditTier(spec, tier = "table", context = null, { sent = null } 
     }
     const keptJson = JSON.stringify(kept);
     for (const key of Object.keys(def)) {
-      if (reached.size >= MAX_DROPPED && refused.size >= MAX_DROPPED && changed.size >= MAX_DROPPED) break;
+      if (reached.size >= MAX_DROPPED && refused.size >= MAX_DROPPED && changed.size >= MAX_DROPPED
+        && unexpressed.size >= MAX_DROPPED) break;
       if (!declaredTruthy(def[key])) continue;
       const inTool = offered.has(key);
       if (inTool && identity.has(key)) continue;
@@ -2541,21 +2542,55 @@ export function auditTier(spec, tier = "table", context = null, { sent = null } 
         if (refused.size >= MAX_DROPPED) continue;
         if (effectAllFalsy(context, tier, item, key, kept)) refused.add(key);
       } else {
-        if (reached.size >= MAX_DROPPED) continue;
-        if (changedNothing(context, tier, item, key, keptJson)) reached.add(key);
+        if (!changedNothing(context, tier, item, key, keptJson)) continue;
+        // WHICH PARTY DROPPED IT. The engine has no use for it (`reached`), or
+        // it has one and this step could not carry the value to it
+        // (`unexpressed`) — two different sentences to a customer and two
+        // different things to go and fix.
+        if (engineWouldUse(context, tier, item, key, def[key], keptJson)) {
+          if (unexpressed.size < MAX_DROPPED) unexpressed.add(key);
+        } else if (reached.size < MAX_DROPPED) reached.add(key);
       }
     }
   }
   return {
     scanned,
     reached: [...reached].sort(), refused: [...refused].sort(),
-    changed: [...changed].sort(), unbuilt,
+    changed: [...changed].sort(), unexpressed: [...unexpressed].sort(), unbuilt,
   };
 }
 
 /** A value two readings can be compared as text: never an object or an array. */
 function scalar(v) {
   return typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+}
+
+/**
+ * WOULD THE ENGINE HAVE USED THIS, HAD IT ARRIVED?
+ *
+ * The difference between two sentences that read the same and mean opposite
+ * things (owner, 2026-09-14): *"the engine does not support this"* and *"the
+ * addon cannot express or preserve this"*.
+ *
+ * `reached` was answering both. A key the tool does not offer is dropped
+ * SOMEWHERE — but by whom? `encryptAtRest` is dropped by the ENGINE, which has
+ * never heard of it; `language` is dropped by the addon's CLEANER, and the
+ * engine supports it perfectly (`normalizeSchema` reads `f.language` and the
+ * DDL says `LANGUAGE plpgsql`). Telling a customer the database "doesn't offer"
+ * the second one is false, and it is the wrong party to go and fix.
+ *
+ * So the question is asked of the engine directly: put the declared value onto
+ * what was really SENT and normalise again. If the answer moves, the engine had
+ * a use for it and the addon is what lost it. If it does not, the engine has no
+ * use for it and the tool is right not to offer it.
+ *
+ * ALWAYS FALSE WHEN NOTHING WAS CLEANED, and that is correct rather than a
+ * limitation: with no `sent` map the declaration IS what reached the engine, so
+ * a key that changed nothing was refused by the engine and nobody else.
+ */
+function engineWouldUse(context, tier, item, key, value, keptJson) {
+  const withIt = { ...item, [key]: value };
+  return JSON.stringify(keptItem(context, tier, withIt) || null) !== keptJson;
 }
 
 export function refusedFields(spec, tier = "table", context = null, opts) {

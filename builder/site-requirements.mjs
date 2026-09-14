@@ -434,12 +434,13 @@ export function requirementOutcomes(list, { told = [], failed = [], made = [] } 
   return out;
 }
 
-export function requirementNote(list, { told = [], invalid = [], failed = [], made = [] } = {}) {
+export function requirementNote(list, { told = [], invalid = [], failed = [], made = [], unexpressed = [] } = {}) {
   const outcomes = requirementOutcomes(list, { told, failed, made });
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
+  const lost = (Array.isArray(unexpressed) ? unexpressed : []).filter((x) => typeof x === "string" && x);
   const broke = outcomes.filter((r) => r.state === "failed");
   const unsure = outcomes.filter((r) => r.state === "unverified");
-  if (!broke.length && !unsure.length && !bad.length) return "";
+  if (!broke.length && !unsure.length && !bad.length && !lost.length) return "";
   const parts = [];
   const unsupported = broke.filter((r) => r.status === "unsupported");
   const handed = broke.filter((r) => r.status !== "unsupported");
@@ -466,6 +467,27 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], ma
       ? "I also asked the database for a guarantee it doesn't offer, so that one isn't in place."
       : "I also asked the database for " + bad.length + " guarantees it doesn't offer, so those aren't in place.");
   }
+  // ── A DIFFERENT SENTENCE, BECAUSE IT IS A DIFFERENT PARTY ────────────────
+  //
+  // Owner, 2026-09-14: *"Distinguish 'the engine does not support this' from
+  // 'the addon cannot express or preserve this.' `language` is the second
+  // case."*
+  //
+  // The clause above says the DATABASE cannot do it, which is what a customer
+  // hears as "stop asking for that". This one says the database can and THIS
+  // STEP could not carry it — so the thing to do is ask again another way, or
+  // ask us to widen the step, and telling them the first sentence about the
+  // second case sends them to argue with the wrong layer.
+  //
+  // Counts, never names, for exactly the reason the clause above gives; and
+  // naming them here would ALSO be the "expose hidden settings" the owner ruled
+  // out in the same message — `language` and `definer` are deliberately not on
+  // the tool, and a sentence listing them is an invitation to ask for one.
+  if (lost.length) {
+    parts.push(lost.length === 1
+      ? "One setting the design asked for isn't something this kind of change can carry through, so it's on the database's own default — say it again on its own and I'll have another go."
+      : lost.length + " settings the design asked for aren't things this kind of change can carry through, so they're on the database's own defaults — say them again on their own and I'll have another go.");
+  }
   return parts.join(" ");
 }
 
@@ -476,7 +498,7 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], ma
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], failed = [], made = [], unbuilt = {} } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], failed = [], made = [], unbuilt = {}, unexpressed = [] } = {}) {
   const outcomes = requirementOutcomes(list, { told, failed, made });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
@@ -496,6 +518,13 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // customer cannot act on a property name; what they hear is the count of
     // guarantees that are not in place, which is `invalidProps`' clause.
     changedProps: (Array.isArray(altered) ? altered : []).slice(0, MAX_REQUIREMENTS),
+    // WHAT THE ENGINE WOULD HAVE USED AND THIS STEP COULD NOT CARRY — the other
+    // half of `invalidProps`, and the half a customer's sentence deliberately
+    // does not name. THIS is where the names belong: `language` here says the
+    // addon's function tool has no property for it, which is a thing to go and
+    // build, where the same name under `invalidProps` would say the database
+    // never heard of it, which is false.
+    unexpressedProps: (Array.isArray(unexpressed) ? unexpressed : []).slice(0, MAX_REQUIREMENTS),
     // WHAT THIS CHANGE REALLY APPLIED, and the guarantees each item really has —
     // the evidence every `delivered` above was decided from. Kept beside the
     // verdicts so a person reading the record can see WHY one was unverified

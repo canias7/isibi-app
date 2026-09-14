@@ -22975,6 +22975,19 @@ async function handleRequest(request, env, ctx) {
             // quietly does another. Developer-facing, on the record and the
             // trace, because a property name is not something they can act on.
             const aChanged = new Set();
+            // …AND THE ONES THE ENGINE WOULD HAVE USED AND THIS STEP COULD NOT
+            // CARRY TO IT (2026-09-14, owner: *"Distinguish 'the engine does not
+            // support this' from 'the addon cannot express or preserve this.'
+            // `language` is the second case."*).
+            //
+            // `aBadProps` was answering both, and they are opposite findings:
+            // `encryptAtRest` is dropped by the ENGINE, which has never heard of
+            // it, and `language` is dropped by the addon's own CLEANER while
+            // `normalizeSchema` reads it and the DDL says `LANGUAGE plpgsql`.
+            // `auditTier` asks the engine directly — put the declared value onto
+            // what was really sent and normalise again — so the two are
+            // separated by measurement rather than by a hand-kept list.
+            const aUnexpressed = new Set();
             // …AND THE ITEMS THE ENGINE WILL NOT BUILD AT ALL, per tier
             // (2026-09-14). A table that fails is nearly always a table with a
             // refused field; a FUNCTION whose body names an internal table, or
@@ -23069,13 +23082,17 @@ async function handleRequest(request, env, ctx) {
                 // proof the thing exists. `made` is what the apply really
                 // landed and what each item really guarantees; `told` is which
                 // steps were really handed an outstanding requirement.
-                coverNote: requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade() }),
+                coverNote: requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade(), unexpressed: [...aUnexpressed] }),
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.
                 coverage: requirementCounts(aReq, aReqSkipped),
                 invalidProps: bad.length ? bad.slice(0, 12) : undefined,
                 changedProps: aChanged.size ? [...aChanged].slice(0, 12) : undefined,
+                // SEPARATE FROM `invalidProps` ON THE WIRE TOO, not folded into
+                // it with a flag: a reader that cannot tell the two apart is
+                // back to one sentence for two findings, which is the defect.
+                unexpressedProps: aUnexpressed.size ? [...aUnexpressed].slice(0, 12) : undefined,
               };
             };
             for (const k of aKinds) {
@@ -23180,6 +23197,12 @@ async function handleRequest(request, env, ctx) {
                   const audit = auditTier({ [tier]: mine }, k, withMine, { sent });
                   for (const n of audit.reached) aBadProps.add(n);
                   for (const n of audit.refused) aBadProps.add(n);
+                  // THE OTHER PARTY. The engine had a use for it and this step
+                  // could not carry it — a different sentence and a different
+                  // thing to go and fix. Never added to `aBadProps` as well: a
+                  // property in both lists is reported as the database refusing
+                  // something it supports.
+                  for (const n of audit.unexpressed) aUnexpressed.add(n);
                   // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY is neither
                   // reached-for nor refused: it reached something and the
                   // something is live, and it is not what was asked for.
@@ -23250,7 +23273,7 @@ async function handleRequest(request, env, ctx) {
             const aRecord = () => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
               ran: aAnswers.map((a) => a.kind), told: [...aTold],
-              failed: [...aFailedKinds], made: aMade(), unbuilt: aUnbuilt,
+              failed: [...aFailedKinds], made: aMade(), unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
             });
             const aSaveAnswer = async () => {
               try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
@@ -23283,6 +23306,11 @@ async function handleRequest(request, env, ctx) {
               const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], made: aMade() });
               aMark("coverage", "ok", {
                 ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size, moved: aChanged.size,
+                // BESIDE `bad`, NEVER SUMMED INTO IT: a run where the addon lost
+                // a setting the database supports is a different finding from
+                // one where the database refused it, and one number cannot say
+                // which happened.
+                lost: aUnexpressed.size,
                 done: st.filter((r) => r.state === "delivered").length,
                 broke: st.filter((r) => r.state === "failed").length,
                 unsure: st.filter((r) => r.state === "unverified").length,
@@ -23537,6 +23565,38 @@ async function handleRequest(request, env, ctx) {
                 // `jobErrors` beside `functionErrors`, exactly as a function
                 // that failed to CREATE is reported, and `aJobs` is cleared so
                 // nothing downstream can claim what did not happen.
+                // ── A JOB WHOSE NEW FUNCTION FAILED IS NOT REGISTERED ────
+                //
+                // Owner, 2026-09-14: *"When a required new function fails, do
+                // not register its dependent new jobs. Name the failed
+                // dependency and remove those jobs from the scheduled-success
+                // list."*
+                //
+                // The first pass at this only took such a job out of the
+                // EVIDENCE — so the reply stopped calling the requirement
+                // delivered and went on registering a timer against a function
+                // that does not exist. Every firing of it would write "this job
+                // is no longer part of the site", for ever, on a schedule the
+                // customer was told was set up.
+                //
+                // THE DEPENDENCY IS NAMED, because "couldn't be set up" gives
+                // nobody anything to do: the function is what failed and the
+                // function is what they can ask for again. A job on a function
+                // the apply never touched is untouched here.
+                const aDeadFns = new Set(aFnErrors.map((e) => String((e && e.name) || "").toLowerCase()).filter(Boolean));
+                const aBlocked = aDeadFns.size ? aJobs.filter((j) => aDeadFns.has(String(j.fn || "").toLowerCase())) : [];
+                if (aBlocked.length) {
+                  const blockedNames = new Set(aBlocked.map((j) => String(j.name || "").toLowerCase()));
+                  aJobErrors = [...aJobErrors, ...aBlocked.map((j) => ({ name: j.name, error: "the function it runs, " + j.fn + ", could not be created" }))].slice(0, 6);
+                  aJobs = aJobs.filter((j) => !blockedNames.has(String(j.name || "").toLowerCase()));
+                  aFailedKinds.add("job");
+                  aMark("jobs", "blocked", { n: aBlocked.length });
+                  // AND THE REGISTRATION ITSELF NEVER SEES THEM. `merged.jobs`
+                  // carries the site's stored jobs too, so the filter is by
+                  // NAME rather than a wholesale skip: a job that was already
+                  // running is not taken off the site by an unrelated failure.
+                  merged.jobs = (merged.jobs || []).filter((j) => !blockedNames.has(String((j && j.name) || "").toLowerCase()));
+                }
                 if (aJobs.length) {
                   try { await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs); aMark("jobs", "ok", { n: aJobs.length }); }
                   catch (e) {
