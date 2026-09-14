@@ -230,8 +230,42 @@ site with no SMS key is held and reported as waiting rather than failed.
 **What is demonstrated and what is not.** Every one of the five is driven — the
 first four through `POST /api/site/<slug>/addon`, reading the sentence your
 customer gets, and the fifth through the job runner with stubbed providers.
-**None of it has run against a real customer message.** The `repairbench-1`
-addon rerun is still the cheapest live proof and is your call.
+**None of it has run against a real customer message.**
+
+**On the SMS half, precisely.** The stubbed test proves the runtime hands the
+right sender the right thing: an `sms` message goes to the SMS provider and not
+the mail one, with the number as the real parser returns it and the SMS key
+rather than the email key, and it is HELD rather than counted as failed when
+that key is missing. **It does not prove delivery** — the provider is a
+recorder, so the last thing the test sees is the argument, never a network
+answer. **No real text has been sent and none will be until you give me a test
+recipient.**
+
+**On `checked`, the new list.** It is empty, and empty is the right answer for
+this change: nothing in this path actually runs a function, calls a connection
+or fires a job to watch what it does. I have written into the code the three
+ways it would get filled wrongly — from configuration, from a word matching, or
+from one live run that passed — so the next session cannot quietly do any of
+them, and the guard goes red if one does.
+
+**Why I did not run the live check on `repairbench-1`.** You asked for it
+against these candidate changes, and the honest answer is that there is nowhere
+isolated to run it. **There is one Worker** — `isibi-app`, on `gofarther.dev`
+and the `gofarther.app` zone — with no staging and no second environment, and
+the addon's work runs inside the site's CONTAINER, whose image is built by the
+same deploy. So the check needs both halves to be the new code, and the only
+door to that is a deploy to production. **Running it against what is live today
+would test the old version and prove nothing about this patch.** You said not to
+merge or deploy yet, so I stopped here rather than buying the answer with a
+deploy you had not agreed to. When you want it, the sequence is: merge →
+deploy → **wait 15–20 minutes for the container to roll** → then the addon run.
+
+**What is still open and deliberately not fixed**, so it does not get lost: a
+`language` setting the addon drops (reported honestly now, still lost); the API
+tier having no field to say where a credential comes from, and no types or
+required flag on its parameters; no run-once field on a job (a missing field,
+not a missing capability); and `search_path` on generated functions, which is
+**unmeasured** rather than safe or unsafe.
 
 ---
 

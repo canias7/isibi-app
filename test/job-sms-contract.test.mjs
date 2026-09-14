@@ -13,6 +13,26 @@
 // paragraph telling the designer the field exists, which is why the first half
 // of this file is a census of the two tools and the second half drives the
 // runtime.
+//
+// ── WHAT THIS FILE PROVES, AND EXACTLY WHERE THAT STOPS ─────────────────────
+//
+// Owner, 2026-09-14: *"The stubbed test proves the runtime calls the sender
+// correctly. It does not prove real delivery."*
+//
+// PROVED HERE: `runJob` routes a `channel: "sms"` message to the SMS sender
+// rather than the mail sender, hands it the number as the real parser returns
+// it, hands it the SMS credential rather than the email one, and holds it
+// (`unsent`, never `failed`) when that credential is absent.
+//
+// NOT PROVED HERE, and no amount of stubbing can: that a provider ACCEPTS the
+// payload, that a handset receives it, that the number format the provider
+// wants is the one this produces, or that the credential in a real site's
+// Secrets works. `sendSms` is replaced by a recorder in every case below — the
+// last hop this file sees is the ARGUMENT, never a network answer.
+//
+// **NO REAL TEXT HAS BEEN SENT AND NONE MAY BE** until the owner names a test
+// recipient — a text goes to a real phone belonging to a real person and is
+// not something to discover a wrong number with.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { addTool, MESSAGE_CONTRACT } from "../builder/site-add.mjs";

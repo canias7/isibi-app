@@ -2814,12 +2814,69 @@ survived.**
 
 **Suite 6,379** — 6,363 + 6 (`addon-route`) + 5 (`addon-steps`) + 5
 (`job-sms-contract`) before the survivors were closed, then + 1 route case and
-+ 1 module case. **CI has NOT read this number.**
++ 1 module case. **CI has read it: `unit tests` run 2530 on the tip.**
 
-**NOT PROVEN LIVE.** Every measurement is from driving the real route and the
-real job runner against stubbed seams; nothing has run against a real customer
-message or a real SMS provider. The `repairbench-1` addon rerun is still the
-cheapest live proof and is the owner's call.
+#### What each of these is evidence FOR, and where that stops
+
+Owner, 2026-09-14, on the SMS half: *"The stubbed test proves the runtime calls
+the sender correctly. It does not prove real delivery."*
+
+- **THE SMS EVIDENCE IS AN ARGUMENT, NEVER A DELIVERY.** `sendSms` is replaced
+  by a recorder in every case, so the last hop the guard sees is what was
+  HANDED to the sender: the right sender, the parsed number, the SMS
+  credential, and a hold (`unsent`, never `failed`) when that credential is
+  absent. It cannot prove a provider accepts the payload, that a handset
+  receives it, that the number FORMAT the provider wants is the one this
+  produces, or that a real site's key works. **NO REAL TEXT HAS BEEN SENT AND
+  NONE MAY BE until the owner names a test recipient** — a text reaches a real
+  phone belonging to a real person, which is not the place to discover a wrong
+  number. The file's own header says all of this.
+- **`checked` IS EMPTY AND THAT IS THE CORRECT ANSWER FOR THIS CHANGE.** Owner:
+  *"Don't populate it from configuration, keyword matches, or this one
+  successful test as though every future generated feature were verified."*
+  The three wrong fillings are named in `appliedFacts`' own comment —
+  configuration (copying `holds`, which collapses the distinction), a keyword
+  match (`claimEvidence` already asks that, so the claim would be its own
+  evidence), and one passing live run (which proves one site's one feature
+  worked once, where `checked` is read for every generated feature after it).
+  The guard drives all five applied kinds and asserts every `checked` is `[]`,
+  so filling one is a red run rather than a drift.
+
+#### Kept recorded, not fixed — the four open items this round did not close
+
+1. **A DISCARDED `language`.** The engine reads `f.language` and emits `LANGUAGE
+   plpgsql`; the ADDON's cleaner drops the key. It is reported honestly now
+   (the `unexpressed` bucket, its own customer clause) and is **still lost** —
+   the fix is the cleaner carrying it, which is capability work.
+2. **THE API TIER HAS NO CREDENTIAL-GUIDANCE FIELD, AND `params` CARRIES NO
+   TYPES OR REQUIRED FLAG.** A required secret reaches the owner as a bare name
+   (`WEATHER_KEY`) with nothing saying where to get one, and a connection cannot
+   say which parameter a page must supply.
+3. **NATIVE ONE-TIME SCHEDULING IS ABSENT.** `JOB_ITEM` carries `everyMinutes`
+   and an optional `at` and no run-once field. **A missing field, not a missing
+   capability** — the wording correction above is exactly this distinction.
+4. **`search_path` STAYS EXPLICITLY UNRESOLVED.** Every model function is
+   `SECURITY DEFINER` with no `SET search_path`; whether that is exploitable
+   here depends on the role's real permissions and on which execution paths are
+   reachable, and **neither has been checked**. Not "safe" and not "a hole" —
+   unmeasured, and saying so is the point. `scripts/grants-backfill.mjs
+   --preview` is the pattern for asking where the credentials already live.
+
+**NOT PROVEN LIVE, AND THERE IS NO ISOLATED PLACE TO PROVE IT (2026-09-14).**
+Every measurement is from driving the real route and the real job runner against
+stubbed seams; nothing has run against a real customer message. **The platform
+has ONE Worker** — `isibi-app` in `wrangler.jsonc`, no `env` block, bound to
+`gofarther.dev`, `www.gofarther.dev` and the `gofarther.app` zone — and the
+addon's work runs in the site's CONTAINER, whose image is built by that same
+deploy. So a live check on `repairbench-1` needs BOTH halves to be the candidate
+build, and the only way to get there is `deploy.yml`, which fires on a push to
+`main` (or a `workflow_dispatch` that deploys whatever ref it is given **to that
+same production Worker**). **There is no staging, no preview environment and no
+second Worker**; `OWNER_BASE_URL` overrides the harness's target and there is
+nothing else to point it at. **A live check is therefore a production deploy**,
+and the owner's standing instruction is not to merge or deploy yet — so the
+check is NOT run and this stays unproven rather than being bought with a deploy
+nobody asked for.
 
 ### The write grants are column-scoped (2026-09-13)
 

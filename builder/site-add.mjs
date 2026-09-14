@@ -2676,6 +2676,19 @@ export function addRepairNote(round) {
  * anything short of that** — a fact about a setting goes in `holds`, where it
  * is recorded and does not claim the behaviour.
  *
+ * **THE THREE WAYS IT WOULD BE FILLED WRONGLY, NAMED** (owner, 2026-09-14:
+ * *"Don't populate it from configuration, keyword matches, or this one
+ * successful test as though every future generated feature were verified."*).
+ * (1) From CONFIGURATION — copying `holds`, which is the whole distinction
+ * collapsed. (2) From a KEYWORD MATCH — a word appearing in the claim is what
+ * `claimEvidence` already asks; putting the same test on this side would make
+ * the claim its own evidence. (3) From ONE PASSING RUN — a live check on one
+ * site proves that site's one feature worked once, and `checked` is read for
+ * EVERY generated feature after it. An empty list is the correct answer for
+ * this change, and it stays empty until a step here really exercises the
+ * thing: `test/addon-steps.test.mjs` drives all five applied kinds and asserts
+ * every `checked` is `[]`, so filling one is a red run rather than a drift.
+ *
  * ── WHY IT LIVES HERE AND NOT IN THE ROUTE (2026-09-14) ─────────────────────
  *
  * It was written inline in the addon route, and a sweep mutant that emptied
