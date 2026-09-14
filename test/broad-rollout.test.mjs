@@ -159,9 +159,11 @@ test("each consumer's budget is what the invocation has left, and the container'
 
   // AND THE CONTAINER'S DISPATCH MUST NOT CARRY IT. Inside the site's
   // container there is no fifteen-minute invocation — the launch's deadline
-  // (stage 5d) is the ceiling — so a `startedAt` there would cut every
-  // container build from twenty-seven minutes to whatever is left of a
-  // Worker's clock that does not exist.
+  // (stage 5d) is the outer bound — so a `startedAt` there would cut every
+  // container build from NO LIMIT AT ALL down to whatever is left of a
+  // Worker's clock that does not exist. (This read "from twenty-seven minutes"
+  // until 2026-09-14, which was true for one commit: the first answer to run
+  // 44 sized a stopwatch here, and the owner deleted it the same day.)
   const dispatch = between(src, "export async function runContainerJob(env, ctx, {", "\n/** The gateway's signing key", "runContainerJob");
   assert.ok(/CONTAINER_BUILD_BUDGET_MS/.test(dispatch), "the container's own budget left the dispatch");
   // AND SINCE 2026-09-14 THE EDIT HAS ONE TOO. This dispatch passed the build a

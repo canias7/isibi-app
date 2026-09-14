@@ -3432,8 +3432,10 @@ ahead of its evidence**, one layer under a change that rests on it.
 too — **both arms name a container's clock and neither an isolate's, because
 that line is only reached on the fire path**, `jobRunnerFor` having refused
 above it. It had been minting a fourteen-minute deadline and token for a job
-with twenty-seven minutes of room, so the runner's child would have been killed
-by its own deadline long before the work ran out.
+the container was not going to stop, so the runner's child would have been
+killed by its own deadline long before the work ran out. (The first round said
+"a job with twenty-seven minutes of room" here, which was that round's own
+number and survived it by an hour.)
 
 **AND THE FALLBACK HAS ONE HOME.** The first cut wrote `capMs && capMs > 0 ?
 capMs : EDIT_JOB_MS` at the consumer — a literal second copy of

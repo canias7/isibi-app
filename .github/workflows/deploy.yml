@@ -400,11 +400,17 @@ jobs:
           # why it is kept rather than being made decorative.
           #
           # WHAT IT BUYS, and it is the reason the flip happened: a job in the
-          # container runs under a THIRTY-MINUTE deadline against a
-          # twenty-seven minute budget, where a Worker isolate is stopped at
-          # fifteen. Run 44 (2026-09-14, an addon on repairbench-1) died at
-          # 12m22s with the database made, the page written and nothing
-          # published — inline, on this flag being off.
+          # container runs WITH NO TIME LIMIT ON THE WORK (owner, the same day:
+          # "containers shouldn't have a time limit"), under a fifty-minute
+          # deadline that is a credential lifetime and a wedge-breaker rather
+          # than a stopwatch — where a Worker isolate is stopped at fifteen and
+          # its budget gives the work 12m45s. Run 44 (2026-09-14, an addon on
+          # repairbench-1) died at 12m22s with the database made, the page
+          # written and nothing published — inline, on this flag being off.
+          # THE NUMBERS MOVED ONCE ALREADY: this comment said thirty and
+          # twenty-seven for one commit, which was the first answer to run 44
+          # and was replaced the same day. `builder/edit-job.mjs` is where they
+          # live; this line does not carry a copy of them.
           #
           # WHAT IT COSTS: every site's jobs now share the account's container
           # ceiling. A fire that finds no room WAITS (JOB_FIRE_MS, 90s) and
