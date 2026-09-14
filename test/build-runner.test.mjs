@@ -664,7 +664,10 @@ test("the fire, read off the Worker: a build's clock and token expiry, the place
   assert.match(ident, /return \{ uid: job\.uid, slug: named, pre: false \};/);
   // The gateway's scope deps: the Worker signs with the derived key and asks
   // the fresh owner lookup, never the memoized one.
-  const mount = fn(src, "function jobGateway(env)");
+  // RE-ANCHORED 2026-09-14: the mount takes `ctx` too, for the wire probe's
+  // held pump. Its ARITY is not the property — what it hands the handler is —
+  // so the anchor is the declaration rather than one spelling of its parameters.
+  const mount = fn(src, "function jobGateway(");
   assert.match(mount, /scope: \{[\s\S]*sign:[\s\S]*signJobToken\([\s\S]*owner:[\s\S]*siteBackendRowFresh\(env, slug\)/, "the gateway is not handed the scope deps");
 });
 

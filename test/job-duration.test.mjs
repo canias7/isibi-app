@@ -138,8 +138,21 @@ test("readJobMaxMs has a CONSUMER — a setting nothing reads is not a setting",
     // Prose about the reader names the reader — the recorded own-goal.
     .split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
   assert.match(src, /import \{ readJobMaxMs \} from "\.\/builder\/job-duration\.mjs";/, "worker.js no longer imports the setting's reader");
-  const calls = src.match(/readJobMaxMs\(/g) || [];
-  assert.equal(calls.length, 1, "the setting is read " + calls.length + " times — one mint, one read, or the deadline and the token can disagree");
+  // DERIVED BOTH WAYS, and re-anchored the same day when the job probe became a
+  // SECOND legitimate mint: the property was never "read once", it is that
+  // EVERY place minting a job's clock reads the setting. A mint with no read is
+  // a deadline that ignores the deploy; a read with no mint is the unwired
+  // reader this case exists for. Counting them and requiring them equal says
+  // both at once and survives a third mint being added honestly.
+  const mints = src.match(/deadlineAt: Date\.now\(\) \+ budgetMs/g) || [];
+  const reads = src.match(/readJobMaxMs\(/g) || [];
+  assert.ok(mints.length >= 1, "nothing in worker.js mints a job deadline — this case is checking a file that no longer fires jobs");
+  assert.equal(reads.length, mints.length,
+    "worker.js mints " + mints.length + " job deadlines and reads the setting " + reads.length + " times — one of them is not configurable");
+  // AND EACH MINT'S `budgetMs` COMES OFF THE READER, never a constant: the
+  // count alone is satisfied by two reads feeding one mint.
+  assert.equal((src.match(/const budgetMs = (?:setting\.ms|readJobMaxMs\(env\)\.ms);/g) || []).length, mints.length,
+    "a job deadline is minted from something other than the setting's answer");
 });
 
 test("the BROWSER watches at least as long as the job can run", () => {

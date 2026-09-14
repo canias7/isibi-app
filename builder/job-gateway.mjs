@@ -487,7 +487,44 @@ const json = (status, body) => new Response(JSON.stringify(body), { status, head
  *                           would not claim is 400, and a non-string is
  *                           never coerced into one
  */
-export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null }) {
+/**
+ * THE LONGEST A `/wire` PROBE MAY HOLD A CONNECTION. Above the 270-second wall
+ * it exists to measure and well under any real job's clock — an instrument that
+ * cannot outlast the thing it measures answers nothing, and one that can outlast
+ * a job is a way to hold sockets open.
+ */
+export const WIRE_MAX_MS = 8 * 60_000;
+
+/** How long a `/wire` probe holds by default, and the floor on its tick. */
+export const WIRE_DEFAULT_MS = 60_000;
+export const WIRE_MIN_TICK_MS = 1000;
+
+/**
+ * WHAT A `/wire` CALL ASKED FOR, CLAMPED — its own function, because the only
+ * other way to observe the clamp is to WAIT for it, and asking for the ceiling
+ * to prove the ceiling costs eight minutes a run. (Found by writing the guard:
+ * the first draft drove the op with a nine-hour ask and hung the suite.)
+ *
+ * Answers `{ mode, ms, everyMs }`, or `null` for a mode nobody recognises —
+ * never a default mode, because a `trickle` silently answered as `quiet` would
+ * report a wall that was never measured.
+ *
+ * THE TICK'S FLOOR IS A SECOND. A faster one measures nothing about a
+ * 270-second wall and is a way to make a Worker do work per connection.
+ */
+export function readWire(b) {
+  const mode = String((b && b.mode) || "quiet");
+  if (mode !== "quiet" && mode !== "trickle") return null;
+  // NON-NUMBERS FALL TO THE DEFAULT RATHER THAN COERCING: `Number(["600000"])`
+  // is 600000, and this repository has shipped that as a real bug.
+  const want = typeof (b && b.ms) === "number" && Number.isFinite(b.ms) ? b.ms : WIRE_DEFAULT_MS;
+  const ms = Math.max(1000, Math.min(WIRE_MAX_MS, Math.round(want)));
+  const evWant = typeof (b && b.everyMs) === "number" && Number.isFinite(b.everyMs) ? b.everyMs : 20_000;
+  const everyMs = Math.max(WIRE_MIN_TICK_MS, Math.min(ms, Math.round(evWant)));
+  return { mode, ms, everyMs };
+}
+
+export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null, waitUntil = null }) {
   return async function handle(request, id) {
     const auth = String(request.headers.get("authorization") || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -531,6 +568,61 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       if (!r.ok && rpcCall) { log("sb-refused", { id: who.id, op, status: r.status }); return json(r.status, { error: "supabase", status: r.status }); }
       if (r.status === 204) return new Response(null, { status: 204, headers: out });
       return new Response(await r.arrayBuffer(), { status: r.status, headers: out });
+    }
+
+    // ── THE WIRE OP (2026-09-14): A LONG CONNECTION, ON PURPOSE ───────────
+    //
+    // The far end of `builder/job-probe.mjs`'s transport test. It holds this
+    // response open for a stated time in one of two shapes — `quiet` sends
+    // NOTHING until it answers (what a non-streaming model call looks like on
+    // the wire), `trickle` sends a byte every `everyMs` (what `stream: true`
+    // produces) — so the container can find out which one its egress kills
+    // without a model call, a credit, or waiting for a model to answer slowly.
+    //
+    // IT CARRIES NO DATA IN EITHER DIRECTION. The body out is a space per tick
+    // and one JSON line; the body in is three numbers. There is nothing here to
+    // read and nothing to leak, which is what makes a route whose whole job is
+    // to hold a socket open acceptable at all.
+    //
+    // BOUNDED HERE AND NOT ONLY AT THE CALLER, because a bound that lives in
+    // the caller is one the next caller forgets — this repository's own rule,
+    // written for `/hold` one process over and true for the same reason. The
+    // token is the wall in front of it: a job token, verified above, minted
+    // only by the fire.
+    if (tail === "/wire" && request.method === "POST") {
+      let b = null;
+      try { b = await request.json(); } catch { b = null; }
+      const asked = readWire(b);
+      if (!asked) return json(400, { error: "wire mode must be quiet or trickle" });
+      const { mode, ms, everyMs } = asked;
+      log("wire", { id: who.id, mode, ms, everyMs });
+      const nap = (n) => new Promise((r) => setTimeout(r, n));
+      if (mode === "quiet") {
+        await nap(ms);
+        return json(200, { wire: "quiet", ms, everyMs: 0 });
+      }
+      // A STREAMED BODY, because the point is bytes moving DURING the wait —
+      // an answer at the end would be the quiet shape wearing another name.
+      const { readable, writable } = new TransformStream();
+      const w = writable.getWriter();
+      const enc = new TextEncoder();
+      const pump = (async () => {
+        const end = Date.now() + ms;
+        try {
+          while (Date.now() < end) {
+            await nap(Math.min(everyMs, Math.max(1, end - Date.now())));
+            await w.write(enc.encode(" "));
+          }
+          await w.write(enc.encode("\n" + JSON.stringify({ wire: "trickle", ms, everyMs }) + "\n"));
+        } catch { /* the caller went away, which is itself the answer it wanted */ }
+        try { await w.close(); } catch { /* already closed by the disconnect */ }
+      })();
+      // HELD, because a Worker tears its context down once the response is
+      // returned and a promise nobody holds is cancelled mid-flight — this
+      // repository has already lost most of an audit log to exactly that, and
+      // an abandoned pump would report a trickle that stopped after one byte.
+      if (typeof waitUntil === "function") { try { waitUntil(pump); } catch { /* a probe never costs a job */ } }
+      return new Response(readable, { status: 200, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
     }
 
     // ── THE SCOPE OP (stage 5b): a pre-scoped build learns its site ───────

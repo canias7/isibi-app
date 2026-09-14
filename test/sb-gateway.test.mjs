@@ -565,7 +565,9 @@ test("every table a job-path helper touches is admitted by the wall with that me
 
 test("the Worker mounts the Supabase branch with its own origin, key and mint, and the fire sends a v2 launch naming the origin and no credential (read off the source; the fire is driven in container-job.test.mjs)", () => {
   const src = noComments(WORKER);
-  const mount = src.slice(src.indexOf("function jobGateway(env)"), src.indexOf("\n}\n", src.indexOf("function jobGateway(env)")));
+  // RE-ANCHORED 2026-09-14: `jobGateway` gained `ctx` for the wire probe's held
+  // pump. The property is what it hands the handler, never its arity.
+  const mount = src.slice(src.indexOf("function jobGateway("), src.indexOf("\n}\n", src.indexOf("function jobGateway(")));
   assert.match(mount, /sb: \{ url: SUPABASE_URL, key: \(env && env\.SUPABASE_SERVICE_KEY\) \|\| "", mint: \(env && env\.CREDITS_MINT_SECRET\) \|\| "" \}/, "the gateway is not handed the Worker's Supabase origin, key and mint");
   const fire = src.slice(src.indexOf("async function fireContainerJob("), src.indexOf("\n}\n", src.indexOf("async function fireContainerJob(")));
   // RE-ANCHORED for stage 5b: the launch's kind is the CALLER's now (an edit

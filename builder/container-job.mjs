@@ -37,6 +37,7 @@ import { readFileSync } from "node:fs";
 import { makeContainerEnv, makeContainerCtx, gatewayFetch } from "./container-env.mjs";
 import { longPost } from "./long-post.mjs";
 import { readDeadline, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE } from "./job-clock.mjs";
+import { PROBE_KIND, runProbe } from "./job-probe.mjs";
 
 /**
  * THE TWO NAMES A LAUNCH MAY NOT CARRY (stage 4b, 2026-09-06). The service
@@ -55,7 +56,14 @@ export function readLaunch(raw) {
   try { p = JSON.parse(String(raw || "")); } catch { throw new Error("launch payload is not JSON"); }
   if (!p || typeof p !== "object" || p.v !== 2) throw new Error("launch payload is not v2");
   const kind = String(p.kind || "");
-  if (!["edit", "build", "resume"].includes(kind)) throw new Error("launch kind " + JSON.stringify(p.kind) + " is not one this runner runs");
+  // `probe` (2026-09-14) IS A JOB CHILD THAT RUNS NO CUSTOMER'S WORK — it
+  // occupies one for a stated time, or holds one long connection open, so the
+  // two questions only this side can answer can be asked without a model call,
+  // a row or a credit. See `job-probe.mjs`. It is on the SAME list because it
+  // must go through the SAME door: `/job/run`'s busy hold, its deadline and its
+  // terminator are most of what it exists to measure, and a probe with a door
+  // of its own would measure the door.
+  if (!["edit", "build", "resume", PROBE_KIND].includes(kind)) throw new Error("launch kind " + JSON.stringify(p.kind) + " is not one this runner runs");
   const id = String(p.id || "");
   if (!/^[a-z0-9][a-z0-9_-]{3,80}$/i.test(id)) throw new Error("launch has no job id");
   const g = p.gateway;
@@ -135,6 +143,22 @@ export function installGatewayFetch(launch, g = globalThis) {
 export async function runJob(launch, { importWorker, env, ctx, log = () => {}, signals = process, setTimeout: st = setTimeout, exit = (code) => process.exit(code) } = {}) {
   const at = Date.now();
   const { kind, id } = launch;
+  // ── A PROBE RUNS BEFORE THE WORKER TREE IS EVEN IMPORTED (2026-09-14) ────
+  //
+  // It answers the two questions that are about THIS PROCESS and its socket —
+  // can a job child live past fifteen minutes here, and which shape of long
+  // connection does this egress kill — so importing several hundred modules and
+  // installing a Supabase shim first would put the thing being measured behind
+  // a large pile of the thing that is not. It touches no row, no lease and no
+  // ledger; `job-probe.mjs` says why that is a decision rather than a shortcut.
+  //
+  // THE SAME SENDER A MODEL CALL USES, handed in rather than reached for. A
+  // probe with a transport of its own measures the probe.
+  if (kind === PROBE_KIND) {
+    const out = await runProbe(launch, { send: longPost, log });
+    log({ job: id, kind, ...out });
+    return { ok: out.ok === true, kind, id, ms: Date.now() - at, probe: out };
+  }
   let restore = () => {};
   let onTerm = null;
   try {

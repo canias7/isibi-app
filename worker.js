@@ -265,6 +265,9 @@ import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 // HOW LONG A CONTAINER JOB MAY RUN — the one setting, read here so the deploy
 // can shorten it without a code change. `fireContainerJob` is its one consumer.
 import { readJobMaxMs } from "./builder/job-duration.mjs";
+// The probe's own reader, shared with the runner so the caller's numbers are
+// clamped by ONE rule — two copies of a bound is how one of them drifts.
+import { readProbe } from "./builder/job-probe.mjs";
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
@@ -12883,9 +12886,14 @@ async function gatewayKeyFor(env) {
  * job's RPCs and table reads arrive under `/sb/` with the job token and go
  * out to Postgres from here with the real credentials.
  */
-function jobGateway(env) {
+function jobGateway(env, ctx) {
   return gatewayHandler({
     bucket: env && env.SITES_BUCKET,
+    // THE WIRE PROBE'S PUMP OUTLIVES THE RETURN (2026-09-14): a Worker tears
+    // the request context down the moment a response is handed back, so the
+    // async writer feeding a streamed body has to be held or it is cancelled
+    // mid-flight. Every other op here settles before it returns and needs none.
+    waitUntil: ctx && typeof ctx.waitUntil === "function" ? (p) => ctx.waitUntil(p) : null,
     verify: async (t) => { const k = await gatewayKeyFor(env); return k ? verifyJobToken(t, k, Date.now()) : null; },
     log: (why, d) => console.error("job gateway refused:", why, JSON.stringify(d)),
     sb: { url: SUPABASE_URL, key: (env && env.SUPABASE_SERVICE_KEY) || "", mint: (env && env.CREDITS_MINT_SECRET) || "" },
@@ -16209,7 +16217,7 @@ async function handleRequest(request, env, ctx) {
     // every other route, because nothing else on the platform may answer it.
     if (isAppHostname(url.hostname)) {
       const gid = gatewayJobId(url.pathname);
-      if (gid) return jobGateway(env)(request, gid);
+      if (gid) return jobGateway(env, ctx)(request, gid);
     }
 
     // A PUBLISHED SITE ON THE OWNER'S OWN DOMAIN.
@@ -17281,6 +17289,77 @@ async function handleRequest(request, env, ctx) {
     // completing and a real server answering. There is no key in the image to
     // leak and no billable path to reach.
     //
+    // ── THE JOB PROBE (2026-09-14): DURATION AND TRANSPORT, SEPARATELY ─────
+    //
+    // Owner: *"Test duration and transport separately… so proof doesn't depend
+    // on the model randomly answering slowly."* `builder/job-probe.mjs` is what
+    // runs; this is the door.
+    //
+    // IT FIRES A REAL JOB CHILD THROUGH THE REAL `/job/run`, which is most of
+    // the point: the busy hold, the launch's deadline and the terminator armed
+    // off it are three of the things being measured, and a probe with a door of
+    // its own would measure the door. The launch is the ordinary v2 shape with
+    // `kind: "probe"` — `readLaunch` is the one reader and it admits the kind
+    // by name, so nothing here is a special case downstream.
+    //
+    // PRE-SCOPED, ALWAYS. The token names the probe's own id and a placeholder
+    // slug, so it opens exactly nothing in R2 and cannot reach a customer's
+    // objects even by accident. It needs the gateway only for the `/wire` op,
+    // which reads no storage at all.
+    //
+    // OWNER-GATED, AND ITS OWN LANE. A probe occupies a lane for as long as it
+    // is asked, so a caller-chosen lane is a way to starve a real build — the
+    // hold probe's own rule, and the same lane name for the same reason.
+    if (url.pathname === "/api/site/job-probe") {
+      if (!(await authUser(request))) return UNAUTHED();
+      if (!env.SITE_BUILD_CONTAINER) return Response.json({ ok: false, error: "no container binding" }, { status: 503 });
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName("hold-probe"));
+      // READING ONE BACK IS THE SAME DOOR, because a fire whose result nobody
+      // can read is an instrument with no dial.
+      if (request.method === "GET") {
+        const pid = String(url.searchParams.get("id") || "");
+        if (!isJobId(pid)) return Response.json({ ok: false, error: "bad id" }, { status: 400 });
+        try {
+          const r = await c.fetch(new Request("http://build/job/" + encodeURIComponent(pid), { method: "GET", signal: AbortSignal.timeout(20000) }));
+          return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+        } catch (e) {
+          return Response.json({ ok: false, err: String((e && e.name) || e) }, { status: 502 });
+        }
+      }
+      if (request.method !== "POST") return new Response("method not allowed", { status: 405 });
+      const key = await gatewayKeyFor(env);
+      if (!key) return Response.json({ ok: false, error: "no key" }, { status: 503 });
+      let body = null;
+      try { body = await request.json(); } catch { body = null; }
+      const { shape, ms, everyMs } = readProbe(body || {});
+      const id = newJobId();
+      // THE CLOCK IS THE JOB'S OWN, through the setting's one reader — a probe
+      // measuring how long a job may run must be given a job's own room, or it
+      // measures a number nobody else uses.
+      const budgetMs = readJobMaxMs(env).ms;
+      const token = await signJobToken({ id, slug: preScopeSlug(id), uid: "probe", exp: Math.floor((Date.now() + budgetMs) / 1000) + JOB_TOKEN_GRACE_S, pre: true }, key);
+      const payload = JSON.stringify({
+        v: 2, kind: "probe", id, probe: shape, ms, everyMs,
+        gateway: { url: "https://" + APP_ZONE + "/api/job/" + id, token },
+        sb: { url: SUPABASE_URL },
+        secrets: {},
+        buildPort: 8080,
+        deadlineAt: Date.now() + budgetMs,
+        pre: true,
+      });
+      const t0 = Date.now();
+      try {
+        const r = await c.fetch(new Request("http://build/job/run", {
+          method: "POST", headers: { "content-type": "application/json" }, body: payload,
+          signal: AbortSignal.timeout(JOB_FIRE_MS),
+        }));
+        const text = await r.text().catch(() => "");
+        return Response.json({ ok: r.status === 200, id, shape, ms, everyMs, status: r.status, body: text.slice(0, 400), firedMs: Date.now() - t0, read: "/api/site/job-probe?id=" + id });
+      } catch (e) {
+        return Response.json({ ok: false, id, err: String((e && e.name) || e), ms: Date.now() - t0 }, { status: 502 });
+      }
+    }
+
     // PINNED TO THE SAME ONE LANE as the hold probe, for the same reason — a
     // caller-chosen lane is one that could starve a real build.
     if (url.pathname === "/api/_egress" && request.method === "GET") {
