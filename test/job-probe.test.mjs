@@ -20,6 +20,8 @@ import {
 import { JOB_MAX_MS } from "../builder/job-duration.mjs";
 import { readLaunch } from "../builder/container-job.mjs";
 import { gatewayHandler, readWire, WIRE_MAX_MS, WIRE_DEFAULT_MS, WIRE_MIN_TICK_MS } from "../builder/job-gateway.mjs";
+import { laneName } from "../builder/build-lane.mjs";
+import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 // Prose about a route names the route — the recorded own-goal. Line comments
@@ -455,9 +457,15 @@ test("the Worker's probe route: owner-gated, pre-scoped, its own lane, and the j
   // present cannot see a secret smuggled onto the launch under ANOTHER key —
   // the mutant that added `extra: jobSecrets(env)` left `secrets: {}` exactly
   // where this check looks. The absence of the producer is what closes it, and
-  // it is a source read rather than a drive because the route is owner-gated and
-  // no session token exists here; the observer is alive because the block is
-  // non-empty and really does carry the empty object.
+  // the observer is alive because the block is non-empty and really does carry
+  // the empty object.
+  //
+  // THIS USED TO SAY A DRIVE WAS IMPOSSIBLE "because the route is owner-gated
+  // and no session token exists here". That was wrong, and it is why the route
+  // shipped throwing: `authUser` asks `/auth/v1/user`, so a stubbed global fetch
+  // is the whole of what an owner-gated drive costs. The driven case is below,
+  // and these text reads are kept for what a drive cannot see — the absence of a
+  // producer anywhere in the block.
   assert.match(block, /secrets: \{\}/, "a probe launch carries secrets");
   assert.doesNotMatch(block, /jobSecrets/, "the probe route reaches for the platform's secrets — nothing a probe runs needs one");
   assert.match(block, /kind: "probe"/, "the launch is not a probe");
@@ -465,4 +473,247 @@ test("the Worker's probe route: owner-gated, pre-scoped, its own lane, and the j
   // instrument with no dial.
   assert.match(block, /request\.method === "GET"/, "a fired probe cannot be read back");
   assert.match(block, /"http:\/\/build\/job\/" \+ encodeURIComponent\(pid\)/, "the read does not ask the build service for the job");
+});
+
+// ── THE DEFECT THE FIRST REAL PRESS FOUND, AND THE TWO WALLS OVER IT ──────────
+//
+// 2026-09-14, job-probe run 1: the route answered Cloudflare's HTML error page
+// and the runner reported `Unexpected token '<'`. The cause was one missing
+// argument — `newJobId()` where every other call site writes
+// `newJobId((b) => crypto.getRandomValues(b))`.
+//
+// WHY NOTHING HERE SAW IT, which is the part worth keeping. `newJobId` takes its
+// randomness as a REQUIRED parameter (the module is pure on purpose, so there is
+// no default behind it), a bare call parses perfectly, and the guard above reads
+// the route as TEXT — every landmark it looks for was exactly where it looks.
+// The recorded trap, in full: *a text read certifies at the layer below the
+// break, and the honest check is a drive.* The comment beside the `secrets: {}`
+// assertion said a drive was impossible "because the route is owner-gated and no
+// session token exists here", and that was simply wrong: `authUser` asks
+// `/auth/v1/user`, so stubbing global fetch is all it takes, which is how
+// `test/site-head-edit.test.mjs` has driven eleven owner-gated cases for days.
+
+test("every newJobId call is handed a randomness source — a bare one throws at runtime", () => {
+  // DEPTH-AWARE, BECAUSE THE ARGUMENT IS ITSELF A FUNCTION. The first draft of
+  // this census read `newJobId\(([^)]*)\)` and answered `"(b"` for the two
+  // CORRECT call sites — `[^)]*` stops at the `)` inside `(b) =>`. That is this
+  // file's own recorded "flat scans where depth matters" trap, met in a guard
+  // written to catch a bare call, and it would have reported the two working
+  // sites as broken while saying nothing about the one that was.
+  const args = [];
+  const NEEDLE = "newJobId(";
+  for (let i = NO_COMMENTS.indexOf(NEEDLE); i >= 0; i = NO_COMMENTS.indexOf(NEEDLE, i + 1)) {
+    // Skip the declaration itself: `export function newJobId(fill)`.
+    if (/function\s+$/.test(NO_COMMENTS.slice(Math.max(0, i - 20), i))) continue;
+    let depth = 0, j = i + NEEDLE.length - 1;
+    for (; j < NO_COMMENTS.length; j++) {
+      const ch = NO_COMMENTS[j];
+      if (ch === "(") depth++;
+      else if (ch === ")" && --depth === 0) break;
+    }
+    args.push(NO_COMMENTS.slice(i + NEEDLE.length, j));
+  }
+  // DERIVED, so a fourth call site fails by existing rather than by being fired
+  // — and the floor keeps the reader honest, since a walker that matched nothing
+  // satisfies every assertion in the loop below.
+  assert.ok(args.length >= 3, `the newJobId census found ${args.length} calls — its reader has gone blind`);
+  for (const a of args) {
+    assert.notEqual(a.trim(), "", "newJobId() is called with no randomness source: `fill` is a required parameter with no default, so this throws TypeError the first time the route runs");
+    assert.match(a, /getRandomValues/, `newJobId is handed ${JSON.stringify(a)}, which is not the platform's generator`);
+  }
+});
+
+test("the probe route is DRIVEN, not read: a real POST mints a job and reaches the container", async () => {
+  const worker = await loadWorker();
+
+  // Everything the route reaches, answered in shape. `authUser` asks Supabase
+  // for the bearer's user; nothing else on this path touches the network.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String((input && input.url) || input || "");
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: "00000000-0000-4000-8000-000000000001", email: "owner@example.com" }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("unavailable", { status: 503 });
+  };
+
+  // The container binding as a Durable Object namespace, which is all
+  // `getContainer` asks for. The instance RECORDS what it was sent, because the
+  // launch payload is the thing this case exists to read.
+  const sent = [], lanes = [];
+  const instance = {
+    async fetch(req) {
+      sent.push({ url: req.url, body: await req.text() });
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  };
+  const env = {
+    SITE_BUILD_CONTAINER: {
+      idFromName: (n) => { lanes.push(n); return { name: n, toString: () => n }; },
+      get: () => instance,
+    },
+    SITE_SECRETS_KEY: "a-test-secrets-key",
+    SUPABASE_SERVICE_KEY: "a-test-service-key",
+  };
+  const ctx = makeCtx();
+
+  let res;
+  try {
+    res = await worker.fetch(new Request("https://gofarther.dev/api/site/job-probe", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: "Bearer some-token" },
+      body: JSON.stringify({ probe: "hold", ms: 1_200_000, everyMs: 20_000 }),
+    }), env, ctx);
+  } finally { globalThis.fetch = realFetch; }
+
+  // THE HALF THAT FAILED LIVE: the route answered at all, in JSON, without
+  // throwing. A throw here is Cloudflare's HTML page in production, which is
+  // exactly what a caller doing `.json()` cannot read.
+  const ctype = String(res.headers.get("content-type") || "");
+  const text = await res.text();
+  assert.match(ctype, /application\/json/, `the probe route answered ${res.status} ${ctype}: ${text.slice(0, 200)}`);
+  const body = JSON.parse(text);
+  assert.equal(res.status, 200, `the probe route answered ${res.status}: ${text.slice(0, 200)}`);
+  assert.equal(body.ok, true, `the probe route refused: ${text.slice(0, 200)}`);
+  assert.match(String(body.id), /^[0-9a-f]{32}$/, "the minted id is not a job id");
+
+  // AND IT REALLY REACHED THE CONTAINER with a launch the runner admits — the
+  // hop no assertion about spelling can prove.
+  assert.equal(sent.length, 1, "the route did not reach the container exactly once");
+  assert.match(sent[0].url, /\/job\/run$/, "the route did not post to the build service's run door");
+  const launch = JSON.parse(sent[0].body);
+  assert.equal(launch.kind, "probe");
+  assert.equal(launch.id, body.id, "the launch names a different job from the answer");
+  assert.deepEqual(launch.secrets, {}, "a probe launch carries secrets");
+  // ITS OWN LANE, read off the binding rather than off the source: a probe holds
+  // a lane for as long as it is asked, so a customer's lane is a way to starve a
+  // real build.
+  assert.deepEqual(lanes, [laneName("hold-probe")], `the probe was fired at ${JSON.stringify(lanes)}`);
+  // `readLaunch` is the container's ONE reader; a launch it refuses is a probe
+  // that dies at the door with no reading at all. It is handed the RAW BODY,
+  // because that is what the container receives — parsing first would test a
+  // shape the wire never carries.
+  assert.ok(readLaunch(sent[0].body), "the container's own reader refuses this launch");
+});
+
+test("the runner NAMES a non-JSON answer instead of choking on it — DRIVEN", async () => {
+  // CARRIED OUT AND EVALUATED, the way this repo carries functions out of
+  // chat.js: `scripts/job-probe.mjs` signs in at import, so it cannot be
+  // imported, and a source read of a diagnostic cannot say what the diagnostic
+  // SAYS. The window is landmark to landmark and both landmarks are asserted.
+  const runner = fs.readFileSync(new URL("../scripts/job-probe.mjs", import.meta.url), "utf8");
+  const from = runner.indexOf("async function readJson(res, what) {");
+  const to = runner.indexOf("if (!EMAIL) fail(", from);
+  assert.ok(from > 0 && to > from, "readJson's window has no end — rescope this guard");
+  const block = runner.slice(from, to);
+  const { readJson, notJson, sayNotJson } =
+    new Function(block + "\nreturn { readJson, notJson, sayNotJson };")();
+
+  // A REAL ANSWER IS UNTOUCHED — the control, without which a reader that
+  // reported everything as broken would pass every assertion below.
+  const good = await readJson(new Response(JSON.stringify({ ok: true, id: "abc" }),
+    { status: 200, headers: { "content-type": "application/json" } }), "x");
+  assert.equal(notJson(good), false, "a JSON answer is reported as not JSON");
+  assert.equal(good.id, "abc");
+
+  // AND THE SHAPE THAT COST A ROUND: Cloudflare's own error page, which is what
+  // an uncaught throw inside a route produces. All three of the status, the
+  // content-type and the body have to survive, because each answers a different
+  // question — 401 is a bad token, 404 is a Worker without the route, and a 5xx
+  // with HTML is the Worker throwing.
+  const html = "<!DOCTYPE html><html><head><title>Worker threw an exception</title></head></html>";
+  const bad = await readJson(new Response(html, { status: 500, headers: { "content-type": "text/html" } }),
+    "POST /api/site/job-probe");
+  assert.equal(notJson(bad), true, "an HTML answer is not reported as such");
+  const said = sayNotJson(bad);
+  assert.match(said, /POST \/api\/site\/job-probe/, "the sentence does not say which call failed");
+  assert.match(said, /\b500\b/, "the sentence does not carry the status — the half that separates a bad token from a thrown route");
+  assert.match(said, /text\/html/, "the sentence does not carry the content-type");
+  assert.match(said, /DOCTYPE/, "the sentence does not carry any of the body, so the cause is unreadable");
+
+  // A body with no content-type at all still names itself rather than reading as
+  // an empty answer: cannot-tell must never look like nothing-there.
+  const nohdr = await readJson(new Response("", { status: 502 }), "y");
+  assert.equal(notJson(nohdr), true);
+  assert.match(sayNotJson(nohdr), /502/);
+});
+
+test("the runner acts on a non-JSON answer at both places it reads one", () => {
+  // A SOURCE READ, and it is the honest instrument here: the two hops are
+  // top-level statements in a script that signs in at import, so there is
+  // nothing to drive without firing a real probe. What a drive CANNOT be is
+  // replaced by naming both call sites exactly.
+  const runner = fs.readFileSync(new URL("../scripts/job-probe.mjs", import.meta.url), "utf8");
+  const code = runner.split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
+  assert.match(code, /async function readJson\(/, "readJson is gone, or the blanker ate it");
+
+  // EVERY response the runner reads goes through it — derived, so a fourth call
+  // added next month has to say what it does with a body that is not JSON.
+  const reads = [...code.matchAll(/readJson\(r[,)]/g)];
+  assert.ok(reads.length >= 3, `only ${reads.length} of the runner's reads go through readJson`);
+  assert.doesNotMatch(code, /\.then\(\(r\) => r\.json\(\)\)/, "a response is still read with a bare .json(): a non-JSON body becomes `Unexpected token '<'` and the status is lost");
+
+  // AND THE TWO PLACES IT MATTERS ACT ON IT, each differently and each for a
+  // stated reason: the fire STOPS (there is no job to poll), the poll ASKS AGAIN
+  // (a blip is not an ending, and reading it as one invents a finished job).
+  assert.match(code, /if \(notJson\(fired\)\) fail\(sayNotJson\(fired\)\);/, "a non-JSON answer to the fire is not reported");
+  // READ AS A LINE, NOT AS A BRACE SPAN. `[^}]*` cannot cross this statement:
+  // it carries a template literal, and `${sayNotJson(j)}` closes with a brace of
+  // its own — the recorded "flat scans where depth matters", met for the third
+  // time in one sitting, twice of them in guards written this hour.
+  const pollGuard = code.split("\n").find((l) => l.includes("notJson(j)"));
+  assert.ok(pollGuard, "nothing checks the polled record for a non-JSON body");
+  assert.match(pollGuard, /continue;/, "a non-JSON answer mid-poll falls through and is read as the job ending");
+  assert.match(pollGuard, /sayNotJson\(j\)/, "the blip is swallowed rather than said");
+});
+
+test("reading a probe back is driven too — the runner polls this every 30 seconds", async () => {
+  const worker = await loadWorker();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String((input && input.url) || input || "");
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify({ id: "00000000-0000-4000-8000-000000000001" }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("unavailable", { status: 503 });
+  };
+  const asked = [];
+  const instance = {
+    async fetch(req) {
+      asked.push(req.url);
+      return new Response(JSON.stringify({ state: "running", kind: "probe", pid: 41 }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    },
+  };
+  const env = {
+    SITE_BUILD_CONTAINER: { idFromName: (n) => ({ name: n }), get: () => instance },
+    SITE_SECRETS_KEY: "a-test-secrets-key",
+    SUPABASE_SERVICE_KEY: "a-test-service-key",
+  };
+
+  const get = async (qs) => {
+    const res = await worker.fetch(new Request("https://gofarther.dev/api/site/job-probe" + qs, {
+      headers: { Authorization: "Bearer some-token" },
+    }), env, makeCtx());
+    return { status: res.status, ctype: String(res.headers.get("content-type") || ""), text: await res.text() };
+  };
+
+  try {
+    const ok = await get("?id=" + "a".repeat(32));
+    assert.equal(ok.status, 200, `the read-back answered ${ok.status}: ${ok.text.slice(0, 200)}`);
+    assert.match(ok.ctype, /application\/json/, "the read-back is not JSON — the runner does `.json()` on it");
+    assert.equal(JSON.parse(ok.text).state, "running", "the record did not come back");
+    assert.equal(asked.length, 1, "the read-back did not ask the build service exactly once");
+    assert.match(asked[0], /\/job\/a{32}$/, `the read-back asked for ${asked[0]}`);
+
+    // AND A JUNK ID IS REFUSED IN JSON, never by throwing: the runner reads the
+    // status to tell "no such job" from "the Worker fell over", and an HTML
+    // error page collapses the two.
+    const bad = await get("?id=not-a-job-id");
+    assert.equal(bad.status, 400, `a junk id answered ${bad.status}`);
+    assert.match(bad.ctype, /application\/json/, "a refused id does not answer in JSON");
+    assert.equal(asked.length, 1, "a junk id still reached the build service");
+  } finally { globalThis.fetch = realFetch; }
 });

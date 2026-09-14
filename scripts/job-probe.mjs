@@ -86,6 +86,34 @@ function fail(msg) { log("FATAL: " + msg); process.exit(1); }
 // length and never shown.
 const desc = (v) => (v ? `set (${String(v).length} chars)` : "MISSING");
 
+// AN ANSWER THAT IS NOT JSON MUST NAME ITSELF (2026-09-14, the first real press).
+// `fetch(...).then(r => r.json())` throws `Unexpected token '<'` and drops the
+// status, the content-type and the body on the floor — the recorded "a failure
+// that cannot name itself", in the instrument written to diagnose failures. It
+// cost a whole round: the run said only that something was not valid JSON, when
+// what it had was a 500 and Cloudflare's error page, which names the cause.
+//
+// The STATUS is the half that separates the three shapes this route can fail in:
+// 401 is a token that did not take, 404 is a Worker without the route (a probe
+// fired before its own deploy), and a 5xx with an HTML body is the Worker
+// throwing — `handleRequest` has no try/catch, so an exception inside a route
+// leaves Cloudflare to answer, and it answers in HTML.
+async function readJson(res, what) {
+  const status = res.status;
+  const ctype = String(res.headers.get("content-type") || "");
+  const text = await res.text().catch(() => "");
+  try {
+    return JSON.parse(text);
+  } catch {
+    // The snippet is the diagnosis and the body is a machine's, not a person's,
+    // so 300 characters is plenty and an unbounded paste is noise.
+    return { __notJson: true, what, status, ctype, snippet: text.slice(0, 300) };
+  }
+}
+const notJson = (o) => !!(o && o.__notJson);
+const sayNotJson = (o) =>
+  `${o.what}: HTTP ${o.status} ${o.ctype || "(no content-type)"} — the body is not JSON: ${JSON.stringify(o.snippet)}`;
+
 if (!EMAIL) fail("OWNER_EMAIL is not set");
 if (!SERVICE_KEY) fail("SUPABASE_SERVICE_KEY is not set");
 if (!ANON_KEY) fail("SUPABASE_ANON_KEY is not set");
@@ -122,7 +150,8 @@ const auth = { Authorization: `Bearer ${jwt}` };
 // Worker, where the fourteen-minute ceiling still applies whatever the
 // container's clock says, so a duration reading would be about the wrong layer.
 const rt = await fetch(`${BASE}/api/site/runtime?slug=${encodeURIComponent(SITE)}`, { headers: auth })
-  .then((r) => r.json()).catch((e) => ({ err: String(e) }));
+  .then((r) => readJson(r, "GET /api/site/runtime")).catch((e) => ({ err: String(e) }));
+if (notJson(rt)) log(`step 3 — ${sayNotJson(rt)}`);
 log(`step 3 — runtime: ${JSON.stringify(rt)}`);
 if (rt && rt.deploy) log(`step 3 — the live Worker is deploy ${rt.deploy}; runner=${rt.runner} async=${rt.async}`);
 else log("step 3 — the runtime route gave no readable deploy sha; this run cannot say which image it measured");
@@ -131,8 +160,9 @@ else log("step 3 — the runtime route gave no readable deploy sha; this run can
 const fired = await fetch(`${BASE}/api/site/job-probe`, {
   method: "POST", headers: { ...auth, "content-type": "application/json" },
   body: JSON.stringify({ probe: SHAPE, ms: MS, everyMs: EVERY_MS }),
-}).then((r) => r.json()).catch((e) => ({ err: String(e) }));
+}).then((r) => readJson(r, "POST /api/site/job-probe")).catch((e) => ({ err: String(e) }));
 log(`step 4 — fired: ${JSON.stringify(fired).slice(0, 600)}`);
+if (notJson(fired)) fail(sayNotJson(fired));
 if (!fired || fired.ok !== true || !fired.id) {
   fail("the probe did not start: " + JSON.stringify(fired).slice(0, 400));
 }
@@ -143,9 +173,14 @@ let last = null, ended = null, vanished = 0;
 while (Date.now() - t0 < BOUND_MS) {
   await new Promise((r) => setTimeout(r, POLL_MS));
   const rec = await fetch(`${BASE}/api/site/job-probe?id=${encodeURIComponent(id)}`, { headers: auth })
-    .then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }))
+    .then(async (r) => ({ status: r.status, body: await readJson(r, "GET /api/site/job-probe?id=") }))
     .catch((e) => ({ status: 0, body: { err: String(e) } }));
   const j = rec.body || {};
+  // A NON-JSON ANSWER MID-POLL IS A BLIP, NOT AN ENDING. Falling through would
+  // set `ended` to a record with no `state` and report a job that is still
+  // running as finished — the reading this instrument must never invent. It is
+  // said rather than swallowed, and the loop simply asks again.
+  if (notJson(j)) { log(`step 5 — ${sayNotJson(j)}; asking again`); continue; }
   if (rec.status === 404 || j.error === "no such job") {
     // NOT a completion. See the header: a record goes with a recycled container,
     // and reading that as "finished" is the one way this instrument can lie.

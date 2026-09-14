@@ -3854,6 +3854,73 @@ strings in it are test NAMES, each followed by `ok`.
 **STILL NOT PROVEN, and it is the whole point of the two buttons**: neither
 probe has run in a real container.
 
+#### The first press threw, and the route was READ rather than DRIVEN (2026-09-14)
+
+The owner pressed **Run workflow** at 05:53Z with the runbook's own inputs
+(`hold` / `1200000` / `20000` / `fretwork-1`) and it failed in **17 seconds**.
+Steps 0–3 were faultless — the sign-in landed, every secret printed as a length,
+and step 3 read the live Worker as deploy `b062e30a` with
+**`runner: true, runnerEveryone: true`**, which is the first authenticated
+confirmation that the broad flag really is `on` in the deployment rather than in
+`deploy.yml`'s `|| fallback`. Step 4 answered
+`SyntaxError: Unexpected token '<', "<!DOCTYPE "`.
+
+**ONE MISSING ARGUMENT.** `newJobId(fill)` takes its randomness as a REQUIRED
+parameter — *"Randomness is INJECTED rather than reached for, so the module stays
+pure"*, its own comment — so there is no default behind it. The probe route
+called it bare; both other call sites in `worker.js` pass `(b) =>
+crypto.getRandomValues(b)`. `fill(bytes)` threw `TypeError`, and **`worker.js`'s
+`fetch` has no try/catch around `handleRequest`**, so an uncaught throw inside a
+route is answered by Cloudflare — **in HTML**. A caller doing `.json()` gets
+`Unexpected token '<'` and learns nothing.
+
+**WHY EVERY GUARD PASSED, and it is the recorded trap in full.** The route was
+asserted by READING `worker.js` as text, and every landmark that read looks for
+was exactly where it looks; a bare call parses perfectly; the free-identifier
+walker sees a declared name. *A text read certifies at the layer below the
+break, and the honest check is a drive.* **And the file said a drive was
+impossible** — the comment beside the `secrets: {}` assertion read "it is a
+source read rather than a drive because the route is owner-gated and no session
+token exists here". **That was simply wrong**: `authUser` asks `/auth/v1/user`,
+so stubbing global fetch is the whole cost, which is how
+`test/site-head-edit.test.mjs` had been driving eleven owner-gated cases for
+days. A stated impossibility nobody re-tested is how a route ships throwing.
+
+**AND THE INSTRUMENT WAS WRONG BEFORE THE PRODUCT WAS.** `scripts/job-probe.mjs`
+read every response with `.then(r => r.json())`, which throws away the status,
+the content-type and the body — *a failure that cannot name itself*, in the
+instrument built to name failures, and it cost the whole diagnosis round. One
+`readJson` now, at all three reads, because **the status is what separates the
+three shapes this route fails in**: 401 is a token that did not take, 404 is a
+Worker without the route (a probe fired before its own deploy), a 5xx with HTML
+is the Worker throwing. The same failure would now print
+`HTTP 500 text/html — the body is not JSON: "<!DOCTYPE html>…"`. A non-JSON
+answer MID-POLL asks again rather than falling through, because reading a blip
+as an ending invents a finished job.
+
+**Guards**: `test/job-probe.test.mjs` (14 → 19) — the route **DRIVEN** through
+`worker.fetch` for POST (200, a real job id, the container reached exactly once
+at `laneName("hold-probe")` read off the binding, the launch admitted by
+`readLaunch`, `secrets` empty) and for GET (the record back as JSON, a junk id
+refused 400 in JSON without reaching the service); a **depth-aware census** that
+every `newJobId(` call is handed `getRandomValues`; and `readJson` **carried out
+of the script and driven** over a real answer, Cloudflare's error page and a
+body with no content-type, with the clean answer as the alive observer.
+**Both new cases proved RED against the real defect and green with the fix.**
+**THE CENSUS'S OWN FIRST DRAFT HIT THE FLAT-SCAN TRAP** — `newJobId\(([^)]*)\)`
+stops at the `)` inside `(b) =>`, so it reported the two CORRECT call sites as
+broken and said nothing about the one that was — and the runner census hit it a
+second time an hour later, `[^}]*` stopping inside `${sayNotJson(j)}`. Twice in
+one sitting, both in guards written to catch a different trap.
+**A scan for the same class found one more candidate and it was a false alarm**:
+`modelsFor()` is called bare six times and handles `undefined` by design,
+falling back to `DEFAULT_PICKER`. `newJobId` was the only real instance.
+**Sweep: 15 mutants, 15 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — every one on the first pass, every anchor checked to occur
+exactly once before the run. **Suite 6,310** (6,305 before; the five new cases).
+**Nothing was spent and nothing was left running**: the throw is above the
+container fetch, so no job was ever launched and no lane was held.
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:

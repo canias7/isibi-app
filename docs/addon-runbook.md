@@ -92,6 +92,38 @@ Its first step prints **which deploy answered** (`/api/site/runtime`) and
 whether `runner` is on, so the run says what it measured rather than leaving it
 to be inferred from a timestamp.
 
+#### Run 1 failed in 17 seconds, and what it cost was one argument
+
+**2026-09-14 05:53Z, the first press.** Steps 0–3 were perfect — the sign-in
+landed, every secret printed as a length, and step 3 read the live Worker as
+deploy `b062e30a` with `runner: true`. Step 4 answered:
+
+```
+SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+```
+
+**The route was throwing.** `newJobId` takes its randomness as a REQUIRED
+parameter — the module is pure on purpose, so there is no default behind it —
+and the probe route called it bare where both other call sites in `worker.js`
+pass `(b) => crypto.getRandomValues(b)`. `fill(bytes)` threw `TypeError`,
+`handleRequest` has no try/catch, and **an uncaught throw inside a route leaves
+Cloudflare to answer — in HTML**. Fixed in `2c3f2a37`.
+
+**Two things nothing here could see, and both are now guarded.** The route was
+asserted by READING it, and every landmark that read looks for was exactly where
+it looks — the recorded *a text read certifies at the layer below the break*.
+It is DRIVEN now (`test/job-probe.test.mjs`, POST and GET both, through
+`worker.fetch` against a stubbed `/auth/v1/user`), plus a depth-aware census that
+every `newJobId(` call is handed a generator. And the runner itself did
+`.then(r => r.json())`, which throws away the status, the content-type and the
+body — *a failure that cannot name itself*, in the instrument built to name
+failures. It reads all three now, so the same shape would have printed
+`HTTP 500 text/html — the body is not JSON: "<!DOCTYPE html>…"` and named the
+cause in one line.
+
+**Nothing was spent and nothing was left running**: the throw is above the
+container fetch, so no job was ever launched and no lane was held.
+
 ### Probe 1 — duration
 
 Inputs: `probe` = **`hold`**, `ms` = **`1200000`**. (Or, by hand:)

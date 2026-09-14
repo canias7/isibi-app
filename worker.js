@@ -17332,7 +17332,15 @@ async function handleRequest(request, env, ctx) {
       let body = null;
       try { body = await request.json(); } catch { body = null; }
       const { shape, ms, everyMs } = readProbe(body || {});
-      const id = newJobId();
+      // `newJobId` TAKES ITS RANDOMNESS RATHER THAN REACHING FOR IT — the module
+      // is pure on purpose — so the argument is not optional and there is no
+      // default behind it. Calling it bare threw `TypeError: fill is not a
+      // function` on the first real press, and because `handleRequest` has no
+      // try/catch a throw here is Cloudflare's own HTML error page: a caller
+      // doing `.json()` gets `Unexpected token '<'` and learns nothing. Both
+      // other call sites pass this exact lambda; a census in
+      // `test/job-probe.test.mjs` now requires every one of them to.
+      const id = newJobId((b) => crypto.getRandomValues(b));
       // THE CLOCK IS THE JOB'S OWN, through the setting's one reader — a probe
       // measuring how long a job may run must be given a job's own room, or it
       // measures a number nobody else uses.

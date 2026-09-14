@@ -1,0 +1,109 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the probe route",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "      // `newJobId` TAKES ITS RANDOMNESS RATHER THAN REACHING FOR IT — the module",
+    "to": "      // `newJobId` IS HANDED ITS RANDOMNESS RATHER THAN REACHING FOR IT — the module"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the runner script",
+    "control": true,
+    "files": ["scripts/job-probe.mjs"],
+    "from": "// AN ANSWER THAT IS NOT JSON MUST NAME ITSELF (2026-09-14, the first real press).",
+    "to": "// AN ANSWER THAT IS NOT JSON HAS TO NAME ITSELF (2026-09-14, the first real press)."
+  },
+
+  {
+    "label": "THE DEFECT ITSELF: newJobId called bare, which throws at runtime",
+    "files": ["worker.js"],
+    "from": "      const id = newJobId((b) => crypto.getRandomValues(b));\n      // THE CLOCK IS THE JOB'S OWN",
+    "to": "      const id = newJobId();\n      // THE CLOCK IS THE JOB'S OWN"
+  },
+  {
+    "label": "the probe's randomness is a constant, not the platform's generator",
+    "files": ["worker.js"],
+    "from": "      const id = newJobId((b) => crypto.getRandomValues(b));\n      // THE CLOCK IS THE JOB'S OWN",
+    "to": "      const id = newJobId((b) => b.fill(7));\n      // THE CLOCK IS THE JOB'S OWN"
+  },
+  {
+    "label": "the census reader goes blind — no call site matches",
+    "files": ["test/job-probe.test.mjs"],
+    "from": "  const NEEDLE = \"newJobId(\";",
+    "to": "  const NEEDLE = \"newJobIdX(\";"
+  },
+  {
+    "label": "the census reads flat again, stopping at the first close paren",
+    "files": ["test/job-probe.test.mjs"],
+    "from": "      if (ch === \"(\") depth++;\n      else if (ch === \")\" && --depth === 0) break;",
+    "to": "      if (ch === \")\") break;"
+  },
+
+  {
+    "label": "the probe route is fired at the caller's own lane",
+    "files": ["worker.js"],
+    "from": "      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(\"hold-probe\"));\n      // READING ONE BACK IS THE SAME DOOR",
+    "to": "      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(String(url.searchParams.get(\"lane\") || \"hold-probe\")));\n      // READING ONE BACK IS THE SAME DOOR"
+  },
+  {
+    "label": "the launch stops being a probe",
+    "files": ["worker.js"],
+    "from": "        v: 2, kind: \"probe\", id, probe: shape, ms, everyMs,",
+    "to": "        v: 2, kind: \"build\", id, probe: shape, ms, everyMs,"
+  },
+  {
+    "label": "the answer names a different job from the launch",
+    "files": ["worker.js"],
+    "from": "        return Response.json({ ok: r.status === 200, id, shape, ms, everyMs,",
+    "to": "        return Response.json({ ok: r.status === 200, id: newJobId((b) => crypto.getRandomValues(b)), shape, ms, everyMs,"
+  },
+  {
+    "label": "a probe launch carries the platform's secrets",
+    "files": ["worker.js"],
+    "from": "        sb: { url: SUPABASE_URL },\n        secrets: {},",
+    "to": "        sb: { url: SUPABASE_URL },\n        secrets: jobSecrets(env),"
+  },
+  {
+    "label": "the read-back takes a junk id straight to the build service",
+    "files": ["worker.js"],
+    "from": "        if (!isJobId(pid)) return Response.json({ ok: false, error: \"bad id\" }, { status: 400 });",
+    "to": "        if (false) return Response.json({ ok: false, error: \"bad id\" }, { status: 400 });"
+  },
+  {
+    "label": "the read-back asks the build service for the wrong job",
+    "files": ["worker.js"],
+    "from": "new Request(\"http://build/job/\" + encodeURIComponent(pid), { method: \"GET\", signal: AbortSignal.timeout(20000) })",
+    "to": "new Request(\"http://build/job/\" + encodeURIComponent(\"x\"), { method: \"GET\", signal: AbortSignal.timeout(20000) })"
+  },
+
+  {
+    "label": "the runner reads a non-JSON answer as JSON again — the fire step",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "if (notJson(fired)) fail(sayNotJson(fired));",
+    "to": ""
+  },
+  {
+    "label": "the runner drops the status from a non-JSON answer",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "    return { __notJson: true, what, status, ctype, snippet: text.slice(0, 300) };",
+    "to": "    return { __notJson: true, what, ctype, snippet: text.slice(0, 300) };"
+  },
+  {
+    "label": "the runner drops the body snippet, so the cause is unreadable",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "    return { __notJson: true, what, status, ctype, snippet: text.slice(0, 300) };",
+    "to": "    return { __notJson: true, what, status, ctype, snippet: \"\" };"
+  },
+  {
+    "label": "a non-JSON answer mid-poll is read as the job ending",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "  if (notJson(j)) { log(`step 5 — ${sayNotJson(j)}; asking again`); continue; }",
+    "to": ""
+  },
+  {
+    "label": "readJson swallows the reason and answers an empty object",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "  } catch {\n    // The snippet is the diagnosis and the body is a machine's, not a person's,\n    // so 300 characters is plenty and an unbounded paste is noise.\n    return { __notJson: true, what, status, ctype, snippet: text.slice(0, 300) };",
+    "to": "  } catch {\n    // The snippet is the diagnosis and the body is a machine's, not a person's,\n    // so 300 characters is plenty and an unbounded paste is noise.\n    return {};"
+  }
+]

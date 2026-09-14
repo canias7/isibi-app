@@ -155,6 +155,39 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — You pressed it, it threw, and the cause was one missing argument
+
+Your run failed in 17 seconds. The good news is where it got to first: the
+sign-in worked, no secret was printed, and it read the live Worker as deploy
+`b062e30a` with **the job runner on for everyone** — which is the first time
+anything has confirmed that flag from the deployment rather than from a default
+in the workflow file.
+
+Then the fire step answered `Unexpected token '<'`. **The route was crashing.**
+There is a function that mints a job id, and it deliberately asks to be handed a
+source of randomness rather than reaching for one itself. Both other places that
+call it pass one. The probe route did not, so it threw — and when a route throws,
+Cloudflare answers with its own error *web page*, which is the `<` the run
+choked on.
+
+**Two things were wrong and only one was the product.** The route had a test, and
+that test READ the code rather than RUNNING it — every word it looked for was
+exactly where it looked, while the thing was broken. It is driven for real now,
+both the fire and the read-back. And my own runner threw away the status code and
+the page body, so all it could tell you was "not valid JSON" — the same failure
+would now print `HTTP 500 text/html` and the first line of the error page, which
+names the cause outright.
+
+**Nothing was spent and nothing is stuck.** The crash happens before the
+container is ever contacted, so no job started and no build lane was held.
+
+**What you need to do**: press **Run workflow** again once the deploy lands. This
+one touches `worker.js`, so it rebuilds the container image — **wait 15–20
+minutes after the deploy finishes** before pressing, same as always. Same inputs
+as before.
+
+---
+
 ## 2026-09-14 — The probes got a button, because the alternative was a token
 
 You said *"don't ask me to share secrets"*, and that sentence is what this change
