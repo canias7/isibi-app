@@ -7948,3 +7948,23 @@ file is in git if anything is ever wanted back.
 
 Sweep 14 of 14 deliberate breakages caught, both controls survived, suite
 **6,316** green.
+
+**Merged and live.** Deploy **2118**, 08:29:23 → 08:32:35Z, green in 3m12s, on
+main `a4d0f5e5` → `3d7acaf5`. The container **did** roll — the probe module is
+one of the files baked into the build image — so it swapped from
+`fadb4940…46c23c5` to `e35d9f28b49f5f2c` at **08:32:25Z**, and the usual **15–20
+minute hold ran to about 08:47–08:52Z**. I read that off the deploy's own log
+rather than guessing it from how long the step took.
+
+Nothing a visitor downloads changed on this one (Wrangler read all 99 files and
+uploaded none — the fix lives inside the Worker, not in a served file), so
+instead of a file check the proof is that the probe route still answers properly:
+it returns 401 (owner-gated, as designed) while a made-up path returns 404.
+
+Before the merge: `unit tests` green, and `site build` run **1133** green on all
+twenty steps — **382 passed, 0 failed**, the fourth separate run to read that
+number.
+
+**So the wire probe is ready to fire whenever you want it**, and it costs
+nothing. Job probe → Run workflow → `probe` = **wire**, everything else as it
+comes up, branch `main`, `jobId` empty.

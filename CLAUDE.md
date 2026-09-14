@@ -1660,6 +1660,30 @@ workflow dropping `PROBE_JOB_ID`, and the artifact path diverging from the
 script's own log name. **Every anchor was checked to occur exactly once before
 the run.** **Suite 6,316.**
 
+**MERGED AND LIVE — deploy 2118, 2026-09-14 08:29:23→08:32:35Z, green in
+3m12s**, on `main` `a4d0f5e5` → `3d7acaf5` (8 files, fast-forward). The image
+**BUILT** (step 2m18s) and the container **`EDIT`ed at 08:32:25Z**,
+`fadb4940…46c23c5` → `e35d9f28b49f5f2c`, `SUCCESS Modified application` — **read
+out of the log's own diff rather than inferred from the step's duration**, so
+**the 15–20 minute hold ran to ~08:47–08:52Z**. The drain was instant and the
+gate was left to expire on success.
+**NO SERVED ASSET CHANGED, so there is no file-hash check for this deploy** —
+Wrangler read 99 files and answered `No updated asset files to upload`, which is
+right: `public/` is untouched and `builder/job-probe.mjs` is bundled into the
+script. What stands in is the gate discriminator: `/api/site/job-probe` **401**,
+`/api/site/runtime` **401**, `/api/nope-not-a-route` **404**.
+**Release checks before the merge**: `unit tests` run **2523** green (suite step
+104 s); `site build` run **1133** green, all twenty steps, **`site-build.mjs`
+382 passed / 0 failed in 14m53s**, with contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47 beside it — **read out of the
+job's own log rather than carried over, and the FOURTH independent run to answer
+382** (1114, 1117, 1127, 1133).
+**THE TIP WAS ONE COMMIT PAST THE HARNESS AND THAT WAS CHECKED, NOT ASSUMED**:
+`3d7acaf5` is docs-only over `5b2a2df7`, and the docs-only push triggered no
+`site build` at all — which is exactly what makes 1133's green cover the tip. *A
+green harness on an ancestor is only evidence when nothing between it and the
+tip is an image input.*
+
 **AND THE REPAIRBENCH-1 TRACES ARE THE STRONGER EVIDENCE ANYWAY** — a controlled
 before/after nobody set up on purpose. Same site, same ask, 2½ hours apart, both
 stored: run 44's page call **459,465 ms → OK, 3 files** and run 45's **270,025 ms
@@ -2571,8 +2595,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   00:25:15→00:49:16Z, the container clock's first round, ALL TWENTY STEPS
   GREEN): `382 passed, 0 failed` in 17m36s**, with kit-typecheck 4,
   contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
-  site-runtime 47 beside it. Two independent runs a day apart agreeing on the
-  count is what makes 382 a measurement rather than a stamp.
+  site-runtime 47 beside it.
+  **AND RUN 1133 READ IT A FOURTH TIME (2026-09-14 08:06:49→08:27:28Z, the wire
+  probe's hang fix, ALL TWENTY STEPS GREEN): `382 passed, 0 failed` in 14m53s**,
+  with contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47 — every count read out of that job's own log. **Four
+  independent runs over three days agreeing is what makes 382 a measurement
+  rather than a stamp.**
   The unit suite is **6,316** (2026-09-14, local — the wire probe's hang fix and
   the read-back door, whose new cases are `job-probe`'s **six**: the bound
   derived and junk-safe, `wireCall` driven hung-versus-killed with the kill as
