@@ -3662,7 +3662,13 @@ everything before it is believed, and this is the first time that rule has paid.
 **The first pass had 10 survivors and every one was real**: the transport and
 record halves had shipped with re-anchored guards and no new coverage at all,
 which is what `container-transport.test.mjs` exists for.
-**Suite 6,291.**
+**RE-RUN WHOLE WITH THE PROBES: 58 mutants, 57 killed, 0 never applied, 3
+comment-only controls survived.** One survivor, and it was a real gap of the
+recorded SUBSTRING-OBSERVER shape one step out: the probe launch's "carries no
+secret" check asserted `secrets: {}` is PRESENT, which a mutant that added
+`extra: jobSecrets(env)` beside it satisfies perfectly. The producer's absence is
+what closes it, with the empty object as the alive observer.
+**Suite 6,302.**
 
 **FOUR TRAPS HIT WHILE BUILDING IT, all recorded ones, all mine:**
 - **I reported a job as "13m19s and still alive" when it had been dead 4m37s.** I
@@ -3682,9 +3688,77 @@ which is what `container-transport.test.mjs` exists for.
 **WHAT IS NOT PROVEN, named rather than glossed.** Nothing here has run in a real
 container: the transport fix, the record, the refusal and the setting are all
 unit-driven only, and **the 270-second reading stays a hypothesis** until a run
-carries `callFailure`'s `wire` field. The two probes that would settle it without
-a model call are the next commit; `workflow_dispatch` answers **403** for this
-session's GitHub integration, so firing them is the owner's.
+carries `callFailure`'s `wire` field.
+
+### TWO PROBES: A JOB THAT RUNS LONG, AND A WIRE WITH NO MODEL IN IT
+
+`builder/job-probe.mjs`, fired through **`POST|GET /api/site/job-probe`**. Both
+cost nothing — no model call, no credit, no row, no ledger — and both go through
+the REAL `/job/run` door in a real job child, because `_busy`, the launch's own
+deadline and the terminator armed off it are three of the things being measured
+and a probe with a door of its own would measure the door.
+
+- **`hold`** occupies a child for as long as it is asked (default **20 minutes**,
+  past the number in question), **pulsing once a minute**. The pulse is the
+  reading, not the final line: the build service keeps a job's last five stdout
+  lines, and an absent final line is also what a crash produces — cannot-tell
+  must not read as an answer. **It touches no row and no lease on purpose.** The
+  other links of the duration chain (`edit_sweep_lost` selecting on
+  `lease_expires_at` and never on elapsed, `edit_handoff`'s ttl) are Postgres
+  properties and are checked there; **publishing is the real addon run's job**,
+  and saying so is the point.
+- **`wire`** holds two long connections in turn — **never raced**, because a
+  concurrent pair leaves the reading open to "the second kept the first's path
+  warm" — through the **same `node:https` sender a model call uses**, against the
+  gateway's new `/wire` op. `quiet` sends nothing until it answers (a
+  non-streaming provider call's own shape); `trickle` sends a byte every tick
+  (what `stream: true` produces). **The probe NAMES the reading** rather than
+  leaving two rows to be read by eye: `idle-kill` (run 45's reading holds and
+  streaming is the fix) · `no-wall` (run 45's reading is WRONG) · `lifetime-cap`
+  (streaming cannot beat it) · `quiet-survived-trickle-did-not`. All four mean
+  different next moves, and `callFailure`'s `wire` field says which kind of dead.
+
+**THE `/wire` OP CARRIES NO DATA IN EITHER DIRECTION** — a space per tick and one
+JSON line out, three numbers in — which is what makes a route whose whole job is
+to hold a socket open acceptable. Token-gated by the same verify every gateway op
+uses. **`readWire` is its own function** because the only other way to observe a
+clamp is to WAIT for it, and the guard's first draft asked for the ceiling to
+prove the ceiling and hung the suite for eight minutes. **A mode nobody
+recognises answers `null`, never a default**: a `trickle` silently answered as
+`quiet` would report a wall that was never measured, which is the one way this
+instrument can lie rather than go quiet. **The trickle's writer is held on
+`waitUntil`** — a Worker cancels an unheld writer the moment the response
+returns, and this repository has already lost most of an audit log to exactly
+that.
+
+**`runJob` BRANCHES BEFORE `importWorker`.** A probe measures this process and
+its socket, so several hundred modules and a Supabase shim in front of it put the
+thing being measured behind a large pile of the thing that is not. **Driven**,
+because a positional read cannot see whether a branch runs.
+
+**The route is owner-gated, ALWAYS pre-scoped** (the token opens nothing in R2),
+on the hold probe's own lane (a caller-chosen lane starves a real build), carries
+**no secrets at all**, and takes its clock from `readJobMaxMs` rather than a
+probe-only number. Reading one back is the same door, because a fire nobody can
+read is an instrument with no dial.
+
+**Guards**: `test/job-probe.test.mjs` (11) — the bound derived in both
+directions, the shape refused by name with an ABSENT shape distinguished from an
+unknown one, the hold driven on a fake clock for its pulse and its stop, the wire
+driven for order, non-racing and all four readings, `wireCall` proving a 403 is a
+SURVIVED connection, the launch admitted with a live observer, the `importWorker`
+count, `readWire` over every junk shape, and the route's own census.
+**Three older guards re-anchored, not appeased**: two pinned `function
+jobGateway(env)` BY ITS ARITY where the property is what it hands the handler,
+and **the `readJobMaxMs` consumer census re-anchored the same day it was
+written** — the probe route is a second legitimate mint, so the property was
+never "read once" but that EVERY mint of a job clock reads the setting; mints and
+reads are counted and required equal.
+
+**WHAT IS STILL NOT PROVEN, and it is the same sentence as above**: neither probe
+has run in a real container. `workflow_dispatch` answers **403** for this
+session's GitHub integration, so firing them is the owner's, and
+`docs/addon-runbook.md` carries the two calls and what to read off each.
 
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
@@ -5741,8 +5815,8 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
   site-runtime 47 beside it. Two independent runs a day apart agreeing on the
   count is what makes 382 a measurement rather than a stamp.
-  The unit suite is **6,291** (2026-09-14, local — the container move, whose new
-  cases are `container-transport`'s seven, `job-duration`'s consumer census and
+  The unit suite is **6,302** (2026-09-14, local — the container move, whose new
+  cases are `container-transport`'s seven, `job-probe`'s eleven, `job-duration`'s consumer census and
   `container-job`'s driven setting. **The delta from 6,270 is NOT derivable and
   is deliberately not claimed**: that stamp was taken before the transport and
   record halves were written, and their guards were never counted on their own —

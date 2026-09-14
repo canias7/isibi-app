@@ -300,7 +300,16 @@ test("the Worker's probe route: owner-gated, pre-scoped, its own lane, and the j
   // ONE READER FOR THE BOUNDS, shared with the runner.
   assert.match(block, /readProbe\(body \|\| \{\}\)/, "the route clamps with a second copy of the probe's own rule");
   // IT CARRIES NO SECRET AT ALL: a probe runs no customer code and needs none.
+  //
+  // TWO HALVES, AND THE SECOND WAS A SWEEP SURVIVOR. Asserting `secrets: {}` is
+  // present cannot see a secret smuggled onto the launch under ANOTHER key —
+  // the mutant that added `extra: jobSecrets(env)` left `secrets: {}` exactly
+  // where this check looks. The absence of the producer is what closes it, and
+  // it is a source read rather than a drive because the route is owner-gated and
+  // no session token exists here; the observer is alive because the block is
+  // non-empty and really does carry the empty object.
   assert.match(block, /secrets: \{\}/, "a probe launch carries secrets");
+  assert.doesNotMatch(block, /jobSecrets/, "the probe route reaches for the platform's secrets — nothing a probe runs needs one");
   assert.match(block, /kind: "probe"/, "the launch is not a probe");
   // AND READING ONE BACK IS THE SAME DOOR — a fire nobody can read is an
   // instrument with no dial.

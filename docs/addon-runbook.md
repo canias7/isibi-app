@@ -53,6 +53,75 @@ that would have passed a broken feature or failed a working one.
 
 ---
 
+## Before the paid runs: the two free probes (2026-09-14)
+
+Owner: *"Test duration and transport separately. Controlled test executing
+inside the container for >15 minutes, then finishing and publishing. Test the
+long AI connection separately so proof doesn't depend on the model randomly
+answering slowly."*
+
+**Both cost nothing — no model call, no credit, no row, no ledger** — and both
+run through the real `/job/run` door in a real job child, which is most of the
+point: the busy hold, the launch's own deadline and the terminator armed off it
+are three of the things being measured.
+
+**They need the deploy first**, and the push that carries them moves `worker.js`
+and `builder/`, so the image rebuilds and the container rolls: **wait the 15–20
+minute hold** before firing either, or the probe measures the previous image.
+
+### Probe 1 — duration
+
+```
+POST /api/site/job-probe          {"probe":"hold","ms":1200000}
+GET  /api/site/job-probe?id=<id>
+```
+
+Twenty minutes, which is past the number in question. The POST answers at once
+with the id; the GET reads the job's own record back off the build service.
+
+**What to read.** `state` should go `running` → `done`, `ms` should be ≥
+1,200,000, and **`tail` carries the probe's once-a-minute pulse** — that is the
+half that matters, because an absent final line is also what a crash produces
+and cannot-tell must not read as an answer. A `stopped` value on the record, or
+a tail that ends near minute fourteen, is the old ceiling still in force.
+
+**What it does NOT prove, stated rather than glossed**: the lease surviving
+(that is `edit_sweep_lost` selecting on `lease_expires_at` and never on elapsed,
+which is a Postgres property), the handoff TTL, and **publishing** — that last
+one is the real addon run's job, below.
+
+### Probe 2 — the long connection, with no model in it
+
+```
+POST /api/site/job-probe   {"probe":"wire","ms":300000,"everyMs":20000}
+GET  /api/site/job-probe?id=<id>
+```
+
+Two long connections in turn — never raced — through the **same `node:https`
+sender a model call uses. `quiet` sends nothing until it answers, which is what
+a non-streaming provider call looks like on the wire; `trickle` sends a byte
+every tick, which is what `stream: true` produces.
+
+**The probe names its own reading** rather than leaving two rows to be read by
+eye, and all four mean different next moves:
+
+| reading | what it means |
+|---|---|
+| `idle-kill` | quiet died, trickle lived — **run 45's 270-second reading holds and streaming IS the fix** |
+| `no-wall` | both lived — **run 45's reading is WRONG**; the cause is something else and the hunt restarts |
+| `lifetime-cap` | both died — streaming cannot beat it and the next fix has to be something else |
+| `quiet-survived-trickle-did-not` | nothing expected this; read both `wire` fields before concluding anything |
+
+**And read each half's `wire` field, which is the falsifier**: `headersMs: -1,
+chars: 0` is a death before any byte moved; `chars > 0` is a death with the
+stream open. `cause` carries the underlying error code.
+
+**Until one of these runs, the eleven milliseconds between run 45's death
+(270,025 ms) and `build-call.mjs`'s recorded wall (270,036 ms) are strong
+evidence and NOT proof**, and this file will not call them one.
+
+---
+
 ## Step 0 — the disposable site
 
 Workflow **`build as owner`** → *Run workflow*.

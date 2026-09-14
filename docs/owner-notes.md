@@ -220,15 +220,32 @@ so it would have been failed, with nothing charged but you told to ask again,
 before the job it was waiting for could possibly finish. Fixed by deriving the
 waiting time instead of typing it.
 
+**And I built the two tests you asked for, both free.** They run through the real
+job door in a real job child, so they measure the thing rather than a stand-in,
+and neither spends a credit or makes a single model call.
+
+- **The long job.** It occupies a job for twenty minutes — past the fifteen in
+  question — and writes a line every minute while it does. The pulse is what
+  makes the answer readable: a job killed at minute fourteen and one that ran to
+  twenty are told apart by what the lines SAY, where a missing final line is also
+  what a crash looks like.
+- **The long connection, with no model in it.** Two calls in a row — one that
+  sends nothing until it answers (what a normal model call looks like on the
+  wire) and one that sends a byte every twenty seconds (what streaming looks
+  like) — down the same phone line a real model call uses. **This is the one that
+  settles the 270-second question**, and it settles it either way: if the quiet
+  one dies and the streaming one lives, my reading was right and the fix is the
+  right fix; if both live, my reading was wrong and I will say so; if both die,
+  streaming cannot help and the next fix has to be something else. The test names
+  which of the four it saw rather than leaving you to read two rows of numbers.
+
 **What is proven and what is not.** Everything above is proven by tests only —
-**6,291 passing, and a mutation sweep of 38 deliberate breakages, 36 caught.**
-The two that survived were my own mistake in choosing which tests to run; re-run
-against everything, both are caught. **Nothing here has run in a real container
-yet.** Two things are still to come: a controlled test that runs for more than
-fifteen minutes inside the container and then publishes, and a separate test of
-the long connection that does not depend on a model happening to answer slowly —
-you asked for both and they are next. **I cannot fire either one from here** (my
-GitHub access refuses to start workflows, 403), so those runs are yours.
+**6,302 passing**, plus a mutation sweep whose result is recorded in CLAUDE.md.
+**Nothing here has run in a real container yet**, and the 270-second story stays a
+story until one of the probes runs. **I cannot fire them from here** (my GitHub
+access refuses to start workflows, 403), so those runs are yours — the exact two
+calls and what to read off each are in `docs/addon-runbook.md`, and they need the
+deploy plus the usual 15–20 minute wait for the container to roll.
 
 ---
 
