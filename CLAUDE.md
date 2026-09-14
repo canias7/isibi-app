@@ -3,36 +3,31 @@
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
 >
-> **PRUNED 2026-08-28 (owner's call: "delete whats old and we dont need
-> anymore").** This file was 3,786 lines of change-by-change history and loaded
-> into every session's context. What it says now is what is TRUE TODAY, plus the
-> standing decisions and the traps that keep costing sessions. **The full record
-> — every entry, every measurement, every reversal, from 2026-07-20 to
-> 2026-08-28 — is in git: `git show 6393b134:CLAUDE.md`.** Nothing was lost; it
-> stopped being loaded. When you need to know *why* something is the way it is
-> and this file does not say, that command is the answer.
+> **PRUNED 2026-09-14 (owner: "our claude.md is really big, you can delete
+> almost all the old stuff bro").** It was **7,615 lines and is 3,157 — 4,458
+> deleted, 58.5%**, and this is the fourth prune: 3,786 → (2026-08-28) → 10,004 →
+> (09-09) 3,808 → 7,883 → (09-11) 3,933 → 7,615 → **3,157**. Each time the file
+> grew back by accreting the STORY of every shipped change beside its law.
+> **The totals are the file as it stands; the per-section figures below are the
+> CUT's own** — the same commit then wrote this change's entry back into the
+> probe section, which is why the two do not add up and why saying so beats
+> letting a stamp drift.
 >
-> **PRUNED AGAIN 2026-09-09 (owner's call: "clean up the md files, they are big"
-> → "I mean to delete old stuff").** It had grown back to 10,004 lines and is
-> **3,808 now — 6,210 deleted, and nothing rewritten**: whole entries cut
-> out, not condensed: the chrome log (the start screen's cards, the code tab, the
-> offline flag, the mobile column, fifteen entries), the build-progress and
-> code-streaming entries, the job-runner stage records (stages 1a–9), the addon
-> harness runs 21–37, the language-translation runs, the lane-sweep and gap-sweep
-> logs, and the nested suite-count chains. **All of it is in git: `git show
-> 7104c87b:CLAUDE.md`.** Every one of those entries described work that is
-> shipped, merged and live, so what it said is now what the code does.
+> **What went this time, and the rule that decided it: a fact that is true today
+> belongs here; a story about how it got true belongs in git.** Two whole
+> sections were pure history and are now a paragraph each — the media side's five
+> deletion stages (686 lines; it is deleted, and what survives is what was KEPT
+> and why) and the dead-code deletion (187). Five more were COMPRESSED rather
+> than cut, every rule and **every measured number** carried across and only the
+> narrative dropped: the code explorer (553 → 135), Rules from recent fixes
+> (885 → 184), the container clock and the two probes (585 → 185), the add step
+> (550 → 136), the edit path (423 → 175), the tables step and the column grants
+> (658 → 130), and **THE TRAPS (1,482 → 330, with every one of the ~85 traps kept
+> as its rule plus its measurement)**.
 >
-> **PRUNED AGAIN 2026-09-11 (owner: "do a claude md clean up").** It had grown
-> back to 7,883 and is **3,933 now — 3,950 lines lighter**, and this time the ~40 dated
-> change-log entries between "The published site" and "Editing a site" were
-> COMPRESSED rather than only cut: every one described work that is shipped,
-> merged and live, so the LAW in them (the flags and their defaults, the two
-> bounds, the measured arithmetic, the rules from each fix) was folded into four
-> standing sections — **The code explorer**, **The two splits**, **The
-> instruments**, **Rules from recent fixes** — and the narrative of how each got
-> there was cut. Five new traps went into THE TRAPS rather than staying as
-> stories. **The full record is in git: `git show 5cfd4e58:CLAUDE.md`.**
+> **The full record is in git: `git show a4d0f5e5:CLAUDE.md`** — every entry,
+> every sweep tally, every live-deploy record, from 2026-09-05 to 2026-09-14.
+> Earlier ones: `git show 6393b134:CLAUDE.md`, `7104c87b`, `5cfd4e58`.
 >
 > **Keep it this way.** Add an entry when a decision is made or a trap is found;
 > when an entry becomes history rather than law, cut it. A fact that is true
@@ -61,879 +56,71 @@ distinction that still exists once the branding does not.
 
 ---
 
-## The media side is being deleted, in stages (2026-09-12)
+## The media side is gone (deleted 2026-09-12, five stages)
 
-Owner: *"so we had a video maker, and the website builder, keep the site
-builder, just carefully delete the other stuff, leave fal for the banano pro
-images for the site builder, and leave the membership and the credits how they
-are"* — then, asked directly, *"delete it too"* (the game builder) and *"delete
-the data as well"*.
+`gofarther.dev` served an AI image/video/voice generator from the beginning. It
+is deleted: the composer, the gallery, the director, `/api/video|image|audio`,
+the Media Agent, the avatar, the universal memory, the game builder, and the
+customers' 53 stored generations. **~23,000 lines across five stages, each its
+own commit with the suite green before the next.** The builder is the only work.
 
-**What goes**: the generator `gofarther.dev` has served since the beginning —
-the composer, the gallery, the director (`/api/direct`),
-`/api/video|image|audio`, the Media Agent, the avatar, the universal memory —
-and the game builder with it. **What stays**: the site builder whole, the
-membership tiers, the credit ledger and every RPC under it, and **fal for the
-builder's own photographs**. `genSitePhoto` calls
-`https://fal.run/${SITE_IMG_MODEL}` (`fal-ai/nano-banana-pro`) DIRECTLY, which
-is a different path from the media side's `queue.fal.run/${endpoint}` — so
-deleting `/api/image` cannot take a site's pictures with it. Read before the
-first deletion, not assumed.
+**What was KEPT, each checked rather than assumed**: the membership tiers, the
+credit ledger and every RPC under it (`gen_charges` is a live Postgres table
+with `refund_charge` over it — money history), `usage_log` (it reads as
+media-era and is the BUILDER's quota), `safeFetch`/`hostIsBlocked` (the outbound
+webhook takes a customer's URL), and **fal for the builder's own photographs** —
+`genSitePhoto` calls `fal.run` DIRECTLY where the media side called
+`queue.fal.run`, so deleting `/api/image` could never take a site's pictures
+with it. The 108 site-builder uploads under `<uid>/site/` (162 MB) stay.
 
-**Four stages, each its own commit with the suite green before the next**:
-1. the game builder — self-contained, and it proves the method;
-2. video/image/audio generation, the model/pricing/duration tables, the composer;
-3. the surround (DONE) — the SERVER half of what stage 2b's UI removal orphaned:
-   `/api/gallery`, `/api/save`, `/api/import/fetch`, `/api/direct`, `/api/m/`,
-   `/api/cancel`, `/api/refund`, `/api/storage`, the media token,
-   `/api/media/unlist`, the Media Agent (`/api/agent` and its CRON half),
-   `/api/social/*`, `/api/video/poll`. **`gen_charges` was on this list and
-   stayed**: it is a Postgres table with a live RPC over it (`refund_charge`),
-   which is credit machinery the owner said to leave alone, and its ROWS are the
-   data step's. **The avatar and universal-memory routes were not on the router
-   to delete** — the survey found no such paths; the avatar was a view (stage
-   2b) and the memory was read inside the generation block (stage 2a);
+**`home` IS AN ALIAS FOR `sites`, NOT A VIEW.** `KNOWN_VIEWS` is
+`['sites','settings']` and anything else falls back to the builder — a
+refresh-proof `zephyr_view_v1` of `gallery` would otherwise paint an empty main.
+The alias and the fallback are deliberately redundant and the sweep proved it;
+both are kept because they say different things.
 
-4. the sweep (DONE) — the frozen pre-scrub clone of the media client, the dead
-   media assets, the unread Composio credential, the watermark test bench and
-   the Media Agent's document. **The landing's copy and the dead CSS are NOT in
-   it**, each for a stated reason: the landing is a design job the owner directs,
-   and the CSS scan's false-alarm rate is not yet zero — the stage 4 section
-   below carries both measurements.
-5. the data (DONE, 2026-09-12, owner: *"YEAH DO THAT AND MERGE IT"* — the one
-   more explicit confirm the plan asked for). **Run AFTER the merge and its
-   deploy**, so no live media route could re-write what was being removed.
-   The section below records what went, what stayed, and the one thing the
-   survey found that changed the answer.
+**The landing page still carries the media side's CRT channel selector, its
+model pipeline and `providerOf`** — deliberately, because rewriting it is a
+design job the owner directs. Both landing doors open the builder and the
+non-website channels are inert. It is the one piece still standing.
 
-**THE STAGE BOUNDARY MOVED, AND THREE GUARDS ARE WHY.** The plan had stage 2 as
-two commits — the Worker's routes, then the composer — and that is not possible:
-`client-routes.test.mjs` (twice, once by reading the Worker and once by DRIVING
-it) and `wiring.test.mjs` all assert that every `/api` path the browser calls is
-a route the Worker answers. Delete the three generation routes and the browser
-still calls them; delete the browser's callers and the routes have no caller.
-The two halves are one change, and the guards refusing to let them ship apart is
-them working. So stage 2 is **2a, the server side (`d969de02`, pushed with those
-three red and the message saying so)** and **2b, the client side**, and the
-branch became mergeable again only when 2b landed.
-**And stage 2b absorbed what stage 3's CLIENT half would have been** — the
-gallery, the avatar, the Media Agent and the integrations views — because once
-home is the builder, `in-sites` hides the studio chrome permanently and every one
-of those tabs is a door to a screen nobody can reach. A tab that cannot be
-clicked is this repo's own dead-control finding, so they went with the composer;
-their server routes are stage 3 as planned.
-
-### Stage 1: the game builder (done, 2026-09-12)
-
-`builder-game/` (76 files, 8.6 MB), 476 lines of `worker.js`, 328 of
-`public/chat.js`, its container, its Durable Object, its markup and its
-stylesheet. Two things came out of it that outlive the deletion, and both are
-guards this repository did not have.
-
-- **A DURABLE OBJECT CLASS THAT LEAVES THE WORKER NEEDS A `deleted_classes`
-  MIGRATION, AND NOTHING GUARDED IT.** `wrangler.jsonc` has carried that rule in
-  a COMMENT since v4 retired the two original builder containers; v6 had to be
-  written by hand off that comment. Cloudflare refuses the WHOLE DEPLOY for a
-  config naming a class the script no longer exports, and **the history is
-  append-only** — the `new_sqlite_classes` tag that CREATED the class stays, so
-  v2 is still there with the class long gone. `test/do-migrations.test.mjs` is
-  the census, derived from the config and from `worker.js`'s own `export class`
-  lines: every bound class exported and every exported class bound, every
-  created-and-unbound class deleted by a migration, every deleted class really
-  gone from both, no class deleted before it was created, and every `containers`
-  entry naming a bound class. **Proved red both ways before it shipped** — v6
-  removed (`GameBuildContainer was created by migration v2, is no longer bound,
-  and no migration deletes it`) and v2 removed (`deleted by v6 and nothing ever
-  created it`). This is the recorded "the thing that runs your guards is not
-  itself guarded" shape, one layer over: the CONFIG that decides whether
-  anything deploys at all had no census over it.
-
-- **A FREE IDENTIFIER IN A BROWSER SCRIPT, AND NOW A GUARD THAT SEES IT.** The
-  trap entry has the general shape; what this deletion added is that
-  `public/chat.js` went on CALLING `gamesLoad()` after the Game Studio that
-  defined it was deleted — `node --check` passes, every source guard finds its
-  landmarks, the sweep kills every mutant, and every signed-in customer's asset
-  sync throws `ReferenceError`. `test/free-identifiers.test.mjs` parses every
-  script `index.html` loads with TypeScript's own parser and walks real lexical
-  scopes (parameters, destructuring, catch bindings, for-of, hoisting).
-  **Classic scripts share ONE global scope**, so the check is over the PAGE and
-  not the file — `auth.js`'s `SUPABASE_URL` read from `chat.js` is correct code
-  — and a name used as a `typeof` operand anywhere is a deliberately-optional
-  global (`if (typeof sbSave === 'function') sbSave()`), which is the one
-  identifier position the language guarantees cannot throw. **ZERO EXCEPTIONS
-  AND ZERO FALSE ALARMS, measured rather than claimed**: the first run reported
-  23 names, 21 of them the reader's fault (missing browser globals, UMD footers,
-  cross-file globals) and **two of them real**. A second pass for sloppy-mode
-  implicit globals was written, measured, and DELETED: it reported `TABLE` and
-  `_bitBuffer` out of the vendored QR library — assignments to names declared in
-  an enclosing FUNCTION scope, which the main walker already sees. One walker,
-  not two.
-
-- **`galFilter` AND `galSort` WERE DECLARED NOWHERE IN THE SERVED `chat.js`**,
-  and `galleryItems` reads both. Their `let` declarations live in
-  `public/demo-hero-2/chat.js`, the demo copy, and never crossed. You have to
-  render the gallery before there is a filter to click, so the read always came
-  first: **opening Gallery threw and the view stayed blank** — live, for as long
-  as those two copies have been out of step. Declared in the served file rather
-  than added to an exception list, because an exception list is where the next
-  one hides. The feature is Stage 3's to delete; until then it works.
-
-Guards: the two above, plus `test/container-images.test.mjs`'s **TWO_CONTAINERS
-fixture, DERIVED FROM THE REAL CONFIG** — the repository ships one image now, so
-"each image is asked for BEFORE its own build" and "the other container's path
-must stay for its own rewrite" were both vacuous over a list of one; the game
-supplied the second by accident and this supplies it on purpose. Derived, never
-typed: `rewriteImage` matches `"image": "…"` with the spacing the config really
-carries, and the first draft — a `JSON.stringify` fixture writing `"image":"…"`
-— silently matched nothing. The recorded "a fixture in a different shape from
-reality" trap, met on the first run.
-**Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived.** Suite 6,072.
-
----
-
-### Stage 2a: the generation routes leave the Worker (done, 2026-09-12)
-
-`d969de02`. 1,370 lines of `worker.js` in five self-contained regions, plus
-`test/attach/` (six manual pricing harnesses, one of which lifts `creditCost`
-out of `worker.js` BY NAME and would have thrown the moment it landed):
-`/api/video|image|audio` and its 823-line gated block; the model tables; the
-price tables (`VIDEO_USD`, the media `IMAGE_USD`, `AUDIO_USD_PER_1K`,
-`GPT_PRICE`, `gptSizePx`, `KLS_VOICES`); the duration and billing helpers
-(`MODEL_DURATIONS`, `creditCost`, `billableDuration`, `durationError`,
-`clipLengthError`, `CLIP_MAX_S`, the four container readers `durWav`/`durMp4`/
-`durWebm`/`durMp3` with `MP3_BR` and the two data-URI probes); `falUpload` and
-`cancelFal`.
-**EVERY SYMBOL PROVED SELF-CONTAINED BEFORE THE CUT.** A reference survey over
-comment-blanked source classified every occurrence of all 32 names as in-region
-or outside, and the ONE outside hit was the aliased import `IMAGE_USD as
-SITE_PHOTO_USD` — a different binding from a different module. The builder's
-photo path shares nothing: `genSitePhoto` calls `fal.run` where the media side
-called `queue.fal.run`, and its price is `publish-pages.mjs`'s.
-**THREE COMMENTS WHOSE REASONS THE DELETION EXPIRED, corrected in place** — the
-`SITE_PHOTO_USD` alias (the collision it dodged is gone; the name stays because
-it is the better name, said as a decision), `/api/fal-balance`'s note (**nothing
-gates on the fal balance now**, and the builder's photographs never were gated
-by it — the route is a reading, and an empty balance means every photograph
-comes back a placeholder), and the auth header.
-
-### Stage 2b: the media UI, and home is the builder (done, 2026-09-12)
-
-Owner, asked directly: *"yeah thats right, home is the builder now, keep
-going"*. **8,255 lines out of `public/chat.js` (17,453 → 9,219)**, 201 of
-`index.html`, `public/ffmpeg-edit.js` and its 11 MB of vendored wasm.
-
-- **`home` IS AN ALIAS FOR `sites`, NOT A VIEW.** `viewHome` was the media
-  composer and `home` was already LABELLED 'Builder' from an earlier renaming —
-  two things called the builder, one of which was the video generator. There is
-  one now. `KNOWN_VIEWS` is `['sites', 'settings']`, and **anything else falls
-  back to the builder**: a remembered `zephyr_view_v1` of `gallery` would
-  otherwise clear every view's `active` class and add it to nothing, painting an
-  empty main — a refresh-proof preference is exactly the value that outlives the
-  view it names. The alias and the fallback are DELIBERATELY REDUNDANT and the
-  sweep proved it (neither half alone changes an answer); both are kept because
-  they say different things, and the source says so.
-- **WHAT DECIDED THE SCOPE was not the composer, it was `in-sites`.** That class
-  hides the studio chrome while the builder is open, so once the builder is home
-  it hides it always — and the Gallery, Avatar and Media Agent tabs become doors
-  to screens nobody can reach. A tab that cannot be clicked is this repo's own
-  dead-control finding, so all four views went with the composer. Their SERVER
-  routes are stage 3.
-- **THE CHAT SHELL WAS MEDIA, and that was the surprising half.** `chatStore`,
-  `loadStore`/`persistStore`, the cross-device sync, `renderThread`,
-  `renderChatList`, `newChat`, `addMsg`, the staged attachments — all of it.
-  MEASURED, not assumed: over the builder's own 8,000 lines, `addMsg` is called
-  **once**, at the Stripe-return line in the boot tail, which is not the builder
-  at all. The builder keeps its conversation inside each project.
-- **THE METHOD WAS A REACHABILITY QUESTION, AND THE FIRST TWO ANSWERS WERE
-  USELESS.** A transitive closure from the builder's region reaches nearly
-  everything (845 of 855 names) because the declarative wiring table at the foot
-  of the file roots the app's whole surface. What worked was DIRECT reference,
-  region by region: of 507 top-level declarations outside the four keep-islands
-  (the builder picker, credits + memberships, the auth gate, and everything from
-  `initAuthGate` down), **427 were named by nothing kept**. The 80 that were
-  split into wiring entries, boot lines, and a genuinely shared set of **three**:
-  `esc`, `schWhen` and `providerOf`. All three were lifted out rather than left
-  behind — a live name inside a region being deleted is how a deletion ships a
-  `ReferenceError` nothing can see.
-- **`providerOf` AND THE MODEL TABLES STAY, FOR THE LANDING.** The marketing
-  page still has a CRT channel selector with Video/Audio channels, a pipeline
-  listing every AI model, and a prompt line alternating "generate" and "build".
-  Rewriting it is a design job the owner directs, so it was left WORKING: both
-  landing doors open the builder, the non-website channels are inert (the state
-  the selector already had a design for), and the tables it reads are kept with
-  a note saying why. **It is the one piece of the media side still standing, and
-  it is stage 4's.**
-- **TWO LOSSES NAMED RATHER THAN HIDDEN.** The account badge says 'Member' where
-  it said Plus/Pro/Max — the tier name came off `/api/storage`, whose only
-  reader was the gallery; putting it back means adding the tier to the credits
-  answer, which is where it belongs. And `'wasm-unsafe-eval'` came out of the
-  CSP with the video editor that was its only claimant — **which nearly shipped
-  a silent defect**: the demo frame's policy is built by `.replace()` off the
-  main one and its needle named that exact token, so the frame would have
-  quietly lost its `unsafe-inline` and rendered without its inline styles. A
-  stale needle in a VERIFICATION fails loudly; in a REPLACEMENT it fails silent.
-  Both halves are driven now, and the replacement refuses to be a no-op.
-
-**THE 46%-OF-THE-FILE BLANKER TRAP FIRED, IN A GUARD, AND THE CUT IS WHAT
-EXPOSED IT.** `test/landing-pipe-run.test.mjs` blanked block comments BEFORE
-line comments, and `chat.js` carries `// Every /api/* call carries the Supabase
-access token` — whose `/*` opened a false block running to the next real `*/`
-**71,729 characters away**, swallowing `RUN_AGENTS` and most of the file.
-MEASURED: **37.1% of the visible source survived**, and three tests reported
-the landing's pipeline as gone on a change that never touched it. It was the
-last blanker in the repo still doing it the naive way. Both it and
-`landing-models.test.mjs` (whose `MODELS_TAB` mention count went 2 → 3 because
-a NEW COMMENT of mine named the constant — "prose contains the thing it
-forbids", landing on a guard whose job is counting mentions) read line comments
-first now, with the landmarks they are about to look for asserted to have
-survived. **A ratio alone would not do: chat.js is measured at 50.1% comments.**
-
-**Guards**: `test/media-deleted.test.mjs` (4) — the app's view list DERIVED from
-`KNOWN_VIEWS` and from index.html's own `.view` ids and required to agree, with
-no control offering a view that is neither; both storage clear-lists required to
-carry every retired `zephyr_` key from owner-notes' own do-not-rename table
-(with the session key excluded because it is Auth's, and the owner key excluded
-from the account-switch list because that list re-sets it three lines later);
-the CSP driven, needles and all; the deleted editor's files asked of `git
-ls-files` rather than the filesystem. Plus a driven case in
-`test/project-url.test.mjs` for the fallback, over eight names that must land on
-the builder with Settings as the control.
-**Seven older guards went red and were re-anchored, not appeased** — two scan
-floors moved by the deletion (`client-routes` 20 → 12 against a measured 15,
-`site-addon` 1,000 → 600 against a measured 844), the two blankers above, the
-two boot landmarks, and the free-identifier guard's own liveness check, which
-named `sbSave`/`sbMediaClear` — two media globals — and now DERIVES the
-typeof-guarded set and requires one of them to be genuinely absent.
-**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived.** **EIGHT survived the first pass and SIX were real guard
-gaps** — the app's view list (adding `viewGallery` or a Gallery tab back passed
-every test in the repo), both storage clear-lists (`brand-rename` only asks that
-a key is SOMEWHERE in the tree, which the two lists satisfy between them, so
-dropping it from one survived), and the two CSP halves. One was the declared
-redundancy above, and the spec mutates the PAIR now. One was INERT BY
-CONSTRUCTION and was replaced rather than hunted: weakening a guard's own
-assertion is not a behaviour change, so no other test can catch it — unlike the
-two test-side mutants that DID die, whose weakening broke other assertions in
-the same file. **Suite 6,078** (6,072 at stage 1; the four new cases in
-`media-deleted` plus the driven fallback case, less the cases the deletion
-retired).
-
-### Stage 3: the surround leaves the Worker (done, 2026-09-12)
-
-**2,781 lines out of `worker.js` (27,300 → 24,519)** in twelve bands, every one
-of them cut with its first surviving line asserted before and after. **25
-routes**: `/api/storage`, `/api/gallery`, `/api/media/unlist`, the twelve
-`/api/social/*`, `/api/agent` (the Media Agent's brain), `/api/direct` (the
-director), `/api/cancel`, `/api/refund`, `/api/import/fetch`, `/api/save`,
-`/api/media-token`, `/api/m/*` and `/api/video/poll`. `api-auth`'s own census
-reads **30 routes** where it read 53 before the cut and 61 before the game.
-
-**THE METHOD WAS THE OPPOSITE OF STAGE 2b's, AND IT HAD TO BE.** There the
-question was which of 855 browser names the builder still reaches; here the
-regions sit INSIDE `handleRequest`, a 19,000-line function, so "what do these
-lines reference" answers nearly the whole file. `doom.mjs` took a LEAST FIXED
-POINT ON LIVE instead: a declaration is live if anything outside the cut lines
-references it from a live position — module top level, `export default`, or a
-declaration already known live — iterated to a fixed point, which is what
-follows a chain (a route calls a helper that calls three more) without the
-wiring table flooding the answer.
-
-**AND IT WAS RUN TWICE, WITH NO CUT RANGES AND WITH THEM, because the two
-answers mean different things.** With none: **17 declarations were ALREADY dead
-before any of this started** (`runSiteAI` and its two helpers, `anthropicMessages`,
-`resolveRaw`, `siteExec`, `tableDef`, `loadEditableFiles`, `runContainerJob`, the
-four `_hmac` helpers, `_notifsReady`, `_authExtrasDone`, and `SiteBuildContainer`,
-which is a FALSE POSITIVE — `wrangler.jsonc` references it and a JS-only walk
-cannot see that). With them: **57 more**, and **3 that stages 1–2 orphaned**
-(`writeGameDistToR2`, `briefErr`, `scrubProvider`). Only the 57 + 3 are this
-stage's; the 17 are named and left, because a deletion that also tidies
-unrelated dead code cannot say which of its own lines did what.
-
-- **`scrubProvider` WAS RE-POINTED, NOT DELETED, and that is the one judgement
-  call here.** The standing owner rule is *the user must NEVER see "fal"*, and
-  the scrubber guarded the DIRECTOR's brief errors — the half that is going.
-  What STAYS is the one fal call the owner asked for by name: `genSitePhoto`
-  throws `"photo " + status + " " + d.detail`, `detail` written by fal, and
-  `makeSitePhoto` puts that message on the wire as `images.error`. Nothing was
-  leaking — `imageNote` is the one composer of the customer's sentence and reads
-  `error` only as a DISCRIMINATOR between four identical-looking placeholder
-  outcomes — but the wall was pointed at the path that left and not at the one
-  that stayed, and "not currently rendered" is a property of a renderer somebody
-  will change. It wraps that message now, at the one place the provider's words
-  enter our own data. The LOG keeps them: it is ours to read, and a scrubbed log
-  makes a provider outage harder to diagnose for nothing.
-
-- **FOUR PROVIDER ORIGINS AND A WHOLE CSP DIRECTIVE WENT WITH IT.** `fal.media`
-  and `*.fal.media` (the generator's temporary render links, loaded straight
-  into a browser), `*.ytimg.com`, `*.cdninstagram.com` and `*.fbcdn.net` (the
-  Media Agent's thumbnails), off `img-src` and `connect-src` — and **`media-src`
-  in its entirety**, which existed so the composer could play a generated clip.
-  **DROPPED RATHER THAN NARROWED, which is the tighter answer**: with no
-  directive `default-src 'self'` governs, so a `<video>` nobody has written yet
-  is refused a remote source by default instead of inheriting a permission
-  somebody has to remember to remove. **The builder's fal call is unaffected and
-  this is why it can be**: `genSitePhoto` runs SERVER-side and downloads the
-  bytes into R2, so a photograph reaches a page as `/u/<slug>/<hash>.jpg` on the
-  site's own origin. The media side was the half that put a provider URL in
-  front of a browser; the builder never has. **The remaining set is checked
-  against `public/` rather than asserted**: every non-`self` host in the policy
-  must be named by something the app serves.
-
-- **THE MEDIA AGENT'S CRON HALF WAS THE PIECE THE FIRST SURVEY MISSED, AND IT IS
-  WHY THE SWEEP MATTERS.** `composioExecute` had **27 references outside the
-  delete regions**, which read as a live consumer sharing the helper — and the
-  answer was that all 27 were in the auto-reply engine (`runAutoReply`,
-  `runAutoReplyDm`, `runAutoReplyComment`, `autoreplyDraft`/`Handled`/`Mark`/
-  `WithinDays`, `AUTOREPLY_ALLOW`, `sbSvcHeaders`), which is rooted from
-  `scheduled()` rather than from a route and so was outside every region. It is
-  media-side whole (Instagram DM and comment auto-reply), and it went.
-
-**AND DELETING IT SHIPPED A DEFECT THAT ONLY A DRIVEN TEST COULD SEE.**
-`ctx.waitUntil(runAutoReply(env));` stayed in the cron handler with the engine
-gone. `node --input-type=module --check` passes on a free name; every
-source-reading guard found its landmarks; **a cron handler throws into nothing**,
-so every `waitUntil` below it — the sites' scheduled jobs, the nightly backups,
-the Neon teardown queue, the domain watch, the webhook queue, the rebuild queue,
-the lost-edit sweep, the job-litter sweep — would have stopped running on every
-two-minute tick, silently, with no customer-facing request failing. It was caught
-by `test/rebuild-job.test.mjs`, **the only guard anywhere that DRIVES
-`scheduled()`**, which is luck rather than coverage.
-
-**SO THE FREE-IDENTIFIER WALKER NOW READS `worker.js` TOO** — the sixth instance
-of that trap and the first in the Worker. `test/free-identifiers.test.mjs`
-gained two changes and two cases: imports are SKIPPED in the walk (worker.js is a
-module, and an aliased import reads its ORIGINAL name as free — measured at 17
-findings, every one that shape), a class field's NAME is not a reference
-(`SiteBuildContainer`'s two fields were the false alarm that found it), and the
-scope is seeded with the 571 imported bindings because `hoist` knows about
-function, class and variable statements and not about imports.
-**ZERO FALSE ALARMS AND ONE REAL FINDING, on code nobody had touched:
-`editAnswer`, called twice in the edit route's removal branches and defined only
-in `public/chat.js`, with a different signature `(httpOk, e, o)` and no return
-value.** Both would have thrown. `eAnswer` is the fix — one shape for an answer
-the route decides itself, `status` taken OFF the body so the JSON cannot carry a
-second copy of the HTTP one — and `test/site-delete.test.mjs` drives it (422 for
-a refusal, 200 for nothing-to-do, the default, both call sites counted). The
-removal verb has not run live, which is the only reason no customer met it.
-
-**Guards, and three older ones re-anchored on the property:**
-- `test/media-deleted.test.mjs` (4 → 5): the CSP host census above, DERIVED from
-  what `public/` names, and the fal scrubber DRIVEN — four real failure
-  sentences scrubbed, three innocent ones unharmed (`"false positive"`,
-  `"falcon perch"`), and a provider URL required to go WHOLE rather than word by
-  word.
-- `test/safe-fetch-redirects.test.mjs` — **its subject moved rather than its
-  property.** Nine cases drove the SSRF loop through `POST /api/import/fetch`,
-  and there is no longer ANY route whose body is a URL we fetch. `safeFetch`
-  still has two callers that take a customer's URL (`siteReadUrl`, the brief's
-  "read this page" link, and the outbound webhook), so the reader is EVALUATED
-  out of worker.js with the REAL `hostIsBlocked` handed in, plus a self-test
-  that the lift reached the real chain and the guard really blocks. **Its own
-  lift trap fired on the first run**: `export default` was missing from the
-  boundary list, worker.js declares its handler object near the top of the file,
-  and the window swallowed it — "Unexpected token 'export'". The identical
-  reader in `api-auth.test.mjs` had the same latent hole and now names it too.
-- `test/rebuild-job.test.mjs` — its window closed on `"\n// ── Free-tier media
-  proxy"`, a NEIGHBOUR's heading that this cut deleted, so `indexOf` answered -1
-  and `slice(from, -1)` handed back the rest of the file: "runSiteRebuild moved"
-  about a function nothing had touched. Bounded by the next top-level
-  declaration, derived.
-- `test/site-style.test.mjs` — **"nothing can take the style axes out of the
-  design tool" had been proving its own liveness off the MEDIA side for three
-  weeks.** The 29 axes left `design_schema` on 2026-08-23 (the owner's "let it
-  just be css"), and the clause that keeps the two absence checks above it
-  honest looked for a `style:` property — matching `write_prompt`'s voice-tuning
-  `style: { type: "number" }`, a 0-1 expressiveness dial in the director's tool.
-  Deleting the media side is what made it fail. Re-anchored on the LOOK field
-  the tool really carries, and DRIVEN through `readSchemaTool` because the token
-  list is an expression (`SITE_TOKEN_NAMES.map(...)`), so a source read finds
-  only the five names the prose spells out. **The recorded "a negative assertion
-  must prove its observer is alive" trap with the observer alive off the wrong
-  subject** — the liveness clause passed, so nobody looked.
-- `test/api-auth.test.mjs`: `/api/m/*` off `PUBLIC` (six unauthenticated routes
-  now, not seven — and the count goes DOWN as happily as up), the route floor
-  35 → 25, the tool set asserted EXACTLY (`design_schema` alone; `write_prompt`
-  and `respond` were the director's), and the shared window reader given
-  `export default` as a boundary.
-- `test/wiring.test.mjs`: the literal-route floor 30 → 20 against a measured 26,
-  and `/api/m/` off `answered()` — **a hole rather than dead weight**, since that
-  function decides whether a CLIENT call is answered and a stale prefix says yes
-  about a route that is gone.
-
-**Sweep: 27 mutants, 27 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived — THREE SURVIVED THE FIRST PASS AND ONE NEVER APPLIED, and
-every one of the four was a missing assertion, an inert fixture or an ambiguous
-anchor**, all three of which this repository already has names for:
-- the scrubber's whole-URL rule (the two narrower rules remove every `fal`
-  either way, so "no provider survives" passed over
-  `https://the render service/the render service/nano-banana-pro` — the
-  assertion was the property, not the wall);
-- the worker walk's seed widened with `runAutoReply` and `editAnswer` (inert
-  against today's source, because neither name is in the file — load-bearing the
-  day one comes back, and the case now drives the real seed against the real
-  source with the call appended);
-- the CSP host census reading the raw source WITH its comments (inert, because
-  the prose above the directives named the four deleted origins WITHOUT their
-  `https://`). Fixed in the SOURCE rather than the test: the comment spells them
-  out in full now, deliberately, which is what makes the blanking load-bearing —
-  "prose contains the thing it forbids", pointed at a census.
-The one never applied was the img-src mutant: that directive line is
-BYTE-IDENTICAL in the app CSP and the website CSP, so the anchor was ambiguous
-(the recorded trap), and it is anchored with its neighbour and the array's close.
-
-**A FOURTH SURVIVED THE SECOND PASS AND WAS PROVEN INERT BY MEASUREMENT RATHER
-THAN HUNTED.** Widening the CLEAN worker walk's seed with `runAutoReply` and
-`editAnswer` changes no answer — both runs return `[]`, measured side by side —
-because after the deletion neither name survives in `worker.js` outside a
-COMMENT, and the walker reads identifiers, not comments. So no mutant of that
-line can die, and the property has exactly one observable half: the PLANTED
-call, which appends the defect to the real source and requires it found. That is
-the half the spec mutates now, and it dies. **Suite 6,083** (6,078 at stage 2b:
-one case retired with `/api/m/*`, and six added — the SSRF driver's self-test,
-the two worker free-identifier cases, the fal scrubber, `eAnswer`'s driven
-status, and the harness-filter census below).
-
-**WHAT STAYS, AND WHY, all checked rather than assumed**: `gen_charges` and
-`refund_charge` (a Postgres table with a live RPC over it — the credit machinery
-the owner said to leave alone, and the rows are the data step's, not the code's),
-the whole credit ledger, the memberships, Stripe, `safeFetch` and `hostIsBlocked`
-(the outbound webhook is the caller that matters — a webhook URL is typed by a
-customer and pointed wherever they like), `CHROME_UA`, `readCapped`,
-`tooLargeBody`, and the builder's photo path whole.
-**The customers' stored media is still a separate step, after the code is merged
-and proven, with one more explicit confirm.**
-
-**AND THE CONTAINER HARNESS HAS NOW READ THE DELETION'S TREE — `site build` run
-1115, 2026-09-12 18:13→18:33Z, all twenty steps green**, `site-build.mjs` itself
-14m21s inside a 19m45s job. That is the proof stages 2a, 2b and 3 each lacked
-and which the filter fix above is what bought: **a site still compiles, renders
-and serves** after 11,000 lines came out of the Worker and the client.
-
-### Stage 4: the sweep (done, 2026-09-12)
-
-**93 files and 12,453 lines out of the tree, 6.7 MB of it assets**, plus the
-residue three stages of deletion left in code that still runs.
-
-- **`COMPOSIO_API_KEY` CAME OFF THE DEPLOY, AND THE CENSUS THAT KEEPS IT OFF IS
-  DERIVED BOTH WAYS.** It was the Media Agent's Instagram/YouTube credential,
-  uploaded to the Worker on every deploy for a whole stage after the engine that
-  read it left. MEASURED before the cut: **zero readers in `worker.js`, in any
-  root module and in anything under `builder/`.** An uploaded secret nothing
-  reads is a live credential with no consumer, and it is invisible — the deploy
-  succeeds, the binding exists, nothing calls it. The guard now requires **every
-  name in the workflow's `secrets:` block to be read by something we ship**, over
-  a **145-module ship set**, so the next unread credential fails by existing.
-  **The GitHub Actions SECRET is deliberately left in place**: deleting it is the
-  owner's, it costs nothing where it sits, and the deploy no longer asks for it.
-  Its `REQUIRED` entry in `test/deploy-secrets.test.mjs` went too — every
-  assertion there iterates the WORKFLOW's list, so an entry for an unlisted name
-  is inert until somebody re-lists it and then quietly makes it a deploy-stopper.
-  **Measured inert, which is why it is a deletion and not a mutant**: with the
-  name off the list, adding it to `REQUIRED` changes no answer.
-- **`public/demo-hero-2/` WAS A FROZEN PRE-SCRUB CLONE OF THE WHOLE MEDIA
-  CLIENT** — 672 KB of `chat.js`, `styles.css`, `auth.js` and `index.html` that
-  named the provider and ran against the live backend, kept as reference on
-  2026-07-18 (*"keep the files, stop serving them"*) and 404'd by a wall in the
-  Worker. **The wall left with its subject**: `assets` declares no
-  `not_found_handling`, so the tail's `env.ASSETS.fetch(request)` 404s the path
-  on its own — CHECKED rather than reasoned, because a single-page-application
-  setting there would have made that wall the only thing stopping the app's own
-  shell being served under it. The guard pins both halves.
-- **AND DELETING IT EXPOSED A GUARD THAT HAD BEEN PROVING ITS OWN LIVENESS OFF
-  THAT CLONE.** `test/service-table-grants.test.mjs` asks that no table the
-  browser reads DIRECTLY over PostgREST is revoked by the service-grants
-  migration, and proved its scanner alive with `seen.size >= 2` — **a floor on
-  the ANSWER**. The client's three direct reads were `chats`, `user_assets` and
-  `user_memory`: the chat sync, the asset sync and the universal memory, all
-  media-side, all deleted in stage 2b. The floor went on passing for one more
-  stage because the clone still named two of them, and it failed the hour the
-  clone went. **The set is legitimately EMPTY now** — everything goes through the
-  Worker, and the one `rest/v1/` literal left in `public/` is `auth.js`'s
-  `rpc/delete_account`, which the scan already drops. So the floor is on the
-  READING (files and characters), the loop re-arms itself the day a client
-  feature adds a direct table read back, and this is the recorded "a negative
-  assertion must prove its observer is alive" trap **with the observer alive off
-  a file nothing serves** — the third instance in two days, after the style axes
-  and the phone tile.
-- **THE FREE-TIER WATERMARK WENT AND THE PAID FLAG DID NOT, which is the half
-  worth guarding.** `wmBadge` put a "✦ gofarther.dev" mark over video players for
-  accounts known free and `refreshVideoBadges` ran on EVERY credits answer over
-  `.msg.video, .wm-spot` — the chat thread's clip bubbles, the gallery cards and
-  the lightbox, all three deleted in stage 2b. A live call over a document that
-  cannot hold what it is looking for. `isPaid`/`paidKnown` STAY: they are
-  membership, which the owner said to leave exactly as it is, and their three
-  readers are the account badge, the free-credits greeting and the start screen's
-  plan pill. The guard counts the readers as well as naming them, because **the
-  count is the only half that sees the flag never being SET** — the three named
-  readers survive that mutation and the count does not.
-- **NINE DEAD DECLARATIONS IN `chat.js` WERE NAMED AND LEFT, ONE WAS CUT, AND
-  THE SPLIT WAS MEASURED AGAINST THE BRANCH POINT.** A direct-reference scan
-  (stage 2b's method — a transitive closure answers "nearly everything", because
-  the wiring table roots the app's whole surface) found ten top-level
-  declarations nothing else names. Counted against `4d8ea151`, the real branch
-  base, **nine were already dead before any of this started**: `buildEffortHTML`
-  and `wireBuildEffort` (the effort dial, deliberately parked with the lines that
-  restore it), `moreStat`, `siteSecurityScan` (the open dead-control finding),
-  `stAgentsBody`, `cancelEditJob`, `readSiteStream`, `stFmtTime`, `VIEW_LABELS`.
-  **One was the deletion's orphan and went**: `GROUP_META`, the collapsed
-  video-family labels, whose one reader left with the media model picker.
-  **`MODELS_ORDER` and `MODELS_TAB` beside it STAY, for the landing.**
-  **THE BASE WAS WRONG ON THE FIRST PASS AND THE ANSWER WAS WRONG WITH IT**: the
-  first count used `785fb877`, a 2026-09-05 ancestor of main rather than the
-  branch point, and read `stAgentsBody` as a regression this deletion had caused.
-  `git log -S` named the commit that really dropped it. **A split measured
-  against the wrong base is not a measurement**, and the cheap check is
-  `git rev-parse <oldest branch commit>^`.
-- **`readSiteStream` IS A DEAD CYCLE AND IS LEFT WHOLE, named here.** It is an
-  older build-stream reader replaced by `readReactStream`; it calls
-  `siteBuildStatus`, which calls `paintBuildLog`, which calls `buildActiveText`
-  — each referenced only by another dead one, so a DIRECT-reference scan cannot
-  see any of them and only the least-fixed-point-on-LIVE walk stage 3 used can.
-  Pre-existing, not this deletion's, and a deletion that also tidies unrelated
-  dead code cannot say which of its own lines did what.
-- **WHAT ELSE WENT, every one measured unreferenced rather than recognised by
-  name**: `public/avatars/` (2.0 MB, 80 parts for the avatar builder),
-  `public/img/badge-orchestrator-cut.webp` and `badge-video-editor-cut.webp`
-  (364 KB), `public/wm-badge.png`, `public/login-bg.{jpg,mp4,webm}` (3.6 MB of
-  login-screen video backgrounds nothing has referenced since the auth gate was
-  restyled), `.github/workflows/fal-wm-test.yml` and
-  `.github/scripts/fal-wm-test.mjs` (a watermark-burn test bench pinned to a dead
-  branch, whose own comment said to delete it once `/api/save` shipped — and
-  `/api/save` left in stage 3), and `docs/media-agent.md`.
-- **NO TEST FILE WAS DELETED, and that is a measurement rather than an
-  oversight**: no test's whole subject was the media side. The media-only cases
-  were retired inline in stages 1–3, which is what the suite arithmetic records.
-- **`public/mkt/` (9.1 MB) AND `public/logos/` STAY**, because the landing still
-  serves them. **The landing's own copy is NOT in this sweep**: the CRT channel
-  selector, the model pipeline and the "generate or build" prompt line are a
-  design job the owner directs, and CLAUDE.md has recorded them as deliberately
-  left working since stage 2b.
-- **AND THE DEAD CSS IS NOT IN THIS SWEEP EITHER, with the measurement written
-  down so the next session does not re-derive it.** `public/styles.css` is 7,104
-  lines and 475,832 bytes. A reachability scan over the five pages that load it
-  (plus `worker.js`) reads **1,709 distinct classes, of which 980 appear nowhere
-  the app serves**, and at rule level — a compound read as a CONJUNCTION, so
-  `.view-gallery.active` dies on `view-gallery` however common `active` is, and a
-  descendant chain needing every ancestor — **1,404 of 3,053 rule blocks are
-  unreachable, 189,279 bytes in 269 regions**; bounded to the 23 sections whose
-  heading names a media feature, **879 of 976 rules across 126,571 bytes**.
-  **IT IS NOT CUT BECAUSE THE INSTRUMENT IS NOT GOOD ENOUGH YET, measured rather
-  than suspected.** The crude form of the scan produced real false alarms —
-  `mkt-c1`…`mkt-c5` come from `'mkt-c' + n` and `st-sev-low|medium|high` from
-  `'st-sev-' + severity`, so a class can be live without its literal appearing
-  anywhere — and this repo's bar is ZERO false alarms against the real corpus
-  before a lint ships. The corrected scan is prefix-aware and conjunctive, and
-  **section boundaries are not subject boundaries**: the heading at L2904 reads
-  "Avatar creator" and the rules under it include the AUTH GATE's, so cutting by
-  section would delete the sign-in screen's styling — the recorded overlapping-
-  window trap, in a stylesheet. A rule-level cut is the honest shape, and its
-  proof needs a render of the signed-in builder, which no headless instrument
-  here can reach. **Open, and the numbers above are the starting point.**
-
-**Guards**: `test/media-deleted.test.mjs` (5 → 8) — the secrets census above, the
-deleted files asked of `git ls-files` rather than the filesystem (with
-`wrangler.jsonc`'s `not_found_handling` absence beside it), and the watermark's
-removal with the paid flag's three readers counted; plus
-`test/service-table-grants.test.mjs`'s re-anchored liveness and
-`test/site-domains.test.mjs`'s ordering landmark, which had been
-`if (/^\/demo-hero` — the snapshot wall, simply the first route in the file —
-and is now the R2 site branch the host rewrite FEEDS, searched FROM the check's
-own offset so an earlier copy of the line cannot satisfy it.
-**Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived. THE FIRST PASS HAD 17 MUTANTS AND 10 SURVIVED, AND NOT ONE OF
-THE TEN WAS A GUARD GAP** — every one weakened a guard's OWN assertion, which is
-not a behaviour change and which no other test can catch. The fix was to give
-each property an OBSERVABLE half instead: the reader made to list nothing (the
-floor catches it), `not_found_handling` really added to `wrangler.jsonc`, the
-paid flag's assignment really dropped, the PostgREST floor really put back on the
-answer. Two were **measured inert and deleted rather than hunted**: the
-`REQUIRED` entry above, and `indexOf(needle)` without the offset — that spelling
-occurs **exactly once** in `worker.js`, at 977772, so both forms answer the same
-index and no mutant of it can die.
-**Suite 6,086** (6,083 at stage 3; the three new `media-deleted` cases).
-
-### Stage 5: the customers' stored media (done, 2026-09-12)
-
-The irreversible step, run after the merge (`4d8ea151..e64b57a7`) and after
-**deploy 2101 went green**, so the live Worker no longer answered a media route
-while the data behind it was being removed. That ordering is the one safety
-property this step has: the browser wrote `chats`, `user_assets` and
-`user_memory` DIRECTLY over PostgREST, so purging before the deploy leaves a
-signed-in page able to sync them back.
-
-**THE SURVEY IS WHAT MADE THIS SAFE, AND IT CHANGED THE ANSWER.** The `media`
-bucket read as **161 objects / 522 MB**, and reading it as "the customers' stored
-media" would have been wrong: **108 of those objects (162 MB) sit under
-`<uid>/site/` and are the SITE BUILDER's uploads** — photographs customers
-attached to a brief, 2026-07-18 to 2026-07-21, across eleven accounts. The owner
-said *keep the site builder*, so they **stay**, and the deletion took only the
-**53 media generations (360 MB, 2026-07-11 to 2026-07-18)**.
-**Proven unserved rather than assumed**: no file the Worker ships — `worker.js`,
-any root module, anything under `builder/` — contains `storage/v1/object`, so no
-published site can reference one of these objects. The only reader left is
-`public/auth.js`'s account-deletion sweep, which is the browser's, not a page's.
-And ten of the eleven accounts own **zero** sites; the eleventh is the building
-account, whose sites last built 2026-09-11.
-
-**THE MECHANISM IS THIS PROJECT'S OWN, NOT AN INVENTED ONE.** There is no service
-key in a session and the Supabase tooling has no storage-delete call, so the
-question was whether deleting `storage.objects` rows is legitimate here.
-`delete_account` — shipped, live, and the platform's existing answer for removing
-a customer's stored media — does exactly that, between
-`set_config('storage.allow_delete_query', 'true', true)` and its `false`. The
-purge used the same two lines. **What that means, stated rather than glossed**:
-the rows are gone, so the objects are gone from every listing and every read.
-Whether Supabase reclaims the underlying bytes is Supabase's own housekeeping and
-is not something this session can verify.
-
-**ROWS DELETED**: `chats` 2, `user_assets` 1, `user_memory` 1, `user_autoreply` 1
-— and `autoreply_log`, `orchestrator_plan`, `video_editor_plan`,
-`storage_reservations`, all already empty (0 each, run for completeness).
-
-**ROWS KEPT, EACH FOR A CHECKED REASON:**
-- **`gen_charges` (84)** — the media side's charge ledger, with `refund_charge`
-  live over it. The owner's instruction is *leave the membership and the credits
-  how they are*, and this is money history: deleting it destroys the record of
-  what customers were charged. Named here rather than quietly swept.
-- **`usage_log` (185)** — **STILL LIVE, and this is the find worth writing
-  down.** It reads as a media-era counter and is not: `use_quota` is called from
-  `worker.js`, and `kind = 'sitelinks'` holds 113 rows with the newest at
-  **2026-09-11 17:40Z**, the day before this. It is the BUILDER's quota.
-- **`user_plan` (2)** — the membership tier. `credits` (11), `purchases` (7),
-  `credit_events` (126) — the ledger. All explicitly out of scope.
-
-**WHAT IS LEFT OPEN, deliberately**: the 108 site-builder uploads (162 MB). They
-are the builder's, they are provably unserved, and ten of their eleven owners have
-no site — so they are almost certainly orphans and the owner's call, not this
-step's.
-
-**AND THE HARNESS THAT PROVES A SITE STILL COMPILES HAD NOT RUN SINCE STAGE 1
-(found while reading CI after this push).** `site-build.yml`'s `paths` filter
-named `builder/**` and a list of integration files — right for as long as the
-image carried only the build service, and WRONG since 2026-09-05, when
-`worker.js` and its module graph went into the image as the JOB RUNTIME (the
-Dockerfile's second COPY block). Nothing announced it. **MEASURED: stages 2a, 2b
-and 3 moved `worker.js` by ~2,900 lines between them and `site build` ran on
-none of the three** — its last run was 1114, on stage 1's sha.
-
-This is the recorded "a rule true because of a layer below it expires when that
-layer moves" trap sitting in the CI configuration, which is also the part this
-file records as the least guarded — *the thing that runs your guards is not
-itself guarded unless somebody writes it down*, for the third time (the merge
-triggers, the DO migrations, now the harness filter). The filter takes
-**globs, never the Dockerfile's list** (`worker.js`, `*.mjs`, `Dockerfile`,
-`.dockerignore`, `package.json`, `package-lock.json`), because 44 root modules
-and 100-odd builder ones copied here would be two lists of the same thing with
-nothing between them.
-
-**`test/dockerfile.test.mjs` is the census, DERIVED from the Dockerfile's own
-COPY lines in both trees, and it found two more on its first run**:
-`package.json` and `package-lock.json`, copied into `./worker/` so the job
-runtime can install — a dependency change is as much an image input as a code
-change and was triggering nothing either. It asserts COVERAGE and not equality
-(the filter may be broader, which costs a harness run nobody needed, and may not
-be narrower), refuses a glob shape it does not understand rather than shrugging,
-and proves its own reader alive by requiring `public/chat.js` to read as
-uncovered. **Sweep: 10 mutants, 10 killed, 0 survived, 0 never applied, 2
-comment-only controls survived — FOUR survived the first pass and the split
-between them is the useful part**: two were real (the Dockerfile coming off
-the filter, which a census derived from COPY SOURCES cannot see, because the
-COPY lines are written IN that file; and an unrecognised glob shape reading as
-covering, inert against a filter that uses only the three shapes the reader
-knows) and two were INERT and were deleted rather than hunted — weakening the
-census's own assertion is not a behaviour change, and the site Dockerfile has
-**zero** `--from=` COPY lines, measured, so its staged filter governs nothing.
+**The full record of all five stages is in git: `git show a4d0f5e5:CLAUDE.md`.**
 
 ---
 
 ## The dead-code deletion (2026-09-13)
 
-Owner, after a read-only census of the whole tree: *"CAR4EFULLY DELETE THE DEAD
-CODE"*. Four commits, each with the suite green before the next, and the split
-between what went and what stayed is the part worth keeping.
+Owner: *"CAREFULLY DELETE THE DEAD CODE"*. Four commits, ~1,400 lines of
+`worker.js` and `public/chat.js`, four whole modules, a 1.5 MB wasm dependency,
+and **2,280 lines of unreachable CSS**. Deploy 2112. The law that survives:
 
-**THE LINE IS "DEAD BY CONSTRUCTION" versus "DEAD ONLY GIVEN STORED DATA", and
-it is the whole method.** A declaration nothing references, or a branch whose
-condition cannot be true from the code alone, is measurable here and went. A
-branch reachable only from a record in a customer's localStorage is not
-measurable from this machine at all, and those stayed — `public/chat.js` still
-carries the legacy-`html` arms (`sitePages`' single-page fallback, `siteRestore`'s
-tail, `switchSitePage`'s stored-draft loader, the Refresh button's legacy branch,
-`siteInbox`'s tail). **The repo had already decided this**: the Refresh entry
-below records "The legacy branch is KEPT, not deleted — it is what a site with
-stored HTML is for". Nothing today writes a non-empty `html` (every creator
-writes `''`, and a successful build runs `delete s.html`), so those branches are
-unreachable for every site the platform can make — and cannot be proven
-unreachable for a record written by a version of the app that no longer exists.
-
-**What went, by commit:**
-
-- **The server side** (`8b86bda8`, 10 files, 1,429 deletions). `worker.js` lost
-  the AI-as-a-primitive block (`AI_FEE`, `chargeOwnerAI`, `runSiteAI` — pinned to
-  `claude-haiku-4-5` on `api.anthropic.com`), `anthropicMessages`, `resolveRaw`,
-  `siteExec`, `tableDef`, `loadEditableFiles`, the four `_hmac`/`_b64` helpers,
-  `_notifsReady`, `_authExtrasDone`, an unread `write` closure and a dead timer.
-  Four files went whole: `worker-finance.mjs` (319), `builder/components-third.mjs`
-  (284), `builder/components-fourth.mjs` (293),
-  `builder/theme-candidates/assign-worlds.mjs` (358). **And a 1.5 MB wasm
-  dependency with it**: `@cf-wasm/photon` was imported at the top of `worker.js`
-  for a watermark nothing calls, so the loader hook that handed Node a build of it
-  went too — both halves together, said in the loader's own comment.
-- **The browser side** (`65a64455`). Six functions and a table (`moreStat`,
-  `siteSecurityScan`, `stAgentsBody`, `siteBuildStatus`, `readSiteStream`,
-  `stFmtTime`, `VIEW_LABELS`) plus `siteBuildMsg`, a `let` written seven times
-  and read nowhere. `siteBuildStatus` and `readSiteStream` are a DEAD CYCLE — each
-  referenced only by the other — which a direct-reference scan cannot see and
-  only a least-fixed-point-on-live walk can.
-- **The pre-React activity log and the draft-preview POST** (`9b3ca71a`).
-  `siteSend` read `if (reactPath) siteBuildStart(true); else if (isBuild)
-  siteBuildStart();` with `reactPath = isBuild || site.react`, so the middle arm
-  needs `!isBuild && isBuild`. Provably dead from one line, which is what let
-  everything behind `!siteBuild.react` go with it: `ST_TICK`, `buildActiveText`,
-  `paintBuildLog`, the ticker's second arm, the empty state's classic log box,
-  and the `phase`/`pages`/`done`/`tick` fields whose only readers were that pair.
-  **`react` STAYS a parameter and a field** (`stBuildRunning` reads it) and
-  `build-panel.test.mjs` DERIVES every `siteBuildStart(` call and requires each to
-  pass `true` — the definition excluded by what PRECEDES it, never by what is
-  inside its parentheses, since `(react)` and `(true)` are the same shape.
-  `loadSitePreview`'s POST to `/api/site/preview` went too: there has never been
-  such a route, so it 404'd on every call and the blob below it has always been
-  the only path.
-- **The stylesheet** (`9178fa6b`) — the section below.
-
-**AND THE SERVER HALF OF THE DRAFT PREVIEW IS DEAD TOO, named rather than cut.**
-`worker.js` serves `GET /preview/<uid>/<nonce>` out of `preview/<uid>.html`, and
-**nothing in the tree writes that object** — so it has answered "Preview not
-ready" to every request it has ever had. That is a route with no WRITER, a shape
-`client-routes.test.mjs` cannot see, so it is recorded in that file's `KNOWN_DEAD`
-prose instead of folded into a census it does not belong to. **Open.**
-
-**Two names left the `KNOWN_DEAD` ratchet and neither because a route was built**
-— `/api/site/scan` and `/api/site/preview`, both because their CALLER went. A
-client route with no caller is not a dead route; it is no route.
-
-**The corrections to the previously-recorded "already dead" list**: `runContainerJob`
-is ALIVE — called as `worker.runContainerJob` from `builder/container-job.mjs`
-through a dynamic import, which a JS-only walk reads as dead — and
-`SiteBuildContainer` is config-referenced. 14 of the 17 were really dead.
-
-**Deliberately parked, each for a stated reason**: `cancelEditJob` (it is the
-CLOSING LANDMARK of eight guard windows, so deleting it silently widens all
-eight — re-anchor first, then cut), the effort dial (`buildEffortHTML` /
-`setBuildEffort` / `wireBuildEffort`, which this file already records as parked
-WITH the lines that restore it), and the 80 test-only exports, which are a
-decision about how much of a module a test may reach.
-
-### The stylesheet: the unreachable third, cut and guarded
-
-**`public/styles.css` was 7,210 lines and 484,036 bytes, and 1,293 of its 3,082
-rules could not match any element this app is able to produce — 2,280 lines and
-156,133 bytes, 32.3% of the file, shipped to every visitor on every page load.**
-It is 4,930 lines and 327,903 bytes now, and `test/css-reachable.test.mjs` holds
-it at ZERO unreachable rules with an EMPTY `KEEP` list.
-
-**WHAT UNBLOCKED IT WAS THE INSTRUMENT, exactly as this file said it would be.**
-The entry above had the cut DEFERRED under "IT IS NOT CUT BECAUSE THE INSTRUMENT
-IS NOT GOOD ENOUGH YET", and the reason was real: a class can be LIVE with its
-literal appearing nowhere. **The fix is that a prefix is the TAIL of a literal
-before a `+`, not the literal** — the first draft anchored on the opening quote
-and so missed `'<div class="mkt-cell mkt-c' + n + '">'`, the exact recorded false
-alarm, because that string starts with `<`. The reading is conjunctive: `.a.b`
-dies on either half, a descendant chain needs every ancestor.
-
-**THE FALSE-ALARM RATE WAS MEASURED FOUR WAYS AND IS ZERO.** 781 dead class
-names, none of which occurs anywhere in the served code; both recorded false
-alarms handled (`mkt-c*` live through the prefix rule, `st-sev-*` genuinely dead
-since the handler that built it went the same day); the three construction shapes
-a prefix/suffix reader CANNOT see — `cls += '…'`, `[a,b].join('-')`, and a class
-that is a bare variable — searched for and absent; and a real Chromium comparing
-the FULL computed style of all 1,744 elements across five served pages at two
-widths, before and after.
-
-**AND THE RENDER IS WHAT CAUGHT THE CUTTER'S OWN BUG, which is why this needed
-one.** The first pass tidied empty at-rules with
-`/@media[^{}]*\{\s*(?:\/\*[\s\S]*?\*\/\s*)*\}\n?/g`, and `[\s\S]*?` inside a `*`
-quantifier runs from one comment PAST the rules between them to a later `*/` — so
-any media query written as `@media X { /* a */ .rule{…} /* b */ }` matched whole.
-It took `.mkt-crt .crtl-stage{flex:1;…}` among others and **963 of 1,744 elements
-changed**. A regex cannot count braces. **The control is what made the clean run
-believable**: after the fix the diff was 3 elements, all one running marquee's
-`transform`, and rendering the SAME stylesheet twice differed the same way.
-
-**A CSS SYNTAX ERROR HAD BEEN SHIPPING SINCE 2026-09-12, found on the way.**
-`62a8a873` (the game-builder deletion) removed `.lp-arc-body`, `.lp-arc-frame`
-and the FIRST LINE of `.lp-arc-tag`, leaving its second and third lines as an
-orphaned declaration block and a stray `}`. A browser recovers by discarding text
-until the next `}` — silently, so the only tell is a rule that stopped applying.
-**A deletion that cuts a two-line rule in half leaves no error anybody sees**, and
-the guard asserts the braces balance now, proven red by putting the orphan back.
-
-**The heading rule: a comment goes only when EVERY rule it introduces goes.**
-"Section boundaries are not subject boundaries" is this file's own trap — the
-heading reading "Avatar creator" covers the auth gate's rules — so the unit is
-the span from one comment to the NEXT comment and a heading survives whenever one
-rule under it survives. 65 headings went with their sections.
-
-**The cutter refuses to write** unless every selector the scan said would survive
-is still in its output. Its first self-check was itself a false alarm: the needle
-was `selector + "{"` and the file writes `.sidebar {` with a space, so it reported
-four untouched rules lost. It finds the text and requires the next non-space
-character to be the brace.
-
-**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived. THE FIRST PASS GOT THROUGH SEVEN AND THREE OF THOSE SURVIVED,
-and the split between them is the whole of what it taught.** One was a real gap
-in a guard written the same day: `if (siteBuild) return;` above `paintReactLive()`
-leaves every landmark exactly where a text read looks for them — the recorded
-"a positional guard cannot see a dead branch" — so the ticker is DRIVEN now (a
-fake `setInterval`, two ticks, then the build ends), proved red before green.
-**THE OTHER TWO WERE INERT AND WERE MEASURED RATHER THAN HUNTED.** The
-`siteBuildStart` census's definition filter was mutated from "excluded by what
-PRECEDES it" to "excluded by its ARGUMENT", and **both filters answer the
-identical set** — the definition takes `(react)` and no call site passes that
-name — while over three calls a floor of `>= 3` and one of `>= 0` both hold.
-**Five test-side mutants went on that reading**, every one because weakening a
-guard's own assertion is not a behaviour change and no other test can catch it,
-and every one because the property already HAS an observable half that dies:
-`siteBuildStart(false)` at a real call site, the draft-preview POST coming back
-in front of the blob, and `loadSiteSourceForEdit` reading the components.
-**AND THE CSS GUARD'S OWN PARSE CHECK WAS A NEGATIVE ASSERTION WITH NO LIVE
-OBSERVER** — this file's most-recorded trap, in a guard one day old. Its three
-findings are all absences over today's file, which a reader that can see nothing
-at all satisfies perfectly. `braceReport(src)` is exported and DRIVEN now: the
-real 2026-09-12 orphan (a stray `}` at line 3), an unclosed block and an empty
-rule body, each with a clean fixture beside it as the control. Two of the
-sweep's mutants are that half and both die. **Suite 6,197.**
-
-**MERGED AND LIVE — deploy 2112, 2026-09-13 07:50:58→07:53:45Z, green in 2m47s.**
-The image **BUILT** and the container **`EDIT`ed at 07:53:37Z**,
-`d…2925f7f453fdbe` → `4c8a08e05acecfd…`, `SUCCESS Modified application` — **read
-out of the log rather than inferred from the step's 2m02s**, which this file
-warns against in both directions — so **the 15–20 minute hold ran to
-~08:08–08:13Z**. The gate was left to expire on success and the drain found no
-live leases. Wrangler uploaded exactly **two** assets, `/styles.css` and
-`/chat.js` (84 already uploaded), which is the whole of what `public/` changed.
-**Both hash byte-for-byte identical to source** (`chat.js` `ad05d8f2c0a4a7a5`,
-`styles.css` `f8fc72b9b45a5732`), matched by an until-loop on the served file
-**178 seconds after the push**.
-**AND THE STYLESHEET'S TWO PROOFS ARE LIVE READINGS, not repository ones.** The
-served sheet is **327,903 bytes against 484,036 — 156,133 off the wire on every
-page load for every visitor** — and `braceReport` run over the SERVED file
-answers `stray []`, `unclosed 0`, `empty 0`: the syntax error that had been
-shipping since 2026-09-12 is gone from the bytes a browser really gets, which no
-reading of the repository could have said. `.st-file-own` survives once and
-`.st-code-h` is gone, the two halves of the cut asked together.
-**Nine deleted names read 0 over COMMENT-BLANKED served source** —
-`siteSecurityScan`, `readSiteStream`, `siteBuildStatus`, `stAgentsBody`,
-`VIEW_LABELS`, `paintBuildLog`, `/api/site/scan`, `/api/site/preview`,
-`st-livelog-stage` — with `siteBuildStart(true)` at **3**, the census's own
-number. **Blanked, because this repository has hit "prose contains the thing it
-forbids" in a LIVE check twice in one session**: my own comments in `chat.js`
-name most of those while explaining why they went, and a raw grep reads each as 1.
-
----
-
+- **THE LINE IS "DEAD BY CONSTRUCTION" versus "DEAD ONLY GIVEN STORED DATA".** A
+  declaration nothing references, or a branch whose condition cannot be true from
+  the code alone, is measurable here and went. A branch reachable only from a
+  record in a customer's localStorage is not measurable from this machine and
+  STAYED — `chat.js` keeps every legacy-`html` arm. Nothing today writes a
+  non-empty `html`, so they are unreachable for every site the platform can make
+  and cannot be proven unreachable for a record written by a version that no
+  longer exists.
+- **`public/styles.css` is held at ZERO unreachable rules** by
+  `test/css-reachable.test.mjs` with an EMPTY `KEEP` list. It went 7,210 lines /
+  484,036 bytes → **4,930 / 327,903**; the live served sheet is 156,133 bytes
+  lighter on every page load. **A prefix is the TAIL of a literal before a `+`,
+  not the literal** — that is what makes `'<div class="mkt-cell mkt-c' + n` read
+  as live. False-alarm rate measured four ways and is zero, including a real
+  Chromium comparing all 1,744 elements across five pages at two widths.
+- **A comment goes only when EVERY rule it introduces goes** — "section
+  boundaries are not subject boundaries" is this file's own trap, and the
+  heading reading "Avatar creator" covers the auth gate's rules.
+- **A CSS SYNTAX ERROR SHIPPED FOR A DAY** because a deletion cut a two-line rule
+  in half; a browser recovers by discarding text until the next `}`, silently.
+  The guard asserts the braces balance, and `braceReport` is exported and DRIVEN.
+- **Deliberately parked**: `cancelEditJob` (the CLOSING LANDMARK of eight guard
+  windows — re-anchor before cutting), the effort dial, the 80 test-only exports.
+- **OPEN**: `GET /preview/<uid>/<nonce>` is served and **nothing anywhere writes
+  that object**, so it has answered "Preview not ready" to every request it has
+  ever had. A route with no WRITER is a shape `client-routes.test.mjs` cannot
+  see; it is recorded in that file's `KNOWN_DEAD` prose.
 ## Working rules
 
 - **Always show UI changes as screenshots in the chat** — render it headless and
@@ -1684,555 +871,120 @@ the next platform-wide republish is the measurement).
 ## The code explorer
 
 The Code tab shows the customer's whole project **as ONE tree from its root** —
-the directory it really is on disk.
+the directory it really is on disk. Five category headings were deleted
+2026-09-12 (owner, holding Lovable's explorer beside ours: *"ITS BY FOLDERS"*):
+they drew `src/routes` twice and put no row where the file really lives.
 
-- **THE FIVE CATEGORY HEADINGS ARE GONE (2026-09-12, owner holding Lovable's
-  explorer beside ours: *"ITS BY FOLDERS . THATS THE DIFFERENCE I THINK"* →
-  *"OK GO"*).** It was `Pages` · `Components` · `Made by the build` ·
-  `Design system` · `Shared with every site`, each holding the real directory
-  tree of its own slice. That was right about the distinction and wrong about
-  the shape: `src/routes` was drawn TWICE (once under Pages, once under
-  Components), the project root was split across two headings, and no row
-  anywhere sat where the file really lives. **One directory on disk is one tree
-  here.** Everything else survived the change — the same `stDirTree`, the same
-  collapse rule, the same rows, the same icons, the same A–Z sort — over ALL the
-  files at once, starting at depth 0 where the headings used to sit.
-  **WHAT IT COSTS, so the next session does not read it as a regression**: a page
-  is one row deeper. Under the headings, Pages held only the routes the customer
-  wrote, so `src/routes` collapsed to one row with `index.tsx` under it; in the
-  real directory `src/routes` also holds `__root.tsx` and `-parts/`, so the chain
-  is `src/routes` → the file. And **`src/components/ui` sorts to the top of
-  `src`** and is the biggest folder in the project (9–53 files); it is drawn shut
-  by default and is the first thing under `src`.
-  **A FOLDER'S KEY IS ITS PATH**, with nothing prefixed onto it — the
-  simplification the one tree bought, since under five headings two different
-  `src/routes` folders needed two keys. `stFoldRow` writes its own class for the
-  same reason: a parameter with one possible value is a second copy of it.
-  **AND THE `.st-code-h` RULES LEFT WITH THE HEADINGS** — there were two fold-row
-  styles because there were two kinds of fold row, and the second had nothing
-  left to distinguish itself from. The guard holds the sheet to that in BOTH
-  directions.
-- **WHOSE FILE IT IS, IN INK — the one thing a directory tree cannot say.**
-  `src/routes/__root.tsx` and `src/routes/index.tsx` sit two rows apart in one
-  folder and are not the same kind of thing, so `ST_FILE_KINDS` survived the
-  headings as a per-ROW fact: the customer's own files (`page`, `part`, `asset`)
-  are drawn in full ink (`st-file-own`, the same token every row reaches on
-  HOVER) and the platform's (`kit`, `shared`) stay at the muted resting colour
-  every row had before. **Purely additive — nothing became harder to read.**
-  The words ride in `title` ("`router.tsx` — Shared with every site"), because
-  ink is a hierarchy and not a label: it says two rows differ and never says how.
-  A badge or a second column would cost width the 210px tree has not got, and a
-  reader skims past a flag on a row — which is why the headings existed at all.
-  **`own` FAILS CLOSED**: a kind nothing recognises is not the customer's and
-  gets no title rather than an empty one.
-- **A FOLDER folds, carries a COUNT of everything beneath it, and one chevron
-  turns.** The count is what makes a folded folder honest rather than hidden — a
-  bare name over nothing reads as the thing being missing.
-- **THE PROJECT ROOT'S OWN FILES ARE ALWAYS DRAWN**, because nothing sits above
-  them to fold away. Under the headings a fully shut tree drew NO files at all;
-  now a shut tree still shows the twelve root files, which is also why an
-  unfindable open file can safely open nothing.
-- **`null` IS A THIRD STATE, and it is the whole of the first draw.** The stored
-  fold preference is `null` until the customer touches something, which is NOT an
-  empty Set: uninitialised opens the CHAIN holding the file on screen and folds
-  everything else; an empty Set is somebody who closed every folder, and
-  re-deriving for them would re-open one on the next click for ever. The recorded
-  "cannot-tell must never read as a value", pointed at a preference. The default
-  is derived from the OPEN FILE, never a named folder — a rebuild can find the
-  preference null while the chosen file is anything. **AND IT RESETS ON A PROJECT
-  SWITCH** (2026-09-12, owner, on a screenshot of a Code tab with every heading
-  shut and no file on screen): `stOpenFolders` takes a stored Set WHOLESALE, so a
-  customer who folded one site's tree up opened the next one to a shut tree with
-  no sign of why. Reset on a real CHANGE of project, never on every call — and to
-  `null`, not an empty Set, because the empty one is what the defect looked like.
-  It is the same defect now the tree is one tree, and cheaper to hit: a folded
-  `src` used to hide one heading's contents and now hides nearly the project.
-- **A CHAIN OF ONE-CHILD DIRECTORIES IS ONE ROW** — `src/routes/-parts`, never
-  `src` then `routes` then `-parts`. VS Code's compact folders, and it earns its
-  place because our paths are deep and narrow: every page and component lives
-  under `src/routes/`, so without it every page is a ladder with one file at
-  the bottom. **ONE COLLAPSE RULE, ASKED IN BOTH PLACES** — the renderer walks the
-  tree and `stOpenFolders` walks it again to name the chain; two copies would drift
-  into a folder drawn under a key the toggle cannot match, a row that does nothing
-  when clicked.
-- **THE DRAW IS NOT THE FETCH.** `loadSiteCode` asks the server and hands the
-  answer to `drawSiteCode`; both click handlers redraw from the answer they close
-  over. A fold is a preference, not a question for the server — routing it back
-  through the fetch would buy eighteen files over the wire to hide four rows, and
-  a blip would replace the whole panel with an apology.
-- **DEPTH IS ONE NUMBER THE ROW CARRIES (`--d`)**, never a wrapper per level, and
-  its rule must sit BELOW `.st-file`'s `padding` shorthand or it loses on source
-  order and the tree draws flat.
-- **A FILE'S ICON COMES FROM ITS OWN NAME, AND THE TREE IS A–Z (2026-09-12, owner
-  holding Lovable's explorer beside ours: *"ok do that"*).** Every row asked
-  `ic('code', 13)`, so a readme, a lock file and a stylesheet were the same
-  chevron pair and the panel read as a LIST of strings; and `stDirTree` never
-  sorted, so the root came out in the order the file list arrived in.
-  **`stFileIcon` is the resolver and the ORDER OF ITS RULES IS THE WHOLE OF IT**:
-  a lock file BY NAME first (`package-lock.json` is json, and braces there would
-  be true and useless), then by extension, then a dotfile with no extension is
-  configuration (`sliders`, because a cog needs eight teeth and they smudge into
-  an asterisk at 13px — drawn both ways before choosing), then `code` as a
-  fallback that is REACHED, since a blank icon column is worse than a slightly
-  wrong glyph. The five new glyphs live in `ST_ICONS` so they inherit `ic()`'s
-  stroke-only emitter, and **a guard derives the resolver's own answers and
-  requires each to exist in that table** — `ic()` answers `ST_ICONS[name] || ''`,
-  so a renamed glyph draws an EMPTY `<svg>` with nothing failing anywhere.
-  **`stSortTree` sorts on LOWERCASE CODE POINTS, never `localeCompare`**, which
-  commonly ignores leading punctuation and would scatter the dotfiles in among
-  the letters; ties fall back to the raw name so the order is total. It sorts
-  folders and files at every level, and folders still lead.
-  **IT OVERRIDES A WRITTEN DECISION, deliberately**: `FOUNDATION_PATHS` says
-  "Never alphabetical — `components.json` is not where anybody starts reading a
-  project", which is right about READING a project and wrong for FINDING one file
-  among twenty-five, which is what this panel is for. The list keeps its order (it
-  is also the download's) and its comment now says the tree no longer inherits it.
-- **WHAT IS OUT, AND BOTH HALVES WERE DECIDED**: `src/components/**` (3,394 kit
-  files, 9.5 MB — a dependency, and it would be in every isolate); the template's
-  DEMO routes, because the image DELETES them (derived from the Dockerfile's own
-  `find src/routes … -delete`); and `src/site-brand.ts`, whose template copy is a
-  STUB the container overwrites per build.
-- **THE SITE'S OWN FILE WINS A PATH THE SHARED SET ALSO CLAIMS** — today only
-  `src/styles.css`. One path, one file: a tree showing it twice under two headings
-  is a project nobody has, and the download collapses the two anyway.
-- **AN UNNAMEABLE FILE IS SHOWN AS `unplaced/<n>.txt` WITH A NOTE, never dropped**
-  (owner: *"don't silently omit files"*).
+- **A FOLDER'S KEY IS ITS PATH.** A folder folds, carries a COUNT of everything
+  beneath it, and one chevron turns — the count is what makes a folded folder
+  honest rather than hidden.
+- **WHOSE FILE IT IS, IN INK** — the one thing a directory tree cannot say.
+  `ST_FILE_KINDS`: the customer's own files (`page`, `part`, `asset`) draw in
+  full ink, the platform's (`kit`, `shared`) stay muted. The words ride in
+  `title`, because ink is a hierarchy and never a label. **`own` FAILS CLOSED**:
+  a kind nothing recognises is not the customer's.
+- **THE PROJECT ROOT'S OWN FILES ARE ALWAYS DRAWN** — all twelve, nothing above
+  them to fold away. The lock file is what makes the download a PROJECT.
+  Measured: 310,981 bytes raw, but gzipped the payload went 60,781 → 126,616 —
+  ~66 KB more per open, and that is what travels. The raw bound is 600,000 with
+  ~110,000 left, so the next file added here is a decision. **A CENSUS DERIVED
+  FROM GIT** requires every tracked file at the template root to be in
+  `FOUNDATION_PATHS`, so one added next month fails by existing.
+- **`null` IS A THIRD STATE.** The stored fold preference is `null` until the
+  customer touches something, which is NOT an empty Set: uninitialised opens the
+  CHAIN holding the file on screen; an empty Set is somebody who closed
+  everything. **It resets on a project switch** — to `null`, not to empty.
+- **A CHAIN OF ONE-CHILD DIRECTORIES IS ONE ROW** (VS Code's compact folders),
+  and the collapse rule is asked in BOTH places from one definition.
+- **THE DRAW IS NOT THE FETCH.** A fold is a preference, not a question for the
+  server. `paintTree` and `paintFile` each repaint one column; `drawSiteCode`
+  writes an empty shell and has exactly one caller.
+- **DEPTH IS ONE NUMBER THE ROW CARRIES (`--d`)**, and its rule must sit BELOW
+  `.st-file`'s `padding` shorthand or the tree draws flat.
+- **A FILE'S ICON COMES FROM ITS OWN NAME** and the tree is A–Z. `stFileIcon`'s
+  RULE ORDER is the whole of it: lock file by NAME first, then extension, then a
+  dotfile with no extension is configuration, then `code` as a reached fallback.
+  `stSortTree` sorts on LOWERCASE CODE POINTS, never `localeCompare`, which
+  scatters dotfiles. It overrides `FOUNDATION_PATHS`' "never alphabetical"
+  deliberately — that is right for READING a project and wrong for FINDING one
+  file among twenty-five.
+- **A SEARCH BOX THAT SEARCHES THE CODE**, path or contents — the whole project
+  is already in the browser, so it costs no request. **Measured ~1.15 ms per
+  keystroke** over the 25 shared files (489,130 bytes). A row says why it is
+  there: a contents match carries a hit count, a name-only match carries
+  nothing. A filtered tree is drawn open and stores nothing; the open file is
+  chosen from the WHOLE project, never from the results.
+- **A MENU ON EVERY FILE ROW** — `Copy path`, `Copy contents`, `Download`
+  (`ST_ROW_ACTS`, and the menu is DERIVED from it). No rename/delete/new: each
+  would promise what the Code tab cannot do. **The handle is on files and on no
+  folder** — every entry acts on one file's BYTES. The row is a wrapper around
+  TWO buttons because a `<button>` inside a `<button>` is invalid and browsers
+  HOIST the inner one out. ONE menu for the whole tree, `position: fixed` off
+  the handle's rect, dismissed on scroll.
+- **WHAT IS OUT**: `src/components/**` (3,394 kit files, 9.5 MB), the template's
+  DEMO routes (derived from the Dockerfile's own `find … -delete`), and
+  `src/site-brand.ts`, whose template copy is a stub. **The site's own file wins
+  a path the shared set also claims.** An unnameable file shows as
+  `unplaced/<n>.txt` with a note, never dropped.
 - **`builder/foundation-files.mjs` IS THE SHARED SET — 25 files, 489,115 bytes,
-  GENERATED** by `builder/gen-foundation.mjs`, because the Worker has no
-  filesystem and the template lives in the image. It is a COPY and a copy drifts,
-  so the guard re-runs the generator and compares.
-- **THE PROJECT ROOT IS SHOWN WHOLE — all twelve files (2026-09-12, owner,
-  holding up Lovable's explorer beside ours: *"i [want] it to show it too"*).**
-  It listed the four the BUILD reads (`package.json`, `tsconfig.json`,
-  `vite.config.ts`, `components.json`) and left eight out, so a customer saw the
-  part of their project our pipeline happens to consume. **Every one of the
-  twelve was already in the template and already tracked** — nothing was
-  generated and nothing new is stored; only the list moved. The eight:
-  `README.md`, `AGENTS.md`, `eslint.config.js`, `.prettierrc`,
-  `.prettierignore`, `tsconfig.kit.json`, `.gitignore` and the lock file.
-  **The lock file is the one that makes the download a PROJECT**: without it an
-  install resolves to whatever is newest rather than what the site was built
-  against. **Its cost, measured before it went in** — 310,981 bytes raw against
-  the other eleven's ~24,000, and the Worker hands the whole set to the browser
-  on every Code-tab open — but **gzipped the payload went 60,781 → 126,616**,
-  about 66 KB more per open, and that is what travels. The raw bound stays at
-  600,000 with ~110,000 left, so the next file added here is a decision.
-  **A CENSUS DERIVED FROM GIT is what stops this recurring**: every tracked file
-  at the template root must be in `FOUNDATION_PATHS`, both the list and the
-  ignore rules coming from git, so a root file added next month fails by
-  existing and a generated one can never enter.
-- **AND SHOWING THE ROOT PUT `package.json` IN FRONT OF EVERY CUSTOMER, where it
-  read `"name": "isibi-lovable-clone"`** — the pre-2026-08-30 brand, and a name
-  that called the product a clone of a competitor. Nothing about the change
-  caused it; the change is what made it visible. **Renamed to `gofarther-site`
-  the same day** (owner: *"change the name and merge"*), and **the lock file is
-  half the change, not a ripple**: `npm ci` refuses a lock whose name disagrees
-  with `package.json`, and the name is in the lock TWICE — the root `name` and
-  `packages[""].name` — so all three move together or the container's own
-  `npm ci` (Dockerfile, the line above the template COPY) fails at image build.
-  Proven locally, not asserted: `npm ci --dry-run --offline` over the renamed
-  pair resolved the whole tree and exited 0, which it cannot do past a name
-  mismatch. The bundle went 489,115 → 489,100 bytes, which is the arithmetic of
-  the rename (5 characters shorter, three times) and nothing else.
-  **Two more the same scan found and did NOT touch, both still there**:
-  `AGENTS.md` opens "This project was generated by isibi" — one line, one word,
-  the owner's whenever they want it — and `src/lib/error-reporting.ts` posts
-  `isibi:runtime-error` to a listener that **exists nowhere in this codebase**,
-  a live-looking contract with nothing at the other end, inherited from the
-  template's origin. Neither is a name a build reads, so neither can break one.
-  **NOTHING ASSERTED THE THREE AGREED UNTIL THIS RENAME**, because until it they
-  agreed by never having been touched — a habit, not a property, and the edit is
-  what ended it. `test/template-deps.test.mjs` derives the name from
-  `package.json` and asks the lock's two, with both observers proved alive
-  first and the npm name rule DRIVEN over six shapes it must refuse and four it
-  must take (one real value cannot prove a regex, and there is no second
-  manifest to rename). **Sweep: 7 mutants, 7 killed, none survived, none
-  unapplied, the comment-only control survived** — the lock forgotten whole,
-  either of its two names missed, the manifest forgotten instead, a nameless
-  manifest, a lock with no root entry, and a name npm refuses.
-  **AND THE REDUNDANCY WAS MEASURED RATHER THAN ASSUMED, both ways.** All seven
-  die under `test/foundation-files.test.mjs` ALONE as well, because both files
-  are bundled and any wrong name makes the committed copy stale — which reads
-  exactly like one of the two walls being pointless. It is not, and the case
-  that separates them was measured by hand: a partial rename WITH the bundle
-  regenerated leaves the staleness guard satisfied (7 pass, 0 fail) and the new
-  one the only thing that fails (3 pass, 1 fail). That is the likely mistake,
-  not the unlikely one. Said in the test too, because a sweep cannot say it and
-  the next session deletes what nothing appears to need.
-- **A SEARCH BOX, AND IT SEARCHES THE CODE (2026-09-12, owner holding Lovable's
-  "Search code" beside ours: *"add the search box too"*).** At the top of the
-  tree column, matching a file's PATH **or its CONTENTS** — the whole project is
-  already in the browser (`stSrcFiles` hands the tab every file and the Download
-  zips the same list), so searching the text costs no request and no server
-  work, and a box labelled "Search code" that filtered filenames alone would be
-  this app's dead-control finding wearing a new coat. **Measured: ~1.15 ms per
-  keystroke** over the 25 shared files (489,130 bytes) on every query shape,
-  a one-letter one included; the tree redraw around it is the larger cost.
-  - **A ROW SAYS WHY IT IS THERE.** A contents match carries the number of times
-    the words appear, in the folder count's own column; a name-only match carries
-    nothing, so a numberless row means it matched the name you can already read.
-    Counting stops just above `ST_FIND_MAX` (99) and the label is
-    `ST_FIND_MAX + '+'`, never a second literal — a DISPLAY bound that cannot
-    change the answer, since one hit is enough to be in the list.
-  - **THE KEYSTROKE REDRAWS THE TREE AND NOTHING ELSE.** `drawSiteCode` replaces
-    the whole panel's HTML, so routing a filter through it destroys the input
-    mid-word (focus and caret gone after one character) and rebuilds the `<pre>`
-    beside it, scrolling the file being read back to its first line. `paintTree`
-    is the ONE place that builds the rows and binds them — called on the first
-    paint and on every keystroke — and the field, the count line and the clear
-    button are written once, with only their text and one class changing. The
-    file's own "THE DRAW IS NOT THE FETCH" argument, one layer in.
-  - **A FILTERED TREE IS DRAWN OPEN AND STORES NOTHING.** `ST_ALL_OPEN`
-    (`{has: () => true}`) rather than a Set walked out of the filtered tree,
-    which would be a second copy of `stCollapse`'s rule; `siteCodeOpenGroups` is
-    untouched, so clearing the box puts the tree back as the customer left it —
-    and a fold clicked DURING a search materialises its default from the whole
-    project, never from the results.
-  - **THE OPEN FILE IS CHOSEN FROM THE WHOLE PROJECT, NEVER FROM THE RESULTS.**
-    Typing must not swap out what is being read; picked from the results, a query
-    excluding it falls to `files[0]` and the customer's file does not come back
-    when the box is cleared. Only a FULL draw recomputes it, so the shape that
-    shows the wrong reading is a reload or a fold click with a query already up.
-  - **TWO SENTENCES, because a filtered tree that looks unfiltered is a lying
-    instrument.** `stFindSaid` ("5 of 28 files") is empty and `display: none`
-    when nothing is filtered, so the line APPEARING is the sign; `stFindNone`
-    ("No file matches “kayak”.") is never a blank column. They split on escaping
-    and it is stated in both: the count goes into `textContent` and must not be
-    escaped, the sentence into `innerHTML` and must be.
-  - The query survives a project switch deliberately — `siteCodeOpen` already
-    does, and a carried-over query is VISIBLE where a carried-over filename is not.
-  - **AND IT SHIPPED A WIDTH REGRESSION THE SAME NIGHT, FOUND LIVE BY THE OWNER
-    (*"everytime i click it the screen vibrates"*).** Splitting the column into a
-    fixed head over a scroller moved `overflow-y: auto` off `.st-code-tree` — and
-    **any overflow but `visible` makes a flex item's automatic minimum size ZERO**,
-    which is what had actually been pinning the column at its `flex: 0 0 210px`.
-    With `overflow: visible` restored, `min-width: auto` took over and the column
-    refused to shrink below its widest row: opening a folder with a long label
-    (`src/routes/-parts`) widened it and shutting it narrowed it again, so **every
-    fold click moved the editor beside it sideways.** `min-width: 0` is the one
-    declaration that says out loud what the overflow used to say by accident.
-    **MEASURED in a real browser over seven fold states**: 193px throughout before
-    the search box, **209px or 224px** after, constant again with the line.
-    The recorded "a rule true because of a layer below it expires when that layer
-    moves" — the width was true BECAUSE of the overflow, not because of the basis,
-    and nothing said so because nobody had written it down. **No markup assertion
-    can see this and neither can one that checks the rule exists**: it takes a
-    render, which is how it was found and how it was proved. Sweep 3/3 with the
-    defect itself as a mutant, the comment-only control surviving.
-  **Guards**: `test/site-source.test.mjs` drives the filter, the tree, the rows,
-  the three renderers and the tab end to end, plus the CSS both ways.
-  **Sweep: 39 mutants, 39 killed, none survived, none unapplied, both
-  comment-only controls survived — three survived the first pass and every one
-  was a guard gap, not the product's**: the open file picked from the results
-  (the keystroke path never recomputes it, so only a full draw with a query up
-  can see it), the fold default derived from the filtered list (visible only on
-  the FIRST click, when there is no stored choice to honour), and a glyph a
-  CALLER asks for by literal — `ic('x', 12)` in the search box — dropped from
-  `ST_ICONS`, which the derived icon guard could not see because it reads
-  `stFileIcon`'s RETURNS. That guard now also derives every `ic('<name>'` in the
-  file and asks the table for it: **18 names asked for, 0 missing**, measured
-  before it shipped. One mutant never applied: its anchor spelled `“` where
-  the source carries the character itself.
-- **A MENU ON EVERY FILE ROW, AND THE "READ ONLY" PILL IS GONE (2026-09-12,
-  owner: *"add the ... menu on each row"* / *"delete the thing that says read
-  only"*).** The last item from Lovable's explorer, and the pill this panel had
-  carried since the Code tab became real.
-  - **THREE ENTRIES, BECAUSE THE PANEL DOES NOT WRITE** — `Copy path`,
-    `Copy contents`, `Download` (`ST_ROW_ACTS`, and the menu is DERIVED from it).
-    Rename, delete and new-file are what an editor's row menu holds and each
-    would be a control promising what the Code tab cannot do; the customer
-    changes their site by asking in the chat. `Download` repeats the bar's button
-    deliberately: the bar downloads the file that is OPEN, this one the row you
-    are pointing at, without opening it.
-  - **THE HANDLE IS ON FILES AND ON NO FOLDER.** Every entry acts on one file's
-    BYTES — its path, its contents, its download — and a folder has none, so a
-    handle there opens a menu with nothing in it that works. A menu is the
-    easiest place in the app to hide a dead control.
-  - **THE ROW IS A WRAPPER AROUND TWO BUTTONS, and that is forced, not tidiness.**
-    A `<button>` inside a `<button>` is invalid and browsers recover by HOISTING
-    the inner one out — the handle would land beside the row on its own line,
-    firing the wrong handler. `--d` stays on the FILE button: moved up to the
-    wrapper it indents the handle with the name and pushes it off a deep row.
-    The knock-on is silent and was caught by hand: `.st-file` stopped being a
-    SIBLING of the next group heading, so `.st-file + .st-code-h` matched nothing
-    and every group after the first ran into the files above it.
-  - **ONE MENU FOR THE WHOLE TREE**, moved to whichever row asked. Twenty-eight
-    rows would otherwise carry twenty-eight hidden menus and a second place for
-    the open state to live. `position: fixed` off the handle's own rect (the
-    210px column scrolls, so anything else is clipped by the one box it must
-    escape), flipped up when there is no room below, and DISMISSED on that scroll
-    rather than left pointing at a different file — `closeApInfo`'s own reasoning
-    one panel over, and the failure here would be copying the wrong file.
-  - **`stRowMenuAct` TAKES ITS DEPS**, so what each entry reads is drivable
-    without a clipboard or a disk. Copy path copies the FULL path (it is what you
-    paste into an import); copy contents copies the WHOLE file, never the pane's
-    120,000-character clip; download saves under the BASENAME. A file it cannot
-    find does nothing and says nothing, and an empty one is said rather than
-    "copied".
-  - **THE PILL WENT AND THE BEHAVIOUR DID NOT.** The panel is still read-only —
-    the guard asserts the `<pre>` and the absence of any editor beside the
-    absence of the label, because an absence check over a bar that stopped being
-    drawn would pass by accident.
-  **THE RENDER CAUGHT A DEFECT NO GUARD WOULD HAVE**: the menu painted with
-  `var(--panel)`, which is `rgba(51,49,61,0.055)` — a surface on the media side's
-  dark chrome and 5.5% ink on this cream paper, so the tree rows read straight
-  through it and both sets of words fought. `var(--bg)` and a heavier shadow.
-  That is the screenshot rule earning its place: it is the only instrument that
-  sees it, and it saw it before the merge.
-  **Sweep: 24 mutants, 24 killed, none survived, none unapplied, both
-  comment-only controls survived — three survived the first pass and every one
-  was a guard gap**: the handle announced as the whole PATH (nothing read the
-  label's contents, so a screen reader got the folder chain on every row), the
-  opacity above, and — for the second time in one night — a SUBSTRING observer:
-  `assert.ok(html.includes("st-code-bar"))` is satisfied by `st-code-bar2`, so
-  the check meant to prove the bar was still there passed over a panel that had
-  lost it. Both instances are in this file's markup now: assert `class="x"` with
-  its quote, never the bare name.
-- **A CLICK REPAINTS A COLUMN, NEVER THE PANEL (2026-09-12, owner: *"screen
-  vibrates everytime i click on one of them"* — the SECOND report, on a panel
-  whose first vibration had been found and fixed the same night).** The width
-  regression above is real and was only half of it: it fires on a FOLD, because
-  it is about the column re-measuring. This one fires on **every click, a file
-  click included**, and the cause is one element over.
-  **`.st-code` CARRIES AN ENTRANCE ANIMATION** (`styles.css`, "builder
-  Preview/Code/More/Data panels re-render on switch → animate each in"), and
-  `drawSiteCode` rebuilt `.st-code` from scratch on every row and fold click — so
-  a brand-new element entered the document and the entrance ran again.
-  **MEASURED in a real browser, frame by frame: the whole panel drops 8.00px,
-  fades to opacity 0 and slides back over 220 ms, on every press**; rewriting only
-  the rows moves it **0.00px**, which is the control. `docs/edits/code-click-twitch.png`
-  is the same frame, 60 ms after the same click, both ways.
-  The animation was correct for as long as this panel was only ever built on a TAB
-  SWITCH — the recorded "a rule true because of a layer below it expires when that
-  layer moves", and nothing announced it when the Code tab started rebuilding
-  itself.
-  **`stCodeFileHtml` is the editor column's own renderer** and `paintFile` is the
-  one place that calls it, beside `paintTree` for the rows; `drawSiteCode` writes
-  an EMPTY shell and lets each fill its column, so neither is written twice. A row
-  click is `paintFile(); paintTree();` — the tree TOO, because with no stored fold
-  preference the open chain is derived from the file being read, so a click
-  changes which folders stand open and moving one `on` class by hand would leave
-  the tree describing the file before it. A fold click is `paintTree()` alone.
-  `drawSiteCode` now has exactly one caller: `loadSiteCode`.
-  **TWO OTHER DEFECTS CAME OUT WITH IT, both invisible while the panel was being
-  rebuilt anyway**: the tree's scroll offset was lost on every click (`innerHTML`
-  empties the box, which clamps `scrollTop` to 0 — so `paintTree` reads it before
-  and restores it after, and the SEARCH BOX resets to 0 itself, because a new set
-  of results is a new list), and folding a directory rebuilt the editor beside it,
-  scrolling the file being read back to line 1. Clicking the file already open is
-  refused for the same reason.
-  **A STILL SCREENSHOT CANNOT SEE THIS CLASS AT ALL** — the defect exists for a
-  fifth of a second — so "the render looks right" was never evidence. What sees it
-  is sampling one element's rect across `requestAnimationFrame`.
-  **Sweep: 18 mutants, 18 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived.** Five survived the first pass: ONE WAS INERT and was proven
-  so rather than hunted — it moved `const wasAt = rows.scrollTop` below the
-  `stCodeFind` call, which does not touch `rows`, so the read was still before the
-  wipe; replaced with one that moves it past the write. The other four were guard
-  gaps, every one a branch nothing drove: clicking the file already open, a row
-  naming a file the project has not got (which would reach `stCodeFileHtml(undefined)`
-  and throw), the 120,000-character clip, and whether the source is escaped. The
-  rest: either click rebuilding the panel, a click repainting one of the two, the
-  bar keeping the old name, the Download button not rebound after its element was
-  replaced, the shell writing the editor inline again, the scroll never restored.
-  **AND THE NEW COMMENT BLOCK LANDED CARRYING `—` ESCAPES** where the file
-  has 1,383 real em dashes against 21 pre-existing escapes — harmless inside a
-  comment, wrong-looking in source, and it made a mutant's anchor unfindable.
-  Mine were normalised; the 21 were left alone.
-- **EVERY SCROLLING BOX IN THE PANEL RESERVES ITS SCROLLBAR'S LANE (2026-09-12,
-  owner on WINDOWS: *"still vibrates"* — the THIRD report of one symptom on this
-  panel in one night, and the third distinct cause).** Folding a group is exactly
-  what changes the rows box's HEIGHT, so it is exactly what makes the scrollbar
-  appear and disappear — MEASURED across the real fold states at a 760px panel:
-  open PAGES and it scrolls, fold it and it fits, open `shared/src` and it
-  scrolls again. **On Windows and Linux that bar is CLASSIC and takes ~17px out
-  of the CONTENT box**, so in a 210px column every file name jumps 8% of the
-  column sideways on every click. `scrollbar-gutter: stable` on `.st-code-rows`
-  and `.st-code-scroll`; **`stable`, never `stable both-edges`**, which reserves
-  a second lane the panel has no room for and which the guard pins by VALUE
-  rather than by prefix (a sweep survivor: `/scrollbar-gutter: stable/` matches
-  `stable both-edges` as a substring).
-  **THE RENDER CANNOT PROVE THIS ONE, WHICH IS WHY IT TOOK THREE GOES.** Headless
-  Chromium uses OVERLAY scrollbars, which take NO width, so the measurement reads
-  0px whether the column is steady or jumping — it read "nothing moves" in
-  precisely the case that moves, and `--disable-features=OverlayScrollbar` did
-  not change it. The recorded "a negative assertion must prove its observer is
-  alive", pointed at a browser: **a zero from a blind instrument is not evidence
-  of absence.** So the SHEET is the assertion and it is DERIVED — every
-  `.st-code-*` rule carrying `overflow: auto` must carry the gutter, found by
-  walking the rules rather than naming today's two, with a floor on how many were
-  found so the scan cannot go quiet.
-  **THE THREE CAUSES, because the shape is the lesson**: (1) the column growing to
-  its widest row, fold clicks only; (2) the panel replaying its entrance
-  animation, every click; (3) this, every fold but only where scrollbars take
-  width. Each was real, each was measured, and each explained only part of what
-  the owner saw — **a fix for the right symptom is not a fix for the right
-  cause**, and the honest tell was that the owner had to report it again.
-  **What cracked it was one fact from the owner's side of the screen** — which OS
-  — after two rounds of instruments that could not see past their own defaults.
-  Sweep 4/4, control survived. **PROVEN LIVE the same night** — deploy 2098,
-  the owner on Windows: *"it works now"*, after two fixes that were each real
-  and each left the panel moving. The live stylesheet carries the gutter on
-  both boxes (read back off `gofarther.dev/styles.css`), and GitHub's run
-  listing was still answering `in_progress` with a frozen `updated_at` while
-  it was working on the owner's screen — the recorded stale-snapshot trap,
-  settled by asking the served file rather than the control plane.
-- **THE PROJECT A CUSTOMER DOWNLOADS CAN BUILD — the kit files their pages
-  import (2026-09-12, owner holding Lovable's tree beside ours: *"look at all of
-  this, we dont have all of it"*).** The comparison found something worse than a
-  parity gap. **The Code tab showed 28 files and the Download zipped the same
-  28 — and `src/routes/__root.tsx`, ONE OF THOSE 28, imports
-  `@/components/ui/sonner`.** The zip carried the importer and not the module,
-  so `npm run build` on a downloaded project could not resolve its own first
-  import. It was a folder of source, not a project.
-  **IT IS THE CLOSURE, NOT THE KIT, AND THE MEASUREMENT IS THE WHOLE DESIGN.**
-  The kit is 3,394 files and 17 MB (2,112 under `src/components/ui` alone), and
-  the first plan was a name manifest plus lazy contents. Then it was measured:
-  a SITE has the files its pages import transitively, and over **100 real
-  generated sites from the corpus that is 9 to 53 files, 26,092 to 126,082
-  bytes, with ZERO specifiers resolving to nothing** — the same order as the 25
-  shared files already sent, and the same order as Lovable's whole
-  `components/ui` (~50). So there is nothing to lazy-load, no R2 kit upload and
-  no per-file route: it travels with the source the way `parts` does.
-  **`builder/kit-closure.mjs`** is the resolver — dependency-free, reader
-  INJECTED because it runs in three places with nothing in common (the
-  container's disk, a fake map, the corpus scan). Imports, re-exports and
-  dynamic imports; **the extension order IS the resolver** (`.tsx` before the
-  bare path, or a directory beats the file the bundler takes); cycles terminate
-  on the RESOLVED path, because a kit that re-exports through barrels has them;
-  a file the project already HAS is **walked but not re-sent** (`src/lib/utils.ts`
-  is bundled and imports things of its own); an unresolved specifier is NAMED,
-  never dropped; a stable sort, so two builds of an unchanged site store the
-  same bytes; `MAX_KIT_FILES` 400 is a ceiling that REPORTS rather than
-  truncating in silence — the worst real site needs 53.
-  **THE CONTAINER RESOLVES IT** because it is the only place both halves exist
-  at once: the Worker can work out WHICH files a site needs and not what is in
-  them. Seeded from the routes DIRECTORY rather than the payload, so a salvage
-  stub's or a repair round's imports count; its reader is fenced with
-  `path.resolve` and a prefix test, because every specifier came out of source a
-  MODEL wrote; a throw there cannot lose a built, paid-for site (`kitError`).
-  **THE WORKER STORES IT at `source/<slug>/kit.json` ON BOTH PUBLISH PATHS** —
-  the build path and the edit spine, so an edit that adds a component stores the
-  dependency it pulled in — **subtracts what it already bundles, DERIVED from
-  `FOUNDATION_FILES`** (a copy of that list in the image would be two lists of
-  the same thing with a deploy between them), refuses an absolute or climbing
-  path a second time, and answers it from `/api/site/source`.
-  **ITS OWN HEADING, `Design system`, never folded into `Shared with every
-  site`** — a distinction the KIND still carries now that the headings are gone
-  (2026-09-12): which of these a site has is a fact about THAT site, so two sites
-  show different counts, and calling them the same thing would be wrong about
-  half of them.
-  **A site that has not published since this shipped gets `[]`** — the explorer
-  shows exactly what it showed before, no error and nothing to explain, and it
-  fills in on that site's next publish.
-  **Sweep: 25 mutants, 25 killed, 0 survived, none unapplied, both comment-only
-  controls survived. SIX survived the first pass and every one was a guard gap**
-  — and THREE were the same recorded trap: **a positional guard cannot see a
-  dead branch.** `if (false) await saveSiteKit(…)` leaves the call exactly where
-  a count finds it, so the store read as wired while nothing was ever written;
-  each call's OWN condition is read now. The other three: the container's fence
-  and its directory seed were never asserted, and the subtraction was read
-  (`foundationPaths()` is called either way) rather than DRIVEN — it is driven
-  against the real bundle AND a second one now, which is the only thing that
-  separates derived from hardcoded. **The driven case then met the
-  free-identifier trap through the door that entry describes**: `KIT_KEY` is a
-  free name in a carried scope, so the store threw inside its own catch and
-  answered `false`, which reads exactly like a refused write.
-  **Two older guards went red and were re-anchored, not appeased**: the
-  explorer's READ CENSUS gained a fourth read (the right place for that cost to
-  have to be written down), and the state-copy guard required `saveSiteParts`
-  and `writeHead` to be ADJACENT when the property is that the MARKER IS LAST —
-  it derives every write in the copy and asserts each sits above the marker.
-  **The two things the same comparison found and did NOT change**: their
-  `src/assets` carries 7 photographs because their builder writes generated
-  images into the project and ours is genuinely empty (every picture is a
-  placeholder — fal balance is empty), and their root has `bun.lock` /
-  `bunfig.toml` where ours has `package-lock.json`, which is a package manager
-  and not a gap.
-- **A SHARED FILE MUST BE ONE THE REPOSITORY HAS, and the guard asks GIT rather
-  than the filesystem.** `src/routeTree.gen.ts` was in the list: TanStack
-  regenerates it per build, the template's own `.gitignore` names it, and
-  `fs.existsSync` passed on any machine that had ever built — baking THAT
-  MACHINE'S copy into the committed module, so the explorer showed customers a
-  file no checkout has, listing routes no site has. Found by a red CI run.
-  `git ls-files` now, derived, so the next generated file cannot enter either.
+  GENERATED**, because the Worker has no filesystem. It is a COPY and a copy
+  drifts, so the guard re-runs the generator and compares. **A shared file must
+  be one the REPOSITORY has, and the guard asks GIT** — `fs.existsSync` once
+  baked one machine's generated `routeTree.gen.ts` into the committed module.
+- **THE DOWNLOADED PROJECT CAN BUILD — the kit files its pages import.**
+  `__root.tsx` imports `@/components/ui/sonner` and the zip carried the importer
+  and not the module. **It is the CLOSURE, not the kit**: over 100 real sites
+  that is **9 to 53 files, 26,092–126,082 bytes, ZERO unresolved specifiers**, so
+  there is nothing to lazy-load. `builder/kit-closure.mjs` resolves it with the
+  reader INJECTED; **the extension order IS the resolver**; cycles terminate on
+  the RESOLVED path; a file the project already HAS is walked but not re-sent; an
+  unresolved specifier is NAMED. `MAX_KIT_FILES` 400 REPORTS rather than
+  truncating. **THE CONTAINER RESOLVES IT** because it is the only place both
+  halves exist at once, seeded from the routes DIRECTORY so a salvage stub's
+  imports count, fenced with `path.resolve` because every specifier came out of
+  source a MODEL wrote. Stored at `source/<slug>/kit.json` on BOTH publish paths,
+  subtracting what is already bundled, DERIVED from `FOUNDATION_FILES`.
+- **A site that has not published since this shipped gets `[]`** and the explorer
+  shows what it showed before. **THE WORKER CANNOT BACKFILL IT**: the closure
+  walk needs each kit file's CONTENTS, which live only in the container image.
+  `site_rebuild` is the free backfill and has not been run — **open**.
+- **WHAT A SITE REALLY USES, with no auth and no publish**: every kit component
+  stamps `data-slot`, so
+  `curl --compressed <slug>.gofarther.app | grep -o 'data-slot="[^"]*"'` answers
+  it. `ben-crowe-guitar` reads 18 distinct, mid-band.
+- **OPEN**: a site published before the closure shipped draws no `Design system`
+  folder and no sentence, so the silence explains nothing. A line in the tree is
+  the fix.
 
-**Guards for the one tree (2026-09-12)**: `test/site-source.test.mjs` — no
-heading label and no heading MARKUP (both halves, since a tree that rebuilt the
-five rows with new words satisfies the first); the collapse rule still one row
-and a CHILD folder drawn under its own segment; depth re-anchored one step
-shallower with the key as the path; the count over the whole subtree; a shut tree
-listing exactly the root's own files; the ink hierarchy DERIVED from
-`ST_FILE_KINDS` for all five kinds with the words beside it; an unknown kind
-refused the customer's ink and given no title; and the sheet asked, both
-directions, that it paints the class and paints it DIFFERENTLY.
-**THE KIND TABLE IS CARRIED OUT OF THE SOURCE, NOT HANDED IN** — it used to
-arrive as a parameter holding a hand-typed FOUR-entry fixture where the product
-has five, so every case in that file ran against a project with no `Design
-system` in it. The recorded "two lists of the same thing", with a test on one
-end, and the carried table is now compared against a second independent read.
-**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived — TWO survived the first pass and both were real guard gaps.**
-The sheet's own-file colour set back to `--muted` (the class written, the rule
-present, and nothing painted: the recorded "a CSS rule can be correct and still
-lose" — nothing read the VALUE), and the kind table spliced into the tree scope
-as a literal with every kind `own: true` (both sides of every derived assertion
-moved together, so the case passed over a project that called `router.tsx` the
-customer's). **And one of my own new assertions was the recorded substring
-trap on its first run**: `!/class="st-code-h/` is satisfied by a tree with no
-headings at all, because `st-code-hn` is the label span inside every fold row.
-`class="st-code-h[ "]`, with the quote.
-**MERGED AND LIVE (deploy 2102, 2026-09-12 20:23Z, green in 45 s).** Two assets
-uploaded — `chat.js` and `styles.css` — and the container answered **`no changes
-isibi-app-sitebuildcontainer`** with the image step at **1 second**: the whole
-push touched only `public/`, `test/`, `scripts/`, `docs/` and the two `.md`
-files, so no image input moved and **the 15–20 minute hold does not apply**.
-Read back off the SERVED file rather than the control plane (the recorded
-stale-snapshot trap): `gofarther.dev/styles.css` carries
-`.st-file-own { color: var(--text); }` — a needle that occurs **exactly once**
-in the source, counted before it was used as the question — and the only
-`st-code-h` left in it is `st-code-hn`, the label span, which is the correct
-survivor.
-**AND THE OWNER HAS SEEN IT (2026-09-12: *"OK GOOD , I CAN SEE IT NOW"*).**
+**THREE SEPARATE CAUSES OF ONE SYMPTOM — the owner reported "the screen
+vibrates" THREE times, and each fix was real and left the panel moving.** The
+lesson is the shape: *a fix for the right symptom is not a fix for the right
+cause*, and the honest tell was having to be told again.
 
-**WHAT IT TOOK TO GET THERE IS THE PART WORTH KEEPING, because it cost four
-rounds of the owner asking one question.** They opened the new tree on
-`ben-crowe-guitar` and asked *"WHERE IS THE COMPONENTS ONE"*. The answer was
-that the kit closure is computed at PUBLISH time, and that site last published
-2026-09-10 — two days before `3f6fe2ff` shipped the closure — so its stored list
-is `[]` and the tab drew nothing. The arithmetic settles it: `src 15` is exactly
-the 13 shared files under `src/` plus `site-brand.ts` plus their one page, with
-no kit and no parts.
-**AND THE SITE REALLY USES EIGHTEEN, measured off the served page rather than
-argued**: every kit component stamps `data-slot`, so
-`curl --compressed ben-crowe-guitar.gofarther.app | grep -o 'data-slot="[^"]*"'`
-answers `button card cta-band faq figure hero label location-card
-practitioner-card price-list safe-image section-header service-card site-chrome
-site-footer site-header site-link testimonial-grid` — **18 distinct**, in the
-middle of the measured 9–53 band. **That one command is the instrument for
-"what does this site actually use", and it needs no auth and no publish.**
-**THE WORKER CANNOT BACKFILL IT and that is why a publish is the only door**:
-the closure walk needs each kit file's CONTENTS to follow its imports, and the
-2,112 kit files live only in the container image. Asked and answered rather than
-assumed.
-**WHAT THE EXPLORER SHOULD SAY AND DOES NOT — open.** A site published before
-`3f6fe2ff` draws no `Design system` folder and no sentence, so the customer is
-left to work out that the silence means "not recorded yet" rather than "your
-site uses none". The recorded shape of every dead-control finding in this file,
-inverted: not a control that promises what it cannot do, but an absence that
-explains nothing. A line in the tree ("these are recorded on this site's next
-publish") is the fix; the owner went and built a new site instead, which proved
-the feature and left the 51 older sites still silent.
-**THE FREE BACKFILL IS `site_rebuild`** — no credits, republishes every site and
-writes every closure. Not run; the owner's call, and still the measurement that
-entry has been waiting for.
+1. **The column grew to its widest row** (fold clicks only). Splitting the column
+   moved `overflow-y: auto` off `.st-code-tree` — and **any overflow but
+   `visible` makes a flex item's automatic minimum size ZERO**, which is what had
+   been pinning the column at `flex: 0 0 210px`. `min-width: 0` says out loud
+   what the overflow said by accident. **MEASURED over seven fold states: 193px
+   throughout before, 209 or 224 after, constant again with the line.**
+2. **The panel replayed its entrance animation** (every click). `.st-code`
+   carries one, and the panel started rebuilding itself. **MEASURED frame by
+   frame: the whole panel drops 8.00px, fades to opacity 0 and slides back over
+   220 ms, on every press**; rewriting only the rows moves it **0.00px**. **A
+   STILL SCREENSHOT CANNOT SEE THIS CLASS AT ALL** — what sees it is sampling one
+   element's rect across `requestAnimationFrame`.
+3. **The scrollbar's lane** (every fold, only where scrollbars take width). On
+   Windows and Linux a CLASSIC bar takes ~17px out of the CONTENT box — 8% of a
+   210px column. `scrollbar-gutter: stable`, **never `stable both-edges`**, pinned
+   by VALUE (a sweep survivor: `/scrollbar-gutter: stable/` matches the wider
+   value as a substring). **THE RENDER COULD NOT PROVE THIS ONE**: headless
+   Chromium uses OVERLAY scrollbars, which take NO width, so it read 0px in
+   precisely the case that moves. The SHEET is the assertion and it is DERIVED —
+   every `.st-code-*` rule with `overflow: auto` must carry the gutter.
+   **What cracked it was one fact from the owner's side of the screen: which OS.**
 
-**OPEN, named and not fixed: the `tweak` rung targets pages by ROUTE**, so a
-layout tweak on a split site falls to the `page` rung (~1 → ~1–3 credits).
-Degradation, not breakage; every other rung goes through `site-files.mjs`'s
-adapter and is unaffected.
-
----
+**PROVEN LIVE** — deploy 2098, the owner on Windows: *"it works now"*; deploy
+2102 for the one tree, *"OK GOOD, I CAN SEE IT NOW"*.
 
 ## The two splits
 
@@ -2427,478 +1179,116 @@ case now, and it is safe on walls that already existed.
 
 ## Rules from recent fixes
 
-- **TYPING IN THE START BOX IS A FRESH BUILD, NEVER A REVISE** (owner: *"if i
-  type in this chatbox its gotta be a fresh build no matter what, unless i select
-  a site"*). A build claims its slug BEFORE it generates, so a failed build
-  leaves the name held and its own retry came back as a revise of the
-  placeholder. Three conditions, each a refusal to guess: the DESIGNER chose the
-  name (a customer's own name is never moved), the chat is POSITIVELY known to
-  own no site (`mine === null`, never truthiness — a blip must not buy a second
-  paid site), and the name is held BY US (a stranger's keeps its 409). The
-  trailing number is REPLACED, not stacked. Settled at the SLUG, above
-  `env.JOB_SCOPE(slug)`, or the job is scoped to a name it is not building.
-- **A FAILED BUILD REVERSES ITS DESIGN CHARGE.** `ourFault(stage)` had governed
-  the PAGE bill and never the design's, whose deposit and settle are taken before
-  the page call — so once a build had started nothing could reverse it, and the
-  browser said "you weren't charged" off a literal. Both conditions: our fault
-  AND no live site, since a salvaged build was delivered. The collector has no
-  ledger, so it reverses BY REF (`REVERSE_WHOLE` is a CEILING, never an amount —
-  the ledger stays the authority). `ok` is the only field separating "nothing to
-  reverse" from "could not reverse".
+Each of these is shipped and live. What is kept is the RULE and the NUMBERS; the
+story of how each got there is in `git show a4d0f5e5:CLAUDE.md`.
+
+- **TYPING IN THE START BOX IS A FRESH BUILD, NEVER A REVISE** (owner). Three
+  conditions, each a refusal to guess: the DESIGNER chose the name, the chat is
+  POSITIVELY known to own no site (`mine === null`, never truthiness — a blip
+  must not buy a second paid site), and the name is held BY US. The trailing
+  number is REPLACED, not stacked. Settled at the SLUG, above `env.JOB_SCOPE`.
+- **A FAILED BUILD REVERSES ITS DESIGN CHARGE.** Both conditions: our fault AND
+  no live site, since a salvaged build was delivered. The collector has no
+  ledger, so it reverses BY REF (`REVERSE_WHOLE` is a CEILING, never an amount).
+  `ok` is the only field separating "nothing to reverse" from "could not".
 - **RULE 7 NAMES `SafeImage`'s MODULE.** It orders `<SafeImage>` on every picture
-  and never said where it comes from; every other kit component arrives through
-  the ≤15 the design step named, so the one component the rules make MANDATORY is
-  the one whose path may never arrive. A missing module is the one class `vite`
-  cannot bundle around. `repairImports` also rewrites a `@/components/…` path
-  that names no file to the one kit module exporting what is imported — 2,385 of
-  2,412 exported names belong to exactly one module — and refuses to guess three
-  ways. Zero false alarms over 3,736 real files.
+  and never said where it comes from — the one component the rules make MANDATORY
+  is the one whose path may never arrive, and a missing module is the one class
+  `vite` cannot bundle around. `repairImports` also rewrites a `@/components/…`
+  path naming no file to the one kit module exporting what is imported — **2,385
+  of 2,412 exported names belong to exactly one module** — and refuses to guess
+  three ways. **Zero false alarms over 3,736 real files.**
 - **ALL FIFTEEN REMOVABLE LANES CAN BE TAKEN OFF, not nine.** The removal verb
-  lived inside `eLayer === "look"`, so six lanes that DISPATCH never reached it:
-  nothing failed, the target rung did its best, and the STORED field kept saying
-  the site had the thing. `DOOR_LAYERS` is derived from the two meanings that had
-  been collapsed into one constant. **`page` is NOT widened and must never be** —
-  `remove` there means delete the whole page.
-- **THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT.** It framed a published
-  site with no `allow-same-origin`, so nothing it loaded could run and the panel
-  painted the server-rendered document and stopped. `frameSandbox(url)` decides
-  per URL and FAILS CLOSED — our own origin keeps the tight flags, because
+  lived inside `eLayer === "look"`, so six dispatching lanes never reached it:
+  nothing failed and the STORED field kept saying the site had the thing.
+  `DOOR_LAYERS` is derived from the two meanings collapsed into one constant.
+  **`page` is NOT widened and must never be** — `remove` there deletes the page.
+- **THE PREVIEW PANEL RUNS THE SITE'S OWN JAVASCRIPT.** `frameSandbox(url)`
+  decides per URL and FAILS CLOSED: our own origin keeps the tight flags, because
   `allow-scripts allow-same-origin` on a frame same-origin with the app can reach
   in and take its own sandbox off. The start screen's thumbnails stay tight
-  deliberately: 51 sites is 51 React bundles to paint 51 postage stamps.
-- **THE BUILDER PICKER REACHES THE ROUTING CALL** and sits on the START SCREEN
-  too, which is where the first build is asked for. `siteRoute` had been posting
-  without it, so every routing call on the platform ran on the default whatever
-  the customer chose — and the whole point of the picker is that no single
-  provider decides every message. The effort dial is PARKED: off the row, off
-  both bodies, machinery kept with the three lines that restore it.
-- **A PROJECT HAS AN ADDRESS** — `gofarther.dev/projects/<id>`, the id
-  `siteCreate` already minted. Not the slug: a slug is renameable and does not
-  exist until the build finishes, which is the eight-minute window where a stable
-  address is worth most. `openProject(id, mode)` is the ONE way either screen
-  opens, the boot reads the ADDRESS before the remembered view, and an id that
-  names nothing corrects the address rather than lying.
-- **A LIVE WIRE IS GREEN.** On a start-screen card the wire from the database to
-  the thing it serves is `--wire-live: #00c853`; the app's wire is always false,
-  written as a value rather than omitted so the day a mobile app owns a database
-  it is a change somebody makes on purpose.
-- **A PUBLISHED SITE'S RUNTIME ERRORS REACH THE PREVIEW PANEL (2026-09-12, owner:
-  *"fix"*).** Every generated site carries `src/lib/error-reporting.ts`, which on
-  any throw posts `{type:"isibi:runtime-error", report}` to `window.parent`. It
-  was written for this panel and **the panel only ever read `__siteErr`**, so the
-  message arrived at a listener that dropped it. **Which preview you are looking
-  at is what decided it**: `errShim` — the reporter that DOES reach
-  `collectPreviewErr` — is injected by `sitePreviewHtml`, which serves the blob
-  DRAFT preview only, so a published site framed at its own URL has no shim and
-  its own module is the only reporter it has. That is the ordinary case now: the
-  throw reached the visitor's console and `/api/db/<slug>/error`, and the owner
-  watching the preview saw a blank panel and no badge. `previewErrFromReport`
-  adapts one to the other (`msg`, and `info` = route · source, because a boundary
-  throw and a rejected promise need different fixes); `collectPreviewErr` already
-  clips, de-duplicates and bounds at six. **The general shape: two halves built
-  to meet and not wired, where the half that DID work covered the case anybody
-  testing would look at.**
-  **THE WIRE STRING STAYS `isibi:runtime-error`** — every site published before
-  today bakes that literal into its frozen bundle, so renaming the sender means
-  accepting both spellings for as long as any un-republished site exists. It is
-  on the do-not-rename table now, and so is `isibi-marquee`, **which was found
-  sitting beside `isibi-ambient` and `isibi-reveal` and NOT on it** — the same
-  class of baked animation name, the hole that table exists to close.
-  **AND THE BRAND SCAN'S EXEMPTION IS DERIVED FROM THAT TABLE**, not widened by
-  hand: a file shipping a protected name is shipping DATA, exactly as chat.js
-  ships `zephyr_session_v1`, so being on the table is what makes a name exempt.
-  Its surfaces list now derives the template's prose from `FOUNDATION_PATHS`
-  too — `README.md` was named by hand and `AGENTS.md` was not, which was fine
-  while the Code tab showed four root files and stopped being fine the day it
-  showed the root whole: `AGENTS.md` opened "This project was generated by
-  isibi" in front of every customer with nothing asserting otherwise. Now
-  "generated by [Go Farther](https://gofarther.dev)", and **proven red then
-  green** by putting the old line back.
+  deliberately — 51 sites is 51 React bundles to paint 51 postage stamps.
+- **THE BUILDER PICKER REACHES THE ROUTING CALL** and sits on the START SCREEN,
+  which is where the first build is asked for. `siteRoute` had been posting
+  without it, so every routing call ran on the default whatever the customer
+  chose. The effort dial is PARKED, with the three lines that restore it.
+- **A PROJECT HAS AN ADDRESS** — `gofarther.dev/projects/<id>`. Not the slug: a
+  slug is renameable and does not exist until the build finishes, which is the
+  eight-minute window where a stable address is worth most. `openProject(id,
+  mode)` is the ONE way either screen opens; an id naming nothing corrects the
+  address rather than lying.
+- **A LIVE WIRE IS GREEN** (`--wire-live: #00c853`). The app's wire is always
+  false, written as a value rather than omitted so the day a mobile app owns a
+  database it is a change somebody makes on purpose.
+- **A PUBLISHED SITE'S RUNTIME ERRORS REACH THE PREVIEW PANEL.** Every generated
+  site posts `isibi:runtime-error` to `window.parent`; the panel only ever read
+  `__siteErr`. The half that DID work (`errShim`) covers the blob DRAFT preview
+  only, so a published site framed at its own URL had no reporter — **the
+  ordinary case**. The general shape: *two halves built to meet and not wired,
+  where the working half covers the case anybody testing would look at.* **THE
+  WIRE STRING STAYS `isibi:runtime-error`** — every site published before today
+  bakes that literal into its frozen bundle. It is on the do-not-rename table,
+  with `isibi-marquee`, and **the brand scan's exemption is DERIVED from that
+  table**: a file shipping a protected name is shipping DATA.
 - **THE PHOTOGRAPH PIPELINE OPERATES ON THE FILES THE MODEL WROTE, NOT ON
-  `pages` (2026-09-12, owner, on a screenshot of `hebden-bike-repair` with a
-  sentence of alt text laid across its hero: *"LOOK AT THIS AND TELL ME WHAT
-  HAPPENED HERE"* → *"YES FIX IT"*).** The model never writes a photograph; it
-  writes a DESCRIPTION into the `src` as `@@IMG:…@@`, and a later step swaps
-  every token for a URL it bought or for the empty string `SafeImage` draws as
-  its placeholder. **Five steps did that work and every one of them read
-  `pages`** — `planImages` (which to buy), `buySitePhotos` (buying),
-  `countImageSlots` (the customer's sentence), `applyImages` (the sweep) and
-  `lintPages` (the report). **A band-split build writes its page sections as
-  PARTS**, so a photograph planned into a band was never planned, never bought,
-  never counted and — the half that reached a customer — **never SWEPT**: the
-  token shipped into the bundle as a literal
-  `src="@@IMG:the stone shopfront of a small bike workshop…@@"`, which no browser
-  can fetch, so the page drew the alt text. **MEASURED live before the fix: 11
-  `SafeImage`s on the page, 9 drawing their placeholder correctly and 2 raw
-  `<img data-slot="photo">` carrying the token.** Cost: one 30-credit build
-  (ledger 244 → 214).
-  **THE FIX IS ONE READER, NOT FIVE REMEMBERINGS.** `imageSources(pages, parts)`
-  in `site-images.mjs` says what the image steps operate on, so a sixth step
-  added next month asks it and cannot forget; a part is handed its real path
-  (`partPath`, the one spelling) because every message names a file by `path`
-  and a part carries `name`. **It is for READING only, and that is a decision:**
-  `applyImages` writes each file back into the list it came from, so it is
-  called once per list with the SAME url map — never over the union with the
-  answer sliced apart by length, which is index arithmetic and is exactly how a
-  fix of this shape breaks again in silence. `buySitePhotos` takes `parts` and
-  hands them back swept; the spine passes `v.parts` in and takes them back **at
-  their own length**, moving `sitePartsForBuild` with them — that list is
-  captured BEFORE the hook runs (parts are constant across a retry and salvage),
-  so a fix that updated `v.parts` alone would send the container the unswept
-  list and change nothing at all.
-  **THE BUILD'S OWN RENDER CHECK SAW IT AND NOTHING READ THE FINDING.**
-  `site-render.mjs` answers "has an image that did not load", the build
-  published anyway (the ship-it rule, working as designed), and that finding
-  joins the raw-hex-colour and dead-control findings in the backlog of checks
-  with no enforcing reader.
-  **AND `lintPages` IS DELIBERATELY *NOT* WIDENED, with the measurement written
-  down.** The `@@IMG:` token rule lives inside it and would catch this class one
-  layer earlier — but `lintPages` has a rule keyed on the file's ROUTE, and
-  **measured over the 100-site corpus (324 files) a page presented at a part
-  path produces 322 findings against 222, the 100 extra all one rule** (the
-  `head` rule, via `routeOf(path) !== "/"`). A real part carries no
-  `createFileRoute(` so its `decl >= 0` gate makes that unreachable — but
-  **there is no corpus of real parts to measure the claim against** (all 324
-  corpus files carry a route declaration), and this repo's bar is zero measured
-  false alarms before a lint ships. It reports rather than refuses, and with the
-  sweep fixed an unswept token can no longer reach a page, so the cost of
-  leaving it is a report and not a broken site. **Open.**
-  **Guards**: `test/image-parts.test.mjs` (12) — `imageSources` driven, the plan
-  and the count over a band, the sweep bought and unbought, the spine DRIVEN end
-  to end (handed in unswept, taken back swept, reaching `deps.compile`), the
-  wrong-length answer changing nothing, the no-dep path byte-identical, and a
-  **census that DERIVES every image-pipeline call in `worker.js`** depth-aware
-  over blanked source and requires each to name the parts — so a sixth call site
-  fails by existing. Two older guards went red for the change and were
-  re-anchored, not appeased: `ship-anyway`'s clock-clamp ordering and
-  `site-apply`'s count-before-sweep, both pinned to an ARGUMENT LIST where the
-  property is an ORDER.
-  **Sweep: 18 mutants, 18 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived — ONE survived the first pass and it was a guard gap of the
-  substring shape this repo has now hit three times in two days** (see the trap).
-  **Not proven live, and the fix does not repair `hebden-bike-repair`**: that
-  site is published with the token baked into its frozen bundle and needs a
-  republish after the deploy. It touches `worker.js` and `builder/`, so the image
-  rebuilds and the container rolls — the 15–20 minute hold applies.
-- **THE SEO & SOCIAL TAB SHOWS THE SITE'S REAL HEAD (2026-09-12, owner shown the
-  tab: *"WHAT IS THIS"* → *"BUT WHAT IT IS SUPPOSED TO BE"* → *"YES BUILD IT"*).**
-  It was eleven lines of hardcoded markup stating **three false facts about the
-  customer's own business**: a title drawn as `<name> — built with Go Farther`, a
-  suffix **no site has ever served**; a sentence of grey prose where a real
-  description was already stored; and "Generate · soon" for a 1200×630 card the
-  container has composed on every build for weeks. MEASURED on
-  `hebden-bike-repair` the same day: `<title>Hebden Bike Repair</title>`, a real
-  description, an `og:image` at a card that really is 1200×630. **That is a step
-  past this repo's dead-control finding** — a dead control does nothing; this one
-  ANSWERED, wrongly, and the next thought on reading it is *"how do I get your
-  branding off my title"*, about a thing that was never there.
-  **NOTHING NEW UNDERNEATH IT.** All three values were already stored, already
-  served, and already changeable through paths the platform has.
-  **THE SPLIT IS `site-runtime.ts`'s OWN and it decides the whole tab**:
-  `description` and `image` are PUBLISH-TIME and live in the R2 sidecar, which
-  the published site's script reads on every request — so **patching that one key
-  IS the deployment** (the rename lane's pattern and the share picker's: no
-  container, no compile, no credits); `title` is BUILD-TIME, baked as `SITE_NAME`.
-  **THE TITLE IS DELIBERATELY READ-ONLY**, a product decision rather than a
-  missing hop: `SITE_NAME` is the BUSINESS'S NAME and the same constant paints the
-  site's header, the composed share card and `og:site_name`, so an override
-  reaching only `<title>` desyncs four things. The `brand` edit lane moves all
-  four together and the panel says so where the field is. **A SEO title that
-  differs from the business name on purpose is a real, separate feature** — the
-  sidecar must carry one and `__root.tsx` prefer it for the two title tags only —
-  and it is named as the follow-up rather than half-built.
-  `site-head-edit.mjs` (dependency-free) owns the decisions: `MAX_HEAD_DESCRIPTION`
-  **300, DERIVED from the publish path's own slice** rather than chosen again (a
-  panel that took more would store what the next publish silently truncates);
-  `GOOD_DESCRIPTION` 50–160, **advisory only**, colouring a counter and refusing
-  nothing; `cleanHeadDescription`, which REFUSES a non-string instead of coercing
-  (`String(["hi"])` is `"hi"`, shipped here as a real bug three times) and treats
-  `""` as a real answer meaning *clear it*; `pickableImages`, whose two filters
-  are both load-bearing (a stranger's form upload must never become the business's
-  preview; an og:image at a PDF renders NOTHING in a chat app, silently) with
-  `uploadIsImage` **INJECTED** so that rule has one home; and `headAnswer`, which
-  keeps `share` (the CHOICE) apart from `image` (what RESOLVES) — collapsing them
-  is the mockup's own mistake one layer in. **NOT `site-seo.mjs`**, which is the
-  published site's crawling surface; two neighbours of one word, named apart in
-  both files.
-  `GET|POST /api/site/<slug>/seo` — owner-gated, shaped **line for line on the
-  share route beside it**. The POST **READS AND MERGES the look**: `withConfig`
-  replaces a named field WHOLE, so a bare `{ look: { description } }` takes the
-  theme, the brand, the mark and every language off the site — the exact defect
-  the logo rung shipped. Both R2 reads on the GET are best-effort: a bucket blip
-  must cost the picture and the picker, never the two fields beside them. `live`
-  says whether the sidecar patch landed, because a failure there is a DELAY (the
-  words appear at the next publish) and not a loss.
-  The panel draws **the two places this text actually lands** — a Google result
-  and a shared-link card — which is most of the value, since most owners have
-  never seen their own share card. The picker posts through the **existing** share
-  route and then **RE-READS**, because what serves is the precedence's answer and
-  not the file just chosen. **Five stylesheet rules went with the mockup that was
-  their only reader** (`.st-inp-area`, `.st-social`, `.st-social-ph`,
-  `.st-social-btns`, `.st-gen2`), each counted at zero readers across everything
-  the app serves — not a scan, which this repo has measured as not good enough to
-  cut by. `.st-inp` survives: the read-only title box is its one reader.
-  **A CSS RULE WAS WRITTEN, MEASURED INERT AND DELETED RATHER THAN TESTED.**
-  `.st-seo-prev { min-width: 0 }` went in on the grid-item-minimum-size
-  reasoning; rendered both ways at a 520px previews row with a 300-character
-  unbroken word, it changes **neither** number — `.st-seo-previews` tracks are
-  `minmax(240px, 1fr)`, already a definite minimum, so the automatic minimum size
-  never applies. What DOES the work is `overflow-wrap: anywhere`: **with it the
-  row is 520 and each column 252; without it the row's scrollWidth is 2369 and
-  both columns still read 252**, so nothing about the columns says what happened.
-  **Guards**: `test/site-head-edit.test.mjs` (26) drives the module whole,
-  CARRIES the browser's twin out of chat.js and holds the two numbers equal
-  (chat.js cannot import, so they are a second copy by construction), drives the
-  route through `worker.fetch` for eleven cases, and reads the panel's hops as
-  CALLS. **Its own first two runs found three real gaps before any sweep**: a
-  class written and painted by nothing, a second whose rule did not exist, and
-  the recorded "prose contains the thing it forbids" in my own comment naming the
-  five deleted classes — so the stylesheet gets a blanker too, with a landmark
-  asserted to survive it.
-  **Sweep: 31 mutants, 31 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived — FOUR survived the first pass and the split between them is
-  the useful part.** Three were real guard gaps and one was a driving mistake:
-  `live` had only its happy case (a route hardcoding `true` passed); the CSS rule
-  was asserted to EXIST and not to say anything (the recorded "a CSS rule can be
-  correct and still lose", now read by VALUE over every `overflow-wrap` in the
-  block); and the cannot-resolve case **failed every `site_backends` request, so
-  `assertOwner`'s own owner read threw first and answered its own 503** — the
-  route never reached the line the case was about, and the two reads are
-  separated by their selects (`select=uid` against `select=neon_db,uid,brief`).
-  The fourth was **INERT and was answered with a sentence rather than hunted**:
-  cutting the missing-`description` check falls through to the cleaner, which
-  refuses `undefined` with its own 400 — so the STATUS cannot tell them apart and
-  the observable half is *which sentence the caller is told*.
-  **Three older guards went red and were re-anchored, not appeased**:
-  `test/dockerfile.test.mjs`'s import census (the new root module was not on the
-  image's COPY line — the recorded "a module the container imports and the image
-  did not carry"), and the two `siteOgImage` reader counts in `site-edit` and
-  `site-zone`, each pinned at `=== 3` and each failed by an honest fourth READER;
-  both are floors now, with the two publish paths' distinct dists asserted by name
-  and every other caller required to pass `null`. **A fourth went QUIET rather
-  than red, which is the dangerous half**: `test/site-share.test.mjs` windowed
-  `sh` → `nt` and the new route landed between them, so its window silently grew
-  to hold two routes and every assertion in it went on passing over a region twice
-  the size it describes. It closes on its next sibling now.
-  **Suite 6,126** (6,100 before; 26 new cases).
-  **MERGED AND LIVE — deploy 2104, 2026-09-12 22:47:21→22:50:12Z, green in
-  2m51s.** The image BUILT (step 2m01s, `7e7…605009e70…6…` →
-  `8…4407b60d…c…9…d`) and the container `EDIT`ed at **22:50:00Z**, so the
-  15–20 minute hold ran to ~23:05–23:10Z; the drain found no live leases and the
-  gate was left to expire on success. Wrangler uploaded exactly **two** assets,
-  `chat.js` and `styles.css`, which is the whole of what `public/` changed.
-  **READ BACK OFF THE SERVED FILES, sha256 against the source: both IDENTICAL**
-  (`chat.js` fda79922ac66312e, `styles.css` d78e238230e82d88) — which is a
-  stronger answer than any needle and is the one to reach for first.
-  **AND THE ROUTE IS PROVEN MATCHED AND GATED WITHOUT A TOKEN**: `/api/site/
-  fretwork-1/seo` answers **401**, `/share` beside it **401**, and a made-up
-  `/nope-not-a-route` **404** — a path the Worker does not match falls to
-  `env.ASSETS` and 404s, so **401-against-404 is the free discriminator** that
-  says a new owner-gated route is really wired. Worth reaching for on every
-  owner-gated route from now on.
-  **WHAT IS STILL NOT PROVEN, named rather than glossed**: a real AUTHENTICATED
-  round trip (the route is owner-gated by design, and no session token exists
-  here — the eleven driven cases through `worker.fetch` are what stands in), and
-  the container harness, whose **`workflow_dispatch` is refused for this
-  session's GitHub integration with a 403** — the recorded 2026-09-03
-  limitation. It is a button the owner can press.
-  **AND TWO OF MY OWN INSTRUMENTS WERE WRONG BEFORE THE PRODUCT WAS — both
-  recorded traps, both mine.** (1) The live check grepped the served files RAW
-  for the mockup's three claims and the five deleted rules, and read `1` for
-  nearly all of them: **my own comments in `chat.js` and `styles.css` name every
-  one of them while explaining the deletion** — "prose contains the thing it
-  forbids", in a live check this time, where the unit guard beside it had
-  blanked comments for exactly this reason since its second run. Re-run over
-  blanked served source: every one 0. (2) Polling the deploy, I read my own poll
-  SPACING as elapsed time and was one sentence from reporting a frozen snapshot
-  and a hung image step on a deploy that was 87 seconds old. **`date` is the
-  cheap check and it settled it**; the recorded stale-snapshot trap is real and
-  this was not it.
-  **AND THE OWNER'S FIRST SCREENSHOT OF THE LIVE TAB FOUND A DEFECT NO GUARD
-  HERE COULD HAVE (`hebden-bike-repair`): THE SHARE-CARD PREVIEW DREW A BROKEN
-  IMAGE.** The card served perfectly — **200 `image/png`, 45,617 bytes**,
-  measured — and the APP's own `img-src` refused it, because **this panel is the
-  first thing in the app to put a SITE's own origin in front of the app's
-  browser**: `siteOgImage` answers the composed card as
-  `https://<slug>.` + SITE_ZONE + `/card.png`, which is right for `og:image` and
-  cross-origin for a page on `gofarther.dev`.
-  **A CSP REFUSAL ON AN `<img>` IS SILENT** — the broken glyph and nothing else,
-  no error the panel can catch and no failed request it can see. No markup
-  assertion and no does-the-rule-exist check could find it, **and my own
-  headless render could not either: its fixture used a `data:` URI for the card,
-  and `data:` has always been on `img-src`.** The recorded "a fixture in a
-  different shape from reality", where the fixture was more permissive than
-  reality **by exactly the thing that broke** — the screenshot rule earning its
-  place for the second time on one panel.
-  **THE FIX IS ONE TOKEN AND IT IS THE SMALLER GRANT, not a widened trust
-  boundary.** `https://*." + SITE_ZONE` joins the app's `img-src`, derived the
-  way `frame-src` twelve lines above already derives the SAME wildcard for the
-  preview panel — **so the app already runs those origins' SCRIPTS in a frame,
-  and an image is strictly less capable than that.** Every host under that zone
-  is a site this platform built and serves.
-  **THERE IS NO SAME-ORIGIN PATH, asked rather than assumed**: `/u/<slug>/…`
-  serves UPLOADS and **404s** for the card, and `/s/<slug>/card.png` **301s** to
-  the site origin, which an `<img>` follows straight back into the same refusal.
-  **`connect-src` IS DELIBERATELY NOT WIDENED** — the panel DISPLAYS the picture
-  and never fetches its bytes — and **the PUBLISHED SITE's CSP is untouched**: a
-  customer's site has no business loading another site's images. The two
-  `img-src` lines are byte-identical (the recorded ambiguous-anchor trap), so
-  both regions were read before either was edited.
-  **The census did not move and did not need to**: it requires every non-`self`
-  host to be named by something the app serves, and `chat.js` (×3) and
-  `site-list.js` (×1) already name the site zone — a genuine claimant, not an
-  exemption.
-  **Guard: DRIVEN against a real URL from its real producer, never a spelling.**
-  `siteOrigin(slug, APP_ZONE) + "/card.png"` matched against the directive read
-  out of the Worker with its `+ SITE_ZONE` resolved, one-label wildcard
-  matching, an alive-observer control (`evil.example.com` refused,
-  `a.b.<zone>` refused), and `connect-src` asserted NOT to carry the zone.
-  **Proven RED then GREEN by putting the old policy back.**
-  **Sweep re-run: 34 mutants, 34 killed, 0 survived, 0 never applied, 2
-  comment-only controls survived.** One survived the first pass and it was my
-  guard's own regex: it captured `"(connect-src[^"]*)"` — only what is INSIDE
-  the quotes — so a mutant appending `+ SITE_ZONE` put the grant outside the
-  capture and the absence check passed over a real widening. **One reader for
-  both directives now**, because the trailing `+ CONST` is part of a directive
-  and two copies of that rule is how one keeps the old blind spot.
-  **Suite 6,127.**
-  **AND THE BROWSER PROOF COULD NOT BE RUN HERE — the instrument again, caught
-  by its own control.** Rendering the real card under the real live policy read
-  **BROKEN in BOTH directions** (old policy and new), which reads exactly like a
-  fix that did not work. The control settles it: with **no CSP at all** the same
-  load fails `net::ERR_CONNECTION_RESET`. **Chromium in this sandbox does not
-  reach that host** — only `curl` goes through the agent proxy — so that test
-  could never have answered the question either way. The recorded "a zero from a
-  blind instrument is not evidence of absence", and a `net::` error in the
-  failure list is the tell: **a CSP refusal is `blockedURI`, never a transport
-  error.** What IS provable live and was: the served header carries
-  `https://*.gofarther.app`, the card answers 200 `image/png` 45,617 bytes, and
-  its host is one label under the zone.
-  **A FALSE BELIEF ABOUT CSP NEARLY WENT INTO A GUARD WITH IT.** The alive-
-  observer control asserted `a.b.<zone>` is refused, worded as though that were
-  CSP semantics — **it is not**: a real `*.host` source matches ANY subdomain
-  depth. The matcher is deliberately ONE label (what this platform ever serves,
-  per `frame-src`'s own comment), which is the SAFE direction for a guard that
-  answers "is this admitted" — it can report a refusal a browser would allow and
-  can never report an admission a browser would refuse. Re-worded to say that
-  rather than to state something untrue about browsers.
-
-- **HOW FULL THE MODEL'S CONTEXT WINDOW GETS, AND WHAT FILLS IT (2026-09-13,
-  owner holding up Claude Code's own context panel — a bar reading `527.1k / 1M
-  (53%)` over a breakdown by part: *"KINDA WANT SOMETHING LIKE THIS THAT TRACKS
-  THE CONTEXT WINDOW THING"*).** More → **Model context**, drawing the real
-  numbers for the site being looked at.
-  **IT ANSWERS WHAT THE NEXT CALL CARRIES, not only what the last one did**, and
-  that decision is the whole reason it has anything to draw: a historical-only
-  panel is empty on every site that has not built since it shipped — all 51 —
-  which is the kit closure's `Design system` folder again, the shape the owner
-  met with *"WHERE IS THE COMPONENTS ONE"*. A measured record enriches it when a
-  build writes one.
-  **TWO SHAPES, because they are genuinely different sizes**: a first build drops
-  the whole `backend` property and carries no stored state; a revise sends the
-  tool whole plus the current-state note. MEASURED: **first build 64,115 chars of
-  tool + 1,962 system ≈ 22,070 tokens; a revise 93,637 + 1,962 ≈ 32,718** — so
-  **2.2% of Claude's window and 4.4% of Grok's** on a first build. **The design
-  tool is 96.8% of that call and the customer's brief is 0.2%.**
-  **BUILT FROM `designRequest`, WHICH IS WHY THAT FUNCTION NOW EXISTS.** The
-  request was lifted out of `designSiteSchema` so the panel weighs the real
-  object; a projection assembling its own approximation drifts in the direction
-  that reads as fine — forget the stored-state note and the bar is merely
-  optimistic, with nothing to show it is wrong. **Four older guards went red for
-  the lift and were re-anchored, not appeased** (two in `api-auth`, the caching
-  one in `wiring` — whose own comment already recorded going red twice for
-  correct changes, so this is the third — and the chooser in `design-waves`),
-  every one windowed on `designSiteSchema` by name where the property is about
-  the REQUEST.
-  **THE TOTAL IS EXACT AND THE PARTS ARE ESTIMATED, and the report says which.**
-  There is no tokenizer here for either provider, so a part's share is
-  CHARACTERS at this repository's own 3:1 (`laneMaxTokens`' ratio, not a new
-  guess). The provider hands back the real input total on every call, so the
-  parts are SCALED to sum to it — the percentages are then sound even though no
-  single part's absolute count is. **All three input kinds count toward the
-  window**: billing prices a cached read at a tenth, but the window does not care
-  what anything cost, only how much the model had to hold.
-  **THE BAR IS A FILL GAUGE AGAINST THE WINDOW, AND THE RENDER IS THE ONLY THING
-  THAT COULD HAVE CAUGHT THE FIRST VERSION.** Drawn as composition alone — each
-  part taking its share of the full bar — every row was 100% full whatever the
-  model, so three rows reading 2.2%, 2.2% and 4.4% looked identical and
-  brim-full: **the picture and the figure beside it said opposite things.** No
-  markup assertion and no reading of that function could see it, because the code
-  was correct about what it computed and wrong about what a reader would take it
-  to mean. **And the sliver that results is the point rather than a problem to
-  pad away** — at 4% of a window the ink is a few pixels, and that IS the
-  finding; a minimum band width would make every row legible by making every row
-  a lie.
-  **AN UNKNOWN MODEL HAS NO PERCENTAGE — never a percentage of a guessed
-  denominator, and never 0%**, which reads as "nothing was sent". The bar draws
-  no ink at all rather than a full one.
-  **THE BRIEF IS DELIBERATELY NOT READ, and the first draft got it wrong in the
-  way this repository has a guard for.** The route called `siteBackendBySlug` and
-  read `.brief` off the answer — that function returns a connection **STRING**,
-  so the property was `undefined` on every call. `test/site-apply.test.mjs`
-  caught it, because the identical property access on the identical function once
-  shipped every publish through the spine with no theme and the site's slug in
-  place of its brand. Left out rather than re-plumbed: a real brief is 132
-  characters of 95,744 — **0.14%** — so the `message` band is the stored-state
-  note and a customer's sentence adds its own length on the day.
-  **Guards**: `test/model-context.test.mjs` (16) — the module driven (both
-  message shapes, all three usage kinds, an absence answering null and never
-  zero, the reconciliation summing to the exact total, the shares identical
-  either way, an unknown window over six nonsense denominators, the summary's
-  fullest-not-average and its every-not-some); the panel's bar DRIVEN for the
-  scaling defect, no-window drawing nothing and an over-full call clamping; the
-  legend's order asserted EQUAL to the module's own part order; the route driven
-  through `worker.fetch` for the 401, the stranger's 404, both shapes, the
-  derived model list, a first build weighing less than a revise, **an answer
-  under 4,000 bytes carrying no `input_schema`** (the panel needs counts, not the
-  93,598-character tool), both best-effort reads failing, and the stored record
-  handed back.
-  **`builder/context-report.mjs` IS AN IMAGE INPUT** — `worker.js` imports it and
-  the Worker's module graph is the job runtime, so it went on the Dockerfile's
-  COPY line. `test/dockerfile.test.mjs` caught the omission, and
-  `test/container-images.test.mjs` then refused it a second time for a different
-  reason worth knowing: it asks `git rev-parse HEAD:<path>`, the **committed**
-  tree rather than the index, so a Dockerfile naming an uncommitted file is an
-  image that cannot be built from that commit. Staging is not enough.
-  **Sweep: 15 mutants, 15 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived** — the composition bar returning, an unknown window drawing
-  full, an over-full call overflowing its track, cached reads dropped from the
-  total, an absence read as zero, the parts never scaled, an estimate claiming to
-  be exact, an unknown model answering 0%, an attachment counted as message text,
-  the summary taking the first call, `every` weakened to `some`, both shapes
-  built identically, the tool shipped on the wire, a stranger given a distinct
-  403, and the bucket's catch turned into a finally. **Suite 6,190.**
-  **MERGED AND LIVE — deploy 2111, 2026-09-13 01:55:38→01:58:49Z, green in
-  3m11s.** The image **BUILT** (step 2m24s; the log's own line: `built
-  isibi-app-sitebuildcontainer:d…2925f7f453fdbe (registry answered 404; 174
-  inputs off ./Dockerfile)`) and the container **`EDIT`ed at 01:58:43Z**,
-  `a6024…565ae7bb0b` → `d…2925f7f453fdbe`, `SUCCESS Modified application` — so
-  **the 15–20 minute hold ran to ~02:13–02:18Z**. The drain found no live leases
-  and the gate was left to expire on success. **The roll was read out of the log
-  rather than inferred from the step's duration**, which this file warns against
-  in both directions.
-  Wrangler uploaded exactly **two** assets, `chat.js` and `styles.css`, and
-  **both hash byte-for-byte identical to source** (`chat.js` `a9fdbb740e2f4a6f`,
-  `styles.css` `6a16f14daedd0435`) — asked as an until-loop on the served file,
-  which matched **155 seconds** after the push and is the strongest available
-  proof. **And the route is matched and gated without a token**:
-  `/api/site/context?slug=fretwork-1` answers **401**, `/api/site/routes` beside
-  it **401**, a made-up `/api/nope-not-a-route` **404** — the 401-against-404
-  discriminator this file records for every new owner-gated route.
-  **NOT PROVEN LIVE, and two halves are named rather than glossed**: no
-  authenticated round trip exists here (the route is owner-gated by design and
-  the sixteen driven cases stand in), and **nothing writes the measured record
-  yet** — `designSiteSchema` returns the usage the report needs, but storing it
-  at `source/<slug>/context.json` on the publish path is not in this change. The
-  panel says "A build measures it exactly" and today that is a promise about the
-  next commit, not this one.
-- **THE PLATFORM KNOWS WHAT EACH MODEL WILL ACCEPT (2026-09-13, owner pointing
-  at the context-window column of the three providers' docs: *"THIS IS THE
-  NUMBER I WANT"*).** Until now `BUILD_MODELS` carried each model's NAME and
-  nothing else, so every ceiling the platform sends was a number chosen against
-  no stated limit, and the same number went out whichever of the three was
-  picked. **READ FROM THE PROVIDERS' OWN DOCS, not from memory** — these move,
-  Claude was 200K a generation ago, so re-read rather than trusting this table:
+  `pages`.** The model writes `@@IMG:…@@` into the `src`; a later step swaps each
+  for a URL. **Five steps did that work and every one read `pages`** — so a
+  band-split build's PARTS were never planned, bought, counted or SWEPT, and the
+  token shipped into the bundle as a literal the page drew as alt text.
+  **MEASURED live: 11 `SafeImage`s, 9 correct and 2 raw `<img>` carrying the
+  token.** Cost one 30-credit build. `imageSources(pages, parts)` is the ONE
+  reader, so a sixth step asks it and cannot forget; **it is for READING only**,
+  because `applyImages` writes each file back into the list it came from — never
+  over the union sliced apart by length, which is how a fix of this shape breaks
+  again in silence. **`lintPages` is deliberately NOT widened**: measured over the
+  100-site corpus (324 files) a page presented at a part path produces **322
+  findings against 222**, the 100 extra all one rule. **Open.**
+- **THE SEO & SOCIAL TAB SHOWS THE SITE'S REAL HEAD.** It was eleven lines of
+  hardcoded markup stating **three false facts about the customer's own
+  business** — a `— built with Go Farther` suffix no site has ever served, grey
+  prose where a real description was stored, and "Generate · soon" for a card the
+  container has composed for weeks. **A step past the dead-control finding**: a
+  dead control does nothing; this one ANSWERED, wrongly. **THE SPLIT IS
+  `site-runtime.ts`'s OWN**: `description` and `image` are PUBLISH-TIME and live
+  in the R2 sidecar, so **patching that one key IS the deployment** — no
+  container, no compile, no credits; `title` is BUILD-TIME, baked as `SITE_NAME`.
+  **THE TITLE IS DELIBERATELY READ-ONLY**: `SITE_NAME` paints the header, the
+  share card and `og:site_name`, so an override reaching only `<title>` desyncs
+  four things. `MAX_HEAD_DESCRIPTION` **300, DERIVED** from the publish path's own
+  slice; `GOOD_DESCRIPTION` 50–160 is **advisory only**; `cleanHeadDescription`
+  REFUSES a non-string instead of coercing; `pickableImages`' two filters are both
+  load-bearing (a stranger's upload must never become the business's preview; an
+  og:image at a PDF renders NOTHING, silently). The POST **READS AND MERGES the
+  look** — `withConfig` replaces a named field WHOLE, so a bare `{look:
+  {description}}` strips the theme, brand, mark and every language.
+  **AND THE APP'S OWN `img-src` REFUSED THE CARD** — this panel is the first
+  thing to put a SITE's origin in front of the app's browser, and **a CSP refusal
+  on an `<img>` is silent**. `https://*.<SITE_ZONE>` joins `img-src`, derived the
+  way `frame-src` already derives the same wildcard — **so the app already runs
+  those origins' SCRIPTS in a frame, and an image is strictly less capable**.
+  `connect-src` is deliberately NOT widened; the published site's CSP is
+  untouched. **A FALSE BELIEF ABOUT CSP NEARLY WENT INTO THE GUARD**: a real
+  `*.host` source matches ANY subdomain depth. The matcher is deliberately ONE
+  label, which is the SAFE direction — it can report a refusal a browser would
+  allow and can never report an admission a browser would refuse.
+- **HOW FULL THE MODEL'S CONTEXT WINDOW GETS** — More → Model context. **It
+  answers what the NEXT call carries, not only what the last one did**, which is
+  why it has anything to draw: a historical-only panel is empty on all 51 sites.
+  **MEASURED: first build 64,115 chars of tool + 1,962 system ≈ 22,070 tokens; a
+  revise 93,637 + 1,962 ≈ 32,718** — **2.2% of Claude's window and 4.4% of
+  Grok's**. **The design tool is 96.8% of that call and the customer's brief is
+  0.2%.** Built from `designRequest`, lifted out so the panel weighs the real
+  object. **The total is EXACT and the parts are ESTIMATED, and the report says
+  which** — characters at this repo's own 3:1, SCALED to the provider's real
+  input total. **All three input kinds count**: billing prices a cached read at a
+  tenth, the window does not care. **AN UNKNOWN MODEL HAS NO PERCENTAGE** —
+  never of a guessed denominator and never 0%. **The bar is a fill gauge against
+  the window**, and drawn as composition alone every row read 100% full whatever
+  the model — the picture and the figure said opposite things, and only a render
+  could see it. The resulting sliver IS the finding; a minimum band width would
+  make every row legible by making every row a lie.
+- **THE PLATFORM KNOWS WHAT EACH MODEL WILL ACCEPT.** Read from the providers'
+  own docs — **these move, so re-read rather than trusting this table**:
 
   | model | context | max output | $ / MTok in · out |
   |---|---|---|---|
@@ -2906,409 +1296,70 @@ case now, and it is safe on walls that already existed.
   | `claude-sonnet-5` | **1M** | 128K | $2 · $10 |
   | `claude-opus-5` | **1M** | 128K | $5 · $25 |
 
-  **CONTEXT IS NOT A CONSTRAINT ANYWHERE TODAY, measured rather than assumed**:
-  the biggest thing the platform sends is `design_schema` at 64,076 characters on
-  a first build plus 1,962 of system — ~20,000 tokens against a 500,000 floor,
-  25× of headroom on the smallest of the three. **The wall a build meets is the
-  WIRE** (`QUICK_CALL_MS` 240 s against an egress that hangs up an idle
-  connection at ~270 s, 480 s streamed), which run 40 proved by timing out a lane
-  that had never reached its own token ceiling. Every `*_MAX_TOKENS` in the tree
-  is an OUTPUT ceiling; not one is an input bound.
-  **KEYED BY MODEL ID, NEVER BY PICKER**, and this file's own comment is why:
-  `design` and `pages` are kept as separate entries "for what a mixed picker
-  would need", so a limit hung on the picker is wrong for one of the two the day
-  one exists — the recorded "a lookup keyed at a different granularity than the
-  thing you ask it" trap, which already cost a session on `LANE_LAYER`.
-  **THREE STATES FOR AN OUTPUT LIMIT AND THEY MUST NOT COLLAPSE INTO TWO**: a
-  number is a stated cap, **`Infinity`** is a provider that states none, `null`
-  is a model we have no row for. Writing "no limit" as null too would be two
-  nulls meaning opposite things — the shape that put a wrong link on a live site
-  when `readAction` answered null for both "no button" and "a computed button" —
-  and `Infinity` makes every does-it-fit test plain arithmetic. **An unknown
-  model answers `null` and never 0**: zero reads as "no room" and would gate off
-  a call to a healthy model, so cannot-tell must fall through to sending.
-  **NOTHING IN THE PRODUCT READS IT YET AND THAT IS THE OWNER'S CALL** — know the
-  number, spend it second. Said out loud because a value nothing reads is this
-  repository's most repeated defect. **What keeps it from being dead on day one**
-  is `test/model-limits.test.mjs` (11): a census DERIVED from `BUILD_MODELS` in
-  both directions, so a picker naming a fourth model fails by existing and a
-  departed model cannot leave a stale row; the resolvers driven over unknowns,
-  non-strings and prototype keys; the three states proved distinguishable; and
-  **the one with teeth — every ceiling the platform really sends must fit inside
-  the SMALLEST `maxOutput` any picker can reach**, because the ceiling is chosen
-  once and the picker is the customer's choice per request. Measured: the largest
-  we send is 30,000 against a floor of 128,000, so it is quiet until somebody
-  takes that room.
-  **THE GUARD'S FIRST RUN FOUND ITS OWN BLIND SPOT**: it resolved
-  `export const NAME = <n>` and missed `SITE_SCHEMA_MAX_TOKENS`, which
-  `worker.js` declares as a module-private `const` and sends on the design call —
-  a whole class of ceiling the check claimed to cover and did not. It matches
-  both forms now, and a computed ceiling is NAMED rather than dropped, so a
-  fourth one fails instead of quietly shrinking what is covered.
-  **AND THE FLOOR IS ASSERTED FINITE, which is what stops the check going
-  vacuous**: one model is uncapped, so taking the MAX of the set by mistake makes
-  the floor `Infinity`, every ceiling passes and the assertion says nothing while
-  staying green. That mutant is in the sweep and it dies on that line.
-  **WHAT NO TEST HERE CAN CHECK, named rather than hunted**: whether the numbers
-  are RIGHT. A mutant raising a context window reads as correct from inside the
-  repository — there is no oracle short of the providers' docs. A mutant lowering
-  a `maxOutput` below a ceiling we already send DOES die, through the fits check,
-  which is the one direction that is falsifiable.
-  **Sweep: 10 mutants, 10 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived** — a model losing its row, a stale row surviving, an unknown
-  answering zero, both resolvers' `hasOwn` and the string test, the three states
-  collapsed to two, a cap recorded under a live ceiling, a ceiling raised past
-  what a picker can reach, and the floor taken as a max. **Suite 6,174.**
-- **NO GUTTER BETWEEN THE CHAT AND THE PREVIEW (2026-09-13, owner on a crop of
-  exactly that strip: *"CLOSE THIS SEPARATION"*).** `.st-body` carried
-  `gap: .8rem` — **12.8px** of page background between two rounded cards that
-  are one workspace. **MEASURED rather than reasoned**: the visible gutter IS
-  the flex gap, because at `data-dev="desktop"` `.st-frame` is `width: 100%` of
-  the stage, so nothing stands between the rail's right border and the frame's
-  left. 12.8 → 0, and **the preview gains all of it** (825.2 → 838px at a
-  1320px viewport).
-  **IT ONLY EVER SEPARATED THOSE TWO, checked both ways**: the mobile panel is
-  `position: absolute` against this row (deliberately, since 2026-09-09 — "the
-  stuff in the site shouldnt shrink"), so it was never a flex item and never
-  took the gap; and with the rail hidden there is ONE item, which a gap does not
-  separate from anything. So this closes one seam and moves nothing else.
-  **The two 16px radii leave a small pinch of background where they meet** — what
-  two rounded cards butting together look like. Flattening the facing corners is
-  the follow-up if the owner wants them flush; not done, because they asked to
-  close the gap and not to restyle the corners.
-  **Guard: in `test/mobile-panel.test.mjs`, READ BY VALUE** — a rule that exists
-  and says `.8rem` satisfies any presence check, the recorded "a CSS rule can be
-  correct and still lose". It lives there because that file owns the REASON: its
-  neighbouring assertion is that the panel is absolute, which is what makes "the
-  gap separated exactly two things" true. **Sweep: 4 mutants, 4 killed, 0
-  survived, 0 never applied, 1 comment-only control survived** — the gutter back,
-  a 2px gutter no presence check can see, the declaration dropped entirely, and
-  the row losing `position: relative`. **Suite 6,163.**
-  **MERGED AND LIVE — deploy 2110, 2026-09-13 01:09:38→01:10:26Z, green in 48
-  seconds**, and **both served files hash byte-for-byte identical to source**
-  (`styles.css` `c368fa9d03310997`, `chat.js` `e1f0192dfb15f627`) two minutes
-  from push. The image step was **2 seconds** and nothing rolled — the push
-  touches `public/`, `test/` and the two `.md` files and moves no image input —
-  so the 15–20 minute hold does not apply. **Both files asked, not only the one
-  that changed**: this is a stylesheet-only change, and a check that read only
-  `chat.js` would certify a deploy that shipped the old CSS.
-- **THE PAGE LIST ONLY EVER EXISTED IN THE BROWSER THAT BUILT THE SITE
-  (2026-09-13, owner on `lido-free-a`, a live three-page site whose picker read a
-  dead "Homepage": *"OK THIS SITE SUPPOSLTY HAS COU7PLE PAGES , RIGHT ?"* →
-  *"YES FIX THE PICKER"*).** `sitePages` reads `site.pages` out of localStorage,
-  and its one recovery path derives the list from the FILES on a build message in
-  the chat thread. A site adopted off `/api/site/list` has neither — `fromRow` in
-  `site-list.js` carries id, slug, name, url, brief, backend, chat, offline and
-  createdAt, and **no pages** — so `sitePages()` answered `[]`, `siteActivePage()`
-  answered `null`, and every page but the home page was unreachable in the preview
-  on every machine except the one that typed the brief. **Nothing failed and
-  nothing logged**: a label is a correct rendering of an empty list.
-  **TWO READERS OF THAT EMPTY LIST, AND THE SECOND IS THE TELL.** The subtitle is
-  `pages.length > 1 ? pages.length + ' pages' : 'Previewing last saved version'`,
-  so a three-page site also said "Previewing last saved version" — the same
-  wrongness twice in one bar, visible in the owner's own screenshot, which is
-  what a shared empty input looks like from outside.
-  **`GET /api/site/routes?slug=` IS ITS OWN ROUTE, AND THE MEASUREMENT IS WHY.**
-  `/api/site/source` already answers these paths — and hands back the whole
-  project with them: the page source, the parts, the kit closure, the assets and
-  the 25 shared files, **489,100 bytes of bundle alone**. The picker needs the
-  paths, which are a few dozen. Both read `source/<slug>/pages.json` through one
-  reader function, so this is not the recorded "two lists of the same thing";
-  they answer different questions about one store. **Owner-gated with the source
-  route's 404** (a distinct 403 says the slug is taken), **`loadSiteSource` and
-  never `loadSiteSourceForEdit`** (a picker that repaired the editable copy would
-  make a site busy for drawing a dropdown, on every workspace render), and
-  **nothing stored is `ok: true` with `[]`**, never the 404.
-  **PATHS ONLY, AND THE NAMING IS THE BROWSER'S** — the source route's own stated
-  reason: the browser composes display names anyway, so a second composer on the
-  wire would be two lists of one thing. `pageFromPath` is that one composer and
-  `reactRoutePages` shares it, so a page's label cannot depend on which door told
-  us the route exists. **`html: ''` is part of its shape**, because
-  `switchSitePage` branches on `target.html` to choose the stored-draft loader
-  over the live frame.
-  **THE FETCH IS `sitesFetchRemote`'s PATTERN**: fire-and-forget, re-renders when
-  it lands, latched once per slug (`renderSiteWorkspace` runs on every render and
-  every reply triggers one), gated on the held list being SHORT, never
-  overwriting a longer list — checked at APPLY time, because a build can land
-  while the request is in the air and that list is the better one — and silent on
-  every failure.
-  **THE COST, MEASURED: the bar settles ~39px once**, because the picker and the
-  subtitle widen together when the answer lands. Once per adopted site per
-  session; blocking the paint on a network call is the worse trade and is against
-  this file's own "THE DRAW IS NOT THE FETCH".
-  **Guards**: `test/page-picker.test.mjs` (17) — the route driven through
-  `worker.fetch` against a fake R2 (401, the stranger's 404, the three real
-  routes, home first **from a store that holds it last**, one page offered once
-  **from two files that resolve to it**, a part and `__root` never offered with a
-  hyphenated route as the alive observer, nothing-stored, a dead bucket), the
-  answer asserted to carry **no source and under 400 bytes**, `pageFromPath`
-  driven with `reactRoutePages` DERIVED against it, the browser's fetch driven
-  for seven failure shapes, and the call site read by its OWN condition.
-  **Three older guards went red and were re-anchored, not appeased**, each a
-  recorded trap: `site-busy`'s bare-read census asked that a sixth read "be
-  argued for here" and now carries the argument; `preview-pages`' carrier hit the
-  free-identifier trap IN A TEST SCOPE (`reactRoutePages` gained `pageFromPath`
-  and the lifted scope had neither), so `lift` takes the helpers a function
-  needs; and **`site-source`'s window closed on `/api/site/reconcile` BY NAME**
-  and this route landed between them — the recorded overlapping-window trap. It
-  derives its closing landmark from the next sibling now, **closed at the start
-  of that sibling's LINE and trimmed**, because a matcher shares its line with
-  its `if (` and blanking preserves length, so the neighbour's prose rides along
-  as whitespace: measured 6,422 characters of route against 8,223 of window.
-  **Sweep: 22 mutants, 22 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived. TWO SURVIVED THE FIRST PASS AND BOTH WERE MY OWN FIXTURE** —
-  the recorded "a fixture too shallow to separate the two readings": the pages
-  arrived home-first with no duplicates, so the sort and the de-dup were no-ops
-  against every case in the file. **Suite 6,161.**
-  **MERGED AND LIVE — deploy 2109, 2026-09-13 00:58:37→01:01:14Z, green in
-  2m37s.** The image **BUILT** (step 1m54s, `77276a…3353e3fe4` →
-  `a6024…565ae7bb0b`) and the container `EDIT`ed at **01:01:05Z**, so the 15–20
-  minute hold ran to ~01:16–01:21Z — **the first deploy in four to roll anything**,
-  because 2106/2107/2108 were `public/`-only and this range moves `worker.js`.
-  Wrangler uploaded exactly **one** asset, `/chat.js` (85 already uploaded),
-  which is right: `worker.js` is bundled into the script and is never an asset.
-  **Served `chat.js` sha256 IDENTICAL to source** (`e1f0192dfb15f627`) — the
-  stronger answer than any needle, and the one to reach for first.
-  **AND THE ROUTE IS PROVEN MATCHED AND GATED WITHOUT A TOKEN**:
-  `/api/site/routes?slug=lido-free-a` answers **401**, `/api/site/source` beside
-  it **401**, and a made-up `/api/nope-not-a-route` **404** — an unmatched path
-  falls to `env.ASSETS`, so 401-against-404 is the free discriminator for a new
-  owner-gated route.
-  **WHAT IS STILL NOT PROVEN, and the precondition is named rather than
-  assumed**: the route reads what a site stored at its last publish, and
-  `lido-free-a` published 2026-08-22. If `source/<slug>/pages.json` is absent for
-  a site that old, the answer is `[]` and the picker is exactly what it was — no
-  error, nothing to explain. The free check is the Code tab on that site, which
-  reads the same store through its own route. A real authenticated round trip is
-  owner-only; the seventeen driven cases are what stands in.
-  **OPEN, named and not built**: the preview frame runs the site's own JavaScript,
-  so a click inside it really navigates — and nothing tells the picker or the URL
-  chip that the frame moved. It needs the published site to report its own route.
+  **CONTEXT IS NOT A CONSTRAINT ANYWHERE TODAY**: the biggest thing sent is
+  ~20,000 tokens against a 500,000 floor — 25× headroom on the smallest.
+  **The wall a build meets is the WIRE.** Every `*_MAX_TOKENS` is an OUTPUT
+  ceiling; not one is an input bound. **KEYED BY MODEL ID, NEVER BY PICKER** —
+  `design` and `pages` are separate entries, so a limit hung on the picker is
+  wrong for one of them the day a mixed picker exists. **THREE STATES FOR AN
+  OUTPUT LIMIT**: a number, **`Infinity`** (a provider that states none), `null`
+  (no row). Writing "no limit" as null too would be two nulls meaning opposite
+  things. **An unknown model answers `null` and never 0.** Nothing reads it yet
+  and that is the owner's call — know the number, spend it second. **The guard
+  with teeth**: every ceiling the platform really sends must fit inside the
+  SMALLEST `maxOutput` any picker can reach — the largest sent is 30,000 against
+  a floor of 128,000. **The floor is asserted FINITE**, or taking the MAX by
+  mistake makes it `Infinity` and the check says nothing while staying green.
+- **NO GUTTER BETWEEN THE CHAT AND THE PREVIEW.** `.st-body`'s `gap: .8rem` was
+  **12.8px** of page background between two cards that are one workspace. **The
+  visible gutter IS the flex gap**, because at `data-dev="desktop"` `.st-frame`
+  is `width: 100%`. 12.8 → 0, and **the preview gains all of it** (825.2 → 838px
+  at 1320px). It only ever separated those two: the mobile panel is
+  `position: absolute` and was never a flex item.
+- **THE PAGE LIST ONLY EVER EXISTED IN THE BROWSER THAT BUILT THE SITE.**
+  `sitePages` reads `site.pages` out of localStorage; a site adopted off
+  `/api/site/list` has none, so every page but the home page was unreachable in
+  the preview on every other machine. **Nothing failed and nothing logged** — a
+  label is a correct rendering of an empty list. **TWO READERS OF THAT EMPTY
+  LIST, and the second is the tell**: the subtitle also said "Previewing last
+  saved version" on a three-page site. `GET /api/site/routes?slug=` is its own
+  route because `/api/site/source` hands back **489,100 bytes** to answer a
+  dropdown; both read one store through one reader. **PATHS ONLY** — the browser
+  composes display names, so a second composer on the wire would be two lists of
+  one thing. **Measured cost: the bar settles ~39px once** per adopted site.
+  **OPEN**: the preview frame runs the site's own JS, so a click inside it really
+  navigates and nothing tells the picker or the URL chip.
 - **PUBLISH IS A DOOR ON THE WORKSPACE BAR, AND IT IS NOT THE BUTTON THAT WAS
-  DELETED (2026-09-12, owner: *"NEXT TO SHARE ADD A PUBLISH BUTTON"*).** There
-  was a Publish button until 2026-09-08 and this repo deleted it, so the first
-  question is why this is not that coming back round.
-  **THE OLD ONE'S DEFECT WAS ITS GATE, and it is the one thing deliberately not
-  restored.** It was drawn `isReact ? '' : …`, so it appeared ONLY on a project
-  that had never built — the single state in which it had nothing to open — and
-  vanished the moment a site had an address worth showing. Both halves were
-  unreachable code that read as live from a source read. This one is gated on
-  `site.slug`, the same gate the Visibility card asks, for the same stated
-  reason: `siteSetLive` returns at once without a slug.
-  **IT IS NOT A DEAD CONTROL, which is the question to ask of anything labelled
-  Publish on a platform that publishes as part of the build.** `sitePublishPanel`
-  has three working actions behind it — the live URL as a link, Copy link, and
-  Take it offline / Put it back online over `POST /api/site/<slug>/offline` — and
-  one true sentence saying every change goes live on its own. **The panel stopped
-  lying in its own right on 2026-09-08**, when the Publish and Republish buttons
-  INSIDE it (POSTing `/api/site/publish`, a route deleted 2026-07-27) went; this
-  gives a door to a panel that was already honest, and its only door since had
-  been More → Cloud → Visibility, which is not where anybody finds "take my site
-  off the web".
-  **THE TITLE CARRIES THE HONESTY, because the label cannot**: a button reading
-  Publish over a panel reading "there is nothing to publish" is a contradiction
-  the customer meets in one second, and a tooltip resolves it before the click
-  rather than after. **DIMMED RATHER THAN HIDDEN** before the first build with
-  the tooltip saying what to do — the Download button's rule two lines up.
-  **NO STATE IS READ AT THE BAR, deliberately.** The deleted handler set the
-  label to "Live" or "Offline" — a second copy of what the panel reads for
-  itself, and the panel's copy is the better one (`SiteList.offlineFor` prefers
-  the server's answer over this browser's). A bar that carries the state must be
-  repainted when the site goes offline, and that render is not the thing that
-  would notice.
-  **ZERO CSS WAS ADDED, measured rather than assumed**: `.st-publish` was kept
-  whole when its button went (the `gif` and effort-dial rule) — the base rule,
-  the `:hover`, the `[disabled]` state and the shared nowrap rule with
-  `.st-share` — so `public/styles.css` is byte-for-byte unchanged and
-  `topbar-layout.test.mjs`'s existing nowrap assertion already covered it.
-  **RENDERED, because a token that means one thing on the media side's dark
-  chrome and another on this cream paper is what betrayed the SEO panel.** Both
-  states off the REAL bar expression cut out of `chat.js`: order `stReload · 3×
-  st-dev · stDl · stShare · stPublish` (rightmost, as asked), **bar height 49px
-  so it stays one line**, enabled carrying its title at full strength and
-  disabled at **opacity 0.45**. `docs/edits/topbar-publish.png`.
-  **AND `backgroundColor` READ `rgba(0,0,0,0)`, WHICH WAS THE INSTRUMENT** —
-  `--split` is a `linear-gradient`, which lives in `backgroundImage`; the
-  recorded "suspect the instrument first", settled by looking at the picture.
-  **Guards**: `test/publish-button.test.mjs` (8) — the blanker's own landmarks
-  asserted first, the button beside Share and NOT in the centred group, **the
-  `isReact` gate forbidden across the whole Share→Publish span so a wrapping
-  conditional is caught as well as an inner one**, the slug gate, both tooltips
-  counted, the label a literal, and the handler read by its OWN condition
-  (`if (false) pub.onclick = …` leaves every landmark where a position check
-  finds it). Plus the sheet read BY VALUE, since a disabled rule that exists and
-  says nothing satisfies a presence check.
-  **`test/site-source.test.mjs`'s "Publish is gone" case was INVERTED, not
-  appeased** — the owner reversed that decision, so holding the bar to it would
-  pin a removal nobody wants. The property was never "no Publish button"; it was
-  that the mechanism must not be stranded, and that is now satisfied twice over.
-  **What it KEEPS is the half still law**: the dead spellings `id="stPub"` and
-  `getElementById('stPub')` stay forbidden, **each with its closing quote** —
-  `stPub` bare is a substring of `stPublish`, so the bare name would report the
-  dead button as back about the live one. The recorded substring-observer trap,
-  one character away in the line that forbids it.
-  **Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived. THE FIRST PASS HAD TWO NEVER APPLIED AND ONE OF THEM WAS
-  THE DEFECT ITSELF** — the `isReact` mutant and the tooltip mutant both spelled
-  their anchor `—` where the source carries a real em dash, so the sweep
-  reported 12/12 clean while the single most important mutant had not run. The
-  recorded "`—` in the source, a dash in the sweep", and the reason a NEVER
-  APPLIED line must be read as loudly as a survivor. **MEASURED: `chat.js`
-  carries 837 real em dashes against 20 escapes**, so the source follows the
-  file's own norm and the spec was what was wrong — even though the Download
-  button on the very next line uses the escape. **Suite 6,135** (6,127 before;
-  the eight new cases, and `site-source`'s count unchanged because its case was
-  renamed rather than added to).
-  **MERGED AND LIVE — deploy 2106, 2026-09-12 23:36:06→23:36:58Z, green in 52
-  seconds.** The image step was **2 seconds** and the container answered no
-  change, because the whole push range (`2e50a90b..1b740101`, asked as the range
-  and not as the tip commit) touches `public/`, `test/`, `scripts/`, `docs/` and
-  the two `.md` files and moves **no image input** — so the 15–20 minute hold
-  does not apply. **Read back off the SERVED file and byte-for-byte**:
-  `gofarther.dev/chat.js` hashes **identical to the source** (sha256
-  `51f20eb354c36594`), 63 seconds from push, which is a stronger answer than any
-  needle and is the one to reach for first. Direct readings beside it: the
-  button and its handler each occur **once**, the dead `id="stPub"` **zero**
-  times, and no `isReact` wraps the button.
-  **Not proven live: a press.** The panel behind it is reached from the Cloud
-  card today and unchanged by this, so what a press has yet to prove is the new
-  door, not the panel.
+  DELETED.** The old one was drawn `isReact ? '' : …` — it appeared ONLY on a
+  project that had never built, the single state in which it had nothing to open.
+  This one is gated on `site.slug`. **It is not a dead control**: three working
+  actions behind it (the live URL, Copy link, Take offline / Put back online) and
+  one true sentence saying every change goes live on its own. **The title carries
+  the honesty, because the label cannot.** DIMMED rather than hidden before the
+  first build. **No state is read at the bar, deliberately** — the panel's own
+  copy is better (`SiteList.offlineFor` prefers the server's answer).
 - **THE REFRESH BUTTON DID NOTHING ON ANY REAL SITE, AND IT IS THE PUBLISH
-  BUTTON'S DEFECT ONE CONTROL TO THE LEFT (2026-09-12, owner pointing at the
-  icon: *"WHAT DOES THIS BUTTON DOES ?"* → *"YES FIX IT"*).** `#stReload`, titled
-  "Refresh preview", ran
-  `if (f && curHtml) loadSitePreview(f, curHtml, site.slug)` — the STATIC-SITE
-  path. `curHtml` is a page's stored HTML and **a React site's pages are written
-  with `html: ''`** (`chat.js`, the route derivation and the empty-project
-  fallback), so the gate was false and every click fell through, while the render
-  three hundred lines up points the frame at the LIVE site through
-  `loadSiteFrame`.
-  **IT IS LITERALLY THE SAME SHAPE AS THE PUBLISH BUTTON FIXED THE SAME NIGHT**:
-  a handler gated on the legacy path while the thing it acts on moved to the
-  React one. `isReact ? '' : …` there, `if (curHtml)` here — the same sentence in
-  different words, which is why neither was caught by reading. **Two instances in
-  one bar in one night says the class is worth a sweep of its own**: every
-  handler in `chat.js` still gated on `curHtml` or `site.html`, against a render
-  that asks `isReact`. Not done.
-  **PROVEN BY DRIVING, NOT BY READING** — the line is well-formed, its landmarks
-  are all present, and it is dead. The real handler carried out of the file and
-  pressed: with `curHtml` empty it called nothing, with a stored page it called
-  the legacy loader.
-  **THE BUMP IS NOT COSMETIC, and skipping it would have been the right symptom
-  fixed by the wrong cause** — assigning `fr.src` a value it already holds does
+  BUTTON'S DEFECT ONE CONTROL LEFT.** `if (f && curHtml)` is the STATIC path, and
+  a React site's pages are written `html: ''`. **Two instances in one bar in one
+  night says the class is worth its own sweep**: every handler still gated on
+  `curHtml` or `site.html` against a render that asks `isReact`. **Not done.**
+  **The bump is not cosmetic** — assigning `fr.src` a value it already holds does
   not reload an iframe, so a re-point without moving `previewV` is a second dead
-  button. **AND A REFRESH IS A FRESH PAGE LOAD**, so the collected preview errors
-  are cleared and the badge repainted (the render's own rule on the branch
-  below); kept, they would leave "Fix with AI" offering errors from a page nobody
-  is looking at. The legacy branch is KEPT, not deleted — it is what a site with
-  stored HTML is for and is the branch that has always worked.
-  **`sitePreviewSrc` IS THE ONE EXPRESSION.** The preview URL arithmetic was
-  already written inline TWICE (the render and `switchSitePage`) and this fix
-  needed it a third time — the recorded two-lists-of-the-same-thing trap with a
-  URL as its subject, where the drift is silent because a frame pointed at a path
-  the router redirects away from reads as a slow site. One definition, three
-  callers, and a census that fails on a fourth copy.
-  **THE `|| '/'` DEFAULT GUARDS `String(null)`, MEASURED**: `|| '/'` against
-  `|| ''` is **identical on all seven path shapes** (the test is `!== '/'`, and
-  `''.replace(/^\//, '')` is `''`), so that mutant is INERT — but with NO default
-  a caller holding no active page hands over `null` and `String(null)` is
-  `"null"`, pointing the frame at `<site>/null`. Said in the source so the next
-  session does not simplify it away.
-  **Guards**: `test/preview-reload.test.mjs` (8), every case DRIVING the real
-  handler — the React reload, the bump across two presses, the PICKED page, the
-  cleared errors, the legacy branch, a project with neither, the one-expression
-  census, and the builder over five path shapes. **`rl` is deliberately NOT
-  handed into the driven scope**: the carried block opens with its own
-  `const rl = …`, so a parameter of that name refuses to compile — the recorded
-  "a re-anchor lands in a scope it did not write", met on this file's first run.
-  **Two older guards went red for the change and were re-anchored, not
-  appeased** — `preview-frame`'s call census (5 → 6, and its two named surfaces
-  re-pointed at the helper) and `preview-pages`' path assertion, which is now
-  DRIVEN over the real builder instead of matching a regex: **a regex cannot tell
-  `/press` from `press` and the driven case can**.
-  **Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived. TWO SURVIVED THE FIRST PASS and the split is the useful
-  part.** One was a real gap — every driven press used the default `path: "/"`,
-  where `sitePreviewSrc(site, '/')` and `sitePreviewSrc(site, active.path)`
-  answer the same string, so a handler hardcoded to the home page passed
-  everything; the recorded "a fixture too shallow to separate the two readings",
-  fixed by pressing on `/press`. The other was the inert default above, **proven
-  inert by measuring both versions over the real input shapes and then REPLACED
-  by the observable mutant** (no default at all) rather than hunted.
-  **Suite 6,143** (6,135 before; the eight new cases, less one retired when
-  `preview-pages`' two source assertions became one driven pair).
-  **MERGED AND LIVE — deploy 2107, 2026-09-12 23:57:01→23:57:49Z, green in 48
-  seconds**, and the served `chat.js` hashes **byte-for-byte identical to the
-  source** (sha256 `7c0b9610da357913`) 52 seconds from push. The whole push
-  range moves no image input, so nothing rolled and the hold does not apply.
-  **AND THE LIVE CHECK HIT "PROSE CONTAINS THE THING IT FORBIDS" AGAIN — the
-  second time in one session, in a live check both times.** Grepping the served
-  file RAW for the dead gate `if (f && curHtml)` read **1**, which is my own
-  comment explaining the defect. Over comment-blanked served source, with the
-  landmark asserted to have survived the blanking: the gate is **0** in code,
-  `sitePreviewSrc` is **4** (one definition, three callers), the bump is **1**,
-  and the inline arithmetic is **1** — the helper's own body. **A live check
-  needs the same blanker the unit guards have had for months.**
-  **Not proven live: a press** — the proof is one click, the preview visibly
-  reloading.
-- **THE WHOLE RIGHT-HAND GROUP IS PREVIEW-ONLY (2026-09-13, owner on a crop of
-  exactly those four: *"THIS STUFF SHOULD ONLY BE THERE ON PREVIEW ONLY"*).** The
-  three device widths, Download, Share and Publish say nothing about the Code,
-  Data or More tabs, so on those screens they were four controls describing
-  something that is not on the screen. The page picker and Refresh beside them
-  had been preview-only since the bar was built; this finishes the group.
-  **THE DANGER IS THE ONE `topbar-layout.test.mjs` ALREADY EXISTS FOR, which is
-  why the new cases live there rather than in a file of their own.** Both side
-  groups are `flex: 1 1 0` and split the bar down to each one's MIN-CONTENT, so
-  a block REMOVED on a view change shrinks this group, the difference comes out
-  of the left group, and **the centred tabs move at every width** — the bug three
-  earlier attempts had to learn. So the four wear `st-tb-pv-off`, the picker
-  block's own class: `visibility: hidden`, never `display: none`, space
-  reserved. Hiding them any other way would have looked right in every source
-  check.
-  **ONE WRAPPER, NOT FOUR CLASSES**: the space to reserve is the GROUP's, and
-  four separately-hidden children still collapse the gaps between them.
-  `.st-tb-end`'s `gap` is asserted EQUAL to `.st-tb-right`'s, so Preview's
-  spacing is what it was.
-  **MEASURED IN A BROWSER ACROSS SIX WIDTHS (1024–1920): 0.00px tab shift**, the
-  right group **375.4px in both views**, and the four `visible` on Preview /
-  `hidden` on Code. `docs/edits/topbar-preview-only.png`.
-  **AND THE BAR'S WRAPPING BELOW ~1180px IS PRE-EXISTING, measured rather than
-  assumed** — the baseline read out of `git show HEAD:` rather than by stashing
-  (a measurement that mutates the tree is one interrupted call from leaving it
-  wrong): **48.97px at 1180+, 57.19 at 1100, 71.19 at 1024, 85.19 at 960, and
-  byte-identical before and after**. Not caused here, not fixed here.
-  **THE ONE COST, NAMED RATHER THAN HIDDEN**: the whole-project Download leaves
-  the Code tab, where you would most want it. The Code tab's own bar keeps
-  `stCodeDl`, which downloads the **open file**, not the project — so it is a
-  real if small loss, and putting Download back is one name off the wrapper.
-  **Guards**: `test/topbar-layout.test.mjs` (+3) — the wrapper always rendered
-  and never conditional, wearing the shared off-class with `aria-hidden`; a
-  census that the four are NOT emitted before it and the always-visible controls
-  (Back, the chat toggle, the name, history, the tabs) are not inside it; and the
-  gap held equal to the group's.
-  **THE CENSUS'S FIRST DRAFT WAS VACUOUS AND THE MUTANTS ARE WHAT SHOWED IT.** It
-  windowed from the wrapper's open to `.st-body` and asked what was INSIDE — but
-  that window runs PAST the wrapper's own close, so every control in the group
-  answered "inside" and a mutant moving one out would have passed. The wrapper is
-  the LAST thing in the group, so "outside it" can only mean "emitted before it";
-  the window is the group's HEAD now.
-  **Sweep: 9 mutants, 9 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived.** One never applied on the first pass — its anchor,
-  `(siteView === 'preview' ? '' : ' aria-hidden="true"') + '>' +`, is a SUBSTRING
-  of the picker block's identical line, the recorded ambiguous-anchor trap;
-  re-anchored with its neighbour and killed. **Suite 6,146.**
-  **MERGED AND LIVE — deploy 2108, 2026-09-13 00:11:20→00:12:11Z, green in 51
-  seconds**, and **BOTH served files hash byte-for-byte identical to source**
-  (`chat.js` `92aeb8058541ef99`, `styles.css` `8dcda96764c9c259`) 56 seconds
-  from push. No image input moved, so nothing rolled and the hold does not
-  apply. **Both files asked, not just the one that changed most** — this change
-  is half markup and half stylesheet, and a check that reads only the script
-  would certify a deploy that shipped the old CSS.
-  **Not proven live: a tab switch** — the proof is clicking Code and seeing the
-  four gone with the tabs still.
+  button. A refresh clears the collected preview errors. **The legacy branch is
+  KEPT** — it is what a site with stored HTML is for. `sitePreviewSrc` is the ONE
+  expression (it was written inline twice and this needed a third).
+- **THE WHOLE RIGHT-HAND GROUP IS PREVIEW-ONLY.** Both side groups are
+  `flex: 1 1 0` and split to min-content, so a block REMOVED on a view change
+  moves the centred tabs at every width — the bug three earlier attempts had to
+  learn. The four wear `st-tb-pv-off`: **`visibility: hidden`, never
+  `display: none`**. ONE wrapper, not four classes, because four separately
+  hidden children still collapse the gaps between them. **MEASURED across six
+  widths (1024–1920): 0.00px tab shift**, the group 375.4px in both views. **The
+  bar's wrapping below ~1180px is pre-existing** (48.97px at 1180+, 57.19 at
+  1100, 71.19 at 1024, 85.19 at 960 — byte-identical before and after). **One
+  cost, named**: the whole-project Download leaves the Code tab, where you would
+  most want it.
 
----
 
 ## Editing a site — the ladder
 
@@ -3336,590 +1387,297 @@ language, on the picked model, reserved by the spine before its compile and
 floored at 1 like every charge. A monolingual site and a cached bilingual one
 pay nothing more; the platform rebuild never pays.
 
-### EVERY RUNG RUNS IN THE SITE'S CONTAINER, AND THE CONTAINER HAS NO CLOCK (2026-09-14)
+### EVERY RUNG RUNS IN THE SITE'S CONTAINER, AND THE CONTAINER HAS NO CLOCK
 
-Owner, on being shown that an addon had stopped at fourteen minutes: *"Lol
-addon, edit and build gotta run on the container, bruhhh cmon just like the
-build path."* Then, on being shown the pair of numbers that first answer gave
-it: ***"Containers shouldn't have a time limit."*** Two rounds, and the second
-one deleted a number the first had just chosen.
+Owner, 2026-09-14: *"addon, edit and build gotta run on the container, just like
+the build path"* → ***"Containers shouldn't have a time limit."***
 
-**THE CLOCK WAS THE HALF NOBODY HAD NOTICED, AND IT IS THE RECORDED TRAP IN THE
-MONEY PATH.** `EDIT_JOB_MS` is **840,000** — fourteen minutes, and every word of
-its reasoning is about a Cloudflare ISOLATE: `CONSUMER_CEILING_MS` stops a queue
-consumer at fifteen, so the budget sits a minute under it and the refund, the
-terminal write and the trace run in the gap. Inside the container there is no
-such ceiling — the runner is a Node process under the job's own deadline.
-**Builds were moved across on 2026-09-06 (stage 5b) and given a pair of their
-own for exactly that reason; the edit branch of `runContainerJob` was wired the
-same day and passed no budget at all**, so it fell back to the Worker's number.
-A rule true because of a layer below it expires when that layer moves, and
-nothing announces it — for the fourth recorded time, and the first in the path
-that spends a customer's money. It cost run 44 an addon at 12m22s with the
-database made, the page written and nothing published.
+**THE CLOCK WAS THE TRAP IN THE MONEY PATH.** `EDIT_JOB_MS` is 840,000 —
+fourteen minutes, and every word of its reasoning is about a Cloudflare ISOLATE
+(`CONSUMER_CEILING_MS` stops a consumer at fifteen). Inside the container there
+is no such ceiling. Builds moved across on 2026-09-06 and got their own pair;
+the edit branch was wired the same day and **passed no budget at all**, so it
+fell back to the Worker's number. *A rule true because of a layer below it
+expires when that layer moves* — fourth recorded time, first in the path that
+spends money. It cost run 44 an addon at 12m22s with the database made, the page
+written and nothing published.
 
-**THE FIRST ANSWER WAS A BIGGER STOPWATCH AND THE OWNER WAS RIGHT TO REFUSE
-IT.** It set `CONTAINER_EDIT_BUDGET_MS` to 27 minutes and `CONTAINER_EDIT_JOB_MS`
-to 30, sized off run 44's own chain — which is this repository sizing a
-stopwatch for a place that has none. **Every limit on a container job here is
-OURS**; there is no platform ceiling to fit inside, so the only question is what
-each bound is FOR, and "how long the work may take" turned out not to be one of
-the answers. **Four bounds, and only one of them went:**
+**EVERY LIMIT ON A CONTAINER JOB HERE IS OURS.** There is no platform ceiling to
+fit inside, so the only question is what each bound is FOR — and "how long the
+work may take" turned out not to be one of the answers.
 
-| bound | was | now | what it governs |
-|---|---|---|---|
-| `CONTAINER_*_BUDGET_MS` | 27 min | **`Infinity`** | the WORK — `expired()`, `spendable()`, every gate |
-| `CONTAINER_EDIT_JOB_MS` / `BUILD_JOB_MS` | 30 min | **50 min** | the token's life; SIGTERM to a wedged child |
-| `MAX_BUSY_HOLD_MS` | 30 min, typed | **52.5 min, derived** | how long a BUSY container is held — the bill |
-| per call: `STEP_TIMEOUT` 30 min, `CONTAINER_CALL_MS` / `BUILDER_CALL_MS` 600 s, `QUICK_STREAM_MS` 480 s, `QUICK_CALL_MS` 240 s | — | unchanged | each model call and each subprocess |
+| bound | now | what it governs |
+|---|---|---|
+| `CONTAINER_*_BUDGET_MS` | **`Infinity`** | the WORK — `expired()`, `spendable()`, every gate |
+| `CONTAINER_EDIT_JOB_MS` / `BUILD_JOB_MS` | **50 min** | the token's life; SIGTERM to a wedged child |
+| `MAX_BUSY_HOLD_MS` | **52.5 min, derived** | how long a BUSY container is held — the bill |
+| per call: `STEP_TIMEOUT` 30 min, `CONTAINER_CALL_MS`/`BUILDER_CALL_MS` 600 s, `QUICK_STREAM_MS` 480 s, `QUICK_CALL_MS` 240 s | unchanged | each model call and each subprocess |
 
-**THE LEASE IS A LIVENESS CHECK AND NOT A DURATION CAP, which is the finding
-that makes the removal safe rather than merely permitted.** `edit_sweep_lost`
-selects on `lease_expires_at < now() - p_grace` and **never on elapsed**, with
-`LEASE_TTL_S` 90 and `HEARTBEAT_S` 30 — so a job that keeps beating is NEVER
-swept however long it runs, and a job that dies is reclaimed in ~90 seconds.
-The deadline was therefore never protecting against the common failure; the
-lease already covers it, and covers it better. What the lease cannot see is a
-process that is ALIVE, heartbeating and looping — our own bug — and that is the
+**THE LEASE IS A LIVENESS CHECK AND NOT A DURATION CAP** — this is what makes
+the removal safe rather than merely permitted. `edit_sweep_lost` selects on
+`lease_expires_at < now() - p_grace` and **never on elapsed**, `LEASE_TTL_S` 90,
+`HEARTBEAT_S` 30. A job that keeps beating is NEVER swept however long it runs;
+a job that dies is reclaimed in ~90 seconds. What the lease cannot see is a
+process that is alive, heartbeating and looping — our own bug — and that is the
 one thing the deadline is for, beside the credential.
 
-**FIFTY MINUTES IS NOT A PREFERENCE — IT IS A LIVE RPC, and the suite refused
-four hours by arithmetic.** `HANDOFF_TTL_S` is DERIVED as `MAX_BUSY_HOLD_MS /
-1000` and `edit_handoff` raises `bad ttl` past **3600 seconds**, so the chain
+**FIFTY MINUTES IS A LIVE RPC, NOT A PREFERENCE.** `HANDOFF_TTL_S` is DERIVED as
+`MAX_BUSY_HOLD_MS / 1000` and `edit_handoff` raises `bad ttl` past **3600 s**, so
 `deadline + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60s ≤ 3600s` caps the
-deadline at **57.5 minutes**. Fifty leaves 450 seconds in the one number a
-Postgres function can refuse outright. **Lifting it is a migration**, not a
-constant this repo can move. The guard that caught the first cut is
-`test/build-jobs.test.mjs`, which had that arithmetic already.
+deadline at **57.5 minutes**. Fifty leaves 450 seconds. **Lifting it is a
+migration**, not a constant this repo can move.
 
-**AND `MAX_BUSY_HOLD_MS` WAS A SHIPPED DEFECT, found while checking what the
-new deadline would break.** It was **30 minutes while `BUILD_JOB_MS` was ALSO
-30**, and the two being equal was not a coincidence: the build service stops a
-child at its deadline plus `JOB_KILL_GRACE_MS` (60 s) and kills it
-`JOB_TERM_GRACE_MS` (30 s) later — so a job that ran to its deadline had its
-CONTAINER stopped a minute BEFORE the SIGTERM that lets it end as a job. **The
-graceful path — the runner answering `stopped` at its own gate, the money going
-back through the row's own door — was unreachable at exactly the moment it
-exists for**, and the symptom would have read as the container crashing. It is
-DERIVED now: deadline + both graces + a minute of slack, so it cannot drift the
-next time either moves. Two lists of the same thing, with a SIGTERM between
-them. **Measured: deadline 50.0 → SIGTERM 51.0 → SIGKILL 51.5, hold ends 52.5.**
+**`MAX_BUSY_HOLD_MS` WAS A SHIPPED DEFECT.** It was 30 minutes while
+`BUILD_JOB_MS` was ALSO 30, and the build service stops a child at its deadline
++ `JOB_KILL_GRACE_MS` (60 s) and kills it `JOB_TERM_GRACE_MS` (30 s) later — so
+a job that ran to its deadline had its CONTAINER stopped a minute BEFORE the
+SIGTERM that lets it end as a job. **The graceful path was unreachable at exactly
+the moment it exists for**, and the symptom would read as the container crashing.
+DERIVED now: **deadline 50.0 → SIGTERM 51.0 → SIGKILL 51.5, hold ends 52.5.**
 
-**`Infinity` IS A STATED ANSWER AND BOTH READERS REFUSED IT — the recorded
-"cannot-tell must never read as a value" with the two swapped.**
+**`Infinity` IS A STATED ANSWER AND BOTH READERS REFUSED IT** — the recorded
+"cannot-tell must never read as a value" with the two swapped.
 `Number.isFinite(Infinity)` is false, so `inlineBudgetMs` handed the container's
-own "no clock" want **`EDIT_JOB_MS`** and `makeBudget` handed it
-**`BUILD_BUDGET_MS`** — each falling back to a Worker-sized number, silently,
-for the one input where the default is the MOST wrong answer available rather
-than a safe one. Both take it as an answer now. **And the clamp still governs,
-which is what makes it safe rather than permissive**: `Math.min(Infinity, left)`
-is `left`, so a WORKER delivery handed an infinite want is still bounded by what
-its isolate has left. Only a caller with no clock at all can receive it.
+own "no clock" want `EDIT_JOB_MS` and `makeBudget` handed it `BUILD_BUDGET_MS`,
+**each falling back to a Worker-sized number for the one input where the default
+is the MOST wrong answer available**. Both take it now — and **the clamp still
+governs**: `Math.min(Infinity, left)` is `left`, so a WORKER delivery is still
+bounded by what its isolate has left. **Every per-call ceiling survives it**
+(`capMs` is `min(cap, room)`), which was the whole safety argument and was
+asserted nowhere until it was driven.
 
-**EVERY PER-CALL CEILING SURVIVES IT, AND NOTHING ASSERTED THAT.** The whole
-safety argument for an unbounded SUM is that each call is separately bounded and
-reaches the work through `capMs`, which is `min(cap, room)` — `min(cap,
-Infinity)` is `cap`. Measured by hand, asserted nowhere: every other
-`makeEditBudget` case in the suite passes a finite total, so a mutant reading
-the room as the ANSWER would have handed every call an infinite timer and left
-the container unbounded at EVERY layer. Driven now (`test/edit-job.test.mjs`),
-proved red by exactly that mutation. **A rule nobody re-measured is a claim
-ahead of its evidence**, one layer under a change that rests on it.
+**`builder/job-duration.mjs` IS THE ONE SETTING.** `JOB_MAX_MS`, and everything
+else is `jobDurationPlan()`: `BUILD_JOB_MS`, `CONTAINER_EDIT_JOB_MS`,
+`MAX_BUSY_HOLD_MS`, `HANDOFF_TTL_S`, `SITE_BUSY_DEFER_S`, the browser's
+`POLL_GIVE_UP_MS`. **`readJobMaxMs(env)` reads `JOB_MAX_MINUTES` and MAY ONLY
+SHORTEN** — every other number is fixed at IMPORT, so a LONGER setting moves the
+deadline past all of them. **It shipped with no call site** in the first cut of
+the change whose whole point was configurability; `fireContainerJob` is the one
+consumer, and the guard DRIVES it because a source read cannot tell a wired
+reader from an unwired one.
 
-**FOUR HOPS, and the two that were wrong were wrong in different directions.**
-`runContainerJob`'s edit branch now hands the budget in; `fireContainerJob`'s
-`kind === "build" ? … : …` now mints the CONTAINER's outer clock for an edit
-too — **both arms name a container's clock and neither an isolate's, because
-that line is only reached on the fire path**, `jobRunnerFor` having refused
-above it. It had been minting a fourteen-minute deadline and token for a job
-the container was not going to stop, so the runner's child would have been
-killed by its own deadline long before the work ran out. (The first round said
-"a job with twenty-seven minutes of room" here, which was that round's own
-number and survived it by an hour.)
+**THE QUEUE WAS SILENTLY SHORT.** A job behind another waited `60s × 45 = 2,700s`
+in front of a job that may run **3,000** — failed before the job it waited for
+could finish. `SITE_BUSY_DEFER_S` is derived now (**67 s**), because the 45 is
+the database's literal and the cadence is what gives.
 
-**AND THE FALLBACK HAS ONE HOME.** The first cut wrote `capMs && capMs > 0 ?
-capMs : EDIT_JOB_MS` at the consumer — a literal second copy of
-`inlineBudgetMs`'s own first line, three lines above the function that owns it,
-which is this repository's most-recorded structural defect written into its own
-fix. The consumer asks that function instead: `inlineBudgetMs(0, capMs)` is
-"what this run wanted, fallback and all" and is the only thing the log line
-needs. (`runQueuedSiteBuild`'s `budgetMs || BUILD_BUDGET_MS` is NOT the same
-shape and stays — it substitutes a *different* default, which `inlineBudgetMs`
-cannot know.) **The Worker's path is byte for byte what it was**: `capMs` is
-null there, null is not a finite want, and the function answers `EDIT_JOB_MS`
-exactly as the deleted literal did.
+**`JOB_RUNNER_EVERYONE` IS `on` IN THE DEPLOY.** The canary is KEPT rather than
+made decorative: it is the state the platform falls back to if the broad flag is
+turned off. **Reading `deploy.yml` tells you the DEFAULT, not the deployment** —
+that line is only what runs while nobody has ever SET the secret, and
+`GET /api/site/runtime?slug=` is the one thing that can say which is live.
 
-**`JOB_RUNNER_EVERYONE` IS `on` IN THE DEPLOY — the flip stage 5e left for the
-owner.** Until this, the runner's default named ONE SITE (`fretwork-1`) through
-the canary, so run 44's addon on `repairbench-1` ran INLINE in the Worker, where
-fourteen minutes is correct and unavoidable. The clock without the flip changes
-nothing for anybody but the canary; the flip without the clock moves every
-addon into the container and lets it die at fourteen minutes there instead.
-**The canary is KEPT rather than made decorative**: it is the state the platform
-falls back to if the broad flag is ever turned off, so a deploy that dropped it
-would turn the rollback from a secret into a code change — and the guard drives
-exactly that.
+**WHAT IT COSTS**: every site's jobs share the account's container ceiling. A
+fire that finds no room WAITS (`JOB_FIRE_MS`, 90 s) and the consumer then runs
+the job on what is left of its own invocation. Worst case is the old behaviour
+ninety seconds later, never an eviction.
 
-**WHAT IT COSTS, named rather than glossed**: every site's jobs now share the
-account's container ceiling. A fire that finds no room WAITS (`JOB_FIRE_MS`,
-90 s) and then the consumer runs the job itself on **what is left of its own
-invocation** — `inlineBudgetMs`, which is the whole subject of
-`test/broad-rollout.test.mjs`. So the worst case is the old behaviour ninety
-seconds later, and never an eviction.
+### THE JOB'S MODEL CALLS TAKE THE CONTAINER'S OWN TRANSPORT
 
-**AND READING `deploy.yml` TELLS YOU THE DEFAULT, NOT THE DEPLOYMENT.** That
-line is only what the Worker runs while nobody has ever SET
-`JOB_RUNNER_EVERYONE` in GitHub; a secret already set to `off` beats it, and no
-session can read a secret. `GET /api/site/runtime?slug=` is the one thing that
-can say which is live — which is the reason that route exists.
+**Run 45 died at 270,025 ms with `fetch failed`** — eleven milliseconds from
+`build-call.mjs`'s own recorded `model call failed after 270036 ms — socket hang
+up`. `longPost` and `{stream: true}` were handed in from exactly **three call
+sites, all in `build-server.mjs`**; the addon and edit page call took the
+module's default — **Node's undici global `fetch`, unstreamed**. **THE FLIP IS
+WHAT MADE IT REACHABLE**: that path was safe for months because it only ever ran
+in workerd, and turning `JOB_RUNNER_EVERYONE` on moved it behind the container's
+egress. *A rule true because of a layer below it expires when that layer moves*,
+where the layer moved because we moved it.
 
-**Guards**: `test/broad-rollout.test.mjs` — the container's work asserted to be
-NO clock, the two kinds required to agree about that AND about the deadline that
-remains, the deadline required FINITE (an outer bound that went infinite with
-the budget leaves nothing to end a wedged job, and it holds its site's lease for
-ever) and longer than both `EDIT_JOB_MS` and `CONSUMER_CEILING_MS`;
-`inlineBudgetMs` driven over `Infinity` unclamped at `startedAt: 0` and clamped
-on a real delivery; and **the consumer's budget block CARRIED OUT AND EVALUATED**
-with the real `inlineBudgetMs`, reading what `makeEditBudget` was really handed
-for each caller — the hop no assertion about spelling can prove.
-`test/build-budget.test.mjs` takes `Infinity` OFF the nonsense list, which is the
-change rather than an exemption, and drives the stated answer ten hours forward
-with every per-call cap unmoved. `test/build-runner.test.mjs` asserts the
-`killPlan` ordering that pins the hold fix, and carries the 3600 s ceiling beside
-the number it governs so a session raising it has to meet it.
-`test/edit-job.test.mjs` closes the gap above.
-**Older guards re-anchored, not appeased**, every one pinned to a number that
-moved. **One was the recorded "pinning a list by its last element"** —
-`startedAt = 0 } = {})` reported the delivery's clock as gone from a signature
-that still carries it, because `budgetMs` arrived after it; membership is the
-property, never position. **And several were INVERTED rather than re-anchored**,
-deliberately: the cases holding the deploy's broad flag to `off` were asserting a
-rollout decision the owner has since made, and the cases sizing the container's
-stopwatch were asserting a number the owner has since deleted. Holding either to
-its old value would pin a decision that has been reversed.
-
-**Sweep: 32 mutants, 32 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived** — the stopwatch back in either kind, the outer bound going
-infinite with the budget or falling inside a Worker isolate or past the 3600 s
-chain cap, the two kinds disagreeing, `Infinity` falling through in each of the
-two readers, each reader's arm widened to swallow junk, the clamp dropped so a
-Worker delivery keeps an infinite want, the per-call ceiling reading its room as
-the answer, the hold typed rather than derived, the hold derived from the
-deadline alone (the shipped defect, exactly) or keeping one grace and dropping
-the other, and every wiring hop and deploy flag from the first round.
-**Every anchor was checked to occur EXACTLY ONCE before the run** rather than
-reading NOT APPLIED afterwards — the rule the grants work learned the hard way.
-
-**The FIRST round's sweep (19/19) had one survivor and it is worth keeping**: a
-mutant that took `budgetMs: capMs` off the consumer's DESTRUCTURING while the
-caller still forwards it — the recorded wiring trap, inside the guard written to
-catch the wiring trap. Every landmark stays where a text read looks for it and
-the container silently goes back to fourteen minutes. It survived because the
-evaluated case handed `capMs` in as a PARAMETER, so the destructure was outside
-everything it drove. **A carry that starts below the parameter that broke proves
-the layer below the break.** It carries the signature's own destructuring now,
-read DEPTH-AWARE (a flat `\{[^)]*\}` is greedy past `} = {})` to the empty
-default), with each caller's real options object going in.
-**Suite 6,270** (6,269 after the first round; the unbounded-budget case).
-
-### AND THE JOB'S MODEL CALLS WERE STILL THE WORKER'S (2026-09-14, run 45)
-
-Owner, after the clock shipped: *"My goal is for the entire build, edit, and
-addon job to run in the container and support longer work."* The clock was
-necessary and it was not sufficient — **run 45 died at 270,025 ms with `fetch
-failed`**, which is not a coincidence: `builder/build-call.mjs` has carried the
-container's own log line since 2026-08-26 (`d515a462`), `model call failed after
-270036 ms — socket hang up`. **Eleven milliseconds apart.**
-
-**THE CAUSE, FOUND BY READING WHO PASSES THE TRANSPORT RATHER THAN BY GUESSING
-AT THE NETWORK.** `longPost` and `{ stream: true }` were handed in from exactly
-**three call sites, all in `builder/build-server.mjs`** — the container's BUILD
-service. The addon and edit page call goes `worker.js` → `generateSitePages` →
-`callBuilderModel`, which took the module's default sender: **Node's undici
-global `fetch`, unstreamed.** `installGatewayFetch` passes a non-Supabase origin
-straight through (`if (u.origin !== origin) return f(input, init)`), so nothing
-between the two noticed.
-
-**AND MY OWN FLIP IS WHAT MADE IT REACHABLE.** That path was safe for months
-because it only ever ran in workerd, where Cloudflare's own egress has no such
-wall. Turning `JOB_RUNNER_EVERYONE` on moved it into a Node process behind the
-container's egress — the recorded "a rule true because of a layer below it
-expires when that layer moves", where the layer moved because I moved it.
-
-- **`builder/long-post.mjs` is the transport, lifted out of `build-server.mjs`
-  verbatim so the JOB CHILD can use it.** `worker.js` must NEVER import it: it
-  pulls `node:http` in, which workerd has no business loading. The job env
-  carries it instead — `MODEL_SEND` and `MODEL_STREAM` set by
-  `makeContainerEnv`, read by `modelSend(env)` / `modelOpts(env, opts)`, so one
-  `callBuilderModel` serves both sides and the Worker's own path is byte for byte
-  what it was (`env.MODEL_SEND` is undefined in workerd, `modelSend` answers
-  `null`, `callModel` takes its default).
+- **`builder/long-post.mjs` is the transport**, lifted out verbatim so the JOB
+  CHILD can use it. **`worker.js` must NEVER import it** — it pulls `node:http`
+  in. The job env carries it (`MODEL_SEND`, `MODEL_STREAM`), so one
+  `callBuilderModel` serves both sides and the Worker's path is byte for byte
+  what it was.
 - **TWO TRANSPORTS, TWO PROBLEMS, SEPARABLE ON PURPOSE.** undici's 300 s HEADERS
   timeout cannot be raised by an `AbortSignal` at all — that is what the
   `node:https` sender beats. A connection closed for carrying NO BYTES is what
   `stream: true` beats. Either alone leaves the other.
-- **`pagesCall(env)` IS A NAMED FUNCTION WITH THE RIGHT PARAMETER NAMES**, not an
-  inline arrow: `build-call.test.mjs` DERIVES the forwarder's contract as
-  `(X, req, budget) =>` and an arrow spelling `(keys, req, b)` broke it. The
-  guard was right and the change was wrong.
+- **`callFailure(e)` IS THE FALSIFIER**: `error.cause.code`, the error's `name`,
+  and `e.wire` — `{headersMs, chars}`. **`headersMs: -1, chars: 0` is a quiet
+  connection killed by the egress, which streaming fixes; `chars > 0` is a
+  LIFETIME cap, which streaming cannot.** Until this, a failed page call recorded
+  one word.
+- **`node:https` HAS NO TIMEOUT OF ANY KIND UNLESS ONE IS ASKED FOR** — its own
+  comment. Every real model call carries `AbortSignal.timeout(callMs)`
+  (`build-call.mjs`), so nothing customer-facing can hang. The probe forgot one
+  and paid for it (below).
 
-**`callFailure(e)` IS THE FALSIFIER, and it is what run 45 needed and did not
-have.** `error.cause.code`, the error's `name`, and `e.wire` — `{ headersMs,
-chars }` attached by `longPost`. **`headersMs: -1, chars: 0` is a quiet
-connection killed by the egress, which streaming fixes; `chars > 0` is a
-LIFETIME cap, which streaming cannot.** Until this, a failed page call recorded
-one word. **The 270-second explanation stays a HYPOTHESIS until a run carries
-that field** — the owner asked for exactly that and it is the honest state.
+**LIVE EVIDENCE, from two stored traces on `repairbench-1`, same site, same ask,
+2½ hours apart:** run 44's page call **459,465 ms → OK, 3 files** (in the
+Worker); run 45's **270,025 ms → `fetch failed`** (in the container), which is
+`522129 − 252104` out of the trace itself. Neither trace carries the `where`
+field — it shipped after both — so the attribution rests on the durations plus
+the flip landing between the deploys.
 
 ### WHERE THE JOB RAN IS RECORDED, AND THE WORKER FALLBACK IS NOT SILENT
 
-**`runner: true` IS ELIGIBILITY, NOT EXECUTION — the owner's own correction, and
-it was right.** `fireContainerJob`'s answer was only `console.log`'d and
-`lease_owner` is minted BEFORE the fire, so nothing stored anywhere said whether
-a job ran in the container or fell back to the Worker. Three readers now, and the
-container is what asserts it rather than the Worker inferring it: `JOB_WHERE`
-and `JOB_DEADLINE_AT` are set by `makeContainerEnv`, and `jobRunDetail(env)`
-rides the `run` mark on both trace creation points — `{ where, deadlineAt,
-deadlineInMs }`. **The Worker's own answer is `"worker"` by DEFAULT**, so a
-record that cannot tell reads as the Worker and never flatters itself.
+**`runner: true` IS ELIGIBILITY, NOT EXECUTION** (the owner's own correction).
+`JOB_WHERE` and `JOB_DEADLINE_AT` are set by `makeContainerEnv` and
+`jobRunDetail(env)` rides the `run` mark: `{where, deadlineAt, deadlineInMs}`.
+**The Worker's own answer is `"worker"` by DEFAULT**, so a record that cannot
+tell reads as the Worker and never flatters itself.
 
-**AND A REFUSED FIRE NO LONGER RUNS THE SAME JOB UNDER THE WORKER'S FOURTEEN
-MINUTES.** `fireOutcome(fire)` splits every answer four ways by what it MEANS,
-and the default is the strict one:
+`fireOutcome(fire)` splits every answer four ways, and the default is strict:
 
 | answer | means |
 |---|---|
-| `fired` — including **HTTP 409** | the container has it. 409 is `/job/run`'s own duplicate guard: reading it as anything else makes one job two sets of calls and two charges |
-| `inline` — `off`, `no-binding`, `not-this-one` | the runner was never asked for; the Worker's path is correct |
+| `fired` — **including HTTP 409** | the container has it. 409 is `/job/run`'s duplicate guard; reading it as anything else makes one job two sets of calls and two charges |
+| `inline` — `off`, `no-binding`, `not-this-one` | the runner was never asked for |
 | `retry` — `room:`, `fetch:`, any 5xx | transient. `FIRE_RETRY_MAX` 3, `FIRE_RETRY_MS` 2000 |
-| `stop` — **everything else, unknown reasons included** | finalize the row 503 `no-container` with `NO_CONTAINER_MSG`, nothing charged |
+| `stop` — **everything else, unknown reasons included** | finalize 503 `no-container`, nothing charged |
 
 **`stop` IS SAFE BECAUSE NOTHING IS SPENT BEFORE THE FIRE** — there is no reserve
 to reverse, which is the whole reason a refusal can be a refusal rather than a
 fallback. And the customer is told; a row that stopped without a finalize is a
 poll that spins for ever.
 
-### ONE JOB-DURATION SETTING, AND IT HAS A CONSUMER
-
-`builder/job-duration.mjs`. **`JOB_MAX_MS` is THE setting** and everything else is
-`jobDurationPlan()`: `BUILD_JOB_MS`, `CONTAINER_EDIT_JOB_MS`, `MAX_BUSY_HOLD_MS`,
-`HANDOFF_TTL_S`, `SITE_BUSY_DEFER_S` and the browser's `POLL_GIVE_UP_MS`. Before
-it, fifty minutes was typed in two places with four numbers derived by hand off
-one of them.
-
-- **`readJobMaxMs(env)` READS `JOB_MAX_MINUTES` AND MAY ONLY SHORTEN.** Every
-  other number in the chain is fixed at IMPORT from the built-in default — the
-  browser's horizon is a literal in a file that cannot import at all — so a
-  LONGER setting moves the deadline past all of them and nothing moves with it:
-  the hold ends before the SIGTERM (the shipped defect, one layer over) and the
-  page tells a customer a running edit is lost. **The database's own cap is NOT
-  re-asked there**, deliberately: the chain is monotonic and CI asserts the
-  shipped default fits, so a value at or under it cannot breach a ceiling the
-  default already clears. `assertJobDuration` guards the COMPILED setting against
-  the live function; `readJobMaxMs` guards an ENVIRONMENT value against the
-  compiled setting. Two walls, two subjects.
-- **AND IT SHIPPED WITH NO CALL SITE, in the first cut of the change whose whole
-  point was that the setting be configurable** — this repository's most-repeated
-  defect, written into its own fix. `fireContainerJob` is the one consumer,
-  because it is the one place a job's clock is minted and the launch's
-  `deadlineAt` and the token's `exp` both come off it. **A source read cannot
-  tell a wired reader from an unwired one**, so `container-job.test.mjs` DRIVES
-  it: `JOB_MAX_MINUTES: "20"` really moves both, with the default asserted
-  distinguishable as the alive observer, and `"600"` really changes nothing.
-  Proved red by unwiring it.
-- **THE CEILING IS A LIVE RPC AND NOT A PREFERENCE.** `edit_handoff` raises
-  `bad ttl` past **3600 s**, so `deadline + 60s + 30s + 60s ≤ 3600s` caps the
-  setting at **57.5 minutes**; fifty leaves 450 s. Going past it is a migration,
-  and `assertJobDuration`'s refusal now NAMES the largest setting that would work
-  rather than leaving somebody to do the arithmetic.
-- **THE QUEUE WAS SILENTLY SHORT AND THE NEW GUARD IS WHAT FOUND IT.** A job
-  behind another waited `60s × 45 = 2,700s` in front of a job that may run
-  **3,000**, so it was failed — nothing charged, the customer told to ask again —
-  before the job it waited for could finish. `SITE_BUSY_DEFER_S` is derived now
-  (**67 s**), because the 45 is the database's literal and the cadence is what
-  gives. The old guard pinned `1800`, a number the bound had already outgrown.
-
-**Guards**: `test/job-duration.test.mjs` (12) — every downstream number asserted
-BY IDENTITY rather than by matching, the hold above the SIGKILL with the shipped
-defect as its own case, the reader over junk and over every longer setting, an
-accepted setting proved serveable by all four compiled numbers, and a CENSUS that
-`readJobMaxMs` is imported and called **exactly once**; `test/container-transport.test.mjs`
-(7) — the sender and the stream flag from the runner to the call, `callFailure`
-driven over the two wire shapes, the record's `where`; `test/container-job.test.mjs`
-gained the driven setting case. **Older guards re-anchored, not appeased**: the
-two that pinned the fire's clock as one long literal now assert the three things
-it says (the kind picks a constant, the setting is read with it as the fallback,
-`budgetMs` is the answer) — one literal asserted all three by accident and none
-on purpose.
-
-**Sweep: 38 mutants, 36 killed, 2 survived, 0 never applied, 2 comment-only
-controls survived — AND BOTH SURVIVORS WERE MY OWN FILE LIST, which is the
-recorded rule working rather than a gap.** `test/lane-stream.test.mjs` is the
-guard whose whole subject is the wrapper forwarding `opts`, and it was not on the
-list; re-run against the whole suite, both die. *A narrow list can only produce a
-false survivor, never a false kill* — so a survivor is re-checked against
-everything before it is believed, and this is the first time that rule has paid.
-**The first pass had 10 survivors and every one was real**: the transport and
-record halves had shipped with re-anchored guards and no new coverage at all,
-which is what `container-transport.test.mjs` exists for.
-**RE-RUN WHOLE WITH THE PROBES: 58 mutants, 57 killed, 0 never applied, 3
-comment-only controls survived.** One survivor, and it was a real gap of the
-recorded SUBSTRING-OBSERVER shape one step out: the probe launch's "carries no
-secret" check asserted `secrets: {}` is PRESENT, which a mutant that added
-`extra: jobSecrets(env)` beside it satisfies perfectly. The producer's absence is
-what closes it, with the empty object as the alive observer.
-**Suite 6,302.**
-
-**FOUR TRAPS HIT WHILE BUILDING IT, all recorded ones, all mine:**
-- **I reported a job as "13m19s and still alive" when it had been dead 4m37s.** I
-  was polling the published `x-site-build` header, which carries NO liveness
-  signal at all — the blind-instrument error one message after flagging it.
-- **`builder/build-job.mjs` HAS NO IMPORT LINES**, so an anchor-based insertion
-  put `JOB_MAX_MS` below its use: `node --check` passed and the module threw
-  `ReferenceError` on LOAD. Parsing is not loading.
-- **The build consumer read `if (act === "stop")`**, so an EXHAUSTED retry fell
-  through to the inline path — caught by my own inverted guard, which is the one
-  half of a four-way split a positive check cannot see.
-- **`container-job.test.mjs`'s fake worker tree was a hand-typed eight-file
-  list** and missed `long-post.mjs`. Derived from the Dockerfile now — and the
-  walk has to match any `"./x.mjs"`, because the loader uses `new URL()` and
-  `register()` rather than `from`: a `from`-only walk found 6 of 9.
-
-**WHAT IS NOT PROVEN, named rather than glossed.** Nothing here has run in a real
-container: the transport fix, the record, the refusal and the setting are all
-unit-driven only, and **the 270-second reading stays a hypothesis** until a run
-carries `callFailure`'s `wire` field.
-
 ### TWO PROBES: A JOB THAT RUNS LONG, AND A WIRE WITH NO MODEL IN IT
 
-`builder/job-probe.mjs`, fired through **`POST|GET /api/site/job-probe`**. Both
-cost nothing — no model call, no credit, no row, no ledger — and both go through
-the REAL `/job/run` door in a real job child, because `_busy`, the launch's own
-deadline and the terminator armed off it are three of the things being measured
-and a probe with a door of its own would measure the door.
+`builder/job-probe.mjs`, fired through **`POST|GET /api/site/job-probe`**, both
+free — no model call, no credit, no row, no ledger — and both through the REAL
+`/job/run` door in a real job child, because `_busy`, the launch's deadline and
+the terminator armed off it are three of the things being measured.
 
-- **`hold`** occupies a child for as long as it is asked (default **20 minutes**,
-  past the number in question), **pulsing once a minute**. The pulse is the
-  reading, not the final line: the build service keeps a job's last five stdout
-  lines, and an absent final line is also what a crash produces — cannot-tell
-  must not read as an answer. **It touches no row and no lease on purpose.** The
-  other links of the duration chain (`edit_sweep_lost` selecting on
-  `lease_expires_at` and never on elapsed, `edit_handoff`'s ttl) are Postgres
-  properties and are checked there; **publishing is the real addon run's job**,
-  and saying so is the point.
+- **`hold`** occupies a child for as long as it is asked (default **20 minutes**),
+  **pulsing once a minute**. The pulse is the reading, not the final line: an
+  absent final line is also what a crash produces. **It touches no row and no
+  lease on purpose** — the other links are Postgres properties and are checked
+  there, and **publishing is the real addon run's job**.
 - **`wire`** holds two long connections in turn — **never raced**, because a
   concurrent pair leaves the reading open to "the second kept the first's path
-  warm" — through the **same `node:https` sender a model call uses**, against the
-  gateway's new `/wire` op. `quiet` sends nothing until it answers (a
-  non-streaming provider call's own shape); `trickle` sends a byte every tick
-  (what `stream: true` produces). **The probe NAMES the reading** rather than
-  leaving two rows to be read by eye: `idle-kill` (run 45's reading holds and
-  streaming is the fix) · `no-wall` (run 45's reading is WRONG) · `lifetime-cap`
-  (streaming cannot beat it) · `quiet-survived-trickle-did-not`. All four mean
-  different next moves, and `callFailure`'s `wire` field says which kind of dead.
-
-**THE `/wire` OP CARRIES NO DATA IN EITHER DIRECTION** — a space per tick and one
-JSON line out, three numbers in — which is what makes a route whose whole job is
-to hold a socket open acceptable. Token-gated by the same verify every gateway op
-uses. **`readWire` is its own function** because the only other way to observe a
-clamp is to WAIT for it, and the guard's first draft asked for the ceiling to
-prove the ceiling and hung the suite for eight minutes. **A mode nobody
-recognises answers `null`, never a default**: a `trickle` silently answered as
-`quiet` would report a wall that was never measured, which is the one way this
-instrument can lie rather than go quiet. **The trickle's writer is held on
-`waitUntil`** — a Worker cancels an unheld writer the moment the response
-returns, and this repository has already lost most of an audit log to exactly
-that.
-
-**`runJob` BRANCHES BEFORE `importWorker`.** A probe measures this process and
-its socket, so several hundred modules and a Supabase shim in front of it put the
-thing being measured behind a large pile of the thing that is not. **Driven**,
-because a positional read cannot see whether a branch runs.
-
-**The route is owner-gated, ALWAYS pre-scoped** (the token opens nothing in R2),
-on the hold probe's own lane (a caller-chosen lane starves a real build), carries
-**no secrets at all**, and takes its clock from `readJobMaxMs` rather than a
-probe-only number. Reading one back is the same door, because a fire nobody can
-read is an instrument with no dial.
-
-**Guards**: `test/job-probe.test.mjs` (11) — the bound derived in both
-directions, the shape refused by name with an ABSENT shape distinguished from an
-unknown one, the hold driven on a fake clock for its pulse and its stop, the wire
-driven for order, non-racing and all four readings, `wireCall` proving a 403 is a
-SURVIVED connection, the launch admitted with a live observer, the `importWorker`
-count, `readWire` over every junk shape, and the route's own census.
-**Three older guards re-anchored, not appeased**: two pinned `function
-jobGateway(env)` BY ITS ARITY where the property is what it hands the handler,
-and **the `readJobMaxMs` consumer census re-anchored the same day it was
-written** — the probe route is a second legitimate mint, so the property was
-never "read once" but that EVERY mint of a job clock reads the setting; mints and
-reads are counted and required equal.
-
-**WHAT IS STILL NOT PROVEN, and it is the same sentence as above**: neither probe
-has run in a real container. `workflow_dispatch` answers **403** for this
-session's GitHub integration (re-measured 2026-09-14 04:47Z against
-`container-hold-probe.yml`: *Resource not accessible by integration*), so firing
-them is the owner's, and `docs/addon-runbook.md` carries the two calls and what
-to read off each.
-
-### AND THE PROBES GOT A DOOR, BECAUSE A CURL COMMAND WOULD HAVE NEEDED A TOKEN (2026-09-14)
-
-Owner: *"If workflow dispatch still returns 403, finish everything your access
-permits, then give me the exact workflow links, inputs, and order for the runs I
-must start. **Don't ask me to share secrets.**"*
-
-**THOSE TWO SENTENCES ARE IN TENSION AND THE WORKFLOW IS WHAT RESOLVES THEM.**
-`POST /api/site/job-probe` is owner-gated by `authUser`, so "here is the call"
-is an instruction to hold a session token — the one thing ruled out. The service
-key is already a GitHub Actions secret, and `container-hold-probe.mjs` has signed
-in with it through the admin magic-link path for months. `.github/workflows/job-probe.yml`
-+ `scripts/job-probe.mjs` are that path pointed at the probe route: dispatch-only,
-four inputs (`probe`, `ms`, `everyMs`, `site`), every secret printed as a length
-and never a value, the log uploaded `if: always()`.
-
-- **IT SAYS WHICH DEPLOY ANSWERED, rather than leaving it to a timestamp.** Step 3
-  reads `/api/site/runtime` for the live sha and for `runner` — which matters as
-  much as the sha, because with `runner: false` an addon runs INLINE in the Worker
-  where the fourteen-minute ceiling still applies whatever the container's clock
-  says, so a duration reading would be about the wrong layer.
+  warm" — through the **same `node:https` sender a model call uses**. `quiet`
+  sends nothing until it answers; `trickle` sends a byte every tick. **The probe
+  NAMES the reading**: `idle-kill` (streaming is the fix) · `no-wall` (**the
+  failure was NOT REPRODUCED — that is not the same as settling the historical
+  cause**, the owner's own correction) · `lifetime-cap` (streaming cannot beat
+  it) · `quiet-survived-trickle-did-not` · **`hung`**.
+- **WHAT THE WIRE PROBE CANNOT ATTRIBUTE.** A dead connection looks identical
+  from the container whether the container's egress killed it or the gateway
+  Worker gave up holding the response. **The trickle arm is what makes that not
+  matter**: same path, same endpoint, same duration, only the bytes differ — so
+  `idle-kill` says the path CAN hold a connection that long and what killed the
+  other was the silence, true of whichever end did it. Read it as *"silence is
+  what dies"*, never as *"Cloudflare's egress did it"*.
+- **THE `/wire` OP CARRIES NO DATA IN EITHER DIRECTION** — a space per tick and
+  one JSON line out. **A mode nobody recognises answers `null`, never a default**:
+  a `trickle` silently answered as `quiet` would report a wall never measured.
+  The trickle's writer is held on `waitUntil`, or a Worker cancels it the moment
+  the response returns.
+- **`runJob` BRANCHES BEFORE `importWorker`** — a probe measures this process and
+  its socket, and several hundred modules in front of it measure something else.
+- **THE VERDICT LINE CAN FALL OFF THE WIRE.** `build-server.mjs` keeps a job's
+  last five stdout lines and **slices each at 300 characters**, and that tail is
+  the ONLY thing readable once the child closes. MEASURED: the whole-answer line
+  for a realistic failure is **exactly 300** with `reading` last — no margin.
+  **Two defences, each measured sufficient alone and the redundancy declared**:
+  `reading` moved ahead of the two long rows, and a short line of its own.
+- **A RUNNING RECORD HAS NO TAIL.** `build-server.mjs` writes `tail` **only in
+  its `close` handler**, so `state: "running"` past the elapsed time IS the live
+  duration answer; the pulse arrives with `ms`/`code`/`signal` at the end.
 - **A 404 IS NOT A COMPLETION.** `GET /job/<id>` answers 404 both for an id the
-  service never saw and for one whose record went with a recycled container, so
-  that is its own outcome (CANNOT TELL, non-zero) and never a pass. The guard
-  COUNTS the runner's exits — exactly two green, at least four red — because a
-  count is what sees that branch being turned green, which is the one way this
-  instrument can lie.
-- **AND `no-wall` IS NOT A VERDICT ON RUN 45** (the owner's own correction): it
-  means the failure was **not reproduced**, which removes one hypothesis and
-  settles no history. The runbook says so twice and the probe's own log prints it
-  beside the reading.
+  service never saw and for one whose record went with a recycled container.
 
-**A DEFECT IN THE INSTRUMENT, FOUND BY MEASURING RATHER THAN SUSPECTING — and it
-was one character from silent.** `build-server.mjs` keeps a job's last five stdout
-lines and **slices each at 300 characters**, and that tail is the ONLY thing
-readable from outside once the child has closed. The wire probe's whole answer,
-as `runJob` logs it, measured **exactly 300 characters** for a realistic failure
-with `reading` as its last field — no margin at all — and `wireCall` slices a
-provider's message at **200**, so one real error message pushes the verdict clean
-off the end. What survives still parses and still looks complete. Fixed with two
-defences, **each measured sufficient on its own and the redundancy declared**:
-`reading` moved ahead of the two long rows in the answer, and a short line of its
-own that cannot be truncated. The guard mutates the PAIR and proves its observer
-alive off the PRE-FIX shape, because both walls already save today's.
+**`PROBE_MAX_MS` SITS UNDER `JOB_MAX_MS`** (minus five minutes, DERIVED), so an
+instrument can never hold a container longer than the work it measures — and the
+caller's number is **CLAMPED rather than refused**, because an instrument that
+errors on a too-big argument is one somebody re-runs smaller and mis-reads. The
+default ask is past fifteen minutes, or running it proves nothing. **An unknown
+shape is REFUSED BY NAME**: a shape silently becoming `hold` would report a
+duration answer to somebody who asked about the transport.
 
-**AND READING THE CONSUMER CORRECTED THE RUNBOOK'S OWN INSTRUCTION.** It said
-"`tail` carries the probe's once-a-minute pulse — that is the reading", implying
-it is readable live. `build-server.mjs` writes `tail` **only in its `close`
-handler**: a RUNNING record carries `{state, kind, startedAt, pid, touchedAt,
-deadlineAt}` and no tail at all. So `state: "running"` past the elapsed time IS
-the live duration answer, and the pulse arrives with `ms`/`code`/`signal` at the
-end. The design was right; the instruction about when to look was not.
+The route is owner-gated, **ALWAYS pre-scoped** (the token opens nothing in R2),
+on the hold probe's own lane (a caller-chosen lane starves a real build), carries
+**no secrets at all**, and takes its clock from `readJobMaxMs`.
 
-**`holdVerdict` AND `wireVerdict` LIVE IN THE MODULE, NOT THE SCRIPT.** The first
-cut had `tail.find(…)` plus a `JSON.parse` in `scripts/`, which is a second reader
-of a log line `probeWire` writes — two lists of the same thing with a container
-between them, and the drift silent because a wrong verdict still prints. Both are
-DRIVEN, and both **fail closed**: a missing `ms` reads as 0 minutes, a missing
-`code` is not 0, a truncated line answers `null` rather than throwing, and a tail
-with no reading answers `null` rather than a default.
-**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived**, every one on the first pass, every anchor checked to occur
-exactly once before the run. **Suite 6,305.**
+**THE DOOR IS `.github/workflows/job-probe.yml` + `scripts/job-probe.mjs`**,
+because `POST /api/site/job-probe` is owner-gated and handing over the call means
+handing over a session token — which the owner ruled out (*"Don't ask me to share
+secrets"*). Dispatch-only; signs in on the runner with the service key already in
+GitHub Actions; every secret printed as a LENGTH; the log uploaded `if: always()`.
+Step 3 prints **which deploy answered** and whether `runner` is on — with
+`runner: false` an addon runs INLINE where fourteen minutes still applies, so a
+duration reading would be about the wrong layer.
 
-**MERGED AND LIVE — deploy 2116, 2026-09-14 05:31:14→05:34:04Z, green in
-2m50s**, on `main` `345a4b3f` → `b062e30a` (35 files). The image **BUILT** — the
-step's own line, `built isibi-app-sitebuildcontainer:bbaadcf0342800bd (registry
-answered 404; 180 inputs off ./Dockerfile)`, step 2m01s — and the container
-**`EDIT`ed at 05:33:55Z**, `d009cb2fc5f6053e` → `bbaadcf0342800bd`, `SUCCESS
-Modified application`, **read out of the log rather than inferred from the
-step's duration**, so the 15–20 minute hold ran to **~05:49–05:54Z**. The drain
-found no live leases in 1 s and the gate was left to expire on success.
-**THE MERGE RANGE WAS READ AS A RANGE, NEVER AS ITS TIP** — 14 of its 35 files
-are image inputs and one of them is the `Dockerfile` itself, so the roll was
-predicted before the push and confirmed after it.
-Wrangler uploaded exactly **two** assets, `/chat.js` and `/edit-poll.js` (84
-already uploaded), and **both hash byte-for-byte identical to source**
-(`chat.js` `cf50a72ddee43d1f`, `edit-poll.js` `6de38f0c05eb0e51`) — the
-strongest available proof and the one to reach for first.
-**AND THE PROBE ROUTE IS PROVEN WIRED BY A BEFORE-AND-AFTER, WITHOUT A TOKEN**:
-`/api/site/job-probe` answered **404 before the deploy and 401 after it**, with
-`/api/nope-not-a-route` **404** throughout as the control. A path the Worker does
-not match falls to `env.ASSETS` and 404s, so the flip is not merely consistent
-with the route existing — it is the route beginning to exist. This is the
-401-against-404 discriminator with its BEFORE half actually measured, which no
-previous entry here has done.
-**Guard runs before the merge**: `unit tests` 2519 green; `site build` **1131
-green, all twenty steps, `site-build.mjs` 382 passed / 0 failed in 17m51s** —
-its own log read rather than 1130's count carried over, and the two `FAILED`
-strings in it are test NAMES, each followed by `ok`.
-**STILL NOT PROVEN, and it is the whole point of the two buttons**: neither
-probe has run in a real container.
+#### What the two live runs proved, and the three defects they found
 
-#### The first press threw, and the route was READ rather than DRIVEN (2026-09-14)
+**DURATION: PROVEN (2026-09-14, probe run 2).** A job child ran **1,200,182 ms —
+20 minutes — inside the container, `code: 0`, no `signal`, `stopped: null`, 20 of
+20 pulses**, with 30.2 minutes of deadline left. It passed 12m22s (run 44's
+death), 14 min (the old `EDIT_JOB_MS`) and 15 min (the consumer ceiling). The
+deadline counted DOWN the whole way, which is the 50-minute container clock
+rather than an isolate's 14.
 
-The owner pressed **Run workflow** at 05:53Z with the runbook's own inputs
-(`hold` / `1200000` / `20000` / `fretwork-1`) and it failed in **17 seconds**.
-Steps 0–3 were faultless — the sign-in landed, every secret printed as a length,
-and step 3 read the live Worker as deploy `b062e30a` with
-**`runner: true, runnerEveryone: true`**, which is the first authenticated
-confirmation that the broad flag really is `on` in the deployment rather than in
-`deploy.yml`'s `|| fallback`. Step 4 answered
-`SyntaxError: Unexpected token '<', "<!DOCTYPE "`.
+**TRANSPORT: UNREAD**, and three instrument defects are why.
 
-**ONE MISSING ARGUMENT.** `newJobId(fill)` takes its randomness as a REQUIRED
-parameter — *"Randomness is INJECTED rather than reached for, so the module stays
-pure"*, its own comment — so there is no default behind it. The probe route
-called it bare; both other call sites in `worker.js` pass `(b) =>
-crypto.getRandomValues(b)`. `fill(bytes)` threw `TypeError`, and **`worker.js`'s
-`fetch` has no try/catch around `handleRequest`**, so an uncaught throw inside a
-route is answered by Cloudflare — **in HTML**. A caller doing `.json()` gets
-`Unexpected token '<'` and learns nothing.
+1. **`newJobId` WAS CALLED BARE and the route threw** (run 1, 17 seconds). It
+   takes its randomness as a REQUIRED parameter — the module is pure on purpose —
+   and both other call sites pass `(b) => crypto.getRandomValues(b)`. `worker.js`'s
+   `fetch` has **no try/catch around `handleRequest`**, so an uncaught throw is
+   answered by Cloudflare **in HTML**, and a caller doing `.json()` gets
+   `Unexpected token '<'`. **The route was asserted by READING it** and every
+   landmark was where it looks — and the guard SAID a drive was impossible
+   "because the route is owner-gated", which is false: `authUser` asks
+   `/auth/v1/user`, so a stubbed global fetch is the whole cost. **A stated
+   impossibility nobody re-tested is how a route ships throwing.**
+2. **THE RUNNER THREW AWAY THE STATUS.** `.then(r => r.json())` drops the status,
+   the content-type and the body — *a failure that cannot name itself*, in the
+   instrument built to name failures. One `readJson` now at all three reads,
+   because **the status separates the three shapes this route fails in**: 401 is a
+   token that did not take, 404 is a Worker without the route, a 5xx with HTML is
+   the Worker throwing. A non-JSON answer MID-POLL asks again rather than falling
+   through, since reading a blip as an ending invents a finished job.
+3. **`wireCall` PASSED NO ABORTSIGNAL** (run 3). A black-holed socket sat there
+   until the JOB's deadline; the watcher gave up at 16 minutes with the child
+   alive and the verdict unreadable. **THREE OUTCOMES, NOT TWO**: answered, died
+   before the bound (a reset — `wire` says which kind), and **`hung`** — never
+   answered, never reset. They need three different fixes, so collapsing the last
+   two is the one way this instrument can mislead rather than go quiet. `hung` is
+   asked FIRST, because reading a hang as `idle-kill` would say "streaming is the
+   fix" about a socket streaming does nothing for. `wireCallBoundMs(ms)` is the
+   ask plus a minute; the `timer` is INJECTED so the one branch that matters most
+   can be driven at all; the runner's watch bound is DERIVED from it.
+4. **A PROBE COULD ONLY BE READ BACK BY THE RUN THAT FIRED IT** — an instrument
+   that cannot re-read its own dial. `PROBE_JOB_ID` / the `jobId` input skips the
+   fire and reuses the same polling and verdicts, so a re-read says the same
+   things in the same words. **The fire is skipped rather than made idempotent**:
+   a second launch of the same shape would take a second lane to answer a
+   question already in flight.
 
-**WHY EVERY GUARD PASSED, and it is the recorded trap in full.** The route was
-asserted by READING `worker.js` as text, and every landmark that read looks for
-was exactly where it looks; a bare call parses perfectly; the free-identifier
-walker sees a declared name. *A text read certifies at the layer below the
-break, and the honest check is a drive.* **And the file said a drive was
-impossible** — the comment beside the `secrets: {}` assertion read "it is a
-source read rather than a drive because the route is owner-gated and no session
-token exists here". **That was simply wrong**: `authUser` asks `/auth/v1/user`,
-so stubbing global fetch is the whole cost, which is how
-`test/site-head-edit.test.mjs` had been driving eleven owner-gated cases for
-days. A stated impossibility nobody re-tested is how a route ships throwing.
+**AND THE ROUTE IS DRIVEN NOW, WHICH IS WHAT DEFECT 1 COST.** The guard said a
+drive was impossible "because the route is owner-gated"; `authUser` asks
+`/auth/v1/user`, so a stubbed global fetch and a fake DO namespace are the whole
+cost, and both POST and GET go through `worker.fetch` — the launch payload read
+with `readLaunch`, the lane asserted, and a bare `newJobId` proved red. **A
+stated impossibility is a claim, and this one had never been tested.**
+**Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — each arm losing its clock, both arms sharing one signal
+(so the second reports `hung` without being tried), `hung` forced false and
+forced true, `hung` no longer asked first, the bound not outlasting the ask, the
+slack collapsed to 1, junk `ms` giving a zero bound, the runner guessing its
+watch bound again, the read-back id coerced, the read-back firing anyway, the
+workflow dropping `PROBE_JOB_ID`, and the artifact path diverging from the
+script's own log name. **Every anchor was checked to occur exactly once before
+the run.** **Suite 6,316.**
 
-**AND THE INSTRUMENT WAS WRONG BEFORE THE PRODUCT WAS.** `scripts/job-probe.mjs`
-read every response with `.then(r => r.json())`, which throws away the status,
-the content-type and the body — *a failure that cannot name itself*, in the
-instrument built to name failures, and it cost the whole diagnosis round. One
-`readJson` now, at all three reads, because **the status is what separates the
-three shapes this route fails in**: 401 is a token that did not take, 404 is a
-Worker without the route (a probe fired before its own deploy), a 5xx with HTML
-is the Worker throwing. The same failure would now print
-`HTTP 500 text/html — the body is not JSON: "<!DOCTYPE html>…"`. A non-JSON
-answer MID-POLL asks again rather than falling through, because reading a blip
-as an ending invents a finished job.
+**AND THE REPAIRBENCH-1 TRACES ARE THE STRONGER EVIDENCE ANYWAY** — a controlled
+before/after nobody set up on purpose. Same site, same ask, 2½ hours apart, both
+stored: run 44's page call **459,465 ms → OK, 3 files** and run 45's **270,025 ms
+→ `fetch failed`**, which is `522129 − 252104` out of the trace itself. The
+runner flip landed between the two deploys. **Neither trace carries the `where`
+field** (it shipped after both), so the attribution rests on the durations plus
+that ordering; the next run's trace names it outright. Run 44 then died at
+`why: "time"` with the page WRITTEN and `changed: 1` — the clock, one step from
+done — and **both runs refunded 6 credits**.
+**Its database exists and its TABLES DO NOT**: the schema is applied AFTER the
+compile and neither run compiled, so `repairbench-1` is provisioned-but-empty. A
+rerun there tests everything that failed except provisioning-on-first-touch,
+which is already spent. **And it is a FIFTH instance** of the blank-`neon_db`
+defect in the backlog.
 
-**Guards**: `test/job-probe.test.mjs` (14 → 19) — the route **DRIVEN** through
-`worker.fetch` for POST (200, a real job id, the container reached exactly once
-at `laneName("hold-probe")` read off the binding, the launch admitted by
-`readLaunch`, `secrets` empty) and for GET (the record back as JSON, a junk id
-refused 400 in JSON without reaching the service); a **depth-aware census** that
-every `newJobId(` call is handed `getRandomValues`; and `readJson` **carried out
-of the script and driven** over a real answer, Cloudflare's error page and a
-body with no content-type, with the clean answer as the alive observer.
-**Both new cases proved RED against the real defect and green with the fix.**
-**THE CENSUS'S OWN FIRST DRAFT HIT THE FLAT-SCAN TRAP** — `newJobId\(([^)]*)\)`
-stops at the `)` inside `(b) =>`, so it reported the two CORRECT call sites as
-broken and said nothing about the one that was — and the runner census hit it a
-second time an hour later, `[^}]*` stopping inside `${sayNotJson(j)}`. Twice in
-one sitting, both in guards written to catch a different trap.
-**A scan for the same class found one more candidate and it was a false alarm**:
-`modelsFor()` is called bare six times and handles `undefined` by design,
-falling back to `DEFAULT_PICKER`. `newJobId` was the only real instance.
-**Sweep: 15 mutants, 15 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived** — every one on the first pass, every anchor checked to occur
-exactly once before the run. **Suite 6,310** (6,305 before; the five new cases).
-**Nothing was spent and nothing was left running**: the throw is above the
-container fetch, so no job was ever launched and no lane was held.
+**STILL NOT PROVEN**: the transport reading, and publishing. The trace evidence
+above stands on its own and is stronger than the probe anyway.
+
 
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
@@ -3974,24 +1732,21 @@ site on the allowlist, owner's call.
 
 ### THE EDIT PATH IS ITS OWN PATH (2026-08-29)
 
-**Read `docs/architecture.md` first** — the owner's own drawing of the whole
-system: one BUILD step makes the site, then EDIT / ADDON / DELETE act on it and
-each publishes back through the one spine. **The site is the centre, not the
-paths.**
+**Read `docs/architecture.md` first** — the owner's own drawing: one BUILD step
+makes the site, then EDIT / ADDON / DELETE act on it and each publishes back
+through the one spine. **The site is the centre, not the paths.**
 
 Owner: *"it should be 2 separated path tho, idk why you are mixing the build with
 the edit path"*, and on what the edit step IS: *"customer says edit this, and
 booom you go edit it"* — pure action, no design round.
 
-**`look` used to call `designSiteSchema`** — the BUILD's function, the build's
-tool, the build's system text — to change one colour on a live site. 84,817
-characters of instructions for inventing a business from nothing, nineteen
-properties of which eighteen the change had no business opening. **And the two
-framings fought**: the build's `css` description opens "ONLY WHEN ASKED… OMIT
-this field entirely unless", which a customer's edit reads as *don't touch the
-stylesheet*, so `EDIT_RULE` had to name that clause and overrule it in prose.
-
-Now: **`builder/site-lanes.mjs`, which imports nothing from `worker.js`.**
+**`look` used to call `designSiteSchema`** — the BUILD's function, tool and
+system text — to change one colour on a live site: **84,817 characters** of
+instructions for inventing a business from nothing. **And the two framings
+fought**: the build's `css` description opens "ONLY WHEN ASKED… OMIT this field
+entirely unless", which an edit reads as *don't touch the stylesheet*, so
+`EDIT_RULE` had to name that clause and overrule it in prose. Now
+**`builder/site-lanes.mjs`, which imports nothing from `worker.js`**:
 
 ```
 customer ──► pick_lanes ──► edit_site ──► publish
@@ -4000,400 +1755,155 @@ customer ──► pick_lanes ──► edit_site ──► publish
              17 names       0 required
 ```
 
-**Twenty-one lanes and EVERY ONE ACTS** (owner, 2026-08-29: *"i need all the 17
-lanes acting"* — seventeen then; twenty-two once `three`, `behavior`, `tsx`, `gif`
-and `qr` arrived, and twenty-one since `gif` was retired on 2026-08-31).
-`pick_lanes` runs ABOVE the layer dispatch, so it is the front door for all
-twenty-one and what it names decides which layer runs.
-**DERIVE THIS LIST, DO NOT TRUST IT** — it has gone stale twice. `node -e` over
-`site-lanes.mjs` and print `LANE_FIELDS`, `OWN_LANES`, `DISPATCHED_LANES`,
-`VERB_LANES`, `ESCALATE_LANES` and `UNBUILT_LANES`.
-**FOR A FIELD'S LAYER, CALL `laneLayer(field)` — NEVER READ `LANE_LAYER`
-(2026-09-08).** That map is keyed by GROUP (`plan` covers `purpose`,
-`components` and `shape`; `rename` covers `slug`), so indexing it by a field
-name answers `undefined` for three lanes that dispatch perfectly well, and
-`undefined` reads as "this lane has no layer" — which is exactly how an
-own-lane looks. This line used to name the map, and reading it that way is
-what put the wrong split into two files and the wrong number into a section
-heading, an hour after the census guard beside it derived the right one.
-The map's only reader in the product IS `laneLayer`; it is exported for
-sessions to print, and printing it is the trap.
+**Twenty-one lanes and EVERY ONE ACTS.** `pick_lanes` runs ABOVE the layer
+dispatch, so it is the front door for all twenty-one. **DERIVE THIS LIST, DO NOT
+TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and print
+`LANE_FIELDS`, `OWN_LANES`, `DISPATCHED_LANES`, `VERB_LANES`, `ESCALATE_LANES`,
+`UNBUILT_LANES`.
 
-**`OWN_LANES` is a group name, not a verdict** — renamed from `ACTING_LANES` on
-2026-08-29 after the owner asked *"i thought all of them were act?"* twice. It
-means *the ones this module edits itself*; the dispatched, verb and escalate lanes all
-do real work too, just on another rung. **ALL 21 act in the plain sense since
-`slug` shipped — `UNBUILT_LANES` is empty.**
+**FOR A FIELD'S LAYER, CALL `laneLayer(field)` — NEVER READ `LANE_LAYER`.** That
+map is keyed by GROUP, so indexing it by a field name answers `undefined` for
+three lanes that dispatch perfectly well — and `undefined` reads as "this lane
+has no layer", which is exactly how an own-lane looks. Reading it that way put
+the wrong split into two files and the wrong number into a heading.
 
-- **10 act here** — `css theme brand description wordmark favicon qr lang
-  langs behavior`. The first eight are a plain string, enum or short list, which is why
-  this module owns its own shapes; `behavior` is the one exception and shares
-  `BEHAVIOR_ITEM` from `site-plan.mjs`, the only module both paths may read.
-  **Every one but `css` is a key on the stored look and must be on `EDIT_FIELDS`**
-  — the lane reads `priorLook[field]` and writes through `mergeLook`, so a lane
-  missing from that list bills and changes nothing, silently, at both ends.
-  Asserted in `test/edit-lanes.test.mjs`; `css` is excluded by name because the
-  stylesheet has its own `_meta` key.
+- **10 act here** — `css theme brand description wordmark favicon qr lang langs
+  behavior`. **Every one but `css` must be on `EDIT_FIELDS`** — the lane reads
+  `priorLook[field]` and writes through `mergeLook`, so a lane missing from that
+  list bills and changes nothing, silently, at both ends.
 - **9 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
-  `slug`→`rename`, `shape`/`components`/`purpose`/`three`/`tsx`→`page`. Nothing reads a STORED plan (the
-  container gets the pages, the theme and the stylesheet), so `shape` is not a
-  value to save, it is a job for the rung that rewrites pages. All of them already
-  had cheap shipping implementations; nothing was missing but the wire.
-- **1 verb lane** — `pages`, which is three capabilities behind one field:
-  `remove` and `move` are the `page` rung, `add` is the addon route. The router
-  answers a VERB beside the lane. **No default** — an unreadable verb refuses,
-  and this is the ONE place in the edit path where the bias inverts, because a
-  wrong guess here takes a page off somebody's site. A verb aimed at a page the
-  site does not have is `no-page`, checked against the real route list.
-- **1 escalates** — `kind`→`build`. A rebuild is what it IS, the capability
-  exists one rung up, and it is NOT a dispatch: `build` is not an edit layer, and
-  the guard asserting every dispatch target appears in `EDIT_LAYERS` is what
-  caught the first attempt to make it one.
-- **0 unbuilt.** `slug` was the last one and it shipped as an ALIAS rather than a
-  move — it dispatches to `rename`. The group is kept because it is a real state
-  a future lane can be in, and `test/edit-lanes.test.mjs` asserts it is empty and
-  names anything that lands back in it.
+  `slug`→`rename`, `shape`/`components`/`purpose`/`three`/`tsx`→`page`. Nothing
+  reads a STORED plan, so `shape` is not a value to save — it is a job for the
+  rung that rewrites pages.
+- **1 verb lane** — `pages`: `remove` and `move` are the `page` rung, `add` is the
+  addon route. **No default** — an unreadable verb refuses, and this is the ONE
+  place where the bias inverts, because a wrong guess takes a page off a site.
+- **1 escalates** — `kind`→`build`. A rebuild is what it IS, and it is NOT a
+  dispatch: `build` is not an edit layer.
+- **0 unbuilt.** The five groups are a **total, disjoint partition** — each is a
+  different sentence to a customer, so collapsing any two loses a real
+  distinction. **A dispatched lane must never target `look`** — that is the door
+  it came through.
 
-The five groups are a **total, disjoint partition**, asserted in
-`test/edit-lanes.test.mjs` — and each is a different sentence to a customer, so
-collapsing any two loses a real distinction. A dispatched lane must never target
-`look` — that is the door it came through, and the ask lands back where it
-started.
+**`OWN_LANES` is a group name, not a verdict** (renamed after the owner asked
+*"i thought all of them were act?"* twice). It means *the ones this module edits
+itself*.
 
 **A RULE PER LANE, IN FOUR NAMED PARTS** (owner: *"i want a rule per everysingle
-one of them, just like we did for css"*). `is` · `yours` · `wide` · `keep`, and
-only `wide` is genuinely per-field: it names how THIS field gets over-answered.
-`css` gets a token where a rule was asked for; `brand` gets a name improved
-instead of copied; `lang` gets the site TRANSLATED; `langs` gets the list
-replaced when one was being added. Structural, not prose — `laneRule` throws if a
-part is missing, so a lane cannot ship as a description with no ceiling.
+one of them"*): `is` · `yours` · `wide` · `keep`, and only `wide` is genuinely
+per-field — it names how THIS field gets over-answered. `css` gets a token where
+a rule was asked for; `brand` gets a name improved instead of copied; `lang` gets
+the site TRANSLATED. Structural, not prose: `laneRule` THROWS if a part is
+missing, so a lane cannot ship as a description with no ceiling.
 
-**ONE PUBLISH PER MESSAGE** (owner: *"if the act was 2 things then 1 publish"*).
-The eight branches call `publishStep`, which collects pages and answers success;
-the spine runs once below the loop. `eSrc` carries forward between rungs, or the
-single publish ships whichever step ran last. A config snapshot taken before any
-rung runs is restored if that publish fails.
-
-**The name sets are asserted in BOTH directions** (`test/edit-lanes.test.mjs`) —
-a field added to the build with no lane is a part of a site nobody can change
-again; a lane for a field the build stopped producing edits nothing.
-
-**The wall, not the rule.** A `css` lane cannot re-theme or rename a site because
-its tool has one property and there is nowhere to put the answer. A rule in prose
-is one a model eventually reads past.
-
-**The contract is still two opposite halves and they must arrive together**
-(owner, 2026-08-28: *"it's free css — the model can edit anything on the page…
-but when they ask one thing, you only edit one thing"*) — now in `EDIT_SYSTEM`
-and each lane's own description, with no build framing to overrule:
+**THE CONTRACT IS TWO OPPOSITE HALVES AND THEY MUST ARRIVE TOGETHER** (owner:
+*"it's free css — the model can edit anything on the page… but when they ask one
+thing, you only edit one thing"*):
 
 - **Unlimited in WHAT.** The sheet is the whole look and it is the model's to
   edit; nothing on the page is out of reach.
 - **Strict in HOW MUCH.** As many edits as there were asks and **never more**;
-  each **only as wide as it was asked** — a rule on a control, not a new value
-  for a token every component repaints from; and **nothing unasked-for moves.**
+  each **only as wide as it was asked**; **nothing unasked-for moves.**
 
 Either half alone misleads: permission without a ceiling invites a redesign, a
-ceiling without permission reads as "don't touch anything". Stated as the
-mechanism, never as a ban-list: a list covers tonight's control and the next
+ceiling without permission reads as "don't touch anything". **Stated as the
+mechanism, never as a ban-list** — a list covers tonight's control and the next
 request is always a different one.
 
-**Two asks run two lanes in turn** (owner: *"run both lanes in turn"*), each shown
-only its own field's stored value, and **one publish** covers the message.
-Measured: **5,606 of tool for a colour change (router + `css` lane), 7,476 for a
-behaviour change, against 89,195**, still **1 credit** — `pageCredits` is
-variadic and rounds once with a floor of 1, and the routing call is billed once
-per MESSAGE rather than once per rung (a sweep caught that double-count; it is
-now watched against the ledger, not against our own arithmetic).
+**THE WALL, NOT THE RULE.** A `css` lane cannot re-theme or rename a site because
+its tool has one property and there is nowhere to put the answer. A rule in prose
+is one a model eventually reads past.
 
-**A LANE'S OUTPUT CEILING IS WHAT ITS FIELD CAN STORE (task #47, 2026-09-06,
-owner: *"SO FIX ?"*).** Every lane was given `LANE_EDIT_MAX_TOKENS` — 16,000,
-sized for the stylesheet. The `wordmark` lane DRAWS, and a drawn answer is a
-long generation: on Grok, the default picker and ~3x slower at code, it ran the
-whole `QUICK_CALL_MS` and was cut off on runs 11 and 12, charging nothing and
-changing nothing, twice. **That call ceiling cannot be raised** — 240 s against
-an egress that hangs up an idle connection at ~270 s, so the wire is the real
-bound. So the ANSWER is bounded instead, which is the wall rather than the
-rule: a wordmark over `MAX_WORDMARK` is refused by `cleanWordmark` whatever it
-cost, so 16,000 tokens buys eight times more generation time than any answer we
-would keep. `laneMaxTokens(field)` derives from `FIELD_STORE_CAP` — `MAX_CSS`,
-`MAX_WORDMARK`, `MAX_FAVICON`, **the refusals themselves and never a second
-list beside them** — at three characters per token (SVG and CSS tokenise worse
-than prose) with a quarter of slack for the tool envelope. **It can only ever
-REDUCE**: `Math.min` with the shared ceiling leaves `css` byte-for-byte what it
-was and a field with no cap unchanged, so no working lane got slower or
-tighter. Measured: wordmark **16,000 → 3,334**, favicon **→ 1,667**, everything
-else untouched. `tokensForChars` is split out so the floor (`LANE_MIN_TOKENS`,
-1,000) can be DRIVEN — a sweep found it inert against today's caps, the
-smallest of which lands well above it. **A pre-existing gap is named rather
-than closed here**: `MAX_CSS` is 60,000 characters and the shared ceiling
-expresses about 48,000, which was true before this and is left alone, because
-raising it would buy the css lane exactly the generation time the wordmark was
-cut for; an overrun is a NAMED failure (`runLane` reports a `max_tokens` stop),
-never half a stylesheet stored. **Sweep: 8 mutants, 8 killed, none unapplied,
-the comment-only control survived — two survived the first pass**, the floor
-(inert against every cap in use, so split out and driven) and the caps being
-plausible invented numbers rather than the imported refusals (asserted by
-identity now).
+**ONE PUBLISH PER MESSAGE** (owner: *"if the act was 2 things then 1 publish"*).
+The eight branches call `publishStep`; the spine runs once below the loop.
+`eSrc` carries forward between rungs. A config snapshot taken before any rung
+runs is restored if that publish fails. **Measured: 5,606 of tool for a colour
+change against 89,195, still 1 credit** — `pageCredits` is variadic and rounds
+once with a floor of 1, and the routing call is billed once per MESSAGE.
 
-**AND RUN 40 DISPROVED IT (2026-09-06, owner: *"stream the lane call"*).** The
-proof this entry asked for — the next `wordmark` ask on Grok, ~1 credit — was
-dispatched and came back a THIRD timeout: job `73e8a7d1…`, `state: failed`,
-`billing: none`, **cost 0**, the site unmoved, `waitedMs: 240000`, `call:
-"lane"`, `kind: "TimeoutError"`. **The plumbing was right and the reasoning was
-wrong.** Driven rather than read: `editRequest` for `wordmark` really does carry
-`max_tokens: 3334`, so the ceiling IS on the wire — but generation time follows
-the tokens actually EMITTED, not the ceiling they are allowed to reach, and
-**the tell is which failure came back**: a bound ceiling stops with a
-`max_tokens` stop, and this stopped with a timeout, so the model had not reached
-3,334 when our own `AbortSignal` cut it. Lowering a budget truncates a long
-answer; it cannot make a slow one finish sooner. The cap stays — it is still the
-right wall on what may be STORED — but it was never the binding constraint.
-**THE BINDING CONSTRAINT IS THE WIRE, AND THE SMALL CALLS STREAM NOW.**
-`QUICK_CALL_MS` is 240 s only because the egress hangs up an IDLE connection at
-~270 s; streaming is what stops it being idle, and `build-call.mjs` has folded a
-streamed transcript back into the non-streaming shape — usage and all, both
-providers — since the container needed one. Two hops: `callBuilderModel`'s
-Worker wrapper FORWARDS `opts` (it had dropped a fourth argument the module has
-taken for months — the recorded wiring trap, found by a live timeout because
-every guard drove the MODULE), and `quickSend` passes `{ stream: true }` and
-clamps a queued call to `QUICK_STREAM_MS` (480,000) instead of the flat 240 s.
-**The synchronous path keeps 240 s deliberately**: off the queue the bound is
-the CUSTOMER'S connection (~273 s, run 21), which streaming to a provider does
-nothing for. **480,000 is a chosen bound, not a measured one**, and the comment
-says so; the job's own clock is the real bound whenever there is a job.
-**THE FIRST CUT SET IT TO `BUILDER_CALL_MS` AND `build-budget`'s GUARD CAUGHT
-IT** — a build's ten minutes handed to a classifier, exactly the regression that
-assertion exists for. The change was fixed, not the guard; and the guard was
-TIGHTENED, because its `doesNotMatch` listed `BUILD_BUDGET_MS|CONTAINER_CALL_MS`
-and never `BUILDER_CALL_MS`, so it caught the mistake by luck through a
-different assertion going red. It names all three now.
-`test/lane-stream.test.mjs` (5) EVALUATES the real `quickSend` out of worker.js
-with `callBuilderModel` recorded, because a missing hop is invisible to a text
-read — `picked-model`'s own lesson. **Sweep: 8 mutants, 8 killed, none survived,
-none unapplied, the comment-only control survived** — the wrapper dropping
-`opts` or taking them and not passing them, `quickSend` handing none, the flag
-off, the queued clamp back to 240 s, the streamed ceiling as a build's clock
-(the first cut), the synchronous path given the streamed ceiling, and the job
-able to make a call only BIGGER. Full suite 5,398. **MERGED AND DEPLOYED**
-(owner: *"Ok merge"*): main fast-forwarded `b2428351` → `72c639ff` at 21:48Z,
-**deploy run 2035 green in 3m07s** — the gate set in 1 s, the image step 2m17s
-so the site image was BUILT and the container app `EDIT`ed onto
-`isibi-app-sitebuildcontainer:f93d8236b725db6e` at 21:51:41Z, the drain finding
-no live leases, Wrangler 22 s, the gate left to expire on success. **Not proven
-live**: the next `wordmark` ask on Grok is the proof, ~1 credit — and this entry
-is the record of what it costs to mark one proven early. **That one run settles
-three things at once**, because fretwork-1 is still on the LEGACY publish layout
-(read live: it serves no `x-site-version`): the streamed call, the first
-`current/<slug>.json` activation under stage 7, and the publication-integrity
-work. And a timeout there would read differently from run 40's — the ceiling is
-480 s now, so it would be a genuinely slow generation rather than our own wall.
+**The name sets are asserted in BOTH directions** — a field added to the build
+with no lane is a part of a site nobody can change again; a lane for a field the
+build stopped producing edits nothing.
 
-**RUN 41 PROVED THE STREAMING AND FOUND A LANE THAT CHARGES FOR AN INVISIBLE
-CHANGE (2026-09-06/07, owner: *"Ran"* → *"we gotta fix it"*).** The proof the
-entry above asked for came back green on the half it was testing:
-`lane:wordmark` ran **292,336 ms** and FINISHED, where runs 11, 12 and 40 were
-each cut at exactly 240,000 ms for nothing — 52 seconds past the old wall, job
-`2b9b2201…`, `done`, `finalized`, **2 credits**, `moved: ["wordmark"]`, build
-`mtnfl34h-8uuf06` → `mtqdjyhg-bizsag`. **Two other entries' proofs rode on it**:
-fretwork-1 served no `x-site-version` before and now serves
-`01788733184386-yboq08`, so that publish was the site's FIRST activation under
-stage 7's immutable layout and the corrected activation carried it (36 files,
-render check ok, nothing left leased).
-**AND THE SITE DID NOT MOVE, CORRECTLY.** `writeSiteBrand` bakes a designed mark
-ONLY when the owner uploaded none — `if (!logoValue)` for the wordmark and
-`if (!icon)` for the favicon, *"a model must not outrank a person"* in its own
-comment — and fretwork-1's header carries an uploaded PNG since run 16. So the
-lane drew 612 characters of SVG, stored it, published a whole build, took 2
-credits and reported success for something no visitor could ever be shown:
-**doing less than was asked while saying it was done**, the one failure this
-path exists to avoid. The precedence is right and stays; what was wrong is that
-the lane could not SEE it.
-**ONE MARK, SEVERAL FORMS — AND THE WALL THAT STOOD HERE FOR ONE MORNING IS
-GONE (2026-09-07, owner: *"instead of it being 3 things or 4 or 5, its gotta be
-one, wordmark, but it can be made in svg, etc etc etc"* → *"exactly yeah"*).**
-The first answer to run 41 was a wall at the picker (`UPLOAD_SHADOWS`) refusing
-such an ask for `cost: 0`. It was honest and it was a symptom: **three fields per
-mark with the precedence between them a layer away.** `config.logo` (an uploaded
-raster, the logo rung), `look.wordmark` (the word `text`, or a drawing) and the
-name in type under both — and the identical split one field over for the tab
-icon: `config.icon`, `look.favicon`, `initialsMark()`. Six storage locations, two
-doors, three names for two slots.
-**NOW ONE FIELD PER MARK, CARRYING A FORM** (`builder/site-mark.mjs`,
-dependency-free apart from the two drawing readers, imported by the container):
+**A LANE'S OUTPUT CEILING IS WHAT ITS FIELD CAN STORE.** `laneMaxTokens(field)`
+derives from `FIELD_STORE_CAP` — **the refusals themselves and never a second
+list beside them** — at three characters per token with a quarter of slack. **It
+can only ever REDUCE** (`Math.min` with the shared ceiling), so no working lane
+got tighter: wordmark **16,000 → 3,334**, favicon **→ 1,667**, everything else
+untouched. **A pre-existing gap is named**: `MAX_CSS` is 60,000 characters and
+the shared ceiling expresses about 48,000; an overrun is a NAMED failure, never
+half a stylesheet stored.
+
+**AND THE CEILING WAS NEVER THE BINDING CONSTRAINT — run 40 disproved it.** The
+next `wordmark` ask came back a THIRD timeout at exactly 240,000 ms, cost 0.
+**The tell is which failure came back**: a bound ceiling stops with a
+`max_tokens` stop, and this stopped with a TIMEOUT, so the model had not reached
+3,334 when our own `AbortSignal` cut it. **Lowering a budget truncates a long
+answer; it cannot make a slow one finish sooner.**
+**THE BINDING CONSTRAINT IS THE WIRE**: `QUICK_CALL_MS` is 240 s only because the
+egress hangs up an IDLE connection at ~270 s, and **streaming is what stops it
+being idle**. Two hops: `callBuilderModel`'s Worker wrapper FORWARDS `opts` (it
+had dropped a fourth argument the module has taken for months — the wiring trap,
+found by a live timeout because every guard drove the MODULE), and `quickSend`
+passes `{stream: true}` and clamps a queued call to `QUICK_STREAM_MS` (480,000).
+**The synchronous path keeps 240 s deliberately** — off the queue the bound is
+the CUSTOMER'S connection (~273 s), which streaming to a provider does nothing
+for. **480,000 is a chosen bound, not a measured one.** **PROVEN by run 41**:
+`lane:wordmark` ran **292,336 ms and FINISHED**, where runs 11, 12 and 40 were
+each cut at exactly 240,000 for nothing.
+
+**EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner: *"if grok
+is picked then that will be it"*). `BUILD_MODELS` has a third slot, **`quick`**,
+equal to the picker's own model. **WHAT IT COST TO LEARN**: run 93 bought a `css`
+edit and got a **503 in 5.3 seconds having spent nothing**, because every cheap
+rung was pinned to `claude-haiku-4-5` and Anthropic refused on billing — *the
+platform's cheap ladder was entirely behind one provider while its expensive half
+was not*. Two guards, and **the second is the one that matters**: a source scan
+for a pinned id (comments blanked — every one now names Haiku while explaining it
+is gone), and `picked-model.test.mjs`, which DRIVES each runner with a sentinel
+and reads the request that would have gone out. Only the second caught
+`routeMessage` taking a `model` and never passing it on.
+
+**ONE MARK, SEVERAL FORMS** (owner: *"instead of it being 3 things or 4 or 5, its
+gotta be one, wordmark, but it can be made in svg, etc"*). It was **six storage
+locations, two doors, three names for two slots**. Now one field per mark
+carrying a FORM (`builder/site-mark.mjs`):
 
     look.wordmark = {form:"text"} | {form:"svg", svg} | {form:"image", url}
     look.favicon  = {form:"initials"} | {form:"svg", svg} | {form:"image", url}
 
-A new form REPLACES the one before it, so run 41's ask simply works: there is
-nothing to shadow and nothing to refuse.
-**PROVENANCE IS DERIVED, NEVER STORED.** *"A model must not outrank a person"*
-(owner, 2026-08-28) survives as `ownedMark`, which reads the FORM: only a person
-can produce `image` (the model cannot mint an upload URL) and only the model
-produces `svg` (an uploaded SVG is refused — `/u/` serves inline from the site's
-own origin, so one would be stored XSS). A stored `set: "owner"` field would be a
-second value that can disagree with the first, the trap `dir` is derived to avoid
-one module over — said in the module, with the note that admitting an uploaded
-SVG is what would make provenance a real field.
-**AND THAT RULE NOW LIVES IN `mergeLook`, UNDER A NEW `asked` FLAG.** A DESIGN
-STEP answers every field whether or not anybody mentioned it, so a rebuild leaves
-an uploaded mark alone — run 16 is that case and only the baker's precedence
-saved it. An EDIT LANE runs only for the fields the customer named, so its answer
-always replaces. **The flag DEFAULTS TO PROTECT**, because of which way being
-wrong hurts: wrong toward "keep the person's file" costs an edit that does not
-take effect and can be said again; wrong toward "replace" silently deletes
-artwork somebody uploaded.
-**NOTHING MOVES.** `markOf` folds a site still carrying the old pair — every live
-site today — with the old precedence exactly, and the merge normalises to a form
-on the way out, so the new shape is written the first time anybody touches a mark
-and every published site's frozen `server.js` bakes the same string it bakes now.
-The `qrList` rule. `markRemove` is what a removal leaves behind: the drawing the
-upload was hiding on a legacy site, the floor on a site already on the new shape,
-and the reply names which (`markWords`) instead of promising the floor.
-**THE WIRE IS UNCHANGED AND `markWire` IS THE ONE PROJECTION.** The container's
-baker re-validates whatever it is handed (hand-written payloads, version skew) so
-it keeps its own ladder as a belt — and the Worker sends exactly ONE half of each
-pair now, so that ladder can never fire, which the guard pins rather than leaving
-a dead precedence to rot. Every one of those four fields has been the site of a
-"read here and never put on the wire" bug; one reader for all four is what stops
-the next path forgetting one.
-**AND ONE COPY OF THE URL RULE.** The regex pair deciding what may reach a
-customer's generated `src` was written out TWICE — inline in `writeSiteBrand` and
-again in `siteIconFrom` — for one refusal about `javascript:` URLs, the recorded
-"two lists of the same thing" with the worst possible subject. `markUrlOk` owns
-it, both import it, and the guard DRIVES it against ten shapes it must refuse and
-two it must admit instead of matching a fragment of a regex in a file.
-**FOUR DEFECTS THE SUITE CAUGHT THAT A READ WOULD NOT HAVE, all in the new
-code.** (1) The fold INVERTED the precedence it promised to keep — `readMark`
-parsed the legacy drawn string before the upload was consulted — so fretwork-1's
-next publish would have taken the owner's own logo off; found by driving it with
-that site's real stored shape. (2) The logo rung patched `{ look: { wordmark } }`
-and `withConfig` replaces a named field WHOLE, which would have taken the theme,
-the brand, the description and every language off the site; it reads and merges
-now, and REFUSES rather than writing when the read fails. (3) `lookWithMarks`
-turned an absent look into `{}` and the edit path's thin-look gate keys on
-`!priorLook`, so a site with neither a look nor a stylesheet stopped being refused
-and went all the way to a real compile. (4) `MARKS` used in `currentStateNote` and
-never imported — run 22's `TOKEN` trap for the THIRD time in one session, with
-`node --check` passing again; every touched module is now LOADED, not parsed.
-`test/site-mark.test.mjs` (18) keeps the two things worth having from the deleted
-wall's guard — the pair DERIVED from the baker's own two branches in both
-directions, and the driven route with the lane's tool COUNTED, inverted: the
-property was "the 292-second call is never made" and it is now "the call is made
-and the site's stored mark really becomes the drawing" — plus `readMark` over
-both shapes and every refusal, the fold on fretwork-1's own shape, the removal,
-`ownedMark` over every form, the projection's one-half-per-pair, the merge rule
-driven both ways, the note, the Worker's hops, the wall's absence with a live
-observer, the removal's whole sentence chain DRIVEN, `siteIconFrom`'s refusal
-driven, and four route cases with two controls. Full suite **5,419**.
-**Sweep: 48 mutants, 47 killed, none survived, none unapplied, the comment-only
-control survived — SEVEN survived the first pass and every one was a guard gap,
-not the product's**: `markUnder` answering for a drawing nothing covers, the two
-readers' sizing swapped (INERT against a 64×64 fixture — the favicon forces a
-square and the wordmark reads its own viewBox, so only a NON-square document
-tells them apart), and the removal's three hops — the rung discarding the stored
-form, the sentence ignoring it, the route's save answering nothing — none of
-which anything drove, plus `siteIconFrom`'s refusal, which had no driver at all.
-One anchor was AMBIGUOUS and never applied: the build path's
-`priorLook = lookWithMarks(cfg.config)` at ten spaces is a SUBSTRING of the lane
-path's at sixteen, the recorded "a mutant whose anchor is a substring of
-another's"; re-anchored with its neighbour and killed. The rest: the fold
-inverting the ladder, an unreadable form falling to the floor, the upload
-losing to the drawing, a removal always flooring, `ownedMark` counting a
-drawing, the form read by truthiness, a coerced url, a non-https url admitted,
-the payload sending both halves of a pair, the floor going silent, `markWire`
-projecting one mark, `lookWithMarks` making an object out of nothing or dropping
-every other key, a favicon reading `text`, a drawing stored unvalidated,
-`sameMark` blind to the drawing, one sentence for both marks; the merge letting
-a volunteered mark win, protecting against a named lane, defaulting to replace,
-not normalising or normalising an absent mark, `FIELD_KEEPS` refusing the form,
-the note silent about an upload or truncating a drawing; and on the Worker every
-projection and every fold cut in turn, both merges' flags swapped, the rung
-writing an unread look, and the baker admitting any url shape.
-**SIXTEEN OLDER GUARDS WENT RED AND WERE RE-ANCHORED, NOT APPEASED**, each naming
-which spelling moved and why — and three of them are DRIVEN now where they read a
-regex fragment or walked a byte window between two lines that no longer exist
-(the favicon/wordmark pair in the build args was the window this repo has been
-outrun by three times; it cannot be separated any more, because it is not two
-lines). One INVERTED deliberately: "the logo is its OWN stored field, never a
-member of the look" was true because `mergeLook` rebuilt from `EDIT_FIELDS`
-alone, and that reason expired when a mark became an edit field — the recorded
-"a rule true because of a layer below it expires when that layer moves".
-**PROVEN LIVE BY RUN 42 (2026-09-07 04:37Z, `harness: lane`, `lanes: wordmark`,
-"Redraw the header wordmark as the letters CGS in a bold serif, black on
-transparent", 503 → 502).** Job `da70ae7b…`, **1 credit, 176 s**,
-`moved: ["wordmark"]`, `changed: []` — no page source touched, only the mark —
-37 files, `mtqdjyhg-bizsag` → `mtqr2tnz-yqyqvv`. **The proof is one line of the
-harness's own reading: `/logo.svg` 0 → 245 bytes.** That file was a 404 before
-this run, which IS run 41's defect: the drawing was stored, the build published,
-2 credits taken, and the upload's `if (!logoValue)` meant no file was ever
-written. The served header now carries `<img src="/logo.svg" alt="Crookes Guitar
-School">` — `CGS` in Georgia bold serif, black on transparent, 245 bytes
-(`docs/edits/mark-run42-header.png`, read off the served page through a local
-mirror; `mark-run42-logo.svg` is the file itself). The striped test PNG is off
-the page, which answers the first of the two owner questions this entry used to
-carry.
-**And the header is the only instrument that can say the stored form changed.**
-`writeSiteBrand` could never bake a drawing while `config.logo` was set, so a
-drawn mark in the header proves BOTH hops at once: `markWire` sent the drawing
-and not the upload (one half per pair), and the merge normalised the lane's
-answer to `{form:"svg", svg}` on a site that was carrying the old pair. There is
-still no route that hands the stored look back — the second owner question stands
-— so a publish remains the only way to LOOK at a mark.
-Trace `e_mtqr2akbz6xqqlxm`: `pick_lanes` 9.6 s, **`lane:wordmark` 11.8 s**
-(221 chars answered — against runs 11/12/40 cut dead at 240,000 ms and run 41's
-292 s; this answer was short enough that the streamed ceiling was not tested
-again), the compile ~120 s, `stage` 15.3 s, `publish:gate` ok, `activate` from
-`01788733184386-yboq08` to `01788755899622-6w90uf`, `worker:put` **200** with
-`uploaded: true`, then `commit ok` — **the corrected activation's served-not-
-merely-not-refused rule on a real publish** — `prune 0` (the parent kept),
-`dead: 0`. Both languages `cached: true, missing: 0`, so nothing extra was
-charged. Two render findings, neither this change's: React #418 on `/` and `/es`
-at phone width, `/` now naming its own text ("the server rendered “Llun” where
-the browser then rendered “Mon”"), which is task #80's Welsh ICU gap between the
-container's Node and its Chromium; and `deadSelectors: 2`
-(`[data-slot="cta-band"] [data-slot="button"]`, `[data-slot="hero-split"] h1`),
-left over from an earlier css edit and reported rather than enforced.
-**Still not proven live**: the removal. `markRemove` on a site now carrying
-`{form:"svg"}` should answer the FLOOR with `markWords` naming it, where the same
-ask on a legacy site reveals the drawing the upload was hiding — free, and it
-takes the CGS mark back off, so it is the owner's call.
+- **PROVENANCE IS DERIVED, NEVER STORED.** *"A model must not outrank a person"*
+  survives as `ownedMark`, which reads the FORM: only a person can produce
+  `image` (the model cannot mint an upload URL) and only the model produces `svg`
+  (**an uploaded SVG is refused** — `/u/` serves inline from the site's own
+  origin, so one would be stored XSS). A stored `set: "owner"` field would be a
+  second value that can disagree with the first.
+- **THE RULE LIVES IN `mergeLook` UNDER AN `asked` FLAG.** A DESIGN STEP answers
+  every field whether or not anybody mentioned it, so a rebuild leaves an uploaded
+  mark alone; an EDIT LANE runs only for named fields, so its answer replaces.
+  **The flag DEFAULTS TO PROTECT**, because of which way being wrong hurts: an
+  edit that does not take effect can be said again; deleted artwork cannot.
+- **NOTHING MOVES.** `markOf` folds a site still carrying the old pair with the
+  old precedence exactly, and the merge normalises on the way out — so every
+  published site's frozen `server.js` bakes the same string it bakes now.
+- **ONE COPY OF THE URL RULE.** The regex pair deciding what may reach a generated
+  `src` was written out TWICE for one refusal about `javascript:` URLs.
+  `markUrlOk` owns it and the guard DRIVES it over ten shapes it must refuse.
+- **RUN 41 IS WHY**: the lane drew 612 characters of SVG, stored it, published a
+  whole build and took 2 credits **for something no visitor could ever see**,
+  because `writeSiteBrand` bakes a designed mark ONLY when the owner uploaded
+  none. The precedence is right and stays; what was wrong is that the lane could
+  not SEE it. **PROVEN by run 42**: `/logo.svg` **0 → 245 bytes**, and the header
+  is the only instrument that can say the stored form changed.
 
-**EVERY SMALL CALL FOLLOWS THE PICKER, NOT A HARDCODED MODEL** (owner,
-2026-08-31: *"we are gonna get rid of haiku routing, we are gonna use for routing
-the same model is picked, if grok is picked then that will be it"*).
-`BUILD_MODELS` has a third slot, **`quick`**, equal to that picker's own model —
-grok→`grok-4.6`, sonnet→`claude-sonnet-5`, opus→`claude-opus-5` — and the intent
-router, the lane picker and all eight rungs (`text` `data` `nav` `picture`
-`rules` `tweak` `seed`, plus the acting lanes) resolve through it.
-**WHAT IT COST TO LEARN**: run 93 bought a `css` edit and got a **503 in 5.3
-seconds having spent nothing**, because every one of those was pinned to
-`claude-haiku-4-5` and Anthropic refused on billing. Builds were fine the whole
-time — generation was already on the picked model — so *the platform's cheap
-ladder was entirely behind one provider while its expensive half was not*.
-**Two guards, and the second is the one that matters**: `test/build-models.test.mjs`
-scans the eight modules for a pinned model id (comments blanked — every one of
-them now names Haiku while explaining that it is gone), and
-`test/picked-model.test.mjs` DRIVES each runner with a sentinel and reads the
-request that would have gone out. Only the second catches the real failure — a
-sweep found `routeMessage` taking a `model` and never passing it to
-`askRequest`, which every static check reads as correct.
+**A PUBLISH THAT TRANSLATES SOMETHING NEW IS CHARGED FOR THE TRANSLATION** on top
+of the rung's own price — one call per extra language, floored at 1. A
+monolingual site and a cached bilingual one pay nothing more; the platform
+rebuild never pays.
 
-**Every prompt in there is a PLACEHOLDER** and marked so (owner: *"i will tell you
-the prompt later"*). One `hint` and one `edit` string per lane in the `LANES`
-table; swapping the wording in is a find-and-replace.
+**Every prompt in there is a PLACEHOLDER** and marked so (owner: *"i will tell
+you the prompt later"*).
 
-**The look lane is now databaseless in fact, not by permission.** Its
-`SELECT v FROM _meta` fed the designer a `tables:` list; with no designer there is
-nothing to feed, so the query is gone. `test/site-apply.test.mjs` asserts the
-lane issues no SQL at all.
-
-**And the `page` lane had the same dead gate, found only because three lanes now
-dispatch to it.** Its `_meta` read was ungated, so on a frontend-only site
-`sqlQuery(null, …)` threw and it escalated `no-meta` — the rewrite half dead on
-the majority of the platform. `{ tables: [] }` is the truth about such a site;
-`null` is kept for a site that HAS a database whose `_meta` could not be read,
-because cannot-tell must never read as nothing-there.
 
 ### RENAMING A SITE IS AN ALIAS, NOT A MOVE (2026-08-29)
 
@@ -4490,1211 +2000,298 @@ repairs for the same reason — the first draft turned "déjà vu café" into
 
 ### THE ADD STEP IS ITS OWN PATH TOO (2026-09-02)
 
-Owner: *"ok now that you have a big idea of what we want, lets start building
-the addon part."* The addon route called `designSiteSchema` — the build's
-93,852-character tool anchored on the stored look — to add one page or one
-code, and read four fields off the answer (`tables`, `qr`, `three`, `tsx`);
-the plan it designed for the addition was thrown away and the page call got
-the customer's sentence and no plan. Now **`builder/site-add.mjs`, which
-imports nothing from `worker.js`** — the edit step's split, for the step that
-ADDS:
+`builder/site-add.mjs`, which imports nothing from `worker.js` — the edit step's
+split, for the step that ADDS:
 
 ```
 customer ──► pick_adds ──► add_to_site ──► [make the db] ──► the page call ──► ONE PUBLISH
              picked model   one per kind    first touch     (addon mode)
-             1,936 chars    1 property      then apply      a job alone: no page
-             9 kinds        0 required      the backend     call, no publish
+             1,936 chars    1 property       then apply      a job alone: no page
+             9 kinds        0 required       the backend     call, no publish
 ```
 
-- **Nine kinds, the intent router's own list**: `table` · `function` · `api`
-  · `job` · `page` · `component` · `qr` · `three` act here; `photo` dispatches
-  to the `picture` rung (the one that places a photograph and prices it; this
-  step never buys one — and that rung fills only a slot the page already has,
-  which on a site with no photograph is none: run 25, the gap below). **Order
-  is run order** — a table before the function that reads it, both before
-  the job that runs the function, all before the page that shows them.
-  `ADD_KINDS`, `OWN_ADDS`, `DISPATCHED_ADDS`, `BACKEND_ADDS`, `addLayer` —
-  derive, don't trust.
-  **A SECTION IS A COMPONENT** (owner, 2026-09-02: *"section is just adding a
-  new component, so its a tsx step that adds components"*). The page is a
-  tsx file made of components; what a customer calls a section, a form, a
-  map or an FAQ is a component the page does not have yet. The kind names
-  THE component — a kit part by name (the page call is shown its exact
-  props) or one written for this site (`TSX_ITEM`, the build's own escape
-  hatch, landing in `parts`) — and where on which page. An answer naming
-  neither is refused (`no-component`): a band the page writer would have to
-  invent is the reading the owner corrected.
-- **One tool per kind, one property, nothing required** — the wall, not the
-  rule: a `component` tool cannot re-theme the site because there is nowhere
-  to put the answer. Inside the property the kind's own `required` stands (a
-  page with no path is not a page). A four-part rule per kind (`is` · `yours`
-  · `wide` · `keep`), `composeRule` refusing a missing part.
-- **THE UNIVERSAL RULE (owner, 2026-09-02: *"anytime something new is added
-  it needs to keep the design system, meaning the themes, css etc, whatever
-  it had already, shape, all the things that form the page"*).**
-  `ADD_DESIGN_RULE`, ONE string sent to BOTH models that have to hold it: it
-  rides `ADD_SYSTEM` (every kind's designer) and heads the fold's directive
-  (the page writer), and `test/site-add.test.mjs` asserts both hops carry
-  the same sentence — either alone is half a rule.
-- **NO LOW LIMITS WHILE TESTING (owner: *"no limit on things that can be
-  added, like the pages, new components, at least not a low limit for now
-  since we are testing"*).** `MAX_ADDS` is the count of kinds (a message may
-  name every kind it asks for); `page`, `component`, `table`, `function`,
-  `api` and `job` answer LISTS (`LIST_ADDS`) capped at what a site can hold —
-  `MAX_ADD_PAGES` 6 (the page writer keeps six), `MAX_ADD_COMPONENTS` 12,
-  `MAX_ADD_TABLES` 6, `MAX_ADD_FUNCTIONS` 6, `MAX_ADD_APIS` 4, `MAX_ADD_JOBS`
-  4 (the engine keeps eight of each tier) — and every
-  list rule says "as many as they asked for, and not one more". `cleanAdd`
-  keeps every usable entry and names the rest (`skipped`, carried to the
-  reply as `notAdded` with the refusal sentence); it refuses only when no
-  entry is usable, with the first entry's reason.
-- **What it shares with the build are SHAPES, never wording**: the table item
-  (**`TABLE_ITEM`, lifted out of `design_schema` into `builder/site-table.mjs`
-  for exactly this**, byte-identical on the wire — `readSchemaTool` binds it;
-  every guard that read the item's text out of worker.js reads it there now,
-  with the `items: TABLE_ITEM` binding asserted beside — **and the other three
-  tiers followed it on 2026-09-03: `FUNCTION_ITEM`, `API_ITEM`, `JOB_ITEM`,
-  seven more guards re-anchored the same way**), `TSX_ITEM`, the kit's
-  `COMPONENT_MENU`, `TOOL_DIRECTIVE`. The `BEHAVIOR_ITEM` precedent.
-- **The fold (`foldAdds`) is the hop the old route never had**: the page call
-  gets a directive for the addition (file, route, LAYOUT, numbered bands, kit
-  parts, where it links from) riding the brief, and the union of kit parts
-  through `plan.components` so it is shown their exact props. `tsx` is
-  APPENDED to the stored list by name — the old `mergeLook(aLook, designed)`
-  REPLACED it, so a new part on a site that had one forgot the first on its
-  next revise. `qr`/`three`/`tables`/`seed` fold as before; `aDesigned` keeps
-  its name so the store-before-publish / revert-on-failure guards still read.
-- **Refusals are sentences, never climbs** (`addRefusal`, `alreadyReply`): a
-  code or a scene the site already carries — read the way the edit route's
-  wall reads it, stored look OR page source (`ADD_ONLY_FIELDS` and
-  `ADD_EVIDENCE`, the same two lists, so the two doors never bounce a customer
-  between them; `test/site-add.test.mjs` asserts every add-only field is a
-  kind); a page the site has; a code with no destination; a section on a
-  many-page site that names no page (a one-page site lands on its page); a
-  function with no body, a connection that is not https, a job naming a
-  function the site may not run. (A table on a site with no database was one
-  of these, refused before any call, until 2026-09-03 — it makes the database
-  now; the backend entry below.) Only a picker
-  that names nothing escalates to the revise. **A photo beside another kind
-  is set aside and said** (`skipped`), because the hop carries one sentence to
-  one rung.
-- **The browser hops sideways** on an escalate that names an edit layer
-  (`siteAddon` → `siteEdit`, handed-off), instead of falling to the ~25-credit
-  revise. An escalate naming nothing still falls.
-- **Every small call is the picker's model** (`aModels.quick`); every usage —
-  the picker's, each add's, the page call's, the seed net's — rides ONE
-  `pageCredits` (`...aDesignUsage`, a list now).
-- **On the wire**: 1,936 of picker + 1,299 (`three`) / 1,570 (`qr`) / 20,045
-  (`table`) / ~35,000 (`page`, `section` — the kit's menu is most of it),
-  against 93,852. **Every prompt is a placeholder**, marked so.
-- **A SITE CARRIES SEVERAL QR CODES (owner, 2026-09-03: *"But a site cant
-  have 2 or more qr codes?" … "Yes, it should carry more"*).** Run 24's honest
-  refusal was a consequence of the SHAPE — one `{ points, label }`, one file,
-  one binding, nowhere to keep a second — not a rule anybody chose. The shape
-  is in the `qr` bullet of the design section; what changed on THIS path: the
-  `qr` kind answers `name` (required, derived from the caption when the model
-  gives none), `cleanAdd` refuses `same-name` / `same-code` / `no-name` /
-  `bad-destination` / `too-many` against the STORED list (read through
-  `qrList`, so a pre-list site's one code counts as `qr`), `foldAdds` APPENDS
-  by name — the `tsx` rule, for the same reason — `siteNote` lists every code
-  with both halves, the directive names `SITE_QRS.<name>`, the already-wall
-  iterates `SINGLE_FIELDS` (`three` alone) and `alreadyReply("qr")` is gone.
-  The harness's `qr` case counts DISTINCT code files on the page, so a second
-  code is a publish and a refusal is honest only with a code there and the
-  build unmoved. **Taking a code OFF is the deferred DELETE step, not the
-  lane**: the old hint said "also taking it off the site" with no mechanism
-  behind it — `CLEARABLE_LISTS` is `langs` alone and `hasValue({})` is
-  silence — so the new hint no longer promises it. **Sweep: 22 mutants, 22
-  killed, none unapplied, the comment-only control survived** — each a hop cut
-  back (the first code's file moving, the old single code dropped at the
-  reader, at the container and at the note, a repeated name kept, a guess on
-  a site with several, a bad destination stored, the old binding counting for
-  every code, the patch stored AS the list, the already-wall back on `qr`,
-  the evidence reading the old binding only, the place step firing with
-  nothing to place, the addon note handed the object, both codes written to
-  one file, a same-destination code allowed, the fold replacing, the
-  directive and the note listing the first code only, the merge keeping junk,
-  the lane compelling a name, the harness counting any code, the image
-  without the module). Full suite 4,879.
-  **PROVEN LIVE BY RUN 29 (below): fretwork-1 serves `qr.svg` and
-  `qr-prices.svg`, 13 credits.** Runs 26–28 before it declined for 0 each,
-  and each decline was a fact the designer had not been told — the entries
-  below are the record.
-  **RUN 26 (2026-09-03 12:53Z, `qr`, 170 → 170): THE DESIGNER ANSWERED
-  NOTHING, HONESTLY.** The first time the `qr` designer has ever run live
-  (runs 21–24 never reached it: the wall refused first). The picker named
-  `qr` in 23 s, the designer answered nothing in 21 s, the route answered
-  422 `declined` ("I couldn't work out what to add from that"), cost 0,
-  build unmoved (job `add453b86…`, trace `e_mtlj0cy29y1ubo1a`, `add:qr`
-  `answered: false`). **The cause was in the prompt, read back locally
-  without a model call**: the note told the designer the site's PAGES
-  (`/`, `/prices`) and never its ADDRESS, the tool said `points` is "a full
-  URL", and the rule says NEVER INVENT THE DESTINATION — so "a code that
-  opens the booking page" had no destination it had been given, and
-  answering nothing is exactly what the rule asks. The rule is right; the
-  note was missing the one fact that makes a site's own pages real.
-  **Fixed**: the addon block reads `publicUrlFor(env, ownerSlug)` — the one
-  reader of the public address — into `aSite.url` (blank on a failed read,
-  never a refusal); `siteNote` prints "Its address is … — a code that opens
-  one of its own pages carries that address with the page's route (…)", with
-  one of the site's real pages resolved as the example; `cleanAdd` resolves
-  a bare route against that address (`siteAddress`), refusing `no-such-page`
-  for a route the site lacks and `no-address` when none could be read —
-  never a guessed origin; the tool's `points` says a route is an answer and
-  the rule excepts the site's own pages from never-invent. Driven in
-  `test/site-add.test.mjs` (the note, the resolution, both refusals, the
-  worker hop read). **Sweep: 8 mutants, 8 killed, none unapplied, the
-  comment-only control survived** — the address not handed, never read,
-  left out of the note, a route not resolved, a missing page accepted, a
-  missing address guessed as an origin, the tool silent on routes, the rule
-  keeping never-invent whole. **Still not proven live** — the same
-  dispatch after the deploy and the roll is the proof. The owner dispatched
-  run 26 four minutes after the deploy, inside the roll window; it did not
-  matter this time only because nothing reached the container.
-  **THE DEPLOY CARRYING THE FIX FAILED ON CLOUDFLARE'S SIDE (14:50Z,
-  `5d4a40b8`)**: the image built and pushed, then Wrangler's read-back of
-  the Worker version it had just uploaded answered "version could not be
-  found" (code 10046). This session's GitHub integration is refused for
-  re-runs and dispatches (403 on both), so the owner clicked "Re-run
-  failed jobs"; attempt 2 succeeded at 15:23Z. **Run 27 (15:12Z, `qr`,
-  170 → 170) ran BETWEEN the two** — against the Worker without the fix —
-  and declined again in 154 s for 0, as it had to. A deploy's failure is
-  read before the next paid run, not after.
-  **RUN 28 (15:44Z, `qr`, 170 → 170): DECLINED AGAIN WITH THE ADDRESS IN
-  THE NOTE** — picker 45 s, designer 59 s, `answered: false`, 0 credits,
-  build unmoved. So the address was necessary and not sufficient, and the
-  diagnosis had been a guess dressed as a reading. **Two things fixed, and
-  the second is the one that matters.** (1) The note listed the site's
-  pages as ROUTES ALONE (`/`, `/prices`); the ask names "the booking page";
-  no route says booking, and the never-invent rule then reads as "there is
-  no such page". The home page's own headline is "Book a guitar lesson"
-  and the nav calls it "Book" — the site knew, the designer was never
-  told. `pageLabels(sources, planPages)` reads each page's `<h1>` out of the
-  stored source (JSX and tags stripped; a wordless heading counts as none)
-  with the stored plan's name as the fallback, `aSite.labels` carries it,
-  and the note prints `Its pages are: / ("Book a guitar lesson"), /prices
-  ("Lesson Prices")`. Every kind that lands on a page had the same gap.
-  (2) **EVERY DESIGNER'S RAW REPLY IS KEPT** — `source/<slug>/addon-answer.json`,
-  written the moment the add loop ends and before a decline can return
-  (`runAdd` hands the reply up as `raw`), read back by the owner through
-  `GET /api/site/answer?slug=&kind=addon`, and the harness prints what each
-  designer said the moment a case is `declined`. Three live declines had
-  been diagnosed from a boolean; run 90's lesson, one path over: a record
-  nothing can read is where the answer already was. **Sweep: 10 mutants, 10
-  killed, none unapplied, the comment-only control survived — two survived
-  the first pass and both were the tests' fault**: the "wordless heading"
-  fixture was merely EMPTY (which any code drops), and the keep-before-
-  decline order was asserted by presence rather than position, so a keep
-  moved past the `continue` — the one reply worth reading never kept —
-  passed. Both guards now drive the case they name.
-  **The harness's ask now names the page by its route's own word** (owner,
-  16:15Z: *"yeah lets try that"*): "Add a QR code that opens the prices
-  page". The list is what the case proves; "the booking page" — a customer's
-  looser phrasing for a home page headed "Book a guitar lesson" — is a
-  designer question, now answerable from the labelled note, and is tested
-  apart from the list.
-  **RUN 29 (2026-09-03 16:54Z, `qr`, 170 → 157): THE SECOND QR CODE IS
-  PROVEN LIVE.** Picker 6 s, designer 18 s (it ANSWERED: the route
-  `/prices`, resolved against the address into
-  `https://fretwork-1.gofarther.app/prices` — `qr-prices.svg` re-draws
-  byte-for-byte from that string, and `qr.svg` from `tel:01144960123`,
-  the only ground truth short of a phone), page call 210 s, publish 194 s;
-  **13 credits reserved before the publish, finalized; 438 s from POST to
-  the harness's verdict**, `mtlesaq6-sz6j1q` → `mtlrs753-4k2o86`,
-  `index.tsx` changed, `moved: ["qr"]`, 31 files, render check clean. The
-  harness's own count: "QR codes: 1 on the page before, 2 after; build
-  moved" — the first `ok` verdict on this case in nine dispatches. On the
-  page: "Scan for prices" beside the enquiry form; "Scan to ring and book"
-  untouched further down (`docs/edits/addon-run29-qr.png`, the band;
-  `addon-run29-qr-page.png`, the whole page; both read off the served
-  page through a local mirror). **Every hop the list needed is now live**:
-  a second entry stored beside the first, a second file under its own
-  name, `SITE_QRS.prices` in the page, the old binding still serving the
-  old code. What the three declines cost: 0 credits and four hours, and
-  they bought the address line, the page labels and the kept replies.
-- **Sweep: 19 mutants, 19 killed, the comment-only control survived, none
-  unapplied** — each a fix cut back to a failure (the cap, the run order, the
-  stored parts dropped, a page added twice, the home route reading as none,
-  a required kind, a silent missing rule part, unnumbered bands, a truncation
-  read as an answer, "already" off the look alone, a photo hop dropping the
-  page beside it, one bill of three, the kit parts never reaching the page
-  call, the sideways hop falling to the revise, the item unbound in the eval
-  scope, `payment` gone from the shared shape). **The guards that read the
-  table item's text out of worker.js went red on the lift — thirteen files,
-  every one anchored on the item living in the tool** — and each was
-  re-anchored on the property (the item where it lives, plus the `items:
-  TABLE_ITEM` binding asserted beside it), never appeased.
-  **The section→component reframe's own sweep: 6 mutants, 6 killed, control
-  survived — one after a guard was added for it.** The harness's component
-  check cut to "words landed = true" survived, because the guard drove the
-  check only against an unchanged site, where `changed: []` fails it for
-  another reason: the recorded "a guard proves the branch it drives" shape.
-  It is driven now with a reply that claims the change on a moved build and
-  no new words on the page, which is the lie the check exists to catch.
-  **The two rules' sweep: 8 mutants, 8 killed, control survived** — the rule
-  dropped from either hop, the kind cap back to three, a left-out entry
-  vanishing, a page added twice in one answer, a list kind answering one
-  thing, the page cap outrunning the page writer's, the route dropping the
-  left-out entries from the reply.
+**Nine kinds, and ORDER IS RUN ORDER** — a table before the function that reads
+it, both before the job that runs it, all before the page that shows them.
+`ADD_KINDS`, `OWN_ADDS`, `DISPATCHED_ADDS`, `BACKEND_ADDS`, `addLayer` —
+**derive, don't trust**.
 
-- **THE BACKEND IS THE ADDON'S, AND A SITE GETS ITS DATABASE ON FIRST TOUCH
-  (owner, 2026-09-03: *"the build step doesnt have backend so its gonna be on
-  the addon step if needed … if customer touches it then neon db is
-  created"*).** A first build sends none of the four backend tiers, so every
-  function a page calls, every outside service a page reads live and every
-  job that runs on a timer is added HERE. Three more kinds beside `table` —
-  `function` · `api` · `job` (`BACKEND_ADDS`), each the build's own item shape
-  (`FUNCTION_ITEM`, `API_ITEM`, `JOB_ITEM`, lifted into `builder/site-table.mjs`
-  beside the table's and bound in `design_schema` by identity — seven guards
-  that read those items' text out of worker.js went red on the lift and were
-  re-anchored on the item where it lives plus the `items: X_ITEM` binding,
-  never appeased) in this step's framing, a four-part rule each, lists capped
-  at 6 / 4 / 4 (the engine keeps eight of each tier). **The first of any of
-  the four designed for a site with no database MAKES the database**, through
-  the build route's own `ensureSiteBackend` (the slug's project, claimed
-  atomically, auth and the Data API on, idempotent on a retry), gated under a
-  job, before the schema is applied; a failed provision is a named 502 that
-  is `ours`, nothing charged, nothing changed, stage and scrubbed detail on
-  the wire. **The two `no-database` refusals are gone.** `backendDesigned`
-  (site-add.mjs, driven) decides "this change touches the database"; then
-  `mergeAddonSchema` → `normalizeSchema` → `applySiteSchema` add what is new
-  and leave what is there, a function is `CREATE OR REPLACE`d, the jobs are
-  registered by `persistSiteJobs`, and the reply says what the engine really
-  MADE: `functions` (only those that created — `made.functions`),
-  `apis`, `jobs`, `functionErrors` by name, `needsSecrets` (every
-  `{{SECRET}}` a new connection wants under Cloud → Secrets), `provisioned`;
-  `addonReplyText` says each ("scheduled remind_tomorrow (every day)",
-  "Your site has its own database now.").
-  **Three hops that were not obvious, each a sweep target:**
-  (1) **each kind is its own call, so the job designer must be TOLD the
-  function the function designer just declared** — the route appends designed
-  functions to `aSite.functions` (internal ones to `aSite.jobFns`, the only
-  kind the engine lets a job run) as they are cleaned, `siteNote` prints "The
-  functions a scheduled job may run are: …", and `cleanAdd("job")` admits a
-  job only against `jobFns`; without it every "remind them the day before"
-  designed the builder and then refused the job for naming a function the
-  site did not have. (2) **a job on a STORED internal function is re-attached
-  after `normalizeSchema`**, which keeps a job only when its function is
-  declared in the same spec — right for a build, a silent drop here, where a
-  stored function has no body to re-send (re-sending one would `CREATE OR
-  REPLACE` the live function with nothing). (3) **the function designer is
-  shown each table WITH its columns** (`aSite.columns`, "name type"): a `sql`
-  body is parsed at CREATE, so a guessed column is a function that does not
-  exist. **A job, or an internal function alone, changes no page**
-  (`pageless`, driven): the route bills the small calls through the ONE charge
-  closure (`aCharge`, shared with the page path — the reserve under a job, the
-  collect otherwise) and answers in the page path's shape with nothing added,
-  changed or moved, no page call, no compile. The intent router is told the
-  backend is an addition; the harness has a case per kind (`function`, `api`,
-  `job`, judged off the reply's own evidence by `blindBackend` because a
-  database leaves no mark on the page; the `job` case is `pageless` and the
-  runner does not wait for the edge on it); the workflow lists nine cases.
-  **Sweep: 54 mutants, 53 killed in the sweep's six files, the comment-only
-  control survived, none unapplied** — the one survivor (`design_schema`
-  binding `{ ...API_ITEM }` instead of the item) is killed by
-  `test/site-apis.test.mjs`'s binding guard, which sits outside that set, and
-  a copy is byte-identical on the wire either way. Full suite 4,889 green.
-  The replies as the customer reads them: `docs/edits/addon-backend-replies.png`.
-  **Not proven live**: the
-  three new kinds can be proven on fretwork-1 (~12–15 credits each for the
-  two that publish, ~2 for the job, owner's call); the provision needs a
-  frontend-only site on the allowlist.
+| kind | makes | cap |
+|---|---|---|
+| `table` · `function` · `api` · `job` | `BACKEND_ADDS` — the four that touch the database | 6 · 6 · 4 · 4 |
+| `page` | a new page | 6 |
+| `component` | a section / form / map / FAQ | 12 |
+| `qr` | a QR code | 6 per site |
+| `three` | a 3D/WebGL element | 1 per site (`SINGLE_FIELDS`) |
+| `photo` | **the only one that leaves** — dispatches to the `picture` rung | — |
 
-- **JOBS, DESIGNED FIRST (owner, 2026-09-03: *"lets design it first then at
-  the end you can push all you want"* → *"ok do jobs"* → *"go"*; delete
-  stays on the edit path).** Four decisions, three built, the fourth falls
-  out of the second. (1) **The runner sends now** — the backlog entry above.
-  (2) **A clock time.** `everyMinutes` alone made "every day at nine" into
-  "every 1440 minutes from whenever it was added". `JOB_ITEM` gains an
-  optional `at` ("HH:MM", the site's local time) for a daily-or-slower job;
-  the zone is NOT the model's — the browser sends its IANA zone with the
-  addon POST (`tz`), the route reads it through `validTimeZone` (asked of
-  Intl, never a list) and stamps it on each cleaned job that carries `at`;
-  `normalizeJob` keeps both (and drops `at` off a sub-daily job, which
-  `cleanAdd` refuses first by name, `bad-time`); `persistSiteJobs` writes
-  them into the row's `spec`; `dueJobs` runs a clock-time job once its
-  latest occurrence (`lastDueAt`, computed from Intl's own view of the
-  zone) is behind now AND after the last run — **or after the job was
-  REGISTERED for one that has never run**, which is why the cron's select
-  carries `updated_at`: a daily 09:00 added at three in the afternoon waits
-  for the morning instead of firing on the next tick, and the interval
-  still applies on top so a weekly 09:00 waits the week. Absent zone reads
-  as UTC. `jobEvery` (site-add) and `jobWords` (chat.js) both say "every
-  day at 09:00 (Europe/London)", the zone only when it is not the
-  browser's own. (3) **Run now.** `POST /api/site/<slug>/jobs {name, run:
-  true}` — owner-scoped, the SAME `jobDeps` under `force` (the stamp lands
-  without the dueness clause: the press is the decision), `recordJobOutcome`
-  writes where the panel reads, the sentence comes back and the panel toasts
-  it; a `Run now` button beside the On/Paused switch. It sends for real, on
-  the owner's own key. (4) The first-run timing was the interval-only
-  shape; with `at` it is gone. Guards driven in `test/site-jobs.test.mjs`
-  (`lastDueAt` across London/New York/Tokyo/UTC and the winter offset,
-  `dueJobs` clock-time cases, the three connection reads, the shared deps,
-  the run-now route, the panel) and `test/site-add.test.mjs` (the `AT_RE`
-  twin, `bad-time`, the fold with the zone, `jobEvery`, the route's stamp).
-  **Sweep: 29 mutants, 29 killed, none survived, none unapplied, the
-  comment-only control survived.** Full suite 4,895 green after two guards
-  were re-anchored for the change, both the recorded traps: a 6,400-byte
-  window on the jobs panel (`site-jobs-visible`) that the Run now handler
-  pushed the toggle's reload out of, and the runner window in `site-notify`
-  ending at the next top-level declaration — which became `jobDeps`, where
-  the deps now live. The panel as the owner sees it:
-  `docs/edits/jobs-panel-run-now.png`. **Not proven live**: the fix and
-  the button need the deploy; a real send needs a mail key in a site's
-  Secrets, which none of the owner's sites has pasted.
+`MAX_ADDS` is 9 (a message may name every kind it asks for); six answer LISTS
+(`LIST_ADDS`). **No low limits while testing** (owner) — every list rule says "as
+many as they asked for, and not one more".
 
-- **THE BACKEND SERVICES ROUND (owner, 2026-09-03: *"ok add those"*, after
-  the 24-item capability list).** Five asks; four built, one found already
-  there. Every one is a platform piece — a credential or a network call or
-  a file the model cannot hold — so none of it is a model step.
-  (1) **CSV import.** `site-csv.mjs` (dependency-free: RFC 4180 with `""`,
-  quoted line breaks, CRLF/CR, a BOM, Excel's `;` and tabs sniffed off the
-  header line; a cell read AS ITS COLUMN — empty is NULL, `3/9/2026` is
-  day-first, `yes/no` is boolean, json re-serialised the way `pickWritable`
-  stores it; headers matched to columns case- and space-insensitively) and
-  `handleOwnerImport` in `site-owner.mjs`: the same door as the one-row POST
-  — the site's own table, declared-not-managed columns, **never a
-  member-written table (409)** — a hundred rows an INSERT, **a batch
-  Postgres refuses retried a row at a time so the bad line names itself**
-  ("line 14: price is required") and the other ninety-nine go in; an outage
-  stops it where it is and the reply says so (`stopped`), because the rows
-  before it are in. Not a transaction, deliberately. `POST
-  /api/site/<slug>/rows/<table>/import` (its own matcher `im`, in the one
-  list; `text/csv` body, 2 MB, refused on `content-length` first); the Data
-  panel's **Import CSV** beside **+ Add**, gated exactly as it is
-  (`docs/edits/data-panel-import.png`), the reply read back as one sentence
-  (`importWords`). No upsert: a file that both adds and edits needs a key
-  column nobody has chosen.
-  (2) **One submission, once.** `site-idem.mjs`: the kit's `useCreateRow`
-  and `useCheckout` send an `Idempotency-Key` (a UUID minted per component
-  and **renewed only after a success** — a refusal retried with the field
-  fixed keeps the key, and a refusal is never remembered, so the corrected
-  one reaches Postgres); the data proxy reads it AFTER the spam gate and
-  BEFORE the upstream write, answers a repeat with the stored 2xx for ten
-  minutes (`x-idempotent-replay: 1`), scoped by site and table; checkout
-  the same, cloning the reply. ONE store at module scope (`SITE_IDEM` —
-  per request it would forget the first press before the second arrived)
-  with an in-isolate map that catches the double-click, and
-  `SITE_API_CACHE` KV across isolates, eventually consistent: two presses
-  seconds apart on DIFFERENT isolates can both reach Postgres, which is
-  named in the module rather than papered over (`unique` and `noOverlap`
-  still refuse the copy by name).
-  (3) **A job that DOES something.** A function may answer `{"did": "cleared
-  12 expired holds"}` — a string, its own words, never a number read as
-  "rows" — and `runJob` reports it (`did`), `jobOutcome` says "Done — …";
-  read after `jobsSkip` (ours) and before the messages, so a list stays
-  messages. Before this a housekeeping run read as "returned not a list":
-  broken SQL, said of SQL that had just worked. The function and job kinds
-  teach the shape and name clearing out old rows; the router knows clearing
-  out is a timer job.
-  (4) **Reset and verification.** Neon's docs, read rather than guessed: a
-  password reset is a LINK the shared provider sends; verification on the
-  shared provider is a CODE (the email-OTP plugin). `useRequestReset` now
-  sends `redirectTo` = this page's origin+pathname (never `href`: a stale
-  `?token=` would ride along), `resetToken()` reads `?token=` off the URL,
-  `useResetPassword` → `{ newPassword }` posts `reset-password`;
-  `useSendVerification` → `email-otp/send-verification-otp` with `type:
-  "email-verification"`, `useVerifyEmail` → `email-otp/verify-email` and
-  refetches `member.verified`. A 404 on the send says "email codes are not
-  switched on for this site" — **whether Neon's managed deployment has the
-  plugin on is NOT proven**; the free member smoke drives all three (a
-  made-up token and a wrong code must be refused, a send must not 5xx).
-  The page rules teach the four names and that the reset lands on the page
-  that asked, never a page of its own.
-  (5) **Inbound webhook signature — already there.** `site-inbound.mjs`
-  `authorize`: a header secret or an HMAC over the raw body, fail-closed
-  404, no replay guard (sender-specific). The function kind's hint now says
-  the platform checks the sender's signature, so the designer does not
-  write one.
-  Sweep: **46 mutants, 46 killed, control survived** — two survived the
-  first pass and both were the tests' fault: the managed-column filter was
-  inert against a fixture that declared no managed column (a spec can),
-  and the per-row retry's outage stop was never driven (the batch-level one
-  was); one never applied until its anchor was re-spelled (`—` in the
-  source, a dash in the sweep). `test/site-csv`, `site-import`, `site-idem`,
-  `member-reset`, and the jobs suite. Every endpoint contract is Better
-  Auth's documented one, read this session. Deployed 19:44Z (run 2011).
-  **ONE SUBMISSION, ONCE IS PROVEN LIVE, BOTH HALVES, FOR 0 CREDITS**: two
-  POSTs with one key to fretwork-1's `bookings` (19:59Z) — the first 201,
-  the second 201 with `x-idempotent-replay: 1` and an identical body, the
-  row written once; and run 30's republish put the new kit on the site, so
-  its bundle carries `Idempotency-Key` now. The import, the reset and the
-  code are not proven live (the owner's token, an inbox).
-- **A SECOND ONE (owner, 2026-09-04, answering run 35: *"add a second
-  one"*).** An ask for a section the site already has ADDS a second one,
-  after the first, and the first is left exactly as it is. Three hops.
-  (1) **The rule rides BOTH hops** beside the design rule: `ADD_DESIGN_RULE`
-  gained "AN ADDITION IS ALWAYS A NEW THING … in ADDITION to it, after it,
-  as a second one … left exactly as it is: not reworded, not restyled, not
-  merged into the new one, not replaced"; the `component` kind's hint,
-  `keep` and `addDirective` line say a like section is a SECOND one placed
-  after the first, byte-identical. (2) **THE WALL, in the addon route**,
-  after the merge's escalate and BEFORE the job gate and the bill: every
-  page the addition CHANGED (an existing page — one it added has no before)
-  must still say every word it said. `keptProse(before, after)` in
-  `site-tweak.mjs` is the SUBSET of `sameProse` over `extractText`'s reading
-  (calibrated at 0 false alarms over 1,640 real tweaks), counted as a
-  multiset, so a quote carried twice and returned once is lost. A page that
-  lost words is refused 422 `rewrote`, **cost 0**, `lost` on the wire,
-  `rewroteMsg` naming the page and up to two of the words ("I couldn't add
-  that without changing what's already on the home page — it would have
-  lost “…” and “…”. Nothing was published. Ask again and I'll add it as a
-  new section and leave the rest exactly as it is."), `aMark("kept")` in
-  the trace. A refusal, not a climb, and not a correction round yet —
-  measure how often the model does it first. (3) **The harness's
-  `component` check reads what was LOST** as well as what was added
-  (`lostSentences`: a sentence of 25+ characters the page said must still
-  be on it), and its ask stays the testimonials one, which on fretwork-1
-  now proves the decision — a second band with new quotes, the first three
-  intact. **A false-alarm risk, named**: segments compare as they are, so a
-  writer that retypes a sentence with a changed full stop loses it; the
-  tweak rung measured 0 in 1,640 under the same reading, and the failure
-  mode is a free refusal with the words named. Guards:
-  `test/add-second-one.test.mjs` (keptProse driven with run 22's quotes
-  against run 35's rewrite and against a second band; the rule on both hops
-  and the kind's wording; `rewroteMsg`; the wall's placement, inputs,
-  refusal, and the browser's `msg` path), `test/addon-sweep.test.mjs` (run
-  35's shape refused, a second band accepted, `lostSentences` driven).
-  **Sweep: 20 mutants, 20 killed, none unapplied, the comment-only control
-  survived** — the rule sentence dropped or letting the first change, the
-  hint reading a like section as an edit, the keep answering nothing, the
-  directive's second-one line dropped, keptProse always ok / ignoring
-  counts / demanding equality / reading only the after, the wall dropped /
-  reading the added pages / charging / without the sentence / without the
-  trace / comparing the new page with itself, the sentence without the
-  page or the words, the harness ignoring a loss / never finding one /
-  not naming it. **PROVEN LIVE by run 36** (in git).
+- **A SECTION IS A COMPONENT** (owner: *"section is just adding a new component,
+  so its a tsx step"*). The kind NAMES the component — a kit part by name, or one
+  written for this site (`TSX_ITEM`) — and where on which page. An answer naming
+  neither is refused `no-component`: a band the page writer would have to invent
+  is the reading the owner corrected.
+- **One tool per kind, one property, nothing required** — the wall, not the rule:
+  a `component` tool cannot re-theme the site because there is nowhere to put the
+  answer. A four-part rule per kind (`is` · `yours` · `wide` · `keep`),
+  `composeRule` refusing a missing part.
+- **THE UNIVERSAL RULE** (owner: *"anytime something new is added it needs to keep
+  the design system"*). `ADD_DESIGN_RULE`, ONE string sent to BOTH models that
+  have to hold it — `ADD_SYSTEM` and the fold's directive — and the guard asserts
+  both hops carry the same sentence, because either alone is half a rule.
+- **AN ADDITION IS ALWAYS A NEW THING.** An ask for a section the site already
+  has ADDS a second one, after the first, and the first is left exactly as it is.
+  **THE WALL, not the rule**: every page the addition CHANGED must still say every
+  word it said. `keptProse` is the SUBSET of `sameProse` counted as a MULTISET, so
+  a quote carried twice and returned once is lost. A page that lost words is
+  refused 422 `rewrote`, **cost 0**, with up to two of the lost words named.
+- **AND A SECOND ONE COPIES THE FIRST'S DESIGN** — same component, same wrapper,
+  same layout; only the words are new, and **the one that was there first is the
+  one to copy**. A rule to name the first one's component is empty without the
+  FACT, so `pageComponents(sources)` reads each stored page's imports and
+  `siteNote` prints "/ is built from: SiteChrome, TestimonialGrid, …".
+- **Refusals are sentences, never climbs** (`addRefusal`, `alreadyReply`): a code
+  or scene the site already carries (read from the stored look OR the page source
+  — `ADD_ONLY_FIELDS` and `ADD_EVIDENCE`, the same two lists, so the two doors
+  never bounce a customer between them), a page it has, a code with no
+  destination, a section on a many-page site naming no page. Only a picker that
+  names nothing escalates to the revise. **A photo beside another kind is set
+  aside and SAID** — the hop carries one sentence to one rung.
+- **THE SITE'S OWN ADDRESS AND ITS PAGE LABELS ARE IN THE NOTE.** A QR "that opens
+  the booking page" has no destination unless the designer is told the address
+  (`publicUrlFor`) and what each page is CALLED (`pageLabels`, read from each
+  page's `<h1>`) — three live declines cost 0 credits and bought exactly those
+  two facts. `cleanAdd` resolves a bare route against that address, refusing
+  `no-such-page` and `no-address` rather than guessing an origin.
+- **EVERY DESIGNER'S RAW REPLY IS KEPT** at `source/<slug>/addon-answer.json`,
+  written the moment the add loop ends and BEFORE a decline can return, readable
+  through `GET /api/site/answer?slug=&kind=addon`. Three live declines had been
+  diagnosed from a boolean.
+- **THE FOLD IS THE HOP THE OLD ROUTE NEVER HAD**: the page call gets a directive
+  for the addition (file, route, LAYOUT, numbered bands, kit parts, where it links
+  from) plus the union of kit parts through `plan.components`. **`tsx` is APPENDED
+  by name** — the old `mergeLook` REPLACED it, so a new part on a site that had
+  one forgot the first on its next revise.
+- **The browser hops SIDEWAYS** on an escalate naming an edit layer, instead of
+  falling to the ~25-credit revise.
+- **On the wire**: 1,936 picker + 1,299 (`three`) / 1,570 (`qr`) / 20,045
+  (`table`) / ~35,000 (`page`, `section`) against 93,852. Every prompt is a
+  PLACEHOLDER and marked so.
 
-- **A SECOND ONE COPIES THE FIRST'S DESIGN (#82; owner, 2026-09-04: *"Yes,
-  new components should copy existing design"*).** Run 36's second band was
-  stacked full-width cards under a first band of three across — the words
-  landed, every sentence stayed, the wall passed it, and the page carried
-  two designs of one thing. Three hops, none of which existed.
-  (1) **The rule, on both models.** `ADD_DESIGN_RULE` gained "AND A SECOND
-  ONE IS BUILT THE WAY THE FIRST IS BUILT … the same component — the kit
-  part it calls, or the part written for this site — called the same way,
-  in the same wrapper, with the same layout … Only the words are new … the
-  one that was there first is the one to copy", riding `ADD_SYSTEM` and
-  heading the fold's directive as the rest of the rule does; the `component`
-  kind's hint and `keep` say a like section is a second one BUILT FROM THE
-  SAME COMPONENT the first is built from, and the page writer's component
-  line says the same wrapper and the same layout classes, "not a different
-  component that shows the same kind of thing".
-  (2) **The FACT the designer needs.** A rule to name the first one's
-  component is empty when the designer has never been told what the page is
-  built from. `pageComponents(sources)` (site-add.mjs) reads each stored
-  page's imports — `@/components/ui/*` is the kit, `@/routes/-parts/*` the
-  site's own parts, an alias read as the kit's name, `@/lib/*` not a
-  component — keyed by route; the addon route hands it in as
-  `aSite.builtFrom`, and `siteNote` prints "/ is built from: SiteChrome,
-  TestimonialGrid, …; and its own parts ChordDiagram. A second one of
-  something it already has is built from the same component as the first."
-  per page, and nothing for a page that imports nothing.
-  (3) **The harness reads the served page's STRUCTURE, never its words**
-  (`scripts/addon-sweep.mjs`). `skeletonOf` is the tag tree with each
-  element's `data-slot` and its LAYOUT classes only — grid, columns, flex,
-  gap, space, widths; never colour, type or radius, which the design system
-  holds constant — a run of identical siblings collapsed to one, so a grid
-  of three and a grid of four read the same and a grid and a stack do not;
-  an `<svg>` is a leaf. `sectionsOf` is the top-level `<section>`s (a nested
-  one stays inside its parent), `newSections` what the page gained by its
-  words, and `builtLike(before, after, like)` finds the FIRST section of the
-  kind (`TESTIMONIALS_LIKE`, the kit's `testimonial-grid` slot) and fails a
-  new section built differently, naming both skeletons. The `component`
-  case's verdict carries it beside the words and the loss: "built the way
-  the first one is", or "BUILT DIFFERENTLY from the band it should copy —
-  new “…” is section(div{max-w-6xl space-y-6}(div[card]…)) where the first
-  is section(div{max-w-6xl}(div[testimonial-grid]{gap-4 grid lg:grid-cols-3
-  sm:grid-cols-2}(div[card]…)))" — run 36's page, as the fixture, fails it.
-  **The fixtures are the served page**: `test/fixtures/testimonial-bands.mjs`
-  holds both bands as fretwork-1 serves them (read through a local mirror),
-  ONE copy for `test/copy-design.test.mjs` and `test/addon-sweep.test.mjs`.
-  The older component-case guard held a snapshot with no `html` at all (the
-  harness's carries one) and a quote typed `“First…` where the served page
-  is `“<!-- -->First…` — React's SSR marker between two text nodes, a space
-  once stripped — and went red for the change; it reads `text` off `html`
-  through the harness's own `strip` (exported for it) and the lost sentence
-  off `lostSentences` itself now. Guards: `test/copy-design.test.mjs` — the
-  rule on both hops, the directive, `pageComponents` driven, the note and
-  the worker hop, the structure reader driven with run 36's bands, the
-  component case. **Sweep: 33 mutants, 33 killed, none unapplied, the
-  comment-only control survived — four survived the first pass, every one a
-  property the guard described and did not drive** (the recorded "a guard
-  proves the branch it drives"): the `<svg>` leaf (an added icon read as a
-  difference either way; two icons differing only inside now read the same),
-  the model being the FIRST like section (a reader taking the LAST would
-  take the new band as its own model and pass everything — a two-across
-  grid beside a three-across one drives it), every new section judged (a
-  copy followed by a stack), and the first-of-its-kind answer's `ok` (its
-  note alone was read). The rest: the rule sentence dropped, copying the
-  newest, letting the layout differ, the hint and the keep without the
-  component, the directive's copy line dropped or allowing another
-  component, parts read as kit, an alias read as its local name, `@/lib`
-  read as a component, a page with no imports guessed, keyed by file, the
-  note line dropped or without parts or without the sentence or printed for
-  an empty page, the route handing `{}`, the reader always agreeing or
-  agreeing on nothing, layout or slot ignored, items counted, no new section
-  passing, `newSections` empty, the note unnamed, the case ignoring the
-  verdict or its note, the kind matched by any section, a nested section
-  read twice. Full suite 5,018 green. **PROVEN LIVE by run 37** (in git).
+**THE BACKEND IS THE ADDON'S** (owner: *"the build step doesnt have backend so
+its gonna be on the addon step … if customer touches it then neon db is
+created"*). **The first of any of the four tiers designed for a site with no
+database MAKES the database**, through the build route's own `ensureSiteBackend`
+— claimed atomically, idempotent on a retry, gated under a job, before the schema
+is applied. A failed provision is a named 502 that is `ours`: nothing charged,
+nothing changed. Three hops that were not obvious:
+
+1. **each kind is its own call, so the job designer must be TOLD the function the
+   function designer just declared** — designed functions are appended to
+   `aSite.functions` (internal ones to `aSite.jobFns`, the only kind a job may
+   run) as they are cleaned, and `cleanAdd("job")` admits a job only against
+   `jobFns`. Without it every "remind them the day before" designed the builder
+   and then refused the job for naming a function the site did not have.
+2. **a job on a STORED internal function is re-attached after `normalizeSchema`**,
+   which keeps a job only when its function is declared in the same spec — right
+   for a build, a silent drop here, where re-sending a stored function would
+   `CREATE OR REPLACE` the live one with nothing.
+3. **the function designer is shown each table WITH its columns** — a `sql` body
+   is parsed at CREATE, so a guessed column is a function that does not exist.
+
+**A job, or an internal function alone, changes no page** (`pageless`): billed
+through the ONE charge closure, answered in the page path's shape with nothing
+added, changed or moved, no page call, no compile.
+
+**JOBS**: `JOB_ITEM` carries an optional `at` ("HH:MM", the site's local time)
+for a daily-or-slower job — `everyMinutes` alone made "every day at nine" into
+"every 1440 minutes from whenever it was added". **The zone is NOT the model's**:
+the browser sends its IANA zone with the POST, read through `validTimeZone`
+(asked of Intl, never a list). `dueJobs` runs a clock-time job once its latest
+occurrence is behind now AND after the last run — **or after the job was
+REGISTERED for one that has never run**, so a daily 09:00 added at three in the
+afternoon waits for the morning. **Run now**: `POST /api/site/<slug>/jobs {name,
+run: true}`, owner-scoped, the SAME `jobDeps` under `force` — the press is the
+decision. A function may answer `{"did": "cleared 12 expired holds"}` — **its own
+words, never a number read as "rows"** — reported after `jobsSkip` and before the
+messages, so a list stays messages.
+
+**THE PLATFORM-SIDE SERVICES** (each needs a credential AND a network call, so
+none is a model step): **CSV import** (`site-csv.mjs`, RFC 4180 with quoted line
+breaks, BOM, Excel's `;`, a cell read AS ITS COLUMN; a hundred rows an INSERT, a
+batch Postgres refuses **retried a row at a time so the bad line names itself**,
+an outage stopping it where it is and saying so — **not a transaction,
+deliberately**; **never a member-written table**); **one submission, once**
+(`site-idem.mjs`: an `Idempotency-Key` renewed only after a SUCCESS, so a refusal
+retried with the field fixed keeps the key; ONE store at module scope plus KV
+across isolates, **eventually consistent — two presses on different isolates can
+both reach Postgres, named rather than papered over**); **member reset and
+verification** (a LINK for reset, a CODE for verification — Neon's docs, read
+rather than guessed; a 404 on send says email codes are not switched on);
+**inbound webhook signatures** (already there — `authorize`, fail-closed 404, no
+replay guard).
+
 
 ### THE TABLES STEP SAYS WHAT IT COULD NOT COVER (2026-09-13)
 
-Owner, after the read-only audit of this step: *"Improve the design
-instructions… Give the picker and Tables designer relevant existing-site
-context… Implement structured requirement coverage, not just free-text notes…
+Owner: *"Implement structured requirement coverage, not just free-text notes…
 Keep this metadata separate from database definitions… Make unresolved
 requirements affect completion reporting… Validate model-authored properties
 before applying changes."*
 
-**THE AUDIT THAT PROMPTED IT INVERTED ITS OWN PREMISE, and that number decides
-what this change is.** `normalizeSchema` keeps **51** table keys and
-`TABLE_ITEM` offers **27**, so 24 are never offered — and **18 of those 24 do
-nothing at all.** Six do real work (`trash`, `slug`, `writeRoles` fully;
-`ordered` on insert only; `audit` and `history` writing correctly to tables
-nothing can read), and of 9 unverified COLUMN properties **two** do
-(`unique`, `default`). So the tool is not hiding 24 capabilities; it is hiding
-**6** and carrying 18 names that read as capability in `_meta` and cost nothing
-to remove. **Nothing is exposed and nothing is removed in this change**, by the
-owner's instruction: verify behaviour through the real application path first,
-and establish compatibility with saved configurations before removing anything
-parsed.
+**THE AUDIT THAT PROMPTED IT INVERTED ITS OWN PREMISE.** `normalizeSchema` keeps
+**51** table keys and `TABLE_ITEM` offers **27**, so 24 are never offered — and
+**18 of those 24 do nothing at all**. Six do real work (`trash`, `slug`,
+`writeRoles` fully; `ordered` on insert only; `audit` and `history` writing
+correctly to tables nothing can read), and of 9 unverified COLUMN properties
+**two** do (`unique`, `default`). The tool is not hiding 24 capabilities; it is
+hiding **6** and carrying 18 names that read as capability and cost nothing to
+remove. **Nothing is exposed and nothing is removed**, by the owner's
+instruction: verify through the real application path first.
 
-**THE METADATA RIDES BESIDE THE DESIGN, NEVER INSIDE IT, and that is what made
-it possible at all.** `builder/site-requirements.mjs` (dependency-free) owns
-`REQUIREMENT_ITEM` — `need` · `status` (`covered` | `elsewhere` |
-`unsupported`) · `by` | `step` | `why` — and it is a SIBLING of the kind on the
-add tool. Inside `TABLE_ITEM` it would reach `design_schema`, which binds that
-item by identity: it would enlarge the build's 93,598-character tool and become
-a promise `declarable-enforced.test.mjs` requires the schema ENGINE to keep. It
-is neither — no DDL, nothing in `_meta` — **driven rather than reasoned**:
-`normalizeSchema` handed one on a table keeps nothing.
-
-**AND THAT IS WHY `readAddAnswer` HAD TO CHANGE SHAPE.** It returned
-`use.input[kind]` and nothing else, so any sibling the model wrote was dropped
-**one hop after it was written** — the tool correct, the model correct, every
-later step correct, the value gone. The repo's most-repeated defect, met head on:
-the reader answers `{ value, requirements, skipped }` now and every consumer
-moved with it.
-
-**THE EIGHT HOPS, AND TWO OF THEM ARE THE SHAPES IT EXISTS FOR.** The list is
-collected **above** the decline check, the cleaner's refusal and the truncation
-check, so it survives an answer that designed nothing and an entry the cleaner
-skipped — precisely when the reason is the only thing worth reading.
-`foldAdds` reads it off **all** the answers rather than the folded ones, because
-the fold drops an answer with no `value`. Every exit carries it, the two
-failures included; it is stored in the developer record beside the raw replies
-(run 28's file) and left as **counts only** on the trace, because `tr.at` keeps
-finite numbers and the needs are the customer's own words.
-
-**WHAT THE CUSTOMER HEARS, AND WHAT THEY DO NOT.** `requirementNote` says only
-what is outstanding **after the whole change ran** — `ran` is the kinds that
-really produced work, so a requirement handed to the page step is covered when
-that step ran and outstanding when a job-only addition changed no page. An
-invalid property is said as *"a guarantee it doesn't offer"* **without its
-name**: `encryptAtRest` is no use to anybody, and the count is what they can act
-on. The names, the counts, the unreadable entries and the hand-off map go to
-`source/<slug>/addon-answer.json`.
-
-**THE INSTRUCTIONS, AND ONE DELIBERATE REVERSAL.** The rule asked for "the
-tables this change needs", which is the ANSWER; it asks for the **data,
-relationships, permissions and rules** first. And the ceiling moved off a COUNT
-— *"as many tables as the things they NAMED, and not one more"* — onto the
-**smallest COMPLETE data model**, because the count refuses the supporting table
-a feature cannot work without: bookings pointing at a slot nothing defines. The
-wall is not weaker: a table they did not name must fill in `because` with what
-breaks without it. **The old count rule is asserted GONE, not merely
-outnumbered** — both at once is a contradiction the model resolves by picking
-one, and which one is not something this repository can observe.
-
-**THE PICKER WAS 402 CHARACTERS AND THE CUSTOMER'S SENTENCE.** No site, and no
-word connecting a feature to its storage — so *"add a login page"* had nothing
-to route on, which is the shape the owner's original question found. It gets the
-same note the designers read now (so both halves of the step see one description
-of the site rather than two that can disagree), and the instruction to read what
-an ask **needs** rather than only what it names: signing in, accounts, members,
-saved items, anything "my" or "their". **The live behavioural half is unproven**
-— whether a real model now picks `table` for that sentence needs a paid call.
-
-**THE SITE NOTE CARRIES PERMISSIONS, RELATIONSHIPS AND CONSTRAINTS.**
-`tableFacts` words it once, and **the guarantee names are derived from
-`TABLE_ITEM`** so a guarantee the tool does not offer is never named to a
-designer that could not ask for it, and a property added there appears by
-existing. Columns alone could not stop a designer writing a second table for
-rows one already holds privately, or inventing a parent one already points at.
-
-**VALIDATION BEFORE ANYTHING IS APPLIED, OVER THE MODEL'S OWN TABLES** — never
-the folded spec and never the normaliser's output, which is the difference
-between feedback somebody can act on and a derived field. `droppedFields` and
-`refusedFields` are **reused rather than a third list**: a property is reported
-only when removing it changes nothing the engine keeps, so **every documented
-alias survives by construction** (six are driven as the control —
-`softDelete`→`trash`, `optimisticLock`→`version`, `revisions`→`history`, …).
-
-**TWO UNCERTAINTIES RESOLVED BY READING THE CODE, AND ONE OF THEM WAS NOT A
-CONFLICT AT ALL.** (1) `enforceRefs` **is** enforced — `site-schema.mjs:1379`,
-BEFORE INSERT and BEFORE UPDATE OF triggers per ref column raising
-`'missing parent'`, a NULL reference allowed. There is no FK DDL anywhere
-(`:1044`, deliberate, about `owner_id` → Neon's own schema), so both earlier
-findings are true and about different mechanisms; `test/integration/neon-e2e.mjs:252`
-is the live proof and **was not run here**. (2) **No emitted grant is
-column-scoped** — driven over all sixteen read/write cells plus the five presets
-— so the managed-column rule (`pinned`, `position`, `archived_at`) is enforced
-on OUR routes and by nothing in the SQL. **That a member can therefore PATCH one
-through PostgREST is INFERENCE and is left open**: RLS is a second gate and
-settling it needs a live project.
-
-**Guards**: `test/requirement-coverage.test.mjs` (21) and
-`test/schema-uncertainties.test.mjs` (3), with the acceptance case driven — the
-reproduced omitted requirement (*"see the history of what changed"*, 0 mentions
-in the tool, live in the engine, invisible to both diagnostics) now reaches the
-customer's sentence with its reason. **Eight older assertions in
-`site-add.test.mjs` were re-anchored on their property, not appeased**, each
-naming the spelling that moved. `builder/site-requirements.mjs` joined the
-Dockerfile's COPY line — the import census caught it, and `container-images`
-then refused it a second time because it asks git for the **committed** tree.
-
-**DELETE deferred** (owner's call).
-
-#### What the verification round proved, and the two things it could not
-
-Owner: *"Run the required container verification against the exact updated
-commit and rebuilt image… Run a small set of real addon requests… Keep
-production unchanged during this verification."*
-
-**THE LAST TWO SENTENCES CANNOT BOTH HOLD, and naming that is the finding.** The
-addon route runs in the **deployed** Worker; this change is on
-`claude/help-needed-ehlwlj` and `main` is still `7c467b42`. A rebuilt image only
-exists after a merge-triggered deploy, and that deploy IS a production change.
-So *"the exact updated commit"* and *"keep production unchanged"* are reachable
-together; *"and rebuilt image"* and the three live addon requests are not.
-**And the harness's `workflow_dispatch` is 403 for this session's GitHub
-integration** (the recorded 2026-09-03 limitation), so the container run was
-done locally instead — which covers the commit and not the image.
-
-**WHAT WAS PROVED, every number read after its run:**
-- **`site build` 382/382, 0 failed**, run locally against this tree — the same
-  count CI run 1117 printed, so a site still compiles, renders and serves with
-  the coverage module in the graph.
-- **THE IMAGE'S OWN MODULE TREE IMPORTS.** A probe builds a directory from the
-  **Dockerfile's own COPY lines** and imports `worker.js` out of it under the
-  container's real loader (`worker-register.mjs`): **132 files, 9 exports, a
-  default handler**. **Proven red by removing `builder/site-requirements.mjs`
-  from that tree** — `ERR_MODULE_NOT_FOUND` — then green. A census reads the
-  COPY line; this RUNS the resolution, which is what the container does.
-- **THE SHARED CONTRACT IS BYTE-IDENTICAL.** `design_schema` **93,598** bytes,
-  23 properties, 15 required; the first build's tool **64,076**, 22 and 14;
-  system **1,962** — every one exactly the figure recorded above, so the
-  metadata added nothing to the build's tool. None of `covered` / `elsewhere` /
-  `unsupported` / `because` appears in it; the one `requirements` hit is the kit
-  component `entry-requirements`, and `backend` is the alive-observer control.
-- **Suite 6,221 / 6,221. Sweep 43 mutants, 43 killed, 0 survived, 0 never
-  applied, 2 comment-only controls survived.**
-
-**AND READING THE REAL PROMPT FOUND A DEFECT NO GUARD COULD.** Printed back for
-the owner's own three asks before spending anything (run 26's method), the note
-read `… keeps oncePerUser, enforceRefs, unique, sessions (title text) — access
-display` — the table list joined with the guarantee list's own separator, so
-`sessions` is indistinguishable from a fourth guarantee of `bookings`. **Every
-assertion on that sentence was about what it CONTAINS, and the broken sentence
-contained all of it.** One table per line now; a caller with no table facts gets
-the old one-liner byte for byte.
-
-**TWO OF MY OWN PROBES WERE IN A DIFFERENT SHAPE FROM REALITY BEFORE THE CODE
-WAS** — the recorded fixture trap, twice in an hour, and both times the
-committed guard was right. `resolveAccess` reads `t.read`/`t.write` at the TOP
-level (`t.access` is the preset NAME), so a probe passing the pair under
-`access` made all sixteen cells answer as `collect`; and `refs` is derived at
-APPLY time, not by the normaliser, so a probe over `normalizeSchema` output sees
-none. **Confirmed `_meta.schema` really carries them**: `mergedTables = norm`,
-and `norm` is the DDL loop's own push.
-
-**THE MANAGED-COLUMN ANSWER, sharpened from "no column-scoped grant" to the
-whole emitted shape.** On every member-write cell the engine emits
-`GRANT SELECT, INSERT, UPDATE, DELETE ON "<t>" TO authenticated` — table-wide —
-and the UPDATE policy is `USING (owner_id = app_user_id()) WITH CHECK (owner_id
-= app_user_id())` for `write: own`, or `USING (app_user_id() IS NOT NULL)` for
-`write: members`. **The only managed column either clause names is `owner_id`**;
-the other twelve are unconstrained by the SQL. (A first reading counted `id`
-too — `"notes"."owner_id"` CONTAINS it: the substring-observer trap, in a probe.)
-`test/integration/neon-e2e.mjs` now carries the probe that turns the rest into
-measurement; it needs `NEON_API_KEY` and is the owner's to run.
-
-**AND `updated_at` IS NEVER BUMPED — found on the way, named rather than
-fixed.** `site-schema.mjs:1121` creates it as a column DEFAULT whose comment says
-"set on insert, bumped on every UPDATE", and a Postgres default applies only when
-the column is omitted from an INSERT. There is no trigger, no route and no
-statement anywhere that touches a site table's `updated_at` on an update — every
-hit in the tree is a Supabase platform table. **Open, and outside this change** —
-it is a `timestamps`/`sync` defect, not a coverage one.
-
-**AND THE FIRST WRITE-UP OF IT WAS WRONG, CORRECTED HERE RATHER THAN QUIETLY
-DROPPED (2026-09-13).** It said the defect matters because `/changes?sync=`
-"reads `updated_at`", which repeated a CODE COMMENT as though it were a live
-consumer. **`/changes?sync=` occurs exactly once in the whole tree and it is
-inside that comment** (`site-schema.mjs:1187`); there is no such route anywhere.
-The earlier audit that said so was right. **The corrected record is sharper in
-both directions:**
-- **The real live consumer is a GENERATED PAGE.** The kit's `Row` type declares
-  `updated_at?: string` (`lovable/template/src/lib/rows.ts:66`) precisely because
-  models wrote `deal.updated_at ?? deal.created_at` in **two consecutive evals** —
-  its own comment records that. So a site whose page shows "last updated" shows
-  the CREATION time for ever, on every row that has ever been edited, and the
-  page is correct code reading a column the engine never moves.
-- **`sync` has NO READER AT ALL, which is the larger finding.** The flag creates
-  `_deletes` and a tombstone trigger per table (`:1189`, `:1193`) — real DDL, on
-  every site that declares it — and `_deletes` is on `INTERNAL_TABLES` (`:61`),
-  denied to the browser, with no route serving it. Every byte of that machinery
-  is unreachable from outside Postgres. This repository's own most-repeated
-  defect — a value computed and never forwarded — in DDL.
-**The method that settled it is worth more than the finding**: a comment
-describing a consumer is not evidence the consumer exists, and the check is one
-grep for the literal over the whole tree.
-
-#### The managed-column question, answered as a pass/fail from the emitted SQL
-
-Owner: *"Run the managed-column probe too. Turn the observed behavior into a
-clear pass/fail result for the intended permissions."*
-
-**THE PRECONDITION THE EARLIER READING SKIPPED IS WHAT MAKES IT ANSWERABLE
-WITHOUT NEON.** "No emitted grant is column-scoped" is true and is only half the
-question; the half that comes FIRST is **on which tables can a member issue an
-UPDATE at all**. Where there is none, every managed column on that table is out
-of reach whatever the policies say — and that is not a corner case, it is half
-the matrix.
-
-**INTENDED: a member may not write a platform-managed column. MEASURED over all
-16 read×write cells by driving `grantsFor`:**
-- **PASS — `write: none` and `write: anyone`** (the `display`, `collect` and
-  `admin` presets): no member UPDATE grant is emitted at all. **Every payment
-  column is in this class**, because payment rides on `collect` and
-  `if (t && t.payment) return out` takes a payable table out of the write grants
-  entirely. That is the half that matters most and it holds.
-- **FAIL — `write: own` and `write: members`** (`user` and `feed`): the grant is
-  `SELECT, INSERT, UPDATE, DELETE ON "<t>" TO authenticated`, no grant is
-  column-scoped, and the UPDATE policy names only `owner_id`. So `id`,
-  `created_at`, `updated_at` — and where the flags create them `pinned`,
-  `position`, `deleted_at` — have **nothing in the emitted SQL** stopping a
-  member writing them. On `write: own` the reach is the member's own row
-  (`owner_id = app_user_id()` in both USING and WITH CHECK); on `write: members`
-  the policy is `app_user_id() IS NOT NULL` on both, so it is **any row**.
-- **The answer depends only on the WRITE axis** — the read level changes nothing,
-  which is itself pinned, because a future read level that quietly granted UPDATE
-  would be a silent widening.
-
-**MY OWN PROBE WAS WRONG BEFORE THE PRODUCT WAS, TWICE, AND BOTH ARE RECORDED
-TRAPS.** The first draft injected a fake `sqlQuery` into `applySiteSchema`, which
-takes no deps — it answered **0 statements**, and 0 reads exactly like "no
-constraint anywhere", which is the answer being looked for. *A zero from a blind
-instrument is not evidence of absence*, caught only by the control (0 statements
-is impossible). Rebuilt by stubbing `fetch`, since `neon()` is HTTP. The second
-draft then skipped the UPDATE-grant precondition and **reported eight false
-alarms on a `collect` table carrying the five payment columns** — every one on a
-table no member can update at all.
-
-**AND THE ON-SPLIT IS LOAD-BEARING ON A TABLE CALLED `update`, measured rather
-than asserted.** The reader takes the verb from BEFORE the `ON`, because
-`GRANT SELECT ON "update" TO authenticated` contains the word UPDATE: the two
-readings **diverge on 7 of 16 cells** for that name and on **0 of 16** for any
-name that does not contain the verb — `updates` included, since `\b` refuses the
-trailing `s`. A customer can name a table `update`, so the census runs over both
-names.
-
-**Guard**: `test/schema-uncertainties.test.mjs` gained UNCERTAINTY 2c — the 32-cell
-census (two names × 16), the preset split asserted exactly, and `collect`'s
-absence of a member UPDATE grant with a live observer beside it. **A count and a
-floor were written, MEASURED redundant against the per-cell loop (which pins both
-by construction) and DELETED rather than left as checks a sweep can weaken with
-nothing to notice.**
-**Sweep: 8 mutants, 8 killed, 0 survived, 0 never applied, 1 comment-only control
-survived — and the FIRST PASS HAD SIX SURVIVORS, EVERY ONE A TEST-SIDE MUTANT
-weakening the guard's own assertion**, which is not a behaviour change and which
-no other test can catch. The fix was the recorded one: give each property an
-observable half and mutate THAT. All five are product-side now — a preset
-crossing the line in each direction, a write level leaving the matrix, the
-payable exemption cut, the member grant losing its verb — and each dies.
-**Suite 6,231.**
-
-**WHAT IS STILL INFERENCE, unchanged and still named**: that Postgres and
-PostgREST then behave as the SQL says. Nothing is in doubt about it, but this is
-a proof about what the engine EMITS, and `test/integration/neon-e2e.mjs` is the
-probe that closes it. It needs `NEON_API_KEY`, which no session here has.
-
-**STILL NOT PROVEN, and it needs the owner:** the three real addon requests,
-which need the deploy, a real Neon project and credits. **The two things this
-line used to name beside them have since been answered**: the harness's asks are
-no longer fixed per kind — `lane sweep` has a free-text `ask` box that replaces
-the case list entirely — and the managed-column probe ran (the section above).
-What is left is whether a real model now picks `table` for an ask that implies
-storage without naming it. The picker's hint carries the words — verbatim:
-*"whether or not they mention a database, storing or a table … and also sign-in,
-accounts, members, profiles"* — which is the input, not the behaviour.
-**`docs/addon-runbook.md` is the run book**: the disposable site, the three asks
-with the owner's own wording for the first, the exact `lane sweep` inputs, and
-what to read off each of the four places a result lands. A session cannot fire
-either workflow — `workflow_dispatch` answers 403 for this integration, and no
-`SUPABASE_SERVICE_KEY` exists here — so it is a document rather than a run.
+- **THE METADATA RIDES BESIDE THE DESIGN, NEVER INSIDE IT.**
+  `builder/site-requirements.mjs` owns `REQUIREMENT_ITEM` — `need` · `status`
+  (`covered` | `elsewhere` | `unsupported`) · `by` | `step` | `why` — as a
+  SIBLING of the kind on the add tool. Inside `TABLE_ITEM` it would reach
+  `design_schema` (which binds that item by identity), enlarge the build's
+  93,598-character tool, and become a promise the schema ENGINE must keep.
+- **`readAddAnswer` HAD TO CHANGE SHAPE.** It returned `use.input[kind]`, so any
+  sibling the model wrote was dropped **one hop after it was written** — the
+  tool correct, the model correct, every later step correct, the value gone. It
+  answers `{value, requirements, skipped}` now.
+- **THE LIST IS COLLECTED ABOVE the decline check, the cleaner's refusal and the
+  truncation check** — precisely the three cases where the reason is the only
+  thing worth reading. `foldAdds` reads it off ALL the answers, not the folded
+  ones. Counts only on the trace (`tr.at` keeps finite numbers); the needs are
+  the customer's own words and go to the developer record.
+- **THE CEILING MOVED OFF A COUNT.** "as many tables as the things they NAMED"
+  refuses the supporting table a feature cannot work without. It is the
+  **smallest COMPLETE data model** now, and a table they did not name must fill
+  in `because` with what breaks without it. **The old count rule is asserted
+  GONE**, not merely outnumbered — both at once is a contradiction the model
+  resolves by picking one, and which one is not observable from here.
+- **THE PICKER WAS 402 CHARACTERS AND THE CUSTOMER'S SENTENCE** — no site, and no
+  word connecting a feature to its storage, so *"add a login page"* had nothing to
+  route on. It gets the same note the designers read (so both halves see ONE
+  description of the site) and the instruction to read what an ask NEEDS.
+  **The live behavioural half is unproven.**
+- **VALIDATION BEFORE ANYTHING IS APPLIED, OVER THE MODEL'S OWN TABLES** — never
+  the folded spec and never the normaliser's output, which is the difference
+  between feedback somebody can act on and a derived field. `droppedFields` and
+  `refusedFields` are REUSED rather than a third list, so **every documented
+  alias survives by construction**.
+- **What the customer hears** is only what is outstanding AFTER the whole change
+  ran. An invalid property is said as *"a guarantee it doesn't offer"* **without
+  its name** — `encryptAtRest` is no use to anybody; the count is what they can
+  act on.
+- **`enforceRefs` IS enforced** — BEFORE INSERT / BEFORE UPDATE triggers per ref
+  column raising `'missing parent'`, a NULL reference allowed. There is no FK DDL
+  anywhere, deliberately, so both earlier findings are true and about different
+  mechanisms.
 
 ### The write grants are column-scoped (2026-09-13)
 
-Owner, after the pass/fail above: *"fix the managed-column permission gap,
-covering INSERT and UPDATE while preserving legitimate operations."*
+Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
+preserving legitimate operations."*
 
 **THE INSERT HALF WAS THE WIDER ONE AND MY OWN PASS/FAIL HAD CALLED IT A PASS.**
 That reading asked *can a member UPDATE this table at all*, which is the right
 precondition for UPDATE and the wrong question for INSERT: `write: anyone` — the
-`collect` preset, a booking or contact form, **the commonest table this platform
-builds** — emitted `GRANT INSERT ON "<t>" TO anonymous`, table-wide, to a
-visitor who is not signed in to anything. The owner's "covering INSERT and
-UPDATE" is what caught it. Both verbs carry a column list now:
+`collect` preset, **the commonest table this platform builds** — emitted
+`GRANT INSERT ON "<t>" TO anonymous`, table-wide, to a visitor signed in to
+nothing.
 
     GRANT INSERT ("name", "email", "detail") ON "requests" TO anonymous;
     GRANT SELECT, DELETE ON "requests" TO authenticated;
     GRANT INSERT ("title"), UPDATE ("title") ON "requests" TO authenticated;
 
-**POSTGRES HAS TWO GRAMMARS AND THEY CANNOT BE MIXED** — `GRANT SELECT, INSERT
-(a)` is a syntax error — so the table verbs and the column verbs are separate
-statements. `DELETE` takes no column list (it is a row verb) and `SELECT` stays
-table-wide deliberately: a member must read `id` and `created_at` to render a
-row at all, and reading a managed column was never the exposure.
+- **POSTGRES HAS TWO GRAMMARS AND THEY CANNOT BE MIXED** — `GRANT SELECT, INSERT
+  (a)` is a syntax error — so table verbs and column verbs are separate
+  statements. `DELETE` takes no column list; **`SELECT` stays table-wide
+  deliberately**, because a member must read `id` and `created_at` to render a
+  row and reading a managed column was never the exposure.
+- **A GRANT, NOT A TRIGGER.** A BEFORE INSERT trigger forcing the managed columns
+  would re-state every DDL DEFAULT in a second place. A column grant says it once
+  and the DEFAULT fills in, so **nothing legitimate loses a write**.
+- **`writableColumns(t, created)` USES THE REALLY-CREATED LIST, and `created`
+  wins**: a GRANT naming a column the table has not got fails WHOLE, and
+  `applySiteSchema` logs a failed statement and carries on — one absent name
+  would leave a site silently refusing every form submission.
+- **REVOKING A TABLE PRIVILEGE AUTOMATICALLY REVOKES ITS COLUMN PRIVILEGES**
+  (Postgres docs), so the `REVOKE ALL` pair already at the head of `grantsFor`
+  covers a table moving `user` → `display`. **That pair is why this is worth
+  anything on a live site**: Postgres keeps BOTH a table-level and a column-level
+  grant and the table-level one still covers every column, so a narrow grant
+  added beside the old one would change nothing.
+- **A table with nothing declarable is REPORTED, not quietly made read-only** —
+  `GRANT INSERT ()` is not a statement, and the design tool sets no minimum
+  column count.
 
-**A GRANT, NOT A TRIGGER, AND THAT IS THE WHOLE DESIGN.** A BEFORE INSERT
-trigger forcing the managed columns would re-state every DDL DEFAULT
-(`app_user_id()`, both timestamps, `pinned` 0) in a second place — the recorded
-"two lists of the same thing", with the engine's own defaults as the subject. A
-column grant says it once and the DEFAULT fills in, so **nothing legitimate
-loses a write**: every managed column is a DEFAULT, a trigger or NULL-start,
-`pickWritable` already refuses them on our own routes, and the kit's
-`useUpdateRow` sends a partial that excludes `id`.
+**MEASURED over all 16 read×write cells by driving `grantsFor`:**
 
-**`writableColumns(t, created)` IS ONE RULE, SHARED WITH `pickWritable`'s
-INTENT, AND `created` WINS.** It refuses a non-string rather than coercing
-(`String(["id"])` is `"id"`, shipped here three times), refuses anything that is
-not an identifier, drops the managed ones and de-duplicates. **Why the really-
-created list rather than the declared one**: a GRANT naming a column the table
-has not got fails WHOLE, and `applySiteSchema` logs a failed statement and
-carries on — so one absent name leaves a site silently refusing every form
-submission. `publicViewSql` already took `colNames` for exactly this reason; the
-same list reaches the grants now.
+- **PASS — `write: none` and `write: anyone`** (`display`, `collect`, `admin`):
+  no member UPDATE grant at all. **Every payment column is in this class**,
+  because a payable table is taken out of the write grants entirely.
+- **FAIL — `write: own` and `write: members`** (`user`, `feed`): the UPDATE policy
+  names only `owner_id`, so `id`, `created_at`, `updated_at` and (where the flags
+  create them) `pinned`, `position`, `deleted_at` had nothing in the SQL stopping
+  a member writing them. On `write: members` the reach is **any row**.
+- **The answer depends only on the WRITE axis** — pinned, so a future read level
+  that quietly granted UPDATE would be a silent widening.
 
-**THE LIFECYCLE IS POSTGRES'S OWN, READ FROM THE DOCS RATHER THAN ASSUMED**:
-*"When revoking privileges on a table, the corresponding column privileges (if
-any) are automatically revoked on each column of the table, as well."* So the
-`REVOKE ALL ON <table> FROM <role>` already at the head of `grantsFor` covers a
-table moving `user` → `display`, and no second revoke was needed.
-
-**A TABLE WITH NOTHING DECLARABLE IS REPORTED, NOT QUIETLY MADE READ-ONLY.**
-`GRANT INSERT ()` is not a statement, so a column-less writable table gets no
-write grant — and that is REACHABLE (the design tool requires `columns` and sets
-no minimum length), so the apply loop pushes a `refusedRules` entry saying why.
-
-**Guards**: `test/managed-column-writes.test.mjs` (8) — no write grant is
-table-wide across all sixteen read×write cells plus the five presets (with a
-floor on how many grants were found, since a reader that matched none satisfies
-every assertion); the granted set asserted EQUAL to the declared unmanaged one;
-every managed column named one at a time with `"title"` as the live control;
-SELECT, DELETE and the public read asserted intact; the payable exemption with
-its control; `writableColumns` driven over non-strings, junk and duplicates; and
-the column-less refusal DRIVEN through `applySiteSchema`.
-**THE DRIVE IS THROUGH `fetch`, BECAUSE THE MODULE TAKES NO INJECTABLE QUERY** —
-an earlier probe passed a fake `sqlQuery` as a second argument the function does
-not accept and answered **zero statements**, which reads exactly like "no grant
-anywhere", the answer being looked for. The recorded "a zero from a blind
-instrument is not evidence of absence"; a floor of 20 statements is what catches
-it now.
-**SIX OLDER GUARDS WENT RED AND WERE RE-ANCHORED, NOT APPEASED — and every one
-was a COLUMN-LESS FIXTURE**, the recorded "a fixture in a different shape from
-reality": a table with no `columns` is one the builder cannot produce, and the
-fixture shape became load-bearing the day the grants read it. One of them also
-split a grant's verbs on commas, which a column list contains — it strips the
-lists before splitting now.
-**AND THE REACH IS THE HALF THAT DECIDES WHETHER THIS IS WORTH ANYTHING ON A
-LIVE SITE** (owner, on reading the first draft: *"Verify that previous
-table-wide write grants are removed; adding narrower column grants alone does
-not remove the old permissions"*). Correct, and it is why the `REVOKE ALL`
-pair matters rather than being incidental: Postgres keeps BOTH a table-level
-and a column-level grant, and the table-level one still covers every column —
-so a narrow grant added beside the old one would change nothing at all on any
-site built before today. Three things verified rather than assumed: the pair is
-emitted for every table on every cell (`site-rls.test.mjs` already pins that the
-last REVOKE precedes the first GRANT in all sixteen), revoking a table
-privilege automatically revokes its column privileges (the Postgres docs
-sentence above), and **the apply loop walks `spec.tables` rather than a delta**,
-so one call re-issues REVOKE-then-GRANT for EVERY table on the site.
-**THE GAP, NAMED RATHER THAN GLOSSED: nothing triggers that on its own.**
-`applySiteSchema` has exactly three callers and all three are customer-driven —
-the build path, the `rules` rung and the addon route. There is no backfill, no
-migration and no cron, and `site_rebuild` republishes the bundle without calling
-it. So the fix is correct and its reach is **per-site and lazy**: sites built
-after the deploy get it on their first backend touch, and an existing site keeps
-its table-wide grants until its owner next changes something schema-shaped,
-which may be never. How many live sites that leaves is **unmeasured**, and
-whether to write a backfill over every stored spec is a decision rather than a
-bug fix. **Open.**
-**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived. ONE SURVIVED THE FIRST PASS and it was a real gap of the
-recorded "fixture too shallow to separate the two readings" shape**: cutting
-`colNames` off the apply loop changed no answer, because every fixture declared
-exactly what the engine creates. The real loop diverges in BOTH directions and
-both are driven now — `slug: "c1"` makes the engine add a column nobody
-declared, and `t.columns.slice(0, 48)` means a table declaring fifty gets
-forty-eight, so a grant built from the declared list names two columns Postgres
-has never heard of. The three REVOKE mutants (the pair dropped, one role
-dropped, the order inverted) were added with the reach case and all three die on
-it. **Suite 6,240** (6,231 before; the nine new cases).
-
-**AND TWO THINGS FOUND BESIDE IT ARE DELIBERATELY NOT IN IT** (owner: *"Keep
-timestamps and sync as separate follow-up issues"*) — `updated_at` never being
-bumped, and `sync` having no reader at all. Both are in the backlog.
-
-#### The inference is closed: a real Postgres, and the backfill (2026-09-13)
-
-Owner: *"verify the permission fix on a disposable site, covering both new
-tables and an existing table with the old permissions… Then inventory existing
-sites that need their permissions updated. Prepare a targeted backfill."*
-
-**EVERY ENTRY ABOVE ENDS "THIS IS A PROOF ABOUT WHAT THE ENGINE EMITS", AND THIS
-IS WHERE THAT ENDS.** `test/integration/local-pg-grants.mjs` runs the engine's
-own statements into a real **PostgreSQL 16** — no Neon, no Supabase, no network,
-its own throwaway database and roles, dropped at the end. **29 cases, all as
-expected.**
-**NOTHING IS TYPED IN IT.** The DDL comes out of the real `applySiteSchema`
-through the `fetch` seam; the OLD grants come out of GIT at run time
+**THE INFERENCE IS CLOSED: a real PostgreSQL 16**
+(`test/integration/local-pg-grants.mjs`, **29 cases, no Neon, no network**).
+**Nothing is typed in it**: the DDL comes out of the real `applySiteSchema`
+through a `fetch` seam, and the OLD grants come out of GIT at run time
 (`git show 8e8ac5eb^:site-rls.mjs`), so the "existing table with the old
-permissions" half is the state a real pre-fix apply LEFT and not a fixture of
-one; the new grants come from the shipping emitter. The extracted file is
-required NOT to contain `writableColumns` — the alive-observer check, proved by
-pointing `PRE_FIX_REF` at the post-fix commit and watching it refuse.
+permissions" half is the state a real pre-fix apply LEFT. Under the old grants an
+anonymous visitor could choose `id`, backdate `created_at` and forge
+`updated_at` on a booking form; under the fix each is `permission denied for
+table`, every legitimate write still succeeds, and a second apply is
+byte-identical. **`owner_id` and `deleted_at` were already out of reach and RLS
+is why** — said out loud rather than letting the fix take credit for a wall it
+did not build.
+**EVERY ANSWER IS READ FOR ITS REASON, IN BOTH DIRECTIONS.** A refusal from the
+wrong gate reads exactly like the fix working, so each case NAMES the gate it is
+about. And **an ALLOWED that touched no row is not an allowed write**: `UPDATE …
+WHERE` matching nothing SUCCEEDS, and RLS filters rows out in SILENCE — **three
+cases read as successful writes until the command tag was parsed.**
+**AND THE ON-SPLIT IS LOAD-BEARING**: the verb comes from BEFORE the `ON`,
+because `GRANT SELECT ON "update"` contains the word UPDATE. The two readings
+diverge on **7 of 16 cells** for that name and **0 of 16** for any name that does
+not contain the verb, so the census runs over both.
 
-**MEASURED UNDER THE OLD GRANTS, which is the state every un-touched site is in
-today**: an anonymous visitor could choose `id`, backdate `created_at` and forge
-`updated_at` on a booking form; a member could edit `created_at` and set
-`pinned` and `position` on its own feed row. **Under the fix each one is
-`permission denied for table`**, every legitimate write still succeeds
-(anonymous submits, member inserts, edits, reads and deletes), the rows are
-untouched, and a second apply is byte-identical in privileges and rows.
-
-**TWO MANAGED COLUMNS WERE ALREADY OUT OF REACH AND RLS IS WHY** — `owner_id`
-fails the UPDATE policy's `WITH CHECK (owner_id = app_user_id())` and
-`deleted_at` fails the same clause's live-row predicate. Said out loud rather
-than letting the fix take credit for a wall it did not build: it adds a SECOND
-gate over those two and is the ONLY gate over `id`, `created_at`, `updated_at`,
-`pinned` and `position`.
-
-**AND EVERY ANSWER IS READ FOR ITS REASON, IN BOTH DIRECTIONS — the recorded
-blind-instrument trap, twice in one file, and the second half is the one worth
-keeping.** A refusal from the wrong gate reads exactly like the fix working (a
-missing column, a NOT NULL violation, RLS instead of the grant), so each case
-NAMES the gate it is about and a refusal from another one fails it. And **an
-ALLOWED that touched no row is not an allowed write**: `UPDATE … WHERE` matching
-nothing SUCCEEDS, and RLS's USING clause filters rows out in SILENCE — so a
-member's attempt on somebody else's row comes back with no error at all. **Three
-cases read as successful writes until the command tag was parsed**, and the
-wrong reading had already gone into a draft of this entry.
-
-**THE INVENTORY, read-only: 70 sites, 31 with a Neon project, 39 frontend-only
-and therefore nothing to fix.** 66 of the 70 belong to the building account; the
-other four are smoke fixtures on three other accounts. **Which of the 31 carry a
-table-wide client write is deliberately NOT measured here**: answering it means
-reading each site's `_meta.schema` out of its own Neon database through the
-connection string in `site_project.neon_conn`, and a live credential does not go
-into a session transcript for a count. `--preview` answers it exactly, from
-where the credentials already live.
-
-**`scripts/grants-backfill.mjs` — preview (the default, writes nothing), apply,
-verify, rollback.** Grants only: the REVOKE pair and the GRANTs `grantsFor`
-emits, per table. No DDL, no policy, no `_meta` write — targeted rather than
-"call `applySiteSchema` on everything", which re-runs a hundred statements per
-site to change two. The column list is the INTERSECTION of the stored schema and
-what the table really has, and anything the spec claims and the table lacks is
-NAMED, because a GRANT naming a missing column fails WHOLE and `applySiteSchema`
-logs and carries on — one absent name would leave a site silently refusing form
-submissions. **Verification has two halves and the second is what stops the
-first being vacuous**: no client role holds a table-level INSERT or UPDATE, AND
+**THE REACH, named rather than glossed: nothing triggers the fix on its own.**
+`applySiteSchema` has exactly three callers and all three are customer-driven;
+there is no backfill, no migration, no cron, and `site_rebuild` republishes
+without calling it. So it is **per-site and lazy** — an existing site keeps its
+table-wide grants until its owner next changes something schema-shaped, which may
+be never. **Open.** `scripts/grants-backfill.mjs` is ready — preview (the
+default, writes nothing), apply, verify, rollback; grants only; the column list is
+the INTERSECTION of the stored schema and what the table really has, anything
+missing NAMED; **verification has two halves** (no table-level write grant AND
 the column grants name exactly the writable columns — a table where the REVOKE
-landed and the GRANT did not satisfies the first perfectly and cannot take a
-booking. **Rollback is a real recovery**: the before-state file carries each
-table's real `relacl` and `attacl`, and the rollback rebuilds GRANT statements
-from them.
-**DRIVEN END TO END AGAINST THE REAL POSTGRES**: preview writes nothing
-(measured — every statement it issues is a read, and both the rows and the
-privileges are identical after it), apply verifies, a second apply is
-byte-identical, and the rollback puts all four tables back exactly as recorded
-with the rows untouched. A read-only `display` table is the live control
-throughout: reported, and reported as needing nothing.
+landed and the GRANT did not satisfies the first and cannot take a booking);
+rollback rebuilds from each table's recorded `relacl`/`attacl`. **Not run.**
 
-**FOUR SITES THE PLATFORM'S OWN READER CANNOT RESOLVE, found taking the
-inventory and recorded as its own defect.** `northgroup-5`, `ashgrove-1`,
-`washhouse-1` and `fretwork-1` each have a `site_project` row and an EMPTY
-`site_backends.neon_db`. `claimSiteSlug` writes the row with `neon_db: ""` on a
-first build (frontend-only is the default) and the ONLY writer of that column is
-`saveBackend`, a POST carrying `resolution=ignore-duplicates` — an INSERT, which
-cannot update the row already there. Measured: the only two PATCHes to
-`site_backends` anywhere in the Worker are the offline flag and the notify flag.
-So a database provisioned later leaves the column empty for ever and
-`siteBackendBySlug` answers `conn: null`. **The backfill must not inherit it** —
-a sweep that skips the sites the platform cannot resolve leaves exactly the
-sites nobody is watching un-fixed — so it derives the name with
-`dbNameForSite(slug)` (what `build-smoke` already does), prefers a recorded name
-when there is one, and says which sites it reached the derived way. **Open.**
+**THE INVENTORY: 70 sites, 31 with a Neon project, 39 frontend-only.** Which of
+the 31 carry a table-wide client write is deliberately NOT measured here —
+answering it means reading each site's `_meta.schema` through the connection
+string in `site_project.neon_conn`, and **a live credential does not go into a
+session transcript for a count**. `--preview` answers it from where the
+credentials already live.
 
-**Guards**: `test/grants-backfill.test.mjs` (16) drives the plan, the statements
-(asserted by IDENTITY against `grantsFor`, never respelled), the two-half
-verification, the rollback and the refusal handling against a fake; the client
-roles are DERIVED from `DATA_API_ROLES` rather than typed again.
-**Sweep: 19 mutants, 19 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived.** **Suite 6,256** (6,240 before; the 16 new cases).
+**ONE LIVE CREDENTIAL RULE, in the backfill's own workflow.** The risk is not the
+deliberate log line; it is **a driver error whose MESSAGE quotes the URL it was
+handed**. `safeErr` is the one scrubber every message goes through, and **the
+rule is the URL's own grammar rather than a list of secrets**: any
+`scheme://user:password@` becomes `scheme://***@`. A list has to be kept, and the
+one it misses is the one that leaks. **The HOST is deliberately kept** — the
+owner asked for the database identities reported, and the credential is the half
+that must go.
 
-**WHAT IS STILL NOT RUN, named rather than glossed**: the backfill against
-production (the owner's call, and the script writes nothing until `--apply`);
-the three addon acceptance requests (they need the deploy, a real Neon project
-and credits, and `workflow_dispatch` answers **403** for this integration —
-re-measured 2026-09-13); and whether Neon's PostgREST presents these refusals to
-a browser the way the panel expects, which is `test/integration/neon-e2e.mjs`'s
-and needs `NEON_API_KEY`.
-
-#### MERGED AND LIVE, and the credential rule the preview needed (2026-09-13)
-
-Owner: *"The local PostgreSQL results are sufficient to move forward with the
-permission fix. Deploy the tested fix through the required release checks"* —
-the explicit approval the entry above was holding for. **`unit tests` run 2510
-green on the branch tip and `site build` run 1126 green on `8e8ac5eb`** (all
-twenty steps, `site-build.mjs` 14m44s) before the fast-forward `ec2ee66f` →
-`9d2c8e7c`.
-**The harness tree was checked EQUAL to the image tree before the run was
-trusted**: `site build` ran on `8e8ac5eb` and the branch tip was two commits
-later, both touching only `CLAUDE.md`, `docs/`, `scripts/` and `test/` — none of
-which the Dockerfile COPYs. A green harness on an ancestor is only evidence when
-nothing between it and the tip is an image input.
-**Deploy 2114, 2026-09-13 22:16:21→22:19:29Z, green in 3m08s.** The image
-**BUILT** — the step's own line, `built
-isibi-app-sitebuildcontainer:84b673ca78ee27ae (registry answered 404; 174 inputs
-off ./Dockerfile)`, step 2m19s — and the container **`EDIT`ed at 22:19:18Z**,
-`de4c74e6aa86…d32` → `84b673ca78ee27ae`, `SUCCESS Modified application`, so **the
-15–20 minute hold ran to ~22:34–22:39Z**. Read out of the log, never inferred
-from the step's duration.
-**NO SERVED ASSET CHANGED, so there is no file-hash check for this deploy** —
-`site-rls.mjs` and `site-schema.mjs` are bundled into the script rather than
-served, and `public/` is untouched. What stands in is the gate discriminator:
-`/api/site/build-health` **401**, `/api/site/runtime` **401**, a made-up path
-**404**. **That a COLD START really lands on `84b673ca78ee27ae` is NOT proven
-here** — `build-health` needs a signed-in session and no agent has one.
-
-**AND THE PREVIEW WORKFLOW IS WHERE THE CREDENTIAL RULE HAD TO GO** (owner:
-*"Report affected tables and any unresolved database identities without
-exposing credentials"*). `scripts/grants-backfill.mjs` holds one live database
-credential per site and never logs one deliberately; the risk is the accidental
-path — **a driver error whose MESSAGE quotes the URL it was handed**, which is
-how credentials usually reach a log. `safeErr` is the one scrubber every message
-goes through, and **the rule is the URL's own grammar rather than a list of
-secrets to look for**: any `scheme://user:password@` becomes `scheme://***@`. A
-list has to be kept, and the one it misses is the one that leaks.
-**THE HOST IS DELIBERATELY KEPT**, because the owner asked for the database
-identities reported and the credential is the half that must go.
-**`.github/workflows/grants-preview.yml` is dispatch-only**: `preview` is the
-default and writes nothing, `apply` runs only when `confirm` is the word
-`apply` (read as a word — whitespace and case forgiven, run 9's `gap ` one
-workflow over), and every run uploads its before-state `if: always()`, because a
-run that applied half a site and then failed is exactly the one whose recorded
-state is worth having. It carries **no push trigger**, which
-`test/merge-triggers.test.mjs` already polices as a census over the directory —
-so that rule is not restated here, which would be two lists of one thing.
-**Guards**: `test/grants-backfill.test.mjs` (16 → 26) — the scrubber driven for
-what it must remove AND for the four shapes it must leave byte for byte (the
-no-false-alarm control), `applyPlan`'s reported failure DRIVEN through a
-DSN-carrying throw rather than read, a **census that every `catch` reading its
-error names `safeErr`** (with the line window's soundness asserted, so a
-multi-line catch fails loudly rather than being half-read), and the workflow's
-four safety properties.
-**Sweep: 36 mutants, 36 killed, 0 survived, 0 never applied, 3 comment-only
-controls survived. ONE SURVIVED THE FIRST PASS and it was the recorded "a
-negative assertion must prove its observer is alive", in a case one hour old**:
-cutting `e.detail` from the scrubber makes it answer `"[object Object]"`, which
-carries no password and satisfies an absence check perfectly while the failure
-stops being diagnosable. The case asserts BOTH halves now. **And a pre-existing
-mutant's anchor had gone stale** — it still spelled the pre-`safeErr` line —
-caught by checking every anchor occurs exactly once BEFORE the run rather than
-reading NOT APPLIED afterwards. **Suite 6,266.**
-
----
-
-Every cheap edit republishes through `recompileAndPublish` — the shared spine.
-**Anything a build bakes must be sent by that spine too**, or a typo fix silently
-strips it.
-
-**And the same refusal sat in the SPINE, one layer below the lanes** — fixing the
-two lane gates only moved the traffic onto a third. `recompileAndPublish` opened
-with `if (!db)` too, and **every publishing lane goes through it** (`text`, `nav`,
-`picture`, `logo`, `look`, `data`; the edit block has no other publish path), so
-the whole cheap ladder was shut for **20 of 47 sites** — their `site_backends`
-row exists with `neon_db` empty, so `siteBackendBySlug` answers null. The refusal
-is real but was asking the wrong question: what it guards is a **deleted** site
-publishing stripped and being archived as a success, which is a question about
-the SITE, so it now asks `siteOwnerBySlug` and only when there is no connection.
-On the edit path the route's ownership check already answers 404 first; the
-spine's check earns its place for the platform `rebuild` caller, which verifies
-no ownership. **A lane that reports every publish failure as `compile` hides
-this**: a read-refusal and a killed container wore one sentence ("our build
-service was restarting"), which cost two live runs and a wrong diagnosis.
-
-**A CONTAINER WITH NO ROOM IS WAITED FOR, NOT FAILED (2026-09-04, the
-capacity review; owner: *"im more concerned about the container/worker"*).**
-`@cloudflare/containers` answers a start the account cannot make as a
-RESPONSE, never a throw: a plain-text **503** ("There is no Container
-instance available…" — the account's concurrent ceiling, verified against
-Cloudflare's limits page as 6 TiB / 1,500 vCPU, ~1,536 live `standard-1`,
-or an image still provisioning after a deploy), a **429** ("you are
-requesting too many containers per second", threshold undocumented), and a
-**500** "Failed to start container: …" for anything else. Neither publish
-path recognised them: the spine parsed the text as JSON, threw on it, and
-told the customer *"didn't compile — try describing it differently"*
-(refunded, but `ours: false` and the customer's words blamed); the build
-path retried once with no delay and shipped a placeholder. Now
-`builder/container-room.mjs` (dependency-free, driven with a fake clock):
-`containerRoom(status, text)` classifies ONE answer — the status AND the
-words, a JSON body never (the build server judged something), unknown text
-never (a wait is right only for a failure known to pass) — and
-`withRoom(call, { deadline, floorMs })` repeats the call with jittered
-backoff (`rate` 1→8 s, `full` 5→30 s, never faster than the 2.5 s cold
-start) while the next wait plus the compile's floor (`MIN_BUILD_MS`) still
-fits before the caller's cap; each attempt's own signal is what is LEFT of
-that one deadline, so the wait and the call share a clock. Both compile
-call sites go through it, the payload built once as `cPayload` /
-`bPayload` before the loop — six guards pinned to the inline body, the
-fetch's own signal and the two-term `ours` disjunction went red and were
-re-anchored on the property, each naming the spelling that moved. When the
-wait runs out: the spine answers `room`, marks `ours`, and `compileMsg`
-says which of the three (`roomSentence` — full is minutes, rate a moment, a
-start failure not waited for); the build path answers `stage: "build"`
-(free, `ourFault`) with `room`, `publish-pages` skips its immediate retry
-and the note says "had no room… send it again in a few minutes". Trace:
-`container wait {kind, attempt, delayMs}` per wait, `start` carries
-`waited` and `tries`. `test/container-room.test.mjs` reads the library's
-OWN three answers out of node_modules (a reworded library is a wall that
-stopped matching), drives the loop, drives `compileMsg`, and reads both
-call sites; `test/publish-pages.test.mjs` drives the no-room build.
-**Sweep: 24 mutants, 24 killed, none unapplied, the comment-only control
-survived — one survived the first pass and it was INERT against the
-fixtures** (the JSON rule: every JSON fixture also lacked the words, so
-the status-and-words check refused them anyway; two fixtures carrying the
-words inside JSON made it load-bearing). Suite 5,044. **Not proven live**:
-it needs the account full or a burst of starts, which is a launch, not a
-harness — the trace's `container wait` mark is what will show it.
-
-**A lane may only refuse over a database it actually QUERIES.** `data` and
-`rules` read and enforce rows, so they require one. `look` and `logo` do not:
-the stylesheet, the look and the logo all live in R2, and `configDeps` reaches
-for the connection only to fill a legacy `_meta` fallback it already guards. Both
-lanes nevertheless opened with `if (!xdb) return escalate("no-backend")` — and
-since a first build provisions no database, that refused **most sites on the
-platform**, sending every colour change and every logo swap up to the full page
-rewrite: ~17 credits measured on `shoeroom-1`, on a rung meant to cost under one
-and, for `logo`, nothing at all. Fixed 2026-08-28. The look lane's `_meta` read
-is the one thing there that truly needs a connection, so it is gated on `if (edb)`
-— **without that, relaxing the gate only trades a wrong refusal for a
-`sqlQuery(null, …)` throw the same catch escalates as `no-meta`.**
-
----
 
 ## Data, auth, payments, mail
 
@@ -5976,7 +2573,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
   site-runtime 47 beside it. Two independent runs a day apart agreeing on the
   count is what makes 382 a measurement rather than a stamp.
-  The unit suite is **6,302** (2026-09-14, local — the container move, whose new
+  The unit suite is **6,316** (2026-09-14, local — the wire probe's hang fix and
+  the read-back door, whose new cases are `job-probe`'s **six**: the bound
+  derived and junk-safe, `wireCall` driven hung-versus-killed with the kill as
+  its control, `probeWire` driven hang-first through an injected `timer`, both
+  arms bounded with a signal each, the runner's watch bound derived, and the
+  read-back). **6,310** before them, the probe route's own crash fix;
+  **6,302** before that (the container move, whose new
   cases are `container-transport`'s seven, `job-probe`'s eleven, `job-duration`'s consumer census and
   `container-job`'s driven setting. **The delta from 6,270 is NOT derivable and
   is deliberately not claimed**: that stamp was taken before the transport and
@@ -6043,1485 +2646,424 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
 
 ## THE TRAPS
 
-Every one of these has cost at least one session, most of them several. Read this
-before writing a guard.
+Every one has cost at least one session, most several. **Read this before writing
+a guard.** The stories are in `git show a4d0f5e5:CLAUDE.md`; what is here is the
+rule and the measurement.
+
+### Guards that pass while the thing is broken
+
+- **THE WIRING LAYER.** Twelve-plus features have shipped DEAD with the module
+  perfectly correct and one hop cut — a value computed and never forwarded, a dep
+  injected and never called, a field decided and never put on the wire. From
+  outside, "the model did not set it" and "we did not forward it" are the same
+  `undefined`. **Before rewording a prompt because a field came back empty, check
+  that the field can arrive.** Derive the chain from the PRODUCER.
+  **AND A GUARD CAN COVER THE CHAIN AND STILL MISS A HOP**: the Code tab's guard
+  asserted the tab twice, asserted the loader, drove both handlers, and never read
+  the branch that renders the host — which kept its old `!isReact &&`. *A hop
+  nobody listed is a hop nobody guards.*
+  **The membership test that finds this class**: a design field must be in
+  `PLAN_KEYS`, or on `EDIT_FIELDS`, or have a named per-field hop. A dotted
+  `designed.<field>` scan answers 0 for six perfectly wired fields.
+- **A CHAIN TEST THAT READ THE MODULES INSTEAD OF RUNNING THEM.** A case called
+  "THE CHAIN" that reads SOURCE is asserted at the layer below the break. Nothing
+  had ever compiled a build carrying a `gif` or a `qr` despite such a case.
+- **A GUARD WATCHING THE LAYER BELOW THE BREAK** — it asserts the plumbing and not
+  the connection: "the query selects the column" while nothing carries it onward.
+- **A TEXT-ORDER GUARD SURVIVES A MOVE INTO A CLOSURE.** Three guards asserted
+  "the pageless answer comes AFTER the apply" as `indexOf(a) < indexOf(b)` and all
+  three stayed GREEN when the apply moved into a closure run from two places. A
+  position in the file is a claim about run order only while the code between is
+  straight-line. Read the CALL inside the block it describes.
+- **VACUOUS ORDERING.** `indexOf(a) < indexOf(b)` passes when `a` is the thing
+  deleted (-1 < anything). Prove both anchors exist first.
+- **AND ITS MIRROR: A POSITIONAL GUARD CANNOT SEE A DEAD BRANCH.** `if (false) {…}`
+  leaves every landmark at the same offset; `if (false) foo()` leaves `foo(` in the
+  file. **A position is not a behaviour** — cut the block out and RUN it.
+- **A NEGATIVE ASSERTION MUST PROVE ITS OBSERVER IS ALIVE.** `[].every(...)` is
+  `true`. Assert a floor on what was SCANNED before believing an absence — and
+  **a floor on the ANSWER is not the same thing**: `service-table-grants` proved
+  its scanner alive with `seen.size >= 2` and went on passing for a stage off a
+  file nothing served.
+- **A GUARD PROVES THE BRANCH IT DRIVES**, and no other. A mutant of the obj-form
+  survived because the guard drove only the JSX form.
+
+### Reading source with a regex
+
+- **ASSERT THE PROPERTY, NOT THE SPELLING.** The single most repeated own-goal. A
+  guard pinned to `foo(a, b)` goes red the moment an honest third argument
+  arrives, reporting the feature as gone. **AND ITS QUIETEST FORM IS PINNING A
+  LIST BY ITS LAST ELEMENT** — being last is almost never the property;
+  membership is.
+- **NEVER SIZE A SOURCE-READ WINDOW IN BYTES.** Ten-plus instances. This repo puts
+  its reasoning in comments, so any byte window is outrun by the next comment.
+  Window landmark to landmark and **assert both landmarks exist** — `indexOf`
+  answering -1 gives `slice(-1,-1)` = `""`, which passes everything inside it.
+  **`slice(start, -1)` is the other half**: a missing END landmark swallows the
+  file.
+- **OVERLAPPING WINDOWS.** A window running to a NAMED neighbour swallows whatever
+  is inserted between them. Derive the closing landmark from the next sibling,
+  **search it FROM the opening one** (`indexOf(end, at)`) and assert `end > at`.
+  A landmark is only unique until somebody writes about it upstream, and **a
+  description that explains its own exceptions will always name the other
+  sections**. And **a window can grow QUIETLY rather than go red**, which is the
+  dangerous half: `site-share`'s window silently doubled and every assertion in it
+  went on passing over a region twice the size it describes.
+- **PROSE CONTAINS THE THING IT FORBIDS.** Ten-plus instances, several inside the
+  guard written for that trap, and **twice in one session inside LIVE checks**.
+  Blank whole-line comments (length-preserving) before any scan. A comment about a
+  name is not a second reader of it.
+- **THE BLANKER'S ORDER IS ITSELF A TRAP: LINE COMMENTS FIRST, block openers only
+  at the start of a line.** `chat.js` carries `// Every /api/* call …`, whose `/*`
+  opened a false block running **71,729 characters**; **37.1% of the visible source
+  survived** and three tests reported a feature gone on a change that never touched
+  it. **A survival RATIO is the wrong observer** — chat.js is 50.1% comments.
+  **Assert that the landmarks the scan is about to look for survived the blanking.**
+- **A BLANKER ERASES THE LANDMARK THE GUARD NEEDS** — the mirror. Blanking is for
+  scans that FORBID a spelling; a scan that REQUIRES one finds its boundaries on
+  the raw text and blanks only the body between them.
+- **FLAT SCANS WHERE DEPTH MATTERS.** Written wrong five-plus times, and **twice
+  in one sitting on 2026-09-14**: `newJobId\(([^)]*)\)` stops at the `)` inside
+  `(b) =>` and reported the two CORRECT call sites as broken; `[^}]*` stops inside
+  `${sayNotJson(j)}`. Argument lists, object literals and selector lists all need
+  a depth-aware splitter.
+- **A NEEDLE THAT CAN MATCH A DECLARATION CANNOT PROVE A CALL; a needle that can
+  match a LONGER NAME cannot prove a class.** Three instances in one week:
+  `buySitePhotos\(env, \{ slug, pages, parts,` also matches the function's own
+  signature, so a mutant cutting the parts off the CALL survived;
+  `includes("st-code-bar")` is satisfied by `st-code-bar2`; `stPub` is a substring
+  of `stPublish`. Assert `class="x"` with its quote, or walk the argument list
+  depth-aware.
+
+### Mutation sweeps
+
+- **INERT MUTANTS.** Sixteen-plus recorded. A mutation that changes no behaviour
+  reads exactly like a test gap. **Prove it inert by MEASURING both versions over
+  the real corpus** before hunting.
+- **TWO REDUNDANT DEFENCES CANNOT BE KILLED ONE AT A TIME.** A survivor is not
+  always a missing check; sometimes it is a second wall. Measure both versions,
+  then mutate the PAIR, which must die — and **say in the code that the redundancy
+  is deliberate**, because a sweep cannot and the next session deletes what
+  nothing appears to need.
+- **A TEST-SIDE MUTANT IS USUALLY INERT BY CONSTRUCTION.** Weakening a guard's own
+  assertion is not a behaviour change, so no other test can catch it. **Give the
+  property an OBSERVABLE half and mutate THAT.** One pass had 17 mutants and 10
+  survivors, not one of them a guard gap.
+- **A MUTANT THAT NEVER APPLIED.** `grep -qF "$to"` is vacuous when the replacement
+  is empty or common — verify by CHECKSUM, and **check every anchor occurs exactly
+  once BEFORE the run** rather than reading NOT APPLIED afterwards. **A sweep whose
+  control never applied is a sweep with no control.**
+- **A MUTANT WHOSE ANCHOR IS A SUBSTRING OF ANOTHER'S** — an 8-space-indented line
+  contained in its 14-space twin. Anchor with the neighbour.
+- **`—` IN THE SOURCE, A DASH IN THE SPEC.** A sweep once reported 12/12 clean
+  while the single most important mutant had not run. **MEASURED: `chat.js` carries
+  837 real em dashes against 20 escapes.** A NEVER APPLIED line must be read as
+  loudly as a survivor.
+- **A KILLED SWEEP LEAVES A LIVE MUTANT** — it skips its `finally`. **Never commit
+  while a sweep is running.** Put the restore on a trap and run it in the
+  background.
+- **AND "IN THE BACKGROUND" IS NOT `nohup … &`** — the harness reaps the tracked
+  wrapper the instant `&` returns and the runner becomes an orphan nobody owns.
+  Run the sweep as the background call's own command. **`pgrep -f
+  scripts/mutate.mjs` before believing any sweep result**: two processes wrote one
+  log at different offsets and it read like a clean run with a plausible survivor.
+- **A CONTROL MUST BE DECLARED, NOT MERELY LABELLED.** Four specs named theirs only
+  in the LABEL, so `isControl` was false: the tally printed them as survivors AND
+  **the runner's own `CONTROL WAS KILLED` branch was never armed** — the sweep's
+  one check on its own honesty, off, in the sweeps that reported it working.
+- **A SWEEP DOES NOT NEED THE WHOLE SUITE**, and saying so is not a shortcut: 45
+  mutants × the full suite is ~70 minutes; the files that can see the change are
+  32 seconds. **A SURVIVOR is re-checked against the whole suite before it is
+  believed** — a narrow list can only produce a false survivor, never a false kill.
+- **AN AD-HOC CHECK CAN FAIL TO APPLY ITS OWN MUTATION.** An inline `node -e` whose
+  quote escaping silently no-op'd the replace compared the original against itself
+  and answered INERT. **Any hand-rolled mutation check must REFUSE to run when the
+  source did not change.**
+- **`String.prototype.replace` READS `$'` IN THE REPLACEMENT** — the file changed,
+  the checksum said applied, and the mutant that landed was not the one written.
+  Replace through a function and verify the landed text IS the written text.
+
+### Two copies of one thing
+
+- **TWO LISTS OF THE SAME THING.** Routes in a matcher and in a dispatch
+  condition; a scanner's list and the kit's. They drift silently. Derive one from
+  the other, in BOTH directions where the scan can stop matching.
+- **A HAND-TYPED CONSTANT IN A CHECK IS ONE OF THEM.** `site build` came back
+  381/1 on a change touching neither the fan-out nor the model path: a check
+  hardcoded 9 requests, legal when written and illegal after the two bounds split.
+  **A check that hardcodes a number the product exports is a second copy of it.**
+- **A NUMBER STAMPED IN TWO PLACES DRIFTS WHEN ONLY ONE IS CORRECTED.** Sweep and
+  suite numbers went into four places and the correction reached three. **Grep for
+  every copy of the OLD value before believing a correction landed.**
+- **A LOOKUP KEYED AT A DIFFERENT GRANULARITY THAN THE THING YOU ASK IT.**
+  `LANE_LAYER` is keyed by GROUP; indexing it by a field answers `undefined` for
+  three lanes that dispatch fine — and `undefined` there is a legitimate value.
+  **When a map's absent key means something, ask its resolver, not the map.**
+- **A READ WHOSE ONLY CONSUMER WENT, and the query stayed.** When you delete a
+  consumer, grep for what fed it.
+
+### Values that lie
+
+- **`String(["a"])` is `"a"`.** Shipped as a real bug three times. Refuse a
+  non-string; never coerce.
+- **`X["constructor"]` is truthy.** `Object.hasOwn`, never truthiness, for any
+  caller-supplied key.
+- **TWO NULLS THAT MEANT DIFFERENT THINGS.** `readAction` answers null for "no
+  button" AND for "a computed button"; `applyAction` keyed insertion on that one
+  null and `src.slice(0, undefined)` is the whole file. **When a reader answers
+  null for "unreadable", check what every consumer SAYS OUT LOUD for that null.**
+  A writer that skips is safe; a prompt that says "absent" is not.
+- **CANNOT-TELL MUST NEVER READ AS A VALUE** — and the inverse: **`Infinity` is a
+  stated answer** and two readers refused it, each falling back to a Worker-sized
+  number for the one input where the default is the most wrong answer available.
+- **A `//` IN A URL IS NOT COSMETIC.** `https://host//menu` parses as the host
+  `menu`, so a wrong canonical names a different SITE. Assert an address by
+  PARSING it, never by string equality against an expectation the test assembled
+  the same wrong way.
+- **A UNIT CONVENTION STATED ONLY IN PROSE** is one a model will read past.
+  `OptionPricedList` documents minor units; a page fed major-unit rows, so one
+  control read **+£16.40** and the total **£1880.00**, both well-formed. The fix
+  shape is a type or a prop name that carries the unit. **Open.**
+
+### Fixtures and instruments
+
+- **A FIXTURE IN A DIFFERENT SHAPE FROM REALITY.** A fake that is MORE capable
+  hides bugs exactly like one that is less — and so does one that differs by a
+  single character (a trailing slash shipped `//menu` as every canonical for a
+  day). **Derive a fixture from its real producer.**
+- **A FIXTURE TOO SHALLOW TO SEPARATE THE TWO READINGS.** When a mutant survives,
+  ask what input would make the two readings differ, not whether the code looks
+  right. `sitePreviewSrc(site, '/')` and `sitePreviewSrc(site, active.path)` answer
+  the same string until a case presses on `/press`.
+- **A ZERO FROM A BLIND INSTRUMENT IS NOT EVIDENCE OF ABSENCE.** Headless Chromium
+  uses OVERLAY scrollbars (0px in precisely the case that moves); Chromium in this
+  sandbox cannot reach a site host at all, so a CSP render read BROKEN both ways;
+  a fake `sqlQuery` injected where none is accepted answered **0 statements**,
+  which reads exactly like "no constraint anywhere". **A `net::` error in a CSP
+  failure list is the tell — a refusal is `blockedURI`, never a transport error.**
+- **AN INSTRUMENT THAT REPORTS CORRECT CODE AS BROKEN.** A `fullPage: true`
+  capture of a site using `animation-timeline: view()` shows every below-the-fold
+  section BLANK. **When the instrument and the thing disagree, suspect the
+  instrument first** — and screenshot each section scrolled INTO VIEW, asserting
+  computed opacity.
+- **A DEFECT THAT ONLY EXISTS IN TIME IS INVISIBLE TO EVERY STILL.** An entrance
+  animation on an element something rebuilds is a 220 ms twitch; the finished panel
+  is pixel-perfect in every frame. **The picture looks like evidence.** Sample one
+  element's rect across `requestAnimationFrame`.
+- **A CSS RULE CAN BE CORRECT AND STILL LOSE** — `padding-left` above a `padding`
+  shorthand loses on source order at equal specificity. No markup assertion sees
+  it, and neither does one that checks the rule EXISTS: read the VALUE, and check
+  it sits below every shorthand that rewrites it.
+- **A PERCENTAGE HEIGHT AGAINST AN `aspect-ratio` BOX IS WHERE ENGINES DISAGREE.**
+  Correct CSS; where an engine does not resolve it, `max-width` does not always
+  clamp a width the ratio produced. **Bound it on both axes AND clip the parent.**
+  Chromium could not reproduce it at five widths — the failure had to be FORCED.
+- **A FAILURE THAT CANNOT NAME ITSELF.** Seven-plus instances: four causes wearing
+  one sentence, a status with no reason, a report that died with the socket.
+  **When two failures need opposite fixes, they must be distinguishable from
+  outside** — and a harness that hides the diagnostic half of a response turns
+  every failure into a guess.
+- **A DIAGNOSTIC FIELD IS NOT A SUBSTITUTE FOR THE ARTIFACT.** Three past sessions
+  hit one wall and each bought a narrower field instead of the file. Store the raw
+  answer ONCE, before anything can refuse it.
+- **A CHECK THAT REPORTS IS ONLY AS GOOD AS ITS READERS.** The render check saw
+  seven routes throw and said so; the publish shipped it (by design) and the
+  harness called it `ok`. **When a check is report-only, list its readers.**
+- **A REPORT CUT BY ITS BUDGET READ AS A VERDICT ON PAGES IT NEVER OPENED.** `cut:
+  true` was in the report with no reader for three sessions. **An absence in a
+  report is only as good as the report's coverage.**
+- **A LISTING THAT ANSWERS ONE PAGE.** `wrangler containers images list` fetches
+  ONE catalog page; two deploys rebuilt both images off an absence that was the
+  instrument's. **Ask for the thing BY NAME**, and make "could not tell" its own
+  answer.
+- **AN API THAT SERVES A STALE SNAPSHOT.** GitHub answered `in_progress` for a step
+  that had finished. `updated_at` moving BEHIND the steps proves staleness; it
+  agreeing proves nothing, because a whole snapshot can be old. **What settles it
+  is the step's own expected duration** — and a stale reading can persist ~25
+  minutes. `date` is the cheap check before calling anything hung.
+- **A FALSE ALARM IS WORSE THAN A MISS**, and a false ALL-CLEAR is worse than
+  either. Any new lint measures its false-alarm rate against the real corpus and
+  must reach ZERO before it ships. **A live check's ambiguous anchor fails
+  SILENTLY**: `justify-content: center; overflow: hidden; }` also ends `.ig-ico`,
+  so a watch said LIVE about a rule the change never touched. **Count the pattern
+  in the source first.**
+- **`pgrep -f` / `pkill -f` MATCH YOUR OWN SHELL.** Ten-plus instances. Kill by
+  PID; watch a log's tail.
+
+### Loading, parsing, scope
+
+- **LOADING A MODULE PROVES ITS IMPORTS, NOT THE IDENTIFIERS INSIDE ITS FUNCTIONS.**
+  Six-plus free-identifier misses. `&&` SHORT-CIRCUITS, so a free name in an
+  operand may never run: `node --check` passes, every source guard finds its
+  landmarks, a real service starts and listens, and the build that uses the feature
+  throws. **The check is a PARSER, not a grep** — `test/free-identifiers.test.mjs`
+  walks real lexical scopes over the PAGE (classic scripts share one global scope)
+  and over `worker.js`. **Measured zero false alarms**, with a `typeof` operand the
+  one forgiven position.
+- **IT HAPPENS IN A TEST SCOPE TOO, silently in both directions.** A carried
+  function gained two free names and every case went on passing against a scope
+  that had neither — green means the fixtures never took that branch. **When a
+  carried function gains a free name, add it even if the suite is green.**
+- **A `const` CALLED ABOVE ITS OWN LINE passes the parse check and every text
+  guard.** The temporal dead zone is a runtime error. **When a call moves earlier,
+  check what it calls is declared earlier still.**
+- **A MODULE WITH NO IMPORT LINES** puts an anchor-based insertion below its use:
+  `node --check` passes and the module throws `ReferenceError` on LOAD. Parsing is
+  not loading.
+- **`node --check worker.js` PASSES A FILE THAT DOES NOT PARSE.** This package
+  declares no `"type"`, so `--check` on a `.js` does not parse it as a module and
+  says nothing about a duplicate declaration. **The honest parse is
+  `node --input-type=module --check < worker.js`.**
+- **A RE-ANCHOR LANDS IN A SCOPE IT DID NOT WRITE** — a `const closure` colliding
+  with a local made `node --test` report the whole file as one `not ok`. Check the
+  name is free.
+- **AN UNCAUGHT THROW INSIDE A ROUTE IS ANSWERED BY CLOUDFLARE IN HTML**, because
+  `worker.js`'s `fetch` has no try/catch around `handleRequest`. A caller doing
+  `.json()` gets `Unexpected token '<'` and learns nothing about the cause.
+
+### Environments, CI, deploys
+
+- **THE THING THAT RUNS YOUR GUARDS IS NOT ITSELF GUARDED unless somebody writes
+  it down.** Four instances: the merge triggers (22 automatic triggers came off in
+  one commit and all 5,722 tests stayed green), the DO migrations (a class leaving
+  the Worker needs a `deleted_classes` migration or Cloudflare refuses the WHOLE
+  deploy), the container-harness `paths` filter (right until `worker.js` became a
+  job runtime; **stages 2a, 2b and 3 moved ~2,900 lines and `site build` ran on
+  none of them**), and the sweep runner. **It fails silently in the safe-looking
+  direction**, because a workflow that stops running produces no red run.
+- **A `process.on("SIGTERM")` HANDLER IN A SYNCHRONOUS LOOP SWALLOWS THE SIGNAL
+  ENTIRELY** — installing a listener replaces the default, and a handler is
+  dispatched through the event loop a loop of `execFileSync` never returns to.
+  **Measured: four iterations, the handler never fired, exit 0.** And **the obvious
+  fix is INERT**: adding `process.exit()` to a handler that never runs.
+- **A CI STEP THAT DOES NOT INSTALL WHAT THE TESTS IMPORT.** True when written and
+  false the moment a module gained a dependency; green locally, red in CI. **Never
+  let a workflow assert a property about the code in a COMMENT.**
+- **`unit tests` WAS RED ON EVERY PUSH TO MAIN FOR A DAY — fifteen runs.** Read the
+  run after every push; a red one is a day of pushes shipping unchecked.
+- **A MODULE THE CONTAINER IMPORTS AND THE IMAGE DID NOT CARRY.** The transitive
+  import walk is the one guard that compares the consumer's ENVIRONMENT with the
+  code. **And `container-images` asks git for the COMMITTED tree**, so a Dockerfile
+  naming an uncommitted file is an image that cannot be built from that commit —
+  staging is not enough.
+- **A CHECK THAT ASKS THE FILESYSTEM IS ASKING THE WRONG THING.** `fs.existsSync`
+  passed on any machine that had ever built and baked THAT MACHINE'S generated file
+  into a committed module. **When a check is about what the REPOSITORY holds, ask
+  git**, derive the list, and prove the observer alive first.
+- **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING.** Never push
+  while a live run is in flight; after any code push wait **15–20 minutes**.
+- **A COMMIT SAYS WHAT A COMMIT CHANGED; THE DEPLOY FIRES ON THE PUSH.** Two commit
+  messages both said "nothing rolls" — true of each alone, false of the deploy they
+  triggered. **The roll question has exactly two honest answers**: `git diff
+  --name-only <what main had>..<what you pushed>` before, and the deploy's own
+  image step after.
+- **A SECOND ROUTE UNDER THE SAME WALL.** The 273 s reset was found on the edit
+  route, the fork was built on the edit route, and the addon route — same
+  connection, LONGER work — stayed synchronous and died at 257.6 s. **When an
+  infrastructure limit is found on one route, list every route under it.**
+- **`supabase/applied/` IS NOT THE RECORD OF WHAT IS LIVE.** Before redefining any
+  RPC, read it out of the database (`pg_get_functiondef`).
+
+### Product-shaped traps
+
+- **A RULE TRUE BECAUSE OF A LAYER BELOW IT EXPIRES WHEN THAT LAYER MOVES, and
+  nothing announces it.** Five-plus instances, including the one in the money path
+  (the edit budget) and `BATCH = 1` resting on a reason that expired 2026-08-25.
+  When something one layer down changes, re-ask what rested on it.
+- **A GATE THAT OUTLIVES ITS REASON.** Two tells, both present in the `look`/`logo`
+  case: the requirement was never USED, and **the fix for the same symptom sat
+  unreachable below it**. When a gate and a later accommodation address the same
+  complaint, one of them is dead.
+- **A NEGATIVE LIST IS THE WRONG WALL WHEN THE INPUT IS CALLER-SUPPLIED.** A
+  deny-list at the door is a claim about the producer, not about the input. **Ask
+  the positive list**, derived from the same constant the producer filters on.
+- **ONE PROMPT WRITTEN FOR TWO JOBS**, where the second has to argue with the
+  first. A prompt that quotes and reverses another prompt in the same call is two
+  jobs wearing one tool. **Measured when split: 84,817 characters down to 4,012**,
+  and the overruling paragraph simply deleted.
+- **A DIRECTIVE FIX THAT WAS INERT BECAUSE THE DIRECTIVE NEVER FIRED.** Before
+  concluding a prompt change did not work, check the prompt actually CONTAINED it.
+- **TWO KIT COMPONENTS WHOSE NAMES DO NOT DISTINGUISH THEM** cost two paid builds
+  at 22 credits. The signature list already said `Figure` took no children and the
+  model passed them anyway; naming the right one in the directive was read past
+  too. **When the kit has two components for one job, a prompt cannot fix it —
+  make the obvious name work.**
+- **A PROMISE TO THE MODEL THAT NOTHING EVER COMPILED.** The page rules advertised
+  five importable packages; **fixtures importing them: 0 of 5, real pages using
+  them: 0 of 324.** A package-list guard cannot catch it — `three` was installed
+  and present and still unimportable. **Wiring a feature up is what makes its
+  defects reachable.**
+- **A GENERATED PAGE BROKE A KIT FILE IT HAD NEVER SEEN.** A `validateSearch` with
+  required fields retyped `/` for the whole app. The property is **LITERAL vs
+  WIDENED**, not `Link` vs anchor — `to={to}` with `to: string` carries no
+  contract, which is why a blanket ban flagged correct code.
+- **FOUR PAID BUILDS DIED ON A GATE THAT DID NOT HAVE TO EXIST.** `tsc --noEmit` is
+  a gate WE impose; Vite strips types without checking them. **Measured on the exact
+  page: tsc exit 2, vite exit 0, 2,186 modules, 6.95 s.** **Before hardening a
+  gate, check whether the layer below it needs the gate at all.**
+- **SALVAGE CANNOT FIRE ON A NEW BUILD** and has not since `MAX_PAGES` became 1 —
+  the only page a new build has is the one page salvage will not replace. Both
+  halves correct in isolation; nothing announced it. **Open, owner's call.**
+- **A HARNESS THAT PASSED WITHOUT TESTING ANYTHING.** A paid canary POSTed with
+  `layer: ""`, matched no branch, and produced a complete clean round trip — 202,
+  queued, claimed, terminal, cost 0 — with **not one model call, lane, compile or
+  publish**. **A green harness proves the path it took, not the path you meant**,
+  and the danger is that a blind post PASSES. The fix is a refusal, not a fixture.
+- **A NAME THE HARNESS DID NOT KNOW WAS DROPPED WITHOUT A WORD.** A filter on a
+  person's input is a silent drop; a check is a sentence.
+- **A KEY WHOSE INVARIANT EXPIRED WHEN THE LAYER BELOW IT MOVED.** The idempotency
+  key was minted per ASK and the sideways hop reused it — correct until the queue
+  keyed on `(uid, slug, op, idem_key)` **without the layer**, so a hop came back
+  `duplicate: true` and silently became a no-op.
+- **A ZERO-COST RUNG CANNOT PUBLISH THROUGH THE QUEUE**, and the refusal wore the
+  compile's sentence: `edit_may_publish` grants only `reserved` or `exempt`, and a
+  rung that makes no model call never reserves. Two traps in one — a gate written
+  for the paid rungs disqualifying the free one, and `detail: "unbilled"` on the
+  wire with the sentence collapsing it.
+- **A REFUSED RESERVATION READ AS A FREE RUNG.** A refused reserve answered 0
+  exactly as a rung with no model call does, so the spine exempted the job and the
+  work shipped for nothing. **The two zeros are different zeros.**
+- **AN OK ANSWER WITH NOTHING TO PUBLISH HAD NO TERMINAL STATE**, so it sat
+  non-terminal until the sweep declared it LOST and refunded a 22-second answer
+  ~150 seconds later. **A state machine with terminal states only for "shipped" and
+  "failed" has no name for "answered, nothing to ship"** — and the nameless case
+  falls to whichever sweeper finds it first. Its mirror: **a committed job with no
+  finalize held a sweep slot for ever**.
+- **THE CLIENT NEVER TERMINATED ON A QUEUED JOB THAT PRODUCED A REPLY.** The stored
+  reply IS the synchronous one and has no job-state field, so `classify` answered
+  `running` for ever on a charged, PUBLISHED edit. **When one endpoint answers in
+  two voices, the voice has to be on the wire.** Two more hid in the same
+  duplicated tail: a queued escalate rendered as "✅ Done." (doing less than asked
+  and reporting success), and `apply()` bumping the preview and nothing else.
+- **A REFRESH MID-EDIT LOST SIGHT OF THE JOB, AND THE FIX HAD BEEN WRITTEN AND LEFT
+  UNWIRED.** `resumeEditJob` existed with no caller for days.
+- **THE QR RULE IS STRICTER THAN THE REST OF THE DESIGN STEP**, so a first build
+  can almost never have one: `NEVER INVENT THE DESTINATION` while every other field
+  invents placeholder detail freely. The machinery is not the limit; the rule is.
+  **Owner's call.**
+- **A STAMP WRITTEN AFTER THE RUN IS A CHANGE THE SUITE HAS NOT SEEN.** The
+  stamping rule and the re-run rule pull opposite ways. **Run, stamp, then re-run
+  whatever READS the stamp.** And **a count nobody re-measured is a claim ahead of
+  its evidence** — in both directions: `382/382` was stamped from a local run and
+  the next CI read of it was **381 passed, 1 failed**.
+- **RE-RUN THE THING THE CHANGE IS ASSERTED BY.** Appeasing a false alarm in one
+  checker while never re-running the harness that proves the change has shipped red
+  twice. **The container harness sees what the unit suite structurally cannot** — a
+  compiled stylesheet, a rendered head, a real PNG's dimensions. Its 25 minutes are
+  not optional on a change to `build-server.mjs`.
+- **WHEN A LANE FAILS LIVE, DRIVE ITS MODULE OVER THE CORPUS BEFORE BUYING A SECOND
+  RUN.** A writer that emits source is proven by PARSING what it emits over every
+  real page there is. One page broke out of 332, and the same audit over the picture
+  scanner found the `images` failure with no model call.
+- **A DROPPED FIELD HAS A TWIN ONE HOP OVER.** Fixing the producer exposed the
+  collector: `publishStep` rebuilds from the LAST rung's args. **When a value is
+  added to a chain that collects across steps, check every collector on the chain**
+  — it was written before the value existed.
+- **AN AUDIT OF THE CONSUMER'S REAL INPUT SURFACE IS THE REUSABLE PART.** Derive
+  what the container reads (`payload.<field>`) and what the harness sends, and diff
+  them. It found `parts` never once compiled. **Still unexercised: `langs`,
+  `fontFiles`, `pageTokens`, `description`.**
 
-**The wiring layer.** Twelve-plus features have shipped DEAD with the module
-perfectly correct and one hop cut: a value computed and never forwarded, a dep
-injected and never called, a field decided and never put on the wire. From
-outside, "the model did not set it" and "we did not forward it" are the same
-`undefined`. **Before rewording a prompt because a field came back empty, check
-that the field can arrive.** Assert the CHAIN, end to end, and derive it from the
-producer rather than listing today's hops.
-
-**AND THE GUARD CAN COVER THE CHAIN AND STILL MISS A HOP (2026-09-08, the Code
-tab, found LIVE by the owner a day after it shipped).** Making Code real took
-three hops — draw the tab, render the host, fetch into it. The guard asserted the
-tab twice, asserted the loader, drove both handlers, and never read the branch
-that renders the host, which kept its old `!isReact &&` and was therefore false
-on every site that has ever built. The sweep even killed "the Code tab gated on
-`isReact` again" and called that the defect itself. **A hop nobody listed is a
-hop nobody guards**: derive the chain from the value's route — producer, host,
-consumer — and assert each link, rather than the hops that were on your mind when
-you wrote the change. The tell here was available for free: the pane's condition
-and the function it calls asked the SAME question in opposite directions.
-
-**Latest, and it is the purest instance yet: `three`, shipped dead 2026-08-29 and
-found the next day.** A design field added with its lane, its guards and a green
-suite — and left off `EDIT_FIELDS`. `mergeLook` rebuilds its output from that
-array ALONE, so the model designed a 3D scene on every build and the answer was
-discarded before anything could store or read it. Nothing failed and nothing
-logged. **The one-command check that finds this class in seconds:** for every
-design field, count consumer references — but count them the way the value really
-travels. A dotted `designed.<field>` scan answers 0 for `purpose`, `pages`,
-`shape`, `images`, `action` and `backend`, all of which are perfectly wired, because
-they travel as a DERIVED walk over `PLAN_KEYS`. So the honest test is membership:
-**a design field must be in `PLAN_KEYS`, or on `EDIT_FIELDS`, or have a named
-per-field hop (`readCss` is the model for that) — a field in none of the three is
-dead.** `three` was in none of the three; `behavior` is on `EDIT_FIELDS`.
-
-**Assert the property, not the spelling.** The single most repeated own-goal here.
-A guard pinned to `foo(a, b)` goes red the moment an honest third argument
-arrives, reporting that the feature is gone. Anchor on what must be TRUE.
-**AND ITS QUIETEST FORM IS PINNING A LIST BY ITS LAST ELEMENT (2026-09-09).**
-`deploy-gate` asserted its five names as `…STALE_QUEUED_S,\s+\} from
-"./builder/edit-job.mjs";` — the closing brace and all — so it went red because
-an unrelated name arrived BELOW them, reporting the deploy gate as unwired by a
-change that did not touch it. Being last in a list is almost never the property;
-membership is. Read the block and assert each name in it.
-
-**Never size a source-read window in bytes.** Ten-plus instances. This repo puts
-its reasoning in comments, so any byte window is outrun by the next comment.
-Window from landmark to landmark, and assert both landmarks exist — `indexOf`
-answering -1 gives `slice(-1, -1)` = `""`, which passes every assertion inside it.
-**And `slice(start, -1)` is the OTHER half of that trap (2026-09-05)**: the
-report-send guard's closing landmark was `async function sweepModelJobs(` —
-declared WITHOUT `async` — so its window was the whole rest of build-server.mjs,
-passed on any `catch` anywhere below, and went red for a `throw` inside a string
-a thousand lines away. A missing END landmark is a window that swallows the file.
-
-**Overlapping windows.** A window that runs to a NAMED neighbour swallows whatever
-is inserted between them, and a mutation in the wrong half then passes. Derive the
-closing landmark from the next sibling.
-
-**AND PROSE ONE SECTION OVER CAN STEAL A LANDMARK THAT WAS UNIQUE (2026-09-08).**
-`site-contact.test.mjs` windowed the router's `nav` clause as
-`slice(indexOf('"nav"'), indexOf('"page"'))` — correct while `"page"` appeared
-only where the `page` layer is described. The removal work added a sentence to
-the `look` clause naming layer `"page"` as the one exception, and `look` sits
-EARLIER, so the window became `slice(bigger, smaller)`: the empty string, which
-matches nothing and reported the socials and the footer as missing from a clause
-that still says both. **Search the closing landmark FROM the opening one**
-(`indexOf(end, at)`) and assert `end > at`; a landmark is only unique until
-somebody writes about it upstream, and a description that explains its own
-exceptions will always name the other sections.
-
-**A NEGATIVE LIST IS THE WRONG WALL WHEN THE INPUT IS CALLER-SUPPLIED
-(2026-09-08, found by a guard on the change that introduced it).** The lane
-door was written `eRemove && !OWN_REMOVAL_LAYERS.includes(eLayer)` — "open for a
-removal on anything that does not answer removals itself", which reads correctly
-and is correct about every layer the ROUTER can produce, because `readEdit`
-strips the flag elsewhere. The edit route reads `remove` off the REQUEST BODY,
-so `{layer: "data", remove: true}` walked straight through a wall that only knew
-what to exclude. **Ask the positive list** — the one derived from the same
-constant the producer filters on — and the wall then admits exactly what the
-field is read for, whoever sent it. The general shape: a validated producer and
-an unvalidated door reach the same consumer, and a deny-list at the door is a
-claim about the producer, not about the input.
-
-**Prose contains the thing it forbids.** A comment explaining a deletion spells
-the deleted name; a comment arguing for a class name contains that class name.
-Ten-plus instances, several inside the guard written for that very trap. **Blank
-whole-line comments (length-preserving) before any scan.**
-**AND THE LATEST LANDED ON A GUARD WHOSE JOB IS COUNTING MENTIONS (2026-09-12).**
-`landing-models.test.mjs` holds `MODELS_TAB` to "its declaration and exactly one
-reader" by counting the name in `chat.js`. A comment explaining why `providerOf`
-survives the media deletion said that the landing's pipeline walks MODELS_TAB —
-and the count went 2 → 3. **Prose about a name is not a second reader of it**, so
-a count that reads raw source is one comment away from a false alarm; the count
-reads blanked source now, with the declaration asserted to have survived the
-blanking.
-
-**AND THE BLANKER'S ORDER IS ITSELF A TRAP: LINE COMMENTS FIRST, BLOCK OPENERS
-ONLY AT THE START OF A LINE.** Recorded for worker.js at 46% and hit AGAIN on
-2026-09-12, in `test/landing-pipe-run.test.mjs`, the last blanker in the repo
-still doing it the naive way. `chat.js` carries the line comment `// Every
-/api/* call carries the Supabase access token`; blanking blocks first, that `/*`
-opened a false block that ran to the next real `*/` **71,729 characters away**
-and swallowed `RUN_AGENTS` with most of the file — **37.1% of the visible source
-survived**, and three tests reported the landing's pipeline as gone on a change
-that never touched it. **What exposed it was a DELETION moving one boundary**:
-the same text had been there for weeks with the swallow landing somewhere
-harmless. **And a survival RATIO is the wrong observer** — chat.js is measured at
-50.1% comments, so "most of the file is left" is a weak claim and a floor set by
-eye either passes a hole or fails on an ordinary week's writing. **Assert that
-the landmarks the scan is about to look for survived the blanking.**
-
-**A negative assertion must prove its observer is alive.** `[].every(...)` is
-`true`. A loop over an empty collection contributes no checks to fail. Assert a
-floor on what was scanned before believing an absence.
-
-**Inert mutants.** Sixteen-plus recorded. A mutation that changes no behaviour
-reads exactly like a test gap and costs a hunt through checks that are fine.
-Before believing a survivor, prove the mutation changed something.
-**AND TWO REDUNDANT DEFENCES CANNOT BE KILLED ONE AT A TIME (2026-09-09).** The
-trigger reader skips comment lines AND matches an event key as `[a-z_]` right
-after exactly two spaces — either alone keeps a parked trigger from reading as
-live, so cutting the skip changed no answer on any of 33 workflows across five
-questions each, and read as a test gap. **A survivor here is not always a
-missing check; sometimes it is a second wall.** Prove it inert by MEASURING both
-versions over the real corpus, then mutate the PAIR, which must die. Say in the
-code that the redundancy is deliberate — a sweep cannot say it, and the next
-session deletes what nothing appears to need.
-
-**AND NOTHING GUARDED THE CONFIG THAT DECIDES WHETHER ANYTHING DEPLOYS AT ALL
-(2026-09-12).** No test anywhere read `durable_objects` or `migrations` out of
-`wrangler.jsonc`, so the rule that a Durable Object class leaving the Worker
-needs a `deleted_classes` migration lived only in a comment — and the failure is
-Cloudflare refusing the whole deploy, which is the most expensive way to find
-out. It had already come up twice (v4, then v6 for the game builder) and both
-times the migration was written by hand off that comment.
-`test/do-migrations.test.mjs` is the census, derived from the config and from
-`worker.js`'s own exports. Same shape as the merge-triggers entry below: **the
-part of the repository that decides what ships is the part nobody writes a guard
-for**, and it fails silently in the safe-looking direction until the day it does
-not.
-
-**NOTHING GUARDED WHICH WORKFLOWS A MERGE STARTS (2026-09-09).** Twenty-two
-automatic triggers came off `.github/workflows/` in one commit — five smokes
-chained to the Deploy, three probes, the unit suite, thirteen path-filtered —
-and **all 5,722 tests stayed green.** Not one guard anywhere asserted what runs
-on a push to main, so the CI configuration was the one part of this repository
-with no census over it at all, while being the part that decides what gets
-checked and what gets spent. `test/merge-triggers.test.mjs` is that census now.
-**The general shape: the thing that runs your guards is not itself guarded
-unless somebody writes it down** — and it fails silently in the safe-looking
-direction, because a workflow that stops running produces no red run to notice.
-
-**A mutant that never applied.** The mirror. `grep -qF "$to"` is vacuous when the
-replacement is empty or common — verify by CHECKSUM. **A sweep whose control never
-applied is a sweep with no control.**
-
-**Two lists of the same thing.** Routes in a matcher and in a dispatch condition;
-a scanner's list and the kit's. They drift, and the drift is silent. Derive one
-from the other, in BOTH directions where the scan can stop matching.
-**AND A HAND-TYPED CONSTANT IN A CHECK IS ONE OF THEM (2026-09-12, the container
-harness).** `site build` came back **381 passed, 1 failed** on a change that
-touches neither the fan-out nor the model path: "a fan-out over the container's
-own ceiling is refused, never truncated" posted NINE requests, and nine was over
-the wall on 2026-09-10 when the check was written and legal from 2026-09-11 when
-the two bounds split (`MAX_MODEL_FANOUT` 8 sockets, `MAX_FANOUT_REQS` 16 list
-length — the split's whole point being that a plan of nine pieces can be SENT).
-`git merge-base --is-ancestor` settles the order in one command: the check came
-first, the ceiling moved under it. **So the failure named the product and the
-defect was in the check**, which is this file's own "a rule true because of a
-layer below it expires when that layer moves" trap wearing a red test as its
-costume — and the reason it went unread for a day is the Live-state line already
-flagging `382/382` as a local number nobody re-measured. It imports
-`MAX_FANOUT_REQS` and sends `+ 1` now. **A check that hardcodes a number the
-product exports is a second copy of that number with no guard between them**, and
-the three-request job above it is what keeps the observer alive without a second
-case.
-
-**A LOOKUP KEYED AT A DIFFERENT GRANULARITY THAN THE THING YOU ASK IT
-(2026-09-08).** `LANE_LAYER` is keyed by GROUP and `laneLayer(field)` is the
-resolver; indexing the map by a field name answers `undefined` for the three
-lanes inside the `plan` group — and `undefined` there is a legitimate value,
-meaning *this lane has no layer of its own*. So the wrong reading produced a
-plausible, wrong split, which went into a section heading, two files and an
-owner note before anything noticed. **The miss and a real answer were the same
-value**, which is this repo's own "cannot-tell must never read as
-nothing-there" one layer down: when a map's absent key means something, ask
-its resolver, not the map. The tell was free and I walked past it — the
-derived numbers did not add up to the split written beside them.
-
-**`String(["a"])` is `"a"`.** Shipped as a real bug three times — a one-element
-array passing as a role, an access level, a language. Refuse a non-string; never
-coerce.
-
-**`X["constructor"]` is truthy.** Shipped once in the Stripe plan lookup and
-nearly again three times since. `Object.hasOwn`, never truthiness, for any
-caller-supplied key.
-
-**Flat scans where depth matters.** Written wrong five-plus times. `\(([^)]*)\)`
-stops at the first `)`, which is usually inside a nested call. Argument lists,
-object literals and selector lists all need a depth-aware splitter.
-
-**A fixture in a different shape from reality.** `setTotp`'s fake did a partial
-update the real one could not; a path fixture used a shape the pipeline never
-produces. A fake that is MORE capable hides bugs exactly like one that is less —
-and so does one that differs by a single character. The og:url/canonical fixture
-stored `https://slug.gofarther.app` while `siteUrlFor`, the ONLY writer of that
-field, returns it WITH a trailing slash; every non-home route emitted
-`https://slug.gofarther.app//menu` as both its canonical and its og:url, and the
-container harness certified it for a day. **Derive a fixture from its real
-producer.** A hand-typed constant is a second copy of what a value looks like,
-and two copies drift silently — this IS "two lists of the same thing".
-
-**A `//` in a URL is not a cosmetic defect.** `https://host//menu` parses as the
-host `menu` under protocol-relative rules, so a wrong canonical does not name a
-wrong PAGE of the site — it names a different SITE. Assert an address by parsing
-it (`new URL(u).pathname`, `.host`), never only by string equality against an
-expectation the test assembled the same wrong way.
-
-**A rule true because of a layer below it expires when that layer moves,
-and nothing announces it.** `#/` hrefs were correct under hash history; a
-comment's reasoning about `ctx.waitUntil` was true until the queue landed. When
-something one layer down changes, re-ask what rested on it.
-
-**A false alarm is worse than a miss.** A check that flags correct code teaches
-the model — and the next session — away from something that works. Any new lint
-measures its false-alarm rate against the real corpus and must reach ZERO before
-it ships.
-
-**A failure that cannot name itself.** Seven-plus instances: four different causes
-wearing one sentence, a status with no reason, a report that died with the socket.
-When two failures need opposite fixes, they must be distinguishable from outside.
-**Latest, 2026-08-29:** `compileMsg` answered "our build service was restarting"
-for BOTH a killed container and a read that never got the site's design, so a
-databaseless site's refusal read as container churn — the next move was a settle
-delay that fixed nothing, because nothing had restarted. The honest half was on
-the wire the whole time (`pub.error`, and `detail` beside it); only the sentence
-collapsed it, and the harness printing that answer did not log `detail`. **A
-harness that hides the diagnostic half of a response turns every failure into a
-guess** — cost two live runs.
-
-**`pgrep -f` / `pkill -f` match your own shell.** Ten-plus instances — the harness
-wraps the command in a shell whose command line contains the pattern, so
-`pkill -f x` kills the thing running it (exit 144, empty log) and
-`until ! pgrep -f x` never exits. Kill by PID; watch a log's tail.
-
-**LOADING A MODULE PROVES ITS IMPORTS, NOT THE IDENTIFIERS INSIDE ITS FUNCTIONS
-(2026-09-07, and it reached MAIN).** De-duplicating the mark URL rule deleted
-`const logoOk` from `writeSiteBrand` and left one reference to it in the return
-statement — `refused: (!!raw && !logoOk) || …`. **`&&` SHORT-CIRCUITS**, so a
-build with no logo never evaluates it and every unit test, every source scan and
-a real `node builder/build-server.mjs` that started and listened all passed. A
-build WITH a logo threw `logoOk is not defined`. The container harness caught it
-— eight failures, one cause: two logo cases directly and six more reading a
-stamp off the build that never happened — and it caught it AFTER the merge,
-because I had reasoned that starting the service was the risk and skipped the
-25-minute wait for `site build`.
-**THE FOURTH FREE-IDENTIFIER MISS IN ONE SESSION** (run 22's `TOKEN`, `eMark`,
-`MARKS`, this) and the first that a module LOAD did not catch: an import graph
-resolves at load, a free identifier inside a function body resolves when that
-line runs, and a short-circuited operand may never run at all.
-**AND THE FIFTH INSTANCE IS WHAT FINALLY BOUGHT A GUARD (2026-09-12, the game
-deletion).** `public/chat.js` kept CALLING `gamesLoad()` after the Game Studio
-that defined it was deleted — a `ReferenceError` on every asset sync for every
-signed-in customer, invisible to `node --check`, to every source-reading guard
-and to a 13-mutant sweep. **`test/free-identifiers.test.mjs` is the check**: it
-parses every script `index.html` loads and walks real lexical scopes, over the
-PAGE rather than the file (classic scripts share one global scope), forgiving a
-name only where a `typeof` guard protects it. It found `gamesLoad` and, on its
-first run over untouched code, a second live one nobody had reported —
-`galFilter`/`galSort`, read by the gallery and declared only in the demo copy of
-chat.js, so opening Gallery threw. **The check that finds this class is not a
-grep; it is a parser**, and the cheap version of the same idea is still the one
-to reach for mid-change: grep for every identifier a deletion removes a
-definition for, in both directions.
-
-**AND IT HAPPENS IN A TEST SCOPE TOO, WHERE IT IS SILENT IN BOTH DIRECTIONS
-(2026-09-12).** `test/site-source.test.mjs` carries the tree renderer out of
-`chat.js` into a `new Function` scope; `stCodeRows` gained `ST_FIND_MAX` behind
-`f.hits ? … : ''` and `stCodeTree` gained `ST_ALL_OPEN` behind `all ? … :`, and
-every case in that file went on passing against a scope that had NEITHER — no
-missing import, no parse error, just two operands nothing in the fixtures
-happened to evaluate. `konst(name)` pulls a top-level one-line `const` out of the
-file so a carried function's constants are carried like its functions. **When a
-carried function gains a new free name, add it to the scope even if the suite is
-green** — green here means the fixtures never took that branch. **The check that
-finds this class is grep for every identifier a change deletes**, in both
-directions — and for anything the baker touches, the container harness, which is
-the only thing that runs `writeSiteBrand` with a real logo. Its 25 minutes are
-not optional on a change to `build-server.mjs`; that is what they are for.
-
-**A CHAIN TEST THAT READ THE MODULES INSTEAD OF RUNNING THEM (2026-08-30,
-found while checking why run 83 shipped no QR).** `test/site-marks.test.mjs`
-has a case literally called "THE CHAIN — both marks reach the site, and survive
-every later publish", and it is honest about what it reads — but it reads
-SOURCE. **Nothing had ever compiled a build carrying a `gif` or a `qr`.** Same
-shape as run 80: `three` was declared, installed, present, correctly named in
-the prompt, and unimportable. A chain asserted by reading is a chain asserted at
-the layer below the break.
-**Where the risk actually sat is not where a source read would look.**
-`writeSiteBrand` puts the artwork in `public/animated.svg` and `public/qr.svg`
-and only the PATH in the generated module — so there is no string-escaping
-hazard at all, and instead the live questions are whether Vite copies `public/`
-into `dist/client/` and whether the publish sweeps it. A build can compile
-perfectly and ship a page pointing at two 404s.
-Closed by a container case (`MARKS_INDEX`) that sends both, with the artwork
-DERIVED from `qrSvg` and `cleanGif` rather than hand-typed, and asserts four
-things a file listing alone cannot: the build succeeds, both files are in the
-published output, the built page references both paths, and the caption survives
-as alt text. Green first run — **both marks were correct all along, only
-unproven.**
-**And the reason run 83 had no QR was not a defect.** The brief says every chair
-leaves with a card carrying a code you scan; the QR belongs on the PRINTED CARD
-pointing at the site, and the site's job is to RESOLVE the code — which is
-exactly the `chairs` table it built. A QR on the page would have been the site
-linking to itself. Worth remembering before reading a missing optional field as
-a dead wire: **`qr` is offered on every build** (`FRONTEND_SCHEMA_TOOL`
-destructures out `backend` and nothing else), so absence is a judgement, not a gap.
-
-**AN AUDIT OF THE CONTAINER'S INPUTS FOUND THE NEXT `three` (2026-08-30).**
-The container reads 28 fields off a build payload. Comparing that list against
-everything `test/integration/site-build.mjs` has ever SENT found **`parts` had
-never been exercised** — the `tsx` escape hatch, the way out of the 2,112-piece
-kit, wired on 2026-08-29 and never once compiled. Exactly the shape that cost
-run 80. Closed the same day with a fixture proving four things a source read
-cannot: the component compiles, its markup reaches the bundle, it is NOT
-published as a route (what `routeFileIgnorePrefix: "-"` buys), and it is not in
-`sitemap.xml`. Green first run — it was correct all along, only unproven.
-**The audit itself is the reusable part**: derive the consumer's real input
-surface (`payload.<field>` in `build-server.mjs`), derive what the harness
-sends, and diff them. Still unexercised after this: `langs`, `fontFiles`,
-`pageTokens`, `description`.
-
-**FOUR PAID BUILDS DIED ON A GATE THAT DID NOT HAVE TO EXIST (2026-08-30).**
-Runs 80, 82, 84 and 85 all ended `page=placeholder` at `stage: typecheck`, every
-one of them a TYPE error, every one leaving a charged customer with nothing. The
-whole time, **the bundler did not care**: `tsc --noEmit` is a gate WE impose and
-Vite strips types with esbuild without checking them. Measured on the exact page
-that killed 84 and 85 — `tsc` exit 2 with TS2322, `vite build` exit 0, 2,186
-modules in 6.95s. **The sites would all have shipped.**
-The typecheck reports now and only `vite build` refuses, which is the honest
-split: a type error is a claim about types, a vite failure is code that will not
-become a bundle. **The general shape: before hardening a gate, check whether the
-layer below it needs the gate at all** — four builds were spent teaching a
-checker to pass when nothing downstream was asking it to.
-Its corollary is that `salvage` now has nothing to do on the build path (it keys
-on `stage: "typecheck"`, which no longer exists), on top of already being
-unreachable for one-page sites. Left in place rather than deleted: it is the
-answer if a refusing stage ever returns.
-
-**SALVAGE CANNOT FIRE ON A NEW BUILD, AND HAS NOT SINCE `MAX_PAGES` BECAME 1
-(found 2026-08-30 by run 84).** `site-plan.mjs` plans **one** page and that page
-is `index.tsx`; `publish-pages.mjs` refuses to stub when `index.tsx` is the page
-that failed. Both are correct in isolation and together they mean the only page
-a new build has is the one page salvage will not replace — so the whole mechanism
-is unreachable for every new site. It was right when a site had five pages
-(stubbing the home page while four work is worse than refusing) and became a
-no-op the moment the plan went 5→1. **Nothing announced it**, which is this
-repo's own "a rule true because of a layer below it expires when that layer
-moves" trap, caught only because three of four paid builds in one day ended
-`page=placeholder`. The early placeholder is still the real safety net and it
-works, so nobody gets nothing — but the SECOND net has been dead for weeks.
-Deliberately not fixed: whether a broken home page should ship as an apology stub
-or keep its placeholder is a product call, and the placeholder is arguably the
-better page. **Open, owner's call.**
-
-**TWO KIT COMPONENTS WHOSE NAMES DO NOT DISTINGUISH THEM (2026-08-30, run 84,
-8 credits).** `Figure` draws its own picture from a `src` prop and takes NO
-children; `MediaCaption` takes the picture as a child. Both are captioned
-figures. Told to render the QR as its own `<img src={SITE_QR}>` and show it with
-its caption, the model reached for the one whose NAME matched the job and the
-build died at typecheck with TS2322. **This is `marksDirective`'s own rule one
-level up** — it already says the bindings are named exactly "because they are
-generated: a page that guesses `SITE_GIF` does not compile". A page that guesses
-which figure holds children does not compile either. The directive now names the
-component, and `test/site-marks.test.mjs` reads that name OUT of the directive
-and checks the component really accepts children, so a rename cannot make the
-guard lie. **The general shape: when the kit has two components for one job, the
-prompt must pick, because a name is not a contract.**
-
-**TWO KIT COMPONENTS WHOSE NAMES DO NOT DISTINGUISH THEM (2026-08-30, runs 84
-and 85, 22 credits).** `Figure` drew its own picture from a `src` prop and took
-NO children; `MediaCaption` took the picture as a child. Both are captioned
-figures. Told to render a QR as its own `<img src={SITE_QR}>` and show it with
-its caption, the model reached for the one whose NAME matched the job and the
-build died at typecheck with TS2322 — **twice, in two generations, at two
-different lines**. **The signature list already said `Figure` took no children**
-(`component-api.mjs` is generated from the real props and is in the prompt), and
-the model passed them anyway; naming the right component in the directive was
-tried between the two runs and run 85 read past that too. **So the fix is the
-wall, not the rule**: `Figure` takes children now (`children ?? <SafeImage>`),
-which removes the choice instead of governing it. Regenerating
-`component-api.mjs` is the hop that carries it to the model — two tests catch
-that file going stale, which is how the change reaches the prompt at all.
-**The general shape: when the kit has two components for one job and their names
-do not say which is which, a prompt cannot fix it — make the obvious name work.**
-
-**A DIRECTIVE FIX THAT WAS INERT BECAUSE THE DIRECTIVE NEVER FIRED (2026-08-30).**
-Between runs 84 and 85 I changed `marksDirective`'s QR paragraph to name the
-right component. It changed nothing, because that paragraph is emitted ONLY when
-a `qr` exists and neither run designed one — I fixed prose the model never saw
-and then read the identical failure as "the model ignored it". **Before
-concluding a prompt change did not work, check the prompt actually contained
-it.** The tell was in the builder's own reply both times: it described the wifi
-as something to COPY off the screen, never to scan.
-
-**THE QR RULE IS STRICTER THAN THE REST OF THE DESIGN STEP, so a first build can
-almost never have one (2026-08-30, open).** `QR_FIELD` says "NEVER INVENT THE
-DESTINATION… it points at something the brief actually gives you, or it does not
-exist" — while every other field invents placeholder detail freely, and the same
-builds invented a door code, a phone number and an address, each flagged "swap
-them for the real ones". A brief that says *scan the wifi off the screen* gives
-no real password, so the model correctly declined and printed it as text.
-`WIFI:`, `tel:`, `mailto:` and `geo:` are all accepted by `readQrText`, so the
-machinery is not the limit — the rule is. **Whether a QR may use a placeholder
-like everything else is a product call; owner's.**
-
-**A UNIT CONVENTION STATED ONLY IN PROSE (2026-08-30, run 83, live on
-`ashgrove-1`).** `OptionPricedList` says in its own doc comment "All arithmetic
-in integer minor units". The generated page passed the database's `price` —
-`1640`, meaning £1640 — straight into `delta`, which wants pence, so the kit
-correctly drew **+£16.40** while the page's own total, treating the same rows as
-pounds, drew **£1880.00**. Both on screen, one above the other. Nothing failed:
-tsc passes, the render check passes, the numbers are all plausible. **A
-convention a model must READ is a convention a model will eventually read past**,
-and this one is invisible to every instrument we have because both renderings are
-well-formed. The fix shape is a type (a `Minor` branded number) or a prop name
-that carries the unit (`deltaMinor`), not a firmer sentence. Not fixed — the
-owner has not asked.
-
-**AN API THAT SERVES A STALE SNAPSHOT AND SAYS SO IN A FIELD NOBODY READS
-(2026-09-10, deploy 2069).** GitHub's job listing kept answering `in_progress`
-for a container-image step that had finished at 02:53:39Z, and it was read here
-as a 32-minute hang on a deploy that took 3m27s — reported to the owner as a
-stuck deploy, with an invented consequence about the deploy gate holding
-customers' edits for 45 minutes. **The tell was free and in the response**: the
-run's own `updated_at` stayed at 02:50:57Z while the step timestamps beside it
-moved, which is a cached snapshot saying it is one. Read `updated_at` before
-believing a status, and prefer the COMPLETED run's timings to any in-flight
-poll. The general shape is this file's own screenshot rule pointed at a control
-plane — **when the instrument and the thing disagree, suspect the instrument
-first** — and the cost of getting it wrong in this direction is a false alarm,
-which this file rates worse than a miss.
-**IT HAPPENED AGAIN THE NEXT DAY AND THE TELL ABOVE DID NOT WORK (2026-09-10,
-`unit tests` run 2413).** The suite step finished at 20:49:11Z and three
-different endpoints — the run listing, `get_workflow_job`, and the check-run —
-all answered `in_progress` with unmoved step timestamps for ~15 minutes after.
-**This time `updated_at` was frozen TOO** (20:47:38Z, beside step stamps that
-had also not moved), so there was no internal disagreement to spot: the
-sentence above says to read `updated_at` before believing a status, and a
-snapshot stale in every field passes that test. So the corrected rule is
-narrower. `updated_at` moving BEHIND the steps proves staleness; it agreeing
-with them proves nothing, because a whole snapshot can be old. **What settles
-it is the step's own expected duration** — this suite step has taken 80–84 s on
-every run of this workflow, so anything past a few minutes is the instrument
-until a later poll says otherwise. Wait and re-poll; do not report a hang, and
-do not report a pass either.
-**A FOURTH INSTANCE PUTS A BAND ON HOW LONG IT CAN LIE (2026-09-11, `unit
-tests` run 2432).** The suite step ran 01:41:38Z → 01:42:57Z — **79 seconds**,
-inside the measured band — and five polls over ~25 minutes returned the SAME
-snapshot byte for byte, `in_progress` on that step. `updated_at` sat at
-01:41:23Z against step stamps at 01:41:38Z, which is the proving direction, so
-the tell worked and it still took twenty-five minutes to clear. **So the tell
-says the reading is stale; it says nothing about when the truth arrives.** The
-free thing to do while waiting is rule out the OTHER explanation locally: the
-whole suite on the same tree, and the changed guard files on their own, which
-is what made "the instrument" the only reading left.
-
-**AN INSTRUMENT THAT REPORTS CORRECT CODE AS BROKEN — the screenshot version
-(2026-08-30).** A `fullPage: true` capture of a site using `animation-timeline:
-view()` shows every below-the-fold section BLANK, because Chromium expands the
-viewport for the capture and scroll-driven progress is computed against it: the
-sections sit at `opacity: 0` with their real height, so the page reads as
-enormous empty gaps. Scrolling first does not fix it — the animation is not
-sticky, it re-hides. I was one sentence from reporting a published site as
-broken. **Screenshot each section scrolled INTO VIEW and assert its computed
-opacity**, which is what proved all seven were fine. The general form is this
-repo's own rule pointed at itself: when the instrument and the thing disagree,
-suspect the instrument first, and this is the second time in one day that the
-harness rather than the product was the bug (the other was `compileMsg`
-collapsing two causes into one sentence).
-
-**A PROMISE TO THE MODEL THAT NOTHING EVER COMPILED (2026-08-30, two paid
-builds).** The page rules advertise five importable packages. **Fixtures
-importing them: 0 of 5. Real generated pages using them: 0 of 324.** All five
-were promises nobody had checked, and `three` was simply the first one a model
-reached for — it ships no type declarations, `@types/three` was never installed,
-and `tsc` refused. **A package-list guard cannot catch this**: `three` WAS in
-package.json, installed and present, and still unimportable. Only a real `tsc`
-against the real template tells DECLARED from USABLE. And the reachability half
-is the general lesson: the 3D field had been dead until that same day, so no page
-had ever imported it and the defect could not be hit. **Wiring a feature up is
-what makes its defects reachable — a feature that has never run has never been
-tested, however green the suite is.** `test/template-deps.test.mjs` and the
-`PROMISED_PAGE` fixture.
-
-**A GENERATED PAGE BROKE A KIT FILE IT HAD NEVER SEEN (2026-08-30, the second
-paid build).** A model wrote a configurator and declared `validateSearch` with
-REQUIRED fields on `/`. In TanStack a route's search contract is part of its
-TYPE, so that retyped `/` for the whole app and every `<Link to="/">` in the KIT
-stopped compiling — files the model cannot see and could not have fixed. Salvage
-rightly refused to stub a foreign file, so the whole build died at typecheck.
-**The property is LITERAL vs WIDENED, not `Link` vs anchor**: `to="/"` binds to
-that route's generated type, `to={to}` with `to: string` carries no contract —
-which is why `SiteLink` was fine in the same program and is correct code a
-blanket ban would have flagged. A kit file names a route with `<a href>` (`/` is
-the only mount a Start bundle is served at — `test/site-seo.test.mjs`) or with
-`SiteLink`. `test/template-links.test.mjs` + the `SEARCHY_INDEX` fixture.
-**Two sub-traps hit while writing that guard, both recorded ones**: its first
-draft banned both forms and so flagged `SiteLink`; and its comment-blanker
-tracked `'` as a string opener, which is right for JavaScript and WRONG for TSX —
-`<h1>This page didn't load</h1>` opened an apostrophe that swallowed the comment
-below it, so the guard false-alarmed on the three files it had just been written
-to certify. **JSX text is not JavaScript.**
-
-**A CI STEP THAT DOES NOT INSTALL WHAT THE TESTS IMPORT — and five commits of
-red nobody looked at (2026-08-30).** `site-build.yml` ran two test files under
-"both modules are dependency-free, so no install is needed", which was TRUE when
-written and false the moment `site-qr.mjs` imported `qrcode-generator`. The step
-failed with "Cannot find package"; the same tests passed locally, where the
-dependency is installed. **The check and the thing it checks disagreed about the
-environment, which is the one disagreement a test cannot report on itself.**
-Two habits, both cheap: read CI after a push (five went unread), and never let a
-workflow assert a property about the code in a COMMENT — `test/workflow-deps.test.mjs`
-now asserts it. Its first draft walked the import graph and false-alarmed on
-`import` statements inside STRING fixtures; the shipped version is blunt (every
-`node --test` step installs first) because a check that flags correct code is
-worse than no check.
-
-**A DIAGNOSTIC FIELD IS NOT A SUBSTITUTE FOR THE ARTIFACT (2026-08-30, run 90).**
-`coalhole-1` died in the BUNDLER — `SyntaxError: Identifier 'createFileRoute' has
-already been declared. (3:9)`, the model having written the same import twice —
-and the page was gone: the container recycled, the answer only ever in a Worker's
-memory. Four rounds of the owner asking *why was it repeated* and every answer was
-a guess. **`publish-pages.mjs` already said "the pages are gone the moment this
-returns" in THREE separate comments**, each one a past session that hit this wall
-and bought a narrower field instead of the file — `out.error`, then `out.cited`,
-then the `validate` exit keeping `problems`. Three payments for a fraction of one
-thing. Now `deps.keep` stores the raw tool payload ONCE, straight after
-`generate` and before anything can refuse it — not in the failure branches, of
-which there are four plus a throw, because this file's own `settle` comment
-already states the rule that a new failure mode is classified in one place rather
-than remembered at each call site. Its own R2 key, never `pages.json`: that one is
-the revise anchor and is written only on success precisely so a broken answer
-cannot become the site's source. `GET /api/site/answer` reads it back
-(owner-gated), and `scripts/build-as-owner.mjs` step 5b prints it — **a record
-nothing can read is where run 90's page already was.**
-**And the ship-it-anyway change does not cover this**: a syntax error is not a
-type error. Vite strips types without checking them but still has to PARSE, so a
-file it cannot parse yields no bundle at all.
-**THE WALL SHIPPED 2026-08-31** — `dedupeImports` in `page-gen.mjs`, called from
-`validatePages` for pages AND parts (one program, one failure). It scans the
-import HEADER only (stopping at the first thing that is not an import, comment
-or blank, so page prose containing the word can never be reached), compares whole
-STATEMENTS rather than lines — `  Button,` legitimately repeats inside two
-different multi-line imports, and a line-level dedupe deletes it and breaks a
-working page — and drops an exact repeat, which is a no-op. `normImport` removes
-LAYOUT only (whitespace, a dangling comma, the trailing `;`); name order and
-quote style are a stated miss, pinned by a test, because every step from
-comparing text to understanding statements is a step toward collapsing two
-imports that differ. **0 false alarms over 3,736 real files** (the 324-page
-corpus + the 3,412-file kit), which is the bar this repo sets before a check
-ships. **NOT a prompt rule**, and the owner asked directly: the prompt does not
-contain that import line at all, so forbidding it means writing it down (the
-"prose contains the thing it forbids" trap), and runs 84/85 already measured what
-a rule buys — the signature list said `Figure` took no children, the model passed
-children anyway, the directive was rewritten in between, and run 85 read past
-that too.
-
-**A HARNESS THAT PASSED WITHOUT TESTING ANYTHING (2026-09-01, the first paid
-canary).** `edit-canary.mjs` POSTed the paid edit with `layer: ""` and got a
-complete, clean round trip: **202 in 1.0s, queued, claimed, replayed, terminal
-in 7.9s**, `billing: none`, `cost: 0`, ledger empty, balance unmoved at 309,
-site's `x-site-build` unchanged. Every one of those readings is what a healthy
-async path looks like, and **not one model call, lane, compile or publish had
-happened** — the edit route does not decide its own layer, `/api/site/route`
-does, and an edit posted without one matches none of the nine branches and falls
-through to `escalate("layer")`.
-**This is the wiring trap seen from the CALLER's side, and worse than the usual
-shape because the missing hop wore the costume of success.** The edit route's
-own `layer:` field carries a comment about that same field being dropped from
-the ROUTE's response — the identical cut, one hop upstream, recorded as the
-tenth instance. The harness simply never made the call that produces it.
-**The general shape: a green harness proves the path it took, not the path you
-meant.** The fix is a refusal, not a fixture — the canary now routes first and
-**refuses to spend** when the router names no layer, because the danger is that
-a blind post PASSES. And a terminal answer is no longer a pass: the verdict is
-`ok: true`, since an escalate is a legitimate product answer and a failed
-canary.
-
-**AND THE DEFECT UNDER THAT ONE WAS BIGGER: THE CLIENT NEVER TERMINATED ON A
-QUEUED JOB THAT PRODUCED A REPLY (2026-09-01, live behind the canary flag).**
-A finished job hands back its STORED REPLY — the same object the synchronous
-path returns, which the poll route's own comment calls "one object, reached two
-ways" — and that object has no job-state field, because it never needed one. So
-`classify(body.status)` answered `running` on every completed edit, and the
-`wait` branch has no attempt bound: the browser polled a finished, charged,
-PUBLISHED edit for ever behind a spinner. Every queued success and every queued
-escalate; only the outcomes that store NO reply — lost, cancelled — terminated
-at all. Driven and confirmed against both real stored bodies.
-**Neither the body nor the status could carry the distinction.** The body is the
-synchronous reply unchanged, and changing it breaks the property that makes the
-rollback safe. The status is the stored reply's own — 200, 422, 503 — while the
-poll route has its own 503 for a row it could not read, so by number alone a
-stored 503 is a transient one and gets retried until the client gives up. So it
-is STATED: `FINAL_HEADER`, set on that branch and nowhere else, and `readPoll`
-with its four cases in a stated order.
-**The general shape, and it is the wiring trap inverted**: the producer was
-correct, the consumer was correct, and the two disagreed about *which of them
-was speaking*. When one endpoint answers in two voices, the voice has to be on
-the wire — inferring it from the payload works until the payload is something
-you did not write.
-
-**AND ONE HOP OVER FROM THAT: A QUEUED ESCALATE RENDERED AS "✅ Done."** The queued reply body
-IS the synchronous one — the consumer stores exactly what the route returned —
-but only the synchronous path ever read it. `watchEditJob` applied every
-terminal answer as an outcome and `editReply` ends `return '✅ Done.'`, so a
-queued edit that could not be made told the customer it had been, bumped the
-preview to show an unchanged site, and **never ran the revise that is the whole
-safety argument for trying a cheap rung first**. Doing less than they asked and
-reporting success, which is the failure the edit path is written to avoid.
-Fixed with ONE decision both paths call: `EditPoll.escalateAction` answers
-`hop` / `up` / `lost`, and `chat.js` acts on it — the decision in the module a
-test can drive, because chat.js cannot be imported and "cheap thing or
-expensive thing" is a question about money.
-**Its third answer is the one that had no name before**: a watch resumed after a
-refresh holds the job id and nothing else, so falling through to `fallback`
-there would start a ~25-credit rewrite on page load for a sentence nobody
-re-typed. (`resumeEditJob` had no callers until stage 2b, 2026-09-05 — said out
-loud rather than left to be found, since wiring it starts real behaviour on page
-load; the entry below the sweep's records how it was wired, and the `lost`
-answer is what a record from before that day still gets.)
-
-**AND A THIRD IN THE SAME TAIL: `apply()` BUMPED THE PREVIEW AND NOTHING ELSE.**
-The synchronous success path also drops a DELETED PAGE from the site picker and
-remembers — or clears — the undo rows. The queued copy did neither, so a queued
-`page` edit left a deleted page on offer, and a queued `data` edit stored no
-undo and never cleared a stale one from an earlier synchronous edit: a standing
-offer to re-add a row that is already back. **Three defects in one duplicated
-tail, none of which fails, logs, or is visible until a customer deletes
-something.** All three are gone because the tail is one function now
-(`editAnswer` + `applyEditResult`), which is what "two lists of the same thing"
-has been saying all along.
-
-**A KEY WHOSE INVARIANT EXPIRED WHEN THE LAYER BELOW IT MOVED (2026-09-01).**
-The idempotency key was minted per ASK, and the sideways hop deliberately reused
-it — correct while an escalate created nothing on the server. The queue ended
-that: `edit_create` keys on `(uid, slug, op, idem_key)` and **the layer is not
-in it**, so a hop carrying the first key does not file the cheaper job at all —
-it matches the row that just escalated, comes back `duplicate: true`, and the
-hop silently becomes a no-op. Now one key per SUBMISSION, `handedOff` bounding
-it at two. This repo's own "a rule true because of a layer below it expires when
-that layer moves" trap, and **the guard that should have caught it passed
-vacuously**: `lastIndexOf("if (!handedOff) {", mint)` finds the guard whether
-the mint is inside it or a hundred lines below, so `guard < mint` was true
-either way. Anchored on the guard's CLOSE now. A placement check that cannot
-observe placement is worse than none.
-
-**A KILLED SWEEP LEAVES A LIVE MUTANT — and the rule two sections up says so
-(2026-09-01, hit anyway).** The restore sat at the end of the run function, so a
-2-minute tool timeout mid-suite left `escalateAction`'s `hasAsk` gate deleted in
-the tree. Caught only because the guard written for it was failing, which is the
-good outcome and not a plan. **Put the restore on a `trap … EXIT INT TERM HUP`
-and run the sweep in the background**, where nothing can time it out.
-
-**…AND "IN THE BACKGROUND" IS NOT `nohup … &` (2026-09-08, hit anyway, in a
-runner that HAS the trap).** `scripts/mutate.mjs` restores on every exit path,
-and it never got one: run as `nohup node scripts/mutate.mjs … &` inside a
-background tool call, the harness reaped the tracked wrapper the instant `&`
-returned and the runner became an orphan nobody owned. Its log read as though
-it had stopped after two mutants — and `builder/build-answer.mjs` was sitting
-in the tree carrying a live mutant, which `git diff` found and `git status`
-would not have explained. **Run the sweep as the background call's own
-command**: no `nohup`, no `&`.
-Two more things worth having from it. The second run, started while the orphan
-still had a mutant applied, **correctly refused a red baseline** — the wall
-working, and the reason to keep it. And the two processes wrote one log at
-different offsets, so the file interleaved into something that read like a
-clean 28-mutant run with a plausible survivor list: **`pgrep -f
-scripts/mutate.mjs` before believing any sweep result**, because a sweep whose
-tree moved under it proves nothing and does not say so.
-
-**`supabase/applied/` IS NOT THE RECORD OF WHAT IS LIVE (2026-09-01).** Four
-migrations applied earlier that day — phase stats, phase write, the sequenced
-reserve, finalize-always-stores-result — were never written to the folder, and
-the reserve fix was edited into `110952` in place. Rewriting `edit_finalize`
-from the folder's text silently dropped the always-store-result behaviour, and
-only the committed DB check (FAIL 9b) noticed, minutes later. **Before
-redefining any RPC, read it out of the database** (`pg_get_functiondef`), not
-out of this folder; a live snapshot of every `edit_*` function now sits beside
-the migrations for exactly that reason.
-
-**AN OK ANSWER WITH NOTHING TO PUBLISH HAD NO TERMINAL STATE (2026-09-01,
-the second lane sweep).** "Your site already looks like that — nothing to
-change" is `ok: true` with `moved: []` and no publish, and the consumer's
-`shipped` read it as shipped: `edit_finalize` refused it (`published_at` null),
-the `!shipped` refund branch was skipped, and the job sat non-terminal until
-`edit_sweep_lost` declared it **lost and refunded it** ~150 s after a 22 s
-answer. The poll route hands back a stored reply only once the state is
-terminal, so the customer waited the whole 150 s for a sentence that was ready
-at 22. Found because the sweep asked for a heading that was already dark red.
-**Fixed at the RPC**: `edit_finalize(p_id, p_result, p_ok, p_mint)` finalizes
-an ok answer when publishing never BEGAN; the mid-publish ambiguity
-`needs_review` exists for is untouched, and the old three-argument form stays
-as a wrapper (`p_ok := false`) so the Worker running before the deploy keeps
-working. Billing follows the synchronous path: the reserve stands.
-**The general shape**: a state machine with a terminal state only for "shipped"
-and "failed" has no name for "answered, nothing to ship", and the nameless case
-falls to whichever sweeper finds it first.
-
-**A COMMITTED JOB WITH NO FINALIZE HELD A SWEEP SLOT FOR EVER (2026-09-05,
-stage 2a of the architecture plan, owner: *"go"*; found by the plan's audit,
-never live — zero such rows).** The trap one entry up, one state over:
-"answered, nothing to ship" got its terminal state on 2026-09-01; "shipped,
-never answered" had none. A job that died after `edit_committed` and before
-`edit_finalize` sat `publishing` with `published_at` set: `edit_sweep_lost`
-called the refund, which refused it as `published` (rightly — the change is
-live), the sweep counted that as LOST, updated nothing, and selected the row
-again every two-minute tick — one of the batch's twenty slots held for ever,
-the poll route answering 202 to a browser whose `wait` branch has no bound,
-and only a hand `edit_finalize` closing it. **Driven RED against the live body
-before the fix** (`scripts/edit-rpc-check.sql` section 18, FAIL 65: the live
-sweep answering `{lost: 1, refunded: 0}` for a committed row), then migration
-`20260905175752_sweep_finalizes_committed` (applied through the connector,
-read back with `pg_get_functiondef` into the live snapshot): a `published`
-refusal FINALIZES the row with a reply the poll route can serve — the
-consumer's own stored shape `{status, type, body}`, the body as TEXT (the
-route serves a terminal row's reply only when `res.body` is a string), saying
-`{ok: true, recovered: true, job, cost, build}`; the reserve stands, as for
-any shipped edit, and a late real finalize still wins (`result =
-coalesce(p_result, result)` on a row already `done`). `edit_jobs.sweep_tries`
-counts every attempt, FIRST, so a refusal with no branch (`no-job`,
-`terminal`: a race this tick lost, counted `stuck`) still moves the row toward
-the ceiling; a row five ticks could not settle is PARKED in review before a
-sixth try — `review_note` "sweep exhausted", out of the batch, its site closed
-to new edits as every review row's is, the money untouched, a person settling
-it through `edit_reconcile` — with the sweep's own conditions re-asked at the
-write so a row another caller moved is left alone. No answer the RPCs give
-today leaves a row in the batch after one tick; the ceiling is the belt for
-the shape nobody has named yet. The Worker logs the five counts when any is
-positive. **The browser renders it as what it is**: `EditPoll.isRecovered`
-(ok AND recovered — nothing writes the other shape, and reading it as a
-success would put a green tick over a failure) and `outcomeMessage("recovered")`
-— "✅ Your change was published — but the details of what it did were lost
-along the way" — asked by BOTH readers (`editReply`, `addonReplyText`) before
-any layer or count, because the stored reply reaches whichever reader the
-route that filed the job uses; `applyEditResult` / `applyAddonResult` already
-refresh the balance and bump the preview. Section 18: **14 of 14 on the
-migrated database, rolled back** — a committed row finalized, money untouched,
-the reply readable as the route reads it, not swept again; a row at five
-parked with its note, money untouched, left alone by the next tick,
-reconciled; a row at four settled, not parked — the control without which a
-sweep that parked everything would pass. `test/sweep-recovery.test.mjs` reads
-the record (the migration and its column, the snapshot equal byte for byte,
-the check's three rows, the Worker's log, both readers) and
-`test/edit-poll.test.mjs` drives the browser half. **Sweep: 28 mutants, 28
-killed, none unapplied, four comment-only controls survived** (every SQL
-mutant applied to the migration AND the snapshot together, so the
-byte-equality guard was neutral and a property had to catch it) — the
-published branch never firing, the body stored as an object, the reply
-saying ok false, the finalize asked as not-ok, a recovered job counted as
-lost, the attempt never counted, the ceiling at five hundred, the park
-unconditional or without its note, a parked row still attempted, exhausted
-counted unparked, the batch never reading the counter, the answer without
-the count, the column nullable, a refusal with no branch dropped, the grant
-dropped; the check no longer requiring the count, not reading the balance,
-losing its control, never reconciling; the Worker's log dropping the count,
-gated on lost and review alone, the grace hardcoded; recovered without ok
-read as a success, the sentence saying untouched, either reader never
-asking, `editReply` answering Done. **The whole check script: ALL 92 CHECKS
-PASSED, rolled back.** Full suite 5,157 green — three older guards went red
-for the change and were re-anchored, not appeased: the drivers that evaluate
-`editReply` and `addonReplyText` out of chat.js (`site-addon`, `site-apply`
-×2) built the functions in a scope with no `EditPoll`, and now hand the real
-poll module in, so the recovered branch is driven there too. **Not proven
-live**: the deploy carrying the Worker and `public/` is the proof's
-precondition; the database half is live and harmless on its own (the old
-Worker reads `lost`, `review` and `refunded` off the sweep's answer and
-ignores the rest). No live row has ever had the shape.
-
-**A REFRESH MID-EDIT LOST SIGHT OF THE JOB, AND THE FIX HAD BEEN WRITTEN AND
-LEFT UNWIRED (2026-09-05, stage 2b of the architecture plan, owner: *"ok
-go"*; `public/` only — builds nothing, rolls nothing).** `resumeEditJob`
-existed, `resumableJob` and the stored-reply poll existed, and no caller
-reached them (recorded two entries up, deliberately): a customer who
-refreshed while an edit ran came back to the project list with their
-message on the thread and no reply ever, while the job ran on and charged as
-normal. Wired now, in three hops. (1) **The record carries the ask.** Both
-enqueue sites (`siteEdit`, `siteAddon`) remember `{ ask, op, layer, page }`
-beside the job id — the customer's own words, which route filed the job, and
-the coordinates a sideways hop re-posts with — bounded as STRINGS at the
-write AND at the read (`ASK_MAX` 2000, the send box's own cap; `RESUME_OPS`;
-`String(["look"])` is "look", the recorded coercion), one record per site,
-an hour at most, never a body, a marker or an attachment (a logo is a
-megabyte of base64, and its job is already filed). `resumableRecord` is the
-reader; `resumableJob` still answers the id. A record from before the ask
-was stored resumes with no ask and no fallback, and an escalate then reads
-as `lost` — the sentence written for exactly that case while it had no
-caller. (2) **The open workspace resumes its site's job before it is drawn**
-(`resumeOpenSite`, from `renderSites`, so a card click after a refresh is
-the trigger): the send path's own tail as `finish`, the revise on the stored
-ask as the fallback (`reactSend(…, 'revise', …)`, without the attachments),
-the reader the route that filed the job uses (`addonAnswer` for an addon
-record), and busy plus the step rows set ONLY once a watch really started —
-a site with nothing to resume must not be stuck busy. (3) **One watch per
-job per page** (`editWatched`): the resume runs on every render the
-workspace gets (every reply triggers one), and the exactly-once latch inside
-a watch is per WATCH, so without the guard a job already being watched would
-gain a second watcher and the reply would print twice. Taken at the top of
-`watchEditJob`, released on the three ends (gone, reply, ended) and NOT on
-gave-up, so a render cannot start the next four hundred attempts on a job
-the page has already given up on — the sentence says to reload, and a
-reload is what resumes it. Two older guards went red for the change and
-were re-anchored, not appeased: the addon-queue pin on the remember call's
-spelling (it carries the ask and the route now) and its count of
-`addonAnswer` mentions (four: the resumed watch's reader is the fourth).
-`test/edit-poll.test.mjs` drives the record (bounded at the write and at
-the read, a planted hostile record, the hour, the old shape) and reads the
-wiring (the hook, the latch and its three releases, the ask-and-fallback
-pair, the reader, busy after the start). **Sweep: 22 mutants, 22 killed,
-none unapplied, three comment-only controls survived** — the ask stored
-unbounded or blank, an unknown route stored, a non-string layer coerced at
-the write, the read trusting a non-string ask or page, an unknown route
-read as an addon, the hour bound dropped, `resumableJob` answering nothing;
-the resume never running, a second watcher on a watched job, an addon
-record read with the edit tail, the fallback handed without the ask, busy
-set before the watch started, a busy site resumed over its own edit, the
-fallback a build instead of the revise, the latch never taken, released on
-gave-up or not released on the reply, the edit route storing no ask, the
-addon route storing its job as an edit, the resumed reply not re-drawing
-the workspace. **The write-side bounds were only catchable once the guard
-read the RAW store**: the read validates again, deliberately, so a writer
-that stored junk passed every read while the record outgrew its cap in
-storage — the "a guard proves the branch it drives" shape, met on the
-first draft of this guard. Full suite 5,160 green — one older guard went
-red for the change and was re-anchored, not appeased: `test/site-ask`'s
-`routeBlock` closed on a comment hundreds of lines past `siteRoute`, so it
-swallowed every function between (the recorded overlapping-window trap) and
-read the resumed tail's message push as `siteRoute` pushing a third; it
-closes on the next top-level declaration now. **Not proven live**: a
-refresh during a lane run on fretwork-1 with the reply appearing after the
-site is reopened is the proof — free, on the next push, which builds
-nothing and rolls nothing.
-
-**A ZERO-COST RUNG CANNOT PUBLISH THROUGH THE QUEUE, AND THE REFUSAL WEARS
-THE COMPILE'S SENTENCE (2026-09-02, run 10, the logo lane).** The consumer
-reserves credits when a rung first reports model usage; a rung that makes no
-model call never does, so its job's `billing` stays `none`. `edit_may_publish`
-— the last check before anything is written — grants only `reserved` or
-`exempt`, so it answered `unbilled`, the spine returned `not-granted`, and the
-logo lane's own catch, written for a compile that failed, told the customer
-*"That didn't compile, so your site is untouched"* while the container had
-just compiled it. Two traps in one: a gate written for the paid rungs
-disqualifying the free one (the `look`/`logo` `no-backend` gate, one layer
-over), and a failure that cannot name itself — `detail: "unbilled"` was on
-the wire and the sentence collapsed it. **FIXED THE SAME NIGHT**, as a state
-rather than a looser gate: `edit_exempt` (migration `20260902034000`, read
-back into the live snapshot) marks a `none` job `exempt` for the consumer
-that holds its lease and refuses a job that has in fact reserved (`billed`);
-the job context counts successful reserves (`noteReserve` / `reserves()`);
-the spine exempts a zero-reserve job immediately before `edit_may_publish`;
-`not-granted` is now `ours: true` and `compileMsg` names the gate's reason.
-Section 16 of `scripts/edit-rpc-check.sql` drives it (7 checks, and its first
-draft filed the free job on a slug section 15 had just put under review — a
-site under review takes no new edits, so every check read `no-job`).
-
-**A REFUSED RESERVATION READ AS A FREE RUNG (2026-09-05, found by driving,
-never live).** The state above made a second gap: a reserve the ledger
-REFUSED — `insufficient`, or a transport failure — answered 0 from the funnel
-exactly as a rung with no model call does, `reserves()` stayed at zero, the
-spine exempted the job, the gate granted `exempt`, and the work shipped for
-nothing; a later reserve refused after an earlier one landed shipped with the
-later work unpaid. Nothing logged it: `editRpc` logs only transport failures
-and the funnel returned 0 silently. Driven against the real consumer under
-fakes: refused #1 → `edit_exempt` → published, cost 0; #2 refused after #1
-landed → published, the translation unpaid. Reachable at any balance below a
-bill, which the owner's own account (5 credits against a 12–21-credit addon)
-was. **FIXED 2026-09-05 (stage 1a-i of the architecture plan, owner: *"ok
-start"*):** the job context counts refusals apart from reserves (`refused()`,
-`refusals()`, `noteRefusal`), both funnels record the ledger's own reason on
-any answer but ok and still return 0, and the spine asks `unbilled()` THREE
-times — before the translations, after the translation charge and before the
-compile, and before the free-rung step and the gate — answering `error:
-"unbilled"` (`ours` false for `insufficient`, true for a dead ledger) so
-nothing is compiled or written; the consumer's own refund returns whatever did
-land, and `compileMsg` names the reason BEFORE its `ours` test ("there aren't
-enough credits for it, so it wasn't published and nothing was charged" —
-"wasn't published", not "nothing was changed", because a rung that writes rows
-before it reserves has already written them). A job that reserved NOTHING is
-still exempted as before: the two zeros are different zeros now.
-`test/edit-reserve-refused.test.mjs` DRIVES the consumer through
-`worker.queue` for five cases (first refused, later refused, a dead ledger, a
-duplicate delivery's `repeat` answer counting as landed, a page removal still
-exempted) and reads the funnels, the context, the three asks and the sentence
-out of the source. **Sweep: 12 mutants, 12 killed, none unapplied, the
-comment-only control survived.** Not proven live; the proof is free — an
-addon ask on fretwork-1 at a balance below its bill now answers the credits
-sentence with the build unmoved.
-**THE REST OF STAGE 1a SHIPPED THE SAME DAY (1a-ii/iii, owner: *"o k"*): THE
-RESERVE PRECEDES THE FIRST WRITE, AND THE SYNCHRONOUS PATH COUNTS ITS
-REFUSALS.** The `data` and `rules` rungs and the pageless addon placed their
-reserve AFTER the write, so a refusal there stopped the publish and left the
-rows or the DDL made. Now `runDataEdit` and `runRulesEdit` take a
-`before(usage)` hook, asked once the model has answered and BEFORE the first
-statement: the route's hook charges through `eCharge` and answers whether the
-ledger refused (`eCharges.refused()`); a no, or a hook that throws, answers
-`reason: "unbilled"` with nothing applied, and the route returns
-`unbilledReply` (402 for `insufficient`, 503 for a dead ledger, the same two
-sentences, cost 0). The rungs' success replies read the cost the hook already
-took (`dBilled` / `rBilled`), so nothing bills twice. The addon route places
-sequence #1 — the picker's, the designers' and the seed's usage — BEFORE
-`applySiteSchema` under a job and stops on a refusal before any DDL; the page
-call is then sequence #4 for its own usage alone (the bill no longer re-counts
-the design), and the pageless path answers the number #1 took. The synchronous
-path: `eCharge` records `insufficient` when `collectCredits` took nothing of a
-positive bill and `rpc` when it threw; `eCharges` reads the job's count under
-a job and the sync ledger otherwise; the spine takes `charges` as its
-accounting view (`acct = charges || job`); and a refused final publish on the
-sync path refunds what was taken (`syncLedger.taken`) and answers `error:
-"unbilled"` instead of wearing `compile`. What it does NOT reverse, said
-rather than hidden: a reorder that reserved and then could not publish leaves
-the rows saved and the sentence opens "Your rows are saved." Guards:
-`test/edit-reserve-refused.test.mjs` DRIVES the synchronous route through
-`worker.fetch` against a stubbed ledger (refused → 402 and the credits
-sentence with no compile; a dead ledger → 503; healthy → published, one
-compile, cost ≥ 1) and reads the two rungs' `before` wiring, the addon's #1
-between the seed and the apply, the #4, the stop before the look store, the
-sync ledger and the refund; `test/site-apply.test.mjs` and
-`test/site-rules.test.mjs` drive the hook (a refusal applies nothing, a throw
-is a refusal, yes or absent applies, not asked when nothing matched).
-**A backend addon under a job pays two roundings now** — #1 prices the design
-and the seed before the DDL, when the page call's cost cannot be known, and
-#4 the page call alone; a synchronous addon, and any addon that designed no
-backend tier, still pays one variadic bill (`test/api-auth.test.mjs` asserts
-the gate by brace depth). The trade the translation charge made on run 39,
-for the same reason. Ten older guards went red for the change and were
-re-anchored, not appeased — each pinned to a spelling
-(`collectCredits(eAuth, pageCredits(...parts))`, `aCost = await
-aCharge(aBill)`, the addon's reserve and bill landmarks, the pageless charge
-sitting AFTER the apply, the data refusal's `cost: await eCharge(dOut.usage)`,
-the wall's page-bill landmark, `const aBill = pageCredits(`, the spine's
-`charge = null }` as its LAST parameter, the deferred publish's object ending
-at `charge`, and a 900-byte window on the addon's publish call that the
-`charges` line outran — the recorded byte-window trap, walked by brace depth
-now), each naming which spelling moved and why — and THREE driven fixtures
-(`test/edit-path.test.mjs`, `test/edit-nobackend.test.mjs`,
-`test/site-public-url.test.mjs`) answered `use_credits` with a catch-all 503,
-which the new rule rightly reads as a dead ledger, so each answers the ledger
-healthily unless a case says otherwise. **Sweep: 20 mutants, 20 killed, none
-unapplied, two comment-only controls survived** — one mutant's anchor named
-the wrong comment on the first pass (NOT APPLIED, the recorded trap) and was
-re-anchored and re-run to a kill. The addon's own funnel is still guarded by
-a source read, not a drive: no driven addon route harness exists.
-
-**A `const` CALLED ABOVE ITS OWN LINE PASSES THE PARSE CHECK AND EVERY TEXT
-GUARD (2026-09-05, stage 1a-ii).** The addon route's first reserve was written
-above the backend block and called `aCharge` — a `const` closure declared
-BELOW that block, in the same scope. `node --input-type=module --check` passed
-(the temporal dead zone is a runtime error, not a parse error), every source
-guard found its landmarks, and a backend addon under a job would have thrown
-`ReferenceError` on its first reserve, after the designers had run and before
-anything was charged. Found only because the new guard asserted the ORDER of
-landmarks — the closure above the reserve, the reserve above the apply — and
-could not find the closure where the reserve needed it. The closure and its
-reader moved above the block, with a pointer comment left where they were.
-**When a call is moved earlier in a function, check what it calls is declared
-earlier still**; a text read certifies the layer below the break, and the
-honest check is a drive, which the addon route still lacks.
-
-**A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING (2026-09-01,
-the first lane sweep).** Two pushes that touched only `scripts/` and `test/`
-each ran `deploy.yml`; the second finished at 20:30:16 and the sweep reached its
-fourth lane at 20:32. `description` waited the full **600 s** container cap on
-an instance being recycled and died "aborted due to timeout"; `wordmark` got a
-plain-text `Container …` body and died on a JSON parse; `favicon` at 20:47 got
-the warm new instance and passed. Both refunded correctly, both reported as
-"didn't compile" — `compileMsg` again, with the truth sitting in `detail`.
-**The deploy rule above says "a push that touches `builder/`"; it is every
-push.** Never push while a live run is in flight, and after any push wait
-15–20 minutes before firing anything that needs the container.
-**AND THAT ENTRY'S OWN PREMISE HAS SINCE EXPIRED — corrected in place rather
-than left standing (2026-09-12).** `deploy.yml` gained a `paths-ignore` on
-2026-09-03 naming `**.md`, `docs/**`, `LICENSE`, `test/**` and `scripts/**`, so
-the two pushes that caused the damage above would not deploy at all today. What
-survives is the half that is still law: **every push the filter does not catch
-rolls the container**, and that has nothing to do with `builder/`.
-
-**A COMMIT SAYS WHAT A COMMIT CHANGED; THE DEPLOY FIRES ON THE PUSH
-(2026-09-12, written into two commit messages the same night).** The tip two
-commits of one push each ended "no image input moves, so nothing rolls" — TRUE
-of each commit read alone, and false about the deploy they triggered, because
-the three commits UNDER them had moved `worker.js`, the `Dockerfile` and five
-builder modules. Deploy 2090's log settles it: `built
-isibi-app-sitebuildcontainer:6…b7cabe28d…f48a (registry answered 404; 172
-inputs off ./Dockerfile)`, then `EDIT isibi-app-sitebuildcontainer`,
-`f779f569…7b…8667` → `6…b7cabe28d…f48a`, `SUCCESS Modified application`,
-**applied 23:58:22Z** — so the hold ran to ~00:13–00:18Z on a push whose last
-two commit messages both said nothing would roll. The game image `reused`
-(registry answered 200) and its app `no changes`, which is the control: the
-skip logic was working perfectly and the CLAIM was the wrong one.
-**This is the recorded merge-diffstat trap wearing its other face**: that one
-is a diff against the wrong BASE, this one is a diff over the wrong RANGE. Both
-answer a question about a push by reading one commit. **The roll question has
-exactly two honest answers**: `git diff --name-only <what main had>..<what you
-pushed>` before the push, and the deploy's own image step after it. A per-commit
-"nothing rolls" line is fine as a note about that commit and must never be read
-as the hold being off.
-
-**A CHECK THAT ASKS THE FILESYSTEM IS ASKING THE WRONG THING (2026-09-11, found
-by a RED CI run).** `fs.existsSync` said a file was there and git had never heard
-of it: `src/routeTree.gen.ts` is regenerated by every build and the template's own
-`.gitignore` names it, so on any machine that had ever built, the generator read
-it happily and baked THAT MACHINE'S copy into a committed module — shown to
-customers as "shared with every site", a file no checkout has. Green locally,
-ENOENT in CI. **When a check is about what the REPOSITORY holds, ask git**
-(`git ls-files`), derive the list rather than naming the one file that got in,
-and prove the observer alive first — an empty listing makes every assertion
-vacuous.
-
-**THE THING THAT RUNS YOUR GUARDS IS NOT ITSELF GUARDED (2026-09-11).**
-`scripts/mutate.mjs` decides what every sweep here means and nothing asserted
-anything about it, which is the same shape this file already records for the CI
-triggers. Two of its properties had gone wrong in practice, and the second is the
-instructive one: **a `process.on("SIGTERM")` handler in a SYNCHRONOUS loop
-swallows the signal entirely** — installing a listener replaces Node's default
-(die), and a handler is dispatched through the event loop, which a loop of
-`execFileSync` never returns to. Measured: four iterations, the handler never
-fired once, exit 0. So `kill` did nothing, `kill -9` was the only thing that
-worked, and that leaves a live mutant in the tree. **And the obvious fix is
-INERT**: adding `process.exit()` to a handler that never runs reads exactly like
-a fix. The loop awaits now. **A sweep cannot mutate its own runner**, so those
-guards are proved by hand — said out loud rather than counted.
-**AND A CONTROL MUST BE DECLARED, NOT MERELY LABELLED (2026-09-12).** The runner
-reads `control: true` off a spec entry; four recent specs named theirs only in
-the LABEL (`"CONTROL — a comment only, which must survive"`), so `isControl` was
-false for every one of them. Two consequences, and the second is the real one.
-The tally printed the controls as ordinary survivors, which is why entries here
-carried hand-adjusted numbers that no run ever produced (`20 mutants, 18 killed,
-0 survived` — 20 counting the controls, 18 not). And **the runner's own
-`CONTROL WAS KILLED` branch was never armed**, so a control that stopped being
-comment-only would have printed as a kill and read as a win: the sweep's one
-check on its own honesty, off, in the sweeps that reported it working. Declared
-now in all four, and re-run: **18/18, 4/4, 25/25, 7/7, every control surviving**
-— the numbers above are what the runner printed, not what was reasoned from it.
-
-**A DEFECT THAT ONLY EXISTS IN TIME IS INVISIBLE TO EVERY STILL (2026-09-12).**
-An entrance animation on an element that something started rebuilding by itself is
-a twitch on every interaction — 8px and a fade, 220 ms, on every click of the Code
-tab's file tree (the explorer entry has it). **No markup assertion, no CSS
-existence check and no screenshot can see it**: the finished panel is pixel-perfect
-in every still, and the only reading that shows it is one element's rect sampled
-across `requestAnimationFrame` after the interaction. The screenshot rule two traps
-up is about a still lying; this is a still being SILENT, which is worse, because
-the picture looks like evidence. When an owner reports movement, measure across
-frames — and note that an animation is the one kind of rule whose correctness
-depends on how often its element is created, which nothing in a stylesheet can say.
-**And a first fix for the right symptom is not a fix for the right cause**: the
-width regression on the same panel the same night was real, measured, and covered
-only the FOLD path, so the file path went on twitching and the owner had to report
-it twice.
-
-**A PERCENTAGE HEIGHT AGAINST AN `aspect-ratio` BOX IS WHERE ENGINES DISAGREE —
-SO THE BOX MUST CONTAIN (2026-09-12, owner on one of two Macs: *"on my desktop
-looks fine, but in my laptop is kinda mess up"*).** The start screen's phone
-tile is `height: 100%` inside `.st-app-screen`, whose height is definite by
-`aspect-ratio: 390/844`. That is correct CSS. Where an engine does not resolve
-it, the phone sizes against a taller ancestor, `width: auto` follows its own
-ratio, and **`max-width` does not always clamp a width the ratio produced** — so
-a 102px tile becomes ~506 × a whole window, six of them at a 518px pitch overlap
-almost edge to edge, and `--panel-2` at 10% ink stacks them into grey bands over
-the entire grid.
-**THE PICTURE WAS THE INSTRUMENT AND ITS ARITHMETIC CLOSED.** Measured off the
-owner's screenshot: slabs ~520px wide, full window tall, against a 102px column —
-and 0.46 (the 393/852 handset) × the window height is 506. That is what named
-the mechanism; nothing in the repository could have.
-**AND CHROMIUM COULD NOT REPRODUCE IT AT ALL** — 2560, 1512, 1440, 1280 and 1200,
-phone within 1.3px of the thumbnail every time, no overflow. The recorded "a zero
-from a blind instrument is not evidence of absence", for the second time in two
-days on this screen; the failure had to be FORCED (`height: 100vh`) to be tested.
-**The fix is a wall, not a rule**: `overflow: hidden` on the box so a mis-sized
-phone cannot paint outside its column on any engine, and `max-height: 100%` so
-the layout is not wrong in the first place. **Both are kept deliberately** — one
-contains the paint, the other the layout, and the sweep kills each alone.
-Proven free rather than assumed: rendered both ways at five widths, every box
-byte-identical, so it changes nothing where the engine behaves. 6/6 killed,
-control survived. The general shape: **when a size depends on a resolution
-engines get wrong, bound it on both axes AND clip the parent** — a design that is
-only correct while every engine agrees is a design with no floor.
-**PROVEN LIVE the same hour** (deploy 2100, owner: *"it works now"*) — first
-report to first fix, with no second round, because the owner's screenshot
-carried the arithmetic that named the mechanism. The scrollbar took three.
-
-**A CSS RULE CAN BE CORRECT AND STILL LOSE (2026-09-11).** `padding-left` written
-above a `.st-file { padding: … }` shorthand loses on source order alone, at equal
-specificity — so the nested file tree drew every row flush left while the markup
-carried the right depth all along. **No assertion about the markup can see it**,
-and neither can one that checks the rule EXISTS: the test has to check it sits
-below every shorthand that rewrites it, and that it READS the value it is meant
-to (a rule indenting every row by a fixed step satisfies both of the others).
-Found by looking at the render, which is the only instrument that sees it.
-
-**A FIXTURE TOO SHALLOW TO SEPARATE THE TWO READINGS (2026-09-11, a sweep
-survivor).** The tree's chain walk must skip as many segments as a collapsed
-folder chain SWALLOWED; advancing one at a time is wrong, and every fixture
-agreed with both readings because `src/routes/-parts` swallows every segment
-there is — nothing follows the chain for the walk to get wrong. The shape that
-separates them is a folder BELOW a collapsed chain. Same family as
-`partNameOf`'s `.tsx` test and the `String(["a"])` cases: **when a mutant
-survives, ask what input would make the two readings differ, not whether the code
-looks right.**
-
-**AND AN AD-HOC CHECK CAN FAIL TO APPLY ITS OWN MUTATION (2026-09-11).** Deciding
-whether that survivor was inert, an inline `node -e` whose quote escaping
-silently no-op'd the `replace` compared the original code against itself and
-answered INERT. The recorded "a mutant that never applied reads exactly like a
-killed one", now in the instrument written to classify a survivor — and believing
-it would have shipped a real defect with a note calling it harmless. **Any
-hand-rolled mutation check must REFUSE to run when the source did not change.**
-
-**A SWEEP DOES NOT NEED THE WHOLE SUITE, AND SAYING SO IS NOT A SHORTCUT
-(2026-09-11, owner: *"Why this is taiking so long"*).** `scripts/mutate.mjs`
-takes a test-file list; given none it runs everything, so 45 mutants each re-ran
-all 6,025 tests at ~90 s — ~70 minutes for a browser-only change. The files that
-can see the change are 2,313 tests in **32 s**. **The rule that keeps it honest:
-a SURVIVOR is re-checked against the whole suite before it is believed**, since a
-narrow list can only produce a false survivor, never a false kill.
-
-**Re-run the thing the change is asserted by.** Appeasing a false alarm in one
-checker while never re-running the harness that actually proves the change has
-shipped red twice.
-
-**A BLANKER ERASES THE LANDMARK THE GUARD NEEDS (2026-09-05, found by stage 3b,
-the mirror of "prose contains the thing it forbids").** The check script's
-section headers are `--` comment lines, and the section-22 guard looked for
-"22. A RECONCILE STORES…" in the BLANKED text, where every comment is spaces:
-"section 22 is missing" for a section that was there. Blanking is for scans
-that FORBID a spelling; a scan that REQUIRES one finds its boundaries on the
-raw text and blanks only the body between them. The same guard had a second
-false alarm of its own the same hour: the owner lookup memoizes per slug for
-five minutes, so a "stranger's site" case that reused the owner's slug read the
-owner. A memoized reader in a driven test needs its own key per case.
-
-**A STAMP WRITTEN AFTER THE RUN IS A CHANGE THE SUITE HAS NOT SEEN (2026-09-05,
-found by stage 3a).** `test/build-jobs.test.mjs` #11 pinned the check script's
-header to `(stage 2c): ALL 113 CHECKS PASSED`. Stage 6 ran its suite — 5,217
-green — THEN restamped the header to 137, exactly as the rule at the top says
-to (a number only after its run), and pushed. Nothing that READS the stamp was
-re-run; the `unit tests` run on that push was red, and nobody read it (the
-entry two below, again). The stamping rule and the re-run rule pull opposite
-ways, and the honest order is: run, stamp, then **re-run whatever reads the
-stamp** — a guard, a workflow, a doc test — before the push. The guard reads the
-stage-2c line by its own name now, since the header keeps every stamp as its
-own line; a guard on the NEWEST stamp is a guard that goes red on every stage.
-The count is the same shape one layer over: stage 2c added two checks to the
-container harness and left the `site build` line at stage 7's 349, so the next
-run to read it (3a's) answered 355 for a change that added four. **A count
-nobody re-measured is a claim ahead of its evidence, the same as a number
-stamped early.**
-**AND A NUMBER STAMPED IN TWO PLACES DRIFTS WHEN ONLY ONE IS CORRECTED
-(2026-09-06, stage 9).** Its sweep and suite numbers were written into the
-commit message, `docs/owner-notes.md`, this file's own stage section AND the
-`site build` / unit-suite line under Live state — four copies — and the
-correction after the real run reached three of them, leaving the stage
-section claiming 24 mutants and a suite of 5,353 beside a Live-state line
-saying 5,354. Nothing failed: no guard reads these, which is exactly why the
-drift is silent. **"Two lists of the same thing" applies to measurements as
-much as to code** — so when a number is corrected, grep for every copy of the
-OLD value before believing the correction landed, and re-read the file after.
-
-**`unit tests` WAS RED ON EVERY PUSH TO MAIN FOR A DAY AND NOBODY READ IT
-(2026-09-02, FIFTEEN runs, 12:25Z to 20:20Z — the fix's own commit message
-says four, which was the count before the whole history was read).** The
-`action` lane's corpus guard
-(`test/site-nav.test.mjs`, "applyAction over the whole corpus never writes a
-page TypeScript cannot parse") required the KIT's TypeScript — resolved from
-`builder/lovable/template/` — and CI's `npm ci` installs the ROOT's
-dependencies only, so the guard failed in CI on the day it shipped and on
-every push after, green locally every time. The recorded "CI step that does
-not install what the tests import" trap, on a guard written the same day as
-the fix for it, and the recorded "read CI after a push" habit, skipped four
-times. Fixed by declaring `typescript` at the root (the version the template
-resolves) and letting the guard take either copy — it still REFUSES to skip,
-because a corpus scan that never runs in CI proves nothing there. Proven by
-hiding the template's copy and running the guard on the root's. **Read the
-`unit tests` run after every push; a red one is a day of pushes shipping
-unchecked.**
-
-**The container harness sees what the unit suite structurally cannot.** A CSS
-change, a compiled stylesheet, a rendered head, a real PNG's dimensions — all
-invisible to a source read. `site build` is the strongest free signal here.
-
-**A guard watching the layer below the break.** It asserts the plumbing and not
-the connection: "the query selects the column" while nothing carries it onward.
-
-**A gate that outlives its reason, guarding a dependency the code no longer has.**
-The `look`/`logo` lanes refused any site without a database long after the
-stylesheet moved to R2 and first builds stopped provisioning one — so the gate
-protected nothing and disqualified the majority case. Two tells, both present:
-the requirement was never *used* (the connection was passed only to a function
-that guards it), and **the fix for the very same symptom sat unreachable below
-it** — `!priorLook && !priorCss` exists so a thin-look site is not escalated, and
-no databaseless site ever got that far. When a gate and a later accommodation
-address the same complaint, one of them is dead; find out which.
-
-**Vacuous ordering.** `indexOf(a) < indexOf(b)` passes when `a` is the thing
-deleted (-1 < anything). Prove both anchors exist first.
-
-**AND ITS MIRROR: A POSITIONAL GUARD CANNOT SEE A DEAD BRANCH (2026-09-09,
-found by the sweep on the project router).** Vacuous ordering is a landmark that
-went AWAY; this is a landmark that stayed exactly where it was while the code
-around it stopped running. `if (bootProject !== undefined) { … }` mutated to
-`if (false) { … }` leaves every landmark in the file at the same offset, so a
-guard reading their order passes over a boot that ignores the address entirely.
-The same shape kills a check on a call site: `if (false) foo()` leaves `foo(` in
-the file, which is why the addon work already records reading a call's own
-`if (` rather than its position. **A position is not a behaviour** — when what
-you mean to assert is "this runs", cut the block out and RUN it (both the boot
-and `openProject`'s re-draw are driven now); keep the positional check only for
-what a drive genuinely cannot see, like an ordering inside the block whose
-consequence is in code the drive stubs out.
-
-**One prompt written for two jobs, where the second has to argue with the first.**
-`design_schema` was shared by the build and the `look` edit, so a customer's
-colour change was sent "ONLY WHEN ASKED… OMIT this field entirely unless" — the
-right instruction for a first build and, on an edit, a plain "don't touch the
-stylesheet". The fix at the time was to make `EDIT_RULE` **name that clause and
-overrule it**, which works and is a tell: a prompt that has to quote and reverse
-another prompt in the same call is two jobs wearing one tool. Split them.
-Measured when they were: 84,817 characters of tool down to 4,012, and the
-overruling paragraph simply deleted. **When two callers need opposite framings of
-the same field, the field is not what they share — the SHAPE is.**
-
-**A guard that goes red for the change rather than for a bug.** Four fired at
-once on this split, all of them pinned to a spelling rather than a property: an
-import list asserted as exactly two names (an honest third arrived), a count of
-`designSiteSchema(` call sites, a floor of "two designer assignments" when one
-stopped being a designer's, and `css: priorCss,` as the only shape a stored sheet
-may reach a model in. Each reported a feature as broken that was working. The
-tell is that the failure message describes something nobody did — re-anchor,
-don't appease, and **say in the comment which spelling moved and why**, or the
-next session re-pins it.
-
-**A read whose only consumer went, and the query stayed.** The look lane kept
-`SELECT v FROM _meta WHERE k = 'schema'` to hand the DESIGNER a table list; when
-the designer left, the round-trip stayed — on every colour change, feeding a
-parameter that no longer existed. Nothing fails, nothing logs, the bill is a
-Postgres call per edit. **When you delete a consumer, grep for what fed it.**
-
----
-
-**TWO NULLS THAT MEANT DIFFERENT THINGS, AND A SLICE ON `undefined` (2026-09-02,
-the `action` lane, two paid runs).** `readAction` answers null for a header
-with no button AND for a header whose button is COMPUTED — a label or href
-that is an expression. `applyAction` keyed "is there a button" on that one
-null, so a computed button took the INSERTION branch, which has no
-`insertAt`, and `src.slice(0, undefined)` is the whole file: the page came
-back as itself, then the attribute, then itself again, and vite said
-`Unexpected token (181:9)` — line 181 being the first line after the page's
-last. **Found deterministically**: drive the writer over the 332-page corpus
-and PARSE every result with the template's own TypeScript. One page broke,
-`marketplace/index.tsx`, the exact shape of fretwork-1's header. That audit is
-`test/site-nav.test.mjs`'s corpus case now, and it is the reusable part — a
-writer that emits source is proven by parsing what it emits, over every real
-page there is, not by reading the writer. The same audit over the picture
-scanner found the `images` failure without a model call: 0 slots on a site
-whose main photograph is a component prop. **When a lane fails live, drive
-its module over the corpus before buying a second run.**
-
-**A DROPPED FIELD HAS A TWIN ONE HOP OVER (2026-09-02, the `tsx` lane).** The
-page rung read `pages` off `validatePages` and dropped `parts` — the wiring
-trap, ordinary. Fixing that hop exposed the next: `publishStep` rebuilds
-`pendingPublish` from the LAST rung's args, so "add a component and change
-the button" would have handed the spine the nav rung's args and the build's
-stored parts, and the page's import would not compile. `renamed` already
-accumulated across rungs for the same reason; `parts` now does too. **When a
-value is added to a chain that collects across steps, check every collector
-on the chain, not only the producer** — the collector was written before the
-value existed and cannot know to keep it.
-
-**A DIGEST THAT REPORTS A COMPUTED VALUE AS ABSENT (2026-09-02, run 11, the
-`action` lane, live on fretwork-1).** `readAction` answers null for the
-whole button when EITHER half is an expression — right for the writer,
-which must not rewrite an expression as text — and `navDigest` read that
-null as "(there is no button)". Asked to change the WORDS of a button whose
-words are computed and whose link is a literal `tel:`, the model wrote a
-new button and had to invent its link: `/`. The site's one working control
-became a link to itself, on a request about wording, and the reply said
-"The button now says…". Nothing failed. **Two nulls that mean different
-things is the `action` trap one entry up, now on the READ side**: "cannot
-read this" and "there is nothing here" reached the model as one sentence.
-`knownAction` carries each half as it stands (`null` = computed, `""` =
-absent, a string = the text), and the digest states both and tells the
-model to keep the half it was not asked about. **The general shape: when a
-reader answers null for "unreadable", check what every consumer says out
-loud for that null** — a writer that skips is safe, a prompt that says
-"absent" is not.
-
-**AND THE SAME AMBIGUITY IN A LIVE CHECK ANSWERS "SHIPPED" FOR THE WRONG RULE
-(2026-09-12).** The watch for the phone-tile fix reaching `gofarther.dev` grepped
-the served stylesheet for `justify-content: center; overflow: hidden; }` and said
-LIVE in 15 seconds. That string ends `.ig-ico` too — it has for months — so the
-match was a rule the change never touched, and the deploy had not landed. Caught
-only because two later reads in the same command disagreed with it. **A mutant's
-ambiguous anchor fails loudly (NOT APPLIED); a verification's fails SILENTLY and
-in the worst direction**, telling you something is shipped when it is not — this
-file rates a false alarm worse than a miss, and a false ALL-CLEAR is worse than
-either. Anchor a live check on the rule's own selector (`^\.st-app-screen {`),
-and count the pattern in the source first: more than one occurrence means it
-cannot answer the question being asked of it.
-
-**A MUTANT WHOSE ANCHOR IS A SUBSTRING OF ANOTHER'S (2026-09-02).** The
-sweep's ambiguity check (`indexOf !== lastIndexOf`) refused a mutant whose
-8-space-indented line was contained in its 14-space twin — correctly, and
-it read as NEVER APPLIED until re-anchored on the preceding line. The
-mirror trap ("a mutant that never applied") says verify by checksum; this
-one says **anchor on enough context to be unique, and when two sites share
-a shape, mutate each with its neighbour in the anchor.** And the obj-form
-twin of that mutant SURVIVED for a real reason — the guard drove only the
-JSX form — which is the "a negative assertion must prove its observer is
-alive" trap for a positive one: a guard proves the branch it drives.
-
-**AND THE SAME SHAPE ON THE GUARD'S SIDE IS WORSE, BECAUSE IT FAILS SILENTLY
-(2026-09-12, the third instance in two days).** A mutant with an ambiguous
-anchor is refused loudly (NOT APPLIED); a GUARD whose needle is a substring of
-something else simply keeps passing. `assert.match(WORKER,
-/buySitePhotos\(env, \{ slug, pages, parts,/)` was written to prove the CALLER
-passes the parts — and that string is also a substring of the function's own
-signature two thousand lines up, so a sweep mutant that cut the parts off the
-call site **survived**, with the guard reporting the wiring as present. The
-other two instances the same week were `html.includes("st-code-bar")` satisfied
-by `st-code-bar2`, and a `title=` absence check satisfied by a neighbouring
-element's own title. **A needle that can match a DECLARATION cannot prove a
-CALL, and a needle that can match a LONGER NAME cannot prove a class.** Anchor
-on what distinguishes the two — the `return`, the closing quote of
-`class="x"` — or find the call and walk its argument list depth-aware, which is
-what that census does now.
-
-**A NAME THE HARNESS DID NOT KNOW WAS DROPPED WITHOUT A WORD (2026-09-02,
-run 16).** The lanes box said `kind,slug.` and `chooseLanes` filtered the
-list down to the names it knew, so the run was `kind` alone, ended green,
-and the rename never happened. Run 9's `gap ` one input over — and the one
-input that costs nothing to get wrong is the one that decides what the
-money buys. A stranger now REFUSES before sign-in, naming itself and the
-real names; punctuation at the ends of a name is forgiven; both harnesses,
-because the workflow feeds one box to both. **A filter on a person's input
-is a silent drop; a check is a sentence.**
-
-**THE RENAME'S CANONICAL HOP — READ, CERTIFIED, NEVER WIRED (2026-09-02, run
-17).** `test/site-alias.test.mjs` had a case called "THE CHAIN" whose hop 4
-asserted the rename branch calls `publishStep`, and it did. What a source read
-could not see: the spine's `url:` handed `siteUrlFor` the STORAGE slug, so the
-republish rebaked the old address, and `publicNameFor` — written for exactly
-this — had no consumer anywhere. The harness's check read both addresses and
-never the head, so the one live proof passed on the half that worked. The
-`site-marks` shape again: **a chain asserted by reading is asserted at the
-layer below the break.** The guard now drives the route and reads the sidecar
-write, and the harness reads the canonical at the new address.
-
-**A SECOND ROUTE UNDER THE SAME WALL, AND THE FORK WAS BUILT ON ONE
-(2026-09-03, run 21).** The edit path left the customer's connection on
-2026-09-01 because a synchronous edit is reset at ~273s. The reasoning was
-written on the edit route, the fork was built on the edit route, and the
-addon route — same connection, same wall, LONGER work — stayed synchronous.
-The first addon ever fired on the live site died at 257.6s with `ECONNRESET`,
-which is the wall (the probes measured 273–300s; it is a range, not a
-number). Nothing failed inside our code: the isolate kept running and the
-reply had nowhere to go, so from outside it was `NO ANSWER` and a site that
-did not move. **When an infrastructure limit is found on one route, list
-every route that runs under it before fixing one.** The tell was in the
-tree the whole time: the addon harness's own `node:https` comment said "an
-addon outlives 300s" while posting synchronously to a route that could not.
-
-**A FREE IDENTIFIER THAT HAPPENS TO BE DEFINED SOMEWHERE ELSE IN THE FILE
-(2026-09-03, run 22).** The harness's `watchJob` was lifted to module scope
-so two callers could share it, and kept reading `TOKEN` — a local of
-`main`, where the inline loop it replaced had lived. `node --check` passes
-(a free name is legal), the guard read the function's text and found every
-landmark, the sweep killed every mutant, and the first real call threw
-`ReferenceError` five seconds into the run. **A function moved out of the
-scope it was written in must be DRIVEN once, with its inputs handed in**;
-a text read cannot see scope. The fix shape is the parameter, and the
-guard is the call.
-
-**A MODULE THE CONTAINER IMPORTS AND THE IMAGE DID NOT CARRY (2026-09-03, the
-QR list).** `site-qr-list.mjs` was written dependency-free precisely so the
-container could import it; `build-server.mjs` imported it; every guard on the
-container's write loop passed by reading the source; and the Dockerfile's COPY
-line did not name it. The image would have built, the service would have died
-at import with MODULE_NOT_FOUND on the first build after the deploy, and the
-customer would have read it as *"our build service was restarting"* — the
-sentence that has already hidden two other causes. `test/dockerfile.test.mjs`'s
-transitive import walk (written 2026-08-20 for this exact shape) went red in
-the same suite run. **It is the one guard here that compares the consumer's
-ENVIRONMENT with the code**, the CI-install trap's lesson one layer down: a
-new import in a container module is a new name on that COPY line, and only a
-check that derives the list from the imports notices. The source reads in
-`site-marks` and `site-qr-list` could never have.
-
-**A CHECK THAT REPORTS IS ONLY AS GOOD AS ITS READERS (2026-09-04, run 34).**
-The render check opened every route of the gear addon, saw seven throw, and
-said so — in `render.findings`, in `renderNote`, in the customer's reply. The
-publish shipped it (the ship-it rule), which is a decision; the harness
-called the case `ok` and took a screenshot of the error card as its proof,
-which is not. A report nobody acts on and nobody reads is a page that is
-down with a receipt. **When a check is report-only, list its readers**: the
-customer (the reply sentence), the harness (a verdict), the repair pass (the
-build had one; the addon got it the same day — the entry in the ADD
-section). Each missing reader is a way the finding ships silently. And the cause was a kit primitive that THROWS when
-used outside its nesting — the `Figure` shape: a rule the signature list
-cannot express is a rule the model will break, so the obvious use is made to
-work rather than described.
-
-**`node --check worker.js` PASSES A FILE THAT DOES NOT PARSE (2026-09-04, the
-seam).** The add step's round landed in the addon route as `let aRepair`,
-seventy lines below the import dedupe's `const aRepair` in the SAME block.
-`node --check worker.js` exited 0. The seven guard files and the 34-mutant
-sweep were green, because every one of them reads the Worker as TEXT; the
-full suite caught it only because five tests in `edit-path` and `gen-probe`
-evaluate the Worker as a module and got `Identifier 'aRepair' has already
-been declared`. Measured on Node 22.22: this package declares no `"type"`,
-so `--check` on a `.js` does not parse it as a module — with detection off
-it fails on the first `import`, with `--experimental-default-type=module` it
-refuses the duplicate, and by default it says nothing. **The honest parse is
-flag-free: `node --input-type=module --check < worker.js`**, and
-`test/spine-repair.test.mjs` runs exactly that, so a sweep set that reads the
-Worker as text carries one check that compiles it. The recorded "a chain
-test that read the modules instead of running them", one layer down: a text
-read certifies at the layer below the break, and a name already taken in
-the scope is invisible to it. The round is `aRepairRound` now.
-
-**A LISTING THAT ANSWERS ONE PAGE (2026-09-04, deploys 2017 and 2018).** The
-image skip asked `wrangler containers images list` whether a tag existed and
-believed its "no": the listing is ONE fetch of `/v2/_catalog?tags=true`, never
-paged, and the site image's repository was not in the page at all while the
-deploy two steps later referenced it. Two deploys rebuilt both images off an
-absence that was the instrument's, and the step printed nothing that could say
-so — the diagnostic line came first, the fix second. The recorded "a negative
-assertion must prove its observer is alive", pointed at a registry: an absence
-read off a list is only as good as the list is complete, so ask for the thing
-BY NAME (a HEAD on the manifest) rather than for the list it should be in.
-And when an instrument's answer decides a slow-versus-stale trade, make
-"could not tell" its own answer and choose the slow side out loud.
-
-**A REPORT CUT BY ITS BUDGET READ AS A VERDICT ON PAGES IT NEVER OPENED
-(2026-09-04, runs 34 and 36).** The render check reported `/es` and `/fr`
-throwing and said nothing about `/`, and three sessions read that as "the
-English page is clean" — it had not been opened: the routes came in directory
-order, the variants first, and the 25 s budget cut the run at eight routes,
-with `cut: true` in the report and no reader of it. The recorded "a negative
-assertion must prove its observer is alive", pointed at a list of pages: an
-absence in a report is only as good as the report's coverage, and a report
-that can stop early has to say what it did not reach before anybody reads
-what it found. Fixed by opening `/` first and the primary pages before their
-translations (the page every visitor sees, and the page the variants are
-translations of), which is where a fixed budget buys the most; the diagnosis
-itself — WHICH text differed — needed an instrument, because React's
-production error is a number and a link, and the round that repairs on it
-was being handed the number. When a check reports a code, make the check
-say the thing the code stands for.
-
-**A TEXT-ORDER GUARD SURVIVES A MOVE INTO A CLOSURE (2026-09-05, stage 8).**
-Three guards asserted "the pageless answer comes AFTER the schema apply" as
-`indexOf(apply) < indexOf(pageless)`, and every one of them stayed GREEN
-when the apply moved into a closure declared above the pageless block and
-RUN from inside it and from the seam hook two hundred lines below. The
-text order they read had not changed; the run order had inverted for the
-page path entirely. A position in the file is a claim about run order only
-while the code between the two landmarks is straight-line — the moment one
-side becomes a function, the guard is reading the layer below the break
-(the recorded chain-test trap, in its cheapest form). Each now reads the
-CALL inside the block it describes (`await aApplyBackend(null)` before the
-charge), and the new guard counts the closure's call sites and where each
-sits. **Two of the re-anchors then failed to LOAD**: a `const closure` and
-a `const charge` collided with locals the same test already declared,
-`node --test` reported the whole file as one `not ok`, and a glance at the
-counts read as two failing cases. A re-anchor lands in a scope it did not
-write; check the name is free.
 
 ## Backlog
 

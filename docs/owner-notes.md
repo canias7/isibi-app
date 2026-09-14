@@ -7897,3 +7897,54 @@ from every angle except actually running it, which is why it now is.
 deploys — same workflow, same boxes, same `ask` text — and watching it get past
 twelve minutes to a published page. I'll flag the deploy and the 15–20 minute
 container hold when the push lands.
+
+## The wire probe hung, and that was my instrument (14 Sept)
+
+You ran the connection probe and it came back **NOT PROVEN** after sixteen
+minutes with nothing readable. I want to be plain about whose fault that is:
+**it was mine, and it was in the probe, not in the platform.**
+
+**What happened.** The probe opens a connection that deliberately sends nothing,
+to see whether something along the way kills it for being quiet. It opened that
+connection and the connection never answered — and it never died either. It just
+sat there. My probe had no stopwatch on it, so it sat there too, until my
+watcher gave up and printed "NOT PROVEN" about a job that was still running.
+
+**Why that matters and why it isn't scary.** The transport code has a comment
+that says, in as many words, that it has no timeout unless you ask for one.
+Every real model call **does** ask for one — I checked all of them. The probe
+was the only caller that forgot. So nothing a customer touches can hang like
+this; the one thing that could was the thing I built to watch for hangs.
+
+**The fix is that there are now three answers, not two.** A connection can be
+answered, it can be killed, or it can hang. Those need three different responses
+from us, so squashing the last two into "it failed" was the one way this
+instrument could mislead rather than go quiet. A hang is now reported as a hang,
+and it is checked **first** — because reading a hang as a kill would have told
+you "streaming is the fix" about a socket that streaming does nothing for.
+
+**And you can now re-read a probe without starting a new one.** The workflow has
+a new box, **jobId**. Leave it empty and it fires a probe, exactly as before.
+Paste an id from an earlier run and it skips the firing and just reads that one
+back, using the same polling and printing the same verdicts. That is what run 3
+needed and did not have: the probe was alive and finishing, and the only thing
+that could read its dial was the run that had already given up.
+
+**A note on the old id.** Run 3's job is almost certainly gone — a container that
+recycles takes its job records with it, and the service answers 404 for an id it
+has forgotten just as it does for one that never existed. So the read-back box is
+for the *next* run, not for rescuing that one.
+
+**What I'd run next, when you have a minute.** The **job probe** workflow, probe
+`wire`, everything else left at its default. It costs nothing — no model call, no
+credit, no publish — and it now cannot hang: each of its two connections carries
+its own six-minute clock, so the run ends with a named reading either way.
+
+**Also: I cut CLAUDE.md down.** You said to delete almost all the old stuff, so I
+did — **7,615 lines down to 3,157** — 4,458 deleted, 58.5%. Nothing was rewritten to
+look smaller: whole histories of finished work came out, and everything that is
+still *true today* — the rules, the numbers, the traps — stayed. The full old
+file is in git if anything is ever wanted back.
+
+Sweep 14 of 14 deliberate breakages caught, both controls survived, suite
+**6,316** green.
