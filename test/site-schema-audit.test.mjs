@@ -442,7 +442,12 @@ test("one reading of a tier's list, shared by every diagnostic", () => {
     const at = CODE.indexOf("export function " + fn + "(spec");
     assert.ok(at > 0, fn + " is gone — retarget this test");
     const body = CODE.slice(at, CODE.indexOf("\n}", at));
-    assert.match(body, /return auditTier\(spec, tier, context\)\./, fn + " reads the spec itself instead of going through auditTier");
+    // THE PROPERTY, NOT THE SPELLING — re-anchored 2026-09-14, when an honest
+    // fourth argument (`opts`, carrying what the cleaner really sent) arrived
+    // and this went red reporting the wrapper as gone. What matters is that the
+    // body is one delegation to `auditTier` and reads no list of its own.
+    assert.match(body, /return auditTier\(spec, tier, context/, fn + " reads the spec itself instead of going through auditTier");
+    assert.doesNotMatch(body, /declaredItems\(/, fn + " reads a tier's list of its own");
   }
   // …AND THE OBSERVER IS ALIVE: `auditTier` really reads the tier's list.
   const audit = CODE.indexOf("export function auditTier(");

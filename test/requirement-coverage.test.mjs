@@ -27,7 +27,7 @@ import fs from "node:fs";
 import {
   COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, REQUIREMENT_STATES,
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
-  requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName,
+  requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName, claimEvidence,
 } from "../builder/site-requirements.mjs";
 import { addTool, readAddAnswer, runAdd, foldAdds, REQUIREMENT_ADDS, siteNote, tableFacts, ADD_KINDS, addLayer, pickTool, pickRequest } from "../builder/site-add.mjs";
 import { TABLE_ITEM } from "../builder/site-table.mjs";
@@ -58,7 +58,7 @@ const C = blank(CHAT);
 // blanked text, and a blanker that ate the file satisfies each absence check
 // perfectly — this repository's most-recorded trap, met in a lint, a router
 // guard, an absence check and a scope scan.
-assert.ok(W.includes("const aCoverage = (ranKinds) =>"), "the blanker ate the worker's coverage composer");
+assert.ok(W.includes("const aCoverage = () =>"), "the blanker ate the worker's coverage composer");
 assert.ok(C.includes("function addonReplyText"), "the blanker ate the browser's addon reader");
 
 const toolReply = (name, input) => ({ content: [{ type: "tool_use", name, input }], usage: { input_tokens: 1, output_tokens: 1 } });
@@ -330,7 +330,12 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // call's own argument object carries braces (`{ send: aQuick(…) }`), so a
   // brace check from the head reports the call itself. The first `;` after the
   // call closes it.
-  const runEnd = W.indexOf(";", W.indexOf("model: aModels.quick });", runAt)) + 1;
+  // RE-ANCHORED 2026-09-14: the call gained `brief` — what an earlier step in
+  // this same message handed to this kind — so the tail that ends the
+  // statement moved. Anchored on the LAST argument, and asserted to exist.
+  const tail = W.indexOf("brief: aBrief });", runAt);
+  assert.ok(tail > runAt, "the designer call no longer carries the hand-off brief");
+  const runEnd = W.indexOf(";", tail) + 1;
   assert.ok(runEnd > runAt && runEnd < collect, "the designer call's own end could not be found");
   const between = W.slice(runEnd, collect);
   assert.doesNotMatch(between, /\bif\s*\(/, "the collect sits behind a condition — a declined designer's reason is lost again");
@@ -342,30 +347,38 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // hear what the change could not do.
   const spread = W.split("...aCoverage(").length - 1;
   assert.ok(spread >= 4, "not every exit carries the coverage: " + spread + " of 4");
-  assert.match(W, /error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\), \.\.\.aCoverage\(\[\]\)/,
+  assert.match(W, /error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\), \.\.\.aCoverage\(\)/,
     "a cleaner's refusal drops the coverage");
-  assert.match(W, /error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\), \.\.\.aCoverage\(\[\]\)/,
+  assert.match(W, /error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\), \.\.\.aCoverage\(\)/,
     "the all-declined answer drops the coverage — the one shape this was built for");
-  // A FAILED EXIT CLAIMS NOTHING COVERED. `aCoverage([])` says no step ran, so
-  // a requirement handed to the page step is still outstanding; `aCoverage(kinds)`
-  // on a success says the steps that really produced work are done.
-  assert.match(W, /\.\.\.aCoverage\(aAnswers\.map\(\(a\) => a\.kind\)\)/, "a success claims no step ran");
-  // ── AND THE COMPOSER USES THE ARGUMENT IT WAS GIVEN ──────────────────────
+  // RE-ANCHORED 2026-09-14. The composer took the kinds that RAN and decided a
+  // hand-off against them; it reads `aTold` — the steps really handed an
+  // outstanding requirement — so every call site is the same call, and the
+  // argument that used to distinguish a failure from a success is gone. What
+  // replaces that assertion is the pair below: the composer reads `aTold` and
+  // the loop fills it only where the brief is really composed.
+  assert.match(W, /told: \[\.\.\.aTold\]/, "the composer no longer reads which steps were really told");
+  assert.match(W, /const aBrief = requirementBrief\(aReq, k\);\s*\n\s*if \(aBrief\) aTold\.add\(k\);/,
+    "a step is recorded as told without the brief being composed, or the brief is composed and not recorded");
+  // ── AND THE COMPOSER READS WHAT REALLY HAPPENED ──────────────────────────
   //
-  // A SWEEP SURVIVOR, the same shape one layer in: every call site can pass the
-  // right kinds and the closure reassign `ranKinds = aKinds` on its first line,
-  // so a requirement handed to a step that never ran reads as covered and the
-  // customer is told a change is finished that is not. Reading the call sites
-  // cannot see it. Read the BODY.
-  const covAt = at("const aCoverage = (ranKinds) => {", "the coverage composer");
+  // RE-ANCHORED 2026-09-14. This used to check that the composer did not
+  // overwrite the `ranKinds` argument it was handed — a real sweep survivor,
+  // and a parameter that no longer exists: a hand-off is settled by whether
+  // the receiving step was TOLD, not by whether it ran, so there is one call
+  // and one set. What replaces the old assertion is the pair below, which is
+  // the same property one layer over: the composer must read the recorded
+  // `aTold` and the APPLIED result, and must not reach for the picked kinds.
+  const covAt = at("const aCoverage = () => {", "the coverage composer");
   const covBody = W.slice(covAt, W.indexOf("\n            };", covAt));
   assert.ok(covBody.length > 200, "the composer's body could not be found: " + covBody.length);
-  assert.doesNotMatch(covBody, /ranKinds\s*=[^=]/, "the composer overwrites the kinds it was told really ran");
-  assert.match(covBody, /ran: ranKinds \|\| \[\]/, "the note is not told which steps ran, or is told something else");
-  // AND IT DOES NOT REACH PAST ITS ARGUMENT for that answer: `aKinds` is every
-  // kind the PICKER named, including ones that declined, and using it here is
-  // precisely the lie above.
-  assert.doesNotMatch(covBody, /\baKinds\b/, "the composer reads the picked kinds instead of the ones that ran");
+  assert.match(covBody, /told: \[\.\.\.aTold\]/, "the note is not told which steps were handed a requirement");
+  assert.match(covBody, /made: aMade\(\)/, "the note is not told what was really applied");
+  // AND IT DOES NOT REACH FOR THE PICKED KINDS: `aKinds` is every kind the
+  // PICKER named, including ones that declined and ones nobody handed
+  // anything, and reading it here is the lie this whole shape is about.
+  assert.doesNotMatch(covBody, /\baKinds\b/, "the composer reads the picked kinds instead of what really happened");
+  assert.doesNotMatch(covBody, /aNewNames|aMadeNames/, "the note is decided from the PROPOSED design again, not the applied result");
   // HOP 7: the developer record, beside the raw replies.
   //
   // RE-ANCHORED 2026-09-14 — BY FIELD, NOT BY THE WHOLE ARGUMENT LIST. This
@@ -373,16 +386,26 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // inputs arrived, reporting the record as GONE: this repository's single
   // most repeated own-goal, met here in the guard written for it. What each
   // field is remains asserted; their order and their number do not.
-  const recAt = W.indexOf("coverage: requirementRecord({");
+  // RE-ANCHORED 2026-09-14: the literal moved into `aRecord`, because the record
+  // is written TWICE now — once here and once after the apply — and two copies
+  // of an argument list is the drift this file is full of warnings about.
+  const recAt = W.indexOf("const aRecord = () => requirementRecord({");
   assert.ok(recAt > 0, "the developer record is not stored with the answer");
+  assert.ok(W.indexOf("coverage: aRecord()") > recAt, "the saved answer does not carry the record");
   const recCall = W.slice(recAt, W.indexOf("})", recAt) + 2);
   for (const field of ["list: aReq", "skipped: aReqSkipped", "invalid: [...aBadProps]", "ran: aAnswers.map((a) => a.kind)"]) {
     assert.ok(recCall.includes(field), "the developer record lost `" + field + "`");
   }
+  // …AND IT IS WRITTEN AGAIN ONCE THE APPLY HAS LANDED (owner, 2026-09-14:
+  // "Update the stored coverage after application too"). The write above the
+  // loop is decided against an EMPTY applied result, which is honest at that
+  // point and is not the final answer; both apply paths re-save.
+  assert.equal(W.split("await aSaveAnswer();").length - 1, 3,
+    "the stored coverage is not re-written after the apply on both paths");
   // …AND THE THREE THAT MAKE COMPLETION HONEST (owner, 2026-09-14). Without
   // them every `covered` claim and every hand-off to a step that ran reads as
   // delivered, which is the reading the correction overturned.
-  for (const field of ["failed: [...aFailedKinds]", "names: aMadeNames()", "unbuilt: aUnbuilt"]) {
+  for (const field of ["failed: [...aFailedKinds]", "made: aMade()", "told: [...aTold]", "altered: [...aChanged]", "unbuilt: aUnbuilt"]) {
     assert.ok(recCall.includes(field), "the developer record cannot tell delivered from unverified: no `" + field + "`");
   }
   // …AND THE CUSTOMER'S OWN SENTENCE GETS THEM TOO. A SWEEP SURVIVOR: the
@@ -392,21 +415,41 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   const noteAt = W.indexOf("coverNote: requirementNote(aReq, {");
   assert.ok(noteAt > 0, "the customer's coverage sentence is gone");
   const noteCall = W.slice(noteAt, W.indexOf("})", noteAt) + 2);
-  for (const field of ["failed: [...aFailedKinds]", "names: aMadeNames()"]) {
+  for (const field of ["failed: [...aFailedKinds]", "made: aMade()", "told: [...aTold]"]) {
     assert.ok(noteCall.includes(field), "the customer's sentence cannot tell delivered from unverified: no `" + field + "`");
   }
-  // …AND THE EVIDENCE IS WHAT WAS REALLY MADE, never what the model said. A
-  // SWEEP SURVIVOR: `aMadeNames` can answer `[]` and every call site stay
-  // perfect, which turns every `covered` claim into `unverified` — the opposite
-  // failure to the one the states exist for, and just as wrong.
-  const madeAt = W.indexOf("const aMadeNames = () =>");
+  // …AND THE EVIDENCE IS WHAT WAS REALLY APPLIED, never what the model said and
+  // never what it was going to be. A SWEEP SURVIVOR: `aMade` can answer `[]`
+  // and every call site stay perfect, which turns every `covered` claim into
+  // `unverified` — the opposite failure to the one the states exist for.
+  //
+  // RE-ANCHORED 2026-09-14 (owner: "`aMadeNames` comes from proposed designs
+  // before application. Use actual results"). It read `aNewNames` — the names
+  // off the CLEANED DESIGNS — so a function Postgres refused to create counted
+  // as evidence for the job that names it. The lists it must read now are the
+  // APPLIED ones.
+  const madeAt = W.indexOf("const aMade = () => appliedFacts({");
   assert.ok(madeAt > 0, "the evidence reader is gone");
-  const made = W.slice(madeAt, W.indexOf(";", madeAt));
-  for (const list of ["aNewNames.tables", "aNewNames.functions", "aNewNames.apis", "aNewNames.jobs"]) {
-    assert.ok(made.includes(list), "the evidence does not count what this change really created: no `" + list + "`");
+  const made = W.slice(madeAt, W.indexOf("});", madeAt) + 3);
+  for (const list of ["tables: aTables", "altered: aAltered", "functions: aFunctions", "apis: aApis", "jobs: aJobs", "fnErrors: aFnErrors"]) {
+    assert.ok(made.includes(list), "the evidence does not read what this change really applied: no `" + list + "`");
   }
-  // NOT the model's answer: `aAnswers` and `aDesigned` are what was SAID.
-  assert.doesNotMatch(made, /aAnswers|aDesigned/, "a claim is checked against itself");
+  // NOT the model's answer, and NOT the proposal: `aAnswers`/`aDesigned` are
+  // what was SAID, and `aNewNames` is what was going to be done.
+  assert.doesNotMatch(made, /aAnswers|aDesigned|aNewNames/, "a claim is checked against itself, or against the proposal");
+  // …AND THE GUARANTEES ARE THE ENGINE'S OWN VOCABULARY, read where they can be
+  // DRIVEN. This lived inline in the route until a sweep mutant that emptied
+  // `fails` survived: the only route path that applies a table wants a
+  // container, so the wall could not be reached from a unit test at all.
+  // `test/addon-steps.test.mjs` drives `appliedFacts`; what is asserted here is
+  // that the route still goes through it.
+  const FACTS = fs.readFileSync(new URL("../builder/site-add.mjs", import.meta.url), "utf8");
+  const tfAt = FACTS.indexOf("export function appliedFacts(");
+  assert.ok(tfAt > 0, "the per-item guarantee reader is gone");
+  const facts = FACTS.slice(tfAt, FACTS.indexOf("\n}", tfAt));
+  assert.match(facts, /resolveAccess\(t\)/, "a table's applied permissions are not read");
+  assert.match(facts, /\[\.\.\.new Set\(\[\.\.\.Object\.keys\(ACCESS_PRESETS\), \.\.\.READ_LEVELS, \.\.\.WRITE_LEVELS\]\)\]/,
+    "the access vocabulary is a second list instead of the engine's own");
   // HOP 8: the trace, counts only — `tr.at` keeps finite numbers and drops
   // everything else, and the needs are the customer's words.
   const markAt = W.indexOf('aMark("coverage", "ok", {');
@@ -427,8 +470,15 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
     assert.match(markCall, new RegExp(k + ': st\\.filter\\(\\(r\\) => r\\.state === "' + state + '"\\)\\.length'),
       "`" + k + "` on the mark is not counted from the outcomes");
   }
-  assert.match(markCall.length ? W.slice(markAt - 400, markAt) : "", /requirementOutcomes\(aReq, \{ ran: aAnswers\.map\(\(a\) => a\.kind\), failed: \[\.\.\.aFailedKinds\], names: aMadeNames\(\) \}\)/,
-    "the mark's outcomes are computed from something other than what ran, what failed and what was made");
+  // BY FIELD, NOT BY THE WHOLE ARGUMENT LIST — re-anchored 2026-09-14 when
+  // `ran`/`names` became `told`/`made`. A byte window from a fixed offset is
+  // this file's own recorded trap; the landmark is the call itself.
+  const stAt = W.lastIndexOf("requirementOutcomes(aReq, {", markAt);
+  assert.ok(stAt > 0 && stAt < markAt, "the mark's outcomes are not computed at all");
+  const stCall = W.slice(stAt, W.indexOf("});", stAt) + 3);
+  for (const field of ["told: [...aTold]", "failed: [...aFailedKinds]", "made: aMade()"]) {
+    assert.ok(stCall.includes(field), "the mark's outcomes lose `" + field + "`");
+  }
   // THE NEEDS THEMSELVES STAY OFF THE MARK — they are the customer's own words.
   assert.doesNotMatch(markCall, /\baReq\b(?!, aReqSkipped)/, "a customer's words reached a telemetry row");
   // AND THE PICKER GETS THE SITE, not a digest of names.
@@ -482,38 +532,48 @@ test("requirementNote says only what is still outstanding, in the customer's ter
     { need: "the page shows their bookings", status: "elsewhere", step: "page" },
     { need: "the owner sees what changed on a repair", status: "unsupported", why: "row history is not something I can switch on" },
   ]).list;
-  // RE-ANCHORED 2026-09-14 (owner: "Something existing does not prove the
-  // requirement works"). This used to assert that a requirement whose step RAN
-  // is not said at all — existence read as proof. It is `unverified` now, and
-  // the customer hears that it could not be confirmed rather than hearing
-  // nothing. What is unchanged is that it is not reported as OUTSTANDING.
-  const names = ["bookings", "slot"];
-  const done = requirementNote(list, { ran: ["table", "page"], names });
+  // RE-ANCHORED 2026-09-14, TWICE. First (owner: "Something existing does not
+  // prove the requirement works") a requirement whose step merely RAN stopped
+  // reading as covered. Then (owner: "'Delivered' still means a name matched …
+  // Use actual results and evidence for the specific requirement") the evidence
+  // itself changed: `names` — the identifiers off the PROPOSED design — became
+  // `made`, what was really APPLIED, with the guarantees each item really
+  // carries; and `ran` became `told`, the steps that were really handed an
+  // outstanding requirement, because the kinds run in order and a hand-off to a
+  // step that already ran reaches nobody.
+  const made = [{ name: "bookings", holds: ["slot", "unique", "own"], fails: ["anyone", "public", "members"] }];
+  const done = requirementNote(list, { told: ["page"], made });
   assert.match(done, /owner sees what changed/);
   assert.match(done, /row history is not something I can switch on/);
   assert.doesNotMatch(done, /Still to do: the page shows their bookings/,
-    "a requirement whose step really ran is reported as outstanding");
+    "a requirement whose step was really told is reported as outstanding");
   assert.match(done, /can't confirm from here that the page shows their bookings/,
-    "a step that merely ran is read as proof the need was met");
+    "a step that was merely told is read as proof the need was met");
   assert.doesNotMatch(done, /can book a slot/,
-    "a covered requirement whose named thing really exists is read back to the customer");
-  // THE PAGE STEP DID NOT RUN — a job-only addition changes no page — so the
-  // hand-off is still outstanding and saying otherwise is the "doing less than
-  // was asked while reporting success" failure this path exists to avoid.
-  const owing = requirementNote(list, { ran: ["job"], names });
+    "a covered requirement naming a guarantee that really holds is read back to the customer");
+  // THE PAGE STEP WAS NEVER TOLD — a job-only addition runs no page call — so
+  // the hand-off is still outstanding and saying otherwise is the "doing less
+  // than was asked while reporting success" failure this path exists to avoid.
+  const owing = requirementNote(list, { told: ["job"], made });
   assert.match(owing, /Still to do: the page shows their bookings/);
-  // A STEP THAT RAN AND FAILED IS NOT A STEP THAT RAN. This is the one reading
-  // that must never collapse into `unverified`: we have positive evidence of a
-  // problem, which is the only kind of evidence this layer ever really gets.
-  const broke = requirementNote(list, { ran: ["table", "page"], failed: ["page"], names });
+  // A STEP THAT WAS TOLD AND FAILED IS NOT A STEP THAT DELIVERED. This is the
+  // one reading that must never collapse into `unverified`: we have positive
+  // evidence of a problem, which is the only kind this layer ever really gets.
+  const broke = requirementNote(list, { told: ["page"], failed: ["page"], made });
   assert.match(broke, /Still to do: the page shows their bookings/);
   // NOTHING OUTSTANDING AND NOTHING UNCONFIRMED IS AN EMPTY STRING, never a
   // reassuring sentence: a `✅ Done.` with nothing after it has always meant
-  // nothing was left over. It takes EVIDENCE now, not just a step that ran.
-  assert.equal(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings" }]).list,
-    { ran: ["table"], names: ["bookings"] }), "");
-  // …and a covered claim naming nothing we made is NOT silence.
-  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered" }]).list, { ran: ["table"], names }),
+  // nothing was left over. It takes a CHECKED GUARANTEE now.
+  assert.equal(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, one row per owner (own)" }]).list,
+    { told: [], made }), "");
+  // …AND EXISTENCE ALONE IS NOT SILENCE: a claim that names the table and
+  // nothing checkable about it is exactly the shape the owner corrected.
+  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings holds them" }]).list, { told: [], made }),
+    /can't confirm from here/, "a bare name match passed as delivered");
+  // …and a claim that CONTRADICTS what was applied is not evidence either.
+  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, readable by anyone" }]).list, { told: [], made }),
+    /can't confirm from here/, "a claim disagreeing with the applied permissions passed as delivered");
+  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered" }]).list, { told: [], made }),
     /can't confirm from here/, "a claim with nothing to check against passed as delivered");
   assert.equal(requirementNote([], {}), "");
   assert.equal(requirementNote(null, {}), "");
@@ -528,18 +588,20 @@ test("the three states are delivered, failed and unverified, and evidence is asy
     { need: "text a reminder", status: "elsewhere", step: "job" },
     { need: "take crypto", status: "unsupported", why: "cards only" },
   ], "table").list;
-  const got = requirementOutcomes(list, { ran: ["table", "page"], failed: ["job"], names: ["bookings"] });
+  const made = [{ name: "bookings", holds: ["slot", "unique", "own"], fails: ["anyone", "public", "members"] }];
+  const got = requirementOutcomes(list, { told: ["page"], failed: ["job"], made });
   assert.deepEqual(got.map((r) => r.state), ["delivered", "unverified", "unverified", "failed", "failed"]);
   assert.match(got[3].why, /job step could not do its part/);
   // THE OWNING STEP OF A `covered` ENTRY IS THE ONE THAT ANSWERED IT, stamped
   // by `cleanRequirements` — without it a step that refused everything would
   // still have its own claims read as delivered.
   assert.equal(list[0].from, "table");
-  const refused = requirementOutcomes(list, { ran: ["table"], failed: ["table"], names: ["bookings"] });
+  const refused = requirementOutcomes(list, { told: ["page"], failed: ["table"], made });
   assert.equal(refused[0].state, "failed", "a claim made by a step that then failed was read as delivered");
-  // A STEP THAT NEVER RAN IS A FAILURE, not an unverified hand-off: nothing
-  // happened at all, which is knowable rather than merely unconfirmable.
-  assert.equal(requirementOutcomes(list, { ran: [], names: [] })[2].state, "failed");
+  // A STEP NOBODY TOLD IS A FAILURE, not an unverified hand-off: the request
+  // reached no designer at all, which is knowable rather than unconfirmable.
+  assert.equal(requirementOutcomes(list, { told: [], made: [] })[2].state, "failed");
+  assert.match(requirementOutcomes(list, { told: [], made: [] })[2].why, /never got it/);
   // EVIDENCE IS WORD-BOUNDED. `bookings` must not be found inside
   // `bookings_old`, or a claim name-dropping a table we did NOT make reads as
   // proof we did — the one way this check can lie rather than go quiet.
@@ -549,6 +611,26 @@ test("the three states are delivered, failed and unverified, and evidence is asy
   assert.equal(evidenceName("anything", []), "", "the observer answered with nothing to observe");
   // A ONE- OR TWO-LETTER NAME IS NOT EVIDENCE: it matches by accident.
   assert.equal(evidenceName("a is fine", ["a"]), "");
+  // ── AND EXISTENCE IS NOT DELIVERY (owner, 2026-09-14) ────────────────────
+  //
+  // `claimEvidence` is what `requirementOutcomes` asks, and it needs a CHECKED
+  // GUARANTEE on top of the name: the owner's own example is "customers see
+  // only their own bookings" marked delivered because `by` mentioned
+  // `bookings`, with nothing anywhere having looked at the permissions.
+  assert.equal(claimEvidence("bookings holds them", made), null, "a bare name match is still evidence");
+  assert.equal(claimEvidence("bookings, one row per owner (own)", made).token, "own");
+  assert.equal(claimEvidence("bookings.slot is unique", made).name, "bookings");
+  // A TOKEN THAT IS FALSE DENIES THE CLAIM, and it is asked FIRST: a claim
+  // saying `anyone` about a table applied as `own` is not merely unproven, it
+  // disagrees with the database, and reading on for an incidental word that
+  // happens to hold would let it buy itself a verdict.
+  assert.equal(claimEvidence("bookings is readable by anyone, one row per owner (own)", made), null,
+    "a claim that contradicts the applied permissions was read as evidence");
+  // A NAME NOBODY APPLIED IS NOT EVIDENCE WHATEVER IT CLAIMS.
+  assert.equal(claimEvidence("waitlist.slot is unique", made), null);
+  assert.equal(claimEvidence("bookings.slot is unique", []), null, "the observer answered with nothing applied");
+  assert.equal(claimEvidence("", made), null);
+  assert.equal(claimEvidence(["bookings.slot"], made), null, "String(['x']) is 'x' — a non-string was coerced");
 });
 
 test("an invalid property is said as a lost guarantee, never by its name", () => {
@@ -631,9 +713,25 @@ test("the route validates the MODEL's tables, not the folded spec or the engine'
   assert.ok(at > 0, "the validation block is gone");
   const block = W.slice(at, W.indexOf("for (const sk of Array.isArray(clean.skipped)", at));
   assert.ok(block.length > 200 && block.length < 3000, "the validation window is the wrong size: " + block.length);
-  assert.match(block, /\(Array\.isArray\(clean\.value\) \? clean\.value : \[clean\.value\]\)\s*\.map\(\(e\) => \(k === "table" \? \(e && e\.table\) : e\)\)/,
-    "the validator does not read the model's own items");
-  assert.match(block, /auditTier\(\{ \[tier\]: mine \}, k, withMine\)/, "the per-tier audit is gone");
+  // RE-ANCHORED 2026-09-14 AGAIN, and this is the correction the owner named:
+  // *"Validation still happens after information is lost."* It read
+  // `clean.value` — the CLEANED item — and for three of the four tiers the
+  // cleaner builds a fresh object out of the keys it knows, so a property the
+  // tool never offered was gone one hop before the observer looked. The audit
+  // reads `ran.value` (the model's own declaration) with `sent` naming what
+  // really goes into the engine, keyed by NAME.
+  assert.match(block, /\(Array\.isArray\(ran\.value\) \? ran\.value : \[ran\.value\]\)\s*\.map\(itemOf\)/,
+    "the validator does not read the model's own declaration");
+  assert.match(block, /const sent = new Map\(\(Array\.isArray\(clean\.value\)/,
+    "the audit is not told what really goes into the engine");
+  assert.match(block, /\.map\(\(t\) => \[String\(t\.name\)\.toLowerCase\(\), t\]\)/,
+    "the cleaned items are paired by position — a refused one shifts every index behind it");
+  assert.match(block, /auditTier\(\{ \[tier\]: mine \}, k, withMine, \{ sent \}\)/, "the per-tier audit is gone");
+  // …AND THE THIRD REPORT IS READ. A declared value the pipeline kept under a
+  // DIFFERENT value is neither reached-for nor refused, and it is the one shape
+  // where the customer is told the thing they asked for was done and it
+  // quietly does something else.
+  assert.match(block, /for \(const n of audit\.changed\) aChanged\.add\(n\)/, "a changed declaration is not recorded");
   // A SWEEP SURVIVOR, and it is the recorded "a positional guard cannot see a
   // dead branch" in its NARROWING form: putting `if (k === "table")` back leaves
   // the audit call at exactly the offset every assertion above looks for, and
@@ -844,21 +942,32 @@ test("ACCEPTANCE: the reproduced omitted requirement is now named rather than dr
   assert.equal(open.length, 2);
   // THE FIX, IN ONE LINE: the word "history" survives to the customer, on a
   // change that could not implement it. Before this, it left at the tool.
-  // RE-ANCHORED 2026-09-14: `names` is what the change really created, and it
-  // is what turns the first requirement's claim from an assertion into
-  // evidence — the designer named `repairs` and `repairs` is a table we made.
-  const note = requirementNote(ran.requirements, { ran: ["table", "page"], names: ["repairs"] });
+  // RE-ANCHORED 2026-09-14, twice over. `made` is what the change really
+  // APPLIED, with the guarantees each item really carries, and it is what turns
+  // the first requirement's claim from an assertion into evidence: the designer
+  // named `repairs` AND named its access level, and the applied table really
+  // has that level. A claim naming the table alone would not be enough.
+  const made = [{ name: "repairs", holds: ["user", "own", "bike", "status"], fails: ["anyone", "public", "members", "none"] }];
+  const note = requirementNote(ran.requirements, { told: ["page"], made });
   assert.match(note, /history of what changed/, "the omitted requirement is still omitted");
   assert.match(note, /not a record of every change/, "the reason did not survive");
   assert.doesNotMatch(note, /can book a repair/, "a covered requirement with real evidence is read back as a gap");
   assert.doesNotMatch(note, /Still to do: a customer sees the repair listed on a page/,
-    "the page step ran and its requirement is still reported outstanding");
+    "the page step was told and its requirement is still reported outstanding");
   // …AND THE PAGE'S HAND-OFF IS SAID AS UNCONFIRMED RATHER THAN AS DONE. A
   // page existing does not prove a customer can see their repair on it, which
   // is the whole of the owner's second correction.
   assert.match(note, /can't confirm from here that a customer sees the repair listed on a page/);
+  // …AND THE SAME CLAIM AGAINST A TABLE APPLIED THE OTHER WAY IS NOT EVIDENCE.
+  // This is the owner's own example — "customers see only their own bookings"
+  // read as delivered because `by` mentioned the table — and the permissions
+  // are what decide it now.
+  const wrong = [{ name: "repairs", holds: ["anyone", "bike"], fails: ["user", "own", "members", "none"] }];
+  assert.match(requirementNote(ran.requirements, { told: ["page"], made: wrong }),
+    /can't confirm from here that a customer can book a repair/,
+    "a claim naming permissions the applied table does not have was read as delivered");
   // AND THE DEVELOPER RECORD KEEPS THE WHOLE OF IT, including the hand-off.
-  const rec = requirementRecord({ list: ran.requirements, ran: ["table", "page"], names: ["repairs"] });
+  const rec = requirementRecord({ list: ran.requirements, ran: ["table", "page"], told: ["page"], made });
   assert.equal(rec.counts.covered, 1);
   assert.equal(rec.counts.unsupported, 1);
   assert.deepEqual(rec.counts.delivered, 1);

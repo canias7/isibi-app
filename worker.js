@@ -210,10 +210,10 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, appliedFacts, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes } from "./builder/site-requirements.mjs";
+import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -22967,6 +22967,14 @@ async function handleRequest(request, env, ctx) {
             // (owner, 2026-09-13: "Validate model-authored properties before
             // applying changes"). Names only, and the customer never sees them.
             const aBadProps = new Set();
+            // …AND THE ONES IT KEPT UNDER A DIFFERENT VALUE (2026-09-14):
+            // `method: "PUT"` stored as `"GET"`, a schedule raised to the
+            // floor. Neither reached-for nor refused — the declaration landed
+            // and it landed as something else — and it is the one shape where
+            // the customer is told the thing they asked for was done and it
+            // quietly does another. Developer-facing, on the record and the
+            // trace, because a property name is not something they can act on.
+            const aChanged = new Set();
             // …AND THE ITEMS THE ENGINE WILL NOT BUILD AT ALL, per tier
             // (2026-09-14). A table that fails is nearly always a table with a
             // refused field; a FUNCTION whose body names an internal table, or
@@ -22996,13 +23004,53 @@ async function handleRequest(request, env, ctx) {
             // handed to a step that never ran is still outstanding, and saying
             // otherwise is the "doing less than was asked while reporting
             // success" failure this whole path exists to avoid.
-            // EVERY IDENTIFIER THIS CHANGE REALLY CREATED, read off the
-            // accumulated proposal rather than off the model's answer: it is
-            // the one thing a `covered` claim can be checked against, and
-            // checking it against what the model SAID would be checking a
-            // claim against itself.
-            const aMadeNames = () => [...aNewNames.tables, ...aNewNames.functions, ...aNewNames.apis, ...aNewNames.jobs];
-            const aCoverage = (ranKinds) => {
+            // ── WHAT THIS CHANGE REALLY APPLIED, AND WHAT IT GUARANTEES ─────
+            //
+            // Owner, 2026-09-14: *"'Delivered' still means a name matched …
+            // Worse, `aMadeNames` comes from proposed designs before
+            // application. Use actual results and evidence for the specific
+            // requirement."*
+            //
+            // This was `aNewNames` — the names off the CLEANED DESIGNS, before
+            // a statement had reached Postgres. MEASURED through this route: a
+            // `CREATE OR REPLACE FUNCTION` answered with a syntax error, the
+            // reply carrying `functionErrors`, and a requirement whose claim
+            // named that function scored `delivered` with the customer told
+            // nothing at all.
+            //
+            // So it is read off the APPLIED results — `aTables`/`aAltered` are
+            // what the merge really added and changed, `aFunctions` the ones
+            // the engine reports as CREATED (a failure is in `aFnErrors` and
+            // never here), `aApis` and `aJobs` what the merge kept — and it is
+            // EMPTY until `aApplyBackend` has run, which is the honest answer:
+            // before the apply nothing is created, so nothing is evidence.
+            //
+            // DECLARED HERE, ABOVE `aMade`, AND THAT IS NOT TIDINESS. These
+            // five sat just above the backend block, seventy lines below the
+            // two `aCoverage()` exits inside the kinds loop — and a `let` is
+            // in its temporal dead zone until its own line RUNS, so a refusal
+            // composing the coverage would have thrown `ReferenceError` in a
+            // place `node --check` cannot see and no source guard can either.
+            // The recorded trap, met on the first draft of this change.
+            let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [];
+            // `holds` and `fails` are the closed vocabulary `claimEvidence`
+            // checks a claim against, and `appliedFacts` owns both — LIFTED OUT
+            // OF THIS ROUTE because a decision about the schema engine's own
+            // vocabulary cannot be driven from a route that reaches it only
+            // through a compile: a mutation of the `fails` list survived a
+            // sweep for exactly that reason, and a survivor nobody can drive is
+            // a wall nobody is guarding.
+            const aMade = () => appliedFacts({
+              spec: aSpec, tables: aTables, altered: aAltered,
+              functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
+            });
+            // WHICH STEPS WERE REALLY HANDED AN OUTSTANDING REQUIREMENT. Filled
+            // where the brief is composed, never where it is merely intended:
+            // a hop that exists in this file and does not run is this
+            // repository's most-repeated defect, and `requirementOutcomes`
+            // reads this set rather than "did that step run".
+            const aTold = new Set();
+            const aCoverage = () => {
               const open = unresolvedRequirements(aReq);
               const bad = [...aBadProps];
               return {
@@ -23013,25 +23061,39 @@ async function handleRequest(request, env, ctx) {
                 // has its own rule about never gluing a sentence onto it), and
                 // two fields one character apart on one object is how a reader
                 // ends up printing the wrong one.
-                // `failed` and `names` are the correction of 2026-09-14
+                // `told`, `failed` and `made` are the corrections of 2026-09-14
                 // (owner: "Something existing does not prove the requirement
-                // works"). A step that RAN used to be read as proof its
-                // requirement was met — a planned page taken as evidence that
-                // a customer sees only their own bookings. `names` is what was
-                // really created, so a claim that names one of them is
-                // evidence and a claim that names nothing stays UNVERIFIED.
-                coverNote: requirementNote(aReq, { ran: ranKinds || [], invalid: bad, failed: [...aFailedKinds], names: aMadeNames() }),
+                // works", then "Use actual results and evidence for the specific
+                // requirement"). A step that RAN used to be read as proof its
+                // requirement was met, and a name off the PROPOSED design as
+                // proof the thing exists. `made` is what the apply really
+                // landed and what each item really guarantees; `told` is which
+                // steps were really handed an outstanding requirement.
+                coverNote: requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade() }),
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.
                 coverage: requirementCounts(aReq, aReqSkipped),
                 invalidProps: bad.length ? bad.slice(0, 12) : undefined,
+                changedProps: aChanged.size ? [...aChanged].slice(0, 12) : undefined,
               };
             };
             for (const k of aKinds) {
               if (addLayer(k)) continue;
               aMark("add:" + k, "start");
-              const ran = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick });
+              // ── WHAT AN EARLIER STEP HANDED TO THIS ONE (2026-09-14) ──────
+              //
+              // `requirementBrief` was general and had ONE caller, for the page
+              // call, so five of the six kinds that answer requirements could
+              // hand one onward and reach nobody. Composed from what has been
+              // collected SO FAR — which is exactly "the receiving step is
+              // still ahead", because the kinds run in `ADD_KINDS` order — and
+              // `aTold` records that it was really sent, so a hand-off to a
+              // step that has already run stays outstanding rather than being
+              // read as satisfied by a call that never heard it.
+              const aBrief = requirementBrief(aReq, k);
+              if (aBrief) aTold.add(k);
+              const ran = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick, brief: aBrief });
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
               // BELOW IT. A coverage list read after the decline check, after
               // the cleaner's refusal or after the truncation check is a list
@@ -23050,15 +23112,31 @@ async function handleRequest(request, env, ctx) {
                 // and throwing that away here is how the one case worth reading
                 // — "it could not express this" — reaches a customer as a bare
                 // refusal sentence. Nothing ran, so nothing is claimed covered.
-                return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage([]) }, { status: 422 });
+                return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage() }, { status: 422 });
               }
               // ── VALIDATED BEFORE ANYTHING IS APPLIED (owner, 2026-09-13) ──
               //
-              // The MODEL'S OWN tables, taken from `clean.value` — never the
+              // The MODEL'S OWN items, taken from `ran.value` — never the
               // folded spec and never the normaliser's output. That is the
               // difference between "the model asked for something the engine
               // cannot do" and "the engine derived a field", and only the first
               // is feedback anybody can act on.
+              //
+              // AND `ran.value`, NOT `clean.value` (owner, 2026-09-14:
+              // *"Validation still happens after information is lost."*). For
+              // three of the four tiers the cleaner builds a FRESH object out
+              // of the keys it knows, so a property the tool never offered was
+              // gone one hop before the observer looked. MEASURED through this
+              // route: a function answer carrying `encryptAtRest: true,
+              // retries: 3` gave `clean.skipped: []`, an audit of the cleaned
+              // item of `reached: []`, and an audit of the DECLARED item of
+              // `reached: ["encryptAtRest", "retries"]` — with the customer
+              // told nothing either way. Only the TABLE tier escaped it, by an
+              // accident of shape: its cleaner spreads, so unknown keys
+              // survived to the engine. `sent` is what really goes in, keyed by
+              // name, so a key the CLEANER removed reads exactly like one the
+              // ENGINE removed — which is right, because both are a property
+              // the customer asked for and did not get.
               //
               // `droppedFields` is the existing derived reader and it is used
               // rather than a third list: a property is reported only when
@@ -23086,15 +23164,26 @@ async function handleRequest(request, env, ctx) {
               // an item the engine dropped WHOLE, with no field to point at.
               const tier = SPEC_OF_KIND[k];
               if (tier) {
-                const mine = (Array.isArray(clean.value) ? clean.value : [clean.value])
-                  .map((e) => (k === "table" ? (e && e.table) : e)).filter((t) => t && typeof t === "object");
+                const itemOf = (e) => (k === "table" ? (e && e.table) : e);
+                // WHAT THE MODEL DECLARED, and what really goes into the engine
+                // keyed by NAME — never by position, because a cleaner that
+                // refuses one item shifts every index behind it.
+                const mine = (Array.isArray(ran.value) ? ran.value : [ran.value])
+                  .map(itemOf).filter((t) => t && typeof t === "object" && t.name);
+                const sent = new Map((Array.isArray(clean.value) ? clean.value : [clean.value])
+                  .map(itemOf).filter((t) => t && typeof t === "object" && t.name)
+                  .map((t) => [String(t.name).toLowerCase(), t]));
                 if (mine.length) {
                   // The proposal WITH this kind's items in it, so a sibling
                   // designed earlier in the same message counts as present.
                   const withMine = proposedSpec(aProposed, k, clean.value);
-                  const audit = auditTier({ [tier]: mine }, k, withMine);
+                  const audit = auditTier({ [tier]: mine }, k, withMine, { sent });
                   for (const n of audit.reached) aBadProps.add(n);
                   for (const n of audit.refused) aBadProps.add(n);
+                  // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY is neither
+                  // reached-for nor refused: it reached something and the
+                  // something is live, and it is not what was asked for.
+                  for (const n of audit.changed) aChanged.add(n);
                   if (audit.unbuilt.length) {
                     aUnbuilt[k] = [...(aUnbuilt[k] || []), ...audit.unbuilt];
                     // AN ITEM THE ENGINE WILL NOT BUILD IS A FAILURE OF THIS
@@ -23124,6 +23213,13 @@ async function handleRequest(request, env, ctx) {
                 for (const item of Array.isArray(clean.value) ? clean.value : []) {
                   const one = k === "table" ? (item && item.table) : item;
                   if (!one || !one.name) continue;
+                  // ONLY A NAME THE SITE DID NOT ALREADY HAVE (2026-09-14). The
+                  // cleaner answers `exists` for a table, function, connection
+                  // or job this message names again, and `siteNote` prints
+                  // "being added by this same change" against every proposed
+                  // name — so an EXTENSION of a stored table was described to
+                  // the next designer as a table the site has never had.
+                  if (item && item.exists === true) continue;
                   if (!aNewNames[tier].includes(one.name)) aNewNames[tier].push(one.name);
                   if (k === "function" && one.internal === true && !aNewNames.jobFns.includes(one.name)) aNewNames.jobFns.push(one.name);
                 }
@@ -23141,17 +23237,33 @@ async function handleRequest(request, env, ctx) {
             // replies run 28 is the reason for. Everything the customer is not
             // told — the counts, the unreadable entries, the invalid property
             // names, which step each requirement was handed to — lives here.
-            await saveAddonAnswer(env, ownerSlug, {
-              message: aInstruction, site: aSite, kinds: aKinds, replies: aKept,
-              coverage: requirementRecord({ list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], ran: aAnswers.map((a) => a.kind), failed: [...aFailedKinds], names: aMadeNames(), unbuilt: aUnbuilt }),
+            //
+            // WRITTEN TWICE, DELIBERATELY (owner, 2026-09-14: *"Update the
+            // stored coverage after application too."*). This write is the only
+            // one that survives a designer's refusal or a decline, and it
+            // happens BEFORE the apply, so every verdict in it is decided
+            // against an empty `made` — which is the honest answer at this
+            // point and not the final one. `aRecordCoverage` re-writes it once
+            // the apply has landed, so the stored record says what really
+            // became of each requirement rather than what it looked like
+            // before a single statement reached Postgres.
+            const aRecord = () => requirementRecord({
+              list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
+              ran: aAnswers.map((a) => a.kind), told: [...aTold],
+              failed: [...aFailedKinds], made: aMade(), unbuilt: aUnbuilt,
             });
+            const aSaveAnswer = async () => {
+              try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
+              catch (e) { console.error("addon answer save failed:", ownerSlug, e && e.message); }
+            };
+            await aSaveAnswer();
             if (!aAnswers.length) {
               // THE SHAPE THIS WAS BUILT FOR. Every designer declined, so there
               // is no design to read and, until now, nothing but a boolean to
               // say why — run 28's three blind declines. The coverage list
               // survives an answer that designed nothing, which is the whole
               // reason it rides beside `value` rather than inside it.
-              return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing"), ...aCoverage([]) }, { status: 422 });
+              return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing"), ...aCoverage() }, { status: 422 });
             }
             // THE FOLD: what the look and the schema store, what the page call
             // is told, and the union of kit parts it is shown the props of.
@@ -23168,9 +23280,9 @@ async function handleRequest(request, env, ctx) {
             // without both a run where every claim was unverifiable is
             // indistinguishable from one where every claim held.
             {
-              const st = requirementOutcomes(aReq, { ran: aAnswers.map((a) => a.kind), failed: [...aFailedKinds], names: aMadeNames() });
+              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], made: aMade() });
               aMark("coverage", "ok", {
-                ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size,
+                ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size, moved: aChanged.size,
                 done: st.filter((r) => r.state === "delivered").length,
                 broke: st.filter((r) => r.state === "failed").length,
                 unsure: st.filter((r) => r.state === "unverified").length,
@@ -23223,8 +23335,8 @@ async function handleRequest(request, env, ctx) {
             // one named again is replaced. Seeding is best-effort and skips a
             // table that already has rows, exactly as it does on a revise.
             const aBackend = backendDesigned(aDesigned);
-            let aTables = [], aAltered = [], aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
-            let aProvisioned = false, aFunctions = [], aFnErrors = [], aApis = [], aJobs = [], aJobErrors = [], aSecrets = [];
+            let aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
+            let aProvisioned = false, aJobErrors = [], aSecrets = [];
             // What sequence #1 reserved ahead of the schema apply, and whether it
             // did — see the block before `aApplyBackend`.
             let aFirst = 0, aFirstPlaced = false;
@@ -23513,6 +23625,11 @@ async function handleRequest(request, env, ctx) {
                 const ap = await aApplyBackend(null);
                 if (!ap.ok) return Response.json({ ok: false, error: "schema", cost: 0, ours: true, msg: ADDON_SCHEMA_FAIL_MSG, detail: ap.detail, migration: migrationSummary(aMigration) }, { status: 502 });
                 aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied", { publish: { ok: true, pageless: true } })) || aMigration;
+                // THE STORED COVERAGE, RE-WRITTEN OVER THE APPLIED RESULT
+                // (owner, 2026-09-14). The write above the loop was decided
+                // against an empty `made`; this one is decided against what
+                // Postgres really has.
+                await aSaveAnswer();
               }
               // Reserved ahead of the schema apply under a job (1a-ii); the
               // synchronous collect happens here, after the work, as before.
@@ -23526,7 +23643,7 @@ async function handleRequest(request, env, ctx) {
                 // of what the customer hears — and a requirement handed to the
                 // `page` step is outstanding here by construction, since no
                 // page step ran. `ran` is the kinds that really produced work.
-                ...aCoverage(aAnswers.map((a) => a.kind)),
+                ...aCoverage(),
                 added: [], changed: [], removed: [], moved: [],
                 functions: aFunctions, jobs: aJobs,
                 functionErrors: aFnErrors.length ? aFnErrors : undefined,
@@ -23852,6 +23969,12 @@ async function handleRequest(request, env, ctx) {
                 if (aCharges.refused() > 0) { aMark("schema", "skip", { why: "unbilled" }); return aSwap; }
                 const ap = await aApplyBackend(version);
                 if (!ap.ok) return { refuse: { error: "schema", detail: ap.detail, ours: true } };
+                // THE STORED COVERAGE, RE-WRITTEN OVER THE APPLIED RESULT — the
+                // pageless path's twin, and the reason it is here rather than
+                // beside the reply: this seam is the only place on the page
+                // path where the apply has landed and the request is still in
+                // hand. Never fatal; a record is never worth a publish.
+                await aSaveAnswer();
               }
               return aSwap;
             };
@@ -23958,7 +24081,7 @@ async function handleRequest(request, env, ctx) {
               // requirement handed to the page step IS covered here, because
               // the page step really ran — which is why this is computed from
               // the kinds that produced work rather than from the list alone.
-              ...aCoverage(aAnswers.map((a) => a.kind)),
+              ...aCoverage(),
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
               reverted: aMerge.reverted,
               // The design fields this addon gave the site (a `qr`, a `three`),

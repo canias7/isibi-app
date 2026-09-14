@@ -2375,13 +2375,165 @@ on the item reader's own `k === "table" ? (e && e.table) : e`, which is correct
 and must stay; it reads the GATE alone now. **Full suite 6,336 green** — 6,316 +
 19 + 1, and the arithmetic closes exactly.
 
-**OPEN, NAMED RATHER THAN GLOSSED**: an api `method: "PUT"` normalises to `GET`
-and is NOT reported — a declared value replaced by a different VALID value is a
-class neither `reached` nor `refused` covers, and inventing a lint for it without
-a corpus to measure false alarms against is the one thing this repository's rules
-forbid. **NOT PROVEN LIVE**: every measurement here is from driving the modules;
-nothing has run against a real customer message. The addon rerun on
-`repairbench-1` is the cheapest live proof and is the owner's call.
+**CLOSED, 2026-09-14**: an api `method: "PUT"` normalising to `GET` — a declared
+value replaced by a different VALID value, which neither `reached` nor `refused`
+covers — is now `changed`, the audit's third report. See the section below.
+**NOT PROVEN LIVE**: every measurement here is from driving the modules; nothing
+has run against a real customer message. The addon rerun on `repairbench-1` is
+the cheapest live proof and is the owner's call.
+
+### …AND FOUR MORE GAPS, EACH CLOSED THROUGH THE ROUTE (2026-09-14)
+
+Owner, on the change above, before it merged: *"Validation still happens after
+information is lost… 'Delivered' still means a name matched… Extending an
+existing table damages the proposed context… The promised requirement handoffs
+are incomplete."* Plus the instruction that shaped the whole round:
+***"Demonstrate these cases through the relevant route, including what the
+customer is told. Helper tests and source-text assertions alone missed these
+connections."***
+
+**ALL FOUR WERE INVISIBLE TO A MODULE TEST AND TO A SOURCE SCAN, and all four
+are one line of output away through `POST /api/site/<slug>/addon`.**
+`test/fixtures/addon-route.mjs` drives it end to end on the PAGELESS path — a
+job and an internal function change no page — so the picker, every designer, the
+cleaner, the audit, a real `applySiteSchema` over a fake Neon and the customer's
+own sentence all run with no container, no compile, no credit and no network.
+The add call's KIND is read off the request (`add_to_site`'s one property is
+named by the kind), never guessed from call order. **Neon's rows come back as
+ARRAYS with `fields`** — its driver's own wire shape; an object row makes it
+throw `c.map`.
+
+1. **THE VALIDATION READ THE CLEANED ITEM, and for three of four tiers the
+   cleaner had already binned what it was looking for.** `cleanAdd` REBUILDS a
+   `function`, `api` or `job` out of the keys it knows; only `table` spreads
+   (`{...t, name, columns}`), which is the accident that made the table tier
+   look as though this all worked. MEASURED through the route, a function answer
+   carrying `encryptAtRest: true, retries: 3`: `clean.skipped: []`, an audit of
+   the cleaned item `reached: []`, an audit of the DECLARED item
+   `reached: ["encryptAtRest","retries"]`, and **the reply carried no
+   `invalidProps` and the customer heard nothing.** `auditTier` now takes
+   `{ sent }` — a Map of name → the item that really goes into the engine — and
+   reads the keys off the MODEL'S declaration, so a key the CLEANER removed
+   reads exactly like one the ENGINE removed. **By NAME, never by position**: a
+   cleaner that refuses one item shifts every index behind it. A declared item
+   with no entry in `sent` is counted in `scanned` and nothing else — the
+   cleaner's own refusal already has a sentence, and reporting it again as
+   `unbuilt` would say the ENGINE dropped something it never received.
+   **AND NORMALISING WHAT WAS SENT IS NOT THE SAME AS NORMALISING THE
+   DECLARATION — found by a sweep survivor, MEASURED over ten shapes, ONE of
+   which divides them and it is a privacy guarantee.** `internal: "yes"` is
+   truthy and is not `true`, so the cleaner writes `internal: false` and the
+   function is created PUBLIC, callable by every visitor: from what was SENT
+   that reads `refused: ["internal"]` (the guarantee is gone), from the
+   DECLARATION `changed: ["internal"]` (it is there, differently). `refused` is
+   the true one.
+   **`changed` IS THE THIRD REPORT AND IT CLOSES THE RECORDED OPEN CLASS**: a
+   declared value the pipeline KEPT under another value — `method: "PUT"` stored
+   as `"GET"`, `everyMinutes: 5` raised to the floor — which neither `reached`
+   (the key reached something) nor `refused` (the effect is live) covers.
+   **Scalars only, deliberately, and `scalar()` IS load-bearing**: a list of
+   OBJECTS stringifies to `[object Object]` whichever objects it holds, so
+   `columns` can never look changed with or without the guard — the first
+   control written for it was vacuous — but a list of STRINGS can: `params`
+   declared `["ok","not ok!"]` reaches the engine as `["ok"]`. A shortened list
+   is a refusal of the entry, not a change of the list, and reporting whole
+   lists would fire on every table there is. Developer-facing (`changedProps`);
+   the customer's clause is still about lost GUARANTEES, because a property name
+   is not something they can act on.
+2. **`delivered` MEANT A NAME MATCHED, AGAINST THE PROPOSED DESIGN — and both
+   halves of that were wrong.** `aMadeNames` read the names off the CLEANED
+   answers, so nothing that happened in Postgres could change the verdict.
+   MEASURED through the route: `CREATE OR REPLACE FUNCTION` answered with a
+   syntax error, `functionErrors` on the reply, the job registered against a
+   function that does not exist — **and the requirement claiming it scored
+   `delivered` with the customer told nothing.** Two corrections. (a) The
+   evidence is the APPLIED result: `aTables`/`aAltered` from the merge,
+   `aFunctions` the ones the engine reports CREATED (a failure is in `aFnErrors`
+   and never here), `aApis`/`aJobs` what it kept — EMPTY until `aApplyBackend`
+   has run, which is the honest answer, and **a job whose function the database
+   refused is left out entirely**, because its schedule is real and the work it
+   does is not. (b) **EXISTENCE IS NOT DELIVERY.** `claimEvidence` needs a
+   CHECKED GUARANTEE on top of the name: each applied item carries `holds`
+   (words from a closed vocabulary true of it) and `fails` (words from that same
+   vocabulary that are false), and **`fails` is asked FIRST** — a claim saying
+   `bookings access user` about a table applied as `collect` disagrees with the
+   database, and reading on for an incidental word that happens to hold would
+   let it buy itself a verdict.
+   **`appliedFacts` OWNS BOTH AND LIVES IN `builder/site-add.mjs`, NOT IN THE
+   ROUTE** — because a sweep mutant that emptied `fails` SURVIVED: the only
+   route path that applies a table is the one that then wants a container and a
+   compile, so the wall could not be driven where it lived. **A wall nobody can
+   drive is a wall nobody is guarding.** The vocabulary is the ENGINE'S OWN
+   (`ACCESS_PRESETS` ∪ `READ_LEVELS` ∪ `WRITE_LEVELS`, the level through
+   `resolveAccess`), never a second list.
+   **WHY THIS CANNOT CRY WOLF, STATED**: every reading moves a requirement
+   towards `unverified` and never towards `failed` — there is no corpus of real
+   `by` claims to measure a false-alarm rate against, so the only safe direction
+   is the one that costs a sentence inviting the customer to check. A false
+   "I can't confirm" costs a look; a false "done" costs them the guarantee.
+   **AND THE STORED COVERAGE IS RE-WRITTEN AFTER THE APPLY** (both paths): the
+   write above the loop survives a refusal and a decline and is decided against
+   an empty applied result, which is honest at that point and is not the final
+   answer.
+3. **AN EXTENSION REPLACED THE TABLE in every later designer's picture of the
+   site.** `proposedSpec` replaced by name, which is right for the three
+   spec-level tiers (`CREATE OR REPLACE` means a function named again IS the new
+   body, whole) and wrong for a table: the commonest addition there is — "add a
+   notes field to the booking form" — arrives as one column and no access.
+   MEASURED through the route, stored `bookings` being `who, slot, phone` with
+   `access: "user"`, the function designer one call later was handed:
+   `bookings (notes text) — access collect — being added by this same change`.
+   Three columns gone, `collect` (anyone writes, nobody reads — the OPPOSITE of
+   what the site enforces) stamped by the normaliser on a table that declared no
+   access, and a table the site has had since it was built marked as new.
+   **The merge is the APPLY'S OWN now** — `mergeAddonSchema`, the one the
+   publish really runs — so the proposal describes the database that is coming
+   rather than a second idea of what an extension does; and `aNewNames` skips an
+   item the cleaner answered `exists` for, so an extension is not marked new.
+4. **ONLY `elsewhere: page` WAS EVER FORWARDED.** `requirementBrief` was general
+   and had exactly ONE caller. Six kinds answer requirements and any may hand one
+   to any other, so a function step writing "it goes out every morning at nine —
+   that is the job step's" reached nobody: the job designer ran a minute later
+   knowing nothing about it, and **the customer was told the change was made.**
+   The route composes the brief for each kind before its own call, from what has
+   been collected SO FAR — which is exactly "the receiving step is still ahead",
+   because the kinds run in `ADD_KINDS` order. **`told`, NOT "the step ran"**:
+   `requirementOutcomes` reads the steps really HANDED a requirement, stamped
+   where the brief is composed, so a hand-off BACK to a step that already ran
+   (or to `edit`, which no add kind owns) stays outstanding instead of being
+   settled by a call that never heard it. The two are different questions and
+   only one of them is about this requirement. **And the sentence names what the
+   step IS** — a sweep survivor: the block can reach all six kinds and still
+   tell five of them their requirement is "what this page has to make possible".
+
+**Guards**: `test/addon-route.test.mjs` (**12**) drives all four through the real
+route and asserts on the customer's own sentence. `test/addon-steps.test.mjs`
+gains **seven** module-level cases (the `sent` measurement, pair-by-name,
+`changed` over a real clamp, `proposedSpec`'s merge, the `internal: "yes"`
+divergence, the list control that proves `scalar` load-bearing, and
+`appliedFacts` over both directions of the access check).
+
+**Twelve older guards went red and were re-anchored, not appeased**, each naming
+the spelling that moved — including the three thin audit wrappers pinned to
+`return auditTier(spec, tier, context)`, which went red on an honest fourth
+argument: **the recorded "assert the property, not the spelling" trap, in the
+guard written for it.** **One re-anchor collided with a `const` already in the
+file** (`factsAt`), which makes node report the WHOLE file as one failing test:
+the recorded "a re-anchor lands in a scope it did not write", met in the file
+that records it.
+
+**AND THE TEMPORAL DEAD ZONE BIT TWICE, both times in the money path's own
+route.** The applied-result `let`s sat seventy lines below the two `aCoverage()`
+exits inside the kinds loop, so a refusal composing the coverage threw
+`ReferenceError` — which `node --check` cannot see and no source guard can
+either. Caught the first time by reading and the second time by the driven route
+answering with the throw in it. **Declare what a closure reads above its first
+possible call, not above its obvious one.**
+
+**NOT PROVEN LIVE.** Every measurement here is from driving the real route
+against stubbed seams; nothing has run against a real customer message. The
+`repairbench-1` addon rerun is still the cheapest live proof and is the owner's
+call.
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -2770,10 +2922,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   site-runtime 47 — every count read out of that job's own log. **Four
   independent runs over three days agreeing is what makes 382 a measurement
   rather than a stamp.**
-  The unit suite is **6,336** (2026-09-14, local — the other five addon steps,
-  whose new cases are `addon-steps`' **nineteen** and `requirement-coverage`'s
+  The unit suite is **6,355** (2026-09-14, local — the four route-level gaps,
+  whose new cases are `addon-route`'s **twelve** (all four driven end to end
+  through `POST /api/site/<slug>/addon`, asserting on the customer's own
+  sentence) and `addon-steps`' **seven**; 6,336 + 12 + 7 closes exactly. CI has
+  NOT read this number. **6,336** before it, the other five addon steps,
+  whose new cases were `addon-steps`' **nineteen** and `requirement-coverage`'s
   **one** (the three states and the asymmetric evidence); 6,316 + 19 + 1 closes
-  exactly. CI has NOT read this number. **6,316** before it, the wire probe's hang fix and
+  exactly. **6,316** before it, the wire probe's hang fix and
   the read-back door, whose new cases are `job-probe`'s **six**: the bound
   derived and junk-safe, `wireCall` driven hung-versus-killed with the kill as
   its control, `probeWire` driven hang-first through an injected `timer`, both

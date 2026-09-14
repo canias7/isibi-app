@@ -35,7 +35,8 @@ import {
   normalizeSchema, SPEC_TIERS, TIER_LIST, TOOL_FIELDS, MAX_FN_BODY,
 } from "../site-schema.mjs";
 import { MAX_API_BODY, normalizeApi } from "../site-apis.mjs";
-import { cleanAdd, addRefusal, proposedSpec, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, addTool } from "../builder/site-add.mjs";
+import { cleanAdd, addRefusal, proposedSpec, appliedFacts, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, addTool } from "../builder/site-add.mjs";
+import { claimEvidence } from "../builder/site-requirements.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 import { siteHasTables, siteHasBackend, schemaDigest, pageRulesFor } from "../builder/page-gen.mjs";
 
@@ -94,8 +95,9 @@ test("`scanned` is the observer, and every other field is a negative assertion",
   // off a scan that read nothing is reporting silence. That is the class this
   // whole change is about, so the count rides beside the three lists.
   const ctx = BASE();
-  assert.deepEqual(auditTier({}, "job", ctx), { scanned: 0, reached: [], refused: [], unbuilt: [] });
-  assert.deepEqual(auditTier(null, "table"), { scanned: 0, reached: [], refused: [], unbuilt: [] });
+  const EMPTY = { scanned: 0, reached: [], refused: [], changed: [], unbuilt: [] };
+  assert.deepEqual(auditTier({}, "job", ctx), EMPTY);
+  assert.deepEqual(auditTier(null, "table"), EMPTY);
   assert.deepEqual(auditTier({ jobs: [{}] }, "nonsense", ctx).scanned, 0, "an unknown tier scanned something");
   const real = auditTier({ jobs: [{ name: "remind", fn: "cancel_booking", everyMinutes: 1440 }] }, "job", ctx);
   assert.equal(real.scanned, 1, "a real declaration was not scanned");
@@ -456,4 +458,158 @@ test("`jobErrors` reaches the wire and the browser prints it", () => {
     "the browser never reads the failed jobs");
   assert.match(C, /couldn’t be set up/, "the browser has no sentence for a job that would not register");
   assert.match(C, /so it won’t run yet/, "the sentence does not say what it means for the customer");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE AUDIT READS THE DECLARATION, AND THE PROPOSAL MERGES AN EXTENSION
+// (2026-09-14, the four corrections)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("`sent` is what really goes into the engine, and the keys are the model's own", () => {
+  // THE DEFECT, AT MODULE LEVEL. `cleanAdd` rebuilds a function out of the six
+  // keys it knows, so an un-offered property is gone before the audit — the
+  // measurement that found it, driven here rather than quoted.
+  const declared = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;", encryptAtRest: true, retries: 3 };
+  const clean = cleanAdd("function", [declared], { functions: [], jobFns: [] });
+  assert.equal(clean.ok, true);
+  assert.deepEqual(clean.skipped, [], "the cleaner reported the un-offered properties — this case tests nothing");
+  const sentItem = clean.value[0];
+  assert.ok(!("encryptAtRest" in sentItem) && !("retries" in sentItem), "the cleaner kept them — this case tests nothing");
+  const ctx = { tables: [], functions: [], apis: [], jobs: [] };
+  // AUDITING THE CLEANED ITEM SEES NOTHING, which is what shipped.
+  assert.deepEqual(auditTier({ functions: [sentItem] }, "function", ctx).reached, []);
+  // AUDITING THE DECLARATION, with `sent` naming what really goes in, sees both.
+  const sent = new Map([[sentItem.name, sentItem]]);
+  assert.deepEqual(auditTier({ functions: [declared] }, "function", ctx, { sent }).reached, ["encryptAtRest", "retries"]);
+});
+
+test("the cleaned items are paired by NAME, so a refused sibling shifts nothing", () => {
+  // NEVER BY POSITION: a cleaner that refuses one item shifts every index
+  // behind it, and the audit would then report one item's keys against
+  // another's normalisation.
+  const ctx = { tables: [], functions: [], apis: [], jobs: [] };
+  const a = { name: "aa", internal: true, returns: "void", body: "BEGIN END;", encryptAtRest: true };
+  const b = { name: "bb", internal: true, returns: "void", body: "BEGIN END;" };
+  const cleanB = cleanAdd("function", [b], { functions: [], jobFns: [] }).value[0];
+  // `aa` never reached the engine (the cleaner refused it); only `bb` did.
+  const out = auditTier({ functions: [a, b] }, "function", ctx, { sent: new Map([["bb", cleanB]]) });
+  assert.equal(out.scanned, 2, "an item the cleaner refused was not even counted");
+  assert.deepEqual(out.reached, [], "a refused item's keys were reported against its sibling's normalisation");
+  assert.deepEqual(out.unbuilt, [], "the cleaner's own refusal was reported as the ENGINE dropping an item");
+});
+
+test("a declared scalar the pipeline keeps under another value is `changed`", () => {
+  // The third report, and the class it closes is the recorded open one: "a
+  // declared value replaced by a different VALID value", which neither
+  // `reached` (the key did reach something) nor `refused` (the effect is live)
+  // covers. Driven through the real cleaner, so the clamp is the product's.
+  const site = { functions: ["send_reminder"], jobFns: ["send_reminder"], jobs: [] };
+  const declared = { name: "daily", fn: "send_reminder", everyMinutes: 5 };
+  const sentItem = cleanAdd("job", [declared], site).value[0];
+  assert.ok(sentItem.everyMinutes > 5, "the floor did not apply — this case tests nothing");
+  const ctx = { tables: [], functions: [{ name: "send_reminder", internal: true, returns: "void", body: "BEGIN END;" }], apis: [], jobs: [] };
+  const out = auditTier({ jobs: [declared] }, "job", ctx, { sent: new Map([["daily", sentItem]]) });
+  assert.deepEqual(out.changed, ["everyMinutes"], "a clamped declaration is not reported as changed");
+  assert.deepEqual(out.refused, [], "a live value was reported as refused");
+  // OBJECTS AND ARRAYS ARE NEVER COMPARED: normalisation legitimately ENRICHES
+  // them — a column gains its type on every table there is — so comparing them
+  // would report every declaration on the platform as changed.
+  const t = { name: "t", columns: [{ name: "c" }] };
+  assert.deepEqual(auditTier({ tables: [t] }, "table", { tables: [] }).changed, [],
+    "a normalised column list was reported as a changed declaration");
+});
+
+test("proposedSpec merges a table extension the way the apply does, and replaces the other three tiers", () => {
+  // THE APPLY'S OWN MERGE, not a second idea of one. A replaced table is the
+  // commonest addition there is — "add a notes field" — described to every
+  // later designer as a table with one column and no permissions.
+  const stored = {
+    tables: [{ name: "bookings", access: "user", unique: ["slot"], columns: [{ name: "who", type: "text" }, { name: "slot", type: "text" }] }],
+    functions: [{ name: "f", internal: true, returns: "void", body: "BEGIN END;" }],
+  };
+  const out = proposedSpec(stored, "table", [{ table: { name: "bookings", columns: [{ name: "notes", type: "text" }] } }]);
+  const t = out.tables.find((x) => x.name === "bookings");
+  assert.equal(out.tables.length, 1, "the extension appended a second table of the same name");
+  assert.deepEqual(t.columns.map((c) => c.name), ["who", "slot", "notes"], "the extension lost the stored columns");
+  assert.equal(t.access, "user", "the extension lost the stored permissions");
+  assert.deepEqual(t.unique, ["slot"], "the extension lost a stored guarantee");
+  // THE BASELINE IS NEVER MUTATED — it is what a refused addition leaves the
+  // site as, and a proposal written over it is a change nothing can roll back.
+  assert.deepEqual(stored.tables[0].columns.map((c) => c.name), ["who", "slot"], "the baseline was written to");
+  // A TABLE THE SITE DOES NOT HAVE IS APPENDED WHOLE, exactly as before.
+  const added = proposedSpec(stored, "table", [{ table: { name: "waitlist", columns: [{ name: "who", type: "text" }] } }]);
+  assert.deepEqual(added.tables.map((x) => x.name), ["bookings", "waitlist"]);
+  // …AND THE THREE SPEC-LEVEL TIERS STILL REPLACE BY NAME: `CREATE OR REPLACE`
+  // means a function named again IS the new body, whole.
+  const fn = proposedSpec(stored, "function", [{ name: "f", internal: false, returns: "int", body: "BEGIN RETURN 2; END;" }]);
+  assert.equal(fn.functions.length, 1);
+  assert.equal(fn.functions[0].returns, "int", "a re-declared function was merged instead of replaced");
+});
+
+test("normalising WHAT WAS SENT is not the same as normalising the declaration", () => {
+  // THE MEASUREMENT THAT MADE `sent`'s normalisation load-bearing, and it is a
+  // privacy guarantee rather than a cosmetic one. `internal: "yes"` is truthy
+  // and is not `true`, so the cleaner writes `internal: false` — the function
+  // is created PUBLIC, callable by every visitor — while normalising the
+  // DECLARATION keeps the truthy string and reads the guarantee as merely
+  // stored differently.
+  //
+  //   from what was SENT        → refused: ["internal"]   (the guarantee is gone)
+  //   from the DECLARATION      → changed: ["internal"]   (it is there, differently)
+  //
+  // Found by a mutation survivor, measured over ten shapes: this is the ONE of
+  // them where the two readings diverge, and `refused` is the true one.
+  const declared = { name: "f2", internal: "yes", returns: "void", body: "BEGIN END;" };
+  const sentItem = cleanAdd("function", [declared], { functions: [], jobFns: [] }).value[0];
+  assert.equal(sentItem.internal, false, "the cleaner kept a truthy non-true — this case tests nothing");
+  const ctx = { tables: [], functions: [], apis: [], jobs: [] };
+  const fromSent = auditTier({ functions: [declared] }, "function", ctx, { sent: new Map([["f2", sentItem]]) });
+  const fromDecl = auditTier({ functions: [declared] }, "function", ctx, { sent: new Map([["f2", declared]]) });
+  assert.deepEqual(fromSent.refused, ["internal"], "a binned privacy guarantee is not reported as refused");
+  assert.deepEqual(fromSent.changed, [], "a binned guarantee is reported as merely changed");
+  assert.deepEqual(fromDecl.refused, [], "the two readings agree — this case no longer divides them");
+});
+
+test("a list is never reported as changed, however much of it the cleaner dropped", () => {
+  // THE CONTROL THAT PROVES `scalar` LOAD-BEARING, and the first one written
+  // could not: a list of OBJECTS stringifies to "[object Object]" whichever
+  // objects it holds, so `columns` can never look changed with or without the
+  // guard. A list of STRINGS can — `params` declared `["ok","not ok!"]` reaches
+  // the engine as `["ok"]`, and `String()` tells those apart.
+  const declared = { name: "a4", url: "https://x.test/y", params: ["ok", "not ok!"] };
+  const sentItem = cleanAdd("api", [declared], { apis: [] }).value[0];
+  assert.deepEqual(sentItem.params, ["ok"], "the cleaner kept the malformed param — this case tests nothing");
+  assert.notEqual(String(declared.params), String(sentItem.params), "the two lists stringify the same — this case tests nothing");
+  const out = auditTier({ apis: [declared] }, "api", { tables: [], functions: [], apis: [], jobs: [] },
+    { sent: new Map([["a4", sentItem]]) });
+  assert.deepEqual(out.changed, [], "a shortened list was reported as a changed declaration");
+});
+
+test("appliedFacts checks a claim against what Postgres really enforces", () => {
+  // LIFTED OUT OF THE ROUTE because a mutant that emptied `fails` survived a
+  // sweep: the only route path that applies a table wants a container, so the
+  // wall could not be driven where it lived.
+  const spec = { tables: [{ name: "bookings", access: "user", unique: ["slot"], columns: [{ name: "slot", type: "text" }] }] };
+  const [t] = appliedFacts({ spec, tables: ["bookings"] });
+  assert.equal(t.name, "bookings");
+  assert.ok(t.holds.includes("user") && t.holds.includes("own"), "the applied level is not evidence: " + JSON.stringify(t.holds));
+  assert.ok(t.holds.includes("slot") && t.holds.includes("unique"), "the applied columns and guarantee are not evidence");
+  // EVERY OTHER LEVEL IS A CONTRADICTION, and the vocabulary is the engine's.
+  for (const l of ["anyone", "members", "public", "none", "collect", "display", "admin"]) {
+    assert.ok(t.fails.includes(l), "`" + l + "` is not read as contradicting an applied `user` table");
+  }
+  assert.ok(!t.fails.includes("user") && !t.fails.includes("own"), "a level the table really has reads as a contradiction");
+  // AND THE PAIR IS WHAT DECIDES A CLAIM, both ways.
+  assert.ok(claimEvidence("bookings access user, so a member sees only their own rows", [t]));
+  assert.equal(claimEvidence("bookings, readable by anyone", [t]), null);
+  // A TABLE THE SPEC DOES NOT DESCRIBE CARRIES NO GUARANTEES — never invented
+  // ones, which would make a name match evidence again through the back door.
+  assert.deepEqual(appliedFacts({ spec, tables: ["waitlist"] })[0], { name: "waitlist", holds: [], fails: [] });
+  // A JOB'S SCHEDULE IS ITS GUARANTEE, and a job whose function the database
+  // refused is not a result at all.
+  const jobs = [{ name: "daily", fn: "send_reminder", everyMinutes: 1440, at: "09:00" }];
+  assert.deepEqual(appliedFacts({ jobs })[0].holds, ["1440", "09:00"]);
+  assert.deepEqual(appliedFacts({ jobs, fnErrors: [{ name: "send_reminder", error: "syntax error" }] }), [],
+    "a job over a function the database refused counts as a result");
+  assert.deepEqual(appliedFacts({}), [], "an empty change claims something was applied");
 });

@@ -146,8 +146,20 @@ test("every field the edit path refuses to create has a kind here, and the route
   // the unreadable entries and the invalid property names, none of which the
   // customer is told. Read inside the call's own span, so a record written
   // somewhere else entirely cannot satisfy it.
-  assert.match(b.slice(keep, decline), /coverage: requirementRecord\(\{ list: aReq, skipped: aReqSkipped, invalid: \[\.\.\.aBadProps\], ran:/,
+  //
+  // RE-ANCHORED 2026-09-14. This pinned the whole `requirementRecord({ list:
+  // aReq, skipped: … , ran:` argument list, which is the recorded "assert the
+  // property, not the spelling" trap: the record is written TWICE now (once
+  // here and once after the apply, so the stored coverage says what really
+  // became of each requirement), so the literal moved into `aRecord` and the
+  // call became `aSaveAnswer`. The property is that the save carries the
+  // coverage and happens before the decline returns.
+  assert.match(b.slice(keep, decline), /coverage: aRecord\(\)/,
     "the coverage record is not stored beside the replies");
+  const rec = b.indexOf("const aRecord = () => requirementRecord({");
+  assert.ok(rec > 0 && rec < keep, "the record composer is gone, or is written below its own use");
+  assert.match(b.slice(rec, b.indexOf("});", rec)), /list: aReq, skipped: aReqSkipped, invalid: \[\.\.\.aBadProps\]/,
+    "the record no longer carries the coverage list, the unreadable entries and the invalid properties");
   assert.match(b.slice(runAt, keep), /aKept\.push\(\{ kind: k, answered: ran\.value !== undefined, stop_reason: [^}]*content: \(ran\.raw && ran\.raw\.content\) \|\| null \}\);/, "a reply is kept without its content");
   // POSITION, NOT PRESENCE (the sweep's survivor): the push must sit BEFORE
   // the decline's `continue`, or an unanswered designer — the one reply

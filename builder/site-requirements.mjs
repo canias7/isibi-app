@@ -230,16 +230,32 @@ export function requirementCounts(list, skipped) {
 /**
  * What a downstream step is TOLD, as a directive block. `""` when it owns none.
  *
- * The needs alone, never the status — the page step is being told what the page
- * has to let somebody do, and "the table step could not express this" is our
+ * The needs alone, never the status — the step is being told what the customer
+ * has to be able to do, and "the table step could not express this" is our
  * bookkeeping, not an instruction.
+ *
+ * ── EVERY STEP, NOT ONLY THE PAGE (owner, 2026-09-14) ───────────────────────
+ *
+ * This function was general and had exactly ONE caller, for `page`. Six kinds
+ * answer requirements and any of them may hand one to any other, so a table
+ * step that wrote "the reminder has to go out every morning — that is the job
+ * step's" reached nobody: the job designer ran a minute later knowing nothing
+ * about it, and the customer was told the change was made. The route composes
+ * this for each kind before its own call now, and records that it did — see
+ * `told` on `requirementOutcomes`, which is what stops an undelivered hand-off
+ * reading as satisfied.
+ *
+ * THE SENTENCE NAMES WHAT THIS STEP IS, so a `job` designer is not told to make
+ * something possible "on this page". Generic where the kind is unknown.
  */
 export function requirementBrief(list, step) {
   const mine = (requirementsByStep(list)[step] || []).slice(0, MAX_REQUIREMENTS);
   if (!mine.length) return "";
+  const where = step === "page" || step === "component" ? "this page has to make possible"
+    : "the part you are designing has to make possible";
   return "## What this addition still has to do\n" +
-    "The step that designed the data handed these to you. Each is something the customer asked for that this " +
-    "page has to make possible. Cover what you can and change nothing else.\n" +
+    "Another step in this same change handed these to you. Each is something the customer asked for that " +
+    where + ". Cover what you can and change nothing else.\n" +
     mine.map((n) => "- " + n).join("\n");
 }
 
@@ -258,18 +274,14 @@ export function requirementBrief(list, step) {
 /**
  * A NAME WE REALLY CREATED, MENTIONED IN THE CLAIM ABOUT IT.
  *
- * The one positive check available from here, and it is deliberately narrow: a
- * `covered` answer is a claim about CONFIGURATION ("bookings access user"), and
- * configuration is the one thing this layer can check — the identifiers that
- * survived normalisation and were really applied are in hand. A claim about
- * BEHAVIOUR ("double bookings are prevented") is not checkable from here at
- * all, and the answer for it is `unverified`, never a verdict either way.
- *
  * WORD BOUNDARIES, NOT `includes`. `bookings` is a substring of `bookings_old`
  * and of `no_bookings`, and a claim that name-dropped a table the change did
  * NOT create would then read as evidence. The needle is the created name with a
  * non-word character (or an end) on each side, so `bookings.slot` and
  * `"bookings"` match and `bookings_old` does not.
+ *
+ * ON ITS OWN THIS IS NOT EVIDENCE OF ANYTHING BUT EXISTENCE — see
+ * `claimEvidence`, which is what `requirementOutcomes` asks.
  */
 export function evidenceName(claim, names) {
   const text = typeof claim === "string" ? claim.toLowerCase() : "";
@@ -277,15 +289,81 @@ export function evidenceName(claim, names) {
   for (const raw of Array.isArray(names) ? names : []) {
     const n = typeof raw === "string" ? raw.trim().toLowerCase() : "";
     if (n.length < 3) continue;
-    let at = text.indexOf(n);
-    while (at >= 0) {
-      const before = at === 0 ? "" : text[at - 1];
-      const after = text[at + n.length] || "";
-      if (!/[a-z0-9_]/.test(before) && !/[a-z0-9_]/.test(after)) return n;
-      at = text.indexOf(n, at + 1);
-    }
+    if (wordIn(text, n)) return n;
   }
   return "";
+}
+
+/** `needle` inside `text` with a non-word character (or an end) on each side. */
+function wordIn(text, needle) {
+  let at = text.indexOf(needle);
+  while (at >= 0) {
+    const before = at === 0 ? "" : text[at - 1];
+    const after = text[at + needle.length] || "";
+    if (!/[a-z0-9_]/.test(before) && !/[a-z0-9_]/.test(after)) return true;
+    at = text.indexOf(needle, at + 1);
+  }
+  return false;
+}
+
+/**
+ * EVIDENCE FOR THIS PARTICULAR CLAIM, OR NOTHING.
+ *
+ * `made` is what the change REALLY APPLIED, one entry per item:
+ *
+ *   { name, holds: [token…], fails: [token…] }
+ *
+ * `holds` are words from a CLOSED VOCABULARY that are true of the item as it
+ * was applied — the access level a table really got, a column it really has, a
+ * job's real schedule — and `fails` are words from that SAME vocabulary that
+ * are false of it. The caller builds both, because the vocabulary belongs to
+ * the schema engine and this module is dependency-free on purpose.
+ *
+ * ── EXISTENCE IS NOT DELIVERY (owner, 2026-09-14) ───────────────────────────
+ *
+ * This was a name match and nothing else, and the owner's words are the whole
+ * correction: *"'Delivered' still means a name matched … marks 'customers see
+ * only their own bookings' delivered when `by` mentions `bookings` — without
+ * checking permissions."* A table exists whether or not it keeps anybody's rows
+ * private, so the name proves the table and says nothing about the need.
+ *
+ * So a claim is evidence only when it names an applied item AND names a
+ * CHECKED GUARANTEE of that item that really holds. Everything else is
+ * `unverified` — including a bare name, which is the commonest shape and the
+ * one the old reading called delivered.
+ *
+ * A TOKEN THAT IS FALSE DENIES THE WHOLE CLAIM, and it is asked FIRST. A claim
+ * saying `bookings access user` about a table applied as `collect` is not
+ * merely unproven, it disagrees with the database; reading the rest of the
+ * sentence for something that happens to hold would let a wrong claim buy
+ * itself a verdict off an incidental word.
+ *
+ * WHY THIS CANNOT CRY WOLF, STATED. Every reading here moves a requirement
+ * TOWARDS `unverified` and never towards `failed`: there is no corpus of real
+ * `by` claims to measure a false-alarm rate against — this shipped yesterday
+ * and has never run live — so the one direction that is safe without one is the
+ * direction that costs a sentence inviting the customer to check. A false
+ * "I can't confirm" costs a look; a false "done" costs them the guarantee.
+ */
+export function claimEvidence(claim, made) {
+  const text = typeof claim === "string" ? claim.toLowerCase() : "";
+  if (!text) return null;
+  const low = (v) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+  for (const m of Array.isArray(made) ? made : []) {
+    const name = low(m && m.name);
+    if (name.length < 3 || !wordIn(text, name)) continue;
+    // ASKED FIRST: a claim that disagrees with what was applied is not evidence
+    // for anything, whatever else it happens to say.
+    for (const raw of Array.isArray(m.fails) ? m.fails : []) {
+      const t = low(raw);
+      if (t.length >= 3 && wordIn(text, t)) return null;
+    }
+    for (const raw of Array.isArray(m.holds) ? m.holds : []) {
+      const t = low(raw);
+      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw };
+    }
+  }
+  return null;
 }
 
 /**
@@ -293,27 +371,47 @@ export function evidenceName(claim, names) {
  *
  * `[{need, status, step, state, why}]`, `state` one of `REQUIREMENT_STATES`.
  *
- * `ran` is the kinds that produced something, `failed` the kinds that ran and
- * did not (a refusal, an item the engine dropped whole, a job that would not
- * register), and `names` the identifiers really created. The rules, in the one
- * order that keeps a failure from being papered over by a step that ran:
+ * `told` is the steps that were really HANDED this change's outstanding
+ * requirements, `failed` the kinds that ran and did not deliver (a refusal, an
+ * item the engine dropped whole, a job that would not register), and `made`
+ * WHAT WAS REALLY APPLIED — see `claimEvidence`. The rules, in the one order
+ * that keeps a failure from being papered over by a step that ran:
  *
  *   unsupported                       → failed. The step said so itself.
  *   the owning step is in `failed`    → failed, whatever else happened.
- *   the owning step never ran         → failed. A hand-off to a step that did
- *                                       not run is a requirement dropped with
- *                                       extra ceremony, and reading it as done
- *                                       is precisely the old bug.
- *   `covered` and `by` names something really created → delivered.
+ *   the owning step was never TOLD    → failed. A hand-off nobody delivered is
+ *                                       a requirement dropped with extra
+ *                                       ceremony, and reading it as done is
+ *                                       precisely the old bug.
+ *   `covered` and `by` names a CHECKED GUARANTEE that holds → delivered.
  *   everything else                   → unverified.
+ *
+ * `told`, NOT "THE STEP RAN" (owner, 2026-09-14: *"Send each outstanding
+ * requirement to its receiving designer when that step is still ahead. Keep
+ * requests for an earlier or omitted step outstanding."*). The two are
+ * different questions and only one of them is about this requirement: the kinds
+ * run in `ADD_KINDS` order, so a requirement the JOB step hands back to the
+ * TABLE step names a step that ran perfectly well — an hour earlier in the same
+ * message, without ever hearing the request. `told` is stamped where the brief
+ * is really composed and sent, so a hand-off that reached nobody cannot read as
+ * satisfied, and a hop that was added to the route without being wired cannot
+ * either.
+ *
+ * `made` IS THE APPLIED RESULT, NOT THE PROPOSAL (owner, 2026-09-14: *"`aMadeNames`
+ * comes from proposed designs before application. Use actual results"*). The
+ * route used to hand in the names off the cleaned designs, so a function
+ * Postgres REFUSED to create counted as evidence for the job that names it —
+ * measured through the real route: a `CREATE OR REPLACE FUNCTION` answered with
+ * a syntax error, `functionErrors` on the reply, and the requirement claiming
+ * that function read `delivered` with the customer told nothing.
  *
  * A `covered` requirement has no `step`: the step that ANSWERED it owns it, so
  * the caller passes `kind` alongside and it is read from `r.from` when the
  * route recorded which kind wrote the entry. With no `from`, a `covered` entry
  * cannot be tied to a failed step and rests on its own evidence alone.
  */
-export function requirementOutcomes(list, { ran = [], failed = [], names = [] } = {}) {
-  const done = new Set((Array.isArray(ran) ? ran : []).filter((k) => typeof k === "string"));
+export function requirementOutcomes(list, { told = [], failed = [], made = [] } = {}) {
+  const heard = new Set((Array.isArray(told) ? told : []).filter((k) => typeof k === "string"));
   const bad = new Set((Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"));
   const out = [];
   for (const r of Array.isArray(list) ? list : []) {
@@ -325,10 +423,10 @@ export function requirementOutcomes(list, { ran = [], failed = [], names = [] } 
     } else if (owner && bad.has(owner)) {
       state = "failed";
       why = why || "the " + owner + " step could not do its part";
-    } else if (r.status === "elsewhere" && (!owner || !done.has(owner))) {
+    } else if (r.status === "elsewhere" && (!owner || !heard.has(owner))) {
       state = "failed";
-      why = why || "the " + (owner || "next") + " step never ran";
-    } else if (r.status === "covered" && evidenceName(r.by, names)) {
+      why = why || "the " + (owner || "next") + " step never got it";
+    } else if (r.status === "covered" && claimEvidence(r.by, made)) {
       state = "delivered";
     }
     out.push({ ...r, state, ...(why ? { why } : {}) });
@@ -336,8 +434,8 @@ export function requirementOutcomes(list, { ran = [], failed = [], names = [] } 
   return out;
 }
 
-export function requirementNote(list, { ran = [], invalid = [], failed = [], names = [] } = {}) {
-  const outcomes = requirementOutcomes(list, { ran, failed, names });
+export function requirementNote(list, { told = [], invalid = [], failed = [], made = [] } = {}) {
+  const outcomes = requirementOutcomes(list, { told, failed, made });
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
   const broke = outcomes.filter((r) => r.state === "failed");
   const unsure = outcomes.filter((r) => r.state === "unverified");
@@ -378,8 +476,8 @@ export function requirementNote(list, { ran = [], invalid = [], failed = [], nam
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], ran = [], failed = [], names = [], unbuilt = {} } = {}) {
-  const outcomes = requirementOutcomes(list, { ran, failed, names });
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], failed = [], made = [], unbuilt = {} } = {}) {
+  const outcomes = requirementOutcomes(list, { told, failed, made });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
     counts: {
@@ -393,7 +491,21 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], ran =
     requirements: outcomes.slice(0, MAX_REQUIREMENTS),
     unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),
     invalidProps: (Array.isArray(invalid) ? invalid : []).slice(0, MAX_REQUIREMENTS),
+    // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY — `method: "PUT"` kept as
+    // `"GET"`, a schedule raised to the floor. Developer-facing, because a
+    // customer cannot act on a property name; what they hear is the count of
+    // guarantees that are not in place, which is `invalidProps`' clause.
+    changedProps: (Array.isArray(altered) ? altered : []).slice(0, MAX_REQUIREMENTS),
+    // WHAT THIS CHANGE REALLY APPLIED, and the guarantees each item really has —
+    // the evidence every `delivered` above was decided from. Kept beside the
+    // verdicts so a person reading the record can see WHY one was unverified
+    // rather than having to re-derive it against the database.
+    applied: (Array.isArray(made) ? made : []).slice(0, MAX_REQUIREMENTS * 2),
     handedTo: requirementsByStep(list),
+    // WHICH STEPS WERE REALLY HANDED THEM, beside the list of who was NAMED.
+    // The two disagreeing is the finding: a step named by a requirement that
+    // had already run is a hand-off nobody could have delivered.
+    toldSteps: (Array.isArray(told) ? told : []).filter((k) => typeof k === "string"),
     ran: (Array.isArray(ran) ? ran : []).filter((k) => typeof k === "string"),
     failedSteps: (Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"),
     // WHAT THE ENGINE DROPPED WHOLE, PER TIER — the report that did not exist

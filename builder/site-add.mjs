@@ -70,7 +70,11 @@ import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs"
 // string, which `normalizeSchema` stamps `collect` on any table that did not
 // declare a recognised preset.
 import { accessLabel } from "../site-access.mjs";
-import { routeOf } from "./site-addon.mjs";
+// `mergeAddonSchema` is the merge the PUBLISH really runs over the stored
+// tables, and `proposedSpec` runs the same one so the next designer's picture of
+// an extended table is the database that is coming rather than a second idea of
+// it. Two copies of those rules would drift; this repository has a name for it.
+import { routeOf, mergeAddonSchema } from "./site-addon.mjs";
 // THE ADD STEP'S OWN REPAIR (below) shares the MECHANISM with the build's —
 // the tweak rung, whose guards keep the words and the route; the render
 // check's own serious kinds; the language-prefix reading — and nothing else.
@@ -92,6 +96,11 @@ import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, cleanRequirements, requirementBrief
 // number, drifted by a factor of two, so a body in between passed the cleaner
 // whole and was cut on the way into Postgres.
 import { MAX_FN_BODY } from "../site-schema.mjs";
+// THE ACCESS VOCABULARY IS THE ENGINE'S OWN, never a second list beside it:
+// `appliedFacts` checks a `covered` claim against what Postgres really
+// enforces, and `resolveAccess` is the one reader of that pair (five separate
+// bugs have been paid for reading the preset name instead).
+import { resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
 import { MAX_API_BODY } from "../site-apis.mjs";
 import { modelsFor } from "./build-models.mjs";
 
@@ -1388,6 +1397,34 @@ export const SPEC_OF_KIND = Object.freeze({ table: "tables", function: "function
  * THE BASELINE IS NEVER MUTATED. It is what `added` versus `altered` is decided
  * against, what the reply reports, and what a refused addition leaves the site
  * as; a proposal written over it is a change nothing can roll back.
+ *
+ * ── A TABLE EXTENSION MERGES, IT DOES NOT REPLACE (2026-09-14) ──────────────
+ *
+ * The three spec-level tiers really are replace-by-name: `CREATE OR REPLACE`
+ * means a function named again IS the new body, whole. A TABLE is not. The
+ * commonest table addition there is — "add a notes field to the booking form"
+ * — arrives as one column and no access, and replacing the stored table with
+ * that is not a description of anything that will ever exist.
+ *
+ * MEASURED through the real route, on a site whose stored `bookings` is
+ * `who text, slot text, phone text` with `access: "user"`. The function
+ * designer, one call later, was handed:
+ *
+ *     bookings (notes text) — access collect — being added by this same change
+ *
+ * Three columns gone, the access reading `collect` (which `normalizeSchema`
+ * stamps on a table that declares none — anyone may write, nobody may read:
+ * the OPPOSITE of what the site enforces), and a table the site has had since
+ * it was built marked as new. Every later designer in that message planned
+ * against a site that does not exist.
+ *
+ * SO THE MERGE IS THE APPLY'S OWN. `mergeAddonSchema` is what the publish
+ * really runs over the stored tables — new columns only, `ADDON_TABLE_FIELDS`
+ * for the rest, a table the site lacks appended whole — and using it here is
+ * what makes the proposal a description of the database that is coming rather
+ * than a second, hand-written idea of what an extension does. A second copy of
+ * those rules would drift from the one the apply keeps, which is this
+ * repository's most expensive shape of bug.
  */
 export function proposedSpec(spec, kind, value) {
   const list = SPEC_OF_KIND[kind];
@@ -1397,6 +1434,10 @@ export function proposedSpec(spec, kind, value) {
     .map((v) => (kind === "table" ? (v && v.table) : v))
     .filter((v) => v && typeof v === "object" && typeof v.name === "string" && v.name);
   if (!items.length) return base;
+  // TABLES GO THROUGH THE APPLY'S MERGE; the other three tiers replace by name.
+  if (kind === "table") {
+    return { ...base, tables: mergeAddonSchema(Array.isArray(base.tables) ? base.tables : [], { tables: items }).tables };
+  }
   const out = Array.isArray(base[list]) ? [...base[list]] : [];
   for (const item of items) {
     const at = out.findIndex((x) => x && String(x.name || "").toLowerCase() === item.name.toLowerCase());
@@ -1429,7 +1470,7 @@ export function tableFacts(spec) {
   return out;
 }
 
-export function addRequest({ kind, message, site, model }) {
+export function addRequest({ kind, message, site, model, brief = "" }) {
   const tool = addTool(kind);
   return {
     model,
@@ -1442,7 +1483,12 @@ export function addRequest({ kind, message, site, model }) {
     system: [{ type: "text", cache_control: { type: "ephemeral" }, text: ADD_SYSTEM }],
     messages: [{ role: "user", content:
       "Their site as it stands:\n" + siteNote(site) +
-      "\n\nWhat they asked to add:\n" + String(message || "").slice(0, MAX_MESSAGE) },
+      "\n\nWhat they asked to add:\n" + String(message || "").slice(0, MAX_MESSAGE) +
+      // WHAT AN EARLIER STEP IN THIS SAME MESSAGE HANDED TO THIS ONE. Below the
+      // ask, because it is a second thing to cover and never a replacement for
+      // it; absent entirely when nobody handed this kind anything, so a call
+      // that owns none is byte for byte what it was.
+      (brief ? "\n\n" + brief : "") },
     ],
   };
 }
@@ -1490,7 +1536,7 @@ export function readAddAnswer(reply, kind) {
  * TRUNCATION IS NAMED, not returned as a half-designed page — the same check
  * the design and pages calls make.
  */
-export async function runAdd(deps, { kind, message, site, model }) {
+export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
   // EVERY RETURN CARRIES BOTH ARRAYS, including the failures. A consumer that
   // has to ask whether this kind answers requirements before it can iterate is
   // a consumer that will one day forget to — and the failure shapes are where
@@ -1499,7 +1545,7 @@ export async function runAdd(deps, { kind, message, site, model }) {
   const none = { requirements: [], reqSkipped: [] };
   let reply;
   try {
-    reply = await deps.send(addRequest({ kind, message, site, model }));
+    reply = await deps.send(addRequest({ kind, message, site, model, brief }));
   } catch (e) {
     return { kind, value: undefined, ...none, usage: null, failed: true, error: e };
   }
@@ -2311,4 +2357,77 @@ export function addRepairNote(round) {
       : `Some pages still aren't rendering properly (${stuck.slice(0, 3).join(", ")}); they're published as they are. Ask me to rebuild them and I'll have another go.`;
   }
   return "";
+}
+
+/**
+ * WHAT A CHANGE REALLY APPLIED, AND WHAT EACH ITEM REALLY GUARANTEES.
+ *
+ * `[{ name, holds, fails }]`, which is what `claimEvidence` checks a `covered`
+ * claim against: `holds` are words from a CLOSED VOCABULARY that are true of
+ * the item as it was applied, `fails` are words from that SAME vocabulary that
+ * are false of it.
+ *
+ * ── WHY IT LIVES HERE AND NOT IN THE ROUTE (2026-09-14) ─────────────────────
+ *
+ * It was written inline in the addon route, and a sweep mutant that emptied
+ * `fails` — turning every contradicting claim back into evidence — SURVIVED,
+ * because the only route path that applies a table is the one that then wants a
+ * container and a compile. A wall nobody can drive is a wall nobody is
+ * guarding. Here it is one call and the test drives it.
+ *
+ * ── THE VOCABULARY IS THE ENGINE'S OWN ──────────────────────────────────────
+ *
+ * The access levels come from `ACCESS_PRESETS` / `READ_LEVELS` / `WRITE_LEVELS`
+ * and the level itself from `resolveAccess` — the reader five separate bugs
+ * have been paid for — so a claim saying `bookings access user` about a table
+ * applied as `collect` is checked against what Postgres really enforces rather
+ * than against a second list of level names kept beside it.
+ *
+ * ── WHAT EACH TIER OFFERS, AND WHY THE LISTS ARE SHORT ──────────────────────
+ *
+ *   table     the access level it really got, its real columns, `unique` where
+ *             the applied table really keeps one. `fails` is every OTHER level.
+ *   function  that it exists as an applied function at all.
+ *   api       that the connection exists.
+ *   job       its real schedule — the clock time and the interval — which is
+ *             the one thing about a job a claim can name and we can check.
+ *
+ * A JOB WHOSE FUNCTION THE DATABASE REFUSED IS NOT A RESULT and is left OUT
+ * entirely rather than given a `fails` token: the job exists and its schedule
+ * is real, so there is nothing about it to contradict — what is missing is the
+ * work it does. MEASURED through the real route: `CREATE OR REPLACE FUNCTION`
+ * answered with a syntax error, the job registered against it all the same, and
+ * a claim naming the job's real 09:00 schedule read `delivered`.
+ */
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], fnErrors = [] } = {}) {
+  const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
+  const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
+  const factsFor = (name) => {
+    const t = list.find((x) => x && String(x.name || "").toLowerCase() === name);
+    if (!t) return { holds: [], fails: [] };
+    const acc = resolveAccess(t);
+    const mine = new Set([String(t.access || ""), acc.read, acc.write].filter(Boolean));
+    const cols = (Array.isArray(t.columns) ? t.columns : [])
+      .map((c) => String((typeof c === "string" ? c : (c && c.name)) || "").toLowerCase()).filter(Boolean);
+    const holds = [...mine, ...cols];
+    if (Array.isArray(t.unique) && t.unique.length) holds.push("unique");
+    return { holds, fails: levels.filter((l) => !mine.has(l)) };
+  };
+  const out = [];
+  const named = [...(Array.isArray(tables) ? tables : []),
+    ...(Array.isArray(altered) ? altered : []).map((a) => a && a.table).filter(Boolean)];
+  for (const name of named) {
+    const n = String(name || "").toLowerCase();
+    if (n) out.push({ name: n, ...factsFor(n) });
+  }
+  for (const n of (Array.isArray(functions) ? functions : [])) out.push({ name: n, holds: ["internal", "function"], fails: [] });
+  for (const n of (Array.isArray(apis) ? apis : [])) out.push({ name: n, holds: ["connection", "api"], fails: [] });
+  const dead = new Set((Array.isArray(fnErrors) ? fnErrors : [])
+    .map((e) => String((e && e.name) || "").toLowerCase()).filter(Boolean));
+  for (const j of (Array.isArray(jobs) ? jobs : [])) {
+    if (!j || !j.name) continue;
+    if (dead.has(String(j.fn || "").toLowerCase())) continue;
+    out.push({ name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [] });
+  }
+  return out;
 }

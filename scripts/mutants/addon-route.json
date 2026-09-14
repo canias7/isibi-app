@@ -1,0 +1,236 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the evidence reader",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": " * ── EXISTENCE IS NOT DELIVERY (owner, 2026-09-14) ───────────────────────────",
+    "to": " * ── EXISTENCE IS NOT DELIVERY (the owner, 2026-09-14) ───────────────────────"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the route's applied-result reader",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // ── WHAT THIS CHANGE REALLY APPLIED, AND WHAT IT GUARANTEES ─────",
+    "to": "            // ── WHAT THIS CHANGE REALLY APPLIED, AND WHAT IT PROMISES ───────"
+  },
+  {
+    "label": "GAP 1, THE DEFECT ITSELF: the audit reads the CLEANED item again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                const mine = (Array.isArray(ran.value) ? ran.value : [ran.value])",
+    "to": "                const mine = (Array.isArray(clean.value) ? clean.value : [clean.value])"
+  },
+  {
+    "label": "GAP 1: the audit is not told what really goes into the engine",
+    "files": [
+      "worker.js"
+    ],
+    "from": "auditTier({ [tier]: mine }, k, withMine, { sent })",
+    "to": "auditTier({ [tier]: mine }, k, withMine)"
+  },
+  {
+    "label": "GAP 1: an item the CLEANER refused is reported as the ENGINE dropping it",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "    if (clean && !clean.has(name)) continue;",
+    "to": "    if (false) continue;"
+  },
+  {
+    "label": "GAP 1: the declaration is normalised instead of what was sent",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "    const item = clean ? clean.get(name) : def;",
+    "to": "    const item = def;"
+  },
+  {
+    "label": "GAP 1: a value the pipeline changed is never noticed",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "          if (changed.size < MAX_DROPPED && scalar(def[key]) && scalar(kept[key])\n            && String(def[key]) !== String(kept[key])) changed.add(key);",
+    "to": "          if (false) changed.add(key);"
+  },
+  {
+    "label": "GAP 1: objects and arrays are compared too — every table reads as changed",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "function scalar(v) {\n  return typeof v === \"string\" || typeof v === \"number\" || typeof v === \"boolean\";\n}",
+    "to": "function scalar(v) {\n  return v !== undefined;\n}"
+  },
+  {
+    "label": "GAP 1: the changed declarations never reach the route",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  for (const n of audit.changed) aChanged.add(n);",
+    "to": "                  for (const n of []) aChanged.add(n);"
+  },
+  {
+    "label": "GAP 1: the changed declarations never reach the wire",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                changedProps: aChanged.size ? [...aChanged].slice(0, 12) : undefined,",
+    "to": "                changedProps: undefined,"
+  },
+  {
+    "label": "GAP 2, THE DEFECT ITSELF: a bare name match is evidence again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    for (const raw of Array.isArray(m.holds) ? m.holds : []) {\n      const t = low(raw);\n      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw };\n    }",
+    "to": "    return { name: m.name, token: \"\" };"
+  },
+  {
+    "label": "GAP 2: a token that CONTRADICTS what was applied no longer denies the claim",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    for (const raw of Array.isArray(m.fails) ? m.fails : []) {\n      const t = low(raw);\n      if (t.length >= 3 && wordIn(text, t)) return null;\n    }",
+    "to": ""
+  },
+  {
+    "label": "GAP 2: the evidence is the PROPOSED design again, not the applied result",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,",
+    "to": "              functions: aNewNames.functions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,"
+  },
+  {
+    "label": "GAP 2: a job whose function the database refused counts as a result",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (dead.has(String(j.fn || \"\").toLowerCase())) continue;",
+    "to": "    if (false) continue;"
+  },
+  {
+    "label": "GAP 2: the applied tables are not evidence at all",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              spec: aSpec, tables: aTables, altered: aAltered,",
+    "to": "              spec: aSpec, tables: [], altered: [],"
+  },
+  {
+    "label": "GAP 2: a table's applied permissions are not read, so nothing can contradict a claim",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return { holds, fails: levels.filter((l) => !mine.has(l)) };",
+    "to": "    return { holds, fails: [] };"
+  },
+  {
+    "label": "GAP 2: the stored coverage is never re-written after the pageless apply",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                // against an empty `made`; this one is decided against what\n                // Postgres really has.\n                await aSaveAnswer();",
+    "to": "                // against an empty `made`; this one is decided against what\n                // Postgres really has."
+  },
+  {
+    "label": "GAP 2: the customer's sentence is composed without the applied result",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                coverNote: requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade() }),",
+    "to": "                coverNote: requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: [] }),"
+  },
+  {
+    "label": "GAP 3, THE DEFECT ITSELF: a table extension replaces the stored table",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (kind === \"table\") {\n    return { ...base, tables: mergeAddonSchema(Array.isArray(base.tables) ? base.tables : [], { tables: items }).tables };\n  }",
+    "to": ""
+  },
+  {
+    "label": "GAP 3: a table the site already had is described to the next designer as new",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  if (item && item.exists === true) continue;",
+    "to": "                  if (false) continue;"
+  },
+  {
+    "label": "GAP 4, THE DEFECT ITSELF: only the page call is handed an outstanding requirement",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const aBrief = requirementBrief(aReq, k);",
+    "to": "              const aBrief = requirementBrief(aReq, \"page\");"
+  },
+  {
+    "label": "GAP 4: the brief is composed and never sent",
+    "files": [
+      "worker.js"
+    ],
+    "from": "model: aModels.quick, brief: aBrief });",
+    "to": "model: aModels.quick, brief: \"\" });"
+  },
+  {
+    "label": "GAP 4: the brief reaches the request and never the message",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      (brief ? \"\\n\\n\" + brief : \"\") },",
+    "to": "      (false ? \"\\n\\n\" + brief : \"\") },"
+  },
+  {
+    "label": "GAP 4: every step reads as told, so a hand-off nobody delivered is satisfied",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (aBrief) aTold.add(k);",
+    "to": "              aTold.add(k);"
+  },
+  {
+    "label": "GAP 4: nothing is recorded as told, so every hand-off fails",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (aBrief) aTold.add(k);",
+    "to": ""
+  },
+  {
+    "label": "GAP 4: a hand-off is settled by the step running rather than by its being told",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (r.status === \"elsewhere\" && (!owner || !heard.has(owner))) {",
+    "to": "    } else if (r.status === \"elsewhere\" && false) {"
+  },
+  {
+    "label": "GAP 4: the brief names the page for every kind, so a job designer is told about a page",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const where = step === \"page\" || step === \"component\" ? \"this page has to make possible\"\n    : \"the part you are designing has to make possible\";",
+    "to": "  const where = \"this page has to make possible\";"
+  },
+  {
+    "label": "GAP 2: a table the spec does not describe is given guarantees anyway",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (!t) return { holds: [], fails: [] };",
+    "to": "    if (!t) return { holds: [name], fails: [] };"
+  },
+  {
+    "label": "GAP 1: the access vocabulary is a second list instead of the engine's own",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];",
+    "to": "  const levels = [\"none\", \"own\", \"members\", \"public\"];"
+  }
+]

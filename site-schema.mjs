@@ -2457,18 +2457,67 @@ function declaredTruthy(v) {
  * numeric guarantee reported as honoured. MEASURED over a 64-spec A/B against
  * the old table-only readers: **zero differences on `reached`, and one on
  * `refused` — `maxRows: -5`, which the old reader called refused and it IS.**
+ *
+ * ── THE DECLARATION IS THE MODEL'S, NOT THE CLEANER'S (2026-09-14) ──────────
+ *
+ * `sent` is the fourth option and it is what closes the widest gap this audit
+ * had. The route used to hand in `clean.value` — the CLEANED item — and for
+ * three of the four tiers the cleaner builds a FRESH object out of the keys it
+ * knows, so a property the tool never offered is gone one hop before the
+ * observer looks. MEASURED through the real route, a `function` answer carrying
+ * `encryptAtRest: true, retries: 3`:
+ *
+ *   cleanAdd(...).value[0] keys : name, args, returns, body, internal, exists
+ *   cleanAdd(...).skipped       : []
+ *   audit of the CLEANED item   : reached []
+ *   audit of the DECLARED item  : reached ["encryptAtRest", "retries"]
+ *
+ * and the customer heard nothing about either. Only the TABLE tier escaped it,
+ * by an accident of shape: its cleaner spreads (`{...t, name, columns}`), so
+ * unknown keys survive to the engine, which is why the table tier looked as if
+ * this all worked.
+ *
+ * So `spec` carries what the MODEL declared and `sent` maps name → the item
+ * that really goes into the engine. The keys are read off the declaration, the
+ * normalisation is done on what is sent, and a key the CLEANER removed reads
+ * exactly like one the ENGINE removed — which is right: both are a property the
+ * customer asked for and did not get. A declared item with no entry in `sent`
+ * was refused whole by the cleaner, which the caller already reports by name
+ * with a sentence of its own; it is counted in `scanned` and nothing else, so
+ * it is never double-reported as `unbuilt` (the ENGINE dropping an item).
+ *
+ * `changed` IS THE THIRD REPORT AND IT IS NEW. A declared scalar the pipeline
+ * KEPT under a different value: `method: "PUT"` stored as `"GET"`,
+ * `everyMinutes: 5` raised to the floor, `maxRows` clamped. Neither `reached`
+ * (the key did reach something) nor `refused` (the effect is live) covers it —
+ * it is the recorded open class "a declared value replaced by a different VALID
+ * value", and it is the one shape where a customer is told the thing they asked
+ * for was done and it quietly does something else. Scalars only, deliberately:
+ * normalisation legitimately ENRICHES objects and arrays (a column gains its
+ * type on every table there is), so comparing those would report every
+ * declaration as changed.
  */
-export function auditTier(spec, tier = "table", context = null) {
+export function auditTier(spec, tier = "table", context = null, { sent = null } = {}) {
   const offered = TOOL_FIELDS[tier];
   const identity = NOT_A_GUARANTEE[tier];
-  const empty = { scanned: 0, reached: [], refused: [], unbuilt: [] };
+  const empty = { scanned: 0, reached: [], refused: [], changed: [], unbuilt: [] };
   if (!offered || !spec || typeof spec !== "object") return empty;
   const raw = declaredItems(spec, tier);
-  const reached = new Set(), refused = new Set(), unbuilt = [];
+  // WHAT REALLY GOES INTO THE ENGINE, BY NAME. Never by position: a cleaner
+  // that refuses one item shifts every index behind it, which is this
+  // repository's own recorded rule about pairing two lists.
+  const clean = sent instanceof Map ? sent : null;
+  const reached = new Set(), refused = new Set(), changed = new Set(), unbuilt = [];
   let scanned = 0;
   for (const def of raw) {
     scanned++;
-    const kept = keptItem(context, tier, def);
+    const name = String((def && def.name) || "").toLowerCase();
+    // THE CLEANER REFUSED IT WHOLE. Its own `skipped` list names it with a
+    // sentence; reporting it again as `unbuilt` would tell the customer the
+    // ENGINE dropped something the cleaner never sent.
+    if (clean && !clean.has(name)) continue;
+    const item = clean ? clean.get(name) : def;
+    const kept = keptItem(context, tier, item);
     if (!kept) {
       // Named, never valued: the item's own name is the customer's word for the
       // feature and is the only thing worth saying back. `MAX_DROPPED` bounds
@@ -2478,30 +2527,45 @@ export function auditTier(spec, tier = "table", context = null) {
     }
     const keptJson = JSON.stringify(kept);
     for (const key of Object.keys(def)) {
-      if (reached.size >= MAX_DROPPED && refused.size >= MAX_DROPPED) break;
+      if (reached.size >= MAX_DROPPED && refused.size >= MAX_DROPPED && changed.size >= MAX_DROPPED) break;
       if (!declaredTruthy(def[key])) continue;
       const inTool = offered.has(key);
       if (inTool && identity.has(key)) continue;
       if (inTool) {
+        if (declaredTruthy(kept[key])) {
+          // KEPT AND LIVE — but is it what was asked for? Scalars only.
+          if (changed.size < MAX_DROPPED && scalar(def[key]) && scalar(kept[key])
+            && String(def[key]) !== String(kept[key])) changed.add(key);
+          continue;
+        }
         if (refused.size >= MAX_DROPPED) continue;
-        if (!declaredTruthy(kept[key]) && effectAllFalsy(context, tier, def, key, kept)) refused.add(key);
+        if (effectAllFalsy(context, tier, item, key, kept)) refused.add(key);
       } else {
         if (reached.size >= MAX_DROPPED) continue;
-        if (changedNothing(context, tier, def, key, keptJson)) reached.add(key);
+        if (changedNothing(context, tier, item, key, keptJson)) reached.add(key);
       }
     }
   }
-  return { scanned, reached: [...reached].sort(), refused: [...refused].sort(), unbuilt };
+  return {
+    scanned,
+    reached: [...reached].sort(), refused: [...refused].sort(),
+    changed: [...changed].sort(), unbuilt,
+  };
 }
 
-export function refusedFields(spec, tier = "table", context = null) {
-  return auditTier(spec, tier, context).refused;
+/** A value two readings can be compared as text: never an object or an array. */
+function scalar(v) {
+  return typeof v === "string" || typeof v === "number" || typeof v === "boolean";
 }
 
-export function droppedFields(spec, tier = "table", context = null) {
-  return auditTier(spec, tier, context).reached;
+export function refusedFields(spec, tier = "table", context = null, opts) {
+  return auditTier(spec, tier, context, opts).refused;
 }
 
-export function unbuiltItems(spec, tier = "table", context = null) {
-  return auditTier(spec, tier, context).unbuilt;
+export function droppedFields(spec, tier = "table", context = null, opts) {
+  return auditTier(spec, tier, context, opts).reached;
+}
+
+export function unbuiltItems(spec, tier = "table", context = null, opts) {
+  return auditTier(spec, tier, context, opts).unbuilt;
 }

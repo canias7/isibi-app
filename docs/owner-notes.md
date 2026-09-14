@@ -155,6 +155,70 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — Your four corrections, each reproduced through the real route
+
+You read the change above before it merged and named four places where it was
+still wrong. All four were real, all four are fixed, and — because you asked for
+it in as many words — **all four are demonstrated by driving the actual addon
+route and reading the sentence the customer gets**, not by a helper test and not
+by reading the source.
+
+**Why that mattered.** Every one of these four was invisible from a module and
+invisible to a scan. The modules were right; the route was handing them the
+wrong value. There is a driver now (`test/fixtures/addon-route.mjs`) that runs
+the whole thing — the picker, every designer, the cleaner, the checks, the real
+schema apply — with no container, no model, no credits and no network, so this
+class of defect is one line of output away from now on.
+
+**1. The check was looking after the evidence had been thrown away.** A model
+asked the database for two guarantees it does not offer (`encryptAtRest`,
+`retries`). The cleaner removes anything the tool never offered *before* the
+check runs — so the check saw a spotless design, and **your customer was told
+nothing**. It reads the model's own answer now, and the reply says *"I also
+asked the database for 2 guarantees it doesn't offer, so those aren't in
+place."* There is a third report beside it: a setting the platform **kept but
+changed** — a reminder asked for every 5 minutes is silently raised to the floor
+— which was neither "missing" nor "there" and so had no home at all.
+
+**2. "Delivered" meant a name matched, and matched against a plan rather than a
+result.** Reproduced: Postgres refused to create a function (a syntax error),
+the daily job was registered against it anyway, and the claim *"customers get a
+reminder the day before"* came back **delivered**. Nothing would ever run. Two
+changes. The evidence is now what really reached the database — a function the
+database refused is not evidence for anything, and a job whose function does not
+exist is not counted at all. And **existence is no longer delivery**: a claim has
+to name something we can check and that really holds. *"bookings, access user,
+so a member sees only their own rows"* counts when the table really got that
+level; the same sentence about a table the platform made public does not, and
+the customer hears *"I've set that up, but I can't confirm from here that…"*
+That sentence will show up more often than it used to. That is deliberate: a
+wrong "done" costs you a guarantee, a cautious "have a look" costs a look.
+
+**3. Adding one field to an existing table wiped that table out of the next
+step's picture of your site.** Reproduced on a stored `bookings` table with
+three columns and member-only access: after "add a notes field", the next
+designer in the same message was told the site had `bookings (notes text) —
+access collect — being added by this same change`. Three columns gone, the
+permissions reading the OPPOSITE of what your site enforces, and a table you
+have had since day one described as brand new. **Nothing was ever deleted from
+your database** — this was only what the next step was told — but everything it
+designed after that was designed against a site that does not exist. It now
+merges the way the real publish merges.
+
+**4. Requirements were only ever handed to one of the six steps.** A step
+saying "the reminder has to go out every morning — that is the job step's job"
+reached nobody: the job designer ran a minute later knowing nothing about it, and
+you were told the change was made. Every step is handed what was passed to it
+now, and a request that names a step which already ran, or one this change never
+runs, stays on the outstanding list instead of quietly counting as done.
+
+**Checked**: 27 deliberate breakages, 27 caught, both do-nothing controls
+untouched; the whole suite green at 6,355. **Not proven live** — everything here
+is driven against stubbed seams. The cheapest real proof is still the addon rerun
+on `repairbench-1`, and that is your call.
+
+---
+
 ## 2026-09-14 — The other five addon steps now say what they could not do
 
 You asked to extend the Tables review to **function, api, job, page and
