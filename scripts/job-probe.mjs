@@ -47,7 +47,7 @@ import { anonKeyFromFrontend } from "./anon-key.mjs";
 // that knows what shape `probeHold` and `probeWire` produced, and a second
 // reader in this file is two lists of the same thing with a container between
 // them — the drift being silent, because a wrong verdict still prints.
-import { holdVerdict, wireVerdict } from "../builder/job-probe.mjs";
+import { holdVerdict, wireVerdict, wireCallBoundMs } from "../builder/job-probe.mjs";
 
 const t0 = Date.now();
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -69,9 +69,22 @@ const MS = num(process.env.PROBE_MS, SHAPE === "wire" ? 300_000 : 1_200_000);
 const EVERY_MS = num(process.env.PROBE_EVERY_MS, 20_000);
 const SITE = String(process.env.PROBE_SITE || "fretwork-1").trim();
 const POLL_MS = 30_000;
-// THE WIRE SHAPE HOLDS TWO CONNECTIONS IN TURN, NEVER RACED, so its wall-clock
-// is about twice what it was asked for. Plus the fire, the sign-in and slack.
-const BOUND_MS = (SHAPE === "wire" ? 2 * MS : MS) + 6 * 60_000;
+// HOW LONG TO WATCH, DERIVED FROM WHAT THE PROBE CAN ACTUALLY TAKE — never a
+// number typed beside it. The wire shape holds two connections IN TURN, never
+// raced, and each is bounded by `wireCallBoundMs` (its own ask plus a minute),
+// so the worst case is two of those back to back.
+//
+// THE FIRST CUT GUESSED `2 * MS` AND WAS WRONG (probe run 3, 2026-09-14): with
+// no per-arm bound at all a hung socket ran past this watcher, which gave up at
+// 16 minutes with the child still alive and its verdict unreadable. Both halves
+// are fixed — the arm has a clock, and this is computed from it.
+const BOUND_MS = (SHAPE === "wire" ? 2 * wireCallBoundMs(MS) : MS) + 6 * 60_000;
+
+// READING ONE BACK WITHOUT FIRING A NEW ONE. A probe that outran its watcher is
+// still in the container with its verdict in its record, and until this the only
+// way to ask was to start another — an instrument that cannot re-read its own
+// dial. With `PROBE_JOB_ID` set the run skips the fire entirely.
+const READ_ID = String(process.env.PROBE_JOB_ID || "").trim();
 
 const LOG_FILE = process.env.PROBE_LOG || "job-probe.md";
 const lines = ["# Job probe — " + SHAPE, "", "Started " + new Date().toISOString(), ""];
@@ -156,17 +169,28 @@ log(`step 3 — runtime: ${JSON.stringify(rt)}`);
 if (rt && rt.deploy) log(`step 3 — the live Worker is deploy ${rt.deploy}; runner=${rt.runner} async=${rt.async}`);
 else log("step 3 — the runtime route gave no readable deploy sha; this run cannot say which image it measured");
 
-// ── step 4: fire ─────────────────────────────────────────────────────────────
-const fired = await fetch(`${BASE}/api/site/job-probe`, {
-  method: "POST", headers: { ...auth, "content-type": "application/json" },
-  body: JSON.stringify({ probe: SHAPE, ms: MS, everyMs: EVERY_MS }),
-}).then((r) => readJson(r, "POST /api/site/job-probe")).catch((e) => ({ err: String(e) }));
-log(`step 4 — fired: ${JSON.stringify(fired).slice(0, 600)}`);
-if (notJson(fired)) fail(sayNotJson(fired));
-if (!fired || fired.ok !== true || !fired.id) {
-  fail("the probe did not start: " + JSON.stringify(fired).slice(0, 400));
+// ── step 4: fire — OR read back one that is already running ──────────────────
+//
+// THE READ-BACK IS THE SAME RUN, NOT A SECOND INSTRUMENT. It reuses the polling,
+// the verdicts and the log below, so a probe re-read says the same things in the
+// same words as one just fired; a reader of its own would be two lists of the
+// same thing with a container between them.
+let id;
+if (READ_ID) {
+  log(`step 4 — NOT FIRING: reading back job ${READ_ID} that is already in the container`);
+  id = READ_ID;
+} else {
+  const fired = await fetch(`${BASE}/api/site/job-probe`, {
+    method: "POST", headers: { ...auth, "content-type": "application/json" },
+    body: JSON.stringify({ probe: SHAPE, ms: MS, everyMs: EVERY_MS }),
+  }).then((r) => readJson(r, "POST /api/site/job-probe")).catch((e) => ({ err: String(e) }));
+  log(`step 4 — fired: ${JSON.stringify(fired).slice(0, 600)}`);
+  if (notJson(fired)) fail(sayNotJson(fired));
+  if (!fired || fired.ok !== true || !fired.id) {
+    fail("the probe did not start: " + JSON.stringify(fired).slice(0, 400));
+  }
+  id = fired.id;
 }
-const id = fired.id;
 
 // ── step 5: poll until it ends, or until the bound ───────────────────────────
 let last = null, ended = null, vanished = 0;

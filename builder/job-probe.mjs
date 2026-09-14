@@ -144,21 +144,44 @@ export async function probeHold(ms, { log = () => {}, sleep = sleepFor, now = Da
  * connection survived to a status, which is the question; only a throw is a
  * dead wire, and `callFailure` is what says which kind of dead.
  */
-export async function wireCall(send, url, token, body, { onData = null, now = Date.now } = {}) {
+export async function wireCall(send, url, token, body, { onData = null, now = Date.now, signal = null } = {}) {
   const at = now();
   try {
     const r = await send(url, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer " + token },
       body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
       ...(onData ? { onData } : {}),
     });
     const text = await r.text().catch(() => "");
     return { ok: true, status: r.status, ms: now() - at, chars: text.length };
   } catch (e) {
-    return { ok: false, ms: now() - at, error: String((e && e.message) || e).slice(0, 200), ...callFailure(e) };
+    // A HANG IS ITS OWN ANSWER AND MUST NOT READ AS A KILL (2026-09-14, probe
+    // run 3). The first cut passed NO signal at all, and `long-post.mjs` says in
+    // its own comment that `node:https` has no timeout of any kind unless one is
+    // asked for — so a black-holed socket sat there until the JOB's deadline.
+    // The run gave up at its watcher's bound with the child still alive and the
+    // verdict unreadable: *a failure that cannot name itself*, in the instrument
+    // written to name failures.
+    //
+    // THREE OUTCOMES, NOT TWO. Answered (`ok`), died before the bound (a reset —
+    // `wire` says which kind), and `hung`: never answered, never reset. They
+    // need three different fixes, so collapsing the last two into "not ok" is
+    // the one way this instrument can mislead rather than go quiet.
+    const hung = !!(signal && signal.aborted);
+    return { ok: false, ...(hung ? { hung: true } : {}), ms: now() - at, error: String((e && e.message) || e).slice(0, 200), ...callFailure(e) };
   }
 }
+
+/**
+ * HOW LONG ONE ARM MAY TAKE. Its own ask plus a minute — long enough that a
+ * connection which really is alive at `ms` is never cut by the instrument, short
+ * enough that a hang is reported rather than run to the job's 50-minute
+ * deadline. DERIVED from the ask, never a second constant beside it.
+ */
+export const WIRE_CALL_SLACK_MS = 60_000;
+export const wireCallBoundMs = (ms) => Math.max(1000, Number(ms) || 0) + WIRE_CALL_SLACK_MS;
 
 /**
  * BOTH SHAPES, IN ORDER, ON ONE LAUNCH. Quiet first: it is the one expected to
@@ -169,19 +192,36 @@ export async function wireCall(send, url, token, body, { onData = null, now = Da
  * would leave the reading open to "the second one kept the first one's path
  * warm" — which is exactly the kind of explanation a measurement must not need.
  */
-export async function probeWire(gateway, { ms, everyMs }, { send, log = () => {}, now = Date.now }) {
+export async function probeWire(gateway, { ms, everyMs }, { send, log = () => {}, now = Date.now, timer = (n) => AbortSignal.timeout(n) }) {
   const url = String(gateway.url).replace(/\/+$/, "") + "/wire";
-  const quiet = await wireCall(send, url, gateway.token, { mode: "quiet", ms }, { now });
-  log({ probe: "wire", mode: "quiet", askedMs: ms, ...quiet });
+  // EACH ARM CARRIES ITS OWN CLOCK. A fresh signal per call, because an aborted
+  // one stays aborted and the second arm would report `hung` without ever having
+  // been tried.
+  //
+  // `timer` IS INJECTED for the same reason `now` and `sleep` are on the hold
+  // probe: a real six-minute signal cannot be driven, so the one branch that
+  // matters most — a hang — would be the only untested outcome.
+  const bound = wireCallBoundMs(ms);
+  const quiet = await wireCall(send, url, gateway.token, { mode: "quiet", ms }, {
+    now, signal: timer(bound),
+  });
+  log({ probe: "wire", mode: "quiet", askedMs: ms, boundMs: bound, ...quiet });
   let seen = 0;
   const trickle = await wireCall(send, url, gateway.token, { mode: "trickle", ms, everyMs }, {
-    now, onData: (all) => { seen = all.length; },
+    now, onData: (all) => { seen = all.length; }, signal: timer(bound),
   });
   log({ probe: "wire", mode: "trickle", askedMs: ms, everyMs, sawChars: seen, ...trickle });
   // THE READING, STATED BY THE PROBE RATHER THAN LEFT TO THE READER — the
   // four outcomes mean four different next moves and a session reading two
   // raw rows will pick one of them by eye.
-  const reading = quiet.ok && trickle.ok ? "no-wall"
+  //
+  // `hung` IS ASKED FIRST AND THAT ORDER IS THE WHOLE POINT. A connection that
+  // never answered and never died is not a kill, and reading it as one would
+  // report `idle-kill` — "streaming is the fix" — about a socket that streaming
+  // does nothing for. When either arm hangs the other three readings are unsafe,
+  // so the probe says so instead of picking one.
+  const reading = quiet.hung || trickle.hung ? "hung"
+    : quiet.ok && trickle.ok ? "no-wall"
     : !quiet.ok && trickle.ok ? "idle-kill"
     : !quiet.ok && !trickle.ok ? "lifetime-cap"
     : "quiet-survived-trickle-did-not";

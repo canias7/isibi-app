@@ -46,6 +46,10 @@ on:
         description: 'A site the owner owns, read ONLY to ask /api/site/runtime which deploy is live and whether the runner is on.'
         required: false
         default: 'fretwork-1'
+      jobId:
+        description: 'READ BACK a probe already running instead of firing a new one. Paste the id from an earlier run (step 4 prints it). Leave empty to fire. When set, probe/ms/everyMs are ignored.'
+        required: false
+        default: ''
 
 jobs:
   probe:
@@ -73,6 +77,7 @@ jobs:
           PROBE_MS: ${{ github.event.inputs.ms }}
           PROBE_EVERY_MS: ${{ github.event.inputs.everyMs }}
           PROBE_SITE: ${{ github.event.inputs.site }}
+          PROBE_JOB_ID: ${{ github.event.inputs.jobId }}
         run: node scripts/job-probe.mjs
       # ALWAYS, because the run that FAILED is the one whose log is worth having:
       # a NOT PROVEN or a CANNOT TELL is a reading, and a reading nobody can read

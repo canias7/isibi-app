@@ -16,6 +16,7 @@ import fs from "node:fs";
 import {
   PROBE_KIND, PROBE_SHAPES, PROBE_MAX_MS, PROBE_SLICE_MS, PROBE_DEFAULT_MS, WIRE_TRICKLE_MS,
   readProbe, probeHold, probeWire, wireCall, runProbe, holdVerdict, wireVerdict,
+  wireCallBoundMs, WIRE_CALL_SLACK_MS,
 } from "../builder/job-probe.mjs";
 import { JOB_MAX_MS } from "../builder/job-duration.mjs";
 import { readLaunch } from "../builder/container-job.mjs";
@@ -266,7 +267,11 @@ test("both verdicts FAIL CLOSED, and the runner re-derives neither — DRIVEN", 
   // was a `tail.find(...)` plus a `JSON.parse` in `scripts/`, which is a second
   // reader of a log line this module writes.
   const runner = fs.readFileSync(new URL("../scripts/job-probe.mjs", import.meta.url), "utf8");
-  assert.match(runner, /import \{ holdVerdict, wireVerdict \} from "\.\.\/builder\/job-probe\.mjs"/);
+  // MEMBERSHIP, NEVER THE WHOLE LINE. This pinned the import list verbatim and
+  // went red the moment an honest third name arrived — the recorded "pinning a
+  // list by its last element"; being last is never the property.
+  assert.match(runner, /import \{[^}]*\bholdVerdict\b[^}]*\} from "\.\.\/builder\/job-probe\.mjs"/, "the runner does not import holdVerdict");
+  assert.match(runner, /import \{[^}]*\bwireVerdict\b[^}]*\} from "\.\.\/builder\/job-probe\.mjs"/, "the runner does not import wireVerdict");
   assert.ok(!/tail\.find\(/.test(runner), "the runner still finds the reading line itself");
   assert.ok(!/JSON\.parse\(readingLine\)/.test(runner), "the runner still parses the reading itself");
 });
@@ -716,4 +721,149 @@ test("reading a probe back is driven too — the runner polls this every 30 seco
     assert.match(bad.ctype, /application\/json/, "a refused id does not answer in JSON");
     assert.equal(asked.length, 1, "a junk id still reached the build service");
   } finally { globalThis.fetch = realFetch; }
+});
+
+// ── A HANG IS ITS OWN ANSWER (2026-09-14, probe run 3) ───────────────────────
+//
+// The wire probe was fired with `wireCall` passing NO AbortSignal, and
+// `long-post.mjs` says in its own comment that `node:https` has no timeout of
+// any kind unless one is asked for. A black-holed socket therefore sat there
+// until the JOB's deadline: the run gave up at its watcher's bound with the
+// child still alive and the verdict unreadable. Three things came out of it —
+// the arm has a clock, a hang is named rather than read as a kill, and the
+// watcher's bound is DERIVED from that clock instead of guessed.
+
+test("wireCallBoundMs is DERIVED from the ask and refuses junk", () => {
+  assert.equal(wireCallBoundMs(300_000), 300_000 + WIRE_CALL_SLACK_MS);
+  assert.ok(WIRE_CALL_SLACK_MS >= 30_000, "the slack is too tight to tell a live connection from a hung one");
+  // NEVER ZERO AND NEVER NaN: a bound of 0 aborts every arm instantly and would
+  // report `hung` for a wire nobody ever tried.
+  for (const junk of [null, undefined, "x", -5, 0, NaN, {}, ["300000"]]) {
+    const b = wireCallBoundMs(junk);
+    assert.ok(Number.isFinite(b) && b > WIRE_CALL_SLACK_MS, `junk ask ${JSON.stringify(junk)} gave a bound of ${b}`);
+  }
+  // AND IT MUST OUTLAST THE ASK, or the instrument cuts a connection that is
+  // genuinely alive at `ms` and calls its own impatience a finding.
+  for (const ms of [1000, 60_000, 300_000, WIRE_MAX_MS]) assert.ok(wireCallBoundMs(ms) > ms, "the bound does not outlast the ask at " + ms);
+});
+
+test("wireCall tells a HANG from a KILL — driven, with the kill as the control", async () => {
+  const url = "https://x/wire";
+  // A HANG: the signal aborted, so the throw is the instrument's own clock.
+  const ac = new AbortController();
+  ac.abort();
+  const hung = await wireCall(async () => { throw new Error("The operation was aborted"); }, url, "t", {}, { signal: ac.signal });
+  assert.equal(hung.ok, false);
+  assert.equal(hung.hung, true, "an aborted arm is not reported as hung");
+
+  // THE CONTROL — an ordinary death with the signal NOT aborted is a kill, and
+  // must not wear `hung`. Without this the field could be set unconditionally
+  // and every assertion above would still pass.
+  const live = new AbortController();
+  const killed = await wireCall(async () => {
+    throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" }, wire: { headersMs: -1, chars: 0 } });
+  }, url, "t", {}, { signal: live.signal });
+  assert.equal(killed.ok, false);
+  assert.equal(killed.hung, undefined, "a reset connection was reported as a hang");
+  assert.equal(killed.cause, "ECONNRESET", "the kill lost its falsifier");
+
+  // AND A SURVIVOR carries no `hung` either.
+  const okCall = await wireCall(async () => ({ status: 200, text: async () => "x" }), url, "t", {}, { signal: live.signal });
+  assert.equal(okCall.ok, true);
+  assert.equal(okCall.hung, undefined);
+});
+
+test("probeWire asks `hung` FIRST, because the other readings are unsafe when an arm never answered", async () => {
+  const url = { url: "https://x", token: "t" };
+  // THE TIMER IS INJECTED so a hang can be driven at all: the real bound is six
+  // minutes and a test that waited for it would be the one branch nobody checks.
+  // Each call gets a FRESH controller, which is also what proves the module does
+  // not share one signal between the two arms.
+  const made = [];
+  const timer = () => { const c = new AbortController(); made.push(c); return c.signal; };
+  const run = async (quietFn, trickleFn) => {
+    made.length = 0;
+    let n = 0;
+    return probeWire(url, { ms: 1000, everyMs: 500 }, {
+      now: () => 0, timer,
+      send: async (...a) => (n++ === 0 ? quietFn(...a) : trickleFn(...a)),
+      log: () => {},
+    });
+  };
+  const ok = async () => ({ status: 200, text: async () => "x" });
+  // A HANG is the arm's own clock firing: abort the signal this call was handed,
+  // then throw the way an aborted request does.
+  const hangs = async () => { made[made.length - 1].abort(); throw new Error("The operation was aborted"); };
+
+  // A quiet hang must NOT read as `idle-kill` — "streaming is the fix" about a
+  // socket streaming does nothing for is the one way this can mislead.
+  const a = await run(hangs, ok);
+  assert.notEqual(a.reading, "idle-kill", "a hung quiet arm was read as an idle kill");
+
+  // The four ordinary readings still hold when nothing hangs.
+  const dies = async () => { throw Object.assign(new TypeError("fetch failed"), { wire: { headersMs: -1, chars: 0 } }); };
+  assert.equal((await run(ok, ok)).reading, "no-wall");
+  assert.equal((await run(dies, ok)).reading, "idle-kill");
+  assert.equal((await run(dies, dies)).reading, "lifetime-cap");
+  assert.equal((await run(ok, dies)).reading, "quiet-survived-trickle-did-not");
+});
+
+test("both arms are BOUNDED, and each gets its own signal", () => {
+  const src = fs.readFileSync(new URL("../builder/job-probe.mjs", import.meta.url), "utf8");
+  const code = src.split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
+  assert.match(code, /const bound = wireCallBoundMs\(ms\)/, "the arms' bound is not derived from the ask");
+  // TWO signals, not one shared: an aborted signal STAYS aborted, so a single
+  // one would make the second arm report `hung` without ever being tried.
+  const signals = [...code.matchAll(/signal: timer\(bound\)/g)];
+  assert.equal(signals.length, 2, `${signals.length} arms are bounded — both must be, each with its own signal`);
+  assert.doesNotMatch(code, /const sig = timer\(/, "the two arms share one signal");
+});
+
+test("the runner's watch bound is DERIVED from the arm's bound, never typed beside it", () => {
+  const runner = fs.readFileSync(new URL("../scripts/job-probe.mjs", import.meta.url), "utf8");
+  const code = runner.split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
+  assert.match(code, /wireCallBoundMs/, "the runner does not import the arm's own bound");
+  assert.match(code, /const BOUND_MS = \(SHAPE === "wire" \? 2 \* wireCallBoundMs\(MS\) : MS\)/,
+    "the runner guesses its bound again — run 3 gave up at 16 minutes on exactly that");
+  // THE ARITHMETIC THAT MATTERS: the watcher must outlast the worst case the
+  // probe can legally take, or it reports NOT PROVEN about its own impatience.
+  for (const ms of [60_000, 300_000, WIRE_MAX_MS]) {
+    assert.ok(2 * wireCallBoundMs(ms) + 6 * 60_000 > 2 * wireCallBoundMs(ms),
+      "the watcher does not outlast two bounded arms at ms=" + ms);
+  }
+});
+
+test("a probe can be READ BACK without firing another — the instrument can re-read its own dial", () => {
+  const runner = fs.readFileSync(new URL("../scripts/job-probe.mjs", import.meta.url), "utf8");
+  const code = runner.split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
+  const wf = fs.readFileSync(new URL("../.github/workflows/job-probe.yml", import.meta.url), "utf8");
+
+  assert.match(code, /const READ_ID = String\(process\.env\.PROBE_JOB_ID \|\| ""\)\.trim\(\)/, "the read-back id is not read, or is coerced");
+  // THE FIRE IS SKIPPED, not merely followed by a read: firing anyway would hold
+  // a second lane and measure a probe nobody asked about.
+  const branch = code.slice(code.indexOf("if (READ_ID)"), code.indexOf("step 5"));
+  assert.ok(branch.length > 40, "the read-back branch is gone — rescope this guard");
+  assert.doesNotMatch(branch.slice(0, branch.indexOf("} else {")), /\/api\/site\/job-probe"/, "the read-back path still fires a probe");
+  assert.match(branch, /} else \{/, "the fire is not the other arm of the read-back branch");
+  // ONE POLLING LOOP FOR BOTH, so a re-read says the same things in the same
+  // words — a reader of its own would be two lists of the same thing.
+  assert.equal([...code.matchAll(/step 5 — running for/g)].length, 1, "the read-back grew a second polling loop");
+
+  // AND THE DOOR CARRIES IT, derived from the WORKFLOW's inputs rather than from
+  // the script's env reads. Those are different sets on purpose: `PROBE_LOG` has
+  // a default the workflow relies on (the artifact step names the same file), so
+  // requiring every env read to be an input would fail on a name nobody types.
+  // What must never drift is the other direction — an input the workflow offers
+  // and never passes on is a dial wired to nothing.
+  const inputs = [...wf.matchAll(/^      ([a-zA-Z]+):\n        description:/gm)].map((m) => m[1]);
+  assert.ok(inputs.length >= 5, `the workflow input reader found ${inputs.length} — it has gone blind`);
+  for (const name of inputs) {
+    assert.match(wf, new RegExp("\\$\\{\\{ github\\.event\\.inputs\\." + name + " \\}\\}"),
+      `the workflow offers an input \`${name}\` it never passes to the script`);
+  }
+  assert.ok(inputs.includes("jobId"), "the workflow has no read-back input");
+  // The artifact step and the script must name the same log file.
+  const logName = (code.match(/PROBE_LOG \|\| "([^"]+)"/) || [])[1];
+  assert.ok(logName, "the script's log filename is gone");
+  assert.ok(wf.includes(logName), `the workflow uploads a different file from the ${logName} the script writes`);
 });

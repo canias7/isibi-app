@@ -1,0 +1,102 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the probe module",
+    "control": true,
+    "files": ["builder/job-probe.mjs"],
+    "from": "// A HANG IS ITS OWN ANSWER AND MUST NOT READ AS A KILL (2026-09-14, probe",
+    "to": "// A HANG IS ITS OWN ANSWER AND MUST NOT BE READ AS A KILL (2026-09-14, probe"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the runner",
+    "control": true,
+    "files": ["scripts/job-probe.mjs"],
+    "from": "// READING ONE BACK WITHOUT FIRING A NEW ONE. A probe that outran its watcher is",
+    "to": "// READING ONE BACK WITHOUT FIRING A FRESH ONE. A probe that outran its watcher is"
+  },
+
+  {
+    "label": "THE DEFECT ITSELF: the quiet arm loses its clock",
+    "files": ["builder/job-probe.mjs"],
+    "from": "    now, signal: timer(bound),\n  });\n  log({ probe: \"wire\", mode: \"quiet\"",
+    "to": "    now,\n  });\n  log({ probe: \"wire\", mode: \"quiet\""
+  },
+  {
+    "label": "the trickle arm loses its clock",
+    "files": ["builder/job-probe.mjs"],
+    "from": "now, onData: (all) => { seen = all.length; }, signal: timer(bound),",
+    "to": "now, onData: (all) => { seen = all.length; },"
+  },
+  {
+    "label": "both arms share ONE signal — the second reports hung without being tried",
+    "files": ["builder/job-probe.mjs"],
+    "from": "  const bound = wireCallBoundMs(ms);",
+    "to": "  const bound = wireCallBoundMs(ms); const sig = timer(wireCallBoundMs(ms));"
+  },
+  {
+    "label": "a hang is reported as an ordinary kill",
+    "files": ["builder/job-probe.mjs"],
+    "from": "    const hung = !!(signal && signal.aborted);",
+    "to": "    const hung = false;"
+  },
+  {
+    "label": "every failure is reported as a hang",
+    "files": ["builder/job-probe.mjs"],
+    "from": "    const hung = !!(signal && signal.aborted);",
+    "to": "    const hung = true;"
+  },
+  {
+    "label": "`hung` stops being asked FIRST — a hang reads as idle-kill",
+    "files": ["builder/job-probe.mjs"],
+    "from": "  const reading = quiet.hung || trickle.hung ? \"hung\"\n    : quiet.ok && trickle.ok ? \"no-wall\"",
+    "to": "  const reading = quiet.ok && trickle.ok ? \"no-wall\""
+  },
+  {
+    "label": "the bound stops outlasting the ask",
+    "files": ["builder/job-probe.mjs"],
+    "from": "export const wireCallBoundMs = (ms) => Math.max(1000, Number(ms) || 0) + WIRE_CALL_SLACK_MS;",
+    "to": "export const wireCallBoundMs = (ms) => Math.max(1000, Number(ms) || 0);"
+  },
+  {
+    "label": "the slack is too tight to tell alive from hung",
+    "files": ["builder/job-probe.mjs"],
+    "from": "export const WIRE_CALL_SLACK_MS = 60_000;",
+    "to": "export const WIRE_CALL_SLACK_MS = 1;"
+  },
+  {
+    "label": "junk ms gives a bound of zero, so every arm reports hung",
+    "files": ["builder/job-probe.mjs"],
+    "from": "Math.max(1000, Number(ms) || 0) + WIRE_CALL_SLACK_MS",
+    "to": "(Number(ms) || 0) + 0"
+  },
+
+  {
+    "label": "the runner guesses its watch bound again — run 3's defect",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "const BOUND_MS = (SHAPE === \"wire\" ? 2 * wireCallBoundMs(MS) : MS) + 6 * 60_000;",
+    "to": "const BOUND_MS = (SHAPE === \"wire\" ? 2 * MS : MS) + 6 * 60_000;"
+  },
+  {
+    "label": "the read-back id is coerced instead of read as a string",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "const READ_ID = String(process.env.PROBE_JOB_ID || \"\").trim();",
+    "to": "const READ_ID = process.env.PROBE_JOB_ID;"
+  },
+  {
+    "label": "the read-back fires a probe anyway, holding a second lane",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "if (READ_ID) {\n  log(`step 4 — NOT FIRING: reading back job ${READ_ID} that is already in the container`);\n  id = READ_ID;\n} else {",
+    "to": "if (false) {\n  log(`step 4 — NOT FIRING: reading back job ${READ_ID} that is already in the container`);\n  id = READ_ID;\n} else {"
+  },
+  {
+    "label": "the workflow offers the read-back input and never passes it on",
+    "files": [".github/workflows/job-probe.yml"],
+    "from": "          PROBE_JOB_ID: ${{ github.event.inputs.jobId }}\n",
+    "to": ""
+  },
+  {
+    "label": "the workflow uploads a different file from the one the script writes",
+    "files": [".github/workflows/job-probe.yml"],
+    "from": "          path: job-probe.md",
+    "to": "          path: probe-log.md"
+  }
+]
