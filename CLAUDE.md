@@ -3262,9 +3262,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   **AND RUN 1133 READ IT A FOURTH TIME (2026-09-14 08:06:49→08:27:28Z, the wire
   probe's hang fix, ALL TWENTY STEPS GREEN): `382 passed, 0 failed` in 14m53s**,
   with contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
-  site-runtime 47 — every count read out of that job's own log. **Four
-  independent runs over three days agreeing is what makes 382 a measurement
-  rather than a stamp.**
+  site-runtime 47 — every count read out of that job's own log.
+  **AND RUNS 1137 AND 1138 READ IT A FIFTH AND SIXTH TIME (2026-09-14, the five
+  bounded fixes): 1137 on `d0701415` 23:08:10→23:32:39Z, the harness step
+  17m46s; 1138 on `1c397634` 23:25:09→23:41:14Z, the harness step 11m33s — BOTH
+  `382 passed, 0 failed`, every step green, the same six beside them (4 / 16 /
+  11 / 29 / 14 / 47, all 0 failed).** **SIX independent runs over three days
+  agreeing is what makes 382 a measurement rather than a stamp** — and the two
+  harness timings, 17m46s against 11m33s on trees that differ by four files,
+  are the same lesson the image-step band records: **the runner decides, and no
+  inference from the diff to the duration is available.**
   The unit suite is **6,381** (2026-09-14, local — the five bounded fixes and the
   audit-wording correction, whose new cases are `addon-route`'s **seven** (a
   missing page named plus its control, page `reached`, component `changed`, page
@@ -3274,10 +3281,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   config-versus-checked split, and the offered-set/list/scan case the sweep
   asked for) and `job-sms-contract`'s **five**; 6,363 + 7 + 6 + 5 closes
   exactly. **Five re-anchors added no case** — they are assertions inside guards
-  that already existed. **CI HAS READ IT: `unit tests` run 2529, 2026-09-14
-  23:08:06→23:10:08Z, GREEN, the suite step 104 s** — and the two runs report
-  the same TOTAL with a different split: **local `# tests 6381 / # pass 6381 /
-  # skipped 0`, CI `# tests 6381 / # pass 6378 / # fail 0 / # skipped 3`.** The
+  that already existed. **CI HAS READ IT THREE TIMES, ALL GREEN**: `unit tests`
+  run 2529 on `d0701415` (23:08:06→23:10:08Z, the suite step 104 s), and runs
+  **2531** (push) and **2532** (pull_request) on the exact tip `1c397634` —
+  `unit.yml` carries both triggers, which is why opening the PR fired a second
+  run on one sha. **All three read `# tests 6381 / # pass 6378 / # fail 0 /
+  # skipped 3`**, against local `# tests 6381 / # pass 6381 / # skipped 0`. The
   three are environment skips, not a smaller suite, which is why the number to
   carry is the TOTAL and why quoting a `pass` count alone drifts between the two
   machines.
