@@ -74,6 +74,12 @@ minute hold** before firing either, or the probe measures the previous image.
 **https://github.com/canias7/isibi-app/actions/workflows/job-probe.yml** →
 **Run workflow**. Dispatch-only, no marker, nothing to paste.
 
+**It only appears in the Actions list once the file is on `main`** — GitHub lists
+a dispatchable workflow from the DEFAULT branch and nowhere else (`lane-sweep.yml`
+records the same rule, which is why the three harnesses share one file). That is
+why this rides the merge rather than staying on the branch. Leave *Use workflow
+from* on `main`.
+
 The route is owner-gated by `authUser`, so running it by hand means holding a
 session token — which is the one thing that must not be passed around. The
 service key is already a GitHub Actions secret, so the workflow signs in on the
@@ -154,6 +160,20 @@ carries its own account rather than needing a probe at all.
 chars: 0` is a death before any byte moved; `chars > 0` is a death with the
 stream open. `cause` carries the underlying error code.
 
+**WHAT THE PROBE CANNOT ATTRIBUTE, AND WHY IT STILL ANSWERS.** A dead connection
+looks identical from the container whether the *container's own egress* killed it
+or the *gateway Worker at the other end* gave up holding the response. The probe
+cannot tell those apart, and a reading that named one of them would be claiming
+more than it measured.
+
+**The trickle arm is what makes that not matter, and it is doing double duty.**
+Both arms are the same path, the same endpoint and the same duration — the only
+difference is whether bytes move. So `idle-kill` (quiet dies, trickle lives) says
+the path *can* hold a connection that long, and what killed the other one was the
+silence. That is the whole finding, and it is true of whichever end did the
+killing — which is also why the fix is the same either way. Read the reading as
+*"silence is what dies"*, not as *"Cloudflare's egress did it"*.
+
 **Until one of these runs, the eleven milliseconds between run 45's death
 (270,025 ms) and `build-call.mjs`'s recorded wall (270,036 ms) are strong
 evidence and NOT proof**, and this file will not call them one.
@@ -161,6 +181,33 @@ evidence and NOT proof**, and this file will not call them one.
 ---
 
 ## Step 0 — the disposable site
+
+> ### ⚠ `repairbench-1` ALREADY EXISTS AND IS PROBABLY DIRTY (measured 2026-09-14 05:07Z)
+>
+> It answers **200**, `x-site-build: mu0gbc8t-ba1r4i`, `x-site-version:
+> 01789342481159-bukcse` — **published 2026-09-13T23:34:41Z**, which is BEFORE
+> run 44. Its served page is the marketing build and nothing else: the only
+> `data-slot`s on it are `hero`, `gallery`, `price-list`, `service-card`,
+> `testimonial-grid`, `contact-card`, `opening-hours`, `location-card`,
+> `cta-band`, `badge`, `status-dot` and the chrome. **No form, no member area.**
+>
+> **But run 44 MADE ITS DATABASE and then died at 12m22s without publishing.**
+> The schema is applied before the publish, so the tables ask A is meant to
+> create may already be there while the page that uses them is not. If they are,
+> ask A is no longer a test of *provisioning on first touch*, and the add step's
+> "you already have that" wall may refuse it outright — **a paid run that buys
+> nothing.**
+>
+> **ONE FREE CHECK DECIDES IT, and it is worth doing before spending:** open
+> `repairbench-1` in the app and look at its **Data** panel.
+>
+> - **No database** → run ask A on `repairbench-1` exactly as written below.
+>   That is the owner's item 3 read literally, and it tests everything.
+> - **A database, with tables** → build a **fresh** disposable site first
+>   (`repairbench-2`, same brief) and run ask A there. Rerunning on a dirty site
+>   would measure the wall, not the work.
+>
+> Either way the ASK is unchanged. Only the slug moves.
 
 Workflow **`build as owner`** → *Run workflow*.
 
