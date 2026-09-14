@@ -98,7 +98,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
@@ -210,10 +210,10 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts } from "./builder/site-requirements.mjs";
+import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -22798,7 +22798,32 @@ async function handleRequest(request, env, ctx) {
             // refusing every other kind over an address.
             let aUrl = "";
             try { aUrl = await publicUrlFor(env, ownerSlug); } catch { aUrl = ""; }
-            const aSite = {
+            // ── THE BASELINE AND THE PROPOSAL (2026-09-14) ────────────────
+            //
+            // `aBaseline` is the STORED spec and is never written to: it is
+            // what `added` versus `altered` is decided against, what the reply
+            // reports, and what a refused addition leaves the site as.
+            //
+            // `aProposed` is that plus everything this message has designed so
+            // far, rebuilt after each kind. It exists because each kind is its
+            // OWN model call and, until now, exactly two facts crossed between
+            // them — `functions` and `jobFns`, pushed in the loop so a job
+            // could name a function designed a call earlier. Everything else
+            // the designers told each other was nothing: the `api` step could
+            // not see the table just designed, and the `page` step was handed a
+            // description built from the stored spec alone, describing a site
+            // that no longer matched what this same message had decided.
+            //
+            // IT IS ALSO WHAT THE VALIDATION NORMALISES INSIDE. A job alone
+            // normalises to nothing (its function is absent); in the proposal
+            // its function is there and it survives. Validating against the
+            // baseline would report every dependent item as dropped whole.
+            const aBaseline = aSpec;
+            let aProposed = aBaseline;
+            // The names THIS message added, per list, so the note can mark them
+            // as being built rather than presenting them as already there.
+            const aNewNames = { tables: [], functions: [], jobFns: [], apis: [], jobs: [] };
+            const siteFacts = (spec) => ({
               name: aLook.brand || ownerSlug,
               url: aUrl,
               kind: aLook.kind === "tool" ? "tool" : "shopfront",
@@ -22812,11 +22837,11 @@ async function handleRequest(request, env, ctx) {
               // own parts each page imports, so the component designer can
               // name the one a like section already uses.
               builtFrom: pageComponents(aSrc),
-              tables: ((aSpec && aSpec.tables) || []).map((t) => t && t.name).filter(Boolean),
+              tables: ((spec && spec.tables) || []).map((t) => t && t.name).filter(Boolean),
               // EACH TABLE'S COLUMNS, "name type" (2026-09-03), for the
               // function designer: a `sql` body is parsed at CREATE, so a
               // guessed column is a function that does not exist.
-              columns: Object.fromEntries(((aSpec && aSpec.tables) || []).filter((t) => t && t.name).map((t) => [t.name,
+              columns: Object.fromEntries(((spec && spec.tables) || []).filter((t) => t && t.name).map((t) => [t.name,
                 (Array.isArray(t.columns) ? t.columns : []).map((c) => (typeof c === "string" ? c : (c && c.name ? c.name + (c.type ? " " + c.type : "") : ""))).filter(Boolean)])),
               // AND EACH TABLE'S PERMISSIONS, RELATIONSHIPS AND GUARANTEES
               // (owner, 2026-09-13). The columns alone cannot stop a designer
@@ -22825,16 +22850,16 @@ async function handleRequest(request, env, ctx) {
               // re-declaring a unique slot that is already enforced. Worded in
               // `tableFacts` so the sentence has one home and a test can drive
               // it against a real stored spec.
-              tableInfo: tableFacts(aSpec),
+              tableInfo: tableFacts(spec),
               // THE OTHER THREE TIERS BY NAME (2026-09-03): a designer adding
               // one names a new one, and a job names a function the site has
               // — an INTERNAL one, `jobFns`, which is the only kind the engine
               // lets a job run. The `function` designer's own answers join
               // both lists as they are cleaned, one kind further down.
-              functions: ((aSpec && aSpec.functions) || []).map((f) => f && f.name).filter(Boolean),
-              jobFns: ((aSpec && aSpec.functions) || []).filter((f) => f && f.name && f.internal).map((f) => f.name),
-              apis: ((aSpec && aSpec.apis) || []).map((a) => a && a.name).filter(Boolean),
-              jobs: ((aSpec && aSpec.jobs) || []).map((j) => j && j.name).filter(Boolean),
+              functions: ((spec && spec.functions) || []).map((f) => f && f.name).filter(Boolean),
+              jobFns: ((spec && spec.functions) || []).filter((f) => f && f.name && f.internal).map((f) => f.name),
+              apis: ((spec && spec.apis) || []).map((a) => a && a.name).filter(Boolean),
+              jobs: ((spec && spec.jobs) || []).map((j) => j && j.name).filter(Boolean),
               hasDatabase: !!adb,
               // THE CODES BY NAME, the whole list — the designer that adds
               // one is shown what the site has so it names a new one, and
@@ -22843,7 +22868,12 @@ async function handleRequest(request, env, ctx) {
               qr: qrList(aLook.qr),
               three: aHas.three ? (typeof aLook.three === "string" && aLook.three ? aLook.three : "one on the page") : null,
               tsx: Array.isArray(aLook.tsx) ? aLook.tsx : [],
-            };
+              // WHICH OF THE NAMES ABOVE THIS MESSAGE IS STILL BUILDING.
+              // `siteNote` marks each one, so a designer can rely on it and
+              // still know it is not there yet.
+              proposed: { ...aNewNames },
+            });
+            let aSite = siteFacts(aBaseline);
             // OUR MODEL CALL DIED — one answer for the picker and every add,
             // the edit route's `modelDown` shape: a billing refusal is on us
             // and never "try again"; our own timeout is named as ours.
@@ -22937,6 +22967,20 @@ async function handleRequest(request, env, ctx) {
             // (owner, 2026-09-13: "Validate model-authored properties before
             // applying changes"). Names only, and the customer never sees them.
             const aBadProps = new Set();
+            // …AND THE ITEMS THE ENGINE WILL NOT BUILD AT ALL, per tier
+            // (2026-09-14). A table that fails is nearly always a table with a
+            // refused field; a FUNCTION whose body names an internal table, or
+            // whose return type names a table nobody declared, and a JOB whose
+            // function did not survive, are dropped WHOLE — no field to point
+            // at, no trace anywhere, and the customer told the feature was
+            // added. `{function: ["send_reminder"]}`.
+            const aUnbuilt = {};
+            // WHICH STEPS RAN AND DID NOT DELIVER. Separate from "did not run":
+            // a step that ran and failed is POSITIVE evidence of a problem, and
+            // a requirement it was handed is failed rather than merely
+            // unconfirmable. Filled by the whole-item drop above and by the job
+            // registration below, both of which used to be silent.
+            const aFailedKinds = new Set();
             // ── ONE COMPOSER FOR EVERY EXIT (owner, 2026-09-13) ─────────────
             //
             // "Make unresolved requirements affect completion reporting."
@@ -22952,6 +22996,12 @@ async function handleRequest(request, env, ctx) {
             // handed to a step that never ran is still outstanding, and saying
             // otherwise is the "doing less than was asked while reporting
             // success" failure this whole path exists to avoid.
+            // EVERY IDENTIFIER THIS CHANGE REALLY CREATED, read off the
+            // accumulated proposal rather than off the model's answer: it is
+            // the one thing a `covered` claim can be checked against, and
+            // checking it against what the model SAID would be checking a
+            // claim against itself.
+            const aMadeNames = () => [...aNewNames.tables, ...aNewNames.functions, ...aNewNames.apis, ...aNewNames.jobs];
             const aCoverage = (ranKinds) => {
               const open = unresolvedRequirements(aReq);
               const bad = [...aBadProps];
@@ -22963,7 +23013,14 @@ async function handleRequest(request, env, ctx) {
                 // has its own rule about never gluing a sentence onto it), and
                 // two fields one character apart on one object is how a reader
                 // ends up printing the wrong one.
-                coverNote: requirementNote(aReq, { ran: ranKinds || [], invalid: bad }),
+                // `failed` and `names` are the correction of 2026-09-14
+                // (owner: "Something existing does not prove the requirement
+                // works"). A step that RAN used to be read as proof its
+                // requirement was met — a planned page taken as evidence that
+                // a customer sees only their own bookings. `names` is what was
+                // really created, so a claim that names one of them is
+                // evidence and a claim that names nothing stays UNVERIFIED.
+                coverNote: requirementNote(aReq, { ran: ranKinds || [], invalid: bad, failed: [...aFailedKinds], names: aMadeNames() }),
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.
@@ -23010,30 +23067,67 @@ async function handleRequest(request, env, ctx) {
               // onto `trash` and therefore changes the answer. A list of
               // accepted names here would be the second copy of the parser's
               // alias map, which is the drift this repository has a name for.
-              if (k === "table") {
+              //
+              // ALL FOUR TIERS NOW, AND EACH VALIDATED WITH ITS DEPENDENCIES
+              // PRESENT (2026-09-14). This was gated on `k === "table"`, and
+              // the two readers themselves read only `spec.tables` — so
+              // `droppedFields({functions: […]})` answered `[]` whatever it was
+              // handed. Three of the four tiers the engine normalises had NO
+              // reach report and NO refusal report: a negative assertion whose
+              // observer was never alive, which reads exactly like a designer
+              // that stayed inside the tool.
+              //
+              // `aProposed` is the context because a dependent item normalised
+              // ALONE is dropped whole — a job without its function, a function
+              // returning `setof bookings` without `bookings` — and reporting
+              // that as the model's failure would be wrong three ways.
+              //
+              // `unbuilt` is the report that only exists above the table tier:
+              // an item the engine dropped WHOLE, with no field to point at.
+              const tier = SPEC_OF_KIND[k];
+              if (tier) {
                 const mine = (Array.isArray(clean.value) ? clean.value : [clean.value])
-                  .map((e) => e && e.table).filter((t) => t && typeof t === "object");
+                  .map((e) => (k === "table" ? (e && e.table) : e)).filter((t) => t && typeof t === "object");
                 if (mine.length) {
-                  for (const n of droppedFields({ tables: mine })) aBadProps.add(n);
-                  for (const n of refusedFields({ tables: mine })) aBadProps.add(n);
+                  // The proposal WITH this kind's items in it, so a sibling
+                  // designed earlier in the same message counts as present.
+                  const withMine = proposedSpec(aProposed, k, clean.value);
+                  const audit = auditTier({ [tier]: mine }, k, withMine);
+                  for (const n of audit.reached) aBadProps.add(n);
+                  for (const n of audit.refused) aBadProps.add(n);
+                  if (audit.unbuilt.length) {
+                    aUnbuilt[k] = [...(aUnbuilt[k] || []), ...audit.unbuilt];
+                    // AN ITEM THE ENGINE WILL NOT BUILD IS A FAILURE OF THIS
+                    // STEP, and the requirement coverage has to hear it: a
+                    // function that vanished cannot cover anything, however
+                    // confidently the designer said it would.
+                    aFailedKinds.add(k);
+                  }
                 }
               }
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
               aAnswers.push({ kind: k, value: clean.value, requirements: ran.requirements });
-              // WHAT THE FUNCTION DESIGNER DECLARED IS TOLD TO THE DESIGNERS
-              // AFTER IT (2026-09-03). Each kind is its own call, and a job
-              // names its function BY NAME — so the functions just designed
-              // join the site's list, the internal ones `jobFns` as well,
-              // and the job designer a call later is shown them and
-              // `cleanAdd` admits them. Without this a message that asks for
-              // a reminder designs the builder and then refuses the job that
-              // runs it, as a function the site does not have.
-              if (k === "function") {
-                for (const f of Array.isArray(clean.value) ? clean.value : []) {
-                  if (!f || !f.name) continue;
-                  if (!aSite.functions.includes(f.name)) aSite.functions.push(f.name);
-                  if (f.internal === true && !aSite.jobFns.includes(f.name)) aSite.jobFns.push(f.name);
+              // WHAT EACH DESIGNER DECLARED IS TOLD TO THE DESIGNERS AFTER IT.
+              //
+              // This was two lists pushed to by hand — `functions` and
+              // `jobFns`, because a job names its function BY NAME and without
+              // them a message asking for a reminder designed the builder and
+              // then refused the job that runs it. Every other fact stayed
+              // behind: the connection designer could not see the table, and
+              // the page designer was handed the STORED site.
+              //
+              // One accumulation now (2026-09-14), rebuilt from the proposal,
+              // so every later designer sees everything decided so far and
+              // `siteNote` marks each of them as being added by this change.
+              if (tier) {
+                aProposed = proposedSpec(aProposed, k, clean.value);
+                for (const item of Array.isArray(clean.value) ? clean.value : []) {
+                  const one = k === "table" ? (item && item.table) : item;
+                  if (!one || !one.name) continue;
+                  if (!aNewNames[tier].includes(one.name)) aNewNames[tier].push(one.name);
+                  if (k === "function" && one.internal === true && !aNewNames.jobFns.includes(one.name)) aNewNames.jobFns.push(one.name);
                 }
+                aSite = siteFacts(aProposed);
               }
               // A CLOCK TIME IS READ IN THE OWNER'S ZONE (2026-09-03): the
               // browser sends its zone with the addon, and a job with a time
@@ -23049,7 +23143,7 @@ async function handleRequest(request, env, ctx) {
             // names, which step each requirement was handed to — lives here.
             await saveAddonAnswer(env, ownerSlug, {
               message: aInstruction, site: aSite, kinds: aKinds, replies: aKept,
-              coverage: requirementRecord({ list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], ran: aAnswers.map((a) => a.kind) }),
+              coverage: requirementRecord({ list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], ran: aAnswers.map((a) => a.kind), failed: [...aFailedKinds], names: aMadeNames(), unbuilt: aUnbuilt }),
             });
             if (!aAnswers.length) {
               // THE SHAPE THIS WAS BUILT FOR. Every designer declined, so there
@@ -23069,7 +23163,20 @@ async function handleRequest(request, env, ctx) {
             // record and not in a telemetry row. `bad` is what the validator
             // found, so a run that quietly dropped a property is readable here
             // without opening the answer file.
-            aMark("coverage", "ok", { ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size });
+            // THE THREE STATES ON THE MARK BESIDE THE THREE STATUSES. A status
+            // is what the model SAID; a state is what really became of it, and
+            // without both a run where every claim was unverifiable is
+            // indistinguishable from one where every claim held.
+            {
+              const st = requirementOutcomes(aReq, { ran: aAnswers.map((a) => a.kind), failed: [...aFailedKinds], names: aMadeNames() });
+              aMark("coverage", "ok", {
+                ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size,
+                done: st.filter((r) => r.state === "delivered").length,
+                broke: st.filter((r) => r.state === "failed").length,
+                unsure: st.filter((r) => r.state === "unverified").length,
+                unbuilt: Object.values(aUnbuilt).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0),
+              });
+            }
 
             // ── THE CHARGE, ONE FUNCTION FOR BOTH ROADS ────────────────────
             //
@@ -23117,7 +23224,7 @@ async function handleRequest(request, env, ctx) {
             // table that already has rows, exactly as it does on a revise.
             const aBackend = backendDesigned(aDesigned);
             let aTables = [], aAltered = [], aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
-            let aProvisioned = false, aFunctions = [], aFnErrors = [], aApis = [], aJobs = [], aSecrets = [];
+            let aProvisioned = false, aFunctions = [], aFnErrors = [], aApis = [], aJobs = [], aJobErrors = [], aSecrets = [];
             // What sequence #1 reserved ahead of the schema apply, and whether it
             // did — see the block before `aApplyBackend`.
             let aFirst = 0, aFirstPlaced = false;
@@ -23303,13 +23410,37 @@ async function handleRequest(request, env, ctx) {
                 aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
                 aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes, ...(j.at ? { at: j.at, tz: j.tz || null } : {}) }));
                 aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
-                // REGISTER THE JOBS — the build route's own call, best-effort
-                // and non-fatal for its reason: the database is live and a job
-                // that did not register is a job the next publish registers.
+                // REGISTER THE JOBS — the build route's own call, still
+                // non-fatal (the database is live and the rest of the change
+                // stands), but NO LONGER SILENT (2026-09-14).
+                //
+                // The catch logged to the console and left `aJobs` exactly as
+                // it was, so the reply told the customer their reminder was
+                // scheduled while nothing anywhere would ever run it. The old
+                // comment said "a job that did not register is a job the next
+                // publish registers" — `persistSiteJobs` has two call sites and
+                // the other is the BUILD route, so on this path that is a full
+                // rebuild, not the next publish. The claim outlived its layer.
+                //
+                // `jobErrors` beside `functionErrors`, exactly as a function
+                // that failed to CREATE is reported, and `aJobs` is cleared so
+                // nothing downstream can claim what did not happen.
                 if (aJobs.length) {
                   try { await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs); aMark("jobs", "ok", { n: aJobs.length }); }
-                  catch (e) { console.error("addon jobs persist:", ownerSlug, e && e.message); }
+                  catch (e) {
+                    const why = (e && e.message ? String(e.message) : "could not be scheduled").slice(0, 200);
+                    console.error("addon jobs persist:", ownerSlug, why);
+                    aJobErrors = aJobs.map((j) => ({ name: j.name, error: why })).slice(0, 6);
+                    aJobs = [];
+                    aFailedKinds.add("job");
+                    aMark("jobs", "fail", { n: aJobErrors.length });
+                  }
                 }
+                // A FUNCTION THAT FAILED TO CREATE IS THE SAME KIND OF FACT and
+                // was already reported — it just never reached the coverage,
+                // so a requirement handed to the `function` step still read as
+                // delivered on a change where the function does not exist.
+                if (aFnErrors.length) aFailedKinds.add("function");
                 // THE REPORT IS KEPT, not discarded — `{seeded, skipped}` is the
                 // only thing that can say why a new table arrived empty, and the
                 // old bare `await` threw it away, so the failure could not name
@@ -23399,6 +23530,7 @@ async function handleRequest(request, env, ctx) {
                 added: [], changed: [], removed: [], moved: [],
                 functions: aFunctions, jobs: aJobs,
                 functionErrors: aFnErrors.length ? aFnErrors : undefined,
+                jobErrors: aJobErrors.length ? aJobErrors : undefined,
                 provisioned: aProvisioned || undefined,
                 migration: migrationSummary(aMigration),
                 cost: aCostNow,
@@ -23845,6 +23977,10 @@ async function handleRequest(request, env, ctx) {
               apis: aApis.length ? aApis : undefined,
               jobs: aJobs.length ? aJobs : undefined,
               functionErrors: aFnErrors.length ? aFnErrors : undefined,
+              // A JOB THAT WOULD NOT REGISTER, said as plainly as a function
+              // that would not CREATE. Before this the reply said the job was
+              // scheduled and nothing anywhere would ever run it.
+              jobErrors: aJobErrors.length ? aJobErrors : undefined,
               needsSecrets: aSecrets.length ? aSecrets : undefined,
               provisioned: aProvisioned || undefined,
               // THE MIGRATION RECORD (stage 8): which job made what, and that

@@ -1,0 +1,316 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the schema engine's audit",
+    "control": true,
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": " * `unbuilt` IS THE ONE THAT ONLY EXISTS ABOVE THE TABLE TIER. A table that",
+    "to": " * `unbuilt` IS THE ONE THAT ONLY EXISTS ABOVE THE TABLE LEVEL. A table that"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the requirement outcomes",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": " * THE THIRD ONE IS THE CORRECTION. `requirementNote` used to read \"the step",
+    "to": " * THE THIRD ONE IS THE FIX. `requirementNote` used to read \"the step"
+  },
+  {
+    "label": "THE DEFECT ITSELF: the audit reads tables whatever tier it was asked",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "export function auditTier(spec, tier = \"table\", context = null) {\n  const offered = TOOL_FIELDS[tier];",
+    "to": "export function auditTier(spec, tier = \"table\", context = null) {\n  tier = \"table\";\n  const offered = TOOL_FIELDS[tier];"
+  },
+  {
+    "label": "the item is normalised ALONE — a dependent item reads as dropped whole",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "  const base = context && typeof context === \"object\" ? context : {};\n  const out = normalizeSchema({ ...base, [list]: [def] });",
+    "to": "  const base = {};\n  const out = normalizeSchema({ ...base, [list]: [def] });"
+  },
+  {
+    "label": "an item the engine dropped WHOLE reads as built",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "  return got.find((x) => String((x && x.name) || \"\").toLowerCase() === name) || null;",
+    "to": "  return got.find((x) => String((x && x.name) || \"\").toLowerCase() === name) || { name: def.name };"
+  },
+  {
+    "label": "a refusal is byte-equality again — a refused numeric guarantee reads as honoured",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "        if (!declaredTruthy(kept[key]) && effectAllFalsy(context, tier, def, key, kept)) refused.add(key);",
+    "to": "        if (!declaredTruthy(kept[key]) && changedNothing(context, tier, def, key, keptJson)) refused.add(key);"
+  },
+  {
+    "label": "a refusal is \"the key is gone\" again — a RENAMED field reads as refused",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "        if (!declaredTruthy(kept[key]) && effectAllFalsy(context, tier, def, key, kept)) refused.add(key);",
+    "to": "        if (!declaredTruthy(kept[key])) refused.add(key);"
+  },
+  {
+    "label": "an item the engine drops whole is not recorded",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "      if (unbuilt.length < MAX_DROPPED) unbuilt.push(String(def.name || \"(unnamed)\"));",
+    "to": "      if (false) unbuilt.push(String(def.name || \"(unnamed)\"));"
+  },
+  {
+    "label": "the observer is dead: nothing is counted as scanned",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "  for (const def of raw) {\n    scanned++;\n    const kept = keptItem(context, tier, def);",
+    "to": "  for (const def of raw) {\n    const kept = keptItem(context, tier, def);"
+  },
+  {
+    "label": "an EMPTY declaration counts as asked for, so every default reports",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "  if (Array.isArray(v)) return !!v.length;\n  if (typeof v === \"object\") return !!Object.keys(v).length;",
+    "to": "  if (Array.isArray(v)) return true;\n  if (typeof v === \"object\") return true;"
+  },
+  {
+    "label": "the cleaner SLICES a function body again, at the old 8,000",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        if (body.length > MAX_FN_BODY) return { ok: false, why: \"body-too-long\" };",
+    "to": "        if (body.length > 8000) return { ok: false, why: \"body-too-long\" };"
+  },
+  {
+    "label": "the cleaner cuts the POST body instead of refusing it",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        if (rawBody.length > MAX_API_BODY) return { ok: false, why: \"body-too-long\" };",
+    "to": "        if (rawBody.length > MAX_API_BODY * 10) return { ok: false, why: \"body-too-long\" };"
+  },
+  {
+    "label": "an over-cap entry is dropped in silence again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    for (const v of usable.slice(cap)) skipped.push({ why: \"over-cap\", name: named(v) });",
+    "to": "    for (const v of []) skipped.push({ why: \"over-cap\", name: named(v) });"
+  },
+  {
+    "label": "the proposal writes over the stored baseline",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const out = Array.isArray(base[list]) ? [...base[list]] : [];",
+    "to": "  const out = Array.isArray(base[list]) ? base[list] : [];"
+  },
+  {
+    "label": "the proposal appends a second entry of one name instead of replacing",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (at >= 0) out[at] = item; else out.push(item);",
+    "to": "    out.push(item);"
+  },
+  {
+    "label": "the note stops marking what this change is still building",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const mark = (k) => (n) => (isNew(k, n) ? n + \" (being added by this same change)\" : n);",
+    "to": "  const mark = (k) => (n) => n;"
+  },
+  {
+    "label": "a step that merely RAN is read as proof its requirement was met",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (r.status === \"covered\" && evidenceName(r.by, names)) {\n      state = \"delivered\";\n    }",
+    "to": "    } else if (r.status === \"covered\" || (r.status === \"elsewhere\" && owner && done.has(owner))) {\n      state = \"delivered\";\n    }"
+  },
+  {
+    "label": "a step that ran and FAILED is only unverified — the one positive signal lost",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (owner && bad.has(owner)) {\n      state = \"failed\";",
+    "to": "    } else if (false) {\n      state = \"failed\";"
+  },
+  {
+    "label": "a hand-off to a step that NEVER RAN is unverified rather than failed",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (r.status === \"elsewhere\" && (!owner || !done.has(owner))) {\n      state = \"failed\";",
+    "to": "    } else if (false) {\n      state = \"failed\";"
+  },
+  {
+    "label": "evidence stops being word-bounded — a name-drop of a table we did NOT make reads as proof",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (!/[a-z0-9_]/.test(before) && !/[a-z0-9_]/.test(after)) return n;",
+    "to": "      if (true) return n;"
+  },
+  {
+    "label": "a one-letter name counts as evidence",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (n.length < 3) continue;",
+    "to": "    if (n.length < 1) continue;"
+  },
+  {
+    "label": "the kind that answered a requirement is not stamped on it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const e = { need, status, ...(owner ? { from: owner } : {}) };",
+    "to": "    const e = { need, status };"
+  },
+  {
+    "label": "the customer is never told what could not be confirmed",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (unsure.length) {\n    parts.push(\"I've set that up, but I can't confirm from here that \"",
+    "to": "  if (false) {\n    parts.push(\"I've set that up, but I can't confirm from here that \""
+  },
+  {
+    "label": "the record loses the three states",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      delivered: n(\"delivered\"), failed: n(\"failed\"), unverified: n(\"unverified\"),",
+    "to": "      delivered: 0, failed: 0, unverified: 0,"
+  },
+  {
+    "label": "a connection or a callable function stops counting as a backend",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "export function siteHasBackend(spec) {\n  if (siteHasTables(spec)) return true;",
+    "to": "export function siteHasBackend(spec) {\n  if (true) return siteHasTables(spec);"
+  },
+  {
+    "label": "an INTERNAL function counts as a backend a page can reach",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name && !f.internal);\n  const apis = (spec && Array.isArray(spec.apis) ? spec.apis : []).filter((a) => a && a.name);\n  return !!(fns.length || apis.length);",
+    "to": "  const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name);\n  const apis = (spec && Array.isArray(spec.apis) ? spec.apis : []).filter((a) => a && a.name);\n  return !!(fns.length || apis.length);"
+  },
+  {
+    "label": "the digest returns before composing the connection and function sections",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  if (!tables.length) return \"(the schema declares no tables)\" + fnLines + apiLines;",
+    "to": "  if (!tables.length) return \"(the schema declares no tables)\";"
+  },
+  {
+    "label": "the page rules read tables again, so an api-only site is told there is no API",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  const rules = siteHasBackend(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;",
+    "to": "  const rules = siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;"
+  },
+  {
+    "label": "the route audits only tables again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const tier = SPEC_OF_KIND[k];\n              if (tier) {",
+    "to": "              const tier = SPEC_OF_KIND[k];\n              if (k === \"table\") {"
+  },
+  {
+    "label": "the route validates against the baseline instead of the proposal",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  const withMine = proposedSpec(aProposed, k, clean.value);",
+    "to": "                  const withMine = aBaseline;"
+  },
+  {
+    "label": "the next designer is shown the site as it was before this message",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                aSite = siteFacts(aProposed);",
+    "to": "                aSite = siteFacts(aBaseline);"
+  },
+  {
+    "label": "an item the engine drops whole does not fail its step",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    aFailedKinds.add(k);\n                  }\n                }\n              }",
+    "to": "                  }\n                }\n              }"
+  },
+  {
+    "label": "a failed job registration leaves the jobs on the reply",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    aJobs = [];\n                    aFailedKinds.add(\"job\");",
+    "to": "                    aFailedKinds.add(\"job\");"
+  },
+  {
+    "label": "a failed job registration is not a failure of the job step",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    aJobs = [];\n                    aFailedKinds.add(\"job\");",
+    "to": "                    aJobs = [];"
+  },
+  {
+    "label": "a function the database refused does not fail its step",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (aFnErrors.length) aFailedKinds.add(\"function\");",
+    "to": "                if (false) aFailedKinds.add(\"function\");"
+  },
+  {
+    "label": "the evidence is what the MODEL said rather than what was really made",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aMadeNames = () => [...aNewNames.tables, ...aNewNames.functions, ...aNewNames.apis, ...aNewNames.jobs];",
+    "to": "            const aMadeNames = () => [];"
+  },
+  {
+    "label": "the customer's sentence stops hearing about failed steps",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                coverNote: requirementNote(aReq, { ran: ranKinds || [], invalid: bad, failed: [...aFailedKinds], names: aMadeNames() }),",
+    "to": "                coverNote: requirementNote(aReq, { ran: ranKinds || [], invalid: bad }),"
+  },
+  {
+    "label": "the trace mark loses the three states",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                done: st.filter((r) => r.state === \"delivered\").length,",
+    "to": "                done: 0,"
+  },
+  {
+    "label": "the browser stops printing a job that would not register",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  for (const je of (Array.isArray(a.jobErrors) ? a.jobErrors : []).slice(0, 3)) {",
+    "to": "  for (const je of []) {"
+  }
+]

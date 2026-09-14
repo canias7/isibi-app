@@ -155,6 +155,108 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — The other five addon steps now say what they could not do
+
+You asked to extend the Tables review to **function, api, job, page and
+component**, so that each step designs its part completely, gets what the other
+steps designed, and reports honestly what the customer actually got.
+
+**The biggest thing found: above the Tables tier, nothing was being checked at
+all.** The two diagnostics that report "you asked for something the database
+cannot do" were gated on the table kind in the route — and, underneath, they
+only ever read the `tables` list, so handing one a list of functions answered
+"nothing wrong" no matter what was in it. Three of the four database tiers had
+no such report of any kind, and "nothing wrong" is indistinguishable from
+"nobody looked". They all four have one now, and the count of what was
+**scanned** rides beside the answer, so nobody can read silence as an all-clear
+again.
+
+**An item is now checked with the things it depends on present.** A scheduled
+job checked on its own simply disappears — its function is not there — and so
+does a function that returns rows from a table that is not there. Both of those
+are the database engine behaving correctly and both were the wrong question to
+ask, so a job is now checked inside the whole design this message has built up
+so far. And a third report exists that never did: **an item the engine will not
+build at all**. A function whose SQL reaches for one of our internal tables is
+refused outright — correctly, it holds your Stripe key — and until today that
+happened in total silence while the customer was told the feature was added.
+
+**The steps talk to each other now.** Each kind is its own model call, and
+exactly two facts used to cross between them. So the step designing an outside
+connection could not see the table the step before it had just designed, and the
+step writing the page was handed a description of the site as it was *before any
+of this message ran*. Now every step sees everything decided so far, with each
+new thing marked *"being added by this same change"* — it can rely on it and
+still know it does not exist yet. The stored site is kept separate and never
+written over, so a refused addition still leaves the site exactly as it was.
+
+**Two body limits disagreed by a factor of two.** The check on the way in
+allowed 8,000 characters of SQL and the database engine cut at 4,000 — so
+anything in between was accepted whole, reported as added, and then chopped in
+half on its way into Postgres. Same shape on the outside-connection side: a POST
+body over 4,000 characters was silently shortened, and a site would then have
+gone on sending half a request to somebody else's server forever. Both are one
+number now, and both **refuse and say so** rather than quietly cutting. *(Worth
+recording how that one was nearly missed: checking it with a GET proves nothing
+— a GET's body is emptied whatever it says, so the cap is invisible unless you
+test a real POST. An earlier pass of mine read exactly that and concluded there
+was no cap.)*
+
+**And a cap on how many things one message can add was a silent drop**, one line
+above the list whose whole job is naming what got left out. Seven connections
+against a limit of four lost three of them with nothing said anywhere. They are
+named now, with a sentence telling the customer to ask for the rest in another
+message.
+
+**The honest bit you should know about — the completion report got stricter.**
+It used to treat "the step that owns this ran" as proof the requirement was met.
+It is not: a page existing does not prove that *"customers see only their own
+bookings"* or that *"the same slot cannot be taken twice"*. There are three
+answers now — **delivered, failed, and could-not-confirm** — and a requirement
+only counts as delivered when the designer named something we really created and
+we can check that it is there. Everything else the customer hears as *"I've set
+that up, but I can't confirm from here that …"*, which is an invitation to look
+rather than a warning.
+
+**This means some replies will be less confident than they were.** That is the
+point: the confidence they had was not earned. Finding a call to a function that
+failed proves there is a problem; finding no such call proves nothing at all,
+and the report says so now instead of guessing.
+
+**Also fixed, both in the same family:**
+
+- **A scheduled job that failed to register said it was scheduled.** The failure
+  went to a log nobody reads and the job stayed on the reply, so the customer
+  was told their reminder was set up while nothing anywhere would ever run it.
+  It is now reported by name, exactly as a database function that fails to be
+  created already was, and the job comes off the reply.
+- **A site with an outside connection and no tables was told it had no
+  database and no API to call** — four separate places all agreeing and all
+  wrong, so the connection was designed, paid for, applied, served by us, and
+  unreachable from any page on the site.
+
+**NOT PROVEN LIVE.** Everything here is measured by driving the real code; none
+of it has run against a real customer message yet. The addon rerun on
+`repairbench-1` is still the cheapest live proof and is still your call.
+
+**The checks**: 20 new tests (suite **6,336**, all green), and a mutation sweep
+of **39 deliberate breakages, all 39 caught**. Six got through on the first pass
+— **two turned out to be changes that make no difference at all** (measured, not
+guessed, and written down in the code so nobody deletes the belt-and-braces next
+month), and **four were real holes in my own checks, every one of them in the
+route rather than the modules**. The most useful of the four: narrowing the new
+check back to tables only left every assertion passing, because they were all
+reading *where* the code sat rather than *whether it could be reached*. That is a
+trap this project has written down before and I walked into it again.
+
+**One thing named rather than fixed:** an outside connection declared as `PUT`
+quietly becomes `GET`. That is a third category — a value replaced by a
+different *valid* value — and neither report covers it. Adding a check for it
+without a body of real answers to measure false alarms against is the one thing
+this project's own rules tell me not to do, so it is written down instead.
+
+---
+
 ## 2026-09-14 — You pressed it, it threw, and the cause was one missing argument
 
 Your run failed in 17 seconds. The good news is where it got to first: the

@@ -423,10 +423,30 @@ test("a `tables` string that is not JSON is still no tables, honestly", () => {
   assert.deepEqual(normalizeSchema({ tables: "not json at all" }).tables, []);
 });
 
-test("one reading of `tables`, shared by all three", () => {
+test("one reading of a tier's list, shared by every diagnostic", () => {
   // Two copies of "what shape did the tables arrive in" is how these came to
   // disagree in the first place.
+  //
+  // RE-ANCHORED 2026-09-14: `declaredTables(spec)` became
+  // `declaredItems(spec, tier)` and the two diagnostics became THREE thin
+  // wrappers over one `auditTier`. The property is not the count of call sites
+  // — it is that there is exactly ONE reader of a tier's list and every
+  // diagnostic goes through it, which the wrappers now satisfy by construction.
   assert.equal((CODE.match(/typeof spec\.tables === "object"/g) || []).length, 0,
     "a private copy of the shape test is back");
-  assert.equal((CODE.match(/= declaredTables\(spec\)/g) || []).length, 2, "both diagnostics must go through it");
+  assert.equal((CODE.match(/= declaredItems\(spec, tier\)/g) || []).length, 1,
+    "the one reader of a tier's list is gone, or there are two of it");
+  // …AND THE THREE DIAGNOSTICS ARE WRAPPERS, not three readers. A second
+  // `declaredItems` call outside `auditTier` is the drift this is about.
+  for (const fn of ["refusedFields", "droppedFields", "unbuiltItems"]) {
+    const at = CODE.indexOf("export function " + fn + "(spec");
+    assert.ok(at > 0, fn + " is gone — retarget this test");
+    const body = CODE.slice(at, CODE.indexOf("\n}", at));
+    assert.match(body, /return auditTier\(spec, tier, context\)\./, fn + " reads the spec itself instead of going through auditTier");
+  }
+  // …AND THE OBSERVER IS ALIVE: `auditTier` really reads the tier's list.
+  const audit = CODE.indexOf("export function auditTier(");
+  assert.ok(audit > 0, "auditTier is gone");
+  assert.match(CODE.slice(audit, CODE.indexOf("\n}", audit)), /declaredItems\(spec, tier\)/,
+    "auditTier does not read the tier's list");
 });

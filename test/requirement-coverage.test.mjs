@@ -25,11 +25,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
-  COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM,
+  COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, REQUIREMENT_STATES,
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
-  requirementBrief, requirementNote, requirementRecord,
+  requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName,
 } from "../builder/site-requirements.mjs";
-import { addTool, readAddAnswer, runAdd, foldAdds, REQUIREMENT_ADDS, siteNote, tableFacts, ADD_KINDS, pickTool, pickRequest } from "../builder/site-add.mjs";
+import { addTool, readAddAnswer, runAdd, foldAdds, REQUIREMENT_ADDS, siteNote, tableFacts, ADD_KINDS, addLayer, pickTool, pickRequest } from "../builder/site-add.mjs";
 import { TABLE_ITEM } from "../builder/site-table.mjs";
 import { droppedFields, refusedFields, normalizeSchema } from "../site-schema.mjs";
 
@@ -172,13 +172,40 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   assert.equal(n.tables[0].requirements, undefined, "the engine kept the coverage metadata as if it were a guarantee");
   // THE TOOL OFFERS IT WHERE THE KIND ASKS, and the set is DERIVED from the
   // kinds' own flag — one word adds a second kind and no list disagrees.
-  assert.deepEqual(REQUIREMENT_ADDS, ["table"], "the coverage list moved off the Tables step, or spread beyond it");
-  const t = addTool("table");
-  assert.equal(t.input_schema.properties.requirements.items, REQUIREMENT_ITEM);
-  assert.equal(t.input_schema.properties.requirements.maxItems, MAX_REQUIREMENTS);
-  // …AND A KIND THAT DOES NOT ASK FOR IT DOES NOT CARRY IT, so the other tools
-  // are byte-identical to what they were.
-  assert.equal(addTool("component").input_schema.properties.requirements, undefined);
+  // RE-ANCHORED 2026-09-14: this asserted `["table"]`, and the change is that
+  // it spread to EVERY kind that designs something. The property is not the
+  // one-ness — it is that the list is exactly the kinds with a tool of their
+  // own, so a kind that DISPATCHES (photo) can never be on it, and a kind that
+  // designs can never be off it by an oversight. Both directions, derived.
+  const designing = ADD_KINDS.filter((k) => !addLayer(k));
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component"],
+    "the six designing kinds that answer coverage changed — say which and why");
+  for (const k of REQUIREMENT_ADDS) {
+    assert.ok(designing.includes(k), "`" + k + "` answers coverage and has no tool of its own to answer it in");
+  }
+  for (const k of ADD_KINDS) {
+    if (addLayer(k)) assert.ok(!REQUIREMENT_ADDS.includes(k), "`" + k + "` dispatches and cannot answer coverage");
+  }
+  assert.ok(designing.length >= REQUIREMENT_ADDS.length, "the census read nothing");
+  // ONE ITEM OBJECT, BY IDENTITY, ACROSS ALL SIX. The prose is kind-neutral
+  // rather than per-kind on purpose: six copies of the shape would be six
+  // places for the wording to drift, and the only thing that was ever
+  // table-specific was two nouns.
+  for (const k of REQUIREMENT_ADDS) {
+    const t = addTool(k);
+    assert.equal(t.input_schema.properties.requirements.items, REQUIREMENT_ITEM, k + "'s tool carries a second copy of the item");
+    assert.equal(t.input_schema.properties.requirements.maxItems, MAX_REQUIREMENTS);
+  }
+  // …AND IT NAMES NO ONE TIER. `table` in the prose is an example among five,
+  // never the subject — a function step told to name "the table" would have
+  // nothing to name.
+  const itemText = JSON.stringify(REQUIREMENT_ITEM);
+  assert.ok(!/the tables you designed here/.test(itemText), "the item still addresses the table step alone");
+  // …AND A KIND THAT DOES NOT DESIGN DOES NOT CARRY IT. `qr` and `three` have
+  // tools of their own and answer no coverage, so their tools are byte-identical
+  // to what they were.
+  assert.equal(addTool("qr").input_schema.properties.requirements, undefined);
+  assert.equal(addTool("three").input_schema.properties.requirements, undefined);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -340,12 +367,70 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // precisely the lie above.
   assert.doesNotMatch(covBody, /\baKinds\b/, "the composer reads the picked kinds instead of the ones that ran");
   // HOP 7: the developer record, beside the raw replies.
-  assert.match(W, /coverage: requirementRecord\(\{ list: aReq, skipped: aReqSkipped, invalid: \[\.\.\.aBadProps\], ran: aAnswers\.map\(\(a\) => a\.kind\) \}\)/,
-    "the developer record is not stored with the answer");
+  //
+  // RE-ANCHORED 2026-09-14 — BY FIELD, NOT BY THE WHOLE ARGUMENT LIST. This
+  // pinned the exact four-property call and went red the moment three honest
+  // inputs arrived, reporting the record as GONE: this repository's single
+  // most repeated own-goal, met here in the guard written for it. What each
+  // field is remains asserted; their order and their number do not.
+  const recAt = W.indexOf("coverage: requirementRecord({");
+  assert.ok(recAt > 0, "the developer record is not stored with the answer");
+  const recCall = W.slice(recAt, W.indexOf("})", recAt) + 2);
+  for (const field of ["list: aReq", "skipped: aReqSkipped", "invalid: [...aBadProps]", "ran: aAnswers.map((a) => a.kind)"]) {
+    assert.ok(recCall.includes(field), "the developer record lost `" + field + "`");
+  }
+  // …AND THE THREE THAT MAKE COMPLETION HONEST (owner, 2026-09-14). Without
+  // them every `covered` claim and every hand-off to a step that ran reads as
+  // delivered, which is the reading the correction overturned.
+  for (const field of ["failed: [...aFailedKinds]", "names: aMadeNames()", "unbuilt: aUnbuilt"]) {
+    assert.ok(recCall.includes(field), "the developer record cannot tell delivered from unverified: no `" + field + "`");
+  }
+  // …AND THE CUSTOMER'S OWN SENTENCE GETS THEM TOO. A SWEEP SURVIVOR: the
+  // record can carry every input and the NOTE be composed without them, so the
+  // developer file is honest and the customer is still told a change is
+  // finished that is not. Both readers, or neither is asserted.
+  const noteAt = W.indexOf("coverNote: requirementNote(aReq, {");
+  assert.ok(noteAt > 0, "the customer's coverage sentence is gone");
+  const noteCall = W.slice(noteAt, W.indexOf("})", noteAt) + 2);
+  for (const field of ["failed: [...aFailedKinds]", "names: aMadeNames()"]) {
+    assert.ok(noteCall.includes(field), "the customer's sentence cannot tell delivered from unverified: no `" + field + "`");
+  }
+  // …AND THE EVIDENCE IS WHAT WAS REALLY MADE, never what the model said. A
+  // SWEEP SURVIVOR: `aMadeNames` can answer `[]` and every call site stay
+  // perfect, which turns every `covered` claim into `unverified` — the opposite
+  // failure to the one the states exist for, and just as wrong.
+  const madeAt = W.indexOf("const aMadeNames = () =>");
+  assert.ok(madeAt > 0, "the evidence reader is gone");
+  const made = W.slice(madeAt, W.indexOf(";", madeAt));
+  for (const list of ["aNewNames.tables", "aNewNames.functions", "aNewNames.apis", "aNewNames.jobs"]) {
+    assert.ok(made.includes(list), "the evidence does not count what this change really created: no `" + list + "`");
+  }
+  // NOT the model's answer: `aAnswers` and `aDesigned` are what was SAID.
+  assert.doesNotMatch(made, /aAnswers|aDesigned/, "a claim is checked against itself");
   // HOP 8: the trace, counts only — `tr.at` keeps finite numbers and drops
   // everything else, and the needs are the customer's words.
-  assert.match(W, /aMark\("coverage", "ok", \{ \.\.\.requirementCounts\(aReq, aReqSkipped\), bad: aBadProps\.size \}\)/,
-    "the coverage leaves no trace mark");
+  const markAt = W.indexOf('aMark("coverage", "ok", {');
+  assert.ok(markAt > 0, "the coverage leaves no trace mark");
+  const markCall = W.slice(markAt, W.indexOf("});", markAt) + 3);
+  assert.ok(markCall.includes("...requirementCounts(aReq, aReqSkipped)"), "the mark lost the counts");
+  assert.ok(markCall.includes("bad: aBadProps.size"), "the mark lost the invalid-property count");
+  // …AND THE THREE STATES BESIDE THE THREE STATUSES, or a run where every
+  // claim was unverifiable is indistinguishable from one where every claim held.
+  for (const k of ["done:", "broke:", "unsure:", "unbuilt:"]) {
+    assert.ok(markCall.includes(k), "the mark cannot say what really became of the requirements: no `" + k + "`");
+  }
+  // …AND EACH IS COUNTED RATHER THAN WRITTEN. A SWEEP SURVIVOR: `done: 0`
+  // leaves the key exactly where a key check looks for it and reports every run
+  // as having delivered nothing, which is a wrong number wearing a right one's
+  // name — the one way an instrument misleads rather than going quiet.
+  for (const [k, state] of [["done", "delivered"], ["broke", "failed"], ["unsure", "unverified"]]) {
+    assert.match(markCall, new RegExp(k + ': st\\.filter\\(\\(r\\) => r\\.state === "' + state + '"\\)\\.length'),
+      "`" + k + "` on the mark is not counted from the outcomes");
+  }
+  assert.match(markCall.length ? W.slice(markAt - 400, markAt) : "", /requirementOutcomes\(aReq, \{ ran: aAnswers\.map\(\(a\) => a\.kind\), failed: \[\.\.\.aFailedKinds\], names: aMadeNames\(\) \}\)/,
+    "the mark's outcomes are computed from something other than what ran, what failed and what was made");
+  // THE NEEDS THEMSELVES STAY OFF THE MARK — they are the customer's own words.
+  assert.doesNotMatch(markCall, /\baReq\b(?!, aReqSkipped)/, "a customer's words reached a telemetry row");
   // AND THE PICKER GETS THE SITE, not a digest of names.
   assert.match(W, /\{ message: aInstruction, current: siteNote\(aSite\), model: aModels\.quick \}/,
     "the picker is still shown a digest instead of the site");
@@ -356,9 +441,22 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // `{}` — the module perfect, the note correct, and every designer shown a
   // site with no permissions, relationships or constraints on it. The recorded
   // wiring trap, and the reason a module test is never the whole of one.
-  const siteLit = W.slice(W.indexOf("const aSite = {"), W.indexOf("};", W.indexOf("const aSite = {")));
+  // RE-ANCHORED 2026-09-14: `const aSite = {` became `const siteFacts = (spec)
+  // => ({`, because the facts are REBUILT after each kind now — each designer
+  // sees what the ones before it proposed. `aSpec` became the function's own
+  // `spec` parameter for the same reason: read off the accumulating proposal,
+  // never off the stored baseline alone.
+  const factsAt = W.indexOf("const siteFacts = (spec) => ({");
+  assert.ok(factsAt > 0, "the site facts are not built from a spec — the designers cannot be shown the proposal");
+  const siteLit = W.slice(factsAt, W.indexOf("});", factsAt));
   assert.ok(siteLit.length > 500, "the site literal could not be read: " + siteLit.length);
-  assert.match(siteLit, /tableInfo: tableFacts\(aSpec\),/, "the designers are shown a site with no table facts on it");
+  assert.match(siteLit, /tableInfo: tableFacts\(spec\),/, "the designers are shown a site with no table facts on it");
+  // …AND IT IS REALLY RE-BUILT, not built once. A `siteFacts` with one caller
+  // is the old behaviour wearing a function's name.
+  assert.ok((W.match(/siteFacts\(a(?:Baseline|Proposed)\)/g) || []).length >= 2,
+    "the site facts are built once — a later designer is shown the site as it was before this message");
+  assert.match(W, /aProposed = proposedSpec\(aProposed, k, clean\.value\)/, "the proposal never accumulates");
+  assert.match(W, /const aBaseline = aSpec;/, "the stored baseline is not kept apart from the proposal");
   assert.match(W, /import \{[^}]*\btableFacts\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "tableFacts is called and never imported");
 });
 
@@ -384,22 +482,73 @@ test("requirementNote says only what is still outstanding, in the customer's ter
     { need: "the page shows their bookings", status: "elsewhere", step: "page" },
     { need: "the owner sees what changed on a repair", status: "unsupported", why: "row history is not something I can switch on" },
   ]).list;
-  // THE PAGE STEP RAN, so its requirement is covered and is NOT said.
-  const done = requirementNote(list, { ran: ["table", "page"] });
+  // RE-ANCHORED 2026-09-14 (owner: "Something existing does not prove the
+  // requirement works"). This used to assert that a requirement whose step RAN
+  // is not said at all — existence read as proof. It is `unverified` now, and
+  // the customer hears that it could not be confirmed rather than hearing
+  // nothing. What is unchanged is that it is not reported as OUTSTANDING.
+  const names = ["bookings", "slot"];
+  const done = requirementNote(list, { ran: ["table", "page"], names });
   assert.match(done, /owner sees what changed/);
   assert.match(done, /row history is not something I can switch on/);
-  assert.doesNotMatch(done, /shows their bookings/, "a requirement whose step really ran is reported as outstanding");
-  assert.doesNotMatch(done, /can book a slot/, "a covered requirement is read back to the customer");
+  assert.doesNotMatch(done, /Still to do: the page shows their bookings/,
+    "a requirement whose step really ran is reported as outstanding");
+  assert.match(done, /can't confirm from here that the page shows their bookings/,
+    "a step that merely ran is read as proof the need was met");
+  assert.doesNotMatch(done, /can book a slot/,
+    "a covered requirement whose named thing really exists is read back to the customer");
   // THE PAGE STEP DID NOT RUN — a job-only addition changes no page — so the
   // hand-off is still outstanding and saying otherwise is the "doing less than
   // was asked while reporting success" failure this path exists to avoid.
-  const owing = requirementNote(list, { ran: ["job"] });
+  const owing = requirementNote(list, { ran: ["job"], names });
   assert.match(owing, /Still to do: the page shows their bookings/);
-  // NOTHING OUTSTANDING IS AN EMPTY STRING, never a reassuring sentence: a
-  // `✅ Done.` with nothing after it has always meant nothing was left over.
-  assert.equal(requirementNote(cleanRequirements([{ need: "a", status: "covered" }]).list, { ran: ["table"] }), "");
+  // A STEP THAT RAN AND FAILED IS NOT A STEP THAT RAN. This is the one reading
+  // that must never collapse into `unverified`: we have positive evidence of a
+  // problem, which is the only kind of evidence this layer ever really gets.
+  const broke = requirementNote(list, { ran: ["table", "page"], failed: ["page"], names });
+  assert.match(broke, /Still to do: the page shows their bookings/);
+  // NOTHING OUTSTANDING AND NOTHING UNCONFIRMED IS AN EMPTY STRING, never a
+  // reassuring sentence: a `✅ Done.` with nothing after it has always meant
+  // nothing was left over. It takes EVIDENCE now, not just a step that ran.
+  assert.equal(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings" }]).list,
+    { ran: ["table"], names: ["bookings"] }), "");
+  // …and a covered claim naming nothing we made is NOT silence.
+  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered" }]).list, { ran: ["table"], names }),
+    /can't confirm from here/, "a claim with nothing to check against passed as delivered");
   assert.equal(requirementNote([], {}), "");
   assert.equal(requirementNote(null, {}), "");
+});
+
+test("the three states are delivered, failed and unverified, and evidence is asymmetric", () => {
+  assert.deepEqual(REQUIREMENT_STATES, ["delivered", "failed", "unverified"]);
+  const list = cleanRequirements([
+    { need: "book a slot", status: "covered", by: "bookings.slot is unique" },
+    { need: "only the owner sees a number", status: "covered", by: "a row-level guarantee" },
+    { need: "show the diary", status: "elsewhere", step: "page" },
+    { need: "text a reminder", status: "elsewhere", step: "job" },
+    { need: "take crypto", status: "unsupported", why: "cards only" },
+  ], "table").list;
+  const got = requirementOutcomes(list, { ran: ["table", "page"], failed: ["job"], names: ["bookings"] });
+  assert.deepEqual(got.map((r) => r.state), ["delivered", "unverified", "unverified", "failed", "failed"]);
+  assert.match(got[3].why, /job step could not do its part/);
+  // THE OWNING STEP OF A `covered` ENTRY IS THE ONE THAT ANSWERED IT, stamped
+  // by `cleanRequirements` — without it a step that refused everything would
+  // still have its own claims read as delivered.
+  assert.equal(list[0].from, "table");
+  const refused = requirementOutcomes(list, { ran: ["table"], failed: ["table"], names: ["bookings"] });
+  assert.equal(refused[0].state, "failed", "a claim made by a step that then failed was read as delivered");
+  // A STEP THAT NEVER RAN IS A FAILURE, not an unverified hand-off: nothing
+  // happened at all, which is knowable rather than merely unconfirmable.
+  assert.equal(requirementOutcomes(list, { ran: [], names: [] })[2].state, "failed");
+  // EVIDENCE IS WORD-BOUNDED. `bookings` must not be found inside
+  // `bookings_old`, or a claim name-dropping a table we did NOT make reads as
+  // proof we did — the one way this check can lie rather than go quiet.
+  assert.equal(evidenceName("bookings.slot is unique", ["bookings"]), "bookings");
+  assert.equal(evidenceName("bookings_old holds it", ["bookings"]), "");
+  assert.equal(evidenceName("see no_bookings", ["bookings"]), "");
+  assert.equal(evidenceName("anything", []), "", "the observer answered with nothing to observe");
+  // A ONE- OR TWO-LETTER NAME IS NOT EVIDENCE: it matches by accident.
+  assert.equal(evidenceName("a is fine", ["a"]), "");
 });
 
 test("an invalid property is said as a lost guarantee, never by its name", () => {
@@ -422,12 +571,25 @@ test("the developer record keeps everything the customer is not told", () => {
     invalid: ["encryptAtRest"],
     ran: ["table"],
   });
-  assert.deepEqual(rec.counts, { total: 2, covered: 1, elsewhere: 1, unsupported: 0, unreadable: 1 });
+  // RE-ANCHORED 2026-09-14: the counts gained the three STATES beside the three
+  // statuses. A status is what the model SAID; a state is what really became of
+  // it, and keeping both is what makes "the designer said covered and nothing
+  // here could confirm it" countable. `b` is covered with no `by` and nothing
+  // to check against → unverified; `a` was handed to a step that never ran →
+  // failed. Neither is what the old record would have implied.
+  assert.deepEqual(rec.counts, { total: 2, covered: 1, elsewhere: 1, unsupported: 0, unreadable: 1, delivered: 0, failed: 1, unverified: 1 });
+  assert.deepEqual(rec.requirements.map((r) => r.state), ["failed", "unverified"]);
   assert.deepEqual(rec.invalidProps, ["encryptAtRest"], "the property name is not kept for the developer either");
   assert.deepEqual(rec.handedTo, { page: ["a"] });
   assert.deepEqual(rec.unreadable, [{ need: "c", why: "bad-status" }]);
   assert.deepEqual(rec.ran, ["table"]);
-  assert.deepEqual(requirementRecord().counts, { total: 0, covered: 0, elsewhere: 0, unsupported: 0, unreadable: 0 });
+  // WHAT THE ENGINE DROPPED WHOLE, PER TIER — the report that did not exist
+  // above the table tier at all, so a job that vanished had no record anywhere.
+  const withUnbuilt = requirementRecord({ failed: ["job"], unbuilt: { job: ["remind"] } });
+  assert.deepEqual(withUnbuilt.unbuilt, { job: ["remind"] });
+  assert.deepEqual(withUnbuilt.failedSteps, ["job"]);
+  assert.deepEqual(requirementRecord().counts, { total: 0, covered: 0, elsewhere: 0, unsupported: 0, unreadable: 0, delivered: 0, failed: 0, unverified: 0 });
+  assert.deepEqual(requirementRecord().unbuilt, {});
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -459,13 +621,51 @@ test("the route validates the MODEL's tables, not the folded spec or the engine'
   // configuration" (owner, 2026-09-13). The difference between "the model asked
   // for something the engine cannot do" — which is feedback somebody can act on
   // — and "the engine derived a field", which is not.
-  const at = W.indexOf('if (k === "table") {');
+  // RE-ANCHORED 2026-09-14. This was pinned to `if (k === "table") {`, which is
+  // exactly what the change removed: the gate, AND the two readers under it,
+  // read TABLES ONLY, so three of the four tiers the engine normalises had no
+  // reach report and no refusal report at all. What is unchanged — and is the
+  // property this test is really about — is that the validator reads the
+  // MODEL'S OWN items and never the folded spec or the normaliser's output.
+  const at = W.indexOf("const tier = SPEC_OF_KIND[k];");
   assert.ok(at > 0, "the validation block is gone");
-  const block = W.slice(at, at + 900);
-  assert.match(block, /\(Array\.isArray\(clean\.value\) \? clean\.value : \[clean\.value\]\)\s*\.map\(\(e\) => e && e\.table\)/,
-    "the validator does not read the model's own tables");
-  assert.match(block, /droppedFields\(\{ tables: mine \}\)/, "the un-offered check is gone");
-  assert.match(block, /refusedFields\(\{ tables: mine \}\)/, "the offered-but-binned check is gone");
+  const block = W.slice(at, W.indexOf("for (const sk of Array.isArray(clean.skipped)", at));
+  assert.ok(block.length > 200 && block.length < 3000, "the validation window is the wrong size: " + block.length);
+  assert.match(block, /\(Array\.isArray\(clean\.value\) \? clean\.value : \[clean\.value\]\)\s*\.map\(\(e\) => \(k === "table" \? \(e && e\.table\) : e\)\)/,
+    "the validator does not read the model's own items");
+  assert.match(block, /auditTier\(\{ \[tier\]: mine \}, k, withMine\)/, "the per-tier audit is gone");
+  // A SWEEP SURVIVOR, and it is the recorded "a positional guard cannot see a
+  // dead branch" in its NARROWING form: putting `if (k === "table")` back leaves
+  // the audit call at exactly the offset every assertion above looks for, and
+  // all of them pass over a route that audits one tier again. So the GATE is
+  // read, not just the call under it — and as a property (no kind literal
+  // between the tier lookup and the audit) rather than as a spelling.
+  const gateAt = block.indexOf("if (tier) {");
+  assert.ok(gateAt > 0 && gateAt < block.indexOf("auditTier("), "the validation is not gated on the tier — a kind it does not know is audited, or one it does is not");
+  // THE GATE ONLY, not the block under it. The first draft of this line forbade
+  // a kind literal anywhere above the audit and went red on the item reader's
+  // own `k === "table" ? (e && e.table) : e`, which is CORRECT and has to stay:
+  // a table's cleaned entry wraps its definition and the other three do not.
+  // A guard that cannot tell the gate from the thing it gates is a false alarm,
+  // and a false alarm is worse than a miss.
+  const gateLine = block.slice(block.indexOf("SPEC_OF_KIND[k];") + 16, gateAt + "if (tier) {".length);
+  assert.doesNotMatch(gateLine, /k === "/,
+    "the audit is gated on a kind by name again — three of the four tiers stop being checked");
+  assert.ok(gateLine.trim().length < 40, "something was inserted between the tier lookup and its gate: " + JSON.stringify(gateLine.trim()));
+  assert.match(block, /audit\.reached/, "the un-offered check is gone");
+  assert.match(block, /audit\.refused/, "the offered-but-binned check is gone");
+  // …AND THE ITEM IS CHECKED WITH ITS DEPENDENCIES PRESENT (owner, 2026-09-14:
+  // "Validate each item with its dependencies present"). A job normalised alone
+  // vanishes — its function is absent — so the context is the ACCUMULATED
+  // proposal with this kind's own items folded in, never the bare answer.
+  assert.match(block, /const withMine = proposedSpec\(aProposed, k, clean\.value\)/,
+    "the item is validated without the schema its dependencies live in");
+  // …AND AN ITEM THE ENGINE DROPS WHOLE IS RECORDED AND COUNTS AS A FAILURE.
+  // Above the table tier there is no field to point at, so without this a
+  // function that vanished had no trace anywhere and its requirements still
+  // read as delivered.
+  assert.match(block, /aUnbuilt\[k\] = \[\.\.\.\(aUnbuilt\[k\] \|\| \[\]\), \.\.\.audit\.unbuilt\]/, "a dropped item is not recorded");
+  assert.match(block, /aFailedKinds\.add\(k\)/, "a dropped item does not make its step a failure");
   // NOT the folded spec, and NOT the normaliser's answer.
   assert.doesNotMatch(block, /aDesigned|folded|normalizeSchema/, "the validator reads something other than the model's input");
   // BEFORE ANYTHING IS APPLIED. `applySiteSchema` is the writer; the validation
@@ -644,14 +844,25 @@ test("ACCEPTANCE: the reproduced omitted requirement is now named rather than dr
   assert.equal(open.length, 2);
   // THE FIX, IN ONE LINE: the word "history" survives to the customer, on a
   // change that could not implement it. Before this, it left at the tool.
-  const note = requirementNote(ran.requirements, { ran: ["table", "page"] });
+  // RE-ANCHORED 2026-09-14: `names` is what the change really created, and it
+  // is what turns the first requirement's claim from an assertion into
+  // evidence — the designer named `repairs` and `repairs` is a table we made.
+  const note = requirementNote(ran.requirements, { ran: ["table", "page"], names: ["repairs"] });
   assert.match(note, /history of what changed/, "the omitted requirement is still omitted");
   assert.match(note, /not a record of every change/, "the reason did not survive");
-  assert.doesNotMatch(note, /can book a repair/, "a covered requirement is read back as a gap");
-  assert.doesNotMatch(note, /repair listed on a page/, "the page step ran and its requirement is still reported outstanding");
+  assert.doesNotMatch(note, /can book a repair/, "a covered requirement with real evidence is read back as a gap");
+  assert.doesNotMatch(note, /Still to do: a customer sees the repair listed on a page/,
+    "the page step ran and its requirement is still reported outstanding");
+  // …AND THE PAGE'S HAND-OFF IS SAID AS UNCONFIRMED RATHER THAN AS DONE. A
+  // page existing does not prove a customer can see their repair on it, which
+  // is the whole of the owner's second correction.
+  assert.match(note, /can't confirm from here that a customer sees the repair listed on a page/);
   // AND THE DEVELOPER RECORD KEEPS THE WHOLE OF IT, including the hand-off.
-  const rec = requirementRecord({ list: ran.requirements, ran: ["table", "page"] });
+  const rec = requirementRecord({ list: ran.requirements, ran: ["table", "page"], names: ["repairs"] });
   assert.equal(rec.counts.covered, 1);
   assert.equal(rec.counts.unsupported, 1);
+  assert.deepEqual(rec.counts.delivered, 1);
+  assert.deepEqual(rec.counts.unverified, 1);
+  assert.deepEqual(rec.counts.failed, 1);
   assert.deepEqual(rec.handedTo, { page: ["a customer sees the repair listed on a page"] });
 });

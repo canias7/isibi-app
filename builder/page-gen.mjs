@@ -1344,6 +1344,46 @@ export function siteHasTables(spec) {
 }
 
 /**
+ * …AND THE READING THE THREE CALLERS ACTUALLY WANTED (2026-09-14).
+ *
+ * `siteHasTables` is a true fact and stays; what it is not is the answer to
+ * "may this page call anything". A TABLE is not the only backend a site can
+ * have — since the addon path can add a connection or a callable function to a
+ * site with no tables at all, and a first build is frontend-only by default, a
+ * site with one connection and no tables is an ordinary shape rather than a
+ * corner.
+ *
+ * WHAT IT COST BEFORE: such a site got `FRONTEND_PAGE_RULES`, whose preamble
+ * says in as many words "THIS SITE HAS NO DATABASE… there is no API to call",
+ * and whose rule 11 (call a declared function) is stripped by NUMBER; its
+ * `pagesRequest` said "THIS SITE'S DATA / There is none"; and `schemaDigest`
+ * returned "(the schema declares no tables)" BEFORE composing the function and
+ * connection sections. Four places, all agreeing, all wrong: the connection was
+ * designed, applied, served by the platform — and no page could ever call it,
+ * because every prompt said there was nothing there. The whole tier reachable
+ * by nothing, which is this repository's signature failure.
+ *
+ * AN INTERNAL FUNCTION IS NOT A BACKEND A PAGE CAN REACH. It is REVOKEd from
+ * PUBLIC and never granted to the Data API roles, and `schemaDigest` already
+ * filters it out for exactly that reason — so counting one here would put the
+ * data rules in front of a page with nothing to call, which is the direction
+ * the `DATA_RULES` comment says to be wrong in least.
+ *
+ * THE TRADE, STATED: a site with a connection and no tables now gets the FULL
+ * rules, including sentences about tables it has not got. The digest that
+ * follows them says "(the schema declares no tables)" in as many words, so the
+ * model is told the truth by the facts even where the rules are general — which
+ * is the smaller error, and the reverse (a rule forbidding a call the site can
+ * really make) is the one that has already cost a whole tier.
+ */
+export function siteHasBackend(spec) {
+  if (siteHasTables(spec)) return true;
+  const fns = (spec && Array.isArray(spec.functions) ? spec.functions : []).filter((f) => f && f.name && !f.internal);
+  const apis = (spec && Array.isArray(spec.apis) ? spec.apis : []).filter((a) => a && a.name);
+  return !!(fns.length || apis.length);
+}
+
+/**
  * The rules that exist ONLY because the site has a database, by NUMBER.
  *
  * BY NUMBER RATHER THAN BY MATCHING THEIR TEXT, because the text is the thing
@@ -1778,7 +1818,13 @@ export function schemaDigest(spec) {
   // gone, because it looks broken rather than removed.
   const tables = (spec && Array.isArray(spec.tables) ? spec.tables : [])
     .filter((t) => t && t.name && !t.retired);
-  if (!tables.length) return "(the schema declares no tables)";
+  // THE EARLY RETURN MOVED BELOW THE OTHER TWO SECTIONS (2026-09-14). It sat
+  // here, ABOVE `fnLines` and `apiLines`, so a site with a connection and no
+  // tables was described to the page writer as having nothing at all — the
+  // connection designed, applied and served, and unreachable from any page
+  // because the catalogue that names it was never composed. Same shape as the
+  // `useApi` gap this function's own comment below records, one return
+  // statement earlier.
   // DECLARED FUNCTIONS, STATED. `useRpc`, `useRpcAction`, `useClaimedRow` and
   // `useCancelClaim` all take a function NAME, and the model has no way to
   // discover one — it can only be told. Not saying is how the whole tier stayed
@@ -1818,6 +1864,9 @@ export function schemaDigest(spec) {
           " — the platform holds the key and does the call; the page only gets the answer back as JSON.";
       }).join("\n")
     : "";
+  // NOW the table half may be empty, and it is said plainly with whatever the
+  // other two tiers came to — never silently instead of them.
+  if (!tables.length) return "(the schema declares no tables)" + fnLines + apiLines;
   const tableLines = tables.map((t) => {
     // THE STAMPED NAME IS NOT BOUND HERE AT ALL, and that is the fix rather than
     // a tidy-up. `const access = String(t.access || "collect")` sat in this scope
@@ -2400,7 +2449,11 @@ export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = nu
     // promising one that exists. On a site with no database that is the fact of
     // the matter rather than an accident, and the rules above have just spent a
     // paragraph on it, so this says the same thing rather than a weaker version.
-    (siteHasTables(spec)
+    // …AND `siteHasBackend` DECIDES IT (2026-09-14), for the same reason
+    // `pageRulesFor` does: a site with a connection and no tables really does
+    // have data, and "There is none" is simply false about it. The digest says
+    // the table half honestly on its own.
+    (siteHasBackend(spec)
       ? "\n\nTHE SCHEMA THAT EXISTS\n" + schemaDigest(spec)
       : "\n\nTHIS SITE'S DATA\nThere is none, and that is the design. Write the content into the pages.") +
     // ONE CLAUSE NOW, and dropping the second one was forced rather than chosen.
@@ -3921,7 +3974,10 @@ export function withoutCharts(rules) {
 
 /** Which system block this build gets: by database, and by whether charts earn their place. */
 export function pageRulesFor(spec, kind = "") {
-  const rules = siteHasTables(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;
+  // `siteHasBackend`, NOT `siteHasTables` (2026-09-14): a connection or a
+  // callable function is a backend a page may reach, and the frontend rules
+  // forbid reaching for either in as many words.
+  const rules = siteHasBackend(spec) ? PAGE_RULES : FRONTEND_PAGE_RULES;
   return String(kind) === "shopfront" ? withoutCharts(rules) : rules;
 }
 

@@ -7448,6 +7448,15 @@ function addonReplyText(a) {
     if (!fe || !fe.name) continue;
     out += ' The function ' + fe.name + ' couldn’t be created' + (fe.error ? ' — ' + String(fe.error).slice(0, 140) : '') + '.';
   }
+  // AND A JOB THAT WOULD NOT REGISTER, the same way (2026-09-14). The server
+  // used to log that failure to a console nobody reads and leave the job on
+  // `jobs`, so this line said "scheduled a reminder every day at 09:00" about
+  // something that will never run. It names it in `jobErrors` now and takes it
+  // off `jobs`, so the two lines can never both be about the same job.
+  for (const je of (Array.isArray(a.jobErrors) ? a.jobErrors : []).slice(0, 3)) {
+    if (!je || !je.name) continue;
+    out += ' The scheduled job ' + je.name + ' couldn’t be set up' + (je.error ? ' — ' + String(je.error).slice(0, 140) : '') + ', so it won’t run yet.';
+  }
   // A CONNECTION WITH A KEY TO PASTE IS SAID, and where: it answers nothing
   // until the owner's own key is in the vault.
   if (Array.isArray(a.needsSecrets) && a.needsSecrets.length) {

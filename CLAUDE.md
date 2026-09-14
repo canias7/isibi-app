@@ -2215,6 +2215,174 @@ instruction: verify through the real application path first.
   anywhere, deliberately, so both earlier findings are true and about different
   mechanisms.
 
+### …AND SO DO THE OTHER FIVE STEPS (2026-09-14)
+
+Owner: *"We're extending the Tables review to function, api, job, page, and
+component. Our goal is that each step designs its part completely, receives the
+information it needs, and clearly reports anything it cannot deliver."*
+
+**THE OBSERVER WAS NEVER ALIVE ABOVE THE TABLE TIER.** `droppedFields` and
+`refusedFields` were gated on `k === "table"` in the route — and the two readers
+themselves iterated `declaredTables(spec)`, so `droppedFields({functions: […]})`
+answered `[]` whatever it was handed. Three of the four tiers the engine
+normalises had no reach report and no refusal report of any kind: a clean sweep
+over nothing, indistinguishable from a designer that stayed inside the tool.
+Measured before the change: `droppedFields({functions:[{name,encryptAtRest:true}]})`
+→ `[]`. **`auditTier(spec, tier, context)` is one core**; `refusedFields`,
+`droppedFields` and the new `unbuiltItems` are thin wrappers, all three defaulting
+to `tier: "table"` so every existing call site means what it meant. **A/B over 64
+specs against the old readers: ZERO differences on `reached`, ONE on `refused`.**
+
+- **VALIDATED WITH ITS DEPENDENCIES PRESENT** (owner's correction). Measured:
+  `normalizeSchema({jobs:[job]}).jobs` is **`undefined`** — the job vanishes,
+  its function absent — and a function `returns: "setof bookings"` vanishes
+  without `bookings`. Both are CORRECT normalisation and the wrong question. The
+  item is normalised INSIDE the accumulated proposal, and only its own tier's
+  list is replaced (siblings in a tier are never one another's dependency). The
+  answer is found **by NAME, never by position**: a normaliser that drops an
+  earlier sibling shifts every index behind it.
+- **`unbuilt` IS THE REPORT THAT ONLY EXISTS ABOVE THE TABLE TIER.** A table
+  that fails is nearly always a table with a refused field; a function whose
+  body names an internal table, one whose return type names a table nobody
+  declared, and a job whose function did not survive are dropped **WHOLE** — no
+  field to point at, no trace anywhere, and the customer told the feature was
+  added.
+- **`scanned` RIDES BESIDE THE THREE LISTS**, because every one of them is a
+  NEGATIVE assertion and `[].every(...)` is `true`.
+- **A REFUSAL ASKS WHETHER THE FIELD'S EFFECT WAS LIVE, not whether its key
+  survived — and BOTH ways of being wrong were measured.** `cacheSeconds: 300`
+  is kept as **`ttl: 300`**, so "declared truthy, kept falsy" reports a REFUSAL
+  on every connection that declares a cache window; `maxRows: -5` is kept as
+  **`maxRows: 0`**, and zero means NO CAP (`if (t.maxRows > 0)`), so byte-equality
+  calls a refused guarantee honoured. That second one is the single A/B
+  divergence above, and **the old reader was right about it**.
+
+**THE BASELINE AND THE PROPOSAL ARE TWO SPECS.** `aBaseline` is the stored spec
+and is never written to — it is what `added` versus `altered` is decided against
+and what a refused addition leaves the site as. `aProposed` accumulates every
+cleaned item in `ADD_KINDS` order and `aSite = siteFacts(aProposed)` is rebuilt
+after each kind. **Until now exactly TWO facts crossed between the kinds' own
+model calls** — `functions` and `jobFns`, pushed by hand so a job could name a
+function designed a call earlier. The `api` designer could not see the table just
+designed; the `page` designer was handed a description built from the stored spec
+alone, describing a site that no longer matched what the same message had already
+decided. `siteNote` marks each proposed name **"(being added by this same
+change)"**, so a designer can rely on it AND know it is not there yet.
+
+**ONE NUMBER PER BODY WALL, AND THE CLEANER REFUSES RATHER THAN CUTS.**
+`MAX_FN_BODY` (`site-schema.mjs`) and `MAX_API_BODY` (`site-apis.mjs`) are both
+**4000** and both exported; `builder/site-add.mjs` imports them. The function
+wall had been **8,000 in the cleaner against the engine's 4,000** — two copies of
+one number, drifted by a factor of two, so a body in between passed the cleaner
+whole, was reported as added, and reached Postgres as 4,000 characters of a
+statement. **The API half needs a real POST to see at all**: a GET's body
+normalises to `""` whatever it declared, which is how an earlier read concluded
+there was no cap. Measured through a POST: **5,000 in, 4,000 out, silently.** The
+slice stays as a belt for a payload that never met the cleaner.
+
+**AND THE LIST CAP WAS A SILENT DROP ONE LINE ABOVE THE LIST THAT NAMES DROPS.**
+`.slice(0, cap)` ran BEFORE the loop that fills `skipped`, so seven connections
+against `MAX_ADD_APIS` of four lost three with nothing on the wire and the
+customer told it was done. `over-cap` is its own token and its own sentence —
+never `too-many`, which is about a site that already carries as many QR codes as
+it can and is a different thing to say.
+
+**COVERAGE ON ALL SIX DESIGNING KINDS.** `REQUIREMENT_ADDS` was `["table"]` and
+is `table · function · api · job · page · component`, derived from the kinds'
+own flag and censused both ways against `addLayer` — a dispatched kind (`photo`)
+has no tool to answer in and can never be on it. `REQUIREMENT_ITEM` stays **ONE
+object by identity** across all six; only two nouns were ever table-specific.
+`COVERAGE_STEPS` gained `table`, so a page step can hand a storage requirement
+back. `cleanRequirements(raw, kind)` stamps `from`, because a `covered` entry
+names no step and without it a claim made by a step that then refused everything
+could never be tied to that refusal.
+
+**COMPLETION HAS THREE STATES, NOT TWO** (owner: *"Something existing does not
+prove the requirement works"*). `requirementNote` read "the step that owns it
+ran" as covered, so a planned page was taken as proof of *"customers see only
+their own bookings"*. `REQUIREMENT_STATES` is `delivered · failed · unverified`:
+
+| state | when |
+|---|---|
+| `failed` | `unsupported`, or the owning step is in `failed`, or it never ran |
+| `delivered` | `covered` AND `by` names an identifier this change really created |
+| `unverified` | everything else — the step ran and produced something, and nothing here ties it to THIS claim |
+
+**THE EVIDENCE IS ASYMMETRIC AND THAT IS WHY THE THREE ARE SEPARATE.** A call to
+a function that failed proves a problem; the absence of one proves nothing.
+`evidenceName` is **word-bounded, never `includes`** — `bookings` must not match
+inside `bookings_old`, or a claim name-dropping a table we did NOT make reads as
+proof we did — and a name under three characters is never evidence. The customer
+hears *"I've set that up, but I can't confirm from here that …"*, which is an
+invitation to check rather than a warning. The record carries the three states
+**beside** the three statuses: a status is what the model SAID, a state is what
+became of it.
+
+**A FAILED JOB REGISTRATION IS SAID.** The catch logged to a console nobody reads
+and left `aJobs` as it was, so the reply said *"scheduled a reminder every day at
+09:00"* about something nothing would ever run. Its comment claimed "a job that
+did not register is a job the next publish registers" — `persistSiteJobs` has
+**two call sites and the other is the BUILD route**, so on this path that is a
+full rebuild. `jobErrors` rides beside `functionErrors` on both replies, `aJobs`
+is cleared, the step is marked failed for the coverage, and the browser prints it.
+A function the database refused was already reported and now fails its step too.
+
+**A CONNECTION OR A CALLABLE FUNCTION IS A BACKEND.** `siteHasTables` is a true
+fact and stays; `siteHasBackend` is what the three callers wanted. **Four places
+agreed and all four were wrong** about a site with one connection and no tables:
+the rules said *"THIS SITE HAS NO DATABASE… there is no API to call"*, rule 11
+(call a declared function) was stripped by NUMBER, `pagesRequest` said *"THIS
+SITE'S DATA / There is none"*, and `schemaDigest`'s early return sat **above**
+`fnLines` and `apiLines`. The connection was designed, applied and served — and
+unreachable from every page. **An INTERNAL function is deliberately not a
+backend**: it is REVOKEd from PUBLIC and the digest already filters it out. **The
+trade is stated**: such a site now gets the full rules including sentences about
+tables it has not got, and the digest says *"(the schema declares no tables)"* in
+as many words — the smaller error, and the reverse has already cost a whole tier.
+
+**Guards**: `test/addon-steps.test.mjs` (**19**) drives the behaviour — the
+four-tier census against the real item shapes both ways, the three tiers that
+answered `[]`, the dead-observer control, a dependent item alone versus in the
+proposal, a sibling designed one call earlier, the two rename/refusal
+measurements, the GET that proves nothing beside the POST that does, both body
+walls at their boundary, the cap's named drops, the proposal's accumulation with
+the baseline untouched, the marked note, the six kinds, `siteHasBackend` over
+four shapes, the digest, and `jobErrors` on both sides of the wire. Five older
+guards went red and were **re-anchored, not appeased**, each naming the spelling
+that moved: `REQUIREMENT_ADDS === ["table"]`, the `if (k === "table")` gate,
+`const aSite = {` (twice), the exact four-property `requirementRecord` call, and
+`declaredTables(spec)` counted at two call sites.
+
+**Sweep: 39 mutants, 39 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Six survived the first pass and **two of those were INERT,
+proven by measurement rather than hunted**: `keptItem` finding by NAME instead of
+by position (only the item's own tier list is replaced, so a one-item list in
+gives at most one out — measured over six probes including a colliding name), and
+`effectAllFalsy`'s "removal destroyed the item" guard (every shape whose REQUIRED
+field is binned is dropped whole, so no field-level question is ever asked, and
+no tier has an optional field whose removal destroys the item). Both are **kept
+and declared deliberate in the code**, because a sweep cannot say so and the next
+session deletes what nothing appears to need; both were replaced by an observable
+mutant of the same line. **The other four were real guard gaps, all in the
+ROUTE**: the gate narrowing back to `k === "table"` (the recorded "a positional
+guard cannot see a dead branch", in its NARROWING form — the audit call stays at
+exactly the offset every assertion looked for), `aMadeNames` answering `[]` so
+every `covered` claim silently becomes `unverified`, `requirementNote` composed
+without `failed`/`names` while the developer record kept them, and the trace
+mark's `done: 0` — a wrong number wearing a right one's name. **One false alarm,
+in my own new guard**: forbidding a kind literal anywhere above the audit went red
+on the item reader's own `k === "table" ? (e && e.table) : e`, which is correct
+and must stay; it reads the GATE alone now. **Full suite 6,336 green** — 6,316 +
+19 + 1, and the arithmetic closes exactly.
+
+**OPEN, NAMED RATHER THAN GLOSSED**: an api `method: "PUT"` normalises to `GET`
+and is NOT reported — a declared value replaced by a different VALID value is a
+class neither `reached` nor `refused` covers, and inventing a lint for it without
+a corpus to measure false alarms against is the one thing this repository's rules
+forbid. **NOT PROVEN LIVE**: every measurement here is from driving the modules;
+nothing has run against a real customer message. The addon rerun on
+`repairbench-1` is the cheapest live proof and is the owner's call.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -2602,7 +2770,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   site-runtime 47 — every count read out of that job's own log. **Four
   independent runs over three days agreeing is what makes 382 a measurement
   rather than a stamp.**
-  The unit suite is **6,316** (2026-09-14, local — the wire probe's hang fix and
+  The unit suite is **6,336** (2026-09-14, local — the other five addon steps,
+  whose new cases are `addon-steps`' **nineteen** and `requirement-coverage`'s
+  **one** (the three states and the asymmetric evidence); 6,316 + 19 + 1 closes
+  exactly. CI has NOT read this number. **6,316** before it, the wire probe's hang fix and
   the read-back door, whose new cases are `job-probe`'s **six**: the bound
   derived and junk-safe, `wireCall` driven hung-versus-killed with the kill as
   its control, `probeWire` driven hang-first through an injected `timer`, both

@@ -85,6 +85,14 @@ import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
 import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, cleanRequirements, requirementBrief } from "./site-requirements.mjs";
+// THE TWO BODY WALLS, IMPORTED RATHER THAN RETYPED. Both engines SLICE, and a
+// slice is silent: the cleaner refuses at the same number so the customer hears
+// about it instead of the site quietly POSTing half a request for ever. The
+// function wall was `8000` here against the engine's `4000` — two copies of one
+// number, drifted by a factor of two, so a body in between passed the cleaner
+// whole and was cut on the way into Postgres.
+import { MAX_FN_BODY } from "../site-schema.mjs";
+import { MAX_API_BODY } from "../site-apis.mjs";
 import { modelsFor } from "./build-models.mjs";
 
 /** The picked model, never a hardcoded one — the rule `site-lanes.mjs` states at length. */
@@ -451,6 +459,11 @@ const ADDS = {
   // reads a connection that has to exist first, exactly as it shows a table.
   function: {
     hint: "Something the DATABASE has to do for a page that a table's access alone cannot: look a booking up by its claim link, cancel or move one, take a booking into a slot that holds N people, receive data another system POSTs in (a `hook_` function — the platform checks the sender's signature before it runs), or housekeeping a job runs on a timer (clear out rows older than thirty days). SQL the site's own database runs.",
+    // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
+    // alone, so five of the six steps that design something had no way to say
+    // what they could not deliver — and the one thing the customer most needs
+    // to hear is the thing the step could not express.
+    requirements: true,
     shape: {
       type: "array",
       maxItems: MAX_ADD_FUNCTIONS,
@@ -480,6 +493,11 @@ const ADDS = {
   },
   api: {
     hint: "An OUTSIDE service a page reads live — today's exchange rate, a courier's slots, a supplier's stock, the weather — with the owner's own key kept server-side. Not for anything a table can hold.",
+    // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
+    // alone, so five of the six steps that design something had no way to say
+    // what they could not deliver — and the one thing the customer most needs
+    // to hear is the thing the step could not express.
+    requirements: true,
     shape: {
       type: "array",
       maxItems: MAX_ADD_APIS,
@@ -504,6 +522,11 @@ const ADDS = {
   },
   job: {
     hint: "Something the site does ON A TIMER with nobody there — a reminder text the day before, a weekly digest to the owner, chasing an unpaid invoice, clearing out records older than thirty days. A job runs an internal database function that returns the messages to send (or, for housekeeping, {\"did\": …} saying what it did), so a job is a `job` AND a `function` unless the site already lists one that does it.",
+    // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
+    // alone, so five of the six steps that design something had no way to say
+    // what they could not deliver — and the one thing the customer most needs
+    // to hear is the thing the step could not express.
+    requirements: true,
     shape: {
       type: "array",
       maxItems: MAX_ADD_JOBS,
@@ -530,6 +553,11 @@ const ADDS = {
   },
   page: {
     hint: "A PAGE the site does not have — a new address of its own: a gallery page, an about page, a pricing page. Not a band on a page it has.",
+    // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
+    // alone, so five of the six steps that design something had no way to say
+    // what they could not deliver — and the one thing the customer most needs
+    // to hear is the thing the step could not express.
+    requirements: true,
     shape: {
       type: "array",
       maxItems: MAX_ADD_PAGES,
@@ -620,6 +648,11 @@ const ADDS = {
   // pages puts it in the tsx; a part written for this site lands in `parts`.
   component: {
     hint: "A NEW COMPONENT on a page the site already has — what a customer calls a section, a band or a block: testimonials, a form, a map, an FAQ, opening hours, a price list, a gallery strip, a countdown. From the kit, or written for this site when the kit has not got it. The page existing does not make it an edit; the component is not on it yet. And a section LIKE it already being on the page does not either: that is a SECOND one, added after the first, which stays exactly as it is — and built from the SAME component the first is built from, laid out the same way.",
+    // THE COVERAGE LIST RIDES THIS KIND TOO (2026-09-14). It was on `table`
+    // alone, so five of the six steps that design something had no way to say
+    // what they could not deliver — and the one thing the customer most needs
+    // to hear is the thing the step could not express.
+    requirements: true,
     shape: {
       type: "array",
       maxItems: MAX_ADD_COMPONENTS,
@@ -1194,6 +1227,20 @@ export function siteNote(site) {
   // column is a function that fails to exist. Names alone when none are given,
   // so a site described without them reads exactly as before.
   const cols = s.columns && typeof s.columns === "object" && !Array.isArray(s.columns) ? s.columns : {};
+  // WHAT IS ALREADY THERE AND WHAT IS BEING BUILT RIGHT NOW ARE DIFFERENT
+  // FACTS, and telling a designer only the second is how it designs around a
+  // table that does not exist yet — or, worse, designs a second one. `proposed`
+  // is the names this same message has already decided on, per list; every one
+  // is marked so the designer can rely on it AND know it is new.
+  //
+  // DECLARED HERE, ABOVE ITS FIRST USE. The first draft put this beside
+  // `namesOf` and the table list twelve lines up already called `isNew` — a
+  // `const` called above its own line, which parses, passes every text guard
+  // and throws at runtime. This repository's own recorded trap, met writing the
+  // entry about it.
+  const proposed = s.proposed && typeof s.proposed === "object" && !Array.isArray(s.proposed) ? s.proposed : {};
+  const isNew = (k, n) => (Array.isArray(proposed[k]) ? proposed[k] : []).some((x) => typeof x === "string" && x.toLowerCase() === String(n).toLowerCase());
+  const mark = (k) => (n) => (isNew(k, n) ? n + " (being added by this same change)" : n);
   // ── AND ITS RELATIONSHIPS, PERMISSIONS AND CONSTRAINTS (owner, 2026-09-13) ─
   //
   // "Give the picker and Tables designer relevant existing-site context,
@@ -1230,7 +1277,7 @@ export function siteNote(site) {
   const tables = (Array.isArray(s.tables) ? s.tables : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 24)
     .map((t) => {
       const c = (Array.isArray(cols[t]) ? cols[t] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 40);
-      const tail = detail(t);
+      const tail = detail(t) + (isNew("tables", t) ? " — being added by this same change" : "");
       if (tail) anyDetail = true;
       return (c.length ? t + " (" + c.join(", ") + ")" : t) + tail;
     });
@@ -1269,7 +1316,7 @@ export function siteNote(site) {
   // AND THE REST OF ITS BACKEND BY NAME (2026-09-03), so a designer adding a
   // function, a connection or a job names a new one and a job can name a
   // function the site has.
-  const namesOf = (k) => (Array.isArray(s[k]) ? s[k] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 24);
+  const namesOf = (k) => (Array.isArray(s[k]) ? s[k] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 24).map(mark(k));
   const fns = namesOf("functions"), apis = namesOf("apis"), jobs = namesOf("jobs"), jobFns = namesOf("jobFns");
   if (fns.length) lines.push("Its database functions are: " + fns.join(", ") + ".");
   // THE ONES A JOB MAY RUN, said apart: a job names an internal function
@@ -1309,6 +1356,54 @@ export function siteNote(site) {
  * because they are printed already or are not guarantees.
  */
 const NOT_A_GUARANTEE_HERE = new Set(["name", "columns", "access", "read", "write", "retired"]);
+
+/** Which spec list each backend kind's cleaned answer belongs in. */
+export const SPEC_OF_KIND = Object.freeze({ table: "tables", function: "functions", api: "apis", job: "jobs" });
+
+/**
+ * THE BASELINE AND THE PROPOSAL ARE TWO SPECS, AND THIS MAKES THE SECOND.
+ *
+ * Each kind is its OWN model call, and until now only two facts crossed between
+ * them: `aSite.functions` and `aSite.jobFns` were pushed to in the loop so a
+ * job could name a function designed a call earlier. Everything else the
+ * designers told each other was nothing — the `api` designer could not see the
+ * table just designed, the `job` designer could not see the connection, and the
+ * `page` designer was handed a site description built from the STORED spec
+ * alone, describing a site that no longer matched what this same message had
+ * already decided to build.
+ *
+ * So the accumulated proposal is a real spec: the stored one plus every cleaned
+ * item, in ADD_KINDS order, which is run order — a table before the function
+ * that reads it, both before the job that runs it. It is what the per-tier
+ * validation normalises each item INSIDE (a job alone normalises to nothing;
+ * with its function present it survives) and what the next designer's note is
+ * built from.
+ *
+ * REPLACE BY NAME, NEVER APPEND BLINDLY. The engine's `CREATE OR REPLACE`
+ * means a function the site already lists is replaced when named, and the
+ * cleaner already says so with `exists` — so two entries of one name in the
+ * proposal would make `keptItem` find whichever came first and validate the
+ * wrong one.
+ *
+ * THE BASELINE IS NEVER MUTATED. It is what `added` versus `altered` is decided
+ * against, what the reply reports, and what a refused addition leaves the site
+ * as; a proposal written over it is a change nothing can roll back.
+ */
+export function proposedSpec(spec, kind, value) {
+  const list = SPEC_OF_KIND[kind];
+  const base = spec && typeof spec === "object" ? spec : {};
+  if (!list) return base;
+  const items = (Array.isArray(value) ? value : (value ? [value] : []))
+    .map((v) => (kind === "table" ? (v && v.table) : v))
+    .filter((v) => v && typeof v === "object" && typeof v.name === "string" && v.name);
+  if (!items.length) return base;
+  const out = Array.isArray(base[list]) ? [...base[list]] : [];
+  for (const item of items) {
+    const at = out.findIndex((x) => x && String(x.name || "").toLowerCase() === item.name.toLowerCase());
+    if (at >= 0) out[at] = item; else out.push(item);
+  }
+  return { ...base, [list]: out };
+}
 
 export function tableFacts(spec) {
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
@@ -1381,7 +1476,11 @@ export function readAddAnswer(reply, kind) {
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = use && use.input && typeof use.input === "object" ? use.input : null;
   const v = input ? input[kind] : undefined;
-  const req = cleanRequirements(input ? input.requirements : null);
+  // THE KIND IS STAMPED ON EVERY ENTRY. A `covered` requirement names no step
+  // — the one that answered it owns it — so without `from` a claim made by a
+  // step that then refused everything could never be tied back to that refusal,
+  // and six kinds answering makes that the ordinary case rather than a corner.
+  const req = cleanRequirements(input ? input.requirements : null, kind);
   return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped };
 }
 
@@ -1583,9 +1682,16 @@ export function cleanAdd(kind, value, site) {
       case "function": {
         const name = str(v.name, 63).toLowerCase();
         if (!TABLE_NAME.test(name) || ctx.functions.includes(name)) return { ok: false, why: "no-function" };
-        const body = str(v.body, 8000);
+        // REFUSED, NEVER CUT. `str(v.body, 8000)` sliced here and the engine
+        // sliced again at `MAX_FN_BODY`, so a 6,000-character body arrived
+        // whole, was reported as added, and reached Postgres as 4,000
+        // characters of a statement — a `CREATE FUNCTION` that either fails
+        // with a syntax error nobody can trace to a truncation or succeeds
+        // doing less than it says. Measured: 5,000 in, 4,000 out, silently.
+        const body = typeof v.body === "string" ? v.body.trim() : "";
         const returns = str(v.returns, 80);
         if (!body || !returns) return { ok: false, why: "no-function" };
+        if (body.length > MAX_FN_BODY) return { ok: false, why: "body-too-long" };
         const args = (Array.isArray(v.args) ? v.args : [])
           .filter((a) => a && typeof a === "object" && TABLE_NAME.test(str(a.name, 63).toLowerCase()) && str(a.type, 20))
           .map((a) => ({ name: str(a.name, 63).toLowerCase(), type: str(a.type, 20) }));
@@ -1603,9 +1709,18 @@ export function cleanAdd(kind, value, site) {
           ? Object.fromEntries(Object.entries(v.headers).filter(([k, x]) => typeof k === "string" && typeof x === "string").slice(0, 12)) : undefined;
         const params = (Array.isArray(v.params) ? v.params : []).filter((p) => typeof p === "string" && TABLE_NAME.test(p)).slice(0, 12);
         const cacheSeconds = Number.isFinite(Number(v.cacheSeconds)) ? Math.max(0, Math.min(3600, Math.round(Number(v.cacheSeconds)))) : undefined;
+        // THE SAME SILENT SLICE, ONE TIER OVER, AND A GET CANNOT SEE IT.
+        // `normalizeApi` cuts a POST body at `MAX_API_BODY` and a GET's body
+        // normalises to `""` WHATEVER it declared — so an oversized body is
+        // invisible to every fixture that does not send a real POST. Measured
+        // through a POST: 5,000 in, 4,000 out. Refused here rather than cut,
+        // because a connection that POSTs half a request to somebody else's
+        // server is a failure the customer can neither see nor act on.
+        const rawBody = method === "POST" && typeof v.body === "string" ? v.body.trim() : "";
+        if (rawBody.length > MAX_API_BODY) return { ok: false, why: "body-too-long" };
         const exists = (Array.isArray(s.apis) ? s.apis : []).map((x) => str(x, 63).toLowerCase()).includes(name);
         ctx.apis.push(name);
-        return { ok: true, value: { name, url, method, ...(headers ? { headers } : {}), ...(method === "POST" && str(v.body, 4000) ? { body: str(v.body, 4000) } : {}), params, ...(cacheSeconds !== undefined ? { cacheSeconds } : {}), exists } };
+        return { ok: true, value: { name, url, method, ...(headers ? { headers } : {}), ...(rawBody ? { body: rawBody } : {}), params, ...(cacheSeconds !== undefined ? { cacheSeconds } : {}), exists } };
       }
       case "job": {
         const name = str(v.name, 63).toLowerCase();
@@ -1688,15 +1803,24 @@ export function cleanAdd(kind, value, site) {
       : kind === "function" ? MAX_ADD_FUNCTIONS : kind === "api" ? MAX_ADD_APIS : kind === "job" ? MAX_ADD_JOBS
       : MAX_ADD_COMPONENTS;
     const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
-    const items = raw.filter(isObj).slice(0, cap);
+    const usable = raw.filter(isObj);
+    const items = usable.slice(0, cap);
     if (!items.length) return { ok: false, why: "nothing" };
     const ctx = { paths: [], tables: [], functions: [], apis: [], jobs: [] };
     const kept = [], skipped = [];
+    const named = (v) => str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80);
     for (const v of items) {
       const r = one(v, ctx);
       if (r.ok) kept.push(r.value);
-      else skipped.push({ why: r.why, name: str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80) });
+      else skipped.push({ why: r.why, name: named(v) });
     }
+    // THE CAP WAS A SILENT DROP AND IT SAT ONE LINE ABOVE THE LIST THAT EXISTS
+    // TO NAME DROPS. `.slice(0, cap)` ran BEFORE the loop, so an answer with
+    // seven connections against `MAX_ADD_APIS` of four lost three of them with
+    // nothing on `skipped`, nothing in the reply, and a customer told their
+    // addition was made. Every other refusal in this file is a sentence; this
+    // one is now one too.
+    for (const v of usable.slice(cap)) skipped.push({ why: "over-cap", name: named(v) });
     if (!kept.length) return { ok: false, why: skipped[0].why, skipped };
     return { ok: true, value: kept, skipped };
   }
@@ -1754,6 +1878,11 @@ export function addRefusal(why, kind) {
     case "same-code": return "This site already has a QR code pointing there — ask me to change where it sits or what it says instead.";
     case "too-many": return "This site already carries as many QR codes as it can — ask me to change one of them instead.";
     case "no-scene": return "I couldn't tell what the 3D scene should show — say what it is and where it goes.";
+    // THE TWO THE ENGINES USED TO DO SILENTLY. A cut body and a dropped entry
+    // both used to ship as a success; they are sentences the customer can act
+    // on, which is the whole point of refusing rather than slicing.
+    case "body-too-long": return "That one needs more code than I can put in a single step — ask for it in smaller pieces and I'll add them one at a time. Nothing was changed.";
+    case "over-cap": return "That's more of those than I can add in one go — ask for the rest in another message and I'll add them too.";
     default: return "I couldn't work out what to add from that" + (kind ? " (" + kind + ")" : "") + " — say what you want on the site and where.";
   }
 }

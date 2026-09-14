@@ -47,7 +47,32 @@ export const COVERAGE = ["covered", "elsewhere", "unsupported"];
  * passed along. `edit` is here because "they can change the wording later" is a
  * real and correct answer that no add kind owns.
  */
-export const COVERAGE_STEPS = ["page", "component", "function", "api", "job", "qr", "three", "photo", "edit"];
+export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "component", "qr", "three", "photo", "edit"];
+
+/**
+ * WHAT BECAME OF A REQUIREMENT ONCE THE WHOLE CHANGE RAN — and there are THREE
+ * answers, not two.
+ *
+ *   delivered   — something we can check ties this need to what was built.
+ *   failed      — the platform said it could not, or the step that owned it did
+ *                 not run, or ran and refused.
+ *   unverified  — the step ran and produced something, and NOTHING here ties
+ *                 that something to this particular claim.
+ *
+ * THE THIRD ONE IS THE CORRECTION. `requirementNote` used to read "the step
+ * that owns it ran" as covered, so a planned page, a generated file or a
+ * created table was taken as proof of "customers see only their own bookings"
+ * or "the same slot cannot be taken twice". Existence is not evidence: the
+ * page exists whether or not it enforces anything.
+ *
+ * AND THE EVIDENCE IS ASYMMETRIC, which is why `failed` and `unverified` are
+ * separate rather than one "not done". A call to a function that failed PROVES
+ * a problem; the absence of such a call proves nothing at all. So every
+ * positive signal this module accepts is a check against something really
+ * created, and everything else falls to `unverified` rather than to either
+ * verdict — silence is never read as success, and it is never read as failure.
+ */
+export const REQUIREMENT_STATES = ["delivered", "failed", "unverified"];
 
 /** A ceiling, never a quota — the rules say "one per thing the change needs". */
 export const MAX_REQUIREMENTS = 12;
@@ -81,9 +106,9 @@ export const REQUIREMENT_ITEM = {
       type: "string",
       enum: COVERAGE,
       description:
-        "\"covered\" — the tables you designed here handle it, and `by` says how. " +
-        "\"elsewhere\" — it is real and it belongs to another step in this same change (the page that shows it, " +
-        "a function, a job), and `step` names which. " +
+        "\"covered\" — what you designed here handles it, and `by` says how. " +
+        "\"elsewhere\" — it is real and it belongs to another step in this same change (the table that stores it, " +
+        "the page that shows it, a function, a job), and `step` names which. " +
         "\"unsupported\" — you could not express it with what this step offers, and `why` says what is missing. " +
         "ANSWER \"unsupported\" RATHER THAN LEAVING IT OUT. A requirement you drop is one the customer is never " +
         "told about; one you mark unsupported is one they are.",
@@ -91,9 +116,11 @@ export const REQUIREMENT_ITEM = {
     by: {
       type: "string",
       description:
-        "For \"covered\" only: how this configuration covers it, naming the table and the thing that does the " +
-        "work — \"bookings.slot with a unique slot so two cannot be taken\", \"bookings access user, so a member " +
-        "sees only their own rows\". One short clause.",
+        "For \"covered\" only: how what you designed covers it, NAMING the thing that does the work — the table, " +
+        "column, function, connection or job by its real name: \"bookings.slot with a unique slot so two cannot " +
+        "be taken\", \"bookings access user, so a member sees only their own rows\", \"cancel_booking checks the " +
+        "owner before deleting\". One short clause, and the NAME IS THE PART THAT MATTERS: it is what lets us " +
+        "check afterwards that the thing you named is really there.",
     },
     step: {
       type: "string",
@@ -125,7 +152,14 @@ const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
  * surface. A skipped entry keeps its `need` where there is one, so the developer
  * record can say WHAT was unreadable rather than only how many.
  */
-export function cleanRequirements(raw) {
+export function cleanRequirements(raw, from = "") {
+  // WHICH STEP ANSWERED IT, STAMPED HERE. A `covered` entry names no step —
+  // the step that wrote it owns it — so without this a `covered` requirement
+  // could never be tied back to a step that then failed, and a table step that
+  // refused every table would still have its own claims read as delivered.
+  // Taken as an argument rather than read off the answer, because it is OURS:
+  // the model is never asked which call it is.
+  const owner = typeof from === "string" && from ? from : "";
   const items = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? [raw] : []);
   const list = [];
   const skipped = [];
@@ -137,7 +171,7 @@ export function cleanRequirements(raw) {
     // statuses are values, not keys, so `"constructor"` is simply not one.
     const status = str(r.status, 20).toLowerCase();
     if (!COVERAGE.includes(status)) { skipped.push({ need, why: "bad-status" }); continue; }
-    const e = { need, status };
+    const e = { need, status, ...(owner ? { from: owner } : {}) };
     if (status === "covered") {
       const by = str(r.by, MAX_BY);
       if (by) e.by = by;
@@ -221,14 +255,96 @@ export function requirementBrief(list, step) {
  * customer has no use for `encryptAtRest`, and the developer record keeps it.
  * What they can act on is that a guarantee they asked for is not there.
  */
-export function requirementNote(list, { ran = [], invalid = [] } = {}) {
+/**
+ * A NAME WE REALLY CREATED, MENTIONED IN THE CLAIM ABOUT IT.
+ *
+ * The one positive check available from here, and it is deliberately narrow: a
+ * `covered` answer is a claim about CONFIGURATION ("bookings access user"), and
+ * configuration is the one thing this layer can check — the identifiers that
+ * survived normalisation and were really applied are in hand. A claim about
+ * BEHAVIOUR ("double bookings are prevented") is not checkable from here at
+ * all, and the answer for it is `unverified`, never a verdict either way.
+ *
+ * WORD BOUNDARIES, NOT `includes`. `bookings` is a substring of `bookings_old`
+ * and of `no_bookings`, and a claim that name-dropped a table the change did
+ * NOT create would then read as evidence. The needle is the created name with a
+ * non-word character (or an end) on each side, so `bookings.slot` and
+ * `"bookings"` match and `bookings_old` does not.
+ */
+export function evidenceName(claim, names) {
+  const text = typeof claim === "string" ? claim.toLowerCase() : "";
+  if (!text) return "";
+  for (const raw of Array.isArray(names) ? names : []) {
+    const n = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (n.length < 3) continue;
+    let at = text.indexOf(n);
+    while (at >= 0) {
+      const before = at === 0 ? "" : text[at - 1];
+      const after = text[at + n.length] || "";
+      if (!/[a-z0-9_]/.test(before) && !/[a-z0-9_]/.test(after)) return n;
+      at = text.indexOf(n, at + 1);
+    }
+  }
+  return "";
+}
+
+/**
+ * EVERY REQUIREMENT, WITH WHAT REALLY BECAME OF IT.
+ *
+ * `[{need, status, step, state, why}]`, `state` one of `REQUIREMENT_STATES`.
+ *
+ * `ran` is the kinds that produced something, `failed` the kinds that ran and
+ * did not (a refusal, an item the engine dropped whole, a job that would not
+ * register), and `names` the identifiers really created. The rules, in the one
+ * order that keeps a failure from being papered over by a step that ran:
+ *
+ *   unsupported                       → failed. The step said so itself.
+ *   the owning step is in `failed`    → failed, whatever else happened.
+ *   the owning step never ran         → failed. A hand-off to a step that did
+ *                                       not run is a requirement dropped with
+ *                                       extra ceremony, and reading it as done
+ *                                       is precisely the old bug.
+ *   `covered` and `by` names something really created → delivered.
+ *   everything else                   → unverified.
+ *
+ * A `covered` requirement has no `step`: the step that ANSWERED it owns it, so
+ * the caller passes `kind` alongside and it is read from `r.from` when the
+ * route recorded which kind wrote the entry. With no `from`, a `covered` entry
+ * cannot be tied to a failed step and rests on its own evidence alone.
+ */
+export function requirementOutcomes(list, { ran = [], failed = [], names = [] } = {}) {
   const done = new Set((Array.isArray(ran) ? ran : []).filter((k) => typeof k === "string"));
-  const open = unresolvedRequirements(list).filter((r) => !(r.status === "elsewhere" && r.step && done.has(r.step)));
+  const bad = new Set((Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"));
+  const out = [];
+  for (const r of Array.isArray(list) ? list : []) {
+    if (!r || typeof r !== "object") continue;
+    const owner = r.status === "elsewhere" ? r.step : r.from;
+    let state = "unverified", why = r.why || "";
+    if (r.status === "unsupported") {
+      state = "failed";
+    } else if (owner && bad.has(owner)) {
+      state = "failed";
+      why = why || "the " + owner + " step could not do its part";
+    } else if (r.status === "elsewhere" && (!owner || !done.has(owner))) {
+      state = "failed";
+      why = why || "the " + (owner || "next") + " step never ran";
+    } else if (r.status === "covered" && evidenceName(r.by, names)) {
+      state = "delivered";
+    }
+    out.push({ ...r, state, ...(why ? { why } : {}) });
+  }
+  return out;
+}
+
+export function requirementNote(list, { ran = [], invalid = [], failed = [], names = [] } = {}) {
+  const outcomes = requirementOutcomes(list, { ran, failed, names });
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
-  if (!open.length && !bad.length) return "";
+  const broke = outcomes.filter((r) => r.state === "failed");
+  const unsure = outcomes.filter((r) => r.state === "unverified");
+  if (!broke.length && !unsure.length && !bad.length) return "";
   const parts = [];
-  const unsupported = open.filter((r) => r.status === "unsupported");
-  const handed = open.filter((r) => r.status === "elsewhere");
+  const unsupported = broke.filter((r) => r.status === "unsupported");
+  const handed = broke.filter((r) => r.status !== "unsupported");
   if (unsupported.length) {
     parts.push("One thing your site can't do yet: " + unsupported.slice(0, 3)
       .map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
@@ -236,6 +352,14 @@ export function requirementNote(list, { ran = [], invalid = [] } = {}) {
   }
   if (handed.length) {
     parts.push("Still to do: " + handed.slice(0, 3).map((r) => r.need).join("; ") + ".");
+  }
+  // THE HONEST CLAUSE, AND IT IS THE POINT OF THE THIRD STATE. What was built
+  // is built; what nothing here can confirm is said as exactly that, rather
+  // than left to the reply's "Done" to claim. It is deliberately an invitation
+  // to check rather than a warning: the ordinary case is that it works.
+  if (unsure.length) {
+    parts.push("I've set that up, but I can't confirm from here that " + unsure.slice(0, 2)
+      .map((r) => r.need).join("; or that ") + " — have a look and tell me if it isn't right.");
   }
   // ONE CLAUSE, AND IT DOES NOT NAME THE PROPERTY. The count is what a customer
   // can act on ("ask me again and say which"); the names are the developer's.
@@ -254,13 +378,26 @@ export function requirementNote(list, { ran = [], invalid = [] } = {}) {
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], ran = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], ran = [], failed = [], names = [], unbuilt = {} } = {}) {
+  const outcomes = requirementOutcomes(list, { ran, failed, names });
+  const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
-    counts: requirementCounts(list, skipped),
-    requirements: (Array.isArray(list) ? list : []).slice(0, MAX_REQUIREMENTS),
+    counts: {
+      ...requirementCounts(list, skipped),
+      // THE THREE STATES, BESIDE THE THREE STATUSES AND NOT INSTEAD OF THEM.
+      // A status is what the MODEL said; a state is what really became of it.
+      // Keeping both is what makes "the designer said covered and nothing here
+      // can confirm it" a countable thing rather than an impression.
+      delivered: n("delivered"), failed: n("failed"), unverified: n("unverified"),
+    },
+    requirements: outcomes.slice(0, MAX_REQUIREMENTS),
     unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),
     invalidProps: (Array.isArray(invalid) ? invalid : []).slice(0, MAX_REQUIREMENTS),
     handedTo: requirementsByStep(list),
     ran: (Array.isArray(ran) ? ran : []).filter((k) => typeof k === "string"),
+    failedSteps: (Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"),
+    // WHAT THE ENGINE DROPPED WHOLE, PER TIER — the report that did not exist
+    // above the table tier at all. `{function: ["send_reminder"], job: […]}`.
+    unbuilt: unbuilt && typeof unbuilt === "object" ? unbuilt : {},
   };
 }

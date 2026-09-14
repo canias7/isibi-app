@@ -27,6 +27,31 @@ import { makeCache } from "./ttl-cache.mjs";
 
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 
+/**
+ * THE LONGEST FUNCTION BODY THE ENGINE WILL CREATE, AND THE ONE PLACE IT IS
+ * SAID.
+ *
+ * This was a bare `4000` inside `normalizeSchema`, and the slice below it is
+ * SILENT: a declaration with a 5,000-character body normalised to 4,000 and the
+ * engine then ran `CREATE FUNCTION` over half a statement — which either fails
+ * at apply time with a syntax error nobody can trace back to a truncation, or,
+ * worse, succeeds because the cut landed on a statement boundary and the
+ * function quietly does less than it was written to do.
+ *
+ * THE ADDON PATH SLICED IT AT 8,000 (`builder/site-add.mjs`), so a body between
+ * 4,000 and 8,000 characters passed the cleaner whole, reached the customer's
+ * "added" reply whole, and was cut HERE. Two numbers for one wall is this
+ * repository's recorded "two copies of one thing" trap, and the two copies had
+ * drifted by a factor of two.
+ *
+ * The cleaner on the addon path REFUSES a body over this rather than cutting
+ * it, importing this constant so the refusal and the wall are one number —
+ * `laneMaxTokens`' rule: derive the cap from the refusal, never a second list.
+ * The slice stays as a belt for a payload that never met the cleaner (a stored
+ * spec from before the refusal, or a build-path answer).
+ */
+export const MAX_FN_BODY = 4000;
+
 export function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
 
 /**
@@ -691,7 +716,7 @@ export function normalizeSchema(spec) {
     if (setof && declared.has(setof[1])) returns = "setof " + setof[1];
     else if (rawRet === "void" || TYPES.has(rawRet)) returns = rawRet;
     if (!returns) continue;
-    const body = String(f.body || "").slice(0, 4000).trim();
+    const body = String(f.body || "").slice(0, MAX_FN_BODY).trim();
     if (!body) continue;
     const lang = String(f.language || "sql").toLowerCase() === "plpgsql" ? "plpgsql" : "sql";
     // A model-written body may NEVER name an internal table. This is the one
@@ -2193,6 +2218,42 @@ export const TOOL_TABLE_FIELDS = new Set([
 ]);
 
 /**
+ * THE FOUR TIERS `normalizeSchema` COVERS, AND WHICH SPEC KEY EACH LIVES UNDER.
+ *
+ * The two diagnostics below read TABLES ONLY and always did — `declaredTables`
+ * is their one reader — so `droppedFields({functions: [...]})` answered `[]` for
+ * a spec with no tables in it at all. MEASURED before the change:
+ * `droppedFields({functions: [{name: "f", encryptAtRest: true}]})` → `[]`, and
+ * the addon route gated the call on `k === "table"` anyway, so three of the four
+ * tiers the engine normalises had no reach report and no refusal report of any
+ * kind. That is this repository's own "a negative assertion must prove its
+ * observer is alive" trap in the shipped product: a clean sweep over nothing,
+ * indistinguishable from a designer that stayed inside the tool.
+ */
+export const SPEC_TIERS = Object.freeze(["table", "function", "api", "job"]);
+
+export const TIER_LIST = Object.freeze({ table: "tables", function: "functions", api: "apis", job: "jobs" });
+
+/**
+ * The per-item fields each add/design tool actually offers, by tier.
+ *
+ * A COPY, AND THE CENSUS IS THE DERIVATION. The shapes live in
+ * `builder/site-table.mjs` (`TABLE_ITEM`, `FUNCTION_ITEM`, `API_ITEM`,
+ * `JOB_ITEM`) and this module deliberately does not import them — the existing
+ * `TOOL_TABLE_FIELDS` made that choice and `test/dropped-fields.test.mjs`
+ * asserts the two agree in BOTH directions, which is what keeps a copy honest.
+ * The census covers all four tiers now, for the same reason it covered one: a
+ * field added to a tool and forgotten here is reported as a missing capability
+ * on every site that uses it.
+ */
+export const TOOL_FIELDS = Object.freeze({
+  table: TOOL_TABLE_FIELDS,
+  function: new Set(["name", "args", "returns", "body", "internal"]),
+  api: new Set(["name", "url", "method", "headers", "body", "params", "cacheSeconds"]),
+  job: new Set(["name", "fn", "everyMinutes", "at"]),
+});
+
+/**
  * The per-table guarantees that were DECLARED and REFUSED.
  *
  * The exact inverse of `droppedFields`, and the gap it closes is the one that
@@ -2228,7 +2289,17 @@ export const TOOL_TABLE_FIELDS = new Set([
  * between a correct refusal report and one that flags every pair-declared table
  * on the platform.
  */
-const NOT_A_GUARANTEE = new Set(["name", "access", "read", "write"]);
+const NOT_A_GUARANTEE = Object.freeze({
+  table: new Set(["name", "access", "read", "write"]),
+  // The other three tiers have no `access` pair; what is excluded is IDENTITY —
+  // the fields that say WHICH item this is rather than what it promises. A job's
+  // `fn` is identity in that sense: a job naming a function the spec has not got
+  // is not a job with a refused guarantee, it is a job the engine drops whole,
+  // and `unbuiltItems` is what reports that.
+  function: new Set(["name"]),
+  api: new Set(["name", "url"]),
+  job: new Set(["name", "fn"]),
+});
 
 /**
  * The declared tables, as a list, from any shape `normalizeSchema` accepts.
@@ -2253,59 +2324,184 @@ const NOT_A_GUARANTEE = new Set(["name", "access", "read", "write"]);
  * fields. `normalizeSchema` has its own evidence test for that case; these two
  * only need the `tables` value, whatever shape it arrived in.
  */
-function declaredTables(spec) {
-  let t = spec && spec.tables;
+export function declaredItems(spec, tier = "table") {
+  const list = TIER_LIST[tier];
+  if (!list) return [];
+  let t = spec && spec[list];
   if (typeof t === "string") {
     try { const parsed = JSON.parse(t); if (parsed && typeof parsed === "object") t = parsed; } catch { return []; }
   }
-  if (Array.isArray(t)) return t;
-  return (t && typeof t === "object") ? Object.values(t) : [];
+  const raw = Array.isArray(t) ? t : ((t && typeof t === "object") ? Object.values(t) : []);
+  return raw.filter((d) => d && typeof d === "object" && !Array.isArray(d));
 }
 
-export function refusedFields(spec) {
-  if (!spec || typeof spec !== "object") return [];
-  const raw = declaredTables(spec);
-  const seen = new Set();
-  for (const def of raw) {
-    if (!def || typeof def !== "object" || Array.isArray(def)) continue;
-    const kept = normalizeSchema({ tables: [def] }).tables[0];
-    if (!kept) continue;
-    for (const key of Object.keys(def)) {
-      if (seen.size >= MAX_DROPPED) return [...seen].sort();
-      if (!TOOL_TABLE_FIELDS.has(key) || NOT_A_GUARANTEE.has(key)) continue;
-      const v = def[key];
-      // A falsy or empty declaration is the same as absence — reporting those
-      // would put `fts: false` on the response of every table that has one.
-      if (!v) continue;
-      if (Array.isArray(v) ? !v.length : (typeof v === "object" && !Object.keys(v).length)) continue;
-      const got = kept[key];
-      const alive = Array.isArray(got) ? got.length : (got && typeof got === "object" ? Object.keys(got).length : !!got);
-      if (!alive) seen.add(key);
-    }
-  }
-  return [...seen].sort();
+/**
+ * ONE DECLARED ITEM, NORMALISED WITH ITS DEPENDENCIES PRESENT.
+ *
+ * `normalizeSchema({functions: [f]})` and `normalizeSchema({jobs: [j]})` are not
+ * the questions anybody wanted asked. MEASURED:
+ *
+ *   normalizeSchema({jobs: [{name:"remind", fn:"cancel_booking", everyMinutes:1440}]}).jobs
+ *     → undefined                     (the job vanishes: its function is absent)
+ *   normalizeSchema({functions:[{name:"list", returns:"setof bookings", …}]}).functions
+ *     → undefined                     (the return type names a table that is absent)
+ *
+ * Both are CORRECT normalisation and both are the wrong reading, because the
+ * item is not being declared alone — it is being declared into a spec that also
+ * carries the table and the function it needs. So the item under test is placed
+ * into the ACCUMULATED PROPOSED SCHEMA and normalised there, and only its own
+ * tier's list is replaced: siblings in the same tier are never a dependency of
+ * one another, and leaving them in would let one item's failure be read off
+ * another's name.
+ *
+ * THE ANSWER IS FOUND BY NAME AND THAT IS DELIBERATE REDUNDANCY, NOT A NEED.
+ * Only this item's own tier list is replaced, so the list handed in has exactly
+ * one entry — MEASURED over six probes, including a declaration whose name
+ * collides with a stored one: a one-item list in gives at most a one-item list
+ * out, so `got[0]` answers the same thing today. A mutation sweep therefore
+ * reports this as a survivor and the next session deletes it, which is why it
+ * is written down: a normaliser that re-attaches a stored sibling would shift
+ * every index behind it, and that is exactly what `normalizeSchema` already
+ * does for a job on a stored internal function.
+ */
+function keptItem(context, tier, def) {
+  const list = TIER_LIST[tier];
+  if (!list) return null;
+  const base = context && typeof context === "object" ? context : {};
+  const out = normalizeSchema({ ...base, [list]: [def] });
+  const got = Array.isArray(out[list]) ? out[list] : [];
+  const name = String((def && def.name) || "").toLowerCase();
+  return got.find((x) => String((x && x.name) || "").toLowerCase() === name) || null;
 }
 
-export function droppedFields(spec) {
-  if (!spec || typeof spec !== "object") return [];
-  const raw = declaredTables(spec);
-  const seen = new Set();
+/** True when deleting `key` leaves the normalised item byte for byte the same. */
+function changedNothing(context, tier, def, key, keptJson) {
+  const without = { ...def };
+  delete without[key];
+  return JSON.stringify(keptItem(context, tier, without) || null) === keptJson;
+}
+
+/**
+ * TRUE WHEN DECLARING `key` PUT NOTHING LIVE ON THE ITEM.
+ *
+ * Byte-equality is the wrong test for a refusal and BOTH WAYS OF BEING WRONG
+ * WERE MEASURED, which is why this is its own function rather than a conjunct
+ * on `changedNothing`:
+ *
+ *   `cacheSeconds: 300` on a connection is kept as `ttl: 300`. The key vanishes
+ *   under its own name, so "declared truthy, kept falsy" — the old table-only
+ *   reading — calls it REFUSED on every connection that declares a cache
+ *   window. Byte-equality tells them apart (removing it moves `ttl` to 60), and
+ *   so does this: the field's effect is `ttl: 300`, which is live.
+ *
+ *   `maxRows: -5` is kept as `maxRows: 0`, and zero means NO CAP (`if
+ *   (t.maxRows > 0)`). The guarantee really was refused — but removing the
+ *   field gives `undefined` rather than `0`, so byte-equality calls it
+ *   HONOURED. Measured as the one divergence from the old reader over a
+ *   64-spec A/B, and the old reader was right about it.
+ *
+ * So the question is neither "did anything move" nor "is the key still there",
+ * but WHETHER ANYTHING THE FIELD MOVED IS TRUTHY. A field whose whole effect is
+ * to write a falsy value delivered nothing; a field that wrote a live value
+ * under any name delivered something.
+ *
+ * A FIELD WHOSE REMOVAL DESTROYS THE ITEM IS NEVER REPORTED: it was structural,
+ * not a guarantee, and the caller's `unbuilt` covers an item that did not
+ * survive at all. THIS TOO IS DELIBERATE REDUNDANCY and is unreachable today —
+ * MEASURED across all four tiers: every shape whose required field is binned is
+ * dropped WHOLE, so no field-level question is ever asked about it, and no tier
+ * has an OPTIONAL field whose removal destroys the item. It is kept because
+ * that property belongs to the four item shapes rather than to this function,
+ * and a required field added to one of them next month changes it.
+ */
+function effectAllFalsy(context, tier, def, key, kept) {
+  const without = { ...def };
+  delete without[key];
+  const other = keptItem(context, tier, without);
+  if (!other) return false;
+  for (const k of new Set([...Object.keys(kept), ...Object.keys(other)])) {
+    const a = kept[k] === undefined ? null : kept[k];
+    const b = other[k] === undefined ? null : other[k];
+    if (JSON.stringify(a) === JSON.stringify(b)) continue;
+    if (declaredTruthy(a)) return false;
+  }
+  return true;
+}
+
+/** A declaration worth testing: absent, falsy and empty all read as "not asked". */
+function declaredTruthy(v) {
+  if (!v) return false;
+  if (Array.isArray(v)) return !!v.length;
+  if (typeof v === "object") return !!Object.keys(v).length;
+  return true;
+}
+
+/**
+ * WHAT ONE TIER OF A DECLARATION REACHED FOR, WAS REFUSED, AND LOST WHOLE.
+ *
+ * `{scanned, reached, refused, unbuilt}` — and `scanned` is not decoration. Every
+ * other field here is a NEGATIVE assertion, and `[].every(...)` is `true`: an
+ * empty `refused` means "nothing was refused" only if something was looked at.
+ * A caller that reports "no problems" without reading `scanned` is reporting the
+ * observer's silence, which is this repository's most expensive recorded class.
+ *
+ * `unbuilt` IS THE ONE THAT ONLY EXISTS ABOVE THE TABLE TIER. A table that fails
+ * is nearly always a table with a refused field; a FUNCTION whose body names an
+ * internal table, or whose return type names a table nobody declared, and a JOB
+ * whose function did not survive, are dropped WHOLE — no field to point at, no
+ * trace anywhere, and the customer is told the feature was added.
+ *
+ * `refused` ASKS `effectAllFalsy`, NOT "IS THE KEY STILL THERE". That function
+ * carries the two measured reasons and both of them are real answers the naive
+ * reading gets wrong — a renamed field reported as refused, and a refused
+ * numeric guarantee reported as honoured. MEASURED over a 64-spec A/B against
+ * the old table-only readers: **zero differences on `reached`, and one on
+ * `refused` — `maxRows: -5`, which the old reader called refused and it IS.**
+ */
+export function auditTier(spec, tier = "table", context = null) {
+  const offered = TOOL_FIELDS[tier];
+  const identity = NOT_A_GUARANTEE[tier];
+  const empty = { scanned: 0, reached: [], refused: [], unbuilt: [] };
+  if (!offered || !spec || typeof spec !== "object") return empty;
+  const raw = declaredItems(spec, tier);
+  const reached = new Set(), refused = new Set(), unbuilt = [];
+  let scanned = 0;
   for (const def of raw) {
-    if (!def || typeof def !== "object" || Array.isArray(def)) continue;
-    // The table as the engine sees it, once. Everything below is compared to it.
-    const kept = JSON.stringify(normalizeSchema({ tables: [def] }).tables[0] || null);
+    scanned++;
+    const kept = keptItem(context, tier, def);
+    if (!kept) {
+      // Named, never valued: the item's own name is the customer's word for the
+      // feature and is the only thing worth saying back. `MAX_DROPPED` bounds
+      // this list the way it bounds the other two.
+      if (unbuilt.length < MAX_DROPPED) unbuilt.push(String(def.name || "(unnamed)"));
+      continue;
+    }
+    const keptJson = JSON.stringify(kept);
     for (const key of Object.keys(def)) {
-      if (seen.size >= MAX_DROPPED) return [...seen].sort();
-      if (TOOL_TABLE_FIELDS.has(key)) continue;
-      const v = def[key];
-      // A falsy value cannot be told apart from absence, and an empty array or
-      // object is the same — reporting those buries the signal in defaults.
-      if (!v) continue;
-      if (Array.isArray(v) ? !v.length : (typeof v === "object" && !Object.keys(v).length)) continue;
-      const without = { ...def };
-      delete without[key];
-      if (JSON.stringify(normalizeSchema({ tables: [without] }).tables[0] || null) === kept) seen.add(key);
+      if (reached.size >= MAX_DROPPED && refused.size >= MAX_DROPPED) break;
+      if (!declaredTruthy(def[key])) continue;
+      const inTool = offered.has(key);
+      if (inTool && identity.has(key)) continue;
+      if (inTool) {
+        if (refused.size >= MAX_DROPPED) continue;
+        if (!declaredTruthy(kept[key]) && effectAllFalsy(context, tier, def, key, kept)) refused.add(key);
+      } else {
+        if (reached.size >= MAX_DROPPED) continue;
+        if (changedNothing(context, tier, def, key, keptJson)) reached.add(key);
+      }
     }
   }
-  return [...seen].sort();
+  return { scanned, reached: [...reached].sort(), refused: [...refused].sort(), unbuilt };
+}
+
+export function refusedFields(spec, tier = "table", context = null) {
+  return auditTier(spec, tier, context).refused;
+}
+
+export function droppedFields(spec, tier = "table", context = null) {
+  return auditTier(spec, tier, context).reached;
+}
+
+export function unbuiltItems(spec, tier = "table", context = null) {
+  return auditTier(spec, tier, context).unbuilt;
 }

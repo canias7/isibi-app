@@ -30,6 +30,24 @@ export const MAX_PER_MINUTE = 60;
 export const TIMEOUT_MS = 8000;
 /** A declared cache window is clamped into this. */
 export const MIN_TTL = 0, MAX_TTL = 3600;
+/**
+ * THE LONGEST POST BODY A CONNECTION MAY CARRY, AND THE ONE PLACE IT IS SAID.
+ *
+ * This was a bare `4000` inside `normalizeApi`, and the slice below it is
+ * SILENT: a declaration with a 5,000-character body normalised to 4,000 and the
+ * site then POSTed a truncated request to somebody else's server, for ever,
+ * with nothing anywhere saying so. MEASURED before it was named — 5000 in,
+ * 4000 out.
+ *
+ * A GET NORMALISES TO `""` WHATEVER IT DECLARED, which is why a GET fixture
+ * cannot see any of this and why the guard uses a real POST.
+ *
+ * The cleaner on the addon path REFUSES a body over this rather than cutting
+ * it, importing this constant so the refusal and the wall are one number —
+ * `laneMaxTokens`' rule: derive the cap from the refusal, never a second list.
+ * The slice stays as a belt for a payload that never met the cleaner.
+ */
+export const MAX_API_BODY = 4000;
 
 /**
  * Cloudflare KV refuses an `expirationTtl` under 60 seconds.
@@ -96,7 +114,7 @@ export function normalizeApi(raw) {
   const params = [...new Set((Array.isArray(raw.params) ? raw.params : [])
     .map((p) => String(p).toLowerCase())
     .filter((p) => /^[a-z][a-z0-9_]{0,40}$/.test(p)))].slice(0, 8);
-  const body = method === "POST" && typeof raw.body === "string" ? raw.body.slice(0, 4000) : "";
+  const body = method === "POST" && typeof raw.body === "string" ? raw.body.slice(0, MAX_API_BODY) : "";
   let ttl = parseInt(raw.cacheSeconds != null ? raw.cacheSeconds : raw.ttl, 10);
   ttl = Number.isFinite(ttl) ? Math.max(MIN_TTL, Math.min(MAX_TTL, ttl)) : 60;
   return { name, url, method, headers, params, body, ttl };

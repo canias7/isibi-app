@@ -120,7 +120,12 @@ test("every field the edit path refuses to create has a kind here, and the route
   // a real destination — the designer answered nothing without it. A read
   // that fails leaves it blank rather than refusing every other kind.
   assert.match(b, /let aUrl = "";\s*try \{ aUrl = await publicUrlFor\(env, ownerSlug\); \} catch \{ aUrl = ""; \}/, "the addon does not read the site's public address, or a failed read is not blank");
-  const siteLit = b.slice(b.indexOf("const aSite = {"), b.indexOf("};", b.indexOf("const aSite = {")));
+  // RE-ANCHORED 2026-09-14: `const aSite = {` became `const siteFacts = (spec)
+  // => ({` — the facts are REBUILT after each kind, so a designer sees what the
+  // ones before it proposed rather than the stored site alone.
+  const factsAt = b.indexOf("const siteFacts = (spec) => ({");
+  assert.ok(factsAt > 0, "the site facts are no longer built from a spec");
+  const siteLit = b.slice(factsAt, b.indexOf("});", factsAt));
   assert.match(siteLit, /\burl: aUrl,/, "the site note is not handed the address");
   // …AND WHAT EACH PAGE CALLS ITSELF (run 28), out of the stored source and
   // the stored plan, so "the booking page" is findable among routes.
@@ -186,7 +191,18 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // `builder/site-seed.mjs` all read it. It carries VOCABULARY (the five
     // preset names) and no path's wording, which is the property this test is
     // really about — the wording check below is what enforces that half.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "../site-access.mjs"].includes(from),
+    // `../site-schema.mjs` and `../site-apis.mjs` (2026-09-14) are the two
+    // ENGINES, shared by the build path and the addon path alike, and what is
+    // taken from each is ONE NUMBER: the longest body it will accept. Both
+    // engines SLICE, silently, and this step's own cleaner sliced too — at
+    // 8,000 against the engine's 4,000, so a body in between passed here whole
+    // and was cut on the way into Postgres. A refusal derived from the wall is
+    // the repository's own rule (`laneMaxTokens`); a refusal retyped beside it
+    // is the "two copies of one thing" trap, which is what the old 8,000 was.
+    // THE COST IS NAMED: `site-schema.mjs` pulls the Neon driver in, so this
+    // module is no longer dependency-free at load. It carries no path's
+    // wording, which is the property this test is really about.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -900,9 +916,20 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   assert.match(W, /import \{[^}]*\bnormalizeJob\b[^}]*\} from "\.\/site-jobs\.mjs"/, "the engine's job reader is not imported");
   // THE SITE, as the designers see it: the tables with their columns, the
   // three tiers by name, and the internal functions apart.
-  const site = b.slice(at(b, "const aSite = {", "site"), at(b, "hasDatabase: !!adb,", "site end"));
+  // RE-ANCHORED 2026-09-14, and the rename is the change: the facts are a
+  // FUNCTION of a spec now, called once on the frozen baseline and again after
+  // every kind on the accumulated proposal. `aSpec` became the parameter for
+  // the same reason — reading the baseline here would show the fifth designer
+  // the site as it was before the first one ran.
+  const site = b.slice(at(b, "const siteFacts = (spec) => ({", "site"), at(b, "hasDatabase: !!adb,", "site end"));
   for (const key of ["columns:", "functions:", "jobFns:", "apis:", "jobs:"]) assert.ok(site.includes(key), "the site note is not handed " + key);
-  assert.match(site, /jobFns: \(\(aSpec && aSpec\.functions\) \|\| \[\]\)\.filter\(\(f\) => f && f\.name && f\.internal\)/, "`jobFns` is not the INTERNAL functions");
+  assert.match(site, /jobFns: \(\(spec && spec\.functions\) \|\| \[\]\)\.filter\(\(f\) => f && f\.name && f\.internal\)/, "`jobFns` is not the INTERNAL functions");
+  // …AND WHICH OF THEM THIS MESSAGE IS STILL BUILDING, so a designer can rely
+  // on a name AND know it is not there yet. Asserted on the addon block rather
+  // than on `site`: that window closes at `hasDatabase`, which sits ABOVE this
+  // line — the recorded "a window running to a named neighbour" trap, met
+  // writing the assertion rather than reading one.
+  assert.match(b, /proposed: \{ \.\.\.aNewNames \}/, "the note cannot tell a stored name from one being added right now");
   assert.match(site, /c\.name \+ \(c\.type \? " " \+ c\.type : ""\)/, "a column is not printed with its type");
   // THE FUNCTION DESIGNER'S ANSWERS REACH THE JOB DESIGNER: appended to the
   // site's lists as they are cleaned, the internal ones to `jobFns`, under
@@ -914,9 +941,22 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   assert.match(b.slice(push, push + 200), /aAnswers\.push\(\{ kind: k, value: clean\.value, requirements: ran\.requirements \}\);/,
     "the kept answer drops the coverage list the designer answered");
   const feed = b.slice(push, at(b, "await saveAddonAnswer(", "kept replies"));
-  assert.match(feed, /if \(k === "function"\) \{/, "the feed is not gated on the function kind");
-  assert.match(feed, /if \(!aSite\.functions\.includes\(f\.name\)\) aSite\.functions\.push\(f\.name\);/, "a designed function does not join the site's list");
-  assert.match(feed, /if \(f\.internal === true && !aSite\.jobFns\.includes\(f\.name\)\) aSite\.jobFns\.push\(f\.name\);/, "an internal one does not join `jobFns`, or a public one does");
+  // RE-ANCHORED 2026-09-14, AND THE PROPERTY WIDENED RATHER THAN MOVED. This
+  // pinned two hand-written pushes gated on `k === "function"` — the only two
+  // facts that ever crossed between the kinds' separate model calls, so the
+  // `api` designer could not see the table just designed and the `page`
+  // designer was handed the STORED site. One accumulation replaces them: the
+  // cleaned items fold into the proposal and the facts are rebuilt from it, so
+  // EVERY later designer sees everything decided so far — the function reaching
+  // the job designer included, which is what these three lines were for.
+  assert.match(feed, /aProposed = proposedSpec\(aProposed, k, clean\.value\)/, "a designed item never joins the proposal");
+  assert.match(feed, /aSite = siteFacts\(aProposed\)/, "the next designer is not shown what this one designed");
+  assert.match(feed, /if \(k === "function" && one\.internal === true && !aNewNames\.jobFns\.includes\(one\.name\)\) aNewNames\.jobFns\.push\(one\.name\)/,
+    "an internal function does not join `jobFns`, or a public one does");
+  // …AND `jobFns` REMAINS THE INTERNAL ONES ONLY, which is the half a job's
+  // cleaner reads: the engine drops a job naming any other function, silently.
+  assert.match(site, /jobFns: \(\(spec && spec\.functions\) \|\| \[\]\)\.filter\(\(f\) => f && f\.name && f\.internal\)/,
+    "`jobFns` stopped being the internal functions");
   // THE DATABASE ON FIRST TOUCH: any tier designed, no connection → make
   // one, before the schema work, gated under a job, and a failure is ours
   // — named, scrubbed, nothing charged.
