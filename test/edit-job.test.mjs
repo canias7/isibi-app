@@ -27,7 +27,7 @@ import {
   LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S, PUBLISH_LEASE_S,
   EDIT_PHASES, TERMINAL_STATES, isTerminalEdit,
   makeEditBudget, cleanIdemKey, newLeaseOwner, editAsyncOn, editAsyncFor, editAsyncEveryone, readCanaryList,
-  repairClock,
+  repairClock, CONTAINER_EDIT_BUDGET_MS,
 } from "../builder/edit-job.mjs";
 
 // THE CONSTRAINT'S AUTHORITY IS THE NEWEST APPLIED FILE THAT SPELLS IT. It
@@ -158,6 +158,38 @@ test("the reserves are never spendable, and capMs never returns zero", () => {
   assert.equal(b.spendable(), 0);
   assert.ok(b.capMs(30000) >= 1, "capMs returned zero, which fires immediately");
   assert.equal(b.expired(), true);
+});
+
+test("an UNBOUNDED total never expires, and every per-call ceiling survives it", () => {
+  // THE SAFETY ARGUMENT FOR `CONTAINER_EDIT_BUDGET_MS = Infinity` (2026-09-14,
+  // owner: *"Containers shouldn't have a time limit"*), driven rather than
+  // reasoned. Taking the stopwatch off the SUM is only safe because the per-call
+  // ceilings are separate numbers — `QUICK_CALL_MS`, `CONTAINER_CALL_MS`,
+  // `STEP_TIMEOUT` — and each reaches the work through `capMs`. If `capMs` read
+  // its room as the answer rather than as a ceiling, an infinite total would
+  // hand every call an infinite timer and the container would have no bound at
+  // ANY layer.
+  //
+  // NOTHING ELSE IN THE SUITE DROVE THIS. Every other `makeEditBudget` case
+  // passes a finite total, so the whole of `Infinity`'s behaviour was measured
+  // by hand and asserted nowhere — which is this repository's own "a rule
+  // nobody re-measured is a claim ahead of its evidence", one layer under a
+  // change that rests on it.
+  let t = 0;
+  const b = makeEditBudget(CONTAINER_EDIT_BUDGET_MS, () => t);
+  t = 10 * 60 * 60_000;                       // ten hours in
+  assert.equal(b.expired(), false, "an unbounded budget expired");
+  assert.equal(b.remaining(), Infinity);
+  assert.equal(b.spendable(), Infinity, "an unbounded budget's work room is a number");
+  assert.equal(b.canCorrect(), true, "an unbounded budget refused a correction round");
+  // THE CEILINGS: each is the CALLER'S number, unmoved, in all three modes.
+  assert.equal(b.capMs(600000), 600000, "an unbounded total moved a per-call ceiling");
+  assert.equal(b.capMs(240000, { publishing: true }), 240000);
+  assert.equal(b.capMs(240000, { repairing: true }), 240000);
+  assert.equal(b.capMs(1000), 1000, "an unbounded total moved a small per-call ceiling");
+  // AND THE LIVE VALUE REALLY IS THAT ANSWER, so the case above is about the
+  // shipping configuration and not a hypothetical one.
+  assert.equal(CONTAINER_EDIT_BUDGET_MS, Infinity);
 });
 
 test("nothing extends the budget — a heartbeat renews the lease, not the clock", () => {

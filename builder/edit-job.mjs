@@ -63,38 +63,70 @@ export const CONSUMER_CEILING_MS = 900000;
 export const EDIT_JOB_MS = 840000;
 
 /**
- * THE SAME JOB, IN THE SITE'S OWN CONTAINER — twenty-seven minutes, and the
- * pair below mirrors `BUILD_JOB_MS` / `CONTAINER_BUILD_BUDGET_MS` exactly.
+ * THE SAME JOB, IN THE SITE'S OWN CONTAINER — AND THE WORK IS NOT ON A CLOCK
+ * THERE (owner, 2026-09-14: *"Containers shouldn't have a time limit"*).
  *
  * EVERY WORD OF `EDIT_JOB_MS`'s REASONING IS ABOUT AN ISOLATE, and inside the
  * container there is not one. `CONSUMER_CEILING_MS` is Cloudflare stopping the
- * queue consumer at fifteen minutes; the runner is a Node process under the
- * job's own deadline, which nothing stops at fifteen. Builds were moved across
- * on 2026-09-06 (stage 5b) and given this pair for precisely that reason. The
- * edit branch of `runContainerJob` was wired the same day and passed no budget
- * at all, so it kept falling back to the fourteen minutes above — a number
- * sized for a place it is no longer in.
+ * queue consumer at fifteen minutes; the runner is a Node process, and nothing
+ * out there stops it. Builds moved across on 2026-09-06 (stage 5b) and the edit
+ * branch followed on 2026-09-14 — and BOTH were given a twenty-seven minute
+ * work budget, which was this repository choosing a stopwatch for a place that
+ * has none. The owner's sentence is the correction and it is right.
  *
- * THE RECORDED TRAP, IN THE MONEY PATH: a rule true because of a layer below it
- * expires when that layer moves, and nothing announces it. It cost run 44
- * (2026-09-14, `repairbench-1`, ask A) — stopped at 12m22s with the database
- * provisioned, the page written and nothing published, on a job that had
- * another thirteen minutes of room it could not see.
+ * ── SO THE TWO NUMBERS MEAN DIFFERENT THINGS NOW, AND ONLY ONE IS A CLOCK ───
  *
- * MEASURED, which is what decides it is enough: run 44's whole chain was
- * picker 27s + table designer 138s + page designer 106s + provision 9s + the
- * page call 459s = 741s, and it needed a compile (157s, run 32) and a publish
- * on top — about eighteen minutes for the most expensive addon this platform
- * has produced. Twenty-seven leaves nine minutes over that, which is the same
- * proportion of headroom builds run with.
+ * `CONTAINER_*_BUDGET_MS` is `Infinity`: the WORK is never cut short by elapsed
+ * time. Every per-call ceiling survives untouched and is what really bounds a
+ * job — `capMs(cap)` answers `cap` against an infinite total (driven), so the
+ * model calls keep `QUICK_STREAM_MS` / `BUILDER_CALL_MS`, each subprocess keeps
+ * the container's own `STEP_TIMEOUT`, and the fan-out keeps its permits. What
+ * goes is only the sum: a job may take as long as its steps take.
  *
- * THREE MINUTES BETWEEN THE TWO, as builds have: the outer number mints the
- * job token's expiry and the deadline the build service kills a child by, the
- * inner one is what the work is measured against, and the gap is the room the
- * refund, the terminal write and the trace need AFTER the deadline fires.
+ * `CONTAINER_*_JOB_MS` STAYS, and it is NOT a work budget. It is two things
+ * that genuinely need an outer bound, neither of them about how long work may
+ * take:
+ *
+ *   1. THE JOB'S CREDENTIAL. The launch carries a signed token that opens the
+ *      platform gateway — this job's R2 keys and its own RPCs. A token with no
+ *      expiry is a permanent credential sitting in a container, which is worse
+ *      than a job that ends.
+ *   2. A WEDGE-BREAKER, for a job that is ALIVE and never finishing. The lease
+ *      already covers the other case and covers it far better: `edit_sweep_lost`
+ *      selects on `lease_expires_at < now() - grace`, never on elapsed, so a job
+ *      that stops beating is reclaimed in ~90s and a job that keeps beating is
+ *      NEVER swept however long it runs. What the lease cannot see is a process
+ *      that is alive, heartbeating and looping — our own bug — and this is the
+ *      only thing that ends it.
+ *
+ * FIFTY MINUTES, AND THE CEILING IS NOT A PREFERENCE — IT IS A LIVE RPC.
+ * The first cut of this wrote four hours and `test/build-jobs.test.mjs` refused
+ * it by arithmetic, which is the guard doing exactly its job: `HANDOFF_TTL_S`
+ * is DERIVED as `MAX_BUSY_HOLD_MS / 1000`, and `edit_handoff` raises
+ * `bad ttl` past **3600 seconds**. So the chain
+ * `deadline + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60s ≤ 3600s` caps the
+ * deadline at 57.5 minutes, and fifty leaves 450 seconds of headroom in the
+ * one number a Postgres function can refuse outright. **Lifting it is a
+ * migration** — a real change to a live database and the owner's call, not a
+ * constant this file can move.
+ *
+ * The trade at fifty is stated rather than tuned. Short is what hurt: a bound
+ * under real work killed run 44 at 12m22s with the database provisioned, the
+ * page written and nothing published. Long costs one thing — a site wedged by a
+ * bug in OUR code stays busy for that long — and that case has never been
+ * observed, where the other has. Two and three-quarter times the longest job
+ * this platform has produced (~18 min: run 44's 741s chain + a 157s compile +
+ * a publish), against 1.5x before.
+ *
+ * AND `MAX_BUSY_HOLD_MS` MUST STAY ABOVE THIS, which is a fix and not an
+ * adjustment: it was 30 minutes while `BUILD_JOB_MS` was also 30, so the
+ * container was stopped at the deadline while the terminator's SIGTERM is at
+ * deadline + `JOB_KILL_GRACE_MS`. The graceful stop — the job answering
+ * `stopped` at its own gate, refunding through the row's own door — was
+ * unreachable at the deadline for as long as those two numbers were equal.
  */
-export const CONTAINER_EDIT_JOB_MS = 30 * 60_000;
-export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;
+export const CONTAINER_EDIT_JOB_MS = 50 * 60_000;
+export const CONTAINER_EDIT_BUDGET_MS = Infinity;
 
 /**
  * Held back for the publish sweep: the dist write, the archive, the source, the
@@ -155,7 +187,21 @@ export const TERMINAL_RESERVE_MS = 15000;
  * no ceiling applies, because there is no fifteen-minute invocation there.
  */
 export function inlineBudgetMs(startedAt, want, now = Date.now()) {
-  const wanted = Number.isFinite(want) && want > 0 ? want : EDIT_JOB_MS;
+  // `Infinity` IS A STATED ANSWER — "no clock" — AND NOT JUNK (2026-09-14).
+  //
+  // `Number.isFinite(Infinity)` is false, so before this the container's own
+  // "no time limit" want fell through to `EDIT_JOB_MS` and a container job got
+  // FOURTEEN MINUTES: the exact inverse of what the caller asked for, silently.
+  // The recorded "cannot-tell must never read as a value", with the value and
+  // the cannot-tell swapped — the one shape where the default is the most wrong
+  // answer available rather than a safe one.
+  //
+  // AND THE CLAMP BELOW STILL GOVERNS, which is what makes this safe rather
+  // than merely permissive: `Math.min(Infinity, left)` is `left`, so a WORKER
+  // delivery handed an infinite want is still bounded by what its isolate has
+  // left. Only a caller with no clock at all — the container's runtime — can
+  // actually receive it.
+  const wanted = want === Infinity || (Number.isFinite(want) && want > 0) ? want : EDIT_JOB_MS;
   if (!Number.isFinite(startedAt) || startedAt <= 0) return wanted;
   const spent = Math.max(0, now - startedAt);
   const left = CONSUMER_CEILING_MS - TERMINAL_RESERVE_MS - spent;

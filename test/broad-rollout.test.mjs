@@ -183,25 +183,33 @@ test("each consumer's budget is what the invocation has left, and the container'
 // that pair, and the cases below are what keeps it from being either number by
 // accident.
 
-test("the edit's container pair mirrors the build's, is longer than the Worker's, and is a clock only the container can hold", () => {
-  // MIRRORED, not merely both large: the outer number mints the job token's
-  // expiry and the deadline the build service kills a child by, the inner one
-  // is what the work is measured against, and the gap is the room the refund,
-  // the terminal write and the trace need after the deadline fires.
-  assert.equal(CONTAINER_EDIT_JOB_MS, BUILD_JOB_MS, "the two kinds' outer clocks disagree — one of them is wrong about how long a container may hold a job");
+test("the container's work is on NO clock, and the two kinds agree about that and about the deadline that remains", () => {
+  // INVERTED 2026-09-14, the day after it was written, and the inversion is the
+  // point rather than a correction of a slip. This case asserted that the
+  // container's budget was a NUMBER — bigger than the Worker's, smaller than
+  // the deadline, with a stated gap — which was this repository sizing a
+  // stopwatch for a place that has none. Owner: *"Containers shouldn't have a
+  // time limit."*
+  assert.equal(CONTAINER_EDIT_BUDGET_MS, Infinity, "the container's edit budget is a stopwatch again");
   assert.equal(CONTAINER_EDIT_BUDGET_MS, CONTAINER_BUILD_BUDGET_MS, "the two kinds' work budgets disagree inside one container");
-  assert.ok(CONTAINER_EDIT_BUDGET_MS < CONTAINER_EDIT_JOB_MS, "the work may run until the moment its own deadline fires, leaving nothing for the refund and the terminal write");
-  const gap = CONTAINER_EDIT_JOB_MS - CONTAINER_EDIT_BUDGET_MS;
-  assert.ok(gap >= TERMINAL_RESERVE_MS, "the gap between the deadline and the budget is under the terminal reserve: " + gap);
-  // WORTH HAVING: a container budget at or under the Worker's buys nothing, and
-  // is the state this change found.
-  assert.ok(CONTAINER_EDIT_BUDGET_MS > EDIT_JOB_MS, "the container's edit budget is not longer than the Worker's — the change buys nothing");
-  // AND IT IS ONLY LEGAL WHERE IT RUNS. If it fitted inside a Worker
-  // invocation there would be no reason for two numbers at all; it does not,
-  // which is exactly why handing it to a Worker delivery must be impossible
-  // (the dispatch's `startedAt` assertion above) and why `inlineBudgetMs`
-  // clamps it if one ever did.
-  assert.ok(CONTAINER_EDIT_BUDGET_MS > CONSUMER_CEILING_MS, "the container's edit budget fits inside a Worker isolate, so the two numbers say the same thing");
+  assert.equal(CONTAINER_EDIT_JOB_MS, BUILD_JOB_MS, "the two kinds' outer clocks disagree — one of them is wrong about how long a container may hold a job");
+  // AND THE UNBOUNDED BUDGET IS ONLY SAFE BECAUSE OF WHAT STAYS BOUNDED.
+  // `expired()` never fires now, so the thing that ends a wedged job is the
+  // DEADLINE, which reaches the child as a SIGTERM one kill-grace past it — and
+  // that SIGTERM is only deliverable while the container is still held. The
+  // ordering is asserted in build-runner beside `MAX_BUSY_HOLD_MS`; what
+  // matters here is that the deadline is a real finite number and did not go
+  // infinite with the budget.
+  assert.ok(Number.isFinite(CONTAINER_EDIT_JOB_MS) && CONTAINER_EDIT_JOB_MS > 0,
+    "the outer bound went infinite with the work budget — nothing then ends a job that is alive and never finishing, and it holds its site's lease for ever");
+  // WORTH HAVING: a deadline at or under the Worker's whole clock would make
+  // the container pointless, which is the state this pair was found in.
+  assert.ok(CONTAINER_EDIT_JOB_MS > EDIT_JOB_MS, "the container's deadline is not longer than the Worker's own clock — running there buys nothing");
+  assert.ok(CONTAINER_EDIT_JOB_MS > CONSUMER_CEILING_MS, "the container's deadline fits inside a Worker isolate, so the two numbers say the same thing");
+  // AND THE RESERVES ARE STILL REAL NUMBERS. They stop being load-bearing
+  // against an infinite total — nothing is ever running out — but a caller that
+  // reads them arithmetically must not meet a NaN.
+  assert.ok(Number.isFinite(TERMINAL_RESERVE_MS) && TERMINAL_RESERVE_MS > 0);
 });
 
 test("inlineBudgetMs over the edit's container cap: unclamped where there is no invocation, clamped where there is", () => {

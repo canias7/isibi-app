@@ -49,14 +49,32 @@ export const JOB_KIND = "site-build";
 // because the fields that would be misread are the auth token and the body.
 export const JOB_VERSION = 1;
 
-// A BUILD'S CLOCK INSIDE THE SITE'S CONTAINER (stage 5b, 2026-09-06): the
-// launch's deadline and the token's expiry are minted from it when the
-// Worker's consumer fires a build at the runner. Thirty minutes — every build
-// ever measured finished inside twelve, and the generation alone can take
-// ten; the container's own build budget (build-budget.mjs) runs under it
-// with room left for the stand-in and the terminal writes, and the build
-// service's terminator (job-clock.mjs) stops a child that outlives it.
-export const BUILD_JOB_MS = 30 * 60_000;
+// A BUILD'S OUTER BOUND INSIDE THE SITE'S CONTAINER (stage 5b, 2026-09-06;
+// re-framed and raised 2026-09-14, owner: "Containers shouldn't have a time
+// limit"). The launch's deadline and the token's expiry are minted from it.
+//
+// IT IS NOT A WORK BUDGET ANY MORE. `CONTAINER_BUILD_BUDGET_MS` is `Infinity`
+// now — the work is bounded by its own per-step ceilings and by nothing else —
+// so this number does exactly two jobs, neither of them "how long a build may
+// take":
+//
+//   1. THE TOKEN'S LIFETIME. The launch carries a signed credential that opens
+//      the platform gateway for this job. One with no expiry is a permanent
+//      credential left in a container.
+//   2. A WEDGE-BREAKER for a child that is alive and never finishing — our own
+//      bug, since every step it could be in is separately bounded. The lease
+//      covers the commoner case and covers it better: `edit_sweep_lost` reads
+//      `lease_expires_at`, not elapsed, so a dead job is reclaimed in ~90s and
+//      a beating one is never swept.
+//
+// FIFTY MINUTES, matching CONTAINER_EDIT_JOB_MS, whose comment carries the
+// trade in full — including why it is not larger: `HANDOFF_TTL_S` derives from
+// `MAX_BUSY_HOLD_MS` and `edit_handoff` refuses a TTL past 3600 s, so the whole
+// chain caps this at 57.5 minutes and lifting it needs a migration. `MAX_BUSY_HOLD_MS` must stay ABOVE it plus both kill graces, or the
+// container is stopped before the terminator's SIGTERM can reach the child and
+// the graceful stop is unreachable — which is what the two being EQUAL at
+// thirty minutes quietly meant until today.
+export const BUILD_JOB_MS = 50 * 60_000;
 
 // A job id is 32 hex characters — 128 bits from `crypto.getRandomValues`. It is
 // unguessable on purpose: whoever holds it names an R2 key holding a live access

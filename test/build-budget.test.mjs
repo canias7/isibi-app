@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS } from "../builder/build-budget.mjs";
+import { makeBudget, budgetNote, budgetStage, raceDeadline, BUILD_BUDGET_MS, CONTAINER_CALL_MS, CONTAINER_BUILD_BUDGET_MS } from "../builder/build-budget.mjs";
 // FROM THE MODULE THAT DEFINES IT, never re-typed here. A build's ceiling is
 // what the small-call ceiling is measured against below, and a hand-typed copy
 // of it is a second version of the same number that drifts in silence.
@@ -52,15 +52,36 @@ test("expiry is the boundary, not past it", () => {
   assert.equal(b.expired(), true, "a build exactly at its budget is out of time");
 });
 
-test("a nonsense budget is the DEFAULT, never zero", () => {
+test("a nonsense budget is the DEFAULT, never zero — and Infinity is an ANSWER, not nonsense", () => {
   // Read as zero, a config typo refuses every build on the platform instantly —
   // by a module whose whole job is to be unobtrusive. The same fail-safe
   // direction `pruneVersions` and the audit-log retention already take.
-  for (const bad of [undefined, null, 0, -5, NaN, Infinity, "900000", {}]) {
+  //
+  // `Infinity` LEFT THIS LIST ON 2026-09-14 and that is the change, not an
+  // exemption. It is the container's own "no time limit" (owner's words), and
+  // `Number.isFinite` refusing it meant a container build asking for no ceiling
+  // was handed `BUILD_BUDGET_MS` — thirteen minutes, sized for a Worker
+  // consumer it is not running in — with every gate below refusing work at the
+  // wrong wall and nothing saying so. For this ONE input the fallback is the
+  // most wrong answer available rather than a safe one.
+  for (const bad of [undefined, null, 0, -5, NaN, "900000", {}, -Infinity, [], true]) {
     const b = makeBudget(bad, fakeClock().now);
     assert.equal(b.totalMs, BUILD_BUDGET_MS, `makeBudget(${JSON.stringify(bad)}) did not fall back`);
     assert.equal(b.expired(), false, `makeBudget(${JSON.stringify(bad)}) starts already expired`);
   }
+  // AND THE STATED ANSWER IS KEPT, with the two halves that make it safe:
+  // nothing ever expires, and every PER-CALL ceiling is untouched — which is
+  // what still bounds a container job once the sum does not.
+  const clock = fakeClock();
+  const free = makeBudget(Infinity, clock.now);
+  assert.equal(free.totalMs, Infinity, "an unbounded budget fell back to a clock");
+  clock.advance(10 * 60 * 60_000);
+  assert.equal(free.expired(), false, "an unbounded budget expired");
+  assert.equal(free.capMs(600000), 600000, "an unbounded total moved a per-call ceiling");
+  assert.equal(free.capMs(1000), 1000, "an unbounded total moved a small per-call ceiling");
+  // The live value really is that answer, so the case above is about the
+  // shipping configuration and not a hypothetical one.
+  assert.equal(CONTAINER_BUILD_BUDGET_MS, Infinity, "the container's build budget is a stopwatch again");
 });
 
 test("a clock that throws reads as NO time elapsed, so the build finishes", () => {

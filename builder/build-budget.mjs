@@ -126,14 +126,31 @@ export const BUILD_BUDGET_MS = 780000;
 export const CONTAINER_CALL_MS = 600000;
 
 /**
- * THE BUILD'S BUDGET INSIDE THE SITE'S CONTAINER (stage 5b, 2026-09-06).
+ * THE BUILD'S BUDGET INSIDE THE SITE'S CONTAINER — THERE IS NONE (2026-09-14,
+ * owner: *"Containers shouldn't have a time limit"*).
+ *
  * `BUILD_BUDGET_MS` is thirteen minutes because the Worker's consumer is
- * stopped at fifteen; a build that runs whole in the container — design,
- * generation, compile, publish, no fire and no resume — is bounded by the
- * job's deadline instead (`BUILD_JOB_MS`, thirty minutes), and this is what
- * is left of it once the stand-in and the terminal writes have their room.
+ * stopped at fifteen — a real platform wall. A build that runs whole in the
+ * container stands under no such wall, and from stage 5b (2026-09-06) to today
+ * it was given twenty-seven minutes anyway: this repository choosing a
+ * stopwatch for a place that has none, and then sizing it by what had been
+ * measured so far rather than by anything that would break.
+ *
+ * SO THE WORK IS NOT MEASURED AGAINST ELAPSED TIME HERE. What still bounds a
+ * build is every per-STEP ceiling, untouched: `CONTAINER_CALL_MS` on each model
+ * call, `STEP_TIMEOUT` on each subprocess in the build service, the fan-out's
+ * permits. `capMs(cap)` answers `cap` against an infinite total, so none of
+ * them moves. What goes is only the SUM — a build may take as long as its steps
+ * take.
+ *
+ * THE OUTER BOUND IS `BUILD_JOB_MS` AND IT IS NOT A WORK BUDGET: it mints the
+ * job token's expiry (a credential must expire) and arms the build service's
+ * terminator against a job that is alive and never finishing. `edit_sweep_lost`
+ * covers the other case far better — it selects on `lease_expires_at`, never on
+ * elapsed, so a job that stops beating is reclaimed in ~90 seconds and one that
+ * keeps beating is never swept however long it runs.
  */
-export const CONTAINER_BUILD_BUDGET_MS = 27 * 60_000;
+export const CONTAINER_BUILD_BUDGET_MS = Infinity;
 
 /**
  * The clock a build is measured against.
@@ -160,7 +177,17 @@ export function makeBudget(ms = BUILD_BUDGET_MS, now = () => Date.now(), stop = 
   // config typo both have to mean "the ordinary budget"; read as zero they mean
   // "refuse everything", which is every build on the platform refused instantly
   // by a module whose whole job is to be unobtrusive.
-  const total = typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : BUILD_BUDGET_MS;
+  //
+  // AND `Infinity` IS A STATED ANSWER — "no clock" — NOT A TYPO (2026-09-14,
+  // owner: *"Containers shouldn't have a time limit"*). `Number.isFinite`
+  // refuses it, so before this a container build asking for no ceiling was
+  // handed `BUILD_BUDGET_MS` — thirteen minutes, sized for a Worker consumer —
+  // and every gate below started refusing work at the wrong wall, silently. The
+  // default is the most wrong answer available for this one input, which is the
+  // recorded "cannot-tell must never read as a value" with the two swapped.
+  // Every per-call ceiling survives it: `capMs(cap)` is `min(cap, remaining)`,
+  // and `min(cap, Infinity)` is `cap`.
+  const total = ms === Infinity || (typeof ms === "number" && Number.isFinite(ms) && ms > 0) ? ms : BUILD_BUDGET_MS;
   const t0 = clock();
   const used = () => Math.max(0, clock() - t0);
 

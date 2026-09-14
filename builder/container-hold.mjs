@@ -47,6 +47,15 @@
 // so it lives where it can be driven with literals — the shape `build-lane.mjs`
 // and `site-rebuild.mjs` already use.
 
+// TWO IMPORTS, AND THEY ARE WHAT STOPS `MAX_BUSY_HOLD_MS` BEING A SECOND COPY
+// OF THE JOB'S CLOCK. This module was dependency-free until 2026-09-14; the
+// ceiling below is DERIVED from the deadline it has to outlive, and deriving it
+// is the whole point — a number typed here beside `BUILD_JOB_MS` drifts the next
+// time either moves, which is exactly how the two came to be equal at thirty
+// minutes. Both are Worker-side modules this one already ships beside.
+import { BUILD_JOB_MS } from "./build-job.mjs";
+import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS } from "./job-clock.mjs";
+
 // HOW LONG A CONTAINER MAY BE HELD PAST ITS IDLE TIMEOUT, and it is a backstop
 // rather than a tuned number. Inside the container `STEP_TIMEOUT` bounds every
 // subprocess and `oneAtATime` serialises the queue, but a job that hangs in an
@@ -54,11 +63,29 @@
 // there is no `CONTAINER_CALL_MS` on the other end either. Without a cap, one
 // `/busy` that answers `true` forever is a container that bills forever.
 //
-// 30 minutes: comfortably above one build (7-12 min) plus a second queued behind
-// it in the same lane, and far below anything anybody would call a leak. THE
-// FIRST THING TO RE-MEASURE once a real build has run detached, because today
-// there is no measurement of a detached build at all — only of an attached one.
-export const MAX_BUSY_HOLD_MS = 30 * 60 * 1000;
+// ── IT MUST SIT ABOVE THE JOB'S OWN DEADLINE, AND UNTIL 2026-09-14 IT DID NOT ─
+//
+// This was 30 minutes while `BUILD_JOB_MS` was ALSO 30 minutes, and the two
+// being equal was a defect rather than a coincidence. The build service stops a
+// child at its deadline plus `JOB_KILL_GRACE_MS` (60 s) and kills it
+// `JOB_TERM_GRACE_MS` (30 s) after that — so a job that ran to its deadline had
+// its CONTAINER stopped a minute BEFORE the SIGTERM that lets it end as a job.
+// The graceful path — the runner answering `stopped` at its own gate, the money
+// going back through the row's own door — was unreachable at exactly the moment
+// it exists for, and the symptom would have read as the container crashing.
+//
+// So this is DERIVED from the job's clock rather than chosen beside it: the
+// deadline, both graces, and a minute of slack for a slow last RPC. A number
+// typed here independently is a second copy of `BUILD_JOB_MS` that drifts the
+// next time either moves — which is what happened.
+//
+// AND IT IS THE ONE BOUND HERE THAT IS ABOUT MONEY. `CONTAINER_*_BUDGET_MS` is
+// `Infinity` since 2026-09-14 (owner: "Containers shouldn't have a time limit")
+// and the deadline is a credential lifetime; this is the only one whose cost is
+// a bill. It holds a container that says it is BUSY, so a finished job stops
+// being held at once and the ceiling is only ever reached by a job still
+// working — or wedged, which is what the deadline below it ends.
+export const MAX_BUSY_HOLD_MS = BUILD_JOB_MS + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60_000;
 
 // HOW LONG TO WAIT FOR THE CONTAINER TO SAY WHETHER IT IS BUSY. Generous on
 // purpose: a healthy build spends nearly all its time awaiting a subprocess or a

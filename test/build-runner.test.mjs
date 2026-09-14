@@ -30,7 +30,8 @@ import { CONTAINER_BUILD_BUDGET_MS, BUILD_BUDGET_MS, makeBudget } from "../build
 import { gatewayKey, verifyJobToken, signJobToken, allowedJobKey, allowedJobPrefix, sbDecision, gatewayHandler, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv, refusingQueue, rescopeJob, GatewayBucket } from "../builder/container-env.mjs";
 import { readLaunch, runJob } from "../builder/container-job.mjs";
-import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS } from "../builder/job-clock.mjs";
+import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS, killPlan } from "../builder/job-clock.mjs";
+import { MAX_BUSY_HOLD_MS } from "../builder/container-hold.mjs";
 import { APP_ZONE } from "../site-domains.mjs";
 import { laneName } from "../builder/build-lane.mjs";
 
@@ -48,15 +49,35 @@ const SLUG = "fretwork-1";
 
 // ── the numbers ─────────────────────────────────────────────────────────────
 
-test("the numbers: a build's job is longer than an edit's, the container's build budget is longer than the consumer's ceiling and shorter than the job, with room left for the stand-in and the terminal writes", () => {
-  assert.equal(BUILD_JOB_MS, 30 * 60_000);
-  assert.equal(CONTAINER_BUILD_BUDGET_MS, 27 * 60_000);
-  assert.ok(BUILD_JOB_MS > EDIT_JOB_MS, "a build's job is not longer than an edit's");
-  assert.ok(CONTAINER_BUILD_BUDGET_MS > BUILD_BUDGET_MS, "the container's build budget is not longer than the consumer's ceiling — the point of running it there");
-  assert.ok(BUILD_JOB_MS - CONTAINER_BUILD_BUDGET_MS >= 120_000, "less than two minutes between the budget and the deadline for the placeholder and the terminal writes");
+test("the numbers: the container's build budget is no clock at all, and the deadline that remains is a credential and a wedge-breaker", () => {
+  // RE-ANCHORED 2026-09-14 (owner: "Containers shouldn't have a time limit").
+  // This case used to assert `CONTAINER_BUILD_BUDGET_MS === 27 * 60_000` and
+  // that it sat a stated distance under `BUILD_JOB_MS` — an arithmetic about a
+  // STOPWATCH, and the stopwatch is what went. What is asserted now is the
+  // property that replaced it.
+  assert.equal(CONTAINER_BUILD_BUDGET_MS, Infinity, "the container's build budget is a stopwatch again — the work is measured against elapsed time in a place that has no clock");
+  assert.ok(BUILD_JOB_MS > EDIT_JOB_MS, "a build's outer bound is not longer than a Worker consumer's whole clock");
+  // AND THE OUTER BOUND IS CAPPED BY A LIVE RPC, NOT BY TASTE. `HANDOFF_TTL_S`
+  // derives from `MAX_BUSY_HOLD_MS`, which derives from this; `edit_handoff`
+  // raises `bad ttl` past 3600 s. The first cut of this change wrote four hours
+  // and `test/build-jobs.test.mjs` refused it by that arithmetic — so the
+  // ceiling is asserted HERE too, beside the number it governs, because a
+  // session raising this one has to meet it.
+  assert.ok(MAX_BUSY_HOLD_MS / 1000 <= 3600, "the deadline pushed the derived lease TTL past what edit_handoff accepts — lifting it is a migration");
   // The service stops the child a grace past the deadline and kills it a
   // grace after that; the token outlives the deadline by its grace.
   assert.ok(JOB_TOKEN_GRACE_S * 1000 > JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS, "a stopped build's token expires before the service has finished stopping it");
+  // ── AND THE CONTAINER OUTLIVES ITS OWN CHILD'S GRACEFUL STOP ───────────────
+  //
+  // THE DEFECT THIS REPLACES, in shipped code: `MAX_BUSY_HOLD_MS` was 30
+  // minutes while `BUILD_JOB_MS` was ALSO 30, so a job that ran to its deadline
+  // had its CONTAINER stopped a minute BEFORE the SIGTERM that lets it end as a
+  // job — the runner answering `stopped` at its own gate and the money going
+  // back through the row's own door was unreachable at exactly the moment it
+  // exists for. Derived now rather than chosen beside it.
+  const { termAt, killAt } = killPlan(BUILD_JOB_MS, 0);
+  assert.ok(termAt > BUILD_JOB_MS, "the terminator fires before the deadline it is armed for");
+  assert.ok(MAX_BUSY_HOLD_MS > killAt, "the container is stopped before its child can be asked to stop, so the graceful path is unreachable: hold " + MAX_BUSY_HOLD_MS + " vs kill " + killAt);
 });
 
 test("the build's own clock reads the stop signal: a stopped job is expired at its next gate, and a call already started keeps its cap", () => {

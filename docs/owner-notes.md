@@ -155,6 +155,90 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — Edits and addons run on the container, and the container has no time limit
+
+Two rounds, and your second sentence deleted a number the first one had just
+chosen. Both are here because the reversal is the useful part.
+
+**What you saw.** An addon stopped at **12 minutes 22 seconds** with the database
+made, the page written and nothing published. You said: *"Lol addon, edit and
+build gotta run on the container, bruhhh cmon just like the build path."*
+
+**Why it stopped.** Two separate things, and neither fix works alone.
+
+1. **The clock was sized for the wrong place.** A Cloudflare Worker gets stopped
+   at fifteen minutes, so the edit budget was set to fourteen — correct, and
+   written down in detail, for as long as edits ran in a Worker. Builds moved
+   into the container back on 6 September and got their own numbers for exactly
+   that reason. **The edit branch was wired the same day and passed nothing**, so
+   it fell back to the Worker's fourteen minutes inside a container that has no
+   fifteen-minute limit at all. Nothing announced it. That is the fourth time
+   this shape has cost us something, and the first time in the path that spends
+   your customers' money.
+2. **Almost nothing was running in the container yet.** The runner named ONE SITE
+   (`fretwork-1`), so your addon ran in a Worker where fourteen minutes is
+   correct and unavoidable. **That switch is on for everyone now** — the flip
+   that has been sitting code-ready since 5 September.
+
+**The first fix was a bigger stopwatch, and you were right to refuse it.** It set
+the work budget to 27 minutes and the outer deadline to 30, sized off that
+addon's own timings. You said: ***"Containers shouldn't have a time limit."***
+
+That is correct, and checking it properly found something. **Every limit on a
+container job is one we chose** — there is no platform ceiling to fit inside — so
+the only real question is what each limit is FOR. There were four, and only one
+of them was about how long work may take:
+
+| | before | now | what it is for |
+|---|---|---|---|
+| the work | 27 min | **no limit** | — |
+| the deadline | 30 min | **50 min** | the job's credential expires; a job stuck in a loop gets stopped |
+| the container hold | 30 min | **52.5 min** | how long we pay for a container that says it is busy |
+| each model call and each build step | — | unchanged | 240 s, 480 s, 600 s, 30 min |
+
+**Taking the stopwatch off is safe because of what the lease already does.** A
+job writes a heartbeat every 30 seconds, and the sweeper that reclaims dead jobs
+looks at **the heartbeat, never at how long the job has been running**. So a job
+that keeps beating is never touched however long it takes, and one that dies is
+cleaned up in about 90 seconds — which was always the common failure. The
+deadline was never protecting against it.
+
+**Fifty minutes is not a preference — a live database function refuses more.** A
+first attempt at four hours was rejected by our own test suite: the container's
+lease is derived from this number, and `edit_handoff` in Postgres refuses a lease
+past 3600 seconds. The chain caps it at 57.5 minutes. Going above that is a
+database migration, which is your call and not something a session should do
+quietly.
+
+**And checking it found a bug that had already shipped.** The container hold was
+30 minutes while the deadline was ALSO 30 — and when a job hits its deadline, the
+build service asks the child to stop one minute later. So the container was being
+stopped **a minute before the signal that lets a job end gracefully** — refund
+the credits, write the outcome, release the site. That path was unreachable at
+exactly the moment it exists for, and it would have looked like the container
+crashing. It is now worked out from the deadline rather than typed beside it, so
+it cannot drift again. Measured: deadline 50.0 → stop signal 51.0 → force-kill
+51.5 → hold ends 52.5.
+
+**What it costs, said plainly.** Every site's jobs now share your account's
+container capacity. A job that finds no room waits 90 seconds and then runs in
+the Worker on whatever is left of its own invocation — so the worst case is the
+old behaviour a minute and a half later, never a failure.
+
+**One thing you cannot read off the repository.** `deploy.yml` sets a *default*.
+If you have ever set `JOB_RUNNER_EVERYONE` as a GitHub secret, that beats it, and
+no session can read a secret. `GET /api/site/runtime?slug=` is the only thing
+that can say which is live — that is why that route exists.
+
+**Proven and not proven.** Suite **6,270 / 6,270**. Sweep **32 mutants, 32
+killed, 0 survived, 0 never applied**, both controls surviving, every one on the
+first pass. `site build` run 1127 green on the first round's commit — all twenty
+steps, **382 passed, 0 failed**. **NOT proven live**: no real addon has run under
+this yet. The proof is one addon on a site, which should now be able to take as
+long as it needs.
+
+---
+
 ## 2026-09-13 — The Tables step now says what it could not do
 
 You asked why "add a login page" doesn't work, and the answer turned out to be

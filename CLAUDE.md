@@ -3336,11 +3336,13 @@ language, on the picked model, reserved by the spine before its compile and
 floored at 1 like every charge. A monolingual site and a cached bilingual one
 pay nothing more; the platform rebuild never pays.
 
-### EVERY RUNG RUNS IN THE SITE'S CONTAINER, UNDER THE CONTAINER'S CLOCK (2026-09-14)
+### EVERY RUNG RUNS IN THE SITE'S CONTAINER, AND THE CONTAINER HAS NO CLOCK (2026-09-14)
 
 Owner, on being shown that an addon had stopped at fourteen minutes: *"Lol
 addon, edit and build gotta run on the container, bruhhh cmon just like the
-build path."* Two things were wrong and **neither fix works alone**.
+build path."* Then, on being shown the pair of numbers that first answer gave
+it: ***"Containers shouldn't have a time limit."*** Two rounds, and the second
+one deleted a number the first had just chosen.
 
 **THE CLOCK WAS THE HALF NOBODY HAD NOTICED, AND IT IS THE RECORDED TRAP IN THE
 MONEY PATH.** `EDIT_JOB_MS` is **840,000** — fourteen minutes, and every word of
@@ -3353,23 +3355,76 @@ own for exactly that reason; the edit branch of `runContainerJob` was wired the
 same day and passed no budget at all**, so it fell back to the Worker's number.
 A rule true because of a layer below it expires when that layer moves, and
 nothing announces it — for the fourth recorded time, and the first in the path
-that spends a customer's money.
+that spends a customer's money. It cost run 44 an addon at 12m22s with the
+database made, the page written and nothing published.
 
-**`CONTAINER_EDIT_JOB_MS` (30 min) and `CONTAINER_EDIT_BUDGET_MS` (27 min), and
-the pair MIRRORS the build's byte for byte** — asserted equal to `BUILD_JOB_MS`
-and `CONTAINER_BUILD_BUDGET_MS` rather than typed twice, because two kinds of
-job in one container disagreeing about how long it may be held is a fact about
-the container and not about the kind. The outer number mints the job token's
-expiry and the deadline the build service kills a child by; the inner one is
-what the work is measured against; the three minutes between them are the room
-the terminal writes need AFTER the deadline fires.
+**THE FIRST ANSWER WAS A BIGGER STOPWATCH AND THE OWNER WAS RIGHT TO REFUSE
+IT.** It set `CONTAINER_EDIT_BUDGET_MS` to 27 minutes and `CONTAINER_EDIT_JOB_MS`
+to 30, sized off run 44's own chain — which is this repository sizing a
+stopwatch for a place that has none. **Every limit on a container job here is
+OURS**; there is no platform ceiling to fit inside, so the only question is what
+each bound is FOR, and "how long the work may take" turned out not to be one of
+the answers. **Four bounds, and only one of them went:**
 
-**MEASURED, which is what decides twenty-seven is enough.** Run 44
-(`repairbench-1`, ask A) chained picker 27s + table designer 138s + page
-designer 106s + provision 9s + the page call 459s = **741 s**, and still needed
-a compile (157 s, run 32) and a publish — about **eighteen minutes** for the
-most expensive addon this platform has produced. Twenty-seven leaves nine over
-it, the same proportion of headroom builds run with.
+| bound | was | now | what it governs |
+|---|---|---|---|
+| `CONTAINER_*_BUDGET_MS` | 27 min | **`Infinity`** | the WORK — `expired()`, `spendable()`, every gate |
+| `CONTAINER_EDIT_JOB_MS` / `BUILD_JOB_MS` | 30 min | **50 min** | the token's life; SIGTERM to a wedged child |
+| `MAX_BUSY_HOLD_MS` | 30 min, typed | **52.5 min, derived** | how long a BUSY container is held — the bill |
+| per call: `STEP_TIMEOUT` 30 min, `CONTAINER_CALL_MS` / `BUILDER_CALL_MS` 600 s, `QUICK_STREAM_MS` 480 s, `QUICK_CALL_MS` 240 s | — | unchanged | each model call and each subprocess |
+
+**THE LEASE IS A LIVENESS CHECK AND NOT A DURATION CAP, which is the finding
+that makes the removal safe rather than merely permitted.** `edit_sweep_lost`
+selects on `lease_expires_at < now() - p_grace` and **never on elapsed**, with
+`LEASE_TTL_S` 90 and `HEARTBEAT_S` 30 — so a job that keeps beating is NEVER
+swept however long it runs, and a job that dies is reclaimed in ~90 seconds.
+The deadline was therefore never protecting against the common failure; the
+lease already covers it, and covers it better. What the lease cannot see is a
+process that is ALIVE, heartbeating and looping — our own bug — and that is the
+one thing the deadline is for, beside the credential.
+
+**FIFTY MINUTES IS NOT A PREFERENCE — IT IS A LIVE RPC, and the suite refused
+four hours by arithmetic.** `HANDOFF_TTL_S` is DERIVED as `MAX_BUSY_HOLD_MS /
+1000` and `edit_handoff` raises `bad ttl` past **3600 seconds**, so the chain
+`deadline + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60s ≤ 3600s` caps the
+deadline at **57.5 minutes**. Fifty leaves 450 seconds in the one number a
+Postgres function can refuse outright. **Lifting it is a migration**, not a
+constant this repo can move. The guard that caught the first cut is
+`test/build-jobs.test.mjs`, which had that arithmetic already.
+
+**AND `MAX_BUSY_HOLD_MS` WAS A SHIPPED DEFECT, found while checking what the
+new deadline would break.** It was **30 minutes while `BUILD_JOB_MS` was ALSO
+30**, and the two being equal was not a coincidence: the build service stops a
+child at its deadline plus `JOB_KILL_GRACE_MS` (60 s) and kills it
+`JOB_TERM_GRACE_MS` (30 s) later — so a job that ran to its deadline had its
+CONTAINER stopped a minute BEFORE the SIGTERM that lets it end as a job. **The
+graceful path — the runner answering `stopped` at its own gate, the money going
+back through the row's own door — was unreachable at exactly the moment it
+exists for**, and the symptom would have read as the container crashing. It is
+DERIVED now: deadline + both graces + a minute of slack, so it cannot drift the
+next time either moves. Two lists of the same thing, with a SIGTERM between
+them. **Measured: deadline 50.0 → SIGTERM 51.0 → SIGKILL 51.5, hold ends 52.5.**
+
+**`Infinity` IS A STATED ANSWER AND BOTH READERS REFUSED IT — the recorded
+"cannot-tell must never read as a value" with the two swapped.**
+`Number.isFinite(Infinity)` is false, so `inlineBudgetMs` handed the container's
+own "no clock" want **`EDIT_JOB_MS`** and `makeBudget` handed it
+**`BUILD_BUDGET_MS`** — each falling back to a Worker-sized number, silently,
+for the one input where the default is the MOST wrong answer available rather
+than a safe one. Both take it as an answer now. **And the clamp still governs,
+which is what makes it safe rather than permissive**: `Math.min(Infinity, left)`
+is `left`, so a WORKER delivery handed an infinite want is still bounded by what
+its isolate has left. Only a caller with no clock at all can receive it.
+
+**EVERY PER-CALL CEILING SURVIVES IT, AND NOTHING ASSERTED THAT.** The whole
+safety argument for an unbounded SUM is that each call is separately bounded and
+reaches the work through `capMs`, which is `min(cap, room)` — `min(cap,
+Infinity)` is `cap`. Measured by hand, asserted nowhere: every other
+`makeEditBudget` case in the suite passes a finite total, so a mutant reading
+the room as the ANSWER would have handed every call an infinite timer and left
+the container unbounded at EVERY layer. Driven now (`test/edit-job.test.mjs`),
+proved red by exactly that mutation. **A rule nobody re-measured is a claim
+ahead of its evidence**, one layer under a change that rests on it.
 
 **FOUR HOPS, and the two that were wrong were wrong in different directions.**
 `runContainerJob`'s edit branch now hands the budget in; `fireContainerJob`'s
@@ -3416,42 +3471,54 @@ line is only what the Worker runs while nobody has ever SET
 session can read a secret. `GET /api/site/runtime?slug=` is the one thing that
 can say which is live — which is the reason that route exists.
 
-**Guards**: `test/broad-rollout.test.mjs` (+3) — the pair asserted to MIRROR the
-build's and to be a clock only a container can hold (it is longer than
-`CONSUMER_CEILING_MS`, so it is illegal in a Worker by arithmetic rather than by
-anybody remembering); `inlineBudgetMs` driven over it unclamped at
-`startedAt: 0` and clamped on a real delivery; and **the consumer's budget block
-CARRIED OUT AND EVALUATED** with the real `inlineBudgetMs`, reading what
-`makeEditBudget` was really handed for each caller — the hop no assertion about
-spelling can prove, and the one a text read certifies at the layer below.
-**Five older guards went red and were re-anchored, not appeased**, every one
-pinned to `EDIT_JOB_MS` as the edit's only number: the consumer's cap line, the
-dispatch, the fire's two readers (`build-runner`, `job-stop`) and the launch's
-deadline and token expiry. **One was the recorded "pinning a list by its last
-element"** — `startedAt = 0 } = {})` reported the delivery's clock as gone from
-a signature that still carries it, because `budgetMs` arrived after it;
-membership is the property, never position. **And two were INVERTED rather than
-re-anchored**, deliberately: the two cases holding the deploy's broad flag to
-`off` were asserting a rollout decision, and the owner has since made it — what
-replaces them is the half still law, that the flip is one value and the canary
-survives it.
+**Guards**: `test/broad-rollout.test.mjs` — the container's work asserted to be
+NO clock, the two kinds required to agree about that AND about the deadline that
+remains, the deadline required FINITE (an outer bound that went infinite with
+the budget leaves nothing to end a wedged job, and it holds its site's lease for
+ever) and longer than both `EDIT_JOB_MS` and `CONSUMER_CEILING_MS`;
+`inlineBudgetMs` driven over `Infinity` unclamped at `startedAt: 0` and clamped
+on a real delivery; and **the consumer's budget block CARRIED OUT AND EVALUATED**
+with the real `inlineBudgetMs`, reading what `makeEditBudget` was really handed
+for each caller — the hop no assertion about spelling can prove.
+`test/build-budget.test.mjs` takes `Infinity` OFF the nonsense list, which is the
+change rather than an exemption, and drives the stated answer ten hours forward
+with every per-call cap unmoved. `test/build-runner.test.mjs` asserts the
+`killPlan` ordering that pins the hold fix, and carries the 3600 s ceiling beside
+the number it governs so a session raising it has to meet it.
+`test/edit-job.test.mjs` closes the gap above.
+**Older guards re-anchored, not appeased**, every one pinned to a number that
+moved. **One was the recorded "pinning a list by its last element"** —
+`startedAt = 0 } = {})` reported the delivery's clock as gone from a signature
+that still carries it, because `budgetMs` arrived after it; membership is the
+property, never position. **And several were INVERTED rather than re-anchored**,
+deliberately: the cases holding the deploy's broad flag to `off` were asserting a
+rollout decision the owner has since made, and the cases sizing the container's
+stopwatch were asserting a number the owner has since deleted. Holding either to
+its old value would pin a decision that has been reversed.
 
-**Sweep: 19 mutants, 19 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived. ONE SURVIVED THE FIRST PASS AND IT WAS A REAL GAP IN MY OWN
-DRIVEN CASE — the recorded wiring trap, in the guard written to catch the
-wiring trap.** The mutant took `budgetMs: capMs` off the consumer's
-DESTRUCTURING and declared `const capMs = null` below it: the caller still
-forwards the cap, the receiver ignores it, every landmark stays exactly where a
-text read looks for it, and the container silently goes back to fourteen
-minutes — run 44's defect, one hop over. It survived because the evaluated case
-handed `capMs` in as a PARAMETER, so the destructure was outside everything it
-drove. **A carry that starts below the parameter that broke proves the layer
-below the break.** It carries the signature's own destructuring now — read
-DEPTH-AWARE, because a flat `\{[^)]*\}` is greedy past `} = {})` to the empty
-default — and the options object each caller really builds goes in, so the
-parameter NAME is part of what is driven and a dropped one is a ReferenceError
-rather than a silent fallback. Proved red against that exact mutation, then
-green. **Suite 6,269** (6,266 before; the three new cases).
+**Sweep: 32 mutants, 32 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — the stopwatch back in either kind, the outer bound going
+infinite with the budget or falling inside a Worker isolate or past the 3600 s
+chain cap, the two kinds disagreeing, `Infinity` falling through in each of the
+two readers, each reader's arm widened to swallow junk, the clamp dropped so a
+Worker delivery keeps an infinite want, the per-call ceiling reading its room as
+the answer, the hold typed rather than derived, the hold derived from the
+deadline alone (the shipped defect, exactly) or keeping one grace and dropping
+the other, and every wiring hop and deploy flag from the first round.
+**Every anchor was checked to occur EXACTLY ONCE before the run** rather than
+reading NOT APPLIED afterwards — the rule the grants work learned the hard way.
+
+**The FIRST round's sweep (19/19) had one survivor and it is worth keeping**: a
+mutant that took `budgetMs: capMs` off the consumer's DESTRUCTURING while the
+caller still forwards it — the recorded wiring trap, inside the guard written to
+catch the wiring trap. Every landmark stays where a text read looks for it and
+the container silently goes back to fourteen minutes. It survived because the
+evaluated case handed `capMs` in as a PARAMETER, so the destructure was outside
+everything it drove. **A carry that starts below the parameter that broke proves
+the layer below the break.** It carries the signature's own destructuring now,
+read DEPTH-AWARE (a flat `\{[^)]*\}` is greedy past `} = {})` to the empty
+default), with each caller's real options object going in.
+**Suite 6,270** (6,269 after the first round; the unbounded-budget case).
 
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
@@ -5502,7 +5569,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   count is unchanged from 1114 because this change adds no container case** —
   its guards are unit-level, and what the harness proves here is that a site
   still compiles, renders and serves with the image steps reading the parts.
-  The unit suite is **6,197** (2026-09-13, local — the dead-code deletion's six
+  **AND RUN 1127 READ THE SAME NUMBER ON A DIFFERENT TREE (2026-09-14
+  00:25:15→00:49:16Z, the container clock's first round, ALL TWENTY STEPS
+  GREEN): `382 passed, 0 failed` in 17m36s**, with kit-typecheck 4,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47 beside it. Two independent runs a day apart agreeing on the
+  count is what makes 382 a measurement rather than a stamp.
+  The unit suite is **6,270** (2026-09-14, local — the container's clock, both
+  rounds: three cases for the pair and one for the unbounded budget; **6,266**
+  before them, the grants backfill's credential rule; **6,256** before that, the
+  local-Postgres proof and the backfill script; **6,197** on 2026-09-13, the
+  dead-code deletion's six
   new `css-reachable` cases and the `siteBuildStart` call census, against one
   retired when `site-ask`'s two windows became one `declBlock` helper; **6,190**
   before it, the model-context and model-limits work; **6,126** before that, the

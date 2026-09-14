@@ -5,8 +5,8 @@
     "files": [
       "builder/edit-job.mjs"
     ],
-    "from": " * THE SAME JOB, IN THE SITE'S OWN CONTAINER — twenty-seven minutes, and the",
-    "to": " * THE SAME JOB, IN THE SITE'S OWN CONTAINER — twenty-seven minutes; the"
+    "from": " * FIFTY MINUTES, AND THE CEILING IS NOT A PREFERENCE — IT IS A LIVE RPC.",
+    "to": " * FIFTY MINUTES, AND THE CEILING IS NOT A PREFERENCE: IT IS A LIVE RPC."
   },
   {
     "label": "CONTROL 2: a comment only, in the guard",
@@ -19,36 +19,142 @@
   },
 
   {
-    "label": "the container's edit budget goes back to the Worker's — run 44's defect, exactly",
+    "label": "the container's work gets a stopwatch again — run 44's defect, exactly",
     "files": [
       "builder/edit-job.mjs"
     ],
-    "from": "export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;",
+    "from": "export const CONTAINER_EDIT_BUDGET_MS = Infinity;",
     "to": "export const CONTAINER_EDIT_BUDGET_MS = EDIT_JOB_MS;"
   },
   {
-    "label": "the container's edit budget still fits inside a Worker isolate, so the two numbers say the same thing",
+    "label": "the container's work gets a generous stopwatch, which is still a stopwatch",
     "files": [
       "builder/edit-job.mjs"
     ],
-    "from": "export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;",
-    "to": "export const CONTAINER_EDIT_BUDGET_MS = 14 * 60_000 + 30_000;"
+    "from": "export const CONTAINER_EDIT_BUDGET_MS = Infinity;",
+    "to": "export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;"
   },
   {
-    "label": "the work may run until the deadline itself fires, leaving nothing for the refund and the terminal write",
+    "label": "the build's work gets a stopwatch again, so the two kinds disagree inside one container",
+    "files": [
+      "builder/build-budget.mjs"
+    ],
+    "from": "export const CONTAINER_BUILD_BUDGET_MS = Infinity;",
+    "to": "export const CONTAINER_BUILD_BUDGET_MS = 27 * 60_000;"
+  },
+  {
+    "label": "the outer bound goes infinite with the work budget — nothing then ends a job that is alive and never finishing",
     "files": [
       "builder/edit-job.mjs"
     ],
-    "from": "export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;",
-    "to": "export const CONTAINER_EDIT_BUDGET_MS = 30 * 60_000;"
+    "from": "export const CONTAINER_EDIT_JOB_MS = 50 * 60_000;",
+    "to": "export const CONTAINER_EDIT_JOB_MS = Infinity;"
+  },
+  {
+    "label": "the edit's outer bound falls back inside a Worker isolate, so running in the container buys nothing",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "export const CONTAINER_EDIT_JOB_MS = 50 * 60_000;",
+    "to": "export const CONTAINER_EDIT_JOB_MS = 14 * 60_000;"
   },
   {
     "label": "the two kinds' outer clocks disagree about how long a container may hold a job",
     "files": [
       "builder/edit-job.mjs"
     ],
-    "from": "export const CONTAINER_EDIT_JOB_MS = 30 * 60_000;",
+    "from": "export const CONTAINER_EDIT_JOB_MS = 50 * 60_000;",
     "to": "export const CONTAINER_EDIT_JOB_MS = 45 * 60_000;"
+  },
+  {
+    "label": "the build's outer bound goes infinite too, so the derived lease TTL is not a number a Postgres function can take",
+    "files": [
+      "builder/build-job.mjs"
+    ],
+    "from": "export const BUILD_JOB_MS = 50 * 60_000;",
+    "to": "export const BUILD_JOB_MS = Infinity;"
+  },
+  {
+    "label": "the build's outer bound is pushed past the chain's 3600 s cap — edit_handoff would raise `bad ttl` on every job",
+    "files": [
+      "builder/build-job.mjs"
+    ],
+    "from": "export const BUILD_JOB_MS = 50 * 60_000;",
+    "to": "export const BUILD_JOB_MS = 4 * 60 * 60_000;"
+  },
+
+  {
+    "label": "`Infinity` stops being a stated answer in inlineBudgetMs, so the container's own want falls to fourteen minutes — silently, the most wrong answer available",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "  const wanted = want === Infinity || (Number.isFinite(want) && want > 0) ? want : EDIT_JOB_MS;",
+    "to": "  const wanted = Number.isFinite(want) && want > 0 ? want : EDIT_JOB_MS;"
+  },
+  {
+    "label": "inlineBudgetMs's `Infinity` arm widens to every non-finite want, so NaN and undefined become the budget",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "  const wanted = want === Infinity || (Number.isFinite(want) && want > 0) ? want : EDIT_JOB_MS;",
+    "to": "  const wanted = !Number.isFinite(want) || want > 0 ? want : EDIT_JOB_MS;"
+  },
+  {
+    "label": "inlineBudgetMs stops clamping an infinite want, so a WORKER delivery handed one outlives its isolate",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "  return Math.max(1000, Math.min(wanted, left));",
+    "to": "  return wanted === Infinity ? wanted : Math.max(1000, Math.min(wanted, left));"
+  },
+  {
+    "label": "`Infinity` stops being a stated answer in makeBudget, so a container build asking for no ceiling is handed thirteen minutes",
+    "files": [
+      "builder/build-budget.mjs"
+    ],
+    "from": "  const total = ms === Infinity || (typeof ms === \"number\" && Number.isFinite(ms) && ms > 0) ? ms : BUILD_BUDGET_MS;",
+    "to": "  const total = typeof ms === \"number\" && Number.isFinite(ms) && ms > 0 ? ms : BUILD_BUDGET_MS;"
+  },
+  {
+    "label": "makeBudget's `Infinity` arm widens to every non-number, so junk becomes the budget instead of the default",
+    "files": [
+      "builder/build-budget.mjs"
+    ],
+    "from": "  const total = ms === Infinity || (typeof ms === \"number\" && Number.isFinite(ms) && ms > 0) ? ms : BUILD_BUDGET_MS;",
+    "to": "  const total = typeof ms !== \"number\" || (Number.isFinite(ms) && ms > 0) ? ms : BUILD_BUDGET_MS;"
+  },
+  {
+    "label": "the per-call ceiling reads its room as the ANSWER, so an unbounded total hands every call an unbounded timer and nothing bounds the container at any layer",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "      return Math.max(1, Math.min(Number(cap) || 0, room));",
+    "to": "      return Math.max(1, room);"
+  },
+
+  {
+    "label": "the busy hold is typed rather than derived, back at the thirty minutes that made the graceful stop unreachable",
+    "files": [
+      "builder/container-hold.mjs"
+    ],
+    "from": "export const MAX_BUSY_HOLD_MS = BUILD_JOB_MS + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60_000;",
+    "to": "export const MAX_BUSY_HOLD_MS = 30 * 60_000;"
+  },
+  {
+    "label": "the busy hold is derived from the deadline ALONE, so the container is stopped a minute before its child's SIGTERM — the shipped defect, exactly",
+    "files": [
+      "builder/container-hold.mjs"
+    ],
+    "from": "export const MAX_BUSY_HOLD_MS = BUILD_JOB_MS + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60_000;",
+    "to": "export const MAX_BUSY_HOLD_MS = BUILD_JOB_MS;"
+  },
+  {
+    "label": "the busy hold keeps one grace and drops the other, landing between the SIGTERM and the SIGKILL",
+    "files": [
+      "builder/container-hold.mjs"
+    ],
+    "from": "export const MAX_BUSY_HOLD_MS = BUILD_JOB_MS + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60_000;",
+    "to": "export const MAX_BUSY_HOLD_MS = BUILD_JOB_MS + JOB_KILL_GRACE_MS;"
   },
 
   {
@@ -125,7 +231,7 @@
     "to": "  const budgetMs = kind === \"build\" ? BUILD_JOB_MS : EDIT_JOB_MS;"
   },
   {
-    "label": "the fire gives every kind a build's clock, so an edit's deadline stops matching its own budget",
+    "label": "the fire gives every kind a build's clock, so an edit's deadline stops matching its own kind",
     "files": [
       "worker.js"
     ],
