@@ -181,6 +181,29 @@ eye, and all four mean different next moves:
 | `no-wall` | both lived — **the failure was NOT REPRODUCED. That is not the same as settling the historical cause** (owner, 2026-09-14). Run 45 may have died of something else, or of a condition not present at probe time — a different egress path, a busier account, a transient. It removes one hypothesis and proves no other. |
 | `lifetime-cap` | both died — streaming cannot beat it and the next fix has to be something else |
 | `quiet-survived-trickle-did-not` | nothing expected this; read both `wire` fields before concluding anything |
+| `hung` | an arm **never answered and never died** — and this is checked FIRST, because the other four readings are unsafe when one arm produced no result at all. Added 2026-09-14 after run 3, where the probe itself had no clock and sat on a black-holed socket until the job's deadline. Each arm now carries its own `AbortSignal`, the ask plus a minute (`wireCallBoundMs`), so a hang is *reported* rather than run out. |
+
+**IF YOU GET `hung`, IT IS NOT THE SAME AS A KILL AND MUST NOT BE READ AS ONE.**
+A kill means something along the path closed the connection; a hang means nothing
+ever came back. Reading a hang as `idle-kill` would say *"streaming is the fix"*
+about a socket streaming does nothing for.
+
+### Re-reading a probe that is already running (2026-09-14)
+
+Same workflow, and it is the **`jobId`** box. Paste the id step 4 printed on an
+earlier run and leave everything else alone: the run **skips the fire** and reads
+that job back, using the same polling and printing the same verdicts. Leave the
+box empty to fire a new probe, exactly as before.
+
+The fire is skipped rather than made idempotent, deliberately — a second launch
+of the same shape would take a second build lane to answer a question already in
+flight.
+
+**A job whose container has recycled is gone**, and `GET /job/<id>` answers 404
+both for an id the service never saw and for one it has forgotten. So the
+read-back is for a probe still running, not for rescuing a run that ended hours
+ago — run 3's own id (`37b59fa9076189d57275b2703868f3d3`) is almost certainly in
+that second category.
 
 **`no-wall` is the reading most likely to be over-read, which is why it is
 spelled out twice.** A probe that does not reproduce a failure has measured its
@@ -765,7 +788,7 @@ whether ask A can finish at all; and **the two probes and their door merged
 | **the probe route is really wired** | `/api/site/job-probe` **404 → 401** across this deploy, with `/api/nope-not-a-route` **404** as the control. An unmatched path falls to `env.ASSETS` and 404s, so 401-against-404 is the free token-less discriminator |
 | **Database migration needed** | **none** for any of the three |
 | **Backfill for existing sites** | **written, guarded, driven against a real Postgres, NOT executed** — `scripts/grants-backfill.mjs`, and the owner's standing instruction is preview only |
-| **Live probe runs** | **both unrun** — the buttons are the owner's |
+| **Live probe runs** | **duration PROVEN, transport UNREAD.** Run 2 held a job child **1,200,182 ms — 20 minutes — inside the container**, `code: 0`, no `signal`, `stopped: null`, 20 of 20 pulses, with 30.2 minutes of deadline left: past 12m22s (run 44's death), past 14 min (the old `EDIT_JOB_MS`) and past 15 min (the consumer ceiling), with the deadline counting DOWN the whole way. Run 1 crashed in 17 s (`newJobId` called bare — fixed `a4d0f5e5`); run 3 came back **NOT PROVEN** because the probe carried no clock and sat on a black-holed socket (fixed — the `hung` reading, `f2e47b8e`). **The wire shape has still never produced a reading, and re-running it is free.** |
 | **Live addon tests** | **all unrun** |
 | **`workflow_dispatch` from a session** | **403**, re-measured 2026-09-14 **04:47Z** against `container-hold-probe.yml`: *Resource not accessible by integration* |
 
@@ -850,28 +873,41 @@ and its Data panel shows **no database**.
 ### 1b and 1c. The two free probes — BEFORE anything is spent
 
 **<https://github.com/canias7/isibi-app/actions/workflows/job-probe.yml>**
-→ *Run workflow*. Twice, one shape each, and **read the first before firing the
-second** — they share one build lane.
+→ *Run workflow*.
+
+**1b (`hold`) IS ALREADY PROVEN and does not need re-running** — probe run 2
+held a job child **1,200,182 ms, 20 minutes, `code: 0`, 20 of 20 pulses**, with
+30.2 minutes of deadline left. Fire it again only if the container or its clock
+changes.
+
+**1c (`wire`) IS THE ONE STILL TO RUN.** It has never produced a reading: run 1
+crashed in 17 seconds on a route defect, and run 3 hung because the probe itself
+carried no clock. Both are fixed, and it costs nothing.
 
 They cost nothing, so they come first on the ordering rule this file already
-uses: *a free run that can invalidate a paid one goes first.* If `hold` comes
-back NOT PROVEN, Ask A cannot finish either and there is no point buying it; if
-`wire` comes back `lifetime-cap`, the transport fix is the wrong fix and the
-next change is something else.
+uses: *a free run that can invalidate a paid one goes first.* If `wire` comes
+back `lifetime-cap`, the transport fix is the wrong fix and the next change is
+something else.
 
-| field | 1b — duration | 1c — transport |
+| field | 1b — duration *(already proven)* | **1c — transport** |
 |---|---|---|
-| Use workflow from | `main` | `main` |
-| `probe` | `hold` | `wire` |
-| `ms` | `1200000` | `300000` |
-| `everyMs` | *(leave default)* | `20000` |
-| `site` | `fretwork-1` | `fretwork-1` |
+| Use workflow from | `main` | **`main`** |
+| `probe` | `hold` | **`wire`** |
+| `ms` | `1200000` | **`300000`** |
+| `everyMs` | *(leave default)* | **`20000`** |
+| `site` | `fretwork-1` | **`fretwork-1`** |
+| `jobId` | *(leave empty)* | *(leave empty)* |
 
 `site` is read ONLY to ask `/api/site/runtime` which deploy is live and whether
-`runner` is on — nothing is built, edited or published on it.
+`runner` is on — nothing is built, edited or published on it. Leave `jobId`
+empty to fire; it is only for re-reading a probe that is already running (see
+"Re-reading a probe that is already running" above).
 
-**Roughly 26 minutes and 16 minutes of wall-clock.** Each uploads a
-`job-probe-<shape>` artifact with its whole log, whatever the outcome.
+**Roughly 26 minutes and 16 minutes of wall-clock**, and they share one build
+lane, so read the first before firing the second. Each uploads a
+`job-probe-<shape>` artifact with its whole log, whatever the outcome — and the
+`wire` shape can no longer sit past its own bound: each of its two connections
+carries a six-minute clock and a hang is reported as `hung` rather than run out.
 
 ### 2–4. The three asks
 
