@@ -63,6 +63,40 @@ export const CONSUMER_CEILING_MS = 900000;
 export const EDIT_JOB_MS = 840000;
 
 /**
+ * THE SAME JOB, IN THE SITE'S OWN CONTAINER — twenty-seven minutes, and the
+ * pair below mirrors `BUILD_JOB_MS` / `CONTAINER_BUILD_BUDGET_MS` exactly.
+ *
+ * EVERY WORD OF `EDIT_JOB_MS`'s REASONING IS ABOUT AN ISOLATE, and inside the
+ * container there is not one. `CONSUMER_CEILING_MS` is Cloudflare stopping the
+ * queue consumer at fifteen minutes; the runner is a Node process under the
+ * job's own deadline, which nothing stops at fifteen. Builds were moved across
+ * on 2026-09-06 (stage 5b) and given this pair for precisely that reason. The
+ * edit branch of `runContainerJob` was wired the same day and passed no budget
+ * at all, so it kept falling back to the fourteen minutes above — a number
+ * sized for a place it is no longer in.
+ *
+ * THE RECORDED TRAP, IN THE MONEY PATH: a rule true because of a layer below it
+ * expires when that layer moves, and nothing announces it. It cost run 44
+ * (2026-09-14, `repairbench-1`, ask A) — stopped at 12m22s with the database
+ * provisioned, the page written and nothing published, on a job that had
+ * another thirteen minutes of room it could not see.
+ *
+ * MEASURED, which is what decides it is enough: run 44's whole chain was
+ * picker 27s + table designer 138s + page designer 106s + provision 9s + the
+ * page call 459s = 741s, and it needed a compile (157s, run 32) and a publish
+ * on top — about eighteen minutes for the most expensive addon this platform
+ * has produced. Twenty-seven leaves nine minutes over that, which is the same
+ * proportion of headroom builds run with.
+ *
+ * THREE MINUTES BETWEEN THE TWO, as builds have: the outer number mints the
+ * job token's expiry and the deadline the build service kills a child by, the
+ * inner one is what the work is measured against, and the gap is the room the
+ * refund, the terminal write and the trace need AFTER the deadline fires.
+ */
+export const CONTAINER_EDIT_JOB_MS = 30 * 60_000;
+export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;
+
+/**
  * Held back for the publish sweep: the dist write, the archive, the source, the
  * landmarks and the site Worker upload.
  *

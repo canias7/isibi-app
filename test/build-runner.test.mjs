@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadWorker, loadWorkerModule, makeCtx, hit } from "./fixtures/worker-harness.mjs";
 import { JOB_KIND, jobKey, resultKey, packJob, readResult, BUILD_JOB_MS } from "../builder/build-job.mjs";
-import { EDIT_JOB_MS, JOB_TOKEN_GRACE_S, LEASE_TTL_S } from "../builder/edit-job.mjs";
+import { EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, JOB_TOKEN_GRACE_S, LEASE_TTL_S } from "../builder/edit-job.mjs";
 import { CONTAINER_BUILD_BUDGET_MS, BUILD_BUDGET_MS, makeBudget } from "../builder/build-budget.mjs";
 import { gatewayKey, verifyJobToken, signJobToken, allowedJobKey, allowedJobPrefix, sbDecision, gatewayHandler, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv, refusingQueue, rescopeJob, GatewayBucket } from "../builder/container-env.mjs";
@@ -599,7 +599,14 @@ test("the build consumer and the runner's dispatch, read off the Worker: the fir
 test("the fire, read off the Worker: a build's clock and token expiry, the placeholder's lane for a nameless build, the launch's slug and pre flag; the identity: a name that is not the owner's is never fired", () => {
   const src = noComments(WORKER);
   const fire = fn(src, "async function fireContainerJob(");
-  assert.match(fire, /const budgetMs = kind === "build" \? BUILD_JOB_MS : EDIT_JOB_MS;/, "the launch's clock is not the kind's");
+  // RE-ANCHORED 2026-09-14: an edit's clock here is the CONTAINER's
+  // (`CONTAINER_EDIT_JOB_MS`), not the Worker consumer's `EDIT_JOB_MS`. This
+  // line is only reached on the fire path — `jobRunnerOn`/`jobRunnerFor`
+  // refused above it — so both arms name a container's clock and neither names
+  // an isolate's. The property is what it was: the launch's deadline and the
+  // token's expiry are the KIND's own number, never a literal.
+  assert.match(fire, /const budgetMs = kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;/, "the launch's clock is not the kind's");
+  assert.doesNotMatch(fire, /:\s*EDIT_JOB_MS\b/, "the fire mints a Worker isolate's clock for a job that runs in a container");
   assert.match(fire, /deadlineAt: Date\.now\(\) \+ budgetMs,/);
   assert.match(fire, /exp: Math\.floor\(\(Date\.now\(\) \+ budgetMs\) \/ 1000\) \+ JOB_TOKEN_GRACE_S/, "the token's expiry is not the kind's clock plus the grace");
   assert.match(fire, /slug: pre \? preScopeSlug\(id\) : who\.slug/, "a pre-scope token does not name the placeholder");

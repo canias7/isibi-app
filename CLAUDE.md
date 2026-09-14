@@ -3336,6 +3336,123 @@ language, on the picked model, reserved by the spine before its compile and
 floored at 1 like every charge. A monolingual site and a cached bilingual one
 pay nothing more; the platform rebuild never pays.
 
+### EVERY RUNG RUNS IN THE SITE'S CONTAINER, UNDER THE CONTAINER'S CLOCK (2026-09-14)
+
+Owner, on being shown that an addon had stopped at fourteen minutes: *"Lol
+addon, edit and build gotta run on the container, bruhhh cmon just like the
+build path."* Two things were wrong and **neither fix works alone**.
+
+**THE CLOCK WAS THE HALF NOBODY HAD NOTICED, AND IT IS THE RECORDED TRAP IN THE
+MONEY PATH.** `EDIT_JOB_MS` is **840,000** — fourteen minutes, and every word of
+its reasoning is about a Cloudflare ISOLATE: `CONSUMER_CEILING_MS` stops a queue
+consumer at fifteen, so the budget sits a minute under it and the refund, the
+terminal write and the trace run in the gap. Inside the container there is no
+such ceiling — the runner is a Node process under the job's own deadline.
+**Builds were moved across on 2026-09-06 (stage 5b) and given a pair of their
+own for exactly that reason; the edit branch of `runContainerJob` was wired the
+same day and passed no budget at all**, so it fell back to the Worker's number.
+A rule true because of a layer below it expires when that layer moves, and
+nothing announces it — for the fourth recorded time, and the first in the path
+that spends a customer's money.
+
+**`CONTAINER_EDIT_JOB_MS` (30 min) and `CONTAINER_EDIT_BUDGET_MS` (27 min), and
+the pair MIRRORS the build's byte for byte** — asserted equal to `BUILD_JOB_MS`
+and `CONTAINER_BUILD_BUDGET_MS` rather than typed twice, because two kinds of
+job in one container disagreeing about how long it may be held is a fact about
+the container and not about the kind. The outer number mints the job token's
+expiry and the deadline the build service kills a child by; the inner one is
+what the work is measured against; the three minutes between them are the room
+the terminal writes need AFTER the deadline fires.
+
+**MEASURED, which is what decides twenty-seven is enough.** Run 44
+(`repairbench-1`, ask A) chained picker 27s + table designer 138s + page
+designer 106s + provision 9s + the page call 459s = **741 s**, and still needed
+a compile (157 s, run 32) and a publish — about **eighteen minutes** for the
+most expensive addon this platform has produced. Twenty-seven leaves nine over
+it, the same proportion of headroom builds run with.
+
+**FOUR HOPS, and the two that were wrong were wrong in different directions.**
+`runContainerJob`'s edit branch now hands the budget in; `fireContainerJob`'s
+`kind === "build" ? … : …` now mints the CONTAINER's outer clock for an edit
+too — **both arms name a container's clock and neither an isolate's, because
+that line is only reached on the fire path**, `jobRunnerFor` having refused
+above it. It had been minting a fourteen-minute deadline and token for a job
+with twenty-seven minutes of room, so the runner's child would have been killed
+by its own deadline long before the work ran out.
+
+**AND THE FALLBACK HAS ONE HOME.** The first cut wrote `capMs && capMs > 0 ?
+capMs : EDIT_JOB_MS` at the consumer — a literal second copy of
+`inlineBudgetMs`'s own first line, three lines above the function that owns it,
+which is this repository's most-recorded structural defect written into its own
+fix. The consumer asks that function instead: `inlineBudgetMs(0, capMs)` is
+"what this run wanted, fallback and all" and is the only thing the log line
+needs. (`runQueuedSiteBuild`'s `budgetMs || BUILD_BUDGET_MS` is NOT the same
+shape and stays — it substitutes a *different* default, which `inlineBudgetMs`
+cannot know.) **The Worker's path is byte for byte what it was**: `capMs` is
+null there, null is not a finite want, and the function answers `EDIT_JOB_MS`
+exactly as the deleted literal did.
+
+**`JOB_RUNNER_EVERYONE` IS `on` IN THE DEPLOY — the flip stage 5e left for the
+owner.** Until this, the runner's default named ONE SITE (`fretwork-1`) through
+the canary, so run 44's addon on `repairbench-1` ran INLINE in the Worker, where
+fourteen minutes is correct and unavoidable. The clock without the flip changes
+nothing for anybody but the canary; the flip without the clock moves every
+addon into the container and lets it die at fourteen minutes there instead.
+**The canary is KEPT rather than made decorative**: it is the state the platform
+falls back to if the broad flag is ever turned off, so a deploy that dropped it
+would turn the rollback from a secret into a code change — and the guard drives
+exactly that.
+
+**WHAT IT COSTS, named rather than glossed**: every site's jobs now share the
+account's container ceiling. A fire that finds no room WAITS (`JOB_FIRE_MS`,
+90 s) and then the consumer runs the job itself on **what is left of its own
+invocation** — `inlineBudgetMs`, which is the whole subject of
+`test/broad-rollout.test.mjs`. So the worst case is the old behaviour ninety
+seconds later, and never an eviction.
+
+**AND READING `deploy.yml` TELLS YOU THE DEFAULT, NOT THE DEPLOYMENT.** That
+line is only what the Worker runs while nobody has ever SET
+`JOB_RUNNER_EVERYONE` in GitHub; a secret already set to `off` beats it, and no
+session can read a secret. `GET /api/site/runtime?slug=` is the one thing that
+can say which is live — which is the reason that route exists.
+
+**Guards**: `test/broad-rollout.test.mjs` (+3) — the pair asserted to MIRROR the
+build's and to be a clock only a container can hold (it is longer than
+`CONSUMER_CEILING_MS`, so it is illegal in a Worker by arithmetic rather than by
+anybody remembering); `inlineBudgetMs` driven over it unclamped at
+`startedAt: 0` and clamped on a real delivery; and **the consumer's budget block
+CARRIED OUT AND EVALUATED** with the real `inlineBudgetMs`, reading what
+`makeEditBudget` was really handed for each caller — the hop no assertion about
+spelling can prove, and the one a text read certifies at the layer below.
+**Five older guards went red and were re-anchored, not appeased**, every one
+pinned to `EDIT_JOB_MS` as the edit's only number: the consumer's cap line, the
+dispatch, the fire's two readers (`build-runner`, `job-stop`) and the launch's
+deadline and token expiry. **One was the recorded "pinning a list by its last
+element"** — `startedAt = 0 } = {})` reported the delivery's clock as gone from
+a signature that still carries it, because `budgetMs` arrived after it;
+membership is the property, never position. **And two were INVERTED rather than
+re-anchored**, deliberately: the two cases holding the deploy's broad flag to
+`off` were asserting a rollout decision, and the owner has since made it — what
+replaces them is the half still law, that the flip is one value and the canary
+survives it.
+
+**Sweep: 19 mutants, 19 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived. ONE SURVIVED THE FIRST PASS AND IT WAS A REAL GAP IN MY OWN
+DRIVEN CASE — the recorded wiring trap, in the guard written to catch the
+wiring trap.** The mutant took `budgetMs: capMs` off the consumer's
+DESTRUCTURING and declared `const capMs = null` below it: the caller still
+forwards the cap, the receiver ignores it, every landmark stays exactly where a
+text read looks for it, and the container silently goes back to fourteen
+minutes — run 44's defect, one hop over. It survived because the evaluated case
+handed `capMs` in as a PARAMETER, so the destructure was outside everything it
+drove. **A carry that starts below the parameter that broke proves the layer
+below the break.** It carries the signature's own destructuring now — read
+DEPTH-AWARE, because a flat `\{[^)]*\}` is greedy past `} = {})` to the empty
+default — and the options object each caller really builds goes in, so the
+parameter NAME is part of what is driven and a dropped one is a ReferenceError
+rather than a silent fallback. Proved red against that exact mutation, then
+green. **Suite 6,269** (6,266 before; the three new cases).
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:

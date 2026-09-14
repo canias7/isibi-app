@@ -535,7 +535,13 @@ test("the consumer runs under a handed lease, takes over on `leased` only when t
   // the holder, and the fire takes the kind and an identity; the holder's
   // hop is the property, driven for an edit here and a build in build-runner.
   assert.match(ex, /\{ kind, id, holder = "", slug = "" \} = \{\}/);
-  assert.match(ex, /runQueuedSiteEdit\(env, ctx, id, \{ takeOver: typeof holder === "string" && holder \? holder : null \}\)/);
+  // RE-ANCHORED 2026-09-14: the call gained the container's own budget beside
+  // the takeover, so the holder's hop is read for ITSELF and left open at the
+  // end rather than pinned by the closing brace — being last in an argument
+  // list is almost never the property, and it was not this one. What this file
+  // asserts is the LEASE handoff; the budget is broad-rollout's and
+  // container-job's.
+  assert.match(ex, /runQueuedSiteEdit\(env, ctx, id, \{ takeOver: typeof holder === "string" && holder \? holder : null[,}]/);
   const fire = fnW("fireContainerJob");
   assert.match(fire, /async function fireContainerJob\(env, id, \{ holder = "", kind = "edit", who: identity = null \} = \{\}\)/);
   assert.match(fire, /\.\.\.\(holder \? \{ holder \} : \{\}\),/, "the launch does not carry the holder");

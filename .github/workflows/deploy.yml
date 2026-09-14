@@ -388,16 +388,39 @@ jobs:
           #
           # THE CANARY NAMES ONE SITE BY DEFAULT (stage 5a, 2026-09-06): the
           # owner's test site and nothing else — a slug, never an account and
-          # never the broad flag — so a fresh deploy with no secrets routes
-          # exactly one site's jobs through the runtime and every other site's
-          # stay where they were. The secret still overrides: set it to `-` in
+          # never the broad flag. The secret still overrides: set it to `-` in
           # GitHub (readCanaryList drops it — "nobody") and redeploy to turn
-          # the canary off, or to another slug to move it. Both flags were OFF
-          # from 2026-09-04 to 2026-09-06, the runtime being new; the broad
-          # flag still is — `off` is not an affirmative word — and the rollout
-          # (stage 5e) is the owner's, after the canary's live proof.
+          # the canary off, or to another slug to move it.
+          #
+          # AND THE BROAD FLAG IS ON SINCE 2026-09-14 (stage 5e, the owner's
+          # call: "addon, edit and build gotta run on the container, just like
+          # the build path"). Every site's builds, edits and addons are fired
+          # at the site's own container now; the canary below is what the
+          # platform falls back to if this is ever turned off again, which is
+          # why it is kept rather than being made decorative.
+          #
+          # WHAT IT BUYS, and it is the reason the flip happened: a job in the
+          # container runs under a THIRTY-MINUTE deadline against a
+          # twenty-seven minute budget, where a Worker isolate is stopped at
+          # fifteen. Run 44 (2026-09-14, an addon on repairbench-1) died at
+          # 12m22s with the database made, the page written and nothing
+          # published — inline, on this flag being off.
+          #
+          # WHAT IT COSTS: every site's jobs now share the account's container
+          # ceiling. A fire that finds no room WAITS (JOB_FIRE_MS, 90s) and
+          # then the consumer runs the job itself on what is left of its own
+          # invocation — `inlineBudgetMs`, which is what test/broad-rollout
+          # exists for. So the worst case is the old behaviour, ninety seconds
+          # later, and never an eviction.
+          #
+          # THE ROLLBACK IS A SECRET AND A DEPLOY, NEVER A REVERT — and that
+          # cuts both ways: this line is only what the Worker runs while nobody
+          # has ever SET `JOB_RUNNER_EVERYONE` in GitHub. A secret already set
+          # to `off` beats it, and `GET /api/site/runtime?slug=` is the only
+          # thing that can say which is live, because reading this file tells
+          # you the default and not the deployment.
           JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || 'fretwork-1' }}
-          JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'off' }}
+          JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'on' }}
           # ── A PAGE WRITTEN A BAND AT A TIME (2026-09-09) ───────────────────
           #
           # The page call is the long step of a build — 334,000 to 620,000 ms

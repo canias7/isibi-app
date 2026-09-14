@@ -24,7 +24,7 @@ import { spawn } from "node:child_process";
 import { readLaunch, runJob } from "../builder/container-job.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
 import { JOB_KILL_GRACE_MS, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE, readDeadline, makeTerminator } from "../builder/job-clock.mjs";
-import { EDIT_JOB_MS } from "../builder/edit-job.mjs";
+import { EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS } from "../builder/edit-job.mjs";
 
 const ROOT = new URL("..", import.meta.url);
 const WORKER = readFileSync(new URL("worker.js", ROOT), "utf8");
@@ -280,5 +280,10 @@ test("editStopped has the stopped sentence, and the fire names the deadline the 
   // and the fire derives it from the kind; the edit's deadline is driven in
   // container-job.test.mjs, the build's in build-runner.test.mjs.
   assert.match(fire, /deadlineAt: Date\.now\(\) \+ budgetMs,/, "the launch does not name the job's deadline");
-  assert.match(fire, /const budgetMs = kind === "build" \? BUILD_JOB_MS : EDIT_JOB_MS;/, "the launch's clock is not the kind's own");
+  // RE-ANCHORED 2026-09-14: an edit fired at a container gets the container's
+  // clock, so the edit arm is `CONTAINER_EDIT_JOB_MS`. What this file is about
+  // is that the deadline the build service STOPS a child by is the same number
+  // the job was given, and that is unchanged — it just got longer for an edit,
+  // which is the whole of run 44's fix.
+  assert.match(fire, /const budgetMs = kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;/, "the launch's clock is not the kind's own");
 });

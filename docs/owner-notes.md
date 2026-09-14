@@ -7577,3 +7577,59 @@ keeps the rest, so a failure is still readable.
 Suite **6,266** green. 36 of 36 deliberate breakages caught — one got through
 the first pass, and it was my own test checking only that the password was gone
 from a message that had quietly stopped saying anything at all.
+
+## Edit and addon now run in the container, on the container's clock (2026-09-14)
+
+You said: *"Lol addon, edit and build gotta run on the container, bruhhh cmon
+just like the build path."* Two separate things were stopping that, and fixing
+either one alone would have changed nothing.
+
+**One: the clock was the wrong size.** Builds moved into the container on
+2026-09-06 and were given a thirty-minute deadline with a twenty-seven minute
+work budget, because that's what a container can hold. Edits and addons were
+wired across the *same day* and were never given one — so an addon running in
+the container still used the fourteen minutes that exist because a Cloudflare
+Worker is shut down at fifteen. It was measuring itself against a wall it was no
+longer standing next to.
+
+That is exactly what killed run 44 on `repairbench-1` last night: it stopped at
+**12m22s** with the database made and the page written and nothing published,
+on a job that had another thirteen minutes of room it couldn't see.
+
+**Two: the switch was still on one site.** The runner was only ever turned on
+for `fretwork-1`, so `repairbench-1`'s addon never reached a container at all —
+it ran inside the Worker, where fourteen minutes is correct and unavoidable.
+Both are now changed: **every site's builds, edits and addons go to that site's
+own container, under a 27-minute budget.**
+
+**Is twenty-seven enough?** Run 44's own chain was 27s + 138s + 106s + 9s +
+459s = **12m21s of model calls**, and it still needed a compile (~2m30s) and a
+publish — call it **eighteen minutes** for the most expensive addon this
+platform has ever produced. Twenty-seven leaves nine minutes over that, the same
+headroom builds run with.
+
+**What it costs, honestly.** Every site's jobs now share your Cloudflare
+container allowance. If a job finds no room it waits ninety seconds, and then
+the Worker runs it itself on whatever is left of its own fifteen minutes — so
+the worst case is the old behaviour, ninety seconds later. Never a job that
+dies with no refund.
+
+**One caveat I can't check from here.** What I changed is the deploy's
+*default*. If you have ever set `JOB_RUNNER_EVERYONE` as a GitHub secret, the
+secret wins and this line does nothing. I can't read secrets. The one thing
+that can tell you which is live is `GET /api/site/runtime?slug=…` signed in as
+yourself — it answers `runner: true/false` for that site.
+
+**Turning it back off** is one GitHub secret (`JOB_RUNNER_EVERYONE` → `off`)
+and a deploy, not a code change. `fretwork-1` stays named as the canary
+underneath precisely so there is something to fall back to.
+
+Suite **6,269** green. 19 of 19 deliberate breakages caught — one got through
+the first pass, and it was a good one: a version of the code where the container
+*sends* the longer clock and the job quietly *ignores* it. That reads as correct
+from every angle except actually running it, which is why it now is.
+
+**Not proven live.** The proof is re-running ask A on `repairbench-1` after this
+deploys — same workflow, same boxes, same `ask` text — and watching it get past
+twelve minutes to a published page. I'll flag the deploy and the 15–20 minute
+container hold when the push lands.

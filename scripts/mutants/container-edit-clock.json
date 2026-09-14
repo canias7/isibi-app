@@ -1,0 +1,176 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the constants",
+    "control": true,
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": " * THE SAME JOB, IN THE SITE'S OWN CONTAINER — twenty-seven minutes, and the",
+    "to": " * THE SAME JOB, IN THE SITE'S OWN CONTAINER — twenty-seven minutes; the"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the guard",
+    "control": true,
+    "files": [
+      "test/broad-rollout.test.mjs"
+    ],
+    "from": "// ── THE EDIT'S CONTAINER CLOCK (2026-09-14) ─────────────────────────────────",
+    "to": "// ── THE EDIT'S OWN CONTAINER CLOCK (2026-09-14) ─────────────────────────────"
+  },
+
+  {
+    "label": "the container's edit budget goes back to the Worker's — run 44's defect, exactly",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;",
+    "to": "export const CONTAINER_EDIT_BUDGET_MS = EDIT_JOB_MS;"
+  },
+  {
+    "label": "the container's edit budget still fits inside a Worker isolate, so the two numbers say the same thing",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;",
+    "to": "export const CONTAINER_EDIT_BUDGET_MS = 14 * 60_000 + 30_000;"
+  },
+  {
+    "label": "the work may run until the deadline itself fires, leaving nothing for the refund and the terminal write",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "export const CONTAINER_EDIT_BUDGET_MS = 27 * 60_000;",
+    "to": "export const CONTAINER_EDIT_BUDGET_MS = 30 * 60_000;"
+  },
+  {
+    "label": "the two kinds' outer clocks disagree about how long a container may hold a job",
+    "files": [
+      "builder/edit-job.mjs"
+    ],
+    "from": "export const CONTAINER_EDIT_JOB_MS = 30 * 60_000;",
+    "to": "export const CONTAINER_EDIT_JOB_MS = 45 * 60_000;"
+  },
+
+  {
+    "label": "the dispatch stops handing the edit a container budget — the state this change found",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (kind === \"edit\") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === \"string\" && holder ? holder : null, budgetMs: CONTAINER_EDIT_BUDGET_MS });",
+    "to": "  if (kind === \"edit\") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === \"string\" && holder ? holder : null });"
+  },
+  {
+    "label": "the dispatch hands the edit a Worker isolate's clock, spelled out",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (kind === \"edit\") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === \"string\" && holder ? holder : null, budgetMs: CONTAINER_EDIT_BUDGET_MS });",
+    "to": "  if (kind === \"edit\") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === \"string\" && holder ? holder : null, budgetMs: EDIT_JOB_MS });"
+  },
+  {
+    "label": "the consumer ignores the cap it was handed and takes the Worker's own",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const budgetMs = inlineBudgetMs(startedAt, capMs);",
+    "to": "    const budgetMs = inlineBudgetMs(startedAt, EDIT_JOB_MS);"
+  },
+  {
+    "label": "the cap reaches the budget WITHOUT the ceiling — a Worker delivery would outlive its isolate",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const budgetMs = inlineBudgetMs(startedAt, capMs);",
+    "to": "    const budgetMs = capMs || EDIT_JOB_MS;"
+  },
+  {
+    "label": "the consumer stops taking a cap at all",
+    "files": [
+      "worker.js"
+    ],
+    "from": "async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null, startedAt = 0, budgetMs: capMs = null } = {}) {",
+    "to": "async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null, startedAt = 0 } = {}) {\n  const capMs = null;"
+  },
+  {
+    "label": "the consumer drops the delivery's clock, so a Worker fallback that waited for room outlives its isolate",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const budgetMs = inlineBudgetMs(startedAt, capMs);",
+    "to": "    const budgetMs = inlineBudgetMs(0, capMs);"
+  },
+  {
+    "label": "the log's comparison becomes a second copy of inlineBudgetMs's own fallback",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    const wantMs = inlineBudgetMs(0, capMs);",
+    "to": "    const wantMs = capMs || EDIT_JOB_MS;"
+  },
+  {
+    "label": "a budget cut by the ceiling is cut in silence",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (budgetMs < wantMs) console.log(\"edit queue:\", id, \"inline budget cut to\"",
+    "to": "    if (false) console.log(\"edit queue:\", id, \"inline budget cut to\""
+  },
+
+  {
+    "label": "the fire mints a Worker isolate's deadline and token for a job that runs in a container",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const budgetMs = kind === \"build\" ? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;",
+    "to": "  const budgetMs = kind === \"build\" ? BUILD_JOB_MS : EDIT_JOB_MS;"
+  },
+  {
+    "label": "the fire gives every kind a build's clock, so an edit's deadline stops matching its own budget",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const budgetMs = kind === \"build\" ? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;",
+    "to": "  const budgetMs = BUILD_JOB_MS;"
+  },
+  {
+    "label": "the container's dispatch is handed a Worker invocation's clock, cutting every container job to what an isolate has left",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (kind === \"edit\") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === \"string\" && holder ? holder : null, budgetMs: CONTAINER_EDIT_BUDGET_MS });",
+    "to": "  if (kind === \"edit\") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === \"string\" && holder ? holder : null, budgetMs: CONTAINER_EDIT_BUDGET_MS, startedAt: Date.now() });"
+  },
+
+  {
+    "label": "the deploy turns the broad flag back off, so nothing reaches the container at all",
+    "files": [
+      ".github/workflows/deploy.yml"
+    ],
+    "from": "          JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'on' }}",
+    "to": "          JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'off' }}"
+  },
+  {
+    "label": "the deploy words the broad flag as something jobRunnerEveryone does not read as yes",
+    "files": [
+      ".github/workflows/deploy.yml"
+    ],
+    "from": "          JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'on' }}",
+    "to": "          JOB_RUNNER_EVERYONE: ${{ secrets.JOB_RUNNER_EVERYONE || 'all' }}"
+  },
+  {
+    "label": "the canary is dropped as decorative now everyone is on — and the rollback stops having anything to fall back to",
+    "files": [
+      ".github/workflows/deploy.yml"
+    ],
+    "from": "          JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || 'fretwork-1' }}",
+    "to": "          JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || '-' }}"
+  },
+  {
+    "label": "the canary's default widens to an account while nobody is looking at it",
+    "files": [
+      ".github/workflows/deploy.yml"
+    ],
+    "from": "          JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || 'fretwork-1' }}",
+    "to": "          JOB_RUNNER_CANARY: ${{ secrets.JOB_RUNNER_CANARY || '22175f41-6fbf-49d7-b039-a65078a0141c' }}"
+  }
+]

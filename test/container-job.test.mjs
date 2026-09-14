@@ -21,7 +21,7 @@ import { readLaunch, runJob } from "../builder/container-job.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import {
-  EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, packEditJob,
+  EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, packEditJob,
   JOB_ENV_NAMES, jobSecrets, jobRunnerOn, jobRunnerFor, jobRunnerEveryone, readCanaryList, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
 } from "../builder/edit-job.mjs";
 import { gatewayKey, verifyJobToken, signJobToken, SB_MARKER } from "../builder/job-gateway.mjs";
@@ -306,26 +306,45 @@ test("the runner flags: nothing means nobody, a canary names identities, the sec
   assert.equal(jobRunnerFor({ JOB_RUNNER_EVERYONE: "on" }, {}), false, "everyone still needs somebody");
   assert.equal(jobRunnerFor({ JOB_RUNNER_EVERYONE: "on" }, { uid: ["x"], slug: ["y"] }), false, "a shape mistake routes nothing");
   assert.equal(jobRunnerFor({}, { uid: "x", slug: SLUG }), false);
-  // THE DEPLOY'S DEFAULTS (stage 5a, 2026-09-06): the canary names ONE SITE —
-  // a slug, never an account and never a wildcard — and the broad flag is
-  // off, and both are uploaded. RE-ANCHORED: from 2026-09-04 to 2026-09-06
-  // the canary's default was `-` (nobody) and this guard held both defaults
-  // to "the runner is off for everybody"; the owner's "finish the missing
-  // steps" turned the canary on for the test site through the deploy's own
-  // fallback (this session cannot set a GitHub secret), so the property now
-  // is "one site, through the canary alone" — a default that named two
-  // sites, an account, or the broad word would widen a canary, which is the
-  // one thing a default may never do.
+  // THE DEPLOY'S DEFAULTS. INVERTED 2026-09-14, deliberately, and this is the
+  // second time this case has changed direction — the history is the point.
+  //
+  //   2026-09-04  both off: "the runner is off for everybody"
+  //   2026-09-06  the canary names ONE SITE: "one site, through the canary
+  //               alone" — a default that named two sites, an account, or the
+  //               broad word would WIDEN a canary, the one thing a default may
+  //               never do
+  //   2026-09-14  the broad flag ON, the owner's call: "addon, edit and build
+  //               gotta run on the container, just like the build path"
+  //
+  // So the old assertion — "the shipped default turns the runner on for
+  // everyone" as a FAILURE — is not appeased here, it is REVERSED, because the
+  // decision under it was reversed. Holding the deploy to a rollout the owner
+  // has since made would pin a state nobody wants.
+  //
+  // WHAT REPLACES IT is the half that is still law: the flip is ONE VALUE and
+  // nothing else, the canary is KEPT (it is the state the platform falls back
+  // to if everyone is turned off again, so a deploy that dropped it would make
+  // the rollback a code change), and it still names one site and never an
+  // account.
   const canary = /JOB_RUNNER_CANARY: \$\{\{ secrets\.JOB_RUNNER_CANARY \|\| '([^']*)' \}\}/.exec(YML);
   const everyone = /JOB_RUNNER_EVERYONE: \$\{\{ secrets\.JOB_RUNNER_EVERYONE \|\| '([^']*)' \}\}/.exec(YML);
   assert.ok(canary && everyone, "the deploy does not carry both runner secrets");
-  assert.equal(jobRunnerEveryone({ JOB_RUNNER_EVERYONE: everyone[1] }), false, "the shipped default turns the runner on for everyone");
+  assert.equal(jobRunnerEveryone({ JOB_RUNNER_EVERYONE: everyone[1] }), true, "the shipped default no longer runs every site's jobs in its own container");
   const named = readCanaryList(canary[1]);
   assert.equal(named.length, 1, "the shipped canary names one site, not " + JSON.stringify(canary[1]));
   assert.ok(!/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(named[0]), "the shipped canary names an account, not a site: " + named[0]);
-  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "x", slug: named[0] }), true, "the shipped canary does not reach its own site");
-  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "x", slug: "other-1" }), false, "the shipped defaults route another site through the runner");
-  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "11111111-2222-3333-4444-555555555555", slug: "" }), false, "the shipped defaults route an account through the runner");
+  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "x", slug: named[0] }), true, "the shipped defaults do not reach the canary's own site");
+  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "x", slug: "other-1" }), true, "the shipped defaults leave another site off the runner");
+  assert.equal(jobRunnerFor({ JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: everyone[1] }, { uid: "11111111-2222-3333-4444-555555555555", slug: "" }), true, "the shipped defaults leave an account off the runner");
+  // AND THE ROLLBACK IS STILL ONE VALUE: with the broad word off, the canary
+  // is exactly what it was and nothing else is on. This is what makes turning
+  // it back off a secret and a deploy rather than a revert — and it is the
+  // half that would go silently missing if the canary were dropped as
+  // decorative now that everyone is on.
+  const rolledBack = { JOB_RUNNER_CANARY: canary[1], JOB_RUNNER_EVERYONE: "off" };
+  assert.equal(jobRunnerFor(rolledBack, { uid: "x", slug: named[0] }), true, "turning the broad flag off also turns the canary off — there is nothing to fall back to");
+  assert.equal(jobRunnerFor(rolledBack, { uid: "x", slug: "other-1" }), false, "turning the broad flag off leaves another site on the runner");
   const block = YML.slice(YML.indexOf("secrets: |"), YML.indexOf("\n        env:", YML.indexOf("secrets: |")));
   assert.match(block, /\n\s+JOB_RUNNER_CANARY(?:\n|$)/);
   assert.match(block, /\n\s+JOB_RUNNER_EVERYONE(?:\n|$)/);
@@ -426,7 +445,17 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.match(String(launch.sb && launch.sb.url), /^https:\/\/[a-z0-9]+\.supabase\.co$/, "the launch does not name the Supabase origin the shim intercepts");
   assert.equal(launch.buildPort, 8080);
   // THE DEADLINE (stage 5d): this consumer's clock plus the job's whole budget.
-  assert.ok(launch.deadlineAt >= Date.now() + EDIT_JOB_MS - 60_000 && launch.deadlineAt <= Date.now() + EDIT_JOB_MS, "the launch does not name the job's deadline: " + launch.deadlineAt);
+  //
+  // RE-ANCHORED 2026-09-14: that budget is `CONTAINER_EDIT_JOB_MS`, not
+  // `EDIT_JOB_MS`. This line is only reached on the FIRE path — `jobRunnerFor`
+  // refused above it, so nothing that stays in the Worker gets here — and the
+  // deadline it mints is the one the build service kills the child by, in a
+  // place with no fifteen-minute invocation. It minted fourteen minutes for a
+  // job with twenty-seven of room until run 44 met it. The property is
+  // unchanged: the launch's deadline IS the job's whole clock, whatever that
+  // clock is, which is why it is read against the constant and never a literal.
+  assert.ok(launch.deadlineAt >= Date.now() + CONTAINER_EDIT_JOB_MS - 60_000 && launch.deadlineAt <= Date.now() + CONTAINER_EDIT_JOB_MS, "the launch does not name the job's deadline: " + launch.deadlineAt);
+  assert.ok(launch.deadlineAt > Date.now() + EDIT_JOB_MS, "the launch named a Worker isolate's clock as the deadline for a job that is not in one");
   // THE TOKEN VERIFIES under the key derived from the platform secret, names
   // this job, its site and its owner, and outlives the job's clock.
   const who = await verifyJobToken(launch.gateway.token, await gatewayKey("platform-secret"), Date.now());
@@ -434,8 +463,8 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.equal(who.id, ID);
   assert.equal(who.slug, SLUG);
   assert.equal(who.uid, UID);
-  assert.ok(who.exp * 1000 > Date.now() + EDIT_JOB_MS, "the token expires before the job's clock does");
-  assert.ok(who.exp * 1000 <= Date.now() + EDIT_JOB_MS + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the job by more than its grace");
+  assert.ok(who.exp * 1000 > Date.now() + CONTAINER_EDIT_JOB_MS, "the token expires before the job's clock does");
+  assert.ok(who.exp * 1000 <= Date.now() + CONTAINER_EDIT_JOB_MS + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the job by more than its grace");
   // THE SECRETS: the listed ones that are set, and never the rest — and since
   // stage 4b never the service key or the mint, which the Worker's env holds.
   assert.equal("SUPABASE_SERVICE_KEY" in launch.secrets, false, "the service key travelled into the container");
@@ -536,7 +565,14 @@ test("the fire waits for room and shares one clock across its attempts, read off
   // And the export the runner calls dispatches to the three consumers, the
   // edit under a takeover from the launch's holder.
   const ex = src.slice(src.indexOf("export async function runContainerJob("), src.indexOf("\n}\n", src.indexOf("export async function runContainerJob(")));
-  assert.match(ex, /kind === "edit"\) return runQueuedSiteEdit\(env, ctx, id, \{ takeOver: /);
+  // RE-ANCHORED 2026-09-14: the edit's dispatch gained the container's own
+  // budget, exactly as the build's did in stage 5b. Until then it passed none
+  // and `runQueuedSiteEdit` fell back to the fourteen minutes sized for a
+  // Worker isolate — the recorded "a rule true because of a layer below it
+  // expires when that layer moves", and it is read here BY CONSTANT so a
+  // hand-typed number cannot pass for it.
+  assert.match(ex, /kind === "edit"\) return runQueuedSiteEdit\(env, ctx, id, \{ takeOver: [^\n]*budgetMs: CONTAINER_EDIT_BUDGET_MS \}\)/,
+    "an edit in the container runs on a Worker isolate's clock");
   // RE-ANCHORED 2026-09-06 (stage 5b): a build runs whole in the container —
   // under a takeover from the launch's holder, naming its slug, with the
   // container's own budget. Driven in build-runner.test.mjs.

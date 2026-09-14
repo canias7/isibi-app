@@ -35,7 +35,7 @@ import { withRoom, roomSentence } from "./builder/container-room.mjs";
 import { gatewayHandler, gatewayJobId, gatewayKey, verifyJobToken, signJobToken, preScopeSlug } from "./builder/job-gateway.mjs";
 import { JOB_KIND, BUILD_JOB_MS, jobKey, resultKey, newJobId, isJobId, packJob, readJob, packResult, readResult, readMessage, replayRequest, pollDelayMs } from "./builder/build-job.mjs";
 import {
-  EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
+  EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, CONTAINER_EDIT_BUDGET_MS, LEASE_TTL_S, HEARTBEAT_S, STALE_GRACE_S,
   PUBLISH_LEASE_S, REPLAY_HEADER, FINAL_HEADER, FINAL_VALUE, makeEditBudget, cleanIdemKey, newLeaseOwner,
   replayEditRequest, phaseDurations, readEditMessage, isTerminalEdit,
   newReplaySecret, packReplayMarker, readReplayMarker, packEditJob, readEditJob,
@@ -12528,7 +12528,7 @@ function enqueueReply(q) {
  * charged. `max_retries` is 0 and this acks everything, but the handler is the
  * belt as well as the braces.
  */
-async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null, startedAt = 0 } = {}) {
+async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null, startedAt = 0, budgetMs: capMs = null } = {}) {
   const owner = lease || newLeaseOwner();
   let beat = null;
   try {
@@ -12609,13 +12609,40 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // the work inside that, and nothing here can move it.
     // ── THE BUDGET IS WHAT THIS INVOCATION HAS LEFT (stage 5e) ────────────
     //
-    // `EDIT_JOB_MS` on the container's runtime and on every Worker delivery
-    // that reached here promptly; less when the fire waited for container
-    // room, because the ceiling that stops this isolate does not wait with
-    // it. A shorter clock ends the job at its own gates with a sentence and
-    // a refund; the eviction it replaces ends it with neither.
-    const budgetMs = inlineBudgetMs(startedAt, EDIT_JOB_MS);
-    if (budgetMs < EDIT_JOB_MS) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
+    // `EDIT_JOB_MS` on every Worker delivery that reached here promptly; less
+    // when the fire waited for container room, because the ceiling that stops
+    // this isolate does not wait with it. A shorter clock ends the job at its
+    // own gates with a sentence and a refund; the eviction it replaces ends it
+    // with neither.
+    //
+    // ── AND THE CONTAINER HANDS IN ITS OWN, WHICH IS LONGER (2026-09-14) ──
+    //
+    // `capMs` is `CONTAINER_EDIT_BUDGET_MS` when `runContainerJob` called this,
+    // and null on every Worker delivery. The paragraph above is about an
+    // ISOLATE; the runner is a Node process under the job's own deadline and
+    // nothing stops it at fifteen minutes. This branch read `EDIT_JOB_MS`
+    // unconditionally from the day builds moved across with a longer pair of
+    // their own, which is the recorded "a rule true because of a layer below it
+    // expires when that layer moves" — it cost run 44 a published addon.
+    //
+    // `inlineBudgetMs` still subtracts what the delivery has already spent,
+    // whichever cap it is: a fire that waited for room has spent that wait out
+    // of its own clock in the container exactly as in the Worker.
+    //
+    // AND THE FALLBACK IS ASKED OF `inlineBudgetMs`, NEVER WRITTEN AGAIN HERE.
+    // Its own first line is `Number.isFinite(want) && want > 0 ? want :
+    // EDIT_JOB_MS`, so `capMs ?? EDIT_JOB_MS` at this line would be a second
+    // copy of that rule three lines above the function that owns it — the
+    // recorded "two lists of the same thing", and the first cut of this change
+    // had exactly that. With no clock there is no ceiling to apply, so
+    // `inlineBudgetMs(0, capMs)` IS "what this run asked for, fallback and
+    // all", which is the only thing the log line below needs to compare
+    // against. (The build consumer's `budgetMs || BUILD_BUDGET_MS` is NOT the
+    // same shape and stays: it substitutes a different default, which this
+    // function cannot know.)
+    const wantMs = inlineBudgetMs(0, capMs);
+    const budgetMs = inlineBudgetMs(startedAt, capMs);
+    if (budgetMs < wantMs) console.log("edit queue:", id, "inline budget cut to", Math.round(budgetMs / 1000) + "s — this delivery has already spent", Math.round((Date.now() - startedAt) / 1000) + "s");
     const jctx = makeJobCtx(env, { id, owner, budget: makeEditBudget(budgetMs), uid: job.uid, slug: job.slug });
     beat = setInterval(() => { jctx.beat(null).catch(() => {}); }, HEARTBEAT_S * 1000);
 
@@ -12713,7 +12740,11 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
 export async function runContainerJob(env, ctx, { kind, id, holder = "", slug = "" } = {}) {
   // THE LEASE'S HOLDER RIDES THE LAUNCH (stage 6): the consumer claimed the
   // row before it fired, and the runner takes the lease over from that name.
-  if (kind === "edit") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === "string" && holder ? holder : null });
+  // AND THE EDIT'S CLOCK IS THE CONTAINER'S (2026-09-14), the way the build's
+  // below has been since stage 5b. Without this the job falls back to
+  // `EDIT_JOB_MS` — fourteen minutes, sized for a Worker isolate Cloudflare
+  // stops at fifteen, which is not where this runs.
+  if (kind === "edit") return runQueuedSiteEdit(env, ctx, id, { takeOver: typeof holder === "string" && holder ? holder : null, budgetMs: CONTAINER_EDIT_BUDGET_MS });
   // A BUILD, WHOLE, IN THE CONTAINER (stage 5b): the takeover names the
   // launch's slug on the row, and the build runs under the container's own
   // longer budget — no fire, no resume; the generation is waited for here.
@@ -12825,9 +12856,14 @@ async function fireContainerJob(env, id, { holder = "", kind = "edit", who: iden
   if (!jobRunnerFor(env, { uid: who.uid, slug: who.slug })) return { fired: false, why: "not-this-one" };
   const key = await gatewayKeyFor(env);
   if (!key) return { fired: false, why: "no-key" };
-  // THE KIND'S OWN CLOCK: an edit's budget, or a build's longer one — the
-  // whole build runs in the container now — for the deadline and the expiry.
-  const budgetMs = kind === "build" ? BUILD_JOB_MS : EDIT_JOB_MS;
+  // THE KIND'S OWN CLOCK, for the deadline and the token's expiry — and BOTH
+  // are the container's, because this line is only reached on the fire path:
+  // `jobRunnerFor` refused above, so nothing that stays in the Worker gets
+  // here. It read `EDIT_JOB_MS` for an edit until 2026-09-14, which minted a
+  // fourteen-minute token and deadline for a job that had twenty-seven
+  // minutes of room — the runner's child was killed by its own deadline long
+  // before the work ran out.
+  const budgetMs = kind === "build" ? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;
   const pre = who.pre === true;
   const token = await signJobToken({ id, slug: pre ? preScopeSlug(id) : who.slug, uid: who.uid, exp: Math.floor((Date.now() + budgetMs) / 1000) + JOB_TOKEN_GRACE_S, pre }, key);
   const payload = JSON.stringify({
