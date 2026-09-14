@@ -1,0 +1,332 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the configuration-settles-nothing branch",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    // ── CONFIGURATION SETTLES NOTHING (owner, 2026-09-14) ──────────────────",
+    "to": "    // ── CONFIGURATION ON ITS OWN SETTLES NOTHING (owner, 2026-09-14) ───────"
+  },
+  {
+    "label": "CONTROL 2: a comment only, above the kit-name check",
+    "control": true,
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  // ── A KIT NAME IS CHECKED AGAINST THE KIT (owner, 2026-09-14) ───────────",
+    "to": "  // ── A KIT NAME IS CHECKED AGAINST THE REAL KIT (owner, 2026-09-14) ──────"
+  },
+  {
+    "label": "FIX 1: a configuration word settles the requirement again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (ev && ev.kind === \"checked\") state = \"delivered\";\n      else if (ev) configured = String(ev.name) + \": \" + String(ev.token);",
+    "to": "      if (ev) state = \"delivered\";"
+  },
+  {
+    "label": "FIX 1: exercised behaviour stops being able to deliver, so the third state is a demotion",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (ev && ev.kind === \"checked\") state = \"delivered\";",
+    "to": "      if (ev && ev.kind === \"never\") state = \"delivered\";"
+  },
+  {
+    "label": "FIX 1: the configuration that WAS matched is not written down, so the record cannot say why",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      else if (ev) configured = String(ev.name) + \": \" + String(ev.token);",
+    "to": "      else if (ev) configured = \"\";"
+  },
+  {
+    "label": "FIX 1: a checked token is reported as configuration, so nothing can ever be delivered",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: \"checked\" };",
+    "to": "      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: \"config\" };"
+  },
+  {
+    "label": "FIX 1: a configuration token is reported as checked, which is fix 1 undone at the reader",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: \"config\" };",
+    "to": "      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: \"checked\" };"
+  },
+  {
+    "label": "FIX 1: `checked` is never read, so the behaviour half of the split does not exist",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    for (const raw of Array.isArray(m.checked) ? m.checked : []) {",
+    "to": "    for (const raw of []) {"
+  },
+  {
+    "label": "FIX 1: the configured count is off the record",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      configured: outcomes.filter((r) => r.configured).length,",
+    "to": "      configured: 0,"
+  },
+  {
+    "label": "FIX 1: an applied table claims its behaviour was exercised",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return { holds, fails: levels.filter((l) => !mine.has(l)), checked: [] };",
+    "to": "    return { holds, fails: levels.filter((l) => !mine.has(l)), checked: holds };"
+  },
+  {
+    "label": "FIX 1: an applied function claims its behaviour was exercised",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    for (const a of (Array.isArray(f.args) ? f.args : [])) if (a && a.name) holds.push(String(a.name).toLowerCase());\n    out.push({ name: n, holds, fails, checked: [] });",
+    "to": "    for (const a of (Array.isArray(f.args) ? f.args : [])) if (a && a.name) holds.push(String(a.name).toLowerCase());\n    out.push({ name: n, holds, fails, checked: holds });"
+  },
+  {
+    "label": "FIX 2: the missing pages are never computed, so a page that did not make it is silent",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            aMissing = missingPages(",
+    "to": "            aMissing = [].concat(missingPages("
+  },
+  {
+    "label": "FIX 2: a missing page does not fail its step, so its requirements still read as covered",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aFailedKinds.add(\"page\");\n              aMark(\"pages\", \"missing\", { n: aMissing.length });",
+    "to": "              aMark(\"pages\", \"missing\", { n: aMissing.length });"
+  },
+  {
+    "label": "FIX 2: the missing-page sentence is not joined to the coverage note, so the customer hears nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  missingPagesNote(aMissing),\n                ].filter(Boolean).join(\" \"),",
+    "to": "                ].filter(Boolean).join(\" \"),"
+  },
+  {
+    "label": "FIX 2: what survived is read from what was PLANNED rather than from the merge",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              [...(aMerge.added || []), ...(aMerge.changed || [])],",
+    "to": "              aAnswers.filter((a) => a.kind === \"page\").flatMap((a) => (Array.isArray(a.value) ? a.value : [])).map((p) => p.file),"
+  },
+  {
+    "label": "FIX 2: a page that IS there is named as missing — the comparison ignores what the site has",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (!file || !route || have.has(file)) continue;",
+    "to": "    if (!file || !route) continue;"
+  },
+  {
+    "label": "FIX 2: the route is not named, so the customer cannot ask for that page again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const named = list.slice(0, 3).join(\", \");",
+    "to": "  const named = \"\";"
+  },
+  {
+    "label": "FIX 2: the missing-page list is never put on the wire",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                missingPages: aMissing.length ? aMissing : undefined,",
+    "to": "                missingPages: undefined,"
+  },
+  {
+    "label": "FIX 3: the frontend kinds are not audited at all, which is the state this fix found",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                const fa = auditFrontend(k, Array.isArray(ran.value) ? ran.value : [ran.value],",
+    "to": "                const fa = auditFrontend(\"table\", Array.isArray(ran.value) ? ran.value : [ran.value],"
+  },
+  {
+    "label": "FIX 3: an unsupported page property is dropped without being reported",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                for (const n of fa.reached) aBadProps.add(n);",
+    "to": "                for (const n of []) aBadProps.add(n);"
+  },
+  {
+    "label": "FIX 3: a changed page or component property is not reported",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                for (const n of fa.changed) aChanged.add(n);",
+    "to": "                for (const n of []) aChanged.add(n);"
+  },
+  {
+    "label": "FIX 3: an omitted page or component property is not reported",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                for (const n of fa.unexpressed) aUnexpressed.add(n);",
+    "to": "                for (const n of []) aUnexpressed.add(n);"
+  },
+  {
+    "label": "FIX 3: the offered set is typed rather than read off the tool, so the tool can drift from its audit",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const offered = new Set(Object.keys(item.properties || {}));",
+    "to": "  const offered = new Set([\"path\", \"name\", \"purpose\", \"sections\", \"components\", \"tsx\", \"link\", \"page\", \"where\", \"does\"]);"
+  },
+  {
+    "label": "FIX 3: mismatched lists are paired anyway, so one declaration is audited against another's answer",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (decl.length !== kept.length) return empty;",
+    "to": "  if (decl.length < 0) return empty;"
+  },
+  {
+    "label": "FIX 3: an unsupported property is read as an omitted one — the wrong sentence for the wrong layer",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (!offered.has(key)) { if (reached.size < MAX_FRONTEND_DROPPED) reached.add(key); continue; }",
+    "to": "      if (!offered.has(key)) { if (unexpressed.size < MAX_FRONTEND_DROPPED) unexpressed.add(key); continue; }"
+  },
+  {
+    "label": "FIX 3: a list of objects is compared as text, so every page reads as changed",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (scalarHere(d[key]) && scalarHere(k[key]) && String(d[key]) !== String(k[key])) {",
+    "to": "      if (String(d[key]) !== String(k[key])) {"
+  },
+  {
+    "label": "FIX 3: `scanned` is a constant, so a negative report can never be proved to have an observer",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    scanned++;",
+    "to": "    scanned = 1;"
+  },
+  {
+    "label": "FIX 4: a section with no destination silently becomes the home page again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (have.length === 1) return have[0];\n    return \"\";",
+    "to": "    return have[0] || \"\";"
+  },
+  {
+    "label": "FIX 4: a one-page site stops taking an unnamed destination, which refuses a correct answer",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (have.length === 1) return have[0];",
+    "to": ""
+  },
+  {
+    "label": "FIX 4: a kit name is never checked against the catalog",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (KIT_COMPONENTS.has(n)) { out.push(n); continue; }",
+    "to": "      { out.push(n); continue; }"
+  },
+  {
+    "label": "FIX 4: the dropped name is not recorded, so nobody can be told which one went",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (ctx && Array.isArray(ctx.unknownKit) && !ctx.unknownKit.includes(n)) ctx.unknownKit.push(n);",
+    "to": "      continue;"
+  },
+  {
+    "label": "FIX 4: the catalog is a hand-typed list rather than the kit's own menu",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "const KIT_COMPONENTS = new Set(COMPONENT_MENU.map((n) => String(n).toLowerCase()));",
+    "to": "const KIT_COMPONENTS = new Set([\"site-chrome\", \"testimonial\", \"hero\", \"form\", \"form-section\"]);"
+  },
+  {
+    "label": "FIX 4: a page's component list is not checked, only a component's",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        const components = kitNames(v.components, MAX_COMPONENTS, ctx);\n        if (!sections.length && !components.length) return { ok: false, why: \"no-plan\" };",
+    "to": "        const components = names(v.components, MAX_COMPONENTS);\n        if (!sections.length && !components.length) return { ok: false, why: \"no-plan\" };"
+  },
+  {
+    "label": "FIX 4: a part written for this site is refused as not being in the kit",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        const tsx = parts(v.tsx);\n        // THE COMPONENT IS THE ADDITION",
+    "to": "        const tsx = parts(v.tsx).filter((p) => KIT_COMPONENTS.has(String(p.name).toLowerCase()));\n        // THE COMPONENT IS THE ADDITION"
+  },
+  {
+    "label": "FIX 4: the dropped names never leave the cleaner",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return { ok: true, value: kept, skipped, ...(unknownKit.length ? { unknownKit } : {}) };",
+    "to": "    return { ok: true, value: kept, skipped };"
+  },
+  {
+    "label": "FIX 4: the dropped names are not pooled by the route, so the reply cannot carry them",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              for (const n of Array.isArray(clean.unknownKit) ? clean.unknownKit : []) aUnknownKit.add(n);",
+    "to": "              for (const n of []) aUnknownKit.add(n);"
+  },
+  {
+    "label": "FIX 5: the function step is not told the message contract",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        MESSAGE_CONTRACT +",
+    "to": "        \"\" +"
+  },
+  {
+    "label": "FIX 5: the job step is not told the message contract",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        MESSAGE_CONTRACT,",
+    "to": "        \"\","
+  },
+  {
+    "label": "FIX 5: the contract does not name the deciding field, so a model cannot ask for a text",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  \"EACH MESSAGE IS {channel, to, subject, body}. `channel` is \\\"email\\\" or \\\"sms\\\" and it is the FIELD that decides, \" +",
+    "to": "  \"EACH MESSAGE IS {to, subject, body}. \" +"
+  },
+  {
+    "label": "FIX 5: the contract states the wrong default, sending a keyless channel by mistake",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  \"never the shape: leave it out and the message is EMAILED, and anything that is not \\\"sms\\\" is emailed too — \" +",
+    "to": "  \"never the shape: leave it out and the message is TEXTED, and anything that is not \\\"email\\\" is texted too — \" +"
+  },
+  {
+    "label": "FIX 5: the contract says a text takes a subject, which is not the shape the runtime makes",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  \"and `body`; it takes NO `subject`, because a text has none. \" +",
+    "to": "  \"and `body` and `subject`. \" +"
+  }
+]

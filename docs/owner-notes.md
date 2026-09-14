@@ -155,6 +155,86 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — Five bounded fixes, and a correction to my own audit
+
+You gave me five fixes, a wording correction, and an instruction to report what
+was demonstrated and what was not. Taking the correction first, because it is
+about something I got wrong.
+
+**My audit overstated two limits and you caught both.** I wrote that a generated
+function "can never produce a text message" and implied one-time scheduling was
+impossible. Neither is true, and the difference matters because it points at a
+different fix. **SMS is UNDOCUMENTED TO THE DESIGNER — not unavailable.** Every
+hop of it has worked for weeks: the runtime reads a `channel` field, sends
+`"sms"` through the SMS provider with the number parsed, and emails everything
+else. A model that wrote `channel: "sms"` out of its own knowledge would have
+been sent as a text on any day of that time. What was missing was the paragraph
+telling the designer the field exists — measured, the word `channel` appeared
+**zero times** in the function tool and **zero times** in the job tool, while the
+job rule cheerfully told you to paste an SMS key in Settings. Likewise **native
+one-time scheduling is ABSENT** — there is no "run once at" field — which is not
+the same as "the model can never schedule anything". Those are documentation and
+capability gaps, and I described them as impossibilities.
+
+**1. Configuration no longer settles a business requirement.** *"'The function
+is public' does not prove it checks ownership."* Until now, a claim that named
+any word matching what was applied scored **delivered** — so "each customer sees
+only their own repairs" was settled by the word `user` appearing in a permission
+setting. Two lists now, kept apart on purpose: what an applied thing is
+CONFIGURED as, and what has really been EXERCISED. Only the second can deliver.
+**Nothing fills the second one today**, which is stated in the code rather than
+hidden — so those claims read *"I've set that up, but I can't confirm from here
+that…"*, and the configuration that WAS matched goes on the developer record so
+the reason is readable. It is not another keyword rule; it is the same reader
+with its answer split in two.
+
+**2. A page that was asked for and is not there gets named.** The requested page
+list has been computed since the fold was written and had **zero readers** — so
+a message asking for two pages whose writer returned one published the one,
+called it added, and said nothing whatever about the other. The comparison is
+against what really survived the compile and the publish, made **after** the
+publish, so a page the writer never returned, one salvage replaced and one the
+merge refused all read the same way. The route is NAMED, because that is the one
+thing you can act on: *"One page I set out to add isn't there — /gallery didn't
+make it through… ask me for it again on its own."* A missing page also fails the
+page step, so nothing handed to that step can still read as covered.
+
+**3. Page and component declarations are validated before the cleaner discards
+them.** The audit that reports unsupported, changed and omitted settings only
+knew the four DATABASE tiers, so `page` and `component` were skipped entirely —
+measured, a page declaring `seoTitle` and `cacheForever` was cleaned down to its
+eight known keys with nothing anywhere saying so. They get their own validator,
+appropriate to their own pipeline (the cleaner and the directive, not the schema
+engine), and its three lists pool into the same two sentences you already get.
+
+**4. A section with no destination is refused, and a kit name is checked against
+the kit.** On a multi-page site an unnamed destination silently became the home
+page, so a section meant for /about was added to the front page and reported as
+done. It is refused now; on a one-page site the home page is still taken,
+because there it is the only answer there is. And a component name that is not
+one of the 2,112 real kit parts was being written into the directive as *"the
+kit component: not-a-kit-part — its exact props are listed above"* about
+something with no props at all. Unknown names are dropped and named; **a
+component written for your site is untouched**, because that is the escape hatch
+the kit exists to have.
+
+**5. The SMS contract is written into both instruction sets, and proven to
+reach the sender.** One string, sent to the function step and the job step, that
+says what the runtime really accepts: `{channel, to, subject, body}`, `"email"`
+or `"sms"`, leave it out and it is emailed, a text takes no subject, and each
+channel has its own key. Driven with both providers stubbed: a designed text
+reaches the SMS sender with the number parsed and the SMS credential used; the
+email beside it reaches the email sender with its own credential; a text on a
+site with no SMS key is held and reported as waiting rather than failed.
+
+**What is demonstrated and what is not.** Every one of the five is driven — the
+first four through `POST /api/site/<slug>/addon`, reading the sentence your
+customer gets, and the fifth through the job runner with stubbed providers.
+**None of it has run against a real customer message.** The `repairbench-1`
+addon rerun is still the cheapest live proof and is your call.
+
+---
+
 ## 2026-09-14 — The four outstanding fixes, and all five cases driven
 
 You named four fixes and then named the five cases you wanted to see them in.

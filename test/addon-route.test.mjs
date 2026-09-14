@@ -25,7 +25,7 @@
 // `fixtures/addon-route.mjs`.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addon, promptFor, storedAnswer, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+import { addon, promptFor, storedAnswer, writtenPage, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
 
 /** An internal function and a job over it: the pageless pair, so the whole
  *  route runs without a container. */
@@ -95,13 +95,29 @@ const claiming = (by) => ({
   job: { job: [JOB], requirements: [{ need: "customers get a reminder the day before", status: "covered", by }] },
 });
 
-test("a claim naming a guarantee that really holds is delivered, and says nothing", async () => {
+test("a claim naming a configuration that really holds is recorded, and still does not claim the behaviour", async () => {
+  // RE-ANCHORED 2026-09-14, and the property that moved is the subject of the
+  // change. This asserted the claim was DELIVERED and the customer told
+  // nothing. Owner: *"Matching configuration words must not mark an entire
+  // business requirement delivered. 'The function is public' does not prove it
+  // checks ownership."* The schedule is a configuration fact — read back off
+  // what was applied — and the need is *"customers get a reminder the day
+  // before"*, which nothing here has watched happen. So the fact is RECORDED
+  // and the requirement stays unverified.
   const r = await addon("fw-ev-a", "remind people the day before", {
     kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"),
   });
   assert.equal(r.body.ok, true);
   assert.deepEqual(r.body.functions, ["send_reminder"], "the function was not applied — this case tests nothing");
-  assert.equal(r.body.coverNote, "", "a delivered requirement was read back to the customer: " + r.body.coverNote);
+  assert.match(r.body.coverNote, /can't confirm from here that customers get a reminder the day before/,
+    "a configuration word settled a business requirement");
+  // AND THE CONFIGURATION IT DID CHECK IS NOT THROWN AWAY: a requirement whose
+  // claim matched a real setting is a different kind of unverified from one
+  // nothing could be said about, and the record keeps which.
+  const rec = storedAnswer(r, "fw-ev-a");
+  assert.equal(rec.coverage.counts.configured, 1, "the configuration fact that was checked is not recorded");
+  assert.ok(rec.coverage.requirements.some((x) => typeof x.configured === "string" && x.configured.includes("daily_reminder")),
+    "the record does not say WHICH configuration matched: " + JSON.stringify(rec.coverage.requirements));
 });
 
 test("the same claim is NOT delivered when the database refused the function it names", async () => {
@@ -152,7 +168,12 @@ test("the stored coverage is written again once the apply has landed", async () 
   });
   const rec = storedAnswer(r, "fw-record");
   assert.ok(rec && rec.coverage, "no developer record was stored at all");
-  assert.equal(rec.coverage.counts.delivered, 1, "the stored record still says the claim is unverified");
+  // RE-ANCHORED with the completion correction: a configuration match is
+  // recorded as CONFIGURED and never as delivered. What this case is really
+  // about is unchanged — the record is re-written after the apply, so the
+  // evidence it was decided from is the applied result and not an empty one.
+  assert.equal(rec.coverage.counts.configured, 1, "the stored record was not re-decided against the applied result");
+  assert.equal(rec.coverage.counts.delivered, 0, "a configuration fact was promoted to delivered");
   // AND THE EVIDENCE IT WAS DECIDED FROM IS KEPT BESIDE THE VERDICTS, so a
   // person reading the record can see WHY rather than re-deriving it.
   assert.ok(rec.coverage.applied.some((m) => m.name === "send_reminder"),
@@ -358,7 +379,13 @@ test("public and internal functions carry opposite guarantees, and a claim on th
     kinds: ["function"], answers: { function: { function: [FN], requirements: claim("only the site can send reminders") } },
   });
   assert.deepEqual(priv.body.functions, ["send_reminder"]);
-  assert.equal(priv.body.coverNote, "", "a true claim about an internal function was not read as delivered: " + priv.body.coverNote);
+  // RE-ANCHORED: the visibility is a CONFIGURATION fact, so it is recorded and
+  // the behavioural need — *"only the site can send reminders"* — stays
+  // unverified. What this case is about is unchanged and is the LINE BELOW:
+  // the same claim about a PUBLIC function is contradicted outright.
+  assert.match(priv.body.coverNote, /can't confirm from here that only the site can send reminders/);
+  assert.equal(storedAnswer(priv, "fw-fn-internal").coverage.counts.configured, 1,
+    "the configuration that really holds was not recorded at all");
 
   // THE SAME CLAIM, THE SAME WORDS, A FUNCTION APPLIED THE OTHER WAY. `fails`
   // is asked FIRST, so `internal` naming a PUBLIC function denies the claim
@@ -467,7 +494,15 @@ test("a stored connection proves configuration and never behaviour", async () =>
     kinds: ["api"], publishes: true,
     answers: { api: { api: [API], requirements: [{ need: "the forecast is read from api.test", status: "covered", by: "weather calls api.test" }] } },
   });
-  assert.equal(config.body.coverNote, "", "a claim about the stored configuration was not read as delivered: " + config.body.coverNote);
+  // RE-ANCHORED: the host IS checked and IS recorded — and it is configuration,
+  // so it does not settle the need either. The difference this case exists for
+  // survives in the record: the behavioural claim above matches nothing and
+  // this one matches a real stored setting.
+  assert.match(config.body.coverNote, /can't confirm from here/);
+  assert.equal(storedAnswer(config, "fw-api-config").coverage.counts.configured, 1,
+    "a claim naming the stored host was not recorded as checked configuration");
+  assert.equal(storedAnswer(behaviour, "fw-api-behave").coverage.counts.configured, 0,
+    "a claim naming only behaviour was recorded as checked configuration");
 });
 
 test("a setting the engine supports and this step cannot carry is a different sentence from one the engine refuses", async () => {
@@ -520,4 +555,153 @@ test("a setting only this step lost still reaches the customer, with nothing els
   assert.deepEqual(r.body.unexpressedProps, ["language"]);
   assert.match(r.body.coverNote, /One setting the design asked for isn't something this kind of change can carry through/,
     "the only thing wrong with this change was never said");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. THE DELIVERY GAPS OF 2026-09-14
+//
+// Owner: *"Report missing pages … Validate page and component declarations
+// before cleaning discards information … Fix component targeting and name
+// validation."*
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Two pages asked for, in the shape the page designer answers. */
+const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
+
+test("a page that was asked for and did not survive is named in the result", async () => {
+  // THE DEFECT: `foldAdds` has computed the requested file names since the day
+  // it was written — its own comment says they are there "so the route can tell
+  // a new page from a changed one" — and MEASURED, the route read `designed`,
+  // `directive` and `components` off that fold and never once read `files`. So
+  // a message asking for two pages whose writer returned one published the one,
+  // reported it as `added`, and said nothing whatever about the other.
+  const r = await addon("fw-missing", "add a gallery and a prices page", {
+    kinds: ["page"], publishes: true,
+    answers: { page: { page: [PAGE("/gallery", "Gallery"), PAGE("/prices", "Prices")] } },
+    written: [writtenPage("/gallery")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.added, ["gallery.tsx"], "the page that DID survive is not reported as added");
+  // THE PAGE THAT DID NOT, BY ROUTE — the one thing about it the customer can
+  // act on, where a count would leave them to work out which.
+  assert.deepEqual(r.body.missingPages, ["/prices"]);
+  assert.match(r.body.coverNote, /One page I set out to add isn't there — \/prices/);
+  // …AND THE PAGE STEP IS MARKED FAILED, so a requirement handed to it cannot
+  // be covered by a page that is not on the site.
+  assert.ok(storedAnswer(r, "fw-missing").coverage.failedSteps.includes("page"),
+    "a page that never arrived left the page step reading as successful");
+});
+
+test("a page that survives is not reported missing, and the reply says nothing about it", async () => {
+  // THE CONTROL. Without it "name the missing pages" is satisfied by naming
+  // every page, which would put a false alarm in front of every customer who
+  // asked for one page and got it.
+  const r = await addon("fw-missing-none", "add a gallery page", {
+    kinds: ["page"], publishes: true,
+    answers: { page: { page: [PAGE("/gallery", "Gallery")] } },
+    written: [writtenPage("/gallery")],
+  });
+  assert.equal(r.body.ok, true);
+  assert.deepEqual(r.body.added, ["gallery.tsx"]);
+  assert.equal(r.body.missingPages, undefined, "a page that is on the site was reported missing");
+  assert.equal(r.body.coverNote, "", "the customer was told something about a change with nothing wrong with it");
+});
+
+test("a page declaring a property the tool never offered is reported, though the cleaner removed it first", async () => {
+  // THE SCHEMA TIERS' OWN DEFECT, ONE LAYER OVER: `SPEC_OF_KIND` names four
+  // tiers and `page` is not one, so the audit block never ran for it at all.
+  // MEASURED before this: `cleanAdd("page", …)` keeps its eight known keys,
+  // `skipped: []`, and nothing anywhere reported either property.
+  const r = await addon("fw-page-props", "add a gallery page", {
+    kinds: ["page"], publishes: true,
+    answers: { page: { page: [{ ...PAGE("/gallery", "Gallery"), seoTitle: "Our gallery", cacheForever: true }] } },
+    written: [writtenPage("/gallery")],
+  });
+  assert.equal(r.body.ok, true);
+  assert.deepEqual(r.body.invalidProps, ["cacheForever", "seoTitle"],
+    "a frontend declaration's unsupported properties are not reported");
+  assert.match(r.body.coverNote, /2 guarantees it doesn't offer/);
+  assert.doesNotMatch(r.body.coverNote, /seoTitle|cacheForever/, "a property name reached the customer");
+});
+
+test("a component declaration the cleaner cut is reported as changed", async () => {
+  // THE `changed` HALF, on the frontend pipeline: `where` is capped at 200
+  // characters and a longer one is CUT, not refused — the declaration landed
+  // and it landed as something else, which is the one shape where a customer is
+  // told the thing they asked for was done and it quietly does another.
+  const r = await addon("fw-comp-props", "add a reviews band", {
+    kinds: ["component"], publishes: true,
+    answers: { component: { component: [{ page: "/", does: "a band of reviews", components: ["testimonial"], where: "x".repeat(400) }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.changedProps, ["where"], "a cut declaration is not reported");
+});
+
+test("a frontend declaration the cleaner emptied reaches the customer as a setting this step could not carry", async () => {
+  // THE THIRD OF THE THREE FRONTEND READINGS, and the one the first sweep found
+  // pooled nowhere: the route's `fa.unexpressed` loop was emptied and every
+  // guard stayed green, because both route cases above drive `reached` and
+  // `changed` and nothing drove this one.
+  //
+  // `tsx` is OFFERED to the page tool and a part with no name is binned by
+  // `parts()`, so the declaration arrives truthy and is stored empty — which is
+  // a different party from the two above: the tool had a use for it and THIS
+  // STEP lost it. It gets the "isn't something this kind of change can carry
+  // through" clause, never the "a guarantee it doesn't offer" one, and the
+  // control below is that the unsupported clause does NOT also appear.
+  const r = await addon("fw-page-cut", "add a tide page", {
+    kinds: ["page"], publishes: true,
+    answers: { page: { page: [{ ...PAGE("/tide", "Tide"), tsx: [{ does: "shows the tide" }] }] } },
+    written: [writtenPage("/tide")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.unexpressedProps, ["tsx"], "a declaration this step emptied is not reported");
+  assert.equal(r.body.invalidProps, undefined, "a setting this step lost was reported as one the engine refuses");
+  assert.match(r.body.coverNote, /One setting the design asked for isn't something this kind of change can carry through/,
+    "the customer hears nothing about the setting that was lost: " + r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /tsx/, "a property name reached the customer");
+});
+
+test("on a multi-page site a component with no destination is refused, not put on the home page", async () => {
+  // Owner: *"On a multi-page site, a missing destination must not silently
+  // become the home page."* MEASURED before this: `onPage` fell through to "/"
+  // whenever the answer named no route, so a section the designer forgot to
+  // place was built on the front page and the customer told it was added.
+  //
+  // THE SITE HAS THREE PAGES, which is what makes the fall-through a guess
+  // rather than a reading: with one page there is exactly one place a component
+  // can go and resolving to it is reading the site, which is why that shortcut
+  // stays and this case stores three.
+  const r = await addon("fw-nowhere", "add a reviews band", {
+    kinds: ["component"], sitePages: ["/", "/gear", "/about"],
+    answers: { component: { component: [{ does: "a band of reviews", components: ["testimonial"] }] } },
+  });
+  assert.equal(r.status, 422, "a component with no destination was built: " + JSON.stringify(r.body));
+  assert.equal(r.body.reason, "no-page");
+  assert.equal(r.body.kind, "component");
+});
+
+test("a kit name that is not in the kit is dropped and named, and a custom part beside it survives", async () => {
+  // THE TOOL'S OWN PROMISE, kept: *"Naming a component that does not exist is
+  // refused and costs nothing."* MEASURED before this, it was not — the name
+  // passed the cleaner and was written into the directive as *"the kit
+  // component: not-a-kit-part — its exact props are listed above"*, about a
+  // component whose props are not listed above because there are none.
+  const r = await addon("fw-kit", "add a tide chart and a reviews band", {
+    kinds: ["component"], publishes: true,
+    answers: { component: { component: [{
+      page: "/", does: "a tide chart beside the reviews",
+      components: ["not-a-kit-part", "testimonial"],
+      tsx: [{ name: "TideChart", does: "draws the day's tides", props: "readings: Reading[]" }],
+    }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.unknownComponents, ["not-a-kit-part"], "the name that is not in the kit is not reported");
+  // THE VALID KIT NAME SURVIVES AND SO DOES THE CUSTOM PART — the escape hatch
+  // the kit exists to have is not closed by the check on the kit.
+  const sent = promptFor(r, "page") || r.prompts.find((p) => p.tool === "write_pages");
+  assert.ok(sent && /testimonial/.test(sent.text), "the valid kit component was dropped with the invalid one");
+  assert.ok(sent && /TideChart/.test(sent.text), "the custom part was dropped by the kit check");
+  assert.ok(sent && !/not-a-kit-part/.test(sent.text),
+    "the name that is not in the kit was still written into the page call");
 });

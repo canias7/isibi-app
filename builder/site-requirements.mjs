@@ -311,13 +311,53 @@ function wordIn(text, needle) {
  *
  * `made` is what the change REALLY APPLIED, one entry per item:
  *
- *   { name, holds: [token…], fails: [token…] }
+ *   { name, holds: [token…], fails: [token…], checked: [token…] }
  *
  * `holds` are words from a CLOSED VOCABULARY that are true of the item as it
  * was applied — the access level a table really got, a column it really has, a
  * job's real schedule — and `fails` are words from that SAME vocabulary that
  * are false of it. The caller builds both, because the vocabulary belongs to
  * the schema engine and this module is dependency-free on purpose.
+ *
+ * ── CONFIGURATION IS NOT BEHAVIOUR (owner, 2026-09-14) ──────────────────────
+ *
+ * *"Matching configuration words must not mark an entire business requirement
+ * delivered. 'The function is public' does not prove it checks ownership."*
+ *
+ * Every token in `holds` is a CONFIGURATION fact: a setting we read back off
+ * what was applied. It is real, and it is not the requirement. A claim saying
+ * *"send_reminder is public and only sends to the person who booked"* names a
+ * configuration word that genuinely holds and a BEHAVIOUR nothing here has
+ * exercised — and the old reading promoted the whole sentence to `delivered`
+ * off the first half.
+ *
+ * So the two kinds of fact are SEPARATE LISTS on the item, and the PRODUCER
+ * says which is which rather than this module guessing from the words:
+ *
+ *   `holds`    configuration, read back from what was applied. Recorded as a
+ *              configuration fact and NEVER a delivery.
+ *   `checked`  a BEHAVIOUR this change really exercised. The only thing that
+ *              can answer `delivered`.
+ *
+ * **NOTHING FILLS `checked` TODAY**, and that is the honest state rather than
+ * an oversight: no step on this path runs a function, calls a connection or
+ * fires a job to see what it does. `appliedFacts` says so in as many words.
+ * The door is here so that the day something DOES verify a behaviour it has a
+ * way to say so — and until then every `covered` claim reads back as *"I've
+ * set that up, but I can't confirm from here that …"*, which is what the
+ * customer should hear about a behaviour nobody checked.
+ *
+ * **THE COST, STATED**: `delivered` is unreachable from this path, so that
+ * count is 0 on every change and the honest clause appears on every covered
+ * claim. That is more sentences than before and each one is true; the reverse
+ * — a confident "done" off a configuration word — is the failure this exists
+ * to stop.
+ *
+ * **AND IT IS NOT A KEYWORD HEURISTIC.** Nothing here reads a claim for
+ * behavioural-sounding words or scores how much of a sentence is accounted
+ * for. The split is structural: the producer of a fact knows whether it
+ * checked a setting or exercised a behaviour, and says so by which list it
+ * puts the token in.
  *
  * ── EXISTENCE IS NOT DELIVERY (owner, 2026-09-14) ───────────────────────────
  *
@@ -358,9 +398,16 @@ export function claimEvidence(claim, made) {
       const t = low(raw);
       if (t.length >= 3 && wordIn(text, t)) return null;
     }
+    // A BEHAVIOUR SOMETHING REALLY EXERCISED comes first, because it is the
+    // only kind of fact that can settle the requirement rather than describe
+    // the thing the requirement is about.
+    for (const raw of Array.isArray(m.checked) ? m.checked : []) {
+      const t = low(raw);
+      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: "checked" };
+    }
     for (const raw of Array.isArray(m.holds) ? m.holds : []) {
       const t = low(raw);
-      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw };
+      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: "config" };
     }
   }
   return null;
@@ -426,10 +473,21 @@ export function requirementOutcomes(list, { told = [], failed = [], made = [] } 
     } else if (r.status === "elsewhere" && (!owner || !heard.has(owner))) {
       state = "failed";
       why = why || "the " + (owner || "next") + " step never got it";
-    } else if (r.status === "covered" && claimEvidence(r.by, made)) {
-      state = "delivered";
     }
-    out.push({ ...r, state, ...(why ? { why } : {}) });
+    // ── CONFIGURATION SETTLES NOTHING (owner, 2026-09-14) ──────────────────
+    //
+    // A configuration fact is recorded BESIDE the verdict and never becomes
+    // one: *"'The function is public' does not prove it checks ownership."*
+    // Only a `checked` token — a behaviour something really exercised — can
+    // answer `delivered`, and nothing fills that list today, so this reads
+    // `unverified` with the configuration it DID match written down.
+    let configured = "";
+    if (state === "unverified" && r.status === "covered") {
+      const ev = claimEvidence(r.by, made);
+      if (ev && ev.kind === "checked") state = "delivered";
+      else if (ev) configured = String(ev.name) + ": " + String(ev.token);
+    }
+    out.push({ ...r, state, ...(configured ? { configured } : {}), ...(why ? { why } : {}) });
   }
   return out;
 }
@@ -509,6 +567,11 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
       // Keeping both is what makes "the designer said covered and nothing here
       // can confirm it" a countable thing rather than an impression.
       delivered: n("delivered"), failed: n("failed"), unverified: n("unverified"),
+      // WHAT WAS CHECKED AND DID NOT SETTLE IT. A requirement whose claim
+      // matched a configuration fact is a different kind of unverified from
+      // one nothing could be said about at all, and collapsing the two loses
+      // the only half of the evidence this path can actually produce.
+      configured: outcomes.filter((r) => r.configured).length,
     },
     requirements: outcomes.slice(0, MAX_REQUIREMENTS),
     unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),

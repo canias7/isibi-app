@@ -63,6 +63,47 @@
 // value here; nothing else in this repo reads them.
 
 import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
+// THE KIT, AS A SET, off the same list the tool hands the model — never a
+// second copy. `COMPONENT_MENU` is itself derived from the kit's palette and
+// its component directory, so a part added to the kit is offered and accepted
+// on the same day, and one removed stops being both at once.
+const KIT_COMPONENTS = new Set(COMPONENT_MENU.map((n) => String(n).toLowerCase()));
+
+/**
+ * WHAT A JOB'S FUNCTION MAY RETURN, IN THE RUNTIME'S OWN TERMS.
+ *
+ * Owner, 2026-09-14: *"Document the existing SMS contract in both function and
+ * job instructions. Explain the channel, recipient, and message fields the
+ * runtime accepts, including email defaults."*
+ *
+ * **THIS DESCRIBES WHAT ALREADY WORKS.** `shapeMessages` has read `channel`
+ * since the day texts were wired: it resolves the SMS credential separately,
+ * parses the number through the same `toE164` the write path uses, sends
+ * through `deps.sendSms`, and counts a message whose channel has no key as
+ * `unsent` rather than failed. Every hop is live. What was missing is this
+ * paragraph: MEASURED across all six add tools, the word `channel` appeared
+ * **0 times** in the `function` tool and **0 times** in the `job` tool, while
+ * the job rule told the owner to paste an SMS key in Settings. A model could
+ * still write one from its own knowledge of the field name — so the accurate
+ * statement is that the capability was UNDOCUMENTED to the designer, not that
+ * it was unreachable.
+ *
+ * ONE STRING, SENT TO BOTH TOOLS. The function step writes the SQL that
+ * produces the messages and the job step decides what is being sent and how
+ * often; each needs the same contract, and two copies of it would drift.
+ * The guard asserts both carry this exact sentence.
+ */
+export const MESSAGE_CONTRACT =
+  "EACH MESSAGE IS {channel, to, subject, body}. `channel` is \"email\" or \"sms\" and it is the FIELD that decides, " +
+  "never the shape: leave it out and the message is EMAILED, and anything that is not \"sms\" is emailed too — " +
+  "email is the default because it costs the owner nothing per send. " +
+  "An EMAIL needs all three of `to` (an address), `subject` and `body`, and is dropped if any is missing or empty. " +
+  "An SMS needs `to` (a phone number in any ordinary form — \"07700 900000\" and \"+44 7700 900000\" are both read) " +
+  "and `body`; it takes NO `subject`, because a text has none. " +
+  "Return \"sms\" only where the message really wants to be a text — a same-day reminder, a ready-to-collect — " +
+  "and email for anything with a subject line to it. The owner pastes an email key and an SMS key separately in " +
+  "Settings, so a message whose channel has no key yet is held rather than lost, and the owner is told which key " +
+  "is missing.";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "./site-table.mjs";
 // A LEAF MODULE WITH NO IMPORTS OF ITS OWN, so this adds no cycle — the same
 // reasoning `builder/page-gen.mjs` records for importing it. `accessLabel`
@@ -485,7 +526,9 @@ const ADDS = {
         "`hook_` receiver for another system, an `internal` builder a job calls. Its arguments are typed as the " +
         "COLUMNS they meet — text for a date, a time, a token; integer for a count — and its body is plain SQL " +
         "over the columns the site's tables are listed with. A scheduled job's builder is `internal: true`, takes " +
-        "no arguments and returns json: an array of {to, subject, body}, empty when nothing is due. A job's " +
+        "no arguments and returns json: an array of messages, empty when nothing is due. " +
+        MESSAGE_CONTRACT +
+        " A job's " +
         "HOUSEKEEPING function — clear out rows older than thirty days, drop expired holds, close stale carts — is " +
         "`internal: true` too, does its DELETE or UPDATE, and returns json {\"did\": \"what it did\"} " +
         "(\"cleared 12 expired holds\"), so the owner's panel can say so.",
@@ -548,8 +591,9 @@ const ADDS = {
         "how often — 1440 for a daily reminder, 10080 for a weekly digest — with `at` for the time of day a daily " +
         "or slower job runs (\"09:00\" for a morning reminder). The function it names must exist: " +
         "one the site lists, or one you are declaring in this same change with `internal: true`, taking no " +
-        "arguments and returning json — an array of {to, subject, body}, empty when nothing is due; or, for a " +
-        "job that does work rather than sending (clearing out old rows), {\"did\": \"what it did\"}.",
+        "arguments and returning json — an array of messages, empty when nothing is due; or, for a " +
+        "job that does work rather than sending (clearing out old rows), {\"did\": \"what it did\"}. " +
+        MESSAGE_CONTRACT,
       wide:
         "AS MANY JOBS AS THEY ASKED FOR — the things that happen on a timer — AND NOT ONE MORE. A day-before reminder " +
         "is one job. Never one for a site that only takes enquiries, and never more often than the message " +
@@ -1664,12 +1708,54 @@ export function cleanAdd(kind, value, site) {
   if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind) || ADDS[kind].elsewhere) return { ok: false, why: "no-kind" };
   // WHICH PAGE, for the kinds that land on one. Refused on a multi-page site
   // when the route is not one of its own; resolved to the one page otherwise.
+  // ── A MISSING DESTINATION IS NOT THE HOME PAGE (owner, 2026-09-14) ──────
+  //
+  // *"On a multi-page site, a missing destination must not silently become the
+  // home page."*
+  //
+  // This fell through to `/` whenever the answer named no route and the site
+  // had one — so on a three-page site a component the designer forgot to place
+  // landed on the front page, was built there, and the customer was told the
+  // section had been added. Cannot-tell read as a value, on the one field that
+  // decides WHERE a visitor meets the thing.
+  //
+  // The one-page shortcut STAYS and is not a guess: a site with exactly one
+  // page has exactly one place a component can go, so resolving to it is
+  // reading the site rather than picking for the model. Everything else
+  // answers "" and the caller refuses by name.
   const onPage = (named) => {
     const r = route(named);
     if (r && have.includes(r)) return r;
     if (have.length === 1) return have[0];
-    if (!r && have.includes("/")) return "/";
     return "";
+  };
+  // ── A KIT NAME IS CHECKED AGAINST THE KIT (owner, 2026-09-14) ───────────
+  //
+  // *"Check kit names against the real available catalog while preserving
+  // valid custom TSX components."*
+  //
+  // The `component` and `page` tools both say, in as many words, *"Naming a
+  // component that does not exist is refused and costs nothing."* MEASURED: it
+  // was not. `components: ["not-a-kit-part"]` passed the cleaner unchanged and
+  // was written into the directive — *"the kit component: not-a-kit-part —
+  // its exact props are listed above; call it, do not rewrite it"* — about a
+  // component whose props are not listed above because there are none.
+  //
+  // `COMPONENT_MENU` is the catalog the tool itself offers the model, derived
+  // from the kit rather than typed, so this cannot drift from what was asked
+  // for. An unknown name is DROPPED AND NAMED rather than refusing the whole
+  // item: an answer naming one real part and one typo is mostly right, and the
+  // `no-component` refusal below still fires when nothing usable is left.
+  // **`tsx` is untouched** — a part written for this site is not in the kit by
+  // definition, and refusing it would close the escape hatch the kit exists to
+  // have.
+  const kitNames = (v, max, ctx) => {
+    const out = [];
+    for (const n of names(v, max)) {
+      if (KIT_COMPONENTS.has(n)) { out.push(n); continue; }
+      if (ctx && Array.isArray(ctx.unknownKit) && !ctx.unknownKit.includes(n)) ctx.unknownKit.push(n);
+    }
+    return out;
   };
   // ONE ITEM, cleaned. `{ ok, value }` or `{ ok: false, why }`.
   const one = (v, ctx) => {
@@ -1683,7 +1769,7 @@ export function cleanAdd(kind, value, site) {
         const purpose = str(v.purpose, 300);
         if (!name || !purpose) return { ok: false, why: "no-plan" };
         const sections = lines(v.sections, MAX_SECTIONS, 200);
-        const components = names(v.components, MAX_COMPONENTS);
+        const components = kitNames(v.components, MAX_COMPONENTS, ctx);
         if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
         ctx.paths.push(path);
         return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx), link: str(v.link, 200) } };
@@ -1693,7 +1779,7 @@ export function cleanAdd(kind, value, site) {
         if (!page) return { ok: false, why: "no-page" };
         const does = str(v.does, 300);
         if (!does) return { ok: false, why: "no-plan" };
-        const components = names(v.components, MAX_COMPONENTS);
+        const components = kitNames(v.components, MAX_COMPONENTS, ctx);
         const tsx = parts(v.tsx);
         // THE COMPONENT IS THE ADDITION: an answer that names none — no kit
         // part and nothing written for this site — is a band the page writer
@@ -1880,7 +1966,7 @@ export function cleanAdd(kind, value, site) {
     const usable = raw.filter(isObj);
     const items = usable.slice(0, cap);
     if (!items.length) return { ok: false, why: "nothing" };
-    const ctx = { paths: [], tables: [], functions: [], apis: [], jobs: [] };
+    const ctx = { paths: [], tables: [], functions: [], apis: [], jobs: [], unknownKit: [] };
     const kept = [], skipped = [];
     const named = (v) => str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80);
     for (const v of items) {
@@ -1895,12 +1981,17 @@ export function cleanAdd(kind, value, site) {
     // addition was made. Every other refusal in this file is a sentence; this
     // one is now one too.
     for (const v of usable.slice(cap)) skipped.push({ why: "over-cap", name: named(v) });
-    if (!kept.length) return { ok: false, why: skipped[0].why, skipped };
-    return { ok: true, value: kept, skipped };
+    // THE NAMES THAT ARE NOT IN THE KIT ride the result rather than `skipped`:
+    // `skipped` is one entry per ITEM refused, and these are names dropped out
+    // of items that were otherwise built. Reported either way — a silent drop
+    // is the defect this whole round is about.
+    const unknownKit = ctx.unknownKit.slice(0, 12);
+    if (!kept.length) return { ok: false, why: skipped[0].why, skipped, ...(unknownKit.length ? { unknownKit } : {}) };
+    return { ok: true, value: kept, skipped, ...(unknownKit.length ? { unknownKit } : {}) };
   }
   const v = isObj(value) ? value : null;
   if (!v) return { ok: false, why: "nothing" };
-  return one(v, { paths: [], tables: [] });
+  return one(v, { paths: [], tables: [], unknownKit: [] });
 }
 
 /**
@@ -2373,6 +2464,166 @@ export async function addRepairRound({ report, pages, touched, langs, send, mode
  * ending "published as it is", because the customer should know the page is
  * up and wrong rather than down.
  */
+/**
+ * WHAT A `page` OR `component` DECLARATION ASKED FOR AND DID NOT GET.
+ *
+ * Owner, 2026-09-14: *"Validate page and component declarations before
+ * cleaning discards information. Trace unsupported, changed, and omitted
+ * fields through their actual frontend pipeline. Use validators appropriate to
+ * those steps."*
+ *
+ * ── WHY `auditTier` CANNOT DO THIS ──────────────────────────────────────────
+ *
+ * The four schema tiers are audited by putting the declaration through
+ * `normalizeSchema` and reading what the ENGINE kept. `page` and `component`
+ * never meet that engine: `SPEC_OF_KIND` names four tiers and neither of these
+ * is one, so the whole audit block is skipped for them and MEASURED, a page
+ * declaring `seoTitle` and `cacheForever` cleans to its eight known keys with
+ * `skipped: []` and nothing anywhere reports either.
+ *
+ * Their pipeline is the FRONTEND one — the cleaner, then the directive, then
+ * the page call — so the validator is the cleaner itself, which is the step
+ * that decides what survives. Three answers, each a different sentence:
+ *
+ *   `reached`      the model declared a property the TOOL never offered. It is
+ *                  gone and nothing downstream will ever see it.
+ *   `changed`      a declared SCALAR the cleaner kept under another value — a
+ *                  route rewritten, a string cut to its cap.
+ *   `unexpressed`  a property the tool DOES offer and the cleaner dropped or
+ *                  emptied anyway: declared, legal, and lost between the model
+ *                  and the page writer. This is the one worth building.
+ *
+ * **THE SAME THREE WORDS AS THE SCHEMA AUDIT, AND DELIBERATELY** — the route
+ * pools them into the same two customer clauses, so a lost guarantee reads the
+ * same whether the database refused it or the frontend cleaner did.
+ *
+ * `offered` is the kind's own item properties, read off the real tool rather
+ * than typed here: two lists of one thing drift, and this repository has a name
+ * for it. Scalars only for `changed`, for `auditTier`'s own measured reason —
+ * a list of objects stringifies to `[object Object]` whichever objects it holds.
+ */
+export function auditFrontend(kind, declared, cleaned) {
+  const empty = { scanned: 0, reached: [], changed: [], unexpressed: [] };
+  const item = frontendItem(kind);
+  if (!item) return empty;
+  const offered = new Set(Object.keys(item.properties || {}));
+  const decl = Array.isArray(declared) ? declared : (declared ? [declared] : []);
+  const kept = Array.isArray(cleaned) ? cleaned : (cleaned ? [cleaned] : []);
+  const reached = new Set(), changed = new Set(), unexpressed = new Set();
+  let scanned = 0;
+  // PAIRED BY POSITION, AND ONLY WHEN THE COUNTS AGREE. A cleaner that refuses
+  // one item shifts every index behind it, so a mismatched pair would report
+  // one declaration's properties against another's answer — the recorded
+  // "pair by name, never by position" trap, met where there is no name to pair
+  // on: a page has a `path` and a component has nothing unique at all. So the
+  // audit is skipped rather than guessed when the two lists differ in length,
+  // and `scanned` says so by staying 0.
+  if (decl.length !== kept.length) return empty;
+  for (let i = 0; i < decl.length; i++) {
+    const d = decl[i], k = kept[i];
+    if (!d || typeof d !== "object" || !k || typeof k !== "object") continue;
+    scanned++;
+    for (const key of Object.keys(d)) {
+      if (!declaredTruthyHere(d[key])) continue;
+      if (!offered.has(key)) { if (reached.size < MAX_FRONTEND_DROPPED) reached.add(key); continue; }
+      if (!declaredTruthyHere(k[key])) { if (unexpressed.size < MAX_FRONTEND_DROPPED) unexpressed.add(key); continue; }
+      if (scalarHere(d[key]) && scalarHere(k[key]) && String(d[key]) !== String(k[key])) {
+        if (changed.size < MAX_FRONTEND_DROPPED) changed.add(key);
+      }
+    }
+  }
+  return { scanned, reached: [...reached].sort(), changed: [...changed].sort(), unexpressed: [...unexpressed].sort() };
+}
+
+/** How many names any one of the frontend audit's lists will carry. */
+const MAX_FRONTEND_DROPPED = 12;
+
+/** A declaration worth testing: absent, falsy and empty all read as "not asked". */
+function declaredTruthyHere(v) {
+  if (!v) return false;
+  if (Array.isArray(v)) return !!v.length;
+  if (typeof v === "object") return !!Object.keys(v).length;
+  return true;
+}
+
+/** A value two readings can be compared as text: never an object or an array. */
+function scalarHere(v) {
+  return typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+}
+
+/**
+ * The item shape a frontend kind's tool really offers, off the tool itself.
+ *
+ * Read through `addTool` rather than from a list here, so a property added to
+ * the `page` or `component` item is audited the day it is added and a property
+ * removed stops being expected the same day.
+ */
+export function frontendItem(kind) {
+  if (kind !== "page" && kind !== "component") return null;
+  try {
+    const props = (addTool(kind).input_schema || {}).properties || {};
+    const shape = props[kind];
+    const item = shape && shape.items ? shape.items : shape;
+    return item && item.properties ? item : null;
+  } catch { return null; }
+}
+
+/**
+ * WHICH REQUESTED PAGES ARE NOT ON THE SITE.
+ *
+ * Owner, 2026-09-14: *"Compare the requested pages with what actually survives
+ * generation, compilation, and publication. Name any missing page in the
+ * result. A planned file is the expectation, not proof of delivery."*
+ *
+ * `foldAdds` has computed the requested file names since the day it was
+ * written — its own comment says they are there "so the route can tell a new
+ * page from a changed one" — and MEASURED: the route reads `designed`,
+ * `directive` and `components` off that fold and has never once read `files`.
+ * So a message asking for two pages whose writer returned one published the
+ * one, reported it as added, and said nothing whatever about the other.
+ *
+ * `requested` is the cleaned `page` answers (each `{path, file}`) and
+ * `survived` is what the site really has at the end — the merge's `added` and
+ * `changed`, which is what was compiled and published, never what was planned.
+ * **The answer is in ROUTES**, because that is the customer's word for a page;
+ * the comparison is by FILE NAME, because that is what both sides really carry
+ * and a route can be written two ways.
+ *
+ * ORDER IS THE REQUEST'S OWN, so a customer reading the sentence meets their
+ * pages in the order they asked for them.
+ */
+export function missingPages(requested, survived) {
+  const base = (p) => String(p || "").split("/").pop().toLowerCase();
+  const have = new Set((Array.isArray(survived) ? survived : []).map(base).filter(Boolean));
+  const out = [];
+  for (const p of Array.isArray(requested) ? requested : []) {
+    if (!p || typeof p !== "object") continue;
+    const file = base(p.file || (p.path ? fileOfRoute(p.path) : ""));
+    const route = typeof p.path === "string" ? p.path : "";
+    if (!file || !route || have.has(file)) continue;
+    if (!out.includes(route)) out.push(route);
+  }
+  return out;
+}
+
+/**
+ * The sentence for pages that were asked for and are not there.
+ *
+ * NAMED, never counted: a route is the one thing about a missing page the
+ * customer can act on — they can ask for that page again — where "one page is
+ * missing" leaves them to work out which. Bounded at three with the rest
+ * counted, the same shape every other list-bearing sentence here uses.
+ */
+export function missingPagesNote(routes) {
+  const list = (Array.isArray(routes) ? routes : []).filter((r) => typeof r === "string" && r);
+  if (!list.length) return "";
+  const named = list.slice(0, 3).join(", ");
+  const rest = list.length > 3 ? " and " + (list.length - 3) + " more" : "";
+  return list.length === 1
+    ? "One page I set out to add isn't there — " + named + " didn't make it through, so nothing on your site links to it yet. Ask me for it again on its own and I'll have another go."
+    : list.length + " pages I set out to add aren't there — " + named + rest + " didn't make it through. Ask me for them again and I'll have another go.";
+}
+
 export function addRepairNote(round) {
   const x = round && typeof round === "object" ? round : null;
   if (!x) return "";
@@ -2398,10 +2649,32 @@ export function addRepairNote(round) {
 /**
  * WHAT A CHANGE REALLY APPLIED, AND WHAT EACH ITEM REALLY GUARANTEES.
  *
- * `[{ name, holds, fails }]`, which is what `claimEvidence` checks a `covered`
- * claim against: `holds` are words from a CLOSED VOCABULARY that are true of
- * the item as it was applied, `fails` are words from that SAME vocabulary that
- * are false of it.
+ * `[{ name, holds, fails, checked }]`, which is what `claimEvidence` checks a
+ * `covered` claim against: `holds` are words from a CLOSED VOCABULARY that are
+ * true of the item as it was applied, `fails` are words from that SAME
+ * vocabulary that are false of it.
+ *
+ * ── EVERYTHING HERE IS CONFIGURATION, AND `checked` IS EMPTY ON PURPOSE ─────
+ *
+ * Owner, 2026-09-14: *"Matching configuration words must not mark an entire
+ * business requirement delivered. 'The function is public' does not prove it
+ * checks ownership."*
+ *
+ * Every token this function produces is a SETTING READ BACK off what was
+ * applied — a table's access level, a function's visibility, a connection's
+ * host. Not one of them is a behaviour anybody exercised: **nothing on this
+ * path calls a function, requests a connection or fires a job to see what it
+ * does.** So `checked` — the only list `claimEvidence` will promote to
+ * `delivered` — is EMPTY on every item, and it is empty because that is true
+ * rather than because nobody filled it in.
+ *
+ * What would fill it is a step that really ran the thing and read the answer:
+ * a probe call against a created function, a request through a stored
+ * connection, a job fired once with its output inspected. Each costs a real
+ * call against the customer's own database or somebody else's service, which
+ * is why none of them happens here today. **Do not fill `checked` from
+ * anything short of that** — a fact about a setting goes in `holds`, where it
+ * is recorded and does not claim the behaviour.
  *
  * ── WHY IT LIVES HERE AND NOT IN THE ROUTE (2026-09-14) ─────────────────────
  *
@@ -2440,14 +2713,14 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   const factsFor = (name) => {
     const t = list.find((x) => x && String(x.name || "").toLowerCase() === name);
-    if (!t) return { holds: [], fails: [] };
+    if (!t) return { holds: [], fails: [], checked: [] };
     const acc = resolveAccess(t);
     const mine = new Set([String(t.access || ""), acc.read, acc.write].filter(Boolean));
     const cols = (Array.isArray(t.columns) ? t.columns : [])
       .map((c) => String((typeof c === "string" ? c : (c && c.name)) || "").toLowerCase()).filter(Boolean);
     const holds = [...mine, ...cols];
     if (Array.isArray(t.unique) && t.unique.length) holds.push("unique");
-    return { holds, fails: levels.filter((l) => !mine.has(l)) };
+    return { holds, fails: levels.filter((l) => !mine.has(l)), checked: [] };
   };
   const out = [];
   const named = [...(Array.isArray(tables) ? tables : []),
@@ -2471,13 +2744,13 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const fnList = (spec && Array.isArray(spec.functions)) ? spec.functions : [];
   for (const n of (Array.isArray(functions) ? functions : [])) {
     const f = fnList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
-    if (!f) { out.push({ name: n, holds: [], fails: [] }); continue; }
+    if (!f) { out.push({ name: n, holds: [], fails: [], checked: [] }); continue; }
     const holds = [], fails = [];
     if (f.internal) { holds.push("internal"); fails.push("public"); }
     else { holds.push("public"); fails.push("internal"); }
     if (typeof f.returns === "string" && f.returns) holds.push(...String(f.returns).toLowerCase().split(/[^a-z0-9_]+/).filter((w) => w.length >= 3));
     for (const a of (Array.isArray(f.args) ? f.args : [])) if (a && a.name) holds.push(String(a.name).toLowerCase());
-    out.push({ name: n, holds, fails });
+    out.push({ name: n, holds, fails, checked: [] });
   }
   // ── A CONNECTION PROVES CONFIGURATION, NEVER BEHAVIOUR ───────────────────
   //
@@ -2495,7 +2768,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const apiList = (spec && Array.isArray(spec.apis)) ? spec.apis : [];
   for (const n of (Array.isArray(apis) ? apis : [])) {
     const a = apiList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
-    if (!a) { out.push({ name: n, holds: [], fails: [] }); continue; }
+    if (!a) { out.push({ name: n, holds: [], fails: [], checked: [] }); continue; }
     const holds = [], fails = [];
     let host = "";
     try { host = new URL(String(a.url || "")).hostname.toLowerCase(); } catch { host = ""; }
@@ -2505,7 +2778,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     fails.push(method === "post" ? "get" : "post");
     for (const p of (Array.isArray(a.params) ? a.params : [])) if (p) holds.push(String(p).toLowerCase());
     if (Number(a.ttl) > 0) holds.push(String(a.ttl));
-    out.push({ name: n, holds, fails });
+    out.push({ name: n, holds, fails, checked: [] });
   }
   // ── THE SECOND WALL, AND THE REDUNDANCY IS DELIBERATE ────────────────────
   //
@@ -2522,7 +2795,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   for (const j of (Array.isArray(jobs) ? jobs : [])) {
     if (!j || !j.name) continue;
     if (dead.has(String(j.fn || "").toLowerCase())) continue;
-    out.push({ name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [] });
+    out.push({ name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [], checked: [] });
   }
   return out;
 }

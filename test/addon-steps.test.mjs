@@ -35,8 +35,8 @@ import {
   normalizeSchema, SPEC_TIERS, TIER_LIST, TOOL_FIELDS, MAX_FN_BODY,
 } from "../site-schema.mjs";
 import { MAX_API_BODY, normalizeApi } from "../site-apis.mjs";
-import { cleanAdd, addRefusal, proposedSpec, appliedFacts, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, addTool } from "../builder/site-add.mjs";
-import { claimEvidence } from "../builder/site-requirements.mjs";
+import { cleanAdd, addRefusal, proposedSpec, appliedFacts, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, addTool, auditFrontend, frontendItem, missingPages, missingPagesNote } from "../builder/site-add.mjs";
+import { claimEvidence, requirementOutcomes } from "../builder/site-requirements.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 import { siteHasTables, siteHasBackend, schemaDigest, pageRulesFor } from "../builder/page-gen.mjs";
 
@@ -631,7 +631,11 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
   assert.equal(claimEvidence("bookings, readable by anyone", [t]), null);
   // A TABLE THE SPEC DOES NOT DESCRIBE CARRIES NO GUARANTEES — never invented
   // ones, which would make a name match evidence again through the back door.
-  assert.deepEqual(appliedFacts({ spec, tables: ["waitlist"] })[0], { name: "waitlist", holds: [], fails: [] });
+  // RE-ANCHORED 2026-09-14 for `checked`, the list that separates a
+  // configuration fact from a behaviour something really exercised. Every
+  // entry carries it and every entry's is EMPTY, because nothing on this path
+  // runs a function, calls a connection or fires a job to see what it does.
+  assert.deepEqual(appliedFacts({ spec, tables: ["waitlist"] })[0], { name: "waitlist", holds: [], fails: [], checked: [] });
   // A JOB'S SCHEDULE IS ITS GUARANTEE, and a job whose function the database
   // refused is not a result at all.
   const jobs = [{ name: "daily", fn: "send_reminder", everyMinutes: 1440, at: "09:00" }];
@@ -639,4 +643,161 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
   assert.deepEqual(appliedFacts({ jobs, fnErrors: [{ name: "send_reminder", error: "syntax error" }] }), [],
     "a job over a function the database refused counts as a result");
   assert.deepEqual(appliedFacts({}), [], "an empty change claims something was applied");
+  // A SWEEP SURVIVOR, CLOSED HERE RATHER THAN IN THE ROUTE, for the reason the
+  // comment at the top of this case already gives: `checked: holds` on the
+  // table branch survived a whole sweep, because the only route path that
+  // applies a table wants a container and a compile. **NOTHING ON THIS PATH
+  // EXERCISES BEHAVIOUR**, so every applied kind's `checked` is empty — which
+  // is the property fix 1 rests on, and the one thing a mutant filling it in
+  // would silently undo: with `checked` full, every configuration word becomes
+  // a delivery again and the split is decorative.
+  const everyKind = [
+    ...appliedFacts({ spec, tables: ["bookings"] }),
+    ...appliedFacts({ spec, tables: ["waitlist"] }),
+    ...appliedFacts({ spec: { functions: [{ name: "f", internal: true, returns: "void" }] }, functions: ["f"] }),
+    ...appliedFacts({ spec: { apis: [{ name: "w", url: "https://api.test/x", method: "GET" }] }, apis: ["w"] }),
+    ...appliedFacts({ jobs }),
+  ];
+  assert.ok(everyKind.length >= 5, "the observer is not alive: " + everyKind.length);
+  for (const e of everyKind) {
+    assert.ok(Array.isArray(e.checked), e.name + " carries no `checked` list at all");
+    assert.deepEqual(e.checked, [], e.name + " claims a behaviour was exercised — nothing here runs one");
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE FRONTEND KINDS' OWN VALIDATOR, AND THE DELIVERY READERS (2026-09-14)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("the frontend audit reads the tool's own item, so it cannot drift from what was offered", () => {
+  // TWO LISTS OF ONE THING IS THIS REPOSITORY'S MOST-REPEATED DRIFT, so the
+  // offered set is read off `addTool` rather than typed here — a property added
+  // to the `page` item is audited the day it is added.
+  const pageItem = frontendItem("page");
+  const compItem = frontendItem("component");
+  assert.ok(pageItem && compItem, "the frontend items are not readable off the tools");
+  assert.deepEqual(Object.keys(pageItem.properties).sort(),
+    ["components", "link", "name", "path", "purpose", "sections", "tsx"],
+    "the page item's properties moved — re-anchor this and the audit together");
+  assert.deepEqual(Object.keys(compItem.properties).sort(), ["components", "does", "page", "tsx", "where"]);
+  // A KIND WITH NO FRONTEND ITEM ANSWERS NULL, never an empty shape: an audit
+  // that ran over `{}` would report every declared property as unsupported.
+  assert.equal(frontendItem("table"), null);
+  assert.equal(frontendItem("nonsense"), null);
+});
+
+test("the frontend audit tells an unsupported property from a cut one from a clean declaration", () => {
+  const ctx = { pages: ["/"], components: [], tsx: [] };
+  const declared = [{ path: "/gallery", name: "Gallery", purpose: "the work", sections: ["a grid"], components: ["gallery"], seoTitle: "x", cacheForever: true }];
+  const a = auditFrontend("page", declared, cleanAdd("page", declared, ctx).value);
+  assert.equal(a.scanned, 1, "the observer was never alive — every list below is vacuously empty");
+  assert.deepEqual(a.reached, ["cacheForever", "seoTitle"]);
+  // A DECLARATION THE TOOL OFFERS AND THE CLEANER CUT is `changed`, never
+  // `reached`: the property arrived, and it arrived as something else.
+  const cd = [{ page: "/", does: "a band", components: ["testimonial"], where: "x".repeat(400) }];
+  const c = auditFrontend("component", cd, cleanAdd("component", cd, ctx).value);
+  assert.deepEqual(c.changed, ["where"]);
+  assert.deepEqual(c.reached, []);
+  // THE CONTROL: a declaration inside the tool that survives whole reports
+  // nothing at all, which is what keeps this from crying wolf.
+  const ok = [{ path: "/prices", name: "Prices", purpose: "p", sections: ["a list"], components: ["price-list"] }];
+  assert.deepEqual(auditFrontend("page", ok, cleanAdd("page", ok, ctx).value),
+    { scanned: 1, reached: [], changed: [], unexpressed: [] });
+  // …AND THE THIRD READING, WHICH THE FIRST SWEEP FOUND UNGUARDED: an OFFERED
+  // property declared truthy and kept EMPTY. `tsx: [{nope:1}]` is a part with
+  // no name, so `parts()` bins it and the page arrives with `tsx: []` — the
+  // model asked for something this step could not carry through, which is the
+  // `unexpressed` sentence and not the unsupported one. Measured by hand
+  // against the real cleaner rather than composed here.
+  const cut = [{ path: "/tide", name: "Tide", purpose: "p", sections: ["a chart"], components: ["gallery"], tsx: [{ nope: 1 }] }];
+  const u = auditFrontend("page", cut, cleanAdd("page", cut, ctx).value);
+  assert.deepEqual(u.unexpressed, ["tsx"], "a declaration the cleaner emptied is not reported: " + JSON.stringify(u));
+  assert.deepEqual(u.reached, [], "an offered property was reported as one the tool never had");
+});
+
+test("the frontend audit's offered set is the KIND'S OWN, and a list is never reported as changed", () => {
+  // TWO SWEEP SURVIVORS, and they are one subject: what makes the audit
+  // per-kind and what stops it crying wolf on every page there is.
+  const ctx = { pages: ["/"], components: [], tsx: [] };
+  // (1) THE SETS ARE NOT INTERCHANGEABLE. `where` is a COMPONENT property and
+  // is not offered to a page — so a mutant collapsing the two items into one
+  // union set reports a page declaring `where` as clean, where the real reader
+  // says the tool never offered it. Driven both ways round, because the union
+  // is only wrong in one direction and a one-sided case cannot see it.
+  const p = [{ path: "/tide", name: "Tide", purpose: "p", sections: ["a chart"], where: "after the hero" }];
+  assert.deepEqual(auditFrontend("page", p, cleanAdd("page", p, ctx).value).reached, ["where"],
+    "a component's property was accepted as a page's");
+  const c = [{ page: "/", does: "a band", components: ["testimonial"], where: "after the hero" }];
+  assert.deepEqual(auditFrontend("component", c, cleanAdd("component", c, ctx).value).reached, [],
+    "`where` is refused on the kind whose tool really offers it");
+  // (2) A SHORTENED LIST IS NOT A CHANGED ONE. `MAX_SECTIONS` cuts a long list,
+  // and without the scalar guard `String(["a","b","c"]) !== String(["a"])` reads
+  // as a changed declaration — so a customer would be told the layout they
+  // asked for was stored as something else, on every page that ran past the
+  // cap. A shortened list is a refusal of the entries, which is a different
+  // sentence; this is the recorded `params` finding, one tier over.
+  const long = [{ path: "/long", name: "L", purpose: "p", sections: Array.from({ length: 40 }, (_, i) => "band " + i), components: ["gallery"] }];
+  const kept = cleanAdd("page", long, ctx).value;
+  assert.ok(kept[0].sections.length < 40, "the cap no longer cuts — this case cannot divide the two readings");
+  assert.deepEqual(auditFrontend("page", long, kept).changed, [], "a list the cap shortened was reported as changed");
+  // (3) `scanned` IS A REAL COUNT, not a flag. Every list this audit answers is
+  // a NEGATIVE assertion and `[].every(...)` is true, so the floor on what was
+  // scanned is the only thing that proves the observer was alive — and it has
+  // to move with the number of items or it proves it for one of them.
+  const two = [long[0], { path: "/short", name: "S", purpose: "p", sections: ["one"], components: ["faq"] }];
+  assert.equal(auditFrontend("page", two, cleanAdd("page", two, ctx).value).scanned, 2,
+    "the scan count does not follow the list, so a negative report cannot prove its own coverage");
+});
+
+test("the frontend audit refuses to pair two lists of different lengths", () => {
+  // A CLEANER THAT REFUSES ONE ITEM SHIFTS EVERY INDEX BEHIND IT, and a page
+  // has no name to pair on — so the audit answers `scanned: 0` rather than
+  // reporting one declaration's properties against another's answer. The
+  // recorded "pair by name, never by position" trap, met where there is no
+  // name: the honest move is to say nothing.
+  const two = [{ path: "/a", name: "A", purpose: "p", sections: ["x"], components: ["faq"], seoTitle: "t" }, { path: "/", name: "B", purpose: "p", sections: ["x"], components: ["faq"] }];
+  const one = cleanAdd("page", two, { pages: ["/"], components: [], tsx: [] }).value;
+  assert.equal(one.length, 1, "both items cleaned — this case no longer divides them");
+  assert.deepEqual(auditFrontend("page", two, one), { scanned: 0, reached: [], changed: [], unexpressed: [] });
+});
+
+test("a requested page is missing only when nothing that survived carries its file", () => {
+  const asked = [{ path: "/gallery", file: "gallery.tsx" }, { path: "/prices", file: "prices.tsx" }];
+  // COMPARED BY FILE NAME, because the two sides really carry different
+  // spellings of the same thing: the merge answers `gallery.tsx` on one path
+  // and `src/routes/gallery.tsx` on another, and a route can be written two
+  // ways. Both readings must give the same answer.
+  assert.deepEqual(missingPages(asked, ["gallery.tsx"]), ["/prices"]);
+  assert.deepEqual(missingPages(asked, ["src/routes/gallery.tsx"]), ["/prices"]);
+  assert.deepEqual(missingPages(asked, ["gallery.tsx", "prices.tsx"]), []);
+  assert.deepEqual(missingPages(asked, []), ["/gallery", "/prices"]);
+  // ORDER IS THE REQUEST'S OWN, so a customer meets their pages in the order
+  // they asked for them.
+  assert.deepEqual(missingPages([...asked].reverse(), []), ["/prices", "/gallery"]);
+  // NOTHING ASKED FOR IS NOTHING MISSING — the ordinary addon, which must not
+  // grow a sentence.
+  assert.deepEqual(missingPages([], ["index.tsx"]), []);
+  assert.equal(missingPagesNote([]), "");
+  assert.match(missingPagesNote(["/prices"]), /One page I set out to add isn't there — \/prices/);
+  assert.match(missingPagesNote(["/a", "/b", "/c", "/d"]), /4 pages .* \/a, \/b, \/c and 1 more/);
+});
+
+test("configuration is recorded and never promoted, and only a checked behaviour is delivered", () => {
+  // THE COMPLETION CORRECTION, at the module: `appliedFacts` produces
+  // CONFIGURATION and nothing else, so a claim that matches one is recorded
+  // and the requirement stays unverified. The producer says which list a fact
+  // belongs in; nothing here reads the claim for behavioural-sounding words.
+  const spec = { tables: [], functions: [{ name: "send_reminder", internal: false, returns: "void" }], apis: [], jobs: [] };
+  const made = appliedFacts({ spec, functions: ["send_reminder"] });
+  assert.deepEqual(made.map((m) => m.checked), [[]], "`appliedFacts` claims to have checked a behaviour");
+  assert.ok(made[0].holds.includes("public"), "the configuration it really did read is not there");
+  const ask = (by, m) => requirementOutcomes([{ need: "customers only see their own booking", status: "covered", from: "function", by }],
+    { told: [], failed: [], made: m })[0];
+  const cfg = ask("send_reminder is public and only sends to the person who booked", made);
+  assert.equal(cfg.state, "unverified", "a configuration word settled a behavioural requirement");
+  assert.equal(cfg.configured, "send_reminder: public", "the configuration that was checked is not recorded");
+  // AND THE DOOR IS REAL: a producer that really exercised a behaviour says so,
+  // and that — and only that — answers delivered.
+  const checked = [{ name: "send_reminder", holds: [], fails: [], checked: ["ownership"] }];
+  assert.equal(ask("send_reminder ownership was exercised", checked).state, "delivered");
 });

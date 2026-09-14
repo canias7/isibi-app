@@ -210,7 +210,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, appliedFacts, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief } from "./builder/site-requirements.mjs";
@@ -22988,6 +22988,17 @@ async function handleRequest(request, env, ctx) {
             // what was really sent and normalise again — so the two are
             // separated by measurement rather than by a hand-kept list.
             const aUnexpressed = new Set();
+            // …AND THE KIT NAMES THE MODEL ASKED FOR THAT THE KIT HAS NOT GOT
+            // (2026-09-14). Dropped by the cleaner against `COMPONENT_MENU` —
+            // the catalog the tool itself offers — and named here, because the
+            // tool's own description promises that naming a component which
+            // does not exist is refused and costs nothing.
+            const aUnknownKit = new Set();
+            // …AND THE PAGES THIS CHANGE SET OUT TO ADD AND DID NOT. Filled
+            // after the publish, from the requested page files against what
+            // really survived, so a planned file is never mistaken for a
+            // delivered page.
+            let aMissing = [];
             // …AND THE ITEMS THE ENGINE WILL NOT BUILD AT ALL, per tier
             // (2026-09-14). A table that fails is nearly always a table with a
             // refused field; a FUNCTION whose body names an internal table, or
@@ -23082,7 +23093,15 @@ async function handleRequest(request, env, ctx) {
                 // proof the thing exists. `made` is what the apply really
                 // landed and what each item really guarantees; `told` is which
                 // steps were really handed an outstanding requirement.
-                coverNote: requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade(), unexpressed: [...aUnexpressed] }),
+                coverNote: [
+                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade(), unexpressed: [...aUnexpressed] }),
+                  // THE MISSING PAGES' OWN SENTENCE, joined rather than folded
+                  // into `requirementNote`: that function is about REQUIREMENTS
+                  // the designers declared, and a page that did not survive the
+                  // writer is a fact about this change whether or not anybody
+                  // wrote a requirement for it.
+                  missingPagesNote(aMissing),
+                ].filter(Boolean).join(" "),
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.
@@ -23093,6 +23112,14 @@ async function handleRequest(request, env, ctx) {
                 // it with a flag: a reader that cannot tell the two apart is
                 // back to one sentence for two findings, which is the defect.
                 unexpressedProps: aUnexpressed.size ? [...aUnexpressed].slice(0, 12) : undefined,
+                // THE KIT NAMES THAT ARE NOT KIT NAMES, developer-facing like
+                // the two above. The customer's own clause is the missing-page
+                // one below; a component name is not something they can act on.
+                unknownComponents: aUnknownKit.size ? [...aUnknownKit].slice(0, 12) : undefined,
+                // AND THE PAGES THAT WERE ASKED FOR AND ARE NOT THERE, NAMED —
+                // a route is the one thing about a missing page a customer can
+                // do something with.
+                missingPages: aMissing.length ? aMissing : undefined,
               };
             };
             for (const k of aKinds) {
@@ -23217,6 +23244,32 @@ async function handleRequest(request, env, ctx) {
                   }
                 }
               }
+              // ── THE FRONTEND KINDS GET THEIR OWN AUDIT (2026-09-14) ───────
+              //
+              // Owner: *"Validate page and component declarations before
+              // cleaning discards information."* `SPEC_OF_KIND` names the four
+              // SCHEMA tiers, so the block above is skipped for `page` and
+              // `component` entirely — and MEASURED, a page declaring
+              // `seoTitle` and `cacheForever` cleaned to its eight known keys
+              // with `skipped: []` and nothing anywhere said so.
+              //
+              // Their pipeline is the cleaner and the directive, not the schema
+              // engine, so the validator is `auditFrontend`: the tool's own
+              // item properties against what the cleaner kept. The three lists
+              // pool into the SAME two customer clauses the schema tiers use —
+              // a lost guarantee reads the same whichever layer lost it.
+              {
+                const fa = auditFrontend(k, Array.isArray(ran.value) ? ran.value : [ran.value],
+                  Array.isArray(clean.value) ? clean.value : [clean.value]);
+                for (const n of fa.reached) aBadProps.add(n);
+                for (const n of fa.changed) aChanged.add(n);
+                for (const n of fa.unexpressed) aUnexpressed.add(n);
+              }
+              // A KIT NAME THAT IS NOT IN THE KIT, dropped by the cleaner and
+              // named here — the tool promises in as many words that naming a
+              // component that does not exist is refused, and until today it
+              // was written into the directive instead.
+              for (const n of Array.isArray(clean.unknownKit) ? clean.unknownKit : []) aUnknownKit.add(n);
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
               aAnswers.push({ kind: k, value: clean.value, requirements: ran.requirements });
               // WHAT EACH DESIGNER DECLARED IS TOLD TO THE DESIGNERS AFTER IT.
@@ -23274,6 +23327,7 @@ async function handleRequest(request, env, ctx) {
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
               ran: aAnswers.map((a) => a.kind), told: [...aTold],
               failed: [...aFailedKinds], made: aMade(), unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
+              unknownKit: [...aUnknownKit], missingPages: aMissing,
             });
             const aSaveAnswer = async () => {
               try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
@@ -24126,6 +24180,36 @@ async function handleRequest(request, env, ctx) {
             // joins this one collect (one rounding, `pageCredits` is variadic
             // for exactly this); under a job the hook already reserved it as
             // sequence #2 before the gate and recorded what landed.
+            // ── WHICH REQUESTED PAGES ARE NOT ON THE SITE (2026-09-14) ────
+            //
+            // Owner: *"Compare the requested pages with what actually survives
+            // generation, compilation, and publication … A planned file is the
+            // expectation, not proof of delivery."*
+            //
+            // Computed HERE, below the publish, and that position is the whole
+            // point: `aMerge.added`/`changed` is what was compiled and shipped,
+            // so a page the writer never returned, one salvage replaced, and
+            // one the merge refused all read as missing — where the planned
+            // list said all three were coming. `aFold.files` has carried the
+            // requested names since the fold was written and had ZERO readers
+            // until this line; the comparison is by file name because that is
+            // what both sides really hold.
+            aMissing = missingPages(
+              aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : [])),
+              [...(aMerge.added || []), ...(aMerge.changed || [])],
+            );
+            if (aMissing.length) {
+              // A PAGE THAT DID NOT SURVIVE IS THE PAGE STEP FAILING, and the
+              // coverage has to hear it: a requirement handed to `page` cannot
+              // be covered by a page that is not there.
+              aFailedKinds.add("page");
+              aMark("pages", "missing", { n: aMissing.length });
+              // AND THE RECORD IS RE-WRITTEN, for the same reason the applied
+              // result re-writes it: the copy stored in the seam above was
+              // composed BEFORE the publish, so it says the page step
+              // succeeded. This is the last moment anything knows better.
+              await aSaveAnswer();
+            }
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding
             // synchronously, the spine's own reserve (#3) under a job.

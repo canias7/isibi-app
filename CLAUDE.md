@@ -2662,6 +2662,165 @@ reachable, neither of which has been checked. `scripts/grants-backfill.mjs
 stubbed seams. The `repairbench-1` addon rerun is still the cheapest live proof
 and is the owner's call.
 
+### …AND FIVE BOUNDED FIXES, PLUS A CORRECTION TO THE AUDIT'S OWN WORDING (2026-09-14)
+
+Owner: *"Finish the completion correction… Report missing pages… Validate page
+and component declarations before cleaning discards information… Fix component
+targeting and name validation… Document the existing SMS contract in both
+function and job instructions"*, and: ***"Correct the audit wording: SMS is
+undocumented to the designer; native one-time scheduling is absent. Those are
+different limitations from 'the model can never do it.'"***
+
+**THE CORRECTION FIRST, BECAUSE IT IS ABOUT A CLAIM THIS FILE WOULD HAVE KEPT.**
+The audit written the same day said a generated function *"can never produce a
+text"* and implied one-time scheduling was impossible. **Both overstate, and
+the accurate statements point at different fixes.** SMS is **UNDOCUMENTED TO
+THE DESIGNER** — every hop of it works and has for weeks (`shapeMessages` reads
+`channel`, `runJob` sends `"sms"` through `sendSms` with the number parsed and
+the SMS credential, everything else through `send`), so a model writing
+`channel: "sms"` out of its own knowledge would have been sent as a text on any
+day of that time. **MEASURED across all six add tools (123,554 characters): the
+word `channel` occurred ZERO times in the `function` tool and ZERO in the `job`
+tool**, while the job rule told the owner to paste an SMS key in Settings.
+Native **one-time scheduling is ABSENT** — `JOB_ITEM` carries `everyMinutes` and
+an optional `at`, and no run-once field — which is a missing field, not a
+missing capability. *An impossibility and an undocumented capability need
+opposite work, and only one of them was true.*
+
+1. **CONFIGURATION IS RECORDED AND NEVER PROMOTED.** `claimEvidence` returned
+   one verdict for two different kinds of fact, so the word `user` inside a
+   permission setting settled *"each customer sees only their own repairs"*.
+   Every `made` entry now carries **`checked`** beside `holds` and `fails`, and
+   the ask order is `fails` (a contradiction) → `checked` (a behaviour really
+   exercised → `delivered`) → `holds` (configuration → recorded as
+   `configured`, state stays `unverified`). **NOTHING FILLS `checked` TODAY**
+   and that is declared in `appliedFacts` rather than left to be inferred — the
+   guard drives all five applied kinds and asserts every `checked` is empty,
+   because a mutant filling one in makes the split decorative and every
+   configuration word a delivery again. **It is not a second keyword rule**: it
+   is the same reader with its answer split in two.
+2. **A PAGE THAT WAS ASKED FOR AND IS NOT THERE IS NAMED.** `foldAdds` has
+   computed `files` since it was written — its own comment says why — and
+   **MEASURED: the route reads `designed`, `directive` and `components` off
+   that fold and had never once read `files`.** So two pages asked for and one
+   returned published the one, reported it added, and said nothing about the
+   other. `missingPages(requested, survived)` compares **by file BASENAME**
+   (the merge answers `gallery.tsx` on one path and `src/routes/gallery.tsx` on
+   another) and is computed **BELOW THE PUBLISH**, against `aMerge.added` +
+   `changed` — what was compiled and shipped — so a page the writer never
+   returned, one salvage replaced and one the merge refused all read the same.
+   **The answer is ROUTES**, because that is the customer's word and the one
+   thing they can act on. A missing page adds `page` to `aFailedKinds`, and
+   **the record is re-written afterwards** (a fourth `aSaveAnswer`), because
+   the copy stored above the publish says the page step succeeded.
+3. **THE FRONTEND KINDS GET THEIR OWN VALIDATOR.** `SPEC_OF_KIND` names the
+   four SCHEMA tiers, so the audit block was skipped for `page` and `component`
+   entirely — **MEASURED: a page declaring `seoTitle` and `cacheForever`
+   cleaned to its eight known keys with `skipped: []` and nothing anywhere
+   saying so.** `auditFrontend(kind, declared, cleaned)` is the validator
+   appropriate to THEIR pipeline (the cleaner and the directive, not the schema
+   engine): `{scanned, reached, changed, unexpressed}`, the offered set read
+   off `addTool(kind)` so it cannot drift, pooling into the SAME customer
+   clauses the schema tiers use. **THE OFFERED SET IS THE KIND'S OWN** — a page
+   declaring `where` (a COMPONENT property) is unsupported, and a union set
+   would read it as clean; driven both ways round, because the union is wrong
+   in one direction only. **PAIRED BY POSITION AND ONLY WHEN THE COUNTS AGREE**:
+   a page has no name to pair on, so a length mismatch answers `scanned: 0`
+   rather than auditing one declaration against another's answer. **`scalarHere`
+   is load-bearing and its case is not vacuous here**: `sections` is a list of
+   STRINGS, so a list the cap shortened would read as `changed` without it — the
+   recorded `params` finding one tier over, and the wrong sentence (a shortened
+   list is a refusal of the entries, not a change of the list).
+4. **A MISSING DESTINATION IS REFUSED, AND A KIT NAME IS CHECKED AGAINST THE
+   KIT.** `onPage` fell through to `/` whenever the answer named no route, so on
+   a multi-page site a section meant for `/about` was built on the front page
+   and reported as done. **The one-page shortcut STAYS** — there the home page
+   is not a guess, it is the only answer there is — and the fall-through is
+   gone. And the `component` and `page` tools both promise in as many words that
+   *"naming a component that does not exist is refused"*; **MEASURED, it was
+   not**: `components: ["not-a-kit-part"]` passed whole into the directive as
+   *"the kit component: not-a-kit-part — its exact props are listed above"*
+   about something with no props. `KIT_COMPONENTS` is derived from
+   `COMPONENT_MENU` (2,112 entries, the same catalog the tool offers), an
+   unknown name is **DROPPED AND NAMED** rather than refusing the item — one
+   real part and one typo is mostly right, and `no-component` still fires when
+   nothing usable is left — and **`tsx` IS UNTOUCHED**, because a part written
+   for this site is not in the kit by definition and refusing it would close
+   the escape hatch the kit exists to have. `unknownComponents` is
+   developer-facing; a component name is not something a customer can act on.
+5. **THE SMS CONTRACT IS ONE STRING SENT TO BOTH STEPS.** `MESSAGE_CONTRACT` —
+   `{channel, to, subject, body}`, `"email"` or `"sms"`, **absent or unknown is
+   EMAILED** (email costs the owner nothing per send), an email needs all three
+   of `to`/`subject`/`body`, a text needs `to` and `body` and takes **NO
+   `subject`**, and each channel has its own key so a message whose channel has
+   no key is HELD rather than lost. **ONE string, not two copies**, asserted
+   into both tools by identity. **The default is asserted against `shapeMessages`
+   itself, never against the sentence** — a prompt describing behaviour the code
+   does not have is this repository's recorded "promise nothing ever compiled".
+   Driven through `runJob` with both providers stubbed:
+   `{channel:"sms", to:"07700 900000"}` reaches `sendSms` as `+447700900000`
+   with the SMS credential, the email beside it reaches `send` with the email
+   credential, and a text on a site with no SMS key is `sent: 1, failed: 0,
+   unsent: 1`.
+
+**A STUB IN THE REAL PARSER'S SHAPE**: the first draft's `phone` read
+`/\d{7}/` against `"07700 900000"`, which has **no run of seven consecutive
+digits**, so the message was dropped and the case reported the feature broken.
+Digits first, then the test — the recorded "a fixture in a different shape from
+reality", in the fixture written to prove a format is accepted.
+
+**Guards**: `test/job-sms-contract.test.mjs` (**5**, new) — the census over both
+tools plus the driven runtime; `test/addon-route.test.mjs` **20 → 27**, each
+fix driven through `POST /api/site/<slug>/addon` and asserted on the customer's
+own sentence (a missing page named plus its control, page `reached`, component
+`changed`, page `unexpressed`, the multi-page `no-page` refusal, an unknown kit
+name dropped with the valid one and the TSX beside it surviving);
+`test/addon-steps.test.mjs` **26 → 32**.
+
+**Five older guards went red and were re-anchored, not appeased**, each naming
+the property that moved: `requirement-coverage`'s aSaveAnswer count (3 → 4), its
+`coverNote` anchor, its case 14 and case 15 for configuration no longer
+silencing a behavioural need, its case 17's counts, and `site-add`'s
+`onPage` fall-through — which is an expectation that MOVED rather than broke,
+since it asserted the very guess fix 4 removes. **TWO of those re-anchors hit
+recorded traps in the guard written for them.** (a) The schema tier's validation
+window was sized IN BYTES and ran to a distant neighbour; the frontend audit
+was inserted between the two landmarks and the window grew silently from ~2.6 KB
+to **4,261 bytes**, reporting the schema validator as broken by a block that is
+not it. It ends at the next SIBLING now — and at **CODE, never the heading
+comment**, because `W` is the BLANKED source and a comment landmark is erased
+before the scan runs. (b) The can't-confirm clause joins its needs
+(`"…that A; or that B"`), so pinning either to its own copy of the opening words
+is a spelling; the clause is split once and both needs read out of it.
+
+**Two fixture names were invented rather than real** and the kit check found
+them: `form-shell` is not one of the 2,112. The two guards that used it are
+about the DIRECTIVE and the FOLD, so their fixtures use `form-section` (real)
+**and the drop is asserted beside it** rather than instead of it — a fixture
+change that appeases a check without asserting what changed is the same thing
+as deleting the check.
+
+**Sweep: 39 mutants, 34 killed, 5 survived, 0 never applied, 2 comment-only
+controls survived on the first pass — and every one of the five was a gap in
+the new guards, not the product's.** `appliedFacts` claiming a table's
+configuration as exercised behaviour (the recorded **"a wall nobody can drive
+is a wall nobody is guarding"**: the only ROUTE path that applies a table wants
+a container and a compile, so it is closed at the module with all five kinds
+driven); the route's `unexpressed` pool emptied (both route cases drove
+`reached` and `changed` and nothing drove the third); the offered set typed as
+the union of both kinds; `scalarHere` removed; and `scanned` pinned to 1. Second
+pass: **39 mutants, 39 killed, 0 survived, 0 never applied, 2 controls
+survived.**
+
+**Suite 6,379** — 6,363 + 6 (`addon-route`) + 5 (`addon-steps`) + 5
+(`job-sms-contract`) before the survivors were closed, then + 1 route case and
++ 1 module case. **CI has NOT read this number.**
+
+**NOT PROVEN LIVE.** Every measurement is from driving the real route and the
+real job runner against stubbed seams; nothing has run against a real customer
+message or a real SMS provider. The `repairbench-1` addon rerun is still the
+cheapest live proof and is the owner's call.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -3049,7 +3208,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   site-runtime 47 — every count read out of that job's own log. **Four
   independent runs over three days agreeing is what makes 382 a measurement
   rather than a stamp.**
-  The unit suite is **6,363** (2026-09-14, local — the four outstanding fixes,
+  The unit suite is **6,381** (2026-09-14, local — the five bounded fixes and the
+  audit-wording correction, whose new cases are `addon-route`'s **seven** (a
+  missing page named plus its control, page `reached`, component `changed`, page
+  `unexpressed`, the multi-page `no-page` refusal, an unknown kit name dropped
+  with a custom part surviving), `addon-steps`' **six** (`frontendItem`, the
+  three frontend readings, the length-mismatch refusal, `missingPages`, the
+  config-versus-checked split, and the offered-set/list/scan case the sweep
+  asked for) and `job-sms-contract`'s **five**; 6,363 + 7 + 6 + 5 closes
+  exactly. **Five re-anchors added no case** — they are assertions inside guards
+  that already existed. CI has NOT read this number.
+  **6,363** before it, the four outstanding fixes,
   whose new cases are `addon-route`'s **eight**: the five demonstrations the
   owner named (malformed privacy, explicit `definer: false`, public versus
   internal, failed function → blocked job, configuration versus behaviour), the
@@ -3190,7 +3359,12 @@ rule and the measurement.
   Window landmark to landmark and **assert both landmarks exist** — `indexOf`
   answering -1 gives `slice(-1,-1)` = `""`, which passes everything inside it.
   **`slice(start, -1)` is the other half**: a missing END landmark swallows the
-  file.
+  file. **And a byte bound outlives the comment that outran it**: the addon
+  route's validation window ran to a DISTANT neighbour, a sibling block was
+  inserted between the two landmarks, and the window went from ~2.6 KB to
+  **4,261 bytes** — reporting the block it describes as broken by a block that
+  is not it. Close on the NEXT SIBLING, and on **CODE, never a heading comment**,
+  when the scan reads a blanked source.
 - **OVERLAPPING WINDOWS.** A window running to a NAMED neighbour swallows whatever
   is inserted between them. Derive the closing landmark from the next sibling,
   **search it FROM the opening one** (`indexOf(end, at)`) and assert `end > at`.
@@ -3320,7 +3494,16 @@ rule and the measurement.
 - **A FIXTURE IN A DIFFERENT SHAPE FROM REALITY.** A fake that is MORE capable
   hides bugs exactly like one that is less — and so does one that differs by a
   single character (a trailing slash shipped `//menu` as every canonical for a
-  day). **Derive a fixture from its real producer.**
+  day). **Derive a fixture from its real producer.** A stub `phone` matching
+  `/\d{7}/` against `"07700 900000"` — the format the contract it was proving
+  says is accepted — found **no run of seven consecutive digits** and dropped the
+  message, reporting a working feature as broken.
+- **A FIXTURE THAT NAMES A THING THE PRODUCT DOES NOT HAVE PASSES UNTIL THE
+  PRODUCT STARTS CHECKING.** Two guards used the kit component `form-shell`,
+  which sounds exactly like one of the 2,112 and is not one; both went red the
+  hour a name check shipped, and the honest move is a real name **with the drop
+  asserted beside it** — swapping the name alone appeases the check without
+  saying what changed, which is the same thing as deleting it.
 - **A FIXTURE TOO SHALLOW TO SEPARATE THE TWO READINGS.** When a mutant survives,
   ask what input would make the two readings differ, not whether the code looks
   right. `sitePreviewSrc(site, '/')` and `sitePreviewSrc(site, active.path)` answer

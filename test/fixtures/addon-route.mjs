@@ -43,6 +43,21 @@ const WRITTEN_PAGES = [{
 }];
 
 /**
+ * A generated page at a route, in the shape `validatePages` accepts — so a case
+ * can say "the writer returned /gallery and not /prices" without retyping the
+ * route export every time.
+ */
+export function writtenPage(routePath) {
+  const file = routePath === "/" ? "index" : routePath.replace(/^\//, "").replace(/\//g, "-");
+  return {
+    path: "src/routes/" + file + ".tsx",
+    source: "import { createFileRoute } from '@tanstack/react-router'\n"
+      + "export const Route = createFileRoute('" + routePath + "')({ component: Page })\n"
+      + "function Page(){ return <main><h1>" + file + "</h1><p>Words for " + file + ".</p></main> }\n",
+  };
+}
+
+/**
  * THE SITE'S STORED SCHEMA, in the shape `_meta` really holds: a `bookings`
  * table with three columns and `access: "user"` — which is what makes the
  * extension case observable at all, since a replaced table loses exactly those.
@@ -52,9 +67,12 @@ export const STORED_SCHEMA = {
   functions: [], apis: [], jobs: [],
 };
 
-function bucket(slug) {
+function bucket(slug, stored) {
   const store = new Map([
-    ["source/" + slug + "/pages.json", JSON.stringify(PAGES)],
+    // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
+    // site says so, because "which page does this go on" is only a guess when
+    // there is more than one answer.
+    ["source/" + slug + "/pages.json", JSON.stringify(Array.isArray(stored) && stored.length ? stored : PAGES)],
     [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Fretwork", pages: [] }, css: "" })],
   ]);
   return {
@@ -81,7 +99,7 @@ function bucket(slug) {
  * taken off the reply and a job taken off the DATABASE are two different
  * assertions instead of one.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered }) {
+function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, written = null }) {
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
@@ -183,8 +201,12 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered }
       // the route writes one — which is right, and is why those two kinds
       // cannot be demonstrated on the short path. The answer is the smallest
       // real one: the home page rewritten, no parts, no removals.
+      // WHAT THE PAGE WRITER RETURNS, per case. The default is the home page
+      // rewritten; `written` lets a case answer with the pages it wants —
+      // which is the only way to drive "asked for two, got one", the shape the
+      // missing-page report exists for.
       const inputObj = asked === "pick_adds" ? { kinds }
-        : asked === "write_pages" ? { pages: WRITTEN_PAGES, notes: "" }
+        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes: "" }
         : (answers[kind] || {});
       const body = anthropic
         ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }
@@ -226,7 +248,7 @@ export async function addon(slug, instruction, opts) {
   const c = (opts && opts.publishes) ? installCompiler() : null;
   try {
     const worker = await loadWorker();
-    const store = bucket(slug);
+    const store = bucket(slug, opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },

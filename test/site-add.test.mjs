@@ -603,7 +603,16 @@ test("cleanAdd: a component lands on the one page a one-page site has, is refuse
   assert.deepEqual(one.value[0].components, ["testimonial"]);
   assert.equal(cleanAdd("component", { page: "/nope", does: "quotes", components: ["testimonial"] }, MULTI).why, "no-page");
   assert.equal(cleanAdd("component", { page: "about", does: "quotes", components: ["testimonial"] }, MULTI).value[0].page, "/about");
-  assert.equal(cleanAdd("component", { does: "quotes", components: ["testimonial"] }, MULTI).value[0].page, "/", "no page named on a site with a home page is the home page");
+  // RE-ANCHORED 2026-09-14, and the expectation MOVED rather than broke (owner:
+  // *"On a multi-page site, a missing destination must not silently become the
+  // home page."*). This asserted that an unnamed destination falls back to `/`
+  // whenever the site has a home page — which is every site — so the `no-page`
+  // refusal one line up was unreachable for an answer that named NOTHING, and a
+  // section meant for /about was added to the front page and reported as done.
+  // The one-page fallback is kept, and is on its own line above: there the home
+  // page is not a guess, it is the only answer there is.
+  assert.equal(cleanAdd("component", { does: "quotes", components: ["testimonial"] }, MULTI).why, "no-page",
+    "a section with no destination silently became the home page of a multi-page site");
   assert.equal(cleanAdd("component", { page: "/", components: ["x"] }, SITE).why, "no-plan");
   // THE COMPONENT IS THE ADDITION (owner: "a tsx step that adds components"):
   // an answer that names no kit part and writes none is a band the page
@@ -684,11 +693,21 @@ test("cleanAdd: a code needs both halves and a name the site does not use; a sce
 // ── THE DIRECTIVE AND THE FOLD ───────────────────────────────────────────────
 
 test("the directive says what is new, where it goes and what it is built from — and a tool site gets the tool block", () => {
-  const page = cleanAdd("page", { path: "/book", name: "Book", purpose: "book a lesson", sections: ["form", "hours"], components: ["site-chrome", "form-shell"], link: "the header menu" }, SITE).value[0];
+  // RE-ANCHORED 2026-09-14 (owner: *"Check kit names against the real available
+  // catalog"*). The fixture named `form-shell`, which SOUNDS like a kit part and
+  // is not one of the 2,112 — so it used to be written into the directive as a
+  // component to reach for, and the page rules say in as many words to call a
+  // kit component rather than rewrite it. It is dropped and named now, which is
+  // asserted beside the real name rather than instead of it: this case is about
+  // the DIRECTIVE, so its fixture uses names the kit really has.
+  const invented = cleanAdd("page", { path: "/book", name: "Book", purpose: "book a lesson", sections: ["form"], components: ["site-chrome", "form-shell"] }, SITE);
+  assert.deepEqual(invented.value[0].components, ["site-chrome"], "a name the kit does not have was written into the plan");
+  assert.deepEqual(invented.unknownKit, ["form-shell"], "the dropped name is not reported, so nobody can be told");
+  const page = cleanAdd("page", { path: "/book", name: "Book", purpose: "book a lesson", sections: ["form", "hours"], components: ["site-chrome", "form-section"], link: "the header menu" }, SITE).value[0];
   const d = addDirective("page", page, SITE);
   assert.match(d, /book\.tsx/); assert.match(d, /\/book/); assert.match(d, /"Book"/);
   assert.match(d, /LAYOUT — book a lesson\./);
-  assert.match(d, /Reach first for: site-chrome, form-shell\./);
+  assert.match(d, /Reach first for: site-chrome, form-section\./);
   assert.match(d, /1\. form\n\s+2\. hours/, "the bands are not numbered in order");
   assert.match(d, /Link it from the header menu/);
   assert.ok(!d.includes(TOOL_DIRECTIVE), "a shopfront got the tool block");
@@ -718,7 +737,7 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
   const prior = { tsx: [{ name: "chord-diagram", does: "chords", props: "p" }] };
   const answers = [
     { kind: "table", value: cleanAdd("table", { table: { name: "bookings", columns: [{ name: "when" }] }, seed: [{ when: "x" }], shows: "/book" }, DB).value },
-    { kind: "page", value: cleanAdd("page", { path: "/book", name: "Book", purpose: "book", sections: ["form"], components: ["site-chrome", "form-shell"], tsx: [{ name: "slot-picker", does: "picks", props: "s" }, { name: "chord-diagram", does: "chords, redone", props: "p2" }] }, SITE).value },
+    { kind: "page", value: cleanAdd("page", { path: "/book", name: "Book", purpose: "book", sections: ["form"], components: ["site-chrome", "form-section"], tsx: [{ name: "slot-picker", does: "picks", props: "s" }, { name: "chord-diagram", does: "chords, redone", props: "p2" }] }, SITE).value },
     { kind: "component", value: cleanAdd("component", { page: "/", does: "quotes", components: ["testimonial", "site-chrome"] }, SITE).value },
     { kind: "qr", value: { points: "tel:0114", label: "Ring", page: "/", where: "" } },
     { kind: "three", value: { scene: "a pick", page: "/" } },
@@ -736,7 +755,7 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
   assert.deepEqual(kept.designed.qr.map((c) => c.name), ["qr", "wifi"], "the stored code is dropped when another is added, or the old single code is not read as `qr`");
   assert.deepEqual(kept.designed.qr[0], { name: "qr", points: "tel:0114", label: "Ring" }, "the stored code does not come through character for character");
   assert.equal(f.designed.three, "a pick");
-  assert.deepEqual(f.components, ["site-chrome", "form-shell", "testimonial"]);
+  assert.deepEqual(f.components, ["site-chrome", "form-section", "testimonial"]);
   assert.deepEqual(f.files, ["book.tsx"]);
   const blocks = f.directive.split("\n\n## ");
   assert.equal(blocks.length, 6, "the rule, then one block per addition, in run order");
