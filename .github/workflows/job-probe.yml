@@ -1,0 +1,86 @@
+# THE TWO CONTAINER PROBES: HOW LONG A JOB MAY RUN, AND WHAT THE WIRE DOES.
+#
+# Owner, 2026-09-14: *"The duration probe must confirm actual container
+# execution beyond 15 minutes and successful completion. The connection probe
+# must report the transport used, timings, and captured errors."* — and,
+# because `POST /api/site/job-probe` is owner-gated: *"Don't ask me to share
+# secrets."*
+#
+# THIS FILE IS THE ANSWER TO THAT SECOND SENTENCE. The route needs a session
+# token; the service key that can mint one already lives in GitHub Actions. So
+# the run signs in on the runner and prints no credential, and starting a probe
+# is pressing a button rather than holding a token.
+#
+# COSTS NOTHING. No model call, no credit, no row, no ledger, no publish — it
+# occupies one build lane (the hold probe's own, pinned in the route) for the
+# length of the probe and nothing else.
+#
+# DISPATCH ONLY, AND THERE IS NO MARKER GATE. A push trigger here would be a
+# workflow holding a build lane every time somebody fixed a typo in it, and
+# `test/merge-triggers.test.mjs` is a census that requires a push to main to
+# start `deploy.yml` and nothing else. There is deliberately no parked block to
+# uncomment: this instrument is fired at a question, not at a commit.
+#
+# RUN IT AFTER THE DEPLOY HAS ROLLED THE CONTAINER — 15–20 minutes after a merge
+# that moves an image input, or the probe measures the image before its own. The
+# run says which deploy answered rather than leaving that to be inferred: step 3
+# prints the live Worker's sha out of `/api/site/runtime`.
+name: job probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: 'hold (does a job child really run past 15 minutes?) | wire (does a quiet connection die where a streamed one lives?)'
+        required: true
+        default: 'hold'
+      ms:
+        description: 'How long, in milliseconds. hold: 1200000 (20 min, past the number in question). wire: 300000 (5 min, past the 270s reading) — the wire shape holds TWO connections in turn, so its wall-clock is about double this.'
+        required: false
+        default: '1200000'
+      everyMs:
+        description: 'wire only: the trickle arm sends one byte this often. 20000 imitates a streamed model call.'
+        required: false
+        default: '20000'
+      site:
+        description: 'A site the owner owns, read ONLY to ask /api/site/runtime which deploy is live and whether the runner is on.'
+        required: false
+        default: 'fretwork-1'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    # THE SCRIPT HAS ITS OWN BOUND and reports NOT PROVEN when it hits it, which
+    # is a reading; a runner killed by this ceiling reports nothing at all. So
+    # this sits well above the largest probe the route will accept
+    # (PROBE_MAX_MS is 45 minutes, and the wire shape doubles it).
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # NO `npm ci`. The script imports `scripts/anon-key.mjs` and nothing else —
+      # every other call is `fetch`, which Node 22 has. `test/workflow-deps.test.mjs`
+      # is about steps that run `node --test`; this runs one script with no
+      # dependency, and installing to prove that would be a minute a run for nothing.
+      - name: fire the probe and read it back
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OWNER_EMAIL: aniascristian@gmail.com
+          OWNER_BASE_URL: https://gofarther.dev
+          PROBE_SHAPE: ${{ github.event.inputs.probe }}
+          PROBE_MS: ${{ github.event.inputs.ms }}
+          PROBE_EVERY_MS: ${{ github.event.inputs.everyMs }}
+          PROBE_SITE: ${{ github.event.inputs.site }}
+        run: node scripts/job-probe.mjs
+      # ALWAYS, because the run that FAILED is the one whose log is worth having:
+      # a NOT PROVEN or a CANNOT TELL is a reading, and a reading nobody can read
+      # back is an instrument with no dial.
+      - name: keep the log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-probe-${{ github.event.inputs.probe }}
+          path: job-probe.md
+          if-no-files-found: warn

@@ -15,7 +15,7 @@ import fs from "node:fs";
 
 import {
   PROBE_KIND, PROBE_SHAPES, PROBE_MAX_MS, PROBE_SLICE_MS, PROBE_DEFAULT_MS, WIRE_TRICKLE_MS,
-  readProbe, probeHold, probeWire, wireCall, runProbe,
+  readProbe, probeHold, probeWire, wireCall, runProbe, holdVerdict, wireVerdict,
 } from "../builder/job-probe.mjs";
 import { JOB_MAX_MS } from "../builder/job-duration.mjs";
 import { readLaunch } from "../builder/container-job.mjs";
@@ -171,6 +171,156 @@ test("probeWire runs quiet FIRST, never races the two, and NAMES the reading —
   await probeWire({ url: "https://x/api/job/j1/", token: "t" }, { ms: 1000, everyMs: 500 },
     { send: async (u) => { seen.push(u); return { status: 200, text: async () => "" }; } });
   assert.deepEqual(seen, ["https://x/api/job/j1/wire", "https://x/api/job/j1/wire"]);
+});
+
+test("the reading gets a LINE OF ITS OWN, because the only place it can be read truncates at 300", async () => {
+  // THE FLOOR IS DERIVED FROM THE CONSUMER, never retyped — the tail is
+  // `build-server.mjs`'s and a second copy of its number here is two lists of
+  // the same thing with a container between them.
+  const server = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
+  const m = server.match(/tail\.push\(line\.slice\(0,\s*(\d+)\)\)/);
+  assert.ok(m, "build-server no longer slices its tail the way this guard reads it — re-derive the floor");
+  const SLICE = Number(m[1]);
+  assert.ok(Number.isFinite(SLICE) && SLICE > 0, "the tail floor did not read as a number");
+
+  // THE WORST CASE THE PROBE CAN REALLY PRODUCE: `wireCall` slices a provider's
+  // message at 200, so that is the longest `error` a reading can sit behind.
+  const long = "x".repeat(200);
+  const lines = [];
+  const out = await probeWire({ url: "https://x/api/job/j1/", token: "t" }, { ms: 300000, everyMs: 20000 }, {
+    log: (o) => lines.push(o),
+    send: async (_u, init) => {
+      const body = JSON.parse(init.body);
+      if (body.mode === "quiet") throw Object.assign(new Error(long), { wire: { headersMs: -1, chars: 0 } });
+      if (init.onData) init.onData("   ");
+      return { status: 200, text: async () => "ok" };
+    },
+  });
+  assert.equal(out.reading, "idle-kill");
+
+  // TWO DEFENCES, AND THE OBSERVER IS PROVED ALIVE OFF THE SHAPE THAT REALLY
+  // TRUNCATED — not off today's, which both walls already save.
+  //
+  // (1) THE DEDICATED LINE. Independent of the answer object's shape.
+  const own = lines.filter((o) => o.probe === "wire" && typeof o.reading === "string");
+  assert.equal(own.length, 1, "the reading is not emitted on exactly one line of its own");
+  const line = JSON.stringify(own[0]);
+  assert.ok(line.length <= SLICE, "the reading's own line is over the tail's floor: " + line.length);
+  assert.ok(line.slice(0, SLICE).includes("idle-kill"), "the reading did not survive its own line");
+
+  // (2) THE FIELD ORDER. `reading` sits ahead of `quiet`/`trickle`, so the
+  // whole-answer line `runJob` emits carries it early enough to survive too.
+  const whole = JSON.stringify({ job: "j1", kind: "probe", ...out });
+  assert.ok(whole.slice(0, SLICE).includes("idle-kill"),
+    "the verdict fell out of the whole-answer line's first " + SLICE + " characters");
+
+  // (3) THE ALIVE OBSERVER: the PRE-FIX shape — verdict last, no line of its
+  // own — really is truncated away by this same floor. Without this the two
+  // assertions above would pass over a tail that had never been at risk, which
+  // is this repository's own "a negative assertion must prove its observer is
+  // alive" pointed at a redundancy. MEASURED at 300 exactly on the first read,
+  // which is no margin at all.
+  const { reading: verdict, ...rest } = out;
+  const before = JSON.stringify({ job: "j1", kind: "probe", ...rest, reading: verdict });
+  assert.ok(!before.slice(0, SLICE).includes("idle-kill"),
+    "the pre-fix shape now survives the slice, so neither defence is load-bearing — re-measure before keeping them");
+});
+
+test("both verdicts FAIL CLOSED, and the runner re-derives neither — DRIVEN", () => {
+  // THE DURATION ANSWER. `pastMin` is handed in so the case can prove the
+  // boundary rather than only the default, and every cannot-tell shape has to
+  // land on NOT PROVEN: an instrument that reports success it did not earn is
+  // worse than one that goes quiet.
+  assert.equal(holdVerdict({ ms: 20 * 60_000, code: 0 }).proven, true);
+  assert.equal(holdVerdict({ ms: 15 * 60_000, code: 0 }).proven, false, "exactly fifteen is not PAST fifteen");
+  assert.equal(holdVerdict({ ms: 15 * 60_000 + 1, code: 0 }).proven, true, "one millisecond past fifteen is past it");
+  assert.equal(holdVerdict({ ms: 20 * 60_000, code: 1 }).proven, false, "a failed exit read as proven");
+  assert.equal(holdVerdict({ ms: 20 * 60_000, code: 0, signal: "SIGTERM" }).proven, false, "a killed child read as proven");
+  assert.equal(holdVerdict({ ms: 20 * 60_000, code: null }).proven, false, "a missing exit code read as clean");
+  assert.equal(holdVerdict({ code: 0 }).proven, false, "a record with no elapsed time read as proven");
+  for (const junk of [null, undefined, {}, { ms: "20 minutes", code: "0" }, { ms: NaN, code: 0 }]) {
+    assert.equal(holdVerdict(junk).proven, false, "an unreadable record read as proven: " + JSON.stringify(junk));
+  }
+  // The sentence names which of the two halves failed, because they need
+  // different next moves — one is the clock, the other is the child.
+  assert.match(holdVerdict({ ms: 20 * 60_000, code: 1 }).why, /past 15 minutes but did not end cleanly/);
+  assert.match(holdVerdict({ ms: 60_000, code: 0 }).why, /did not reach 15 minutes/);
+
+  // THE WIRE READING. A tail with no reading answers null, never a default —
+  // a shape nobody recognised silently becoming one of the four would report a
+  // wall that was never measured.
+  assert.equal(wireVerdict(['{"probe":"wire","reading":"idle-kill","quiet":false,"trickle":true}']).reading, "idle-kill");
+  assert.equal(wireVerdict(["not json at all", '{"probe":"wire","reading":"no-wall"}']).reading, "no-wall");
+  assert.equal(wireVerdict([]).reading, null);
+  assert.equal(wireVerdict(null).reading, null);
+  assert.equal(wireVerdict(['{"probe":"hold","slice":3}']).reading, null, "a hold pulse read as a wire reading");
+  // A TRUNCATED line is the case this whole fix exists for: it CONTAINS
+  // `"reading"` and does not parse, and must answer null rather than throwing.
+  assert.equal(wireVerdict(['{"probe":"wire","reading":"idle-ki']).reading, null);
+  assert.equal(wireVerdict(['{"probe":"wire","reading":""}']).reading, null, "an empty reading read as an answer");
+  assert.equal(wireVerdict(['{"probe":"wire","reading":123}']).reading, null, "a non-string reading read as an answer");
+
+  // AND THE RUNNER ASKS THEM RATHER THAN CARRYING ITS OWN COPY. The old shape
+  // was a `tail.find(...)` plus a `JSON.parse` in `scripts/`, which is a second
+  // reader of a log line this module writes.
+  const runner = fs.readFileSync(new URL("../scripts/job-probe.mjs", import.meta.url), "utf8");
+  assert.match(runner, /import \{ holdVerdict, wireVerdict \} from "\.\.\/builder\/job-probe\.mjs"/);
+  assert.ok(!/tail\.find\(/.test(runner), "the runner still finds the reading line itself");
+  assert.ok(!/JSON\.parse\(readingLine\)/.test(runner), "the runner still parses the reading itself");
+});
+
+test("the probe has a DOOR the owner can press: dispatch-only, every input wired, no secret printed", () => {
+  const wf = fs.readFileSync(new URL("../.github/workflows/job-probe.yml", import.meta.url), "utf8");
+  const runner = fs.readFileSync(new URL("../scripts/job-probe.mjs", import.meta.url), "utf8");
+
+  // DISPATCH ONLY. A push trigger here holds a build lane on every typo fix, and
+  // `merge-triggers` is a census over pushes to MAIN — it could not see a
+  // `branches-ignore` one. Both halves: no live trigger, and no parked block
+  // somebody uncomments without re-reading why it is not there.
+  assert.match(wf, /^on:\n\s+workflow_dispatch:/m, "the probe is no longer dispatch-only");
+  assert.ok(!/^\s*push:/m.test(wf), "a push trigger reached the probe workflow");
+  assert.ok(!/#\s*push:/m.test(wf), "a parked push block reached the probe workflow");
+
+  // EVERY ENVIRONMENT NAME THE SCRIPT READS IS SUPPLIED, DERIVED FROM THE SCRIPT
+  // rather than listed here — two lists of the same thing with a runner between
+  // them is how a probe fires with a shape nobody asked for. `SUPABASE_URL`,
+  // `SUPABASE_ANON_KEY` and `PROBE_LOG` are the three with real defaults in the
+  // script and are deliberately not passed, so the set is filtered by that.
+  const reads = [...new Set([...runner.matchAll(/process\.env\.([A-Z_]+)/g)].map((m) => m[1]))];
+  assert.ok(reads.length >= 6, "the env reader found almost nothing — re-anchor it");
+  const OPTIONAL = new Set(["SUPABASE_URL", "SUPABASE_ANON_KEY", "PROBE_LOG"]);
+  for (const name of reads) {
+    if (OPTIONAL.has(name)) continue;
+    assert.match(wf, new RegExp("^\\s+" + name + ":", "m"), name + " is read by the script and set by nothing");
+  }
+  // …and the four dispatch inputs really reach it, by name.
+  for (const input of ["probe", "ms", "everyMs", "site"]) {
+    assert.ok(wf.includes("github.event.inputs." + input), "input " + input + " is declared and never forwarded");
+  }
+  assert.match(wf, /run: node scripts\/job-probe\.mjs/, "the workflow no longer runs the probe script");
+
+  // THE FAILED RUN'S LOG IS THE ONE WORTH HAVING: NOT PROVEN and CANNOT TELL are
+  // both readings, and the script exits non-zero for each.
+  assert.match(wf, /if: always\(\)/, "the log is only kept when the probe passes");
+
+  // A CANNOT-TELL NEVER EXITS GREEN. There are exactly two ways this run can
+  // succeed — a hold that really ran past fifteen minutes, and a wire reading
+  // that was really read — and four ways it can fail, of which two (the bound
+  // and a vanished record) are cannot-tells rather than negatives. Counted
+  // rather than positioned, because a count is what sees the vanished-record
+  // branch being turned green, which is the one way this instrument can lie.
+  const greens = (runner.match(/process\.exit\(0\)/g) || []).length;
+  const reds = (runner.match(/process\.exit\(1\)/g) || []).length;
+  assert.equal(greens, 2, "the runner has " + greens + " ways to exit green, not the two earned ones");
+  assert.ok(reds >= 4, "the runner has only " + reds + " non-zero exits — a cannot-tell has become a pass");
+  assert.match(runner, /ended\.gone[\s\S]{0,400}?CANNOT TELL[\s\S]{0,200}?process\.exit\(1\)/,
+    "a job whose record vanished no longer reports CANNOT TELL and fails");
+
+  // NO SECRET IS PRINTED. The script describes one by length and never shows it;
+  // asserted over the producer, with the redactor's presence as the live observer.
+  assert.match(runner, /const desc = \(v\) =>/, "the length-only redactor is gone");
+  assert.ok(!/console\.log\([^)]*SERVICE_KEY/.test(runner), "the service key reaches a log line");
+  assert.ok(!/log\([^)]*\bjwt\b[^)]*\)/.test(runner.replace(/desc\(jwt\)/g, "")), "the session token reaches a log line");
 });
 
 test("a probe launch is admitted by name, and runJob answers it WITHOUT importing the Worker tree", async () => {

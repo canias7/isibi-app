@@ -1,0 +1,116 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the probe module",
+    "control": true,
+    "files": ["builder/job-probe.mjs"],
+    "from": "/** The launch kind. Not an edit, not a build — it runs no customer's work. */",
+    "to": "/** The launch kind. Neither an edit nor a build — it runs no customer's work. */"
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the runner script",
+    "control": true,
+    "files": ["scripts/job-probe.mjs"],
+    "from": "// FIRE ONE OF THE TWO CONTAINER PROBES AND READ IT BACK, AS THE OWNER.",
+    "to": "// FIRE EITHER OF THE TWO CONTAINER PROBES AND READ IT BACK, AS THE OWNER."
+  },
+
+  {
+    "label": "the verdict loses its own line — the truncation defect, half one",
+    "files": ["builder/job-probe.mjs"],
+    "from": "  log({ probe: \"wire\", reading, quiet: quiet.ok, trickle: trickle.ok });",
+    "to": "  if (0) log({ probe: \"wire\", reading, quiet: quiet.ok, trickle: trickle.ok });"
+  },
+  {
+    "label": "the verdict goes back behind the two long rows — the truncation defect, half two",
+    "files": ["builder/job-probe.mjs"],
+    "from": "    shape: \"wire\", askedMs: ms, everyMs,\n    reading,\n    quiet, trickle,",
+    "to": "    shape: \"wire\", askedMs: ms, everyMs,\n    quiet, trickle,\n    reading,"
+  },
+  {
+    "label": "BOTH defences at once — the shape that really truncated",
+    "files": ["builder/job-probe.mjs"],
+    "from": "  log({ probe: \"wire\", reading, quiet: quiet.ok, trickle: trickle.ok });\n  return {\n    ok: quiet.ok || trickle.ok,\n    shape: \"wire\", askedMs: ms, everyMs,\n    reading,\n    quiet, trickle,",
+    "to": "  return {\n    ok: quiet.ok || trickle.ok,\n    shape: \"wire\", askedMs: ms, everyMs,\n    quiet, trickle,\n    reading,"
+  },
+
+  {
+    "label": "holdVerdict takes exactly fifteen minutes as past fifteen",
+    "files": ["builder/job-probe.mjs"],
+    "from": "  const past = ranMin > pastMin;",
+    "to": "  const past = ranMin >= pastMin;"
+  },
+  {
+    "label": "holdVerdict reads a killed child as a clean end",
+    "files": ["builder/job-probe.mjs"],
+    "from": "  const clean = r.code === 0 && !r.signal;",
+    "to": "  const clean = r.code === 0;"
+  },
+  {
+    "label": "holdVerdict proves on EITHER half, so a record with no elapsed time passes",
+    "files": ["builder/job-probe.mjs"],
+    "from": "    proven: past && clean,",
+    "to": "    proven: past || clean,"
+  },
+  {
+    "label": "holdVerdict's sentence stops saying WHICH half failed",
+    "files": ["builder/job-probe.mjs"],
+    "from": "    why: past && clean ? \"ran past \" + pastMin + \" minutes and ended cleanly\"\n      : past ? \"ran past \" + pastMin + \" minutes but did not end cleanly\"\n      : \"did not reach \" + pastMin + \" minutes\",",
+    "to": "    why: past && clean ? \"ran past \" + pastMin + \" minutes and ended cleanly\" : \"was not proven\","
+  },
+
+  {
+    "label": "wireVerdict answers a DEFAULT for a tail with no reading in it",
+    "files": ["builder/job-probe.mjs"],
+    "from": "  return { reading: null, line: null };",
+    "to": "  return { reading: \"no-wall\", line: null };"
+  },
+  {
+    "label": "wireVerdict takes a non-string reading as an answer",
+    "files": ["builder/job-probe.mjs"],
+    "from": "      if (typeof o.reading === \"string\" && o.reading) return { reading: o.reading, line };",
+    "to": "      if (o.reading !== undefined) return { reading: o.reading, line };"
+  },
+  {
+    "label": "wireVerdict lets a truncated line throw instead of skipping it",
+    "files": ["builder/job-probe.mjs"],
+    "from": "    try {\n      const o = JSON.parse(line);\n      if (typeof o.reading === \"string\" && o.reading) return { reading: o.reading, line };\n    } catch { /* a truncated or interleaved line is not a reading */ }",
+    "to": "    const o = JSON.parse(line);\n    if (typeof o.reading === \"string\" && o.reading) return { reading: o.reading, line };"
+  },
+
+  {
+    "label": "the runner carries its own copy of the reading rule again",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "const { reading, line: readingLine } = wireVerdict(tail);",
+    "to": "const readingLine = tail.find((t) => t.includes('\"reading\"'));\nconst reading = readingLine ? JSON.parse(readingLine).reading : null;"
+  },
+  {
+    "label": "a job whose record vanished exits GREEN — a cannot-tell read as a pass",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "  log(\"          container loses the in-memory record, so this says nothing either way.\");\n  process.exit(1);",
+    "to": "  log(\"          container loses the in-memory record, so this says nothing either way.\");\n  process.exit(0);"
+  },
+  {
+    "label": "the probe workflow gains a push trigger and holds a lane on every commit",
+    "files": [".github/workflows/job-probe.yml"],
+    "from": "on:\n  workflow_dispatch:",
+    "to": "on:\n  push:\n    branches-ignore: [main]\n  workflow_dispatch:"
+  },
+  {
+    "label": "the workflow keeps the log only when the probe passed",
+    "files": [".github/workflows/job-probe.yml"],
+    "from": "        if: always()",
+    "to": "        if: success()"
+  },
+  {
+    "label": "the workflow stops forwarding the shape the owner chose",
+    "files": [".github/workflows/job-probe.yml"],
+    "from": "          PROBE_SHAPE: ${{ github.event.inputs.probe }}",
+    "to": "          PROBE_SHAPE_UNUSED: ${{ github.event.inputs.probe }}"
+  },
+  {
+    "label": "the runner prints the session token instead of its length",
+    "files": ["scripts/job-probe.mjs"],
+    "from": "log(`step 2 — verify answered ${vr.status}; access_token ${desc(jwt)}; user=${(session.user && session.user.email) || \"?\"}`);",
+    "to": "log(`step 2 — verify answered ${vr.status}; access_token ${jwt}; user=${(session.user && session.user.email) || \"?\"}`);"
+  }
+]

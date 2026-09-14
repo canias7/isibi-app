@@ -24,11 +24,18 @@
 //            is the shape an idle-connection kill destroys.
 //   trickle  a byte every `everyMs`. This is what `stream: true` produces.
 //
-// ONE RUN OF EACH SETTLES IT, and both outcomes are useful:
+// ONE RUN OF EACH IS USEFUL WHATEVER IT SAYS — but only one of the three
+// outcomes settles anything about run 45, and the difference is the owner's own
+// correction (2026-09-14): *"'No-wall' means the failure wasn't reproduced; it
+// doesn't settle the historical cause."*
 //   quiet fails ~270s + trickle survives  → the idle kill is real; streaming IS
 //                                           the fix, and run 45's reading holds.
-//   both survive                          → the wall is not an idle kill at all
-//                                           and run 45's reading is WRONG.
+//   both survive                          → the failure was NOT REPRODUCED.
+//                                           That removes one hypothesis and
+//                                           proves no other: run 45 may have
+//                                           died of something else, or of a
+//                                           condition not present at probe time.
+//                                           NOT "run 45's reading is wrong".
 //   both fail at the same time            → a total-lifetime cap, which
 //                                           streaming cannot beat and the next
 //                                           fix has to be something else.
@@ -171,18 +178,90 @@ export async function probeWire(gateway, { ms, everyMs }, { send, log = () => {}
     now, onData: (all) => { seen = all.length; },
   });
   log({ probe: "wire", mode: "trickle", askedMs: ms, everyMs, sawChars: seen, ...trickle });
+  // THE READING, STATED BY THE PROBE RATHER THAN LEFT TO THE READER — the
+  // four outcomes mean four different next moves and a session reading two
+  // raw rows will pick one of them by eye.
+  const reading = quiet.ok && trickle.ok ? "no-wall"
+    : !quiet.ok && trickle.ok ? "idle-kill"
+    : !quiet.ok && !trickle.ok ? "lifetime-cap"
+    : "quiet-survived-trickle-did-not";
+  // AND IT GETS A LINE OF ITS OWN, BECAUSE THE ONLY PLACE IT CAN BE READ HAS A
+  // 300-CHARACTER FLOOR AND THE ANSWER SITS AT THE END OF THE LONG LINE.
+  //
+  // `build-server.mjs` keeps a job's last five stdout lines and slices each at
+  // 300 characters (`tail.push(line.slice(0, 300))`), and that tail is the ONLY
+  // thing a caller outside the container can read once the child has closed.
+  // MEASURED rather than suspected: the whole-answer line for a realistic
+  // failure is **exactly 300 characters** with `reading` as its last field — no
+  // margin at all — and `wireCall` slices a provider's message at 200, so one
+  // real error message pushes the verdict clean off the end. What is left still
+  // parses and still looks like a complete answer, which is this repository's
+  // own "cannot-tell must never read as an answer" with the instrument as its
+  // subject. One short line cannot be truncated.
+  //
+  // TWO DEFENCES, AND THE REDUNDANCY IS DELIBERATE — measured, not assumed.
+  // `reading` also moved AHEAD of `quiet`/`trickle` in the answer below, which
+  // puts it ~110 characters into the whole-answer line and is sufficient on its
+  // own today. So is this line, on its own. Each protects a different thing:
+  // field order protects the verdict INSIDE the long line and is one added
+  // field away from silently breaking again, while this line does not depend on
+  // the answer's shape at all. `test/job-probe.test.mjs` measures both and
+  // mutates the PAIR, because a sweep cannot say a redundancy was chosen and
+  // the next session deletes what nothing appears to need.
+  log({ probe: "wire", reading, quiet: quiet.ok, trickle: trickle.ok });
   return {
     ok: quiet.ok || trickle.ok,
     shape: "wire", askedMs: ms, everyMs,
+    reading,
     quiet, trickle,
-    // THE READING, STATED BY THE PROBE RATHER THAN LEFT TO THE READER — the
-    // four outcomes mean four different next moves and a session reading two
-    // raw rows will pick one of them by eye.
-    reading: quiet.ok && trickle.ok ? "no-wall"
-      : !quiet.ok && trickle.ok ? "idle-kill"
-      : !quiet.ok && !trickle.ok ? "lifetime-cap"
-      : "quiet-survived-trickle-did-not",
   };
+}
+
+/**
+ * TURN A FINISHED JOB RECORD INTO THE DURATION ANSWER.
+ *
+ * Here rather than in the runner script, because the shape of what `probeHold`
+ * produced is this module's to know — a second reader in `scripts/` is two lists
+ * of the same thing with a container between them.
+ *
+ * IT FAILS CLOSED IN EVERY CANNOT-TELL CASE, which is the one property that
+ * matters: a missing `ms` reads as 0 minutes and a missing `code` is not 0, so
+ * an unreadable record can only ever answer NOT PROVEN. An instrument that
+ * reports success it did not earn is worse than one that goes quiet.
+ */
+export function holdVerdict(rec, pastMin = 15) {
+  const r = rec || {};
+  const ranMin = (Number(r.ms) || 0) / 60000;
+  const past = ranMin > pastMin;
+  const clean = r.code === 0 && !r.signal;
+  return {
+    proven: past && clean,
+    ranMin,
+    why: past && clean ? "ran past " + pastMin + " minutes and ended cleanly"
+      : past ? "ran past " + pastMin + " minutes but did not end cleanly"
+      : "did not reach " + pastMin + " minutes",
+  };
+}
+
+/**
+ * TAKE THE WIRE READING OUT OF A JOB'S TAIL.
+ *
+ * The tail is the only thing readable from outside the container once the child
+ * has closed, and `probeWire` puts the verdict on a line of its own precisely so
+ * this can find it whole (see the 300-character measurement above). It answers
+ * `null` for a tail with no reading in it rather than a default: a shape nobody
+ * recognised silently becoming one of the four would be a wall reported that was
+ * never measured.
+ */
+export function wireVerdict(tail) {
+  for (const line of Array.isArray(tail) ? tail : []) {
+    if (typeof line !== "string" || !line.includes('"reading"')) continue;
+    try {
+      const o = JSON.parse(line);
+      if (typeof o.reading === "string" && o.reading) return { reading: o.reading, line };
+    } catch { /* a truncated or interleaved line is not a reading */ }
+  }
+  return { reading: null, line: null };
 }
 
 /** One probe launch, whichever shape it asked for. Never throws. */

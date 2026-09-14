@@ -3757,8 +3757,73 @@ reads are counted and required equal.
 
 **WHAT IS STILL NOT PROVEN, and it is the same sentence as above**: neither probe
 has run in a real container. `workflow_dispatch` answers **403** for this
-session's GitHub integration, so firing them is the owner's, and
-`docs/addon-runbook.md` carries the two calls and what to read off each.
+session's GitHub integration (re-measured 2026-09-14 04:47Z against
+`container-hold-probe.yml`: *Resource not accessible by integration*), so firing
+them is the owner's, and `docs/addon-runbook.md` carries the two calls and what
+to read off each.
+
+### AND THE PROBES GOT A DOOR, BECAUSE A CURL COMMAND WOULD HAVE NEEDED A TOKEN (2026-09-14)
+
+Owner: *"If workflow dispatch still returns 403, finish everything your access
+permits, then give me the exact workflow links, inputs, and order for the runs I
+must start. **Don't ask me to share secrets.**"*
+
+**THOSE TWO SENTENCES ARE IN TENSION AND THE WORKFLOW IS WHAT RESOLVES THEM.**
+`POST /api/site/job-probe` is owner-gated by `authUser`, so "here is the call"
+is an instruction to hold a session token — the one thing ruled out. The service
+key is already a GitHub Actions secret, and `container-hold-probe.mjs` has signed
+in with it through the admin magic-link path for months. `.github/workflows/job-probe.yml`
++ `scripts/job-probe.mjs` are that path pointed at the probe route: dispatch-only,
+four inputs (`probe`, `ms`, `everyMs`, `site`), every secret printed as a length
+and never a value, the log uploaded `if: always()`.
+
+- **IT SAYS WHICH DEPLOY ANSWERED, rather than leaving it to a timestamp.** Step 3
+  reads `/api/site/runtime` for the live sha and for `runner` — which matters as
+  much as the sha, because with `runner: false` an addon runs INLINE in the Worker
+  where the fourteen-minute ceiling still applies whatever the container's clock
+  says, so a duration reading would be about the wrong layer.
+- **A 404 IS NOT A COMPLETION.** `GET /job/<id>` answers 404 both for an id the
+  service never saw and for one whose record went with a recycled container, so
+  that is its own outcome (CANNOT TELL, non-zero) and never a pass. The guard
+  COUNTS the runner's exits — exactly two green, at least four red — because a
+  count is what sees that branch being turned green, which is the one way this
+  instrument can lie.
+- **AND `no-wall` IS NOT A VERDICT ON RUN 45** (the owner's own correction): it
+  means the failure was **not reproduced**, which removes one hypothesis and
+  settles no history. The runbook says so twice and the probe's own log prints it
+  beside the reading.
+
+**A DEFECT IN THE INSTRUMENT, FOUND BY MEASURING RATHER THAN SUSPECTING — and it
+was one character from silent.** `build-server.mjs` keeps a job's last five stdout
+lines and **slices each at 300 characters**, and that tail is the ONLY thing
+readable from outside once the child has closed. The wire probe's whole answer,
+as `runJob` logs it, measured **exactly 300 characters** for a realistic failure
+with `reading` as its last field — no margin at all — and `wireCall` slices a
+provider's message at **200**, so one real error message pushes the verdict clean
+off the end. What survives still parses and still looks complete. Fixed with two
+defences, **each measured sufficient on its own and the redundancy declared**:
+`reading` moved ahead of the two long rows in the answer, and a short line of its
+own that cannot be truncated. The guard mutates the PAIR and proves its observer
+alive off the PRE-FIX shape, because both walls already save today's.
+
+**AND READING THE CONSUMER CORRECTED THE RUNBOOK'S OWN INSTRUCTION.** It said
+"`tail` carries the probe's once-a-minute pulse — that is the reading", implying
+it is readable live. `build-server.mjs` writes `tail` **only in its `close`
+handler**: a RUNNING record carries `{state, kind, startedAt, pid, touchedAt,
+deadlineAt}` and no tail at all. So `state: "running"` past the elapsed time IS
+the live duration answer, and the pulse arrives with `ms`/`code`/`signal` at the
+end. The design was right; the instruction about when to look was not.
+
+**`holdVerdict` AND `wireVerdict` LIVE IN THE MODULE, NOT THE SCRIPT.** The first
+cut had `tail.find(…)` plus a `JSON.parse` in `scripts/`, which is a second reader
+of a log line `probeWire` writes — two lists of the same thing with a container
+between them, and the drift silent because a wrong verdict still prints. Both are
+DRIVEN, and both **fail closed**: a missing `ms` reads as 0 minutes, a missing
+`code` is not 0, a truncated line answers `null` rather than throwing, and a tail
+with no reading answers `null` rather than a default.
+**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived**, every one on the first pass, every anchor checked to occur
+exactly once before the run. **Suite 6,305.**
 
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 

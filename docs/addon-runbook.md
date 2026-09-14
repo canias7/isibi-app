@@ -69,7 +69,26 @@ are three of the things being measured.
 and `builder/`, so the image rebuilds and the container rolls: **wait the 15–20
 minute hold** before firing either, or the probe measures the previous image.
 
+### The door: `job probe`, and it is one button
+
+**https://github.com/canias7/isibi-app/actions/workflows/job-probe.yml** →
+**Run workflow**. Dispatch-only, no marker, nothing to paste.
+
+The route is owner-gated by `authUser`, so running it by hand means holding a
+session token — which is the one thing that must not be passed around. The
+service key is already a GitHub Actions secret, so the workflow signs in on the
+runner (the admin magic-link path `container-hold-probe` has used for months),
+prints every secret as a length and never a value, and uploads its log
+`if: always()` — because a NOT PROVEN or a CANNOT TELL is a reading, and a
+reading nobody can read back is an instrument with no dial.
+
+Its first step prints **which deploy answered** (`/api/site/runtime`) and
+whether `runner` is on, so the run says what it measured rather than leaving it
+to be inferred from a timestamp.
+
 ### Probe 1 — duration
+
+Inputs: `probe` = **`hold`**, `ms` = **`1200000`**. (Or, by hand:)
 
 ```
 POST /api/site/job-probe          {"probe":"hold","ms":1200000}
@@ -79,11 +98,21 @@ GET  /api/site/job-probe?id=<id>
 Twenty minutes, which is past the number in question. The POST answers at once
 with the id; the GET reads the job's own record back off the build service.
 
-**What to read.** `state` should go `running` → `done`, `ms` should be ≥
-1,200,000, and **`tail` carries the probe's once-a-minute pulse** — that is the
-half that matters, because an absent final line is also what a crash produces
-and cannot-tell must not read as an answer. A `stopped` value on the record, or
-a tail that ends near minute fourteen, is the old ceiling still in force.
+**What to read, and WHEN each half arrives** — found by reading the consumer
+rather than trusting the plan: `build-server.mjs` writes a job's `tail` **only
+in its `close` handler**. A *running* record carries `{state, kind, startedAt,
+pid, touchedAt, deadlineAt}` and no tail at all.
+
+- **While it runs**, `state: "running"` past the elapsed time in question IS the
+  duration answer, and that is what the workflow's polling reads out loud.
+- **At the end**, `ms`, `code`, `signal`, `stopped` and the once-a-minute pulse
+  tail arrive together. `ms` should be ≥ 1,200,000 with `code: 0` and no
+  `signal`. A `stopped` value, or a tail that ends near minute fourteen, is the
+  old ceiling still in force.
+- **A 404 is not a completion.** `GET /job/<id>` answers 404 both for an id the
+  service never saw and for one whose record went with a recycled container, so
+  the runner reports that as CANNOT TELL and exits non-zero. Cannot-tell must
+  not read as an answer.
 
 **What it does NOT prove, stated rather than glossed**: the lease surviving
 (that is `edit_sweep_lost` selecting on `lease_expires_at` and never on elapsed,
@@ -91,6 +120,9 @@ which is a Postgres property), the handoff TTL, and **publishing** — that last
 one is the real addon run's job, below.
 
 ### Probe 2 — the long connection, with no model in it
+
+Same workflow. Inputs: `probe` = **`wire`**, `ms` = **`300000`**,
+`everyMs` = **`20000`**. (Or, by hand:)
 
 ```
 POST /api/site/job-probe   {"probe":"wire","ms":300000,"everyMs":20000}
@@ -108,9 +140,15 @@ eye, and all four mean different next moves:
 | reading | what it means |
 |---|---|
 | `idle-kill` | quiet died, trickle lived — **run 45's 270-second reading holds and streaming IS the fix** |
-| `no-wall` | both lived — **run 45's reading is WRONG**; the cause is something else and the hunt restarts |
+| `no-wall` | both lived — **the failure was NOT REPRODUCED. That is not the same as settling the historical cause** (owner, 2026-09-14). Run 45 may have died of something else, or of a condition not present at probe time — a different egress path, a busier account, a transient. It removes one hypothesis and proves no other. |
 | `lifetime-cap` | both died — streaming cannot beat it and the next fix has to be something else |
 | `quiet-survived-trickle-did-not` | nothing expected this; read both `wire` fields before concluding anything |
+
+**`no-wall` is the reading most likely to be over-read, which is why it is
+spelled out twice.** A probe that does not reproduce a failure has measured its
+own run and nothing else; the honest next move is to repeat it, and to keep
+`callFailure`'s `wire` field on the real addon path so the next genuine failure
+carries its own account rather than needing a probe at all.
 
 **And read each half's `wire` field, which is the falsifier**: `headersMs: -1,
 chars: 0` is a death before any byte moved; `chars > 0` is a death with the
@@ -723,6 +761,32 @@ minutes having spent nothing.
 
 Then check, before going on: `https://repairbench-1.gofarther.app` answers 200,
 and its Data panel shows **no database**.
+
+### 1b and 1c. The two free probes — BEFORE anything is spent
+
+**<https://github.com/canias7/isibi-app/actions/workflows/job-probe.yml>**
+→ *Run workflow*. Twice, one shape each, and **read the first before firing the
+second** — they share one build lane.
+
+They cost nothing, so they come first on the ordering rule this file already
+uses: *a free run that can invalidate a paid one goes first.* If `hold` comes
+back NOT PROVEN, Ask A cannot finish either and there is no point buying it; if
+`wire` comes back `lifetime-cap`, the transport fix is the wrong fix and the
+next change is something else.
+
+| field | 1b — duration | 1c — transport |
+|---|---|---|
+| Use workflow from | `main` | `main` |
+| `probe` | `hold` | `wire` |
+| `ms` | `1200000` | `300000` |
+| `everyMs` | *(leave default)* | `20000` |
+| `site` | `fretwork-1` | `fretwork-1` |
+
+`site` is read ONLY to ask `/api/site/runtime` which deploy is live and whether
+`runner` is on — nothing is built, edited or published on it.
+
+**Roughly 26 minutes and 16 minutes of wall-clock.** Each uploads a
+`job-probe-<shape>` artifact with its whole log, whatever the outcome.
 
 ### 2–4. The three asks
 

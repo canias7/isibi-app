@@ -155,6 +155,59 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-14 — The probes got a button, because the alternative was a token
+
+You said *"don't ask me to share secrets"*, and that sentence is what this change
+is. `workflow_dispatch` still answers **403** for this session — I re-measured it
+rather than repeating yesterday's note — so the probes were going to be your runs
+either way. But handing you *"POST /api/site/job-probe"* would have meant handing
+you a sign-in token to go with it, because that route is owner-gated. That is
+exactly what you ruled out.
+
+So there is a workflow now: **Actions → `job probe` → Run workflow.** Four boxes
+(`probe`, `ms`, `everyMs`, `site`), nothing to paste, nothing to copy out of a
+browser. The service key is already a GitHub secret, and this signs in with it on
+the runner the same way the container hold probe has for months — printing every
+secret as a length and never a value. It uploads its log whatever the outcome,
+because a run that could not tell is still a reading worth keeping.
+
+**The exact inputs and the order are in `docs/addon-runbook.md`**, along with the
+three paid asks, which have not changed.
+
+**Three things I found while building it, and the first is the one that would
+have cost you a run.**
+
+1. **The wire probe's answer could have gone missing without saying so.** The only
+   way to read a finished job from outside the container is its last five log
+   lines, and the build service cuts each at 300 characters. I measured the probe's
+   whole answer for a realistic failure: **exactly 300 characters**, with the
+   verdict as the last thing on the line. No margin at all — and a real error
+   message from a provider is sliced at 200, so one of those would have pushed the
+   verdict clean off the end. What survived would still have looked like a complete
+   answer. The verdict now gets a short line of its own that cannot be cut, and it
+   also moved earlier in the long line, so there are two ways it survives.
+
+2. **The runbook told you to watch the wrong thing.** It said to watch the pulse in
+   the job's log tail while it runs. Reading the build service's own code: that
+   tail is only written when the job *ends*. While it runs, what you can see is
+   `state: "running"` and how long it has been going — which is the duration answer
+   anyway. Corrected.
+
+3. **A vanished job is not a finished job.** If the container recycles, the job's
+   record goes with it and the service answers 404 — the same 404 it gives for an
+   id it never saw. The run reports that as *cannot tell* and fails, rather than
+   quietly calling it a pass.
+
+**And one correction to my own wording, which was yours:** the `no-wall` reading
+means the failure **was not reproduced**. It does not settle what killed run 45.
+I had written it as "run 45's reading is WRONG" in two places; both now say what
+it actually is — one hypothesis removed, nothing else proved.
+
+**Nothing here has run in a container yet.** That is still the whole point of the
+two buttons.
+
+---
+
 ## 2026-09-14 — The clock was right and the phone line was still the Worker's
 
 You asked seven questions about run 45 and every one of them was worth asking.
