@@ -32,14 +32,20 @@ that would have passed a broken feature or failed a working one.
    that a stale number is worse than none, because `buildFloor` refuses before
    spending and the refusal reads as a broken build.
 
-2. **Is the queue on for this account.** `GET /api/site/runtime?slug=<any site
-   you own>` in a signed-in browser. It answers `async`, `asyncOn`,
-   `asyncEveryone` and the deploy sha — owner-gated, booleans only, free.
-   **Read it rather than `deploy.yml`**: that file's `EDIT_ASYNC: ${{ secrets.EDIT_ASYNC || 'off' }}`
-   is the default that runs only while nobody has ever set the secret, so the
-   workflow tells you the default and never the deployment.
+2. **Is the queue on, and is the RUNNER on.** `GET /api/site/runtime?slug=<any
+   site you own>` in a signed-in browser. It answers `async`, `asyncOn`,
+   `asyncEveryone`, **`runner`, `runnerOn`, `runnerEveryone`, `runnerBindings`,
+   `runnerKeyed`** and the deploy sha — owner-gated, booleans only, free.
+   **Read it rather than `deploy.yml`**: that file's `|| fallback` is the
+   default that runs only while nobody has ever set the secret, so the workflow
+   tells you the default and never the deployment.
    `async: false` means each addon is one long synchronous request against the
    ~273 s customer-connection wall, which a table-plus-page addition can outrun.
+   **`runner: false` means the addon runs INLINE in the Worker**, where the
+   fourteen-minute ceiling that killed run 44 still applies whatever the
+   container's clock says — and a `false` there names which link is missing
+   (`runnerBindings`, `runnerKeyed`). Deploy 2115 sets `JOB_RUNNER_EVERYONE` to
+   `on`, so this should read `true` for every site now.
 
 3. **The deploy the runs will hit.** The same route answers the sha. Match it
    against what is on `main`, and against the migration status at the foot of
@@ -553,45 +559,73 @@ is the probe for that and needs `NEON_API_KEY`, which no session here has.
 
 ## Deployment and migration status
 
-**The permission fix is MERGED AND LIVE.** Owner, 2026-09-13: *"The local
-PostgreSQL results are sufficient to move forward with the permission fix.
-Deploy the tested fix through the required release checks."*
+**TWO changes are now live and these runs prove both.** The permission fix
+merged 2026-09-13 (deploy 2114); **the container clock merged 2026-09-14
+(deploy 2115)** and is the one that decides whether ask A can finish at all.
 
 | | state |
 |---|---|
-| **`main`** | `9d2c8e7c` (fast-forward from `ec2ee66f`) |
-| **deploy** | run **2114**, green, 2026-09-13 **22:16:21 → 22:19:29Z**, 3m08s |
-| **release checks before the merge** | `unit tests` run **2510** green on the branch tip; `site build` run **1126** green on `8e8ac5eb`, all 20 steps, `site-build.mjs` 14m44s |
-| **the image** | **BUILT** — the step's own line: `built isibi-app-sitebuildcontainer:84b673ca78ee27ae (registry answered 404; 174 inputs off ./Dockerfile)`, step 22:16:45 → 22:19:04 = 2m19s |
-| **the container** | **ROLLED** — `EDIT isibi-app-sitebuildcontainer` at **22:19:18Z**, `de4c74e6aa86…d32` → `84b673ca78ee27ae`, `SUCCESS Modified application` |
-| **the 15–20 minute hold** | ran to **~22:34–22:39Z** |
+| **`main`** | `41b8baa9` (fast-forward from `4b39c790`, 21 files) |
+| **deploy** | run **2115**, green, 2026-09-14 **01:21:13 → 01:25:06Z**, 3m53s |
+| **release checks before the merge** | `unit tests` run **2514** green; `site build` run **1128** green, all 23 steps, `site-build.mjs` **382 passed, 0 failed** |
+| **the image** | **BUILT** — the step's own line: `built isibi-app-sitebuildcontainer:d009cb2fc5f6053e (registry answered 404; 174 inputs off ./Dockerfile)`, step 145s |
+| **the container** | **ROLLED** — `EDIT isibi-app-sitebuildcontainer` at **01:24:17Z**, `SUCCESS Modified application` |
+| **the 15–20 minute hold** | ran to **~01:39–01:44Z**, and has **EXPIRED** |
 | **deploy gate** | left to expire on success |
-| **Database migration needed** | **none** — the fix changes emitted DDL only; no schema migration, no RPC change, nothing to apply to Supabase |
+| **Database migration needed** | **none** for either change — the permission fix changes emitted DDL only, and the clock change moves constants and a workflow default |
 | **Backfill for existing sites** | **written, guarded, driven against a real Postgres, NOT executed** — `scripts/grants-backfill.mjs`, and the owner's standing instruction is preview only |
 | **Live addon tests** | **all unrun** |
 | **`workflow_dispatch` from a session** | **403**, re-measured 2026-09-13 against `lane-sweep.yml` |
 
+**What deploy 2115 changed, and why it matters to ask A.** Run 44's addon died
+at **12m22s** against a **12m45s** wall — `EDIT_JOB_MS` (14 minutes) less the
+publish and terminal reserves — with the database made, the page written and
+nothing published. That wall was sized for a Cloudflare ISOLATE and the work had
+already moved into the container, which has no such ceiling. So:
+
+- **the container's work budget is now `Infinity`** — no stopwatch on the work
+  at all, which is the owner's own instruction (*"Containers shouldn't have a
+  time limit"*);
+- **a 50-minute deadline remains**, and it is a credential lifetime and a
+  wedge-breaker, not a work budget. It is capped at 57.5 minutes by a live
+  Postgres RPC (`edit_handoff` raises `bad ttl` past 3600 s), so lifting it is a
+  migration;
+- **`MAX_BUSY_HOLD_MS` is derived** (52.5 min) rather than typed. It had been
+  equal to the job deadline, which stopped the container 60 seconds *before* the
+  SIGTERM that lets a job end gracefully — a shipped defect found while checking
+  what the new deadline would break;
+- **`JOB_RUNNER_EVERYONE` is `on`** in the deploy, so every site's edits and
+  addons run in the container. Before this it named one site (`fretwork-1`)
+  through the canary, which is why run 44's addon on `repairbench-1` ran inline
+  in the Worker where fourteen minutes is correct and unavoidable.
+
+**THE PROOF BAR FOR ASK A, set before the run so it cannot be moved after it.**
+Run 44's chain died at 12m22s against a 12m45s wall. **The clock fix is proven
+by an addon whose work runs past 12m45s and publishes anyway.** If ask A comes
+in under that, it proves the container path works and says **nothing** about the
+clock — a longer ask would then be needed to settle it. Read the run's elapsed
+time and say which of the two happened; do not report a fast green run as proof
+of the clock.
+
 **The roll was read out of the log, never inferred from the step's duration** —
-this repository warns against that inference in both directions, and the 2m19s
-image step is consistent with a build only by coincidence.
+this repository warns against that inference in both directions.
 
 **What is NOT proven about the container, named rather than glossed.** That a
-COLD START really lands on `84b673ca78ee27ae` is answered by
+COLD START really lands on `d009cb2fc5f6053e` is answered by
 `GET /api/site/build-health`, which is auth-gated and needs a signed-in session
-no agent here has. Without a token it answers **401**, and a made-up path
-answers **404** — so the route is matched and gated, which is as far as this
-goes. The first container job after the hold is the other proof, and the three
-asks below are that job.
+no agent here has. Without a token it answers **401**, `/api/site/runtime`
+beside it **401**, and a made-up path **404** — so both routes are matched and
+gated, which is as far as this goes. The first container job after the hold is
+the other proof, and the three asks below are that job.
 
-**No served asset changed**, so there is no file-hash check for this deploy:
-the push moves `site-rls.mjs` and `site-schema.mjs`, both bundled into the
-Worker script rather than served, and `public/` is untouched. Wrangler's
-`Current Version ID: 095520ae-357…-453c-8a36-65a620774e88` is the deploy's own
-record of what went up.
+**`GET /api/site/runtime?slug=repairbench-1` is worth one free read before ask
+A**, in a signed-in browser: it answers `runner` and the switches behind it, and
+`runner: true` there is what says the addon will run in the container rather
+than inline. Reading `deploy.yml` tells you the default, never the deployment.
 
-**Ordering, now settled.** The fix is live, so running the three asks now proves
-both changes at once and gives the disposable site's tables the new
-column-scoped grants from the moment they are created.
+**Ordering, now settled.** Both fixes are live, so running the three asks proves
+them together and gives the disposable site's tables the new column-scoped
+grants from the moment they are created.
 
 ---
 
