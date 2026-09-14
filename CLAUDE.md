@@ -3825,6 +3825,35 @@ with no reading answers `null` rather than a default.
 controls survived**, every one on the first pass, every anchor checked to occur
 exactly once before the run. **Suite 6,305.**
 
+**MERGED AND LIVE — deploy 2116, 2026-09-14 05:31:14→05:34:04Z, green in
+2m50s**, on `main` `345a4b3f` → `b062e30a` (35 files). The image **BUILT** — the
+step's own line, `built isibi-app-sitebuildcontainer:bbaadcf0342800bd (registry
+answered 404; 180 inputs off ./Dockerfile)`, step 2m01s — and the container
+**`EDIT`ed at 05:33:55Z**, `d009cb2fc5f6053e` → `bbaadcf0342800bd`, `SUCCESS
+Modified application`, **read out of the log rather than inferred from the
+step's duration**, so the 15–20 minute hold ran to **~05:49–05:54Z**. The drain
+found no live leases in 1 s and the gate was left to expire on success.
+**THE MERGE RANGE WAS READ AS A RANGE, NEVER AS ITS TIP** — 14 of its 35 files
+are image inputs and one of them is the `Dockerfile` itself, so the roll was
+predicted before the push and confirmed after it.
+Wrangler uploaded exactly **two** assets, `/chat.js` and `/edit-poll.js` (84
+already uploaded), and **both hash byte-for-byte identical to source**
+(`chat.js` `cf50a72ddee43d1f`, `edit-poll.js` `6de38f0c05eb0e51`) — the
+strongest available proof and the one to reach for first.
+**AND THE PROBE ROUTE IS PROVEN WIRED BY A BEFORE-AND-AFTER, WITHOUT A TOKEN**:
+`/api/site/job-probe` answered **404 before the deploy and 401 after it**, with
+`/api/nope-not-a-route` **404** throughout as the control. A path the Worker does
+not match falls to `env.ASSETS` and 404s, so the flip is not merely consistent
+with the route existing — it is the route beginning to exist. This is the
+401-against-404 discriminator with its BEFORE half actually measured, which no
+previous entry here has done.
+**Guard runs before the merge**: `unit tests` 2519 green; `site build` **1131
+green, all twenty steps, `site-build.mjs` 382 passed / 0 failed in 17m51s** —
+its own log read rather than 1130's count carried over, and the two `FAILED`
+strings in it are test NAMES, each followed by `ok`.
+**STILL NOT PROVEN, and it is the whole point of the two buttons**: neither
+probe has run in a real container.
+
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
 *"Add will always go in addon"* — and the one carve-out is the owner's too:

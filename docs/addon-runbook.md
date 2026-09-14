@@ -713,23 +713,29 @@ is the probe for that and needs `NEON_API_KEY`, which no session here has.
 
 ## Deployment and migration status
 
-**TWO changes are now live and these runs prove both.** The permission fix
-merged 2026-09-13 (deploy 2114); **the container clock merged 2026-09-14
-(deploy 2115)** and is the one that decides whether ask A can finish at all.
+**THREE changes are now live.** The permission fix merged 2026-09-13 (deploy
+2114); **the container clock merged 2026-09-14 (deploy 2115)**, which decides
+whether ask A can finish at all; and **the two probes and their door merged
+2026-09-14 (deploy 2116)**.
 
 | | state |
 |---|---|
-| **`main`** | `41b8baa9` (fast-forward from `4b39c790`, 21 files) |
-| **deploy** | run **2115**, green, 2026-09-14 **01:21:13 → 01:25:06Z**, 3m53s |
-| **release checks before the merge** | `unit tests` run **2514** green; `site build` run **1128** green, all 23 steps, `site-build.mjs` **382 passed, 0 failed** |
-| **the image** | **BUILT** — the step's own line: `built isibi-app-sitebuildcontainer:d009cb2fc5f6053e (registry answered 404; 174 inputs off ./Dockerfile)`, step 145s |
-| **the container** | **ROLLED** — `EDIT isibi-app-sitebuildcontainer` at **01:24:17Z**, `SUCCESS Modified application` |
-| **the 15–20 minute hold** | ran to **~01:39–01:44Z**, and has **EXPIRED** |
+| **`main`** | `b062e30a` (fast-forward from `345a4b3f`, 35 files) |
+| **deploy** | run **2116**, green, 2026-09-14 **05:31:14 → 05:34:04Z**, 2m50s |
+| **release checks before the merge** | `unit tests` run **2519** green; `site build` run **1131** green, all 20 steps, `site-build.mjs` **382 passed, 0 failed** in 17m51s (kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, every one 0 failed) |
+| **the image** | **BUILT** — the step's own line: `built isibi-app-sitebuildcontainer:bbaadcf0342800bd (registry answered 404; 180 inputs off ./Dockerfile)`, step **2m01s** |
+| **the container** | **ROLLED** — `EDIT isibi-app-sitebuildcontainer`, `d009cb2fc5f6053e` → `bbaadcf0342800bd`, `SUCCESS Modified application`, applied **05:33:55Z**. Read out of the log, never inferred from the step's duration |
+| **the 15–20 minute hold** | runs to **~05:49–05:54Z** — fire nothing at the container before then |
+| **the drain** | `no live leases after 1s — deploying` |
 | **deploy gate** | left to expire on success |
-| **Database migration needed** | **none** for either change — the permission fix changes emitted DDL only, and the clock change moves constants and a workflow default |
+| **served assets** | exactly **two** uploaded (`/chat.js`, `/edit-poll.js`, 84 already uploaded), and **both hash byte-for-byte identical to source** — `chat.js` `cf50a72ddee43d1f`, `edit-poll.js` `6de38f0c05eb0e51` |
+| **`JOB_RUNNER_EVERYONE`** | **`on`** in the deploy's own environment block |
+| **the probe route is really wired** | `/api/site/job-probe` **404 → 401** across this deploy, with `/api/nope-not-a-route` **404** as the control. An unmatched path falls to `env.ASSETS` and 404s, so 401-against-404 is the free token-less discriminator |
+| **Database migration needed** | **none** for any of the three |
 | **Backfill for existing sites** | **written, guarded, driven against a real Postgres, NOT executed** — `scripts/grants-backfill.mjs`, and the owner's standing instruction is preview only |
+| **Live probe runs** | **both unrun** — the buttons are the owner's |
 | **Live addon tests** | **all unrun** |
-| **`workflow_dispatch` from a session** | **403**, re-measured 2026-09-13 against `lane-sweep.yml` |
+| **`workflow_dispatch` from a session** | **403**, re-measured 2026-09-14 **04:47Z** against `container-hold-probe.yml`: *Resource not accessible by integration* |
 
 **What deploy 2115 changed, and why it matters to ask A.** Run 44's addon died
 at **12m22s** against a **12m45s** wall — `EDIT_JOB_MS` (14 minutes) less the
