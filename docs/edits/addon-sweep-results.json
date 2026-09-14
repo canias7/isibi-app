@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-13T23:56:36.571Z",
+  "at": "2026-09-14T02:25:26.081Z",
   "site": "repairbench-1",
   "start": 182,
   "end": 182,
@@ -8,9 +8,9 @@
       "name": "ask",
       "kinds": [],
       "verdict": "failed (server)",
-      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"table\",\"page\"]\n      database: nothing\n      pages: []; build UNMOVED\n      home text 4967→4967 chars\n      coverage: the answer carried none\n      nothing left outstanding\n      no coverage sentence to the customer\n      refused: time\n      503 time — That took longer than the time we allow for one change, so I stopped before publishing — your site is untouched and nothing was charged. Try again, or ask for it in two smaller steps.",
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"table\",\"page\"]\n      database: nothing\n      pages: []; build UNMOVED\n      home text 4968→4968 chars\n      coverage: the answer carried none\n      nothing left outstanding\n      no coverage sentence to the customer\n      refused: generate\n      503 generate — The builder is busy — try again in a moment.",
       "cost": 0,
-      "wall": 748,
+      "wall": 534,
       "build": "mu0gbc8t-ba1r4i",
       "pickedRight": true,
       "shots": []
