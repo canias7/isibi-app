@@ -38,6 +38,8 @@
 // is here is the vocabulary both ends of the chain have to agree on, and the
 // verdict the poll route derives from a row — all of it driven with literals.
 
+import { jobDurationPlan } from "./job-duration.mjs";
+
 import { MAX_BUSY_HOLD_MS } from "./container-hold.mjs";
 
 /** The op a build's row is filed under. Part of the idempotency key, so a build
@@ -59,7 +61,7 @@ export const GENERATING = "generating";
  * either reported or been cut by `BUILDER_CALL_MS`. DERIVED, never restated:
  * a second copy of that number drifts the day the first moves.
  */
-export const HANDOFF_TTL_S = Math.round(MAX_BUSY_HOLD_MS / 1000);
+export const HANDOFF_TTL_S = jobDurationPlan().handoffTtlS;
 
 /**
  * HOW LONG A RELEASED LEASE STANDS. The container's report landed and it no

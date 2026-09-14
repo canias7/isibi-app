@@ -28,6 +28,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { hit, loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { SITE_BUSY_DEFER_S, MAX_SITE_BUSY_DEFERRALS, LEASE_TTL_S, EDIT_JOB_KIND, EDIT_JOB_PREFIX, packEditJob } from "../builder/edit-job.mjs";
+import { JOB_MAX_MS } from "../builder/job-duration.mjs";
 import { BUSY_BUILD_MSG, BUSY_EDIT_MSG, FAILED_MSG, rowVerdict } from "../builder/build-lease.mjs";
 import { jobKey, resultKey, packJob, JOB_KIND } from "../builder/build-job.mjs";
 import { readLaunch, runJob } from "../builder/container-job.mjs";
@@ -161,18 +162,27 @@ test("the deferral cap is the migration's literal, the wait fits the browser's o
   const cap = /if deferred > (\d+) then/.exec(blankSql(fs.readFileSync(new URL(spelled, DIR), "utf8")));
   assert.ok(cap, "the newest migration no longer gives up on a count");
   assert.equal(Number(cap[1]), MAX_SITE_BUSY_DEFERRALS, "the Worker's copy of the cap and the RPC's literal disagree");
-  // THE WHOLE WAIT SITS INSIDE THE BROWSER'S WATCH: 400 attempts at the poll's
-  // longest delay, read off the poll module, so a customer is told rather than
-  // left with a spinner that gave up first.
-  const maxMs = /var POLL_MAX_MS = (\d+);/.exec(POLL);
-  const attempts = /if \(w\.attempt > (\d+)\)/.exec(fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8"));
-  assert.ok(maxMs && attempts, "the browser's watch bound could not be read");
-  assert.ok(SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS <= (Number(attempts[1]) * Number(maxMs[1])) / 1000,
-    `a job may wait ${SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS}s and the browser stops watching after ${(Number(attempts[1]) * Number(maxMs[1])) / 1000}s`);
+  // THE WHOLE WAIT SITS INSIDE THE BROWSER'S WATCH, so a customer is told
+  // rather than left with a spinner that gave up first.
+  //
+  // RE-ANCHORED 2026-09-14. It read `400 attempts × POLL_MAX_MS`, which was
+  // wrong twice: the bound was an attempt COUNT whose horizon moved with the
+  // backoff curve, and multiplying it by the LONGEST delay over-states the
+  // watch, because the early attempts are far shorter. The browser now carries
+  // one explicit horizon derived from the job's own duration setting, so this
+  // reads that number instead of reconstructing it.
+  const giveUp = /var POLL_GIVE_UP_MS = (\d+);/.exec(POLL);
+  assert.ok(giveUp, "the browser's watch bound could not be read");
+  const watchS = Number(giveUp[1]) / 1000;
+  assert.ok(SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS <= watchS,
+    `a job may wait ${SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS}s and the browser stops watching after ${watchS}s`);
   assert.ok(SITE_BUSY_DEFER_S >= 30 && SITE_BUSY_DEFER_S <= 300, "the re-send delay is not a real minute: " + SITE_BUSY_DEFER_S);
-  // …AND LONG ENOUGH TO OUTLAST A GENERATION: the container's thirty-minute
-  // bound is the longest a site is held by one job.
-  assert.ok(SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS >= 1800, "a job behind a whole generation gives up before it ends");
+  // …AND LONG ENOUGH TO OUTLAST A GENERATION. DERIVED from the job's own
+  // deadline rather than typed: the comment here said "the container's
+  // thirty-minute bound" while that bound was fifty, which is the drift this
+  // whole change exists to end.
+  assert.ok(SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS >= JOB_MAX_MS / 1000,
+    `a job behind a whole generation (${JOB_MAX_MS / 1000}s) gives up after ${SITE_BUSY_DEFER_S * MAX_SITE_BUSY_DEFERRALS}s`);
   assert.ok(BUSY_DEFER_SEC >= SITE_BUSY_DEFER_S, "the rebuild is more eager than an edit");
 });
 

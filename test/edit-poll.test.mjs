@@ -223,7 +223,14 @@ test("a transient poll failure retries the POLL and never the POST", () => {
   // above rather than read. What this window still owns is that the watcher
   // acts on that decision and bounds the loop.
   assert.match(w, /read\.act === 'retry'/, "transient failures are no longer retried");
-  assert.match(w, /w\.attempt > 400/, "the retry loop is unbounded");
+  // RE-ANCHORED 2026-09-14: the bound was `w.attempt > 400` — a COUNT whose
+  // horizon moved silently with the backoff curve, and which happened to land
+  // near the job's own hold by arithmetic nobody had done. The property was
+  // never the number; it is that the loop is bounded at all, and the bound is
+  // now the job's own clock (`EditPoll.shouldGiveUp`, held equal to
+  // `jobDurationPlan().watchMs` by test/job-duration.test.mjs).
+  assert.match(w, /EditPoll\.shouldGiveUp\(w\)/, "the retry loop is unbounded");
+  assert.match(w, /w\.stopped = 'gave-up'/, "the loop no longer records that it gave up, so a re-render would start it again");
 });
 
 test("a 404 while polling says nothing about whether a job exists", () => {

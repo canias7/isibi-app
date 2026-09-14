@@ -7075,7 +7075,13 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       w.attempt++;
       // BOUNDED. Past this the job has certainly ended one way or another and
       // the customer is better told we lost sight of it than watched for ever.
-      if (w.attempt > 400) { w.stopped = 'gave-up'; finish('⚠️ I lost track of that edit. Reload to pick it back up.'); return; }
+      // A CLOCK, NOT A COUNT (2026-09-14). `w.attempt > 400` summed to 53.0
+      // minutes of this backoff curve — arithmetic nobody had done, near
+      // enough to the job's own hold to look deliberate, and it would move
+      // silently the day the curve changed. `shouldGiveUp` is the JOB's own
+      // horizon (edit-poll.js, derived from the one duration setting), so the
+      // page stops looking only once the job could not still be running.
+      if (EditPoll.shouldGiveUp(w)) { w.stopped = 'gave-up'; finish('⚠️ I lost track of that edit. Reload to pick it back up.'); return; }
       setTimeout(step, EditPoll.pollDelayMs(w.attempt));
       return;
     }

@@ -36,6 +36,8 @@
 // public prefix and `source/`, `backups/`, `versions/` and `orphans/` are the
 // private ones this joins. A job carries the caller's own access token, so it
 // being unreachable from the outside is the whole reason it may hold one.
+import { JOB_MAX_MS } from "./job-duration.mjs";
+
 export const JOB_PREFIX = "jobs/";
 
 // The message's own kind. The consumer refuses anything else rather than
@@ -74,7 +76,7 @@ export const JOB_VERSION = 1;
 // container is stopped before the terminator's SIGTERM can reach the child and
 // the graceful stop is unreachable — which is what the two being EQUAL at
 // thirty minutes quietly meant until today.
-export const BUILD_JOB_MS = 50 * 60_000;
+export const BUILD_JOB_MS = JOB_MAX_MS;
 
 // A job id is 32 hex characters — 128 bits from `crypto.getRandomValues`. It is
 // unguessable on purpose: whoever holds it names an R2 key holding a live access

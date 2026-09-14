@@ -21,6 +21,8 @@
 /** The queue message kind. `site-build` is the other one and neither may guess. */
 // The one reader of a re-sent message's `tries` (stage 3a), shared with the
 // build and resume messages so the count cannot be read three ways.
+import { JOB_MAX_MS } from "./job-duration.mjs";
+
 import { readTries } from "./build-job.mjs";
 
 export const EDIT_JOB_KIND = "site-edit";
@@ -125,7 +127,7 @@ export const EDIT_JOB_MS = 840000;
  * `stopped` at its own gate, refunding through the row's own door — was
  * unreachable at the deadline for as long as those two numbers were equal.
  */
-export const CONTAINER_EDIT_JOB_MS = 50 * 60_000;
+export const CONTAINER_EDIT_JOB_MS = JOB_MAX_MS;
 export const CONTAINER_EDIT_BUDGET_MS = Infinity;
 
 /**
@@ -317,22 +319,40 @@ export const PUBLISH_LEASE_S = 300;
 // the reason on it, so nothing waits for ever behind a site that never frees.
 
 /**
- * How long the consumer waits before asking again. A minute — the resume
- * look's own cadence — so a job behind a fourteen-minute edit asks about
- * fourteen times, and a queue message per ask costs nothing.
- */
-export const SITE_BUSY_DEFER_S = 60;
-
-/**
- * How many refusals a job may collect before the claim FAILS it. Forty-five
- * minutes at the cadence above: room to sit behind a whole edit (fourteen
- * minutes), a whole generation (the container's thirty-minute bound) or a
- * rebuild (ten), and under the browser's own watch bound, so the customer is
- * told rather than left with a spinner. THE DATABASE IS THE AUTHORITY — the
- * RPC carries the literal and gives up on its own count; this copy exists for
- * the guard that holds the two equal and for the sentence in the docs.
+ * How many refusals a job may collect before the claim FAILS it.
+ *
+ * THE DATABASE IS THE AUTHORITY. The RPC carries this literal and gives up on
+ * its own count; this copy exists for the guard that holds the two equal and
+ * for the sentence in the docs — so it cannot be changed here alone, and a
+ * longer wait has to come out of the CADENCE below, which is ours.
  */
 export const MAX_SITE_BUSY_DEFERRALS = 45;
+
+/**
+ * How long the consumer waits before asking again — DERIVED (2026-09-14), so
+ * the whole wait covers a job of the length the platform now allows.
+ *
+ * ── WHY IT STOPPED BEING A MINUTE ────────────────────────────────────────
+ *
+ * It was 60 seconds, and its comment reasoned about "a fourteen-minute edit";
+ * the cap's comment beside it reasoned about "the container's thirty-minute
+ * bound". Both numbers were true when written. The container's deadline is
+ * fifty minutes now, so 60 × 45 = 2,700 seconds of waiting stood in front of a
+ * job that can run 3,000 — a job queued behind a long one gave up before the
+ * one it was waiting for could finish, and was failed with nothing charged.
+ *
+ * Nothing announced it, and the guard that should have caught it was pinned to
+ * a literal 1800 — the thirty minutes, asserted against a bound that had moved.
+ * The recorded "a rule true because of a layer below it expires when that layer
+ * moves", in the queue's own arithmetic.
+ *
+ * THE CAP IS THE DATABASE'S AND THE CADENCE IS OURS, so the cadence is what
+ * gives: spread the job's whole duration across the refusals the RPC allows,
+ * rounded up so the product is never short. Fifty minutes over forty-five
+ * refusals is 67 seconds, which is still the "ask again in about a minute"
+ * this was always meant to be.
+ */
+export const SITE_BUSY_DEFER_S = Math.ceil(JOB_MAX_MS / 1000 / MAX_SITE_BUSY_DEFERRALS);
 
 // ── THE DEPLOY GATE (stage 3a, 2026-09-05) ─────────────────────────────────
 //

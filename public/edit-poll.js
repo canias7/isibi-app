@@ -215,12 +215,44 @@
    * edit, offer an undo for rows already put back. `take()` is a one-shot latch:
    * the first caller gets the result and every later one gets null.
    */
-  function makeWatch(job, slug) {
+  // ── HOW LONG THIS PAGE KEEPS WATCHING (2026-09-14) ──────────────────────
+  //
+  // It was `w.attempt > 400`, and 400 attempts of a 900ms→8s backoff sums to
+  // 53.0 minutes — which was near enough to the job's own 52.5-minute hold to
+  // look deliberate and was arithmetic nobody had done. A COUNT is the wrong
+  // unit: change the backoff and the horizon moves silently, and a page that
+  // gives up first tells a customer their edit is lost while it is running and
+  // about to publish.
+  //
+  // THE NUMBER IS THE JOB'S, not a guess. `builder/job-duration.mjs` derives
+  // `watchMs` from the one setting — the work, plus the SIGTERM grace, plus the
+  // SIGKILL grace, plus the hold's slack — and `test/job-duration.test.mjs`
+  // holds this equal to it. chat.js cannot import, so the two are a second copy
+  // by construction and the guard is what stops them drifting.
+  var POLL_GIVE_UP_MS = 3150000;
+
+  /**
+   * Has this page watched longer than the job could possibly run?
+   *
+   * A CLOCK, NOT A COUNTER. `now` is injectable so the horizon is driven
+   * without waiting out an hour, and a watch with no start time NEVER gives up
+   * — cannot-tell must not read as expired, which would abandon a live edit.
+   */
+  function shouldGiveUp(w, now) {
+    var started = w && Number(w.startedAt);
+    if (!started || !isFinite(started)) return false;
+    var t = typeof now === "number" ? now : Date.now();
+    return t - started > POLL_GIVE_UP_MS;
+  }
+
+  function makeWatch(job, slug, now) {
     var used = false;
     return {
       job: String(job || ""),
       slug: String(slug || ""),
       attempt: 0,
+      // WHEN THIS PAGE STARTED LOOKING — the give-up is measured from here.
+      startedAt: typeof now === "number" ? now : Date.now(),
       // WHY IT STOPPED WATCHING, which is NOT the same as why the job stopped.
       stopped: "",
       take: function (result) {
@@ -537,6 +569,8 @@
     isRecovered: isRecovered,
     waitingMessage: waitingMessage,
     makeWatch: makeWatch,
+    shouldGiveUp: shouldGiveUp,
+    POLL_GIVE_UP_MS: POLL_GIVE_UP_MS,
     isCancelConfirmed: isCancelConfirmed,
     isCancelTooLate: isCancelTooLate,
     rememberJob: rememberJob,

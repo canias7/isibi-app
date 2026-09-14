@@ -53,6 +53,8 @@
 // is the whole point — a number typed here beside `BUILD_JOB_MS` drifts the next
 // time either moves, which is exactly how the two came to be equal at thirty
 // minutes. Both are Worker-side modules this one already ships beside.
+import { jobDurationPlan } from "./job-duration.mjs";
+
 import { BUILD_JOB_MS } from "./build-job.mjs";
 import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS } from "./job-clock.mjs";
 
@@ -85,7 +87,7 @@ import { JOB_KILL_GRACE_MS, JOB_TERM_GRACE_MS } from "./job-clock.mjs";
 // a bill. It holds a container that says it is BUSY, so a finished job stops
 // being held at once and the ceiling is only ever reached by a job still
 // working — or wedged, which is what the deadline below it ends.
-export const MAX_BUSY_HOLD_MS = BUILD_JOB_MS + JOB_KILL_GRACE_MS + JOB_TERM_GRACE_MS + 60_000;
+export const MAX_BUSY_HOLD_MS = jobDurationPlan().holdMs;
 
 // HOW LONG TO WAIT FOR THE CONTAINER TO SAY WHETHER IT IS BUSY. Generous on
 // purpose: a healthy build spends nearly all its time awaiting a subprocess or a
