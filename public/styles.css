@@ -4994,3 +4994,50 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .ag-del { margin-left: auto; border-color: transparent; color: var(--muted); font-weight: 500; }
 .ag-del:hover { color: #b3261e; }
 .ag-err { color: #b3261e; font-size: .85rem; min-height: 1.2em; margin: .6rem .2rem 0; }
+
+/* The thread: one agent, its messages, and a box to add another. Column layout
+   so the message list is the only thing that scrolls and the send box stays put. */
+.ag-thread-page { display: flex; flex-direction: column; height: calc(100vh - 7rem); }
+.ag-thread-head { align-items: center; }
+.ag-av-sm { width: 30px; height: 30px; font-size: .82rem; }
+.ag-thread-name {
+  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-size: 1.5rem; font-weight: 500; flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ag-edit {
+  flex: 0 0 auto; width: 32px; height: 32px; display: grid; place-items: center;
+  border: 1px solid var(--line-2); border-radius: 50%; background: var(--panel);
+  color: var(--text); cursor: pointer; padding: 0;
+}
+.ag-edit:hover { background: var(--panel-2); }
+.ag-edit svg { width: 15px; height: 15px; }
+
+/* MIN-HEIGHT 0 on a flex child that scrolls, or it grows to its content and the
+   send box is pushed off the bottom instead of the list scrolling. */
+.ag-thread {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
+  display: flex; flex-direction: column; gap: .5rem; padding: .2rem .1rem 1rem;
+}
+.ag-thread-empty { margin: auto 0; text-align: center; padding: 2rem 1rem; }
+.ag-msg { display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; }
+.ag-bubble {
+  max-width: 78%; background: var(--text); color: var(--paper);
+  padding: .55rem .8rem; border-radius: 16px 16px 4px 16px;
+  line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ag-msg-when { color: var(--muted); font-size: .72rem; padding-right: .2rem; }
+
+.ag-send { display: flex; align-items: flex-end; gap: .5rem; padding-top: .4rem; }
+.ag-send-in {
+  flex: 1 1 auto; min-width: 0; resize: none; font: inherit; line-height: 1.45;
+  border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel);
+  color: var(--text); padding: .55rem .9rem; max-height: 8rem;
+}
+.ag-send-in:focus { outline: none; border-color: var(--text); }
+.ag-send-btn {
+  flex: 0 0 auto; width: 36px; height: 36px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: var(--text); color: var(--paper);
+  cursor: pointer; padding: 0;
+}
+.ag-send-btn svg { width: 17px; height: 17px; }

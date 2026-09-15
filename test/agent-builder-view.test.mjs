@@ -93,3 +93,44 @@ test("a nameless agent is refused rather than given a name of ours", () => {
   assert.ok(body.indexOf("if (!name)") < body.indexOf("list.push"),
     "the refusal comes after the write, so a nameless agent is stored anyway");
 });
+
+test("a row opens the CONVERSATION, and the instructions move behind the pencil", () => {
+  // The row used to open the editor. That was the wrong door once threads
+  // existed: the list reads as a messages list, so the obvious click has to be
+  // the conversation, and editing becomes a deliberate second act.
+  assert.match(js, /function agentOpen\(id\) \{ agentEditing = null; agentThread = String\(id \|\| ''\); renderAgents\(\); \}/,
+    "opening a row no longer opens the thread");
+  assert.match(js, /'agent-edit': \(e, el\) => agentEdit\(el\.dataset\.id\)/,
+    "there is no way to reach the instructions from a thread");
+  assert.match(js, /data-act="agent-edit"/, "the thread header has no edit control");
+});
+
+test("⚠ NOTHING PRETENDS TO ANSWER, and the thread says so before you send", () => {
+  // The whole screen is honest only if this holds: no model is wired to it, so
+  // a reply bubble from the agent — even one saying "not wired up" — would be
+  // this repository's recorded dead control one step worse, a control that
+  // ANSWERS, wrongly. Every message written is the person's own.
+  const send = js.slice(js.indexOf("function agentSend()"));
+  const body = send.slice(0, send.indexOf("\n}\n"));
+  assert.match(body, /role: 'you'/, "a sent message is not recorded as the person's");
+  assert.ok(!/role: *'agent'|role: *'assistant'/.test(body),
+    "something writes a message as the agent, which nothing is entitled to do yet");
+  assert.match(js, /Nothing answers yet — no model is wired to this chat\./,
+    "the thread does not say that nothing answers");
+});
+
+test("the thread is bounded and an empty message is not stored", () => {
+  // ONE STORE FOR THE WHOLE APP. localStorage is a few megabytes for the
+  // origin and the sites list lives in it too, so an unbounded thread does not
+  // merely grow — it throws on write and takes those with it.
+  const cap = /const AGENT_THREAD_MAX = (\d+);/.exec(js);
+  assert.ok(cap, "the thread has no cap");
+  assert.ok(Number(cap[1]) > 0 && Number(cap[1]) <= 1000, `the cap is ${cap[1]}, which is not a bound`);
+  assert.match(js, /messages: msgs\.slice\(-AGENT_THREAD_MAX\)/, "the cap is declared but never applied");
+
+  const send = js.slice(js.indexOf("function agentSend()"));
+  const body = send.slice(0, send.indexOf("\n}\n"));
+  assert.match(body, /if \(!text\) \{[^}]*return; \}/, "an empty message is stored rather than refused");
+  assert.ok(body.indexOf("if (!text)") < body.indexOf("msgs.push"),
+    "the empty check comes after the write");
+});

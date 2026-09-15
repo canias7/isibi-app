@@ -987,13 +987,90 @@ function agentWhen(ms) {
 /** The circle. One letter, and never an empty one. */
 const agentInitial = (name) => ((String(name || '').trim()[0] || '·').toUpperCase());
 
+/**
+ * What the row says underneath the name: the LAST MESSAGE once there is one,
+ * and the instructions until then — which is what a messages list does, and
+ * what makes the row worth reading twice.
+ */
+function agentPreview(a) {
+  const msgs = Array.isArray(a && a.messages) ? a.messages : [];
+  const last = msgs.length ? msgs[msgs.length - 1] : null;
+  if (last && last.text) return last.text;
+  return (a && a.instructions) || 'No instructions yet';
+}
+
 /** Which agent the composer is editing: null = closed, '' = a new one. */
 let agentEditing = null;
+/** Which agent's thread is open, or null for the list. */
+let agentThread = null;
+/**
+ * How many messages one agent keeps.
+ *
+ * **A CAP, BECAUSE THIS SHARES ONE STORE WITH THE REST OF THE APP.**
+ * `localStorage` is a few megabytes for the whole origin, and the sites list,
+ * the view preference and the credit mark live in it too — so an unbounded
+ * thread does not merely grow, it eventually throws on write and takes those
+ * with it. Oldest go first; the cap is per agent, not per browser.
+ */
+const AGENT_THREAD_MAX = 200;
 
 function renderAgents() {
   const view = document.getElementById('viewAgents');
   if (!view) return;
   const list = agentsSorted();
+
+  // The thread. One agent, its messages, and a box to add another.
+  if (agentThread !== null && agentEditing === null) {
+    const a = agentsAll().find((x) => x.id === agentThread);
+    // An agent that is gone — deleted in another tab — is not an empty thread:
+    // that would be a screen pretending the conversation still exists.
+    if (!a) { agentThread = null; renderAgents(); return; }
+    const msgs = Array.isArray(a.messages) ? a.messages : [];
+    view.innerHTML =
+      '<div class="ag-page ag-thread-page">' +
+        '<div class="ag-head ag-thread-head">' +
+          '<button class="ag-back" data-act="agent-list" aria-label="Back to agents" title="Back">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' +
+          '</button>' +
+          '<span class="ag-av ag-av-sm">' + esc(agentInitial(a.name)) + '</span>' +
+          '<div class="ag-thread-name">' + esc(a.name) + '</div>' +
+          '<button class="ag-edit" data-act="agent-edit" data-id="' + esc(a.id) + '" aria-label="Edit this agent" title="Instructions">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<div class="ag-thread" id="agThread">' +
+          (msgs.length
+            ? msgs.map((m) =>
+                '<div class="ag-msg ag-msg-you">' +
+                  '<div class="ag-bubble">' + esc(m.text) + '</div>' +
+                  '<div class="ag-msg-when">' + esc(agentWhen(m.at)) + '</div>' +
+                '</div>').join('')
+            : '<div class="ag-thread-empty">' +
+                '<div class="ag-empty-t">' + esc(a.name) + '</div>' +
+                '<div class="ag-empty-s">' + esc(a.instructions) + '</div>' +
+              '</div>') +
+        '</div>' +
+        '<div class="ag-send">' +
+          '<textarea class="ag-send-in" id="agMsg" rows="1" maxlength="' + AGENT_MAX + '" ' +
+            'data-keydown="agent-send-key" placeholder="Message ' + esc(a.name) + '"></textarea>' +
+          '<button class="ag-send-btn" data-act="agent-send" aria-label="Send" title="Send">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>' +
+          '</button>' +
+        '</div>' +
+        // **SAID BEFORE YOU SEND, NOT AFTER.** Nothing answers yet, and a screen
+        // that took a message in silence would read as an agent ignoring you.
+        // It is a sentence rather than a fake reply on purpose: a bubble from
+        // the agent saying "not wired up" is this repo's recorded dead control
+        // one step worse — a control that ANSWERS, wrongly.
+        '<div class="ag-note">Messages are saved here. Nothing answers yet — no model is wired to this chat.</div>' +
+      '</div>';
+    wireActions(view);
+    const box = document.getElementById('agThread');
+    if (box) box.scrollTop = box.scrollHeight;
+    const inp = document.getElementById('agMsg');
+    if (inp) inp.focus();
+    return;
+  }
 
   // The composer, when it is open, replaces the list rather than floating over
   // it: this view is one column and a modal here would cover the only thing
@@ -1044,7 +1121,7 @@ function renderAgents() {
               '<span class="ag-av">' + esc(agentInitial(a.name)) + '</span>' +
               '<span class="ag-meta">' +
                 '<span class="ag-name">' + esc(a.name || 'Untitled agent') + '</span>' +
-                '<span class="ag-line">' + esc(a.instructions || 'No instructions yet') + '</span>' +
+                '<span class="ag-line">' + esc(agentPreview(a)) + '</span>' +
               '</span>' +
               '<span class="ag-when">' + esc(agentWhen(a.updated)) + '</span>' +
               '<span class="ag-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>' +
@@ -1058,13 +1135,39 @@ function renderAgents() {
   wireActions(view);
 }
 
-function agentNew() { agentEditing = ''; renderAgents(); }
-function agentOpen(id) { agentEditing = String(id || ''); renderAgents(); }
+function agentNew() { agentThread = null; agentEditing = ''; renderAgents(); }
+/** A row opens the CONVERSATION. The instructions are behind the pencil. */
+function agentOpen(id) { agentEditing = null; agentThread = String(id || ''); renderAgents(); }
+/** The pencil, from inside a thread: edit without losing your place. */
+function agentEdit(id) { agentEditing = String(id || ''); renderAgents(); }
+function agentList() { agentThread = null; agentEditing = null; renderAgents(); }
+/** Cancel returns where you came from — the thread if one is open. */
 function agentCancel() { agentEditing = null; renderAgents(); }
 
 function agentDelete(id) {
   agentsSave(agentsAll().filter((a) => a.id !== id));
+  // Both screens are left, not just the composer: a thread whose agent is gone
+  // is a conversation with nobody.
   agentEditing = null;
+  agentThread = null;
+  renderAgents();
+}
+
+/**
+ * Send. An empty message is refused rather than stored, and the store is
+ * bumped so the list re-sorts — the row's preview line is this message now.
+ */
+function agentSend() {
+  const el = document.getElementById('agMsg');
+  const text = (el ? el.value : '').trim().slice(0, AGENT_MAX);
+  if (!text) { if (el) el.focus(); return; }
+  const list = agentsAll();
+  const at = list.findIndex((a) => a.id === agentThread);
+  if (at < 0) { agentThread = null; renderAgents(); return; }
+  const msgs = Array.isArray(list[at].messages) ? list[at].messages.slice() : [];
+  msgs.push({ role: 'you', text, at: Date.now() });
+  list[at] = { ...list[at], messages: msgs.slice(-AGENT_THREAD_MAX), updated: Date.now() };
+  agentsSave(list);
   renderAgents();
 }
 
@@ -9708,6 +9811,9 @@ const CLICK_ACTIONS = {
   'agent-save': () => agentSave(),
   'agent-cancel': () => agentCancel(),
   'agent-delete': (e, el) => agentDelete(el.dataset.id),
+  'agent-edit': (e, el) => agentEdit(el.dataset.id),
+  'agent-list': () => agentList(),
+  'agent-send': () => agentSend(),
   'landing': () => goLanding(),
 };
 // THE MEDIA SIDE'S ACTIONS ARE GONE, AND SO IS THEIR MARKUP. This table used to
@@ -9723,6 +9829,9 @@ const CLICK_ACTIONS = {
 const CHANGE_ACTIONS = {};
 const INPUT_ACTIONS = {};
 const KEYDOWN_ACTIONS = {
+  'agent-send-key': (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); agentSend(); }
+  },
   'credits-topup': (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCredits(true); } },
 };
 function wireActions(root) {
