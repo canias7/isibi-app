@@ -4927,3 +4927,70 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-ctx-d { background: var(--line-2); }
 .st-ctx-note { font-size: .78rem; color: var(--muted); margin: .2rem 0 0; }
 .st-ctx-none { font-size: .9rem; color: var(--muted); }
+
+/* ── The agent builder ─────────────────────────────────────────────────────
+   A messages list: compose control top left, one row per agent, newest first.
+   Built from the same tokens as the settings page beside it — the reference
+   for this screen was iOS Messages, which decided the SHAPE (a list, a `+`,
+   an avatar, a preview line, a time column) and not the skin. */
+.ag-page { width: 100%; max-width: 560px; margin: 0 auto; }
+.ag-head { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.4rem; }
+.ag-title {
+  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-size: 2.05rem; font-weight: 500; letter-spacing: -.005em;
+}
+.ag-new, .ag-back {
+  flex: 0 0 auto; width: 34px; height: 34px; display: grid; place-items: center;
+  border: 1px solid var(--line-2); border-radius: 50%; background: var(--panel);
+  color: var(--text); cursor: pointer; padding: 0;
+}
+.ag-new:hover, .ag-back:hover { background: var(--panel-2); border-color: var(--line); }
+.ag-new svg, .ag-back svg { width: 18px; height: 18px; }
+
+.ag-list { border: 1px solid var(--line-2); border-radius: 12px; overflow: hidden; background: var(--panel); }
+.ag-row {
+  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center;
+  gap: .8rem; width: 100%; padding: .8rem .9rem; border: 0; border-top: 1px solid var(--line-2);
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.ag-row:first-child { border-top: 0; }
+.ag-row:hover { background: var(--panel); }
+.ag-av {
+  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--text); color: var(--paper); font-weight: 600; font-size: 1rem;
+}
+/* MIN-WIDTH 0, or a long instruction line pushes the time column off the row:
+   a grid item's automatic minimum size is its CONTENT, not zero. */
+.ag-meta { min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+.ag-name { font-weight: 600; font-size: .98rem; }
+.ag-line {
+  color: var(--muted); font-size: .88rem; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ag-when { color: var(--muted); font-size: .8rem; white-space: nowrap; align-self: start; padding-top: .15rem; }
+.ag-chev { color: var(--muted); display: grid; place-items: center; }
+.ag-chev svg { width: 16px; height: 16px; }
+
+.ag-empty { border: 1px dashed var(--line-2); border-radius: 12px; padding: 2.4rem 1.2rem; text-align: center; }
+.ag-empty-t { font-weight: 600; margin-bottom: .3rem; }
+.ag-empty-s { color: var(--muted); font-size: .9rem; }
+.ag-note { color: var(--muted); font-size: .78rem; margin: .9rem .2rem 0; }
+
+.ag-form { display: flex; flex-direction: column; }
+.ag-lbl { font-size: .7rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 .2rem .45rem; }
+.ag-hint { color: var(--muted); font-size: .85rem; margin: -.25rem .2rem .5rem; }
+.ag-in, .ag-ta {
+  width: 100%; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel);
+  color: var(--text); font: inherit; padding: .6rem .7rem; margin-bottom: 1.2rem;
+}
+.ag-ta { resize: vertical; line-height: 1.5; }
+.ag-in:focus, .ag-ta:focus { outline: none; border-color: var(--text); }
+.ag-actions { display: flex; gap: .5rem; align-items: center; }
+.ag-save, .ag-cancel, .ag-del {
+  border-radius: 999px; padding: .5rem 1.1rem; font: inherit; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line-2); background: var(--panel); color: var(--text);
+}
+.ag-save { background: var(--text); color: var(--paper); border-color: var(--text); }
+.ag-del { margin-left: auto; border-color: transparent; color: var(--muted); font-weight: 500; }
+.ag-del:hover { color: #b3261e; }
+.ag-err { color: #b3261e; font-size: .85rem; min-height: 1.2em; margin: .6rem .2rem 0; }

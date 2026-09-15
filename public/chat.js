@@ -859,7 +859,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY,
+        [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY, AGENTS_KEY,
          'zephyr_chats_v1', 'zephyr_memory_v1', 'zephyr_studio_v1',
          'zephyr_avatars_v1', 'zephyr_products_v1']
           .forEach((k) => localStorage.removeItem(k));
@@ -937,6 +937,167 @@ async function doSignOut(everywhere) {
 
 // Settings page — a plain, conventional settings view (grouped list rows),
 // rebuilt each time it opens so account/credits/prefs are current.
+// ── The agent builder ──────────────────────────────────────────────────────
+//
+// A LIST OF AGENTS, EACH ONE A CHAT, and `+` makes another. The shape is the
+// owner's: a messages list, the compose control top left.
+//
+// ⚠ THE AGENTS LIVE IN THIS BROWSER AND NOWHERE ELSE, for now. That is a real
+// limitation and not a placeholder detail: they are gone on another machine and
+// gone when this browser's storage is cleared. It is deliberate rather than
+// lazy — the agent runtime's own API (`agent-builder/`) takes a run against an
+// agent that ALREADY EXISTS and has no route that creates one, because there an
+// agent is code: tools, instructions and bounds, which a request may not supply.
+// Wiring this to it needs that door built first; until then the screen is real
+// and the storage is local.
+const AGENTS_KEY = 'zephyr_agents_v1';
+/** The composer's ceiling. Long enough for a real brief, short enough to store. */
+const AGENT_MAX = 4000;
+const AGENT_NAME_MAX = 60;
+
+/** Read the list. A corrupt or absent store is an EMPTY list, never a throw. */
+function agentsAll() {
+  try {
+    const v = JSON.parse(localStorage.getItem(AGENTS_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((a) => a && typeof a.id === 'string') : [];
+  } catch { return []; }
+}
+function agentsSave(list) {
+  try { localStorage.setItem(AGENTS_KEY, JSON.stringify(list)); } catch {}
+}
+
+/** Newest first, the way a messages list reads. */
+const agentsSorted = () => agentsAll().slice().sort((a, b) => (b.updated || 0) - (a.updated || 0));
+
+/**
+ * The time column. Today shows a clock, anything older shows a date — which is
+ * what the reference does and what makes the column worth its width.
+ */
+function agentWhen(ms) {
+  const t = Number(ms);
+  if (!Number.isFinite(t) || t <= 0) return '';
+  const d = new Date(t);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/** The circle. One letter, and never an empty one. */
+const agentInitial = (name) => ((String(name || '').trim()[0] || '·').toUpperCase());
+
+/** Which agent the composer is editing: null = closed, '' = a new one. */
+let agentEditing = null;
+
+function renderAgents() {
+  const view = document.getElementById('viewAgents');
+  if (!view) return;
+  const list = agentsSorted();
+
+  // The composer, when it is open, replaces the list rather than floating over
+  // it: this view is one column and a modal here would cover the only thing
+  // that gives it context.
+  if (agentEditing !== null) {
+    const cur = agentEditing ? (agentsAll().find((a) => a.id === agentEditing) || null) : null;
+    view.innerHTML =
+      '<div class="ag-page">' +
+        '<div class="ag-head">' +
+          '<button class="ag-back" data-act="agent-cancel" aria-label="Back to agents" title="Back">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' +
+          '</button>' +
+          '<div class="ag-title">' + (cur ? 'Edit agent' : 'New agent') + '</div>' +
+        '</div>' +
+        '<div class="ag-form">' +
+          '<label class="ag-lbl" for="agName">Name</label>' +
+          '<input class="ag-in" id="agName" maxlength="' + AGENT_NAME_MAX + '" placeholder="Booking assistant" value="' + esc(cur ? cur.name : '') + '">' +
+          '<label class="ag-lbl" for="agInstr">Instructions</label>' +
+          '<div class="ag-hint">What it does, how it should answer, and anything it must never do.</div>' +
+          '<textarea class="ag-ta" id="agInstr" maxlength="' + AGENT_MAX + '" rows="10" ' +
+            'placeholder="You answer questions about opening hours and take bookings. Ask for a date and a name before confirming anything. Never promise a time you have not checked.">' +
+            esc(cur ? cur.instructions : '') + '</textarea>' +
+          '<div class="ag-actions">' +
+            '<button class="ag-save" data-act="agent-save">Save</button>' +
+            '<button class="ag-cancel" data-act="agent-cancel">Cancel</button>' +
+            (cur ? '<button class="ag-del" data-act="agent-delete" data-id="' + esc(cur.id) + '">Delete</button>' : '') +
+          '</div>' +
+          '<div class="ag-err" id="agErr"></div>' +
+        '</div>' +
+      '</div>';
+    wireActions(view);
+    const f = document.getElementById('agName');
+    if (f) f.focus();
+    return;
+  }
+
+  view.innerHTML =
+    '<div class="ag-page">' +
+      '<div class="ag-head">' +
+        '<button class="ag-new" data-act="agent-new" aria-label="New agent" title="New agent">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' +
+        '</button>' +
+        '<div class="ag-title">Agents</div>' +
+      '</div>' +
+      (list.length
+        ? '<div class="ag-list">' + list.map((a) =>
+            '<button class="ag-row" data-act="agent-open" data-id="' + esc(a.id) + '">' +
+              '<span class="ag-av">' + esc(agentInitial(a.name)) + '</span>' +
+              '<span class="ag-meta">' +
+                '<span class="ag-name">' + esc(a.name || 'Untitled agent') + '</span>' +
+                '<span class="ag-line">' + esc(a.instructions || 'No instructions yet') + '</span>' +
+              '</span>' +
+              '<span class="ag-when">' + esc(agentWhen(a.updated)) + '</span>' +
+              '<span class="ag-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>' +
+            '</button>').join('') + '</div>'
+        : '<div class="ag-empty">' +
+            '<div class="ag-empty-t">No agents yet</div>' +
+            '<div class="ag-empty-s">Press + to write one. Tell it what it does and how to answer.</div>' +
+          '</div>') +
+      '<div class="ag-note">Saved in this browser for now — not on your account yet.</div>' +
+    '</div>';
+  wireActions(view);
+}
+
+function agentNew() { agentEditing = ''; renderAgents(); }
+function agentOpen(id) { agentEditing = String(id || ''); renderAgents(); }
+function agentCancel() { agentEditing = null; renderAgents(); }
+
+function agentDelete(id) {
+  agentsSave(agentsAll().filter((a) => a.id !== id));
+  agentEditing = null;
+  renderAgents();
+}
+
+/**
+ * Save. A NAMELESS AGENT IS REFUSED rather than given a name of ours: the list
+ * is read by the name, so an invented one is a row nobody can find again.
+ */
+function agentSave() {
+  const nameEl = document.getElementById('agName');
+  const instrEl = document.getElementById('agInstr');
+  const errEl = document.getElementById('agErr');
+  const name = (nameEl ? nameEl.value : '').trim().slice(0, AGENT_NAME_MAX);
+  const instructions = (instrEl ? instrEl.value : '').trim().slice(0, AGENT_MAX);
+  const say = (m) => { if (errEl) errEl.textContent = m; };
+  if (!name) { say('Give it a name first.'); if (nameEl) nameEl.focus(); return; }
+  if (!instructions) { say('Say what it should do.'); if (instrEl) instrEl.focus(); return; }
+
+  const list = agentsAll();
+  const now = Date.now();
+  if (agentEditing) {
+    const at = list.findIndex((a) => a.id === agentEditing);
+    if (at >= 0) list[at] = { ...list[at], name, instructions, updated: now };
+  } else {
+    list.push({
+      id: (crypto.randomUUID ? crypto.randomUUID() : String(now) + Math.random().toString(16).slice(2)),
+      name, instructions, created: now, updated: now,
+    });
+  }
+  agentsSave(list);
+  agentEditing = null;
+  renderAgents();
+}
+
 function renderSettings() {
   const view = document.getElementById('viewSettings');
   if (!view) return;
@@ -9444,7 +9605,7 @@ function sbToast(text) {
 // else — including a remembered value from before the media side was deleted,
 // which is the case that would otherwise paint a blank main: a refresh-proof
 // preference outlives the view it names.
-const KNOWN_VIEWS = ['sites', 'settings'];
+const KNOWN_VIEWS = ['sites', 'settings', 'agents'];
 const VIEW_KEY = 'zephyr_view_v1';
 function showView(name) {
   // HOME IS THE BUILDER (2026-09-12, owner: "yeah thats right, home is the
@@ -9481,6 +9642,7 @@ function showView(name) {
   document.body.classList.toggle('in-sites', name === 'sites');
   if (name === 'sites') renderSites();
   if (name === 'settings') renderSettings();
+  if (name === 'agents') renderAgents();
   document.querySelectorAll('.side-item[data-view], .top-tab[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
   // Back-to-Builder arrow: only while a section view (Settings) is open.
@@ -9541,6 +9703,11 @@ const CLICK_ACTIONS = {
   'credits-topup': () => openCredits(true),
   'profile-menu': (e) => toggleProfileMenu(e),
   'sign-out': () => doSignOut(),
+  'agent-new': () => agentNew(),
+  'agent-open': (e, el) => agentOpen(el.dataset.id),
+  'agent-save': () => agentSave(),
+  'agent-cancel': () => agentCancel(),
+  'agent-delete': (e, el) => agentDelete(el.dataset.id),
   'landing': () => goLanding(),
 };
 // THE MEDIA SIDE'S ACTIONS ARE GONE, AND SO IS THEIR MARKUP. This table used to

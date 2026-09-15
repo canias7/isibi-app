@@ -34,7 +34,7 @@ const CHAT_CODE = blank(CHAT);
 const WORKER_CODE = blank(WORKER);
 const HTML_CODE = HTML.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, " "));
 
-test("the app's view list and its markup are the same two views", () => {
+test("the app's view list and its markup agree, and no deleted view is back", () => {
   // THE SURVIVOR THAT BOUGHT THIS FILE: adding `viewGallery` back to
   // index.html, or a Gallery tab back to the top nav, passed every test in the
   // repo. Both are doors to a screen whose renderer was deleted — a tab that
@@ -43,8 +43,35 @@ test("the app's view list and its markup are the same two views", () => {
   const m = /const KNOWN_VIEWS = (\[[^\]]*\]);/.exec(CHAT_CODE);
   assert.ok(m, "KNOWN_VIEWS is gone — showView has no list to check against");
   const known = eval(m[1]);
-  assert.deepEqual([...known].sort(), ["settings", "sites"],
-    "the app claims to have views it does not: " + known.join(", "));
+
+  // **THE MEDIA SIDE'S VIEWS MUST NEVER COME BACK — BY NAME.** This was a
+  // `deepEqual` against ["settings","sites"], which protected the property by
+  // freezing the COUNT: every later view, dead or alive, failed it identically.
+  // The agent builder (2026-09-15) is the first legitimate addition and showed
+  // the difference — so the wall is now the thing it was always about, and the
+  // two checks below (markup agrees, and every known view really renders) are
+  // what stop a DEAD one being added in its place.
+  const DELETED_VIEWS = ["gallery", "studio", "composer", "avatar", "memory", "agent", "director"];
+  for (const v of DELETED_VIEWS) {
+    assert.ok(!known.includes(v),
+      `'${v}' is a view of the deleted media side and KNOWN_VIEWS has it again`);
+  }
+  // `home` and `landing` are ALIASES showView resolves, never views of their
+  // own: listing one makes showView look for an element that does not exist and
+  // paint an empty main.
+  for (const alias of ["home", "landing"]) {
+    assert.ok(!known.includes(alias),
+      `'${alias}' is an alias showView resolves, not a view — listing it paints an empty main`);
+  }
+  assert.ok(known.length >= 2, `KNOWN_VIEWS holds ${known.length} views, so the checks below read almost nothing`);
+
+  // EVERY KNOWN VIEW REALLY RENDERS. This is the half that makes adding a view
+  // safe and adding a DOOR TO NOTHING fail — which is what the deleted gallery
+  // was: a name in the list, a tab in the page, and no renderer behind it.
+  for (const v of known) {
+    const call = new RegExp(`if \\(name === '${v}'\\) render[A-Z]`);
+    assert.match(CHAT_CODE, call, `showView knows '${v}' but never renders it — a door to an empty main`);
+  }
 
   // Every `.view` element the page declares, by the id convention showView uses.
   const inPage = [...HTML_CODE.matchAll(/id="view([A-Z][A-Za-z]*)"/g)]
