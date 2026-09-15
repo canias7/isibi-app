@@ -395,3 +395,101 @@ the word if you want it.
 **Still NOT applied to Supabase — nothing created in any project.** As you said,
 we settle which project first. Still no HTTP route, no real model calls, no
 container.
+
+---
+
+## 2026-09-15 — There is an API now, and the deliberate-breakage sweep on the database found a real hole
+
+### The API
+
+Three things work end to end, locally: **start a run, read its progress or
+result, resume an interrupted one.**
+
+**Every request goes through the same four steps in the same order, and that order
+IS the security:** check the token, take the customer's identity *from the verified
+token*, build a store that can only see that customer, and only then look at what
+was asked for. Nothing can reorder those, because the store that gets built takes
+no customer argument at all — **so an identity arriving in the request body has
+nowhere to go.** A body that carries one is **refused outright**, not quietly
+ignored, since a silent drop lets somebody think it worked.
+
+**A request that isn't properly signed in gets nothing**, and I tested that with
+real signatures rather than a stand-in: no credentials, a token signed with the
+wrong key, an expired one, one with no expiry at all, one with the signature
+turned off, one that claims a different kind of signature to trick the check, one
+with the customer edited in flight, and one with no customer in it. Ten shapes,
+four routes, all refused. **And the refusal never says which of the ten it was** —
+telling you would turn the endpoint into a tool for guessing at tokens.
+
+**Another customer's run id gets nothing either**, and reads as *not found* rather
+than *forbidden* — because "forbidden" tells a stranger that the id they guessed is
+real.
+
+### The work outlives the request
+
+**Starting a run writes it down, hands the work off, and answers immediately.**
+Nothing in the request waits for the model. That matters because a real run takes
+minutes and an HTTP connection does not.
+
+Where the work actually *goes* is deliberately left as a plug — you pass in a
+dispatcher. Wire it to a queue or a container when you have one; today the tests
+pass in a queue that runs nothing until asked, **which is what makes "the response
+didn't wait" something I can prove rather than claim.**
+
+Two things it refuses to do: **a finished run is never started again** (it hands
+back the answer it already gave, without calling the model), and **a run whose
+record can't be read cleanly is never resumed** — resuming past a corrupt line
+would send the model a conversation with a step missing.
+
+One I built because the alternative is nasty: **if the background work crashes, the
+run records that it crashed.** Otherwise it would read as "still running" for ever,
+which is the one state nobody can act on.
+
+### ⚠ The database sweep found a real hole, which is why you asked for it
+
+You said the 60 checks weren't a deliberate-breakage sweep. You were right, and
+building one **immediately found something I had got wrong.**
+
+**The hole:** when I stopped single journal entries being deleted, the marker I used
+said only *"some run is being deleted right now"* — not *which* one. So inside one
+transaction, deleting **any** run authorised deleting **another** run's entries. My
+claim was "an entry can only go with its own run", and that claim was false. It now
+names the run. Narrow exposure — nobody has the permission to try it except a full
+database administrator — but the claim was wrong and is now right.
+
+**It also found that one of my own checks couldn't see its own subject.** Every
+check ran as a separate database connection, so anything that persisted at
+*connection* level rather than *transaction* level was invisible to all of them.
+
+**And it found two breakages that genuinely change nothing**, which I proved by
+measuring rather than by hunting for a missing test:
+- one wall inside the customer-isolation rules is redundant today, because another
+  rule already covers it. I've kept it (it's what holds if the other is ever
+  loosened) and **written in the file that it's deliberate**, so nobody deletes it
+  as useless.
+- one flag I'd assumed was doing the work turns out not to be. The behaviour is
+  right either way; **I checked three ways and I don't know why**, and I've written
+  that down as "not known" rather than inventing a reason.
+
+**A correction to something I told you earlier.** I said the isolation rules are
+"forced, so the owner isn't quietly exempt". **That part is untested.** It's only
+observable to a database owner who isn't an administrator, and in my test
+environment the owner *is* one — administrators bypass those rules regardless. So I
+deliberately don't break that line in the sweep, and the claim stands as unproven.
+
+### What works locally, and what is still not connected
+
+**Works locally, proven:** the whole flow — request, background execution, storage,
+result — plus interrupted resume and completed-run replay. **149 tests**, a **real
+PostgreSQL 16** for the database (70 checks), **98 deliberate code breakages** and
+**20 deliberate database breakages**, each with a do-nothing control.
+
+**Not connected, and each needs something from outside:**
+1. **Supabase** — still nothing applied anywhere. We settle which project first.
+2. **A real model.** Every test uses a stand-in. Nothing has called a provider and
+   nothing has spent anything.
+3. **A real background dispatcher** — a queue or a container. The plug is there and
+   tested; what goes in it is infrastructure.
+4. **Where the signing secret comes from.** The token checker takes one; in
+   production it's Supabase's JWT secret and needs to reach the Worker.
+5. **A deployment.** No Worker config, no routes, no domain. Nothing is deployed.

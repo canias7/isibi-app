@@ -57,6 +57,31 @@ function psql(sql, { db = DB, role = null, claims = null, expectFail = false } =
   }
 }
 
+/**
+ * SEVERAL STATEMENTS, ONE SESSION, SEPARATE TRANSACTIONS.
+ *
+ * Every other check here is its own `psql` PROCESS, so anything that persists at
+ * SESSION scope rather than transaction scope is invisible to them — and that is
+ * not hypothetical: a SQL mutation sweep widened the delete marker from
+ * transaction-local to session-local and this file could not tell. Multiple `-c`
+ * flags share one connection and each runs in its own transaction, which is the
+ * only shape that separates the two.
+ */
+function psqlSession(statements, { db = DB, role = null, claims = null } = {}) {
+  const parts = [];
+  if (role) parts.push(`set role ${role};`);
+  if (claims !== null) parts.push(`set "request.jwt.claims" = ${shq(claims)};`);
+  parts.push(...statements);
+  const cs = parts.map((x) => `-c ${shq(x)}`).join(" ");
+  try {
+    execFileSync("su", ["postgres", "-c", `psql -X -q -t -A -v ON_ERROR_STOP=1 -d ${db} ${cs}`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return { ok: true, err: "" };
+  } catch (e) {
+    return { ok: false, err: `${e.stdout ?? ""}${e.stderr ?? ""}`.trim() };
+  }
+}
+
 /** Apply a whole file. `-f`, not `-c`: psql's `\\i` is a meta-command and `-c` takes only SQL. */
 function psqlFile(file, { db = DB } = {}) {
   try {
@@ -149,6 +174,9 @@ try {
 
   const T1 = "11111111-1111-1111-1111-111111111111";
   const T2 = "22222222-2222-2222-2222-222222222222";
+  // A third run, deleted late, purely so the marker check has a real run delete to
+  // sit in the same session as.
+  const T3 = "33333333-3333-3333-3333-333333333333";
   const asWriter = { role: "service_role" };
   const claimT1 = { role: "authenticated", claims: '{"tenant_id":"t1"}' };
   const claimT2 = { role: "authenticated", claims: '{"tenant_id":"t2"}' };
@@ -288,9 +316,54 @@ try {
   check("...and the run is gone too", psql(`select count(*) from agent.runs where id='${T2}';`, asWriter).out === "0");
 
   console.log("\n── the marker does not leak past the transaction that set it ──");
-  // A pooled connection reuses sessions. If the marker survived a commit, the next
-  // statement on that connection could delete an entry on its own.
-  refused("after a run delete has committed, a lone entry delete is refused again",
+  // IN ONE SESSION, WHICH IS THE WHOLE POINT. Every other check here runs in its
+  // own psql process, so a SESSION-level marker would be invisible to them — and it
+  // was: a SQL mutation sweep widened the marker from transaction-local to
+  // session-local and this file did not notice. A pooled connection reuses
+  // sessions, so a marker that survives a commit lets the NEXT statement on that
+  // connection delete an entry on its own.
+  allowed(`a throwaway run to delete alongside`, `insert into agent.runs (id, tenant_id) values ('${T3}','t1');`, asWriter);
+  // THE ONE THAT MATTERS: deleting one run must not authorise deleting ANOTHER
+  // run's entries, even in the same transaction. Both statements in one `psql -c`
+  // share a transaction, which is what makes this observable at all.
+  refused("deleting one run does not authorise deleting another run's entries, even in one transaction",
+    `delete from agent.runs where id='${T3}'; delete from agent.run_entries where run_id='${T1}' and seq=2;`,
+    "cannot be deleted on its own", {});
+  check("...and the refusal took the whole statement with it, so the throwaway run is still there",
+    psql(`select count(*) from agent.runs where id='${T3}';`, asWriter).out === "1");
+  allowed("the throwaway run deletes cleanly on its own", `delete from agent.runs where id='${T3}';`, asWriter);
+
+  // AND ACROSS TWO TRANSACTIONS IN ONE SESSION, which is the only way a
+  // session-scoped marker is distinguishable from a transaction-scoped one. The
+  // run delete commits; the entry delete that follows must still be refused.
+  allowed(`a second throwaway run`, `insert into agent.runs (id, tenant_id) values ('${T3}','t1');`, asWriter);
+  {
+    const r = psqlSession([
+      `delete from agent.runs where id='${T3}';`,          // its own transaction, committed
+      `delete from agent.run_entries where run_id='${T1}' and seq=2;`,
+    ]);
+    check("the marker does not survive the transaction that set it", !r.ok && r.err.includes("cannot be deleted on its own"),
+      r.ok ? "the entry delete was ALLOWED in a later transaction of the same session" : r.err.split("\n")[0]);
+    check("...and the committed run delete really did commit, so the session was live",
+      psql(`select count(*) from agent.runs where id='${T3}';`, asWriter).out === "0");
+  }
+
+  // TWO RUNS IN ONE STATEMENT, both with logs. This is why the marker APPENDS
+  // rather than replaces: a multi-row delete fires the BEFORE trigger once per row
+  // and the cascades all run afterwards, so a marker that held only the last id
+  // would leave every earlier run's log unauthorised and the delete would fail.
+  const T4 = "44444444-4444-4444-4444-444444444444";
+  const T5 = "55555555-5555-5555-5555-555555555555";
+  allowed("two more runs, each with a log",
+    `insert into agent.runs (id, tenant_id) values ('${T4}','t1'), ('${T5}','t1');
+     insert into agent.run_entries (run_id, seq, body) values
+       ('${T4}', 0, '{"kind":"started","at":0,"agent":"a","model":"m"}'),
+       ('${T5}', 0, '{"kind":"started","at":0,"agent":"a","model":"m"}');`, asWriter);
+  allowed("both delete in ONE statement and both logs go with them",
+    `delete from agent.runs where id in ('${T4}','${T5}');`, asWriter);
+  check("...neither log survived",
+    psql(`select count(*) from agent.run_entries where run_id in ('${T4}','${T5}');`, asWriter).out === "0");
+  refused("and in a fresh session too",
     `delete from agent.run_entries where run_id='${T1}' and seq=2;`, "cannot be deleted on its own", {});
   check("CONTROL: the log that survived all of that is intact",
     psql(`select count(*) from agent.run_entries where run_id='${T1}';`, asWriter).out === "6",

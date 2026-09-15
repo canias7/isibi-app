@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
     "sweep": "node scripts/sweep.mjs",
-    "test:pg": "node test/integration/pg-schema.mjs"
+    "test:pg": "node test/integration/pg-schema.mjs",
+    "sweep:sql": "node scripts/sql-sweep.mjs"
   }
 }

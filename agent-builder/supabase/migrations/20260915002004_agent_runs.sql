@@ -194,9 +194,34 @@ create or replace function agent.run_delete_begins() returns trigger
   set search_path = ''
 as $$
 begin
-  -- Transaction-local: it is gone at commit or rollback, so it cannot leak into
+  -- THE MARKER NAMES THE RUN, and that is the correction a SQL mutation sweep
+  -- forced. It used to be the word 'on', which said only "some run is being
+  -- deleted in this transaction" — so within one transaction, deleting ANY run
+  -- authorised deleting the entries of ANY OTHER. Measured: two deletes in one
+  -- `psql -c` share a transaction, and the second was allowed. The exposure was
+  -- narrow (no role holds DELETE on the entries) but the claim was "an entry may
+  -- go only with ITS OWN run", and that claim was false.
+  --
+  -- Ids are APPENDED, comma-terminated, because a multi-row delete fires this
+  -- BEFORE trigger once per row and the referential cascades all run afterwards,
+  -- at the end of the statement — so replacing the value would leave every run but
+  -- the last unauthorised.
+  --
+  -- Transaction-local, so it is gone at commit or rollback and cannot leak into
   -- the next statement on a pooled connection.
-  perform set_config('agent.deleting_run', 'on', true);
+  --
+  -- THE `true` IS INTENT, NOT THE THING THAT MAKES IT SAFE — measured. A SQL
+  -- mutation sweep flipped it to `false` (session scope) and NOTHING changed: the
+  -- marker still did not survive the transaction, checked three ways, including
+  -- re-creating a run under the same id in a later transaction of the same session
+  -- and trying to delete its entry. A plain function doing the same `set_config`
+  -- DOES leak, so the difference is something about being called from a trigger,
+  -- and the mechanism is NOT established here. What is established is the
+  -- behaviour. The flag stays because it says what is meant and costs nothing.
+  perform set_config(
+    'agent.deleting_run',
+    coalesce(nullif(current_setting('agent.deleting_run', true), ''), '') || old.id::text || ',',
+    true);
   return old;
 end;
 $$;
@@ -210,9 +235,13 @@ create or replace function agent.entries_go_with_their_run() returns trigger
   set search_path = ''
 as $$
 begin
-  -- Anything we cannot read as "a run is being deleted" is not one: an unset
-  -- marker, an empty one, or any other value refuses. Fails closed.
-  if coalesce(nullif(current_setting('agent.deleting_run', true), ''), 'off') <> 'on' then
+  -- THIS run must be named, not merely some run. Anything we cannot read as "this
+  -- entry's own run is being deleted" refuses: an unset marker, an empty one, or a
+  -- list that does not contain this run. Fails closed.
+  --
+  -- The comma is part of the needle, so one id cannot match another's prefix.
+  if position(old.run_id::text || ',' in
+              coalesce(nullif(current_setting('agent.deleting_run', true), ''), '')) = 0 then
     raise exception 'agent.run_entries: entry (run %, seq %) cannot be deleted on its own — delete the run and its log goes with it',
       old.run_id, old.seq
       using errcode = 'restrict_violation',
@@ -278,6 +307,15 @@ create policy runs_own_tenant on agent.runs
 -- AN ENTRY'S TENANT IS ITS RUN'S TENANT, never a column of its own. A copy here
 -- could disagree with the run it points at, and the disagreeing case is the one
 -- where somebody reads another tenant's log.
+--
+-- THE TENANT COMPARISON INSIDE THIS POLICY IS A SECOND WALL, AND IS DELIBERATE.
+-- A SQL mutation sweep removed it and every check still passed — measured, not
+-- assumed — because `agent.runs` is itself under row level security, so the
+-- subquery below is ALREADY filtered to this tenant's runs by the runs policy.
+-- That makes the comparison redundant today and worth keeping anyway: it is what
+-- holds if the runs policy is ever loosened, and the two walls fail independently.
+-- Written down because a sweep cannot see a deliberate redundancy and the next
+-- reader deletes what nothing appears to need.
 create policy entries_own_tenant on agent.run_entries
   for all
   using (exists (

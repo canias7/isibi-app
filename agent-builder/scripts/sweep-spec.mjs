@@ -21,6 +21,8 @@ const R = at("run.mjs");
 const J = at("journal.mjs");
 const E = at("meters.mjs");
 const S = at("store.mjs");
+const A = at("auth.mjs");
+const H = at("api.mjs");
 const m = (label, file, from, to, control = false) => ({ label, files: [file], from, to, control });
 
 const spec = [
@@ -211,6 +213,66 @@ const spec = [
     "out[k] = v === UNBOUNDED ? Infinity : v;", "out[k] = v === UNBOUNDED || v === null ? Infinity : v;"),
   m("journal: the unbounded marker is a different string from the one stored", J,
     'export const UNBOUNDED = "Infinity";', 'export const UNBOUNDED = "inf";'),
+
+  // ── auth.mjs ──────────────────────────────────────────────────────────────
+  m("auth: THE TOKEN'S OWN `alg` IS TRUSTED — alg:none and algorithm confusion both open", A,
+    'if (header.alg !== ALG) return no("bad-alg");', 'if (false) return no("bad-alg");'),
+  m("auth: the signature is never checked", A,
+    'if (!okSig) return no("bad-signature");', 'if (false) return no("bad-signature");'),
+  m("auth: a failed verify throws and is read as a pass", A,
+    "    } catch { return no(\"malformed\"); }\n    if (!okSig)", "    } catch { okSig = true; }\n    if (!okSig)"),
+  m("auth: `exp` becomes optional, so a leaked token is permanent", A,
+    'if (typeof claims.exp !== "number" || Number.isNaN(claims.exp)) return no("expired");',
+    'if (false) return no("expired");'),
+  m("auth: an expired token is accepted at its own deadline and past it", A,
+    'if (claims.exp * 1000 + skewMs <= t) return no("expired");',
+    'if (claims.exp * 1000 + skewMs < t - 86400000) return no("expired");'),
+  m("auth: a not-yet-valid token is accepted", A,
+    'if (typeof claims.nbf === "number" && claims.nbf * 1000 - skewMs > t) return no("not-yet-valid");',
+    'if (false) return no("not-yet-valid");'),
+  m("auth: the tenant claim is coerced rather than refused", A,
+    'if (!isText(tenant)) return no("no-tenant");', 'if (tenant === undefined) return no("no-tenant");'),
+  m("auth: a token with the wrong number of segments is read anyway", A,
+    'if (parts.length !== 3) return no("malformed");', 'if (parts.length < 2) return no("malformed");'),
+  m("auth: the base64url decoder repairs its input instead of refusing it", A,
+    'if (!/^[A-Za-z0-9_-]+$/.test(s)) throw new Error("not base64url");', "if (false) throw new Error(\"x\");"),
+  m("auth: bearerOf takes anything after the scheme, spaces included", A,
+    "const m = /^Bearer ([^\\s]+)$/i.exec(raw.trim());", "const m = /^Bearer (.+)$/i.exec(raw.trim());"),
+
+  // ── api.mjs ───────────────────────────────────────────────────────────────
+  m("api: AN UNVERIFIED REQUEST IS SERVED", H, "if (!who?.ok) {", "if (false) {"),
+  m("api: a verdict that is not ok is read as ok", H, "if (!who?.ok) {", "if (who?.ok === false && false) {"),
+  // MUTATED AT THE CALL SITE, not in the helper. Adding an unused `reason`
+  // parameter there was INERT: nothing passes one, and `JSON.stringify` drops an
+  // `undefined` value, so the body came out byte-identical.
+  m("api: the 401 explains WHY, turning the endpoint into an oracle", H,
+    "        return unauthorized();",
+    '        return json(401, { error: "unauthorized", reason: who?.reason }, { "www-authenticate": "Bearer" });'),
+  m("api: A TENANT IN THE BODY IS SILENTLY IGNORED instead of refused", H,
+    "    if (smuggled.length) {", "    if (false) {"),
+  m("api: the forbidden-key check uses truthiness, so every request is refused", H,
+    "FORBIDDEN_BODY_KEYS.filter((k) => Object.hasOwn(body, k))", "FORBIDDEN_BODY_KEYS.filter((k) => !!body[k])"),
+  m("api: A FINISHED RUN IS DISPATCHED AGAIN", H,
+    'if (open.state.status === "stopped") {', "if (false) {"),
+  m("api: a run whose log cannot be read is resumed anyway", H,
+    "if (open.state.problems.length) {", "if (false) {"),
+  m("api: THE RESUME TAKES ITS AGENT FROM THE REQUEST instead of the stored run", H,
+    "const name = open.run?.agent_name ?? open.state.agent;", "const name = body?.agent ?? open.run?.agent_name;"),
+  m("api: THE WORK RUNS INSIDE THE REQUEST, so nothing can outlive the connection", H,
+    "          dispatch(() => execute({ scoped, runId, agent, prompt: body.prompt, journal }));",
+    "          await execute({ scoped, runId, agent, prompt: body.prompt, journal });"),
+  m("api: the run is not written down before its id is handed out", H,
+    "          const { journal } = await scoped.create(runId);",
+    "          const { journal } = { journal: { append: async () => ({}) } };"),
+  m("api: a not-found is answered as a 403, telling a stranger the id is real", H,
+    'if (e?.code === "not-found") return notFound();', 'if (e?.code === "not-found") return json(403, { error: "forbidden" });'),
+  m("api: a crashing task leaves the run looking like it is still going", H,
+    "        await journal.append(stoppedEntry({", "        if (false) await journal.append(stoppedEntry({"),
+  m("api: an unknown agent is accepted and the run starts with nothing", H,
+    'if (!agent) return json(400, { error: "no such agent" });', "if (false) return json(400, {});"),
+  m("api: a blank prompt starts a run", H,
+    'if (!isText(body.prompt)) return json(400, { error: "prompt must be a non-empty string" });',
+    "if (false) return json(400, {});"),
 
   // ── the controls: comment-only, and they MUST survive ──────────────────────
   m("CONTROL (comment only, limits.mjs)", L, "* THE BOUNDS ON ONE AGENT RUN", "* THE BOUNDS ON ONE AGENT RUN (control)", true),

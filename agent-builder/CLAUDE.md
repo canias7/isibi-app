@@ -68,7 +68,7 @@ same colour.
 
 ## What is built
 
-Seven modules under `src/`, **all dependency-free** — this has to run in a
+Nine modules under `src/`, **all dependency-free** — this has to run in a
 Cloudflare Worker, where there is no `node_modules` — with every outside thing
 (the model call, the clock, the journal) INJECTED. That is not purity for its own sake: it is
 what makes every branch below drivable in a test instead of waited on.
@@ -80,6 +80,8 @@ what makes every branch below drivable in a test instead of waited on.
 - **`journal.mjs`** — the append-only record, the replay that rebuilds a run, and
   the limits codec.
 - **`store.mjs`** — where the log is kept: Supabase, over PostgREST.
+- **`auth.mjs`** — who is asking, verified.
+- **`api.mjs`** — the HTTP surface: start a run, read it, resume it.
 - **`run.mjs`** — the loop.
 
 ### The law, module by module
@@ -439,32 +441,170 @@ Each cost a round, and each is the fixture being wrong rather than the product:
 
 ### What is proven, and what is not
 
-- **`npm run test:pg` — 60 checks, 0 failed, against a real PostgreSQL 16.13** in
+- **`npm run test:pg` — 70 checks, 0 failed, against a real PostgreSQL 16.13** in
   a throwaway database. **The DDL is never typed in the check**: it comes out of
   the migration FILE, so what is proved is what would be applied. Every refusal is
   read for its REASON (a refusal from the wrong gate looks exactly like the wall
   working), and every group carries a CONTROL that must succeed, without which a
   database refusing everything would pass the file.
-- **THE 51 — NOW 60 — DATABASE CHECKS ARE NOT A SQL MUTATION SWEEP, and the
-  distinction is kept deliberately.** The sweep runs the unit suite, which cannot
-  see a schema, so **no schema guarantee here has been proved by breaking the
-  schema and watching a check go red.** What the checks DO is weaker and worth
-  having: each one tries to break a specific guarantee from the outside and names
-  the gate that must stop it, and each group carries a control that must succeed.
-  That is hand-written adversarial coverage, not mechanical coverage, and the
-  difference is that nothing proves the checks would CATCH a schema edited in a
-  way nobody thought of. Building one is feasible — mutate the migration file and
-  run `npm run test:pg` — and has not been done.
+- **THE DATABASE CHECKS AND THE SQL SWEEP ARE DIFFERENT THINGS, and both now
+  exist.** The 70 checks are hand-written adversarial coverage: each attacks one
+  guarantee from the outside and names the gate that must stop it. The SQL sweep is
+  mechanical: it breaks the schema and requires those checks to go red. **The sweep
+  is what found the real hole and the two blind spots** — hand-written coverage
+  could not, because it only ever tests what somebody thought of. It covers the
+  four named guarantees and NOT the whole schema, so a guarantee outside those four
+  is still checked only by hand.
 - **NOT APPLIED TO SUPABASE.** Nothing has been created in any Supabase project.
   The only project this repository holds credentials for belongs to another
   product, and putting these tables there is the mixing this directory exists to
   avoid. Applying it needs either a Supabase project of its own or an explicit
   decision to share that one.
 
+## The HTTP surface (2026-09-15)
+
+`src/auth.mjs` and `src/api.mjs`. A `fetch(request)` handler, which is what a
+Worker wants, with nothing bound to Cloudflare: `verify`, `store`, `send`,
+`dispatch`, `now` and `newId` are all injected.
+
+### Who is asking
+
+- **THE ALGORITHM IS OURS, NOT THE TOKEN'S.** `alg` is compared against one
+  hard-coded value and nothing is ever looked up from the header. `none` makes
+  every token valid and an asymmetric name makes a PUBLIC key usable as the HMAC
+  secret; both are the same one-line mistake.
+- **THE SIGNATURE IS VERIFIED BEFORE THE PAYLOAD IS EVEN PARSED.** Reading claims
+  first is how unsigned data gets trusted by accident — a log line, an early
+  return, a metric keyed on an unverified tenant.
+- **`exp` IS REQUIRED, not merely honoured when present.** A signed token with no
+  expiry never stops working, so a leaked one is permanent. Expiry is checked as
+  `<=`: a token valid at its own deadline is valid for one instant longer than it
+  says.
+- **THE TENANT IS REFUSED, NOT COERCED** (`String(["t1"])` is `"t1"`), and a token
+  carrying no tenant is not an identity.
+- **BASE64URL IS DECODED STRICTLY.** A segment in standard base64 (`+`, `/`, `=`)
+  is refused rather than repaired: a decoder that fixes up its input accepts
+  tokens a real one rejects, which is how a parser ends up disagreeing with
+  whatever signed the thing. **Found by a sweep** — removing the charset check
+  changed nothing any other case could see.
+- **A REFUSAL IS NAMED INTERNALLY AND ANONYMOUS ON THE WIRE.** `REFUSALS` lists
+  every reason for logs; the response is one sentence and one status, because
+  naming the reason turns the endpoint into an oracle for probing tokens.
+- **THE CLAIM NAME MUST MATCH THE MIGRATION**, which reads `tenant_id` out of the
+  same JWT. The same fact in two languages with no type system between them, so a
+  test reads the migration and compares. Diverge and every request would
+  authenticate here and see nothing there — and it would look like an empty
+  database rather than a mismatch.
+
+### The order of every request IS the security argument
+
+Four steps, always: **verify the token → take the tenant from the VERIFIED claims
+→ build a store scoped to that tenant → then look at what was asked for.**
+
+- **THE BODY IS NEVER AUTHORITY.** The scoped store takes no tenant argument, so
+  there is nowhere for a body field to be mistaken for one — and a body that
+  carries `tenant`, `tenant_id` or `tenantId` is **REFUSED**, not ignored, because
+  a silent drop lets somebody believe it worked. Checked with `Object.hasOwn` and
+  not truthiness, which matters for exactly one case: a key that is PRESENT and
+  FALSY (`{tenant: ""}`) is still a tenant in the body. **That was a sweep's
+  finding** — a truthiness check passed every other case.
+- **NOT FOUND, NEVER FORBIDDEN.** Another tenant's run and a run that does not
+  exist answer the same status and the same body.
+- **AN AGENT IS NAMED, NEVER DESCRIBED.** The registry holds `defineAgent`
+  results; a request picks one. An agent is tools, instructions and bounds — code
+  — and letting a request supply that is letting a request supply code.
+- **A RESUME TAKES ITS AGENT FROM THE STORED RUN**, never from the request. A
+  resume that could name a different agent would run one agent's tools over
+  another's conversation. A run whose agent is no longer registered is a named
+  409.
+
+### The work is not the request
+
+- **STARTING A RUN WRITES IT DOWN, HANDS THE WORK TO `dispatch`, AND ANSWERS 202.**
+  Nothing in `api.mjs` waits for a run. `dispatch` is where the infrastructure
+  goes — `ctx.waitUntil` for short work, a queue or a container for long — and
+  until one is wired a caller passes whatever it has. **The tests hand in an
+  explicit queue that runs nothing until asked**, which is what makes "the
+  response did not wait for the work" provable rather than hopeful.
+- **THE RUN IS WRITTEN DOWN BEFORE THE ID GOES OUT**, so the id handed back is one
+  a GET can already resolve. Dispatching first would hand out an id that does not
+  exist yet.
+- **A FINISHED RUN IS NOT DISPATCHED**, and `runAgent` would refuse to execute it
+  anyway. Two walls, deliberately: this one makes the answer immediate and cheap,
+  that one makes it true even if something ever calls past here.
+- **A RUN WHOSE LOG CANNOT BE READ IS NOT RESUMED** (409, with the problems).
+  Resuming past a junk entry sends the model a history with a step missing and
+  under-reports the bill. **Also a sweep's finding.**
+- **A CRASHING TASK ENDS SOMEWHERE VISIBLE.** A dispatched task that throws would
+  leave a run reading `running` for ever — indistinguishable from one still going,
+  which is the state nobody can act on. An unexpected throw is written into the log
+  as a stop, best effort, and reported through `onError` either way. The one path
+  that can still leave a run looking unfinished is a journal that cannot be written
+  to, and that is said out loud rather than swallowed.
+
+## The SQL mutation sweep (2026-09-15)
+
+`npm run sweep:sql` — **20 mutants, 20 killed, 0 survived, 0 never applied, 1
+comment-only control.** Focused on the four guarantees the notes make loudest:
+tenant isolation, duplicate prevention, journal immutability, whole-run deletion.
+
+**IT WORKS BY DRIVING THE DATABASE CHECK.** `node --test` runs
+`test/integration/pg-schema.mjs` as one test and propagates its exit code, so the
+existing mutation runner needed nothing new. Every mutant creates a database and
+applies the whole migration, which is the price of proving a guarantee against the
+engine that enforces it.
+
+**IT REFUSES TO RUN WITHOUT A CLUSTER.** The database check SKIPS and exits 0 where
+there is none, which a runner would read as "every mutant survived" — a sweep that
+tested nothing, reported in the most misleading way available. The cluster is
+confirmed before a single mutant is written.
+
+**EVERY MUTANT IS A CHANGE A CARELESS EDIT COULD REALLY MAKE** — a policy loosened,
+a `unique` dropped, a raise turned into a return, a marker widened. A migration
+that will not apply proves nothing.
+
+### What it found, which is the whole point
+
+- **A REAL HOLE: THE DELETE MARKER WAS TRANSACTION-WIDE, NOT RUN-SPECIFIC.** It
+  said only "some run is being deleted in this transaction", so deleting ANY run
+  authorised deleting the entries of ANY OTHER one. Measured: two deletes in one
+  `psql -c` share a transaction and the second was allowed. The exposure was narrow
+  — no role holds DELETE on the entries — but the claim was "an entry may go only
+  with ITS OWN run", and that claim was false. The marker names the run now, and
+  APPENDS, because a multi-row delete fires the trigger once per row and the
+  cascades all run afterwards.
+- **A HAND-WRITTEN CHECK THAT COULD NOT SEE ITS OWN SUBJECT.** Every check runs in
+  its own `psql` PROCESS, so anything at SESSION scope was invisible to all of
+  them. `psqlSession` runs several statements down ONE connection in separate
+  transactions, which is the only shape that separates session scope from
+  transaction scope.
+- **AN INERT MUTANT, PROVED RATHER THAN HUNTED.** Removing the tenant comparison
+  from the ENTRIES policy changed nothing: `agent.runs` is itself under RLS, so the
+  policy's subquery is already filtered to this tenant by the runs policy. That
+  comparison is a deliberate SECOND WALL and is now declared as such in the
+  migration, because a sweep cannot see a deliberate redundancy and the next reader
+  deletes what nothing appears to need.
+- **A SECOND INERT ONE, AND THE MECHANISM IS NOT ESTABLISHED.** Flipping
+  `set_config`'s `is_local` to session scope changed nothing — checked three ways,
+  including re-creating a run under the same id in a later transaction of the same
+  session. A plain function doing the same `set_config` DOES leak, so the
+  difference is something about being called from a trigger. **The behaviour is
+  measured; the reason is not known**, and the flag stays because it says what is
+  meant and costs nothing.
+
+### ⚠ A correction to an earlier claim
+
+**`force row level security` IS NOT VERIFIED, and the notes previously implied it
+was.** It is only observable to a table OWNER who is not a superuser, and the
+harness's owner IS one — a superuser bypasses row level security whatever FORCE
+says. So that line's effect is unverifiable here, it is deliberately NOT mutated
+(the mutant would survive for a reason that has nothing to do with the schema),
+and the claim "the owner is not quietly exempt" stands as untested.
+
 ### Measured
 
-- **Unit suite: 121 tests, 0 failures** (`cd agent-builder && npm test`).
-- **Schema check: 60 checks, 0 failed** against a real PostgreSQL 16.13
+- **Unit suite: 149 tests, 0 failures** (`cd agent-builder && npm test`).
+- **Schema check: 70 checks, 0 failed** against a real PostgreSQL 16.13
   (`npm run test:pg`). Skips with a message, and exits 0, where there is no
   local cluster — "no database here" is not a failing schema.
 - **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 0 failures**
@@ -474,10 +614,13 @@ Each cost a round, and each is the fixture being wrong rather than the product:
   environment, not the code.)
 - **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
   applied, 2 comment-only controls survived.**
-- **Sweep: 74 mutants, 74 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived** (`npm run sweep`). Measured after the run, not before it.
-  The passes went 34 (the first four modules) → 54 (the journal and resume) → 68
-  (the store and the limits codec) → 74 (the ownership boundary).
+- **Code sweep: 98 mutants, 98 killed, 0 survived, 0 never applied, 2
+  comment-only controls survived** (`npm run sweep`). Measured after the run, not
+  before it. The passes went 34 (the first four modules) → 54 (the journal and
+  resume) → 68 (the store and the limits codec) → 74 (the ownership boundary) → 98
+  (auth and the HTTP surface).
+- **SQL sweep: 20 mutants, 20 killed, 0 survived, 0 never applied, 1 comment-only
+  control survived** (`npm run sweep:sql`).
   **ONE SURVIVED THE FIRST PASS AND IT WAS THE TEST'S FAULT, kept here because
   the shape repeats:** the mutant made the loop ignore a failed MODEL-entry
   write, and the fixture was a journal that failed on EVERY write — so the run
