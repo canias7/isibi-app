@@ -4017,7 +4017,10 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   still visits the five); 6,464 + 1 closes exactly. **The predicate guard was
   REWRITTEN onto the new property rather than added to**, and three older
   fixtures were re-anchored onto in-scope slugs — none of those is a new case.
-  CI has NOT read this number yet.
+  **CI HAS READ IT: `unit tests` run 2561 on `c5b59cc6`, green (2026-09-15
+  05:57:01→05:59:00Z, the suite step 104.3 s) — `# tests 6465 / # pass 6462 /
+  # fail 0 / # skipped 3`**, against local `6465 / 6465 / 0 / 0`. The three are
+  the recorded environment skips, which is why the number to carry is the TOTAL.
   **6,464** before it (2026-09-15, local — the four failures in that
   repair fixed through the commands, whose new cases are
   `test/repair-commands.test.mjs`'s **10** (new — both scripts spawned as real

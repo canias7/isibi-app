@@ -266,7 +266,27 @@ precise one. Either is safe; only one of them is what I said.
 
 ### The numbers
 
-Suite **6,465**, green. Mutation sweep re-run over an extended spec.
+Suite **6,465**, green **on my machine and in CI**, and the two are written apart
+because they do not read the same:
+
+| where | run | result |
+|---|---|---|
+| local | `node --test "test/*.test.mjs"` | `6465 / 6465 pass / 0 fail / 0 skipped` |
+| CI | `unit tests` **2561** on `c5b59cc6` | `6465 / 6462 pass / 0 fail / 3 skipped`, green, suite step 104.3 s |
+
+The three skips are the recorded environment skips (they need things this
+sandbox has and a GitHub runner does not), which is why the number I carry is
+the TOTAL and never the `pass` count — that one drifts between the two machines
+for a reason that is not the suite.
+
+Mutation sweep: **128 mutants, 128 killed, 0 survived, 0 never applied, 4
+comment-only controls survived.** One survived the first pass and it was a gap
+in my own new guard rather than the product's; it is closed and that mutant was
+re-run alone and killed.
+
+Real PostgreSQL 16 probe, re-run on the restored tree: **5 tables recovered and
+re-applied with no change to any policy, grant or column; the flag-stripped
+control changed 3; the adversarial `"true"` policy refused.**
 
 ### Nothing has been merged, deployed or repaired
 
