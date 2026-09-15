@@ -221,6 +221,106 @@ test("backend-repair --apply exits NONZERO when identity refuses", () => {
   assert.ok(!r.statements.some((s) => s.supabase), "a refused identity still wrote the reference");
 });
 
+// ── the reference-only bound ────────────────────────────────────────────────
+//
+// Owner, 2026-09-15: *"Keep the approval limited to the one reference write.
+// Another preview does not enforce that boundary, and retrospective checking
+// cannot undo an unauthorized schema change… Demonstrate this through the
+// actual command: make schema recovery necessary, select reference-only, and
+// prove that the reference is repaired while no metadata write occurs."*
+//
+// So the scenario below is the one where a full `--apply` DOES write `_meta` —
+// same shape as the apply→verify→repeat case above, which asserts that it
+// creates the table and inserts the declaration. Running the same database
+// under `--apply-reference` must repair the reference and leave `_meta` alone.
+// Anything weaker (a database with nothing to recover) would pass with the gate
+// deleted, which is this repository's own "a negative assertion must prove its
+// observer is alive".
+
+/** A site whose reference is blank AND whose database has a table no spec declares. */
+const NEEDS_BOTH = () => ({
+  sites: [{ slug: "repairbench-1", uid: "u1", neon_db: "" }],
+  projects: [{ slug: "repairbench-1", neon_conn: PROJ }],
+  metaTable: false, meta: null,
+  tables: { bookings: BOOKINGS },
+});
+
+/** Every way this script can touch `_meta`, as the fixture records them. */
+const metaWrites = (r) => r.statements.filter((s) =>
+  /INSERT INTO _meta|CREATE TABLE IF NOT EXISTS _meta/i.test(String(s.q || "")));
+
+test("apply-reference repairs the reference and writes NO metadata, with recovery outstanding", () => {
+  const f = NEEDS_BOTH();
+  const file = scenario(f);
+
+  // THE OBSERVER, ALIVE: the same database under a full apply writes `_meta`.
+  // Without this the case below could pass because nothing needed recovering.
+  const control = run("backend-repair.mjs", ["--apply", "--slug", "repairbench-1"], scenario(NEEDS_BOTH()));
+  assert.equal(control.code, 0, control.out);
+  assert.ok(metaWrites(control).length >= 2, "the control did not write _meta, so the case below proves nothing:\n" + control.out);
+
+  const r = run("backend-repair.mjs", ["--apply-reference", "--slug", "repairbench-1"], file);
+  assert.equal(r.code, 0, "apply-reference exited " + r.code + ":\n" + r.out);
+
+  // 1. THE REFERENCE IS REPAIRED — in the output and in the store.
+  assert.match(r.out, /reference: written site_repairbench_1/, r.out);
+  assert.ok(r.statements.some((s) => s.supabase === "PATCH site_backends"), "the reference was never written");
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).sites[0].neon_db, dbNameForSite("repairbench-1"));
+
+  // 2. NOT ONE METADATA WRITE, of either kind.
+  //
+  // TWO WINDOWS ON ONE EVENT, AND THE REDUNDANCY IS DELIBERATE: `metaWrites`
+  // reads the statements the script SENT, the two below read what the database
+  // ENDED UP holding. Measured redundant — a statement never sent cannot change
+  // the store — and kept because they fail differently: the first names the
+  // statement, the second is what a person checking the database would look at.
+  // A sweep cannot say a redundancy is deliberate, so it is said here.
+  assert.deepEqual(metaWrites(r), [], "apply-reference touched _meta");
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).metaTable, false, "apply-reference created the _meta table");
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).meta, null, "apply-reference wrote a declaration");
+
+  // 3. THE SCHEMA WORK IS REPORTED, SEPARATELY AND BY NAME — not silently
+  //    dropped, which would read as "there was nothing to do".
+  assert.match(r.out, /schema: would-recover .*bookings/, r.out);
+  assert.match(r.out, /schema: NOT APPLIED — this run is reference-only/, r.out);
+  assert.match(r.out, /1 schema\(s\) REPORTED AND NOT APPLIED/, r.out);
+  assert.match(r.out, /0 schema\(s\) recovered/, r.out);
+
+  // 4. AND NO APPLICATION TABLE ANYWHERE NEAR IT.
+  for (const s of r.statements) {
+    const q = String(s.q || "");
+    if (!q) continue;
+    assert.ok(!/\b(DROP|ALTER|TRUNCATE|DELETE FROM|INSERT INTO)\b/i.test(q), "apply-reference issued: " + q);
+    assert.ok(!/CREATE /i.test(q), "apply-reference created something: " + q);
+  }
+});
+
+test("apply-reference keeps the wrong-identity refusal", () => {
+  const r = run("backend-repair.mjs", ["--apply-reference", "--slug", "repairbench-1"], scenario({
+    ...NEEDS_BOTH(), serverDb: "site_someone_else",
+  }));
+  assert.equal(r.code, 1, "a refused identity exited 0:\n" + r.out);
+  assert.match(r.out, /NOT PROVEN/);
+  assert.ok(!r.statements.some((s) => s.supabase), "a refused identity still wrote the reference");
+  assert.deepEqual(metaWrites(r), [], "a refused identity still wrote _meta");
+});
+
+test("apply-reference run twice writes the reference once, and never _meta", () => {
+  const file = scenario(NEEDS_BOTH());
+
+  const first = run("backend-repair.mjs", ["--apply-reference", "--slug", "repairbench-1"], file);
+  assert.equal(first.code, 0, first.out);
+  assert.match(first.out, /reference: written/);
+
+  const again = run("backend-repair.mjs", ["--apply-reference", "--slug", "repairbench-1"], file);
+  assert.equal(again.code, 0, "the repeat exited " + again.code + ":\n" + again.out);
+  assert.match(again.out, /reference: (skip|already-set)/, "the repeat wrote the reference again");
+  // The recovery is STILL outstanding and still reported — a repeat does not
+  // quietly stop mentioning the work it is not doing.
+  assert.match(again.out, /schema: NOT APPLIED — this run is reference-only/, again.out);
+  for (const r of [first, again]) assert.deepEqual(metaWrites(r), [], "a reference-only run wrote _meta");
+});
+
 // ── repairbench-count-fix ───────────────────────────────────────────────────
 
 const COUNT_SCENARIO = (fnTable, counts) => ({

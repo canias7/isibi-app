@@ -427,6 +427,46 @@ half does nothing. No table, row, permission or policy is touched.
 Nothing was refused, nothing was ambiguous, nothing was unrecoverable. Those
 lines print when they have something to say; they printed nothing.
 
+### You were right, and I have built the boundary instead of promising one
+
+I offered you a re-preview before the apply, and said I would check afterwards.
+**Both of those were bad answers and you named exactly why.** A preview describes
+a run that has already finished; it binds nothing about the next one. And the
+schema write is an upsert — reading it back afterwards tells you what happened,
+it does not undo it.
+
+So the bound is in the run now. There is a **fourth mode**, `apply-reference`:
+
+- it proves identity with the same checks;
+- it writes `site_backends.neon_db` under the same fence (only where it is still
+  blank, so a repeat is a no-op);
+- **it can never create or update `_meta`** — not even when it finds missing
+  declarations;
+- and it **reports** the schema work it is not doing, by name.
+
+It is a mode in the dropdown rather than a tick-box beside `apply`, because a
+tick-box you forget fails in the direction that writes.
+
+**The proof is the command, not my word for it.** I set up the case where a full
+apply definitely *does* write metadata — blank reference, a real table the
+declaration is missing, and no `_meta` table at all — and ran both:
+
+```
+--apply            reference: written        schema: recovered ["bookings"]
+                   _meta: SELECT … / CREATE TABLE … / INSERT …
+
+--apply-reference  reference: written        schema: would-recover ["bookings"]
+                   schema: NOT APPLIED — this run is reference-only
+                   _meta: SELECT …                    ← the read, and nothing else
+                   after: neon_db = site_repairbench_1, _meta still absent
+```
+
+Running the full apply first is deliberate: without it, a database with nothing
+to recover would pass even with the protection deleted.
+
+The wrong-database refusal and the run-it-twice check both still hold under the
+new mode, and I drove them too.
+
 ### Nothing has been repaired
 
 The five sites are still incomplete (only `repairbench-1` has been previewed),

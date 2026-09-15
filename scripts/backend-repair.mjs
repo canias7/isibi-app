@@ -28,6 +28,17 @@
 //                to parse the flag and then do nothing but skip the writes,
 //                which is a mode that reports on a run it never made.
 //
+// ── AND THE TWO CAN BE APPROVED SEPARATELY (`--apply-reference`) ─────────────
+//
+// Separating the TASKS is not the same as bounding a RUN. `--apply` still does
+// both, and a preview before it bounds nothing, because `repairSite` plans and
+// writes in one pass — there is no moment in between for a person to refuse.
+// `--apply-reference` is the bound itself: identity is proved by the same
+// checks, the reference is written under the same conditional fence, and the
+// schema is COMPUTED, REPORTED and NOT WRITTEN. `WRITES_META` is the single
+// list that decides, so the narrow mode cannot acquire the wider power by an
+// edit somewhere else.
+//
 // ── IDENTITY IS PROVED AGAINST THE MAPPING, NOT AGAINST THE DATABASE ─────────
 //
 // The first cut compared the catalog with `_meta` FROM THAT SAME DATABASE,
@@ -57,6 +68,7 @@
 //
 // Needs SUPABASE_SERVICE_KEY. Run:
 //   node scripts/backend-repair.mjs --preview
+//   node scripts/backend-repair.mjs --apply-reference --slug repairbench-1
 //   node scripts/backend-repair.mjs --apply --slug repairbench-1
 //   node scripts/backend-repair.mjs --verify
 import { repairPlan, backendState, unsetDbFilter, dbNameFromConn } from "../site-backend-state.mjs";
@@ -88,11 +100,39 @@ export function safeErr(e) {
   return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]*@/gi, "$1***@");
 }
 
+// ── WHAT EACH MODE MAY WRITE, IN ONE PLACE ──────────────────────────────────
+//
+// Owner, 2026-09-15: *"Keep the approval limited to the one reference write.
+// Another preview does not enforce that boundary, and retrospective checking
+// cannot undo an unauthorized schema change."*
+//
+// That is right, and the reason it is right is structural: `repairSite`
+// computes the plan and writes in the SAME pass, so there is no moment between
+// "what would change" and "it changed" for a person to stand in. A preview
+// bounds nothing about the run after it. The boundary has to be IN the run.
+//
+// `apply-reference` is that boundary as a MODE rather than as a second input.
+// A mode is one selection with one meaning; a `--reference-only` flag beside
+// `--apply` would be a two-field invariant, and this repository's own rule is
+// that an input cannot be the wall — an input is a thing somebody types, and a
+// forgotten one fails OPEN.
+//
+// BOTH GATES READ THESE TWO LISTS AND NOTHING ELSE, so the question "may this
+// mode write X" has exactly one answer per X and a mutant widening either list
+// is a red run rather than a silent change of scope.
+export const WRITES_REFERENCE = Object.freeze(["apply", "apply-reference"]);
+export const WRITES_META = Object.freeze(["apply"]);
+/** May this mode write `site_backends.neon_db`? */
+export const writesReference = (mode) => WRITES_REFERENCE.includes(mode);
+/** May this mode create or update `_meta`? `apply-reference` MUST NOT. */
+export const writesMeta = (mode) => WRITES_META.includes(mode);
+
 export function parseArgs(argv) {
   const out = { mode: "preview", slug: "" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--apply") out.mode = "apply";
+    else if (a === "--apply-reference") out.mode = "apply-reference";
     else if (a === "--preview") out.mode = "preview";
     else if (a === "--verify") out.mode = "verify";
     else if (a === "--slug") out.slug = String(argv[++i] || "");
@@ -337,7 +377,7 @@ export async function repairSite({ site, sql, write, mode = "preview", prior = n
   // ── THE REFERENCE ──────────────────────────────────────────────────────
   if (site.act !== "backfill") {
     report.ref = { act: "skip", why: site.state === "ready" ? "already-recorded" : site.why };
-  } else if (mode !== "apply") {
+  } else if (!writesReference(mode)) {
     report.ref = { act: "would-write", db: site.db };
   } else {
     try {
@@ -352,10 +392,16 @@ export async function repairSite({ site, sql, write, mode = "preview", prior = n
   catch (e) { rec = { ok: false, why: "threw", detail: safeErr(e) }; }
   if (!rec.ok) { report.schema = { act: "failed", why: rec.why, detail: rec.detail || "" }; return report; }
   report.schema = {
-    act: rec.changed ? (mode === "apply" ? "recovered" : "would-recover") : "nothing-missing",
+    act: rec.changed ? (writesMeta(mode) ? "recovered" : "would-recover") : "nothing-missing",
+    // WITHHELD IS NOT THE SAME AS NOT-YET. A preview reports what an apply
+    // would do; `apply-reference` reports what it DELIBERATELY DID NOT DO on a
+    // run that wrote something else, and those two need different sentences or
+    // the customer of this output cannot tell "come back and apply" from
+    // "this run was scoped to exclude that".
+    withheld: rec.changed && !writesMeta(mode) && mode === "apply-reference" ? "reference-only" : "",
     recovered: rec.recovered || [], uncertain: rec.uncertain || [], ambiguous: rec.ambiguous || [], kept: rec.kept || [],
   };
-  if (rec.changed && mode === "apply") {
+  if (rec.changed && writesMeta(mode)) {
     try {
       // THE METADATA TABLE FIRST, and only where it is absent. `CREATE TABLE IF
       // NOT EXISTS` is idempotent, so this is safe either way; asking first is
@@ -434,7 +480,7 @@ async function main() {
   }
 
   const write = (slug, uid, db, proof) => writeRef(key, slug, uid, db, proof);
-  let refs = 0, schemas = 0, refused = 0, failed = 0, verified = 0;
+  let refs = 0, schemas = 0, refused = 0, failed = 0, verified = 0, withheldSchemas = 0;
 
   for (const site of reachable) {
     // ONE CONNECTION, RESOLVED IN `survey`. Re-resolving here is what let the
@@ -462,6 +508,14 @@ async function main() {
     if (s.act === "nothing-missing") { console.log(`    schema: nothing missing (${s.kept.length} declared)`); }
     else {
       console.log(`    schema: ${s.act} ${fmt(s.recovered.map((x) => x.name + "[" + x.flags.join(",") + "]"))}`);
+      // REPORTED, NOT APPLIED — and said in its own words rather than left to
+      // be inferred from the mode line at the top. This is the one line that
+      // tells a reader the run found schema work and chose not to do it.
+      if (s.withheld === "reference-only") {
+        console.log(`    schema: NOT APPLIED — this run is reference-only; no _meta was created or updated`);
+        console.log(`    schema: to apply it, re-run with mode apply (a separate, separately approved decision)`);
+        withheldSchemas++;
+      }
       if (s.act === "recovered") schemas++;
     }
     if (s.uncertain && s.uncertain.length) console.log(`    schema: LEFT ALONE (would change behaviour): ${fmt(s.uncertain.map((u) => u.name + " — " + u.why))}`);
@@ -480,12 +534,15 @@ async function main() {
     return;
   }
   console.log(`\n${refs} reference(s) written, ${schemas} schema(s) recovered, ${refused} refused on identity, ${failed} failed.`);
-  if (args.mode === "apply") {
-    console.log("re-run with --verify to read the result back.");
-    // AN APPLY THAT REFUSED OR FAILED IS NOT A SUCCESSFUL APPLY. A preview is a
-    // report and exits 0 whatever it found; an apply is an action.
+  if (withheldSchemas) console.log(`${withheldSchemas} schema(s) REPORTED AND NOT APPLIED (reference-only).`);
+  // AN APPLY THAT REFUSED OR FAILED IS NOT A SUCCESSFUL APPLY, and that is true
+  // of the narrow apply too — it writes, so it is an action and not a report.
+  // A WITHHELD SCHEMA IS NOT A FAILURE: withholding is what was asked for, so
+  // it is printed loudly and changes no exit code.
+  if (writesReference(args.mode)) {
+    console.log(`re-run with --verify to read the result back.`);
     if (failed || refused) process.exitCode = 1;
-  } else console.log("(preview — nothing written. --apply writes.)");
+  } else console.log("(preview — nothing written. --apply writes; --apply-reference writes only the reference.)");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

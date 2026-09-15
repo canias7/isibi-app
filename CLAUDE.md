@@ -3744,6 +3744,106 @@ change behaviour)` line, no `LEFT ALONE (access not derivable)` line, no
 `CANNOT RECONCILE`, and `0 refused on identity, 0 failed`. Those lines are
 printed when non-empty, so their absence is an answer and not a silence.
 
+### A REFERENCE-ONLY APPLY, BECAUSE A PREVIEW BOUNDS NOTHING (2026-09-15)
+
+Owner: *"Keep the approval limited to the one reference write. Another preview
+does not enforce that boundary, and retrospective checking cannot undo an
+unauthorized schema change."*
+
+**BOTH HALVES OF THAT ARE STRUCTURAL AND I HAD OFFERED THE WRONG ANSWER.**
+`repairSite` plans and writes in the SAME pass, so there is no moment between
+"what would change" and "it changed" for a person to stand in — a preview is a
+statement about a run that already ended, and the run after it is unbound. And
+the schema write is `INSERT INTO _meta … ON CONFLICT DO UPDATE`, which no later
+reading undoes. **Separating the TASKS (done earlier) is not the same as
+bounding a RUN, and only the second is what an approval needs.**
+
+**`--apply-reference` IS A MODE, NOT A SECOND INPUT.** One selection with one
+meaning, offered in the form's own dropdown. A `--reference-only` flag beside
+`--apply` would be a two-field invariant, and this repository's rule is that an
+input cannot be the wall — a forgotten flag fails OPEN, which is the direction
+that writes.
+
+**THE BOUNDARY IS TWO LISTS AND BOTH GATES READ THEM AND NOTHING ELSE:**
+
+    export const WRITES_REFERENCE = Object.freeze(["apply", "apply-reference"]);
+    export const WRITES_META      = Object.freeze(["apply"]);
+
+so "may this mode write X" has exactly one answer per X, in one place. **An
+unknown mode writes NOTHING** — `includes` on a frozen list fails closed, driven
+over `""`, `"APPLY"`, `"apply-everything"`, `"reference"` and `undefined`,
+because a typo must not fall through to the widest behaviour.
+
+**WITHHELD IS NOT THE SAME AS NOT-YET**, and they need different sentences: a
+preview reports what an apply WOULD do; `apply-reference` reports what it
+DELIBERATELY DID NOT DO on a run that wrote something else. The output says
+`schema: NOT APPLIED — this run is reference-only; no _meta was created or
+updated`, names the outstanding work by table, and tallies it separately
+(`1 schema(s) REPORTED AND NOT APPLIED`) so `0 schema(s) recovered` cannot be
+misread as "there was nothing to do". **A withheld schema is not a failure** and
+changes no exit code; a refused identity still does.
+
+**THE CONFIRM GATE USES `startsWith(mode, 'apply')`, DELIBERATELY.** A list of
+two names in the workflow would be a second copy of `WRITES_REFERENCE`, and the
+copy that drifts is the one that stops demanding the word. A prefix test errs
+toward DEMANDING confirmation for a mode it has never heard of: the cost of a
+false demand is typing `apply`, and the cost of a false exemption is an
+unconfirmed write. The census asserts every member of `WRITES_REFERENCE` starts
+with `apply`, so a writing mode cannot be named around the gate.
+
+**DEMONSTRATED THROUGH THE COMMAND, WITH THE OBSERVER PROVED ALIVE.** The
+scenario is the one where a full apply DOES write `_meta` — blank reference, a
+live `bookings` the spec does not declare, and no `_meta` table at all — and
+the control runs `--apply` on it first, because a database with nothing to
+recover would pass with the gate deleted:
+
+```
+A. --apply            reference: written site_repairbench_1
+                      schema: recovered ["bookings[]"]
+                      _meta: SELECT v FROM _meta … / CREATE TABLE IF NOT EXISTS _meta … / INSERT INTO _meta …
+
+B. --apply-reference  reference: written site_repairbench_1
+                      schema: would-recover ["bookings[]"]
+                      schema: NOT APPLIED — this run is reference-only; no _meta was created or updated
+                      1 reference(s) written, 0 schema(s) recovered, 0 refused on identity, 0 failed.
+                      1 schema(s) REPORTED AND NOT APPLIED (reference-only).
+                      _meta: SELECT v FROM _meta …            ← the READ, and nothing else
+                      store after: neon_db='site_repairbench_1'  metaTable=False  meta=None
+```
+
+**The refusals are kept and driven under the narrow mode too**: a wrong
+`current_database()` exits 1 with no Supabase write AND no `_meta` write, and a
+second `--apply-reference` answers `already-set` — the store fence
+(`unsetDbFilter`) is unchanged — while STILL reporting the outstanding recovery,
+because a repeat must not quietly stop mentioning work it is not doing.
+
+**Guards**: `test/repair-commands.test.mjs` **11 → 14** (the demonstration with
+its control, the wrong-identity refusal, the repeat) and
+`test/backend-repair.test.mjs` **50 → 51** (the boundary census: both lists
+pinned exactly, both predicates over every mode and five junk values, the flag
+reaching the mode, the form offering it, and the confirm gate covering every
+writing mode). **Suite 6,476** — 6,472 + 4, closes exactly.
+
+**Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — `WRITES_META` gaining the narrow mode, `WRITES_REFERENCE`
+losing it, either gate asking the mode instead of the list, `writesMeta`
+widening to a prefix, **the flag silently parsing as `apply`** (the most
+dangerous of them: a reference-only press applying everything), the `withheld`
+mark dropped, the NOT APPLIED sentence softened, the tally uncounted, the exit
+rule narrowed, the form no longer offering the mode, and the confirm gate
+narrowed so reference-only writes with no typed word.
+**Two survived the first pass and BOTH were the recorded test-side class, proven
+rather than assumed**: each weakened an assertion inside
+`test/repair-commands.test.mjs`, and **nothing outside the mutant spec reads
+that file**, so no other test can observe it — inert by construction. They were
+REPLACED with observable mutants of the same properties: the demonstration's
+SCENARIO altered so it needs no recovery (the control assertion fires, proving
+the control is load-bearing), and the schema `act` collapsed so reference-only
+reports `nothing-missing` over real outstanding work. Both killed on pass 2.
+**The statement-log check and the store read-back are a DECLARED redundancy** —
+two windows on one event, kept because they fail differently, and said in the
+code because a sweep cannot say it.
+
 **STILL NOT REPAIRED.** The five sites are `incomplete` (only `repairbench-1`
 has been previewed), the reference is unwritten, and `count_booked_repairs`
 still counts `repairs` and answers `0` — which the backend repair does not fix

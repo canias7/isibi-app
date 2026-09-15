@@ -1,0 +1,132 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the two lists",
+    "control": true,
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "// ── WHAT EACH MODE MAY WRITE, IN ONE PLACE ──────────────────────────────────",
+    "to": "// ── WHAT EACH MODE IS PERMITTED TO WRITE, IN ONE PLACE ──────────────────────"
+  },
+  {
+    "label": "CONTROL: a comment only, in the demonstration",
+    "control": true,
+    "files": [
+      "test/repair-commands.test.mjs"
+    ],
+    "from": "/** A site whose reference is blank AND whose database has a table no spec declares. */",
+    "to": "/** A site with a blank reference AND a database holding a table no spec declares. */"
+  },
+  {
+    "label": "THE ONE THAT MATTERS: reference-only may write _meta after all",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "export const WRITES_META = Object.freeze([\"apply\"]);",
+    "to": "export const WRITES_META = Object.freeze([\"apply\", \"apply-reference\"]);"
+  },
+  {
+    "label": "reference-only stops writing the reference, so the narrow mode does nothing",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "export const WRITES_REFERENCE = Object.freeze([\"apply\", \"apply-reference\"]);",
+    "to": "export const WRITES_REFERENCE = Object.freeze([\"apply\"]);"
+  },
+  {
+    "label": "the schema gate stops asking the list and asks the mode, reintroducing the widening",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (rec.changed && writesMeta(mode)) {",
+    "to": "  if (rec.changed && mode !== \"preview\" && mode !== \"verify\") {"
+  },
+  {
+    "label": "the reference gate reverts to the old `mode !== apply`",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  } else if (!writesReference(mode)) {",
+    "to": "  } else if (mode !== \"apply\") {"
+  },
+  {
+    "label": "`writesMeta` widens to any apply-ish name",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "export const writesMeta = (mode) => WRITES_META.includes(mode);",
+    "to": "export const writesMeta = (mode) => String(mode || \"\").startsWith(\"apply\");"
+  },
+  {
+    "label": "the flag silently becomes the WIDE mode — a reference-only press applies everything",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    else if (a === \"--apply-reference\") out.mode = \"apply-reference\";",
+    "to": "    else if (a === \"--apply-reference\") out.mode = \"apply\";"
+  },
+  {
+    "label": "the withheld schema work is no longer marked, so nothing says it was skipped",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    withheld: rec.changed && !writesMeta(mode) && mode === \"apply-reference\" ? \"reference-only\" : \"\",",
+    "to": "    withheld: \"\","
+  },
+  {
+    "label": "the NOT APPLIED sentence is gone, so the run reads as if there were nothing to do",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "        console.log(`    schema: NOT APPLIED — this run is reference-only; no _meta was created or updated`);",
+    "to": "        console.log(`    schema: (not applied)`);"
+  },
+  {
+    "label": "the withheld tally is never counted, so the closing summary hides it",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "        withheldSchemas++;",
+    "to": ""
+  },
+  {
+    "label": "the exit rule narrows to `apply`, so a refused reference-only run exits 0",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (writesReference(args.mode)) {",
+    "to": "  if (args.mode === \"apply\") {"
+  },
+  {
+    "label": "the form stops offering reference-only",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "        options: [preview, apply-reference, apply, verify]",
+    "to": "        options: [preview, apply, verify]"
+  },
+  {
+    "label": "the confirm gate narrows back, so reference-only WRITES with no typed word",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "        if: ${{ startsWith(github.event.inputs.mode, 'apply') }}",
+    "to": "        if: ${{ github.event.inputs.mode == 'apply' }}"
+  },
+  {
+    "label": "OBSERVABLE (replaces an inert test-side mutant): the scenario needs no recovery, so the demonstration would be vacuous",
+    "files": [
+      "test/repair-commands.test.mjs"
+    ],
+    "from": "  metaTable: false, meta: null,\n  tables: { bookings: BOOKINGS },\n});\n\n/** Every way this script can touch `_meta`, as the fixture records them. */",
+    "to": "  metaTable: true, meta: JSON.stringify({ tables: [{ name: \"bookings\", columns: [], read: \"none\", write: \"anyone\" }] }),\n  tables: {},\n});\n\n/** Every way this script can touch `_meta`, as the fixture records them. */"
+  },
+  {
+    "label": "OBSERVABLE (replaces an inert test-side mutant): reference-only reports `nothing-missing` over real outstanding work",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    act: rec.changed ? (writesMeta(mode) ? \"recovered\" : \"would-recover\") : \"nothing-missing\",",
+    "to": "    act: rec.changed && writesMeta(mode) ? \"recovered\" : \"nothing-missing\","
+  }
+]

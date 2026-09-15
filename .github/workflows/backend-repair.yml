@@ -14,18 +14,30 @@
 #
 # APPLY NEEDS THE WORD, and the word is `apply` — the wall `grants preview` and
 # `lane sweep` already use, because this one writes to customers' databases.
+# BOTH writing modes need it; the gate is a prefix test, not a list of two.
+#
+# `apply-reference` IS THE NARROW ONE, AND IT IS A MODE BECAUSE A PREVIEW IS NOT
+# A BOUND. `repairSite` plans and writes in one pass, so a preview describes a
+# run that has already ended and constrains nothing about the next one — and the
+# schema write is an upsert no later read undoes. Reference-only proves identity
+# with the same checks, writes `site_backends.neon_db` under the same fence, and
+# CANNOT create or update `_meta` even when it finds declarations missing; it
+# REPORTS that work instead, by table, with its own tally line.
 #
 # THE SCOPE IS IN THE SCRIPT, NOT IN THIS FORM. `REPAIR_SITES` names the five
 # sites by hand and `workList` asks it FIRST; a `slug` typed here that is not one
 # of them is refused by name and nothing runs. An input cannot be the wall — an
 # input is a thing somebody types.
 #
-# WHAT IT CAN AND CANNOT DO. It writes exactly two things: `site_backends.neon_db`
-# for a site whose reference is missing, and `_meta.schema` for a site whose
-# declarations are missing. There is no CREATE DATABASE, no DROP, no ALTER, no
+# WHAT IT CAN AND CANNOT DO. At its widest (`apply`) it writes exactly two
+# things: `site_backends.neon_db` for a site whose reference is missing, and
+# `_meta.schema` for a site whose declarations are missing. `apply-reference`
+# writes the FIRST ONLY. There is no CREATE DATABASE, no DROP, no ALTER, no
 # TRUNCATE and no statement anywhere in it that can reach an application row —
 # asserted across the whole apply -> verify -> repeat sequence in
-# `test/repair-commands.test.mjs`, which runs the script as a real process.
+# `test/repair-commands.test.mjs`, which runs the script as a real process, and
+# again for reference-only against a control that proves the wider mode really
+# would have written `_meta` on the same database.
 #
 # VERIFY EXITS NONZERO WHEN A POSTCONDITION FAILS, so a red run here means the
 # repair did not land — it is not a report that always passes.
@@ -39,11 +51,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'preview (reads only) | apply (WRITES) | verify (reads only, exits nonzero on failure)'
+        description: 'preview (reads only) | apply-reference (WRITES the neon_db reference ONLY) | apply (WRITES reference AND _meta) | verify (reads only, exits nonzero on failure)'
         required: true
         default: 'preview'
         type: choice
-        options: [preview, apply, verify]
+        options: [preview, apply-reference, apply, verify]
       slug:
         description: 'One of the five, e.g. repairbench-1. Blank = all five. Anything else is refused.'
         required: false
@@ -71,8 +83,16 @@ jobs:
       # THE WORD IS READ AS A WORD, the way `grants preview` reads its own: a run
       # once typed a trailing space and got the wrong harness. Whitespace and
       # case are forgiven; anything else is not the word.
+      #
+      # `startsWith(..., 'apply')` COVERS BOTH WRITING MODES AND ANY FUTURE ONE.
+      # A list of two names is a second copy of the script's own `WRITES_
+      # REFERENCE`, and the copy that drifts is the one that stops demanding the
+      # word. A prefix test errs toward DEMANDING confirmation for a mode it has
+      # never heard of, which is the safe direction: the cost of a false demand
+      # is typing `apply`, and the cost of a false exemption is an unconfirmed
+      # write.
       - name: refuse an apply that was not asked for
-        if: ${{ github.event.inputs.mode == 'apply' }}
+        if: ${{ startsWith(github.event.inputs.mode, 'apply') }}
         env:
           CONFIRM: ${{ github.event.inputs.confirm }}
         run: |

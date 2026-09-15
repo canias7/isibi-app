@@ -23,7 +23,8 @@ import { grantsFor, policiesFor } from "../site-rls.mjs";
 import { READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
 import { connForDatabase, dbNameForSite } from "../site-db.mjs";
 import { META_TABLE_SQL } from "../site-schema.mjs";
-import { parseArgs, safeErr, proveIdentity, recoverSchema, survey, workList, writeRef, repairSite, verifySite, EMIT } from "../scripts/backend-repair.mjs";
+import { parseArgs, safeErr, proveIdentity, recoverSchema, survey, workList, writeRef, repairSite, verifySite, EMIT,
+  WRITES_REFERENCE, WRITES_META, writesReference, writesMeta } from "../scripts/backend-repair.mjs";
 
 /** The real emitters, as the product hands them in. Nothing here verifies against a copy. */
 const REAL = { policiesFor, grantsFor };
@@ -1403,4 +1404,40 @@ test("the `_meta` statement has ONE copy across the engine and the repair", () =
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.equal((w.match(new RegExp(literal.source, "g")) || []).length, 2,
     "worker.js's `_meta` copies moved — this census names two on the provision path");
+});
+
+test("the reference-only bound is one list, and `apply` is the only mode that may write _meta", () => {
+  // THE BOUNDARY, PINNED WHERE IT IS DECIDED. `repairSite` asks these two and
+  // nothing else, so a mode acquiring the wider power is a change to one of
+  // these arrays — and this is the case that goes red for it.
+  assert.deepEqual([...WRITES_META], ["apply"], "a second mode may now write _meta");
+  assert.deepEqual([...WRITES_REFERENCE].sort(), ["apply", "apply-reference"], "the set of writing modes moved");
+
+  // Both predicates read the lists rather than re-testing a name.
+  assert.equal(writesMeta("apply"), true);
+  assert.equal(writesMeta("apply-reference"), false, "reference-only may write _meta");
+  assert.equal(writesMeta("preview"), false);
+  assert.equal(writesMeta("verify"), false);
+  assert.equal(writesReference("apply-reference"), true, "reference-only cannot write the reference");
+  assert.equal(writesReference("apply"), true);
+  assert.equal(writesReference("preview"), false);
+  assert.equal(writesReference("verify"), false);
+  // AN UNKNOWN MODE WRITES NOTHING — a typo must fail closed, not fall through
+  // to the widest behaviour.
+  for (const m of ["", "APPLY", "apply-everything", "reference", undefined]) {
+    assert.equal(writesMeta(m), false, `writesMeta(${JSON.stringify(m)}) opened`);
+    assert.equal(writesReference(m), false, `writesReference(${JSON.stringify(m)}) opened`);
+  }
+
+  // The flag reaches the mode, and the workflow offers it.
+  assert.equal(parseArgs(["--apply-reference"]).mode, "apply-reference");
+  assert.equal(parseArgs(["--apply"]).mode, "apply");
+  const wf = fs.readFileSync(new URL("../.github/workflows/backend-repair.yml", import.meta.url), "utf8");
+  assert.match(wf, /options: \[preview, apply-reference, apply, verify\]/, "the form does not offer reference-only");
+  // AND EVERY WRITING MODE STILL DEMANDS THE TYPED WORD. A list of names here
+  // would be a second copy of WRITES_REFERENCE; the prefix test errs toward
+  // demanding confirmation, which is the safe direction.
+  assert.match(wf, /if: \$\{\{ startsWith\(github\.event\.inputs\.mode, 'apply'\) \}\}/,
+    "the confirm gate no longer covers every apply mode");
+  for (const m of WRITES_REFERENCE) assert.ok(m.startsWith("apply"), `${m} writes but escapes the confirm gate`);
 });
