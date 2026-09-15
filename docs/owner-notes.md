@@ -207,7 +207,8 @@ I declared the two controls with the wrong field name, so the runner never knew
 they were controls: it printed them as survivors and its own "a control that got
 killed means the control is not behaviour-free" check was switched off — the exact
 mistake this repository has written down, made again. The 17 real mutants died in
-both runs; the number above is one run's own answer.
+both runs; the number above is one run's own answer. **CI agrees** — the
+automatic check on the push read 6,560 and came back green.
 
 **Three older checks went red and were re-anchored rather than appeased** — two
 of them had been pinned to a byte distance and were outrun by the paragraphs

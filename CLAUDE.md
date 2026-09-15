@@ -1551,6 +1551,14 @@ ordinary mutants, printed as SURVIVORS, tallied `0 comment-only controls`, and t
 runner's own `CONTROL WAS KILLED` branch — its one check on its own honesty — was
 never armed. The 17 product mutants died on both passes; the tally above is one
 run's own answer, which is the only kind worth stamping.
+**CI HAS READ IT: `unit tests` run 2590 on `ca58222`, green (2026-09-15
+22:16:42→22:18:44Z, the suite step 109 s) — `# tests 6560 / # pass 6557 /
+# fail 0 / # skipped 3`**, against local `6560 / 6558 / 0 / 2`; the third is the
+recorded environment skip, which is why the number to carry is the TOTAL. Run
+2591 is `unit.yml`'s `pull_request` trigger on the same sha. **No `site build`
+fired and none was due**: the six changed files are two documents, `public/chat.js`
+and three guards, and none is under `builder/**`, `worker.js` or any other glob in
+that workflow's `paths`.
 
 **NOT PROVEN LIVE.** Every measurement is from driving `public/chat.js` in a real
 page scope; nothing is merged or deployed.
