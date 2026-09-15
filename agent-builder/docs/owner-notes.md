@@ -651,3 +651,123 @@ stand-in.
 **Still to connect:** the two secrets above, a real model provider, and a queue or
 container for runs longer than one Worker invocation (the seam is there and tested;
 only the thing behind it is missing).
+
+---
+
+## 2026-09-15 — Public-key auth, a real queue, and a 65-second run
+
+Four things you asked for. All four done, and one of them made the milestone from
+last time reachable without the secret I was blocked on.
+
+### 1. I stopped asking for your JWT signing secret
+
+Last session I reported the milestone blocked on two secrets. **One of them turned
+out to be unnecessary**, and that is the better outcome rather than a workaround.
+
+Asking for a project's JWT signing secret means asking for the credential that can
+**mint a token for any one of your users** — to do a job that only needs the
+ability to **check** one. I looked at what your project actually offers instead:
+
+- **It publishes an ES256 public key.** `/auth/v1/.well-known/jwks.json` answers
+  one key and it imports cleanly into the Worker's crypto. An asymmetric token is
+  now verified **inside the Worker, with no secret and no network call**.
+- **A legacy HS256 token is checked by asking Supabase.** `GET /auth/v1/user` with
+  the token and your *publishable* key. I proved it is a real signature oracle
+  against your project: a genuinely signed token comes back refused for its
+  **claims** (`missing sub claim`), and the same token with one character changed
+  comes back refused for its **signature**. Two different answers for two
+  different causes is exactly what makes it usable.
+
+So `SUPABASE_JWT_SECRET` is now **optional** — set it only if you would rather pay
+no round trip and have already accepted what that credential can do. Nothing about
+your project's signing configuration was changed, and nothing needed to be.
+
+**One thing I was careful about, because it is the oldest hole in this kind of
+code:** a token must never be allowed to choose how its own key is used. An HS256
+token can never reach a published public key here, and a published key's own
+declared algorithm decides, not the token's. Both are driven in tests with a real
+generated keypair.
+
+### 2. `waitUntil` is gone. The work is a row now.
+
+The old dispatcher kept a run alive after the response, which is the right shape
+and the wrong durability: **the work existed only as a closure in one isolate**, so
+an eviction, a deploy or a crash lost it with nothing anywhere recording that a run
+was ever meant to progress.
+
+Now accepting a run writes three things in **one transaction** — the run, its first
+journal entry (so the prompt outlives the request), and a queue row — and only then
+answers 202. A Cloudflare queue message carries **a run id and nothing else**: it
+is a doorbell, and if it is lost, a cron finds the row and rings again. Latency,
+never work.
+
+**The hard part was making sure one run cannot be executed twice**, because paying
+for the same model calls twice is real money and firing a payment tool twice is
+worse. Three walls:
+
+- **The claim.** One conditional `UPDATE`: the row is taken only if nobody holds a
+  live lease. A duplicate delivery and two people pressing resume at the same
+  moment all lose the same way — nothing comes back, and the loser does nothing.
+- **The lease.** A worker says "still here" every 30 seconds; the lease lasts 90.
+  **It is a liveness check, not a time limit** — a run that keeps beating is never
+  taken away, however long its work honestly takes.
+- **The gates.** If a worker loses its lease mid-run, it is stopped before its next
+  model call (so a lost lease costs nothing) and stopped from writing anything to
+  the log (so it cannot write history somebody else now owns). The run is left
+  exactly as the next holder needs to find it.
+
+**And the rule about not repeating uncertain work is intact across all of it.** A
+tool that may have already run and is not marked safe to repeat still refuses the
+resume and names itself. There is a test that takes a payment, loses the lease
+while the payment is in flight, has the sweeper offer the run again — and the
+payment is taken **once**.
+
+### 3. A 65-second run, demonstrated
+
+`npm run demo:long`. What it showed, all checked rather than described:
+
+- the response came back in **82 ms**;
+- the run, its prompt and its queue row were **already in the database** at that
+  point;
+- the accepting process had **no consumer at all** — it would have thrown if it
+  tried to run anything in the background;
+- a **separate process**, which never saw the request, found the work in the
+  database and ran it;
+- it ran for **65.6 seconds** after the response, and progress was visible over the
+  API the whole way (steps 1…9, one every 8 seconds);
+- the final answer and every step are in the database.
+
+**Where it ran, plainly: a throwaway local PostgreSQL with your real migrations
+applied, not the hosted project.** The schema, triggers, indexes and the claim are
+the genuine article; what is local is the HTTP translation in front of them. Writing
+to the hosted project still needs the service key, which I do not have — that is
+the only thing left, and `docs/deploy.md` has the exact command.
+
+### 4. The database half is live
+
+Migration `20260915032807_agent_run_work` is applied to
+`ujrqdmmtcptvimazlhom`. I checked it by reading it back rather than trusting the
+success flag, and then drove **30 behavioural checks against your live project** —
+the claim, the lease, the resume-mid-run case, tenant isolation, the cascade — all
+passing, all rolled back, and both tables left empty. The six function bodies match
+the file in this repo **byte for byte**.
+
+The security advisors flag one new thing in `agent`: `run_work` has row level
+security on with no policies. **That is deliberate and it is the strongest
+statement available** — no customer role has any grant on that table at all, so
+there is nothing for a policy to permit. Eighteen tables in your project are in the
+same state for the same reason.
+
+**One cost I should name:** the queue needs Cloudflare Queues, which is a paid
+Workers plan. If you would rather not, the alternative is not going back to
+`waitUntil` — it is a different transport behind the same seam, because the durable
+part is the row. `scripts/consume.mjs` is a working example that takes no messages
+at all.
+
+### What is still not connected
+
+- **`SUPABASE_SERVICE_KEY`** — the one remaining secret, and the only thing between
+  this and a run stored in your hosted project.
+- **A real model provider.** One registry entry plus a `send` function.
+- **Nothing is deployed.** No Worker, no queue, no route, no domain. `docs/deploy.md`
+  is the step-by-step.

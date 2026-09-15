@@ -3,30 +3,92 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import worker, { SETTINGS, MODELS, SCHEMA, missingSettings, buildApi } from "../src/worker.mjs";
+import worker, {
+  SETTINGS, OPTIONAL, MODELS, SCHEMA, QUEUE_BINDING, SWEEP_GRACE_S, SWEEP_LIMIT,
+  missingSettings, buildApi, buildRunner,
+} from "../src/worker.mjs";
 import { AGENTS } from "../src/agents.mjs";
 import { makeStandIn } from "../src/model-standin.mjs";
 import { runAgent } from "../src/run.mjs";
+import { memoryRest } from "./helpers/memory-rest.mjs";
+import { LEASE_TTL_S } from "../src/runner.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIR = path.resolve(HERE, "..");
-const good = () => ({ SUPABASE_URL: "https://p.supabase.co", SUPABASE_SERVICE_KEY: "svc", SUPABASE_JWT_SECRET: "sec" });
-// A DISPATCHER IS NOT OPTIONAL — the work outliving the request is the point — so
-// `buildApi` refuses without one, and every success case here supplies it.
-const wired = { dispatch: () => {} };
+/** A queue binding shaped like Cloudflare's, counting what was sent. */
+const fakeQueue = () => {
+  const sent = [];
+  return { send: async (m) => { sent.push(m); }, sent };
+};
+const good = (over = {}) => ({
+  SUPABASE_URL: "https://p.supabase.co",
+  SUPABASE_SERVICE_KEY: "svc",
+  SUPABASE_PUBLISHABLE_KEY: "pub",
+  [QUEUE_BINDING]: fakeQueue(),
+  ...over,
+});
+/** A batch shaped like Cloudflare's, recording what each message was told to do. */
+const batchOf = (bodies) => {
+  const acked = [], retried = [];
+  return {
+    messages: bodies.map((body, i) => ({ id: `m${i}`, body, ack: () => acked.push(i), retry: () => retried.push(i) })),
+    acked, retried,
+  };
+};
 
 // ── configuration ────────────────────────────────────────────────────────────
+const ALL_REQUIRED = () => [...Object.keys(SETTINGS), QUEUE_BINDING].sort();
+
 test("missingSettings names every setting that is absent, and nothing else", () => {
   assert.deepEqual(missingSettings(good()), []);
-  assert.deepEqual(missingSettings({}).sort(), Object.keys(SETTINGS).sort());
+  assert.deepEqual(missingSettings({}).sort(), ALL_REQUIRED());
   for (const k of Object.keys(SETTINGS)) {
     assert.deepEqual(missingSettings({ ...good(), [k]: undefined }), [k]);
     // Present-but-blank is absent: a secret set to "" is not a secret.
     assert.deepEqual(missingSettings({ ...good(), [k]: "   " }), [k], `${k} accepted whitespace`);
   }
   for (const bad of [null, undefined, "env", 4]) {
-    assert.deepEqual(missingSettings(bad).sort(), Object.keys(SETTINGS).sort(), "a junk env read as configured");
+    assert.deepEqual(missingSettings(bad).sort(), ALL_REQUIRED(), "a junk env read as configured");
   }
+});
+
+test("THE QUEUE BINDING IS REQUIRED, and `waitUntil` is not a fallback", () => {
+  // **A DEPLOYMENT THAT BELIEVES IT IS DURABLE AND IS NOT is the one outcome worth
+  // refusing to boot over.** `waitUntil` kept work alive after the response, which
+  // is the right shape and the wrong durability: the work existed only as a
+  // closure in one isolate. So a missing queue is a missing setting.
+  assert.deepEqual(missingSettings({ ...good(), [QUEUE_BINDING]: undefined }), [QUEUE_BINDING]);
+  // A binding that is not a producer is not a binding. This is the shape a
+  // mis-typed config actually takes — the name is bound to something inert.
+  for (const bad of [{}, "a-queue", 4, { send: "nope" }, []]) {
+    assert.deepEqual(missingSettings({ ...good(), [QUEUE_BINDING]: bad }), [QUEUE_BINDING],
+      `a binding of ${JSON.stringify(bad)} read as a working queue`);
+  }
+  assert.throws(() => buildApi({ ...good(), [QUEUE_BINDING]: undefined }), /RUN_QUEUE/);
+  // **THE CONSUMER IS THE ONE THING THAT DOES NOT NEED IT**, because it claims,
+  // executes and releases and never sends. Requiring it there would be a
+  // configuration rule with no reason behind it — and the sweeper, which DOES
+  // send, asks for the full deployment configuration instead.
+  assert.doesNotThrow(() => buildRunner({ ...good(), [QUEUE_BINDING]: undefined }));
+  // A caller that supplies its own transport is a producer with no binding, which
+  // is what every local driver is.
+  assert.doesNotThrow(() => buildApi({ ...good(), [QUEUE_BINDING]: undefined }, { notify: async () => {} }));
+  // AND THE SOURCE CARRIES NO SECOND PATH. A `waitUntil` fallback would satisfy
+  // every behavioural test above while quietly restoring the old durability.
+  const src = fs.readFileSync(path.join(DIR, "src", "worker.mjs"), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  assert.equal(/waitUntil/.test(src), false, "the Worker still dispatches work through waitUntil");
+});
+
+test("THE SIGNING SECRET IS OPTIONAL, and that is the point of the auth work", () => {
+  // It is not on the required list, and a Worker without it boots.
+  assert.equal(Object.hasOwn(SETTINGS, "SUPABASE_JWT_SECRET"), false, "the signing secret is required again");
+  assert.ok(Object.hasOwn(OPTIONAL, "SUPABASE_JWT_SECRET"), "the signing secret is not declared as optional either");
+  assert.deepEqual(missingSettings(good()), [], "a Worker with no signing secret reads as unconfigured");
+  assert.doesNotThrow(() => buildApi(good()));
+  // And supplying it is still accepted, as the opt-in local fast path.
+  assert.doesNotThrow(() => buildApi(good({ SUPABASE_JWT_SECRET: "s3cret" })));
+  // The two lists never overlap, or a setting would be both required and not.
+  for (const k of Object.keys(OPTIONAL)) assert.equal(Object.hasOwn(SETTINGS, k), false, `${k} is on both lists`);
 });
 
 test("A MISSING SETTING IS A NAMED 503, NOT A CRASH, and never leaks a value", async () => {
@@ -37,7 +99,8 @@ test("A MISSING SETTING IS A NAMED 503, NOT A CRASH, and never leaks a value", a
   const body = await res.json();
   assert.match(body.error, /not configured/);
   assert.match(body.error, /SUPABASE_SERVICE_KEY/);
-  assert.match(body.error, /SUPABASE_JWT_SECRET/);
+  assert.match(body.error, /SUPABASE_PUBLISHABLE_KEY/);
+  assert.match(body.error, new RegExp(QUEUE_BINDING));
   // THE WHOLE BODY, NOT JUST `error`. Asserting on one field let a mutant add a
   // second one carrying the entire environment and survive — the check was about
   // the field rather than about the response.
@@ -57,12 +120,12 @@ test("AN UNRECOGNISED MODEL IS REFUSED, never defaulted to the stand-in", async 
   assert.equal(res.status, 503);
   assert.match((await res.json()).error, /no such model/);
   // The model is checked BEFORE the dispatcher, so a bad name reports the model.
-  assert.throws(() => buildApi({ ...good(), MODEL: "nope" }, wired), /no such model/);
   // An absent MODEL is the stand-in, which is the documented default.
-  assert.doesNotThrow(() => buildApi(good(), wired));
-  assert.doesNotThrow(() => buildApi({ ...good(), MODEL: "stand-in" }, wired));
-  // And a dispatcher really is required.
-  assert.throws(() => buildApi(good()), /dispatch must be a function/);
+  assert.doesNotThrow(() => buildApi(good()));
+  assert.doesNotThrow(() => buildApi({ ...good(), MODEL: "stand-in" }));
+  // The consumer refuses the same name, or the deployment would accept work it
+  // could never execute.
+  assert.throws(() => buildRunner({ ...good(), MODEL: "gpt-whatever" }), /no such model/);
   assert.deepEqual(Object.keys(MODELS), ["stand-in"]);
 });
 
@@ -75,29 +138,190 @@ test("THE SCHEMA IS PASSED EXPLICITLY, not left to the store's default", () => {
   assert.equal(SCHEMA, "agent");
 });
 
-test("THE DISPATCHER IS WIRED TO waitUntil, and the response does not wait for it", async () => {
-  // A value computed and never forwarded looks identical from outside to one the
-  // caller never sent, so the wiring is asserted by behaviour.
-  const handed = [];
-  const res = await worker.fetch(
-    new Request("https://x/runs", { method: "GET" }),
-    good(),
-    { waitUntil: (p) => handed.push(p) },
-  );
-  // No credentials, so this is a 401 — what matters is that it ANSWERED rather
-  // than throwing, which is what proves the handler was built and called.
+test("AN UNAUTHENTICATED REQUEST ANSWERS 401 AND QUEUES NOTHING", async () => {
+  const env = good();
+  const res = await worker.fetch(new Request("https://x/runs", { method: "GET" }), env, { waitUntil() {} });
+  // What matters is that it ANSWERED rather than throwing, which is what proves
+  // the handler was built and called.
   assert.equal(res.status, 401);
-  assert.equal(handed.length, 0, "an unauthenticated request handed work to the dispatcher");
+  assert.equal(env[QUEUE_BINDING].sent.length, 0, "an unauthenticated request rang the doorbell");
 });
 
-test("a dispatched task that throws is caught, so it cannot take the isolate down", async () => {
-  // `waitUntil` with a rejecting promise is an unhandled rejection; the wrapper
-  // catches and logs instead.
-  const api = buildApi(good(), wired);
-  assert.ok(api && typeof api.fetch === "function");
+// ── the three handlers, over one fake project ────────────────────────────────
+/**
+ * Drive the REAL `worker.fetch` / `worker.queue` / `worker.scheduled` against a
+ * fake project. `globalThis.fetch` is substituted rather than a dependency being
+ * injected, because these three entry points take only what Cloudflare gives them
+ * — and the point of this block is to prove the WIRING, which an injected
+ * dependency would step around.
+ */
+async function onFakeProject(body) {
+  const rest = memoryRest();
+  const real = globalThis.fetch;
+  globalThis.fetch = rest.fetch;
+  try { return await body(rest); } finally { globalThis.fetch = real; }
+}
+
+const b64url = (bs) => btoa(String.fromCharCode(...bs)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+const enc = (o) => b64url(new TextEncoder().encode(JSON.stringify(o)));
+async function signFor(tenant) {
+  const payload = { tenant_id: tenant, exp: Math.floor(Date.now() / 1000) + 3600 };
+  const head = `${enc({ alg: "HS256", typ: "JWT" })}.${enc(payload)}`;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("s3cret"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(head)));
+  return `${head}.${b64url(sig)}`;
+}
+
+test("THE WHOLE WORKER: a request is accepted, a delivery executes it, the result is stored", async () => {
+  await onFakeProject(async (rest) => {
+    // The opt-in secret, so verification is local and this test is about the queue.
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+
+    const res = await worker.fetch(new Request("https://x/runs", {
+      method: "POST", headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ agent: "support", prompt: "hello there" }),
+    }), env, ctx);
+    assert.equal(res.status, 202, `starting a run answered ${res.status}`);
+    const { runId, status, delivered } = await res.json();
+    assert.equal(status, "queued");
+    assert.equal(delivered, true, "the doorbell did not ring");
+
+    // **THE MESSAGE CARRIES A RUN ID AND NOTHING ELSE.** Everything about the run
+    // is already in the database; a message that carried a tenant would be a
+    // second, forgeable source for the one fact that decides access.
+    assert.equal(env[QUEUE_BINDING].sent.length, 1, "exactly one delivery was not queued");
+    assert.deepEqual(Object.keys(env[QUEUE_BINDING].sent[0]), ["runId"],
+      `the message carries more than a run id: ${JSON.stringify(env[QUEUE_BINDING].sent[0])}`);
+    assert.equal(env[QUEUE_BINDING].sent[0].runId, runId);
+
+    // Nothing has executed, and the run is already fully described in storage.
+    assert.deepEqual([...rest.entries.get(runId).values()].map((e) => e.kind), ["started"]);
+
+    // ── the consumer ──────────────────────────────────────────────────────────
+    const batch = batchOf(env[QUEUE_BINDING].sent);
+    await worker.queue(batch, env, ctx);
+    assert.deepEqual(batch.acked, [0], "the delivery was not acked");
+    assert.deepEqual(batch.retried, [], "the delivery was retried as well as acked");
+
+    // ── the result ────────────────────────────────────────────────────────────
+    const view = await (await worker.fetch(new Request(`https://x/runs/${runId}`, {
+      headers: { authorization: `Bearer ${token}` },
+    }), env, ctx)).json();
+    assert.equal(view.status, "stopped", `the run reads as "${view.status}"`);
+    assert.equal(view.stop.reason, "answered");
+    assert.match(view.text, /hello there/, "the stand-in's answer never came back");
+    assert.deepEqual([...rest.entries.get(runId).values()].map((e) => e.kind),
+      ["started", "model", "tool", "model", "stopped"]);
+    assert.notEqual(rest.work.get(runId).done_at, null, "finished work was left on the queue");
+  });
+});
+
+test("EVERY MESSAGE IS ACKED, BECAUSE THERE IS EXACTLY ONE RETRY AUTHORITY", async () => {
+  await onFakeProject(async () => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    // The work row decides whether a run is offered again and the sweeper does the
+    // offering. The queue retrying as well would give two mechanisms redelivering
+    // on different clocks, and a message eventually dead-lettering for a reason
+    // that has nothing to do with the run.
+    const batch = batchOf([{ runId: "no-such-run" }, {}, { runId: "   " }, { runId: 4 }, null]);
+    await worker.queue(batch, env, ctx);
+    assert.deepEqual(batch.acked, [0, 1, 2, 3, 4], `acked: ${batch.acked}`);
+    assert.deepEqual(batch.retried, [], "a message was left to the queue's own retry");
+  });
+});
+
+test("A CONSUMER THAT CANNOT BE BUILT RETRIES INSTEAD OF ACKING", async () => {
+  // The one case where the queue's retry IS the right mechanism: with no
+  // configuration the work row cannot be read, so nothing here can decide anything.
+  const batch = batchOf([{ runId: "r1" }, { runId: "r2" }]);
+  await worker.queue(batch, { ...good(), SUPABASE_SERVICE_KEY: undefined }, { waitUntil() {} });
+  assert.deepEqual(batch.retried, [0, 1], "an unconfigured consumer acked work it never looked at");
+  assert.deepEqual(batch.acked, [], "an unconfigured consumer acked as well as retried");
+});
+
+test("THE SWEEPER RE-RINGS DROPPED WORK RATHER THAN RUNNING IT", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+    const { runId } = await (await worker.fetch(new Request("https://x/runs", {
+      method: "POST", headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ agent: "support", prompt: "go" }),
+    }), env, ctx)).json();
+    env[QUEUE_BINDING].sent.length = 0;          // the first doorbell is lost
+
+    await worker.scheduled({}, env, ctx);
+    assert.deepEqual(env[QUEUE_BINDING].sent, [{ runId }], "the dropped run was not offered again");
+    // A TICK IS SHORT AND A RUN IS NOT, so the sweeper hands the work back to the
+    // queue instead of executing it.
+    assert.deepEqual([...rest.entries.get(runId).values()].map((e) => e.kind), ["started"],
+      "the sweeper executed the run inside a scheduled tick");
+
+    // Once the work is finished it is never offered again.
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+    env[QUEUE_BINDING].sent.length = 0;
+    await worker.scheduled({}, env, ctx);
+    assert.deepEqual(env[QUEUE_BINDING].sent, [], "a finished run is still being swept up");
+  });
+});
+
+test("the sweeper's bounds are real numbers and it survives an outage", async () => {
+  assert.ok(SWEEP_GRACE_S > 0 && SWEEP_LIMIT > 0);
+  // An unconfigured or unreachable project must not take the scheduled handler
+  // down: a throwing cron is a cron that silently stops running.
+  await assert.doesNotReject(() => worker.scheduled({}, { ...good(), SUPABASE_URL: undefined }, { waitUntil() {} }));
+  await onFakeProject(async () => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    // **THERE HAS TO BE WORK FOR THE THROW TO REACH.** The first version of this
+    // swept an empty table, so `send` was never called and the case passed with the
+    // error handling removed — a negative assertion with a dead observer.
+    const token = await signFor("t1");
+    await worker.fetch(new Request("https://x/runs", {
+      method: "POST", headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ agent: "support", prompt: "go" }),
+    }), env, ctx);
+    let rang = 0;
+    env[QUEUE_BINDING].send = async () => { rang++; throw new Error("the queue went"); };
+    await assert.doesNotReject(() => worker.scheduled({}, env, ctx));
+    assert.equal(rang, 1, "the sweeper never tried to ring, so this proves nothing");
+  });
+});
+
+test("A SWEEPER WITH NOWHERE TO RING DOES NOT EVEN LOOK FOR WORK", async () => {
+  // It PRODUCES, so it asks for the full deployment configuration — unlike the
+  // consumer, which never sends. Without the binding there is nothing it could do
+  // with an answer, and querying anyway is a pointless round trip on every tick.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+    await worker.fetch(new Request("https://x/runs", {
+      method: "POST", headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ agent: "support", prompt: "go" }),
+    }), env, ctx);
+    const before = rest.fetch.calls.filter((c) => String(c.url).includes("sweep_run_work")).length;
+    await worker.scheduled({}, { ...env, [QUEUE_BINDING]: undefined }, ctx);
+    const after = rest.fetch.calls.filter((c) => String(c.url).includes("sweep_run_work")).length;
+    assert.equal(after, before, "an unconfigured sweeper queried for work it could not deliver");
+    // THE CONTROL: with the binding, it does look — so the refusal above is about
+    // the configuration and not about there being nothing to find.
+    await worker.scheduled({}, env, ctx);
+    assert.ok(rest.fetch.calls.filter((c) => String(c.url).includes("sweep_run_work")).length > before,
+      "the sweeper never looks for work at all");
+  });
+});
+
+test("THE QUEUE TARGETS THE SAME SCHEMA AS THE STORE, named explicitly", () => {
+  // `makeWork` defaults to the same schema, so leaving it out is invisible from
+  // outside — and a default is what silently keeps working while meaning something
+  // else the day a second schema exists. Read from the source, as the store's is.
   const src = fs.readFileSync(path.join(DIR, "src", "worker.mjs"), "utf8");
-  assert.match(src, /ctx\.waitUntil\(Promise\.resolve\(\)\.then\(task\)\.catch\(/,
-    "the dispatched task is handed to waitUntil without a catch");
+  assert.match(src, /makeWork\(\{[^}]*schema: SCHEMA/, "the queue is built without naming the schema");
+  assert.match(src, /makeRunStore\(\{[^}]*schema: SCHEMA/, "the store is built without naming the schema");
 });
 
 // ── the registry and the stand-in ────────────────────────────────────────────
@@ -144,7 +368,32 @@ test("THE WORKER CONFIG IS SEPARATE AND CANNOT SHIP BY ACCIDENT", () => {
   for (const k of Object.keys(SETTINGS)) {
     assert.equal(cfg.vars?.[k], undefined, `${k} is a var in the committed config`);
   }
-  assert.match(raw, /wrangler secret put/, "the config does not say where the secrets go");
+  assert.match(raw, /docs\/deploy\.md/, "the config does not point at the deployment steps");
+
+  // **THE QUEUE IS CONFIGURED, AND ITS NAME COMES FROM THE CODE.** Two copies of a
+  // binding name is the commonest way a deployment is wired to nothing: the Worker
+  // reads `env.RUN_QUEUE`, the config binds something else, and every request
+  // answers 503 for a reason that reads like a missing secret.
+  assert.ok(cfg.queues?.producers?.length, "the config binds no queue producer");
+  assert.equal(cfg.queues.producers[0].binding, QUEUE_BINDING,
+    `the config binds ${cfg.queues.producers[0].binding} and the Worker reads ${QUEUE_BINDING}`);
+  const queueName = cfg.queues.producers[0].queue;
+  assert.ok(cfg.queues?.consumers?.length, "nothing consumes the queue, so no run would ever execute");
+  assert.equal(cfg.queues.consumers[0].queue, queueName,
+    "the consumer is attached to a different queue from the producer");
+  // ONE RUN PER INVOCATION. A batch is handled inside one invocation, so a second
+  // long run in the same batch could be cut off before it started.
+  assert.equal(cfg.queues.consumers[0].max_batch_size, 1,
+    "more than one run per invocation, so a long run can starve the next one in its batch");
+
+  // THE SWEEPER IS SCHEDULED, or a lost doorbell loses the work.
+  assert.ok(Array.isArray(cfg.triggers?.crons) && cfg.triggers.crons.length,
+    "no cron, so nothing ever re-offers dropped work");
+  // AND IT RUNS OFTENER THAN THE LEASE LASTS. A cron slower than the lease would
+  // leave dropped work sitting for no reason. Derived from the runner's own numbers
+  // rather than eyeballed.
+  const everyMinute = cfg.triggers.crons.some((c) => /^(\*|\*\/1) /.test(c));
+  assert.ok(everyMinute, `the sweep cron is ${cfg.triggers.crons.join(", ")}, slower than the ${LEASE_TTL_S}s lease`);
   // The root config belongs to the other product and is not touched by this one.
   const root = path.resolve(DIR, "..", "wrangler.jsonc");
   if (fs.existsSync(root)) {

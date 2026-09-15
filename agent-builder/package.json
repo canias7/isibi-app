@@ -8,6 +8,7 @@
     "sweep": "node scripts/sweep.mjs",
     "test:pg": "node test/integration/pg-schema.mjs",
     "sweep:sql": "node scripts/sql-sweep.mjs",
-    "serve": "node scripts/serve.mjs"
+    "serve": "node scripts/serve.mjs",
+    "demo:long": "node scripts/demo-long-run.mjs"
   }
 }

@@ -68,7 +68,7 @@ same colour.
 
 ## What is built
 
-Twelve modules under `src/`, **all dependency-free** — this has to run in a
+Fourteen modules under `src/`, **all dependency-free** — this has to run in a
 Cloudflare Worker, where there is no `node_modules` — with every outside thing
 (the model call, the clock, the journal) INJECTED. That is not purity for its own sake: it is
 what makes every branch below drivable in a test instead of waited on.
@@ -80,8 +80,10 @@ what makes every branch below drivable in a test instead of waited on.
 - **`journal.mjs`** — the append-only record, the replay that rebuilds a run, and
   the limits codec.
 - **`store.mjs`** — where the log is kept: Supabase, over PostgREST.
-- **`auth.mjs`** — who is asking, verified.
-- **`api.mjs`** — the HTTP surface: start a run, read it, resume it.
+- **`work.mjs`** — the durable queue's memory: six RPCs over the same wire.
+- **`runner.mjs`** — the consumer. The ONLY place that executes a run.
+- **`auth.mjs`** — who is asking, verified against the project rather than a secret.
+- **`api.mjs`** — the HTTP surface: accept a run, read it, ask for it again.
 - **`agents.mjs`** — the registry. Agents are CODE and this is where it lives.
 - **`model-standin.mjs`** — a model-shaped answer that costs nothing.
 - **`worker.mjs`** — the entry point, and the only file that knows it is Cloudflare.
@@ -494,12 +496,59 @@ Each cost a round, and each is the fixture being wrong rather than the product:
 Worker wants, with nothing bound to Cloudflare: `verify`, `store`, `send`,
 `dispatch`, `now` and `newId` are all injected.
 
-### Who is asking
+### Who is asking — verified against the PROJECT, not against a secret we hold
 
-- **THE ALGORITHM IS OURS, NOT THE TOKEN'S.** `alg` is compared against one
-  hard-coded value and nothing is ever looked up from the header. `none` makes
-  every token valid and an asymmetric name makes a PUBLIC key usable as the HMAC
-  secret; both are the same one-line mistake.
+**THE SIGNING SECRET IS NO LONGER A REQUIRED SETTING, and that is the point of
+`auth.mjs` (2026-09-15).** Asking an operator for a project's HS256 secret means
+asking for the credential that can MINT a token for any user, to do a job that only
+needs the ability to CHECK one. Three strategies, and **the token in front of it
+decides which** — never a configuration guess:
+
+| strategy | when | cost |
+|---|---|---|
+| `jwks` | the token names an asymmetric `alg` and a `kid` | none: verified in-process with WebCrypto against the published key |
+| `auth` | an HS256 token and no local secret | one `GET /auth/v1/user`, cached 60 s per token |
+| `secret` | an HS256 token and an operator who opted in | none, and never a default |
+
+**MEASURED AGAINST THIS PROJECT (2026-09-15), which is why the `auth` path is known
+to work rather than assumed to:** `/auth/v1/.well-known/jwks.json` answers **one
+ES256 key**, `kid` `87e0c19f-00be-48c1-bf46-5a5f318a0ea9`, and it imports into
+WebCrypto. A genuine legacy HS256 token (the project's own anon key) is answered
+`invalid claim: missing sub claim` — the signature PASSED and it reached the claims
+— and the same token with one character changed is answered `token signature is
+invalid`. **Two different refusals for two different causes is what makes it an
+oracle rather than a guess.** `scripts/auth-probe.mjs` is that reading, re-runnable.
+
+- **THE HEADER ROUTES; IT NEVER AUTHORISES.** Reading `alg` to choose a STRATEGY is
+  safe. Reading it to choose a KEY is the oldest hole in JWT, so the two families
+  are kept strictly apart: **an HS256 token can never reach a JWKS key** (it does
+  not even provoke a key fetch) and an asymmetric token can never reach the HMAC
+  one. `none` and every unknown name are refused before anything is looked up.
+- **THE PUBLISHED KEY'S OWN `alg` DECIDES.** A key published as ES256 is never used
+  to check an RS256 token because the token said so. Driven with a real generated
+  P-256 keypair, and every algorithm in the table is proved to name real WebCrypto
+  parameters by signing and verifying with it.
+- **AN UNKNOWN `kid` IS `no-key`; AN UNREACHABLE KEY SET IS `unavailable`.** One is
+  a bad token, the other is our own outage, and collapsing them would report a
+  five-minute auth blip as every customer's credentials having been forged. The same
+  split on the `auth` path: a 401/403 is Supabase saying no, a 5xx is not an answer.
+- **A ROTATION WORKS WITHOUT A DEPLOYMENT** — an unseen `kid` provokes one fetch —
+  **and a forged `kid` cannot make this Worker hammer the auth endpoint**, because
+  that fetch has a floor (`JWKS_MIN_REFETCH_MS` 60 s, under the 600 s TTL). Proved
+  by counting fetches: 20 invented kids cost zero.
+- **A CACHED `auth` ANSWER IS BOUNDED BY THE TOKEN'S OWN EXPIRY**, so it can never
+  outlive what it was about; a refusal is NEVER cached, or a blip would refuse a
+  good token for a minute; and the cache has a ceiling, because one without is a
+  leak.
+- **AN EXPIRED TOKEN IS REFUSED BEFORE IT COSTS A ROUND TRIP**, and that shortcut
+  can only ever REFUSE — it fires on a payload that parses with an `exp` already
+  past, and everything else falls through to the authoritative check. Delete it and
+  the verdicts are identical; only the bill changes. **A test asserting the call
+  count is what found it missing.**
+- **A VERIFIER THAT COULD CHECK NOTHING REFUSES TO EXIST.** With no project and no
+  secret, every request would be refused for a reason that has nothing to do with
+  the request — which reads, from outside, exactly like every customer's token being
+  forged at once.
 - **THE SIGNATURE IS VERIFIED BEFORE THE PAYLOAD IS EVEN PARSED.** Reading claims
   first is how unsigned data gets trusted by accident — a log line, an early
   return, a metric keyed on an unverified tenant.
@@ -547,27 +596,152 @@ Four steps, always: **verify the token → take the tenant from the VERIFIED cla
 
 ### The work is not the request
 
-- **STARTING A RUN WRITES IT DOWN, HANDS THE WORK TO `dispatch`, AND ANSWERS 202.**
-  Nothing in `api.mjs` waits for a run. `dispatch` is where the infrastructure
-  goes — `ctx.waitUntil` for short work, a queue or a container for long — and
-  until one is wired a caller passes whatever it has. **The tests hand in an
-  explicit queue that runs nothing until asked**, which is what makes "the
-  response did not wait for the work" provable rather than hopeful.
-- **THE RUN IS WRITTEN DOWN BEFORE THE ID GOES OUT**, so the id handed back is one
-  a GET can already resolve. Dispatching first would hand out an id that does not
-  exist yet.
-- **A FINISHED RUN IS NOT DISPATCHED**, and `runAgent` would refuse to execute it
-  anyway. Two walls, deliberately: this one makes the answer immediate and cheap,
-  that one makes it true even if something ever calls past here.
+- **ACCEPTING A RUN COMMITS IT AND ANSWERS 202. NOTHING IN `api.mjs` EXECUTES
+  ANYTHING** — that is `runner.mjs`, behind the queue. The two are deliberately far
+  apart, and the ordering is the durability argument; see the queue section below.
+- **A FINISHED RUN IS NOT QUEUED**, and the runner would refuse it, and `runAgent`
+  would refuse it. Three walls, deliberately: this one makes the answer immediate
+  and cheap, the others make it true even if something ever calls past here.
 - **A RUN WHOSE LOG CANNOT BE READ IS NOT RESUMED** (409, with the problems).
   Resuming past a junk entry sends the model a history with a step missing and
   under-reports the bill. **Also a sweep's finding.**
-- **A CRASHING TASK ENDS SOMEWHERE VISIBLE.** A dispatched task that throws would
-  leave a run reading `running` for ever — indistinguishable from one still going,
-  which is the state nobody can act on. An unexpected throw is written into the log
-  as a stop, best effort, and reported through `onError` either way. The one path
-  that can still leave a run looking unfinished is a journal that cannot be written
-  to, and that is said out loud rather than swallowed.
+- **`send` IS NO LONGER THE API'S BUSINESS AT ALL.** An API built with no model is
+  correct rather than broken, and that is pinned — a `send` quietly accepted here
+  would be a second execution path beside the runner.
+
+## The durable queue (2026-09-15)
+
+`supabase/migrations/20260915032807_agent_run_work.sql`, `src/work.mjs`,
+`src/runner.mjs`, and the three handlers in `src/worker.mjs`.
+
+**`ctx.waitUntil` IS GONE, AND IT IS NOT A FALLBACK EITHER.** It kept a run alive
+after the response, which is the right shape and the wrong durability: **the work
+existed only as a closure in one isolate**, so an eviction, a deploy or a crash lost
+it with nothing anywhere recording that a run was ever meant to progress. A test
+scans `worker.mjs` for the word, because a `waitUntil` fallback would satisfy every
+behavioural test while quietly restoring the old durability.
+
+### The row is the work; the message is only a doorbell
+
+- **ACCEPTING IS ONE TRANSACTION OR NOTHING.** `agent.accept_run` writes the run,
+  **its first journal entry** and the queue row together. Three separate PostgREST
+  calls could leave a run with a log and nothing to run it, or a work row for a run
+  with no log — and a function body is a transaction, so neither half-state exists.
+- **THE `started` ENTRY MOVED INTO THE API, and that is what makes the work durable
+  rather than merely recorded.** It carries the prompt, the agent, the model and the
+  bounds, so once `accept` commits, everything needed to execute the run is in the
+  database and the request can go away. **Built with the SAME `startedEntry` as the
+  SDK path**, because two producers of one entry shape is how a resumed run ends up
+  with a subtly different conversation.
+- **SO THERE IS NO "FRESH START" PATH IN THE RUNNER.** Every execution continues
+  from the stored log — one code path, and a log holding only a `started` entry
+  replays as a runnable run with `step: 0`.
+- **A MESSAGE CARRIES A RUN ID AND NOTHING ELSE.** `claim_run` answers the tenant,
+  so claiming the work and learning whose it is are ONE statement and a stale or
+  replayed message can never make a consumer act as somebody. A mutant that adds the
+  tenant to the message is in the sweep.
+- **A DOORBELL IS ALLOWED TO FAIL.** The work is already committed, so a failed
+  `notify` is logged and the response still says 202 — with `delivered: false`, because
+  a lost delivery costs latency and never work. Answering 500 would tell a caller
+  their run was rejected when it is sitting in the queue, ready.
+
+### Exactly one execution, and three things enforce it
+
+- **THE CLAIM IS THE ONE GATE AND IT IS THE DATABASE'S.** One conditional `UPDATE`:
+  the row is taken only if nobody holds a live lease. A duplicate delivery, a
+  sweeper racing the original worker, and two simultaneous resumes all lose the same
+  way — zero rows back, and the loser does nothing. **Nothing is checked in the
+  process that could be raced.**
+- **A RESUME MID-RUN IS SETTLED IN `requeue_run`, NOT IN THE CALLER.** It locks the
+  row and answers `running`, so the second press never becomes a second delivery. A
+  check in JavaScript would be a race wearing a wall's clothes.
+- **THE LEASE IS A LIVENESS CHECK, NOT A DURATION CAP.** `LEASE_TTL_S` 90,
+  `BEAT_EVERY_MS` 30,000. Reclaim is decided by `lease_expires_at` and **never by
+  elapsed time**, so a run that keeps beating is never taken away however long its
+  work honestly takes. Driven: a run going for the equivalent of two hours with a
+  live lease is not swept and not claimable, with the same row swept once its lease
+  lapses as the control.
+- **A LAPSED LEASE CANNOT BE REVIVED BY ITS OWN HOLDER.** The sweeper may already
+  have handed the run on, and there is no way from inside to tell whether it has —
+  extending it would be a guess in the one direction that produces two workers on
+  one run. The cost, stated: a worker paused longer than the TTL loses its run even
+  if nobody wanted it, and resumes from the log.
+- **AND THE CLAIM IS NOT ENOUGH, WHICH IS WHAT THE TWO LEASE GATES ARE FOR.** A
+  worker that loses its lease mid-run is stopped **before its next model call** (so a
+  lost lease costs nothing rather than money) and **before any journal write** (so it
+  cannot write history somebody else now owns). `runAgent` reads a refused write as
+  `journal-failed` and returns WITHOUT recording a stop, which is exactly right: the
+  run is left as the next holder needs to find it. **MEASURED: the log after a lost
+  lease holds only what was written before it went.**
+- **THE HONEST LIMIT, STATED: the window is one model call plus one tool batch.**
+  Between two checkpoints the process finishes what it started, because tools are the
+  agent author's code and there is nowhere to interrupt them from. Making it smaller
+  means a cancellation hook inside `run.mjs`, and that has not been done.
+- **A BEAT THAT CANNOT BE SENT IS TOLERATED EXACTLY AS FAR AS THE ARITHMETIC
+  ALLOWS.** `TOLERATED_MISSES` is DERIVED (`floor(TTL / beat) - 2` = 1): one missed
+  beat is still inside a lease we demonstrably hold. **A beat that comes back `false`
+  is never tolerated** — that is the database, not a blip — and the two are reported
+  under different names (`beat-failed` vs `lease-lost`) because they are different
+  problems.
+
+### The restriction on repeating uncertain work survives all of it
+
+**A REDELIVERY WILL NOT REPEAT A TOOL THAT MAY HAVE ALREADY RUN.** The whole hazard
+of a durable queue in one test: a non-repeatable `charge` tool runs, the lease lapses
+before its result can be written, the sweeper offers the run again — and the
+redelivery answers `cannot-resume`, names the blocking call, and **the payment is
+taken once**. Its control is the same shape with a repeatable tool, which IS finished
+on the redelivery; without that control, "refuses to repeat" is indistinguishable
+from "refuses to resume at all".
+
+**A RUN THAT CANNOT BE SAFELY RESUMED COMES OFF THE QUEUE AND KEEPS NO STOP.** It is
+waiting for a person, not for a retry, so the log stays open and `GET /runs/:id`
+shows the pending call. `problems` is EMPTY, which is correct: a missing tool result
+is not a corrupt log.
+
+### Every outcome is named, and a consumer never throws
+
+`OUTCOMES`: `ran` · `not-claimable` · `already-finished` · `unreadable` ·
+`no-agent` · `cannot-resume` · `too-many-attempts` · `lease-lost` · `failed`.
+
+- **A CONSUMER THAT THROWS IS A DELIVERY THE PLATFORM RETRIES BLINDLY**, which is
+  how one run becomes four. `deliver` never throws, and that is driven with a store
+  that falls over.
+- **EVERY MESSAGE IS ACKED, EVEN A FAILED ONE: THERE IS EXACTLY ONE RETRY
+  AUTHORITY.** The work row decides whether a run is offered again and the cron does
+  the offering. Letting the queue retry as well would give two mechanisms
+  redelivering on different clocks and a message eventually dead-lettering for a
+  reason that has nothing to do with the run. **The one exception is a consumer that
+  could not be BUILT** — with no configuration the row cannot be read, so nothing
+  could decide anything, and the queue's own retry is right there.
+- **`MAX_ATTEMPTS` IS 5, and "this keeps failing" is a named outcome.** Without a
+  ceiling a run whose journal cannot be written spins for ever: every sweep
+  redelivers it, every attempt fails the same way, and nothing says so.
+- **A CRASH IS RETRYABLE UNTIL THE LAST PERMITTED ATTEMPT, THEN THE LOG IS CLOSED.**
+  Both halves are driven, because a run nothing will ever deliver again must not read
+  as one still going — and a transient crash must not be made final on the first try.
+- **THE SWEEPER RE-RINGS RATHER THAN EXECUTING.** A cron tick is short and a run is
+  not, so dropped work goes back through the queue and is claimed by a consumer with
+  a whole invocation of its own.
+
+### The queue is the backend's alone
+
+`authenticated` gets **nothing** on `agent.run_work` — not even SELECT — because
+everything a customer is shown about a run is derived from the log, which they can
+already read. RLS is enabled and FORCED **with no policies at all**.
+
+**THREE WALLS STAND BETWEEN A CUSTOMER AND A CLAIM, and the redundancy is declared
+because a sweep cannot see it.** MEASURED by taking them away one at a time: the
+FUNCTION grant refuses first (`permission denied for function claim_run`); with
+EXECUTE widened, the TABLE grant refuses (`for table run_work`); with both widened,
+forced RLS matches no rows and the claim answers `claimed: false` having taken
+nothing. **Only with all three gone does a customer take the work.** So no single one
+is load-bearing today — which is the point, and why the sweep mutates the three
+together rather than one at a time.
+
+**The advisors flag `agent.run_work` as `rls_enabled_no_policy` (INFO), and that is
+the intended state**, not a finding to fix: there is no grant for a policy to
+permit. Eighteen tables in this project are in the same state for the same reason.
 
 ## The SQL mutation sweep (2026-09-15)
 
@@ -590,7 +764,27 @@ confirmed before a single mutant is written.
 a `unique` dropped, a raise turned into a return, a marker widened. A migration
 that will not apply proves nothing.
 
-### What it found, which is the whole point
+### What the queue round found (2026-09-15)
+
+- **A REAL TEST GAP: A LONG HEALTHY RUN WAS NOT PROTECTED BY ANY CHECK.** The mutant
+  that makes the sweeper select on ELAPSED TIME instead of on the lease SURVIVED —
+  every hand-written check passed with it in place, because none of them had a run
+  that was **both old and alive**. The product was right; the coverage was not. The
+  check now ages a claimed run by two hours with a live lease and requires it to be
+  neither swept nor claimable, with the same row swept once its lease lapses as the
+  control.
+- **A REFUSAL FROM THE WRONG GATE, wearing the right words.** "A customer may call
+  the claim function" also survived, and measurement explained it: the function is
+  SECURITY INVOKER, so with EXECUTE widened the UPDATE inside meets the TABLE grant
+  and says `permission denied` too. The check asked only for those two words. **It
+  names the object now** (`permission denied for function claim_run`), which is the
+  difference between a wall and a coincidence.
+- **AND THAT TURNED OUT TO BE THREE WALLS, MEASURED IN ORDER**: the function grant,
+  then the table grant, then forced RLS with no policies (which answers
+  `claimed: false` having taken nothing). **Only with all three gone does a customer
+  claim work** — so the mutant is now the three together, and it dies.
+
+### What the first round found, which is the whole point
 
 - **A REAL HOLE: THE DELETE MARKER WAS TRANSACTION-WIDE, NOT RUN-SPECIFIC.** It
   said only "some run is being deleted in this transaction", so deleting ANY run
@@ -711,21 +905,48 @@ keys only. Stated as a gap rather than glossed.
   answering from a canned script.
 - **THE SCHEMA IS PASSED EXPLICITLY** even though the store defaults to it, because
   a default is what silently keeps working while meaning something else.
-- **THE DISPATCHER IS `ctx.waitUntil`, AND ITS LIMIT IS NOT UNLIMITED.** It keeps
-  the work alive after the response, which is the point, but a Worker invocation
-  has a wall-clock ceiling — a longer run needs a queue or a container behind the
-  SAME seam, and nothing above it changes when that arrives. A dispatched task that
-  rejects is caught and logged, or it is an unhandled rejection.
+- **THREE HANDLERS, AND THEY ARE THREE DIFFERENT JOBS.** `fetch` accepts work and
+  answers 202 and runs NOTHING; `queue` claims a delivery and executes the run;
+  `scheduled` offers dropped work again.
+- **PRODUCING AND CONSUMING NEED DIFFERENT CONFIGURATION, and being precise about
+  that is not pedantry.** Accepting work needs somewhere to ring, so `fetch` requires
+  the `RUN_QUEUE` binding; the CONSUMER never produces, so it requires only the
+  project. `scheduled` DOES produce, so it asks for the full deployment. A caller
+  that hands in its own `notify` is a producer with no binding, which is what every
+  local driver is.
+- **THE QUEUE BINDING IS A REQUIRED SETTING and `waitUntil` is not a fallback**, so a
+  missing one is the same named 503 as a missing secret. A deployment that believes
+  it is durable and is not is the one failure worth refusing to boot over. An inert
+  binding (a name bound to something without `.send`) counts as missing.
 - **`wrangler.jsonc` HERE IS THIS DIRECTORY'S OWN AND CANNOT SHIP BY ACCIDENT.**
   The repository's deploy runs `wrangler deploy` at the ROOT against the root
   config and never reads this one; deploying is a deliberate
   `wrangler deploy -c agent-builder/wrangler.jsonc`, **and it has not been run.**
-  The three secrets are `wrangler secret put`, never vars, never committed.
-- **`npm run serve` DRIVES THE WORKER'S OWN HANDLER OVER REAL HTTP**, importing
-  `src/worker.mjs` rather than reimplementing it. It substitutes only
-  `ctx.waitUntil`, and substitutes it with something that behaves the same way in
-  the way that matters: the response goes out first. Settings come from the
-  environment; the banner prints each one's LENGTH and never its value.
+  The secrets are `wrangler secret put`, never vars, never committed —
+  `docs/deploy.md` has the exact names and order.
+- **THE CONFIG AND THE CODE CANNOT DISAGREE ABOUT THE QUEUE.** A test reads
+  `wrangler.jsonc` and compares its producer binding against the Worker's exported
+  `QUEUE_BINDING`, checks the consumer is attached to the producer's queue, pins
+  `max_batch_size: 1`, and requires the sweep cron to run oftener than the lease
+  lasts — derived from `LEASE_TTL_S`, not eyeballed. **Two copies of a binding name
+  is the commonest way a deployment is wired to nothing.**
+- **`max_batch_size: 1`, ON PURPOSE.** A batch is handled inside ONE invocation, so
+  two long runs in one batch would serialise and the second could be cut off before
+  it ever started. One per invocation, and Cloudflare scales invocations instead.
+- **A LONG RUN IS NOT ONE LONG INVOCATION — IT IS SEVERAL.** A consumer invocation
+  has its own wall-clock ceiling, and the answer is not a bigger ceiling: a run cut
+  off mid-invocation loses its lease, the cron offers it again, and the next consumer
+  continues FROM THE LOG. That is why the journal and `repeatable` exist. **Not
+  measured against a real invocation ceiling — the longest run driven end to end is
+  65.6 seconds.**
+- **`npm run serve` DRIVES ALL THREE HANDLERS OVER REAL HTTP**, importing
+  `src/worker.mjs` rather than reimplementing it. **What it substitutes is the
+  transport and only the transport**: Cloudflare Queues is not reachable from a
+  laptop, so the binding is an in-process doorbell that hands the run id to
+  `worker.queue` and returns first. Durability is unchanged, because the work is a
+  ROW — and the sweeper runs on a timer there too, exactly as the cron does.
+  Settings come from the environment; the banner prints each one's LENGTH and never
+  its value.
 
 ### The stand-in
 
@@ -736,7 +957,52 @@ rather than bypassed. **It is not a mock of a provider's wire format**: `send` i
 the translator in this design, so the stand-in and a real provider are two
 implementations of one one-function contract.
 
-### ⚠ What is NOT connected, and exactly why
+**IT CHOOSES WHAT TO DO FROM THE TOOLS IT IS OFFERED, which is the one thing that
+makes it model-like rather than scripted.** One `send` serves every agent in the
+registry, because that is how a deployment really works: one model, several agents,
+a different tool list each time. A stand-in configured per agent would be a second
+registry. Offered the `wait` tool it runs the long shape; otherwise the short one.
+
+**`SLOW_ROUNDS` 8 × `SLOW_STEP_MS` 8,000 = 64,000 ms, and `SLOW_TOTAL_MS` is
+derived.** Several rounds rather than one long sleep, deliberately: each round
+writes a model entry and a tool result, so PROGRESS accumulates in the log and a
+reader can watch it move. One sixty-second sleep would be a minute of silence
+followed by an answer, which demonstrates nothing about progress.
+
+## The long run, demonstrated (2026-09-15)
+
+`npm run demo:long`. **65.6 SECONDS OF WORK AFTER AN 82 ms RESPONSE, with every
+claim checked rather than narrated.** What it proved:
+
+| | |
+|---|---|
+| the response came back in | **82 ms** |
+| the work ran for | **65,630 ms** after that response |
+| progress observations while running | **9** (steps 1…9, one every ~8 s) |
+| stages that ran | 8 of 8 |
+| the stored log | `started, model, tool` × 8, `model`, `stopped` — 19 entries |
+
+- **THE ACCEPTING PROCESS HAD NO CONSUMER AT ALL.** Its queue binding records
+  messages and runs nothing, and its `ctx.waitUntil` THROWS if anything touches it.
+  If the run had executed there, the demonstration would have proved nothing about
+  durability — only that `waitUntil` still works.
+- **A SEPARATE OS PROCESS, WHICH NEVER SAW THE REQUEST, RAN IT** (`scripts/consume.mjs`,
+  spawned with its own pid). It takes no messages: it sweeps the table, claims what
+  it finds, and runs it. **That is the proof that the work is a row and not a
+  closure** — if durability were still `waitUntil` there would be nothing for it to
+  find.
+- **EVERYTHING WAS COMMITTED BEFORE THE RESPONSE**: the run row, the prompt in the
+  log, and the queue row, checked by reading the database directly at that instant.
+- **WHERE IT RAN, STATED UP FRONT: a throwaway LOCAL PostgreSQL with the real
+  migrations applied, through a PostgREST-shaped shim** (`scripts/local-rest.mjs`).
+  The schema, the triggers, the generated columns, the partial unique indexes and
+  the claim's conditional UPDATE are the genuine article; what is local is the HTTP
+  translation. **It is NOT the hosted project and must not be read as proving it** —
+  writing there needs the service key. The shim is deliberately narrow, refuses any
+  column the store does not ask for, and reproduces Postgres's duplicate code and
+  constraint NAME because `store.mjs` reads both.
+
+### ⚠ What is NOT connected, and exactly why (superseded — see below)
 
 **The milestone — one complete task through the Worker into the live database — is
 blocked on TWO secrets this session cannot obtain**, and neither is a code problem:
@@ -755,26 +1021,95 @@ stops exactly at the credential.**
 Also not connected: a real model provider, a queue or container for runs longer
 than an invocation, and any deployment at all.
 
+### ⚠ WHAT IS STILL NOT CONNECTED, as of the queue work (2026-09-15)
+
+**ONE SECRET, NOT TWO. `SUPABASE_JWT_SECRET` IS NO LONGER NEEDED AT ALL** — the
+verifier uses the project's published key, or asks Supabase Auth. That half of the
+old blocker was not worked around; it was removed.
+
+**`SUPABASE_SERVICE_KEY` IS THE ONE THING LEFT**, and it is not a code problem: the
+Supabase MCP exposes publishable keys only, and the project's JWT secret is not
+readable from the database either (checked: no `pgrst.jwt_secret` role setting, and
+`current_setting` answers nothing — the platform injects it into PostgREST's
+process). **A service-role credential was deliberately NOT manufactured**: the ways
+available — a public Edge Function proxy holding the service key, or minting a
+long-lived role JWT into a transcript — are each a worse security decision than
+waiting for the owner to set a secret.
+
+**WHAT WAS PROVEN INSTEAD, and why it is nearly as good:** the whole flow runs
+against a REAL PostgreSQL with these migrations applied
+(`npm run demo:long`, 65.6 s), and the hosted schema is verified by 30 behavioural
+checks driven against the live project with the six function bodies matching this
+repo byte for byte. So the two halves that remain untested together are the HTTP
+translation (PostgREST versus the local shim) and nothing else.
+
+Also still not connected: **a real model provider** (one `MODELS` entry plus a
+`send`), and **any deployment at all** — no Worker, no queue, no route, no domain.
+`docs/deploy.md` is the step-by-step, with the exact secret names.
+
 ### Measured
 
-- **Unit suite: 161 tests, 0 failures** (`cd agent-builder && npm test`).
-- **Schema check: 78 checks, 0 failed** against a real PostgreSQL 16.13
-  (`npm run test:pg`), over BOTH migrations. Skips with a message, and exits 0, where there is no
-  local cluster — "no database here" is not a failing schema.
-- **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 0 failures**
-  — run BEFORE this directory existed and again with it present, same count, same
-  colour. Measured, not argued from the path filters. (In a fresh container that
+- **Unit suite: 219 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
+  the queue round; the 58 are `runner`'s 20, `work`'s 10, `auth`'s 13 new ones, the
+  Worker's 8 and the API's 3, less the four dispatcher cases the queue retired.
+- **Schema check: 125 checks, 0 failed** against a real PostgreSQL 16.13
+  (`npm run test:pg`), over all THREE migrations — 78 before the queue, and the 47
+  are the queue's own (accepting, the claim, the lease, the resume, the grants, the
+  cascade) plus the long-healthy-run pair a sweep found missing. Skips with a
+  message, and exits 0, where there is no local cluster — "no database here" is not
+  a failing schema.
+- **The long run, end to end: a 75 ms response and 65,593 ms of work after it**
+  (`npm run demo:long`), with **9 progress observations** while it ran, all 8 stages
+  executed, and every entry in a real PostgreSQL. Re-run on the final tree, not
+  carried over from the first pass — the first read 82 ms / 65,630 ms.
+- **The live project: 30 behavioural checks, 0 failed**, driven against
+  `ujrqdmmtcptvimazlhom` and rolled back, with both tables left empty. The six
+  queue function bodies match this repo's migration **byte for byte**
+  (`md5(pg_get_functiondef(...))` compared against a local apply, before and after a
+  comment-only edit to the file).
+- **The auth probe: all checks passed** against the live project
+  (`scripts/auth-probe.mjs`) — the published ES256 key imports, and Supabase Auth
+  answers a genuine token and a tampered one differently.
+- **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 6,314 passing,
+  0 failures** — run BEFORE this directory existed, again with it present, and
+  again after the queue round: same count, same colour every time. Measured, not
+  argued from the path filters. (In a fresh container that
   suite needs `npm ci` first or ~361 cases fail on missing modules — the
   environment, not the code.)
-- **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
-  applied, 2 comment-only controls survived.**
-- **Code sweep: 108 mutants, 108 killed, 0 survived, 0 never applied, 2
+- **Code sweep: 164 mutants, 164 killed, 0 survived, 0 never applied, 3
   comment-only controls survived** (`npm run sweep`). Measured after the run, not
   before it. The passes went 34 (the first four modules) → 54 (the journal and
   resume) → 68 (the store and the limits codec) → 74 (the ownership boundary) → 98
-  (auth and the HTTP surface) → 108 (the Worker and the tenant claims).
-- **SQL sweep: 22 mutants, 22 killed, 0 survived, 0 never applied, 1 comment-only
-  control survived** (`npm run sweep:sql`), over both migrations.
+  (auth and the HTTP surface) → 108 (the Worker and the tenant claims) → **164 (the
+  three auth strategies, `work.mjs`, `runner.mjs` and the three Worker handlers)**.
+  **TWENTY SURVIVED THE FIRST PASS OF THE QUEUE ROUND and every one was the tests'
+  fault, not the product's** — which is the ordinary shape when a sweep grows by
+  sixty mutants at once. Sixteen were plain gaps and closed. **Four were INERT and
+  were proved so by measurement rather than hunted**, and each is now declared in
+  the spec where the next reader will meet it:
+  - the `use: "sig"` filter on a published key — **WebCrypto itself refuses to
+    import an `enc` key for verification** (`Invalid JWK "use" Parameter`);
+  - the auth cache's expiry bound — two walls in front of it, and an expired token
+    is refused **without a round trip** either way;
+  - the `catch` around `deliver` in the queue handler — `deliver` is built never to
+    throw, and a store that falls over is driven and comes back `failed`;
+  - the runner's `?? "anyone"` tenant fallback — `work.claim` refuses a claim with
+    no tenant one layer down, and that mutant dies.
+  **AND TWO SURVIVED BECAUSE THE TEST WAS IN THE WRONG STATE TO SEE THE CHANGE,
+  which is worth more than either:** a kid-less token provokes no key fetch only
+  *on a cold verifier* (after any other token the refetch floor hides it), and the
+  `catch` around `crypto.subtle.verify` is reachable only through the **decode** —
+  a wrong-LENGTH signature makes WebCrypto answer false rather than throw, so the
+  obvious test proved the comparison and nothing about the catch.
+- **SQL sweep: 43 mutants, 43 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived** (`npm run sweep:sql`), over all three migrations. 22 before
+  the queue; the 21 are the claim, the lease, accepting, asking again and the
+  grants.
+  **A POSITION IS NOT AN IDENTITY.** The spec aimed its tenant mutants at
+  `files[files.length - 1]`, which was right for exactly as long as the tenant
+  function lived in the newest migration — and a third migration pointed every one
+  of them at a file that does not contain them. `lastDefining(needle)` asks the
+  files instead, so it cannot go stale.
   **A MUTANT MUST TARGET THE MIGRATION THAT IS IN FORCE.** `agent.tenant_id()` is
   defined twice and the second definition wins, so two mutants aimed at the first
   one survived and were INERT BY CONSTRUCTION — the same trap as mutating dead
@@ -793,7 +1128,7 @@ than an invocation, and any deployment at all.
   the sweep gained a mutant per write site, because a census in the test needs a
   census in the sweep or only the arm that happens to be mutated is really
   proved. All four write sites now die.
-- Both controls carry `control: true` and not merely the word in their label, so
+- All five controls carry `control: true` and not merely the word in their label, so
   the runner's own `CONTROL WAS KILLED` branch was armed. Run with
   `--test-timeout=20000`, because the "step counted after the call" mutant HANGS
   rather than failing.
@@ -817,3 +1152,11 @@ Scaffolded 2026-09-14. No source yet — the decisions below came first.
 - What an agent's tools may reach, and how a tenant grants that.
 - ~~Whether runs are resumable across a process death~~ — **DONE**, see the
   journal and "Resuming a run" above.
+- ~~Where a run executes once the request is over~~ — **DONE**, see "The durable
+  queue" above. `ctx.waitUntil` is gone and the work is a row.
+- **A run longer than one consumer invocation is resumed rather than run longer**,
+  and that is the design — but it has **not been measured against a real invocation
+  ceiling.** The longest run driven end to end is 65.6 s.
+- **`force row level security` is still an untested claim** (see the correction
+  above). Adding `agent.run_work` did not change that: it is only observable to a
+  table owner who is not a superuser, and the harness's owner is one.

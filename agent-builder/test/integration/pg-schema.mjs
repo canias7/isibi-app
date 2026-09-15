@@ -388,6 +388,157 @@ try {
   check("CONTROL: the log that survived all of that is intact",
     psql(`select count(*) from agent.run_entries where run_id='${T1}';`, asWriter).out === "6",
     psql(`select count(*) from agent.run_entries where run_id='${T1}';`, asWriter).out);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // THE DURABLE QUEUE. Exclusivity is a property of one conditional UPDATE, and
+  // a conditional UPDATE is a property of Postgres — so it is proved here and
+  // the in-memory fake in the unit tests mirrors these answers.
+  // ══════════════════════════════════════════════════════════════════════════
+  const Q1 = "aaaaaaaa-0000-0000-0000-000000000001";
+  const Q2 = "aaaaaaaa-0000-0000-0000-000000000002";
+  const QS = `{"kind":"started","at":0,"tenant":"t1","agent":"support","model":"m","prompt":"go","limits":{"steps":4}}`;
+  const jget = (sql, opts = asWriter) => psql(sql, opts).out;
+
+  console.log("\n── accepting work is one transaction or nothing ──");
+  allowed("a run, its first entry and its work row are accepted together",
+    `select agent.accept_run('${Q1}'::uuid, 't1', '${QS}'::jsonb);`, asWriter);
+  check("...the run exists and is already 'running'",
+    jget(`select status from agent.runs where id='${Q1}';`) === "running", jget(`select status from agent.runs where id='${Q1}';`));
+  check("...its prompt is durable before anything executed",
+    jget(`select body->>'prompt' from agent.run_entries where run_id='${Q1}' and seq=0;`) === "go");
+  check("...and the work is outstanding",
+    jget(`select (done_at is null and claimed_by is null) from agent.run_work where run_id='${Q1}';`) === "t");
+  check("accept answers the state it left the work in",
+    jget(`select agent.accept_run('${Q1}'::uuid, 't1', '${QS}'::jsonb) ->> 'state';`) === "queued");
+  check("A REPEATED ACCEPT WRITES NO SECOND ENTRY",
+    jget(`select count(*) from agent.run_entries where run_id='${Q1}';`) === "1",
+    jget(`select count(*) from agent.run_entries where run_id='${Q1}';`));
+  refused("A RETRY FROM ANOTHER TENANT CANNOT TAKE OVER THE RUN ID",
+    `select agent.accept_run('${Q1}'::uuid, 't2', '${QS}'::jsonb);`, "is not this tenant's", asWriter);
+  refused("an entry that is not a 'started' entry is refused",
+    `select agent.accept_run('${Q2}'::uuid, 't1', '{"kind":"model","at":0,"step":1}'::jsonb);`,
+    'must be a "started" entry', asWriter);
+  refused("a blank tenant is refused", `select agent.accept_run('${Q2}'::uuid, '  ', '${QS}'::jsonb);`,
+    "tenant must be a non-empty string", asWriter);
+  check("CONTROL: none of those refusals created a run",
+    jget(`select count(*) from agent.runs where id='${Q2}';`) === "0");
+
+  console.log("\n── the claim is the one gate, and it is exclusive ──");
+  check("the first claim succeeds and answers the tenant",
+    jget(`select agent.claim_run('${Q1}'::uuid, 'w1', 90) ->> 'tenant_id';`) === "t1");
+  check("A SECOND CLAIM WHILE THE LEASE IS LIVE GETS NOTHING",
+    jget(`select agent.claim_run('${Q1}'::uuid, 'w2', 90) ->> 'claimed';`) === "false",
+    jget(`select agent.claim_run('${Q1}'::uuid, 'w2', 90)::text;`));
+  check("...and the row still belongs to the first holder",
+    jget(`select claimed_by from agent.run_work where run_id='${Q1}';`) === "w1");
+  check("the claim counts attempts, so a run that keeps failing can be given up on",
+    Number(jget(`select attempts from agent.run_work where run_id='${Q1}';`)) >= 1);
+  refused("a blank worker cannot claim", `select agent.claim_run('${Q1}'::uuid, '', 90);`,
+    "worker must be a non-empty string", asWriter);
+  refused("a claim with no lease length is refused", `select agent.claim_run('${Q1}'::uuid, 'w3', 0);`,
+    "ttl must be a positive number of seconds", asWriter);
+
+  console.log("\n── the lease is a liveness check, not a duration cap ──");
+  check("the holder may extend its own lease",
+    jget(`select agent.beat_run('${Q1}'::uuid, 'w1', 90);`) === "t");
+  check("NOBODY ELSE MAY EXTEND IT",
+    jget(`select agent.beat_run('${Q1}'::uuid, 'w2', 90);`) === "f");
+  // THE EXPIRY, FORCED. A lease that has lapsed is claimable by anybody and
+  // revivable by nobody — the two halves that stop two workers on one run.
+  psql(`update agent.run_work set lease_expires_at = now() - interval '1 second' where run_id='${Q1}';`, asWriter);
+  check("A LAPSED LEASE CANNOT BE REVIVED BY ITS OWN HOLDER",
+    jget(`select agent.beat_run('${Q1}'::uuid, 'w1', 90);`) === "f",
+    "a worker whose lease had gone extended it anyway");
+  check("...and the work is reclaimable",
+    jget(`select count(*) from agent.sweep_run_work(0, 50) as t where t ->> 'run_id' = '${Q1}';`) === "1",
+    jget(`select agent.sweep_run_work(0,50)::text;`));
+  check("A LAPSED LEASE IS CLAIMABLE BY SOMEBODY ELSE",
+    jget(`select agent.claim_run('${Q1}'::uuid, 'w2', 90) ->> 'claimed';`) === "true");
+  check("...and the first holder can no longer release it",
+    jget(`select agent.release_run('${Q1}'::uuid, 'w1', true, null);`) === "f",
+    "a worker released a claim it no longer held");
+
+  console.log("\n── letting go, and asking again ──");
+  check("the holder releases as done",
+    jget(`select agent.release_run('${Q1}'::uuid, 'w2', true, null);`) === "t");
+  check("...and finished work is not swept up",
+    jget(`select count(*) from agent.sweep_run_work(0, 50);`) === "0",
+    jget(`select agent.sweep_run_work(0,50)::text;`));
+  check("...nor claimable",
+    jget(`select agent.claim_run('${Q1}'::uuid, 'w9', 90) ->> 'claimed';`) === "false");
+  check("a resume puts it back, and resets the attempt count",
+    jget(`select agent.requeue_run('${Q1}'::uuid, 't1') ->> 'state';`) === "queued");
+  check("...the attempts really are back to zero",
+    jget(`select attempts from agent.run_work where run_id='${Q1}';`) === "0");
+  check("...and the kind records that it was asked for again",
+    jget(`select kind from agent.run_work where run_id='${Q1}';`) === "resume");
+  check("ANOTHER TENANT'S RESUME IS NOT FOUND, never forbidden",
+    jget(`select agent.requeue_run('${Q1}'::uuid, 't2') ->> 'state';`) === "not-found");
+  check("a resume of a run that does not exist is the same answer",
+    jget(`select agent.requeue_run('99999999-9999-9999-9999-999999999999'::uuid, 't1') ->> 'state';`) === "not-found");
+  check("A RESUME WHILE A LIVE LEASE IS HELD ANSWERS 'running' AND TOUCHES NOTHING",
+    jget(`select agent.claim_run('${Q1}'::uuid, 'w4', 90) ->> 'claimed';`) === "true"
+    && jget(`select agent.requeue_run('${Q1}'::uuid, 't1') ->> 'state';`) === "running"
+    && jget(`select claimed_by from agent.run_work where run_id='${Q1}';`) === "w4",
+    "a resume mid-run disturbed the holder's lease");
+  check("a release that is not 'done' leaves the work outstanding for another delivery",
+    jget(`select agent.release_run('${Q1}'::uuid, 'w4', false, 'it fell over');`) === "t"
+    && jget(`select (done_at is null) from agent.run_work where run_id='${Q1}';`) === "t");
+  check("...and it says why",
+    jget(`select last_error from agent.run_work where run_id='${Q1}';`) === "it fell over");
+
+  // **A LONG RUN IS NOT A DROPPED RUN, and this is the check a mutation sweep had
+  // to point out was missing.** Selecting on elapsed time instead of on the lease
+  // would take a healthy hour-long run away from the worker doing it — and every
+  // other check here passed with that change in place, because none of them had a
+  // run that was BOTH old and alive.
+  psql(`update agent.run_work set enqueued_at = now() - interval '2 hours',
+          claimed_by = 'w-alive', claimed_at = now(), lease_expires_at = now() + interval '80 seconds'
+        where run_id='${Q1}';`, asWriter);
+  check("A RUN GOING FOR TWO HOURS WITH A LIVE LEASE IS NOT SWEPT",
+    jget(`select count(*) from agent.sweep_run_work(30, 50) as t;`) === "0",
+    jget(`select agent.sweep_run_work(30,50)::text;`));
+  check("...nor claimable by anybody else", jget(`select agent.claim_run('${Q1}'::uuid, 'w-other', 90) ->> 'claimed';`) === "false");
+  // THE CONTROL for that pair: the same old row IS swept once its lease lapses, so
+  // the refusal above is about the lease and not about the row being unreachable.
+  psql(`update agent.run_work set lease_expires_at = now() - interval '60 seconds' where run_id='${Q1}';`, asWriter);
+  check("CONTROL: the same old run IS swept once its lease has lapsed",
+    jget(`select count(*) from agent.sweep_run_work(30, 50) as t where t ->> 'run_id' = '${Q1}';`) === "1");
+  psql(`select agent.release_run('${Q1}'::uuid, 'w-alive', false, null);`, asWriter);
+
+  console.log("\n── the queue is the backend's alone ──");
+  refused("a signed-in customer cannot read the queue",
+    `select count(*) from agent.run_work;`, "permission denied", claimT1);
+  refused("...nor write to it", `update agent.run_work set done_at = now();`, "permission denied", claimT1);
+  // **THREE WALLS STAND BETWEEN A CUSTOMER AND A CLAIM, and the gate is named so
+  // that removing one SHOWS.** Measured, in this order: the function grant refuses
+  // first (`permission denied for function claim_run`); with EXECUTE granted, the
+  // table grant refuses (`for table run_work`); with both granted, RLS with no
+  // policies matches no rows and the claim answers `claimed: false`. Only with all
+  // three gone does a customer take the work — which is what the sweep's
+  // three-wall mutant proves.
+  //
+  // A check that asked only for "permission denied" passed with the function grant
+  // widened, because the table's refusal wears the same two words. Naming the
+  // object is the difference between a wall and a coincidence.
+  refused("...nor take a claim through the function — and the FUNCTION grant is the gate",
+    `select agent.claim_run('${Q1}'::uuid, 'thief', 90);`, "permission denied for function claim_run", claimT1);
+  refused("...nor accept work for themselves",
+    `select agent.accept_run('${Q2}'::uuid, 't1', '${QS}'::jsonb);`, "permission denied", claimT1);
+  refused("anon is walled at the schema", `select count(*) from agent.run_work;`, "permission denied", { role: "anon" });
+  check("CONTROL: the writer can still do all of it",
+    psql(`select count(*) from agent.run_work;`, asWriter).ok);
+  check("RLS is enabled and forced on the queue, with no policy to match",
+    jget(`select relrowsecurity::text || ',' || relforcerowsecurity::text from pg_class where oid='agent.run_work'::regclass;`) === "true,true");
+  check("...and there are no policies on it at all",
+    jget(`select count(*) from pg_policies where schemaname='agent' and tablename='run_work';`) === "0");
+
+  console.log("\n── the log and the work go together ──");
+  check("deleting the run takes its work row with it",
+    psql(`delete from agent.runs where id='${Q1}';`, asWriter).ok
+    && jget(`select count(*) from agent.run_work where run_id='${Q1}';`) === "0");
+  check("...and its log",
+    jget(`select count(*) from agent.run_entries where run_id='${Q1}';`) === "0");
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

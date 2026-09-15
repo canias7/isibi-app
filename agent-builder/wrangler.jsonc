@@ -6,20 +6,76 @@
 // so this file cannot ship by accident. Deploying it is a deliberate
 // `wrangler deploy -c agent-builder/wrangler.jsonc`, and it has not been run.
 //
-// THE THREE SECRETS ARE NOT HERE AND MUST NOT BE. They go in with
-// `wrangler secret put --config agent-builder/wrangler.jsonc`:
-//   SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_JWT_SECRET
-// The service key is what lets the backend write, and it stays server-side: it is
-// never sent to a browser and never appears in this file.
+// THE SECRETS ARE NOT HERE AND MUST NOT BE. See `docs/deploy.md` for the exact
+// names and the order to do things in. The service key is what lets the backend
+// write, and it stays server-side: it is never sent to a browser and never
+// appears in this file.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "agent-builder-api",
   "main": "src/worker.mjs",
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
+
   "vars": {
     // The model this deployment will run. `stand-in` costs nothing and calls no
     // provider; a name this Worker does not know is REFUSED rather than defaulted.
     "MODEL": "stand-in"
+  },
+
+  "queues": {
+    // THE PRODUCER. `RUN_QUEUE` is the name `src/worker.mjs` exports as
+    // `QUEUE_BINDING`, so the config and the code cannot disagree — a test reads
+    // both. A missing binding is a named 503 and never a silent fall back to
+    // `ctx.waitUntil`, because a deployment that believes it is durable and is not
+    // is the one failure worth refusing to boot over.
+    "producers": [
+      { "queue": "agent-runs", "binding": "RUN_QUEUE" }
+    ],
+
+    "consumers": [
+      {
+        "queue": "agent-runs",
+
+        // **ONE RUN PER INVOCATION, ON PURPOSE.** A run can last minutes, and a
+        // batch is handled inside ONE invocation — so two long runs in one batch
+        // would serialise, and the second could be cut off by the invocation's own
+        // ceiling before it ever started. One at a time means each run gets a whole
+        // invocation, and Cloudflare scales the number of invocations instead.
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+
+        // A BACKSTOP, NOT THE RETRY MECHANISM. The consumer acks every message it
+        // looked at, because the work ROW decides whether a run is offered again
+        // and the cron below does the offering — one retry authority, and it is the
+        // one that can see the run's state. These retries only ever apply to an
+        // invocation that could not look at the work at all (an unconfigured
+        // Worker), which is the one case the queue's own retry is right for.
+        "max_retries": 3
+      }
+    ]
+  },
+
+  // THE SWEEPER. What makes a lost doorbell cost latency instead of work: it finds
+  // runs whose lease has lapsed and puts them back on the queue.
+  //
+  // EVERY MINUTE, AND THAT IS DERIVED. The lease is 90 s and the sweep's grace is
+  // 30 s (`LEASE_TTL_S`, `SWEEP_GRACE_S`), so a run whose worker died is
+  // reclaimable about two minutes later; a cron slower than the lease would leave
+  // dropped work sitting for no reason, and a faster one would find nothing.
+  "triggers": {
+    "crons": ["* * * * *"]
   }
+
+  // NOT SET, AND SAID OUT LOUD:
+  //
+  // `limits.cpu_ms` — left at the platform default. A run's real ceiling here is
+  // WALL clock inside one consumer invocation, and the design answer to that is not
+  // a bigger ceiling: it is the lease. A run cut off mid-invocation loses its lease,
+  // the sweeper offers it again, and the next consumer continues FROM THE LOG. So a
+  // long run is not one long invocation — it is several, and that is why the journal
+  // and the `repeatable` rule exist.
+  //
+  // No dead-letter queue. A message is never the record of anything, so a message
+  // that cannot be delivered is not work that can be lost; the row is still there.
 }

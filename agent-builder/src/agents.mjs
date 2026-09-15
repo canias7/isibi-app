@@ -22,7 +22,7 @@ const echo = defineTool({
   run: async (args) => ({ echoed: typeof args?.text === "string" ? args.text.slice(0, 200) : "" }),
 });
 
-export const AGENTS = Object.freeze({
+const support = Object.freeze({
   support: defineAgent({
     name: "support",
     model: "stand-in",
@@ -33,3 +33,55 @@ export const AGENTS = Object.freeze({
     limits: { steps: 4, toolCalls: 4, wallMs: 60_000 },
   }),
 });
+
+/**
+ * A TOOL THAT TAKES TIME AND NOTHING ELSE.
+ *
+ * It exists to demonstrate the thing that is hardest to believe without seeing it:
+ * that a run outlives the request that asked for it. Sleeping is the honest
+ * stand-in for real work — a model call, a container build, a page compile — and it
+ * costs nothing and touches nothing.
+ *
+ * **`repeatable: true` IS CORRECT HERE AND IS NOT THE EASY CHOICE.** Waiting twice
+ * is the same as waiting once, so a redelivery may safely finish it. A tool that
+ * did anything at all would have to say `false` and would refuse the resume, which
+ * is the behaviour the payment case in the runner tests pins.
+ */
+const wait = defineTool({
+  name: "wait",
+  description: "Do nothing for a while. Used to stand in for work that takes time.",
+  input: { type: "object", properties: { ms: { type: "number" } }, required: ["ms"] },
+  scope: PUBLIC,
+  repeatable: true,
+  run: async (args) => {
+    // BOUNDED HERE TOO, not only by the run's `toolMs`. A tool is the agent
+    // author's own code and the loop has nowhere to interrupt it from, so a tool
+    // that can be asked for an unbounded sleep is a tool that can hold a lease
+    // open for ever.
+    const ms = Math.min(Math.max(Number(args?.ms) || 0, 0), 25_000);
+    await new Promise((r) => setTimeout(r, ms));
+    return { waited: ms };
+  },
+});
+
+/**
+ * The long-running agent. Its bounds are deliberately wide enough for a run that
+ * lasts minutes, because that is the case the queue exists for — and every one of
+ * them is still enforced in code.
+ */
+export const SLOW = Object.freeze({
+  slow: defineAgent({
+    name: "slow",
+    model: "stand-in",
+    instructions: "Work through the task in stages, waiting between them.",
+    tools: [wait],
+    limits: { steps: 16, toolCalls: 16, wallMs: 900_000, toolMs: 30_000 },
+  }),
+});
+
+
+/**
+ * THE REGISTRY. Built LAST, from the agents above, so adding one is adding it here
+ * rather than remembering to — a request can only ever NAME what is in this object.
+ */
+export const AGENTS = Object.freeze({ ...support, ...SLOW });

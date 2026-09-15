@@ -33,11 +33,29 @@ const files = fs.readdirSync(DIR).filter((f) => f.endsWith(".sql")).sort();
 // in the first migration and again in the second — and mutating the FIRST one would
 // change nothing, because the second replaces it. That is an inert mutant waiting
 // to happen, so the tenant mutants below name the LATEST file explicitly.
-if (files.length < 1) { console.error(`no migrations in ${MIGRATIONS}`); process.exit(1); }
+if (files.length < 1) { console.error(`no migrations in ${DIR}`); process.exit(1); }
+
+/**
+ * The LAST migration that defines a thing, found by asking the files rather than by
+ * counting them.
+ *
+ * **A POSITION IS NOT AN IDENTITY.** This was `files[files.length - 1]`, which was
+ * right for exactly as long as the tenant function lived in the newest migration —
+ * and the moment a third migration arrived, every mutant aimed at "the latest" was
+ * pointing at a file that does not contain them. Derived, it cannot go stale.
+ */
+const lastDefining = (needle) => {
+  const hit = [...files].reverse().find((f) => fs.readFileSync(path.join(DIR, f), "utf8").includes(needle));
+  if (!hit) { console.error(`no migration defines ${needle}`); process.exit(1); }
+  return path.join(DIR, hit);
+};
+
 const SQL = path.join(DIR, files[0]);
-const LATEST = path.join(DIR, files[files.length - 1]);
+const TENANT_FN = lastDefining("function agent.tenant_id()");
+const WORK = lastDefining("create table if not exists agent.run_work");
 const m = (label, from, to, control = false) => ({ label, files: [SQL], from, to, control });
-const mLatest = (label, from, to) => ({ label, files: [LATEST], from, to, control: false });
+const mTenant = (label, from, to) => ({ label, files: [TENANT_FN], from, to, control: false });
+const mWork = (label, from, to, control = false) => ({ label, files: [WORK], from, to, control });
 
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
@@ -64,20 +82,20 @@ const spec = [
     "grant select, insert, update, delete on agent.runs, agent.run_entries to authenticated;"),
 
   // The tenant fallback, aimed at the migration that actually defines it.
-  mLatest("SQL/isolation: the subject fallback is gone, so no real Supabase token matches anything",
+  mTenant("SQL/isolation: the subject fallback is gone, so no real Supabase token matches anything",
     "    nullif(claims ->> 'sub', '')          -- otherwise the signed-in subject",
     "    null"),
-  mLatest("SQL/isolation: the SUBJECT wins over an explicit tenant_id",
+  mTenant("SQL/isolation: the SUBJECT wins over an explicit tenant_id",
     "    nullif(claims ->> 'tenant_id', ''),   -- explicit, and it wins\n    nullif(claims ->> 'sub', '')          -- otherwise the signed-in subject",
     "    nullif(claims ->> 'sub', ''),\n    nullif(claims ->> 'tenant_id', '')"),
   // THE SENTINEL MUST OWN A ROW AT THE MOMENT THE CHECK LOOKS, or the mutant is
   // inert: `subject-99` was tried and survived, because the run owned by that
   // subject is created and deleted in a later section than the fail-closed checks.
   // `t1` owns a run for the whole file.
-  mLatest("SQL/isolation: unreadable claims FAIL OPEN",
+  mTenant("SQL/isolation: unreadable claims FAIL OPEN",
     "exception when others then\n  -- Claims that will not parse are not a tenant. Anything we cannot read as an\n  -- identity is not an identity.\n  return null;",
     "exception when others then\n  return 't1';"),
-  mLatest("SQL/isolation: the tenant is a constant instead of the verified claim",
+  mTenant("SQL/isolation: the tenant is a constant instead of the verified claim",
     "  return coalesce(\n    nullif(claims ->> 'tenant_id', ''),   -- explicit, and it wins\n    nullif(claims ->> 'sub', '')          -- otherwise the signed-in subject\n  );",
     "  return 't1';"),
 
@@ -131,15 +149,100 @@ const spec = [
     "create trigger runs_delete_marks\n  before delete on agent.runs",
     "create trigger runs_delete_marks\n  before truncate on agent.runs"),
 
+  // ── THE DURABLE QUEUE: EXACTLY ONE EXECUTION ──────────────────────────────
+  // The claim is a single conditional UPDATE and every one of these breaks one of
+  // its conditions. They are the difference between "one run executes once" and
+  // "a duplicate delivery pays for the same model calls twice".
+  mWork("SQL/queue: the claim stops being exclusive, so a duplicate delivery runs the same run",
+    "     and (claimed_by is null or lease_expires_at <= now())",
+    "     and (claimed_by is null or true)"),
+  mWork("SQL/queue: a lapsed lease is never reclaimable, so a dropped run is stranded for ever",
+    "     and (claimed_by is null or lease_expires_at <= now())",
+    "     and claimed_by is null"),
+  mWork("SQL/queue: finished work is claimable again",
+    "   where run_id = p_run_id\n     and done_at is null\n     and (claimed_by is null",
+    "   where run_id = p_run_id\n     and (claimed_by is null"),
+  mWork("SQL/queue: the claim no longer answers whose run it is, so a consumer must trust the message",
+    "    'tenant_id', v_row.tenant_id,", "    'tenant_id', null,"),
+  mWork("SQL/queue: the claim stops counting attempts, so a run that keeps failing never gives up",
+    "         attempts = attempts + 1", "         attempts = attempts"),
+
+  // ── THE LEASE ─────────────────────────────────────────────────────────────
+  mWork("SQL/queue: A LAPSED LEASE CAN BE REVIVED, so two workers run one run",
+    "     and done_at is null\n     and lease_expires_at > now()\n  returning true into v_ok;",
+    "     and done_at is null\n  returning true into v_ok;"),
+  mWork("SQL/queue: anybody may extend anybody's lease",
+    "   where run_id = p_run_id\n     and claimed_by = p_worker\n     and done_at is null\n     and lease_expires_at > now()",
+    "   where run_id = p_run_id\n     and done_at is null\n     and lease_expires_at > now()"),
+  mWork("SQL/queue: a worker that lost its lease may still release somebody else's claim",
+    "   where run_id = p_run_id\n     and claimed_by = p_worker\n  returning true into v_ok;",
+    "   where run_id = p_run_id\n  returning true into v_ok;"),
+  mWork("SQL/queue: releasing always marks the work done, so a retryable failure is never retried",
+    "         done_at = case when p_done then now() else null end,", "         done_at = now(),"),
+  mWork("SQL/queue: the sweeper selects on ELAPSED TIME, so a long healthy run is taken away",
+    "   where done_at is null\n     and (claimed_by is null or lease_expires_at <= now() - make_interval(secs => p_grace_s))",
+    "   where done_at is null\n     and enqueued_at <= now() - make_interval(secs => p_grace_s)"),
+  mWork("SQL/queue: the sweeper offers finished work too",
+    "   where done_at is null\n     and (claimed_by is null or lease_expires_at <= now()",
+    "   where true\n     and (claimed_by is null or lease_expires_at <= now()"),
+
+  // ── ACCEPTING WORK ────────────────────────────────────────────────────────
+  mWork("SQL/queue: A RETRY CAN ATTACH TO ANOTHER TENANT'S RUN ID",
+    "  if not exists (select 1 from agent.runs where id = p_run_id and tenant_id = p_tenant) then",
+    "  if not exists (select 1 from agent.runs where id = p_run_id) then"),
+  mWork("SQL/queue: accept stops writing the first entry, so the prompt is not durable",
+    "  insert into agent.run_entries (run_id, seq, body) values (p_run_id, 0, p_entry)\n  on conflict do nothing;",
+    "  -- no entry written"),
+  mWork("SQL/queue: accept stops writing the work row, so nothing will ever run it",
+    "  insert into agent.run_work (run_id, tenant_id, kind)\n  values (p_run_id, p_tenant, p_kind)\n  on conflict (run_id) do nothing\n  returning * into v_existing;",
+    "  select * into v_existing from agent.run_work where run_id = p_run_id;"),
+  mWork("SQL/queue: any entry may be the first one, so a run can start mid-log",
+    "  if p_entry is null or p_entry ->> 'kind' is distinct from 'started' then",
+    "  if false then"),
+
+  // ── ASKING AGAIN ──────────────────────────────────────────────────────────
+  mWork("SQL/queue: A RESUME MID-RUN BECOMES A SECOND DELIVERY",
+    "  if v_row.claimed_by is not null and v_row.lease_expires_at > now() then\n    return jsonb_build_object('state', 'running', 'attempts', v_row.attempts);\n  end if;",
+    "  if false then\n    return jsonb_build_object('state', 'running', 'attempts', v_row.attempts);\n  end if;"),
+  mWork("SQL/queue: a resume can reach another tenant's run",
+    "   where run_id = p_run_id and tenant_id = p_tenant\n     for update;",
+    "   where run_id = p_run_id\n     for update;"),
+  mWork("SQL/queue: a resume does not put the work back",
+    "     set kind = 'resume', done_at = null, enqueued_at = now(), last_error = null,",
+    "     set kind = 'resume', enqueued_at = now(), last_error = null,"),
+
+  // ── WHO MAY TOUCH THE QUEUE ───────────────────────────────────────────────
+  mWork("SQL/queue: a signed-in customer is granted the queue",
+    "grant select, insert, update, delete on agent.run_work to service_role;",
+    "grant select, insert, update, delete on agent.run_work to service_role, authenticated;"),
+  // NOT "a customer may call the claim function" ON ITS OWN: that mutant SURVIVED
+  // and was proved INERT by measurement rather than hunted. Widening the EXECUTE
+  // grant alone changes nothing a customer can do, because the function is SECURITY
+  // INVOKER and the UPDATE inside it then meets the TABLE grant — and with that
+  // widened too it meets forced RLS with no policies, which matches no rows. Three
+  // walls, so no single one of them can be killed, which is exactly the recorded
+  // "two redundant defences cannot be killed one at a time".
+  //
+  // What IS testable is the pair coming down together. MEASURED: with the function
+  // grant widened, the table granted and RLS off, a customer's claim comes back
+  // `claimed: true` — it really takes the work.
+  mWork("SQL/queue: ALL THREE WALLS DOWN — a customer really can claim another tenant's work",
+    "alter table agent.run_work enable row level security;\nalter table agent.run_work force row level security;\n\nrevoke all on agent.run_work from anon, authenticated;\ngrant select, insert, update, delete on agent.run_work to service_role;",
+    "revoke all on agent.run_work from anon;\ngrant select, insert, update, delete on agent.run_work to service_role, authenticated;\ngrant execute on function agent.claim_run(uuid, text, integer) to authenticated;"),
+  mWork("SQL/queue: the work row outlives its run",
+    "  run_id            uuid primary key references agent.runs(id) on delete cascade,",
+    "  run_id            uuid primary key references agent.runs(id) on delete no action,"),
+
   // ── THE CONTROL: comment-only, and it MUST survive ────────────────────────
   m("SQL/CONTROL (comment only)", "-- ============================================================================\n-- AGENT RUNS:",
     "-- ============================================================================\n-- AGENT RUNS (control):", true),
+  mWork("SQL/queue/CONTROL (comment only)", "-- THE DURABLE QUEUE.", "-- THE DURABLE QUEUE (control).", true),
 ];
 
 // THE PRE-CHECK. Every anchor exactly once IN ITS OWN FILE, and a replacement that
 // differs. Reading one file for every mutant is how two correct anchors were
-// reported as missing: the tenant mutants target the LATEST migration, not the
-// first.
+// reported as missing: the tenant and queue mutants target their own migrations,
+// not the first.
 let bad = 0;
 const text = new Map();
 for (const s of spec) {

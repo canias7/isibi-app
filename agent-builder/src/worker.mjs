@@ -2,8 +2,22 @@
  * THE WORKER ENTRY POINT — the only file that knows it is running on Cloudflare.
  *
  * Everything below it takes its dependencies as arguments, so this is where the
- * real ones get chosen: the JWT secret, the Supabase URL and key, the schema, the
- * model, and the background dispatcher. That is the whole job.
+ * real ones get chosen: the project, the store, the schema, the model, the queue.
+ * That is the whole job.
+ *
+ * THREE HANDLERS, AND THEY ARE THREE DIFFERENT JOBS:
+ *
+ *   `fetch`     — the HTTP surface. Accepts work and answers 202. Runs nothing.
+ *   `queue`     — the consumer. Claims a delivery and executes the run.
+ *   `scheduled` — the sweeper. Offers dropped work again.
+ *
+ * **`ctx.waitUntil` IS NO LONGER THE DISPATCHER, and it is not a fallback
+ * either.** It kept a run alive after the response, which is the right shape and
+ * the wrong durability: the work existed only as a closure in one isolate, so an
+ * eviction, a deploy or a crash lost it with nothing anywhere recording that a run
+ * was meant to progress. The queue binding is REQUIRED — a missing one is a named
+ * 503 like any other missing setting, because silently falling back to `waitUntil`
+ * would mean a deployment that believes it is durable and is not.
  *
  * **CONFIGURATION IS CHECKED BEFORE ANYTHING ELSE, AND A GAP IS A NAMED 503.** A
  * Worker with a missing secret should not throw — an uncaught throw is answered by
@@ -17,22 +31,50 @@
 
 import { makeVerifier } from "./auth.mjs";
 import { makeRunStore } from "./store.mjs";
+import { makeWork } from "./work.mjs";
 import { makeApi } from "./api.mjs";
+import { makeRunner } from "./runner.mjs";
 import { makeStandIn } from "./model-standin.mjs";
 import { AGENTS } from "./agents.mjs";
 
-/** The settings this Worker needs, and what each is for. */
+/**
+ * The settings this Worker cannot run without, and what each is for.
+ *
+ * **THE JWT SIGNING SECRET IS NOT ONE OF THEM, DELIBERATELY** — see `OPTIONAL`
+ * below and the long note at the top of `auth.mjs`. Asking an operator for the
+ * credential that can MINT a token for any user, to do a job that only needs the
+ * ability to CHECK one, is a bargain worth refusing.
+ */
 export const SETTINGS = Object.freeze({
   SUPABASE_URL: "the project's API URL",
-  SUPABASE_SERVICE_KEY: "the service-role key — the backend writes with it, and it never leaves the server",
-  SUPABASE_JWT_SECRET: "the project's JWT secret, so a customer's token can be verified",
+  SUPABASE_SERVICE_KEY: "the service-role (or secret) key — the backend writes with it, and it never leaves the server",
+  SUPABASE_PUBLISHABLE_KEY: "the publishable (or legacy anon) key — NOT a secret; it is what lets Supabase Auth be asked whether an HS256 token is genuine",
 });
+
+/**
+ * Settings that change how this Worker behaves and that it runs fine without.
+ *
+ * `SUPABASE_JWT_SECRET` is an OPT-IN performance choice: with it, an HS256 token
+ * is verified in this process; without it, Supabase is asked. A project on
+ * asymmetric signing keys — which this one is — never needs it at all, because a
+ * published key verifies locally with no secret.
+ */
+export const OPTIONAL = Object.freeze({
+  SUPABASE_JWT_SECRET: "opt-in: verify HS256 tokens locally instead of asking Supabase Auth on each one",
+});
+
+/** The queue binding. Named once, so the config and the code cannot disagree. */
+export const QUEUE_BINDING = "RUN_QUEUE";
 
 /** The models this Worker will run. A name not in here is refused. */
 export const MODELS = Object.freeze({ "stand-in": makeStandIn });
 
-/** The schema the store targets. Named explicitly rather than left to a default. */
+/** The schema the store and the queue target. Named explicitly, never defaulted. */
 export const SCHEMA = "agent";
+
+/** How far back the sweeper looks, and how many runs it offers per tick. */
+export const SWEEP_GRACE_S = 30;
+export const SWEEP_LIMIT = 50;
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
@@ -40,57 +82,174 @@ const isText = (v) => typeof v === "string" && v.trim() !== "";
  * What is missing, by NAME. Answers `[]` when the Worker is configured.
  *
  * The names are safe to say out loud; the values are not, and none is read here
- * for any purpose but presence.
+ * for any purpose but presence. **The queue binding is on this list**: a Worker
+ * that cannot persist a delivery is not a working deployment.
  */
 export function missingSettings(env) {
-  return Object.keys(SETTINGS).filter((k) => !isText(env?.[k]));
+  return [...missingFor(env, "produce")];
 }
 
 /**
- * Build the handler for one environment. Exported so a test — and the local
- * runner — can build exactly what the Worker builds.
+ * What a particular job is missing.
+ *
+ * **PRODUCING AND CONSUMING NEED DIFFERENT THINGS, and pretending otherwise was
+ * over-strict in one direction and imprecise in both.** Accepting work needs
+ * somewhere to ring; executing it needs nothing but the project, because the row is
+ * the work and the message was only a doorbell. A local driver that supplies its
+ * own transport is a producer with no binding, and that is a real configuration
+ * rather than a broken one.
  */
-export function buildApi(env, { dispatch, now, newId } = {}) {
-  const missing = missingSettings(env);
-  if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
+function missingFor(env, job) {
+  const missing = Object.keys(SETTINGS).filter((k) => !isText(env?.[k]));
+  if (job === "produce") {
+    const q = env?.[QUEUE_BINDING];
+    if (!q || typeof q.send !== "function") missing.push(QUEUE_BINDING);
+  }
+  return missing;
+}
+
+/** Everything the three handlers are built from, so they cannot be built differently. */
+function parts(env, { notify, fetchImpl } = {}) {
   const modelName = isText(env.MODEL) ? env.MODEL : "stand-in";
   const make = Object.hasOwn(MODELS, modelName) ? MODELS[modelName] : null;
   if (!make) throw new TypeError(`no such model: ${modelName}`);
+  const doFetch = fetchImpl ?? globalThis.fetch.bind(globalThis);
+
+  const store = makeRunStore({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA });
+  const work = makeWork({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA });
+
+  // **THE MESSAGE CARRIES A RUN ID AND NOTHING ELSE.** It is a doorbell: the
+  // consumer learns whose run it is from the claim, in the same statement that
+  // takes the work, so a stale or replayed message can never make this process act
+  // as a tenant.
+  const ring = notify ?? (async ({ runId }) => { await env[QUEUE_BINDING].send({ runId }); });
+
+  return { store, work, send: make(), ring, doFetch, modelName };
+}
+
+/**
+ * Build the HTTP handler for one environment. Exported so a test — and the local
+ * runner — can build exactly what the Worker builds.
+ */
+export function buildApi(env, { now, newId, notify, fetchImpl } = {}) {
+  // A caller that hands in its own `notify` is supplying the transport, so the
+  // binding is not required of it. The deployed Worker hands in nothing.
+  const missing = missingFor(env, typeof notify === "function" ? "consume" : "produce");
+  if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
+  const { store, work, ring } = parts(env, { notify, fetchImpl });
 
   return makeApi({
-    verify: makeVerifier({ secret: env.SUPABASE_JWT_SECRET }),
-    // THE SCHEMA IS PASSED EXPLICITLY. It has a default in the store, and a
-    // default is the thing that silently keeps working while meaning something
-    // else — a project whose exposed schemas change, or a second schema added
-    // later, would both be invisible.
-    store: makeRunStore({ fetch: globalThis.fetch.bind(globalThis), url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA }),
-    send: make(),
+    // THE VERIFIER GETS THE PROJECT, NOT A SECRET. It picks its own strategy from
+    // the token in front of it: a published key where the project publishes one,
+    // Supabase Auth for a legacy HS256 token, and the local secret only if an
+    // operator set one.
+    verify: makeVerifier({
+      url: env.SUPABASE_URL,
+      apikey: env.SUPABASE_PUBLISHABLE_KEY,
+      fetch: fetchImpl ?? globalThis.fetch.bind(globalThis),
+      ...(isText(env.SUPABASE_JWT_SECRET) ? { secret: env.SUPABASE_JWT_SECRET } : {}),
+      onRefusal: (r) => console.error("agent-auth", JSON.stringify(r)),
+    }),
+    store, work, notify: ring,
     agents: AGENTS,
-    dispatch, now, newId,
+    now, newId,
     onError: (e) => console.error("agent-api", JSON.stringify(e)),
   });
 }
 
+/** Build the consumer. The only thing in the deployment that executes a run. */
+export function buildRunner(env, { now, notify, fetchImpl } = {}) {
+  // THE CONSUMER NEVER PRODUCES. It claims, executes and releases; the only thing
+  // that sends a message is the sweeper, and that is a different handler.
+  const missing = missingFor(env, "consume");
+  if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
+  const { store, work, send } = parts(env, { notify, fetchImpl });
+  return makeRunner({
+    work, store, send, agents: AGENTS, now,
+    onError: (e) => console.error("agent-runner", JSON.stringify(e)),
+    onEvent: (e) => console.log("agent-runner", JSON.stringify(e)),
+  });
+}
+
+const configGap = (e) => new Response(JSON.stringify({ error: String(e?.message ?? e) }), {
+  status: 503, headers: { "content-type": "application/json; charset=utf-8" },
+});
+
 export default {
   async fetch(request, env, ctx) {
     let api;
-    try {
-      api = buildApi(env, {
-        // **THE DISPATCHER, AND ITS HONEST LIMIT.** `waitUntil` keeps the work
-        // alive after the response goes out, which is exactly what is wanted and
-        // is NOT unlimited: a Worker invocation has a wall-clock ceiling, so a run
-        // longer than that needs a queue or a container behind this same seam.
-        // Nothing above this line changes when that arrives.
-        dispatch: (task) => ctx.waitUntil(Promise.resolve().then(task).catch((e) => {
-          console.error("agent-dispatch", String(e?.message ?? e));
-        })),
-      });
-    } catch (e) {
-      // Named, and with no value in it.
-      return new Response(JSON.stringify({ error: String(e?.message ?? e) }), {
-        status: 503, headers: { "content-type": "application/json; charset=utf-8" },
-      });
-    }
+    try { api = buildApi(env); }
+    catch (e) { return configGap(e); }          // Named, and with no value in it.
     return api.fetch(request);
+  },
+
+  /**
+   * A delivery arrived.
+   *
+   * **EVERY MESSAGE IS ACKED, EVEN A FAILED ONE, AND THAT IS ON PURPOSE: THERE IS
+   * EXACTLY ONE RETRY AUTHORITY.** The work row decides whether a run is offered
+   * again, and the sweeper does the offering. Letting the queue retry as well would
+   * give two mechanisms redelivering the same run on different clocks — the queue
+   * re-delivering while the row is still claimed, the claim refusing, and the
+   * message eventually dead-lettering for a reason that has nothing to do with the
+   * run. One authority, and it is the one that can see the run's state.
+   */
+  async queue(batch, env, ctx) {
+    let runner;
+    try { runner = buildRunner(env); }
+    catch (e) {
+      // Nothing can be executed, so nothing is acked: this is the one case where
+      // the queue's own retry is the right mechanism, because the work row cannot
+      // be read to decide anything.
+      console.error("agent-queue", String(e?.message ?? e));
+      for (const m of batch.messages) m.retry();
+      return;
+    }
+    for (const m of batch.messages) {
+      const runId = m.body?.runId;
+      if (!isText(runId)) {
+        // A message we cannot read names no run. Retrying it forever helps nobody,
+        // and no work is lost: if a run really is outstanding, its ROW says so and
+        // the sweeper will find it.
+        console.error("agent-queue", JSON.stringify({ at: "message", why: "no runId" }));
+        m.ack();
+        continue;
+      }
+      try {
+        const out = await runner.deliver(runId);
+        console.log("agent-queue", JSON.stringify({ runId, why: out.why }));
+      } catch (e) {
+        // `deliver` is documented never to throw; if it ever does, the run's row is
+        // still the record and the sweeper is still the retry.
+        console.error("agent-queue", JSON.stringify({ runId, error: String(e?.message ?? e) }));
+      }
+      m.ack();
+    }
+  },
+
+  /**
+   * The sweeper. What makes a lost doorbell cost latency instead of work.
+   *
+   * It re-rings rather than executing: a tick is a short invocation and a run is
+   * not, so the delivery goes back through the queue and is claimed by a consumer
+   * with a full invocation of its own.
+   */
+  async scheduled(event, env, ctx) {
+    // The sweeper DOES produce — it puts dropped work back on the queue — so it
+    // asks for the full deployment configuration rather than the consumer's.
+    const missing = missingSettings(env);
+    if (missing.length) { console.error("agent-sweep", `not configured: ${missing.join(", ")}`); return; }
+    let runner;
+    try { runner = buildRunner(env); }
+    catch (e) { console.error("agent-sweep", String(e?.message ?? e)); return; }
+    try {
+      const dropped = await runner.reclaimable({ graceS: SWEEP_GRACE_S, limit: SWEEP_LIMIT });
+      for (const row of dropped) {
+        await env[QUEUE_BINDING].send({ runId: row.runId });
+      }
+      console.log("agent-sweep", JSON.stringify({ offered: dropped.length }));
+    } catch (e) {
+      console.error("agent-sweep", String(e?.message ?? e));
+    }
   },
 };

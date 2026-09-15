@@ -2,7 +2,7 @@
  * THE HTTP SURFACE — start a run, read it, resume it.
  *
  * A `fetch(request)` handler, which is what a Cloudflare Worker wants. Nothing in
- * here is bound to Cloudflare: `verify`, `store`, `send`, `dispatch`, `now` and
+ * here is bound to Cloudflare: `verify`, `store`, `work`, `notify`, `now` and
  * `newId` are all handed in, so the whole thing runs in a test with no network, no
  * database, no model and no deployment.
  *
@@ -19,17 +19,27 @@
  * field to be mistaken for one. A body that carries a tenant is REFUSED rather
  * than ignored, because a silent drop lets somebody believe it worked.
  *
- * **THE WORK IS NOT THE REQUEST.** A run can outlive the connection that asked
- * for it, so starting one writes the run down, hands the work to `dispatch`, and
- * answers 202 immediately. `dispatch` is where the infrastructure goes —
- * `ctx.waitUntil` for short work, a queue or a container for long — and until one
- * is wired, a caller passes whatever it has. Nothing in this file waits for a run
- * to finish.
+ * **NOTHING IN THIS FILE EXECUTES A RUN, AND THAT IS THE POINT OF THE QUEUE.** A
+ * run is ACCEPTED here — written down, durably, in one transaction — and executed
+ * by `runner.mjs` when a delivery arrives. The two are deliberately far apart:
+ *
+ *   ACCEPTING is fast, transactional and must never be lost. It writes the run
+ *   row, the run's first journal entry (so the prompt outlives the request that
+ *   carried it) and the work row, together or not at all.
+ *
+ *   NOTIFYING is a doorbell. It carries a run id and no authority, and it is
+ *   allowed to FAIL: the work is already durable, so a lost delivery costs
+ *   latency and never work — the sweeper offers it again. The response says
+ *   whether the doorbell rang rather than pretending it always does.
+ *
+ * That ordering is what replaced `ctx.waitUntil`. `waitUntil` kept the work alive
+ * after the response, which is the right shape and the wrong durability: the work
+ * existed only as a closure in one isolate, and an eviction or a deploy took it
+ * with nothing anywhere saying a run was ever meant to progress.
  */
 
-import { runAgent } from "./run.mjs";
 import { bearerOf } from "./auth.mjs";
-import { stoppedEntry } from "./journal.mjs";
+import { startedEntry, limitsToJson } from "./journal.mjs";
 
 const json = (status, body, extra = {}) => new Response(JSON.stringify(body), {
   status,
@@ -71,7 +81,7 @@ export function runView({ runId, state, run }) {
 }
 
 /**
- * `makeApi({ verify, store, agents, send, dispatch, now, newId })`
+ * `makeApi({ verify, store, work, notify, agents, now, newId, onError })`
  *
  * `agents` is a registry of `defineAgent` results by name. A caller NAMES an
  * agent; it can never describe one. An agent is code — tools, instructions and
@@ -79,12 +89,14 @@ export function runView({ runId, state, run }) {
  * code.
  */
 export function makeApi(opts = {}) {
-  const { verify, store, agents, send, dispatch } = opts;
+  const { verify, store, work, notify } = opts;
   if (typeof verify !== "function") throw new TypeError("makeApi: verify must be a function");
   if (!store || typeof store.forTenant !== "function") throw new TypeError("makeApi: store must come from makeRunStore");
-  if (typeof send !== "function") throw new TypeError("makeApi: send must be a function");
-  if (typeof dispatch !== "function") throw new TypeError("makeApi: dispatch must be a function");
-  const registry = new Map(Object.entries(agents ?? {}));
+  if (!work || typeof work.accept !== "function" || typeof work.requeue !== "function") {
+    throw new TypeError("makeApi: work must come from makeWork");
+  }
+  if (typeof notify !== "function") throw new TypeError("makeApi: notify must be a function");
+  const registry = new Map(Object.entries(opts.agents ?? {}));
   if (registry.size === 0) throw new TypeError("makeApi: agents must hold at least one agent");
   for (const [name, a] of registry) {
     if (!a || a.kind !== "agent") throw new TypeError(`makeApi: agents.${name} must come from defineAgent`);
@@ -94,32 +106,18 @@ export function makeApi(opts = {}) {
   const onError = typeof opts.onError === "function" ? opts.onError : () => {};
 
   /**
-   * Run the work, and MAKE SURE IT ENDS SOMEWHERE VISIBLE.
+   * Ring the doorbell, and NEVER let it fail the request.
    *
-   * A dispatched task that throws would leave a run reading as `running` for ever
-   * — indistinguishable from one still going, which is the state nobody can act
-   * on. So an unexpected throw is written into the log as a stop, best effort, and
-   * reported through `onError` either way.
+   * The work is committed by the time this runs, so the only thing a failure
+   * changes is how soon the run starts. Answering 500 here would tell a caller
+   * their run was rejected when it is sitting in the queue, ready — the worst of
+   * both readings.
    */
-  async function execute({ scoped, runId, agent, prompt, from, journal }) {
-    try {
-      return await runAgent({
-        agent, send, journal,
-        tenant: { id: scoped.tenant },
-        ...(from ? { from } : { prompt }),
-      });
-    } catch (e) {
-      onError({ at: "execute", runId, tenant: scoped.tenant, error: String(e?.message ?? e) });
-      try {
-        await journal.append(stoppedEntry({
-          at: now(), stop: { reason: "crashed", error: String(e?.message ?? e) },
-        }));
-      } catch (e2) {
-        // Nothing left to write with. Said out loud rather than swallowed: this is
-        // the one path that can leave a run looking unfinished.
-        onError({ at: "execute-stop", runId, tenant: scoped.tenant, error: String(e2?.message ?? e2) });
-      }
-      return null;
+  async function ring(runId, tenant) {
+    try { await notify({ runId, tenant }); return true; }
+    catch (e) {
+      onError({ at: "notify", runId, tenant, error: String(e?.message ?? e) });
+      return false;
     }
   }
 
@@ -181,16 +179,31 @@ export function makeApi(opts = {}) {
           // and the thing that is wrong is the request.
           if (!agent) return json(400, { error: "no such agent" });
 
-          // THE RUN IS WRITTEN DOWN BEFORE THE ANSWER GOES OUT, so the id handed
-          // back is one a GET can already resolve. Dispatching first and creating
-          // later would hand out an id that does not exist yet.
           const runId = newId();
-          const { journal } = await scoped.create(runId);
 
-          dispatch(() => execute({ scoped, runId, agent, prompt: body.prompt, journal }));
+          // **THE LOG'S FIRST ENTRY IS WRITTEN HERE, and that is what makes the
+          // work durable rather than merely recorded.** It carries the prompt, the
+          // agent, the model and the bounds, so once `accept` commits, everything
+          // needed to execute this run exists in the database and the request can
+          // go away. Built with the SAME `startedEntry` as the SDK path, because
+          // two producers of one entry shape is how a resumed run ends up with a
+          // subtly different conversation.
+          const entry = startedEntry({
+            at: now(), tenant: who.tenant, agent: agent.name, model: agent.model,
+            prompt: body.prompt, limits: limitsToJson(agent.limits),
+          });
 
-          // 202: accepted, not finished. Nothing above waited for the run.
-          return json(202, { runId, status: "queued" }, { location: `/runs/${runId}` });
+          // ONE TRANSACTION: the run, its first entry and its work row. Nothing is
+          // acknowledged until all three are committed, so there is no state where
+          // a caller holds an id for a run that cannot run.
+          const accepted = await work.accept({ runId, tenant: who.tenant, entry, kind: "start" });
+
+          const delivered = await ring(runId, who.tenant);
+
+          // 202: accepted, not finished. Nothing above executed anything, and
+          // `delivered` says whether the doorbell rang rather than implying it
+          // always does — an undelivered run is queued and will be swept up.
+          return json(202, { runId, status: accepted.state, delivered }, { location: `/runs/${runId}` });
         }
 
         if (m && m[2] === "/resume" && request.method === "POST") {
@@ -199,10 +212,10 @@ export function makeApi(opts = {}) {
           if (bad) return bad;
           const open = await scoped.open(runId);        // authorises, or throws not-found
 
-          // A FINISHED RUN IS NOT DISPATCHED. `runAgent` would refuse to execute it
-          // anyway — that is proved separately — and the two walls are deliberate:
-          // this one makes the answer immediate and cheap, and that one makes it
-          // true even if something ever calls past here.
+          // A FINISHED RUN IS NOT QUEUED. `runAgent` would refuse to execute it
+          // anyway, and so would the runner — three walls, deliberately: this one
+          // makes the answer immediate and cheap, and the others make it true even
+          // if something ever calls past here.
           if (open.state.status === "stopped") {
             return json(200, {
               ...runView({ runId, state: open.state, run: open.run }),
@@ -219,8 +232,21 @@ export function makeApi(opts = {}) {
           // agent's tools over another's conversation.
           if (!agent) return json(409, { error: "the agent this run was started with is not registered", agent: name ?? null });
 
-          dispatch(() => execute({ scoped, runId, agent, from: open.entries, journal: open.journal }));
-          return json(202, { runId, status: "resuming", resumed: true }, { location: `/runs/${runId}` });
+          // **TWO SIMULTANEOUS RESUMES ARE SETTLED IN THE DATABASE, NOT HERE.**
+          // `requeue_run` locks the row and answers `running` when a live lease is
+          // already held, so the second press never becomes a second delivery. A
+          // check in this process would be a race wearing a wall's clothes.
+          const again = await work.requeue({ runId, tenant: who.tenant });
+          if (again.state === "not-found") return notFound();
+          if (again.state === "running") {
+            return json(202, {
+              ...runView({ runId, state: open.state, run: open.run }),
+              resumed: false, reason: "already-running",
+            }, { location: `/runs/${runId}` });
+          }
+
+          const delivered = await ring(runId, who.tenant);
+          return json(202, { runId, status: "queued", resumed: true, delivered }, { location: `/runs/${runId}` });
         }
 
         if (m && !m[2] && request.method === "GET") {

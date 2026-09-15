@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeApi, FORBIDDEN_BODY_KEYS } from "../src/api.mjs";
-import { makeVerifier, TENANT_CLAIM, ALG } from "../src/auth.mjs";
+import { makeVerifier, TENANT_CLAIM, HS } from "../src/auth.mjs";
+import { makeRunner } from "../src/runner.mjs";
 import { defineAgent, defineTool, PUBLIC } from "../src/define.mjs";
 import { liveStore } from "./helpers/memory-rest.mjs";
 
@@ -10,7 +11,7 @@ const SECRET = "s3cret";
 const NOW = 1_800_000_000_000;
 const b64url = (b) => btoa(String.fromCharCode(...b)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 const enc = (o) => b64url(new TextEncoder().encode(JSON.stringify(o)));
-async function sign(payload, { secret = SECRET, header = { alg: ALG, typ: "JWT" } } = {}) {
+async function sign(payload, { secret = SECRET, header = { alg: HS, typ: "JWT" } } = {}) {
   const body = `${enc(header)}.${enc(payload)}`;
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
@@ -41,22 +42,59 @@ const lookTool = (run = async () => ({ hit: 1 })) => defineTool({
   name: "look", description: "reads a thing", input: { type: "object" }, scope: PUBLIC, repeatable: true, run,
 });
 
-function harness({ answers = [says("done")], tools = [lookTool()], limits = {}, onError = () => {} } = {}) {
-  const { rest, store } = liveStore();
-  // AN EXPLICIT QUEUE, NOT `waitUntil`. Nothing runs until the test says so, which
-  // is what makes "the response did not wait for the work" a provable claim
-  // rather than a hopeful one.
+/**
+ * A TIMER THAT FIRES ONLY WHEN A TEST SAYS SO.
+ *
+ * The heartbeat is the one thing in the runner that is otherwise reachable only by
+ * sitting still for ninety seconds, and a lease lost half way through a run is the
+ * branch most worth driving. Default: nothing ever fires, so no test is perturbed
+ * by a beat it did not ask for.
+ */
+export function fakeTimer() {
+  const pending = new Map();
+  let id = 0;
+  return {
+    set: (fn) => { const h = ++id; pending.set(h, fn); return h; },
+    clear: (h) => { pending.delete(h); },
+    /** Run every scheduled callback once, in order. */
+    async fire() { const fns = [...pending.values()]; pending.clear(); for (const f of fns) await f(); },
+    get waiting() { return pending.size; },
+  };
+}
+
+function harness({ answers = [says("done")], tools = [lookTool()], limits = {}, onError = () => {},
+                   clock = () => NOW, timer = fakeTimer(), maxAttempts, doorbell = true } = {}) {
+  let doorbellBroken = !doorbell;
+  const { rest, store, work } = liveStore({ now: clock });
+  // AN EXPLICIT QUEUE THAT RUNS NOTHING UNTIL THE TEST SAYS SO, which is what
+  // makes "the response did not wait for the work" a provable claim rather than a
+  // hopeful one. It holds RUN IDS and not closures, exactly like the real one: the
+  // durable row is the work and the message is only a doorbell.
   const queue = [];
-  const dispatch = (task) => { queue.push(task); };
-  const drain = async () => { while (queue.length) await queue.shift()(); };
+  const notify = async ({ runId }) => {
+    if (doorbellBroken) throw new Error("the queue is unreachable");
+    queue.push(runId);
+  };
   const send = standIn(answers);
   let n = 0;
+  const agents = { support: defineAgent({ name: "support", model: "claude-sonnet-5", instructions: "help", tools, limits }) };
+  const runner = makeRunner({
+    work, store, send, agents, timer, onError, maxAttempts,
+    now: () => NOW,
+    nameWorker: (() => { let w = 0; return () => `worker-${++w}`; })(),
+  });
+  /** Deliver everything the queue holds, and report what each delivery did. */
+  const drain = async () => {
+    const out = [];
+    while (queue.length) out.push(await runner.deliver(queue.shift()));
+    return out;
+  };
   const api = makeApi({
     verify: makeVerifier({ secret: SECRET, now: () => NOW }),
-    store, send, dispatch, onError,
+    store, work, notify, onError,
     now: () => NOW,
     newId: () => `run-${++n}`,
-    agents: { support: defineAgent({ name: "support", model: "claude-sonnet-5", instructions: "help", tools, limits }) },
+    agents,
   });
   // A GET WITH A BODY IS NOT A REQUEST `new Request` WILL BUILD, so the body is
   // attached only where one is allowed. The first run of this file failed on that
@@ -66,7 +104,10 @@ function harness({ answers = [says("done")], tools = [lookTool()], limits = {}, 
     headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
     body: body === undefined || method === "GET" ? undefined : JSON.stringify(body),
   }));
-  return { api, call, queue, drain, send, rest, store };
+  return {
+    api, call, queue, drain, send, rest, store, work, runner, timer,
+    breakDoorbell: (v = true) => { doorbellBroken = v; },
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -88,10 +129,21 @@ test("REQUEST → EXECUTION → STORAGE → RESULT, end to end", async () => {
   // readable — which is why the id handed back is written down before the answer
   // goes out.
   assert.equal(h.send.calls.length, 0, "the model was called inside the request");
-  assert.equal(h.queue.length, 1, "no work was handed to the dispatcher");
+  assert.equal(h.queue.length, 1, "no delivery was queued");
   const early = await (await h.call("GET", `/runs/${runId}`, { token })).json();
-  assert.equal(early.status, "new", `a just-created run read as "${early.status}"`);
+  // **ALREADY `running`, AND ALREADY SELF-DESCRIBING.** The run's first journal
+  // entry is written inside the same transaction that accepts the work, so before
+  // anything executes the database already holds the prompt, the agent, the model
+  // and the bounds. That is what makes the work durable rather than merely
+  // recorded: the request can go away and the run is still fully specified.
+  assert.equal(early.status, "running", `a just-accepted run read as "${early.status}"`);
+  assert.equal(early.agent, "support", "the accepted run does not know its agent");
+  assert.equal(early.model, "claude-sonnet-5", "the accepted run does not know its model");
+  assert.equal(early.steps, 0, "the accepted run claims to have taken a step");
   assert.equal(early.text, null);
+  // THE WORK ROW IS COMMITTED TOO — the third thing in that one transaction.
+  assert.ok(h.rest.work.has(runId), "the work was acknowledged without being persisted");
+  assert.equal(h.rest.work.get(runId).done_at, null);
 
   // ── execution, after the request is over ──────────────────────────────────
   await h.drain();
@@ -112,6 +164,8 @@ test("REQUEST → EXECUTION → STORAGE → RESULT, end to end", async () => {
   // And it is really in storage, not in a variable: the log holds every entry.
   const log = [...h.rest.entries.get(runId).values()].map((e) => e.kind);
   assert.deepEqual(log, ["started", "model", "tool", "model", "stopped"]);
+  // ...and the queue let the work go, so nothing will be delivered again.
+  assert.notEqual(h.rest.work.get(runId).done_at, null, "finished work was left outstanding");
 });
 
 test("AN INTERRUPTED RUN RESUMES THROUGH THE API", async () => {
@@ -129,13 +183,19 @@ test("AN INTERRUPTED RUN RESUMES THROUGH THE API", async () => {
   // A fresh API — a different process, with a model that now answers.
   const h2 = harness({ answers: [says("finished on the second try")] });
   // Same storage, so the log carries across. (A new process, the same database.)
+  const agents2 = { support: defineAgent({ name: "support", model: "claude-sonnet-5", instructions: "help", tools: [lookTool()] }) };
+  const runner2 = makeRunner({
+    work: h.work, store: h.store, send: h2.send, agents: agents2, timer: fakeTimer(),
+    now: () => NOW, nameWorker: () => "second-process",
+  });
   const api2 = makeApi({
     verify: makeVerifier({ secret: SECRET, now: () => NOW }),
-    store: h.store, send: h2.send, dispatch: (t) => h2.queue.push(t),
+    store: h.store, work: h.work, notify: async ({ runId: r }) => { h2.queue.push(r); },
     now: () => NOW, newId: () => "unused",
-    agents: { support: defineAgent({ name: "support", model: "claude-sonnet-5", instructions: "help", tools: [lookTool()] }) },
+    agents: agents2,
   });
   const call2 = (method, path) => api2.fetch(new Request(`https://api.test${path}`, { method, headers: { authorization: `Bearer ${token}` } }));
+  const drain2 = async () => { while (h2.queue.length) await runner2.deliver(h2.queue.shift()); };
 
   // A run that ended with `call-failed` has a stopped entry, so it reads as
   // finished — and the API will not re-dispatch a finished run. That is the
@@ -155,7 +215,7 @@ test("AN INTERRUPTED RUN RESUMES THROUGH THE API", async () => {
   const body = await resume.json();
   assert.equal(body.resumed, true);
   assert.equal(h2.send.calls.length, 0, "the resume executed inside the request");
-  await (async () => { while (h2.queue.length) await h2.queue.shift()(); })();
+  await drain2();
 
   const after = await (await call2("GET", `/runs/${runId}`)).json();
   assert.equal(after.status, "stopped");
@@ -357,22 +417,37 @@ test("a bad request is a 400 that says what is wrong, and queues nothing", async
   assert.equal((await h.call("GET", "/nope", { token })).status, 404);
 });
 
-test("A CRASHING TASK ENDS SOMEWHERE VISIBLE rather than looking like it is still running", async () => {
-  // A dispatched task that throws would leave a run reading `running` for ever —
+test("A CRASHING DELIVERY ENDS SOMEWHERE VISIBLE rather than looking like it is still running", async () => {
+  // A delivery that throws would leave a run reading `running` for ever —
   // indistinguishable from one still going, which is the state nobody can act on.
-  const seen = [];
-  const h = harness({
-    tools: [lookTool()], onError: (e) => seen.push(e),
-    answers: [{ get text() { throw new Error("the runtime fell over"); } }],
-  });
+  // With a durable queue there are TWO right answers and the attempt count picks
+  // between them, so both halves are driven here.
+  const crashes = () => [{ get text() { throw new Error("the runtime fell over"); } }];
+
+  // (a) WHILE ATTEMPTS REMAIN the log is left alone and the work stays
+  // outstanding, because a crash may be transient and a redelivery is free.
+  const retry = harness({ answers: crashes(), maxAttempts: 3 });
   const token = await tokenFor("t1");
-  const { runId } = await (await h.call("POST", "/runs", { token, body: { agent: "support", prompt: "go" } })).json();
-  await h.drain();
-  const view = await (await h.call("GET", `/runs/${runId}`, { token })).json();
+  const a = await (await retry.call("POST", "/runs", { token, body: { agent: "support", prompt: "go" } })).json();
+  const [out] = await retry.drain();
+  assert.equal(out.why, "failed", `a crash reported "${out.why}"`);
+  const mid = await (await retry.call("GET", `/runs/${a.runId}`, { token })).json();
+  assert.equal(mid.status, "running", "a crash on the first attempt closed the log");
+  assert.equal(retry.rest.work.get(a.runId).done_at, null, "a retryable crash was taken off the queue");
+  assert.match(retry.rest.work.get(a.runId).last_error, /fell over/, "the queue does not say what went wrong");
+
+  // (b) ON THE LAST PERMITTED ATTEMPT the log is closed, because a run nothing
+  // will ever deliver again must not read as one still going.
+  const seen = [];
+  const last = harness({ answers: crashes(), maxAttempts: 1, onError: (e) => seen.push(e) });
+  const b = await (await last.call("POST", "/runs", { token, body: { agent: "support", prompt: "go" } })).json();
+  await last.drain();
+  const view = await (await last.call("GET", `/runs/${b.runId}`, { token })).json();
   assert.equal(view.status, "stopped", `a crashed run reads as "${view.status}"`);
   assert.equal(view.stop.reason, "crashed");
   assert.match(view.stop.error, /fell over/);
-  assert.ok(seen.some((e) => e.at === "execute"), "the crash was never reported");
+  assert.notEqual(last.rest.work.get(b.runId).done_at, null, "a run nobody will retry was left on the queue");
+  assert.ok(seen.some((e) => e.at === "deliver"), "the crash was never reported");
 });
 
 test("A RESUME USES THE AGENT THE RUN WAS STARTED WITH, never one from the request", async () => {
@@ -395,7 +470,7 @@ test("A RESUME USES THE AGENT THE RUN WAS STARTED WITH, never one from the reque
   // And a run whose agent is no longer registered is a named 409, not a crash.
   const orphan = makeApi({
     verify: makeVerifier({ secret: SECRET, now: () => NOW }),
-    store: h.store, send: h.send, dispatch: () => {}, now: () => NOW, newId: () => "x",
+    store: h.store, work: h.work, notify: async () => {}, now: () => NOW, newId: () => "x",
     agents: { other: defineAgent({ name: "other", model: "m", instructions: "i" }) },
   });
   const gone = await orphan.fetch(new Request(`https://api.test/runs/${runId}/resume`, {
@@ -409,15 +484,78 @@ test("makeApi refuses to exist without what it needs", () => {
   const ok = {
     verify: async () => ({ ok: true, tenant: "t1" }),
     store: { forTenant: () => ({}) },
-    send: async () => ({}),
-    dispatch: () => {},
+    work: { accept: async () => ({}), requeue: async () => ({}) },
+    notify: async () => {},
     agents: { support: defineAgent({ name: "support", model: "m", instructions: "i" }) },
   };
   assert.doesNotThrow(() => makeApi(ok));
-  for (const k of ["verify", "store", "send", "dispatch"]) {
+  for (const k of ["verify", "store", "work", "notify"]) {
     assert.throws(() => makeApi({ ...ok, [k]: undefined }), { name: "TypeError" }, `${k} was optional`);
   }
   assert.throws(() => makeApi({ ...ok, agents: {} }), { name: "TypeError" }, "an API with no agents was accepted");
   assert.throws(() => makeApi({ ...ok, agents: { x: { kind: "nope" } } }), { name: "TypeError" });
   assert.throws(() => makeApi({ ...ok, store: {} }), { name: "TypeError" });
+  // HALF A QUEUE IS NOT A QUEUE: accepting work without being able to ask for it
+  // again would make every resume a silent no-op.
+  assert.throws(() => makeApi({ ...ok, work: { accept: async () => ({}) } }), { name: "TypeError" });
+  assert.throws(() => makeApi({ ...ok, work: { requeue: async () => ({}) } }), { name: "TypeError" });
+  // **`send` IS NO LONGER THE API'S BUSINESS.** Nothing in this file executes a
+  // run, so an API built with no model at all is correct rather than broken — and
+  // that is worth pinning, because a `send` quietly accepted here would be a
+  // second execution path beside the runner.
+  assert.doesNotThrow(() => makeApi({ ...ok, send: undefined }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE DOORBELL IS ALLOWED TO FAIL
+// ════════════════════════════════════════════════════════════════════════════
+
+test("A DOORBELL THAT DID NOT RING STILL ACCEPTS THE WORK, and says so", async () => {
+  // The work is committed by the time the doorbell is rung, so a failure changes
+  // only how soon the run starts. Answering 500 would tell a caller their run was
+  // rejected when it is sitting in the queue, ready — the worst of both readings.
+  const seen = [];
+  const h = harness({ answers: [says("late but fine")], doorbell: false, onError: (e) => seen.push(e) });
+  const token = await tokenFor("t1");
+
+  const res = await h.call("POST", "/runs", { token, body: { agent: "support", prompt: "go" } });
+  assert.equal(res.status, 202, `a failed doorbell answered ${res.status}`);
+  const body = await res.json();
+  // **REPORTED, NOT PAPERED OVER.** A caller that sees `delivered: false` knows the
+  // run is queued and waiting for the sweeper rather than starting now.
+  assert.equal(body.delivered, false, "an unrung doorbell was reported as delivered");
+  assert.equal(body.status, "queued");
+  assert.ok(seen.some((e) => e.at === "notify"), "the failure was never reported anywhere");
+
+  // The work really is there, so the sweeper will find it.
+  assert.ok(h.rest.work.has(body.runId), "the work was not persisted");
+  assert.equal(h.rest.work.get(body.runId).done_at, null);
+  const dropped = await h.runner.reclaimable({ graceS: 0 });
+  assert.deepEqual(dropped.map((d) => d.runId), [body.runId], "the undelivered run is not reclaimable");
+
+  // And once the doorbell works, a resume reports delivery honestly too.
+  h.breakDoorbell(false);
+  const log = h.rest.entries.get(body.runId);
+  const again = await h.call("POST", `/runs/${body.runId}/resume`, { token });
+  assert.equal((await again.json()).delivered, true);
+  assert.ok(log.size >= 1);
+});
+
+test("A RUN WITH NO WORK ROW IS A NOT-FOUND ON RESUME, never a silent queue", async () => {
+  // Reachable for a run created straight through the store rather than through
+  // `accept` — an older run, or an SDK caller. The store says the run is this
+  // tenant's and the queue has never heard of it, and the two disagreeing must not
+  // read as "queued".
+  const h = harness();
+  const token = await tokenFor("t1");
+  const scoped = h.store.forTenant("t1");
+  const { journal } = await scoped.create("orphan-run");
+  await journal.append({ kind: "started", at: NOW, tenant: "t1", agent: "support", model: "claude-sonnet-5", prompt: "go", limits: {} });
+
+  assert.ok(h.rest.runs.has("orphan-run"), "the run was not created");
+  assert.equal(h.rest.work.has("orphan-run"), false, "this fixture accidentally created a work row");
+
+  const res = await h.call("POST", "/runs/orphan-run/resume", { token });
+  assert.equal(res.status, 404, `a run with no work row answered ${res.status}`);
+  assert.equal(h.queue.length, 0, "a run the queue has never heard of was delivered anyway");
 });
