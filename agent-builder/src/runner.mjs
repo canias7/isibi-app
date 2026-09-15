@@ -1,0 +1,435 @@
+/**
+ * THE CONSUMER — claim a delivery, execute the run, let it go.
+ *
+ * This is the half of the queue that runs work, and it is the only place in the
+ * codebase that may execute a run. The HTTP surface accepts work and answers 202;
+ * this picks it up. Nothing here knows it is on Cloudflare: `work`, `store`,
+ * `send`, `timer` and the clock are all injected.
+ *
+ * **EVERY EXECUTION CONTINUES FROM THE STORED LOG — THERE IS NO "FRESH START"
+ * PATH.** `accept_run` writes the `started` entry before the response goes out, so
+ * by the time anything is delivered the log already holds the prompt, the agent,
+ * the model and the bounds. One code path, and the prompt is durable before it is
+ * acknowledged rather than living in a request that has gone.
+ *
+ * **THE CLAIM IS THE ONLY GATE, AND IT IS THE DATABASE'S.** A duplicate delivery
+ * and two simultaneous resumes lose the same way: zero rows from one conditional
+ * UPDATE. Nothing is checked in this process that could be raced.
+ *
+ * **AND THE CLAIM IS NOT ENOUGH ON ITS OWN, WHICH IS WHAT THE OWNERSHIP CHECKS ARE
+ * FOR.** A worker can lose its claim mid-run — it stalled, the isolate froze, the
+ * platform took its time, somebody reclaimed the row — and the sweeper or a
+ * duplicate delivery will then hand the run to somebody else. Two workers on one run
+ * means paying for the same model calls twice and firing the same tool twice.
+ *
+ * **THE MEASURED HOLE THIS CLOSES (2026-09-15).** Until the fence, "do I still hold
+ * this" was answered from a FLAG in this process, set by the heartbeat — so a worker
+ * whose claim had been taken went on working, and writing, until its next beat up to
+ * `BEAT_EVERY_MS` later. That was not a theory: on the live deployment a run whose
+ * lease was revoked at 2 entries reached 4 model answers and 3 tool results before
+ * its consumer noticed. The flag was correct about the world as of 30 seconds ago.
+ *
+ * So ownership is now asked OF THE DATABASE at three places, and the flag is only
+ * ever the cheap wall in front of them:
+ *
+ *   before every model call    — `checkpoint`, so a lost claim costs nothing;
+ *   before every tool batch    — `checkpoint`, so a lost claim fires nothing;
+ *   with every journal write   — `agent.append_entry`, which validates the holder,
+ *                                the token, the work being unfinished and the lease,
+ *                                inside the same transaction as the insert.
+ *
+ * The third is the one that cannot be raced, and it is why the other two are an
+ * optimisation rather than the guarantee: a check followed by a write is two
+ * statements with a reclaim able to fit between them, and only the database can put
+ * them together. `runAgent` reads a refused write as `journal-failed` and returns
+ * WITHOUT recording a stop, so a redelivery finds the run exactly as it was.
+ *
+ * **WHAT NONE OF IT CAN DO, and the distinction is the whole safety argument.**
+ * Fencing stops the RECORD, never the action. A tool call already sent to the
+ * outside world cannot be recalled by a database, so a stale worker that fired a
+ * payment and was then refused its write leaves a model answer with no result —
+ * which is exactly a PENDING CALL. If that tool is not `repeatable`, the run refuses
+ * to resume (`cannot-resume`) rather than firing it again, and that refusal is the
+ * guarantee. Fencing narrows the window in which the send can happen; `repeatable`
+ * is what makes the residue safe.
+ *
+ * **THE HONEST LIMIT, STATED: the window is one model call plus one tool batch.**
+ * Between two checkpoints this process will finish what it started, because tools
+ * are the agent author's own code and there is nowhere to interrupt them from.
+ * Making that window smaller means a cancellation hook inside the loop, which is a
+ * change to `run.mjs` and has not been made.
+ */
+
+import { runAgent } from "./run.mjs";
+import { stoppedEntry } from "./journal.mjs";
+
+/**
+ * How long a claim is good for without a beat. **A LIVENESS CHECK, NOT A DURATION
+ * CAP**: reclaim is decided by this and never by how long a run has been going, so
+ * a run that keeps beating is never taken away from however long its work honestly
+ * takes.
+ */
+export const LEASE_TTL_S = 90;
+
+/** How often the holder says it is still there. */
+export const BEAT_EVERY_MS = 30_000;
+
+/**
+ * How many beats may fail before the holder gives up — DERIVED, not chosen.
+ *
+ * The TTL is deliberately several beats long, so a single missed beat is still
+ * inside a lease we demonstrably hold. Tolerating more than the arithmetic allows
+ * would be working past a lease that may already have been reassigned.
+ *
+ * A beat that comes back `false` is NEVER tolerated: that is the database saying
+ * the lease is gone, which is not a blip.
+ */
+export const TOLERATED_MISSES = Math.max(0, Math.floor((LEASE_TTL_S * 1000) / BEAT_EVERY_MS) - 2);
+
+/**
+ * How many times a run may be picked up before the queue stops offering it.
+ *
+ * **A STATE MACHINE NEEDS A NAME FOR EVERY OUTCOME, including "this keeps
+ * failing".** Without a ceiling, a run whose journal cannot be written spins
+ * forever: every sweep redelivers it, every attempt fails the same way, and
+ * nothing ever says so out loud.
+ */
+export const MAX_ATTEMPTS = 5;
+
+/** Why a delivery did not run the work. Each needs a different thing done about it. */
+export const OUTCOMES = Object.freeze([
+  "ran", "not-claimable", "already-finished", "unreadable", "no-agent",
+  "cannot-resume", "too-many-attempts", "lease-lost", "beat-failed", "conflict", "failed",
+]);
+
+/**
+ * The refusals `agent.append_entry` can give that mean the claim is gone. Mirrors
+ * `LOST_CLAIM` in `work.mjs` and `CLAIM_GONE` in `store.mjs`; a test compares all
+ * three, because the same fact in three modules is the shape that drifts.
+ *
+ * **THEY ALL PRODUCE THE OUTCOME `lease-lost`, AND THE REASON IS CARRIED BESIDE IT
+ * RATHER THAN AS ITS OWN OUTCOME.** An outcome exists to tell a caller what to DO,
+ * and the answer is identical for all five: stop, release nothing, let the run be
+ * redelivered. What differs is what an operator should conclude — `bad-token` and
+ * `not-holder` mean somebody else has the run, `lease-expired` means this worker was
+ * too slow, `finished` means the run is over, `no-work` means retention took the row
+ * — so the name rides in the delivery's `error` and in the event, where it is
+ * diagnosis and not control flow.
+ */
+export const CLAIM_GONE = Object.freeze(["no-work", "finished", "not-holder", "bad-token", "lease-expired"]);
+
+const isText = (v) => typeof v === "string" && v.trim() !== "";
+
+export function makeRunner(opts = {}) {
+  const { work, store, send } = opts;
+  if (!work || typeof work.claim !== "function") throw new TypeError("makeRunner: work must come from makeWork");
+  if (!store || typeof store.forTenant !== "function") throw new TypeError("makeRunner: store must come from makeRunStore");
+  if (typeof send !== "function") throw new TypeError("makeRunner: send must be a function");
+  const registry = new Map(Object.entries(opts.agents ?? {}));
+  if (registry.size === 0) throw new TypeError("makeRunner: agents must hold at least one agent");
+  const now = typeof opts.now === "function" ? opts.now : () => Date.now();
+  const onError = typeof opts.onError === "function" ? opts.onError : () => {};
+  const onEvent = typeof opts.onEvent === "function" ? opts.onEvent : () => {};
+  const ttlS = Number.isFinite(opts.leaseTtlS) && opts.leaseTtlS > 0 ? opts.leaseTtlS : LEASE_TTL_S;
+  const beatEveryMs = Number.isFinite(opts.beatEveryMs) && opts.beatEveryMs > 0 ? opts.beatEveryMs : BEAT_EVERY_MS;
+  const maxAttempts = Number.isFinite(opts.maxAttempts) && opts.maxAttempts > 0 ? opts.maxAttempts : MAX_ATTEMPTS;
+  // The timer is injected so the heartbeat is drivable without waiting: the one
+  // branch that matters most — a lease lost half way through a run — is otherwise
+  // only reachable by sitting still for ninety seconds.
+  const timer = opts.timer ?? { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h) };
+  // A worker's name identifies THIS holder. It must differ per delivery, or two
+  // concurrent deliveries in one isolate would each read the other's claim as
+  // their own — the exact confusion the claim exists to prevent.
+  const nameWorker = typeof opts.nameWorker === "function"
+    ? opts.nameWorker
+    : () => `w-${crypto.randomUUID()}`;
+
+  /**
+   * Run one delivery. Answers `{ ran, why, runId, stop }` and NEVER throws: a
+   * consumer that throws is a delivery the platform retries blindly, which is how
+   * one run becomes four.
+   */
+  async function deliver(runId) {
+    if (!isText(runId)) throw new TypeError("deliver: runId must be a non-empty string");
+    const worker = nameWorker();
+
+    let claim;
+    try { claim = await work.claim({ runId, worker, ttlS }); }
+    catch (e) {
+      // Could not even ask. Nothing is held, so nothing is released; the row is
+      // still outstanding and the sweeper will offer it again.
+      onError({ at: "claim", runId, error: String(e?.message ?? e) });
+      return { ran: false, why: "failed", runId, stop: null };
+    }
+    // THE ORDINARY ANSWER FOR A DUPLICATE DELIVERY, and not a failure.
+    if (!claim.claimed) { onEvent({ at: "skip", runId, why: "not-claimable" }); return { ran: false, why: "not-claimable", runId, stop: null }; }
+
+    // ── the claim, held out loud ────────────────────────────────────────────
+    // **THE HOLD IS THE WORKER AND THE TOKEN, and every call that acts on this run
+    // presents both.** The name says who; the token says which claim — and those come
+    // apart in exactly the case that matters, a run reclaimed while this process is
+    // still going. `work.claim` refuses a claim carrying no token, so this cannot be
+    // half-built.
+    const hold = { worker, token: claim.token };
+
+    let held = true;
+    let lostBecause = null;
+    let refusal = null;   // what `agent.append_entry` refused, if it did
+    let misses = 0;
+    let handle = null;
+
+    const stopBeating = () => { if (handle !== null) { timer.clear(handle); handle = null; } };
+
+    /**
+     * ONE BEAT: say we are still here, and learn whether we still hold the claim.
+     *
+     * **THE SAME ARITHMETIC SERVES THE HEARTBEAT AND THE OWNERSHIP CHECK**, because
+     * two rules about when a claim is lost is two answers that can disagree — and the
+     * disagreeing case is the one where this process thinks it holds a run it does
+     * not. Answering the question and renewing the lease are the same UPDATE, so they
+     * cannot be out of step either.
+     */
+    const beatOnce = async () => {
+      let ok = false, threw = null;
+      try { ok = await work.beat({ runId, worker, token: hold.token, ttlS }); }
+      catch (e) { threw = e; }
+      if (threw) {
+        // CANNOT-TELL IS NOT A YES. A beat we could not send may mean the lease is
+        // fine or may mean it is gone, and only one of those readings is safe. One
+        // miss is inside the lease the arithmetic says we hold; past that, stop.
+        misses += 1;
+        onError({ at: "beat", runId, error: String(threw?.message ?? threw), misses });
+        if (misses > TOLERATED_MISSES) { held = false; lostBecause = "beat-failed"; }
+        return held;
+      }
+      if (!ok) {
+        // Definitive: the database says this claim is not ours.
+        held = false; lostBecause = "lease-lost";
+        return false;
+      }
+      misses = 0;
+      return true;
+    };
+
+    const tick = async () => {
+      handle = null;
+      if (!held) return;
+      if (!(await beatOnce())) return;
+      handle = timer.set(tick, beatEveryMs);
+    };
+    handle = timer.set(tick, beatEveryMs);
+
+    const assertHeld = () => {
+      if (!held) throw new Error(`the claim on this run is gone (${lostBecause})`);
+    };
+
+    /**
+     * **OWNERSHIP, ASKED OF THE DATABASE BEFORE ANYTHING NEW IS STARTED.** Handed to
+     * `runAgent` as its `checkpoint`, so it runs before each model call and before
+     * each batch of tool calls.
+     *
+     * IT THROWS, and the throw is the mechanism rather than an error path: it escapes
+     * `runAgent` without a stop being written, which leaves the run exactly as the
+     * next holder needs to find it. A `return` here would need `run.mjs` to invent a
+     * stop reason, and writing a stop is the one thing a process that has lost the
+     * run must not do.
+     */
+    const mayStart = async ({ what, step }) => {
+      assertHeld();
+      if (await beatOnce()) return;
+      onEvent({ at: "stand-down", runId, what, step, why: lostBecause });
+      throw new Error(`the claim on this run is gone (${lostBecause}) — not starting ${what}`);
+    };
+
+    /** Let go, and say whether anything more should be delivered. */
+    const finish = async (done, why, error = null, stop = null) => {
+      stopBeating();
+      // **A LOST CLAIM RELEASES NOTHING.** Somebody else may hold this row now, and
+      // `release_run` is gated on the holder, the token AND a live lease anyway — two
+      // walls, deliberately: this one is the intent, that one survives a mistake here.
+      //
+      // MEASURED: removing this `if (held)` SURVIVES the sweep, because the database
+      // refuses a stale release and the call is a no-op. Kept as the statement of
+      // intent and as one fewer pointless round trip; the wall is the SQL one.
+      if (held) {
+        try { await work.release({ runId, worker, token: hold.token, done, error }); }
+        catch (e) { onError({ at: "release", runId, error: String(e?.message ?? e) }); }
+      }
+      // The REASON rides on the event beside the outcome, because "a failure that
+      // cannot name itself" is this product's most repeated own goal and a
+      // `lease-lost` that does not say WHICH refusal produced it is one.
+      onEvent({ at: "done", runId, why, done, error });
+      return { ran: why === "ran", why, runId, stop, error };
+    };
+
+    try {
+      // **THE TENANT COMES FROM THE CLAIM, NEVER FROM THE DELIVERY.** The message
+      // said which run; the database said whose. So a forged or stale message can
+      // only ever name a run id — it can never make this process act as a tenant.
+      const scoped = store.forTenant(claim.tenant);
+
+      if (claim.attempts > maxAttempts) {
+        // Said out loud and taken off the queue, rather than spun on for ever.
+        return await finish(true, "too-many-attempts", `given up after ${claim.attempts} attempts`);
+      }
+
+      // **THE JOURNAL IS BOUND TO THIS CLAIM.** `open` refuses to hand one back
+      // without a hold, so there is no way to reach a writer that does not present
+      // the claim it is writing under.
+      const open = await scoped.open(runId, { hold });
+
+      // A finished run is not executed again. `runAgent` would refuse it too —
+      // two walls, and this one also takes the work off the queue.
+      if (open.state.status === "stopped") return await finish(true, "already-finished", null, open.state.stop);
+
+      // A log that cannot be read is not resumed, and nothing is spent finding
+      // out. A redelivery would read the same junk, so it comes off the queue.
+      if (open.state.problems.length) {
+        return await finish(true, "unreadable", open.state.problems.join("; "));
+      }
+
+      const name = open.run?.agent_name ?? open.state.agent;
+      const agent = isText(name) ? registry.get(name) : undefined;
+      // A run whose agent is no longer registered cannot be helped by another
+      // delivery: that needs a deployment, not a retry.
+      if (!agent) return await finish(true, "no-agent", `the agent "${name ?? "?"}" is not registered here`);
+
+      const record = await runAgent({
+        agent,
+        tenant: { id: claim.tenant },
+        from: open.entries,
+        // **OWNERSHIP BEFORE ANY NEW WORK, ASKED OF THE DATABASE.** Before each model
+        // call and before each tool batch — so a claim lost during the previous step
+        // costs neither money nor a side effect.
+        checkpoint: mayStart,
+        // The cheap wall in front of it, and a SECOND wall rather than the same one:
+        // `checkpoint` has already asked the database immediately above this call, so
+        // what this catches is a beat that came back `false` in between.
+        //
+        // **A SWEEP CANNOT KILL THIS ONE ON ITS OWN AND THAT IS MEASURED, not argued:**
+        // removing `assertHeld()` here SURVIVES, because the checkpoint one line up has
+        // just asked the database the same question. The window it covers — the periodic
+        // beat answering `false` between the checkpoint and this call — is real and is
+        // microseconds wide, which is why no test can open it. Declared here because a
+        // sweep cannot see a deliberate redundancy and the next reader deletes what
+        // nothing appears to need; the spec mutates the PAIR, which dies.
+        send: async (req) => { assertHeld(); return send(req); },
+        // THE GATE ON THE HISTORY, AND THE ONE THAT CANNOT BE RACED. The write itself
+        // is validated against the work row inside one transaction by
+        // `agent.append_entry`; what this wrapper adds is reading the refusal the
+        // right way round. `runAgent` reads a refused write as `journal-failed` and
+        // returns WITHOUT recording a stop, which is exactly right: the run is left as
+        // it was for whoever holds the claim now.
+        journal: {
+          append: async (entry) => {
+            // **AND THIS ONE IS REDUNDANT WITH THE DATABASE, which is the strongest
+            // thing that can be said about it.** Removing it SURVIVES the sweep:
+            // `agent.append_entry` refuses the write anyway, in the same transaction
+            // that would have performed it. The wall that matters is one layer down and
+            // is killed by the SQL sweep's own mutants; this is the cheap one in front,
+            // saving a round trip on a run we already know we have lost.
+            assertHeld();
+            try { return await open.journal.append(entry); }
+            catch (e) {
+              // **THE DATABASE'S REFUSAL IS AUTHORITATIVE, AND IT IS NOT A JOURNAL
+              // FAILURE.** A fenced refusal means the claim is gone — which the beat
+              // has not necessarily noticed yet — so the flag is corrected from the
+              // one source that knows, and under the refusal's OWN name.
+              if (e?.code === "fenced" && CLAIM_GONE.includes(e.why)) {
+                held = false; lostBecause = "lease-lost"; refusal = e.why;
+              } else if (e?.code === "conflict") {
+                // Somebody else's entry is in this slot. We may still hold the claim,
+                // so this is not a lost lease: it is a log this process's snapshot is
+                // behind on, and the answer is a fresh delivery.
+                refusal = "conflict";
+              }
+              throw e;
+            }
+          },
+        },
+        now,
+      });
+
+      // Asked AFTER the run rather than inferred from the record: the record's own
+      // stop reason for a lost claim is `journal-failed`, which is also what a
+      // genuinely broken journal says, and those need opposite handling.
+      if (!held) return await finish(false, lostBecause ?? "lease-lost", refusal, null);
+
+      // **A CONFLICT IS NOT A LOST CLAIM AND NOT A FAILURE.** A different entry
+      // arrived in a slot this run's snapshot thought was free, so the log has moved
+      // under us. The claim may still be ours, so it is RELEASED — not done — and the
+      // next delivery re-reads the log and continues from what is really there.
+      // Terminating, because that delivery's snapshot includes the other entry.
+      if (refusal === "conflict") {
+        return await finish(false, "conflict", "another writer's entry is in this run's log");
+      }
+
+      const reason = record?.stop?.reason ?? null;
+
+      // A run that cannot be safely resumed is NOT a failure and NOT retryable.
+      // It is waiting for a person: a pending tool call that is not repeatable
+      // may have taken a payment, and another delivery would just refuse again.
+      // Deliberately leaves the log without a stop, so the run still reads as
+      // running with its pending calls visible.
+      if (reason === "cannot-resume") {
+        return await finish(true, "cannot-resume", JSON.stringify(record.stop.pending ?? []), record.stop);
+      }
+
+      // The journal broke for a real reason. Retryable, up to the ceiling.
+      if (reason === "journal-failed") {
+        return await finish(false, "failed", `journal-failed: ${record.stop.error ?? ""}`, record.stop);
+      }
+
+      // Everything else ended with a `stopped` entry in the log — answered, out of
+      // steps, out of budget, a failed call. The work is over either way.
+      return await finish(true, "ran", null, record?.stop ?? null);
+    } catch (e) {
+      onError({ at: "deliver", runId, error: String(e?.message ?? e) });
+      if (!held) return await finish(false, lostBecause ?? "lease-lost");
+
+      // **AN UNEXPECTED THROW MUST STILL END SOMEWHERE VISIBLE.** A run left with
+      // no stop reads as `running` for ever, which is indistinguishable from one
+      // still going — the state nobody can act on. On the last permitted attempt
+      // the log is closed; before that the run is left alone so a redelivery can
+      // try again.
+      const last = claim.attempts >= maxAttempts;
+      if (last) {
+        try {
+          await closeWithCrash(runId, claim.tenant, hold, String(e?.message ?? e));
+        } catch (e2) {
+          onError({ at: "deliver-stop", runId, error: String(e2?.message ?? e2) });
+        }
+      }
+      return await finish(last, "failed", String(e?.message ?? e));
+    }
+  }
+
+  /**
+   * Close a run's log with a `crashed` stop. Best effort, and only ever last.
+   *
+   * **IT PRESENTS THE CLAIM LIKE EVERY OTHER WRITE.** A crash is the one moment when
+   * writing a stop without checking would be most tempting and most wrong: a stop is
+   * what tells the next holder the run is over, so a stale worker writing one ends a
+   * run somebody else is in the middle of. It is reached only while the claim is
+   * still held, and the fence checks again anyway.
+   */
+  async function closeWithCrash(runId, tenant, hold, error) {
+    const scoped = store.forTenant(tenant);
+    const open = await scoped.open(runId, { hold });
+    if (open.state.status === "stopped") return;
+    await open.journal.append(stoppedEntry({ at: now(), stop: { reason: "crashed", error } }));
+  }
+
+  /**
+   * Offer every dropped run again. What makes a lost doorbell cost latency instead
+   * of work.
+   *
+   * It only NAMES the runs; the caller does the delivering, because how a message
+   * is sent is the transport's business and this module has no transport.
+   */
+  async function reclaimable({ graceS, limit } = {}) {
+    return work.sweep({ graceS, limit });
+  }
+
+  return { deliver, reclaimable };
+}
