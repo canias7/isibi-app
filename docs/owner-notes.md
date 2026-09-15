@@ -192,8 +192,13 @@ building. Computed offline with the deploy's own code, before the merge:
 
 **The procedure, in order:**
 
-1. `git revert -m 1 <merge sha>` on `main` and push. A revert, never a force
-   push or a reset: main's history is what every other reader resolves against.
+1. On `main`: `git revert --no-commit e876ada9..<the new main tip>` then commit,
+   and push. That is **one commit whose tree is `e876ada9`'s tree**, which is
+   what makes the image id come out at `e35d9f28b49f5f2c`. A revert, never a
+   force push or a reset: main's history is what every other reader resolves
+   against. **The range form is deliberate** — this merge is a FAST-FORWARD of
+   eight commits, matching every recent merge into main, so there is no merge
+   commit and `git revert -m 1` has nothing to point at.
 2. The deploy fires on that push. Watch its image step: it must say **`reused`**
    for `e35d9f28b49f5f2c`. If it says `built`, something above the worker tree
    moved and the roll is a real one — wait the full 15–20 minutes before
