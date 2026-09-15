@@ -1174,3 +1174,22 @@ re-uploads the same site-builder code it already had.
 **The lesson worth keeping:** "no overlapping files" is not the same as "safe to merge".
 Running the other product's whole suite on the merged tree is the only place a check from
 one side can read the other side's work — and it is what stopped me shipping this.
+
+**Merged, and it rolled nothing — measured, not assumed.** `main` is `bd6bf98`. The deploy
+the merge triggered took **45 seconds**: the build container's image was **reused** (the
+registry answered 200 to the unchanged tag), the container itself reported **no changes**,
+and there were **no asset uploads**. The site builder's own deploy three hours earlier is
+the control — it built a new image, rolled the container and uploaded a changed file, which
+is what those lines look like when something really moves. `gofarther.dev` answers 200, and
+every binding came back.
+
+**One thing I found in that log which is yours to decide on, and it is not from my merge.**
+Your site builder's deploy prints `QUEUE NOT CONFIRMED — do NOT add a queue binding until
+this line reads OK` on every run, while that queue binding is live and working in the same
+log. It is the identical bug to the one in mine: the step matches Cloudflare's WORDING
+("created queue|already exists") and Cloudflare now says "is already taken". I checked it
+predates my work — that line was last changed on 13 September and my merge does not touch
+that file at all. It does not break the deploy, because that step prints and carries on by
+design. But the message is always wrong now, and it tells whoever reads it not to do
+something that is already done. I have not touched it; say the word and I will fix it the
+same way I fixed mine.

@@ -1537,6 +1537,50 @@ ONE `append_entry` and **no token-less overload of `beat_run` or `release_run` s
 so nothing can reach the old unfenced signature. `run_work.claim_token` exists, and it is
 `null` on every finished row because `release_run` clears it.
 
+### ✅ MERGED INTO MAIN (2026-09-15, `bd6bf98`), AND IT ROLLED NOTHING — MEASURED
+
+**ADDITIVE BY CONSTRUCTION: 52 paths, all adds.** `git diff --name-status` from main's tip
+over the merged tree answered `52 A` and nothing else — no M, no D, no R — so no file of
+the site builder's was modified, moved or removed. The two sides changed **zero files in
+common** although 29 commits landed on main while this branch ran. First parent is main,
+so the push was a fast-forward: no rewrite, no force.
+
+**WHAT THE MERGE'S OWN DEPLOY DID, read out of deploy run 2122's log rather than
+predicted** — and deploy 2119 (the site builder's own, three hours earlier) is the control
+that makes each line mean something:
+
+| | 2119 (theirs) | 2122 (the merge) |
+|---|---|---|
+| image | `built … (registry answered 404; 180 inputs)` | **`reused …:6246eb17cd6595c4` (200; 182 inputs)** |
+| container | `EDIT …` + `SUCCESS Modified application` | **`no changes` · `No changes to be made`** |
+| assets | `1 new or modified … + /chat.js` | **`No updated asset files to upload`** |
+| wall clock | 2m51s | **45s** |
+
+So the container did **not** roll and the 15–20 minute hold did not apply — which is the
+prediction the Dockerfile's COPY list makes (explicit paths, no whole-context copy, so
+`agent-builder/` is not an image input) confirmed by the registry answering 200 to the
+unchanged tag. `deploy drain: no live leases after 1s` — nothing was in flight. Every
+binding came back (queue, R2, both KV, the dispatch namespace, the container), and
+`gofarther.dev` answered 200 afterwards.
+
+**THE CHECK THAT HAD TO BE RUN, and what it is worth saying about it**: the site builder's
+whole suite on the MERGED tree — **6,476 tests, 6,474 pass, 0 fail, 2 skipped** — with
+`ok 2539` on the guard that was red before the shell fix and `ok 1693` on the census. That
+run is the only place a cross-product guard can fire, and it is what caught the `tee`
+defect above.
+
+**⚠ AND THE SAME TRAP IS LIVE ONE PRODUCT OVER, pre-existing and NOT this merge's.**
+Deploy 2122's own log carries `QUEUE NOT CONFIRMED — do NOT add a queue binding until this
+line reads OK` from the SITE BUILDER's queue step, while that binding is live and working
+(`Producer`/`Consumer for site-builds` in the same log). Its condition is
+`grep -qiE "created queue|already exists"` and Cloudflare says *"is already taken"* — the
+wording match this product's own queue step was rewritten to stop using. **Proved
+pre-existing rather than assumed**: that line was last touched 2026-09-13, before this
+branch existed, and the merge does not touch `deploy.yml` at all (`git diff` over that
+path is empty). It prints and carries on by that product's own design, so nothing is
+broken — but the sentence is now always wrong, and it tells the reader not to do a thing
+already done. **The site builder's call, not this one's; offered and not taken.**
+
 ### ⚠ THE OTHER PRODUCT'S GUARD FOUND A REAL DEFECT IN THIS ONE, ON THE MERGE (2026-09-15)
 
 **`test/repair-workflows.test.mjs` — the SITE BUILDER's guard, written for its own repair
