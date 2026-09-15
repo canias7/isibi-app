@@ -4092,6 +4092,145 @@ larger `table · function · page` shape against **31** for the most expensive r
 ever seen on this account. The field is set to 40 anyway: it costs nothing and is
 correct the day the harness runs more than one case.
 
+### RUN 48: THE FEATURE WORKED AND THE REPORT CONTRADICTED IT (2026-09-15)
+
+Owner: *"Keep run 48 recorded as automatic functional success with a
+customer-reporting failure."* **Both halves are true and they are about
+different things**, which is the whole finding.
+
+**WHAT RUN 48 BUILT, AUTOMATICALLY, FROM ONE SENTENCE**: a page at
+`/booking-check` and a function `count_existing_bookings` reading the site's
+EXISTING `bookings` table. The page is live, the function answers **3** through
+the site's own public RPC, and a real Chromium reads **3** on the page. No new
+table. That is the thing being proven and it is proven.
+
+**WHAT IT TOLD THE CUSTOMER**: *"Still to do: A new function named
+count_existing_bookings"* — about a function created in that same change, live
+and answering within the minute.
+
+**THE CAUSE IS FOUR LINES AND IT IS A CONFLATION, NOT A BUG IN THE EVIDENCE.**
+The `page` step handed *"a new function named count_existing_bookings"* BACK to
+the `function` step, which runs before it in `ADD_KINDS` order and so could not
+have heard it. That hand-off really was undelivered — and `requirementOutcomes`
+asked only that one question, so an undelivered hand-off fell straight to
+`failed` and `failed` is what "Still to do" is composed from.
+
+**THE FIX IS TWO QUESTIONS WHERE THERE WAS ONE**, and the owner's own wording is
+the design: *"A requirement sent backward to an earlier step is an unresolved
+handoff; that alone does not establish that its implementation is missing."*
+
+- **`handoff` IS ITS OWN FIELD AND IS DECIDED FIRST**, kept whatever else
+  happens: `delivered` | `undelivered`, with a `handoffs` ledger on the record.
+  The bookkeeping defect is still reported; what it stopped doing is standing in
+  for the work.
+- **`implementationOf` IS THE SECOND QUESTION, AND IT MATCHES ON EXPLICIT
+  REFERENCES** (owner: *"kind and item name — not another keyword heuristic"*).
+  Every `appliedFacts` entry now carries a **`kind`**; `REQUIREMENT_ITEM` gained
+  an optional **`item`** for `elsewhere` only, with *"LEAVE IT OUT rather than
+  inventing one"* in its own description. A claim about a `function` can only be
+  answered by an applied `function`, by name.
+- **AND IT IS ASYMMETRIC ON PURPOSE.** Finding an item proves existence; NOT
+  finding one proves absence only where this layer can see that kind at all.
+  `APPLIED_KINDS` is `table · function · api · job · page`; `component` is
+  deliberately off it, because an addition folded into an existing page leaves no
+  item in any list, so a working section and an absent one look identical.
+  A kind off the list answers `unknown` → `unverified`, never `missing`.
+  **A populated kind with NO `item` also answers `unknown`** — only the EMPTY
+  direction is sound there, or any function would satisfy any request for one.
+
+**SIX STATES, AND EACH PAIR EXISTS BECAUSE THE TWO NEED DIFFERENT SENTENCES:**
+
+| state | when | what the customer hears |
+|---|---|---|
+| `delivered` | a `checked` behaviour ties the claim to the work | nothing |
+| `configured` | a real SETTING read back off what was applied matches | "I can't confirm…" |
+| `unverified` | it is there, or nothing here can see whether it is | "I can't confirm…" |
+| `missing` | this layer looked and the work is not there | "Still to do: …" |
+| `blocked` | the step this need depends on ran and FAILED | "waiting on another part of the same change that didn't work" |
+| `failed` | we said we could not, or the claiming step failed | "Still to do: …" |
+
+**`checked` IS STILL EMPTY** and the guard drives all five applied kinds to
+assert it: nothing on this path exercises a behaviour, so `configured` is as far
+as a claim about a real setting can get.
+
+**`reportable` IS WHAT MAKES `missing` SAFE, and its first clause does most of
+the work**: a kind this change never RAN is reportable — it made none,
+definitionally. A kind that ran is reportable only once its results exist
+(`aApplied` after the backend apply, `aShipped` after the publish), because
+before then "nothing was applied" and "nothing has been applied YET" are the
+same empty list.
+
+**TWO WIRING DEFECTS THE SWEEP FOUND, both in this change's own plumbing.**
+(1) The record's last re-write sat inside `if (aMissing.length)`, so on the
+ORDINARY path — every page shipped — the stored coverage was composed while
+`aShipped` was still null and said no page was applied. The REPLY was right and
+the RECORD was not, which is the worse way round. It is unconditional now.
+(2) **`aShipped` was FILE names and a requirement names a ROUTE.** It is the
+requested routes LESS `aMissing` now — derived from the one reader that already
+knows both, so the two lists are complements by construction and a page that did
+not survive can never count as the work being there.
+
+**AND THE EVIDENCE GAPS THE RUN LEFT, closed or narrowed by measurement:**
+
+- **GAP A — the designer's input was NOT recorded, and the instrumentation now
+  exists.** `saveAddonAnswer` stored ONE `site` value written after the whole
+  kinds loop, so for run 48 — whose `function` step ran first — the stored facts
+  had already been rebuilt over that step's own answer. **Schema receipt for run
+  48 is UNVERIFIED and is recorded as such.** `shownSchema(site)` is the fix:
+  `shownSteps` on the developer record, one entry per kind in run order, taken
+  **from the object really handed to the call and ABOVE the await** — a digest
+  taken after it records the OUTPUT wearing the input's name, which the sweep
+  drives. Schema only (tables, their columns, the other three tiers by name,
+  `hasDatabase`), never the composed prompt: that carries the customer's words
+  and the kit menu, and the question being settled is narrow.
+- **GAP B — NARROWED, and the authoritative reading is one free press away.**
+  The no-new-table claim rests on per-NAME PostgREST probes, which are exact per
+  name (`42501 permission denied` proves a table exists; `PGRST205` proves the
+  schema cache has no such relation) and are **not a catalog enumeration**. The
+  proxy does not forward PostgREST's root, so no OpenAPI listing is reachable.
+  **The BEFORE is authoritative and already recorded**: `backend repair
+  --verify --slug repairbench-1` (run 35000218315, 17:16:39Z, before run 48)
+  read *"every live table declared — 2 table(s), all declared"*, and `st.tables`
+  is `information_schema` BASE TABLEs in `public` less the internal names. **The
+  AFTER is the same command**, writes nothing, costs nothing, and is the owner's
+  press. Until then the claim is *"no table of any name we probed was created"*,
+  not *"no table was created"*.
+- **GAP C — CLOSED, browser-only, nothing touched.** `/booking-check`'s loading
+  and error states, with the RPC intercepted inside Chromium: **loading** — the
+  call held open 12 s, `spinner: 1` in the DOM against `0` in the control, and
+  the number absent; **error (transport)** — *"That didn't load / Failed to
+  fetch / Try again"*; **error (HTTP 500)** — the same shell carrying the
+  SERVER'S own message (`boom`), not a canned string. **Measured: the page
+  retries 3 times** before showing the error, which is TanStack Query's default
+  and is real behaviour worth knowing. The control run, untouched, reads `3`.
+  **Deliberately separate runs from the successful live request**, and the
+  control is what proves the interception is doing the work.
+
+**Guards**: `test/addon-route.test.mjs` **44 → 55**, every case driven through
+`POST /api/site/<slug>/addon` and asserted on the customer's own sentence — run
+48's late hand-off with its function applied, the same with the function NAMED
+by `item`, with nothing applied, with creation REFUSED, the forward control, a
+kind this layer cannot see, a page that did not survive, a coverage composed
+before the publish, and the two input-digest cases with the output-order wall.
+`test/requirement-coverage.test.mjs` and `test/addon-steps.test.mjs` re-anchored.
+
+**Sweep: 28 mutants, 28 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 20 of 25 and **all five survivors were gaps
+in the new guards, not the product's**; pass 2 killed 25 of 28 with three more,
+**two of which were real product defects the guards had not reached** (the
+conditional record write, and `aShipped` carrying files where a requirement
+names a route). **Nine older guards were re-anchored, not appeased**, each
+naming the property that moved — the six-state list, the mark's counters (now
+asserted as *a filter over the outcomes naming the states it claims to count*
+rather than by one predicate's spelling), the `configured`/`configuredBy`
+rename, and two expectations that MOVED rather than broke: an undelivered
+hand-off to a populated kind now reads "can't confirm" instead of "still to do",
+and a step that was told and failed is `blocked` instead of `missing`.
+**Suite 6,487.**
+
+**NOT DEPLOYED AND NOT MERGED** — the owner's instruction for this round. Run 48
+stands exactly as it ran; nothing was repaired by hand and no paid call was made.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -4501,7 +4640,18 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   own log by bounding each `N passed` to its own `##[group]`, because a forward
   search from a step marker picks up the NEXT step's count and silently
   mis-attributes it (measured: four steps all reported 29 that way).
-  The unit suite is **6,472** (2026-09-15, local — the repair steps' shell,
+  The unit suite is **6,487** (2026-09-15, local — run 48's reporting fix and
+  the three evidence gaps, whose new cases are all `addon-route`'s **eleven**
+  (44 → 55: run 48's late hand-off with its function applied, the same named by
+  `item`, with nothing applied, with creation refused, the forward control, a
+  kind this layer cannot see, a page that did not survive, a coverage composed
+  before the publish, and the two input-digest cases with the output-order
+  wall); **6,476 + 11 closes exactly**. `requirement-coverage` and
+  `addon-steps` gained ASSERTIONS inside existing cases and no new case — the
+  six-state list, the mark's counters, the `configuredBy` rename, the hand-off
+  ledger and both halves of the run-48 shape. CI has NOT read this number yet.
+  **6,476** before it (2026-09-15, the reference-only apply mode);
+  **6,472** before that (2026-09-15, local — the repair steps' shell,
   whose new case file is `test/repair-workflows.test.mjs`'s **seven**: for each
   of the two steps a failing repair that must fail the step with its log intact,
   a succeeding control, and the DEFAULT-shell control that reproduces the

@@ -155,6 +155,89 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — Run 48's reporting contradiction, fixed
+
+You were right on both counts, and the two are about different things.
+
+**The feature worked.** One sentence built a page at `/booking-check` and a
+function `count_existing_bookings` reading the `bookings` table that was already
+there. No new table. The function answers **3** through the site's own public
+call and a real browser reads **3** on the page.
+
+**The report contradicted it.** The customer was told *"Still to do: A new
+function named count_existing_bookings"* about a function that was live and
+answering within the minute.
+
+### Why
+
+The page step handed *"a new function named count_existing_bookings"* back to
+the function step, which runs BEFORE it — so that step could never have heard
+it. That hand-off really was undelivered. The mistake was that it was the only
+question being asked, so an undelivered hand-off went straight to "failed", and
+"failed" is what "Still to do" is made from.
+
+### What changed
+
+**Two questions where there was one.** Was the hand-off delivered, and is the
+work there? They are recorded separately and neither stands in for the other.
+An undelivered hand-off is still reported — it is a real bookkeeping defect —
+but it no longer decides what the customer hears about the work.
+
+**The second question matches on names, not words.** Every applied thing now
+says what KIND it is, and a requirement may name the thing it is about. A claim
+about a function can only be answered by a function that was really created,
+by name. No keyword matching anywhere.
+
+**And it refuses to guess in the direction that hurts.** Seeing a thing proves
+it exists; not seeing one only proves it is absent where we can see that kind of
+thing at all. A section folded into an existing page leaves no trace anywhere,
+so a requirement about one reads "I can't confirm" — never "still to do".
+
+**Six words instead of three, because they need different sentences to you:**
+delivered, configured (the setting is right, the behaviour unchecked),
+unverified, missing (we looked and it is not there), blocked (the part this
+needed failed — go and look at that), failed (we said we could not).
+
+**`checked` is still empty.** Nothing on this path exercises a behaviour, so
+nothing gets promoted to "done" on my say-so.
+
+### Two more defects the sweep found in my own wiring
+
+1. The stored record's last update only ran when a page went MISSING — so on the
+   ordinary path, where everything shipped, the stored copy said no page was
+   applied. The reply was right and the record was not, which is the worse way
+   round: the reply is read once, the record is what anybody comes back to.
+2. The shipped-page list held FILE names where a requirement names a ROUTE. It
+   is routes now, derived from the list that already knows both, so a page that
+   did not survive can never count as the work being there.
+
+### The evidence gaps you named
+
+- **The designer's input was not recorded** — the record kept one snapshot taken
+  after every step ran, so for run 48 (whose function step went first) it had
+  already moved on. **Schema receipt for run 48 is unverified and stays that
+  way.** The instrumentation exists now: one entry per step, in order, taken
+  from what that step was really handed. Next run answers it outright.
+- **The no-new-table claim is narrowed.** What I have is exact per NAME — the
+  database tells existence and absence apart by its own error codes — but it is
+  not a list of every table. The authoritative BEFORE is already on record
+  (`backend repair --verify` read *"2 table(s), all declared"* before run 48).
+  **The AFTER is the same command**: it writes nothing, costs nothing, and is
+  one press. Until then the honest claim is "no table of any name I probed", not
+  "no table".
+- **Loading and error states: done, browser-only.** I intercepted the call
+  inside Chromium — nothing touched your site or the database. Held open: the
+  spinner shows and the number is absent. Failed: *"That didn't load / Failed to
+  fetch / Try again"*. A 500: the same shell carrying the server's own message
+  rather than a canned one. It retries three times before giving up, which is
+  the framework's default. Screenshots are in the chat.
+
+Suite 6,487. Sweep 28/28 killed, 0 survived, both controls survived.
+**Nothing merged, nothing deployed, no paid call, no demo site touched.**
+The `search_path` review is still queued next.
+
+---
+
 ## 2026-09-15 — The normalizer was still erasing meaning, and the live path is ready
 
 You were right, and the fix I shipped last round was one layer too late. The

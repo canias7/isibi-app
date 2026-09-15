@@ -2791,13 +2791,104 @@ export function addRepairNote(round) {
   return "";
 }
 
+/** How many tables' columns a stored input digest keeps, and how many each. */
+export const MAX_SHOWN_TABLES = 12;
+export const MAX_SHOWN_COLUMNS = 24;
+
+/**
+ * WHAT A DESIGNER WAS REALLY SHOWN ABOUT THE SITE'S DATABASE (2026-09-15).
+ *
+ * Owner, after run 48: *"Recover the actual designer input if it was recorded.
+ * Otherwise mark schema receipt unverified and prepare minimal instrumentation
+ * for the next test."* **It was not recorded, and this is the instrumentation.**
+ *
+ * What the addon stored was `site: aSite` — ONE value, written after the whole
+ * loop, so it is the facts as they stood at the END and not what any particular
+ * designer was handed. Run 48's `function` designer ran first; by the time the
+ * record was written `aSite` had been rebuilt over its own answer. So "did the
+ * function step see `bookings`?" had no direct answer in the record at all, and
+ * the run's whole first demonstration rested on inference.
+ *
+ * THE DIGEST IS TAKEN FROM THE OBJECT REALLY HANDED TO THE CALL, never
+ * re-derived beside it. A second derivation is a second copy that can disagree
+ * with the first, which is this repository's most-repeated defect and is
+ * precisely the class of thing this exists to settle.
+ *
+ * **SCHEMA ONLY, AND DELIBERATELY NOT THE PROMPT.** The composed note carries
+ * the customer's own words, the page labels and the kit menu; storing it would
+ * put a customer's sentence into a per-kind record for a second time and make
+ * the record grow with the catalog. The question this answers is narrow — which
+ * tables, with which columns, were in front of this step — so the digest is
+ * narrow, and `hasDatabase` rides with it because a site the step was told has
+ * NO database is the exact shape run 47 met.
+ */
+export function shownSchema(site) {
+  const s = site && typeof site === "object" ? site : {};
+  const names = (v) => (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x);
+  const cols = s.columns && typeof s.columns === "object" ? s.columns : {};
+  return {
+    tables: names(s.tables).slice(0, MAX_SHOWN_TABLES),
+    columns: Object.fromEntries(names(s.tables).slice(0, MAX_SHOWN_TABLES)
+      .map((t) => [t, names(cols[t]).slice(0, MAX_SHOWN_COLUMNS)])),
+    functions: names(s.functions).slice(0, MAX_SHOWN_TABLES),
+    apis: names(s.apis).slice(0, MAX_SHOWN_TABLES),
+    jobs: names(s.jobs).slice(0, MAX_SHOWN_TABLES),
+    // A BOOLEAN, because `hasDatabase: false` beside a non-empty `tables` is a
+    // contradiction worth being able to read back — and it is the one field
+    // whose false value is the whole of run 47's defect.
+    hasDatabase: !!s.hasDatabase,
+  };
+}
+
+/**
+ * THE KINDS `appliedFacts` CAN SPEAK FOR — and the reason this list exists is
+ * the answer it makes possible for every kind that is NOT on it.
+ *
+ * `implementationOf` asks whether a step really made the thing a requirement
+ * was handed to it for. With no entries of that kind there are two different
+ * facts underneath: *the step made nothing*, and *nothing here can see what
+ * that step makes*. `component` is the second — an addition folded into an
+ * existing page leaves no item in any applied list — and reading it as the
+ * first would report a working section as missing, which is the exact defect
+ * run 48 found one kind over.
+ *
+ * So a kind on this list can answer `absent`; a kind off it answers `unknown`,
+ * which falls to `unverified`. **Cannot-tell must never read as a value**, this
+ * repository's most-repeated rule, met where the wrong direction is a sentence
+ * telling a customer a shipped feature is still to do.
+ */
+export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "page"]);
+
 /**
  * WHAT A CHANGE REALLY APPLIED, AND WHAT EACH ITEM REALLY GUARANTEES.
  *
- * `[{ name, holds, fails, checked }]`, which is what `claimEvidence` checks a
- * `covered` claim against: `holds` are words from a CLOSED VOCABULARY that are
+ * `[{ kind, name, holds, fails, checked }]`, which is what `claimEvidence` checks
+ * a `covered` claim against: `holds` are words from a CLOSED VOCABULARY that are
  * true of the item as it was applied, `fails` are words from that SAME
  * vocabulary that are false of it.
+ *
+ * ── `kind` IS THE EXPLICIT REFERENCE, AND IT IS WHY IT EXISTS (2026-09-15) ───
+ *
+ * Owner, after run 48: *"Reconcile requirements with actual applied results
+ * using explicit references, such as kind and item name — not another keyword
+ * heuristic."*
+ *
+ * Every entry used to carry a NAME and nothing else, so the only way to ask
+ * "did the function step really make something" was to scan text for the name —
+ * which is the heuristic `claimEvidence` already is, and which cannot answer a
+ * question about a HANDOFF at all, because a handoff carries no `by` clause to
+ * scan. `kind` is stamped by the loop that produced the entry — it is which
+ * list the name came out of, not a reading of anything — so
+ * `implementationOf` can ask a structural question (`r.step === m.kind`,
+ * `r.item === m.name`) and get a structural answer.
+ *
+ * `page` IS HERE FOR THE SAME REASON AND CARRIES NO GUARANTEES. A published
+ * route is an applied result — the page step really made it — and that is the
+ * whole of what its presence establishes, so `holds` is EMPTY rather than
+ * carrying the route or its name. A page existing has never been evidence that
+ * the page does anything, which is this module's oldest rule; what changed is
+ * only that its EXISTENCE is now readable, so an implementation can be
+ * distinguished from a missing one without claiming the behaviour.
  *
  * ── EVERYTHING HERE IS CONFIGURATION, AND `checked` IS EMPTY ON PURPOSE ─────
  *
@@ -2866,7 +2957,7 @@ export function addRepairNote(round) {
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], fnErrors = [] } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [] } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   const factsFor = (name) => {
@@ -2885,7 +2976,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     ...(Array.isArray(altered) ? altered : []).map((a) => a && a.table).filter(Boolean)];
   for (const name of named) {
     const n = String(name || "").toLowerCase();
-    if (n) out.push({ name: n, ...factsFor(n) });
+    if (n) out.push({ kind: "table", name: n, ...factsFor(n) });
   }
   // ── A FUNCTION'S GUARANTEES ARE ITS APPLIED SETTINGS (2026-09-14) ─────────
   //
@@ -2902,13 +2993,13 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const fnList = (spec && Array.isArray(spec.functions)) ? spec.functions : [];
   for (const n of (Array.isArray(functions) ? functions : [])) {
     const f = fnList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
-    if (!f) { out.push({ name: n, holds: [], fails: [], checked: [] }); continue; }
+    if (!f) { out.push({ kind: "function", name: n, holds: [], fails: [], checked: [] }); continue; }
     const holds = [], fails = [];
     if (f.internal) { holds.push("internal"); fails.push("public"); }
     else { holds.push("public"); fails.push("internal"); }
     if (typeof f.returns === "string" && f.returns) holds.push(...String(f.returns).toLowerCase().split(/[^a-z0-9_]+/).filter((w) => w.length >= 3));
     for (const a of (Array.isArray(f.args) ? f.args : [])) if (a && a.name) holds.push(String(a.name).toLowerCase());
-    out.push({ name: n, holds, fails, checked: [] });
+    out.push({ kind: "function", name: n, holds, fails, checked: [] });
   }
   // ── A CONNECTION PROVES CONFIGURATION, NEVER BEHAVIOUR ───────────────────
   //
@@ -2926,7 +3017,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const apiList = (spec && Array.isArray(spec.apis)) ? spec.apis : [];
   for (const n of (Array.isArray(apis) ? apis : [])) {
     const a = apiList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
-    if (!a) { out.push({ name: n, holds: [], fails: [], checked: [] }); continue; }
+    if (!a) { out.push({ kind: "api", name: n, holds: [], fails: [], checked: [] }); continue; }
     const holds = [], fails = [];
     let host = "";
     try { host = new URL(String(a.url || "")).hostname.toLowerCase(); } catch { host = ""; }
@@ -2936,7 +3027,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     fails.push(method === "post" ? "get" : "post");
     for (const p of (Array.isArray(a.params) ? a.params : [])) if (p) holds.push(String(p).toLowerCase());
     if (Number(a.ttl) > 0) holds.push(String(a.ttl));
-    out.push({ name: n, holds, fails, checked: [] });
+    out.push({ kind: "api", name: n, holds, fails, checked: [] });
   }
   // ── THE SECOND WALL, AND THE REDUNDANCY IS DELIBERATE ────────────────────
   //
@@ -2953,7 +3044,16 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   for (const j of (Array.isArray(jobs) ? jobs : [])) {
     if (!j || !j.name) continue;
     if (dead.has(String(j.fn || "").toLowerCase())) continue;
-    out.push({ name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [], checked: [] });
+    out.push({ kind: "job", name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [], checked: [] });
+  }
+  // A PUBLISHED ROUTE, AND DELIBERATELY WITH AN EMPTY VOCABULARY. See the head
+  // of this function: existence is the entire claim, so there is nothing here
+  // for `claimEvidence` to promote and nothing for a claim to contradict. What
+  // reads it is `implementationOf`, which asks whether the page step produced
+  // anything at all — never what the page does.
+  for (const p of (Array.isArray(pages) ? pages : [])) {
+    const n = String(p || "").trim();
+    if (n) out.push({ kind: "page", name: n, holds: [], fails: [], checked: [] });
   }
   return out;
 }

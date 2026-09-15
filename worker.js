@@ -219,10 +219,10 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief } from "./builder/site-requirements.mjs";
+import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -23349,16 +23349,52 @@ async function handleRequest(request, env, ctx) {
             // through a compile: a mutation of the `fails` list survived a
             // sweep for exactly that reason, and a survivor nobody can drive is
             // a wall nobody is guarding.
+            // WHAT IS IN HAND WHEN THE QUESTION IS ASKED, and these two are why
+            // `reportable` exists rather than a constant. `aApplied` is false
+            // until the backend apply has really run and `aShipped` is null
+            // until the merge has decided which routes were compiled, so a
+            // coverage composed on a refusal path asks about kinds whose
+            // results do not exist yet — and answers `unknown` for them rather
+            // than `absent`. An empty list read as "nothing was made" is the
+            // recorded cannot-tell trap, and here it would print "still to do"
+            // over work that had not been attempted.
+            let aApplied = false, aShipped = null;
             const aMade = () => appliedFacts({
               spec: aSpec, tables: aTables, altered: aAltered,
               functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
+              pages: aShipped || [],
             });
+            // WHICH STEPS THIS CHANGE CAN ANSWER "IT MADE NOTHING" FOR, and the
+            // first clause is the one that does most of the work: a kind this
+            // change never ran made nothing, definitionally, with no apply and
+            // no publish needed to know it. That is what lets a requirement
+            // handed to `edit` — a step no add kind owns — read as real
+            // outstanding work rather than as something unconfirmable, and a
+            // function asked for by a change that ran no function step read as
+            // absent rather than as unknown.
+            //
+            // A kind that DID run is only answerable once its results exist:
+            // the backend four after the apply, `page` after the publish.
+            // Before that the honest answer is "cannot tell", which falls to
+            // `unverified` — never to "still to do" over work in flight.
+            const aReportable = () => {
+              const ran = new Set(aKinds || []);
+              return COVERAGE_STEPS.filter((k) => {
+                if (!ran.has(k)) return true;
+                if (k === "page") return !!aShipped;
+                return APPLIED_KINDS.includes(k) && aApplied;
+              });
+            };
             // WHICH STEPS WERE REALLY HANDED AN OUTSTANDING REQUIREMENT. Filled
             // where the brief is composed, never where it is merely intended:
             // a hop that exists in this file and does not run is this
             // repository's most-repeated defect, and `requirementOutcomes`
             // reads this set rather than "did that step run".
             const aTold = new Set();
+            // AND WHAT EACH ONE WAS SHOWN ABOUT THE DATABASE, per kind, in run
+            // order — the instrumentation run 48 did without. Developer-facing
+            // and schema-only; see `shownSchema`.
+            const aShown = [];
             const aCoverage = () => {
               const open = unresolvedRequirements(aReq);
               const bad = [...aBadProps];
@@ -23379,7 +23415,7 @@ async function handleRequest(request, env, ctx) {
                 // landed and what each item really guarantees; `told` is which
                 // steps were really handed an outstanding requirement.
                 coverNote: [
-                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade(), unexpressed: [...aUnexpressed] }),
+                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade(), reportable: aReportable(), unexpressed: [...aUnexpressed] }),
                   // THE MISSING PAGES' OWN SENTENCE, joined rather than folded
                   // into `requirementNote`: that function is about REQUIREMENTS
                   // the designers declared, and a page that did not survive the
@@ -23450,6 +23486,20 @@ async function handleRequest(request, env, ctx) {
               // read as satisfied by a call that never heard it.
               const aBrief = requirementBrief(aReq, k);
               if (aBrief) aTold.add(k);
+              // ── WHAT THIS DESIGNER WAS REALLY SHOWN (2026-09-15) ──────────
+              //
+              // Owner, after run 48: *"Recover the actual designer input if it
+              // was recorded."* It was not — the record stored ONE `site`,
+              // written after the whole loop, so a step that ran first was
+              // recorded against facts rebuilt over its own answer. `aShown`
+              // is per kind, taken from `aSite` AT THE CALL and from the same
+              // expression the call is handed, so "did the function step see
+              // `bookings`?" is a stored fact rather than an inference.
+              //
+              // ABOVE THE CALL, NOT BELOW IT: `aSite` is a `let` that the loop
+              // rebuilds from this kind's own answer, so a digest taken after
+              // the await would record the OUTPUT wearing the input's name.
+              aShown.push({ kind: k, ...shownSchema(aSite) });
               const ran = await runAdd({ send: aQuick("add:" + k) }, { kind: k, message: aInstruction, site: aSite, model: aModels.quick, brief: aBrief });
               // HOP 3 OF EIGHT, AND IT IS ABOVE EVERY `continue` AND `return`
               // BELOW IT. A coverage list read after the decline check, after
@@ -23638,8 +23688,8 @@ async function handleRequest(request, env, ctx) {
             // before a single statement reached Postgres.
             const aRecord = () => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
-              ran: aAnswers.map((a) => a.kind), told: [...aTold],
-              failed: [...aFailedKinds], made: aMade(), unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
+              ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
+              failed: [...aFailedKinds], made: aMade(), reportable: aReportable(), unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
               unknownKit: [...aUnknownKit], missingPages: aMissing,
             });
             const aSaveAnswer = async () => {
@@ -23670,7 +23720,7 @@ async function handleRequest(request, env, ctx) {
             // without both a run where every claim was unverifiable is
             // indistinguishable from one where every claim held.
             {
-              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], made: aMade() });
+              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], made: aMade(), reportable: aReportable() });
               aMark("coverage", "ok", {
                 ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size, moved: aChanged.size,
                 // BESIDE `bad`, NEVER SUMMED INTO IT: a run where the addon lost
@@ -23679,8 +23729,18 @@ async function handleRequest(request, env, ctx) {
                 // which happened.
                 lost: aUnexpressed.size,
                 done: st.filter((r) => r.state === "delivered").length,
-                broke: st.filter((r) => r.state === "failed").length,
-                unsure: st.filter((r) => r.state === "unverified").length,
+                // SIX STATES ON FIVE KEYS, and the grouping is the finding
+                // rather than a shortening: `failed` and `blocked` are both
+                // "did not work" to a reader scanning marks, `unverified` and
+                // `configured` are both "there, unchecked", and `gone` is the
+                // one this change separated out — work that is not there,
+                // which used to be counted under `broke` for any hand-off
+                // nobody delivered. `unsent` is that hand-off ledger, beside
+                // the work rather than standing in for it.
+                broke: st.filter((r) => r.state === "failed" || r.state === "blocked").length,
+                unsure: st.filter((r) => r.state === "unverified" || r.state === "configured").length,
+                gone: st.filter((r) => r.state === "missing").length,
+                unsent: st.filter((r) => r.handoff === "undelivered").length,
                 unbuilt: Object.values(aUnbuilt).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0),
               });
             }
@@ -23912,6 +23972,13 @@ async function handleRequest(request, env, ctx) {
                 // connections and the jobs the merge kept, and every `{{SECRET}}`
                 // a new connection needs, so the reply can say what to paste.
                 const aMadeFns = Array.isArray(aMade && aMade.functions) ? aMade.functions : [];
+                // THE APPLY REALLY RAN, so from here an empty `aFunctions` means
+                // the engine made none rather than that nobody has asked yet —
+                // which is the whole difference between `missing` and
+                // `unverified` for a requirement handed to a backend step.
+                // Set AFTER the throwing statements above and before anything
+                // reads it, so a refused apply never claims to have looked.
+                aApplied = true;
                 aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
                 aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice(0, 6) : [];
                 aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
@@ -24528,22 +24595,45 @@ async function handleRequest(request, env, ctx) {
             // requested names since the fold was written and had ZERO readers
             // until this line; the comparison is by file name because that is
             // what both sides really hold.
-            aMissing = missingPages(
-              aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : [])),
-              [...(aMerge.added || []), ...(aMerge.changed || [])],
-            );
+            // THE ROUTES THAT WERE REALLY COMPILED AND SHIPPED, which is the
+            // same list `missingPages` is decided against and is set here for
+            // the same reason: below the publish, so it can never describe a
+            // page that was planned. It is what makes `page` a kind the
+            // reconcile can answer `absent` for — before this line `aShipped`
+            // is null and a requirement handed to `page` reads `unverified`,
+            // which is the honest answer while nothing has been published.
+            const aFilesOut = [...(aMerge.added || []), ...(aMerge.changed || [])];
+            const aWanted = aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : []));
+            aMissing = missingPages(aWanted, aFilesOut);
+            // ROUTES, NOT FILES, AND DERIVED FROM THE ONE READER THAT ALREADY
+            // KNOWS BOTH (2026-09-15). The merge answers FILE names and a
+            // requirement names a ROUTE — the customer's word, and the word
+            // `missingPages` reports for exactly that reason. Rather than invert
+            // `fileOfRoute` here and own a second copy of that correspondence,
+            // the shipped routes are the requested ones LESS the missing ones,
+            // so the two lists are complements of each other by construction and
+            // cannot disagree about a page.
+            aShipped = aWanted
+              .map((p) => (p && typeof p === "object" && typeof p.path === "string" ? p.path : ""))
+              .filter((r) => r && !aMissing.includes(r));
             if (aMissing.length) {
               // A PAGE THAT DID NOT SURVIVE IS THE PAGE STEP FAILING, and the
               // coverage has to hear it: a requirement handed to `page` cannot
               // be covered by a page that is not there.
               aFailedKinds.add("page");
               aMark("pages", "missing", { n: aMissing.length });
-              // AND THE RECORD IS RE-WRITTEN, for the same reason the applied
-              // result re-writes it: the copy stored in the seam above was
-              // composed BEFORE the publish, so it says the page step
-              // succeeded. This is the last moment anything knows better.
-              await aSaveAnswer();
             }
+            // THE RECORD IS RE-WRITTEN HERE WHETHER OR NOT A PAGE WENT MISSING
+            // (2026-09-15), and until a sweep survivor found it this write was
+            // inside the branch above. Every copy stored before this line was
+            // composed while `aShipped` was still null — so on the ORDINARY
+            // path, where every page shipped, the stored coverage said no page
+            // was applied and a requirement naming one read `unknown` for the
+            // record's own reason. The reply was right and the record was not,
+            // which is the worse way round: the reply is read once and the
+            // record is what anybody comes back to. This is the last moment
+            // anything knows better, on both branches.
+            await aSaveAnswer();
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding
             // synchronously, the spine's own reserve (#3) under a job.

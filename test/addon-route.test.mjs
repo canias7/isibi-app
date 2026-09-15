@@ -121,7 +121,7 @@ test("a claim naming a configuration that really holds is recorded, and still do
   // nothing could be said about, and the record keeps which.
   const rec = storedAnswer(r, "fw-ev-a");
   assert.equal(rec.coverage.counts.configured, 1, "the configuration fact that was checked is not recorded");
-  assert.ok(rec.coverage.requirements.some((x) => typeof x.configured === "string" && x.configured.includes("daily_reminder")),
+  assert.ok(rec.coverage.requirements.some((x) => typeof x.configuredBy === "string" && x.configuredBy.includes("daily_reminder")),
     "the record does not say WHICH configuration matched: " + JSON.stringify(rec.coverage.requirements));
 });
 
@@ -289,10 +289,47 @@ test("a requirement handed BACK to a step that already ran stays outstanding", a
     },
   });
   assert.equal(r.body.ok, true);
-  assert.match(r.body.coverNote, /Still to do: the reminder shows their booking time/,
-    "a hand-off nobody could deliver was read as satisfied");
+  // ── RE-ANCHORED 2026-09-15, AND THE EXPECTATION MOVED RATHER THAN BROKE ──
+  //
+  // This asserted "Still to do", which read an undelivered hand-off as work
+  // that is not there. The hand-off is undelivered — that is true and is still
+  // asserted below — but `send_reminder` WAS created, and whether it shows the
+  // booking time is not something this layer looked at. "Still to do" asserts
+  // it was not done; "I can't confirm" is what is actually known, and the
+  // stronger claim is the one run 48 shipped as a falsehood.
+  assert.doesNotMatch(r.body.coverNote, /Still to do/,
+    "work nobody looked at was reported as work that is not there");
+  assert.match(r.body.coverNote, /can't confirm from here that the reminder shows their booking time/,
+    "the requirement stopped being mentioned to the customer at all");
+  // WHAT THIS CASE IS REALLY FOR, kept exactly: the hand-off reached nobody and
+  // the record says so, rather than a step that ran being read as satisfaction.
   assert.ok((r.body.requirements || []).some((x) => x.need === "the reminder shows their booking time"),
     "the outstanding requirement is not on the wire");
+  const back = storedAnswer(r, "fw-backward").coverage;
+  assert.equal(back.handoffs.undelivered, 1, "a hand-off nobody could deliver was read as satisfied");
+  assert.ok(!back.toldSteps.includes("function"), "the function step was recorded as told about a later step's request");
+});
+
+test("…and NAMING the thing it wants makes the same hand-off an exact question", async () => {
+  // THE `item` FIELD EARNING ITS PLACE. The case above cannot say more than
+  // "cannot tell" because the requirement names no thing to look for. Name one
+  // the change did not make and the answer is exact — this is the difference
+  // between the kind-level reconcile and the item-level one, driven.
+  const r = await addon("fw-backward-item", "remind people the day before", {
+    kinds: ["function", "job"],
+    answers: {
+      function: { function: [FN] },
+      job: { job: [JOB], requirements: [{ need: "the reminder shows their booking time", status: "elsewhere", step: "function", item: "booking_time_for" }] },
+    },
+  });
+  assert.equal(r.body.ok, true);
+  assert.deepEqual(r.body.functions, ["send_reminder"], "the function step made nothing — this case tests nothing");
+  assert.match(r.body.coverNote, /Still to do: the reminder shows their booking time/,
+    "a named thing the change never made was not reported as outstanding");
+  const rec = storedAnswer(r, "fw-backward-item").coverage;
+  assert.equal(rec.counts.missing, 1);
+  const q = rec.requirements.find((x) => x.need === "the reminder shows their booking time");
+  assert.equal(q.implementation, "absent", "a named thing absent from a populated kind was not seen as absent");
 });
 
 test("a requirement handed to a step this change never runs stays outstanding", async () => {
@@ -1112,4 +1149,367 @@ test("internal tables are not a disagreement — every site has `_meta`", async 
   // `bookings` IS declared by the fixture's stored schema, so the only
   // undeclared name in that catalog is `_meta` — and the step must proceed.
   assert.equal(r.body.ok, true, "an internal table was treated as an undeclared one: " + JSON.stringify(r.body));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RUN 48: A HAND-OFF SENT BACKWARD IS NOT A MISSING IMPLEMENTATION (2026-09-15)
+//
+// Owner, after run 48: *"A requirement sent backward to an earlier step is an
+// unresolved handoff; that alone does not establish that its implementation is
+// missing."*
+//
+// THE LIVE SHAPE, and it is reproduced here exactly. The picker chose
+// `["function","page"]`; `function` runs first in `ADD_KINDS` order, so the
+// PAGE step's requirement handed back to `function` named a step that had
+// already run and could not have heard it. That was true and was reported
+// correctly — and it was then read as the implementation being absent, so the
+// customer was told **"Still to do: A new function named
+// count_existing_bookings"** about a function that had been created in that
+// same change, was live, and answered `3` through the site's own public route
+// within the minute of the reply.
+//
+// Four cases, and the first three are the owner's own list: the late hand-off
+// when its function was applied, when it was absent, and when creation failed.
+// The fourth is the control that keeps the third honest.
+const COUNT_FN = { name: "count_existing_bookings", returns: "bigint", body: "SELECT COUNT(*) FROM bookings" };
+const CHECK_PAGE = { path: "/booking-check", name: "Booking Check", purpose: "See the total number of bookings already stored.",
+  sections: ["a section header", "a single figure"], components: ["section-header", "stats-band"] };
+/** The page step's requirement, handed BACK to the function step. */
+const LATE = { need: "A new function named count_existing_bookings that totals rows in the existing bookings table", status: "elsewhere", step: "function" };
+
+test("run 48: a hand-off to a step that already ran, whose function WAS applied, is not 'still to do'", async () => {
+  const r = await addon("fw-late-made", "add a page at /booking-check that shows the booking total", {
+    kinds: ["function", "page"], publishes: true,
+    answers: {
+      function: { function: [COUNT_FN] },
+      page: { page: [CHECK_PAGE], requirements: [LATE] },
+    },
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, asserted rather than assumed: the function really was
+  // created and the page really shipped. Without both, this case would pass
+  // with the fix reverted and prove nothing.
+  assert.deepEqual(r.body.functions, ["count_existing_bookings"], "the function was not applied — this case tests nothing");
+  assert.deepEqual(r.body.added, ["booking-check.tsx"], "the page was not published — this case tests nothing");
+  // THE DEFECT, IN THE CUSTOMER'S OWN SENTENCE. This is the assertion run 48
+  // would have failed.
+  assert.doesNotMatch(r.body.coverNote, /Still to do/,
+    "a hand-off nobody delivered was reported as work that is still to do");
+  // THE NAME MAY APPEAR — the can't-confirm clause quotes the need, which
+  // contains it, and that is correct. What it may not appear in is a sentence
+  // saying the work is outstanding, which is the whole of run 48's defect.
+  assert.match(r.body.coverNote, /can't confirm from here that A new function named count_existing_bookings/,
+    "the requirement stopped being mentioned to the customer at all");
+  const cov = storedAnswer(r, "fw-late-made").coverage;
+  // THE TWO ANSWERS, SEPARATE AND BOTH KEPT. The hand-off really did reach
+  // nobody and the record says so; the work really is there and the state says
+  // that. Collapsing them is the whole defect.
+  assert.equal(cov.handoffs.undelivered, 1, "the undelivered hand-off stopped being reported at all");
+  assert.equal(cov.counts.missing, 0, "a hand-off nobody delivered was counted as missing work");
+  assert.equal(cov.counts.failed, 0, "a hand-off nobody delivered was counted as a failure");
+  const late = cov.requirements.find((q) => q.need === LATE.need);
+  assert.equal(late.handoff, "undelivered");
+  // `unknown`, NOT `found`, and that is the asymmetry working. Run 48's entry
+  // names no `item`, so all this layer knows is that the function step made
+  // SOMETHING — which would satisfy any request for a function if it were read
+  // as `found`. Either answer keeps the customer's sentence honest; only this
+  // one is true.
+  assert.equal(late.implementation, "unknown");
+  assert.equal(late.state, "unverified", "an applied implementation was read as anything but unchecked");
+});
+
+test("run 48 with the thing NAMED: the same hand-off resolves against the applied function exactly", async () => {
+  // WHAT RUN 48 WILL REPORT once a designer fills in `item` — the reconcile
+  // stops being about the kind and becomes one equality against an applied
+  // name. The claim it can make is still only that the function was CREATED.
+  const r = await addon("fw-late-named", "add a page at /booking-check that shows the booking total", {
+    kinds: ["function", "page"], publishes: true,
+    answers: {
+      function: { function: [COUNT_FN] },
+      page: { page: [CHECK_PAGE], requirements: [{ ...LATE, item: "count_existing_bookings" }] },
+    },
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.functions, ["count_existing_bookings"]);
+  const q = storedAnswer(r, "fw-late-named").coverage.requirements.find((x) => x.need === LATE.need);
+  assert.equal(q.implementation, "found", "the named function was not matched against the applied one");
+  assert.equal(q.implementedBy, "count_existing_bookings", "the record does not say WHICH applied item answered it");
+  assert.equal(q.handoff, "undelivered", "the hand-off ledger changed because the implementation was found");
+  // AND STILL NOT DELIVERED. An applied function establishes that a function
+  // was created and nothing about whether it totals the right rows.
+  assert.equal(q.state, "unverified", "existence was promoted to a settled requirement");
+  assert.doesNotMatch(r.body.coverNote, /Still to do/);
+});
+
+test("run 48's shape with NO function applied: the same hand-off is missing work, and is said", async () => {
+  // THE OTHER SIDE, and it is what keeps the fix from being "never say still to
+  // do". The page hands the same requirement back and this time the change
+  // designed no function at all, so there is nothing of that kind anywhere.
+  const r = await addon("fw-late-absent", "add a page at /booking-check that shows the booking total", {
+    kinds: ["page"], publishes: true,
+    answers: { page: { page: [CHECK_PAGE], requirements: [LATE] } },
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.functions, undefined, "a function was applied — this case tests nothing");
+  assert.match(r.body.coverNote, /Still to do:.*count_existing_bookings/,
+    "work that was asked for and never built was not reported");
+  const cov = storedAnswer(r, "fw-late-absent").coverage;
+  assert.equal(cov.counts.missing, 1, "absent work was not counted as missing");
+  const late = cov.requirements.find((q) => q.need === LATE.need);
+  assert.equal(late.state, "missing");
+  assert.equal(late.implementation, "absent");
+  assert.equal(late.handoff, "undelivered", "the hand-off ledger stopped reading the same way");
+  // AND THE RECORD DOES NOT NAME A THING IT DID NOT FIND. A sweep survivor:
+  // the reader carries the name it SOUGHT out of a miss, which is useful inside
+  // it and is a lie on the wire — `implementedBy: "count_existing_bookings"`
+  // beside `implementation: "absent"` reads as the function existing.
+  assert.equal(late.implementedBy, undefined,
+    "an absent implementation was recorded as having been implemented by the thing it was looking for");
+});
+
+test("a page that did not survive is missing, and a coverage composed before the publish says so", async () => {
+  // TWO SWEEP SURVIVORS, and they are the two halves of one rule: a page is
+  // only evidence once it has really shipped.
+  //
+  // (a) A PAGE THAT WAS ASKED FOR AND DID NOT SURVIVE must not count as the
+  //     implementation of a requirement naming it. `aShipped` is the requested
+  //     routes LESS the missing ones; dropping that subtraction makes every
+  //     planned page read as built, which is the "doing less than was asked
+  //     while reporting success" failure this whole path exists to avoid.
+  const WANT = { need: "A gallery page shows the work", status: "elsewhere", step: "page", item: "/gallery" };
+  const GALLERY = { path: "/gallery", name: "Gallery", purpose: "Show the work.", sections: ["a grid"], components: ["card"] };
+  const r = await addon("fw-page-lost", "add a gallery page and a booking check", {
+    kinds: ["function", "page"], publishes: true,
+    answers: {
+      function: { function: [{ ...COUNT_FN, internal: true, body: "BEGIN RETURN 1; END;" }], requirements: [WANT] },
+      page: { page: [CHECK_PAGE, GALLERY] },
+    },
+    // ONLY ONE OF THE TWO IS WRITTEN — `/gallery` never made it through.
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page survived — this case tests nothing");
+  const cov = storedAnswer(r, "fw-page-lost").coverage;
+  const want = cov.requirements.find((q) => q.need === WANT.need);
+  assert.equal(want.implementation, "absent", "a page that did not survive was counted as the work being there");
+  assert.equal(want.implementedBy, undefined);
+  // THE STEP ALSO FAILED (a page that did not survive IS the page step
+  // failing), so the requirement handed to it is BLOCKED rather than missing —
+  // and the customer hears the dependency sentence. Both are honest and the
+  // distinction is the owner's: this points them at the other part.
+  assert.equal(want.state, "blocked", "a page nobody could build read as work simply not done");
+  assert.ok((cov.applied || []).every((m) => m.name !== "/gallery"),
+    "a page that did not survive is in the applied result: " + JSON.stringify(cov.applied));
+  assert.ok((cov.applied || []).some((m) => m.kind === "page" && m.name === "/booking-check"),
+    "the page that DID survive is missing from the applied result — the control failed");
+});
+
+test("a coverage composed before anything published cannot answer `absent` for a page", async () => {
+  // (b) THE OTHER HALF. `page` is reportable only once `aShipped` is set, which
+  // is below the publish — before that, "no page was applied" and "no page has
+  // been applied YET" are the same empty list, and reading the second as the
+  // first prints "still to do" over work that had not been attempted.
+  //
+  // A NEW TABLE IS NEVER PAGELESS, so this reaches the compile and the routing
+  // fixture has no container: the run refuses with the publish never reached,
+  // which is exactly the state under test.
+  const WANT = { need: "A page lists the waiting list", status: "elsewhere", step: "page", item: "/waiting" };
+  const r = await addon("fw-page-early", "keep a waiting list and show it", {
+    kinds: ["table", "page"],
+    answers: {
+      table: { table: [{ table: { name: "waitlist", columns: [{ name: "who", type: "text" }] } }], requirements: [WANT] },
+      page: { page: [{ path: "/waiting", name: "Waiting", purpose: "Show it.", sections: ["a list"], components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.error, "compile", JSON.stringify(r.body));
+  const cov = storedAnswer(r, "fw-page-early").coverage;
+  const want = cov.requirements.find((q) => q.need === WANT.need);
+  assert.equal(want.implementation, "unknown", "a page step whose publish never ran answered about its own absence");
+  assert.equal(want.state, "unverified");
+  assert.equal(cov.counts.missing, 0, "work that was never attempted was reported as work that is not there");
+  assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
+    "a refused change reported its unattempted pages as still to do: " + r.body.coverNote);
+});
+
+test("run 48's shape when the database REFUSED the function: the dependency is blocked, not merely unchecked", async () => {
+  // THE THIRD OF THE OWNER'S THREE. The function step ran and Postgres refused
+  // it, so `function` is a failed step — and a requirement handed TO a failed
+  // step is waiting on something that did not work, which is a different thing
+  // to tell somebody from "we did not do it".
+  const r = await addon("fw-late-failed", "add a page at /booking-check that shows the booking total", {
+    kinds: ["function", "page"], publishes: true, fnFail: true,
+    answers: {
+      function: { function: [COUNT_FN] },
+      page: { page: [CHECK_PAGE], requirements: [LATE] },
+    },
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.ok((r.body.functionErrors || []).length, "the database did not refuse the function — this case tests nothing");
+  assert.equal((r.body.functions || []).length, 0, "a refused function was reported as applied");
+  const cov = storedAnswer(r, "fw-late-failed").coverage;
+  const late = cov.requirements.find((q) => q.need === LATE.need);
+  assert.equal(late.state, "blocked", "a requirement whose dependency failed was not separated from one nobody built");
+  assert.equal(cov.counts.blocked, 1);
+  // AND THE CUSTOMER HEARS WHICH IT IS — the sentence points at the other part
+  // of the same change rather than inviting them to ask for the same thing.
+  assert.match(r.body.coverNote, /waiting on another part of the same change that didn't work/,
+    "a blocked requirement was reported in the words of an unbuilt one");
+  // …AND IT IS ONE SENTENCE OR THE OTHER, NEVER BOTH. A sweep survivor: adding
+  // `blocked` back into the still-to-do list leaves the clause above intact, so
+  // the case passed while the customer was told the same need twice, in two
+  // voices that ask for opposite things ("say it again" and "go and look at the
+  // other part"). The negative is what makes the distinction load-bearing.
+  assert.doesNotMatch(r.body.coverNote, /Still to do/,
+    "a blocked need was ALSO reported as work nobody built: " + r.body.coverNote);
+});
+
+test("a kind this layer cannot see is unverified, never missing — even when it ran", async () => {
+  // TWO SWEEP SURVIVORS, CLOSED TOGETHER, and they are the same rule from two
+  // sides: **cannot-tell must never read as a value**, this repository's most
+  // repeated one, met where the wrong direction tells a customer a shipped
+  // section is still to do.
+  //
+  // `component` is deliberately off `APPLIED_KINDS`: an addition folded into an
+  // existing page leaves no item in any applied list, so "nothing of that kind
+  // was applied" is what a working component and an absent one BOTH look like.
+  // The step really ran here, which is the discriminator — a kind that never ran
+  // IS reportable (it made none, definitionally), and that neighbouring case is
+  // the control four tests up.
+  const NEEDS_SECTION = {
+    need: "The page carries a note saying where the total comes from",
+    status: "elsewhere", step: "component", item: "SourceNote",
+  };
+  const r = await addon("fw-unseeable", "add a note under the booking total", {
+    kinds: ["function", "component"], publishes: true,
+    answers: {
+      function: { function: [{ ...COUNT_FN, internal: true, body: "BEGIN RETURN 1; END;" }], requirements: [NEEDS_SECTION] },
+      component: { component: [{ page: "/status", does: "a line saying where the total comes from", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const cov = storedAnswer(r, "fw-unseeable").coverage;
+  assert.ok(cov.ran.includes("component"), "the component step never ran — this case tests nothing");
+  assert.ok(!cov.requirements.some((q) => q.state === "missing"),
+    "a kind nothing here can speak for was reported as work that is not there");
+  const need = cov.requirements.find((q) => q.need === NEEDS_SECTION.need);
+  assert.equal(need.handoff, "delivered", "the component step was told and the ledger says otherwise");
+  assert.equal(need.implementation, "unknown", "a kind with no applied list answered about its own absence");
+  assert.equal(need.state, "unverified");
+  assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
+    "a section this layer cannot see was reported as still to do: " + r.body.coverNote);
+});
+
+test("a hand-off FORWARD, to a step that heard it and delivered, stays the control", async () => {
+  // THE CONTROL FOR ALL THREE, and it is the shape that already worked: the
+  // FUNCTION step hands to `page`, which runs after it, really receives the
+  // brief and really ships the route. Nothing about this case may move.
+  // THE `item` NAMES THE THING, which is the explicit reference the owner asked
+  // for in place of a keyword heuristic — and asserting what it resolves to is
+  // what closes TWO sweep survivors: `appliedFacts`' page arm, and the route
+  // handing it the pages that really shipped. Without them the page is invisible
+  // to the reconciliation and a live route reads as work that is not there.
+  const FORWARD = { need: "A page at /booking-check shows the total", status: "elsewhere", step: "page", item: "/booking-check" };
+  const r = await addon("fw-late-forward", "add a page at /booking-check that shows the booking total", {
+    kinds: ["function", "page"], publishes: true,
+    answers: {
+      function: { function: [COUNT_FN], requirements: [FORWARD] },
+      page: { page: [CHECK_PAGE] },
+    },
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const cov = storedAnswer(r, "fw-late-forward").coverage;
+  assert.equal(cov.handoffs.delivered, 1, "a forward hand-off stopped being recorded as delivered");
+  assert.equal(cov.handoffs.undelivered, 0);
+  const fwd = cov.requirements.find((q) => q.need === FORWARD.need);
+  assert.equal(fwd.handoff, "delivered");
+  assert.equal(fwd.state, "unverified", "a delivered hand-off to a shipped page claimed more than it can");
+  // THE PAGE IT NAMES WAS FOUND IN WHAT REALLY SHIPPED — by kind and by name,
+  // not by a word in the sentence. `page` is reportable here (it ran and the
+  // publish landed), so an entry that never arrived would read `missing` and the
+  // customer would hear "Still to do" about a live route: run 48 exactly.
+  assert.equal(fwd.implementation, "found", "the shipped page is invisible to the reconciliation");
+  assert.equal(fwd.implementedBy, "/booking-check", "the applied page is not the one the requirement named");
+  assert.ok((cov.applied || []).some((m) => m.kind === "page" && m.name === "/booking-check"),
+    "a shipped page leaves no applied entry at all: " + JSON.stringify(cov.applied));
+  assert.doesNotMatch(r.body.coverNote || "", /Still to do/, "a page that shipped was reported as still to do");
+  // AND THE BRIEF REALLY REACHED THE PAGE DESIGNER — the hop, not the intent.
+  assert.match(String((promptFor(r, "page") || {}).text || ""), /A page at \/booking-check shows the total/,
+    "the hand-off was recorded as delivered without reaching the designer");
+});
+
+test("what each designer was SHOWN about the database is recorded, per step, as its input", async () => {
+  // ── EVIDENCE GAP A, CLOSED (owner, 2026-09-15) ──────────────────────────
+  //
+  // *"Recover the actual designer input if it was recorded. Otherwise mark
+  // schema receipt unverified and prepare minimal instrumentation for the next
+  // test."* **It was not recorded.** The addon stored ONE `site` value, written
+  // after the whole kinds loop — so for run 48, whose `function` step ran
+  // first, the stored facts had already been rebuilt over that step's own
+  // answer. "Did the function designer see `bookings`?" had no stored answer
+  // and the run's first demonstration rested on inference.
+  //
+  // `shownSteps` is the instrumentation: one entry per kind, in run order,
+  // taken from the object really handed to that call.
+  //
+  // THE FUNCTION IS INTERNAL so the change is pageless and needs no container:
+  // what is under test is the RECORD of the step's input, and a public function
+  // would drag a compile in to prove nothing about it. Run 48's own function
+  // was public; that difference is downstream of everything asserted here.
+  const r = await addon("fw-shown", "count the bookings we already have", {
+    kinds: ["function"],
+    answers: { function: { function: [{ name: "count_existing_bookings", internal: true, returns: "bigint", body: "BEGIN RETURN (SELECT COUNT(*) FROM bookings); END;" }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const cov = storedAnswer(r, "fw-shown").coverage;
+  assert.deepEqual(cov.shownSteps.map((s) => s.kind), ["function"], "the per-step input record is not on the stored coverage");
+  const seen = cov.shownSteps[0];
+  // THE DEMONSTRATION RUN 48 COULD NOT MAKE: the schema was in front of the
+  // step, by name AND by column, as a stored fact rather than an inference.
+  assert.deepEqual(seen.tables, ["bookings"]);
+  assert.deepEqual(seen.columns.bookings, STORED_SCHEMA.tables[0].columns.map((c) => c.name + " " + c.type));
+  assert.equal(seen.hasDatabase, true, "a site with a resolved database was recorded as having none");
+  // …AND IT REALLY IS THE SAME PICTURE THE DESIGNER GOT. The digest and the
+  // composed note are two readers of one object, and a digest that agreed with
+  // nothing would be a second copy of the facts — this repository's own
+  // most-repeated defect, in the instrument built to settle a question of fact.
+  const text = String((promptFor(r, "function") || {}).text || "");
+  assert.ok(text.includes("bookings"), "the designer's own note does not name the table the digest claims it saw");
+});
+
+test("the input digest is the step's INPUT, never its output", async () => {
+  // THE WALL, and it is the one way this instrument can lie rather than go
+  // quiet. `aSite` is a `let` the loop REBUILDS from each kind's own answer, so
+  // a digest taken after the await would record what the step PRODUCED wearing
+  // the name of what it was shown — and the question being settled is exactly
+  // "was this in front of the step", which that answer inverts.
+  //
+  // Two kinds, and the table designed by the first is the discriminator: the
+  // `table` step must not see `waitlist`, and the `function` step must.
+  const r = await addon("fw-shown-order", "keep a waiting list and count it", {
+    kinds: ["table", "function"],
+    answers: {
+      table: { table: [{ table: { name: "waitlist", columns: [{ name: "who", type: "text" }] } }] },
+      function: { function: [{ name: "count_waiting", internal: true, returns: "int", body: "BEGIN RETURN 1; END;" }] },
+    },
+  });
+  // A NEW TABLE IS NEVER PAGELESS, so this one reaches the compile and the
+  // routing fixture has no container. That is fine and is deliberate: the
+  // record is written ABOVE the publish precisely so it survives a refusal,
+  // which is the property the whole coverage record rests on. The refusal is
+  // asserted to be THAT one, so a different failure cannot pass as this.
+  assert.equal(r.body.error, "compile", JSON.stringify(r.body));
+  assert.match(String(r.body.detail || ""), /container is not available in a routing test/);
+  const shown = storedAnswer(r, "fw-shown-order").coverage.shownSteps;
+  assert.deepEqual(shown.map((s) => s.kind), ["table", "function"], "the entries are not in run order");
+  assert.deepEqual(shown[0].tables, ["bookings"], "the table step was recorded against its own answer");
+  assert.deepEqual(shown[1].tables, ["bookings", "waitlist"],
+    "the function step's record does not carry the table designed one call earlier");
+  // THE CONTROL, so the case above is not satisfied by a digest that is always
+  // the baseline: the second entry really moved, and it moved forwards.
+  assert.ok(shown[1].tables.length > shown[0].tables.length, "nothing about the picture changed between the two steps");
 });

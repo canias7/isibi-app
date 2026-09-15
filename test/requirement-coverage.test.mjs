@@ -471,16 +471,38 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   assert.ok(markCall.includes("bad: aBadProps.size"), "the mark lost the invalid-property count");
   // …AND THE THREE STATES BESIDE THE THREE STATUSES, or a run where every
   // claim was unverifiable is indistinguishable from one where every claim held.
-  for (const k of ["done:", "broke:", "unsure:", "unbuilt:"]) {
+  // RE-ANCHORED 2026-09-15: `gone` and `unsent` join them, because a run whose
+  // implementation is MISSING and one whose hand-off was never DELIVERED are
+  // two different facts and both were previously folded into `broke`.
+  for (const k of ["done:", "broke:", "unsure:", "gone:", "unsent:", "unbuilt:"]) {
     assert.ok(markCall.includes(k), "the mark cannot say what really became of the requirements: no `" + k + "`");
   }
   // …AND EACH IS COUNTED RATHER THAN WRITTEN. A SWEEP SURVIVOR: `done: 0`
   // leaves the key exactly where a key check looks for it and reports every run
   // as having delivered nothing, which is a wrong number wearing a right one's
   // name — the one way an instrument misleads rather than going quiet.
-  for (const [k, state] of [["done", "delivered"], ["broke", "failed"], ["unsure", "unverified"]]) {
-    assert.match(markCall, new RegExp(k + ': st\\.filter\\(\\(r\\) => r\\.state === "' + state + '"\\)\\.length'),
-      "`" + k + "` on the mark is not counted from the outcomes");
+  //
+  // RE-ANCHORED OFF THE EXACT PREDICATE AND ONTO THE PROPERTY, 2026-09-15: two
+  // of these keys now count a PAIR of states (`broke` is failed-or-blocked,
+  // `unsure` is unverified-or-configured), and pinning the one-state spelling
+  // reported an honest widening as the counter being gone — this repo's own
+  // "assert the property, not the spelling". What must hold is that the value
+  // is a filter over the outcomes naming the states it claims to count.
+  for (const [k, field, states] of [
+    ["done", "state", ["delivered"]],
+    ["broke", "state", ["failed", "blocked"]],
+    ["unsure", "state", ["unverified", "configured"]],
+    ["gone", "state", ["missing"]],
+    ["unsent", "handoff", ["undelivered"]],
+  ]) {
+    const m = markCall.match(new RegExp("\\b" + k + ": ([^\\n]*?),?\\n"));
+    assert.ok(m, "`" + k + "` is not on the mark at all");
+    assert.match(m[1], new RegExp("^st\\.filter\\(\\(r\\) => .*\\)\\.length$"),
+      "`" + k + "` on the mark is not counted from the outcomes: " + m[1]);
+    for (const s of states) {
+      assert.ok(m[1].includes('r.' + field + ' === "' + s + '"'),
+        "`" + k + "` does not count `" + s + "`: " + m[1]);
+    }
   }
   // BY FIELD, NOT BY THE WHOLE ARGUMENT LIST — re-anchored 2026-09-14 when
   // `ran`/`names` became `told`/`made`. A byte window from a fixed offset is
@@ -574,16 +596,36 @@ test("requirementNote says only what is still outstanding, in the customer's ter
     "a step that was merely told is read as proof the need was met");
   assert.match(done, /can book a slot/,
     "a configuration word settled a behavioural requirement");
+  // RE-ANCHORED A FOURTH TIME, 2026-09-15 (owner, on run 48: "A requirement
+  // sent backward to an earlier step is an unresolved handoff; that alone does
+  // not establish that its implementation is missing"). **Both halves are
+  // asserted here, because separating them IS the fix.**
+  //
   // THE PAGE STEP WAS NEVER TOLD — a job-only addition runs no page call — so
-  // the hand-off is still outstanding and saying otherwise is the "doing less
-  // than was asked while reporting success" failure this path exists to avoid.
-  const owing = requirementNote(list, { told: ["job"], made });
+  // the hand-off is outstanding either way; what changes the SENTENCE is
+  // whether this layer can see that no page was made. `reportable` is what
+  // says so: a kind this change never ran made nothing, definitionally.
+  const owing = requirementNote(list, { told: ["job"], made, reportable: ["page"] });
   assert.match(owing, /Still to do: the page shows their bookings/);
+  // …AND RUN 48'S OWN SHAPE: the same undelivered hand-off, with the work
+  // really there. "Still to do" about a live page is the sentence that failed
+  // live; the hand-off is still counted, in the record, where it is actionable.
+  const shipped = [...made, { kind: "page", name: "/bookings", holds: [], fails: [], checked: [] }];
+  const late = requirementNote(list, { told: ["job"], made: shipped, reportable: ["page"] });
+  assert.doesNotMatch(late, /Still to do: the page shows their bookings/,
+    "a hand-off nobody delivered was reported as work that is not there");
+  assert.match(late, /can't confirm from here that[^.]*the page shows their bookings/,
+    "the page was built and the customer heard nothing about it at all");
+  const lateOut = requirementOutcomes(list, { told: ["job"], made: shipped, reportable: ["page"] });
+  assert.equal(lateOut.filter((r) => r.handoff === "undelivered").length, 1,
+    "the undelivered hand-off stopped being reported once it stopped being said as `missing`");
   // A STEP THAT WAS TOLD AND FAILED IS NOT A STEP THAT DELIVERED. This is the
   // one reading that must never collapse into `unverified`: we have positive
   // evidence of a problem, which is the only kind this layer ever really gets.
+  // It is `blocked` rather than `missing` since 2026-09-15 — the dependency
+  // this need was handed to failed, which points a customer somewhere else.
   const broke = requirementNote(list, { told: ["page"], failed: ["page"], made });
-  assert.match(broke, /Still to do: the page shows their bookings/);
+  assert.match(broke, /waiting on another part of the same change that didn't work: the page shows their bookings/);
   // NOTHING OUTSTANDING AND NOTHING UNCONFIRMED IS AN EMPTY STRING, never a
   // reassuring sentence: a `✅ Done.` with nothing after it has always meant
   // nothing was left over. It takes a CHECKED GUARANTEE now.
@@ -609,8 +651,14 @@ test("requirementNote says only what is still outstanding, in the customer's ter
   assert.equal(requirementNote(null, {}), "");
 });
 
-test("the three states are delivered, failed and unverified, and evidence is asymmetric", () => {
-  assert.deepEqual(REQUIREMENT_STATES, ["delivered", "failed", "unverified"]);
+test("the six states separate implementation from hand-off, and evidence is asymmetric", () => {
+  // RE-ANCHORED 2026-09-15 (owner, on run 48): three states could not express
+  // what run 48 met — a hand-off nobody delivered whose work was nonetheless
+  // live. `configured` splits a matched SETTING off `unverified`; `missing`
+  // and `blocked` split "this layer looked and it is not there" and "the part
+  // it needed failed" off `failed`, which now means only our own refusal.
+  assert.deepEqual(REQUIREMENT_STATES,
+    ["delivered", "configured", "unverified", "missing", "blocked", "failed"]);
   const list = cleanRequirements([
     { need: "book a slot", status: "covered", by: "bookings.slot is unique" },
     { need: "only the owner sees a number", status: "covered", by: "a row-level guarantee" },
@@ -624,9 +672,12 @@ test("the three states are delivered, failed and unverified, and evidence is asy
   // an entire business requirement delivered"). `holds` is CONFIGURATION, so
   // the first entry reads UNVERIFIED with the fact it matched recorded beside
   // it — a different kind of unverified from the second, which matched nothing.
-  assert.deepEqual(got.map((r) => r.state), ["unverified", "unverified", "unverified", "failed", "failed"]);
-  assert.equal(got[0].configured, "bookings: slot", "the configuration that was checked is not recorded");
-  assert.equal(got[1].configured, undefined, "a claim that matched nothing was recorded as checked configuration");
+  // RE-ANCHORED AGAIN 2026-09-15: the first entry's matched setting is its own
+  // STATE rather than a note beside `unverified`, and the hand-off to the step
+  // that FAILED is `blocked` — a dependency to point at, not our own refusal.
+  assert.deepEqual(got.map((r) => r.state), ["configured", "unverified", "unverified", "blocked", "failed"]);
+  assert.equal(got[0].configuredBy, "bookings: slot", "the configuration that was checked is not recorded");
+  assert.equal(got[1].configuredBy, undefined, "a claim that matched nothing was recorded as checked configuration");
   // …AND A BEHAVIOUR SOMETHING REALLY EXERCISED IS STILL DELIVERED. The door
   // is real and nothing on this path fills it, which is the honest state and
   // is said in as many words in `appliedFacts`.
@@ -639,10 +690,25 @@ test("the three states are delivered, failed and unverified, and evidence is asy
   assert.equal(list[0].from, "table");
   const refused = requirementOutcomes(list, { told: ["page"], failed: ["table"], made: exercised });
   assert.equal(refused[0].state, "failed", "a claim made by a step that then failed was read as delivered");
-  // A STEP NOBODY TOLD IS A FAILURE, not an unverified hand-off: the request
-  // reached no designer at all, which is knowable rather than unconfirmable.
-  assert.equal(requirementOutcomes(list, { told: [], made: [] })[2].state, "failed");
-  assert.match(requirementOutcomes(list, { told: [], made: [] })[2].why, /never got it/);
+  // ── A STEP NOBODY TOLD, SPLIT IN TWO (owner, 2026-09-15) ─────────────────
+  //
+  // *"A requirement sent backward to an earlier step is an unresolved handoff;
+  // that alone does not establish that its implementation is missing."* The
+  // hand-off is reported either way; what decides the STATE is whether this
+  // layer can see that nothing of that kind was made. `reportable` is what
+  // says so, and without it the honest answer is that we cannot tell.
+  const untold = requirementOutcomes(list, { told: [], made: [] })[2];
+  assert.equal(untold.handoff, "undelivered", "a hand-off that reached nobody stopped being reported");
+  assert.equal(untold.state, "unverified", "a hand-off nobody delivered was read as proof the work is absent");
+  const looked = requirementOutcomes(list, { told: [], made: [], reportable: ["page"] })[2];
+  assert.equal(looked.state, "missing", "a kind this change never ran made nothing, and that is knowable");
+  assert.match(looked.why, /never got it/);
+  // …AND THE SAME UNDELIVERED HAND-OFF OVER WORK THAT IS REALLY THERE — run
+  // 48's own shape — is not missing, however loudly the hand-off is owed.
+  const live = requirementOutcomes(list,
+    { told: [], made: [{ kind: "page", name: "/diary", holds: [], fails: [], checked: [] }], reportable: ["page"] })[2];
+  assert.equal(live.handoff, "undelivered");
+  assert.equal(live.state, "unverified", "a page that was really built was reported as still to do");
   // EVIDENCE IS WORD-BOUNDED. `bookings` must not be found inside
   // `bookings_old`, or a claim name-dropping a table we did NOT make reads as
   // proof we did — the one way this check can lie rather than go quiet.
@@ -702,11 +768,25 @@ test("the developer record keeps everything the customer is not told", () => {
   // RE-ANCHORED 2026-09-14: the counts gained the three STATES beside the three
   // statuses. A status is what the model SAID; a state is what really became of
   // it, and keeping both is what makes "the designer said covered and nothing
-  // here could confirm it" countable. `b` is covered with no `by` and nothing
-  // to check against → unverified; `a` was handed to a step that never ran →
-  // failed. Neither is what the old record would have implied.
-  assert.deepEqual(rec.counts, { total: 2, covered: 1, elsewhere: 1, unsupported: 0, unreadable: 1, delivered: 0, failed: 1, unverified: 1, configured: 0 });
-  assert.deepEqual(rec.requirements.map((r) => r.state), ["failed", "unverified"]);
+  // here could confirm it" countable.
+  // RE-ANCHORED AGAIN 2026-09-15: six states, and `a` is no longer counted as a
+  // failure. It was handed to a step that never heard it — a HAND-OFF defect,
+  // which is its own ledger now — and with no `reportable` this record cannot
+  // see whether a page was made, so `unverified` is the whole truth available.
+  assert.deepEqual(rec.counts, { total: 2, covered: 1, elsewhere: 1, unsupported: 0, unreadable: 1,
+    delivered: 0, configured: 0, unverified: 2, missing: 0, blocked: 0, failed: 0 });
+  assert.deepEqual(rec.requirements.map((r) => r.state), ["unverified", "unverified"]);
+  // …AND THE HAND-OFF IS STILL REPORTED, which is the half that must not be
+  // lost when it stops being said as work that is not there.
+  assert.deepEqual(rec.handoffs, { delivered: 0, undelivered: 1 },
+    "the hand-off ledger stopped counting a step that never heard its requirement");
+  // …AND A RECORD THAT CAN SEE THE PAGE STEP MADE NOTHING SAYS SO.
+  const sighted = requirementRecord({
+    list: cleanRequirements([{ need: "a", status: "elsewhere", step: "page" }, { need: "b", status: "covered" }]).list,
+    ran: ["table"], reportable: ["page"],
+  });
+  assert.equal(sighted.counts.missing, 1, "a kind this change never ran is not read as having made nothing");
+  assert.deepEqual(sighted.handoffs, { delivered: 0, undelivered: 1 });
   assert.deepEqual(rec.invalidProps, ["encryptAtRest"], "the property name is not kept for the developer either");
   assert.deepEqual(rec.handedTo, { page: ["a"] });
   assert.deepEqual(rec.unreadable, [{ need: "c", why: "bad-status" }]);
@@ -716,8 +796,16 @@ test("the developer record keeps everything the customer is not told", () => {
   const withUnbuilt = requirementRecord({ failed: ["job"], unbuilt: { job: ["remind"] } });
   assert.deepEqual(withUnbuilt.unbuilt, { job: ["remind"] });
   assert.deepEqual(withUnbuilt.failedSteps, ["job"]);
-  assert.deepEqual(requirementRecord().counts, { total: 0, covered: 0, elsewhere: 0, unsupported: 0, unreadable: 0, delivered: 0, failed: 0, unverified: 0, configured: 0 });
+  assert.deepEqual(requirementRecord().counts, { total: 0, covered: 0, elsewhere: 0, unsupported: 0, unreadable: 0,
+    delivered: 0, configured: 0, unverified: 0, missing: 0, blocked: 0, failed: 0 });
+  assert.deepEqual(requirementRecord().handoffs, { delivered: 0, undelivered: 0 });
   assert.deepEqual(requirementRecord().unbuilt, {});
+  // THE COUNTS COVER EVERY STATE THE MODULE CAN PRODUCE, asked of the list
+  // rather than of this fixture — a state added next month with no counter is a
+  // run whose record silently under-reports it.
+  for (const s of REQUIREMENT_STATES) {
+    assert.ok(Object.hasOwn(requirementRecord().counts, s), "the record has no counter for `" + s + "`");
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1070,7 +1158,14 @@ test("ACCEPTANCE: the reproduced omitted requirement is now named rather than dr
   assert.equal(rec.counts.unsupported, 1);
   assert.deepEqual(rec.counts.delivered, 0, "configuration bought a delivery again");
   assert.deepEqual(rec.counts.configured, 1, "the configuration fact that WAS matched is not on the record");
-  assert.deepEqual(rec.counts.unverified, 2);
+  // RE-ANCHORED 2026-09-15: `configured` is a STATE now rather than a note
+  // beside `unverified`, so the matched claim is counted once and not twice.
+  // The pair is what the customer hears as one sentence, and it is asserted as
+  // the pair — the two clauses above already read the sentence itself.
+  assert.deepEqual(rec.counts.unverified, 1);
+  assert.equal(rec.counts.configured + rec.counts.unverified, 2, "the two unconfirmed needs stopped being two");
   assert.deepEqual(rec.counts.failed, 1);
+  assert.deepEqual(rec.counts.missing, 0, "a hand-off that was really delivered was read as work that is not there");
+  assert.deepEqual(rec.handoffs, { delivered: 1, undelivered: 0 });
   assert.deepEqual(rec.handedTo, { page: ["a customer sees the repair listed on a page"] });
 });
