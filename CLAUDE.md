@@ -3763,8 +3763,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `addon-route`'s **four** (40 → 44: run 47's state recovered through the route
   with its control, an unrecoverable table stopping the step, an honestly empty
   database still working, and `_meta` not counting as a disagreement);
-  6,422 + 22 + 4 closes exactly. **Five re-anchors added no case.** CI has NOT
-  read this number yet.
+  6,422 + 22 + 4 closes exactly. **Five re-anchors added no case.**
+  **CI HAS READ IT: `unit tests` run 2553 on `3711218c`, green —
+  `# tests 6448 / # pass 6445 / # fail 0 / # skipped 3`**, against local
+  `6448 / 6448 / 0 / 0`. The three are the recorded environment skips, which is
+  why the number to carry is the TOTAL and why a `pass` count alone drifts
+  between the two machines.
   **6,422** before it (2026-09-15, local — the database-discovery
   repair, whose new cases are `backend-repair`'s **22** (the four states and the
   census, the repair's three conditions, the heal's filter by the property it
