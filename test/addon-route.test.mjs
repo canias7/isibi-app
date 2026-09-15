@@ -705,3 +705,165 @@ test("a kit name that is not in the kit is dropped and named, and a custom part 
   assert.ok(sent && !/not-a-kit-part/.test(sent.text),
     "the name that is not in the kit was still written into the page call");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE DATABASE-DISCOVERY REPAIR (2026-09-15)
+//
+// Owner, after run 47: *"Stop treating an unavailable existing backend as an
+// empty site. Distinguish 'this site has no database' from 'its database
+// reference is incomplete' and 'reading its schema failed'. Resolve the existing
+// backend or stop the dependent addon steps with a specific explanation. Do not
+// design against tables: [] when the existing schema is unknown."*
+//
+// Every case below goes through `POST /api/site/<slug>/addon` with no paid model
+// call: the designers are stubbed, the credit ledger is stubbed, and the whole
+// point is which SPEC the route hands them and what the customer is told.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("an incomplete backend reference resolves to the real schema — the designer is handed bookings, not an empty site", async () => {
+  // RUN 47's EXACT STATE: `site_backends.neon_db` blank, `site_project` present,
+  // and the database holding `bookings`. The route used to read the blank column
+  // as `{ tables: [] }` and hand THAT to the table designer, which is why it
+  // built a second table and counted the empty one.
+  const r = await addon("fw-incomplete", "add a function that counts the bookings", {
+    backend: "incomplete",
+    kinds: ["function"],
+    answers: { function: { function: [{ name: "count_bookings", returns: "bigint", body: "SELECT COUNT(*) FROM bookings", internal: true }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE SITE NOTE THE DESIGNER REALLY RECEIVED — the one thing that decides
+  // whether it reuses the site's table or invents one.
+  const sent = promptFor(r, "function");
+  assert.ok(sent && /bookings/.test(sent.text),
+    "the designer was NOT told about the site's existing bookings table: " + String(sent && sent.text).slice(0, 400));
+  // AND THE REFERENCE IS REPAIRED ON THE WAY PAST, which is what stops the next
+  // addon meeting the same blank column.
+  assert.equal(r.body.backend, "incomplete", "the reply does not say which state the backend was in");
+  assert.equal(r.body.backendHealed, true, "the ownership row was not repaired");
+  const patch = r.patched.find((p) => /site_backends/.test(p.url));
+  assert.ok(patch, "no PATCH reached site_backends");
+  // DERIVED THE WAY THE PRODUCT DERIVES IT, never retyped: `dbNameForSite` is
+  // the platform's one namer and this is the whole of "verify the site's actual
+  // database identity" at the unit level.
+  const { dbNameForSite } = await import("../site-db.mjs");
+  assert.equal(patch.body.neon_db, dbNameForSite("fw-incomplete"),
+    "the heal wrote a name the platform would not derive: " + JSON.stringify(patch.body));
+  // NEVER OVERWRITES A VALID SETTING — the filter is what enforces it, so the
+  // filter itself is the assertion rather than the intent behind it.
+  assert.ok(/neon_db\.is\.null/.test(patch.url) && /neon_db\.eq\./.test(patch.url),
+    "the heal's PATCH is not fenced to a row whose neon_db is still unset: " + patch.url);
+  // AND IT IS NOT REPORTED AS A PROVISION. Run 47's reply said the site "got its
+  // database for it" about a database it had had for twelve minutes.
+  assert.ok(!r.body.provisioned, "an existing database was reported as newly provisioned");
+});
+
+test("the CONTROL: a ready backend behaves exactly as before and is never patched", async () => {
+  // Without this, a heal that fired on every site would pass the case above.
+  const r = await addon("fw-ready", "add a function that counts the bookings", {
+    kinds: ["function"],
+    answers: { function: { function: [{ name: "count_bookings", returns: "bigint", body: "SELECT COUNT(*) FROM bookings", internal: true }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.backend, "ready");
+  assert.equal(r.body.backendHealed, undefined, "a site whose reference was already recorded was patched anyway");
+  assert.equal(r.patched.filter((p) => /site_backends/.test(p.url)).length, 0,
+    "a ready site's ownership row was written to");
+});
+
+test("a backend that cannot be read STOPS the step and says which link failed — it never becomes an empty site", async () => {
+  const r = await addon("fw-unreadable", "add a table that stores repair bookings", {
+    backend: "unreadable", publishes: true,
+    kinds: ["table"],
+    answers: { table: { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] } },
+  });
+  assert.equal(r.status, 503, "an unreadable backend did not stop the step: " + JSON.stringify(r.body));
+  assert.equal(r.body.ok, false);
+  assert.equal(r.body.cost, 0, "an unreadable backend charged the customer");
+  assert.equal(r.body.ours, true, "our own failure was not marked as ours");
+  assert.equal(r.body.backend, "lookup-failed", "the reason is not named, so three different failures read alike");
+  assert.match(r.body.msg, /database/i);
+  // THE PROOF THAT IT STOPPED RATHER THAN GUESSED: no table reached Postgres.
+  assert.equal(r.sql.filter((q) => /CREATE TABLE/i.test(q)).length, 0,
+    "a table was applied against a site whose schema could not be read");
+});
+
+test("a schema read that FAILS stops the step; one that finds nothing stored is honestly empty", async () => {
+  // THE TWO USED TO BE ONE THROW. `metaFail` is Neon refusing the query, so the
+  // schema is UNKNOWN; `metaMissing` is a database provisioned and never applied
+  // to, where empty is the truth. Opposite answers, driven side by side.
+  const failed = await addon("fw-metafail", "add a function that counts the bookings", {
+    metaFail: true, kinds: ["function"],
+    answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT 1", internal: true }] } },
+  });
+  assert.equal(failed.body.ok, false, "an unreadable schema was designed against: " + JSON.stringify(failed.body));
+  assert.equal(failed.body.escalate, true);
+  assert.equal(failed.body.reason, "no-meta");
+  assert.equal(failed.body.cost, 0);
+
+  const empty = await addon("fw-metamissing", "add a table that stores repair bookings", {
+    metaMissing: true, publishes: true, kinds: ["table"],
+    answers: { table: { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] } },
+  });
+  assert.equal(empty.body.ok, true, "a database with no _meta yet was refused instead of read as empty: " + JSON.stringify(empty.body));
+  assert.ok(empty.sql.some((q) => /CREATE TABLE IF NOT EXISTS "repairs"/i.test(q)),
+    "the table was not applied on a legitimately empty database");
+});
+
+test("a frontend-only site is still the one state where tables: [] is the truth", async () => {
+  // THE REGRESSION THIS CHANGE COULD EASILY HAVE CAUSED. `{tables: []}` used to
+  // come from `adb` being falsy, which was true for BOTH a frontend-only site
+  // and an incomplete one; now it is keyed on the state. If that had been
+  // tightened too far, the first backend addition on most of the platform would
+  // refuse.
+  const r = await addon("fw-none", "add a table that stores repair bookings", {
+    backend: "none", publishes: true, kinds: ["table"],
+    answers: { table: { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] } },
+  });
+  // THE PROVISION ATTEMPT *IS* THE PROOF, and it is the behaviour that
+  // separates `none` from `incomplete`: a site with no database has one MADE
+  // for it, where an incomplete one is resolved and never provisioned. The
+  // fixture has no Neon to create in, so the attempt surfaces as the route's
+  // own named 502 — which still shows the state was read as `none`, since any
+  // other state never reaches `ensureSiteBackend` at all.
+  assert.equal(r.body.error, "provision", "a frontend-only site did not try to make a database: " + JSON.stringify(r.body));
+  assert.equal(r.body.stage, "create_project");
+  assert.equal(r.body.cost, 0);
+  assert.equal(r.body.ours, true);
+});
+
+test("a table this change reads and nothing can fill is NAMED to the customer, and a legitimate read-only table is not", async () => {
+  // Owner: *"Replace the proposed blanket table refusal with a dependency check.
+  // No client write grant does not mean no writer."* Run 47's shape: a table
+  // declared read-nobody/write-nobody with a function counting it.
+  const r = await addon("fw-nofill", "add a table of repairs and a function that counts them", {
+    kinds: ["table", "function"], publishes: true,
+    answers: {
+      table: { table: [{ table: { name: "repairs", read: "none", write: "none", columns: [{ name: "who", type: "text" }] } }] },
+      function: { function: [{ name: "count_repairs", returns: "bigint", body: "SELECT COUNT(*) FROM repairs", internal: true }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.noPopulation, ["repairs"], "the table nothing can fill was not reported");
+  assert.match(r.body.coverNote, /Nothing can put rows into repairs/,
+    "the customer was not told the table starts empty and stays empty: " + r.body.coverNote);
+  // IT IS A REPORT, NOT A REFUSAL — the change still shipped.
+  assert.ok(r.sql.some((q) => /CREATE TABLE IF NOT EXISTS "repairs"/i.test(q)),
+    "the dependency check refused the table instead of reporting it");
+});
+
+test("the CONTROL for the dependency check: a table a declared function writes is never reported", async () => {
+  // THE OWNER'S OWN POINT, driven. Same read-nobody/write-nobody table, with a
+  // function that INSERTs into it — a real population path, so silence.
+  const r = await addon("fw-fnfill", "add a log table and something that writes it", {
+    kinds: ["table", "function"], publishes: true,
+    answers: {
+      table: { table: [{ table: { name: "repairs", read: "none", write: "none", columns: [{ name: "who", type: "text" }] } }] },
+      function: { function: [{ name: "log_repair", returns: "void", body: "INSERT INTO repairs (who) VALUES ('x'); SELECT COUNT(*) FROM repairs", internal: true }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.noPopulation, undefined,
+    "a table a declared function populates was reported as unfillable: " + JSON.stringify(r.body.noPopulation));
+  assert.ok(!/Nothing can put rows into/.test(r.body.coverNote || ""),
+    "the customer was told a populated table cannot be filled: " + r.body.coverNote);
+});

@@ -328,10 +328,30 @@ test("a failed addon leaves the site untouched, and an unusable one escalates", 
   // honest empty one, and a designed table on such a site is a named 422
   // rather than a climb.
   assert.ok(!code.includes('aEscalate("no-backend"'), "the addon still refuses a site with no database");
-  const meta = code.indexOf("SELECT v FROM _meta WHERE k = 'schema'");
+  // RE-ANCHORED, NOT APPEASED (2026-09-15). The schema read was inline here as
+  // `SELECT v FROM _meta WHERE k = 'schema'` and is now `readStoredSpec`, which
+  // exists because that one query had THREE outcomes collapsed into a spec or a
+  // throw: a stored spec, a read that succeeded and found nothing (a database
+  // provisioned and never applied to — honestly empty), and a read that FAILED
+  // (the schema is unknown and the step must stop). The property this line has
+  // always been about is that the addon reads the site's schema at all, and that
+  // it only does so when there is a database to read it from.
+  const meta = code.indexOf("const stored = await readStoredSpec(adb);");
   assert.ok(meta > 0, "the addon no longer reads the site's schema");
   assert.match(code.slice(code.lastIndexOf("if (adb)", meta), meta), /^if \(adb\)/, "the schema read is not gated on there being a database");
-  assert.match(code, /aSpec = adb \? null : \{ tables: \[\] \}/, "a site with no database is not given an honest empty spec");
+  // AND THE EMPTY SPEC IS KEYED ON THE ONE STATE IN WHICH IT IS TRUE.
+  //
+  // This was `aSpec = adb ? null : { tables: [] }` — the run-47 defect in one
+  // expression. A falsy `adb` meant BOTH "frontend-only site" and "the
+  // reference is incomplete", and the second is a site with tables. The empty
+  // spec now comes from the state, which separates them.
+  assert.ok(!/aSpec = adb \? null : \{ tables: \[\] \}/.test(code),
+    "the empty spec is keyed on the connection again, which cannot tell a frontend-only site from an incomplete reference");
+  assert.match(code, /if \(aBack\.state === "none"\) aSpec = \{ tables: \[\] \};/,
+    "a site with no database is not given an honest empty spec");
+  // A READ THAT COULD NOT TELL STOPS THE STEP rather than becoming an empty one.
+  assert.match(code, /if \(!stored\.ok\) throw new Error\("schema read: " \+ stored\.why\);/,
+    "a schema read that failed no longer stops the step");
   // RE-ANCHORED 2026-09-03: this held that a designed table on a site with
   // no database was refused by name (`no-database`) before any schema work.
   // The owner moved the backend onto this step and a site gets its database

@@ -1022,7 +1022,22 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   assert.match(fail, /detail: scrubSecrets\(/, "the detail is not scrubbed");
   assert.match(fail, /status: 502/);
   assert.match(fail, /aSpec = \{ tables: \[\] \};/, "a database just made is not described as empty");
-  assert.match(b, /let adb = await siteBackendBySlug\(env, ownerSlug\);/, "the connection is not reassignable — the provision's answer has nowhere to go");
+  // RE-ANCHORED, NOT APPEASED (2026-09-15). This was pinned to
+  // `let adb = await siteBackendBySlug(env, ownerSlug);` — the SPELLING of a
+  // reader that has been replaced. `siteBackendBySlug` collapses four facts
+  // into one `null` (run 47's defect) and the route now asks
+  // `siteBackendDetail`, which tells them apart and resolves an incomplete
+  // reference instead of reporting an empty site.
+  //
+  // THE PROPERTY IS UNCHANGED AND IS WHAT IS ASSERTED: the connection is a
+  // `let`, so the provision below has somewhere to put its answer. Pinned to
+  // the declaration itself rather than to which function fills it, which is
+  // the "assert the property, not the spelling" rule the old line broke.
+  assert.match(b, /\blet adb = aBack\.conn;/, "the connection is not reassignable — the provision's answer has nowhere to go");
+  assert.match(b, /const aBack = await siteBackendDetail\(env, ownerSlug\)/,
+    "the route no longer asks which of the four backend states this site is in");
+  assert.match(b, /if \(aBack\.state === "none"\) aSpec = \{ tables: \[\] \};/,
+    "`{tables: []}` is no longer keyed on the ONE state in which it is true");
   // A JOB ON A STORED INTERNAL FUNCTION is re-attached through the engine's
   // own reader, only when the stored function really is internal.
   const norm = at(b, "const merged = normalizeSchema(folded.spec);", "normalize");

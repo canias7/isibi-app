@@ -22,6 +22,9 @@ import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
 import { ensureSiteBackend as ensureSiteBackendPure } from "./site-provision.mjs";
 import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
+// The four states "no database" used to mean, and the one place that decides
+// between them. See `site-backend-state.mjs` — run 47 is what the collapse cost.
+import { backendState, unsetDbFilter, dbNameFromConn } from "./site-backend-state.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
@@ -210,7 +213,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief } from "./builder/site-requirements.mjs";
@@ -5735,6 +5738,160 @@ async function siteBackendBySlugFresh(env, slug) {
   return (r && r.conn) || null;
 }
 
+/**
+ * THE FOUR STATES, RESOLVED — and `incomplete` RESOLVED rather than reported.
+ *
+ * `siteBackendBySlugFresh` above collapses everything into `conn || null`, and
+ * run 47 is what that cost: the addon read the null as "this site has no
+ * tables", designed a second table beside the one the site already had, and
+ * published a page counting the empty one. `site-backend-state.mjs` argues the
+ * four states; this is the one place that asks Supabase for them.
+ *
+ * DELIBERATELY NOT `siteBackendBySlug`. That reader checks `env.SITE_ROUTES`
+ * first, and the KV cache is exactly what has been HIDING this: in the Worker an
+ * `incomplete` site resolves out of the cache some earlier build wrote, so
+ * nothing looks wrong. `builder/container-env.mjs` says `SITE_ROUTES` is absent
+ * in the container, so the job child reads Supabase and meets the blank column.
+ * A repair that consulted the cache would report the sites as healthy.
+ *
+ * AN `incomplete` SITE IS RESOLVED AND THEN PROVED, in that order. The name is
+ * derivable (`dbNameForSite`) and the project row carries the credential, so a
+ * connection can be built — but a name that derives is not a database that
+ * answers, so it is PROBED with one trivial query before being handed back. A
+ * probe that fails answers `unreadable`, never `none`: the caller must stop, not
+ * design against an empty site.
+ */
+async function siteBackendDetail(env, slug) {
+  const s = String(slug || "").toLowerCase();
+  let site = null, project = null;
+  try {
+    const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s)}&select=neon_db,uid&limit=1`,
+      { headers: svcHeaders(env), signal: AbortSignal.timeout(12000) });
+    if (!g.ok) throw new Error("site lookup " + g.status);
+    site = ((await g.json().catch(() => [])) || [])[0] || null;
+    // Only asked when the name is missing: a `ready` site needs no project read,
+    // and this runs on the addon's own path where a round trip is not free.
+    if (site && !String(site.neon_db || "").trim()) project = await siteNeonProject(env, s);
+  } catch (e) {
+    const st = backendState({ failed: e });
+    return { ...st, conn: null, uid: (site && site.uid) || null, slug: s };
+  }
+  const st = backendState({ site, project });
+  if (st.state === "ready") {
+    let conn = null;
+    try { conn = project ? connForDatabase(project.neon_conn, st.db) : (await siteBackendRowFresh(env, s) || {}).conn || null; }
+    catch (e) { return { ...backendState({ failed: e }), conn: null, uid: (site && site.uid) || null, slug: s }; }
+    return { ...st, conn, uid: site.uid || null, slug: s };
+  }
+  if (st.state === "incomplete") {
+    let conn = null;
+    try { conn = connForDatabase(project.neon_conn, dbNameForSite(s)); } catch { conn = null; }
+    if (!conn) return { state: "unreadable", db: null, why: "no-derivable-connection", conn: null, uid: site.uid || null, slug: s };
+    try { await sqlQuery(conn, "SELECT 1"); }
+    catch (e) {
+      // NAMED, and NOT read as "no database". The project row says one was made;
+      // a connection that will not answer is a fact about reachability, and
+      // reporting it as an empty site is the whole defect this replaces.
+      return { state: "unreadable", db: dbNameForSite(s), why: "derived-database-unreachable",
+               detail: scrubSecrets(String((e && e.message) || e)).slice(0, 200), conn: null, uid: site.uid || null, slug: s };
+    }
+    return { ...st, db: dbNameForSite(s), conn, uid: site.uid || null, slug: s };
+  }
+  return { ...st, conn: null, uid: (site && site.uid) || null, slug: s };
+}
+
+/**
+ * THE STORED SCHEMA, WITH "NOTHING STORED" AND "COULD NOT READ" TOLD APART.
+ *
+ * `SELECT v FROM _meta WHERE k='schema'` used to sit inline behind an
+ * `if (adb)`, and every way it could fail arrived as one throw the caller
+ * escalated on. Three outcomes hide in there and only one of them is an error:
+ *
+ *   ok, a spec        — the ordinary case.
+ *   ok, `{tables:[]}` — the read SUCCEEDED and there is no row, which is a
+ *                       database provisioned and never applied to. Empty is the
+ *                       TRUTH here, and refusing it would make the first backend
+ *                       addition on such a site impossible.
+ *   not ok            — the query threw, or the stored JSON will not parse. The
+ *                       schema is UNKNOWN, and the owner's instruction is exact:
+ *                       do not design against `tables: []` when the existing
+ *                       schema is unknown.
+ *
+ * `_meta` ITSELF MAY NOT EXIST, and that is the second case rather than the
+ * third: `ensureSiteBackend` creates it when it records the auth and data
+ * endpoints, so a database that predates those writes has no table and no rows,
+ * which is still "nothing stored". Matched on Postgres's own wording for a
+ * missing relation, and on nothing else — anything we cannot recognise is
+ * unknown, which is the safe direction.
+ */
+async function readStoredSpec(conn) {
+  let rows;
+  try { rows = await sqlQuery(conn, "SELECT v FROM _meta WHERE k = 'schema'"); }
+  catch (e) {
+    const m = String((e && (e.detail || e.message)) || e);
+    if (/relation .* does not exist|undefined_table|42P01/i.test(m)) return { ok: true, spec: { tables: [] }, why: "no-meta-table" };
+    return { ok: false, why: "query-failed", detail: scrubSecrets(m).slice(0, 200) };
+  }
+  const row = (rows || [])[0];
+  if (!row || !row.v) return { ok: true, spec: { tables: [] }, why: "no-row" };
+  try {
+    const spec = JSON.parse(row.v);
+    if (!spec || typeof spec !== "object") return { ok: false, why: "not-an-object" };
+    return { ok: true, spec, why: "stored" };
+  } catch (e) {
+    // STORED AND UNREADABLE IS THE WORST CASE TO GUESS AT: the site has a
+    // schema and we cannot see it, so an empty answer here would be the run-47
+    // defect with a different cause.
+    return { ok: false, why: "unparseable" };
+  }
+}
+
+/**
+ * WRITE THE DATABASE NAME ONTO THE OWNERSHIP ROW — the defect's own fix.
+ *
+ * `saveBackend` claims with `resolution=ignore-duplicates`, which is an INSERT
+ * and cannot update the row already there, so a site whose database was made
+ * AFTER its first build kept `neon_db: ""` for ever. Five sites are in that
+ * state today.
+ *
+ * NEVER OVERWRITES A VALID SETTING, and the store is what enforces it rather
+ * than us: the filter admits only a row whose `neon_db` is still unset, in both
+ * spellings that exist in the live table. So this is safe to call on every
+ * provision and safe to run twice — the second run matches nothing.
+ *
+ * ANSWERS, NEVER THROWS. By the time this runs the database is real and the
+ * caller's work has succeeded; a Supabase blip must not turn a completed
+ * provision into a failure. `healed: false` with a status is the honest answer
+ * and the repair script re-reads rather than trusting this.
+ */
+async function healSiteBackendDb(env, slug, uid, db) {
+  const s = String(slug || "").toLowerCase(), u = String(uid || ""), name = String(db || "").trim();
+  if (!s || !u || !name) return { ok: false, healed: false, why: "missing-argument" };
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(s)}&uid=eq.${encodeURIComponent(u)}&${unsetDbFilter()}`,
+      {
+        method: "PATCH",
+        headers: svcHeaders(env, { "content-type": "application/json", Prefer: "return=representation" }),
+        body: JSON.stringify({ neon_db: name }),
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!r.ok) {
+      console.error("backend db heal:", s, r.status, (await r.text().catch(() => "")).slice(0, 200));
+      return { ok: false, healed: false, status: r.status };
+    }
+    const rows = await r.json().catch(() => []);
+    // AN EMPTY REPRESENTATION IS "ALREADY SET", NOT A FAILURE — the filter
+    // matched nothing, which is what a second run looks like and is the
+    // property that makes this repeatable.
+    return { ok: true, healed: Array.isArray(rows) && rows.length > 0, status: r.status };
+  } catch (e) {
+    console.error("backend db heal:", s, String((e && e.message) || e));
+    return { ok: false, healed: false, why: "threw" };
+  }
+}
+
 // WHO OWNS A SLUG, cached, for the one read path that needs it.
 //
 // The third-party API cache keys on the owner (`cacheKey`) because a slug is
@@ -6194,6 +6351,27 @@ async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
   // must not fail a build that has otherwise succeeded.
   await saveRoute(routeDeps(env), slug, conn);
   mark?.("route");
+  // AND RECORD THE DATABASE'S NAME ON THE OWNERSHIP ROW.
+  //
+  // THE ROOT OF THE RUN-47 DEFECT, fixed at the one place every provision
+  // passes through. `saveBackend` inside `ensureSiteBackendPure` is an INSERT
+  // with `resolution=ignore-duplicates`: for a site whose first build was
+  // frontend-only the row ALREADY EXISTS with `neon_db: ""`, so the claim is a
+  // no-op and the column stays empty for ever. Five live sites are in that
+  // state. Everything downstream then reads `siteBackendBySlug` → null and
+  // calls it "this site has no database".
+  //
+  // THE NAME COMES FROM THE CONNECTION, not from re-deriving it off the slug:
+  // this records the database the caller is ACTUALLY about to use, so the row
+  // cannot end up naming one nothing connects to. `dbNameFromConn` answers ""
+  // for a string it cannot parse and the heal then does nothing, which is the
+  // right direction for a line that only decorates a record.
+  //
+  // Best-effort and deliberately AFTER the return value is settled: the
+  // database exists, the schema is appliable and the caller's work can proceed
+  // whether or not this lands. A failure logs; the next provision retries it,
+  // and `scripts/backend-repair.mjs` closes the ones that never do.
+  await healSiteBackendDb(env, slug, uid, dbNameFromConn(conn));
   return conn;
 }
 
@@ -22743,9 +22921,52 @@ async function handleRequest(request, env, ctx) {
             // `let`, SINCE 2026-09-03: the first backend tier designed for a
             // site with no database MAKES one, below, and this is the
             // connection everything after that point reads.
-            let adb = await siteBackendBySlug(env, ownerSlug);
+            //
+            // AND SINCE 2026-09-15 THE FOUR STATES ARE ASKED APART. The line
+            // above used to be `siteBackendBySlug`, whose one `null` meant four
+            // different things, and run 47 spent 13 credits proving what that
+            // costs: `{ tables: [] }` was handed to the table designer for a
+            // site whose `bookings` table was twelve minutes old, so it made a
+            // SECOND table, counted that, and published a page reading `0`.
+            // `siteBackendDetail` reads Supabase directly — never the KV cache,
+            // which is what hides this in the Worker and is absent in the
+            // container where the addon now runs.
+            const aBack = await siteBackendDetail(env, ownerSlug);
+            let adb = aBack.conn;
+            // AN UNRESOLVABLE BACKEND STOPS THE STEP. Cost 0, nothing changed,
+            // and the reason is named rather than collapsed into "no database":
+            // Supabase down, a project row we cannot read and a derived
+            // database that will not answer are three different things to fix,
+            // and every one of them used to arrive as an empty site.
+            if (aBack.state === "unreadable") {
+              aMark("backend", "fail", { why: aBack.why });
+              console.error("addon backend unreadable:", ownerSlug, aBack.why, aBack.detail || "");
+              return Response.json({
+                ok: false, error: "backend", cost: 0, ours: true, backend: aBack.why,
+                msg: "I couldn't read your site's database just now, so I've stopped rather than guess at what's in it — this is on us and nothing was changed. Try again in a few minutes.",
+              }, { status: 503 });
+            }
+            // A REFERENCE THAT WAS INCOMPLETE IS REPAIRED ON THE WAY PAST.
+            // `siteBackendDetail` has already proved the database answers, so
+            // this records a name that is known good rather than one derived
+            // and hoped for. Best-effort: the step proceeds either way, and
+            // `aProvisioned` stays FALSE — nothing was made, something was
+            // found, and saying "the site got its database for it" about a
+            // database it has had for days is exactly what run 47's reply did.
+            let aHealedRef = false;
+            if (aBack.state === "incomplete") {
+              const h = await healSiteBackendDb(env, ownerSlug, aBack.uid || ou.id, aBack.db);
+              aHealedRef = !!(h && h.healed);
+              aMark("backend", "healed", { ref: aHealedRef ? 1 : 0 });
+            }
 
-            let aLook = null, aCss = "", aSpec = adb ? null : { tables: [] };
+            let aLook = null, aCss = "", aSpec = null;
+            // `{ tables: [] }` IS TRUE IN EXACTLY ONE STATE and this is it: no
+            // database recorded AND no project row, which is every frontend-only
+            // site. It is set HERE, against the state, rather than derived from
+            // `adb` being falsy — the two looked identical and only one of them
+            // is honest.
+            if (aBack.state === "none") aSpec = { tables: [] };
             try {
               const cfg = await readSiteConfig(env, ownerSlug, adb);
               if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
@@ -22759,9 +22980,13 @@ async function handleRequest(request, env, ctx) {
               aLook = lookWithMarks(cfg.config);
               aCss = typeof cfg.config.css === "string" ? cfg.config.css : "";
               if (adb) {
-                const rows = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = 'schema'");
-                const row = (rows || [])[0];
-                if (row && row.v) aSpec = JSON.parse(row.v);
+                const stored = await readStoredSpec(adb);
+                // A READ THAT COULD NOT TELL STOPS THE STEP; a read that
+                // SUCCEEDED and found nothing stored is an empty schema, which
+                // is the honest answer for a database provisioned and never
+                // applied to. Those two used to be one throw.
+                if (!stored.ok) throw new Error("schema read: " + stored.why);
+                aSpec = stored.spec;
               }
             } catch (e) { console.error("addon meta read failed:", ownerSlug, e && e.message); return aEscalate("no-meta"); }
             if (!aLook || !aSpec) return aEscalate("no-meta");
@@ -22999,6 +23224,20 @@ async function handleRequest(request, env, ctx) {
             // really survived, so a planned file is never mistaken for a
             // delivered page.
             let aMissing = [];
+            // …THE SEED ROWS THAT WERE ASKED FOR AND NOT PUT IN (2026-09-15).
+            // `seedSiteRows` has answered `{seeded, skipped}` all along and the
+            // skip list went into the migration record and REACHED NOBODY:
+            // `"repairs: only display tables are seeded"` is the single sentence
+            // that can say why a brand-new table arrived empty, and run 47's
+            // customer never saw it. Accurate by construction — the producer
+            // only writes a skip for a table the design really asked to seed —
+            // so nothing here can imply seeding was required where it was not.
+            let aSeedSkips = [];
+            // …AND THE TABLES THIS CHANGE GAVE A READER AND NO WAY TO FILL.
+            // A REPORT, NEVER A REFUSAL (owner, 2026-09-15: "No client write
+            // grant does not mean no writer"). Filled after the apply, when the
+            // proposal is settled and the readers are known.
+            let aNoFill = [];
             // …AND THE ITEMS THE ENGINE WILL NOT BUILD AT ALL, per tier
             // (2026-09-14). A table that fails is nearly always a table with a
             // refused field; a FUNCTION whose body names an internal table, or
@@ -23101,6 +23340,21 @@ async function handleRequest(request, env, ctx) {
                   // writer is a fact about this change whether or not anybody
                   // wrote a requirement for it.
                   missingPagesNote(aMissing),
+                  // THE SEED SKIPS, SAID (2026-09-15). Joined here for exactly
+                  // the reason the missing-page sentence is: it is a fact about
+                  // what this change did, not a claim the designers made, and
+                  // `requirementNote` is about requirements. It says the EFFECT
+                  // — the table starts empty — rather than our own rule about
+                  // which tables get seeded, and it can never fire for a table
+                  // nobody asked to seed, because the engine only records a
+                  // skip against the design's own seed keys.
+                  seedSkipNote(aSeedSkips),
+                  // AND THE TABLE NOTHING CAN FILL. A report, never a refusal:
+                  // a read-only table filled by a function, a job, an import or
+                  // the owner is legitimate and stays silent. This fires only
+                  // where this change also gave the table a reader, which is
+                  // run 47's shape.
+                  populationNote(aNoFill),
                 ].filter(Boolean).join(" "),
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
@@ -23120,6 +23374,19 @@ async function handleRequest(request, env, ctx) {
                 // a route is the one thing about a missing page a customer can
                 // do something with.
                 missingPages: aMissing.length ? aMissing : undefined,
+                // THE DEVELOPER'S COPY OF THE TWO NEW FINDINGS. `seedSkips`
+                // carries the engine's own sentences, which name the rule the
+                // customer's clause deliberately leaves out; `noPopulation` is
+                // the bare table list.
+                seedSkips: aSeedSkips.length ? aSeedSkips.slice(0, 12) : undefined,
+                noPopulation: aNoFill.length ? aNoFill.slice(0, 12) : undefined,
+                // WHAT THE BACKEND LOOKUP REALLY ANSWERED, so a support read
+                // never has to infer it: `ready`, `none` or `incomplete` (an
+                // `unreadable` site never reaches here — it stops above).
+                // `backendHealed` says the ownership row was repaired on the
+                // way past, which is how the five affected sites close.
+                backend: aBack.state,
+                backendHealed: aHealedRef || undefined,
               };
             };
             for (const k of aKinds) {
@@ -23673,6 +23940,27 @@ async function handleRequest(request, env, ctx) {
                 // itself here any more than it could on the build path.
                 try { aSeeded = await seedSiteRows(adb, merged, aSeed); }
                 catch (e) { console.error("addon seeding failed:", ownerSlug, e && e.message); }
+                // AND THE SKIPS REACH THE CUSTOMER NOW, not only the record.
+                // Read off the engine's own answer rather than re-derived, so
+                // the sentence and the migration entry can never disagree about
+                // which tables started empty.
+                aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice(0, 12) : [];
+                // WHICH TABLES THIS CHANGE READS AND NOTHING CAN FILL. Asked of
+                // `merged` — the spec the apply really ran — so a table the
+                // cleaner refused is not reported, and asked AFTER the seed so a
+                // table this change seeded is not reported either.
+                //
+                // THE READERS ARE THE SPEC'S OWN BODIES AND NOTHING ELSE HERE.
+                // The page sources would be a second source of readers and they
+                // do not exist yet: this closure runs at the apply, which is
+                // BEFORE the merge that produces them. Passing `aMerge` from
+                // here would be reading a variable that is empty at this point —
+                // the "a hop nobody listed" shape — so the narrower question is
+                // asked honestly instead. A function or job body reading the
+                // table is the run-47 shape exactly, which is the one this has
+                // to catch.
+                try { aNoFill = missingPopulation({ spec: merged, seed: aSeed, readers: readTables({ spec: merged }) }); }
+                catch (e) { aNoFill = []; }
                 aMark("schema", "ok", { tables: aTables.length, functions: aFunctions.length, jobs: aJobs.length });
                 // THE ENGINE'S OWN REPORT ON THE RECORD, still `pending`: what
                 // stands in the database is known now; whether the page comes

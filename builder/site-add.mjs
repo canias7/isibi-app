@@ -2624,6 +2624,143 @@ export function missingPagesNote(routes) {
     : list.length + " pages I set out to add aren't there — " + named + rest + " didn't make it through. Ask me for them again and I'll have another go.";
 }
 
+/**
+ * WHICH TABLES THIS CHANGE GAVE A READER AND NO WAY OF GAINING A ROW.
+ *
+ * REPLACES A BLANKET REFUSAL, and the owner's correction is the whole design:
+ * *"No client write grant does not mean no writer: a function, job, import, or
+ * server operation may populate the table."* The first draft of this was going
+ * to refuse any table with `write: "none"` — which is every `display` table on
+ * the platform, every price list and every opening-hours table, all of them
+ * perfectly legitimate and filled by the owner or by a seed.
+ *
+ * So it REPORTS, and only where the report is about something the customer
+ * asked for. A table earns a mention only when BOTH are true:
+ *
+ *   1. something in THIS change reads it — a function whose body selects from
+ *      it, or a page/component the change added that names it. A read-only
+ *      lookup table nobody queried yet is not a problem to raise.
+ *   2. nothing anywhere can put a row in it — no client write grant, no seed in
+ *      this change, and no declared function or job whose body writes to it.
+ *
+ * THE WRITER SCAN IS THE PART THAT MATTERS and it is deliberately generous: any
+ * `INSERT INTO t`, `UPDATE t` or `COPY t` in any declared function body counts,
+ * whether or not that function is internal, because an internal function run by
+ * a job is exactly the population path the owner named. Being generous is the
+ * safe direction here — a missed writer produces a sentence nobody needed, and
+ * a false "nothing can fill this" sends somebody hunting a defect that is not
+ * there. The reverse, staying silent about run 47's `repairs`, is the failure.
+ *
+ * The owner's own door is NOT counted as a population path, and that is a
+ * decision rather than an oversight: they can always type rows into the Data
+ * panel, so counting it would make every table populated and the check vacuous.
+ * The sentence says "or add the first rows yourself", which is that door named
+ * where it is useful instead of used to silence the finding.
+ */
+export function missingPopulation({ spec = null, seed = null, readers = [] } = {}) {
+  const s = spec && typeof spec === "object" ? spec : {};
+  const tables = Array.isArray(s.tables) ? s.tables : [];
+  if (!tables.length) return [];
+  const seeded = new Set(Object.keys(seed && typeof seed === "object" ? seed : {}).map((k) => k.toLowerCase()));
+
+  // Every table any declared function or job body writes to.
+  const written = new Set();
+  const bodies = [];
+  for (const f of Array.isArray(s.functions) ? s.functions : []) if (f && typeof f.body === "string") bodies.push(f.body);
+  for (const j of Array.isArray(s.jobs) ? s.jobs : []) if (j && typeof j.body === "string") bodies.push(j.body);
+  for (const b of bodies) {
+    for (const m of b.matchAll(/\b(?:insert\s+into|update|copy)\s+"?([a-z_][a-z0-9_]*)"?/gi)) {
+      written.add(String(m[1]).toLowerCase());
+    }
+  }
+
+  const wanted = new Set((Array.isArray(readers) ? readers : []).map((r) => String(r || "").toLowerCase()).filter(Boolean));
+  const out = [];
+  for (const t of tables) {
+    if (!t || !t.name) continue;
+    const name = String(t.name).toLowerCase();
+    if (!wanted.has(name)) continue;
+    if (seeded.has(name) || written.has(name)) continue;
+    const { write } = resolveAccess(t);
+    if (write !== "none") continue;
+    if (!out.includes(t.name)) out.push(t.name);
+  }
+  return out;
+}
+
+/**
+ * WHICH TABLES THIS CHANGE READS — the other half of `missingPopulation`, and
+ * separate from it because the two answer different questions and a caller may
+ * have a better list than this can derive.
+ *
+ * A function body that selects from a table reads it; so does a page or a
+ * component whose source names it. Both are bodies of text this change wrote,
+ * which is what makes "in THIS change" real rather than a claim about the site.
+ */
+export function readTables({ spec = null, sources = [] } = {}) {
+  const s = spec && typeof spec === "object" ? spec : {};
+  const names = (Array.isArray(s.tables) ? s.tables : []).map((t) => t && t.name).filter(Boolean);
+  if (!names.length) return [];
+  const text = [];
+  for (const f of Array.isArray(s.functions) ? s.functions : []) if (f && typeof f.body === "string") text.push(f.body);
+  for (const f of Array.isArray(s.functions) ? s.functions : []) if (f && typeof f.returns === "string") text.push(f.returns);
+  for (const src of Array.isArray(sources) ? sources : []) if (typeof src === "string") text.push(src);
+  const blob = text.join("\n");
+  const out = [];
+  for (const n of names) {
+    // WORD-BOUNDED, never `includes` — the recorded `bookings` / `bookings_old`
+    // rule. A table called `repairs` must not be read into `repairs_archive`.
+    if (new RegExp("\\b" + String(n).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(blob) && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+/**
+ * The sentence for a table this change reads and nothing can fill.
+ *
+ * NAMES THE TABLE, because that is what a customer can act on, and says what it
+ * means for the thing they asked for rather than reporting a permission.
+ */
+export function populationNote(names) {
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n);
+  if (!list.length) return "";
+  const named = list.slice(0, 3).join(", ");
+  const rest = list.length > 3 ? " and " + (list.length - 3) + " more" : "";
+  return list.length === 1
+    ? "Nothing can put rows into " + named + " yet, so whatever reads it will show nothing until something does — a form, an import, or add the first rows yourself."
+    : "Nothing can put rows into " + named + rest + " yet, so whatever reads them will show nothing until something does — a form, an import, or add the first rows yourself.";
+}
+
+/**
+ * THE SEED SKIPS, SAID ACCURATELY.
+ *
+ * `seedSiteRows` answers `{seeded, skipped}` and `skipped` is written ONLY for a
+ * table the design really asked to seed — the loop is over the seed object's
+ * own keys — so this can never imply seeding was required where it was not.
+ * That is a property of the producer, not a filter here, which is why this
+ * function does no guessing of its own: it renders what it is handed.
+ *
+ * Until now that report went into the migration record and reached NOBODY.
+ * `"repairs: only display tables are seeded"` is the single sentence that can
+ * say why a brand-new table arrived empty, and run 47's customer never saw it.
+ *
+ * THE EFFECT IS SAID, NOT THE RULE. "Only display tables are seeded" is our
+ * vocabulary; what the customer needs is that the table starts empty and what
+ * that means for the page they asked for.
+ */
+export function seedSkipNote(skipped) {
+  const list = (Array.isArray(skipped) ? skipped : []).map((s) => String(s || "")).filter(Boolean);
+  if (!list.length) return "";
+  const named = list.map((s) => s.split(":")[0].trim()).filter(Boolean);
+  const uniq = [...new Set(named)];
+  if (!uniq.length) return "";
+  const head = uniq.slice(0, 3).join(", ");
+  const rest = uniq.length > 3 ? " and " + (uniq.length - 3) + " more" : "";
+  return uniq.length === 1
+    ? "I had starter rows ready for " + head + " and didn't put them in — that table isn't one visitors can read, so it starts empty."
+    : "I had starter rows ready for " + head + rest + " and didn't put them in — those tables aren't ones visitors can read, so they start empty.";
+}
+
 export function addRepairNote(round) {
   const x = round && typeof round === "object" ? round : null;
   if (!x) return "";

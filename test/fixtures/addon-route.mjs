@@ -99,7 +99,27 @@ function bucket(slug, stored) {
  * taken off the reply and a job taken off the DATABASE are two different
  * assertions instead of one.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, written = null }) {
+/**
+ * `backend` SHAPES THE TWO SUPABASE ROWS `siteBackendDetail` READS, and it is
+ * the seam the run-47 defect needs to be drivable at all (2026-09-15):
+ *
+ *   "ready"       the default — a recorded `neon_db`, which is every case
+ *                 written before this and must stay byte-identical.
+ *   "incomplete"  a blank `neon_db` with a `site_project` row: the state five
+ *                 live sites are in, and the one that used to read as an empty
+ *                 database.
+ *   "none"        blank, and NO project row — a genuinely frontend-only site,
+ *                 the one state in which `{tables: []}` is the truth.
+ *   "unreadable"  the `site_backends` read 500s: cannot-tell.
+ *
+ * `metaFail` makes the `_meta` schema read THROW, which is the other half of
+ * the owner's instruction — a failed schema read must stop the step rather than
+ * become an empty site — and `metaMissing` makes it answer Postgres's own
+ * "relation does not exist", which is a database provisioned and never applied
+ * to and IS honestly empty. Those two look identical from the old code and need
+ * opposite answers.
+ */
+function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, backend = "ready", metaFail = false, metaMissing = false }) {
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
@@ -113,11 +133,34 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
     // `site_project` FIRST: both URLs carry `/rest/v1/` and this is the more
     // specific match — the ordering an earlier fixture of this shape got wrong.
     if (url.includes("/rest/v1/site_project")) {
+      // A `none` site has no project row — that ABSENCE is what separates it
+      // from `incomplete`, so the fixture has to be able to withhold it.
+      if (backend === "none") return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
       return new Response(JSON.stringify([{ uid: USER.id, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: "postgres://u:p@ep-addon.neon.tech/neondb" }]),
         { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/rest/v1/site_backends")) {
-      return new Response(JSON.stringify([{ uid: USER.id, brief: "", neon_db: "sitedb" }]), { status: 200, headers: { "content-type": "application/json" } });
+      // `unreadable` FAILS `siteBackendDetail`'S OWN READ AND NOTHING ELSE.
+      //
+      // Failing every `site_backends` read instead would be a different case:
+      // the route's earlier site check reads this table too and answers its own
+      // 503 ("couldn't check that site just now"), so the step stops before the
+      // backend reader is ever reached and the branch under test stays undriven
+      // — a green case about code that did not run. The two walls are
+      // complementary rather than redundant: a whole Supabase outage stops at
+      // the site check, and THIS is the narrower failure where the site is
+      // readable and its backend is not.
+      if (backend === "unreadable" && /select=neon_db,uid&limit=1/.test(url)) return new Response("upstream", { status: 500 });
+      // THE HEAL'S OWN PATCH, recorded rather than swallowed: `healSiteBackendDb`
+      // writes here, and whether it ran is the whole of "the reference was
+      // repaired on the way past". Answered as PostgREST answers a matching
+      // `return=representation` PATCH.
+      if (init && String(init.method || "GET").toUpperCase() === "PATCH") {
+        try { patched.push({ url, body: JSON.parse(String(init.body || "{}")) }); } catch { patched.push({ url, body: null }); }
+        return new Response(JSON.stringify([{ slug: "x", neon_db: "sitedb" }]), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      const db = (backend === "incomplete" || backend === "none") ? "" : "sitedb";
+      return new Response(JSON.stringify([{ uid: USER.id, brief: "", neon_db: db }]), { status: 200, headers: { "content-type": "application/json" } });
     }
     // THE JOB REGISTRY. `persistSiteJobs` reads the paused set and then upserts
     // one row per job; both go to `site_functions`, and the POST is the one
@@ -172,6 +215,13 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
       // A fixture pinned to one spelling of a query is the recorded "assert
       // the property, not the spelling" trap, on the answering side.
       if (/^SELECT v FROM _meta WHERE k\s*=\s*'?schema/i.test(q.trim())) {
+        // THE TWO WAYS A SCHEMA READ CAN COME BACK WITHOUT A SPEC, and they
+        // need opposite answers from the route. `metaFail` is Neon refusing the
+        // query — the schema is UNKNOWN and the step must stop. `metaMissing`
+        // is Postgres's own words for a database that has no `_meta` yet, which
+        // is one provisioned and never applied to and IS honestly empty.
+        if (metaFail) return new Response(JSON.stringify({ message: "connection terminated unexpectedly" }), { status: 500, headers: { "content-type": "application/json" } });
+        if (metaMissing) return new Response(JSON.stringify({ message: 'relation "_meta" does not exist' }), { status: 400, headers: { "content-type": "application/json" } });
         return new Response(JSON.stringify({ command: "SELECT", rowCount: 1, rows: [[meta.value]], fields: [{ name: "v", dataTypeID: 25 }] }),
           { status: 200, headers: { "content-type": "application/json" } });
       }
@@ -232,12 +282,12 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
  * serve every later one.
  */
 export async function addon(slug, instruction, opts) {
-  const sql = [], prompts = [], registered = [];
+  const sql = [], prompts = [], registered = [], patched = [];
   // THE STORED SCHEMA IS PER CALL, not a shared module object: `meta.value`
   // moves when the apply writes, and a case that read another case's leftovers
   // would be the shared-slug trap one field over.
   const meta = { value: JSON.stringify(STORED_SCHEMA) };
-  const restore = stub({ ...opts, sql, prompts, meta, registered });
+  const restore = stub({ ...opts, sql, prompts, meta, registered, patched });
   // ── A COMPILER ONLY WHEN THE CASE NEEDS ONE ──────────────────────────────
   //
   // `getContainer` throws by default and that default is what keeps a pageless
@@ -261,7 +311,7 @@ export async function addon(slug, instruction, opts) {
     const env = { SITES_BUCKET: store, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", SUPABASE_SERVICE_KEY: "svc-test", ...(c ? dispatchEnv() : {}) };
     const res = await worker.fetch(req, env, makeCtx());
     const body = await res.json().catch(() => null);
-    return { status: res.status, body, sql, prompts, store, registered, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
+    return { status: res.status, body, sql, prompts, store, registered, patched, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
   } finally { restore(); if (c) c.uninstall(); }
 }
 
