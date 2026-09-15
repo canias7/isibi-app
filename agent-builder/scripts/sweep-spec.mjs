@@ -20,6 +20,7 @@ const F = at("fanout.mjs");
 const R = at("run.mjs");
 const J = at("journal.mjs");
 const E = at("meters.mjs");
+const S = at("store.mjs");
 const m = (label, file, from, to, control = false) => ({ label, files: [file], from, to, control });
 
 const spec = [
@@ -138,8 +139,6 @@ const spec = [
   m("run: a resumed run forgets what it already spent", R,
     "    Object.assign(used, prior.used);\n    priorMs = prior.used.wallMs;\n    nextStep",
     "    priorMs = prior.used.wallMs;\n    nextStep"),
-  m("run: an unbounded limit is logged as something JSON turns into null", R,
-    'out[k] = v === Infinity ? "Infinity" : v;', "out[k] = v;"),
 
   // ── define.mjs: repeatable ────────────────────────────────────────────────
   m("define: repeatable is coerced, so the string \"false\" means true", D,
@@ -158,6 +157,46 @@ const spec = [
   m("run: a failed STOPPED write is ignored", R,
     'if (!(await write(stoppedEntry({ at: now(), stop })))) {\n      return record(ended("journal-failed", { error: journalError, was: stop.reason }));\n    }',
     "await write(stoppedEntry({ at: now(), stop }));"),
+
+  // ── store.mjs ─────────────────────────────────────────────────────────────
+  m("store: an UNKNOWN duplicate is read as already-recorded, silently dropping an entry", S,
+    '  if (text.includes(POSITION_UNIQUE)) return "position";\n  return null;',
+    '  if (text.includes(POSITION_UNIQUE)) return "position";\n  return "logical";'),
+  m("store: any error is read as a duplicate, whatever its code", S,
+    "if (body.code !== DUPLICATE) return null;", "if (false) return null;"),
+  m("store: a logical duplicate THROWS, so a retry kills a paid-for run", S,
+    'if (dup === "logical") {', "if (false) {"),
+  m("store: a position clash is never retried", S,
+    'if (dup === "position" && attempt === 0) {', "if (false) {"),
+  m("store: the counter does not advance on a successful append", S,
+    "if (r.ok) { next = at + 1; return { seq: at, stored: true }; }",
+    "if (r.ok) { return { seq: at, stored: true }; }"),
+  m("store: a journal ignores where the last one left off", S,
+    "let next = Number.isInteger(seq) && seq >= 0 ? seq : 0;", "let next = 0;"),
+  m("store: createRun asserts a status the database is supposed to derive", S,
+    "body: { id, tenant_id: tenant }, write: true, prefer: \"return=minimal\"",
+    "body: { id, tenant_id: tenant, status: \"running\" }, write: true, prefer: \"return=minimal\""),
+  m("store: nextSeq is a row COUNT, which collides with a surviving entry", S,
+    "const nextSeq = rows.length ? Math.max(...rows.map((row) => row.seq)) + 1 : 0;",
+    "const nextSeq = rows.length;"),
+  m("store: a failed read answers an empty log instead of failing", S,
+    'if (!r.ok) throw fail("load", r);\n      const rows', 'if (false) throw fail("load", r);\n      const rows'),
+  m("store: the stored limits are handed back undecoded", S,
+    "return { runId, entries, nextSeq, state, limits: limitsFromJson(state.limits) };",
+    "return { runId, entries, nextSeq, state, limits: state.limits };"),
+  m("store: the non-public schema is never named on the wire", S,
+    '[write ? "content-profile" : "accept-profile"]: schema,', '"x-not-a-profile": schema,'),
+  m("store: resumable is not scoped to one tenant", S,
+    "const q = `${RUNS}?tenant_id=eq.${encodeURIComponent(tenant)}&status=eq.running`",
+    "const q = `${RUNS}?status=eq.running`"),
+
+  // ── journal.mjs: the limits codec ─────────────────────────────────────────
+  m("journal: an unbounded limit is written straight out, and JSON makes it null", J,
+    "out[k] = v === Infinity ? UNBOUNDED : v;", "out[k] = v;"),
+  m("journal: A STORED NULL DECODES TO UNBOUNDED — a limit that failed to record becomes no limit", J,
+    "out[k] = v === UNBOUNDED ? Infinity : v;", "out[k] = v === UNBOUNDED || v === null ? Infinity : v;"),
+  m("journal: the unbounded marker is a different string from the one stored", J,
+    'export const UNBOUNDED = "Infinity";', 'export const UNBOUNDED = "inf";'),
 
   // ── the controls: comment-only, and they MUST survive ──────────────────────
   m("CONTROL (comment only, limits.mjs)", L, "* THE BOUNDS ON ONE AGENT RUN", "* THE BOUNDS ON ONE AGENT RUN (control)", true),

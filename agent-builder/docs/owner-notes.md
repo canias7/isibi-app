@@ -200,3 +200,111 @@ for **coexisting** with it — don't touch the root `package.json`, don't put fi
 at the repo root, run the tests from this folder. Those are load-bearing: break
 one and you fire a 25-minute harness or roll a live container. They read as rules
 now, not as a tour of the other product.
+
+---
+
+## 2026-09-15 — Runs are stored now, and the database refuses the bad states itself
+
+You asked for the Supabase tables. Built, and **proved against a real PostgreSQL
+16.13** — not read over, not reasoned about. Everything below was checked by
+trying to break it.
+
+**The one-sentence design: the log is the only thing written, and the database
+works everything else out from it.** When a run starts, the only things saved are
+its id and whose it is. Its status, which agent, which model, its limits, how it
+ended — all of that is derived by the database from the log itself. If the
+application wrote a status too, that would be a second copy of something the log
+already says, and two copies of one fact eventually disagree.
+
+### What the database now refuses outright
+
+Not "detects and complains about" — **cannot store**:
+
+- a run being started twice, or finished twice;
+- two answers recorded for the same step;
+- two results recorded for the same tool call;
+- an entry that is missing the position it needs to make sense;
+- **and any attempt to EDIT an entry after it was written** — refused even for a
+  caller with every privilege, because rewriting history is the one thing that
+  would make the whole idea worthless.
+
+Deleting is deliberately still allowed, because you have to be able to delete old
+runs, and deleting a run has to take its log with it. That one is controlled by
+permissions instead.
+
+### Tenant isolation
+
+A customer sees their own runs and nothing else, and **it fails shut in three
+different ways**: no credentials, broken credentials, and credentials that don't
+name a tenant all see nothing at all. A customer can read and **cannot write
+anything** — the runner writes, and the runner is server-side.
+
+**One honest limit, because you should know where the wall stops.** The
+server-side key is exempt from those rules by design on Supabase — that is how it
+gets its job done — so the rules protect *reading*. Nothing in the database stops
+the runner itself from filing a run under the wrong customer. That's the
+application's job and there's exactly one line where it's decided.
+
+### The two values that had to survive being saved
+
+- **"We don't know what this cost" stays different from "this cost nothing."**
+  Stored as a real unknown, with the field still present, so three different
+  situations stay three different situations. A budget enforced by assuming the
+  part you failed to measure was free is not enforced.
+- **"No limit" survives.** This one is a genuine trap: the standard way of writing
+  data to a database turns infinity into an empty value, and an empty value is
+  indistinguishable from "we forgot to record the limit." So it's written
+  deliberately as a marker and read back as no-limit — **and a genuinely empty
+  value is never read as "no limit"**, which would be the most expensive possible
+  misreading.
+
+### One thing in there worth knowing about, because it's counter-intuitive
+
+**A rejected duplicate is treated as a success.** If the network drops after the
+database has saved something but before it can say so, whoever was saving has no
+way to know which side of that line it died on. If a retry were treated as an
+error, it would kill a run that is perfectly healthy — and the thing being
+re-sent is a model answer you already paid for. So "you already have this" is
+read as "good, carry on". That's what makes retrying safe at all, rather than
+being an obstacle.
+
+### Three mistakes I made building the test, all mine
+
+Each cost a round and none was the product:
+
+1. The server key on Supabase is exempt from the isolation rules; **my test
+   created it without that exemption**, so the writer was blocked by rules it
+   isn't subject to and **forty checks failed for a reason that doesn't exist in
+   production.** A test set up differently from reality is worse than no test,
+   because it gives you a specific wrong answer.
+2. Database roles are shared across the whole server, not per database — so "create
+   if it doesn't exist" quietly kept a stale version from an earlier run.
+3. One of my own setup commands returned a row, which got mixed into every answer
+   I was checking. A test that pollutes its own output reports working code as
+   broken.
+
+### Proven, and where it actually stands
+
+- **117 unit tests, all green.**
+- **51 checks against a real PostgreSQL, 0 failed.** The schema in that check is
+  read out of the migration file rather than typed into the test, so what is
+  proved is what would actually be applied. Every refusal is checked for *which*
+  wall stopped it — a refusal from the wrong wall looks exactly like the right one
+  working — and every group has a control that must succeed, without which a
+  database that rejected everything would pass the whole file.
+- **68 deliberate breakages, 68 caught**, both do-nothing controls surviving.
+
+**⚠ NOT APPLIED TO SUPABASE. Nothing has been created in any Supabase project.**
+This is the part you asked me to be clear about. The only Supabase project this
+repo has credentials for is the one belonging to your other product, and putting
+these tables there is exactly the mixing you told me to avoid. To go live this
+needs **either its own Supabase project, or your say-so to share that one.** Your
+call, and it is the next decision rather than the next piece of work.
+
+**One gap named rather than hidden:** the deliberate-breakage sweep can't see SQL,
+only JavaScript. What stands in for it is that all 51 database checks are
+adversarial by design — each one tries to break a specific guarantee and names the
+wall that has to stop it.
+
+Still no HTTP route, no real model calls, no container — you scoped those out and
+they're untouched.

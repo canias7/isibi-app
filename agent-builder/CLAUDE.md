@@ -68,7 +68,7 @@ same colour.
 
 ## What is built
 
-Six modules under `src/`, **all dependency-free** — this has to run in a
+Seven modules under `src/`, **all dependency-free** — this has to run in a
 Cloudflare Worker, where there is no `node_modules` — with every outside thing
 (the model call, the clock, the journal) INJECTED. That is not purity for its own sake: it is
 what makes every branch below drivable in a test instead of waited on.
@@ -77,7 +77,9 @@ what makes every branch below drivable in a test instead of waited on.
 - **`define.mjs`** — `defineAgent` / `defineTool`, and the tenancy wall.
 - **`fanout.mjs`** — N tools at once, bounded, losing none of them.
 - **`meters.mjs`** — what a run has spent, and the one rule about not knowing.
-- **`journal.mjs`** — the append-only record, and the replay that rebuilds a run.
+- **`journal.mjs`** — the append-only record, the replay that rebuilds a run, and
+  the limits codec.
+- **`store.mjs`** — where the log is kept: Supabase, over PostgREST.
 - **`run.mjs`** — the loop.
 
 ### The law, module by module
@@ -256,9 +258,159 @@ what makes every branch below drivable in a test instead of waited on.
   Durable Object or an array in a test are all the same to this code. **Nothing
   has been written against a real store yet.**
 
+## Storing a run (2026-09-15)
+
+`supabase/migrations/20260915002004_agent_runs.sql` and `src/store.mjs`. **The
+storage foundation only** — no HTTP route, no real model call, no container.
+
+### The schema
+
+**ITS OWN SCHEMA, `agent`.** Dropping this product is dropping one schema, and
+nothing it creates can collide with a table belonging to anything else. The cost
+is one deployment detail: the schema must be in Supabase's exposed-schemas
+setting, and the store names it per request (`Accept-Profile` / `Content-Profile`).
+
+**THE LOG IS THE ONLY THING WRITTEN, and the engine derives the rest.** The
+application inserts a run's `id` and `tenant_id` AND NOTHING ELSE; `status`,
+`agent_name`, `model`, `limits`, `stop`, `started_at` and `stopped_at` are all
+maintained by triggers off the entries. A `status` the application wrote would be
+a second copy of a fact the log already states, and two copies of one fact
+eventually disagree.
+
+**`kind`, `step` and `idx` ARE GENERATED COLUMNS off the body**, never supplied.
+That is what makes the unique indexes below guarantees about the ENTRY rather than
+about a caller-supplied copy of its position.
+
+**WHAT THE DATABASE MAKES IMPOSSIBLE, rather than merely detectable** — `replay`
+reports each of these as a `problem` because a log can arrive from anywhere, but
+none of them can be written in the first place:
+
+- a second `started` or `stopped` entry for a run;
+- a second model answer for one step;
+- a second result for one tool slot;
+- the same `seq` twice (the primary key);
+- a model entry with no step, or a tool entry with no step and index, or an
+  unknown kind (one CHECK, written against the body because a check on a
+  generated column is evaluated before the column is computed);
+- an entry being EDITED after it was written.
+
+**APPEND-ONLY IS A TRIGGER, NOT A GRANT.** UPDATE is refused for everyone,
+including a caller with every privilege, because editing history is the one
+operation that makes the whole design worthless and a grant would not stop the
+role that writes the log. **DELETE IS DELIBERATELY NOT REFUSED**: deleting a run
+must cascade, and retention has to be possible. The wall for deletes is the
+grants.
+
+### Tenant isolation
+
+**RLS on both tables, FORCED** (so the owner is not quietly exempt), keyed on
+`agent.tenant_id()` — the tenant from the request JWT.
+
+**IT FAILS CLOSED THREE WAYS, and the mechanism is SQL's own null semantics
+rather than something the function remembers to do**: no claims, claims that will
+not parse, and claims with no tenant all answer NULL, and `tenant_id = NULL` is
+NULL rather than true, so the policy matches no rows.
+
+**AN ENTRY'S TENANT IS ITS RUN'S TENANT, never a column of its own.** A copy on
+the entry could disagree with the run it points at, and the disagreeing case is
+the one where somebody reads another tenant's log.
+
+**A TENANT READS AND WRITES NOTHING.** `authenticated` has SELECT only; INSERT is
+the writer's, and UPDATE and DELETE on entries are granted to nobody at all.
+
+**THE LIMIT OF THIS, STATED RATHER THAN GLOSSED: `service_role` CARRIES
+`BYPASSRLS` ON SUPABASE**, so the policies protect the READ path. Nothing in the
+database stops a writer that passes the wrong `tenant_id` — that is the
+application's job, and `createRun` is the single place it is decided. Worth
+knowing before trusting the wall further than it goes.
+
+### The two values that must survive storage
+
+- **UNKNOWN USAGE IS NOT ZERO AND NOT MISSING.** An unreported usage is stored as
+  JSON `null` inside the body, with the key still present — three distinct states
+  (`null`, `0`, absent) kept distinct, because a budget enforced by assuming the
+  unmeasured spend was free is not enforced. Proved on the engine four ways: the
+  type is `null`, the key is present, it equals JSON null, and it does not equal
+  `0`.
+- **AN UNLIMITED LIMIT SURVIVES AS THE STRING `"Infinity"`.**
+  `JSON.stringify(Infinity)` is `"null"`, so writing it straight out produces a
+  null that no reader can tell from "no limit was recorded" — cannot-tell wearing
+  a value's clothes, arriving through a serialiser. **The codec pair lives
+  together** in `journal.mjs` (`limitsToJson` / `limitsFromJson`), because an
+  encoder in one file and a decoder in another is how a round trip quietly stops
+  being one. **A STORED NULL STAYS NULL AND NEVER DECODES TO UNBOUNDED**, which is
+  the most expensive possible reading of a missing value.
+
+### The store
+
+- **`fetch` IS INJECTED.** Every branch is drivable with no network and no
+  database.
+- **A REFUSED DUPLICATE IS A SUCCESS, and this is the one thing to understand
+  before changing that file.** An append can be retried: the network drops after
+  Postgres committed and before the answer came back, and the caller cannot know
+  which side of the commit it died on. Treating the duplicate-key refusal as an
+  error would kill a run that is fine — and the entry being re-sent holds an
+  answer already paid for. So the four LOGICAL rules are read as "already
+  recorded", which turns them from an obstacle into the thing that makes retrying
+  safe.
+- **AND THAT ONLY WORKS BECAUSE EVERY KIND HAS A LOGICAL RULE**, so a duplicate
+  can never land at a different `seq`. That is what lets a `seq` collision move up
+  and try once without any risk of writing the same entry twice: if it really is
+  the same entry, the logical rule catches it on the retry.
+- **AN UNRECOGNISED REFUSAL IS RAISED, NEVER SWALLOWED.** `duplicateKind` answers
+  `null` for a constraint it does not know, because reading an unknown refusal as
+  "already recorded" would silently drop a real entry — the one outcome this
+  module exists to prevent.
+- **`nextSeq` COMES FROM THE HIGHEST `seq`, NEVER FROM THE ROW COUNT.** A gap (a
+  retention delete, or a position clash that moved up) makes a count collide with
+  an entry that is still there.
+- **`load` REPLAYS RATHER THAN HANDING BACK A BARE ARRAY**, so `problems` cannot
+  be skipped by accident — a log with problems must not be resumed, and a bare
+  array invites passing it straight to `runAgent` without looking.
+- **A FAILED READ THROWS.** An empty log and a log we could not see mean opposite
+  things: one is a new run, the other is a run whose history is unknown.
+
+### Three findings from the schema check itself
+
+Each cost a round, and each is the fixture being wrong rather than the product:
+
+- **`service_role` CARRIES `BYPASSRLS` ON THE PLATFORM and the first harness
+  created it without.** The writer was then refused by the very policies it is
+  exempt from, and forty checks failed for a reason that does not exist in
+  production. A fixture in a different shape from reality is worse than none,
+  because it produces a specific wrong answer.
+- **ROLES ARE CLUSTER-WIDE, so `create role if not exists` is not an idempotent
+  DEFINITION.** A role left by an earlier run kept its old attributes and the
+  create was a no-op. The harness ALTERs the attributes every time now.
+- **`select set_config(...)` RETURNS A ROW**, and with `-t -A` that row lands in
+  front of the real answer — which is how a count of 0 came back as the claims
+  followed by 0. `SET` returns nothing and is what the harness uses. A harness
+  that contaminates its own output reports the product as broken.
+
+### What is proven, and what is not
+
+- **`npm run test:pg` — 51 checks, 0 failed, against a real PostgreSQL 16.13** in
+  a throwaway database. **The DDL is never typed in the check**: it comes out of
+  the migration FILE, so what is proved is what would be applied. Every refusal is
+  read for its REASON (a refusal from the wrong gate looks exactly like the wall
+  working), and every group carries a CONTROL that must succeed, without which a
+  database refusing everything would pass the file.
+- **THE SQL IS NOT MUTATION-SWEPT**, and that is a named gap: the sweep runs the
+  unit suite, which cannot see a schema. What stands in is that all 51 checks are
+  adversarial by construction — each one tries to break a specific guarantee and
+  names the gate that must stop it.
+- **NOT APPLIED TO SUPABASE.** Nothing has been created in any Supabase project.
+  The only project this repository holds credentials for belongs to another
+  product, and putting these tables there is the mixing this directory exists to
+  avoid. Applying it needs either a Supabase project of its own or an explicit
+  decision to share that one.
+
 ### Measured
 
-- **Suite: 93 tests, 0 failures** (`cd agent-builder && npm test`).
+- **Unit suite: 117 tests, 0 failures** (`cd agent-builder && npm test`).
+- **Schema check: 51 checks, 0 failed** against a real PostgreSQL 16.13
+  (`npm run test:pg`). Skips with a message, and exits 0, where there is no
+  local cluster — "no database here" is not a failing schema.
 - **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 0 failures**
   — run BEFORE this directory existed and again with it present, same count, same
   colour. Measured, not argued from the path filters. (In a fresh container that
@@ -266,9 +418,10 @@ what makes every branch below drivable in a test instead of waited on.
   environment, not the code.)
 - **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
   applied, 2 comment-only controls survived.**
-- **Sweep, WITH THE JOURNAL AND RESUME: 54 mutants, 54 killed, 0 survived, 0
-  never applied, 2 comment-only controls survived.** Measured after the re-run,
-  not before it.
+- **Sweep: 68 mutants, 68 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived** (`npm run sweep`). Measured after the run, not before it.
+  The earlier passes were 34 (the first four modules) and 54 (with the journal and
+  resume); the 14 added here cover the store and the limits codec.
   **ONE SURVIVED THE FIRST PASS AND IT WAS THE TEST'S FAULT, kept here because
   the shape repeats:** the mutant made the loop ignore a failed MODEL-entry
   write, and the fixture was a journal that failed on EVERY write — so the run

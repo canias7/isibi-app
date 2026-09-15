@@ -31,7 +31,7 @@ import { runFanout } from "./fanout.mjs";
 import { addMeter, usageTokens } from "./meters.mjs";
 import {
   replay, startedEntry, modelEntry, toolEntry, stoppedEntry,
-  userMessage, assistantMessage, toolMessage, toolResultFor,
+  userMessage, assistantMessage, toolMessage, toolResultFor, limitsToJson,
 } from "./journal.mjs";
 
 /** Why a run ended. One shape, so a caller can always say what happened. */
@@ -178,7 +178,7 @@ export async function runAgent(opts = {}) {
     messages = [userMessage(opts.prompt)];
     const first = startedEntry({
       at: startedAt, tenant: tenant?.id ?? null, agent: agent.name,
-      model: agent.model, prompt: opts.prompt, limits: plainLimits(limits),
+      model: agent.model, prompt: opts.prompt, limits: limitsToJson(limits),
     });
     if (!(await write(first))) return record(ended("journal-failed", { error: journalError, step: 0 }));
   }
@@ -311,22 +311,6 @@ export async function runAgent(opts = {}) {
 function requireEntries(from) {
   if (!Array.isArray(from)) throw new TypeError("runAgent: from must be an array of journal entries");
   return from;
-}
-
-/**
- * The bounds as plain numbers for the log. `Infinity` DOES NOT SURVIVE JSON —
- * `JSON.stringify(Infinity)` is `"null"` — so an unbounded limit is written as the
- * string `"Infinity"` rather than becoming a null that a later reader would treat
- * as "no limit recorded". This is the recorded "cannot-tell must never read as a
- * value" trap arriving through a serialiser rather than through a reader.
- */
-function plainLimits(limits) {
-  const out = {};
-  for (const [k, v] of Object.entries(limits)) {
-    if (Array.isArray(v)) continue;
-    out[k] = v === Infinity ? "Infinity" : v;
-  }
-  return out;
 }
 
 /** What a tool is told. One builder, so the live path and the resume path agree. */

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   replay, startedEntry, modelEntry, toolEntry, stoppedEntry,
   userMessage, assistantMessage, toolMessage, toolResultFor, ENTRY_KINDS,
+  limitsToJson, limitsFromJson, UNBOUNDED,
 } from "../src/journal.mjs";
 
 // ── fixtures, DERIVED from the real constructors ──────────────────────────────
@@ -164,4 +165,39 @@ test("what the started entry recorded comes back", () => {
   assert.equal(r.agent, "a");
   assert.equal(r.model, "m");
   assert.deepEqual(r.limits, { steps: 8 });
+});
+
+// ── the limits codec: the one place Infinity crosses JSON ────────────────────
+test("THE FACT THE CODEC EXISTS FOR: JSON.stringify(Infinity) is \"null\"", () => {
+  // Written out straight, an unbounded limit arrives as a null — and a reader
+  // cannot tell that null from "no limit was recorded".
+  assert.equal(JSON.stringify(Infinity), "null");
+  assert.equal(JSON.parse(JSON.stringify({ wallMs: Infinity })).wallMs, null);
+});
+
+test("an unbounded limit survives a full JSON round trip as a number", () => {
+  const limits = { steps: 8, wallMs: Infinity, tokens: Infinity, costMicros: 2000 };
+  const back = limitsFromJson(JSON.parse(JSON.stringify(limitsToJson(limits))));
+  assert.equal(back.wallMs, Infinity, "an unbounded limit did not come back unbounded");
+  assert.equal(back.tokens, Infinity);
+  assert.equal(back.steps, 8);
+  assert.equal(back.costMicros, 2000);
+  assert.equal(limitsToJson(limits).wallMs, UNBOUNDED, "the marker is not what is stored");
+});
+
+test("A STORED NULL STAYS NULL AND DOES NOT BECOME UNBOUNDED", () => {
+  // The most expensive possible reading of a missing value: a limit that failed to
+  // record becoming no limit at all.
+  const back = limitsFromJson({ wallMs: null, steps: 4 });
+  assert.equal(back.wallMs, null, "a null limit decoded to unbounded");
+  assert.notEqual(back.wallMs, Infinity);
+  assert.equal(back.steps, 4);
+});
+
+test("the codec drops the report arrays and refuses what is not an object", () => {
+  // `narrowed`/`refused`/`unknown` are a record of what a plan ignored, not bounds.
+  const encoded = limitsToJson({ steps: 4, narrowed: ["steps"], refused: [], unknown: [] });
+  assert.deepEqual(Object.keys(encoded), ["steps"]);
+  for (const bad of [null, undefined, 4, "limits"]) assert.equal(limitsToJson(bad), null);
+  for (const bad of [null, undefined, 4, "limits", ["steps"]]) assert.equal(limitsFromJson(bad), null);
 });

@@ -171,3 +171,47 @@ export function replay(entries) {
     limits: started?.limits ?? null,
   });
 }
+
+// ── the limits codec: the one place `Infinity` crosses JSON ──────────────────
+//
+// **`JSON.stringify(Infinity)` IS `"null"`.** An unbounded limit written straight
+// out therefore arrives as a null, and a reader cannot tell that null from "no
+// limit was recorded" — cannot-tell wearing a value's clothes, arriving through a
+// serialiser instead of through a reader. So it is written as the STRING
+// `"Infinity"` and read back as the number.
+//
+// THE PAIR LIVES TOGETHER ON PURPOSE. An encoder in one file and a decoder in
+// another is the shape where a round trip quietly stops being one: each half
+// looks right, and the only thing that would notice is a test that runs both,
+// which nobody writes when they are apart.
+
+/** The marker. A string, because every other JSON scalar is a value it could be confused with. */
+export const UNBOUNDED = "Infinity";
+
+/** Limits → JSON-safe. The report arrays (`narrowed`, `refused`, `unknown`) are not bounds and are dropped. */
+export function limitsToJson(limits) {
+  if (limits === null || typeof limits !== "object") return null;
+  const out = {};
+  for (const [k, v] of Object.entries(limits)) {
+    if (Array.isArray(v)) continue;
+    out[k] = v === Infinity ? UNBOUNDED : v;
+  }
+  return out;
+}
+
+/**
+ * JSON → limits. `"Infinity"` becomes `Infinity` again.
+ *
+ * **A `null` STAYS `null` AND DOES NOT BECOME `Infinity`.** That is the whole
+ * point of the marker: if a stored null could decode to "unbounded", then a limit
+ * that failed to record would silently become no limit at all — the most
+ * expensive possible reading of a missing value.
+ */
+export function limitsFromJson(stored) {
+  if (stored === null || typeof stored !== "object" || Array.isArray(stored)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(stored)) {
+    out[k] = v === UNBOUNDED ? Infinity : v;
+  }
+  return out;
+}
