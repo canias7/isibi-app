@@ -225,6 +225,23 @@ type any other site name it stops with *"not one of the five sites this repair
 is for"* and reads nothing at all — it does not quietly skip it and tell you
 there was nothing to do.
 
+**THE BUTTONS DO NOT EXIST YET, AND THAT IS THE MERGE.** I went to check rather
+than assume, and GitHub answers **404** for both
+(`/actions/workflows/backend-repair.yml` and `…/repairbench-count-fix.yml`):
+a `workflow_dispatch` workflow only gets a Run workflow button once its file is
+on the **default branch**, and both are still only on the branch. Asked by NAME
+deliberately — the workflow LISTING is not a reader of what is on main (it
+returned `agent-deploy.yml`, whose file is not on `origin/main` at all), and
+this repository has the recorded trap about inferring absence from a listing.
+
+There is a **second, independent** gate and it is deliberate: both workflows
+check out `ref: main`, so the code they run is always main's reviewed copy and
+never whatever branch the dispatch dropdown was pointed at. None of
+`scripts/backend-repair.mjs`, `scripts/repairbench-count-fix.mjs` or
+`site-schema-recover.mjs` is on `origin/main` either. So the sequence below is
+**merge → deploy → press**, in that order, and you have not agreed to the merge
+yet — nothing here is waiting on me.
+
 ### The order I would run it in
 
 **repairbench-1 first, on its own**, because it is the one where we can check the

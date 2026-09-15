@@ -4509,6 +4509,19 @@ rule and the measurement.
   passed on any machine that had ever built and baked THAT MACHINE'S generated file
   into a committed module. **When a check is about what the REPOSITORY holds, ask
   git**, derive the list, and prove the observer alive first.
+- **A `workflow_dispatch` WORKFLOW HAS NO BUTTON UNTIL ITS FILE IS ON THE DEFAULT
+  BRANCH (measured 2026-09-15).** `backend-repair.yml` and
+  `repairbench-count-fix.yml` were pushed to a feature branch and GitHub answers
+  **404** to `GET /actions/workflows/<file>` for both — no entry, no Run workflow
+  button, so a dispatch-only tool is not runnable until it is merged. **Ask BY
+  NAME, never off the listing**: the same listing returned `agent-deploy.yml`,
+  whose file is **not on `origin/main`** at all, so the catalog is not a reader of
+  what main holds — this repository's own "ask for the thing by name, and make
+  could-not-tell its own answer" trap, met on a registry instead of a container
+  registry. **And a `checkout` pinned to `ref: main` is a SECOND, independent
+  gate**: the workflow file may come from a branch, but the script it runs is
+  always main's, so the tool and its code must BOTH land. Plan the order as
+  merge → deploy → press, and never promise a button that does not exist yet.
 - **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING.** Never push
   while a live run is in flight; after any code push wait **15–20 minutes**.
 - **A COMMIT SAYS WHAT A COMMIT CHANGED; THE DEPLOY FIRES ON THE PUSH.** Two commit
