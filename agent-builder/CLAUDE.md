@@ -976,6 +976,49 @@ followed by an answer, which demonstrates nothing about progress.
 no wrangler and no Cloudflare credential in the session that wrote this, so what
 exists is everything up to the two commands somebody has to run.
 
+### It deploys through GitHub Actions, on a push to this branch only
+
+**`.github/workflows/agent-deploy.yml` IS THE ONE FILE THIS PRODUCT HAS OUTSIDE
+`agent-builder/`**, added with the owner's explicit permission (2026-09-15). Actions
+injects the three credentials it needs — `CLOUDFLARE_API_TOKEN`,
+`CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_SERVICE_KEY`, all already repository secrets
+because `deploy.yml` uses the same ones — so **no value is ever pasted anywhere.**
+
+- **A PUSH TRIGGER IS THE ONLY DOOR, and that is not a preference.** A
+  dispatch-only workflow can only be started once the file is on the DEFAULT branch,
+  and main is to stay untouched; and `POST /actions/workflows/<file>/dispatches`
+  answers **403 Resource not accessible by integration** from a session anyway, which
+  `answer-read.yml` already records so nobody re-tries it.
+- **⚠ THE BRANCH FILTER MUST STAY INLINE — `branches: [claude/…]`.**
+  `test/merge-triggers.test.mjs` reads it with a regex and has no YAML parser, so a
+  BLOCK list parses as no filter at all, which means every branch including main. A
+  correct-looking reformat would fail the census, and if it ever passed it would put
+  this on the merge. **This is the trap that would have been found by the census
+  rather than by review, which is the census working.**
+- **ORDINARY PUSHES RUN THE CHECKS AND DEPLOY NOTHING.** The tip commit's message has
+  to carry an opt-in marker, spelled in the workflow that reads it and in
+  `docs/deploy.md` and **nowhere else** — this product's sister rule is recorded twice
+  over, because the gate reads the message with no idea it is being quoted, so a
+  commit explaining the marker arms itself.
+- **THE MESSAGE GOES THROUGH `env`, NEVER INTO THE SCRIPT BODY.** A commit message is
+  attacker-controlled text; interpolated straight into `run:` it is a shell injection
+  with a runner's credentials behind it.
+- **THE RUN STOPS AT THE FIRST THING IT CANNOT CONFIRM.** Credentials by LENGTH and
+  never by value, then `wrangler whoami` — a secret that exists and has expired looks
+  exactly like one that works right up to the deploy. The queue's verdict **FAILS the
+  run** rather than being printed and passed over. Only
+  `agent-builder/wrangler.jsonc` is ever named, so nothing can resolve the root
+  product's config by accident, and only `SUPABASE_SERVICE_KEY` is uploaded.
+- **A THROWAWAY CUSTOMER, AND NO MAIL.** The verification creates a confirmed user
+  through the admin API (`email_confirm: true`) so that "a real customer signs in" is
+  a real sign-in — an earlier round spent one of the project's 200 daily sends signing
+  up the ordinary way. `scripts/verify-cleanup.mjs` removes it on an `if: always()`
+  step, and matches on BOTH halves of the throwaway name so a real customer can never
+  be in scope.
+- **TWO THINGS THE SHELL WOULD HAVE SWALLOWED**, both found before the first push:
+  **backticks inside a double-quoted `echo` are command substitution in bash**, and
+  the two inline `node -e` config readers were RUN rather than eyeballed.
+
 ### One secret, and the ordering is not a preference
 
 - **THE NON-SENSITIVE SETTINGS ARE COMMITTED, DELIBERATELY.** `SUPABASE_URL` and

@@ -883,3 +883,50 @@ start with a grace shorter than a beat.
   API, because no service key has been available to me. It will fail loudly with a
   named error rather than quietly if anything is wrong.
 - **A real model provider.** One registry entry plus a `send`.
+
+---
+
+## 2026-09-15 — Deploying through Actions
+
+You were right that a dispatch-only workflow can't bootstrap this. I checked, and
+it's worse than inconvenient: `POST /actions/workflows/<file>/dispatches` answers
+**403 Resource not accessible by integration** from a session — your
+`answer-read.yml` already records that so nobody re-tries it. So the trigger is a
+push, restricted to this branch and nothing else.
+
+**One new file: `.github/workflows/agent-deploy.yml`.** `deploy.yml` is untouched,
+and your own census (`test/merge-triggers.test.mjs`) still reads exactly one workflow
+on a push to main.
+
+**A trap worth knowing about.** That census reads the branch filter with a regex and
+has no YAML parser, so the filter has to be written inline — `branches: [claude/…]`.
+Written as a block list it parses as *no filter*, which means every branch including
+main. A perfectly reasonable reformat would either fail the census or, if it slipped
+through, put this on your merge. The census would have caught it; I've written the
+reason down in the file so nobody "tidies" it.
+
+**Ordinary pushes deploy nothing.** They run the agent's checks and stop. A deploy
+needs the tip commit's message to opt in, and I've kept that marker out of every
+other file and every other commit message — your existing rule about the smoke
+marker is recorded twice over because a commit *explaining* a marker arms itself.
+
+**Verified before arming it**: I pushed once without the marker. The run finished in
+14 seconds, ran the agent suite on the runner (**222 tests, 222 pass, 0 fail**), and
+**skipped all eight deploy steps**. That's the gate working, confirmed rather than
+assumed.
+
+**What the deploy run does**, stopping at the first thing it cannot confirm: the
+checks; the credentials, reported by length and never by value, then `wrangler
+whoami` — because a secret that exists and has expired looks exactly like one that
+works right up to the deploy; `queues create agent-runs`, where **a non-verdict fails
+the run** rather than being printed and passed over; `wrangler deploy --config
+wrangler.jsonc`, named explicitly so nothing can resolve your other product's config
+by accident; `SUPABASE_SERVICE_KEY` and nothing else; a `/health` wait; the four-part
+verification; and a cleanup step that runs even if the verification dies.
+
+**One thing I did that you should know about.** The verification needs a real
+customer to sign in, and there's no email/password secret. So it creates a confirmed
+user through the admin API and deletes it afterwards — **no mail is sent**, which
+matters because an earlier round of this work spent one of your 200 daily sends
+signing up the ordinary way. The cleanup matches on both halves of the throwaway name
+so it can never touch a real customer.
