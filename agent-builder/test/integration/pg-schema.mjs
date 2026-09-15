@@ -1084,19 +1084,107 @@ try {
   // It takes the tenant as an ARGUMENT, so this grant is the only thing between
   // one account and another's rows. `execute` defaults to PUBLIC on a new
   // function, which is exactly why the migration revokes it by name.
+  // RE-ANCHORED 2026-09-15: the four-argument signature is DROPPED rather than
+  // left beside the five-argument one — Postgres would keep both as an overload
+  // set, and a caller that forgot the import key would silently get the version
+  // with no identity at all. The property is unchanged; the signature moved.
   check("only service_role may execute it",
     jget(`select has_function_privilege('service_role',
-            'agent.import_agent(text,text,text,jsonb)', 'execute')::text || '|' ||
+            'agent.import_agent(text,text,text,jsonb,text)', 'execute')::text || '|' ||
           has_function_privilege('authenticated',
-            'agent.import_agent(text,text,text,jsonb)', 'execute')::text || '|' ||
+            'agent.import_agent(text,text,text,jsonb,text)', 'execute')::text || '|' ||
           has_function_privilege('anon',
-            'agent.import_agent(text,text,text,jsonb)', 'execute')::text;`)
+            'agent.import_agent(text,text,text,jsonb,text)', 'execute')::text;`)
       === "true|false|false");
   refused("a signed-in customer calling it for their OWN tenant is still refused",
-    `select agent.import_agent('t1', 'Mine surely', 'x', '[]'::jsonb);`,
+    `select agent.import_agent('t1', 'Mine surely', 'x', '[]'::jsonb, null);`,
     "permission denied", claimT1);
 
   psql(`delete from agent.agents where tenant_id='t1' and id <> '${AUTH_A1}';`, asWriter);
+
+  console.log("\n── the import can be pressed twice ──");
+  // ATOMIC IS NOT IDEMPOTENT, and the gap between them is one lost response: the
+  // agent is created, the answer never arrives, the local record is still
+  // unmarked, and the obvious thing to do is press again. Without an identity
+  // that made a second agent carrying a second copy of the conversation.
+  const KEY1 = "11111111-2222-4333-8444-555555555555";   // a browser record's id
+  const FIRST = jget(`select agent.import_agent('t1', 'Retried', 'Brought over twice.',
+    '[{"body":"one"},{"body":"two"}]'::jsonb, '${KEY1}');`);
+  const AGAIN = jget(`select agent.import_agent('t1', 'Retried', 'Brought over twice.',
+    '[{"body":"one"},{"body":"two"}]'::jsonb, '${KEY1}');`);
+  check("pressing it again answers the SAME agent",
+    FIRST === AGAIN, `${FIRST} vs ${AGAIN}`);
+  check("...and there is still only one",
+    jget(`select count(*) from agent.agents where tenant_id='t1' and import_key='${KEY1}';`) === "1");
+  // THE HALF THAT IS EASY TO GET WRONG: answering the existing id while running
+  // the message loop anyway doubles the conversation on every press.
+  check("...with its conversation intact and NOT doubled",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FIRST}';`) === "2",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FIRST}';`));
+  check("...in the order it was typed, still",
+    jget(`select string_agg(body, ',' order by seq) from agent.agent_messages where agent_id='${FIRST}';`)
+      === "one,two");
+  // A RETRY CARRYING DIFFERENT WORDS DOES NOT REWRITE THE AGENT EITHER. The
+  // identity decides, and the first press is what landed; a second press is a
+  // retry, not an edit, and treating it as one would let a stale browser
+  // overwrite an agent somebody has since changed on another machine.
+  const SAME = jget(`select agent.import_agent('t1', 'Different name now', 'Different instructions.',
+    '[{"body":"three"}]'::jsonb, '${KEY1}');`);
+  check("a retry with different content is still the same agent",
+    SAME === FIRST);
+  check("...and did not overwrite what landed first",
+    jget(`select name from agent.agents where id='${FIRST}';`) === "Retried");
+  check("...and added no message",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FIRST}';`) === "2");
+
+  // THE SCOPE IS THE TENANT'S, and that is the half that has to be in the
+  // database: two accounts holding the same local id each import their own.
+  const T2SAME = jget(`select agent.import_agent('t2', 'T2 has the same local id', 'Theirs.',
+    '[{"body":"t2 only"}]'::jsonb, '${KEY1}');`);
+  check("another account importing the SAME local id gets its own agent",
+    T2SAME !== FIRST, `${T2SAME} vs ${FIRST}`);
+  check("...under its own tenant",
+    jget(`select tenant_id from agent.agents where id='${T2SAME}';`) === "t2");
+  check("...and cannot see or touch the first account's",
+    psql(`select count(*) from agent.agents where id='${FIRST}';`, claimT2).out === "0");
+
+  // WITHOUT A KEY, NOTHING IS DEDUPLICATED — an agent made the ordinary way has
+  // no import identity, and any number of those may exist. Asserted so the
+  // partial index cannot quietly become a total one.
+  const N1 = jget(`select agent.import_agent('t1', 'No key A', 'x', '[]'::jsonb, null);`);
+  const N2 = jget(`select agent.import_agent('t1', 'No key B', 'x', '[]'::jsonb, null);`);
+  check("two imports with no key are two agents", N1 !== N2);
+  check("...and an empty key counts as no key, not as a shared one",
+    jget(`select agent.import_agent('t1', 'Blank key A', 'x', '[]'::jsonb, '  ');`)
+      !== jget(`select agent.import_agent('t1', 'Blank key B', 'x', '[]'::jsonb, '');`));
+  check("an agent created the ordinary way carries no import identity",
+    jget(`select count(*) from agent.agents where tenant_id='t1' and import_key is null;`) >= "4");
+
+  // THE WALL IS THE INDEX, so it refuses a second row even when nothing goes
+  // through the function — which is what makes the function's `on conflict` a
+  // loser-safe race rather than the only guard.
+  refused("the database itself refuses a second import of one local record",
+    `insert into agent.agents (id, tenant_id, name, instructions, import_key)
+     values (gen_random_uuid(), 't1', 'Sneaked in', 'x', '${KEY1}');`,
+    "agents_one_import_per_tenant", asWriter);
+  // CAST TO TEXT: psql prints a bare boolean as `t`, not `true`, so the first
+  // version of this line compared "t" with "true" and failed correct SQL.
+  check("the index is partial, so it is about imports and nothing else",
+    jget(`select (indexdef like '%WHERE (import_key IS NOT NULL)%')::text from pg_indexes
+           where schemaname='agent' and indexname='agents_one_import_per_tenant';`) === "true",
+    jget(`select coalesce(indexdef,'<no such index>') from pg_indexes
+           where schemaname='agent' and indexname='agents_one_import_per_tenant';`));
+  // AND THE OLD SIGNATURE IS GONE rather than left as an overload: a caller that
+  // forgot the new argument would otherwise get the version with no identity.
+  check("there is exactly ONE import_agent, and it takes the key",
+    jget(`select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+           where n.nspname='agent' and p.proname='import_agent';`) === "1");
+  check("...and it is still service_role only",
+    jget(`select has_function_privilege('service_role','agent.import_agent(text,text,text,jsonb,text)','execute')::text
+          || '|' || has_function_privilege('authenticated','agent.import_agent(text,text,text,jsonb,text)','execute')::text;`)
+      === "true|false");
+
+  psql(`delete from agent.agents where tenant_id in ('t1','t2') and id <> '${AUTH_A1}' and id <> '${AUTH_A2}';`, asWriter);
 
   console.log("\n── deleting an agent takes its conversation ──");
   allowed("the writer deletes the agent", `delete from agent.agents where id='${AUTH_A1}';`, asWriter);

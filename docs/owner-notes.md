@@ -155,6 +155,61 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The four you found in the agent PR, each reproduced first
+
+All four were real and none of them was cosmetic. Nothing is merged; the PR is
+still open.
+
+**1. Delete could never have worked.** The request that removes an agent told
+Supabase the wrong thing about which schema to use — it sent the header that
+only applies to reading — so it would have looked for the table in the wrong
+place and failed every time. What makes it worth writing down is that the test
+I wrote for it asserted the broken behaviour as correct, with a confident
+explanation of why. I measured what each of the nine requests really sends,
+per verb, before and after. It is now derived from the verb itself, so there is
+nothing left for a future request to forget.
+
+**2. Pressing "bring them over" twice could make two copies.** One transaction
+stopped a half-imported agent; it did not stop a SECOND agent when the answer
+was lost on the way back and somebody pressed again — which looks exactly like
+a request that never arrived. Each browser record's own id is now the import's
+identity, the database enforces one per account, and a second press gets the
+same agent back with its conversation unchanged. Proved on a real database and
+again live: same id, two messages after two presses (not four), and another
+account using the same local id gets its own.
+
+**3. Switching accounts still deleted the agents in the browser.** That was me
+satisfying one of your rules by breaking another: the next person must not see
+them, so I wiped them — and those records are the only copy of anything written
+before this screen had an account behind it. They are now STAMPED with the
+account leaving, at the one moment that identity is known, and only shown to
+the account that owns them. Nothing is deleted, the next person sees nothing,
+and signing back in finds everything.
+
+**4. A slow answer could land in the wrong conversation.** Send in A, open B,
+and A's message appeared in B — a message nobody sent, in a conversation
+somebody was reading; a failure for A put a red error under B's box. Every
+request now remembers which conversation AND which account it left from, and
+refuses to touch the screen if either moved. The message box is per
+conversation rather than one for the screen, so A's unsent words wait in A. The
+same wall is on every other call, including the one path that had none — an
+import that dies.
+
+**Tested locally:** the real-database check 243 → 261, the browser checks 19 new
+cases driving the actual screen with answers I hold open and release after
+moving it, root suite 6,552, agent-builder 235. Sweep 26 mutants, 26 killed,
+nothing survived. Three SQL mutants on a real PostgreSQL, all caught.
+
+**Applied live:** the migration (the identity column, the index, the rewritten
+function). **Not deployed** — no Worker deploy, no merge, as you asked.
+
+**Two mistakes of mine worth recording**, because both made a test pass while
+proving nothing: four cases read their own writes back instead of reaching the
+real screen, and one compared an array built inside the test harness against a
+normal one, which fails even when the answer is right.
+
+---
+
 ## 2026-09-15 — The agent builder's agents are on your account now
 
 Yesterday the agents screen kept everything in the browser, and said so on the

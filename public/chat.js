@@ -859,11 +859,24 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY, AGENTS_KEY,
+        [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY,
          'zephyr_chats_v1', 'zephyr_memory_v1', 'zephyr_studio_v1',
          'zephyr_avatars_v1', 'zephyr_products_v1']
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
+      // ⚠ THE AGENTS ARE STAMPED, NOT DELETED, and they are the one key here
+      // that is somebody's WRITING rather than a cache. Wiping them satisfied
+      // half the requirement — the next account must not see them — by breaking
+      // the other half: they are the only copy of agents written before this
+      // screen had an account behind it, and an import that has not been pressed
+      // yet is the only thing standing between them and being gone for good.
+      //
+      // `prevOwner` is the outgoing account and this is the ONE moment it is
+      // known, so it is the one moment ownership can be assigned. Records are
+      // stamped with it and left where they are; `agentsLocal` then shows a
+      // record only to the account it belongs to, so the incoming account sees
+      // nothing and the outgoing one still has everything when it comes back.
+      agentsClaimFor(prevOwner);
     }
     try { localStorage.setItem('zephyr_owner_v1', uid); } catch {}
   }
@@ -995,19 +1008,90 @@ let agentMsgsErr = '';
  */
 let agentDraft = null;
 let agentDraftFor = null;
-/** The same, for the message box. */
-let agentMsgDraft = '';
+/**
+ * What is typed in each conversation's message box, KEYED BY AGENT.
+ *
+ * **IT WAS ONE STRING FOR THE WHOLE SCREEN**, which is a defect the moment a
+ * request is in flight: send in A, open B, and A's answer landing cleared — or
+ * restored — whatever was typed in B. Keyed by agent there is nothing to
+ * confuse: A's unsent words wait in A, B's in B, and an answer for A can only
+ * ever touch A's entry.
+ */
+let agentMsgDrafts = {};
+const agentDraftOf = (id) => (id && Object.hasOwn(agentMsgDrafts, id) ? agentMsgDrafts[id] : '');
+
+/**
+ * WHO AND WHERE A REQUEST WAS MADE FROM.
+ *
+ * Every call below leaves the screen, waits, and comes back to a screen that may
+ * have moved — to another conversation, or to another ACCOUNT. `agentBind` is
+ * taken before the request and `agentSame` asked after it, and nothing that
+ * fails that question may write to the screen's state. The account half is not
+ * theoretical: a session can expire and a second person can sign in on the same
+ * machine while a save is still in the air, and the answer must not land in
+ * their screen.
+ *
+ * What a refused answer does NOT mean is that the work failed. A message whose
+ * binding moved is still saved on the server; it appears the next time that
+ * conversation is opened, because the list and the thread are read from the
+ * account rather than from what this tab remembers.
+ */
+const agentUid = () => ((window.Auth && Auth.userId) ? Auth.userId() : '');
+const agentBind = () => ({ uid: agentUid(), thread: agentThread, editing: agentEditing });
+/** Same account AND same conversation. */
+const agentSame = (b) => !!b && b.uid === agentUid() && b.thread === agentThread;
+/** Same account AND the same thing open in the composer. */
+const agentSameEdit = (b) => !!b && b.uid === agentUid() && b.editing === agentEditing;
 /** A sentence under the control that just failed. */
 let agentActErr = '';
 /** True while a write is in flight, so a button can say so and not double-fire. */
 let agentBusy = false;
 
-/** Read the legacy store. A corrupt or absent one is an EMPTY list, never a throw. */
-function agentsLocal() {
+/** Every legacy record in this browser, whoever it belongs to. Corrupt or absent is EMPTY. */
+function agentsStored() {
   try {
     const v = JSON.parse(localStorage.getItem(AGENTS_KEY) || '[]');
     return Array.isArray(v) ? v.filter((a) => a && typeof a.id === 'string') : [];
   } catch { return []; }
+}
+/** Write the whole store back. The ONLY writer, and it never drops a record. */
+function agentsStore(list) {
+  try { localStorage.setItem(AGENTS_KEY, JSON.stringify(list)); } catch {}
+}
+
+/**
+ * The legacy records THIS account may see.
+ *
+ * **`uid` ABSENT MEANS "NEVER BEEN THROUGH A SWITCH", WHICH CAN ONLY BE THE
+ * CURRENT ACCOUNT'S.** A record gets stamped at the one moment the outgoing
+ * account is known — `enterApp`'s switch branch — so anything still unstamped
+ * was written by whoever is signed in now. That is the whole ownership rule,
+ * and it is a filter rather than a deletion: the other account's records are
+ * still in the browser, still theirs, and invisible here.
+ *
+ * WITH NO SIGNED-IN ACCOUNT THIS ANSWERS NOTHING. `uid` is '' before sign-in,
+ * and showing a stranger's written instructions to a signed-out page would be
+ * the leak the wipe existed to prevent.
+ */
+function agentsLocal() {
+  const uid = (window.Auth && Auth.userId) ? Auth.userId() : '';
+  if (!uid) return [];
+  return agentsStored().filter((a) => !a.uid || a.uid === uid);
+}
+
+/**
+ * Assign every unstamped record to the account that is leaving.
+ *
+ * Called from the account switch and nowhere else, because that is the only
+ * place the outgoing identity exists. ADDITIVE: a record keeps every field it
+ * had and gains one, and a record already stamped is left alone — a second
+ * switch must not re-assign the first account's agents to the second.
+ */
+function agentsClaimFor(owner) {
+  if (!owner) return;
+  const list = agentsStored();
+  if (!list.some((a) => !a.uid)) return;            // nothing unclaimed
+  agentsStore(list.map((a) => (a.uid ? a : { ...a, uid: owner })));
 }
 
 /** The ones not yet brought over. What the import offer counts. */
@@ -1018,11 +1102,12 @@ const agentsToImport = () => agentsLocal().filter((a) => !a.imported);
  * field it had, including its messages, so somebody can still go and look.
  */
 function agentMarkImported(localId, serverId) {
-  try {
-    const list = agentsLocal().map((a) =>
-      a.id === localId ? { ...a, imported: String(serverId || ''), importedAt: Date.now() } : a);
-    localStorage.setItem(AGENTS_KEY, JSON.stringify(list));
-  } catch { /* a full or blocked store is not a reason to fail the import */ }
+  // THE WHOLE STORE, not the filtered view: `agentsLocal` hides other accounts'
+  // records, so mapping over IT and writing the result back would delete every
+  // one of them — the wipe returning through the back door, in the function
+  // whose job is to preserve them.
+  agentsStore(agentsStored().map((a) =>
+    a.id === localId ? { ...a, imported: String(serverId || ''), importedAt: Date.now() } : a));
 }
 
 /**
@@ -1070,10 +1155,16 @@ let agentThread = null;
  * list having been lost.
  */
 async function agentsLoad(quiet) {
+  const bound = agentBind();
   if (!quiet) { agentState = 'loading'; agentErr = ''; renderAgents(); }
   try {
     const res = await apiFetch('/api/agent/list');
     const j = await res.json().catch(() => ({}));
+    // A LIST IS AN ACCOUNT'S. If a different one is signed in by the time this
+    // lands, writing these rows would show one person another's agents — the
+    // same leak the account-switch stamp exists to prevent, arriving by wire
+    // instead of out of storage.
+    if (bound.uid !== agentUid()) return;
     if (!res.ok || !j.ok) {
       // A FAILED READ IS NOT AN EMPTY ACCOUNT. `agentRows` is left exactly as it
       // was — so a refresh that fails after a good read keeps showing the list
@@ -1095,6 +1186,7 @@ async function agentsLoad(quiet) {
 
 /** One thread, asked for when it is opened. */
 async function agentThreadLoad(id) {
+  const bound = agentBind();
   agentMsgs = null;
   agentMsgsFor = id;
   agentMsgsErr = '';
@@ -1102,7 +1194,10 @@ async function agentThreadLoad(id) {
   try {
     const res = await apiFetch('/api/agent/messages?id=' + encodeURIComponent(id));
     const j = await res.json().catch(() => ({}));
-    if (agentMsgsFor !== id) return;   // they moved on; this answer is stale
+    // MOVED ON, OR SIGNED IN AS SOMEBODY ELSE. The thread check was here from the
+    // start; the ACCOUNT half was not, and a session that expires mid-read would
+    // otherwise paint one person's conversation into the next person's screen.
+    if (agentMsgsFor !== id || bound.uid !== agentUid()) return;
     if (!res.ok || !j.ok) {
       agentMsgsErr = (j && j.error) || 'Couldn’t load this conversation.';
       // An agent the server no longer has is not an empty thread: the whole
@@ -1173,13 +1268,14 @@ function renderAgents() {
           '</button>' +
         '</div>' +
         '<div class="ag-thread" id="agThread">' + body + '</div>' +
-        // THE TYPED TEXT SURVIVES A FAILED SEND. `agentMsgDraft` is written back
-        // into the box, because this panel is rebuilt from innerHTML and a draft
-        // living only in the DOM would be wiped by the re-render that shows the
-        // error.
+        // THE TYPED TEXT SURVIVES A FAILED SEND, and it is THIS conversation's.
+        // `agentMsgDrafts` is keyed by agent and written back into the box,
+        // because this panel is rebuilt from innerHTML: a draft living only in
+        // the DOM would be wiped by the re-render that shows the error, and a
+        // draft living in one global would be wiped by another conversation.
         '<div class="ag-send">' +
           '<textarea class="ag-send-in" id="agMsg" rows="1" maxlength="' + AGENT_MAX + '" ' +
-            'data-keydown="agent-send-key" placeholder="Message ' + esc(a.name) + '">' + esc(agentMsgDraft) + '</textarea>' +
+            'data-keydown="agent-send-key" placeholder="Message ' + esc(a.name) + '">' + esc(agentDraftOf(a.id)) + '</textarea>' +
           '<button class="ag-send-btn" data-act="agent-send" aria-label="Send" title="Send"' + (agentBusy ? ' disabled' : '') + '>' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>' +
           '</button>' +
@@ -1307,7 +1403,8 @@ function agentNew() { agentThread = null; agentEditing = ''; agentDraft = null; 
 function agentOpen(id) {
   agentEditing = null;
   agentThread = String(id || '');
-  agentMsgDraft = '';
+  // The draft is NOT cleared here: it belongs to the conversation, so opening
+  // one shows what was left in it and opening another shows that one's.
   agentActErr = '';
   agentThreadLoad(agentThread);
 }
@@ -1330,7 +1427,9 @@ async function agentDelete(id) {
   if (!target) return;
   const a = (agentRows || []).find((x) => x.id === target);
   if (!window.confirm('Delete ' + ((a && a.name) || 'this agent') + ' and its whole conversation? This cannot be undone.')) return;
+  const bound = agentBind();
   agentBusy = true; agentActErr = ''; renderAgents();
+  let failed = '';
   try {
     const res = await apiFetch('/api/agent/delete', {
       method: 'POST',
@@ -1338,54 +1437,87 @@ async function agentDelete(id) {
       body: JSON.stringify({ id: target }),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.ok) { agentActErr = (j && j.error) || 'Couldn’t delete that.'; }
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t delete that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentBusy = false;
+  // The delete really happened either way; what is guarded is the SCREEN. Closing
+  // the thread and the composer is right only if they are still the ones this
+  // delete was pressed in — otherwise it would shut a conversation somebody has
+  // since opened, and the list reload below shows the agent is gone regardless.
+  if (agentSame(bound) || agentSameEdit(bound)) {
+    if (failed) agentActErr = failed;
     else {
       // Both screens are left, not just the composer: a thread whose agent is
       // gone is a conversation with nobody.
       agentEditing = null;
       agentThread = null;
     }
-  } catch { agentActErr = 'Couldn’t reach the server.'; }
-  agentBusy = false;
+  }
+  // The conversation went with it, so its unsent words are not worth keeping.
+  if (!failed) delete agentMsgDrafts[target];
   await agentsLoad(true);
 }
 
 /**
  * Send. An empty message is refused rather than stored.
  *
- * **THE BOX IS NOT CLEARED UNTIL THE SERVER HAS IT.** `agentMsgDraft` holds
- * what was typed across the re-render, so a failed send leaves the words in
- * the box with a sentence under it — rather than a message that looked sent and
- * is nowhere.
+ * **THE BOX IS NOT CLEARED UNTIL THE SERVER HAS IT**, and the box it means is
+ * THIS conversation's. `agentMsgDrafts[id]` holds what was typed across the
+ * re-render, so a failed send leaves the words where they were typed with a
+ * sentence under them — rather than a message that looked sent and is nowhere,
+ * or a clear that lands in whatever conversation is open when the answer
+ * arrives.
  */
 async function agentSend() {
   const el = document.getElementById('agMsg');
   const text = (el ? el.value : '').trim().slice(0, AGENT_MAX);
   if (!text) { if (el) el.focus(); return; }
   if (!agentThread) { agentList(); return; }
-  agentMsgDraft = text;
+  // BOUND BEFORE THE REQUEST LEAVES. `bound.thread` is the conversation this
+  // message belongs to; everything below writes through it rather than through
+  // whatever happens to be open when the answer arrives.
+  const bound = agentBind();
+  const target = bound.thread;
+  agentMsgDrafts[target] = text;
   agentBusy = true; agentActErr = ''; renderAgents();
+  let failed = '';
+  let saved = null;
   try {
     const res = await apiFetch('/api/agent/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: agentThread, body: text }),
+      body: JSON.stringify({ id: target, body: text }),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.ok) {
-      agentActErr = (j && j.error) || 'Couldn’t send that.';
-    } else {
-      agentMsgDraft = '';
-      // Appended rather than re-read: the answer IS the stored row, so a second
-      // request would ask the server to repeat what it just said.
-      if (Array.isArray(agentMsgs) && j.message) agentMsgs = agentMsgs.concat([j.message]);
-      else agentThreadLoad(agentThread);
-    }
-  } catch { agentActErr = 'Couldn’t reach the server.'; }
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn\u2019t send that.';
+    else saved = j.message || null;
+  } catch { failed = 'Couldn\u2019t reach the server.'; }
+
+  // THE DRAFT IS THIS CONVERSATION'S WHEREVER THE SCREEN IS NOW. Clearing it on
+  // success and leaving it on failure are both writes to `agentMsgDrafts[target]`
+  // — never to "the box", which may be showing another agent entirely.
+  if (!failed) delete agentMsgDrafts[target];
+
+  if (!agentSame(bound)) {
+    // ANOTHER CONVERSATION — OR ANOTHER ACCOUNT — IS ON SCREEN. Nothing here is
+    // allowed to touch it: not its messages, not its draft, not its error line.
+    // The message is saved either way, and shows when that conversation is
+    // opened again; a failure is not announced into somebody else's screen,
+    // where it would read as their message having failed.
+    agentBusy = false;
+    renderAgents();
+    return;
+  }
+
   agentBusy = false;
+  if (failed) { agentActErr = failed; renderAgents(); return; }
+  // Appended rather than re-read: the answer IS the stored row, so a second
+  // request would ask the server to repeat what it just said.
+  if (Array.isArray(agentMsgs) && agentMsgsFor === target && saved) agentMsgs = agentMsgs.concat([saved]);
+  else agentThreadLoad(target);
   renderAgents();
   // The row's preview line and its place in the list both moved.
-  if (!agentActErr) agentsLoad(true);
+  agentsLoad(true);
 }
 
 /**
@@ -1410,8 +1542,10 @@ async function agentSave() {
   if (!name) { say('Give it a name first.'); return; }
   if (!instructions) { say('Say what it should do.'); return; }
 
-  const editing = agentEditing;
+  const bound = agentBind();
+  const editing = bound.editing;
   agentBusy = true; agentActErr = ''; renderAgents();
+  let failed = '';
   try {
     const res = await apiFetch(editing ? '/api/agent/update' : '/api/agent/create', {
       method: 'POST',
@@ -1419,22 +1553,25 @@ async function agentSave() {
       body: JSON.stringify(editing ? { id: editing, name, instructions } : { name, instructions }),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.ok) {
-      agentBusy = false;
-      // THE DRAFT IS LEFT IN PLACE. The composer stays open on the words that
-      // failed, so pressing Save again sends the same thing.
-      say((j && j.error) || 'Couldn’t save that.');
-      return;
-    }
-    agentDraft = null;
-    agentDraftFor = null;
-    agentEditing = null;
-  } catch {
-    agentBusy = false;
-    say('Couldn’t reach the server.');
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+
+  // THE COMPOSER MAY HAVE MOVED ON, or another account may be signed in. Closing
+  // it, clearing its draft or writing an error into it would all be acting on
+  // somebody else's screen — including the case that matters most, where a slow
+  // failure for agent A would otherwise throw away what is being typed about B.
+  if (!agentSameEdit(bound)) { agentBusy = false; renderAgents(); return; }
+
+  agentBusy = false;
+  if (failed) {
+    // THE DRAFT IS LEFT IN PLACE. The composer stays open on the words that
+    // failed, so pressing Save again sends the same thing.
+    say(failed);
     return;
   }
-  agentBusy = false;
+  agentDraft = null;
+  agentDraftFor = null;
+  agentEditing = null;
   await agentsLoad(true);
 }
 
@@ -1454,9 +1591,18 @@ async function agentSave() {
 async function agentImport() {
   const pending = agentsToImport();
   if (!pending.length) return;
+  const bound = agentBind();
   agentBusy = true; agentActErr = ''; renderAgents();
   let done = 0;
   for (const a of pending) {
+    // **THERE IS ONE ACCOUNT CHECK IN THIS LOOP, NOT TWO, AND THAT IS MEASURED
+    // RATHER THAN ASSUMED.** A check here at the top looks like a second wall
+    // and cannot be one: nothing between the previous iteration's check and this
+    // point awaits, so the account cannot change in between and the two can
+    // never disagree. A sweep caught it as a survivor — a mutant deleting it
+    // changed no result — and the honest answer to a wall nobody can drive is to
+    // keep the one that can. It is BELOW the request, where the account really
+    // can have changed while the answer was in the air.
     const name = String(a.name || '').trim().slice(0, AGENT_NAME_MAX);
     const instructions = String(a.instructions || '').trim().slice(0, AGENT_MAX);
     // A local record too broken to describe is SKIPPED AND SAID, never sent as
@@ -1471,9 +1617,13 @@ async function agentImport() {
       const res = await apiFetch('/api/agent/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, instructions, messages }),
+        // `a.id` IS THE IMPORT'S IDENTITY — the browser record's own id, stable
+        // across retries, which is what lets a press whose answer was lost be
+        // pressed again without making a second agent.
+        body: JSON.stringify({ key: a.id, name, instructions, messages }),
       });
       const j = await res.json().catch(() => ({}));
+      if (bound.uid !== agentUid()) { agentBusy = false; return; }
       if (!res.ok || !j.ok || !j.id) {
         agentActErr = (done ? 'Brought ' + done + ' over, then stopped: ' : '') +
           ((j && j.error) || 'Couldn’t bring that one over.') +
@@ -1483,6 +1633,11 @@ async function agentImport() {
       agentMarkImported(a.id, j.id);
       done++;
     } catch {
+      // THE THROW PATH NEEDS THE SAME WALL, and it did not have one — found by
+      // the same sweep. A request that dies after the account changed would
+      // otherwise write "couldn't reach the server" into the incoming account's
+      // screen, about an import they never pressed.
+      if (bound.uid !== agentUid()) { agentBusy = false; return; }
       agentActErr = (done ? 'Brought ' + done + ' over, then stopped: ' : '') +
         'Couldn’t reach the server. Nothing was removed from this browser.';
       break;

@@ -99,7 +99,9 @@ test("every operation is scoped by the tenant the handler was given", async () =
     const r = await handleAgentApi({
       path, method: AGENT_ROUTES[path], tenant: T1, store: f.store,
       query: new URLSearchParams({ id: A1 }),
-      body: { id: A1, name: "N", instructions: "I", body: "hello", messages: [] },
+      // `key` is the import's identity and is REQUIRED — a census that omitted
+      // it drove a 400 for that route and proved nothing about its scoping.
+      body: { id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [] },
       newId: () => A1,
     });
     assert.equal(r.status, 200, `${path} answered ${r.status}`);
@@ -166,7 +168,7 @@ test("no route reads an account off the body or the query — asserted over the 
   assert.ok(body.length > 500, "the handler must have been found");
   const reads = [...body.matchAll(/\b[bq]\.(?:get\(")?([A-Za-z_]+)/g)].map((m) => m[1]);
   assert.ok(reads.length >= 8, `the scanner read nothing: ${reads.length}`);
-  const allowed = new Set(["id", "name", "instructions", "body", "at", "messages", "text"]);
+  const allowed = new Set(["id", "name", "instructions", "body", "at", "messages", "text", "key"]);
   const strays = [...new Set(reads)].filter((k) => !allowed.has(k));
   assert.deepEqual(strays, [], `the handler reads ${strays.join(", ")} off the request`);
 });
@@ -263,36 +265,65 @@ test("a message insert sends no role at all", async () => {
   assert.ok(!/\brole\b/.test(JSON.stringify(rec.seen[0])), "a role reached the wire");
 });
 
-test("PostgREST is told the agent schema, and the header matches the direction", async () => {
-  // Sending `accept-profile` on a write (or the reverse) is a request answered
-  // against `public`, where none of these relations exist — a 404 that reads
-  // like a missing table rather than a missing header.
-  const reads = [
-    (s) => s.list(T1), (s) => s.count(T1), (s) => s.ownsAgent(T1, A1), (s) => s.messages(A1),
+test("PostgREST is told the agent schema, and the header matches the VERB", () => {
+  // **THIS CASE ASSERTED THE DEFECT AS CORRECT.** `remove` omitted the `write`
+  // flag, so the DELETE went out with `Accept-Profile` — which PostgREST ignores
+  // on a write — and this case's own comment explained why that was fine: "the
+  // DELETE is the one write with no body and therefore no content-profile to
+  // set". That reasoning is wrong. The profile names the RELATION, not a body,
+  // so every verb that changes something takes `Content-Profile`. The delete
+  // resolved against `public`, where `agents` does not exist, and could never
+  // have worked live.
+  //
+  // Re-anchored onto the property: a CENSUS over every request the store can
+  // make, keyed on the verb it used. Written this way, an operation added later
+  // is covered by existing, and there is no per-call flag for it to forget.
+  const READ_VERBS = new Set(["GET", "HEAD"]);
+  const rec = recorder({
+    agents: { body: [{ id: A1, name: "n", instructions: "i" }] },
+    agent_messages: { body: [{ id: "m", body: "b" }] },
+    agent_overview: { body: [] },
+    "rpc/import_agent": { body: A1 },
+  });
+  const every = [
+    () => rec.store.list(T1),
+    () => rec.store.count(T1),
+    () => rec.store.ownsAgent(T1, A1),
+    () => rec.store.messages(A1),
+    () => rec.store.create(T1, { id: A1, name: "n", instructions: "i" }),
+    () => rec.store.update(T1, A1, { name: "n", instructions: "i" }),
+    () => rec.store.remove(T1, A1),
+    () => rec.store.addMessage(A1, { id: "m", body: "b" }),
+    () => rec.store.importOne(T1, { name: "n", instructions: "i", messages: [], key: A1 }),
   ];
-  const writes = [
-    (s) => s.create(T1, { id: A1, name: "n", instructions: "i" }),
-    (s) => s.update(T1, A1, { name: "n", instructions: "i" }),
-    (s) => s.addMessage(A1, { id: "m", body: "b" }),
-    (s) => s.importOne(T1, { name: "n", instructions: "i", messages: [] }),
-  ];
-  for (const run of reads) {
-    const rec = recorder({ agent: { body: [{ id: A1 }] } });
-    await run(rec.store);
-    assert.equal(rec.seen[0].headers["accept-profile"], AGENT_SCHEMA);
-    assert.equal(rec.seen[0].headers["content-profile"], undefined);
-  }
-  for (const run of writes) {
-    const rec = recorder({ agents: { body: [{ id: A1 }] }, agent_messages: { body: [{ id: "m" }] }, "rpc/import_agent": { body: A1 } });
-    await run(rec.store);
-    assert.equal(rec.seen[0].headers["content-profile"], AGENT_SCHEMA);
-    assert.equal(rec.seen[0].headers["accept-profile"], undefined);
-  }
-  // The DELETE is the one write with no body and therefore no content-profile to
-  // set; it is named here rather than left looking like an oversight.
-  const rec = recorder({ agents: { body: [{ id: A1 }] } });
-  await rec.store.remove(T1, A1);
-  assert.equal(rec.seen[0].headers["accept-profile"], AGENT_SCHEMA);
+  return Promise.all(every.map((run) => run())).then(() => {
+    assert.equal(rec.seen.length, every.length, "not every operation sent a request");
+    const verbs = new Set(rec.seen.map((r) => r.method));
+    // THE OBSERVER IS ALIVE IN BOTH DIRECTIONS: without a read AND a write in
+    // the set, one half of this census would be vacuous.
+    assert.ok(verbs.has("GET"), "no read was driven, so the read half proves nothing");
+    assert.ok(verbs.has("DELETE"), "the DELETE was not driven — it is the one this case exists for");
+    for (const r of rec.seen) {
+      const want = READ_VERBS.has(r.method) ? "accept-profile" : "content-profile";
+      const other = want === "accept-profile" ? "content-profile" : "accept-profile";
+      assert.equal(r.headers[want], AGENT_SCHEMA,
+        `${r.method} ${r.url} sent no ${want} — it would resolve against public`);
+      assert.equal(r.headers[other], undefined,
+        `${r.method} ${r.url} sent ${other} as well`);
+    }
+  });
+});
+
+test("the profile header is derived from the verb, with no flag to forget", async () => {
+  // The structural half of the fix above. A caller cannot opt out, so a new
+  // operation cannot repeat the delete's mistake, and the four call sites that
+  // used to pass the flag no longer carry one.
+  const code = SRC.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+  assert.ok(!/write:\s*true/.test(code), "a call site still opts into the write header by hand");
+  assert.ok(!/write\s*=\s*false/.test(code), "`req` still takes a write flag");
+  assert.match(code, /WRITE_VERBS\.has\(method\)/, "the header is not derived from the verb");
+  assert.match(code, /new Set\(\["POST", "PATCH", "PUT", "DELETE"\]\)/,
+    "the write verbs are not the four that change something");
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -347,7 +378,7 @@ test("the service key reaches a header and nothing else", async () => {
     answers.push(await handleAgentApi({
       path, method: AGENT_ROUTES[path], tenant: T1, store: rec.store,
       query: new URLSearchParams({ id: A1 }),
-      body: { id: A1, name: "N", instructions: "I", body: "hello", messages: [] },
+      body: { id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [] },
       newId: () => A1,
     }));
   }
@@ -500,11 +531,14 @@ test("the list is newest-first off the overview view, bounded by the ceiling", a
 
 test("the import is ONE call, so a re-press cannot half-copy an agent", async () => {
   const rec = recorder({ "rpc/import_agent": { body: A1 } });
-  const id = await rec.store.importOne(T1, { name: "n", instructions: "i", messages: [{ body: "a" }, { body: "b" }] });
+  const id = await rec.store.importOne(T1, { name: "n", instructions: "i", key: "L1", messages: [{ body: "a" }, { body: "b" }] });
   assert.equal(id, A1);
   assert.equal(rec.seen.length, 1, "an import that is two requests is not atomic");
   assert.ok(rec.seen[0].url.endsWith("/rest/v1/rpc/import_agent"));
   assert.equal(rec.seen[0].body.p_tenant, T1);
+  // THE IDENTITY IS ON THE WIRE. Atomic without it is not retry-safe: a press
+  // whose answer was lost, pressed again, makes a second agent.
+  assert.equal(rec.seen[0].body.p_import_key, "L1", "the import carries no identity");
   assert.equal(rec.seen[0].body.p_messages.length, 2);
   assert.ok(!JSON.stringify(rec.seen[0].body).includes("role"), "a speaker reached the import");
 });
@@ -514,7 +548,7 @@ test("a message the import cannot read is counted and said, never dropped in sil
   const r = await call("/api/agent/import", {
     store: f.store,
     body: {
-      name: "Brought over", instructions: "Do a thing",
+      key: A1, name: "Brought over", instructions: "Do a thing",
       messages: [{ text: "kept" }, { text: "" }, { text: ["a"] }, { at: 1 }, { text: "also kept" }],
     },
   });
@@ -522,6 +556,7 @@ test("a message the import cannot read is counted and said, never dropped in sil
   assert.equal(r.body.imported, 2);
   assert.equal(r.body.unreadable, 3, "a dropped message was not counted");
   const sent = f.calls.find((c) => c.name === "importOne").args[1];
+  assert.equal(sent.key, A1, "the import's identity never reached the store");
   assert.deepEqual(sent.messages.map((m) => m.body), ["kept", "also kept"]);
   // NO SPEAKER, AT THE HANDLER TOO. The store-level case asserts the wire; the
   // sweep showed the handler could put one on the message before the store ever
@@ -536,19 +571,34 @@ test("a message the import cannot read is counted and said, never dropped in sil
 test("an import longer than one request may carry is refused by its length, not truncated", async () => {
   const f = fakeStore();
   const messages = Array.from({ length: MAX_IMPORT_MESSAGES + 1 }, (_, i) => ({ text: `m${i}` }));
-  const r = await call("/api/agent/import", { store: f.store, body: { name: "n", instructions: "i", messages } });
+  const r = await call("/api/agent/import", { store: f.store, body: { key: A1, name: "n", instructions: "i", messages } });
   assert.equal(r.status, 413);
   assert.match(r.body.error, new RegExp(String(MAX_IMPORT_MESSAGES)));
   assert.deepEqual(f.calls, [], "it was imported anyway");
   // At the cap it goes through, so the refusal is about the boundary.
   const ok = fakeStore();
-  assert.equal((await call("/api/agent/import", { store: ok.store, body: { name: "n", instructions: "i", messages: messages.slice(1) } })).status, 200);
+  assert.equal((await call("/api/agent/import", { store: ok.store, body: { key: A1, name: "n", instructions: "i", messages: messages.slice(1) } })).status, 200);
 });
 
 test("an import with no name or no instructions is refused, so nothing lands half-described", async () => {
   const f = fakeStore();
-  assert.equal((await call("/api/agent/import", { store: f.store, body: { instructions: "i" } })).status, 400);
-  assert.equal((await call("/api/agent/import", { store: f.store, body: { name: "n" } })).status, 400);
+  assert.equal((await call("/api/agent/import", { store: f.store, body: { key: A1, instructions: "i" } })).status, 400);
+  assert.equal((await call("/api/agent/import", { store: f.store, body: { key: A1, name: "n" } })).status, 400);
+  // AND AN IMPORT WITH NO IDENTITY IS REFUSED TOO. Without it this call cannot
+  // be retried safely, and an import that quietly loses that property is worse
+  // than one that refuses: the failure shows up as a duplicate agent nobody can
+  // explain, days later.
+  assert.equal((await call("/api/agent/import", { store: f.store, body: { name: "n", instructions: "i" } })).status, 400);
+  for (const bad of [7, ["a"], {}, "", "  ", "has space", "a".repeat(201), "semi;colon"]) {
+    assert.equal((await call("/api/agent/import", { store: f.store, body: { key: bad, name: "n", instructions: "i" } })).status, 400,
+      `key ${JSON.stringify(bad)} was accepted`);
+  }
+  // The observer: a legacy id that is NOT a uuid still imports — the oldest
+  // records carry `String(Date.now()) + Math.random().toString(16)`, and turning
+  // exactly those away would strand the ones most worth preserving.
+  assert.equal((await call("/api/agent/import", {
+    store: fakeStore().store, body: { key: "1757980800000a3f9c2b", name: "n", instructions: "i" },
+  })).status, 200);
   assert.deepEqual(f.calls, []);
 });
 

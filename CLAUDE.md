@@ -1360,6 +1360,83 @@ story of how each got there is in `git show a4d0f5e5:CLAUDE.md`.
   in PostgREST's schema cache (`42501`, the schema-grant wall, not `PGRST202/205`).
   Nothing else has run against the deployed Worker: the two-account check needs a
   merge, because there is one Worker and `deploy.yml` is the only way to it.
+#### …AND FOUR DEFECTS IN IT, EACH REPRODUCED BEFORE IT WAS FIXED (2026-09-15)
+
+Owner, on PR #929: *"Fix DELETE schema selection… Make imports safe to retry…
+Preserve legacy local agents safely… Keep delayed responses in their original
+conversation."* Every one was driven before and after; none is a source read.
+
+1. **THE DELETE COULD NEVER HAVE WORKED, AND THE GUARD WRITTEN FOR IT ASSERTED
+   THE DEFECT AS CORRECT.** `req` took a `write` option and `remove` omitted it,
+   so the DELETE went out with `Accept-Profile`, which **PostgREST ignores on a
+   write** — it resolved against `public`, where `agents` does not exist.
+   MEASURED off the store, per verb: eight requests carried `content-profile` or
+   `accept-profile` correctly and the DELETE alone carried the read header. The
+   guard's own comment explained why that was fine — *"the DELETE is the one
+   write with no body and therefore no content-profile to set"* — and that
+   reasoning is wrong: **the profile names the RELATION, not a body.** Derived
+   from the VERB now (`WRITE_VERBS`), so there is no option left for a call site
+   to forget, and the guard is a census over every request the store can make
+   with the read and the DELETE both proved present.
+2. **ATOMIC IS NOT IDEMPOTENT.** `import_agent` closed the half-imported agent
+   and left the one beside it open: the agent is created, the ANSWER is lost, and
+   from the browser that is indistinguishable from a request that never arrived —
+   so the obvious second press made a second agent with a second copy of the
+   conversation. The identity is the browser's own record id, which every legacy
+   record already carries and which is stable across retries, **scoped by tenant
+   and enforced by a partial unique index** on `(tenant_id, import_key)`.
+   `on conflict … do nothing` then the read, so two presses racing both answer the
+   winner's id; the message loop is skipped on that path, because answering the
+   right id while re-running it doubles the conversation on every retry — the
+   defect in a different hat. **The four-argument signature is DROPPED, not left
+   as an overload**: Postgres would keep both and a caller that forgot the key
+   would silently get the one with no identity at all. The API REQUIRES a key
+   (`cleanImportKey`, the tenant's charset rather than `cleanId`, because the
+   oldest records carry `String(Date.now()) + Math.random().toString(16)` and
+   turning exactly those away would strand the ones most worth preserving).
+3. **THE ACCOUNT SWITCH STILL DELETED WHAT SOMEBODY TYPED**, and a guard demanded
+   it. `AGENTS_KEY` was on `enterApp`'s wipe list, which satisfies "the next
+   account must not see them" by destroying the only copy of agents written
+   before this screen had an account behind it. **The property was never "delete
+   them"; it is "show them only to the account they own"**, which is a filter:
+   the switch STAMPS every unstamped record with the OUTGOING uid — the one
+   moment that identity is known — and `agentsLocal` answers only what the
+   current account owns, `[]` with nobody signed in. Unstamped means "never been
+   through a switch", which can only be the current account's. `agentMarkImported`
+   maps over the WHOLE store, never the filtered view: mapping the view and
+   writing it back is the wipe returning through the back door, inside the
+   function whose job is to preserve.
+4. **A DELAYED ANSWER LANDED WHEREVER THE SCREEN HAD GOT TO.** `agentSend`
+   captured nothing, so a message typed into A appeared in B — a message nobody
+   sent, in a conversation somebody was reading — and a failure for A put a red
+   sentence under B's box. `agentBind()` is taken before the request and
+   `agentSame`/`agentSameEdit` asked after it, comparing **both the conversation
+   and the ACCOUNT**; nothing that fails may write. The message draft is keyed by
+   agent (`agentMsgDrafts`) rather than one string for the screen, so A's unsent
+   words wait in A. The same wall is on the thread read, the list read, the save,
+   the delete and the import — including the import's THROW path, which had none.
+   **A refused answer never means the work failed**: it is saved, and appears the
+   next time that conversation is opened.
+
+**Guards**: `test/agent-binding.test.mjs` (**19**, new) loads `public/chat.js`
+the way the browser does — the page's own script list, derived from `index.html`
+— and drives the real functions with responses it can hold open, release, and
+land after moving the screen. Two fixture traps paid for on the way in: **a
+classic script's `let`/`const` are NOT properties of the global object** (four
+cases passed VACUOUSLY reading their own writes back off the sandbox), and **an
+array built inside a vm has that realm's `Array.prototype`**, which
+`assert.deepEqual` rejects — correct code failing with a message about the value.
+`agent-api` 41 → 42, and six older guards re-anchored.
+
+**Sweep: 26 mutants, 26 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Four survived pass 1; three were guard gaps and **one was
+INERT and is recorded rather than hunted**: the import loop's top-of-iteration
+account check cannot differ from the one below the request, because nothing
+between them awaits. The wall that CAN be driven was kept, and writing the
+measurement down found a real gap next to it — the `catch` had no check at all.
+Plus **three SQL mutants on a real PostgreSQL**, all caught: a retry that raises,
+a retry that re-inserts the conversation, and an identity not scoped to the
+tenant.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

@@ -63,13 +63,21 @@ test("EVERY ROW THE MENU OFFERS NAMES A VIEW THAT EXISTS — a census, not a spo
   }
 });
 
-test("⚠ THE AGENT STORE IS WIPED ON AN ACCOUNT SWITCH, or one customer sees another's agents", () => {
-  // This is the whole reason this file exists. The agents are held in
-  // localStorage, which belongs to the BROWSER and not to the account — so a
-  // second person signing in on the same machine inherits the first one's list
-  // unless the key is dropped with the rest of the per-account cache. The other
-  // keys in that list are sites and preferences; this one is somebody's written
-  // instructions, which is worse to leak and just as easy to forget.
+test("⚠ ONE CUSTOMER NEVER SEES ANOTHER'S AGENTS — and they are no longer destroyed to achieve it", () => {
+  // **THIS CASE ASSERTED A DEFECT AS CORRECT, and it is the sharpest example in
+  // this file of a guard cementing one requirement by breaking another.** It
+  // demanded `AGENTS_KEY` be in the account-switch wipe list, which does keep
+  // the next person from seeing the last one's written instructions — by
+  // DELETING them. Those records are the only copy of agents written before
+  // this screen had an account behind it, and one whose import has not been
+  // pressed yet has nowhere else to exist.
+  //
+  // The property was never "delete them". It was "show them only to the account
+  // they belong to", and that is a filter: `enterApp` stamps the outgoing uid on
+  // to every unstamped record at the one moment that identity is known, and
+  // `agentsLocal` answers only what the CURRENT account owns. Both halves hold
+  // and nothing is lost. `test/agent-binding.test.mjs` drives it; what is
+  // asserted here is the structure that makes it possible.
   const key = /const AGENTS_KEY = '([^']+)'/.exec(js);
   assert.ok(key, "AGENTS_KEY is gone");
 
@@ -77,14 +85,31 @@ test("⚠ THE AGENT STORE IS WIPED ON AN ACCOUNT SWITCH, or one customer sees an
   // match anywhere would pass on the key merely being MENTIONED near it.
   const wipe = /\[SITES_KEY,([\s\S]{0,400}?)\]\s*\n\s*\.forEach\(\(k\) => localStorage\.removeItem\(k\)\)/.exec(js);
   assert.ok(wipe, "the account-switch wipe list is gone or has been reshaped — re-read it");
-  assert.match(wipe[1], /\bAGENTS_KEY\b/,
-    "AGENTS_KEY is not dropped when a different account signs in on this browser");
+  assert.ok(!/\bAGENTS_KEY\b/.test(wipe[1]),
+    "the account switch deletes what somebody typed instead of assigning it to them");
+  // THE OBSERVER IS ALIVE: the list still wipes the per-account CACHES, so the
+  // absence above is about this key rather than about the list being gone.
+  assert.match(wipe[1], /\bVIEW_KEY\b/, "the wipe list stopped naming anything, so this proves nothing");
+
+  // The replacement, asserted where it runs: the switch assigns, and the reader
+  // filters. Either half alone is the defect back — assigning without filtering
+  // shows them to everyone, filtering without assigning shows an unstamped
+  // record to whoever arrives next.
+  const branch = js.slice(js.indexOf("if (prevOwner && prevOwner !== uid)"));
+  assert.match(branch.slice(0, 1800), /agentsClaimFor\(prevOwner\)/,
+    "the switch never assigns the outgoing account's records to it");
+  const reader = js.slice(js.indexOf("function agentsLocal()"));
+  assert.match(reader.slice(0, 400), /!a\.uid \|\| a\.uid === uid/,
+    "the reader does not filter by the account, so one customer sees another's");
+  assert.match(reader.slice(0, 400), /if \(!uid\) return \[\];/,
+    "a signed-out page is shown records it cannot establish an owner for");
 
   // And the store is read defensively: a corrupt value is an empty list, never
-  // a throw that takes the whole view down. RE-ANCHORED: the reader is
-  // `agentsLocal` now, because what it reads is the LEGACY store rather than the
-  // list the screen draws — the name moved with the meaning.
-  assert.match(js, /function agentsLocal\(\)[\s\S]{0,320}catch \{ return \[\]; \}/,
+  // a throw that takes the whole view down. RE-ANCHORED TWICE: the reader was
+  // `agentsAll`, then `agentsLocal`, and is `agentsStored` now — `agentsLocal`
+  // became the ACCOUNT'S view of it, so the defensive read moved under the raw
+  // one. The property never changed.
+  assert.match(js, /function agentsStored\(\)[\s\S]{0,320}catch \{ return \[\]; \}/,
     "a corrupt agent store is not read as an empty list");
 });
 
@@ -170,29 +195,46 @@ test("⚠ A FAILED SAVE KEEPS WHAT WAS TYPED", () => {
   assert.ok(body.indexOf("agentDraft = { name, instructions }") > 0, "nothing keeps the draft");
   assert.ok(body.indexOf("agentDraft = { name, instructions }") < body.indexOf("if (!name)"),
     "the draft is kept after the first thing that can fail, so a refusal loses it");
-  // On a failed request the draft must be LEFT, and the composer must stay open.
-  const fail = /if \(!res\.ok \|\| !j\.ok\) \{([\s\S]{0,400}?)\n    \}/.exec(body);
+  // RE-ANCHORED: `agentSave` no longer decides inside the response branch. It
+  // records the failure, asks whether the composer is still the one it left, and
+  // only then speaks — so the property is read off the block that RUNS on a
+  // failure rather than off the `if` that detects one.
+  const fail = /if \(failed\) \{([\s\S]{0,500}?)\n  \}/.exec(body);
   assert.ok(fail, "agentSave's failure branch is gone or reshaped — re-read it");
   assert.ok(!/agentDraft = null/.test(fail[1]), "a failed save throws the typed words away");
   assert.ok(!/agentEditing = null/.test(fail[1]), "a failed save closes the composer, so the words are unreachable");
   assert.match(fail[1], /say\(/, "a failed save says nothing");
+  // AND IT IS BOUND: the composer it speaks into must be the one it left.
+  assert.match(body, /if \(!agentSameEdit\(bound\)\)/,
+    "a save that lands after the composer moved still writes into whatever is open");
+  assert.ok(body.indexOf("if (!agentSameEdit(bound))") < body.indexOf("if (failed)"),
+    "the binding is checked after the screen has already been written to");
   // And the composer really reads it back, for the agent it was typed against.
   assert.match(js, /const draft = \(agentDraft && agentDraftFor === agentEditing\) \? agentDraft : null;/,
     "the composer does not read the draft back, or reads one typed against another agent");
 });
 
-test("a failed send keeps the message in the box", () => {
+test("a failed send keeps the message in the box — and in the RIGHT box", () => {
+  // RE-ANCHORED: one global draft became one PER CONVERSATION, which is the fix
+  // for a second defect entirely — a global one is cleared or restored by an
+  // answer for whichever conversation happens to return. The original property
+  // (a failed send keeps what was typed) is asserted below it, unchanged.
   const send = js.slice(js.indexOf("async function agentSend()"));
   const body = send.slice(0, send.indexOf("\n}\n"));
-  assert.ok(body.indexOf("agentMsgDraft = text") > 0, "the typed message is not kept");
-  assert.ok(body.indexOf("agentMsgDraft = text") < body.indexOf("apiFetch("),
+  assert.ok(body.indexOf("agentMsgDrafts[target] = text") > 0, "the typed message is not kept");
+  assert.ok(body.indexOf("agentMsgDrafts[target] = text") < body.indexOf("apiFetch("),
     "the message is kept only after the request, so a network failure loses it");
-  // Cleared ONLY on success — and the box is drawn from it.
-  const cleared = body.indexOf("agentMsgDraft = ''");
-  assert.ok(cleared > body.indexOf("if (!res.ok || !j.ok)"),
+  // Cleared ONLY on success, and keyed on the conversation it was typed in —
+  // never on "the box", which may be showing another agent by then.
+  assert.match(body, /if \(!failed\) delete agentMsgDrafts\[target\];/,
+    "the draft is cleared without asking whether the send succeeded");
+  assert.ok(body.indexOf("delete agentMsgDrafts[target]") > body.indexOf("await apiFetch("),
     "the box is cleared before the server has the message");
-  assert.match(js, /placeholder="Message ' \+ esc\(a\.name\) \+ '">' \+ esc\(agentMsgDraft\)/,
-    "the box is not drawn from the draft, so a re-render wipes it");
+  assert.match(js, /placeholder="Message ' \+ esc\(a\.name\) \+ '">' \+ esc\(agentDraftOf\(a\.id\)\)/,
+    "the box is not drawn from that conversation's own draft");
+  // AND THE ANSWER IS BOUND: it may only write where it was sent from.
+  assert.match(body, /if \(!agentSame\(bound\)\)/,
+    "an answer lands in whatever conversation is open when it arrives");
 });
 
 test("a row opens the CONVERSATION, and the instructions move behind the pencil", () => {

@@ -146,6 +146,27 @@ export function readTenant(v) {
 }
 
 /**
+ * The import's identity: the BROWSER'S OWN RECORD ID for the agent being
+ * brought over, or `null`.
+ *
+ * **NOT `cleanId`, and the difference is a real one.** That is uuid-only, and a
+ * legacy local record may carry `String(Date.now()) + Math.random().toString(16)`
+ * — the fallback the screen used where `crypto.randomUUID` was missing. Rejecting
+ * those would leave exactly the oldest records, the ones most worth preserving,
+ * unable to be imported safely. This is the same conservative charset the tenant
+ * uses: enough to be certain it cannot mean anything but itself, wide enough for
+ * every id the screen has ever minted.
+ *
+ * It never reaches a URL — it rides in the RPC's JSON body and lands in a `text`
+ * column — so the bound here is about size and sanity rather than injection.
+ */
+export function cleanImportKey(v) {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t && TENANT_OK.test(t) ? t : null;
+}
+
+/**
  * A message's own time, as an ISO string, or `null` for "use now()".
  *
  * ONLY THE IMPORT SENDS ONE, and it is display metadata: `seq` orders a thread,
@@ -240,15 +261,26 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
   // the header differs by direction: `content-profile` for a write,
   // `accept-profile` for a read. Sending the wrong one is a request answered
   // against `public`, where none of these relations exist.
-  const headers = (write) => ({
+  //
+  // **DERIVED FROM THE VERB, NOT FROM A FLAG THE CALLER PASSES.** It was an
+  // option on `req`, and `remove` omitted it — so the DELETE went out with
+  // `Accept-Profile`, which PostgREST IGNORES on a write. That delete resolved
+  // against `public` and could never have worked, and the guard written for it
+  // asserted the broken header as correct, reasoning that a DELETE has no body
+  // and therefore nothing to profile. **The profile names the RELATION, not a
+  // body**: every verb that changes something takes `Content-Profile`, body or
+  // no body. An option each call site has to remember is one a call site will
+  // eventually forget, so there is nothing left to pass.
+  const WRITE_VERBS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+  const headers = (method) => ({
     apikey: key,
     authorization: `Bearer ${key}`,
     "content-type": "application/json",
-    [write ? "content-profile" : "accept-profile"]: schema,
+    [WRITE_VERBS.has(method) ? "content-profile" : "accept-profile"]: schema,
   });
 
-  async function req(method, path, { body, write = false, prefer } = {}) {
-    const h = headers(write);
+  async function req(method, path, { body, prefer } = {}) {
+    const h = headers(method);
     const res = await doFetch(`${base}/rest/v1/${path}`, {
       method,
       headers: prefer ? { ...h, prefer } : h,
@@ -302,7 +334,6 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     /** THE ID IS OURS, never the caller's: a client cannot choose a primary key. */
     async create(tenant, { id, name, instructions }) {
       const r = await req("POST", "agents", {
-        write: true,
         prefer: "return=representation",
         body: [{ id, tenant_id: tenant, name, instructions }],
       });
@@ -315,7 +346,6 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     /** Zero rows back means "not this account's", and the caller answers 404. */
     async update(tenant, id, { name, instructions }) {
       const r = await req("PATCH", `agents?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
-        write: true,
         prefer: "return=representation",
         body: { name, instructions },
       });
@@ -352,7 +382,6 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       const row = { id, agent_id: agentId, body };
       if (at) row.created_at = at;
       const r = await req("POST", "agent_messages", {
-        write: true,
         prefer: "return=representation",
         body: [row],
       });
@@ -363,16 +392,22 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     },
 
     /**
-     * One agent and its whole conversation, in one transaction.
+     * One agent and its whole conversation, in one transaction, ONCE.
      *
-     * The RPC is what makes a re-pressed import safe: it either happened or it
-     * did not, so a retry after a failure cannot leave half an agent behind or
-     * make a second copy of a whole one. It answers the new id.
+     * Two different guarantees and the second was missing until 2026-09-15.
+     * ATOMIC: it either happened or it did not, so a failure cannot leave half
+     * an agent behind. IDEMPOTENT: `key` is the browser's own record id and the
+     * database holds `(tenant_id, import_key)` unique, so a press whose ANSWER
+     * was lost can be pressed again and gets the same agent back with its
+     * conversation unchanged. Atomicity alone left that second press making a
+     * second agent, which nothing afterwards could tell from a real one.
      */
-    async importOne(tenant, { name, instructions, messages }) {
+    async importOne(tenant, { name, instructions, messages, key }) {
       const r = await req("POST", "rpc/import_agent", {
-        write: true,
-        body: { p_tenant: tenant, p_name: name, p_instructions: instructions, p_messages: messages },
+        body: {
+          p_tenant: tenant, p_name: name, p_instructions: instructions,
+          p_messages: messages, p_import_key: key,
+        },
       });
       if (!r.ok) throw storeFail("import agent", r);
       const id = typeof r.body === "string" ? r.body : null;
@@ -514,6 +549,13 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
     if (path === "/api/agent/import") {
       const name = cleanText(b.name, AGENT_NAME_MAX);
       const instructions = cleanText(b.instructions, AGENT_INSTRUCTIONS_MAX);
+      // THE KEY IS REQUIRED, not optional with a fallback. Without it this call
+      // cannot be retried safely, and an import that quietly loses that property
+      // is worse than one that refuses: the failure only shows up as a duplicate
+      // agent nobody can explain, days later. Every record the screen offers has
+      // an id, so nothing legitimate is turned away.
+      const key = cleanImportKey(b.key);
+      if (!key) return no(400, "an agent being brought over needs to say which one it is");
       if (!name) return no(400, "an agent being brought over needs its name");
       if (!instructions) return no(400, "an agent being brought over needs its instructions");
       const raw = Array.isArray(b.messages) ? b.messages : [];
@@ -532,8 +574,8 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         const stamp = cleanAt(m && m.at, at());
         messages.push(stamp ? { body: text, at: stamp } : { body: text });
       }
-      const id = await store.importOne(who, { name, instructions, messages });
-      return ok({ id, imported: messages.length, unreadable });
+      const id = await store.importOne(who, { name, instructions, messages, key });
+      return ok({ id, key, imported: messages.length, unreadable });
     }
   } catch (e) {
     return broke(path.slice("/api/agent/".length), e, log);
