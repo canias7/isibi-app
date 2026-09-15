@@ -265,17 +265,19 @@ what makes every branch below drivable in a test instead of waited on.
   those six checks belong to the container harness.
 - **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
   applied, 2 comment-only controls survived.**
-- **Sweep, WITH THE JOURNAL AND RESUME: 51 mutants, 50 killed, ONE SURVIVED, 0
-  never applied, 2 controls survived.** The survivor was a real test gap and is
-  recorded rather than smoothed over: the mutant made the loop ignore a failed
-  MODEL-entry write, and the fixture was a journal that failed on EVERY write —
-  so the run reached the `stopped` write, failed there instead, and came back
+- **Sweep, WITH THE JOURNAL AND RESUME: 54 mutants, 54 killed, 0 survived, 0
+  never applied, 2 comment-only controls survived.** Measured after the re-run,
+  not before it.
+  **ONE SURVIVED THE FIRST PASS AND IT WAS THE TEST'S FAULT, kept here because
+  the shape repeats:** the mutant made the loop ignore a failed MODEL-entry
+  write, and the fixture was a journal that failed on EVERY write — so the run
+  reached the `stopped` write, failed there instead, and came back
   `journal-failed` anyway. **The assertion passed for the wrong reason**, which
-  is the recorded "a fixture too shallow to separate the two readings". Replaced
-  by a census that fails one entry KIND at a time, with a control.
-  **THE CONFIRMING RE-RUN HAS NOT BEEN DONE, so there is no clean-sweep number
-  for this slice yet** — writing one here would be a claim ahead of its evidence,
-  which is this file's own rule.
+  is the recorded "a fixture too shallow to separate the two readings".
+  Replaced by a census that fails one entry KIND at a time with a control, and
+  the sweep gained a mutant per write site, because a census in the test needs a
+  census in the sweep or only the arm that happens to be mutated is really
+  proved. All four write sites now die.
 - Both controls carry `control: true` and not merely the word in their label, so
   the runner's own `CONTROL WAS KILLED` branch was armed. Run with
   `--test-timeout=20000`, because the "step counted after the call" mutant HANGS

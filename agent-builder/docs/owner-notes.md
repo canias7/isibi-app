@@ -167,14 +167,17 @@ every resumed run the moment it restarted.
 
 **Proven:** 93 tests, all green.
 
-**Half-proven, and I am not rounding it up:** the deliberate-breakage sweep came
-back **50 of 51 caught**. The one that got through was **my test's fault, not the
-code's** — I had used a fake record-keeper that failed on *every* write, so when
-the breakage made the code ignore one particular write, it tripped over the next
-one and still reported the right error. The test passed for the wrong reason.
-That is fixed, with a proper one-at-a-time version. **I have not re-run the sweep
-to confirm the fix catches it**, so there is no clean number for this slice yet
-and I have not written one down.
+**Also proven, now that the re-run is done: 54 deliberate breakages, 54 caught,
+none that failed to apply, both do-nothing controls correctly surviving.**
+
+The first pass came back 50 of 51, and the one that got through was **my test's
+fault, not the code's** — I had used a fake record-keeper that failed on *every*
+write, so when the breakage made the code ignore one particular write it tripped
+over the next one and still reported the right error. The test passed for the
+wrong reason. Fixed with a version that fails one kind of write at a time, and I
+added a breakage for each of the four write points rather than just the one,
+because a careful test of four things needs four deliberate breakages or only the
+one you happened to try is really checked. All four are caught now.
 
 **NOT proven live:** still nothing against a real model, Worker, container or
 Supabase. No storage, no HTTP route, no migration. Where the record gets *kept*
