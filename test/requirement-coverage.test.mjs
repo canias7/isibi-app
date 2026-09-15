@@ -82,6 +82,19 @@ test("the three statuses are genuinely different answers and the item asks for a
   }
   // …AND THE OBSERVER IS ALIVE: the loop above is vacuous over an empty list.
   assert.ok(COVERAGE_STEPS.length >= 5, "the step list is too short to have tested anything");
+  // ── THE ITEM IS OFFERED FOR BOTH REFERENCING STATUSES (2026-09-15) ───────
+  //
+  // A SWEEP SURVIVOR, and the shape is this repository's wiring trap in prose:
+  // the reconciliation reads `item` for `covered` now, and if the tool still
+  // says *"For \"elsewhere\" only"* no model will ever send one — the feature
+  // is perfect and unreachable, and from outside "the model didn't name it"
+  // and "we told it not to" are the same missing field. What each status means
+  // by the reference differs and is said; that it is available does not.
+  const item = String(REQUIREMENT_ITEM.properties.item.description);
+  assert.doesNotMatch(item, /for\s+"?elsewhere"?\s+only/i,
+    "the item is offered for one status again, so a covered claim can never name its own thing");
+  assert.match(item, /"elsewhere"/, "the item no longer says what it means for a hand-off");
+  assert.match(item, /"covered"/, "the item no longer says what it means for a claim");
 });
 
 test("cleanRequirements refuses what it cannot read and never repairs it to covered", () => {
@@ -120,6 +133,15 @@ test("a step nobody runs becomes unsupported, not a silent hand-off", () => {
   // THE REQUIREMENT IS STILL REAL — only the claim about who owns it was wrong,
   // and the customer should hear it either way.
   assert.equal(list[0].need, "send them a postcard");
+  // …AND THE ITEM GOES WITH THE STEP. An `item` is a reference — for
+  // `elsewhere` to the thing that step was asked to make, for `covered` to the
+  // thing the design says does the work — so on an entry that is now
+  // `unsupported` it refers to nothing this change will ever run, and leaving
+  // it on the record invites a later reader to reconcile against it.
+  assert.equal(cleanRequirements([{ need: "n", status: "elsewhere", step: "postcard", item: "card_fn" }]).list[0].item, undefined,
+    "a reference to a step we do not run survived onto an entry nothing can check it against");
+  assert.equal(cleanRequirements([{ need: "n", status: "unsupported", why: "w", item: "card_fn" }]).list[0].item, undefined,
+    "a thing we said we could not do carries a reference to the thing that would have done it");
   // AND A PROTOTYPE KEY IS NOT A STEP: `COVERAGE_STEPS.includes` over values,
   // never `Object.hasOwn` on a map — `"constructor"` is simply not one.
   assert.equal(cleanRequirements([{ need: "n", status: "elsewhere", step: "constructor" }]).list[0].status, "unsupported");
@@ -672,11 +694,23 @@ test("requirementNote says only what is still outstanding, in the customer's ter
   // nothing checkable about it is exactly the shape the owner corrected.
   assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings holds them" }]).list, { told: [], made }),
     /can't confirm from here/, "a bare name match passed as delivered");
-  // …and a claim that CONTRADICTS what was applied is not evidence either.
+  // …and a claim that CONTRADICTS what was applied is not evidence either. It
+  // stays in the can't-confirm clause deliberately: the claim NAMED a table
+  // this change really applied, so the implementation is established and only
+  // the guarantee is denied — and the other clause's *"nothing I can check says
+  // either way"* would be false, since something can be checked and it says the
+  // opposite.
   assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, readable by anyone" }]).list, { told: [], made }),
     /can't confirm from here/, "a claim disagreeing with the applied permissions passed as delivered");
-  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered" }]).list, { told: [], made }),
-    /can't confirm from here/, "a claim with nothing to check against passed as delivered");
+  // RE-ANCHORED 2026-09-15 (owner: *"covered + no implementation evidence still
+  // produces 'I've set that up.'"*). A `covered` label with no `by`, no `item`
+  // and nothing of its step's kind applied has NOTHING behind it — the label is
+  // the model's word and may not stand in for evidence — so it earns the
+  // can't-SEE clause. The property is unchanged and stronger: it is not
+  // delivered, and now it does not claim to have been set up either.
+  const bare = requirementNote(cleanRequirements([{ need: "a", status: "covered" }]).list, { told: [], made });
+  assert.match(bare, /can't see from here whether a/, "a claim with nothing to check against passed as delivered");
+  assert.doesNotMatch(bare, /I've set that up/, "a covered label with no evidence behind it claimed the work was set up");
   assert.equal(requirementNote([], {}), "");
   assert.equal(requirementNote(null, {}), "");
 });
@@ -720,9 +754,31 @@ test("the six states separate implementation from hand-off, and evidence is asym
   // RE-ANCHORED AGAIN 2026-09-15: the third is an `elsewhere` hand-off with no
   // `item`, no page in `made` and no site inventory handed in — three silences,
   // so `unknown` rather than an `unverified` that claims it was set up.
-  assert.deepEqual(got.map((r) => r.state), ["configured", "unverified", "unknown", "blocked", "failed"]);
+  // RE-ANCHORED A FOURTH TIME, 2026-09-15 (owner: *"covered + no implementation
+  // evidence still produces 'I've set that up' … Do not let the model's covered
+  // label substitute for implementation evidence"*). The SECOND entry is that
+  // shape exactly: a `covered` claim whose `by` names no applied item, with no
+  // `item` reference and nothing of its own step's kind applied. It used to
+  // fall through to the initial `unverified` — the label standing in for the
+  // evidence — and it reads `unknown` now, the same answer the hand-off beside
+  // it gets for the same reason. **The two are asserted as the SAME state on
+  // purpose**: that both statuses are reconciled against the same results is
+  // the property, and a fixture where only one of them could reach it would
+  // pass with the `covered` half of the reconcile deleted.
+  assert.deepEqual(got.map((r) => r.state), ["configured", "unknown", "unknown", "blocked", "failed"]);
   assert.equal(got[0].configuredBy, "bookings: slot", "the configuration that was checked is not recorded");
   assert.equal(got[1].configuredBy, undefined, "a claim that matched nothing was recorded as checked configuration");
+  // …AND A CLAIM THE APPLIED ITEM CONTRADICTS IS THE OTHER SIDE OF THAT SAME
+  // line, which is why it is asserted here beside it: it NAMED an applied item,
+  // so the implementation is established and the answer is `unverified`, with
+  // the fact that denied it on the record. `unknown` would say *"nothing I can
+  // check says either way"* about a table that says the opposite.
+  const denied = requirementOutcomes(
+    cleanRequirements([{ need: "anyone can read them", status: "covered", by: "bookings, readable by anyone" }], "table").list,
+    { told: [], made })[0];
+  assert.equal(denied.state, "unverified", "a contradicted claim was read as nothing anybody could see");
+  assert.equal(denied.contradictedBy, "bookings: anyone", "the fact that denied the claim is not on the record");
+  assert.equal(denied.configuredBy, undefined, "a contradicted claim was recorded as configuration that holds");
   // …AND A BEHAVIOUR SOMETHING REALLY EXERCISED IS STILL DELIVERED. The door
   // is real and nothing on this path fills it, which is the honest state and
   // is said in as many words in `appliedFacts`.
@@ -776,6 +832,64 @@ test("the six states separate implementation from hand-off, and evidence is asym
     { told: [], made: [{ kind: "page", name: "/diary", holds: [], fails: [], checked: [] }], reportable: ["page"], existing: noPages })[2];
   assert.equal(live.handoff, "undelivered");
   assert.equal(live.state, "unknown", "a page that was really built was reported as still to do");
+  // ── THE HAYSTACK IS THE ONE DIFFERENCE BETWEEN THE TWO STATUSES ──────────
+  //
+  // Both are reconciled against the same results (owner, 2026-09-15) — the
+  // same equality, the same two sources — and only WHICH items are searched
+  // differs, because the two references mean different things. `elsewhere`
+  // NAMES a step and its `item` is a request TO that step, so a thing of some
+  // other kind is not what was asked for. `covered` names no step: `from` is
+  // our own bookkeeping of which call answered, so its `item` is a claim that
+  // THE THING EXISTS and is looked for everywhere — the tool invites a table
+  // step to name the function that does the work in as many words.
+  //
+  // DRIVEN THROUGH `requirementOutcomes`, and asserted BOTH WAYS ROUND: one
+  // direction alone passes with the haystack widened for everything, which
+  // would satisfy a hand-off with a thing nobody asked that step for.
+  const applied = [{ kind: "function", name: "count_ok", holds: [], fails: [], checked: [] }];
+  const seenSite = { items: [{ kind: "function", name: "count_had" }], kinds: ["page", "function"] };
+  const reach = { made: applied, reportable: ["page", "function"], existing: seenSite };
+  const asClaim = requirementOutcomes(
+    cleanRequirements([{ need: "the total is counted", status: "covered", by: "it is counted in the database", item: "count_ok" }], "page").list,
+    reach)[0];
+  assert.equal(asClaim.state, "unverified", "a covered claim naming a thing of another kind was not resolved");
+  assert.equal(asClaim.implementedBy, "count_ok");
+  const asAsk = requirementOutcomes(
+    [{ need: "the total is counted", status: "elsewhere", step: "page", item: "count_ok" }], reach)[0];
+  assert.equal(asAsk.state, "missing", "a hand-off to the page step was satisfied by a function of the same name");
+  // …AND THE SITE'S OWN CONTENTS ARE SEARCHED THE SAME WAY, which is the other
+  // half of *"the same item-level results AND existing-site evidence"*: a claim
+  // may rest on something the site already had, and reading only the claiming
+  // step's kind loses every reuse across kinds.
+  const reused = requirementOutcomes(
+    cleanRequirements([{ need: "the total is counted", status: "covered", by: "the counter already there", item: "count_had" }], "page").list,
+    reach)[0];
+  assert.equal(reused.state, "unverified", "a covered claim resting on something the site already has was not resolved");
+  assert.equal(reused.foundIn, "existing", "the record does not say the site already had it");
+  assert.equal(reused.implementedBy, "count_had");
+  // …AND A `covered` CLAIM WHOSE OWN THING IS NOWHERE NAMES IT. The sentence
+  // has to point at something, or "still to do" gives nobody anything to do.
+  const nowhere = requirementOutcomes(
+    cleanRequirements([{ need: "the total is counted", status: "covered", by: "a counter", item: "count_gone" }], "page").list,
+    reach)[0];
+  assert.equal(nowhere.state, "missing");
+  assert.match(nowhere.why, /count_gone/, "a covered claim whose own thing is not there does not name it");
+  // …AND IF THAT THING REALLY FAILED, IT IS BLOCKED RATHER THAN MISSING —
+  // whatever KIND it failed under, because the claim's reference carries no
+  // kind. The looser match can only move a requirement to `blocked`, whose
+  // sentence invites a look at the other part, which is the safe direction.
+  const crossFail = requirementOutcomes(
+    cleanRequirements([{ need: "the total is counted", status: "covered", by: "a counter", item: "count_gone" }], "page").list,
+    { ...reach, failedItems: [{ kind: "function", name: "count_gone" }] })[0];
+  assert.equal(crossFail.state, "blocked", "a covered claim naming a thing that failed under another kind read as work nobody did");
+  assert.match(crossFail.why, /count_gone/);
+  // THE CONTROL, and it is the same asymmetry: a hand-off's reference DOES
+  // carry a kind — it is a request to one named step — so a failure somewhere
+  // else is not this requirement's dependency failing.
+  const crossAsk = requirementOutcomes(
+    [{ need: "the total is counted", status: "elsewhere", step: "page", item: "count_gone" }],
+    { ...reach, failedItems: [{ kind: "function", name: "count_gone" }] })[0];
+  assert.equal(crossAsk.state, "missing", "a hand-off to the page step blocked on a FUNCTION of the same name");
   // EVIDENCE IS WORD-BOUNDED. `bookings` must not be found inside
   // `bookings_old`, or a claim name-dropping a table we did NOT make reads as
   // proof we did — the one way this check can lie rather than go quiet.
@@ -791,7 +905,18 @@ test("the six states separate implementation from hand-off, and evidence is asym
   // GUARANTEE on top of the name: the owner's own example is "customers see
   // only their own bookings" marked delivered because `by` mentioned
   // `bookings`, with nothing anywhere having looked at the permissions.
-  assert.equal(claimEvidence("bookings holds them", made), null, "a bare name match is still evidence");
+  //
+  // RE-ANCHORED 2026-09-15 ONTO THE PROPERTY THAT MATTERED ALL ALONG. A bare
+  // name used to answer `null`, and the assertion pinned the SPELLING of that
+  // answer rather than what it buys: the reading it forbids is `delivered` or
+  // `configured`, and that is unchanged. What changed is that the existence
+  // half is no longer thrown away — a claim naming an item this change really
+  // applied LOCATES the implementation, which is worth `unverified` and is not
+  // worth anything more.
+  const bare = claimEvidence("bookings holds them", made);
+  assert.equal(bare.kind, "named", "a bare name match is still evidence");
+  assert.equal(bare.name, "bookings");
+  assert.equal(bare.token, "", "a bare name answered with a guarantee it never matched");
   // …AND WHAT IT ANSWERS NAMES ITS KIND: a configuration fact and a checked
   // behaviour are the same shape on the wire and mean opposite things to the
   // caller, so the kind rides on the answer rather than being inferred.
@@ -803,8 +928,24 @@ test("the six states separate implementation from hand-off, and evidence is asym
   // saying `anyone` about a table applied as `own` is not merely unproven, it
   // disagrees with the database, and reading on for an incidental word that
   // happens to hold would let it buy itself a verdict.
-  assert.equal(claimEvidence("bookings is readable by anyone, one row per owner (own)", made), null,
-    "a claim that contradicts the applied permissions was read as evidence");
+  //
+  // RE-ANCHORED 2026-09-15 onto the same property, for the same reason: this
+  // answered `null` too, and `null` now means "nothing here could see either
+  // way" — which is FALSE of a contradiction, where something can be seen and
+  // it says the opposite. The kind is its own, and what it buys is asserted
+  // rather than the shape of the refusal.
+  const against = claimEvidence("bookings is readable by anyone, one row per owner (own)", made);
+  assert.equal(against.kind, "contradicted", "a claim that contradicts the applied permissions was read as evidence");
+  assert.equal(against.token, "anyone", "the fact that denied the claim is not carried out");
+  assert.notEqual(against.kind, "config", "a contradicted claim read on to an incidental word that happens to hold");
+  // THE BARE NAME IS KEPT, NEVER RETURNED, and this is the fixture that can
+  // tell the two apart: an earlier item matched by name alone, a later one
+  // carrying a real guarantee. Returning the first would hide the stronger
+  // answer behind the weaker one — this file's own asked-in-order rule broken.
+  assert.equal(claimEvidence("bookings and waitlist, one row per owner (own)", [
+    { name: "bookings", holds: [], fails: [], checked: [] },
+    { name: "waitlist", holds: ["own"], fails: [], checked: [] },
+  ]).kind, "config", "a bare name match hid the stronger answer behind it");
   // A NAME NOBODY APPLIED IS NOT EVIDENCE WHATEVER IT CLAIMS.
   assert.equal(claimEvidence("waitlist.slot is unique", made), null);
   assert.equal(claimEvidence("bookings.slot is unique", []), null, "the observer answered with nothing applied");
@@ -842,11 +983,26 @@ test("the developer record keeps everything the customer is not told", () => {
   // see whether a page was made, so `unverified` is the whole truth available.
   // RE-ANCHORED AGAIN 2026-09-15: `a` is an `elsewhere` hand-off with nothing
   // applied, no site inventory and no `item` — nobody looked, so `unknown`.
-  // `b` is a `covered` claim, whose own step ran and answered, so the
-  // "I've set that up" reading is fair for it and it stays `unverified`.
+  // RE-ANCHORED A FOURTH TIME, 2026-09-15 (owner: *"Do not let the model's
+  // covered label substitute for implementation evidence"*). `b` used to read
+  // `unverified` here on the reasoning that "its own step ran and answered" —
+  // which is the label doing the work, since this record carries no `by`, no
+  // `item`, nothing applied and no site inventory. **BOTH ENTRIES ARE NOW THE
+  // SAME STATE, and that IS the property**: two different statuses with the
+  // same nothing behind them get the same honest answer.
   assert.deepEqual(rec.counts, { total: 2, covered: 1, elsewhere: 1, unsupported: 0, unreadable: 1,
-    delivered: 0, configured: 0, unverified: 1, unknown: 1, missing: 0, blocked: 0, failed: 0 });
-  assert.deepEqual(rec.requirements.map((r) => r.state), ["unknown", "unverified"]);
+    delivered: 0, configured: 0, unverified: 0, unknown: 2, missing: 0, blocked: 0, failed: 0 });
+  assert.deepEqual(rec.requirements.map((r) => r.state), ["unknown", "unknown"]);
+  // …AND THE CONTROL THAT KEEPS `unknown` FROM BEING A NEW DEFAULT: give the
+  // same `covered` entry something real to reconcile against and it moves. A
+  // record where every state collapses to one is not a reader, it is a stamp.
+  const backed = requirementRecord({
+    list: cleanRequirements([{ need: "b", status: "covered", item: "bookings" }], "table").list,
+    made: [{ kind: "table", name: "bookings", holds: [], fails: [], checked: [] }],
+  });
+  assert.deepEqual(backed.requirements.map((r) => r.state), ["unverified"],
+    "an applied item named by the claim stopped establishing the implementation");
+  assert.equal(backed.requirements[0].implementedBy, "bookings");
   // …AND THE HAND-OFF IS STILL REPORTED, which is the half that must not be
   // lost when it stops being said as work that is not there.
   assert.deepEqual(rec.handoffs, { delivered: 0, undelivered: 1 },

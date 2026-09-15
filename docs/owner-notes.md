@@ -9841,3 +9841,79 @@ Pass 2: **28 of 28 killed, nothing survived, both no-op controls survived.**
   serves a real site, which the unit suite structurally cannot.
 
 The `search_path` review stays queued, as you asked.
+
+## The same rules now apply to "covered" — and the label buys nothing
+
+Both things you named are fixed, demonstrated through the addon route, and
+nothing was merged, deployed, rerun or cleaned up.
+
+### What was actually wrong
+
+The reconciliation I built last round only ever ran for requirements handed to
+another step. A requirement the designer marked **covered** — "I did this" —
+skipped it entirely and kept the old answer, which meant the model's own label
+was the only thing behind it. Both of your cases fall straight out of that:
+
+- **An unrelated failure condemned a good claim.** One function the database
+  refused marked the whole function step failed, and every claim that step had
+  made went down with it — including one naming a function Postgres created
+  without complaint. There was a scope on this for hand-offs and none for claims.
+- **"I've set that up" was said about nothing.** A covered label with no named
+  thing, no matching applied item and nothing to check against still got the
+  sentence that claims work exists.
+
+### What it does now
+
+A covered claim can name the thing it rests on, the same way a hand-off names
+what it's asking for, and that name is carried through cleaning and checked
+against exactly the same two sources: what this change applied, and what the
+site already had.
+
+**The one real difference is what gets searched, and it isn't arbitrary.** A
+hand-off says "page step, make me this" — so a function of that name is not what
+was asked for. A covered claim says "this thing does the work" and doesn't name
+a step at all, so it's looked for everywhere: your table step is invited, in the
+tool's own words, to name the function that does the job. Both directions are
+tested, because widening the search for everything would quietly satisfy a
+hand-off with something nobody asked for.
+
+Three answers now come out of one mixed-success step, which is the demonstration:
+
+- the claim whose function was built → *"I've set that up, but I can't confirm…"*
+- the claim whose function was refused → *"waiting on another part of the same
+  change that didn't work: … — the count_bad it needs could not be created"*
+- the claim resting on nothing → *"Still to do: …"*
+
+And **hand-off tracking stays separate**, as you asked: a covered claim asked
+nobody for anything, so it gets no hand-off verdict and isn't in that ledger.
+
+### Two things I found while doing it
+
+**A claim the database contradicts.** My first cut made these fall to "I can't
+see either way" — which is false: something *can* be checked, and it says the
+opposite. They read "I can't confirm" again, with the fact that denied them kept
+on the developer record. The customer hears the same sentence whether a claim is
+merely unchecked or actually contradicted, on purpose — nothing here is entitled
+to tell you a claim is wrong.
+
+**A function the engine drops silently.** A function the *database* refuses gets
+named. A function the *engine* won't build — a return type naming a table nobody
+declared — vanishes with no error anywhere, and the whole kind was failing off
+it. So the claim naming the dropped thing and the claim naming the one that
+worked got the same verdict. Now the dropped thing is named like any other
+failed dependency.
+
+### The numbers
+
+- **Suite 6,494, all green** (6,491 + 3 new cases; the arithmetic closes exactly).
+- **Sweep 27/27 killed**, two no-op controls survived. Pass 1 left three
+  survivors and **all three were gaps in my tests, not bugs** — including the
+  tool's own wording, which no behaviour test can see: if the tool still said
+  "for hand-offs only", the whole feature would be correct and unreachable.
+- **Both new route cases were proved to FAIL against the old code** before I
+  believed them. A new test that passes either way is worth nothing.
+- **Four** older guards re-anchored — each says in the file what moved and why.
+  I counted them from the commit's own diff rather than from memory.
+- Nothing merged, nothing deployed, no paid call, no site touched.
+
+The `search_path` review is still queued.

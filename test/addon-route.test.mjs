@@ -1768,3 +1768,225 @@ test("existing-site evidence is used only where it was really read", async () =>
   for (const k of full.kinds) assert.ok(SITE_KINDS.includes(k), k + " is enumerated and is not a SITE_KIND");
   for (const k of OPAQUE_KINDS) assert.ok(!full.kinds.includes(k), k + " is unobservable and was enumerated anyway");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SAME EVIDENCE RULES FOR `covered` (owner, 2026-09-15)
+//
+// *"Do not let the model's covered label substitute for implementation
+// evidence … reconcile both covered and elsewhere against the same item-level
+// results and existing-site evidence. Keep handoff tracking separate."*
+//
+// Both cases the owner named are driven here through the real route, on the
+// stored outcomes AND on the customer's own sentence. The three `elsewhere`
+// cases above are the control set and are untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a COVERED claim in a mixed-success function step is judged on its OWN function", async () => {
+  // ── THE FIRST COMPLAINT, IN THE OWNER'S OWN WORDS: *"covered + from:function
+  // + an unrelated function failure still becomes failed, even when the
+  // referenced function applied."*
+  //
+  // The kind-wide rule (`the owning step is in `failed`` → failed) had no scope
+  // at all for `covered`: `from` is stamped with the step that ANSWERED the
+  // claim, so one refused function condemned every claim the function step made
+  // — including one naming a function Postgres created without complaint, and
+  // the customer was told it was still to do.
+  //
+  // THREE CLAIMS, ONE STEP, THREE ANSWERS, and all three are needed: without
+  // the second the fix could be "stop blocking", and without the third it could
+  // be "stop reading the step's failure at all".
+  const OK = { need: "the page can count what is stored", status: "covered", by: "count_ok returns the number", item: "count_ok" };
+  const BAD = { need: "the owner gets a nightly summary", status: "covered", by: "count_bad totals the day", item: "count_bad" };
+  const VAGUE = { need: "the numbers are right", status: "covered", by: "the counting is done in the database" };
+  const r = await addon("fw-covered-mixed", "count what is stored and send me a summary", {
+    kinds: ["function"],
+    fnFail: "count_bad",
+    answers: {
+      function: {
+        function: [
+          { name: "count_ok", internal: true, returns: "int", body: "BEGIN RETURN 1; END;" },
+          { name: "count_bad", internal: true, returns: "int", body: "BEGIN RETURN 2; END;" },
+        ],
+        requirements: [OK, BAD, VAGUE],
+      },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITIONS, asserted rather than assumed — one function really
+  // created, the other really refused, and all three claims stamped with the
+  // step that answered them. Without the mix this case tests nothing.
+  assert.deepEqual(r.body.functions, ["count_ok"], "both functions applied — this case tests nothing");
+  assert.deepEqual((r.body.functionErrors || []).map((e) => e.name), ["count_bad"],
+    "the database did not refuse the other one — this case tests nothing");
+  const cov = storedAnswer(r, "fw-covered-mixed").coverage;
+  const at = (need) => cov.requirements.find((q) => q.need === need);
+  for (const q of [at(OK.need), at(BAD.need), at(VAGUE.need)]) {
+    assert.equal(q.from, "function", "the claim is not stamped with the step that answered it");
+    assert.equal(q.handoff, undefined, "a claim that asked nobody for anything was given a hand-off verdict");
+  }
+  // THE FIX: the claim whose own function is there is judged on that function.
+  assert.equal(at(OK.need).state, "unverified",
+    "a covered claim whose own function applied was condemned by a different one's failure");
+  assert.equal(at(OK.need).implementation, "found");
+  assert.equal(at(OK.need).implementedBy, "count_ok");
+  assert.equal(at(OK.need).foundIn, "applied");
+  // AND THE REAL DEPENDENCY FAILURE IS PRESERVED, naming the item — a `covered`
+  // claim resting on a function the database refused is waiting on the same
+  // broken part a hand-off would be, so it points at that part rather than
+  // inviting the customer to ask for the same thing again.
+  assert.equal(at(BAD.need).state, "blocked", "a covered claim whose own function was refused stopped being blocked");
+  assert.match(at(BAD.need).why, /count_bad/, "the blocked claim does not name the thing that failed");
+  // …AND THE KIND-WIDE RULE SURVIVES FOR A CLAIM THAT NAMES NOTHING. The step
+  // failed and this claim gives nothing to judge on its own, so the step's
+  // failure is the only evidence there is about it — and it is the claiming
+  // step's own failure, which is `failed` rather than `blocked`.
+  assert.equal(at(VAGUE.need).state, "failed",
+    "a covered claim by a step that failed, resting on nothing, was let through");
+  assert.match(at(VAGUE.need).why, /function step could not do its part/);
+  assert.deepEqual(
+    [cov.counts.blocked, cov.counts.failed, cov.counts.unverified],
+    [1, 1, 1],
+    "the three claims were not told apart: " + JSON.stringify(cov.counts));
+  // ── AND THE CUSTOMER HEARS THREE DIFFERENT SENTENCES ─────────────────────
+  const note = r.body.coverNote || "";
+  assert.match(note, /Still to do: the numbers are right/,
+    "the claim with nothing behind it is not reported outstanding: " + note);
+  assert.doesNotMatch(note, /Still to do[^.]*nightly summary/,
+    "a blocked dependency was said as work to ask for again: " + note);
+  assert.doesNotMatch(note, /Still to do[^.]*count what is stored/,
+    "the claim whose function applied was reported as still to do: " + note);
+  assert.match(note, /waiting on another part of the same change that didn't work[^.]*nightly summary/,
+    "the failed dependency is not pointed at: " + note);
+  assert.match(note, /count_bad/, "the customer's sentence does not name the thing that failed: " + note);
+  assert.match(note, /can't confirm from here that the page can count what is stored/,
+    "the claim whose function applied is not said as built-and-unchecked: " + note);
+});
+
+test("an item the ENGINE dropped whole is a named dependency, not a whole kind failing", async () => {
+  // A SWEEP SURVIVOR, and the one writer of `aFailedKinds` that had nothing on
+  // the failed-ITEM list. A function the database refuses is reported by name
+  // (`functionErrors`); a function the ENGINE will not build is dropped WHOLE —
+  // no field to point at, no statement issued, nothing in `functionErrors` —
+  // and the kind was failing wholesale off it. So a claim naming the dropped
+  // thing and a claim naming the one that applied were the same verdict.
+  //
+  // `returns: "setof nowhere"` is the engine's own drop: a return type naming a
+  // table nobody declared, measured rather than contrived.
+  const GONE = { need: "the page can list what is stored", status: "covered", by: "list_things returns the rows", item: "list_things" };
+  const KEPT = { need: "the page can count what is stored", status: "covered", by: "count_ok returns the number", item: "count_ok" };
+  const r = await addon("fw-unbuilt", "list and count what is stored", {
+    kinds: ["function"],
+    answers: {
+      function: {
+        function: [
+          { name: "count_ok", internal: true, returns: "int", body: "BEGIN RETURN 1; END;" },
+          { name: "list_things", internal: true, returns: "setof nowhere", body: "BEGIN RETURN; END;" },
+        ],
+        requirements: [GONE, KEPT],
+      },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: one function really applied, the other really vanished —
+  // and it vanished WITHOUT an error, which is what makes it a different
+  // failure from a refusal and is why it needed its own reader.
+  assert.deepEqual(r.body.functions, ["count_ok"], "both functions were built — this case tests nothing");
+  assert.deepEqual((r.body.functionErrors || []).map((e) => e.name), [],
+    "the engine's drop arrived as a database error — this case is about the silent one");
+  const rec = storedAnswer(r, "fw-unbuilt");
+  assert.deepEqual(rec.coverage.unbuilt, { function: ["list_things"] },
+    "the engine did not drop it whole — this case tests nothing: " + JSON.stringify(rec.coverage.unbuilt));
+  const at = (need) => rec.coverage.requirements.find((q) => q.need === need);
+  assert.equal(at(GONE.need).state, "blocked", "a claim on a function the engine dropped was not tied to it");
+  assert.match(at(GONE.need).why, /list_things/, "the blocked claim does not name the thing that was dropped");
+  assert.equal(at(KEPT.need).state, "unverified",
+    "a claim whose own function was built went down with the one that was dropped");
+  assert.match(r.body.coverNote || "", /waiting on another part of the same change that didn't work[^.]*list what is stored/,
+    "the dropped dependency is not pointed at: " + r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
+    "a dropped dependency was said as work to ask for again: " + r.body.coverNote);
+});
+
+test("a COVERED claim about a section nobody can see is UNKNOWN, never 'I've set that up'", async () => {
+  // ── THE SECOND COMPLAINT: *"covered + no implementation evidence still
+  // produces 'I've set that up.'"* A `covered` entry skipped the implementation
+  // reader entirely and fell through to `unverified`, whose sentence opens with
+  // exactly that — so the model's own label was the only thing behind a claim
+  // that work existed.
+  //
+  // `component` is the sharpest shape for it: an addition folded into an
+  // existing page leaves no item in any applied list AND no entry in any site
+  // inventory (`OPAQUE_KINDS`), so NOTHING here can establish presence or
+  // absence. The honest answers are `unknown` and the can't-SEE sentence.
+  const SECTION = {
+    need: "visitors can see where the total comes from", status: "covered",
+    by: "a card band under the booking total", item: "SourceNote",
+  };
+  // THE CONTROL, and the case is vacuous without it: the SAME step, the SAME
+  // status, a claim naming something this change really applied. It must move —
+  // otherwise "everything is unknown now" would pass, which is a stamp and not
+  // a reader. It is also the cross-kind search `covered` does on purpose: the
+  // component step's claim names a FUNCTION, which the tool invites in as many
+  // words, and scoping the lookup by `from` would lose it.
+  const BACKED = {
+    need: "the number on the page is the stored total", status: "covered",
+    by: "count_existing_bookings reads the bookings table", item: "count_existing_bookings",
+  };
+  const r = await addon("fw-covered-unseen", "add a note under the booking total", {
+    kinds: ["function", "component"], publishes: true,
+    answers: {
+      function: { function: [{ ...COUNT_FN, internal: true, body: "BEGIN RETURN 1; END;" }] },
+      component: {
+        component: [{ page: "/", does: "a line saying where the total comes from", components: ["card"] }],
+        requirements: [SECTION, BACKED],
+      },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const cov = storedAnswer(r, "fw-covered-unseen").coverage;
+  // THE PRECONDITIONS: the component step really ran (so this is not the route
+  // going quiet for some other reason), the function really applied (so the
+  // control has something to find), and both claims are stamped `component`.
+  assert.ok(cov.ran.includes("component"), "the component step never ran — this case tests nothing");
+  assert.deepEqual(r.body.functions, ["count_existing_bookings"], "the control's function did not apply");
+  const at = (need) => cov.requirements.find((q) => q.need === need);
+  assert.equal(at(SECTION.need).from, "component");
+  assert.equal(at(BACKED.need).from, "component");
+  // THE FIX: the label buys nothing. Nothing applied carries that name, no
+  // inventory can list a section, so this layer cannot say either way.
+  assert.equal(at(SECTION.need).implementation, "unknown",
+    "an unobservable kind answered about its own absence");
+  assert.equal(at(SECTION.need).state, "unknown", "a covered label was read as work that exists");
+  assert.equal(at(SECTION.need).implementedBy, undefined,
+    "a claim nothing could resolve was credited to something");
+  // …AND IT IS NEVER `missing` EITHER. `OPAQUE_KINDS` is the whole of what
+  // stops that: this change ran the component step, and for any other kind a
+  // named item nothing applied would read as absent.
+  assert.equal(cov.counts.missing, 0, "a section nothing can enumerate was reported as work that is not there");
+  // THE CONTROL MOVED: same step, same status, an item this change applied.
+  assert.equal(at(BACKED.need).implementation, "found", "an applied item named by a covered claim was not found");
+  assert.equal(at(BACKED.need).implementedBy, "count_existing_bookings");
+  assert.equal(at(BACKED.need).foundIn, "applied");
+  // …AND HAND-OFF TRACKING STAYS SEPARATE (the owner's own last sentence).
+  // Reconciling `covered` against the same results must not give it a hand-off
+  // verdict: it asked nobody for anything, so `delivered`/`undelivered` would
+  // be an answer to a question this requirement never posed.
+  assert.equal(at(BACKED.need).handoff, undefined, "a claim that asked nobody for anything was given a hand-off verdict");
+  assert.equal(at(SECTION.need).handoff, undefined, "a claim that asked nobody for anything was given a hand-off verdict");
+  assert.deepEqual(cov.handoffs, { delivered: 0, undelivered: 0 },
+    "two covered claims were counted in the hand-off ledger: " + JSON.stringify(cov.handoffs));
+  assert.equal(at(BACKED.need).state, "unverified",
+    "a covered claim resolved against a real applied item was not read as there-and-unchecked");
+  assert.deepEqual([cov.counts.unknown, cov.counts.unverified], [1, 1],
+    "the two silences were not told apart: " + JSON.stringify(cov.counts));
+  // ── AND THE CUSTOMER'S OWN WORDS, which is where the complaint was made ──
+  const note = r.body.coverNote || "";
+  assert.match(note, /can't see from here whether visitors can see where the total comes from/,
+    "the unresolvable claim is not said as unresolvable: " + note);
+  assert.doesNotMatch(note, /I've set that up[^.]*where the total comes from/,
+    "a covered label with nothing behind it still claims the work was set up: " + note);
+  assert.doesNotMatch(note, /Still to do/,
+    "a section this layer cannot see was reported as still to do: " + note);
+  assert.match(note, /I've set that up, but I can't confirm from here that the number on the page/,
+    "the control's claim is not said as there-and-unchecked: " + note);
+});

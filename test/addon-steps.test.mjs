@@ -627,8 +627,15 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
   }
   assert.ok(!t.fails.includes("user") && !t.fails.includes("own"), "a level the table really has reads as a contradiction");
   // AND THE PAIR IS WHAT DECIDES A CLAIM, both ways.
-  assert.ok(claimEvidence("bookings access user, so a member sees only their own rows", [t]));
-  assert.equal(claimEvidence("bookings, readable by anyone", [t]), null);
+  // RE-ANCHORED 2026-09-15 onto what each answer BUYS rather than onto the
+  // shape of the refusal. A contradicted claim used to answer `null`, which
+  // became indistinguishable from "nothing here could see either way" once a
+  // `covered` claim started reading its implementation — and that reading is
+  // false here: the table was named and really applied, so what is denied is
+  // the guarantee and not the thing. The property is unchanged — a claim the
+  // applied permissions contradict may not read as configuration that holds.
+  assert.equal(claimEvidence("bookings access user, so a member sees only their own rows", [t]).kind, "config");
+  assert.equal(claimEvidence("bookings, readable by anyone", [t]).kind, "contradicted");
   // A TABLE THE SPEC DOES NOT DESCRIBE CARRIES NO GUARANTEES — never invented
   // ones, which would make a name match evidence again through the back door.
   // RE-ANCHORED 2026-09-14 for `checked`, the list that separates a

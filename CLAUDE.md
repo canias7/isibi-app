@@ -4356,6 +4356,122 @@ than "still to do".
 the last. No paid call was made and no demo site was touched. **The `search_path`
 review stays queued.**
 
+### …AND THE SAME EVIDENCE RULES FOR `covered` (2026-09-15)
+
+Owner: *"The earlier handoff cases now work. Apply the same evidence rules to
+covered requirements too … Do not let the model's covered label substitute for
+implementation evidence. Support explicit item references for covered
+requirements, preserve them through cleaning, and reconcile both covered and
+elsewhere against the same item-level results and existing-site evidence. Keep
+handoff tracking separate."*
+
+**`covered` NEVER REACHED THE IMPLEMENTATION READER AT ALL.** `implementationOf`
+refused any status but `elsewhere`, so a `covered` entry fell through to the
+initial `state = "unverified"` and its customer clause — *"I've set that up, but
+I can't confirm…"* — was composed off the LABEL. Two consequences, both the
+owner's own:
+
+1. **A claim whose own function applied still read `failed`** when an unrelated
+   function in the same step did not. The kind-wide rule (`the owning step is in
+   failed`) had the `!depThere` scope added for `elsewhere` last round and a
+   separate, unscoped `covered` branch beside it. There is ONE branch now, and
+   the two statuses part company only on which SENTENCE it earns: a hand-off is
+   `blocked` (waiting on another part), a claim the failed step MADE goes down
+   with the step that made it (`failed`).
+2. **A `covered` label with nothing behind it claimed the work was set up.** It
+   is `unknown` now — the same state, and the same sentence, an `elsewhere`
+   hand-off with nothing behind it already got.
+
+**THE HAYSTACK IS THE ONE DIFFERENCE BETWEEN THE TWO, and it is the whole of
+what is status-specific.** Same equality, same two sources (`made` and the site's
+own inventory), same three-group visibility rule. `elsewhere` NAMES a step, so
+its `item` is a request TO that step and a thing of another kind is not what was
+asked for. `covered` names no step — `from` is OUR bookkeeping of which call
+answered, never a claim about where the thing lives — so its `item` is a claim
+that THE THING EXISTS and is looked for across every kind, in `made` and in the
+site's contents alike. **The no-item branch stays kind-scoped for both**: with no
+name the question is "did the responsible step produce anything at all", which is
+about one step's output whichever status asked it. `depBroke` follows the same
+split — `brokenAny` (bare names) for a claim, the kinded index for a hand-off —
+and the looser match can only ever move a requirement to `blocked`, whose
+sentence invites a look at the other part.
+
+**`cleanRequirements` KEEPS `item` FOR BOTH**, and the tool says so: the
+description was *"For \"elsewhere\" only"*, which is the wiring trap in prose —
+the reconciliation would have been perfect and unreachable, and from outside "the
+model did not name it" and "we told it not to" are the same missing field. **An
+`item` is deleted when the status IS or BECOMES `unsupported`**, because the
+reference then names nothing this change will ever run.
+
+**A CONTRADICTION IS ITS OWN KIND, NOT A `null`** — and this is the correction
+the round's own first cut needed. `claimEvidence` answered nothing both for "a
+`fails` token matched" and for "there was nothing to check against"; once
+`covered` started reading its implementation, those fell to opposite states and
+`unknown`'s sentence — *"nothing I can check says either way"* — is FALSE of a
+contradiction, where something can be checked and it says the opposite. It
+answers `contradicted`, which reads `unverified` (the item was named and really
+applied, so the implementation is established and only the guarantee is denied)
+and records `contradictedBy` for the developer. **The customer hears the same
+sentence either way, deliberately**: nothing here is entitled to call a claim
+wrong, which is the never-move-towards-`failed` rule this file already carries.
+A BARE NAME is kept as `named` for the same reason and is KEPT rather than
+returned, so a later item carrying a real guarantee still wins.
+
+**HAND-OFF TRACKING STAYS SEPARATE**, in as many words: `handoff` is set only for
+`elsewhere`, the ledger counts only those, and a `covered` claim carries no
+hand-off verdict — it asked nobody for anything.
+
+**AND THE ROUTE HAD ONE WRITER OF `aFailedKinds` WITH NOTHING ON THE ITEM LIST.**
+A function the database REFUSES is named in `functionErrors`; a function the
+ENGINE will not build is dropped WHOLE — no field to point at, no statement
+issued, nothing in `functionErrors` — and the kind was failing wholesale off it,
+so a claim naming the dropped thing and a claim naming the one that applied got
+the same verdict. `aUnbuilt`'s entries join `aFailedItems()` (declared at the
+accumulator, well above the closure's first possible call — this route's own
+thrice-recorded temporal-dead-zone trap).
+
+**Guards**: `test/addon-route.test.mjs` **59 → 62** — the two cases the owner
+named, each driven through `POST /api/site/<slug>/addon` and asserted on the
+stored outcomes AND the customer's own sentence (a `covered` claim in a
+mixed-success function step, where the claim whose function applied is
+`unverified`, the one whose function was refused is `blocked` NAMING `count_bad`,
+and a claim resting on nothing still `failed` — three sentences from one step;
+and a `covered` claim about a section nobody can see, `unknown`, with the control
+that the SAME step's claim naming an applied function moves to `unverified`),
+plus the engine-dropped item. **Both new cases were proved RED against the
+pre-change module** (`git show 82e3c885:builder/site-requirements.mjs` swapped
+in) before being believed. `requirement-coverage` and `addon-steps` gained
+assertions inside existing cases and no new case — the cross-kind haystack
+asserted BOTH WAYS ROUND (one direction alone passes with the haystack widened
+for everything), the `covered` `missing` naming its own thing, `brokenAny` with
+its kinded control, the kept-not-returned bare name, the tool's own description,
+and the `unsupported` item drop.
+
+**Four older guards were re-anchored, not appeased** — counted from this commit's
+own diff rather than recalled — each naming the property that moved:
+`appliedFacts`' two `claimEvidence` answers (asserted on what each BUYS rather
+than on the shape of the refusal), `requirementNote`'s bare covered claim (now
+the can't-SEE clause, with *"I've set that up"* asserted ABSENT), the six-state
+fixture's second entry and its `claimEvidence` block, and the developer record's
+counts — where **both entries are now the same state and that IS the property**:
+two different statuses with the same nothing behind them get the same honest
+answer, with a CONTROL beside it so `unknown` cannot become a new default.
+
+**Sweep: 27 mutants, 27 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 24 with three survivors, and **all three were
+guard gaps, not the product's** — the SITE half of the widened search (a claim
+resting on something the site already had, across kinds), the tool's description
+(the prose half of the wiring trap, which no behaviour test can see), and the
+route's engine-dropped items, which needed a case where the engine drops a
+function whole (`returns: "setof nowhere"`) rather than the database refusing it.
+**Every anchor was checked to occur exactly once before each run.**
+
+**Suite 6,494.**
+
+**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
+the last two. No paid call was made and no demo site was touched. **The
+`search_path` review stays queued.**
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -4775,7 +4891,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   step count this line means — checked rather than "corrected", because the
   phrasing was right and a number moved for the wrong reason is still a wrong
   number.
-  The unit suite is **6,491** (2026-09-15, local — the three reporting cases the
+  The unit suite is **6,494** (2026-09-15, local — the same evidence rules
+  applied to `covered`, whose new cases are all `addon-route`'s **three**
+  (59 → 62: a `covered` claim in a mixed-success function step, a `covered`
+  claim about a section nobody can see with its control, and an item the ENGINE
+  dropped whole); **6,491 + 3 closes exactly**. `requirement-coverage` and
+  `addon-steps` gained ASSERTIONS inside existing cases and no new case — the
+  cross-kind haystack both ways round, `brokenAny` with its kinded control, the
+  kept-not-returned bare name, the tool's own description and the `unsupported`
+  item drop. CI has NOT read this number yet.
+  **6,491** before it (2026-09-15, local — the three reporting cases the
   hand-off/implementation split left open, whose new cases are all
   `addon-route`'s **four** (55 → 59: the mixed-success function step, the reuse
   of an existing function, its CONTROL on a site that does not declare it, and

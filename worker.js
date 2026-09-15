@@ -23421,6 +23421,13 @@ async function handleRequest(request, env, ctx) {
               ...aFnErrors.map((e) => ({ kind: "function", name: (e && e.name) || "" })),
               ...aJobErrors.map((e) => ({ kind: "job", name: (e && e.name) || "" })),
               ...aMissing.map((r) => ({ kind: "page", name: r })),
+              // …AND THE ITEMS THE ENGINE DROPPED WHOLE (2026-09-15). This was
+              // the ONE writer of `aFailedKinds` with nothing on this list:
+              // `aUnbuilt` NAMES them and the kind was failing wholesale off
+              // them, so every requirement on that kind blocked and none could
+              // be told from the one that really named the dropped thing.
+              ...Object.entries(aUnbuilt).flatMap(([k, names]) =>
+                (Array.isArray(names) ? names : []).map((n) => ({ kind: k, name: String(n || "") }))),
             ].filter((f) => f.name);
             // WHICH STEPS WERE REALLY HANDED AN OUTSTANDING REQUIREMENT. Filled
             // where the brief is composed, never where it is merely intended:
