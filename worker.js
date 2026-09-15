@@ -98,6 +98,7 @@ import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
+import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, MAX_IMPORT_BODY } from "./agent-store.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
 import { cleanHeadDescription, pickableImages, headAnswer } from "./site-head-edit.mjs";
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
@@ -17792,6 +17793,56 @@ async function handleRequest(request, env, ctx) {
       } catch {
         return Response.json({ error: "credits unavailable" }, { status: 503 });
       }
+    }
+
+    // ── THE AGENT BUILDER'S STORE ───────────────────────────────────────────
+    //
+    // Seven operations on the customer's own agents and the conversations with
+    // them, in the `agent` schema. `agent-store.mjs` owns all of it; this is the
+    // door, and the door's whole job is the tenant.
+    //
+    // **`user.id` IS THE ONLY THING THAT DECIDES WHOSE ROWS THESE ARE.** It comes
+    // out of `authUser`, which verifies the bearer token against GoTrue on this
+    // request. Nothing below reads an account, a uid, a tenant or an owner off
+    // the body or the query string, and `handleAgentApi` refuses a tenant it
+    // cannot read rather than running an unfiltered query — so there is no shape
+    // of request that can reach another account's agents.
+    //
+    // The service key stays here. It is handed to the store as a header value
+    // and reaches nothing else: no reply body, no log line, no error sentence.
+    if (Object.hasOwn(AGENT_ROUTES, url.pathname)) {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY) {
+        // A MISSING CREDENTIAL IS SAID, NOT ANSWERED AS AN EMPTY ACCOUNT. An
+        // empty list here would read to the customer as "your agents are gone".
+        console.error("agent store unavailable: no service key");
+        return Response.json({ error: "the agent store isn't reachable just now — try again" }, { status: 503 });
+      }
+      // The body is read ONLY for the routes that carry one; `readJsonBody`
+      // consumes the request, and a GET has nothing to consume. The import's
+      // allowance is its own: a whole conversation is bigger than a form.
+      let body = {};
+      if (AGENT_POST_ROUTES.includes(url.pathname)) {
+        const read = await readJsonBody(request,
+          url.pathname === "/api/agent/import" ? { max: MAX_IMPORT_BODY } : undefined);
+        if (!read.ok) return Response.json({ error: read.error, code: read.code }, { status: read.status });
+        body = read.body;
+      }
+      const answer = await handleAgentApi({
+        path: url.pathname,
+        method: request.method,
+        query: url.searchParams,
+        body,
+        tenant: user.id,
+        store: makeAgentStore({ fetch: (u, o) => fetch(u, o), url: SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY }),
+        log: (...a) => console.error(...a),
+      });
+      // `null` is a path this module does not handle, and the membership test
+      // above already proved it does — so this cannot be reached and is answered
+      // rather than falling through to the 404 below with a route that exists.
+      if (!answer) return Response.json({ error: "that isn't wired up" }, { status: 500 });
+      return Response.json(answer.body, { status: answer.status });
     }
 
     // GET /api/site/genprobe — DRIVE THE FIRE-AND-COLLECT PAIR, FOR NOTHING.
