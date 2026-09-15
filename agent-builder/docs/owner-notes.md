@@ -1140,3 +1140,37 @@ distinction it rests on. Database fencing stops a displaced worker writing to th
 cannot recall an external action already sent, and an uncertain non-repeatable action
 stays blocked from automatic replay. The stand-in model is still the only model this
 deploys with.
+
+---
+
+## 2026-09-15 — merging, and what the merge caught
+
+**I did not merge on the first attempt, and I am glad.** Your two products share exactly
+one thing: the `.github/workflows/` directory. When I built the merge and ran the SITE
+BUILDER's test suite against it, one test went red — a guard the other side wrote for its
+own repair workflows, reading my agent deploy file, which did not exist when that guard was
+written. **It was right, and it found a real bug in mine.**
+
+The bug: my deploy step asks Cloudflare "does this queue exist?" and reads the answer's
+exit status. It pipes that answer into a log file at the same time — and in the shell
+GitHub uses by default, a pipeline's status is the LAST thing in it, which was the log
+writer, which always succeeds. So the check could not fail. It has been printing "QUEUE
+OK" on every run; that answer was true, but it was never evidence. Fixed by naming the
+shell explicitly, which I measured both ways rather than taking on faith.
+
+Fixing it exposed a second one underneath: with the stricter shell, a search that finds
+nothing kills the step outright — so the message that would have told you "the deploy
+printed no version id" could never be reached. Both are fixed, and this product now carries
+its own copy of both checks, because the other side's guard only exists on main and would
+not have caught a later change to my file until the next merge.
+
+**What the merge itself does to the site builder: nothing it can see.** All 52 paths are
+additions — not one of the other session's files is modified, moved or deleted; the two
+sides changed zero files in common, even though 29 commits arrived on main while I worked.
+The container image is not rebuilt (the Dockerfile copies named paths, and none of mine are
+among them) and `worker.js` and `public/` are unchanged, so the deploy this merge triggers
+re-uploads the same site-builder code it already had.
+
+**The lesson worth keeping:** "no overlapping files" is not the same as "safe to merge".
+Running the other product's whole suite on the merged tree is the only place a check from
+one side can read the other side's work — and it is what stopped me shipping this.

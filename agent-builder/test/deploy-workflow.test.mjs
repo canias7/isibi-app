@@ -29,7 +29,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -274,4 +274,82 @@ test("DRIVEN: the version check really fails on the wrong version, and the cachi
     "with no expectation the script still claims to have checked the version");
   assert.match(line(unset, "EXPECT_VERSION is not set"), /reported, not verified/,
     "with no expectation the script says nothing about what it could not check");
+});
+
+/**
+ * A STEP THAT PIPES MUST NOT REPORT `tee`'s STATUS.
+ *
+ * **FOUND BY THE OTHER PRODUCT, ON THE MERGE.** `test/repair-workflows.test.mjs` at the
+ * repository root guards its own repair workflows for this, and the moment the two trees
+ * were merged it read this file — which did not exist when that guard was written — and
+ * named four lines. One of them mattered a great deal: the queue step's whole verdict is
+ * a pipeline's exit status, and under GitHub's UNSPECIFIED Linux shell (`bash -e {0}`,
+ * `set -e` with no `pipefail`) a pipeline reports its LAST command's status, so
+ * `queues info … | tee` reported TEE's — 0, whatever wrangler did. That step exists
+ * because the version before it matched wrangler's WORDING and failed a deploy on a
+ * guessed string; the pipe then handed its replacement a constant.
+ *
+ * **MEASURED, not recalled** (and the same two lines this test drives):
+ *   bash -e         → `if false | tee /dev/null` takes the TRUE branch
+ *   bash -eo pipefail → it takes the false branch
+ *
+ * The second property is the one the root guard does not name, and `pipefail` is what
+ * creates it: with pipefail on, `v=$(… | grep nomatch | head -1)` fails the assignment
+ * and `set -e` kills the step, so a named refusal underneath it becomes unreachable and
+ * a deploy with no readable URL or version dies saying nothing. Measured the same way.
+ */
+const PIPEFAIL_ARGV = {
+  // GitHub's documented defaults. `""` is a step that names no shell. Kept here rather
+  // than imported because this package has no dependency on the root product's tests —
+  // two copies of one table is a real cost, and the DRIVE below is what stops this one
+  // drifting into a lie: each row is executed, so a wrong row fails its own case.
+  "": ["--noprofile", "--norc", "-e"],
+  bash: ["--noprofile", "--norc", "-eo", "pipefail"],
+};
+
+test("DRIVEN: the shells behave the way this file claims, and every piping step declares one that does", () => {
+  // The two rows, executed. Without this the rest is a spelling check.
+  const asks = (shell) => spawnSync("bash", [...PIPEFAIL_ARGV[shell], "-c",
+    'if false | tee /dev/null; then echo swallowed; else echo kept; fi'], { encoding: "utf8" }).stdout.trim();
+  assert.equal(asks(""), "swallowed", "an unspecified shell no longer swallows a pipeline's failure — re-read the whole file");
+  assert.equal(asks("bash"), "kept", "the declared shell does not preserve a pipeline's failure");
+
+  const src = fs.readFileSync(WORKFLOW, "utf8");
+  const list = steps(src);
+  assert.ok(list.length >= 10, `the step reader found ${list.length} steps`);
+
+  // Every step whose body pipes into tee, and what shell it declares.
+  const piping = list.filter((st) => /\|\s*tee\b/.test(st.body));
+  assert.ok(piping.length >= 1, "no step pipes into tee any more — this guard has no subject and should be re-read, not deleted");
+  for (const st of piping) {
+    const shell = (st.body.match(/^ {8}shell: (\S+)$/m) ?? ["", ""])[1];
+    assert.ok(Object.hasOwn(PIPEFAIL_ARGV, shell),
+      `"${st.name}" pipes into tee under shell "${shell}", which this guard has no row for — add the row and check what it DOES`);
+    assert.equal(asks(shell), "kept",
+      `"${st.name}" pipes into tee under a shell that reports tee's status, so its verdict is a constant`);
+  }
+});
+
+test("DRIVEN: a refusal under `pipefail` is still reachable when its grep matches nothing", () => {
+  // pipefail is what makes this a question at all, so it is asked under pipefail.
+  const run = (script) => spawnSync("bash", [...PIPEFAIL_ARGV.bash, "-c", script], { encoding: "utf8" });
+  const reached = (script) => run(script).stdout.includes("REFUSED");
+
+  // The shape without the guard, and the shape with it — so the case proves the fix is
+  // what makes the difference rather than asserting it.
+  assert.equal(reached('v=$(echo x | grep zzz | head -1); if [ -z "$v" ]; then echo REFUSED; fi'), false,
+    "a non-matching grep no longer kills the step — re-read this file rather than trusting it");
+  assert.equal(reached('v=$(echo x | grep zzz | head -1 || true); if [ -z "$v" ]; then echo REFUSED; fi'), true,
+    "`|| true` did not keep the refusal reachable");
+
+  // And every extraction in the workflow that FEEDS such a refusal carries it.
+  const src = fs.readFileSync(WORKFLOW, "utf8");
+  for (const st of steps(src)) {
+    for (const m of st.body.matchAll(/^ {10}(url|ver)=\$\((.+)\)$/gm)) {
+      const [line, name, inner] = m;
+      if (!new RegExp(`\\[ -z "\\$${name}" \\]`).test(st.body)) continue;   // no refusal reads it
+      assert.match(inner, /\|\| true$/,
+        `"${st.name}" extracts $${name} through a pipe whose failure kills the step, so the \`[ -z "$${name}" ]\` refusal below it can never run: ${line.trim()}`);
+    }
+  }
 });

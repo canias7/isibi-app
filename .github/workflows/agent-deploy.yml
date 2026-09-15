@@ -146,6 +146,18 @@ jobs:
       # the Worker answers 503 on every request with no RUN_QUEUE binding.
       - name: ensure the agent-runs queue exists
         if: steps.gate.outputs.armed == 'true'
+        # **`shell: bash` IS LOAD-BEARING HERE, AND WITHOUT IT THIS STEP'S WHOLE POINT
+        # WAS DEFEATED.** GitHub's unspecified Linux shell is `bash -e {0}` — `set -e`
+        # with NO `pipefail` — and a pipeline reports its LAST command's status, so
+        # `queues info … | tee` reports TEE's, which is 0 whatever wrangler did. The
+        # verdict below reads an exit status on purpose (the previous version matched
+        # wrangler's wording and failed a deploy on a guessed string), and the pipe
+        # handed it a constant. The declared shell is `bash --noprofile --norc -eo
+        # pipefail`, so the condition is wrangler's answer again.
+        # Found by the OTHER product's `test/repair-workflows.test.mjs` the moment the
+        # two trees were merged — a guard written for its own repair workflows, reading
+        # a file that did not exist when it was written.
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -182,14 +194,25 @@ jobs:
         id: deploy
         if: steps.gate.outputs.armed == 'true'
         working-directory: agent-builder
+        # DECLARED, for the reason spelled out on the queue step. The `set -o pipefail`
+        # in the body stays as a DELIBERATE SECOND WALL — said out loud because a sweep
+        # cannot say it and the next reader deletes what nothing appears to need: the
+        # shell line protects the step even if the body's line is dropped, and the
+        # body's line protects it even if the shell line is.
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -o pipefail
           out=$(npx --yes wrangler@4.107.0 deploy --config wrangler.jsonc 2>&1 | tee /dev/stderr)
-          url=$(printf '%s' "$out" | grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' | head -1)
-          ver=$(printf '%s' "$out" | grep -oiE 'version id:?[[:space:]]*[0-9a-f-]{8,}' | head -1 | grep -oE '[0-9a-f-]{8,}$')
+          # **`|| true` ON AN EXTRACTION, BECAUSE THE REFUSAL BELOW IS THE POINT.**
+          # Under `-eo pipefail` a `grep` that matches nothing fails the pipeline and
+          # the assignment, and `set -e` then kills the step — so the `if [ -z … ]`
+          # message that names what went wrong would never be reached, and a deploy
+          # with no readable URL or version would die with no explanation at all.
+          url=$(printf '%s' "$out" | grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' | head -1 || true)
+          ver=$(printf '%s' "$out" | grep -oiE 'version id:?[[:space:]]*[0-9a-f-]{8,}' | head -1 | grep -oE '[0-9a-f-]{8,}$' || true)
           if [ -z "$url" ]; then
             echo
             echo 'The deploy produced no workers.dev URL. workers_dev is true in the'
@@ -254,13 +277,21 @@ jobs:
         id: serving
         if: steps.gate.outputs.armed == 'true'
         working-directory: agent-builder
+        # DECLARED, for the reason spelled out on the queue step. The `set -o pipefail`
+        # in the body stays as a DELIBERATE SECOND WALL — said out loud because a sweep
+        # cannot say it and the next reader deletes what nothing appears to need: the
+        # shell line protects the step even if the body's line is dropped, and the
+        # body's line protects it even if the shell line is.
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -o pipefail
           out=$(npx --yes wrangler@4.107.0 deploy --config wrangler.jsonc 2>&1 | tee /dev/stderr)
-          ver=$(printf '%s' "$out" | grep -oiE 'version id:?[[:space:]]*[0-9a-f-]{8,}' | head -1 | grep -oE '[0-9a-f-]{8,}$')
+          # `|| true` for the reason given on the first deploy step: the named refusal
+          # below must outlive a grep that matches nothing.
+          ver=$(printf '%s' "$out" | grep -oiE 'version id:?[[:space:]]*[0-9a-f-]{8,}' | head -1 | grep -oE '[0-9a-f-]{8,}$' || true)
           if [ -z "$ver" ]; then
             echo
             echo 'The deploy printed no version id, so nothing downstream can be held to'

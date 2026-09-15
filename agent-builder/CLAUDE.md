@@ -1537,6 +1537,58 @@ ONE `append_entry` and **no token-less overload of `beat_run` or `release_run` s
 so nothing can reach the old unfenced signature. `run_work.claim_token` exists, and it is
 `null` on every finished row because `release_run` clears it.
 
+### ⚠ THE OTHER PRODUCT'S GUARD FOUND A REAL DEFECT IN THIS ONE, ON THE MERGE (2026-09-15)
+
+**`test/repair-workflows.test.mjs` — the SITE BUILDER's guard, written for its own repair
+workflows — went red the moment the two trees were merged, and it was right.** It reads
+every file in `.github/workflows/` and names any step that pipes into `tee` under a shell
+that reports tee's status. It named four lines in `agent-deploy.yml`, a file that did not
+exist when that guard was written.
+
+**AND THE ONE THAT MATTERED WAS THE QUEUE STEP'S VERDICT.** GitHub's unspecified Linux
+shell is `bash -e {0}` — `set -e` with NO `pipefail` — and a pipeline reports its LAST
+command's status, so
+
+```
+if npx wrangler queues info agent-runs 2>&1 | tee /tmp/qinfo.txt; then confirmed="info"
+```
+
+read **tee's** status, which is 0 whatever wrangler did. That step exists precisely
+because the version before it matched wrangler's WORDING and failed a deploy on a guessed
+string — and its replacement, which reads an exit status instead, was handed a constant by
+the pipe. It has said `QUEUE OK … (confirmed by: info)` on every run; that answer happened
+to be true, and was never evidence.
+
+**MEASURED, both shells, rather than recalled:**
+
+| shell | `if false \| tee /dev/null` |
+|---|---|
+| `bash --noprofile --norc -e` (unspecified) | takes the TRUE branch — the failure is swallowed |
+| `bash --noprofile --norc -eo pipefail` (`shell: bash`) | takes the false branch |
+
+**AND FIXING IT EXPOSED A SECOND DEFECT `pipefail` CREATES, which the root guard does not
+name.** With pipefail on, `ver=$(… | grep nomatch | head -1)` fails the assignment and
+`set -e` kills the step — so `if [ -z "$ver" ]`, the named refusal whose whole job is to
+say *the deploy printed no version id*, becomes **unreachable**, and that failure would
+die saying nothing at all. Measured the same way: without `|| true` the next line never
+runs; with it, it does. Both extractions carry `|| true` now, and the `set -o pipefail`
+already in those bodies stays as a **declared second wall** — the shell line protects the
+step if the body's line is dropped, and the body's line if the shell line is.
+
+**THIS PRODUCT NOW OWNS BOTH PROPERTIES TOO, and both guards EXECUTE.** The root guard
+only exists on main; a change to this workflow on the agent branch would not meet it until
+the next merge. `test/deploy-workflow.test.mjs` runs the two shells from their documented
+argv and asserts what they DO, then holds every piping step to a shell that keeps the
+failure and every extraction feeding a `[ -z … ]` refusal to `|| true`. Spot-checked
+against three breakages, all caught: the shell line removed, **`shell: sh` substituted for
+it** — which a grep for the spelling would have passed — and the `|| true` dropped.
+
+**THE LESSON IS ABOUT THE MERGE, not about `tee`.** Two products in one repository share
+exactly one thing, `.github/workflows/`, and a guard on one side reads the other side's
+files the instant the trees meet. *Running the other product's suite on the merged tree is
+not a formality; it is the only place a cross-product guard can fire.* Merging on the
+strength of "no overlapping files" would have shipped this.
+
 ### ⚠ WHICH VERSION IS SERVING, AND HOW A RUN ONCE REPORTED THE WRONG ONE (2026-09-15)
 
 **`wrangler secret put` MINTS A VERSION OF ITS OWN AND PRINTS NO ID.** That one fact is
@@ -1765,13 +1817,15 @@ answered. The only thing this section still names correctly is the model provide
 
 ### Measured
 
-- **Unit suite: 233 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
+- **Unit suite: 235 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
   the queue round, 219 after it, 222 after the deployment; **the seven net since are the
   fence's**, and **the four after them are the deploy version identity's** — the run
   holding one id printed by the step that minted it, `/health` asked until it answers
   that id, the verification asserting rather than echoing, and check 0 DRIVEN against a
   stub for all four of its answers (right version, wrong version, cacheable, no
-  expectation) — the three-way drift guard
+  expectation) — **and two more from the merge**: the two shells driven from their
+  documented argv, and every piping step plus every refusal-feeding extraction held to
+  what those shells DO — the three-way drift guard
   on `CLAIM_GONE`, every append answer read with
   the two successes told apart, a journal refusing to exist without a claim, `open`'s
   options refusing to carry a tenant, a conflict told from a duplicate, `work.append`'s
