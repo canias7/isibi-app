@@ -58,7 +58,11 @@ function el(id) {
  * `apiFetch` resolves to and, crucially, WHEN: a case can hold a response open,
  * move the screen, and only then let it land.
  */
-function loadScreen({ store = {}, uid = "acct-A", answer } = {}) {
+function loadScreen({ store = {}, uid = "acct-A", answer, refuse: refuseAt = null } = {}) {
+  // A `let`, because a store can come BACK: the one case that can isolate what
+  // `doSignOut` claims for needs the write refused at boot and accepted at
+  // sign-out, inside one page load.
+  let refuse = refuseAt;
   const els = new Map();
   const doc = {
     getElementById: (id) => (els.has(id) ? els.get(id) : (els.set(id, el(id)), els.get(id))),
@@ -72,13 +76,25 @@ function loadScreen({ store = {}, uid = "acct-A", answer } = {}) {
   const sandbox = {
     console: { log() {}, warn() {}, error() {} },
     document: doc,
+    // `refuse` is how a FULL OR BLOCKED STORE is driven: `{ key, how }`, where
+    // `how` is `"throw"` (a real `QuotaExceededError`, which is what a browser
+    // does) or `"silent"` (the write is accepted and does not persist — rarer,
+    // and the only thing `agentsStore`'s read-back can see). Both shapes exist,
+    // so both are drivable; one option rather than two flags, because they are
+    // the same fact about one key.
     localStorage: {
       getItem: (k) => (Object.hasOwn(store, k) ? store[k] : null),
-      setItem: (k, v) => { store[k] = String(v); },
+      setItem: (k, v) => {
+        if (refuse && refuse.key === k) {
+          if (refuse.how === "throw") { const e = new Error("quota"); e.name = "QuotaExceededError"; throw e; }
+          return;                                   // accepted, not stored
+        }
+        store[k] = String(v);
+      },
       removeItem: (k) => { delete store[k]; },
     },
     crypto: { randomUUID: () => "id-" + Math.random().toString(16).slice(2) },
-    location: { pathname: "/", search: "", href: "https://gofarther.dev/", origin: "https://gofarther.dev" },
+    location: { pathname: "/", search: "", href: "https://gofarther.dev/", origin: "https://gofarther.dev", reload() {} },
     history: { replaceState() {}, pushState() {} },
     navigator: { userAgent: "node", language: "en", clipboard: { writeText: async () => {} } },
     setTimeout, clearTimeout, setInterval, clearInterval, fetch: async () => { throw new Error("no bare fetch"); },
@@ -89,7 +105,9 @@ function loadScreen({ store = {}, uid = "acct-A", answer } = {}) {
       email: () => "you@example.com",
       accessToken: async () => "tok",
       isSignedIn: () => !!currentUid,
-      onChange() {}, signOut: async () => {}, session: () => ({ user: { id: currentUid } }),
+      onChange() {}, signOut: async () => { currentUid = ""; },
+      signOutEverywhere: async () => { currentUid = ""; },
+      session: () => ({ user: { id: currentUid } }),
     },
     matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
     requestAnimationFrame: (f) => setTimeout(f, 0),
@@ -137,9 +155,23 @@ function loadScreen({ store = {}, uid = "acct-A", answer } = {}) {
   return {
     s: sandbox, store, calls, ev, val,
     signIn: (who) => { currentUid = who; },
+    allowWrites: () => { refuse = null; },
     uid: () => currentUid,
   };
 }
+
+/**
+ * A browser that `who` has been signed into, holding legacy records.
+ *
+ * **THE MARKER IS WHAT MAKES THEM THEIRS, and that is the product's rule rather
+ * than this file's convenience.** `zephyr_owner_v1` is the only thing in a
+ * browser that says which account was last in it, so it is the only thing that
+ * can establish whose an unstamped legacy record is — and the page's own boot
+ * claims them for it. A fixture without the marker is a browser nobody can
+ * place, which is a different case (its own test below), not a shortcut to this
+ * one: every record in it is SEALED at load and no account ever sees it.
+ */
+const browserOf = (who, rows) => ({ zephyr_owner_v1: who, zephyr_agents_v1: JSON.stringify(rows) });
 
 const okRes = (body) => ({ ok: true, status: 200, json: async () => ({ ok: true, ...body }) });
 const badRes = (error, status = 502) => ({ ok: false, status, json: async () => ({ error }) });
@@ -298,10 +330,10 @@ test("...and the same answer DOES fill the account that asked for it", async () 
 test("⚠ an import stops the moment the account changes, and marks nothing", async () => {
   // Marking would claim the outgoing account's record for the incoming one, and
   // sending the next would put their written instructions into the wrong account.
-  const store = { zephyr_agents_v1: JSON.stringify([
+  const store = browserOf("acct-A", [
     { id: "L1", name: "One", instructions: "x", messages: [] },
     { id: "L2", name: "Two", instructions: "y", messages: [] },
-  ]) };
+  ]);
   const gate = held(okRes({ id: "S1", key: "L1", imported: 0, unreadable: 0 }));
   let sent = 0;
   const w = loadScreen({
@@ -322,10 +354,10 @@ test("⚠ an import stops the moment the account changes, and marks nothing", as
 test("...and an import that keeps its account brings every record over", async () => {
   // The control. Without it, an `agentImport` that returned immediately would
   // pass the case above.
-  const store = { zephyr_agents_v1: JSON.stringify([
+  const store = browserOf("acct-A", [
     { id: "L1", name: "One", instructions: "x", messages: [] },
     { id: "L2", name: "Two", instructions: "y", messages: [] },
-  ]) };
+  ]);
   let n = 0;
   const w = loadScreen({
     store, uid: "acct-A",
@@ -342,9 +374,9 @@ test("...and an import that keeps its account brings every record over", async (
 });
 
 test("the import sends the browser record's own id as its identity", async () => {
-  const store = { zephyr_agents_v1: JSON.stringify([
+  const store = browserOf("acct-A", [
     { id: "L-stable-1", name: "One", instructions: "x", messages: [{ text: "hello", at: 1 }] },
-  ]) };
+  ]);
   const w = loadScreen({
     store, uid: "acct-A",
     answer: (p) => (p === "/api/agent/import"
@@ -373,29 +405,30 @@ test("⚠ an account switch STAMPS the legacy agents, it does not delete them", 
   // "the next account must not see them" by destroying the only copy of agents
   // written before this screen had an account behind it — including any whose
   // import had not been pressed yet.
-  const store = { zephyr_agents_v1: JSON.stringify([
+  const store = browserOf("acct-A", [
     { id: "L1", name: "A's agent", instructions: "written by A", messages: [{ text: "said to A", at: 1 }] },
-  ]) };
-  const w = loadScreen({ store, uid: "acct-A" });
+  ]);
+  // **THE BOOT IS WHAT CLAIMS, so the boot is what is driven** — `loadScreen`
+  // evaluates the page's own scripts, `enterApp` runs, and it stamps every
+  // unstamped record with the marker it found. Calling `agentsClaimFor` by hand
+  // here (which this case used to do) asserts the helper and not the moment.
+  const a = loadScreen({ store, uid: "acct-A" });
+  assert.equal(a.ev("agentsStored()[0].uid"), "acct-A", "the boot did not record whose these are");
+  assert.equal(a.ev("agentsLocal().length"), 1, "A cannot see its own record");
 
-  // A is signed in: the record is unstamped and A can see it.
-  assert.equal(w.ev("agentsLocal().length"), 1, "A cannot see its own record");
-
-  // B signs in on the same machine. This is the one moment A's identity is known.
-  w.ev('agentsClaimFor("acct-A");');
-  w.signIn("acct-B");
-
+  // B signs in on the same machine: the same browser, loaded again.
+  const b = loadScreen({ store, uid: "acct-B" });
   const kept = JSON.parse(store.zephyr_agents_v1);
   assert.equal(kept.length, 1, "the record was deleted rather than preserved");
   assert.equal(kept[0].uid, "acct-A", "the record was kept without saying whose it is");
   assert.deepEqual(kept[0].messages, [{ text: "said to A", at: 1 }], "its conversation was lost");
-  assert.equal(w.ev("agentsLocal().length"), 0, "B can see A's written instructions");
-  assert.equal(w.ev("agentsToImport().length"), 0, "B is offered A's agents to import");
+  assert.equal(b.ev("agentsLocal().length"), 0, "B can see A's written instructions");
+  assert.equal(b.ev("agentsToImport().length"), 0, "B is offered A's agents to import");
 
   // A comes back and finds everything.
-  w.signIn("acct-A");
-  assert.equal(w.ev("agentsLocal().length"), 1, "A lost its records by signing out and back in");
-  assert.equal(w.ev("agentsToImport().length"), 1, "A is no longer offered the import");
+  const a2 = loadScreen({ store, uid: "acct-A" });
+  assert.equal(a2.ev("agentsLocal().length"), 1, "A lost its records by signing out and back in");
+  assert.equal(a2.ev("agentsToImport().length"), 1, "A is no longer offered the import");
 });
 
 test("a second switch does not re-assign the first account's records", () => {
@@ -403,12 +436,11 @@ test("a second switch does not re-assign the first account's records", () => {
   // owned, `agentsClaimFor` returns at its "nothing unclaimed" line and a mutant
   // that re-assigns everything never runs — the case passed while proving
   // nothing, which a sweep found. One of each makes the two readings differ.
-  const store = { zephyr_agents_v1: JSON.stringify([
+  const store = browserOf("acct-B", [
     { id: "L1", name: "A's", instructions: "x", uid: "acct-A" },
     { id: "L2", name: "written while B was signed in", instructions: "y" },
-  ]) };
-  const w = loadScreen({ store, uid: "acct-B" });
-  w.ev('agentsClaimFor("acct-B");');          // B leaves; A's record must not become B's
+  ]);
+  loadScreen({ store, uid: "acct-B" });      // the boot claims for the marker
   const after = JSON.parse(store.zephyr_agents_v1);
   assert.equal(after.find((a) => a.id === "L1").uid, "acct-A",
     "an already-stamped record was re-assigned to whoever left next");
@@ -457,7 +489,7 @@ test("⚠ a thread read answered after the account changed cannot paint the new 
 test("⚠ an import that DIES after the account changed says nothing to the new one", async () => {
   // The throw path had no wall at all: "couldn't reach the server" would appear
   // on the incoming account's screen, about an import they never pressed.
-  const store = { zephyr_agents_v1: JSON.stringify([{ id: "L1", name: "One", instructions: "x", messages: [] }]) };
+  const store = browserOf("acct-A", [{ id: "L1", name: "One", instructions: "x", messages: [] }]);
   let reject;
   const w = loadScreen({
     store, uid: "acct-A",
@@ -478,7 +510,7 @@ test("⚠ an import that DIES after the account changed says nothing to the new 
 test("...and an import that dies with its account still there DOES say so", async () => {
   // The control for the case above: without it, an `agentImport` whose catch
   // stopped reporting anything at all would pass.
-  const store = { zephyr_agents_v1: JSON.stringify([{ id: "L1", name: "One", instructions: "x", messages: [] }]) };
+  const store = browserOf("acct-A", [{ id: "L1", name: "One", instructions: "x", messages: [] }]);
   let reject;
   const w = loadScreen({
     store, uid: "acct-A",
@@ -495,12 +527,12 @@ test("...and an import that dies with its account still there DOES say so", asyn
 });
 
 test("a signed-out page is shown nothing at all", () => {
-  const store = { zephyr_agents_v1: JSON.stringify([{ id: "L1", name: "x", instructions: "y" }]) };
+  const store = browserOf("acct-A", [{ id: "L1", name: "x", instructions: "y" }]);
   const w = loadScreen({ store, uid: "acct-A" });
   assert.equal(w.ev("agentsLocal().length"), 1);
   w.signIn("");
   assert.equal(w.ev("agentsLocal().length"), 0,
-    "an unstamped record is offered to a page with nobody signed in");
+    "a record is shown to a page with nobody signed in");
 });
 
 test("marking one record as imported does not delete the other account's", () => {
@@ -526,8 +558,247 @@ test("the account-switch wipe no longer names the agents at all", () => {
   assert.ok(wipe, "the account-switch wipe list is gone or reshaped — re-read it");
   assert.ok(!/\bAGENTS_KEY\b/.test(wipe[1]), "the switch still deletes what somebody typed");
   assert.ok(!/removeItem\(AGENTS_KEY\)/.test(CHAT), "something removes the agents by key");
-  // And the stamp really runs on the switch, not merely exists.
-  const branch = CHAT.slice(CHAT.indexOf("if (prevOwner && prevOwner !== uid)"));
-  assert.match(branch.slice(0, 1800), /agentsClaimFor\(prevOwner\)/,
-    "the switch does not assign the outgoing account's records to it");
+  // AND THE ORDER, WHICH IS THE PROPERTY — not the position of the call.
+  // **RE-ANCHORED, NOT APPEASED**: the claim used to sit inside
+  // `if (prevOwner && prevOwner !== uid)` and this guard read that branch. It
+  // runs for every sign-in now, because the ordinary upgrade needs it as much as
+  // a switch does — the same account, with records written before this code
+  // stamped anything. What has to hold is that ownership is decided from the
+  // MARKER and decided BEFORE the marker is overwritten; writing the marker
+  // first would make the next sign-in read it as "the same account as last
+  // time" and hand the records to whoever arrived, one step removed.
+  //
+  // Windowed landmark-to-landmark on the NEXT SIBLING statement, never by bytes:
+  // this file's neighbours are comments, and a byte window is outrun by the next
+  // one somebody writes.
+  const at = CHAT.indexOf("const prevOwner = localStorage.getItem('zephyr_owner_v1')");
+  const end = CHAT.indexOf("if (pendingSiteBrief)", at);
+  assert.ok(at > 0, "the boot no longer reads the marker — nothing is being read");
+  assert.ok(end > at, "the block's closing landmark moved; re-read enterApp");
+  const boot = CHAT.slice(at, end);
+  assert.match(boot, /agentsClaimFor\(prevOwner\)/,
+    "the boot does not assign the records to the account the marker names");
+  assert.match(boot, /agentsSealUnknown\(\)/,
+    "a browser with no marker is not sealed, so its records go to whoever signs in");
+  const marker = boot.indexOf("localStorage.setItem('zephyr_owner_v1', uid)");
+  assert.ok(marker > 0, "the boot no longer records which account this browser belongs to");
+  assert.ok(boot.indexOf("agentsClaimFor(prevOwner)") < marker,
+    "the marker is overwritten before ownership is taken from it");
+  assert.ok(boot.indexOf("agentsSealUnknown()") < marker,
+    "the marker is written before the unplaceable records are sealed");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// WHOSE THE LEGACY RECORDS ARE, ACROSS A REAL SIGN-OUT
+//
+// **THE GAP THESE FOUR ARE ABOUT.** `doSignOut` removed `zephyr_owner_v1` — the
+// only thing in a browser that says which account was last in it — without first
+// recording ownership, and `agentsLocal` let an unstamped record through for any
+// signed-in account, on the reasoning that unstamped meant "never been through a
+// switch, so it can only be the current account's". Those two together are the
+// bug: A signs out, B signs in, and every one of A's records reads as B's. B
+// could see them, and B could bring them into B's account for good.
+//
+// EVERY CASE HERE DRIVES THE PAGE'S OWN BOOT AND THE REAL `doSignOut`. A second
+// `loadScreen` over the SAME `store` object is a second visit to the same
+// browser, which is what `location.reload()` does at the end of a sign-out — so
+// the sequence under test is the sequence a person performs, not a helper called
+// in the order the fix happens to want.
+// ────────────────────────────────────────────────────────────────────────────
+
+const LEGACY = [{
+  id: "L1", name: "A's agent", instructions: "written by A",
+  messages: [{ id: "m1", text: "said to A", at: 1 }],
+}];
+const listOnly = (p) => (p === "/api/agent/list" ? okRes({ agents: [] }) : okRes({}));
+
+test("⚠ 1. A signs out, B signs in: B can neither see nor import A's records", async () => {
+  const store = browserOf("acct-A", LEGACY);
+  const a = loadScreen({ store, uid: "acct-A", answer: listOnly });
+  assert.equal(a.ev("agentsLocal().length"), 1, "A cannot see its own record to begin with");
+
+  // A REAL SIGN-OUT. This is where the finding lived: the identity marker went
+  // and nothing had written the answer down anywhere else.
+  await a.ev("doSignOut()");
+  assert.equal(JSON.parse(store.zephyr_agents_v1)[0].uid, "acct-A",
+    "signing out cleared the identity without recording whose the records are");
+  assert.equal(store.zephyr_owner_v1, undefined,
+    "sign-out no longer forgets which account this browser belonged to");
+
+  // B signs in on the same machine.
+  const b = loadScreen({ store, uid: "acct-B", answer: listOnly });
+  assert.equal(b.ev("agentsLocal().length"), 0, "B can see A's written instructions");
+  assert.equal(b.ev("agentsToImport().length"), 0, "B is offered A's agents");
+
+  // AND THE IMPORT IS ASKED DIRECTLY, because the offer being empty is a
+  // statement about what B can SEE. The action is what would copy A's written
+  // instructions into B's account, and it is handed a record to refuse: the
+  // store really does hold one that has not been imported.
+  assert.equal(b.val("agentsStored().filter((r) => !r.imported).length"), 1,
+    "the action had nothing in hand, so refusing to send proves nothing");
+  await b.ev("agentImport()");
+  assert.equal(b.calls.filter((c) => c.path === "/api/agent/import").length, 0,
+    "the import sent a record belonging to another account");
+
+  // Nothing was destroyed to achieve any of that.
+  const kept = JSON.parse(store.zephyr_agents_v1);
+  assert.equal(kept.length, 1, "A's record was deleted rather than hidden");
+  assert.deepEqual(kept[0].messages, [{ id: "m1", text: "said to A", at: 1 }],
+    "A's conversation was lost");
+});
+
+test("2. ...and when A signs back in, the records and their messages are still there", async () => {
+  // THE CONTROL FOR ALL OF IT. Hiding records from everybody would satisfy the
+  // case above, and this is the half that says the hiding is a filter.
+  const store = browserOf("acct-A", LEGACY);
+  const a = loadScreen({ store, uid: "acct-A", answer: listOnly });
+  await a.ev("doSignOut()");
+  loadScreen({ store, uid: "acct-B", answer: listOnly });        // B has a look
+  const back = loadScreen({ store, uid: "acct-A", answer: listOnly });
+
+  assert.equal(back.ev("agentsLocal().length"), 1, "A lost its records by signing out");
+  assert.equal(back.ev("agentsToImport().length"), 1, "A is no longer offered the import");
+  assert.deepEqual(back.val("agentsLocal()[0].messages"), [{ id: "m1", text: "said to A", at: 1 }],
+    "A's conversation did not come back with it");
+  assert.equal(back.ev("agentsLocal()[0].instructions"), "written by A",
+    "what A wrote did not survive the round trip");
+
+  // And the import really works for the account that owns them.
+  await back.ev("agentImport()");
+  const sent = back.calls.filter((c) => c.path === "/api/agent/import");
+  assert.equal(sent.length, 1, "A cannot bring its own records over");
+  assert.equal(sent[0].body.key, "L1", "the import lost the record's identity");
+});
+
+test("⚠ 3. records nobody can vouch for are kept in full and shown to no one", async () => {
+  // THE BROWSER THIS FIX CANNOT REPAIR, and the cost is stated rather than
+  // hidden: somebody signed out under the OLD code, so the marker is gone and
+  // the records are unstamped. There is nothing left that can say whose they
+  // are — so they are SEALED, which means preserved and permanently invisible.
+  // The alternative is handing them to whoever signs in next, which is the bug.
+  const store = { zephyr_agents_v1: JSON.stringify(LEGACY) };      // no marker, deliberately
+  const a = loadScreen({ store, uid: "acct-A", answer: listOnly });
+
+  const sealed = JSON.parse(store.zephyr_agents_v1);
+  assert.equal(sealed.length, 1, "an unplaceable record was deleted instead of sealed");
+  assert.equal(sealed[0].instructions, "written by A", "what somebody wrote was altered");
+  assert.deepEqual(sealed[0].messages, [{ id: "m1", text: "said to A", at: 1 }],
+    "the conversation went with the seal");
+  assert.equal(a.ev("agentsLocal().length"), 0, "an unplaceable record was shown to whoever signed in");
+  assert.equal(a.ev("agentsToImport().length"), 0, "an unplaceable record was offered for import");
+  await a.ev("agentImport()");
+  assert.equal(a.calls.filter((c) => c.path === "/api/agent/import").length, 0,
+    "an unplaceable record was uploaded into an account we cannot establish");
+
+  // **AND THE SEAL CANNOT BE LAUNDERED BY A LATER MARKER**, which is the whole
+  // reason it is a VALUE rather than an absence. This visit wrote the marker; a
+  // browser read a second time would otherwise find one naming "the same account
+  // as last time" and claim the records for an account that merely arrived first.
+  assert.equal(store.zephyr_owner_v1, "acct-A", "the boot did not record this visit at all");
+  const again = loadScreen({ store, uid: "acct-A", answer: listOnly });
+  assert.equal(again.ev("agentsLocal().length"), 0,
+    "the marker this fix wrote laundered a record nobody could place");
+  assert.notEqual(JSON.parse(store.zephyr_agents_v1)[0].uid, "acct-A",
+    "a sealed record was re-assigned to the account that happened to arrive");
+});
+
+for (const how of ["throw", "silent"]) {
+  test(`⚠ 4. a refused ownership write (${how}) does not expose the records to B`, async () => {
+    // **A FULL OR BLOCKED STORE IS THE CASE WHERE BEING WRONG COSTS MOST**, and
+    // there are two real shapes: a browser THROWS `QuotaExceededError`, and a
+    // write can be accepted and not persist — which only `agentsStore`'s read-back
+    // can see. Both are driven, because they are caught by different halves.
+    const refuse = { key: "zephyr_agents_v1", how };
+    const store = browserOf("acct-A", LEGACY);
+    const a = loadScreen({ store, uid: "acct-A", refuse, answer: listOnly });
+    assert.equal(a.ev("agentsStored()[0].uid"), undefined,
+      "the fixture is not refusing the write at all, so this case proves nothing");
+
+    // A signs out. The claim cannot land, so THE MARKER STAYS: it is the only
+    // other place the answer exists, and erasing it as well would lose it.
+    await a.ev("doSignOut()");
+    assert.equal(store.zephyr_owner_v1, "acct-A",
+      "a failed claim still threw away the one record of whose these are");
+
+    // B signs in, with the store still refusing.
+    const b = loadScreen({ store, uid: "acct-B", refuse, answer: listOnly });
+    assert.equal(b.ev("agentsLocal().length"), 0, "a record we could not stamp was shown to B");
+    assert.equal(b.ev("agentsToImport().length"), 0, "a record we could not stamp was offered to B");
+    assert.equal(b.val("agentsStored().filter((r) => !r.imported).length"), 1,
+      "the action had nothing in hand, so refusing to send proves nothing");
+    await b.ev("agentImport()");
+    assert.equal(b.calls.filter((c) => c.path === "/api/agent/import").length, 0,
+      "a record we could not stamp was uploaded into B's account");
+    assert.equal(store.zephyr_owner_v1, "acct-A",
+      "the marker moved to the account that arrived while ownership was unrecorded");
+    assert.equal(JSON.parse(store.zephyr_agents_v1).length, 1, "the record was lost");
+
+    // AND IT IS RECOVERABLE. The store starts accepting writes; A comes back;
+    // the marker that was kept is what puts the records back in A's hands.
+    const back = loadScreen({ store, uid: "acct-A", answer: listOnly });
+    assert.equal(back.ev("agentsLocal().length"), 1,
+      "keeping the marker bought nothing — A's records never came back");
+    assert.equal(store.zephyr_owner_v1, "acct-A");
+  });
+}
+
+test("4b. the control: with the store working, sign-out records ownership and forgets the account", async () => {
+  // Without this, a `doSignOut` that never cleared the marker at all would pass
+  // every assertion above.
+  const store = browserOf("acct-A", LEGACY);
+  const a = loadScreen({ store, uid: "acct-A", answer: listOnly });
+  await a.ev("doSignOut()");
+  assert.equal(JSON.parse(store.zephyr_agents_v1)[0].uid, "acct-A", "ownership was not recorded");
+  assert.equal(store.zephyr_owner_v1, undefined,
+    "the marker is kept even when there was nothing to keep it for");
+});
+
+test("⚠ 1b. B arriving on A's browser does not acquire A's unstamped records", async () => {
+  // THE EXPIRED-SESSION SWAP, which is the shape the account-switch wipe exists
+  // for: A never signed out, so the marker still names A and the records are
+  // still unstamped. The claim has to take the MARKER — claiming for the account
+  // that has just arrived is the same bug through a different door, and from the
+  // store afterwards the two are one field apart.
+  const store = browserOf("acct-A", LEGACY);
+  const b = loadScreen({ store, uid: "acct-B", answer: listOnly });
+  assert.equal(JSON.parse(store.zephyr_agents_v1)[0].uid, "acct-A",
+    "the records were claimed for the account that arrived");
+  assert.equal(b.ev("agentsLocal().length"), 0, "B can see A's written instructions");
+  assert.equal(b.ev("agentsToImport().length"), 0, "B is offered A's agents");
+  assert.equal(b.val("agentsStored().filter((r) => !r.imported).length"), 1,
+    "the action had nothing in hand, so refusing to send proves nothing");
+  await b.ev("agentImport()");
+  assert.equal(b.calls.filter((c) => c.path === "/api/agent/import").length, 0,
+    "the import sent a record belonging to another account");
+  assert.equal(store.zephyr_owner_v1, "acct-B", "the marker did not move to the account now here");
+
+  // A comes back to everything.
+  const a = loadScreen({ store, uid: "acct-A", answer: listOnly });
+  assert.equal(a.ev("agentsLocal().length"), 1, "A lost its records to B's visit");
+});
+
+test("4c. a sign-out claims for the MARKER, never for whoever is signing out", async () => {
+  // **THE ONE CASE THAT CAN TELL THE TWO AUTHORITIES APART.** `enterApp` only
+  // moves the marker once ownership is settled, so a browser whose store refused
+  // that write is signed in as B with the marker still naming A — and the
+  // unstamped records really are A's. If the store then comes back and B signs
+  // out, a sign-out reading `Auth.userId()` stamps A's written instructions as
+  // B's, for good. Everywhere else in this file the two agree, which is exactly
+  // why a mutant swapping them survives every other case.
+  const store = browserOf("acct-A", LEGACY);
+  const refuse = { key: "zephyr_agents_v1", how: "throw" };
+  loadScreen({ store, uid: "acct-A", refuse, answer: listOnly });     // A's claim is refused
+  const b = loadScreen({ store, uid: "acct-B", refuse, answer: listOnly });
+  assert.equal(b.ev("agentsStored()[0].uid"), undefined,
+    "the fixture recorded ownership after all, so the two authorities still agree");
+  assert.equal(store.zephyr_owner_v1, "acct-A",
+    "the marker moved while ownership was unrecorded");
+
+  // The store comes back, and B signs out.
+  b.allowWrites();
+  await b.ev("doSignOut()");
+  assert.equal(JSON.parse(store.zephyr_agents_v1)[0].uid, "acct-A",
+    "B's sign-out claimed A's records for B");
+  assert.equal(store.zephyr_owner_v1, undefined,
+    "ownership was recorded and the marker was kept anyway");
 });

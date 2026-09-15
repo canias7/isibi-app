@@ -1401,8 +1401,12 @@ conversation."* Every one was driven before and after; none is a source read.
    them"; it is "show them only to the account they own"**, which is a filter:
    the switch STAMPS every unstamped record with the OUTGOING uid — the one
    moment that identity is known — and `agentsLocal` answers only what the
-   current account owns, `[]` with nobody signed in. Unstamped means "never been
-   through a switch", which can only be the current account's. `agentMarkImported`
+   current account owns, `[]` with nobody signed in. **AND THE SENTENCE THAT USED
+   TO CLOSE THIS PARAGRAPH WAS FALSE**: it read *"unstamped means 'never been
+   through a switch', which can only be the current account's"*, which `doSignOut`
+   falsifies by erasing the marker. The fifth finding below is that hole; the
+   claim now runs on every sign-in, takes the MARKER, and an unstamped record is
+   shown to nobody. `agentMarkImported`
    maps over the WHOLE store, never the filtered view: mapping the view and
    writing it back is the wipe returning through the back door, inside the
    function whose job is to preserve.
@@ -1437,6 +1441,119 @@ measurement down found a real gap next to it — the `catch` had no check at all
 Plus **three SQL mutants on a real PostgreSQL**, all caught: a retry that raises,
 a retry that re-inserts the conversation, and an identity not scoped to the
 tenant.
+#### …AND THE FIFTH: WHOSE THE LEGACY RECORDS ARE, ACROSS A SIGN-OUT (2026-09-15)
+
+Owner: *"`doSignOut()` removes `zephyr_owner_v1` without first assigning
+ownership to unstamped legacy agents. `agentsLocal()` then allows unstamped
+records through for any signed-in account… Unknown ownership must mean hidden
+and not importable — not 'belongs to whoever signs in next.'"*
+
+**FINDING 3 ABOVE WAS HALF A FIX AND ITS OWN REASONING NAMED THE HOLE.** It
+said unstamped means "never been through a switch, which can only be the current
+account's" — and `doSignOut` erases the marker that carries the outgoing
+identity, so after one sign-out every one of A's records is unstamped with
+nothing left to place them. B signs in, sees them, and the import copies them
+into B's account for good. **A rule true because of a layer below it expires
+when that layer moves**, where the layer is the sign-out three hundred lines
+away in the same file.
+
+**THE MARKER IS THE ONE AUTHORITY, EVERYWHERE, and that is the whole design.**
+`zephyr_owner_v1` is the only thing in a browser that says which account was
+last in it, so it is the only thing that can establish whose an unstamped legacy
+record is. Both doors now read it and neither reads who is present:
+
+- **`enterApp`** — `prevOwner ? agentsClaimFor(prevOwner) : agentsSealUnknown()`,
+  ABOVE the `setItem` that moves the marker. Claiming for the arriving `uid`
+  instead is the bug through a different door, and it is one of the sweep's
+  mutants. **The claim now runs for EVERY sign-in**, not only a switch: the
+  ordinary upgrade is the same person with records written before this code
+  stamped anything, and it needs the claim as much as a switch does.
+- **`doSignOut`** — the claim runs BEFORE the wipe (`Auth.signOut()` is below it,
+  so the identity still exists), and it takes the MARKER rather than
+  `Auth.userId()`. **The two can disagree and the case that separates them is
+  driven**: a browser whose store refused the boot's write is signed in as B with
+  the marker still naming A, and the unstamped records really are A's.
+
+**AND THE MARKER NEVER MOVES AHEAD OF THE OWNERSHIP RECORD.** `agentsStore`
+READS THE VALUE BACK rather than trusting `setItem`, so `agentsClaimFor` and
+`agentsSealUnknown` answer whether the write landed; `enterApp` gates the marker
+write on that, and `doSignOut` KEEPS the marker when the claim failed — it is
+the only other place the answer exists, and erasing it would lose it. **Nothing
+is exposed either way**, because the reader is an exact match. **The cost is
+stated in the code**: while that write keeps failing, every reload re-runs the
+cache wipe (those keys are caches; the price is re-fetching them).
+
+**`agentOwns(a, uid)` IS THE ONE PREDICATE — `!!uid && !!a && a.uid === uid`.**
+No pass for an unstamped record, and the direction is deliberate: the cost of
+being wrong here is somebody having to write an agent again, against one person
+reading another's written instructions.
+
+**`AGENT_OWNER_UNKNOWN` (`'?unknown'`) IS A VALUE, NOT AN ABSENCE, AND THAT IS
+THE POINT.** An unclaimed record can still be claimed by whatever next
+establishes an identity; a SEALED one can never be, because no uuid equals
+`?unknown`. Without it the seal would be laundered one sign-in later: this
+visit's own marker would read as "the same account as last time". **The seal is
+permanent** — `agentsClaimFor` never overwrites a stamp.
+**THE COST, STATED: a browser whose last sign-out ran the old code has no marker,
+so its records are preserved and PERMANENTLY HIDDEN, from everyone including the
+person who wrote them.** That is the requirement met rather than a regression.
+
+**THE IMPORT ASKS THE SAME PREDICATE AT THE POINT IT WOULD SEND, and it is not a
+second copy of anything.** `agentImport` reads `agentsStored()` — the store, not
+the offer — and asks `agentOwns(a, agentUid())` per record. The list asks "what
+may I show"; this asks "may I send THIS", and they are different questions with
+different consequences. **It is NOT redundant with the binding check** (`bound.uid
+!== agentUid()`, which asks whether the account changed since the press):
+measured, signed in as B with A's records in the browser, the binding check is
+satisfied from the first line to the last and the ownership test is the only
+refusal. **Silent, deliberately** — naming the skips would tell the person that
+another account has records in this browser, which is what the filter exists to
+prevent.
+
+**Guards**: `test/agent-binding.test.mjs` **19 → 27**, all eight driving the
+page's real boot and the real `doSignOut` (a second `loadScreen` over the same
+`store` IS the reload a sign-out ends with, so the sequence under test is the one
+a person performs). The four the owner named, plus: B arriving on A's browser
+with no sign-out, the sign-out's marker-versus-present authority, the refused
+write in BOTH shapes a browser really refuses (`QuotaExceededError`, and a write
+accepted that does not persist — only the read-back sees the second), and the
+control that a working store DOES forget the account. **Each import case asserts
+the action had a record in hand** (`agentsStored().filter(r => !r.imported)`),
+because "nothing was sent" is a negative assertion.
+
+**Three older guards re-anchored, not appeased, and TWO WERE BYTE WINDOWS OUTRUN
+BY THIS CHANGE'S OWN PARAGRAPHS** — the recorded trap, twice in one change:
+`agent-builder-view`'s `branch.slice(0, 1800)` and `media-deleted`'s
+`slice(i - 1200, i)` both stopped finding calls that had not moved. Both window
+landmark-to-landmark now. The third is the one that matters: the view guard was
+pinned to `/!a\.uid \|\| a\.uid === uid/` — **it asserted the defect as
+correct**, which is the same shape as finding 1's guard above, and it reads the
+property (`agentOwns` exact, no unstamped pass, no signed-out pass) now.
+`media-deleted`'s owner-key census moved off "the marker is in sign-out's wipe
+list" and onto the ORDER: the claim occurs before the removal.
+
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — the reader passing an unstamped record (the defect itself),
+the reader unfiltered, a marker-less browser claimed for whoever arrived, one left
+unstamped rather than sealed, the boot claiming for `uid` instead of the marker,
+the marker moving with ownership unrecorded, the seal stamping nothing, the claim
+re-assigning an owned record, the claim answering true over a refused write, the
+store trusting `setItem`, sign-out not claiming at all, sign-out claiming for
+`Auth.userId()`, sign-out forgetting the account unconditionally, the marker back
+in the unconditional wipe list, the import's ownership test dropped, the import
+asking `!a.uid` instead (so a SEALED record is sent), and the offer counting the
+store. **Suite 6,560** — 6,552 + 8, and the arithmetic closes exactly.
+
+**AND THE SWEEP RAN TWICE BECAUSE THE FIRST TALLY WAS NOT TRUSTWORTHY — the
+recorded "A CONTROL MUST BE DECLARED, NOT MERELY LABELLED", met again.** The
+runner reads `m.control`; the spec said `isControl`, so both controls were run as
+ordinary mutants, printed as SURVIVORS, tallied `0 comment-only controls`, and the
+runner's own `CONTROL WAS KILLED` branch — its one check on its own honesty — was
+never armed. The 17 product mutants died on both passes; the tally above is one
+run's own answer, which is the only kind worth stamping.
+
+**NOT PROVEN LIVE.** Every measurement is from driving `public/chat.js` in a real
+page scope; nothing is merged or deployed.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

@@ -155,6 +155,68 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The fifth one: whose the old agents are, across a sign-out
+
+You were right, and the hole was exactly where you pointed. Signing out wiped
+the one thing in the browser that said which account it belonged to, and it did
+that WITHOUT first writing down whose the old agents were — and the reader I had
+just written treated a record with no owner on it as belonging to whoever was
+signed in. So: A signs out, B signs in, and B's screen shows A's agents and
+offers to bring them into B's account for good.
+
+**What it does now, in order.** Signing out records ownership FIRST and only
+then forgets the account. Opening the app does the same thing from the other
+side: it reads the marker, stamps every unowned record with it, and only then
+moves the marker to whoever has just arrived. And an unowned record is no longer
+shown to anybody at all — an exact match, so "we don't know" means hidden.
+
+**Unknown means hidden, permanently, and that has a cost I want you to know
+about.** A browser where somebody signed out under yesterday's code has no
+marker left, so there is nothing on that machine that can say whose those
+records are. They are kept — every field, every message — and sealed: shown to
+nobody, ever, including the person who wrote them. The alternative is handing
+them to the next person who signs in, which is the bug. I chose hidden.
+
+**If the browser refuses to save, nothing is exposed and nothing is lost.** A
+full or blocked store means ownership cannot be written down — so the marker is
+KEPT rather than erased, because it is the only other place the answer exists,
+and the next sign-in has another go. The records stay invisible to everyone
+meanwhile. And when the store starts working again, the marker that was kept is
+what puts them back in the right hands. I drove both ways a browser refuses
+(throwing, and accepting a write that does not persist).
+
+**The import asks the same question, at the moment it would send.** A filter on
+the list is a filter on what somebody can SEE; the import is what copies
+somebody's written instructions into another account. So every record is checked
+against the account making the request, right where the request is built — and
+the test presses the button with another account's record sitting in the browser
+and asserts nothing left the machine.
+
+**Tested locally:** eight new browser cases driving the real screen — A signs
+out and B signs in (cannot see, cannot import), A signs back in (everything
+there, messages included), a browser nobody can place (kept and hidden, and the
+seal cannot be undone by a later marker), a refused save in both its shapes with
+its own control, B arriving on A's browser without A signing out, and a sign-out
+proving it claims for the marker rather than for whoever is leaving. **Root suite
+6,560 green** (6,558 pass, 2 skipped — the recorded environment ones), up from
+6,552 by exactly the eight. **Sweep: 17 mutants, 17 killed, nothing survived,
+both comment-only controls survived.**
+
+**And I ran that sweep twice, because the first run's tally was not trustworthy.**
+I declared the two controls with the wrong field name, so the runner never knew
+they were controls: it printed them as survivors and its own "a control that got
+killed means the control is not behaviour-free" check was switched off — the exact
+mistake this repository has written down, made again. The 17 real mutants died in
+both runs; the number above is one run's own answer.
+
+**Three older checks went red and were re-anchored rather than appeased** — two
+of them had been pinned to a byte distance and were outrun by the paragraphs
+this change added, which is the trap this repository records most often.
+
+**Not merged, not deployed** — as you said.
+
+---
+
 ## 2026-09-15 — The four you found in the agent PR, each reproduced first
 
 All four were real and none of them was cosmetic. Nothing is merged; the PR is

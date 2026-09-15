@@ -91,18 +91,43 @@ test("⚠ ONE CUSTOMER NEVER SEES ANOTHER'S AGENTS — and they are no longer de
   // absence above is about this key rather than about the list being gone.
   assert.match(wipe[1], /\bVIEW_KEY\b/, "the wipe list stopped naming anything, so this proves nothing");
 
-  // The replacement, asserted where it runs: the switch assigns, and the reader
+  // The replacement, asserted where it runs: the boot assigns, and the reader
   // filters. Either half alone is the defect back — assigning without filtering
   // shows them to everyone, filtering without assigning shows an unstamped
   // record to whoever arrives next.
-  const branch = js.slice(js.indexOf("if (prevOwner && prevOwner !== uid)"));
-  assert.match(branch.slice(0, 1800), /agentsClaimFor\(prevOwner\)/,
-    "the switch never assigns the outgoing account's records to it");
-  const reader = js.slice(js.indexOf("function agentsLocal()"));
-  assert.match(reader.slice(0, 400), /!a\.uid \|\| a\.uid === uid/,
-    "the reader does not filter by the account, so one customer sees another's");
-  assert.match(reader.slice(0, 400), /if \(!uid\) return \[\];/,
-    "a signed-out page is shown records it cannot establish an owner for");
+  //
+  // **RE-ANCHORED TWICE OVER, AND BOTH OLD ANCHORS WERE WRONG IN THE SAME WAY —
+  // they read a SPELLING.** The assign was read as the 1,800 bytes after
+  // `if (prevOwner && prevOwner !== uid)`, and a paragraph written inside that
+  // branch pushed the call past the bound (the byte-window trap, again). And the
+  // reader was pinned to `!a.uid || a.uid === uid`, which was the DEFECT itself:
+  // letting an unstamped record pass for the current account is exactly how A's
+  // agents reached B, once a sign-out had erased the marker that said they were
+  // A's. `test/agent-binding.test.mjs` drives all of it; what is read here is the
+  // structure, and the structure now has ONE ownership predicate.
+  const at = js.indexOf("const prevOwner = localStorage.getItem('zephyr_owner_v1')");
+  const end = js.indexOf("if (pendingSiteBrief)", at);
+  assert.ok(at > 0 && end > at, "the boot's ownership block moved — re-read enterApp");
+  const boot = js.slice(at, end);
+  assert.match(boot, /agentsClaimFor\(prevOwner\)/,
+    "the boot never assigns the records to the account the marker names");
+  assert.match(boot, /agentsSealUnknown\(\)/,
+    "a browser with no marker is not sealed, so its records go to whoever signs in");
+
+  // THE ONE PREDICATE, and the two ways it must fail closed.
+  const owns = /const agentOwns = ([^;]+);/.exec(js);
+  assert.ok(owns, "the one ownership test is gone");
+  assert.match(owns[1], /a\.uid === uid/, "ownership is no longer an exact match");
+  assert.ok(!/!a\.uid/.test(owns[1]),
+    "an unstamped record passes as the current account's again — that is the whole defect");
+  assert.match(owns[1], /!!uid/, "a page with nobody signed in is shown records");
+  assert.match(js.slice(js.indexOf("function agentsLocal()"), js.indexOf("function agentsLocal()") + 300),
+    /agentOwns\(a, agentUid\(\)\)/,
+    "the reader does not ask the ownership test, so one customer sees another's");
+  // AND THE IMPORT ASKS IT TOO, in the action rather than only through the list.
+  const act = js.slice(js.indexOf("async function agentImport()"));
+  assert.match(act.slice(0, act.indexOf("apiFetch(")), /if \(!agentOwns\(a, agentUid\(\)\)\) continue;/,
+    "the import can send a record the account does not own");
 
   // And the store is read defensively: a corrupt value is an empty list, never
   // a throw that takes the whole view down. RE-ANCHORED TWICE: the reader was

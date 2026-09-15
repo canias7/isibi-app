@@ -113,19 +113,31 @@ test("a retired feature's storage key is still cleared out of a browser", () => 
   const keys = [...section.matchAll(/^\| `(zephyr_[a-z_0-9]+)` \|/gm)].map((x) => x[1]);
   assert.ok(keys.length >= 4, `parsed only ${keys.length} zephyr keys from the table — has its shape changed?`);
 
-  // The two lists, found by their own landmarks rather than by line number.
-  const lists = [
-    ["the account-switch wipe", "zephyr_owner_v1', uid"],
-    ["sign-out", "async function doSignOut("],
-  ].map(([what, near]) => {
-    const i = CHAT_CODE.indexOf(near);
-    assert.ok(i > 0, `${what}'s landmark is gone — nothing is being read`);
-    // The clear list is the nearest `[ … ].forEach((k) => localStorage.removeItem(k))`.
-    const window = what === "sign-out" ? CHAT_CODE.slice(i, i + 1200) : CHAT_CODE.slice(Math.max(0, i - 1200), i);
-    const arr = /\[([^\]]*)\]\s*\n?\s*\.forEach\(\(k\) => localStorage\.removeItem\(k\)\)/.exec(window);
+  // The two lists, found from their own opening landmark.
+  //
+  // **RE-ANCHORED, NOT APPEASED, AND THE OLD ANCHOR WAS A BYTE WINDOW** — the
+  // recorded trap, in the guard that reads the file this repository keeps its
+  // reasoning in. The switch's list was read as the 1,200 bytes BEFORE
+  // `zephyr_owner_v1', uid`, and a paragraph written between the two pushed the
+  // list out of reach: the guard reported a wipe list that had not moved as gone.
+  // Each list is found from its own `[SITES_KEY,` now, and the two are told apart
+  // by where `doSignOut` begins.
+  const signOutAt = CHAT_CODE.indexOf("async function doSignOut(");
+  assert.ok(signOutAt > 0, "sign-out's landmark is gone — nothing is being read");
+  const listAfter = (from, what) => {
+    const i = CHAT_CODE.indexOf("[SITES_KEY,", from);
+    assert.ok(i > 0, `${what} no longer opens its wipe list with SITES_KEY`);
+    const arr = /^\[([^\]]*)\]\s*\n?\s*\.forEach\(\(k\) => localStorage\.removeItem\(k\)\)/
+      .exec(CHAT_CODE.slice(i));
     assert.ok(arr, `${what} no longer clears a list of keys`);
-    return [what, arr[1]];
-  });
+    return arr[1];
+  };
+  assert.ok(CHAT_CODE.indexOf("[SITES_KEY,") < signOutAt,
+    "the two wipe lists can no longer be told apart — re-read them");
+  const lists = [
+    ["the account-switch wipe", listAfter(0, "the account-switch wipe")],
+    ["sign-out", listAfter(signOutAt, "sign-out")],
+  ];
 
   // TWO KEYS ARE EXCLUDED, EACH FOR ITS OWN REASON, out loud rather than by a
   // looser assertion:
@@ -146,7 +158,24 @@ test("a retired feature's storage key is still cleared out of a browser", () => 
       }
       if (k === OWNER) {
         if (what === "sign-out") {
-          assert.ok(body.includes(k), "sign-out no longer forgets which account this browser belonged to");
+          // **THE PROPERTY MOVED AND THIS ASSERTION MOVED WITH IT.** The marker
+          // used to sit in sign-out's list, removed unconditionally — which was
+          // the finding: it is the only thing in this browser that says whose the
+          // unstamped legacy agents are, and erasing it before recording that
+          // left records nothing could place, so the next account to sign in was
+          // shown them. It is removed a few lines BELOW the list now and only
+          // once ownership has been written down, so what has to hold here is the
+          // ORDER: the claim first, the forgetting after.
+          const at = CHAT_CODE.indexOf("\n}\n", signOutAt);
+          assert.ok(at > signOutAt, "sign-out's closing brace moved — re-read it");
+          const fn = CHAT_CODE.slice(signOutAt, at);
+          assert.ok(!body.includes(k),
+            "sign-out clears the marker unconditionally again, so a refused ownership write loses it");
+          const forget = fn.indexOf(`removeItem('${k}')`);
+          const claim = fn.indexOf("agentsClaimFor(");
+          assert.ok(forget > 0, "sign-out no longer forgets which account this browser belonged to");
+          assert.ok(claim > 0, "sign-out clears the identity without recording ownership from it");
+          assert.ok(claim < forget, "sign-out forgets the account before recording what it owned");
         } else {
           assert.ok(!body.includes(k), "the account-switch wipe clears the owner key it is about to re-set");
         }

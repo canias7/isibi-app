@@ -876,9 +876,46 @@ function enterApp() {
       // stamped with it and left where they are; `agentsLocal` then shows a
       // record only to the account it belongs to, so the incoming account sees
       // nothing and the outgoing one still has everything when it comes back.
-      agentsClaimFor(prevOwner);
     }
-    try { localStorage.setItem('zephyr_owner_v1', uid); } catch {}
+    // ⚠ OWNERSHIP IS DECIDED FROM THE MARKER, AND BEFORE THE MARKER IS
+    // OVERWRITTEN. Both halves are load-bearing.
+    //
+    // `zephyr_owner_v1` is the only thing in this browser that says which
+    // account was last in it, so it is the only thing that can establish whose
+    // the unstamped legacy records are. Two cases, and they are not symmetrical:
+    //
+    //  · THERE IS A MARKER → that account owns them, whether it is the one
+    //    arriving now (the ordinary upgrade: the same person, with records
+    //    written before this code stamped anything) or a different one (the
+    //    switch above). Either way the claim takes the MARKER and never the uid
+    //    that has just arrived, so arriving is not a way to acquire anything.
+    //  · THERE IS NO MARKER → nobody can say. The records are SEALED: kept in
+    //    full and shown to no one. That is the direction that fails closed, and
+    //    it is why the seal runs ABOVE the `setItem` below — write the marker
+    //    first and the next sign-in would read it as "the same account as last
+    //    time" and hand the records to whoever happened to arrive first, one
+    //    step removed from the bug this is fixing.
+    //
+    // THE COST, SAID OUT LOUD: a browser whose last sign-out ran the old code
+    // has no marker, so anything written there is preserved and permanently
+    // hidden. The alternative is showing one person's written instructions to
+    // the next person who signs in on their machine.
+    const settled = prevOwner ? agentsClaimFor(prevOwner) : agentsSealUnknown();
+    // ⚠ AND THE MARKER NEVER MOVES AHEAD OF THE OWNERSHIP RECORD. A refused
+    // write (a full or blocked store) leaves the records unstamped, and moving
+    // the marker to the account that has just arrived would make the browser say
+    // "these belong to whoever is here now" — which is the bug, reached through
+    // a failed write instead of through a sign-out. So the marker stays where it
+    // is and the next sign-in tries again.
+    //
+    // THE COST IS A REAL ONE AND IS NOT A LEAK: while that write keeps failing,
+    // every reload reads a marker naming a different account and re-runs the
+    // cache wipe above. Those keys are caches — the sites list, the credit
+    // high-water mark, the welcome flag, the remembered view — so the price is
+    // re-fetching them, against handing one person's written instructions to the
+    // next. And the moment the store accepts a write the claim lands on the right
+    // account and the marker moves on.
+    if (settled) { try { localStorage.setItem('zephyr_owner_v1', uid); } catch {} }
   }
   // A website brief typed on the landing kicks the first build. Run it only
   // AFTER the account-switch wipe above, or it would land under the outgoing
@@ -937,11 +974,38 @@ async function doSignOut(everywhere) {
   // equivalent — a build's money is reserved and refunded server-side by the
   // queue consumer and the sweeper, which do not care whether anyone is still
   // signed in. So there is nothing to flush and nothing to claim back here.
+  //
+  // ⚠ OWNERSHIP IS RECORDED BEFORE THE IDENTITY IS CLEARED, and that order is
+  // the whole of this block. `zephyr_owner_v1` used to be wiped below with the
+  // caches, which erased the one record of whose the unstamped legacy agents
+  // were — so A could sign out, B could sign in, and B's page met records
+  // nothing could place. This is the last moment that identity exists, and
+  // therefore the last moment ownership can be written down.
+  //
+  // **THE CLAIM TAKES THE MARKER, NOT `Auth.userId()`**, and the two can
+  // disagree: `enterApp` only moves the marker once ownership is settled, so a
+  // browser whose store refused that write is signed in as B with the marker
+  // still naming A — and the unstamped records really are A's. The marker is the
+  // one authority on whose these are, everywhere. An absent marker claims
+  // nothing, which leaves the records hidden from everyone rather than given to
+  // the account that happens to be signing out.
+  let outgoing = '';
+  try { outgoing = localStorage.getItem('zephyr_owner_v1') || ''; } catch {}
+  const claimed = agentsClaimFor(outgoing);
   try {
-    [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY, 'zephyr_owner_v1',
+    [SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY,
      'zephyr_chats_v1', 'zephyr_memory_v1', 'zephyr_studio_v1',
      'zephyr_avatars_v1', 'zephyr_products_v1']
       .forEach((k) => localStorage.removeItem(k));
+    // ⚠ THE IDENTITY MARKER GOES ONLY ONCE OWNERSHIP IS WRITTEN DOWN SOMEWHERE
+    // ELSE. A refused write (a full or blocked store) means the records are
+    // still unstamped, and erasing the marker as well would throw away the only
+    // other place the answer exists — so it stays, and the next sign-in gets
+    // another go at recording it. Nothing is exposed either way: `agentOwns`
+    // wants an exact match, so an unstamped record is invisible to every
+    // account, the incoming one included. Keeping the marker preserves; the
+    // reader protects. Neither stands in for the other.
+    if (claimed) localStorage.removeItem('zephyr_owner_v1');
   } catch {}
   if (everywhere) await Auth.signOutEverywhere();
   else await Auth.signOut();
@@ -1054,47 +1118,113 @@ function agentsStored() {
     return Array.isArray(v) ? v.filter((a) => a && typeof a.id === 'string') : [];
   } catch { return []; }
 }
-/** Write the whole store back. The ONLY writer, and it never drops a record. */
+
+/**
+ * Write the whole store back, and say whether it really landed.
+ *
+ * **THE ANSWER IS READ BACK**, not inferred from `setItem` not throwing. A
+ * caller that needs to know whether ownership was recorded cannot act on a
+ * write it only hopes happened — a full or blocked store is exactly the case
+ * where the next account must not inherit anything. The ONLY writer, and it
+ * never drops a record.
+ */
 function agentsStore(list) {
-  try { localStorage.setItem(AGENTS_KEY, JSON.stringify(list)); } catch {}
+  try {
+    localStorage.setItem(AGENTS_KEY, JSON.stringify(list));
+    return localStorage.getItem(AGENTS_KEY) === JSON.stringify(list);
+  } catch { return false; }
 }
+
+/**
+ * The owner stamped on a record whose real owner can never be established.
+ *
+ * **IT IS A VALUE, NOT AN ABSENCE, and that is the whole point.** A record with
+ * no `uid` is merely unclaimed — the next thing that can establish an identity
+ * may legitimately claim it. A record stamped with this can never be claimed by
+ * anything, because no account id can equal it. It is what "we do not know, and
+ * we will never know" looks like in storage: preserved, and invisible.
+ *
+ * The `?` is what makes it safe: Supabase user ids are uuids, so no real account
+ * can collide with it however the id format changes.
+ */
+const AGENT_OWNER_UNKNOWN = '?unknown';
+
+/**
+ * ⚠ THE ONE OWNERSHIP TEST, asked by the list AND by the import.
+ *
+ * **AN EXACT MATCH, WITH NO PASS FOR AN UNSTAMPED RECORD.** It used to read
+ * `!a.uid || a.uid === uid`, on the reasoning that unstamped meant "never been
+ * through an account switch, so it can only be the current account's". That was
+ * wrong, and `doSignOut` is why: signing out ERASES `zephyr_owner_v1`, the one
+ * marker that carried the outgoing identity, so A could sign out, B could sign
+ * in, and every one of A's records read as unstamped-and-therefore-B's. B could
+ * see them and import them.
+ *
+ * So unknown ownership is HIDDEN. That fails closed in the only direction that
+ * matters: the cost of being wrong here is one person reading another's written
+ * instructions, against the cost of somebody having to write an agent again.
+ */
+const agentOwns = (a, uid) => !!uid && !!a && a.uid === uid;
 
 /**
  * The legacy records THIS account may see.
  *
- * **`uid` ABSENT MEANS "NEVER BEEN THROUGH A SWITCH", WHICH CAN ONLY BE THE
- * CURRENT ACCOUNT'S.** A record gets stamped at the one moment the outgoing
- * account is known — `enterApp`'s switch branch — so anything still unstamped
- * was written by whoever is signed in now. That is the whole ownership rule,
- * and it is a filter rather than a deletion: the other account's records are
- * still in the browser, still theirs, and invisible here.
- *
- * WITH NO SIGNED-IN ACCOUNT THIS ANSWERS NOTHING. `uid` is '' before sign-in,
- * and showing a stranger's written instructions to a signed-out page would be
- * the leak the wipe existed to prevent.
+ * One line, one rule, and the rule is `agentOwns`. It is a filter rather than a
+ * deletion: another account's records are still in the browser, still theirs,
+ * and invisible here — and so are the ones nobody can vouch for.
  */
 function agentsLocal() {
-  const uid = (window.Auth && Auth.userId) ? Auth.userId() : '';
-  if (!uid) return [];
-  return agentsStored().filter((a) => !a.uid || a.uid === uid);
+  return agentsStored().filter((a) => agentOwns(a, agentUid()));
 }
 
 /**
- * Assign every unstamped record to the account that is leaving.
+ * Record that these records belong to `owner` — an identity that is ESTABLISHED
+ * at this moment, never one that is merely present.
  *
- * Called from the account switch and nowhere else, because that is the only
- * place the outgoing identity exists. ADDITIVE: a record keeps every field it
- * had and gains one, and a record already stamped is left alone — a second
- * switch must not re-assign the first account's agents to the second.
+ * Answers whether the store now says so, because two callers act on that: sign-out
+ * keeps the outgoing identity marker when this fails, and nothing anywhere treats
+ * a failed claim as a claim.
+ *
+ * ADDITIVE, and it never re-assigns: a record that already carries an owner is
+ * left exactly as it is, so a second switch cannot hand the first account's
+ * agents to the second, and a sealed record can never be un-sealed.
  */
 function agentsClaimFor(owner) {
-  if (!owner) return;
+  if (!owner) return false;
   const list = agentsStored();
-  if (!list.some((a) => !a.uid)) return;            // nothing unclaimed
-  agentsStore(list.map((a) => (a.uid ? a : { ...a, uid: owner })));
+  if (!list.some((a) => !a.uid)) return true;       // nothing unclaimed
+  return agentsStore(list.map((a) => (a.uid ? a : { ...a, uid: owner })));
 }
 
-/** The ones not yet brought over. What the import offer counts. */
+/**
+ * Seal every unclaimed record as belonging to nobody we can name.
+ *
+ * **THIS IS WHAT STOPS UNKNOWN OWNERSHIP BEING LAUNDERED.** Without it, a
+ * browser holding unstamped records and no identity marker would write a marker
+ * for whoever signed in, and on the NEXT sign-in that marker would say "the same
+ * account as last time" — so the records would be claimed for an account that
+ * merely arrived first, one step removed. Sealing happens the first time this
+ * code meets records it cannot place, and `agentsClaimFor` never overwrites a
+ * stamp, so the seal is permanent.
+ *
+ * The records stay. Every field, every message. They are simply not shown to
+ * anyone, which is the honest rendering of "we cannot tell whose these are".
+ */
+function agentsSealUnknown() {
+  const list = agentsStored();
+  if (!list.some((a) => !a.uid)) return true;
+  return agentsStore(list.map((a) => (a.uid ? a : { ...a, uid: AGENT_OWNER_UNKNOWN })));
+}
+
+/**
+ * The ones not yet brought over: what the OFFER counts.
+ *
+ * It is not what `agentImport` iterates, and that is deliberate. This decides
+ * whether to draw a line and a button; the action asks `agentOwns` itself, of
+ * each record, at the moment it would be sent. One predicate, two questions —
+ * "what may I show" and "may I send this" — so a later change to how the list
+ * is computed cannot become a change to what leaves the browser.
+ */
 const agentsToImport = () => agentsLocal().filter((a) => !a.imported);
 
 /**
@@ -1587,22 +1717,50 @@ async function agentSave() {
  * **NOTHING LOCAL IS DELETED, EVER**, and a failure stops where it is and says
  * how far it got. The ones that did not come over are still in the browser and
  * still offered.
+ *
+ * **AND ONLY THIS ACCOUNT'S RECORDS ARE SENT**, asked per record below rather
+ * than inherited from whatever the screen last drew.
  */
 async function agentImport() {
-  const pending = agentsToImport();
+  // ⚠ THE ACTION READS THE STORE, NOT THE OFFER. What the list drew is what
+  // somebody was OFFERED; this is what gets SENT, and the two are different
+  // questions with different consequences — the first is what a person can see,
+  // the second is another account's written instructions copied into this one
+  // for good. So the ownership test below is asked HERE, of every record, at the
+  // point its request is built, and it is the only thing standing between this
+  // loop and a record it may not have.
+  const pending = agentsStored().filter((a) => !a.imported);
   if (!pending.length) return;
   const bound = agentBind();
   agentBusy = true; agentActErr = ''; renderAgents();
   let done = 0;
   for (const a of pending) {
-    // **THERE IS ONE ACCOUNT CHECK IN THIS LOOP, NOT TWO, AND THAT IS MEASURED
-    // RATHER THAN ASSUMED.** A check here at the top looks like a second wall
-    // and cannot be one: nothing between the previous iteration's check and this
-    // point awaits, so the account cannot change in between and the two can
-    // never disagree. A sweep caught it as a survivor — a mutant deleting it
-    // changed no result — and the honest answer to a wall nobody can drive is to
-    // keep the one that can. It is BELOW the request, where the account really
-    // can have changed while the answer was in the air.
+    // **THE BINDING CHECK IS ASKED ONCE IN THIS LOOP, NOT TWICE, AND THAT IS
+    // MEASURED RATHER THAN ASSUMED.** `bound.uid !== agentUid()` at the top of
+    // an iteration looks like a second wall and cannot be one: nothing between
+    // the previous iteration's check and this point awaits, so the account
+    // cannot change in between and the two can never disagree. A sweep caught it
+    // as a survivor — a mutant deleting it changed no result — and the honest
+    // answer to a wall nobody can drive is to keep the one that can. It is BELOW
+    // the request, where the account really can have changed while the answer
+    // was in the air.
+    //
+    // THE OWNERSHIP TEST BELOW IS NOT THAT CHECK AND IS NOT REDUNDANT WITH IT.
+    // The binding check asks whether the account has changed SINCE THE PRESS;
+    // this asks whether the record belongs to the account AT ALL. Signed in as B
+    // with A's records in the browser, the binding check is satisfied from the
+    // first line to the last — nothing changed — and it is the ownership test
+    // that refuses. Measured: removing it sends A's record under B.
+    // ⚠ THE OWNERSHIP TEST, ASKED OF THIS RECORD, AGAINST THE ACCOUNT THAT
+    // WOULD MAKE THE REQUEST. `agentOwns` is the same predicate the list asks;
+    // what differs is the question, which is why this is not a second copy of
+    // anything: the list asks "what may I show", this asks "may I send THIS".
+    //
+    // SILENT, DELIBERATELY. Saying "skipped 2 that aren't yours" would tell the
+    // person at this screen that another account has records in this browser,
+    // which is the one thing the filter exists to prevent. The count at the end
+    // is about their own records and stays honest.
+    if (!agentOwns(a, agentUid())) continue;
     const name = String(a.name || '').trim().slice(0, AGENT_NAME_MAX);
     const instructions = String(a.instructions || '').trim().slice(0, AGENT_MAX);
     // A local record too broken to describe is SKIPPED AND SAID, never sent as
