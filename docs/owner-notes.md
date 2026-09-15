@@ -9833,7 +9833,11 @@ Pass 2: **28 of 28 killed, nothing survived, both no-op controls survived.**
 - **CI read it and it's green** — `unit tests` run 2594, `6491 tests / 6488
   pass / 0 fail / 3 skipped`. The three skips are the usual environment ones,
   not a smaller suite; locally they run, which is why the number to compare is
-  the total. `site build` fired too (this change touches `worker.js` and
-  `builder/`), and I'll report that separately.
+  the total.
+- **And the container harness is green too** — `site build` run 1147, all twenty
+  steps, `site-build.mjs` **382 passed / 0 failed** in 17m11s. That's the eighth
+  independent run to answer 382. It fired because this change touches
+  `worker.js` and `builder/`, which is what the harness is for: it compiles and
+  serves a real site, which the unit suite structurally cannot.
 
 The `search_path` review stays queued, as you asked.

@@ -4765,6 +4765,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   own log by bounding each `N passed` to its own `##[group]`, because a forward
   search from a step marker picks up the NEXT step's count and silently
   mis-attributes it (measured: four steps all reported 29 that way).
+  **AND RUN 1147 READ IT AN EIGHTH TIME (2026-09-15 22:24:15→22:47:54Z on
+  `82e3c885`, the three reporting cases, ALL TWENTY STEPS GREEN):
+  `site-build.mjs` `382 passed, 0 failed` in 17m11s**, with kit-typecheck 4,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47 beside it — every count bounded to its own `##[group]`.
+  **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23**: three of them are
+  GitHub's automatic post-steps (numbered 39–41), so `len(steps)` is not the
+  step count this line means — checked rather than "corrected", because the
+  phrasing was right and a number moved for the wrong reason is still a wrong
+  number.
   The unit suite is **6,491** (2026-09-15, local — the three reporting cases the
   hand-off/implementation split left open, whose new cases are all
   `addon-route`'s **four** (55 → 59: the mixed-success function step, the reuse
