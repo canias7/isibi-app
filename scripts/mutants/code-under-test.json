@@ -1,0 +1,252 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the pre-flight's decision",
+    "control": true,
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": " * EVERY REASON NOT TO SPEND, as a pure list — `[]` means go.",
+    "to": " * EVERY REASON NOT TO SPEND, as a pure list — an empty one means go."
+  },
+  {
+    "label": "CONTROL 2: a comment only, at the call site",
+    "control": true,
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  // BEFORE THE BROWSER, THE BALANCE OR THE FIRST POST — a refusal here has",
+    "to": "  // AHEAD OF THE BROWSER, THE BALANCE AND THE FIRST POST — a refusal here has"
+  },
+  {
+    "label": "the two readers may disagree — a run mid-roll spends against whichever half answered",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (deploy && runtimeDeploy && deploy !== runtimeDeploy) {",
+    "to": "  if (false && deploy && runtimeDeploy && deploy !== runtimeDeploy) {"
+  },
+  {
+    "label": "the disagreement is only asked when an expectation was given, so a settled-looking run mid-roll passes",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (deploy && runtimeDeploy && deploy !== runtimeDeploy) {",
+    "to": "  if (expectDeploy && deploy && runtimeDeploy && deploy !== runtimeDeploy) {"
+  },
+  {
+    "label": "cannot-tell reads as a match: an empty deploy satisfies the expectation",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const ok = !!b && a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));",
+    "to": "    const ok = !b || (a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a)));"
+  },
+  {
+    "label": "the seven-character floor goes, so a three-character expectation matches a third of every sha",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const ok = !!b && a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));",
+    "to": "    const ok = !!b && (a.startsWith(b) || b.startsWith(a));"
+  },
+  {
+    "label": "the prefix is one-directional, so a full-sha expectation against a short answer refuses",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const ok = !!b && a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));",
+    "to": "    const ok = !!b && a.length >= 7 && b.length >= 7 && a.startsWith(b);"
+  },
+  {
+    "label": "the deploy expectation is never checked at all",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (!ok) no.push(`worker deploy is ${b || \"(cannot tell)\"}, expected ${a}`);",
+    "to": "    if (false) no.push(`worker deploy is ${b || \"(cannot tell)\"}, expected ${a}`);"
+  },
+  {
+    "label": "the deploy refusal names neither value, so a person cannot see which way it is wrong",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (!ok) no.push(`worker deploy is ${b || \"(cannot tell)\"}, expected ${a}`);",
+    "to": "    if (!ok) no.push(`worker deploy does not match`);"
+  },
+  {
+    "label": "cannot-tell reads as a value in the deploy refusal's own words",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (!ok) no.push(`worker deploy is ${b || \"(cannot tell)\"}, expected ${a}`);",
+    "to": "    if (!ok) no.push(`worker deploy is ${b}, expected ${a}`);"
+  },
+  {
+    "label": "the image expectation is never checked, so the container half is unverified",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (String(image) !== String(expectImage)) no.push(`container image is ${image || \"(cannot tell)\"}, expected ${expectImage}`);",
+    "to": "    if (false) no.push(`container image is ${image || \"(cannot tell)\"}, expected ${expectImage}`);"
+  },
+  {
+    "label": "the image is matched by prefix, so half a hash is read as the whole one",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (String(image) !== String(expectImage)) no.push(`container image is ${image || \"(cannot tell)\"}, expected ${expectImage}`);",
+    "to": "    if (!String(expectImage).startsWith(String(image))) no.push(`container image is ${image || \"(cannot tell)\"}, expected ${expectImage}`);"
+  },
+  {
+    "label": "an unstamped image reads as a match: cannot-tell becomes go",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (String(image) !== String(expectImage)) no.push(`container image is ${image || \"(cannot tell)\"}, expected ${expectImage}`);",
+    "to": "    if (image && String(image) !== String(expectImage)) no.push(`container image is ${image || \"(cannot tell)\"}, expected ${expectImage}`);"
+  },
+  {
+    "label": "the image refusal names neither value",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (String(image) !== String(expectImage)) no.push(`container image is ${image || \"(cannot tell)\"}, expected ${expectImage}`);",
+    "to": "    if (String(image) !== String(expectImage)) no.push(`container image does not match`);"
+  },
+  {
+    "label": "a refusal prints and the run carries on spending",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    console.error(\"Nothing was charged. Wait for the roll, or correct the expectation.\");\n    process.exit(1);",
+    "to": "    console.error(\"Nothing was charged. Wait for the roll, or correct the expectation.\");"
+  },
+  {
+    "label": "the pre-flight runs after the browser and the balance — a refusal over a run already under way",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  await whichCode(TOKEN);\n  await openBrowser();\n  const start = await balance();",
+    "to": "  await openBrowser();\n  const start = await balance();\n  await whichCode(TOKEN);"
+  },
+  {
+    "label": "the pre-flight is never called: the decision is perfect and unreachable",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  await whichCode(TOKEN);\n",
+    "to": ""
+  },
+  {
+    "label": "the second reader of the deploy goes, so a roll in flight cannot be seen",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const rt = await call(\"GET\", `/api/site/runtime?slug=${encodeURIComponent(SLUG)}`, { token });",
+    "to": "  const rt = { json: null };"
+  },
+  {
+    "label": "the container's cold-start image is never asked for",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const h = await call(\"GET\", \"/api/site/build-health\", { token });",
+    "to": "  const h = { json: null, status: 0 };"
+  },
+  {
+    "label": "the workflow stops forwarding the deploy expectation",
+    "files": [
+      ".github/workflows/lane-sweep.yml"
+    ],
+    "from": "          SWEEP_EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}\n",
+    "to": ""
+  },
+  {
+    "label": "the workflow stops forwarding the image expectation",
+    "files": [
+      ".github/workflows/lane-sweep.yml"
+    ],
+    "from": "          SWEEP_EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}\n",
+    "to": ""
+  },
+  {
+    "label": "the workflow offers no image box, so the container half can never be demanded",
+    "files": [
+      ".github/workflows/lane-sweep.yml"
+    ],
+    "from": "      expect_image:\n        description:",
+    "to": "      expectimage:\n        description:"
+  },
+  {
+    "label": "the build-route ban is back to the bare prefix, so the health probe reads as the paid route",
+    "files": [
+      "test/addon-sweep.test.mjs"
+    ],
+    "from": "  const NEVER = /react-build|react-revise|\\/api\\/site\\/build(?![-\\w])/;",
+    "to": "  const NEVER = /react-build|react-revise|\\/api\\/site\\/build/;"
+  },
+  {
+    "label": "the build-route ban stops catching the route it exists for",
+    "files": [
+      "test/addon-sweep.test.mjs"
+    ],
+    "from": "  const NEVER = /react-build|react-revise|\\/api\\/site\\/build(?![-\\w])/;",
+    "to": "  const NEVER = /react-build|react-revise|\\/api\\/site\\/build-health-only/;"
+  },
+  {
+    "label": "the refusal list is computed and never looked at — the recorded wiring trap, in the wall itself",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (no.length) {\n    console.error(\"\\nREFUSING TO SPEND",
+    "to": "  if (false) {\n    console.error(\"\\nREFUSING TO SPEND"
+  },
+  {
+    "label": "the caller's demand never reaches the decision: the spread is dropped",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "codeRefusals({ deploy, image, runtimeDeploy: runtime.deploy, ...want });",
+    "to": "codeRefusals({ deploy, image, runtimeDeploy: runtime.deploy });"
+  },
+  {
+    "label": "the pre-flight reads a frozen empty environment, so no box can ever be set",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const want = expectedCode(process.env);",
+    "to": "  const want = expectedCode({});"
+  },
+  {
+    "label": "the deploy expectation is read from a name the workflow does not send",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    expectDeploy: String(env.SWEEP_EXPECT_DEPLOY || \"\").trim(),",
+    "to": "    expectDeploy: String(env.SWEEP_EXPECTED_DEPLOY || \"\").trim(),"
+  },
+  {
+    "label": "the image expectation is read from a name the workflow does not send",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    expectImage: String(env.SWEEP_EXPECT_IMAGE || \"\").trim().toLowerCase(),",
+    "to": "    expectImage: String(env.SWEEP_EXPECTED_IMAGE || \"\").trim().toLowerCase(),"
+  },
+  {
+    "label": "a pasted expectation keeps its whitespace, so a trailing newline refuses a matching build",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    expectDeploy: String(env.SWEEP_EXPECT_DEPLOY || \"\").trim(),",
+    "to": "    expectDeploy: String(env.SWEEP_EXPECT_DEPLOY || \"\"),"
+  },
+  {
+    "label": "an image id pasted in capitals is not folded, so it never matches the answer",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    expectImage: String(env.SWEEP_EXPECT_IMAGE || \"\").trim().toLowerCase(),",
+    "to": "    expectImage: String(env.SWEEP_EXPECT_IMAGE || \"\").trim(),"
+  }
+]

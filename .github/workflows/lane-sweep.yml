@@ -66,6 +66,14 @@ on:
         description: 'Stop before any lane or case once this many credits have gone'
         required: false
         default: '80'
+      expect_deploy:
+        description: 'addon harness only: the deploy sha the Worker MUST be on, or the run refuses before spending. Elapsed time after a merge is not evidence that the code under test is the code answering; this is. A short sha (7+) is matched as a prefix.'
+        required: false
+        default: ''
+      expect_image:
+        description: 'addon harness only: the 16-hex container image id a COLD START must get, or the run refuses before spending. The Worker and the container roll separately, so the two expectations are separate — and an `unstamped` or unreadable answer refuses too, because cannot-tell must never read as a match.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -110,6 +118,8 @@ jobs:
           SWEEP_SLUG: ${{ github.event.inputs.site }}
           SWEEP_PICKER: ${{ github.event.inputs.picker }}
           SWEEP_BUDGET: ${{ github.event.inputs.budget }}
+          SWEEP_EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
+          SWEEP_EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}
           GAP_CASES: ${{ github.event.inputs.lanes }}
           GAP_SLUG: ${{ github.event.inputs.site }}
           GAP_DB_SLUG: ${{ github.event.inputs.dbsite }}

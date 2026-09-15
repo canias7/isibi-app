@@ -737,6 +737,115 @@ async function shot(url, file) {
   } catch (e) { console.log(`   (screenshot failed: ${String(e && e.message).slice(0, 80)})`); return ""; }
 }
 
+/**
+ * WHICH CODE THE CALLER DEMANDED, read off the environment.
+ *
+ * Owner, 2026-09-15: *"Verify that both the Worker and the container executing
+ * the test use the merged changes. Elapsed rollout time alone is insufficient
+ * evidence."* Set either and a mismatch refuses BEFORE the first credit.
+ *
+ * ITS OWN FUNCTION, TAKING THE ENVIRONMENT, so the hop from a box on a form to
+ * the decision that spends money can be DRIVEN. As two module constants it was
+ * exactly the shape this repository has shipped twelve dead features in — a
+ * value read correctly and never forwarded — and a sweep proved it: two mutants
+ * cutting the expectations out of the call survived every guard, because a
+ * constant handed over or not handed over looks identical from outside.
+ *
+ * ONE READER OF THE PAIR, so a renamed variable cannot leave a second copy
+ * reading a name the workflow stopped sending.
+ */
+export function expectedCode(env = {}) {
+  return {
+    expectDeploy: String(env.SWEEP_EXPECT_DEPLOY || "").trim(),
+    // LOWERCASED, because an image id is sixteen hex characters and a person
+    // pasting one off a deploy log may bring capitals with it; the answer side
+    // is lowercased to match, so the comparison is about the id and not the
+    // keyboard.
+    expectImage: String(env.SWEEP_EXPECT_IMAGE || "").trim().toLowerCase(),
+  };
+}
+
+/**
+ * EVERY REASON NOT TO SPEND, as a pure list — `[]` means go.
+ *
+ * SPLIT OUT FROM THE I/O DELIBERATELY. The one branch that matters most here
+ * is the one that costs money when it is wrong, and a decision reachable only
+ * through two authenticated routes and a live container is a decision nobody
+ * can drive: this repository's own recorded "a wall nobody can drive is a wall
+ * nobody is guarding". The wrapper fetches and prints; this decides.
+ *
+ * `deploy` and `image` are what the platform ANSWERED (each `""` when it could
+ * not tell), `runtimeDeploy` is the second reader's answer, and the two
+ * `expect*` are what the caller demanded.
+ */
+export function codeRefusals({ deploy = "", image = "", runtimeDeploy = "", expectDeploy = "", expectImage = "" } = {}) {
+  const no = [];
+  // THE TWO READERS MUST AGREE. `build-health` and `runtime` each read
+  // `deployIdOf(env)` from their own isolate; a disagreement means a deploy is
+  // rolling underneath, and the honest answer to "which code" is "both".
+  // Checked WITHOUT an expectation too — it is a fact about the platform, not
+  // about what this caller wanted.
+  if (deploy && runtimeDeploy && deploy !== runtimeDeploy) {
+    no.push(`the two routes disagree about the deploy (${deploy} vs ${runtimeDeploy}) — a roll is in flight`);
+  }
+  if (expectDeploy) {
+    // A PREFIX IS ALLOWED so a short sha works, bounded at 7 either way so it
+    // cannot be a coincidence. An empty answer is a REFUSAL, never a pass:
+    // cannot-tell must never read as a match.
+    const a = String(expectDeploy), b = String(deploy);
+    const ok = !!b && a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));
+    if (!ok) no.push(`worker deploy is ${b || "(cannot tell)"}, expected ${a}`);
+  }
+  if (expectImage) {
+    // EXACT, because the id IS sixteen hex characters: a prefix of a hash is
+    // not a weaker claim, it is a different one. `unstamped` arrives here as
+    // "" through `healthImage`, and refuses.
+    if (String(image) !== String(expectImage)) no.push(`container image is ${image || "(cannot tell)"}, expected ${expectImage}`);
+  }
+  return no;
+}
+
+// ── WHICH CODE IS ANSWERING, ASKED BEFORE ANYTHING IS SPENT ────────────────
+//
+// **TWO HALVES, AND A ROLLOUT MOVES THEM SEPARATELY.** The Worker is its
+// `DEPLOY_ID` — the deploy's own sha — and the container is the image id its
+// `/health` line stamps, which only a COLD START reads. A run that reads one
+// and assumes the other is the recorded "a rule true because of a layer below
+// it": the Worker can be new while an instance started seconds earlier is
+// still on the previous image. `/api/site/build-health` answers BOTH in one
+// call, which is why it is the instrument and a clock is not.
+//
+// **CANNOT-TELL IS A REFUSAL, NEVER A MATCH.** An `unstamped` image, a route
+// that failed, an empty sha — each reads as "do not spend" when an expectation
+// was given. The wrong direction here is the expensive one: a run against the
+// PREVIOUS build produces a complete, plausible, green-looking result about
+// code that is not under test, and nothing downstream can tell.
+//
+// With no expectation set it still PRINTS both, so every run's own log records
+// which code answered it rather than leaving that to be inferred later.
+async function whichCode(token) {
+  const h = await call("GET", "/api/site/build-health", { token });
+  const rt = await call("GET", `/api/site/runtime?slug=${encodeURIComponent(SLUG)}`, { token });
+  const health = h.json || {};
+  const runtime = rt.json || {};
+  const image = String(health.image || "").toLowerCase();
+  const deploy = String(health.deploy || "");
+  console.log(`worker deploy: ${deploy || "(none)"}  [build-health ${h.status}]`);
+  console.log(`container image (cold start, lane ${health.lane || "?"}): ${image || "(cannot tell)"}  health=${JSON.stringify(health.body || "")} in ${health.ms}ms`);
+  console.log(`runtime for ${SLUG}: deploy=${runtime.deploy || "(none)"} runner=${runtime.runner} async=${runtime.async}  [${rt.status}]`);
+
+  const want = expectedCode(process.env);
+  const no = codeRefusals({ deploy, image, runtimeDeploy: runtime.deploy, ...want });
+  if (no.length) {
+    console.error("\nREFUSING TO SPEND — the code answering is not the code under test:");
+    for (const line of no) console.error(`  - ${line}`);
+    console.error("Nothing was charged. Wait for the roll, or correct the expectation.");
+    process.exit(1);
+  }
+  if (want.expectDeploy || want.expectImage) console.log("the code under test is the code answering — proceeding\n");
+  else console.log("");
+}
+
 // ── RUN ────────────────────────────────────────────────────────────────────
 async function main() {
   if (!confirmed(process.env.SWEEP_CONFIRM)) { console.error("SWEEP_CONFIRM must be the word `spend` — this harness costs real credits on a live site."); process.exit(1); }
@@ -765,6 +874,10 @@ async function main() {
 
   console.log(`signed in as ${(session.user || {}).email}  site=${SLUG}  picker=${PICKER}  budget=${BUDGET}`);
   console.log(`cases: ${names.join(", ")}\n`);
+  // BEFORE THE BROWSER, THE BALANCE OR THE FIRST POST — a refusal here has
+  // spent nothing, which is the only reason it can be a refusal rather than a
+  // warning printed over a run already under way.
+  await whichCode(TOKEN);
   await openBrowser();
   const start = await balance();
   console.log(`balance at start: ${start}\n`);

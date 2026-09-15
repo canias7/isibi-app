@@ -1166,6 +1166,46 @@ Every one of these is free and reads off a stored row.
   `ok <templateId> <imageId>`, and an unstamped image says `unstamped` rather
   than guessing.
 
+**A PAID HARNESS RUN REFUSES TO SPEND AGAINST THE WRONG BUILD (2026-09-15,
+owner: *"Verify that both the Worker and the container executing the test use
+the merged changes. Elapsed rollout time alone is insufficient evidence."*).**
+`scripts/addon-sweep.mjs` asks `/api/site/build-health` (the Worker's
+`DEPLOY_ID` **and** the container's cold-start image, in one call) plus
+`/api/site/runtime` as a second reader, **before the browser, the balance or
+the first post** — a refusal there has spent nothing, which is the only reason
+it can be a refusal rather than a warning printed over a run already under way.
+`expect_deploy` and `expect_image` on `lane-sweep.yml`'s form are the demands.
+
+- **TWO HALVES, AND A ROLLOUT MOVES THEM SEPARATELY** — the Worker can be new
+  while an instance started seconds earlier is still on the previous image, so
+  the two expectations are two, not one.
+- **CANNOT-TELL IS A REFUSAL, NEVER A MATCH.** `unstamped` arrives as `""`
+  through `healthImage` and refuses; so does a route that failed. The wrong
+  direction is the expensive one — a run against the PREVIOUS build produces a
+  complete, plausible, green-looking result about code that is not under test.
+- **A SHA MATCHES BY PREFIX, FLOORED AT 7 ON BOTH SIDES; AN IMAGE ID MATCHES
+  WHOLE.** A prefix of a hash is not a weaker claim, it is a different one.
+- **THE TWO READERS MUST AGREE, and that is asked with no expectation set** — a
+  disagreement means a roll is in flight, which is a fact about the platform
+  rather than about what the caller wanted.
+- **`codeRefusals` AND `expectedCode` ARE PURE AND EXPORTED** because the
+  wrapper needs two authenticated routes and a cold container: "a wall nobody
+  can drive is a wall nobody is guarding", in the branch whose wrong answer
+  costs credits. **The env pair was two module constants until a sweep killed
+  it** — two mutants cutting the expectations out of the call SURVIVED every
+  guard, since a constant handed over and one not handed over look identical
+  from outside. `expectedCode(env)` makes that hop drivable; the census reads
+  the workflow's own forwarding lines and requires the two name sets equal
+  **both ways**.
+  **Sweep: 29 mutants, 29 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived** (3 survived the first pass and all three were this hop).
+  **One older guard was re-anchored, not appeased**: the ban on the harness
+  reaching the build route was the bare prefix `/api/site/build`, which
+  `/api/site/build-health` contains — the recorded "a needle that can match a
+  LONGER NAME cannot prove a class", met from the forbidding side, reporting a
+  free read-only probe as the paid route that makes a whole site. It ends at a
+  path boundary now and the observer is proved alive in both directions.
+
 **THE FINISHED ANSWER WAKES ITS OWN COLLECTOR.** `/api/site/genresult` enqueues
 the collector the moment it stores the answer, after the release and only for a
 report whose binding was proved. Before that, ~253 seconds of every build were
@@ -3272,7 +3312,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   harness timings, 17m46s against 11m33s on trees that differ by four files,
   are the same lesson the image-step band records: **the runner decides, and no
   inference from the diff to the duration is available.**
-  The unit suite is **6,381** (2026-09-14, local — the five bounded fixes and the
+  The unit suite is **6,387** (2026-09-15, local — the rollout pre-flight, whose
+  new cases are `addon-sweep`'s **six**: a matching pair and a short sha by
+  prefix, a mismatch on either half, cannot-tell refusing with the `unstamped`
+  case taken from `healthImage` itself, the two readers' disagreement asked with
+  no expectation set, `expectedCode` over the environment with the name census
+  both ways, and the pre-flight's own position and wiring; 6,381 + 6 closes
+  exactly. **One re-anchor added assertions, not a case.** CI has NOT read this
+  number yet.
+  **6,381** before it (2026-09-14, local — the five bounded fixes and the
   audit-wording correction, whose new cases are `addon-route`'s **seven** (a
   missing page named plus its control, page `reached`, component `changed`, page
   `unexpressed`, the multi-page `no-page` refusal, an unknown kit name dropped
@@ -3289,7 +3337,7 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   # skipped 3`**, against local `# tests 6381 / # pass 6381 / # skipped 0`. The
   three are environment skips, not a smaller suite, which is why the number to
   carry is the TOTAL and why quoting a `pass` count alone drifts between the two
-  machines.
+  machines.)
   **6,363** before it, the four outstanding fixes,
   whose new cases are `addon-route`'s **eight**: the five demonstrations the
   owner named (malformed privacy, explicit `definer: false`, public versus

@@ -4,7 +4,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines } from "../scripts/addon-sweep.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
+import { healthImage } from "../builder/build-lane.mjs";
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer, MAX_MESSAGE } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
@@ -251,7 +252,21 @@ test("the harness posts to the addon route, follows one hop to the edit route, a
   // time is read in it, and the site is in Sheffield.
   assert.match(SRC, /body: \{ instruction: c\.ask, picker: PICKER, idem: hex32\(\), tz: "Europe\/London" \}/, "the addon post does not carry the owner's zone");
   assert.match(SRC, /\/api\/site\/\$\{encodeURIComponent\(SLUG\)\}\/edit/, "the hop does not land on the edit route");
-  assert.ok(!/react-build|react-revise|\/api\/site\/build/.test(SRC), "the harness reaches for the build route");
+  // RE-ANCHORED, NOT APPEASED (2026-09-15). The needle was the bare prefix
+  // `/api/site/build`, and `/api/site/build-health` — the free, read-only
+  // cold-start image probe the pre-flight reads — contains it. That is this
+  // file's own recorded trap, "a needle that can match a LONGER NAME cannot
+  // prove a class", met from the forbidding side: the ban was reporting a
+  // diagnostic as the paid route that makes a whole site. The PROPERTY is the
+  // build route itself, so the path must END there.
+  const NEVER = /react-build|react-revise|\/api\/site\/build(?![-\w])/;
+  assert.ok(!NEVER.test(SRC), "the harness reaches for the build route");
+  // AND THE OBSERVER IS PROVED ALIVE, in both directions — a ban nobody can
+  // trip is a ban nobody is enforcing, and the whole reason this one moved is
+  // that it was matching the wrong thing.
+  assert.ok(NEVER.test('call("POST", "/api/site/build", {'), "the ban no longer catches the build route it exists for");
+  assert.ok(NEVER.test("/api/site/react-build"), "the ban no longer catches the react build route");
+  assert.ok(!NEVER.test('call("GET", "/api/site/build-health", { token })'), "the ban still reads the health probe as the build route");
   // The hop is gated on the case AND on the reply naming that layer.
   assert.match(SRC, /if \(c\.hop && body\.escalate === true && body\.layer === c\.hop\)/, "the hop is not gated on the reply naming the case's layer");
   // A claimed publish waits for the build id to move; a refusal is read at
@@ -713,4 +728,179 @@ test("the coverage record reaches the developer, line by line", () => {
   }
   assert.match(SRC, /if \(c\.freeText\) for \(const line of askLines\(ans, extra\.askKinds\)\) console\.log\(line\);/,
     "the record block prints inline again");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHICH CODE IS ANSWERING, ASKED BEFORE ANYTHING IS SPENT (2026-09-15)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Owner: *"Verify that both the Worker and the container executing the test use
+// the merged changes. Elapsed rollout time alone is insufficient evidence."*
+//
+// The decision was SPLIT OUT of the fetching wrapper precisely so it could be
+// driven — reachable only through two authenticated routes and a live cold
+// container, it was this repository's recorded "a wall nobody can drive is a
+// wall nobody is guarding", in the one branch whose wrong answer costs credits
+// AND produces a complete, plausible, green-looking result about code that is
+// not under test.
+
+test("a matching pair spends, and a short sha matches by prefix", () => {
+  const sha = "3d7acaf5e1b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0";
+  const img = "16cb42353dc4a343";
+  assert.deepEqual(codeRefusals({ deploy: sha, image: img, runtimeDeploy: sha, expectDeploy: sha, expectImage: img }), [],
+    "an exact match on both halves is refusing to spend");
+  // A SHORT SHA IS WHAT A PERSON TYPES INTO THE FORM. Either side may be the
+  // shorter one — the answer is the full sha and the expectation is usually the
+  // seven characters off a PR page, but a workflow that starts binding the full
+  // one must not become a refusal.
+  assert.deepEqual(codeRefusals({ deploy: sha, runtimeDeploy: sha, expectDeploy: "3d7acaf" }), []);
+  assert.deepEqual(codeRefusals({ deploy: "3d7acaf", runtimeDeploy: "3d7acaf", expectDeploy: sha }), []);
+  // AND SEVEN IS A FLOOR ON BOTH SIDES, or a three-character expectation
+  // matches a third of every sha there is by coincidence.
+  assert.equal(codeRefusals({ deploy: sha, expectDeploy: "3d7" }).length, 1,
+    "a prefix too short to be evidence is being read as a match");
+  assert.equal(codeRefusals({ deploy: "3d7", expectDeploy: sha }).length, 1,
+    "an answer too short to be evidence is being read as a match");
+});
+
+test("a mismatch on either half refuses, and names which half and both values", () => {
+  const sha = "3d7acaf5", other = "a4d0f5e5";
+  const img = "16cb42353dc4a343", was = "e35d9f28b49f5f2c";
+  // THE WORKER HALF.
+  const d = codeRefusals({ deploy: other, image: img, expectDeploy: sha, expectImage: img });
+  assert.equal(d.length, 1, JSON.stringify(d));
+  assert.match(d[0], /worker deploy/, "the refusal does not say which half disagreed");
+  assert.ok(d[0].includes(other) && d[0].includes(sha), "the refusal does not name both values: " + d[0]);
+  // THE CONTAINER HALF, which is the one a clock gets wrong: the Worker rolls
+  // first and an instance started seconds later is still on the old image.
+  const i = codeRefusals({ deploy: sha, image: was, expectDeploy: sha, expectImage: img });
+  assert.equal(i.length, 1, JSON.stringify(i));
+  assert.match(i[0], /container image/, "the refusal does not say which half disagreed");
+  assert.ok(i[0].includes(was) && i[0].includes(img), "the refusal does not name both values: " + i[0]);
+  // BOTH AT ONCE ARE BOTH SAID — a person reading one line and fixing it would
+  // otherwise buy a second run to be told about the other.
+  assert.equal(codeRefusals({ deploy: other, image: was, expectDeploy: sha, expectImage: img }).length, 2);
+  // AN IMAGE ID IS MATCHED WHOLE. A prefix of a hash is not a weaker claim, it
+  // is a different one; the ids are sixteen hex characters by construction.
+  assert.equal(codeRefusals({ image: img, expectImage: img.slice(0, 8) }).length, 1,
+    "half an image id is being read as a match");
+});
+
+test("cannot-tell refuses, and the `unstamped` case is taken from the real reader", () => {
+  // THE RECORDED RULE, in the branch where being wrong is expensive: an
+  // `unstamped` image, a route that failed, an absent sha — each is "do not
+  // spend", never "close enough". DERIVED from `healthImage` rather than typed,
+  // because what an unstamped container really produces here is that reader's
+  // answer and a second copy of it would drift.
+  const unstamped = healthImage("ok tmpl-7 unstamped");
+  assert.equal(unstamped, "", "healthImage no longer answers empty for an unstamped image — this case is asserting nothing");
+  const no = codeRefusals({ deploy: "3d7acaf5", image: unstamped, expectDeploy: "3d7acaf5", expectImage: "16cb42353dc4a343" });
+  assert.equal(no.length, 1);
+  assert.match(no[0], /cannot tell/, "an unreadable image reads as a value: " + no[0]);
+  // A ROUTE THAT ANSWERED NOTHING AT ALL is the same reading, both halves.
+  assert.match(codeRefusals({ expectDeploy: "3d7acaf5" })[0], /cannot tell/);
+  assert.match(codeRefusals({ expectImage: "16cb42353dc4a343" })[0], /cannot tell/);
+  // AND THE STAMPED ANSWER THE SAME READER PRODUCES IS A MATCH, which is the
+  // control without which every case above passes for the wrong reason.
+  assert.deepEqual(codeRefusals({ image: healthImage("ok tmpl-7 16cb42353dc4a343"), expectImage: "16cb42353dc4a343" }), []);
+});
+
+test("the two readers of the deploy must agree, and that is asked with no expectation set", () => {
+  // `build-health` and `runtime` each read `deployIdOf(env)` out of their own
+  // isolate. A disagreement means a roll is in flight and the honest answer to
+  // "which code is answering" is "both" — a fact about the platform, not about
+  // what this caller wanted, so it is asked whether or not an expectation was
+  // given.
+  const split = codeRefusals({ deploy: "3d7acaf5", runtimeDeploy: "a4d0f5e5" });
+  assert.equal(split.length, 1, "a run mid-roll is being allowed to spend");
+  assert.match(split[0], /roll is in flight/, split[0]);
+  assert.ok(split[0].includes("3d7acaf5") && split[0].includes("a4d0f5e5"), "the refusal does not name both answers");
+  // ONE READER THAT COULD NOT TELL IS NOT A DISAGREEMENT — it is the absence of
+  // a second opinion, and with no expectation set there is nothing to refuse.
+  assert.deepEqual(codeRefusals({ deploy: "3d7acaf5", runtimeDeploy: "" }), []);
+  assert.deepEqual(codeRefusals({ deploy: "", runtimeDeploy: "a4d0f5e5" }), []);
+  // AND A RUN THAT DEMANDED NOTHING AND SAW A SETTLED PLATFORM SPENDS. Every
+  // run before today gave no expectation, and none of them may start refusing.
+  assert.deepEqual(codeRefusals({ deploy: "3d7acaf5", image: "16cb42353dc4a343", runtimeDeploy: "3d7acaf5" }), []);
+  assert.deepEqual(codeRefusals({}), []);
+  assert.deepEqual(codeRefusals(), [], "a call with no argument throws rather than answering go");
+});
+
+test("the caller's demand is read off the environment, and both names are the ones the workflow sends", () => {
+  // THE HOP FROM A BOX ON A FORM TO THE DECISION THAT SPENDS MONEY. It lived
+  // in two module constants and a sweep killed it: two mutants cutting the
+  // expectations out of the call SURVIVED every guard, because a constant
+  // handed over and a constant not handed over look identical from outside.
+  // It takes the environment now, so the hop is driven rather than read.
+  assert.deepEqual(expectedCode({ SWEEP_EXPECT_DEPLOY: "3d7acaf5", SWEEP_EXPECT_IMAGE: "16cb42353dc4a343" }),
+    { expectDeploy: "3d7acaf5", expectImage: "16cb42353dc4a343" });
+  // AN UNSET BOX IS NO DEMAND, which is every run before today.
+  assert.deepEqual(expectedCode({}), { expectDeploy: "", expectImage: "" });
+  assert.deepEqual(expectedCode(), { expectDeploy: "", expectImage: "" });
+  // A PASTED VALUE CARRIES WHITESPACE, and an image id pasted off a deploy log
+  // can carry capitals — the answer side is lowercased, so the comparison is
+  // about the id and not the keyboard. A sha is NOT lowercased: git's own are
+  // lower already, and folding a case here would hide a value that is not one.
+  assert.deepEqual(expectedCode({ SWEEP_EXPECT_DEPLOY: "  3d7acaf5\n", SWEEP_EXPECT_IMAGE: " 16CB42353DC4A343 " }),
+    { expectDeploy: "3d7acaf5", expectImage: "16cb42353dc4a343" });
+  // AND THE TWO NAMES ARE THE WORKFLOW'S OWN, both ways: a name this reads and
+  // the form does not send arrives empty for ever, and a name the form sends
+  // and nothing reads is a box that does nothing. Derived from the yaml.
+  const sends = [...WF.matchAll(/^ {10}(SWEEP_EXPECT_\w+): \$\{\{ github\.event\.inputs\.(\w+) \}\}$/gm)];
+  assert.equal(sends.length, 2, "the workflow does not forward exactly the two expectations: " + JSON.stringify(sends.map((m) => m[1])));
+  for (const [, envName, input] of sends) {
+    assert.ok(CODE.includes("env." + envName), "the workflow sends " + envName + " and nothing reads it");
+    assert.match(WF, new RegExp("^ {6}" + input + ":$", "m"), "the workflow forwards an input it does not offer: " + input);
+  }
+  const reads = [...CODE.matchAll(/env\.(SWEEP_EXPECT_\w+)/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(reads)].sort(), sends.map((m) => m[1]).sort(),
+    "the harness reads an expectation the workflow never sends, or the other way round");
+});
+
+test("the pre-flight runs before anything is spent, reads both halves, and is wired to the workflow's two boxes", () => {
+  // THE WIRING, which is the hop this whole class of defect lives in: a
+  // decision perfectly correct and never called. Read by its own call rather
+  // than by position — but the POSITION is the property here, so both.
+  const at = CODE.indexOf("await whichCode(TOKEN);");
+  assert.ok(at > 0, "main no longer asks which code is answering");
+  for (const spend of ["await openBrowser();", "const start = await balance();"]) {
+    const s = CODE.indexOf(spend);
+    assert.ok(s > at, "the pre-flight runs after `" + spend + "` — a refusal there has already started the run");
+  }
+  // IT READS BOTH HALVES OUT OF THE ONE ROUTE THAT ANSWERS BOTH, and asks the
+  // second reader for the disagreement check.
+  const open = CODE.indexOf("async function whichCode(token) {");
+  const shut = CODE.indexOf("\n}\n", open);
+  assert.ok(open > 0 && shut > open, "whichCode moved");
+  const fn = CODE.slice(open, shut);
+  assert.match(fn, /\/api\/site\/build-health/, "the pre-flight does not ask for the container's cold-start image");
+  assert.match(fn, /\/api\/site\/runtime\?slug=/, "the pre-flight has no second reader of the deploy");
+  assert.match(fn, /healthImage|health\.image/, "the pre-flight does not read the image off the route's own answer");
+  assert.match(fn, /codeRefusals\(\{/, "the pre-flight decides for itself instead of asking the driven decision");
+  // THE CALLER'S DEMAND REACHES THE DECISION — the one hop a driven case cannot
+  // reach, since the wrapper needs two authenticated routes and a cold
+  // container. Read as the PROPERTY (the whole pair is spread into the call),
+  // never as the key spellings, so renaming a key is not a red run.
+  assert.match(fn, /codeRefusals\(\{[^}]*\.\.\.want[^}]*\}\)/, "the caller's expectations never reach the decision");
+  assert.match(fn, /const want = expectedCode\(process\.env\)/, "the pre-flight reads the environment some other way");
+  // AND THE REFUSAL IS ACTED ON. `if (false) { … }` leaves `process.exit(1)`
+  // exactly where a search finds it — the recorded "a positional guard cannot
+  // see a dead branch", which is how this survived its first sweep. The BRANCH
+  // is what is asserted, by its own condition.
+  const gate = fn.indexOf("if (no.length) {");
+  assert.ok(gate > 0, "the refusal list is computed and never looked at");
+  assert.ok(fn.indexOf("process.exit(1)", gate) > gate, "a refusal prints and carries on spending");
+  // AND THE WORKFLOW OFFERS BOTH BOXES AND FORWARDS BOTH. A `workflow_dispatch`
+  // input only exists once the workflow is on the default branch, so the pair —
+  // the input and the env line — is what makes the box appear AND arrive.
+  for (const [input, env] of [["expect_deploy", "SWEEP_EXPECT_DEPLOY"], ["expect_image", "SWEEP_EXPECT_IMAGE"]]) {
+    assert.match(WF, new RegExp("^ {6}" + input + ":$", "m"), "the workflow has no " + input + " input");
+    assert.match(WF, new RegExp(env + ": \\$\\{\\{ github\\.event\\.inputs\\." + input + " \\}\\}"), input + " never reaches the harness");
+  }
+  // The descriptions say what a person needs to know to use them: that the run
+  // REFUSES rather than warns, and that the two halves are separate.
+  const block = WF.slice(WF.indexOf("      expect_deploy:"), WF.indexOf("\npermissions:"));
+  assert.ok(block.length > 200 && block.indexOf("      expect_image:") > 0, "the two inputs are not adjacent — this window is reading something else");
+  assert.match(block, /refuses before spending[\s\S]*refuses before spending/, "an input does not say the run refuses rather than warns");
+  assert.match(block, /roll separately/, "the image input does not say the two halves roll separately");
 });

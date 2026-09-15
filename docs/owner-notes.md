@@ -155,6 +155,101 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The rollout plan, written before the merge
+
+You said: *"Before merging, confirm the PR's current code is covered by passing
+checks, prepare the rollback procedure, and define the test request and expected
+results."* All three are below, written down **before** anything merged, so
+nothing here can be shaped by how the run turns out.
+
+### Checks covering the exact code
+
+| check | run | commit | result |
+|---|---|---|---|
+| `unit tests` | 2531 (push), 2532 (pull_request) | `1c397634` | green, `# tests 6381 / # pass 6378 / # fail 0 / # skipped 3` |
+| `site build` | 1138 | `1c397634` | green, all twenty steps, `382 passed / 0 failed` in 11m33s |
+
+The branch tip is past that sha, and **that gap was checked rather than
+assumed**: `1c397634..cf2e6819` is `CLAUDE.md` only, and `CLAUDE.md` is in
+neither `deploy.yml`'s trigger nor `site-build.yml`'s `paths`, so it is not an
+image input and cannot change what either run covered. The pre-flight commit on
+top of it touches only `scripts/`, `test/` and `.github/workflows/` — also not
+image inputs — and `unit tests` runs on it before the merge.
+
+### The rollback procedure
+
+**What makes it fast is arithmetic, not hope.** The container image id is a hash
+of the git objects the Dockerfile COPYs (`.github/scripts/container-images.mjs`),
+so a tree restored to what main had hashes to the id the registry ALREADY holds,
+the deploy's probe answers 200, and the image step says `reused` instead of
+building. Computed offline with the deploy's own code, before the merge:
+
+- `origin/main` (`e876ada9`) → **`e35d9f28b49f5f2c`** — and that is the image
+  recorded live for deploy 2118, which is the cross-check that the arithmetic is
+  right rather than merely self-consistent.
+- the branch tip → **`16cb42353dc4a343`** — never built, so the merge's deploy
+  BUILDS and rolls the container.
+
+**The procedure, in order:**
+
+1. `git revert -m 1 <merge sha>` on `main` and push. A revert, never a force
+   push or a reset: main's history is what every other reader resolves against.
+2. The deploy fires on that push. Watch its image step: it must say **`reused`**
+   for `e35d9f28b49f5f2c`. If it says `built`, something above the worker tree
+   moved and the roll is a real one — wait the full 15–20 minutes before
+   believing the container is back.
+3. Confirm with the same instrument the rollout uses:
+   `GET /api/site/build-health` must answer `deploy` = the revert's sha and
+   `image` = `e35d9f28b49f5f2c`. **Elapsed time is not the check.**
+4. Nothing needs undoing in Postgres or R2: this change adds no migration, no
+   RPC and no stored shape. The one thing it writes is the addon's own answer
+   record, which every addon run writes already.
+
+**What a rollback does NOT undo**: anything the live test run published to
+`repairbench-1`. That is a site's own content, and reverting the Worker does not
+un-publish it — if the run has to be undone as well, that is a take-down or a
+restore on that site, decided separately.
+
+### The test request, and what each part of it is testing
+
+One free-text ask through the addon harness on `repairbench-1`, written to
+exercise the two fixes that can only be seen end to end:
+
+> *"Add a page at /status that shows how many repairs are booked, and a function
+> the page calls to count them."*
+
+- **a page** — fix 2, `missingPages`: the reply must either publish `/status` or
+  NAME it as missing. A page silently absent is the defect.
+- **a function the page calls** — makes the run non-`pageless`, so a real compile
+  and a real script upload happen, and gives something to exercise through the
+  site's own route.
+- **counting rows** — needs a table, so the baseline below has to exist first.
+
+**Expected results, stated in advance:**
+
+| what | expected |
+|---|---|
+| `/status` | published and serving 200, or named in the reply as missing |
+| the function | created, and callable through the site's real data route |
+| `checked` | **empty** — nothing populates it, so any behavioural claim reads `unverified`, never `delivered` |
+| a configuration claim | `configured`, with the state still `unverified` |
+| the customer's sentence | names anything outstanding; a hollow "done" is the failure |
+| SMS | **none sent.** No text goes anywhere until you name a recipient |
+
+### And the run refuses to spend against the wrong build
+
+Your first requirement — *"Elapsed rollout time alone is insufficient
+evidence"* — is now a wall rather than a note. The harness asks
+`/api/site/build-health` (the Worker's deploy sha AND the container's cold-start
+image, in one call) plus `/api/site/runtime` as a second reader, **before the
+browser, the balance or the first post**, and refuses with nothing charged if
+either half is not what was demanded. Cannot-tell refuses too: an `unstamped`
+image or a route that failed is never read as a match. The two boxes on the
+workflow form are `expect_deploy` and `expect_image`, and the two halves are
+separate because a rollout moves them separately.
+
+---
+
 ## 2026-09-14 — Five bounded fixes, and a correction to my own audit
 
 You gave me five fixes, a wording correction, and an instruction to report what
