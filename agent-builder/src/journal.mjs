@@ -6,10 +6,10 @@
  * case on this stack, it is Tuesday. The one shape that survives a process
  * vanishing mid-write is a log you only ever add to: nothing is rewritten, so
  * there is no half-updated record to reason about, and the worst a crash can do
- * is lose the last entry. The root product learned the same thing the expensive
- * way and its rule is written as "store the raw answer ONCE, before anything can
- * refuse it" — three sessions each bought a narrower diagnostic field instead of
- * keeping the artifact.
+ * is lose the last entry. The rule underneath it: store the raw answer ONCE,
+ * before anything can refuse it. The tempting alternative is to keep a summary or
+ * a status field instead of the thing itself, and a summary never answers the
+ * question you actually end up having.
  *
  * DEPENDENCY-FREE AND PURE. No storage: entries are handed in and handed out.
  * Where they are kept — Postgres, R2, a Durable Object, an array in a test — is

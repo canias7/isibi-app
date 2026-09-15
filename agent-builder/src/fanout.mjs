@@ -7,10 +7,9 @@
  * WHY THIS IS ITS OWN MODULE AND IS SHARED. `Promise.all` REJECTS ON THE FIRST
  * FAILURE, which here means throwing away every tool that answered because one
  * did not — and the model needs the answers that worked *and* the failure, or it
- * cannot recover. That is the root product's recorded reason for having exactly
- * one of these, and the second reason is the same one: EVERY ENTRY CARRIES ITS
- * INDEX, which is the only thing tying an answer back to what it was asked of
- * once they finish out of order.
+ * cannot recover. There is exactly one of these for that reason, and for a
+ * second: EVERY ENTRY CARRIES ITS INDEX, which is the only thing tying an answer
+ * back to what it was asked of once they finish out of order.
  *
  * A FAILED ITEM IS AN ANSWER, NEVER AN ABSENCE. `{ ok: false, error }` sits in
  * the output at its own index. Nothing is dropped, so the caller's list is
@@ -27,10 +26,9 @@
  * no queueing at all — every worker starts before any finishes — and a longer
  * list queues: `limit` start, and the rest begin as permits free.
  *
- * **EACH ITEM'S CLOCK STARTS AFTER ITS PERMIT, NEVER BEFORE IT.** This is the
- * root product's measured rule: time the wait as well as the work and `ms` grows
- * with the QUEUE rather than with the thing, so the overlap flatters itself and
- * the slowest item cannot be identified.
+ * **EACH ITEM'S CLOCK STARTS AFTER ITS PERMIT, NEVER BEFORE IT.** Time the wait
+ * as well as the work and `ms` grows with the QUEUE rather than with the thing:
+ * the overlap flatters itself and the slowest item cannot be identified.
  */
 export async function runFanout(items, worker, opts = {}) {
   if (!Array.isArray(items)) throw new TypeError("runFanout: items must be an array");

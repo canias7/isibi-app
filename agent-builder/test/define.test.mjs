@@ -151,10 +151,8 @@ const agentWithScopes = () => defineAgent(goodAgent({
 test("toolsFor offers PUBLIC tools and the granted ones, and WITHHOLDS the rest BY NAME", () => {
   const { allowed, withheld } = toolsFor(agentWithScopes(), ["orders:read"]);
   assert.deepEqual(allowed.map((t) => t.name), ["add", "read_orders"]);
-  // The names come back. "A name the harness did not know was dropped without a
-  // word" is the root product's recorded defect: a filter is a silent drop, a
-  // check is a sentence, and the caller needs to be able to say WHY the agent
-  // could not do the thing.
+  // The names come back. A filter is a silent drop and a check is a sentence: the
+  // caller needs to be able to say WHY the agent could not do the thing.
   assert.deepEqual([...withheld], [{ name: "refund", scope: "money:write" }]);
 });
 

@@ -30,16 +30,15 @@ export const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
  * scope would default to something, and both defaults are wrong. Default-public
  * makes a dangerous tool callable by anyone the day somebody forgets a line;
  * default-private makes a pure-arithmetic tool need a grant, which teaches
- * authors to grant everything. Compelling the answer is the root product's
- * `behavior` field, where `[]` is a real answer and absence is not.
+ * authors to grant everything. So the answer is compelled, the way a field whose
+ * empty value is meaningful has to be: `PUBLIC` is a real answer, absence is not.
  */
 export const PUBLIC = "public";
 
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
-// A non-empty string, REFUSED rather than coerced. `String(["hi"])` is `"hi"`,
-// so a coercing reader takes an array as a description — shipped three times in
-// the root product.
+// A non-empty string, REFUSED rather than coerced. `String(["hi"])` is `"hi"`, so
+// a coercing reader takes an array as a description and nothing ever complains.
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -160,10 +159,10 @@ export function defineAgent(spec) {
 /**
  * WHICH OF AN AGENT'S TOOLS THIS TENANT MAY USE — and which it may not, BY NAME.
  *
- * `grants` is a POSITIVE list. This is deliberate and it is the root product's
- * rule: "a negative list is the wrong wall when the input is caller-supplied",
- * because a deny-list is a claim about the producer rather than about the input,
- * and the one tool somebody forgets to deny is the one that matters.
+ * `grants` is a POSITIVE list, deliberately. A deny-list is the wrong wall when
+ * the input is caller-supplied: it is a claim about the producer rather than
+ * about the input, and the one tool somebody forgets to deny is the one that
+ * matters.
  *
  * TWO ANSWERS, AND BOTH HALVES ARE LOAD-BEARING:
  *
@@ -172,11 +171,9 @@ export function defineAgent(spec) {
  *
  * Withholding rather than refusing-on-call is the right shape: a tool the tenant
  * cannot use costs tokens to describe, and the model will plan around it and
- * then fail in a way that reads as the model's mistake. But withholding
- * SILENTLY is the root product's recorded defect — "a name the harness did not
- * know was dropped without a word" — so the names come back and the caller can
- * tell somebody why the agent could not do the thing. A filter is a silent drop;
- * a check is a sentence.
+ * then fail in a way that reads as the model's mistake. But withholding SILENTLY
+ * leaves nobody able to say why the agent could not do the thing, so the names
+ * come back: a filter is a silent drop, a check is a sentence.
  *
  * FAILS CLOSED at every unclear point: no grants at all, a grants value that is
  * not a list, a tenant that is absent. Anything we cannot read as a grant is not

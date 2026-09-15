@@ -249,9 +249,9 @@ test("tools run in parallel, bounded by the run's own parallelTools", async () =
 
 test("A PER-RUN LIMIT OVERRIDE NARROWS THE AGENT'S OWN, AND CANNOT RAISE IT", async () => {
   // The untrusted door, DRIVEN. A value computed and never forwarded looks
-  // identical from outside to one the caller never sent — twelve-plus features
-  // have shipped dead in the root product for exactly that reason, so the wiring
-  // is asserted by behaviour rather than by reading the call.
+  // identical from outside to one the caller never sent, which is how a whole
+  // feature ships dead, so the wiring is asserted by behaviour rather than by
+  // reading the call.
   const t = tool("look", async () => 1);
   const send = async () => wants("look");
 

@@ -29,8 +29,8 @@ test("RUN_TOTALS is the per-run bounds and excludes exactly the per-operation on
 // ── okLimit: refuses, never coerces ──────────────────────────────────────────
 test("okLimit refuses everything that is not a number, and never coerces", () => {
   for (const good of [0, 1, 16, 300_000, Infinity]) assert.equal(okLimit(good), true, `${good} refused`);
-  // `String(["8"])` is "8" and `Number(["8"])` is 8, so a coercing reader takes
-  // an array as a bound. Shipped as a real bug three times in the root product.
+  // `String(["8"])` is "8" and `Number(["8"])` is 8, so a coercing reader takes an
+  // array as a bound and nothing anywhere complains.
   for (const bad of [["8"], "8", "", null, undefined, {}, true, false, NaN, -1, -Infinity, () => 8]) {
     assert.equal(okLimit(bad), false, `${JSON.stringify(bad) ?? String(bad)} accepted as a bound`);
   }
@@ -143,9 +143,9 @@ test("planLimits refuses a non-object rather than reading past it", () => {
 });
 
 // ── Infinity is a stated answer ──────────────────────────────────────────────
-test("Infinity survives every reader — the root product's own trap, inverted", () => {
-  // Over there a container legitimately had no clock and BOTH readers called
-  // Number.isFinite, got false, and substituted a Worker-sized number.
+test("Infinity survives every reader", () => {
+  // The failure this guards against: a reader calls `Number.isFinite`, gets false
+  // for a bound that was stated deliberately, and substitutes a default.
   assert.equal(okLimit(Infinity), true);
   assert.equal(leftOf(Infinity, 999_999_999), Infinity, "an unbounded budget was spent");
   assert.equal(capMs(Infinity, Infinity), Infinity, "two unbounded clocks produced a number");
@@ -225,9 +225,9 @@ test("capMs is min(cap, room) and is correct at every Infinity", () => {
   assert.equal(capMs(120_000, Infinity), 120_000, "an unbounded run lost its per-call cap");
   assert.equal(capMs(Infinity, 5_000), 5_000, "an uncapped call outran the room it had");
   assert.equal(capMs(Infinity, Infinity), Infinity);
-  // The whole safety argument of the root product's container change was that
-  // every per-call ceiling survives an unbounded total, and it was asserted
-  // nowhere until it was driven. It is driven here.
+  // The safety argument for an unbounded run is that every per-call ceiling
+  // survives it. Easy to believe and worth nothing until it is driven, so here it
+  // is driven.
   assert.equal(capMs(LIMIT_DEFAULTS.callMs, Infinity), LIMIT_DEFAULTS.callMs);
 });
 

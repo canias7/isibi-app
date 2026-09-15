@@ -2,20 +2,20 @@
  * THE BOUNDS ON ONE AGENT RUN — the whole safety argument, in one module.
  *
  * An agent loop is a `while (true)` around a model that decides when to stop.
- * Every bound here exists because the model's own judgement is not a bound:
- * "a cap the model is only told about is not a cap" is the root product's law
- * and it is the reason this file exists rather than a paragraph in a prompt.
+ * Every bound here exists because the model's own judgement is not a bound: a cap
+ * the model is only told about is not a cap, which is why this is a file and not
+ * a paragraph in a prompt.
  *
  * DEPENDENCY-FREE AND PURE. No clock, no fetch, no storage: `now` is passed in.
  * That is what lets every branch below be driven in a test instead of waited on.
  *
- * TWO LAWS ARE BAKED IN HERE ON PURPOSE, both paid for by the website builder:
+ * TWO LAWS ARE BAKED IN HERE ON PURPOSE:
  *
- *   1. `Infinity` IS A STATED ANSWER, never a missing one. Over there, a
- *      container legitimately has no clock, and BOTH readers of that answer
- *      called `Number.isFinite(Infinity)`, got false, and fell back to a
- *      Worker-sized number — for the one input where the default was the most
- *      wrong answer available. Every reader below takes `Infinity` and means it.
+ *   1. `Infinity` IS A STATED ANSWER, never a missing one. Some things really do
+ *      run without a clock, and the obvious guard — `Number.isFinite` — reads that
+ *      stated answer as unusable and substitutes a default, for the one input
+ *      where a default is the most wrong answer available. Every reader below
+ *      takes `Infinity` and means it.
  *
  *   2. A STOP MUST NAME ITSELF. `stoppedBy` answers WHICH bound ended the run,
  *      never a boolean. A run that ended on `steps` needs a different fix from
@@ -61,7 +61,7 @@ export const RUN_TOTALS = Object.freeze(
  *
  * REFUSES rather than coerces. `String(["8"])` is `"8"` and `Number("8")` is 8,
  * so a coercing reader accepts an array as a bound — shipped as a real bug three
- * times in the root product. NaN is refused too: every comparison against NaN is
+ * a real bug. NaN is refused too: every comparison against NaN is
  * false, so a NaN bound is an ABSENT bound wearing a number's clothes.
  */
 export function okLimit(v) {
@@ -80,17 +80,15 @@ export function okLimit(v) {
 /**
  * The plan for one run: the defaults, overridden by what the AUTHOR asked for.
  *
- * **WHO IS TRUSTED HERE, AND WHY THIS IS NOT A CEILING.** The first draft of this
- * module let an override only ever NARROW, copied from the root product's
- * `readJobMaxMs` ("MAY ONLY SHORTEN"). That rule was imported with its conclusion
- * and without its premise: over there every other number is DERIVED AT IMPORT
- * from the one setting, so a longer setting would move the deadline past all of
- * them. Nothing here is derived at import — `capMs` computes per call — so the
- * premise does not hold, and the rule cost something real: `Infinity` became
- * unreachable from the public API, which made every Infinity branch in this file
- * dead code from outside. That is this repository's own recorded trap, "a rule
- * true because of a layer below it expires when that layer moves", and a second
- * one on top of it: a feature correct in the module and unreachable in practice.
+ * **WHO IS TRUSTED HERE, AND WHY THIS IS NOT A CEILING.** The first draft let an
+ * override only ever NARROW. That rule is right where every other number is
+ * DERIVED AT IMPORT from one setting, because then a longer setting moves the
+ * deadline past all of them — but nothing here is derived at import, `capMs`
+ * computes per call, so the premise did not hold. Applying it anyway cost
+ * something real: `Infinity` became unreachable from the public API, which made
+ * every Infinity branch in this file dead code from outside. A rule is only as
+ * true as the thing it rests on, and a feature that is correct in the module and
+ * unreachable in practice is not a feature.
  *
  * So the trust boundary is drawn where it actually falls. **An agent definition
  * is CODE, written by the developer**, and a developer who wants a 200-step agent
@@ -220,9 +218,9 @@ export function stoppedBy(plan, used = {}) {
 
 /**
  * The ceiling for ONE operation: never more than its own cap, and never more
- * than the run has left. `min(cap, room)` — the root product's `capMs`, whose
- * whole safety argument was that every per-call ceiling survives an unbounded
- * total, and which was asserted nowhere until it was driven.
+ * than the run has left: `min(cap, room)`. The safety argument is that every
+ * per-call ceiling survives an unbounded total — easy to believe and worth
+ * nothing until it is driven, so it is driven.
  *
  * With `room` Infinity the answer is the cap; with a cap of Infinity it is the
  * room; with both Infinity it is Infinity, which is a real answer meaning "this

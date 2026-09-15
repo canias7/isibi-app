@@ -48,8 +48,8 @@ const ended = (reason, extra = {}) => Object.freeze({ reason, ...extra });
  *
  * `callMs` is handed to `send` rather than enforced here on purpose: only the
  * transport can abort its own request, and a timeout raced in this module would
- * leave the real call running and still billing. The root product paid for the
- * mirror of this — a probe that carried no clock at all and hung.
+ * leave the real call running and still billing. The mirror of this mistake is a
+ * caller that carries no clock at all, which does not fail — it hangs.
  *
  * `journal.append(entry)` is called as each thing HAPPENS — never batched at the
  * end, which would defeat the whole point. `from` is a previous run's entries,

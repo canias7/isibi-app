@@ -1,75 +1,76 @@
 # The agent builder
 
-**A DIFFERENT PRODUCT FROM EVERYTHING ELSE IN THIS REPOSITORY.** The repository
-root is *Go Farther*, a website builder. This directory is an **AI agent
-framework / SDK** and shares nothing with it but the git remote and the CI
-runner. Owner, 2026-09-14: *"This has nothing to do with the website builder,
-just heads up… dont mix anything up."*
+An **AI agent framework / SDK**: declare an agent and its tools in code, and run
+it under bounds that are enforced rather than described.
 
-**THE LAW IN THE ROOT `CLAUDE.md` DOES NOT GOVERN THIS DIRECTORY**, with one
-deliberate exception named below. Nothing here has a slug, an R2 prefix, a
-publish spine, a Neon project per customer, a credit ledger priced in fal cost,
-or a dispatch namespace. When a rule from the root file seems to apply, check
-whether it is about *engineering* or about *websites*; only the first carries.
+**IT HAS NOTHING TO DO WITH THE REST OF THIS REPOSITORY.** Owner, 2026-09-14:
+*"The code will live in this repo, just separated… it had nothing to do for now
+with what's on this repo."* It shares the git remote and the CI runner and
+nothing else — no slug, no publish step, no per-customer database, no deploy.
+A rule from anywhere else in the tree does not govern this directory, and this
+product's notes are written here and never there.
 
-## What carries over, deliberately
+## The engineering rules here
 
-The root file's **THE TRAPS** section and its **Working rules** are engineering
-law, paid for over months, and they apply here in full:
+Not inherited from anywhere — this is how work in this directory ships.
 
-- Guard tests, a mutation sweep from a verified-green baseline with a
-  comment-only control that must survive, the whole suite, notes, and a push.
-- Never size a source-read window in bytes. Assert the property, not the
-  spelling. A negative assertion must prove its observer alive.
+- **Every change ships with**: guard tests, a mutation sweep from a
+  verified-green baseline with a comment-only control that must survive, the
+  whole suite, an entry here and in the owner notes, and a push.
+- **The sweep is `npm run sweep`**, and its breakages are COMMITTED
+  (`scripts/sweep-spec.mjs`) rather than typed fresh each time — a sweep that
+  only ever existed in somebody's terminal cannot be re-run, so it certifies one
+  afternoon and nothing after it. The generator REFUSES to emit a spec with an
+  ambiguous or missing anchor, because reading "NEVER APPLIED" after the run is
+  the same information arriving too late, and a breakage that never landed reads
+  exactly like one the tests caught.
+- **The sweep RUNNER is a shared dev tool at the repo root** (`scripts/mutate.mjs`),
+  used rather than copied: a second copy would drift, and the one that drifts is
+  the one reporting whether the tests work. It is the only thing outside this
+  directory that any of this depends on, and nothing ships through it.
 - **A cap the model is only told about is not a cap.** Enforce it in code.
-- Cannot-tell must never read as a value, and a stated answer must not read as
-  cannot-tell.
-- Stamp measured numbers only AFTER the run.
+- **Cannot-tell must never read as a value**, and a stated answer must never read
+  as cannot-tell.
+- **Assert the property, not the spelling.** A guard pinned to an exact call
+  shape goes red on an honest change and reports a working feature as gone.
+- **A negative assertion must prove its observer is alive.** `[].every(...)` is
+  `true`, and `indexOf(a) < indexOf(b)` is satisfied by `-1`.
+- **Refuse, never coerce.** `String(["x"])` is `"x"` and `Boolean("false")` is
+  `true`.
+- **A filter on somebody's input is a silent drop; a check is a sentence.**
+- **Stamp measured numbers only AFTER the run.** A count nobody re-measured is a
+  claim ahead of its evidence.
+- **Derive a fixture from its real producer.** A fake in a different shape from
+  reality hides bugs, and one that is MORE capable hides them just as well as one
+  that is less.
 
-## The separation, MEASURED rather than assumed (2026-09-14)
+## Living in a shared repository
 
-A push to the working branch runs the website builder's CI. What that means for
-this directory was measured, not hoped:
+The code sits in this repo, so a few rules keep it from touching anything else.
+These were measured on 2026-09-14, not assumed, and re-verified by running the
+rest of the tree's suite before and after this directory existed — same count,
+same colour.
 
-- **`unit tests`** (`.github/workflows/unit.yml`) has **no paths filter**, so it
-  runs on every push to any branch but `main`. It runs `npm ci` then `npm test`,
-  which is `node --test "test/*.test.mjs"` — **the ROOT test directory only, with
-  a 5-minute cap.** Tests in `agent-builder/test/` do not run there and cannot
-  make it red.
-- **`site build`** and **`answer read`** have paths filters that this directory
-  does not match. **NEVER TOUCH THE ROOT `package.json`**, for two independent
-  reasons: it is in `site build`'s paths filter, so a one-line edit fires a
-  25-minute container harness; and the Dockerfile does
-  `COPY package.json package-lock.json ./worker/`, so it is a container **image
-  input** and editing it rebuilds the image and rolls the container on a merge.
-  This directory carries **its own `package.json`**.
-- **Two root censuses `readdirSync` the repository root** —
-  `test/css-reachable.test.mjs` and `test/model-limits.test.mjs` — and both filter
-  to **`.mjs` files, non-recursively**. A new top-level *directory* is invisible
-  to both; **a new top-level `.mjs` FILE would be swept into both.** So nothing
-  belonging to this product is ever placed at the repository root.
-- **`builder/**` does not match `agent-builder/**`.** GitHub path filters anchor
-  at the repository root, so the site builder's filters cannot catch this
-  directory. The similar names are safe by anchoring, not by luck.
-- **`test/merge-triggers.test.mjs` is a workflow CENSUS** and will fail on a
-  workflow added here that has no trigger at all, that fires on a push to
-  `main`, or that chains to `Deploy to Cloudflare` completing. A
-  `workflow_dispatch`-only workflow passes it.
-- **`deploy.yml` fires only on a push to `main`.** Nothing here deploys, and
-  nothing here is a container image input — **checked by reading every `COPY` in
-  the Dockerfile**, all of which name explicit files or explicit `builder/`
-  paths. There is no `COPY . .`, so this directory cannot become an image input
-  by accident. A push here rolls no container.
-
-**The one thing that is NOT isolated is the root `CLAUDE.md`**, which a session
-at the repository root always loads. It cannot be unloaded; the discipline is
-that this product's entries are written HERE and never there.
+- **Everything belonging to this product lives under `agent-builder/`.** Never a
+  file at the repository root: two checks elsewhere in the tree scan the root for
+  `.mjs` files, and a folder is invisible to them where a file is not.
+- **NEVER TOUCH THE ROOT `package.json`.** It is a container image input and it
+  is in another workflow's paths filter, so a one-line edit rebuilds an image and
+  fires a 25-minute harness. This directory has its own.
+- **The tests here are run from here** (`cd agent-builder && npm test`). The
+  repo-wide `unit tests` workflow runs the root `test/` folder only, so nothing
+  here can make it red — and nothing here is covered by it either.
+- **Nothing here deploys.** The deploy fires only on a push to `main`, and no
+  Dockerfile copies this directory, so a push here rolls no container.
+- **A workflow added here must not fire on a push to `main`** and must have some
+  trigger; a `workflow_dispatch`-only workflow is fine. A census elsewhere in the
+  tree enforces that and will fail otherwise.
 
 ## What is built
 
-Four modules under `src/`, **all dependency-free** — this has to run in a
+Six modules under `src/`, **all dependency-free** — this has to run in a
 Cloudflare Worker, where there is no `node_modules` — with every outside thing
-(the model call, the clock) INJECTED. That is not purity for its own sake: it is
+(the model call, the clock, the journal) INJECTED. That is not purity for its own sake: it is
 what makes every branch below drivable in a test instead of waited on.
 
 - **`limits.mjs`** — the bounds on one run, and the whole safety argument.
@@ -98,10 +99,10 @@ what makes every branch below drivable in a test instead of waited on.
   for a caller that is not trusted — a tenant, a request body — and **may only
   ever reduce**, recording what it ignored. **The first cut had only the second
   and applied it everywhere**, which made `Infinity` unreachable from the public
-  API and every Infinity branch dead code from outside: the root product's "a
-  rule true because of a layer below it expires when that layer moves" (its
-  `readJobMaxMs` may only shorten because everything else is derived AT IMPORT;
-  nothing here is), on top of the wiring trap. Caught by a test, not by review.
+  API and every Infinity branch dead code from outside. **A rule is only as true
+  as the thing it rests on**: "may only reduce" is right where the other numbers
+  are derived at import from the one setting, and nothing here is derived at
+  import. Caught by a test, not by review.
 - **`Infinity` IS A STATED ANSWER** in every reader — `leftOf`, `capMs`,
   `stoppedBy`. An unbounded budget is a real thing on this stack.
 - **CANNOT-TELL MUST NEVER READ AS A VALUE, and `stoppedBy` names which.** A
@@ -117,9 +118,9 @@ what makes every branch below drivable in a test instead of waited on.
 
 **`define.mjs`**
 
-- **A DECLARATION THROWS WHEN A PART IS MISSING** — the root product's
-  `laneRule` rule, for the same reason: a half-declared thing that loads fails
-  later, somewhere else, in a way that does not name this file.
+- **A DECLARATION THROWS WHEN A PART IS MISSING.** A half-declared thing that
+  loads is a thing that fails later, somewhere else, in a way that does not name
+  this file. Author time is the one moment when throwing is cheap.
 - **`TOOL_NAME` IS THE PROVIDER'S GRAMMAR, NOT OURS** (`^[a-zA-Z0-9_-]{1,64}$`).
   Pinned as an external constraint so nobody tidies it into something a provider
   rejects at run time.
@@ -193,8 +194,9 @@ what makes every branch below drivable in a test instead of waited on.
   is lose the last entry.
 - **THE MODEL ANSWER IS WRITTEN THE MOMENT IT ARRIVES, BEFORE ANY TOOL RUNS.** It
   cost money and it is the one artifact a crash must never take; every later
-  entry is cheap beside it. The root product's "store the raw answer ONCE, before
-  anything can refuse it".
+  entry is cheap beside it. **Store the raw answer ONCE, before anything can
+  refuse it** — the tempting alternative is a summary or a status field, and a
+  summary never answers the question you end up having.
 - **THE MESSAGE BUILDERS LIVE HERE, and that is the reason this module exists
   rather than a `replay()` bolted onto the loop.** The loop composes the
   conversation as it goes and the replay composes it again from the log; two
@@ -257,12 +259,11 @@ what makes every branch below drivable in a test instead of waited on.
 ### Measured
 
 - **Suite: 93 tests, 0 failures** (`cd agent-builder && npm test`).
-- **The root product's suite is UNAFFECTED: 6,316 tests, 0 failures** — run
-  BEFORE this directory existed and again with it in the tree, same count, same
-  colour. Measured rather than argued from the path filters. Note for a fresh
-  container: it needs `npm ci` first or ~361 cases fail on missing modules (the
-  environment, not the product), and `playwright-core` is NOT needed for it —
-  those six checks belong to the container harness.
+- **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 0 failures**
+  — run BEFORE this directory existed and again with it present, same count, same
+  colour. Measured, not argued from the path filters. (In a fresh container that
+  suite needs `npm ci` first or ~361 cases fail on missing modules — the
+  environment, not the code.)
 - **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
   applied, 2 comment-only controls survived.**
 - **Sweep, WITH THE JOURNAL AND RESUME: 54 mutants, 54 killed, 0 survived, 0
@@ -300,6 +301,5 @@ Scaffolded 2026-09-14. No source yet — the decisions below came first.
 
 **Open, nothing built on either yet:**
 - What an agent's tools may reach, and how a tenant grants that.
-- Whether runs are resumable across a process death (the root product's hardest
-  won lesson: containers recycle and isolates die, so anything that matters is
-  written down before it is needed).
+- ~~Whether runs are resumable across a process death~~ — **DONE**, see the
+  journal and "Resuming a run" above.

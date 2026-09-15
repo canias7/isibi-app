@@ -1,16 +1,16 @@
 # Agent builder — owner notes
 
 Kept separate from `docs/owner-notes.md` at the repository root, which is the
-**website builder's** log. Nothing in this file is about that product and nothing
-in that file governs this one.
+log for everything else in this repo. Nothing in this file is about that, and
+nothing in that file governs this.
 
 ---
 
 ## 2026-09-14 — Session start: what you said, and the one thing I read into it
 
 You said this session is for building an **AI agent builder**, that it is
-**mostly backend**, that it has **nothing to do with the website builder**, and
-not to mix it with `main` or with other sessions.
+**mostly backend**, that it has **nothing to do with anything else in this
+repo**, and not to mix it with `main` or with other sessions.
 
 **Four setup questions, and your answers:** it lives in a folder in this repo on
 this branch; it is a **framework / SDK** rather than a chat-to-agent product; it
@@ -26,10 +26,10 @@ gets built on top, isolation is not being retrofitted. That is the reading that
 throws away the least work if I have it wrong — but say the word and I will
 change it.
 
-### Nothing can reach the website builder, and I measured that rather than hoping
+### Nothing here can reach the rest of the repo, and I measured it rather than hoping
 
-A push to this branch runs the website builder's CI, so "don't mix" had to be
-made true rather than assumed. What I found:
+A push to this branch runs the repo's existing CI, so "don't mix" had to be made
+true rather than assumed. What I found:
 
 - Its **unit suite runs on every push to any branch but `main`** — and it runs
   only the root `test/` folder. This product's tests cannot make it red.
@@ -53,8 +53,7 @@ waited on.
 
 - **The bounds.** Steps, tool calls, how many tools at once, wall clock,
   per-call and per-tool ceilings, a token budget and a money budget. **Every one
-  is enforced in code**, because your own rule from the other product is that a
-  cap the model is only told about is not a cap.
+  is enforced in code**, because a cap the model is only told about is not a cap.
 - **The declarations.** What an agent is and what a tool is, each **refusing to
   load if a part is missing** rather than failing later somewhere else.
 - **The fan-out.** Runs several tools at once, bounded, and **loses none of
@@ -78,11 +77,11 @@ waited on.
 
 ### A correction, written down rather than quietly fixed
 
-I got something wrong and the tests caught it. I had copied a rule from the
-website builder — that a caller may only ever *lower* a limit, never raise one —
-**without its reason.** Over there that rule exists because every other number
-is worked out from the limit when the code starts, so a bigger number would
-break all of them. Nothing here works that way.
+I got something wrong and the tests caught it. I had applied a rule — that a
+caller may only ever *lower* a limit, never raise one — **without its reason.**
+That rule earns its keep when every other number is worked out from the limit
+when the code starts, because then a bigger number breaks all of them. Nothing
+here works that way.
 
 The cost of copying it: **nobody could ask for an unlimited run at all**, which
 made a whole piece of the code unreachable from outside — and an unlimited run
@@ -97,10 +96,10 @@ them.** The untrusted party is the model and the tenant, not you.
 
 **Proven:** **65 tests** over the four modules, all green. **34 deliberate
 breakages, 34 caught, none that failed to apply**, and two do-nothing
-controls that correctly survived. And the website builder's own suite still
-reads **6,316 passing, 0 failing** with this folder in the tree — the same
-numbers as before it existed, so "it can't touch your other product" is
-measured rather than reasoned.
+controls that correctly survived. And the rest of the repo's suite still reads
+**6,316 passing, 0 failing** with this folder in the tree — the same numbers as
+before it existed, so "it can't touch anything else" is measured rather than
+reasoned.
 
 **NOT proven:** none of this has run against a real model, a real Worker, a real
 container, or Supabase. There is no HTTP surface, no storage and no migration
@@ -115,8 +114,8 @@ yet — so nothing is deployed and nothing is live. It is a library with tests.
   fails closed; what is not decided is where the grants live.
 - **A tool's error text goes back to the model as-is.** Fine while you write the
   tools. The day someone else writes one, a message that quotes a connection
-  string is how a secret ends up in a transcript — the website builder already
-  has a scrubber for exactly that and this has nothing.
+  string is how a secret ends up in a transcript, and there is nothing here that
+  scrubs one.
 
 ---
 
@@ -183,11 +182,21 @@ one you happened to try is really checked. All four are caught now.
 Supabase. No storage, no HTTP route, no migration. Where the record gets *kept*
 is deliberately not decided in the code — it takes whatever you hand it.
 
-### And a fair hit you took at me
+### And the thing you called out
 
-You asked why I keep focusing on the site builder. I wasn't building it, but you
-were right that it kept showing up: my comments and notes cite its rules
-constantly as justification, and I reuse its sweep runner. The first one is
-clutter and makes your new product read like an appendix to the old one. I have
-offered to strip the cross-references, and to move the whole thing to its own
-repo, which would end it properly. Waiting on you.
+You asked why I kept focusing on the site builder. I wasn't building it — but you
+were right that it kept showing up, because I justified nearly every rule with
+"the other product paid for this". That made your new product read like an
+appendix to the old one.
+
+**Stripped.** All 36 of those references are gone from the code comments, the
+tests, this file and the engineering notes. Every rule that was worth keeping is
+still there, stated on its own terms; nothing was deleted for being
+inconvenient. The folder now explains itself without mentioning anything else in
+the repo.
+
+The one place the rest of the repo still gets a mention is a short list of rules
+for **coexisting** with it — don't touch the root `package.json`, don't put files
+at the repo root, run the tests from this folder. Those are load-bearing: break
+one and you fire a 25-minute harness or roll a live container. They read as rules
+now, not as a tour of the other product.
