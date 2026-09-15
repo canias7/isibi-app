@@ -155,6 +155,133 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — Merged, deployed, and what the deploy proved
+
+**Merged `4bd5a919`** — a fast-forward of `main` from `e876ada9`, nine commits,
+matching every recent merge into main (linear history). PR #928.
+
+**Deploy 2119, 00:23:24→00:26:12Z, green in 2m48s.** Read out of the log's own
+lines rather than inferred from anything:
+
+- **The image BUILT and the id is the one computed before the merge**:
+  `built isibi-app-sitebuildcontainer:16cb42353dc4a343 (registry answered 404;
+  180 inputs off ./Dockerfile)`, image step 00:23:41→00:25:49Z = **2m08s**.
+- **The container ROLLED at 00:26:06Z** — `EDIT isibi-app-sitebuildcontainer`,
+  `- image …:e35d9f28b49f5f2c` → `+ image …:16cb42353dc4a343`,
+  `SUCCESS Modified application`. So the **15–20 minute hold ran to
+  ~00:41–00:46Z**, and the addon run waited it out.
+- `DEPLOY_ID: 4bd5a9191593743b0e61c00d1a1b2caeffe1b933`; the drain found no
+  live leases in 1 s; the gate was left to expire on success.
+- Flags as deployed: `EDIT_ASYNC_EVERYONE on`, `JOB_RUNNER_EVERYONE on`,
+  `BAND_SPLIT_EVERYONE off`, `DESIGN_SPLIT_EVERYONE off`,
+  `DESIGN_GRAPH_EVERYONE off`.
+
+**AND ONE SERVED FILE CHANGED, WHICH IS A FREE CHECK NOBODY HAS TO BE
+AUTHENTICATED FOR.** Wrangler uploaded exactly one asset, `/chat.js` (the nine
+lines that print a failed job registration). The live file is **byte-identical
+to the merged tree** — 589,434 bytes and sha256 `c6f27211c5586d0f` on both
+sides — and carries the new sentence. That is the Worker half of "which code is
+answering" settled without a token and without a clock.
+
+### Checks that covered the merged code
+
+| check | run | commit | result |
+|---|---|---|---|
+| `unit tests` (push) | **2541** | `4bd5a919` | green |
+| `unit tests` (pull_request) | **2542** | `4bd5a919` | green |
+| `unit tests` (push) | 2539 | `cafbd833` | `# tests 6387 / # pass 6384 / # fail 0 / # skipped 3` |
+| `site build` | **1138** | `1c397634` | all twenty steps green, `382 passed / 0 failed` |
+
+**Why 1138 still covered the tip, measured rather than argued**: the commits
+between `1c397634` and `4bd5a919` touch only `CLAUDE.md`, `docs/`, `scripts/`,
+`test/` and `.github/workflows/lane-sweep.yml`, none of which is in
+`site-build.yml`'s `paths` — and the **container image id was unchanged at
+`16cb42353dc4a343`** across all of them, computed with the deploy's own
+`containerInputs`/`imageId` over the committed tree. An image input that did not
+move is a stronger statement than a path list.
+
+### The test site's state before anything was run
+
+`repairbench-1`, read live at 00:27Z:
+
+- serving 200, 41,475 bytes, title *Hebden Bike Repair*
+- `x-site-build: mu0gbc8t-ba1r4i`, `x-site-version: 01789342481159-bukcse`
+- **one route** in the sitemap: `/`
+- **`/status` answers 404** — the control for the missing-page fix
+- no tables (runs 44 and 45 both died before the compile, so the schema was
+  never applied)
+- **`site_backends.neon_db` is BLANK while `site_project` has its row** — a
+  fifth live instance of the backlog defect, pre-existing and recorded here
+  **before** the run so that a database failure could not later be mistaken for
+  this patch's doing.
+
+**Balance before: 182 credits** (read off the ledger 00:38Z; it was last moved
+2026-09-14 02:25Z by runs 44/45 and their refunds). CLAUDE.md's "244" was stale.
+
+### AND THEN I HIT A WALL I CANNOT GET PAST: I CANNOT PRESS THE BUTTON
+
+**The addon run did not happen, and the reason is a permission, not a
+judgement.** The paid harness is deliberately dispatch-only — your own rule,
+*"A default that could ever run this by accident would be the expensive thing
+being the default"* — and a `workflow_dispatch` needs GitHub's `actions: write`
+scope. **This session's GitHub App does not have it.** Measured, not assumed:
+
+- the MCP tool: `403 Resource not accessible by integration`
+- the REST API directly, with the right endpoint, headers and body:
+  `403 Resource not accessible by integration`
+- `GH_TOKEN` and `GITHUB_TOKEN` are the **same credential**, so there is no
+  second door
+- the installation's permissions read back empty
+
+**The three ways round it are all things you have told me not to do.** Asking
+you for the service key is out (*"Don't ask me to share secrets"*). Adding a
+push trigger to the money-spending workflow would be me inventing the
+accidental-spend door that workflow exists to close. Running the harness here
+needs that same key. So I stopped rather than improvise.
+
+**WHAT IS ARMED AND WAITING, so your press is one click and cannot test the
+wrong build.** `lane sweep` is active on `main` and renders all ten inputs
+including the two new ones. Run it **twice, in this order** — the second only
+after the first finishes, or they collide on the same site:
+
+**Press 1 — SETUP (the baseline, not the thing being tested).** Record it as
+setup: `repairbench-1` has a Neon project and no tables, and the test needs
+something to count.
+
+| field | value |
+|---|---|
+| confirm | `spend` |
+| harness | `addon` |
+| site | `repairbench-1` |
+| ask | `Add a table that stores repair bookings: the customer's name, the bike, and the day they're bringing it in.` |
+| picker | `grok` |
+| budget | `40` |
+| expect_deploy | `4bd5a9191593743b0e61c00d1a1b2caeffe1b933` |
+| expect_image | `16cb42353dc4a343` |
+
+**Press 2 — THE TEST**, exactly the request written down before the merge:
+
+| field | value |
+|---|---|
+| ask | `Add a page at /status that shows how many repairs are booked, and a function the page calls to count them.` |
+
+everything else the same.
+
+**Either press refuses before spending a credit if the Worker or the container
+is not the merged build** — that is the whole point of the two new boxes, and
+it is why the numbers above are safe to leave sitting here: if the platform
+rolls again before you press, the run stops and says so rather than quietly
+testing the wrong code.
+
+**What I will check the moment a run lands**, so nothing rests on the reply
+alone: `/status` answering 200 (it answers **404** today — the control), the
+sitemap listing it, the generated function called through the site's real route
+`POST https://repairbench-1.gofarther.app/api/db/repairbench-1/data/rpc/<fn>`
+(the very URL the generated page uses — `rows.ts:878`), and the customer's own
+completion sentence read out of the run log.
+
+---
+
 ## 2026-09-15 — The rollout plan, written before the merge
 
 You said: *"Before merging, confirm the PR's current code is covered by passing

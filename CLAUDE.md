@@ -349,6 +349,29 @@ evidence that the diff was small than a slow one is that it was large; the
 runner's cache decides, and no inference from the diff to the band is available
 either way. Whether to import a registry cache and make the band real is
 open, and unmeasured either way.
+**THE IMAGE ID CAN BE COMPUTED BEFORE THE PUSH, AND THAT IS WORTH MORE THAN
+ANOTHER TIMING — PROVEN on deploy 2119 (2026-09-15 00:23:24→00:26:12Z, green in
+2m48s; image step 2m08s).** `containerInputs`/`imageId` are pure functions of
+the git objects the Dockerfile COPYs, so running them over a ref answers what
+that ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are
+the whole reader. Computed before merging: `origin/main` → `e35d9f28b49f5f2c`
+(**which matched the image the live container was actually on**, so the
+arithmetic was cross-checked against reality rather than only against itself)
+and the branch tip → `16cb42353dc4a343`. The deploy then printed `built
+isibi-app-sitebuildcontainer:16cb42353dc4a343 (registry answered 404; 180
+inputs off ./Dockerfile)` and rolled the container at 00:26:06Z
+(`e35d9f28b49f5f2c` → `16cb42353dc4a343`, `SUCCESS Modified application`).
+**Two things follow.** A rollback's speed is PREDICTABLE: a revert restores the
+tree main had, which hashes to an id the registry already holds, so the image
+step says `reused`. And "is this commit an image input?" has an exact answer —
+if the id does not move, nothing an image is built from moved, which is a
+stronger statement than reading a `paths` list.
+**AND ONE SERVED FILE IS A FREE WORKER-SIDE CHECK.** When a deploy uploads an
+asset, that file is fetchable with no token: 2119 uploaded `/chat.js` and the
+live bytes are IDENTICAL to the merged tree (589,434 bytes, sha256
+`c6f27211c5586d0f`). It only works when `public/` changed — the standby is the
+gate discriminator (`/api/site/build-health` **401**, `/api/site/runtime`
+**401**, `/api/nope-not-a-route` **404**).
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing a
@@ -1205,6 +1228,23 @@ it can be a refusal rather than a warning printed over a run already under way.
   LONGER NAME cannot prove a class", met from the forbidding side, reporting a
   free read-only probe as the paid route that makes a whole site. It ends at a
   path boundary now and the observer is proved alive in both directions.
+
+**AND A SESSION CANNOT PRESS THE BUTTON — MEASURED 2026-09-15, and it decides
+what a live check can promise.** Every paid harness here is `workflow_dispatch`
+only, by the standing rule that a default which could run it by accident would
+make the expensive thing the default. A dispatch needs GitHub's **`actions:
+write`**, and the session's GitHub App does not have it: the MCP tool and a
+direct REST POST with the right endpoint, headers and body both answer **`403
+Resource not accessible by integration`**, `GH_TOKEN` and `GITHUB_TOKEN` are the
+SAME credential, and the installation's permissions read back empty. **The three
+ways round are all forbidden** — asking for the service key (the owner ruled it
+out), adding a push trigger to a money-spending workflow (inventing the
+accidental-spend door that workflow exists to close), or running the harness
+locally (same key). **So a live paid check is the OWNER'S press, always**, and
+what a session can do is everything up to it: merge, deploy, verify both halves
+of which-code-is-answering, record the baseline, and leave the dispatch armed
+with `expect_deploy` and `expect_image` filled in so the press cannot test the
+wrong build. Plan the work that way rather than discovering it at the end.
 
 **THE FINISHED ANSWER WAKES ITS OWN COLLECTOR.** `/api/site/genresult` enqueues
 the collector the moment it stores the answer, after the release and only for a
@@ -3223,7 +3263,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 244 credits** (read off the ledger 2026-09-11 17:56Z, after
+- **Balance: 182 credits** (read off the ledger 2026-09-15 00:38Z, its row last
+  moved 2026-09-14 02:25Z — runs 44 and 45 on `repairbench-1` and their two
+  6-credit refunds). **244 stood here for four days and was stale**, which is
+  exactly what the last line of this entry warns about; read the ledger.
+  Before it, **244** (2026-09-11 17:56Z, after
   `saltmarsh-kayak-co-2` took 275 → 244 — **31 credits**, the most expensive
   build measured on this account: `:deposit` 2, `:settle` 7, `:pages` 20, plus
   ~2 for routing. Nine pieces and a hand-written tide chart is what that buys).
