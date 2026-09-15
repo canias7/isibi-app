@@ -4466,7 +4466,19 @@ route's engine-dropped items, which needed a case where the engine drops a
 function whole (`returns: "setof nowhere"`) rather than the database refusing it.
 **Every anchor was checked to occur exactly once before each run.**
 
-**Suite 6,494.**
+**Suite 6,494. CI has read it: `unit tests` run 2597 on `23f6ae22`, green —
+`# tests 6494 / # pass 6491 / # fail 0 / # skipped 3`.**
+
+**AND ONE READING OF MY OWN WAS WRONG BEFORE `date` CORRECTED IT.** Watching
+that run, the API answered `in_progress` for a step whose band is ~100 s and
+the run's `updated_at` sat BEHIND its own steps — which is this file's recorded
+tell for a stale snapshot, and I read it as one. It was not: **`date -u` said
+23:27, ninety seconds after the push.** The background `sleep`s I had started
+were never awaited — I read each one's empty output file and polled GitHub
+immediately, so no time had passed at all. **The trap entry's own last line is
+the fix and it works**: `date` is the cheap check before calling anything hung,
+and it is equally the check before calling an instrument stale. A wait is only a
+wait when something blocks on it.
 
 **NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
 the last two. No paid call was made and no demo site was touched. **The
@@ -4899,7 +4911,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `addon-steps` gained ASSERTIONS inside existing cases and no new case — the
   cross-kind haystack both ways round, `brokenAny` with its kinded control, the
   kept-not-returned bare name, the tool's own description and the `unsupported`
-  item drop. CI has NOT read this number yet.
+  item drop. **CI HAS READ IT: `unit tests` run 2597 on `23f6ae22`, green
+  (2026-09-15 23:26:02→23:27:51Z, the suite step 90.6 s) — `# tests 6494 /
+  # pass 6491 / # fail 0 / # skipped 3`**, against local `6494 / 6494 / 0 / 0`;
+  the three are the recorded environment skips, which is why the number to carry
+  is the TOTAL.
   **6,491** before it (2026-09-15, local — the three reporting cases the
   hand-off/implementation split left open, whose new cases are all
   `addon-route`'s **four** (55 → 59: the mixed-success function step, the reuse
