@@ -98,7 +98,7 @@ import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
 import { readJsonBody } from "./request-limits.mjs";
-import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, MAX_IMPORT_BODY } from "./agent-store.mjs";
+import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, agentBodyMax } from "./agent-store.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
 import { cleanHeadDescription, pickableImages, headAnswer } from "./site-head-edit.mjs";
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
@@ -17820,12 +17820,12 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ error: "the agent store isn't reachable just now — try again" }, { status: 503 });
       }
       // The body is read ONLY for the routes that carry one; `readJsonBody`
-      // consumes the request, and a GET has nothing to consume. The import's
-      // allowance is its own: a whole conversation is bigger than a form.
+      // consumes the request, and a GET has nothing to consume. `agentBodyMax`
+      // answers the import's own allowance — a whole conversation is bigger than
+      // a form — and `undefined` for everything else, which is the default.
       let body = {};
       if (AGENT_POST_ROUTES.includes(url.pathname)) {
-        const read = await readJsonBody(request,
-          url.pathname === "/api/agent/import" ? { max: MAX_IMPORT_BODY } : undefined);
+        const read = await readJsonBody(request, { max: agentBodyMax(url.pathname) });
         if (!read.ok) return Response.json({ error: read.error, code: read.code }, { status: read.status });
         body = read.body;
       }

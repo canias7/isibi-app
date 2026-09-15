@@ -399,6 +399,20 @@ export const AGENT_ROUTES = Object.freeze({
 export const AGENT_POST_ROUTES = Object.freeze(
   Object.keys(AGENT_ROUTES).filter((p) => AGENT_ROUTES[p] === "POST"));
 
+/**
+ * How big a body one route may carry, or `undefined` for the ordinary allowance.
+ *
+ * **THE ROUTE NAME LIVES HERE RATHER THAN AT THE DISPATCH**, and that is not
+ * only tidiness. Written inline it was `url.pathname === "/api/agent/import" ? …`
+ * in `worker.js`, which reads to `test/api-auth.test.mjs` as a DISPATCH POINT —
+ * a route whose gate must follow it — and the gate for all seven of these sits
+ * ABOVE the block. So a correct, gated route reported as unauthenticated. One
+ * caller, and it asks by path rather than carrying a second copy of the name.
+ */
+export function agentBodyMax(path) {
+  return path === "/api/agent/import" ? MAX_IMPORT_BODY : undefined;
+}
+
 const ok = (body) => ({ status: 200, body: { ok: true, ...body } });
 const no = (status, error, extra) => ({ status, body: { error, ...(extra || {}) } });
 

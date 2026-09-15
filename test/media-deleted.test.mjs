@@ -68,8 +68,12 @@ test("the app's view list and its markup agree, and no deleted view is back", ()
   // EVERY KNOWN VIEW REALLY RENDERS. This is the half that makes adding a view
   // safe and adding a DOOR TO NOTHING fail — which is what the deleted gallery
   // was: a name in the list, a tab in the page, and no renderer behind it.
+  // A BRANCH MAY OPEN A BLOCK, and the renderer still has to be the first thing
+  // in it. `agents` does exactly that (it renders and then asks the server), so
+  // the `\{?` is what the property really needed — not a second spelling for one
+  // view. Re-anchored 2026-09-15; the property is unchanged.
   for (const v of known) {
-    const call = new RegExp(`if \\(name === '${v}'\\) render[A-Z]`);
+    const call = new RegExp(`if \\(name === '${v}'\\) \\{?\\s*render[A-Z]`);
     assert.match(CHAT_CODE, call, `showView knows '${v}' but never renders it — a door to an empty main`);
   }
 
