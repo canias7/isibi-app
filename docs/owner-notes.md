@@ -155,6 +155,59 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The agent builder's agents are on your account now
+
+Yesterday the agents screen kept everything in the browser, and said so on the
+screen. They are on the account now: sign in on another machine and they are
+there. **This milestone is storage only.** No model, no reply, no tools, no
+triggers. Sending a message saves a message — the thread still says so under the
+box before you send, because a chat that took your words in silence would read
+as an agent ignoring you.
+
+**What you can do now**
+
+Make an agent, rename it, rewrite its instructions, delete it, and type into its
+conversation. All of it is saved to your account, and another account cannot see
+or touch any of it.
+
+**Your old agents are not gone and I did not upload them behind your back**
+
+Anything written into this browser before today is still there. The list offers
+them at the top — "2 agents saved in this browser", with a button — and the
+offer only appears once the server has answered for your account, because
+putting somebody's written instructions into an account I cannot establish is
+the one mistake here that cannot be undone. Press it and each agent comes over
+with its whole conversation in one go. **Your copy in the browser is left
+exactly as it was either way**; an imported one is marked as brought over so it
+stops being offered, and nothing is deleted.
+
+**Three screens instead of one**
+
+Loading, empty, and "couldn't load". A read that FAILED never says "No agents
+yet" — that would read as your account having been emptied, which is the one
+wrong thing this screen can say. A failed save leaves your words in the box with
+a sentence under them; a failed send leaves the message in the message box.
+
+**What is proven and what is not**
+
+- **Proven on a real database**: another account cannot read or change your
+  agents or your conversations; nothing can store a message as having come from
+  the agent; deleting an agent takes its conversation with it; an import either
+  lands whole or leaves nothing behind. 243 checks, 0 failed.
+- **Proven live, but only the storage layer**: the three database objects are
+  applied to the live project, and all four things the API talks to are visible
+  to Supabase's API layer with the signed-out wall in front of them.
+- **NOT proven live**: nothing has run against the deployed site. The
+  two-browser, two-account check needs this merged and deployed — there is one
+  Worker and a merge is the only way to it. It is a PR, not a merge, as you
+  asked.
+
+**Screenshots in the chat** — the list, the import offer, a failed save with the
+edited instructions still in the box, the failed-read screen, a thread, and an
+empty account.
+
+---
+
 ## 2026-09-15 — The normalizer was still erasing meaning, and the live path is ready
 
 You were right, and the fix I shipped last round was one layer too late. The

@@ -1266,21 +1266,100 @@ story of how each got there is in `git show a4d0f5e5:CLAUDE.md`.
   the A for the profile thing, put agent builder"*). A profile-menu row opens it,
   `renderAgents` draws it, and it is a view in THIS app rather than a page on the agent
   Worker's own domain — which would have meant a second sign-in to reach a menu item.
-  **ITS LIST LIVES IN `localStorage` AND NOWHERE ELSE**, said on the screen in its own
-  words, because `agent-builder/`'s API runs an agent that ALREADY EXISTS and has no
-  route that creates one: there an agent is code, which a request may not supply.
-  **`AGENTS_KEY` IS ON THE ACCOUNT-SWITCH WIPE LIST** — localStorage belongs to the
-  browser, not the account, so without it the next person signing in on this machine
-  inherits the last one's written instructions.
+  **ITS LIST LIVED IN `localStorage` FOR ONE DAY** and is on the account now — the
+  section below has the storage. **`AGENTS_KEY` STAYS ON THE ACCOUNT-SWITCH WIPE
+  LIST**: localStorage belongs to the browser, not the account, so without it the next
+  person signing in on this machine inherits the last one's written instructions, and
+  that is now doubly true because those records are what the import offers.
   **A ROW OPENS THE CONVERSATION; the instructions are behind the pencil**, and the
   row's preview line is the last message once there is one. **NOTHING PRETENDS TO
   ANSWER**: no model is wired to it, so there is no bubble from the agent — not even
   one saying so — because a reply that is not a reply is the dead control that ANSWERS,
-  wrongly. The thread says it under the box before you send, and a guard fails if
-  anything writes a message with a role other than the person's.
-  **`AGENT_THREAD_MAX` is 200 per agent**, because this shares one `localStorage` with
-  the sites list: an unbounded thread does not merely grow, it throws on write and takes
-  those with it.
+  wrongly. The thread says it under the box before you send.
+  **`AGENT_THREAD_MAX` (200) STOPPED BEING A STORAGE BOUND** and is the number the
+  IMPORT may carry: the server bounds the thread READ (`MAX_THREAD` 500, newest first
+  and turned round), so the browser's own cap now governs the one place it still
+  decides how much it hands over.
+- **THE AGENT BUILDER'S AGENTS ARE ON THE ACCOUNT (2026-09-15).** The screen kept
+  them in `localStorage` for one day; they live in the `agent` schema now —
+  `agent.agents` and `agent.agent_messages`, **separate from `agent.runs` and
+  `agent.run_entries` by construction**, with no foreign key between the halves:
+  one is mutable prose somebody wrote and edits, the other an append-only fenced
+  journal of work that ran. Seven operations under `/api/agent/*`, and
+  `agent-store.mjs` (root, dependency-free, on the Dockerfile's COPY line) owns
+  all of them.
+- **RLS IS THE BELT AND THE URL FILTER IS THE WALL, and only saying so keeps them
+  apart.** Policies on both tables key on `agent.tenant_id()`, which reads the
+  request's own JWT — that protects the `authenticated` role. It protects nothing
+  on this path: `service_role` carries BYPASSRLS, so the only thing between one
+  customer and another's written instructions is `tenant_id=eq.` in the query
+  `worker.js` sends. **A suite that only ever signs in as one account cannot see
+  that**, so most of the guards read the REQUEST THAT WENT OUT rather than the
+  answer that came back. Its consequence is the shape of `update`, `remove` and
+  `ownsAgent`: the tenant is in the FILTER, so "somebody else's id" and "an id
+  that does not exist" are one answer (no rows) and one 404 — a stranger cannot
+  confirm that another account's agent exists.
+- **THE TENANT IS `authUser(request).id` AND NOTHING ELSE.** No route reads an
+  account, uid, owner or tenant off the body or the query string, asserted as a
+  census over the handler's own reads; an unreadable tenant REFUSES rather than
+  running an unfiltered query. The block is gated ONCE, above all seven, which is
+  stricter than seven gates — an eighth route cannot be added ungated because
+  there is nowhere to add it that is not already behind it.
+- **A REPLY IS IMPOSSIBLE RATHER THAN ABSENT.** `check (role = 'user')` on the
+  column, and no `role` is ever sent — not by the store, not by the handler, not
+  by the import. Saving a message does not pretend to execute anything.
+- **`agent.agent_overview` IS A VIEW, AND `security_invoker = true` IS THE WHOLE
+  SAFETY ARGUMENT** — without it the view runs as its OWNER and is a hole through
+  the RLS on both base tables. PostgREST can embed a child relation with its own
+  order and limit, which would have done this with no migration; it is not used
+  because **nothing here can run PostgREST**, so that query could only be asserted
+  from documentation. A view is plain SQL and `test/integration/pg-schema.mjs`
+  drives it on a real PostgreSQL. Dropping the option turns five checks red.
+- **`agent.import_agent` IS ONE TRANSACTION BECAUSE THE IMPORT CAN BE PRESSED
+  TWICE.** The local store is never deleted, so a loop of inserts would leave half
+  an agent or a second copy of a whole one. `execute` revoked from `public` and
+  granted to `service_role` alone — it takes the tenant as an argument, and that
+  grant is the only reason a tenant argument is safe.
+- **NOTHING DELETES WHAT SOMEBODY TYPED INTO A BROWSER.** The legacy agents are
+  OFFERED with a count and a button, and the offer is drawn only once the server
+  has answered a list for this account — uploading written instructions into an
+  account that cannot be established is the one mistake here that cannot be taken
+  back. An imported record is MARKED (`imported`, `importedAt`) and keeps every
+  field it had. `AGENTS_KEY` stays on the account-switch wipe list.
+- **A FAILED READ IS NOT AN EMPTY ACCOUNT AND A FAILED SAVE KEEPS THE WORDS.**
+  `null` for "not asked yet" against `[]` for "this account has none" is what
+  makes loading, empty and failed three screens; a failed read leaves the rows it
+  had. The composer is rebuilt from `innerHTML`, so a draft living only in the DOM
+  would be wiped by the very re-render that shows the error — `agentDraft` is
+  written before anything can fail and is read back for the agent it was typed
+  against.
+- **MEASURED**: caps are the columns' own check constraints, read back out of the
+  migration by the guard (200 / 8000 / 8000); `MAX_AGENTS` 200, `MAX_THREAD` 500
+  newest-first-then-reversed, `MAX_IMPORT_MESSAGES` 200 asserted at or under the
+  function's own 500, `MAX_IMPORT_BODY` 2 MB and only the import may carry it.
+  Real PostgreSQL 16: **185 → 243 checks, 0 failed**. Suite **6,532**.
+  **Sweep: 48 mutants, 48 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived** — five survived pass 1 and **every one was a gap in the new
+  guards, not the product's**: the store's own "matched no row" branches (every
+  other case drove a FAKE store, so `update`/`remove` answering a row for zero
+  matches was invisible), a fixture passing the same id as `newId` and as the body
+  (the recorded "too shallow to separate the two readings"), `agentBodyMax` never
+  driven per path, and a speaker the HANDLER could add before the store saw it.
+- **SIX OLDER GUARDS RE-ANCHORED, NOT APPEASED**, and two of them are a class
+  worth naming: `client-routes` and `wiring` both resolve a route by finding its
+  literal in `worker.js`, and **a route family dispatched from an IMPORTED list
+  has no literal there** — four working routes came back as dead client calls, a
+  false alarm on correct code. Both ask both places now, and the module's list is
+  admitted ONLY because the dispatch itself is asserted. The same premise cost
+  `api-auth` the opposite mistake: it found `/api/agent/import` inside a ternary,
+  read it as a dispatch point whose gate must FOLLOW, and reported a gated route
+  as open — fixed in the code (`agentBodyMax(path)`) rather than in the guard,
+  and a new case covers the whole family, because a route family invisible to
+  that census is the silent direction.
+- **NOT PROVEN LIVE.** The migrations are applied and the four relations resolve
+  in PostgREST's schema cache (`42501`, the schema-grant wall, not `PGRST202/205`).
+  Nothing else has run against the deployed Worker: the two-account check needs a
+  merge, because there is one Worker and `deploy.yml` is the only way to it.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

@@ -26,7 +26,7 @@ import { hit, isUnrouted } from "./fixtures/worker-harness.mjs";
 import {
   handleAgentApi, makeAgentStore, agentRow, messageRow,
   cleanText, cleanId, cleanAt, readTenant,
-  AGENT_ROUTES, AGENT_POST_ROUTES, AGENT_SCHEMA,
+  AGENT_ROUTES, AGENT_POST_ROUTES, AGENT_SCHEMA, agentBodyMax,
   AGENT_NAME_MAX, AGENT_INSTRUCTIONS_MAX, AGENT_BODY_MAX,
   MAX_AGENTS, MAX_THREAD, MAX_IMPORT_MESSAGES, MAX_IMPORT_BODY,
 } from "../agent-store.mjs";
@@ -112,6 +112,37 @@ test("every operation is scoped by the tenant the handler was given", async () =
   assert.equal(reached.size, 7, "the observer must have driven all seven");
 });
 
+test("⚠ THE ID IS OURS — a body cannot choose the primary key", async () => {
+  // **A FIXTURE TOO SHALLOW TO SEPARATE THE TWO READINGS**, which is this
+  // repository's own recorded trap and is exactly what the sweep found: the
+  // census below passes `id: A1` in the body AND `newId: () => A1`, so
+  // `cleanId(b.id) || mint()` and `mint()` answer the same string and a mutant
+  // letting the client choose the key survived every case in the file.
+  //
+  // The two readings only diverge when the two ids DIFFER. A client-chosen
+  // primary key is how one account writes a row at an id another account is
+  // about to use, and how a retry silently overwrites rather than duplicating.
+  const MINE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const THEIRS = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const f = fakeStore();
+  await handleAgentApi({
+    path: "/api/agent/create", method: "POST", tenant: T1, store: f.store,
+    newId: () => MINE,
+    body: { name: "N", instructions: "I", id: THEIRS },
+  });
+  const created = f.calls.find((c) => c.name === "create");
+  assert.equal(created.args[1].id, MINE, "the client chose the primary key");
+  assert.ok(!JSON.stringify(created.args).includes(THEIRS), "a body-supplied id reached the store");
+
+  // The same for a message's id, which is a primary key too.
+  const g = fakeStore();
+  await handleAgentApi({
+    path: "/api/agent/message", method: "POST", tenant: T1, store: g.store,
+    newId: () => MINE, body: { id: A1, body: "hello", messageId: THEIRS },
+  });
+  assert.equal(g.calls.find((c) => c.name === "addMessage").args[1].id, MINE);
+});
+
 test("an account id in the body is ignored — the verified one is what is stored", async () => {
   const f = fakeStore();
   await handleAgentApi({
@@ -183,6 +214,32 @@ test("every read and write carries a tenant filter, or asks about an agent that 
         `${name} is not scoped to one agent: ${url}`);
     }
   }
+});
+
+test("a write that matched NO ROW answers so, and that is the whole of the 404", async () => {
+  // **THE SWEEP FOUND THIS.** Every other case about "somebody else's agent"
+  // drives the HANDLER against a fake store that answers `null` — so the STORE's
+  // own reading of an empty result was never exercised, and
+  // `agentRow(rows(r)[0] || { id })` survived. The tenant is in the filter, so a
+  // stranger's id produces zero rows and this branch IS the wall: read wrongly,
+  // an update of somebody else's agent comes back as a success.
+  const none = recorder({ agents: { status: 200, body: [] } });
+  assert.equal(await none.store.update(T1, A1, { name: "n", instructions: "i" }), null,
+    "an update that matched nothing answered as though it worked");
+  assert.equal(await none.store.remove(T1, A1), false,
+    "a delete that removed nothing answered true");
+
+  // THE OBSERVER IS ALIVE: one row back is a success, so the two above are about
+  // the empty answer and not about the store being broken.
+  const one = recorder({ agents: { status: 200, body: [{ id: A1, name: "n", instructions: "i" }] } });
+  assert.equal((await one.store.update(T1, A1, { name: "n", instructions: "i" })).id, A1);
+  assert.equal(await one.store.remove(T1, A1), true);
+
+  // And more than one row is not a success either: these filters name a primary
+  // key, so two rows would mean the filter did not do what it says.
+  const two = recorder({ agents: { status: 200, body: [{ id: A1 }, { id: "x" }] } });
+  assert.equal(await two.store.update(T1, A1, { name: "n", instructions: "i" }), null);
+  assert.equal(await two.store.remove(T1, A1), false);
 });
 
 test("the create stores the tenant on the row and an id we minted", async () => {
@@ -466,6 +523,14 @@ test("a message the import cannot read is counted and said, never dropped in sil
   assert.equal(r.body.unreadable, 3, "a dropped message was not counted");
   const sent = f.calls.find((c) => c.name === "importOne").args[1];
   assert.deepEqual(sent.messages.map((m) => m.body), ["kept", "also kept"]);
+  // NO SPEAKER, AT THE HANDLER TOO. The store-level case asserts the wire; the
+  // sweep showed the handler could put one on the message before the store ever
+  // saw it, and the store passes `p_messages` straight through.
+  for (const m of sent.messages) {
+    assert.deepEqual(Object.keys(m).sort().filter((k) => k !== "at"), ["body"],
+      `an imported message carries ${Object.keys(m).join(", ")}`);
+  }
+  assert.ok(!JSON.stringify(sent).includes("role"), "the import composed a speaker");
 });
 
 test("an import longer than one request may carry is refused by its length, not truncated", async () => {
@@ -501,6 +566,21 @@ test("every cap is the column's own check constraint, read out of the migration"
   assert.deepEqual(between("name"), [1, AGENT_NAME_MAX]);
   assert.deepEqual(between("instructions"), [1, AGENT_INSTRUCTIONS_MAX]);
   assert.deepEqual(between("body"), [1, AGENT_BODY_MAX]);
+});
+
+test("only the import may carry a bigger body", () => {
+  // **THE SWEEP FOUND THIS TOO**: nothing drove `agentBodyMax` per path, so
+  // returning the import's allowance for everything survived. It matters in the
+  // ordinary direction — a 2 MB ceiling on every route is a 2 MB buffer any
+  // signed-in caller can make the Worker hold, on six routes that need 128 KB.
+  assert.equal(agentBodyMax("/api/agent/import"), MAX_IMPORT_BODY);
+  for (const p of Object.keys(AGENT_ROUTES)) {
+    if (p === "/api/agent/import") continue;
+    assert.equal(agentBodyMax(p), undefined, `${p} may carry the import's allowance`);
+  }
+  // `undefined` and not a number, deliberately: `readJsonBody`'s own default is
+  // what the other six get, so there is no second copy of that number here.
+  assert.equal(agentBodyMax("/api/agent/nope"), undefined);
 });
 
 test("the import's message cap is at or under the database's own ceiling", () => {
