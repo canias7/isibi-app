@@ -22,6 +22,11 @@
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
 
+  // A `workers.dev` URL, asked for explicitly rather than left to the default.
+  // The deployment has to be reachable for anything to verify it, and "whatever
+  // wrangler decides today" is not an address a script can be pointed at.
+  "workers_dev": true,
+
   "vars": {
     // The model this deployment will run. `stand-in` costs nothing and calls no
     // provider; a name this Worker does not know is REFUSED rather than defaulted.

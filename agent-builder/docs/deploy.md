@@ -10,41 +10,99 @@ the bottom of this file); the Worker is not.
 
 ---
 
-## 1. The one secret, and the exact command
+## 1. Deploying through GitHub Actions (the way it ships)
 
-**Everything else is already configured in `wrangler.jsonc`.** The project URL and the
-publishable key are not secrets — a URL is public and a publishable key is designed
-to be handed to browsers — so they are committed as plain `vars`, and the deployment
-needs exactly **one** `wrangler secret put`.
+**`.github/workflows/agent-deploy.yml` does the whole thing, and Actions injects the
+three credentials it needs without ever exposing their values.** They are already
+repository secrets, because `deploy.yml` uses the same ones:
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_SERVICE_KEY`. **Nothing
+new has to be added and no value is pasted anywhere.**
+
+### Why it is a push trigger and not `workflow_dispatch`
+
+A dispatch-only workflow can only be started once the file is on the **default**
+branch, and `main` is to stay untouched — so it could never bootstrap itself. And
+`POST /actions/workflows/<file>/dispatches` answers **403 Resource not accessible by
+integration** from a session anyway, which `answer-read.yml` already records so
+nobody re-tries it. So the trigger is a push, restricted to the exact agent branch.
+
+**It does not fire on a merge, and a census enforces that** —
+`test/merge-triggers.test.mjs` walks the workflows directory and requires exactly one
+workflow on a push to `main`: `deploy.yml`, which is untouched. A new file with a
+copied `branches: [main]` fails by existing.
+
+### How to deploy
+
+**Every push to the agent branch runs the agent's checks. Nothing deploys unless the
+tip commit's message opts in**, because pushes are how work gets saved and a deploy
+rolls a real Worker.
+
+```sh
+git commit -m "whatever you changed [agent deploy]"
+git push
+```
+
+The marker is `[agent deploy]`, and it is spelled in exactly two places on purpose:
+the workflow that reads it, and this line. **Do not write it in a commit message that
+is only talking about it** — this product's sister rule is recorded twice over,
+because the gate reads the message with no idea it is being quoted, so a commit
+explaining the marker arms itself.
+
+What the run does, in order, stopping at the first thing it cannot confirm:
+
+1. **the agent's own checks** — on every push, armed or not;
+2. **the credentials** — reported by LENGTH and never by value, then `wrangler
+   whoami`, because a secret that exists and has expired looks exactly like one that
+   works right up to the deploy;
+3. **the queue** — `queues create agent-runs`, and **a non-verdict FAILS the run**.
+   The call needs `|| true` because it errors when the queue already exists, and a
+   token without the **Queues edit** permission fails identically from a silent
+   `|| true`. The Worker requires the binding and answers 503 without it;
+4. **the deploy** — `wrangler deploy --config wrangler.jsonc`, named explicitly on
+   every call so nothing can resolve the root product's config by accident;
+5. **the one runtime secret** — `SUPABASE_SERVICE_KEY` and nothing else, uploaded to
+   the agent Worker after the deploy (the Worker has to exist to hold a secret), with
+   a re-deploy-and-retry because this repository records that a standalone
+   `secret put` after a deploy can meet Cloudflare's versioned-deployments guard on
+   this account;
+6. **is it serving** — `/health` polled until it answers `ok: true`;
+7. **the live verification** — all four checks below;
+8. **cleanup** — `if: always()`, removing the throwaway customer the verification
+   created.
+
+### If it is blocked
+
+Each step names the missing thing rather than failing generically: a missing secret
+by name, a token that will not authenticate, a queue that could not be confirmed
+(with the permission to add), a deploy with no `workers.dev` URL, or a deployment
+whose `/health` names what it is still waiting for.
+
+---
+
+## 2. Deploying by hand instead
+
+Only needed if Actions is unavailable. **One secret**, because everything else is a
+committed var:
 
 ```sh
 cd agent-builder
 wrangler secret put SUPABASE_SERVICE_KEY -c wrangler.jsonc
 ```
 
-It prompts, reads the value from the terminal without echoing it, and never writes it
-to disk or to your shell history. **Paste the service-role key (`eyJ…` with
-`"role":"service_role"`) or an `sb_secret_…` key.** Nothing else about this Worker
-needs a secret.
+It prompts, reads the value without echoing it, and never writes it to disk or to
+your shell history. Paste the service-role key (`eyJ…` with `"role":"service_role"`)
+or an `sb_secret_…` key.
 
-### ⚠ RUN IT BEFORE THE FIRST DEPLOY, NOT AFTER
+**⚠ Run it BEFORE the first deploy.** On this account a standalone `wrangler secret
+put` AFTER a deploy fails with *"the latest version of your Worker isn't currently
+deployed"* — Cloudflare's versioned-deployments guard. That is not a guess: it is why
+the rest of this repository uploads its secrets *inside* the deploy step, recorded in
+`.github/workflows/deploy.yml`. Wrangler will say the Worker does not exist yet and
+offer to create it — say yes. Then:
 
-**On this account a standalone `wrangler secret put` AFTER a deploy fails** with *"the
-latest version of your Worker isn't currently deployed"* — Cloudflare's
-versioned-deployments guard. That is not a guess: it is why the rest of this
-repository uploads its secrets *inside* the deploy step rather than after it, recorded
-in `.github/workflows/deploy.yml`.
-
-So the order is:
-
-1. `wrangler secret put SUPABASE_SERVICE_KEY -c wrangler.jsonc` — wrangler will say
-   the Worker does not exist yet and offer to create it. **Say yes.** That creates the
-   Worker with the secret attached and no code.
-2. `./scripts/deploy.sh` — creates the queue and uploads the code.
-
-Doing it the other way round works too, but only if you never need to *rotate* the
-secret; a rotation hits the guard. If it ever does, re-deploy and then set it, or set
-it and re-deploy — the order that works is secret-then-deploy.
+```sh
+CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… ./scripts/deploy.sh
+```
 
 ### The settings, for reference
 
@@ -85,14 +143,7 @@ else changes when you do.
 
 ---
 
-## 2. The queue, and the deploy
-
-Both in one command, run by hand:
-
-```sh
-cd agent-builder
-CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… ./scripts/deploy.sh
-```
+### What `scripts/deploy.sh` does
 
 It runs the tests first, creates `agent-runs`, **prints the queue verdict loudly**,
 and deploys with `wrangler@4.107.0` — the same CLI the rest of this repository

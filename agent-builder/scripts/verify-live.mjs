@@ -54,6 +54,7 @@ const check = (what, cond, detail = "") => {
 };
 const head = (t) => console.log(`\n── ${t} ${"─".repeat(Math.max(0, 68 - t.length))}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 if (!AGENT_URL || !SUPABASE_URL || !SVC) {
   console.error("need AGENT_URL, SUPABASE_URL and SUPABASE_SERVICE_KEY");
@@ -108,6 +109,39 @@ check("both verification agents are registered",
 const VERSION = healthBody.version ?? "(no version metadata binding)";
 console.log(`      version:   ${VERSION}`);
 console.log(`      deployed:  ${healthBody.deployedAt ?? "—"}`);
+
+/**
+ * A THROWAWAY CUSTOMER, created server-side and deleted afterwards.
+ *
+ * **NO EMAIL IS SENT.** `email_confirm: true` on the admin API creates a confirmed
+ * user outright, which is the difference between this and an ordinary sign-up —
+ * an earlier round of this work consumed one of the project's 200 daily sends by
+ * signing up the normal way, and that is a cost a verification has no business
+ * incurring.
+ *
+ * It exists because the verification's first claim is "a real customer signs in",
+ * and that cannot be shown with a token minted here. Only used when no credentials
+ * were supplied; the id is reported so it can be removed even if this run dies.
+ */
+const VERIFY_EMAIL_PREFIX = "agent-verify-";
+let madeUser = null;
+if (!token && !env.AGENT_USER_EMAIL) {
+  const email = `${VERIFY_EMAIL_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
+  const password = `${crypto.randomUUID()}Aa1!`;
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: { apikey: SVC, authorization: `Bearer ${SVC}`, "content-type": "application/json" },
+    body: JSON.stringify({ email, password, email_confirm: true }),
+  });
+  const body = await r.json().catch(() => ({}));
+  check("a throwaway customer is created without sending mail", r.ok && isText(body.id),
+    r.ok ? `id ${body.id}` : `HTTP ${r.status} ${JSON.stringify(body).slice(0, 160)}`);
+  if (!r.ok) { console.log("\ncannot continue without a customer"); process.exit(1); }
+  madeUser = { id: body.id, email };
+  console.log(`      created:   ${email}`);
+  env.AGENT_USER_EMAIL = email;
+  env.AGENT_USER_PASSWORD = password;
+}
 
 if (!token) {
   // A REAL SIGN-IN, not a token minted here. That is the whole point of the leg.
@@ -384,6 +418,21 @@ if (runIds.guarded) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// **THE THROWAWAY CUSTOMER GOES.** Best effort here, and the workflow removes any
+// that a failed run left behind — because a script that dies half way through is
+// exactly when cleanup matters and exactly when it does not run.
+if (madeUser) {
+  head("cleaning up");
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${madeUser.id}`, {
+      method: "DELETE", headers: { apikey: SVC, authorization: `Bearer ${SVC}` },
+    });
+    check("the throwaway customer is deleted", r.ok, `HTTP ${r.status} — ${madeUser.email}`);
+  } catch (e) {
+    check("the throwaway customer is deleted", false, `${String(e?.message ?? e)} — ${madeUser.email} is still there`);
+  }
+}
+
 head("what was verified");
 console.log(`  endpoint:  ${AGENT_URL}`);
 console.log(`  version:   ${VERSION}`);
