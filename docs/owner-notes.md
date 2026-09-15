@@ -388,10 +388,51 @@ earlier word for it, and the dispatch is refused 403 while the same credential
 reads the same workflow at 200. So it is `actions: write` my access lacks, and
 the press is yours.
 
+### You pressed preview, and it found something I had wrong
+
+`backend repair` run 1, 06:55:20Z, preview on `repairbench-1`. Green. Nothing
+written. Here is the whole thing:
+
+```
+mode: preview  slug: repairbench-1
+scope: ashgrove-1, fretwork-1, northgroup-5, repairbench-1, washhouse-1
+1 site(s): 1 with a database (incomplete 1)
+repairbench-1 [incomplete]: identity PROVEN (project-row-for-this-slug-names-a-database-the-server-confirms)
+    reference: would-write site_repairbench_1
+    schema: nothing missing (2 declared)
+
+0 reference(s) written, 0 schema(s) recovered, 0 refused on identity, 0 failed.
+```
+
+**Identity was proved**, and the reason names the whole chain rather than just
+saying yes: the project row filed under this slug names a database, and the
+server confirms that is the database we reached. That is the check you made me
+fix — it is asking about the connection the queries really use.
+
+**It only visited `repairbench-1`.** The scope line prints the five before
+anything is read, and naming the slug narrowed it to one site.
+
+**The thing I had wrong:** I have been telling you `repairbench-1` lost the
+`bookings` declaration. **It did not.** The stored schema declares two tables and
+nothing in the database is undeclared — so `bookings` is there. The measurement I
+based that on was real, but it was about what a *function* does, and I carried it
+across into a claim about what this *site* actually holds. Those are different
+things and I should not have joined them. I do not know whether it was ever
+missing and something put it back, and I am not going to guess.
+
+**So the apply is smaller than we planned.** On this site it is exactly one
+write — filling in the blank database name on the ownership row — and the schema
+half does nothing. No table, row, permission or policy is touched.
+
+Nothing was refused, nothing was ambiguous, nothing was unrecoverable. Those
+lines print when they have something to say; they printed nothing.
+
 ### Nothing has been repaired
 
-The five sites are still incomplete, `repairbench-1`'s `bookings` declaration is
-still missing, and `/status` still says `0`. **No database has been touched.**
+The five sites are still incomplete (only `repairbench-1` has been previewed),
+the reference is still blank, and `/status` still says `0` — which this repair
+was never going to fix, that being the separate count correction. **No database
+has been touched.**
 
 ---
 

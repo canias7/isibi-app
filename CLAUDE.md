@@ -3172,9 +3172,12 @@ empty checks are a deliberate PAIR, mutated together. **Suite 6,422** — 6,387 
 backfill and the schema recovery both need `SUPABASE_SERVICE_KEY` and a Neon
 connection; this session has neither (`scripts/grants-backfill.mjs` is in the
 same position and for the same reason). The five sites are still `incomplete`,
-`repairbench-1`'s `bookings` declaration is still missing, and
-`count_booked_repairs` still counts `repairs` and answers `0`. **The owner's
+and `count_booked_repairs` still counts `repairs` and answers `0`. **The owner's
 press is what runs it**, exactly as with every paid harness here.
+**CORRECTED 2026-09-15 by the first live preview**: this paragraph also said
+`repairbench-1`'s `bookings` declaration was missing, and the preview measured
+otherwise — the stored spec declares two tables and nothing live is undeclared.
+See the preview entry at the end of the next section.
 
 ### …AND FIVE GAPS IN THAT REPAIR, EACH REPRODUCED BEFORE IT WAS FIXED (2026-09-15)
 
@@ -3691,10 +3694,61 @@ both scripts and both workflows — is live.
   The 403 is sharper than the old one: the endpoint now RESOLVES (403, not 404),
   so the only thing left is `actions: write`.
 
-**STILL NOT RUN LIVE.** The five sites are `incomplete`, `repairbench-1`'s
-`bookings` declaration is missing, and `count_booked_repairs` counts `repairs`
-and answers `0`. The dispatch is armed, the button exists, and it is the owner's
-press.
+### AND THE FIRST PREVIEW RAN — identity proved, and it CORRECTED THIS FILE
+
+**`backend repair` run 1, 2026-09-15 06:55:20Z, `--preview --slug repairbench-1`,
+green, nothing written.** The owner's press; the log is artifact
+`backend-repair-log` (443 bytes). Verbatim:
+
+```
+mode: preview  slug: repairbench-1
+scope: ashgrove-1, fretwork-1, northgroup-5, repairbench-1, washhouse-1
+1 site(s): 1 with a database (incomplete 1)
+repairbench-1 [incomplete]: identity PROVEN (project-row-for-this-slug-names-a-database-the-server-confirms)
+    reference: would-write site_repairbench_1
+    schema: nothing missing (2 declared)
+
+0 reference(s) written, 0 schema(s) recovered, 0 refused on identity, 0 failed.
+```
+
+- **IDENTITY PROVED, and the `why` names the whole chain** rather than a verdict:
+  the `site_project` row found under THIS slug → a connection naming
+  `dbNameForSite(slug)` → `SELECT current_database()` agreeing. The fix for
+  "identity was asked about a connection the queries do not use" is live: the
+  resolution happens in `survey`, so the thing proved and the thing queried are
+  one connection.
+- **THE SCOPE WALL PRINTED ITSELF** — `scope:` lists the five before anything is
+  read, and a named slug narrowed the run to `1 site(s)`. The other four were
+  never touched.
+- **`shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}`** is in the
+  run's own header, so the pipefail fix is live and readable rather than assumed.
+
+**AND `repairbench-1`'s `bookings` DECLARATION IS NOT MISSING. This file said it
+was, and the live database says otherwise.** `nothing-missing` is
+`rec.changed === false` — `reconcileSpec` found NO live table the stored spec
+fails to declare — and `kept.length` is **2**, which is the stored spec's own
+entries (the `empty` branch returns `kept: []`, so this is a real spec with two
+of them). Every live application table is declared, and `bookings` is live (run
+47's control inserted into it), so `bookings` IS declared.
+**What is falsified is the claim about THIS SITE's stored spec, not the module
+measurement**: `mergeAddonSchema({tables: []}, …)` answering `["repairs"]` was
+driven directly and stands. What wrote `bookings` back into `_meta.schema`, or
+whether it was ever absent, is **unknown from here and is not being guessed** —
+a preview reads, and reading is what it did.
+**The consequence is that the apply is SMALLER than planned**: on this site it
+is exactly one write, `site_backends.neon_db` ← `site_repairbench_1`, and the
+schema half is a no-op. No database table, row, policy or grant is touched.
+
+**NOTHING WAS REFUSED, AMBIGUOUS OR UNRECOVERABLE**: no `LEFT ALONE (would
+change behaviour)` line, no `LEFT ALONE (access not derivable)` line, no
+`CANNOT RECONCILE`, and `0 refused on identity, 0 failed`. Those lines are
+printed when non-empty, so their absence is an answer and not a silence.
+
+**STILL NOT REPAIRED.** The five sites are `incomplete` (only `repairbench-1`
+has been previewed), the reference is unwritten, and `count_booked_repairs`
+still counts `repairs` and answers `0` — which the backend repair does not fix
+and never claimed to: that is `scripts/repairbench-count-fix.mjs`, a separate
+object.
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -4814,6 +4868,18 @@ rule and the measurement.
   earlier table's DECLARATION is dropped while the table itself survives.**
   That makes this a data-model defect on the money path, not a reporting gap:
   every addon on an affected site designs against a site it cannot see.
+  **BUT THE DROP DID NOT HAPPEN ON THIS SITE — MEASURED 2026-09-15 by the first
+  live `backend repair --preview`**, which read `repairbench-1`'s stored spec and
+  answered `schema: nothing missing (2 declared)`: every live application table
+  IS declared, `bookings` included. **The `mergeAddonSchema` measurement above
+  stands** — it was driven directly and says what that function does with an
+  empty baseline. What is falsified is the inference from it to THIS site's
+  stored spec. Whether `bookings` was ever absent from `_meta.schema` and
+  something wrote it back, or whether the route took a different path than the
+  drive models, is **unknown and is not being guessed** — the honest reading is
+  that the function's behaviour and one site's stored state were conflated.
+  The reference half of the defect is untouched by this and is still real:
+  `site_backends.neon_db` is blank on all five.
   **FIXED IN CODE 2026-09-15, NOT YET RUN** — the section "THE FOUR STATES" has
   it in full. `ensureSiteBackend` records the name on every provision, so no new
   site can enter this state; `siteBackendDetail` resolves the five that already
