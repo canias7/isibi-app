@@ -850,6 +850,117 @@ try {
            where n.nspname='agent' and p.proname in ('beat_run','release_run');`) === "2");
   allowed("clean up the fence's run", `delete from agent.runs where id='${F1}';`, asWriter);
 
+  // ══ what a person WROTE, which is not what RAN ════════════════════════════
+  //
+  // `agent.agents` and `agent.agent_messages` hold the customer's own agents and
+  // the messages typed to them. They are mutable and deletable, which is why they
+  // are not in the journal — and the checks below are about exactly two things:
+  // whose rows they are, and the one row this product must not be able to store.
+  console.log("\n── the authored agents, and whose they are ──");
+
+  const AUTH_A1 = "aaaaaaaa-0000-4000-8000-000000000001";   // t1's
+  const AUTH_A2 = "aaaaaaaa-0000-4000-8000-000000000002";   // t2's
+  const AUTH_M1 = "bbbbbbbb-0000-4000-8000-000000000001";
+
+  allowed("the writer stores an agent for t1",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('${AUTH_A1}', 't1', 'Booking assistant', 'Answer questions about opening hours.');`, asWriter);
+  allowed("...and one for t2",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('${AUTH_A2}', 't2', 'Somebody else''s', 'Not yours.');`, asWriter);
+
+  // THE WHOLE POINT, ASKED AS A REAL CUSTOMER rather than as the writer that
+  // bypasses the policies.
+  check("a customer sees their own agent",
+    psql(`select count(*) from agent.agents;`, claimT1).out === "1");
+  check("...and only their own — the other account's is invisible",
+    psql(`select count(*) from agent.agents where id='${AUTH_A2}';`, claimT1).out === "0");
+  check("a customer with no claims at all sees nothing",
+    psql(`select count(*) from agent.agents;`, { role: "authenticated", claims: "" }).out === "0");
+  check("claims that will not parse see nothing",
+    psql(`select count(*) from agent.agents;`, { role: "authenticated", claims: "not json" }).out === "0");
+  // The subject fallback is what a real Supabase token carries, so it is exercised
+  // as itself rather than assumed equivalent to an explicit tenant_id.
+  check("a real token's `sub` reaches its own rows",
+    psql(`select count(*) from agent.agents;`,
+      { role: "authenticated", claims: '{"sub":"t1"}' }).out === "1");
+
+  // ⚠ THE CLIENT CANNOT WRITE AT ALL. Ownership is the server's to decide, so the
+  // browser's role has no INSERT, UPDATE or DELETE — a missing grant, not a policy
+  // it could ever satisfy.
+  refused("a customer cannot create an agent, even for themselves",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('cccccccc-0000-4000-8000-000000000001', 't1', 'Mine', 'Mine.');`,
+    "permission denied", claimT1);
+  refused("a customer cannot edit their own agent",
+    `update agent.agents set name='Renamed' where id='${AUTH_A1}';`, "permission denied", claimT1);
+  refused("a customer cannot delete their own agent",
+    `delete from agent.agents where id='${AUTH_A1}';`, "permission denied", claimT1);
+  refused("anon has nothing here", `select count(*) from agent.agents;`,
+    "permission denied", { role: "anon", claims: "" });
+
+  // ⚠ AND THE WRITER CANNOT CROSS TENANTS BY UPDATE either — not because of a
+  // policy (it bypasses those) but because the API is the only caller and derives
+  // the tenant from a verified token. Stated as the limit it is: this is an
+  // application guarantee, and the check below is the READ side, which is the half
+  // the database really owns.
+  check("t2 cannot see t1's agent by id",
+    psql(`select count(*) from agent.agents where id='${AUTH_A1}';`, claimT2).out === "0");
+
+  console.log("\n── the messages, and the row that must not exist ──");
+  allowed("the writer stores a message",
+    `insert into agent.agent_messages (id, agent_id, body)
+     values ('${AUTH_M1}', '${AUTH_A1}', 'what needs reordering today?');`, asWriter);
+  check("its owner can read it",
+    psql(`select count(*) from agent.agent_messages where agent_id='${AUTH_A1}';`, claimT1).out === "1");
+  check("⚠ ANOTHER ACCOUNT CANNOT READ THE CONVERSATION",
+    psql(`select count(*) from agent.agent_messages;`, claimT2).out === "0");
+  refused("a customer cannot write a message either",
+    `insert into agent.agent_messages (id, agent_id, body)
+     values ('dddddddd-0000-4000-8000-000000000001', '${AUTH_A1}', 'typed by the client');`,
+    "permission denied", claimT1);
+
+  // **THE FAKE REPLY IS IMPOSSIBLE, NOT MERELY DISCOURAGED.** No model is wired to
+  // this feature, so a row claiming to have come from the agent is a lie the
+  // database refuses to hold — which is a wall a client bug cannot walk past.
+  refused("⚠ NOTHING CAN BE STORED AS HAVING COME FROM THE AGENT",
+    `insert into agent.agent_messages (id, agent_id, role, body)
+     values ('eeeeeeee-0000-4000-8000-000000000001', '${AUTH_A1}', 'agent', 'Sure, I will do that!');`,
+    "agent_messages_role_check", asWriter);
+  refused("...nor as any other speaker",
+    `insert into agent.agent_messages (id, agent_id, role, body)
+     values ('eeeeeeee-0000-4000-8000-000000000002', '${AUTH_A1}', 'assistant', 'hello');`,
+    "agent_messages_role_check", asWriter);
+  refused("an empty message is refused",
+    `insert into agent.agent_messages (id, agent_id, body)
+     values ('eeeeeeee-0000-4000-8000-000000000003', '${AUTH_A1}', '   ');`,
+    "agent_messages_body_check", asWriter);
+  refused("a nameless agent is refused",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('ffffffff-0000-4000-8000-000000000001', 't1', '  ', 'x');`,
+    "agents_name_check", asWriter);
+
+  console.log("\n── the two facts the engine owns ──");
+  // `updated_at` really moves, which this repository's OTHER product gets wrong:
+  // it has a column whose comment promises a bump that nothing performs.
+  const authBefore = jget(`select updated_at from agent.agents where id='${AUTH_A1}';`);
+  psql(`update agent.agents set name='Booking assistant 2' where id='${AUTH_A1}';`, asWriter);
+  check("an edit bumps updated_at",
+    jget(`select updated_at from agent.agents where id='${AUTH_A1}';`) !== authBefore, `was ${authBefore}`);
+  const authBeforeMsg = jget(`select updated_at from agent.agents where id='${AUTH_A1}';`);
+  psql(`insert into agent.agent_messages (id, agent_id, body)
+        values ('bbbbbbbb-0000-4000-8000-000000000002', '${AUTH_A1}', 'and the 10-gauge sets?');`, asWriter);
+  check("a new message makes its agent recent, so the list cannot sink mid-conversation",
+    jget(`select updated_at from agent.agents where id='${AUTH_A1}';`) !== authBeforeMsg);
+  check("messages carry a total order the database assigns",
+    jget(`select count(distinct seq) from agent.agent_messages where agent_id='${AUTH_A1}';`) === "2");
+
+  console.log("\n── deleting an agent takes its conversation ──");
+  allowed("the writer deletes the agent", `delete from agent.agents where id='${AUTH_A1}';`, asWriter);
+  check("...and its messages went with it",
+    jget(`select count(*) from agent.agent_messages where agent_id='${AUTH_A1}';`) === "0");
+  allowed("clean up the other account's agent", `delete from agent.agents where id='${AUTH_A2}';`, asWriter);
+
   console.log("\n── the log and the work go together ──");
   check("deleting the run takes its work row with it",
     psql(`delete from agent.runs where id='${Q1}';`, asWriter).ok
