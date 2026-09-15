@@ -324,11 +324,18 @@ has read, and the two are written apart because they do not count the same:
 | where | run | result |
 |---|---|---|
 | local | `node --test "test/*.test.mjs"` | `6472 / 6472 pass / 0 fail / 0 skipped` |
+| CI | `unit tests` **2564** on `b6e4939c` (the tip) | `6472 / 6469 pass / 0 fail / 3 skipped`, **green**, suite step 98.9 s |
 | CI | `unit tests` **2561** on `c5b59cc6` | `6465 / 6462 pass / 0 fail / 3 skipped`, green, suite step 104.3 s |
 | CI | `site build` **1142** on `c5b59cc6` | **green, all twenty steps**, `site-build.mjs` **382 passed / 0 failed** |
 
-The seven new tests are the shell fix's; CI has not read 6,472 yet — the push
-that carries this is what reads it.
+The three CI skips are environment skips, not a smaller suite — which is why I
+carry the total and never the pass count.
+
+**No `site build` ran on the tip, and I checked why rather than assuming.**
+That workflow only fires on paths the container image is built from; this
+change is two workflows, two documents, a test and a mutant spec, none of which
+is on that list. So 1142's green on the commit just below still covers the code
+— nothing between the two is something the image is built from.
 
 The three skips are the recorded environment skips (they need things this
 sandbox has and a GitHub runner does not), which is why the number I carry is

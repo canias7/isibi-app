@@ -4062,7 +4062,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   of the two steps a failing repair that must fail the step with its log intact,
   a succeeding control, and the DEFAULT-shell control that reproduces the
   swallowed failure — plus the directory-wide census of piped commands;
-  6,465 + 7 closes exactly. CI has NOT read this number yet.
+  6,465 + 7 closes exactly. **CI HAS READ IT: `unit tests` run 2564 on
+  `b6e4939c`, green (2026-09-15 06:21:40→06:23:40Z, the suite step 98.9 s) —
+  `# tests 6472 / # pass 6469 / # fail 0 / # skipped 3`**, against local
+  `6472 / 6472 / 0 / 0`; the three are the recorded environment skips.
+  **No `site build` run fired for this tip and that is `site-build.yml`'s
+  `paths` filter, checked rather than assumed** — the six changed files are two
+  workflows, two documents, a mutant spec and a test, and none is under
+  `builder/**`, `worker.js` or any other glob in that list. So run **1142**'s
+  green on the parent `c5b59cc6` covers it, by the recorded rule that a green
+  harness on an ancestor is evidence only when nothing between it and the tip
+  is an image input.
   **6,465** before it (2026-09-15, local — the normaliser erasing SQL
   meaning before parsing, whose new case is `repair-commands`'s **one** (the
   scope wall driven as a process: an out-of-scope slug exits 2, reads nothing
