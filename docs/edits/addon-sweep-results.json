@@ -1,22 +1,25 @@
 {
-  "at": "2026-09-15T01:26:12.143Z",
+  "at": "2026-09-15T02:00:37.754Z",
   "site": "repairbench-1",
-  "start": 182,
-  "end": 174,
+  "start": 174,
+  "end": 161,
   "results": [
     {
       "name": "ask",
       "kinds": [
-        "table"
+        "table",
+        "function",
+        "page"
       ],
       "verdict": "reported",
-      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"table\"]\n      database: tables [\"bookings\"]; AND THE SITE GOT ITS DATABASE FOR IT\n      pages: [\"/\"]; build moved\n      home text 4965→5152 chars\n      coverage 3/3 covered, 0 handed on, 0 unsupported, 0 unreadable\n      nothing left outstanding\n      the customer was told: \"I've set that up, but I can't confirm from here that Store each repair booking with the customer's name, the bike, and the day they are bringing it in; or that A visitor can submit a repair booking without an account — have a look and tell me if it isn't right.\"; repair clean",
-      "cost": 8,
-      "wall": 293,
-      "build": "mu1zo5lj-y6ovi1",
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"table\",\"function\",\"page\"]\n      database: tables [\"repairs\"]; functions [\"count_booked_repairs\"]; AND THE SITE GOT ITS DATABASE FOR IT\n      pages: [\"/status\",\"/\"]; build moved\n      home text 5152→5180 chars\n      coverage 4/7 covered, 3 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"A function the page calls to count how many repairs are booked\" (elsewhere → function); \"A page at /status that shows how many repairs are booked\" (elsewhere → page); \"A function the page calls to count booked repairs\" (elsewhere → function)\n      the customer was told: \"I've set that up, but I can't confirm from here that Booked repairs are stored so the count is a real number of jobs; or that Visitors see a count, not customer names or what is wrong with the bike — have a look and tell me if it isn't right.\"; repair clean",
+      "cost": 13,
+      "wall": 506,
+      "build": "mu20t4j1-ziyak2",
       "pickedRight": true,
       "shots": [
-        "docs/edits/addon-01-ask.png"
+        "docs/edits/addon-01-ask.png",
+        "docs/edits/addon-01-ask-page.png"
       ]
     }
   ]
