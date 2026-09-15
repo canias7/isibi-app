@@ -1,19 +1,23 @@
 {
-  "at": "2026-09-14T02:25:26.081Z",
+  "at": "2026-09-15T01:26:12.143Z",
   "site": "repairbench-1",
   "start": 182,
-  "end": 182,
+  "end": 174,
   "results": [
     {
       "name": "ask",
-      "kinds": [],
-      "verdict": "failed (server)",
-      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"table\",\"page\"]\n      database: nothing\n      pages: []; build UNMOVED\n      home text 4968→4968 chars\n      coverage: the answer carried none\n      nothing left outstanding\n      no coverage sentence to the customer\n      refused: generate\n      503 generate — The builder is busy — try again in a moment.",
-      "cost": 0,
-      "wall": 534,
-      "build": "mu0gbc8t-ba1r4i",
+      "kinds": [
+        "table"
+      ],
+      "verdict": "reported",
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"table\"]\n      database: tables [\"bookings\"]; AND THE SITE GOT ITS DATABASE FOR IT\n      pages: [\"/\"]; build moved\n      home text 4965→5152 chars\n      coverage 3/3 covered, 0 handed on, 0 unsupported, 0 unreadable\n      nothing left outstanding\n      the customer was told: \"I've set that up, but I can't confirm from here that Store each repair booking with the customer's name, the bike, and the day they are bringing it in; or that A visitor can submit a repair booking without an account — have a look and tell me if it isn't right.\"; repair clean",
+      "cost": 8,
+      "wall": 293,
+      "build": "mu1zo5lj-y6ovi1",
       "pickedRight": true,
-      "shots": []
+      "shots": [
+        "docs/edits/addon-01-ask.png"
+      ]
     }
   ]
 }
