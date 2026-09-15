@@ -218,6 +218,22 @@ move is a stronger statement than a path list.
 **Balance before: 182 credits** (read off the ledger 00:38Z; it was last moved
 2026-09-14 02:25Z by runs 44/45 and their refunds). CLAUDE.md's "244" was stale.
 
+### No regression — checked, so the rollback stays unused
+
+Read live at 00:47Z, after the deploy and after the container roll:
+
+- `gofarther.dev` and `www.gofarther.dev` — **200**, 29,236 bytes each
+- six live customer sites all **200** with their build and version stamps
+  unmoved: `repairbench-1` 41,475 B · `fretwork-1` 58,285 B · `ashgrove-1`
+  31,120 B · `ben-crowe-guitar` 52,060 B · `coalhole-2` 40,211 B ·
+  `the-lido-cafe` 18,395 B. The three with no `x-site-version` are correct —
+  they are still on the legacy prefix until their next publish, which is the
+  compatibility half of stage 7 behaving as designed.
+- `the-lido-cafe/robots.txt` **200**, so the serve path resolves through the
+  pointer.
+
+**Nothing to roll back.** The procedure above stays written down and unused.
+
 ### AND THEN I HIT A WALL I CANNOT GET PAST: I CANNOT PRESS THE BUTTON
 
 **The addon run did not happen, and the reason is a permission, not a
