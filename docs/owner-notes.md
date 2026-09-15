@@ -9826,8 +9826,14 @@ Pass 2: **28 of 28 killed, nothing survived, both no-op controls survived.**
 
 - **Suite 6,491, all green** (6,487 + 4 new cases; the arithmetic closes exactly).
 - **Sweep 28/28**, two controls survived.
-- Five older guards re-anchored — each says in the file what moved and why.
+- **Eight** older guards re-anchored — each says in the file what moved and why.
+  I first wrote five, then counted the cases in the commit's own diff instead of
+  from memory and corrected it before pushing.
 - Nothing merged, nothing deployed, no paid call, no site touched.
-- CI runs on the push; I'll report what it reads.
+- **CI read it and it's green** — `unit tests` run 2594, `6491 tests / 6488
+  pass / 0 fail / 3 skipped`. The three skips are the usual environment ones,
+  not a smaller suite; locally they run, which is why the number to compare is
+  the total. `site build` fired too (this change touches `worker.js` and
+  `builder/`), and I'll report that separately.
 
 The `search_path` review stays queued, as you asked.

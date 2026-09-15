@@ -4339,10 +4339,16 @@ unnamed requirement on a stocked site, the look as an inventory, and the trace
 mark's two. The ambiguous anchor was `pages: (aSrc || [])…`, which occurs twice
 in the route.
 
-**Five older guards were re-anchored, not appeased**, each naming the property
-that moved: the mark's key census and its predicate loop gained `unseen`, the
-mark's outcome call gained `failedItems` and `existing`, and two expectations
-MOVED rather than broke.
+**EIGHT older guards were re-anchored, not appeased** (five in
+`requirement-coverage`, three in `addon-route`), each naming the property that
+moved — **and the number was CORRECTED from five before it was pushed**, by
+counting the cases that gained a note in this commit's own diff rather than by
+recalling how many I had touched. The mark's key census and its predicate loop
+gained `unseen`; the mark's outcome call gained `failedItems` and `existing`;
+the six-state list became seven; and several expectations MOVED rather than
+broke — an `elsewhere` hand-off with nothing applied and no `item` reads
+`unknown` where it read `missing`, and its clause is the can't-see one rather
+than "still to do".
 
 **Suite 6,491.**
 
@@ -4765,8 +4771,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   of an existing function, its CONTROL on a site that does not declare it, and
   the stocked site answering three different silences in one reply); **6,487 + 4
   closes exactly**. `requirement-coverage` gained the three-group census and
-  the `unseen` counter as ASSERTIONS inside existing cases and no new case. CI
-  has NOT read this number yet.
+  the `unseen` counter as ASSERTIONS inside existing cases and no new case.
+  **CI HAS READ IT: `unit tests` run 2594 on `82e3c885`, green (2026-09-15
+  22:24:15→22:26:48Z) — `# tests 6491 / # pass 6488 / # fail 0 / # skipped 3`**,
+  against local `6491 / 6491 / 0 / 0`; the three are the recorded environment
+  skips, which is why the number to carry is the TOTAL.
   **6,487** before it (2026-09-15, local — run 48's reporting fix and
   the three evidence gaps, whose new cases are all `addon-route`'s **eleven**
   (44 → 55: run 48's late hand-off with its function applied, the same named by
