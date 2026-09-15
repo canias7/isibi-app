@@ -23,6 +23,7 @@ const E = at("meters.mjs");
 const S = at("store.mjs");
 const A = at("auth.mjs");
 const H = at("api.mjs");
+const W = at("worker.mjs");
 const m = (label, file, from, to, control = false) => ({ label, files: [file], from, to, control });
 
 const spec = [
@@ -230,8 +231,11 @@ const spec = [
   m("auth: a not-yet-valid token is accepted", A,
     'if (typeof claims.nbf === "number" && claims.nbf * 1000 - skewMs > t) return no("not-yet-valid");',
     'if (false) return no("not-yet-valid");'),
-  m("auth: the tenant claim is coerced rather than refused", A,
-    'if (!isText(tenant)) return no("no-tenant");', 'if (tenant === undefined) return no("no-tenant");'),
+  // Replaced: the single-claim read became a loop over TENANT_CLAIMS, so its
+  // coercion and its refusal are both inside the loop and have their own mutants
+  // below.
+  m("auth: a token with no usable tenant claim at all is accepted", A,
+    'if (tenant === null) return no("no-tenant");', "void 0;"),
   m("auth: a token with the wrong number of segments is read anyway", A,
     'if (parts.length !== 3) return no("malformed");', 'if (parts.length < 2) return no("malformed");'),
   m("auth: the base64url decoder repairs its input instead of refusing it", A,
@@ -273,6 +277,41 @@ const spec = [
   m("api: a blank prompt starts a run", H,
     'if (!isText(body.prompt)) return json(400, { error: "prompt must be a non-empty string" });',
     "if (false) return json(400, {});"),
+
+  // ── auth.mjs: the tenant claims ───────────────────────────────────────────
+  m("auth: THE SUBJECT FALLBACK IS GONE, so no real Supabase token matches anything", A,
+    'export const TENANT_CLAIMS = Object.freeze(["tenant_id", "sub"]);',
+    'export const TENANT_CLAIMS = Object.freeze(["tenant_id"]);'),
+  m("auth: THE SUBJECT WINS over an explicit tenant_id", A,
+    'export const TENANT_CLAIMS = Object.freeze(["tenant_id", "sub"]);',
+    'export const TENANT_CLAIMS = Object.freeze(["sub", "tenant_id"]);'),
+  m("auth: a MALFORMED explicit tenant falls through and becomes a DIFFERENT tenant", A,
+    "      if (!isText(claims[c])) return no(\"no-tenant\");\n      tenant = claims[c];",
+    "      if (!isText(claims[c])) continue;\n      tenant = claims[c];"),
+  // NO MUTANT FOR `Object.hasOwn` HERE. It was tried and SURVIVED, and it is INERT:
+  // the claim names are `tenant_id` and `sub`, and neither is a property of
+  // `Object.prototype`, so an undefined-check cannot differ from `hasOwn` for
+  // them. `hasOwn` stays because it is the right habit and because a claim name
+  // added later might not be so lucky — but it is not load-bearing today, and
+  // pretending a sweep proved it would be worse than saying so.
+
+  // ── worker.mjs ────────────────────────────────────────────────────────────
+  m("worker: a blank secret counts as configured", W,
+    "return Object.keys(SETTINGS).filter((k) => !isText(env?.[k]));",
+    "return Object.keys(SETTINGS).filter((k) => env?.[k] === undefined);"),
+  m("worker: AN UNKNOWN MODEL SILENTLY BECOMES THE STAND-IN", W,
+    "if (!make) throw new TypeError(`no such model: ${modelName}`);", "void 0;"),
+  m("worker: THE SCHEMA IS LEFT TO THE STORE'S DEFAULT", W,
+    "key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA })", "key: env.SUPABASE_SERVICE_KEY })"),
+  m("worker: a configuration gap throws instead of answering a named 503", W,
+    "      return new Response(JSON.stringify({ error: String(e?.message ?? e) }), {\n        status: 503,",
+    "      throw e; return new Response(JSON.stringify({ error: String(e?.message ?? e) }), {\n        status: 503,"),
+  m("worker: the 503 quotes the setting VALUES back to the caller", W,
+    "JSON.stringify({ error: String(e?.message ?? e) })", "JSON.stringify({ error: String(e?.message ?? e), env })"),
+  m("worker: a dispatched task that rejects is left unhandled", W,
+    ".catch((e) => {\n          console.error(\"agent-dispatch\", String(e?.message ?? e));\n        })", ""),
+  m("worker: the config check is skipped entirely", W,
+    "if (missing.length) throw new TypeError(`not configured: ${missing.join(\", \")}`);", "void 0;"),
 
   // ── the controls: comment-only, and they MUST survive ──────────────────────
   m("CONTROL (comment only, limits.mjs)", L, "* THE BOUNDS ON ONE AGENT RUN", "* THE BOUNDS ON ONE AGENT RUN (control)", true),

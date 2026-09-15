@@ -68,7 +68,7 @@ same colour.
 
 ## What is built
 
-Nine modules under `src/`, **all dependency-free** — this has to run in a
+Twelve modules under `src/`, **all dependency-free** — this has to run in a
 Cloudflare Worker, where there is no `node_modules` — with every outside thing
 (the model call, the clock, the journal) INJECTED. That is not purity for its own sake: it is
 what makes every branch below drivable in a test instead of waited on.
@@ -82,6 +82,9 @@ what makes every branch below drivable in a test instead of waited on.
 - **`store.mjs`** — where the log is kept: Supabase, over PostgREST.
 - **`auth.mjs`** — who is asking, verified.
 - **`api.mjs`** — the HTTP surface: start a run, read it, resume it.
+- **`agents.mjs`** — the registry. Agents are CODE and this is where it lives.
+- **`model-standin.mjs`** — a model-shaped answer that costs nothing.
+- **`worker.mjs`** — the entry point, and the only file that knows it is Cloudflare.
 - **`run.mjs`** — the loop.
 
 ### The law, module by module
@@ -441,7 +444,7 @@ Each cost a round, and each is the fixture being wrong rather than the product:
 
 ### What is proven, and what is not
 
-- **`npm run test:pg` — 70 checks, 0 failed, against a real PostgreSQL 16.13** in
+- **`npm run test:pg` — 78 checks, 0 failed, against a real PostgreSQL 16.13** in
   a throwaway database. **The DDL is never typed in the check**: it comes out of
   the migration FILE, so what is proved is what would be applied. Every refusal is
   read for its REASON (a refusal from the wrong gate looks exactly like the wall
@@ -625,11 +628,138 @@ says. So that line's effect is unverifiable here, it is deliberately NOT mutated
 (the mutant would survive for a reason that has nothing to do with the schema),
 and the claim "the owner is not quietly exempt" stands as untested.
 
+## Wired to the live project (2026-09-15)
+
+### The schema is exposed, and the other product still works
+
+**`agent` IS EXPOSED TO POSTGREST**, set as an in-database PostgREST override:
+`alter role authenticator set pgrst.db_schemas = 'public, graphql_public, agent'`,
+then `notify pgrst, 'reload config'` AND `notify pgrst, 'reload schema'` — **two
+separate signals**, and the first alone leaves the tables invisible with a
+`PGRST205` that reads like a missing table.
+
+- **THE EXISTING LIST WAS READ FROM POSTGREST ITSELF, not assumed.** Asking for an
+  unexposed schema answers `PGRST106` naming every schema that IS exposed, which
+  made the before-state authoritative: `public, graphql_public`. The new value is
+  those two plus `agent` and nothing else.
+- **`SET` ON THE ROLE IS ADDITIVE.** `authenticator` already carried
+  `statement_timeout`, `lock_timeout` and `session_preload_libraries`; all three
+  survived, which was checked.
+- **REVERSING IT** is `alter role authenticator reset pgrst.db_schemas;` plus the
+  two reloads.
+- **IT IS A DATABASE SETTING, NOT THE DASHBOARD ONE.** If the dashboard's exposed
+  schemas are ever edited, this override may still win — so anybody confused by
+  that should look here first.
+- **VERIFIED IMMEDIATELY AFTER: the other product's API still answers 200** on
+  `site_builds` and `site_project`. That was the whole risk of this change and it
+  was checked rather than hoped.
+
+### The tenant falls back to the signed-in subject
+
+**SUPABASE DOES NOT PUT A `tenant_id` CLAIM IN A JWT.** Keying only on it meant
+every policy was correct and unsatisfiable: a genuinely signed-in customer matched
+no rows, for ever. Migration `20260915022217` makes an explicit `tenant_id` win and
+the subject (`sub`) the fallback, so each signed-in user is their own tenant —
+the conventional Supabase shape, needing no token hook.
+
+- **IT IS A WIDENING, said out loud.** Before, nothing a customer could present
+  matched anything. After, a customer matches rows whose tenant is their own uid.
+- **`TENANT_CLAIMS` IN `auth.mjs` IS THE SAME LIST IN THE SAME ORDER**, and the
+  drift guard now checks BOTH names AND their order in the migration. **The first
+  version of that guard checked only that `tenant_id` appeared and stayed green
+  while the two sides disagreed about exactly this fallback.**
+- **A MALFORMED EXPLICIT TENANT DOES NOT FALL THROUGH TO THE SUBJECT.** Falling
+  through would turn a broken claim into a DIFFERENT tenant, which is the worst
+  available reading of a malformed value.
+
+### ⚠ What found that, and the lesson
+
+**The divergence was found by driving the real handler against the real project,
+NOT by 159 passing tests** — because every token those tests mint carries a
+`tenant_id`, which made the fixture more capable than reality. The unit suite, the
+SQL sweep and 70 database checks all passed while no real customer could have used
+the thing. **A fixture that is more capable than reality is the one trap that
+cannot be caught by adding more of the same fixture.**
+
+### Verified through the real Supabase HTTP API
+
+As a genuinely signed-in customer (a real user, a real project-signed JWT):
+
+- **reads exactly their own run and their own entries;**
+- **the other customer's run by id, and their entries by run id, both read `[]`** —
+  invisible rather than refused;
+- **every write is 403**: POST an entry, POST a run, PATCH a run, DELETE a run,
+  DELETE an entry. Nothing changed.
+- **anon is walled at the SCHEMA level** (`permission denied for schema agent`) for
+  both read and write, because `usage` was never granted to it.
+
+**THE BACKEND'S OWN WRITES ARE VERIFIED AT THE DATABASE LEVEL AS `service_role`,
+NOT OVER HTTP.** PostgREST needs a service-role JWT to authenticate as that role
+and this session has no way to obtain one — the Supabase MCP exposes publishable
+keys only. Stated as a gap rather than glossed.
+
+## The Worker
+
+- **`src/worker.mjs` IS THE ONLY FILE THAT KNOWS IT IS CLOUDFLARE.** Everything
+  below takes its dependencies as arguments, so this is where the real ones are
+  chosen.
+- **CONFIGURATION IS CHECKED FIRST AND A GAP IS A NAMED 503**, never a throw: an
+  uncaught throw is answered by Cloudflare in HTML and a caller doing `.json()`
+  learns nothing. It names the missing settings and never a value.
+- **AN UNRECOGNISED MODEL IS REFUSED, NOT DEFAULTED.** Falling back to the stand-in
+  would mean a deployment that believes it is talking to a provider and is quietly
+  answering from a canned script.
+- **THE SCHEMA IS PASSED EXPLICITLY** even though the store defaults to it, because
+  a default is what silently keeps working while meaning something else.
+- **THE DISPATCHER IS `ctx.waitUntil`, AND ITS LIMIT IS NOT UNLIMITED.** It keeps
+  the work alive after the response, which is the point, but a Worker invocation
+  has a wall-clock ceiling — a longer run needs a queue or a container behind the
+  SAME seam, and nothing above it changes when that arrives. A dispatched task that
+  rejects is caught and logged, or it is an unhandled rejection.
+- **`wrangler.jsonc` HERE IS THIS DIRECTORY'S OWN AND CANNOT SHIP BY ACCIDENT.**
+  The repository's deploy runs `wrangler deploy` at the ROOT against the root
+  config and never reads this one; deploying is a deliberate
+  `wrangler deploy -c agent-builder/wrangler.jsonc`, **and it has not been run.**
+  The three secrets are `wrangler secret put`, never vars, never committed.
+- **`npm run serve` DRIVES THE WORKER'S OWN HANDLER OVER REAL HTTP**, importing
+  `src/worker.mjs` rather than reimplementing it. It substitutes only
+  `ctx.waitUntil`, and substitutes it with something that behaves the same way in
+  the way that matters: the response goes out first. Settings come from the
+  environment; the banner prints each one's LENGTH and never its value.
+
+### The stand-in
+
+`makeStandIn` answers a tool call, then an answer — so a driven run exercises a
+step, a tool, a second step and a stop rather than the shortest path. It reports
+usage and cost the way a provider does, so the meters and the budget are exercised
+rather than bypassed. **It is not a mock of a provider's wire format**: `send` is
+the translator in this design, so the stand-in and a real provider are two
+implementations of one one-function contract.
+
+### ⚠ What is NOT connected, and exactly why
+
+**The milestone — one complete task through the Worker into the live database — is
+blocked on TWO secrets this session cannot obtain**, and neither is a code problem:
+
+1. **`SUPABASE_JWT_SECRET`**, without which the Worker cannot verify a real
+   customer's token.
+2. **`SUPABASE_SERVICE_KEY`**, without which the store cannot write.
+
+**WHAT WAS PROVEN INSTEAD**, by running the real handler over real HTTP against the
+real project with a self-signed token and a deliberately unprivileged credential in
+the service slot: no credentials → 401; a forged token → 401; a correctly signed
+token → accepted by the verifier and carried into the store, which reached Supabase
+and was refused for holding no privilege. **The chain is connected end to end and
+stops exactly at the credential.**
+
+Also not connected: a real model provider, a queue or container for runs longer
+than an invocation, and any deployment at all.
+
 ### Measured
 
-- **Unit suite: 149 tests, 0 failures** (`cd agent-builder && npm test`).
-- **Schema check: 70 checks, 0 failed** against a real PostgreSQL 16.13
-  (`npm run test:pg`). Skips with a message, and exits 0, where there is no
+- **Unit suite: 161 tests, 0 failures** (`cd agent-builder && npm test`).
+- **Schema check: 78 checks, 0 failed** against a real PostgreSQL 16.13
+  (`npm run test:pg`), over BOTH migrations. Skips with a message, and exits 0, where there is no
   local cluster — "no database here" is not a failing schema.
 - **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 0 failures**
   — run BEFORE this directory existed and again with it present, same count, same
@@ -638,13 +768,21 @@ and the claim "the owner is not quietly exempt" stands as untested.
   environment, not the code.)
 - **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
   applied, 2 comment-only controls survived.**
-- **Code sweep: 98 mutants, 98 killed, 0 survived, 0 never applied, 2
+- **Code sweep: 108 mutants, 108 killed, 0 survived, 0 never applied, 2
   comment-only controls survived** (`npm run sweep`). Measured after the run, not
   before it. The passes went 34 (the first four modules) → 54 (the journal and
   resume) → 68 (the store and the limits codec) → 74 (the ownership boundary) → 98
-  (auth and the HTTP surface).
-- **SQL sweep: 20 mutants, 20 killed, 0 survived, 0 never applied, 1 comment-only
-  control survived** (`npm run sweep:sql`).
+  (auth and the HTTP surface) → 108 (the Worker and the tenant claims).
+- **SQL sweep: 22 mutants, 22 killed, 0 survived, 0 never applied, 1 comment-only
+  control survived** (`npm run sweep:sql`), over both migrations.
+  **A MUTANT MUST TARGET THE MIGRATION THAT IS IN FORCE.** `agent.tenant_id()` is
+  defined twice and the second definition wins, so two mutants aimed at the first
+  one survived and were INERT BY CONSTRUCTION — the same trap as mutating dead
+  code, arriving through migration order. The spec now names the latest file for
+  anything redefined, and its pre-check reads each mutant's OWN file (reading one
+  file for every mutant reported two correct anchors as missing).
+  **AND A SENTINEL MUST OWN A ROW WHEN THE CHECK LOOKS**: a fail-open mutant
+  returning a tenant that owns nothing at that point in the file is inert too.
   **ONE SURVIVED THE FIRST PASS AND IT WAS THE TEST'S FAULT, kept here because
   the shape repeats:** the mutant made the loop ignore a failed MODEL-entry
   write, and the fixture was a journal that failed on EVERY write — so the run

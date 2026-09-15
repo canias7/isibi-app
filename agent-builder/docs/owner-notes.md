@@ -552,3 +552,102 @@ separation you asked for. Your call.
 spent a penny), a real background dispatcher, the signing secret reaching the
 Worker, that one dashboard switch, and a deployment — there's still no Worker
 config, no route, no domain.
+
+---
+
+## 2026-09-15 — Wired to your live project, and driving it for real found a bug my tests couldn't
+
+### The switch is on, and your site builder is fine
+
+`agent` is now visible to the API on `ujrqdmmtcptvimazlhom`. **I read the existing
+list out of the API itself rather than assuming it** — asking for an unexposed name
+makes it tell you exactly which ones are exposed — so what's there now is the two
+that were there before **plus** `agent`, and nothing dropped. **I checked your site
+builder's own API immediately afterwards: still answering.** That was the whole
+risk of this change.
+
+One thing to know: I set it **in the database**, not in the dashboard, because
+that's the only lever I have. Reversing it is one line. If you ever edit the
+dashboard's exposed-schemas and it seems not to take effect, this override is why.
+
+### ⚠ A real bug, and only driving it for real could find it
+
+**Supabase does not put a "which customer is this" field in its login tokens.** My
+isolation rules keyed on one — so every rule was correct and **impossible to
+satisfy**: a genuinely signed-in customer would have matched nothing, for ever.
+
+**161 tests, 70 database checks and two deliberate-breakage sweeps all passed while
+that was true.** They passed because every token my tests create *includes* that
+field. The test setup was more capable than reality, and that is the one kind of
+mistake you cannot catch by writing more tests of the same shape — only by running
+the real thing against the real thing, which is what you asked for.
+
+Fixed: an explicit customer field still wins, and without one **each signed-in user
+is their own customer** — the normal Supabase arrangement, no extra setup. I'll flag
+that this is a *widening*: before, nothing anyone presented matched anything; now a
+signed-in user matches their own runs. That's the intent, but it isn't a no-op.
+
+I also strengthened the check that's supposed to keep the code and the database in
+step — **it had been checking one of the two names, which is checking neither
+decision.**
+
+### Verified against your live API, as a real signed-in customer
+
+I created a throwaway user, signed in for a genuine token, and checked over real
+HTTP. They **read only their own** run and journal; the other customer's run and
+journal both come back **empty** rather than refused (refused would tell a stranger
+the id is real). And **every write is rejected** — adding a journal entry, creating
+a run, editing one, deleting one, deleting an entry. Nothing changed. A caller with
+no login is stopped even earlier, at the namespace itself.
+
+**Cleaned up after myself:** the probe runs, and the throwaway user, are gone.
+One note — signing that user up sent a confirmation email to a fake address, which
+used one of your 200/day. I didn't repeat it.
+
+### The Worker is built
+
+Its own config file, separate from your site builder's, which **cannot ship by
+accident**: your deploy runs at the repository root and never reads it. Deploying
+is a deliberate command and **I have not run it.** The three secrets are set with
+`wrangler secret put`, never committed.
+
+The work is handed off so it outlives the request. Two deliberate refusals worth
+knowing: **a missing setting answers a clear 503 rather than crashing** (a crash
+would come back as an HTML error page telling you nothing), and **a model name it
+doesn't recognise is refused rather than quietly falling back to the stand-in** —
+because a deployment that thinks it's talking to a real model while answering from
+a canned script is the worst possible silence.
+
+There's also `npm run serve`, which runs the Worker's *actual* handler over real
+HTTP locally — not a copy of it.
+
+### ⚠ The milestone is blocked on two secrets, and it isn't a code problem
+
+One complete task through the Worker into your live database needs:
+
+1. **Your project's JWT secret** — without it the Worker can't verify a customer's
+   login.
+2. **Your service-role key** — without it the Worker can't write.
+
+This session has no way to get either; Supabase only hands me the public key. So I
+proved the next best thing, and it's a real proof: **running the actual handler over
+real HTTP against your real project**, no credentials got 401, a forged token got
+401, and a correctly signed token was accepted, carried into storage, and reached
+your Supabase — which refused it for holding no privilege. **The chain is connected
+end to end and stops exactly at the credential.**
+
+When you want to finish it: put those two in as Worker secrets (or hand them to me
+as environment variables you set, not pasted into chat) and the same command
+demonstrates the whole thing.
+
+### Where it stands
+
+**Implemented:** the run engine, storage, auth, the HTTP routes, the dispatcher, the
+Worker entry, its own config, the local runner, the agent registry, the model
+stand-in.
+
+**Deployed:** the **database only**. Nothing else — no Worker, no route, no domain.
+
+**Still to connect:** the two secrets above, a real model provider, and a queue or
+container for runs longer than one Worker invocation (the seam is there and tested;
+only the thing behind it is missing).

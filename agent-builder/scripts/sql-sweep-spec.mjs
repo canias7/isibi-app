@@ -28,12 +28,16 @@ import { fileURLToPath } from "node:url";
 
 const DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "supabase", "migrations");
 const files = fs.readdirSync(DIR).filter((f) => f.endsWith(".sql")).sort();
-if (files.length !== 1) {
-  console.error(`expected exactly one migration, found ${files.length} — re-anchor this spec before trusting it`);
-  process.exit(1);
-}
+// THE LAST MIGRATION WINS for anything it redefines, so a mutant must be aimed at
+// the file that is actually in force. `agent.tenant_id()` is defined twice — once
+// in the first migration and again in the second — and mutating the FIRST one would
+// change nothing, because the second replaces it. That is an inert mutant waiting
+// to happen, so the tenant mutants below name the LATEST file explicitly.
+if (files.length < 1) { console.error(`no migrations in ${MIGRATIONS}`); process.exit(1); }
 const SQL = path.join(DIR, files[0]);
+const LATEST = path.join(DIR, files[files.length - 1]);
 const m = (label, from, to, control = false) => ({ label, files: [SQL], from, to, control });
+const mLatest = (label, from, to) => ({ label, files: [LATEST], from, to, control: false });
 
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
@@ -50,15 +54,32 @@ const spec = [
   m("SQL/isolation: the entries policy stops restricting anything",
     "  using (exists (\n    select 1 from agent.runs r\n     where r.id = run_entries.run_id and r.tenant_id = agent.tenant_id()))",
     "  using (true)"),
-  m("SQL/isolation: the tenant is a constant instead of the verified claim",
-    "  return nullif(\n    (nullif(current_setting('request.jwt.claims', true), '')::jsonb) ->> 'tenant_id',\n    ''\n  );",
-    "  return 't1';"),
-  m("SQL/isolation: unreadable claims FAIL OPEN instead of closed",
-    "exception when others then\n  -- Claims that will not parse are not a tenant. Anything we cannot read as an\n  -- identity is not an identity.\n  return null;",
-    "exception when others then\n  return 't1';"),
+  // NO MUTANTS ON THE FIRST MIGRATION'S `agent.tenant_id()`. Two were tried and
+  // both SURVIVED, and both were INERT BY CONSTRUCTION: the second migration
+  // replaces that function, so editing the first one changes nothing that runs.
+  // This is the same trap as mutating dead code, arriving through migration order.
+  // Their replacements below target the definition actually in force.
   m("SQL/isolation: a client is granted the writer's privileges",
     "grant select on agent.runs, agent.run_entries to authenticated;",
     "grant select, insert, update, delete on agent.runs, agent.run_entries to authenticated;"),
+
+  // The tenant fallback, aimed at the migration that actually defines it.
+  mLatest("SQL/isolation: the subject fallback is gone, so no real Supabase token matches anything",
+    "    nullif(claims ->> 'sub', '')          -- otherwise the signed-in subject",
+    "    null"),
+  mLatest("SQL/isolation: the SUBJECT wins over an explicit tenant_id",
+    "    nullif(claims ->> 'tenant_id', ''),   -- explicit, and it wins\n    nullif(claims ->> 'sub', '')          -- otherwise the signed-in subject",
+    "    nullif(claims ->> 'sub', ''),\n    nullif(claims ->> 'tenant_id', '')"),
+  // THE SENTINEL MUST OWN A ROW AT THE MOMENT THE CHECK LOOKS, or the mutant is
+  // inert: `subject-99` was tried and survived, because the run owned by that
+  // subject is created and deleted in a later section than the fail-closed checks.
+  // `t1` owns a run for the whole file.
+  mLatest("SQL/isolation: unreadable claims FAIL OPEN",
+    "exception when others then\n  -- Claims that will not parse are not a tenant. Anything we cannot read as an\n  -- identity is not an identity.\n  return null;",
+    "exception when others then\n  return 't1';"),
+  mLatest("SQL/isolation: the tenant is a constant instead of the verified claim",
+    "  return coalesce(\n    nullif(claims ->> 'tenant_id', ''),   -- explicit, and it wins\n    nullif(claims ->> 'sub', '')          -- otherwise the signed-in subject\n  );",
+    "  return 't1';"),
 
   // ── DUPLICATE PREVENTION ──────────────────────────────────────────────────
   m("SQL/duplicates: a run may be started twice",
@@ -115,11 +136,16 @@ const spec = [
     "-- ============================================================================\n-- AGENT RUNS (control):", true),
 ];
 
-// THE PRE-CHECK. Every anchor exactly once, and a replacement that differs.
-const body = fs.readFileSync(SQL, "utf8");
+// THE PRE-CHECK. Every anchor exactly once IN ITS OWN FILE, and a replacement that
+// differs. Reading one file for every mutant is how two correct anchors were
+// reported as missing: the tenant mutants target the LATEST migration, not the
+// first.
 let bad = 0;
+const text = new Map();
 for (const s of spec) {
-  const n = body.split(s.from).length - 1;
+  const f = s.files[0];
+  if (!text.has(f)) text.set(f, fs.readFileSync(f, "utf8"));
+  const n = text.get(f).split(s.from).length - 1;
   if (n !== 1) { console.error(`ANCHOR ${n === 0 ? "NOT FOUND" : `AMBIGUOUS (${n})`}: ${s.label}`); bad++; }
   if (s.from === s.to) { console.error(`REPLACEMENT IS THE ANCHOR: ${s.label}`); bad++; }
 }

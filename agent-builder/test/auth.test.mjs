@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeVerifier, bearerOf, TENANT_CLAIM, ALG, REFUSALS } from "../src/auth.mjs";
+import { makeVerifier, bearerOf, TENANT_CLAIM, TENANT_CLAIMS, ALG, REFUSALS } from "../src/auth.mjs";
 
 // ── a real signer, so a "forged" token is genuinely wrongly signed ───────────
 const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
@@ -161,16 +161,47 @@ test("a not-yet-valid token is refused, and skew is honoured when asked for", as
 });
 
 // ── the tenant claim ─────────────────────────────────────────────────────────
-test("A TOKEN WITH NO TENANT IS NOT AN IDENTITY", async () => {
+test("A TOKEN WITH NEITHER A TENANT NOR A SUBJECT IS NOT AN IDENTITY", async () => {
   const v = verifier();
-  const noTenant = await sign({ exp: Math.floor(NOW / 1000) + 60, sub: "user-1" });
-  assert.equal((await v(noTenant)).reason, "no-tenant");
+  assert.equal((await v(await sign({ exp: Math.floor(NOW / 1000) + 60 }))).reason, "no-tenant");
+  assert.equal((await v(await sign({ exp: Math.floor(NOW / 1000) + 60, email: "a@b.c" }))).reason, "no-tenant");
   // REFUSED, NOT COERCED: `String(["t1"])` is `"t1"`.
   for (const bad of [["t1"], 4, true, {}, "", "   ", null]) {
-    const r = await v(await sign(good({ [TENANT_CLAIM]: bad })));
+    const r = await v(await sign({ exp: Math.floor(NOW / 1000) + 60, [TENANT_CLAIM]: bad }));
     assert.equal(r.ok, false, `tenant ${JSON.stringify(bad)} was accepted`);
     assert.equal(r.reason, "no-tenant");
   }
+});
+
+test("A REAL SUPABASE TOKEN WORKS: `sub` IS THE TENANT WHEN THERE IS NO `tenant_id`", async () => {
+  // THIS IS THE CASE THE TESTS USED TO MISS ENTIRELY. Supabase does not put a
+  // `tenant_id` claim in a JWT, so keying only on it refused every genuinely
+  // signed-in customer — and every token minted in this file carries one, which
+  // made the fixture more capable than reality. Found by driving the real handler
+  // against the real project.
+  const v = verifier();
+  const supabaseShaped = await sign({
+    iss: "https://p.supabase.co/auth/v1", sub: "a50b8c69-4385-459c-a92e-16a6975ce0a2",
+    aud: "authenticated", role: "authenticated", email: "someone@example.com",
+    exp: Math.floor(NOW / 1000) + 3600,
+  });
+  const r = await v(supabaseShaped);
+  assert.equal(r.ok, true, `a real-shaped Supabase token was refused: ${r.reason}`);
+  assert.equal(r.tenant, "a50b8c69-4385-459c-a92e-16a6975ce0a2", "the subject did not become the tenant");
+});
+
+test("AN EXPLICIT TENANT WINS, and a MALFORMED one does not fall through to the subject", async () => {
+  // Falling through would turn a broken explicit claim into a DIFFERENT tenant,
+  // which is the worst possible reading of a malformed value.
+  const v = verifier();
+  const both = await v(await sign({ [TENANT_CLAIM]: "team-9", sub: "user-1", exp: Math.floor(NOW / 1000) + 60 }));
+  assert.equal(both.tenant, "team-9", "the explicit tenant lost to the subject");
+  for (const bad of [["team-9"], 4, "", "   ", null, {}]) {
+    const r = await v(await sign({ [TENANT_CLAIM]: bad, sub: "user-1", exp: Math.floor(NOW / 1000) + 60 }));
+    assert.equal(r.ok, false, `a malformed tenant_id fell through to sub and became "${r.tenant}"`);
+    assert.equal(r.reason, "no-tenant");
+  }
+  assert.deepEqual([...TENANT_CLAIMS], ["tenant_id", "sub"]);
 });
 
 test("issuer and audience are checked when asked for", async () => {
@@ -220,6 +251,17 @@ test("THE CLAIM NAME MATCHES WHAT THE MIGRATION READS", () => {
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql"));
   assert.ok(files.length >= 1, "no migrations found — the observer is dead");
   const sql = files.map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("\n");
-  assert.match(sql, new RegExp(`->>\\s*'${TENANT_CLAIM}'`),
-    `the migration does not read '${TENANT_CLAIM}' out of the JWT claims`);
+  // EVERY claim this module reads, and IN ORDER. The first version of this guard
+  // checked only that the migration mentioned `tenant_id`, and it stayed green
+  // while the two sides disagreed about the FALLBACK — the database had learned to
+  // accept `sub` and the verifier had not, so every real customer was refused. A
+  // guard that checks one of two names checks neither decision.
+  for (const c of TENANT_CLAIMS) {
+    assert.match(sql, new RegExp(`->>\\s*'${c}'`), `the migration never reads '${c}' out of the JWT claims`);
+  }
+  const at = TENANT_CLAIMS.map((c) => sql.search(new RegExp(`->>\\s*'${c}'`)));
+  for (let i = 1; i < at.length; i++) {
+    assert.ok(at[i - 1] < at[i],
+      `the migration prefers '${TENANT_CLAIMS[i]}' over '${TENANT_CLAIMS[i - 1]}', and this module does the opposite`);
+  }
 });

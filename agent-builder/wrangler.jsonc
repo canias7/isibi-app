@@ -1,0 +1,25 @@
+// THE AGENT BUILDER'S OWN WORKER CONFIG — deliberately separate from the one at
+// the repository root, which belongs to the other product and is not touched.
+//
+// NOTHING DEPLOYS FROM HERE AUTOMATICALLY. The repository's deploy workflow runs
+// `wrangler deploy` at the ROOT, which reads the root config and never this one,
+// so this file cannot ship by accident. Deploying it is a deliberate
+// `wrangler deploy -c agent-builder/wrangler.jsonc`, and it has not been run.
+//
+// THE THREE SECRETS ARE NOT HERE AND MUST NOT BE. They go in with
+// `wrangler secret put --config agent-builder/wrangler.jsonc`:
+//   SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_JWT_SECRET
+// The service key is what lets the backend write, and it stays server-side: it is
+// never sent to a browser and never appears in this file.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-builder-api",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true },
+  "vars": {
+    // The model this deployment will run. `stand-in` costs nothing and calls no
+    // provider; a name this Worker does not know is REFUSED rather than defaulted.
+    "MODEL": "stand-in"
+  }
+}

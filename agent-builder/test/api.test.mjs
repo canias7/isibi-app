@@ -203,7 +203,11 @@ test("MISSING OR FORGED CREDENTIALS GRANT NOTHING, on every route", async () => 
     "no expiry": await sign({ [TENANT_CLAIM]: "t1" }),
     "alg none": await sign({ [TENANT_CLAIM]: "t1", exp: Math.floor(NOW / 1000) + 60 }, { header: { alg: "none" } }),
     "alg confusion": await sign({ [TENANT_CLAIM]: "t1", exp: Math.floor(NOW / 1000) + 60 }, { header: { alg: "RS256" } }),
-    "no tenant": await sign({ exp: Math.floor(NOW / 1000) + 60, sub: "u1" }),
+    // NEITHER a tenant NOR a subject. A token with only `sub` is now a legitimate
+    // identity (each signed-in user is their own tenant), so using one here would
+    // have been testing the wrong thing.
+    "no tenant and no subject": await sign({ exp: Math.floor(NOW / 1000) + 60, email: "a@b.c" }),
+    "a malformed explicit tenant": await sign({ exp: Math.floor(NOW / 1000) + 60, [TENANT_CLAIM]: ["t1"], sub: "u1" }),
     "tampered tenant": await (async () => {
       const t = await tokenFor("t1"); const [hh, , ss] = t.split(".");
       return `${hh}.${enc({ [TENANT_CLAIM]: "t2", exp: Math.floor(NOW / 1000) + 60 })}.${ss}`;

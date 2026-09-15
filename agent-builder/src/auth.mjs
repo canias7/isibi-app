@@ -15,8 +15,22 @@
  * system to catch — so a test reads the migration and compares.
  */
 
-/** The claim carrying the tenant. Must equal what the migration's policies read. */
-export const TENANT_CLAIM = "tenant_id";
+/**
+ * WHICH CLAIM CARRIES THE TENANT, IN ORDER OF PRECEDENCE — and this list must
+ * match `agent.tenant_id()` in the migration exactly, because the two are the same
+ * decision made twice in two languages.
+ *
+ * `tenant_id` is explicit and wins. `sub` is the fallback, and it is what makes
+ * this work with real Supabase tokens at all: **SUPABASE DOES NOT PUT A
+ * `tenant_id` CLAIM IN A JWT**, so keying only on it meant every genuinely
+ * signed-in customer was refused. Found by driving the real handler against the
+ * real project, NOT by the tests — every token they mint carries a `tenant_id`,
+ * which made the fixture more capable than reality.
+ */
+export const TENANT_CLAIMS = Object.freeze(["tenant_id", "sub"]);
+
+/** The explicit claim, kept as its own name because the migration is read for it. */
+export const TENANT_CLAIM = TENANT_CLAIMS[0];
 
 /** The one algorithm accepted. See `verify` for why this is not negotiable. */
 export const ALG = "HS256";
@@ -110,10 +124,19 @@ export function makeVerifier(opts = {}) {
       if (!aud.includes(audience)) return no("bad-signature");
     }
 
-    // The tenant is REFUSED rather than coerced: `String(["t1"])` is `"t1"`, so a
-    // coercing reader would take an array claim as a tenant name.
-    const tenant = claims[TENANT_CLAIM];
-    if (!isText(tenant)) return no("no-tenant");
+    // The first claim that reads as a tenant wins, in the declared order. REFUSED
+    // rather than coerced at every step: `String(["t1"])` is `"t1"`, so a coercing
+    // reader would take an array claim as a tenant name — and a non-string
+    // `tenant_id` must not silently fall through to `sub` either, because that
+    // would turn a malformed explicit claim into a DIFFERENT tenant.
+    let tenant = null;
+    for (const c of TENANT_CLAIMS) {
+      if (!Object.hasOwn(claims, c)) continue;
+      if (!isText(claims[c])) return no("no-tenant");
+      tenant = claims[c];
+      break;
+    }
+    if (tenant === null) return no("no-tenant");
 
     return Object.freeze({ ok: true, tenant, claims: Object.freeze(claims) });
   };

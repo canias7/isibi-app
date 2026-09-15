@@ -278,12 +278,32 @@ try {
     psql(`select count(*) from agent.runs;`, { role: "authenticated", claims: "" }).out === "0");
   check("claims that are not JSON see nothing, and do not error the query",
     psql(`select count(*) from agent.runs;`, { role: "authenticated", claims: "not json at all" }).out === "0");
-  check("claims with no tenant see nothing",
-    psql(`select count(*) from agent.runs;`, { role: "authenticated", claims: '{"sub":"user-1"}' }).out === "0");
+  check("claims naming a tenant nobody owns see nothing",
+    psql(`select count(*) from agent.runs;`, { role: "authenticated", claims: '{"sub":"user-nobody"}' }).out === "0");
+  check("claims with NEITHER a tenant nor a subject see nothing",
+    psql(`select count(*) from agent.runs;`, { role: "authenticated", claims: '{"email":"a@b.c"}' }).out === "0");
   check("a tenant that matches nothing sees nothing",
     psql(`select count(*) from agent.runs;`, { role: "authenticated", claims: '{"tenant_id":"nobody"}' }).out === "0");
   check("CONTROL: the same session with real claims DOES see its run",
     psql(`select count(*) from agent.runs;`, claimT1).out === "1");
+
+  console.log("\n── THE TENANT FALLS BACK TO THE SIGNED-IN SUBJECT ──");
+  // Supabase does not put a `tenant_id` claim in a JWT, so without this a real
+  // signed-in customer matches no rows for ever. Driving the real HTTP API is what
+  // exposed that; these checks are what stop it coming back.
+  allowed(`a run owned by a bare subject id`,
+    `insert into agent.runs (id, tenant_id) values ('66666666-6666-6666-6666-666666666666','subject-99');`, asWriter);
+  check("a token carrying only `sub` sees the run owned by that subject",
+    psql(`select count(*) from agent.runs;`, { role: "authenticated", claims: '{"sub":"subject-99"}' }).out === "1");
+  check("...and still sees nothing belonging to anybody else",
+    psql(`select count(*) from agent.runs where tenant_id <> 'subject-99';`, { role: "authenticated", claims: '{"sub":"subject-99"}' }).out === "0");
+  check("AN EXPLICIT tenant_id WINS over the subject",
+    psql(`select coalesce(string_agg(tenant_id,','),'-') from agent.runs;`,
+      { role: "authenticated", claims: '{"tenant_id":"subject-99","sub":"t1"}' }).out === "subject-99");
+  check("...and the same token with the two swapped sees the other one",
+    psql(`select coalesce(string_agg(tenant_id,','),'-') from agent.runs where tenant_id='subject-99';`,
+      { role: "authenticated", claims: '{"tenant_id":"t1","sub":"subject-99"}' }).out === "-");
+  allowed(`clean up the subject run`, `delete from agent.runs where id='66666666-6666-6666-6666-666666666666';`, asWriter);
 
   console.log("\n── a client reads and writes nothing ──");
   refused("a client cannot create a run", `insert into agent.runs (id, tenant_id) values ('33333333-3333-3333-3333-333333333333','t1');`, "permission denied", claimT1);
