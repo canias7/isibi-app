@@ -132,16 +132,37 @@ jobs:
       # fails in a way that looks identical from a silent `|| true`. The root
       # product prints and carries on; here it stops, because the Worker requires
       # this binding and would answer 503 on every request without it.
+      # **THE VERDICT ASKS FOR THE QUEUE BY NAME; IT DOES NOT READ THE CREATE'S
+      # WORDING.** The first version matched "created queue|already exists" and
+      # FAILED THE SECOND DEPLOY, because Cloudflare says "Queue name 'agent-runs'
+      # is already taken" (code 11009) — a guessed string, guessed wrong, and a
+      # defect that could only ever show once the queue existed. So `create` is
+      # best-effort and the answer comes from `queues info`'s EXIT STATUS, which is
+      # wording-independent. `queues list` is the fallback for a wrangler that has
+      # no `info`; it is a name lookup rather than a phrase match either way.
+      #
+      # THE STEP STILL FAILS THE RUN when it cannot confirm, because a token without
+      # the Queues edit permission fails exactly like a queue that is missing, and
+      # the Worker answers 503 on every request with no RUN_QUEUE binding.
       - name: ensure the agent-runs queue exists
         if: steps.gate.outputs.armed == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          out=$(npx --yes wrangler@4.107.0 queues create agent-runs 2>&1) || true
-          echo "$out"
-          if echo "$out" | grep -qiE "created queue|already exists"; then
-            echo "QUEUE OK — agent-runs exists"
+          echo "--- create (best effort; an existing queue is refused and that is fine) ---"
+          npx --yes wrangler@4.107.0 queues create agent-runs 2>&1 || true
+
+          echo "--- confirm, by asking for it by name ---"
+          confirmed=""
+          if npx --yes wrangler@4.107.0 queues info agent-runs 2>&1 | tee /tmp/qinfo.txt; then
+            confirmed="info"
+          elif npx --yes wrangler@4.107.0 queues list 2>&1 | tee /tmp/qlist.txt | grep -qw "agent-runs"; then
+            confirmed="list"
+          fi
+
+          if [ -n "$confirmed" ]; then
+            echo "QUEUE OK — agent-runs exists (confirmed by: $confirmed)"
           else
             echo
             echo "QUEUE NOT CONFIRMED. Stopping: the agent Worker requires the RUN_QUEUE"
