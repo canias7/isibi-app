@@ -455,11 +455,35 @@ Each cost a round, and each is the fixture being wrong rather than the product:
   could not, because it only ever tests what somebody thought of. It covers the
   four named guarantees and NOT the whole schema, so a guarantee outside those four
   is still checked only by hand.
-- **NOT APPLIED TO SUPABASE.** Nothing has been created in any Supabase project.
-  The only project this repository holds credentials for belongs to another
-  product, and putting these tables there is the mixing this directory exists to
-  avoid. Applying it needs either a Supabase project of its own or an explicit
-  decision to share that one.
+- **APPLIED LIVE, 2026-09-15, to `ujrqdmmtcptvimazlhom`** — the project the rest of
+  this repository already uses (owner: *"it can be in the same supabase
+  project"*). Recorded as remote version `20260915015602`, and **the migration file
+  is named for that** rather than for when it was written, because lining the two
+  up by NAME is the only thing that works later.
+  **ONE PROJECT, TWO PRODUCTS, ONE SCHEMA EACH.** Nothing here is in `public`, so
+  no name can collide and dropping this product is dropping one schema. The cost is
+  that the project's migration history now comes from two directories.
+  **VERIFIED BY READING IT BACK, not by the success flag**: 2 tables, 3 generated
+  columns, 4 partial unique indexes, 4 triggers, RLS enabled and forced on both, 2
+  policies, 5 functions — and `public` still holding its 32 tables, so nothing else
+  moved. Then a behavioural probe **on Postgres 17** (the local checks run on
+  16.13) covering every guarantee: the projection, the unbounded limit surviving as
+  a string, an unreported usage staying JSON null and not zero, all four duplicate
+  refusals, the malformed-entry refusal, append-only, the lone-delete refusal,
+  tenant isolation as a real `authenticated` client, failing closed on absent and
+  on junk claims, and retention cascading. **The probe rolled itself back** and
+  both tables are empty.
+  **THE SECURITY ADVISORS FLAG NOTHING IN `agent`** — every finding is pre-existing
+  in `public`/`private`. Note that `agent.project_entry` is SECURITY DEFINER and is
+  NOT flagged, because those lints only look at schemas exposed to the API, which
+  brings us to:
+- **⚠ `agent` IS NOT EXPOSED TO POSTGREST, so the store cannot reach it yet.**
+  Checked: there is no role-level `pgrst.db_schemas`, so the project runs the
+  platform default (`public, graphql_public`). Adding `agent` in the dashboard
+  (Project Settings → API → Exposed schemas) is a one-line change and the last
+  thing between the store and the live tables. Until then the tables exist, are
+  correct, and are unreachable over REST — which is also why nothing is at risk
+  while the rest is unwired.
 
 ## The HTTP surface (2026-09-15)
 

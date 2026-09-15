@@ -493,3 +493,62 @@ PostgreSQL 16** for the database (70 checks), **98 deliberate code breakages** a
 4. **Where the signing secret comes from.** The token checker takes one; in
    production it's Supabase's JWT secret and needs to reach the Worker.
 5. **A deployment.** No Worker config, no routes, no domain. Nothing is deployed.
+
+---
+
+## 2026-09-15 — The tables are live in your existing project, and I checked every claim against it
+
+You said same project as the site builder, so that's where they are:
+**`ujrqdmmtcptvimazlhom`** — applied and verified.
+
+**Nothing of yours was touched.** The agent tables live in their own namespace,
+not alongside your site tables, so no name can clash and deleting this product
+later is deleting one namespace. Your 32 site tables are still exactly 32. The
+migration adds nothing to, and changes nothing in, anything that was already
+there — it only creates new things.
+
+**Small thing worth knowing:** that project is *named* "fifa-tournament-hub" in
+the Supabase dashboard — a leftover from something earlier. It's definitely the
+right one (it holds all your site tables), but the name is misleading if you go
+looking.
+
+### I verified it against the real database rather than trusting "success"
+
+Your own rule is that a migration file isn't the record of what's live, so I read
+it back: the tables, the auto-derived columns, all four duplicate rules, all four
+triggers, isolation switched on and forced, the policies, the functions.
+
+Then I ran the behaviour itself against the live database — **which matters,
+because your project runs Postgres 17 and all my local testing was on 16**. Every
+guarantee held: duplicates refused, entries un-editable, a single entry
+un-deletable, deleting a run still taking its log, "we don't know the cost"
+staying distinct from "no cost", "no limit" surviving storage, and a real
+signed-in customer seeing only their own runs — plus seeing **nothing** with
+missing or corrupt credentials. **That probe undid itself when it finished**, so
+both tables are empty.
+
+**Supabase's own security scanner flags nothing in the new namespace.** Everything
+it reports is pre-existing in your site builder (tables with isolation on but no
+policies, a few functions signed-in users can call). I haven't touched any of
+those — they're yours to judge, and I can go through them separately if you want.
+
+### ⚠ One switch left, and it's in the dashboard not in code
+
+**Supabase doesn't yet let the API see the new namespace**, so the code can't
+reach those tables over the network even though they exist and are correct. It's
+one setting: **Project Settings → API → Exposed schemas → add `agent`.**
+
+I deliberately didn't do that for you — it widens what your project's public API
+surface can serve, and that felt like yours to press. If you'd rather not add it
+at all, the alternative is putting these tables in with your site tables under a
+name prefix instead, which works today with no setting but gives up the clean
+separation you asked for. Your call.
+
+### So what actually works now
+
+**Live:** the database. Every guarantee proven against your real project.
+
+**Still not connected:** a real model (everything uses a stand-in; nothing has
+spent a penny), a real background dispatcher, the signing secret reaching the
+Worker, that one dashboard switch, and a deployment — there's still no Worker
+config, no route, no domain.

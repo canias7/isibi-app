@@ -1,6 +1,26 @@
 -- ============================================================================
 -- AGENT RUNS: the append-only store a run is resumed from.
 --
+-- APPLIED LIVE 2026-09-15 to the Supabase project `ujrqdmmtcptvimazlhom`, which
+-- is the one the site builder already uses (owner: "it can be in the same
+-- supabase project"). **THE FILE IS NAMED FOR THE REMOTE VERSION**
+-- (`20260915015602`) rather than for when it was written, because that is the one
+-- way the two can be lined up later — and this file is NOT the record of what is
+-- live. Read that out of the database.
+--
+-- ONE PROJECT, TWO PRODUCTS, ONE SCHEMA EACH. Nothing here is in `public`, so a
+-- name in this file cannot collide with anything the site builder owns, and
+-- dropping this product is dropping one schema. The cost is that the project's
+-- migration history now comes from two directories in this repository.
+--
+-- VERIFIED ON THE LIVE DATABASE, on Postgres 17 where the local checks run on
+-- 16.13: the generated columns, the projection, the unbounded limit surviving as
+-- a string, an unreported usage staying JSON null and not zero, all four duplicate
+-- refusals, the malformed-entry refusal, the append-only refusal, the lone-delete
+-- refusal, tenant isolation as a real `authenticated` client, failing closed with
+-- no claims and with junk claims, and retention cascading. The probe rolled itself
+-- back and both tables are empty.
+--
 -- ITS OWN SCHEMA, `agent`. Dropping this product is dropping one schema, and
 -- nothing it creates can collide with a table belonging to anything else.
 --
@@ -67,10 +87,11 @@ create table agent.runs (
   model       text,
 
   -- The limits AS THE LOG RECORDED THEM. An unbounded limit is the string
-  -- "Infinity" here, because `to_json(...)` of a JS Infinity is `null` and a
-  -- null would read as "no limit recorded" — cannot-tell wearing a value's
-  -- clothes. The encoding is `plainLimits` in src/run.mjs and the decoding is
-  -- `limitsFromStore` in src/store.mjs; this column keeps whatever they agree on.
+  -- "Infinity" here, because `JSON.stringify(Infinity)` is `"null"` and a null
+  -- would read as "no limit recorded" — cannot-tell wearing a value's clothes.
+  -- The codec PAIR is `limitsToJson` / `limitsFromJson` in src/journal.mjs, kept
+  -- together there because an encoder in one file and a decoder in another is how
+  -- a round trip quietly stops being one. This column keeps whatever they agree on.
   limits      jsonb,
 
   -- The stop reason, verbatim: which bound ran out, or that it answered.
@@ -295,7 +316,12 @@ create trigger entries_project
 alter table agent.runs enable row level security;
 alter table agent.run_entries enable row level security;
 
--- Forced on, so the table owner is not quietly exempt from its own policies.
+-- FORCED, which is meant to stop the table owner being quietly exempt from its own
+-- policies — AND THAT EFFECT IS UNVERIFIED. It is only observable to an owner who
+-- is not a superuser, and a superuser bypasses row level security whatever FORCE
+-- says, so no check here can see it and the SQL sweep deliberately does not mutate
+-- it (the mutant would survive for a reason that has nothing to do with the schema
+-- being right). Kept as correct hardening; recorded as an untested claim.
 alter table agent.runs force row level security;
 alter table agent.run_entries force row level security;
 
