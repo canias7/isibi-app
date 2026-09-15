@@ -467,6 +467,10 @@ to recover would pass even with the protection deleted.
 The wrong-database refusal and the run-it-twice check both still hold under the
 new mode, and I drove them too.
 
+Mutation sweep: **14 mutants, 14 killed**, including the nastiest one — the flag
+quietly parsing as the WIDE mode, so a reference-only press would have applied
+everything. Suite **6,476**, green locally and in CI (`unit tests` run 2570).
+
 ### Nothing has been repaired
 
 The five sites are still incomplete (only `repairbench-1` has been previewed),

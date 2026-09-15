@@ -3822,7 +3822,13 @@ its control, the wrong-identity refusal, the repeat) and
 `test/backend-repair.test.mjs` **50 → 51** (the boundary census: both lists
 pinned exactly, both predicates over every mode and five junk values, the flag
 reaching the mode, the form offering it, and the confirm gate covering every
-writing mode). **Suite 6,476** — 6,472 + 4, closes exactly.
+writing mode). **Suite 6,476** — 6,472 + 4, closes exactly. **CI HAS READ IT:
+`unit tests` run 2570 on `0f471f21`, green (the suite step 92.9 s) —
+`# tests 6476 / # pass 6473 / # fail 0 / # skipped 3`**, against local
+`6476 / 6476 / 0 / 0`. **No `site build` fired and none was due**: the seven
+changed files are two documents, a script, a mutant spec, two guards and a
+workflow, and none is under `builder/**`, `worker.js` or any other glob in that
+workflow's `paths`.
 
 **Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
 controls survived** — `WRITES_META` gaining the narrow mode, `WRITES_REFERENCE`
