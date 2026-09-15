@@ -20,6 +20,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { hit, isUnrouted } from "./fixtures/worker-harness.mjs";
+import { AGENT_ROUTES } from "../agent-store.mjs";
 
 const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
@@ -88,8 +89,42 @@ test("the scan finds the routes it is supposed to — it is not silently matchin
   assert.ok(routes.includes("/api/credits"), "a route the app definitely calls is missing from the scan");
 });
 
+/**
+ * Does the Worker serve this path?
+ *
+ * **A LITERAL IN `worker.js` IS NO LONGER THE ONLY WAY A ROUTE EXISTS.** The
+ * agent builder's seven paths live in `AGENT_ROUTES` in `agent-store.mjs` and
+ * `worker.js` dispatches with `Object.hasOwn(AGENT_ROUTES, url.pathname)` —
+ * deliberately ONE list, so the module and the dispatch cannot disagree about
+ * what is handled, which is this repository's own "two lists of the same thing"
+ * rule. Read as a substring of `worker.js` alone, those four routes came back as
+ * dead client calls: a FALSE ALARM on four routes that work, which is worse than
+ * a miss. Re-anchored 2026-09-15 rather than appeased — the question is "does
+ * the Worker serve it", and this is now asked of both places it can be answered.
+ *
+ * The module's list is only admitted BECAUSE the dispatch is asserted below: a
+ * path list nothing dispatches on would otherwise be a free pass for any route
+ * somebody declared and never wired.
+ */
+const DISPATCHES_AGENT_ROUTES = WORKER.includes("Object.hasOwn(AGENT_ROUTES, url.pathname)");
+const served = (p) => {
+  const path = p.replace(/\/$/, "");
+  if (WORKER.includes(path)) return true;
+  return DISPATCHES_AGENT_ROUTES && Object.hasOwn(AGENT_ROUTES, path);
+};
+
+test("the Worker really dispatches on the imported route list", () => {
+  // Without this the resolver above would admit a path on the module's word
+  // alone, and a route declared there and never wired would read as served —
+  // the wiring defect this whole file exists to catch, one layer up.
+  assert.ok(DISPATCHES_AGENT_ROUTES,
+    "worker.js no longer dispatches on AGENT_ROUTES, so those paths must be literals here again");
+  assert.ok(Object.keys(AGENT_ROUTES).length >= 7, "AGENT_ROUTES has stopped listing the agent paths");
+  assert.match(WORKER, /from "\.\/agent-store\.mjs"/, "worker.js does not import the list it dispatches on");
+});
+
 test("EVERY LITERAL ROUTE THE APP CALLS EXISTS IN THE WORKER", () => {
-  const dead = clientRoutes().filter((p) => !WORKER.includes(p.replace(/\/$/, "")));
+  const dead = clientRoutes().filter((p) => !served(p));
   const unexpected = dead.filter((p) => !KNOWN_DEAD.includes(p));
   assert.deepEqual(unexpected, [],
     "the app calls " + unexpected.join(", ") + " and the Worker has no such route — a button that 404s and tells the owner to try again");
@@ -98,7 +133,7 @@ test("EVERY LITERAL ROUTE THE APP CALLS EXISTS IN THE WORKER", () => {
 test("…and the known-dead list is a RATCHET, not a hiding place", () => {
   // A route that has been fixed must leave this list, or the list slowly stops
   // describing anything and the next dead route hides behind its length.
-  const dead = clientRoutes().filter((p) => !WORKER.includes(p.replace(/\/$/, "")));
+  const dead = clientRoutes().filter((p) => !served(p));
   const revived = KNOWN_DEAD.filter((p) => !dead.includes(p));
   assert.deepEqual(revived, [],
     revived.join(", ") + " now exists in the Worker — take it out of KNOWN_DEAD");

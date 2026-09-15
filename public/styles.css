@@ -5041,3 +5041,35 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   cursor: pointer; padding: 0;
 }
 .ag-send-btn svg { width: 17px; height: 17px; }
+
+/* The agents kept in this browser, offered rather than uploaded. It sits ABOVE
+   the list because it is about agents that are not in it — put below, it reads
+   as a footnote to a list that does not contain them. */
+.ag-import {
+  border: 1px solid var(--line-2); border-left: 3px solid var(--text);
+  border-radius: 10px; background: var(--panel); padding: .9rem 1rem; margin-bottom: 1rem;
+}
+.ag-import-t { font-weight: 600; font-size: .95rem; margin-bottom: .25rem; }
+.ag-import-s { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+.ag-import-go {
+  margin-top: .7rem; font: inherit; font-weight: 600; font-size: .88rem; cursor: pointer;
+  border: 1px solid var(--text); border-radius: 8px; padding: .4rem .8rem;
+  background: var(--text); color: var(--paper);
+}
+.ag-import-go:disabled { opacity: .55; cursor: default; }
+
+/* The way out of an error panel. Both the list's and the thread's use it, so it
+   is one rule rather than two that drift. */
+.ag-retry {
+  margin-top: .9rem; font: inherit; font-size: .88rem; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; padding: .35rem .8rem;
+  background: var(--panel); color: var(--text);
+}
+.ag-retry:hover { background: var(--panel-2); }
+
+/* A failed send sits between the box and the note, so it is read before the
+   sentence about nothing answering — which would otherwise look like the reason. */
+.ag-err-send { margin: .4rem .2rem 0; min-height: 0; }
+
+/* A disabled write control says so rather than looking pressable. */
+.ag-save:disabled, .ag-send-btn:disabled { opacity: .55; cursor: default; }

@@ -1266,21 +1266,302 @@ story of how each got there is in `git show a4d0f5e5:CLAUDE.md`.
   the A for the profile thing, put agent builder"*). A profile-menu row opens it,
   `renderAgents` draws it, and it is a view in THIS app rather than a page on the agent
   Worker's own domain — which would have meant a second sign-in to reach a menu item.
-  **ITS LIST LIVES IN `localStorage` AND NOWHERE ELSE**, said on the screen in its own
-  words, because `agent-builder/`'s API runs an agent that ALREADY EXISTS and has no
-  route that creates one: there an agent is code, which a request may not supply.
-  **`AGENTS_KEY` IS ON THE ACCOUNT-SWITCH WIPE LIST** — localStorage belongs to the
-  browser, not the account, so without it the next person signing in on this machine
-  inherits the last one's written instructions.
+  **ITS LIST LIVED IN `localStorage` FOR ONE DAY** and is on the account now — the
+  section below has the storage. **`AGENTS_KEY` STAYS ON THE ACCOUNT-SWITCH WIPE
+  LIST**: localStorage belongs to the browser, not the account, so without it the next
+  person signing in on this machine inherits the last one's written instructions, and
+  that is now doubly true because those records are what the import offers.
   **A ROW OPENS THE CONVERSATION; the instructions are behind the pencil**, and the
   row's preview line is the last message once there is one. **NOTHING PRETENDS TO
   ANSWER**: no model is wired to it, so there is no bubble from the agent — not even
   one saying so — because a reply that is not a reply is the dead control that ANSWERS,
-  wrongly. The thread says it under the box before you send, and a guard fails if
-  anything writes a message with a role other than the person's.
-  **`AGENT_THREAD_MAX` is 200 per agent**, because this shares one `localStorage` with
-  the sites list: an unbounded thread does not merely grow, it throws on write and takes
-  those with it.
+  wrongly. The thread says it under the box before you send.
+  **`AGENT_THREAD_MAX` (200) STOPPED BEING A STORAGE BOUND** and is the number the
+  IMPORT may carry: the server bounds the thread READ (`MAX_THREAD` 500, newest first
+  and turned round), so the browser's own cap now governs the one place it still
+  decides how much it hands over.
+- **THE AGENT BUILDER'S AGENTS ARE ON THE ACCOUNT (2026-09-15).** The screen kept
+  them in `localStorage` for one day; they live in the `agent` schema now —
+  `agent.agents` and `agent.agent_messages`, **separate from `agent.runs` and
+  `agent.run_entries` by construction**, with no foreign key between the halves:
+  one is mutable prose somebody wrote and edits, the other an append-only fenced
+  journal of work that ran. Seven operations under `/api/agent/*`, and
+  `agent-store.mjs` (root, dependency-free, on the Dockerfile's COPY line) owns
+  all of them.
+- **RLS IS THE BELT AND THE URL FILTER IS THE WALL, and only saying so keeps them
+  apart.** Policies on both tables key on `agent.tenant_id()`, which reads the
+  request's own JWT — that protects the `authenticated` role. It protects nothing
+  on this path: `service_role` carries BYPASSRLS, so the only thing between one
+  customer and another's written instructions is `tenant_id=eq.` in the query
+  `worker.js` sends. **A suite that only ever signs in as one account cannot see
+  that**, so most of the guards read the REQUEST THAT WENT OUT rather than the
+  answer that came back. Its consequence is the shape of `update`, `remove` and
+  `ownsAgent`: the tenant is in the FILTER, so "somebody else's id" and "an id
+  that does not exist" are one answer (no rows) and one 404 — a stranger cannot
+  confirm that another account's agent exists.
+- **THE TENANT IS `authUser(request).id` AND NOTHING ELSE.** No route reads an
+  account, uid, owner or tenant off the body or the query string, asserted as a
+  census over the handler's own reads; an unreadable tenant REFUSES rather than
+  running an unfiltered query. The block is gated ONCE, above all seven, which is
+  stricter than seven gates — an eighth route cannot be added ungated because
+  there is nowhere to add it that is not already behind it.
+- **A REPLY IS IMPOSSIBLE RATHER THAN ABSENT.** `check (role = 'user')` on the
+  column, and no `role` is ever sent — not by the store, not by the handler, not
+  by the import. Saving a message does not pretend to execute anything.
+- **`agent.agent_overview` IS A VIEW, AND `security_invoker = true` IS THE WHOLE
+  SAFETY ARGUMENT** — without it the view runs as its OWNER and is a hole through
+  the RLS on both base tables. PostgREST can embed a child relation with its own
+  order and limit, which would have done this with no migration; it is not used
+  because **nothing here can run PostgREST**, so that query could only be asserted
+  from documentation. A view is plain SQL and `test/integration/pg-schema.mjs`
+  drives it on a real PostgreSQL. Dropping the option turns five checks red.
+- **`agent.import_agent` IS ONE TRANSACTION BECAUSE THE IMPORT CAN BE PRESSED
+  TWICE.** The local store is never deleted, so a loop of inserts would leave half
+  an agent or a second copy of a whole one. `execute` revoked from `public` and
+  granted to `service_role` alone — it takes the tenant as an argument, and that
+  grant is the only reason a tenant argument is safe.
+- **NOTHING DELETES WHAT SOMEBODY TYPED INTO A BROWSER.** The legacy agents are
+  OFFERED with a count and a button, and the offer is drawn only once the server
+  has answered a list for this account — uploading written instructions into an
+  account that cannot be established is the one mistake here that cannot be taken
+  back. An imported record is MARKED (`imported`, `importedAt`) and keeps every
+  field it had. `AGENTS_KEY` stays on the account-switch wipe list.
+- **A FAILED READ IS NOT AN EMPTY ACCOUNT AND A FAILED SAVE KEEPS THE WORDS.**
+  `null` for "not asked yet" against `[]` for "this account has none" is what
+  makes loading, empty and failed three screens; a failed read leaves the rows it
+  had. The composer is rebuilt from `innerHTML`, so a draft living only in the DOM
+  would be wiped by the very re-render that shows the error — `agentDraft` is
+  written before anything can fail and is read back for the agent it was typed
+  against.
+- **MEASURED**: caps are the columns' own check constraints, read back out of the
+  migration by the guard (200 / 8000 / 8000); `MAX_AGENTS` 200, `MAX_THREAD` 500
+  newest-first-then-reversed, `MAX_IMPORT_MESSAGES` 200 asserted at or under the
+  function's own 500, `MAX_IMPORT_BODY` 2 MB and only the import may carry it.
+  Real PostgreSQL 16: **185 → 243 checks, 0 failed**. Suite **6,532**.
+  **Sweep: 48 mutants, 48 killed, 0 survived, 0 never applied, 2 comment-only
+  controls survived** — five survived pass 1 and **every one was a gap in the new
+  guards, not the product's**: the store's own "matched no row" branches (every
+  other case drove a FAKE store, so `update`/`remove` answering a row for zero
+  matches was invisible), a fixture passing the same id as `newId` and as the body
+  (the recorded "too shallow to separate the two readings"), `agentBodyMax` never
+  driven per path, and a speaker the HANDLER could add before the store saw it.
+- **SIX OLDER GUARDS RE-ANCHORED, NOT APPEASED**, and two of them are a class
+  worth naming: `client-routes` and `wiring` both resolve a route by finding its
+  literal in `worker.js`, and **a route family dispatched from an IMPORTED list
+  has no literal there** — four working routes came back as dead client calls, a
+  false alarm on correct code. Both ask both places now, and the module's list is
+  admitted ONLY because the dispatch itself is asserted. The same premise cost
+  `api-auth` the opposite mistake: it found `/api/agent/import` inside a ternary,
+  read it as a dispatch point whose gate must FOLLOW, and reported a gated route
+  as open — fixed in the code (`agentBodyMax(path)`) rather than in the guard,
+  and a new case covers the whole family, because a route family invisible to
+  that census is the silent direction.
+- **NOT PROVEN LIVE.** The migrations are applied and the four relations resolve
+  in PostgREST's schema cache (`42501`, the schema-grant wall, not `PGRST202/205`).
+  Nothing else has run against the deployed Worker: the two-account check needs a
+  merge, because there is one Worker and `deploy.yml` is the only way to it.
+#### …AND FOUR DEFECTS IN IT, EACH REPRODUCED BEFORE IT WAS FIXED (2026-09-15)
+
+Owner, on PR #929: *"Fix DELETE schema selection… Make imports safe to retry…
+Preserve legacy local agents safely… Keep delayed responses in their original
+conversation."* Every one was driven before and after; none is a source read.
+
+1. **THE DELETE COULD NEVER HAVE WORKED, AND THE GUARD WRITTEN FOR IT ASSERTED
+   THE DEFECT AS CORRECT.** `req` took a `write` option and `remove` omitted it,
+   so the DELETE went out with `Accept-Profile`, which **PostgREST ignores on a
+   write** — it resolved against `public`, where `agents` does not exist.
+   MEASURED off the store, per verb: eight requests carried `content-profile` or
+   `accept-profile` correctly and the DELETE alone carried the read header. The
+   guard's own comment explained why that was fine — *"the DELETE is the one
+   write with no body and therefore no content-profile to set"* — and that
+   reasoning is wrong: **the profile names the RELATION, not a body.** Derived
+   from the VERB now (`WRITE_VERBS`), so there is no option left for a call site
+   to forget, and the guard is a census over every request the store can make
+   with the read and the DELETE both proved present.
+2. **ATOMIC IS NOT IDEMPOTENT.** `import_agent` closed the half-imported agent
+   and left the one beside it open: the agent is created, the ANSWER is lost, and
+   from the browser that is indistinguishable from a request that never arrived —
+   so the obvious second press made a second agent with a second copy of the
+   conversation. The identity is the browser's own record id, which every legacy
+   record already carries and which is stable across retries, **scoped by tenant
+   and enforced by a partial unique index** on `(tenant_id, import_key)`.
+   `on conflict … do nothing` then the read, so two presses racing both answer the
+   winner's id; the message loop is skipped on that path, because answering the
+   right id while re-running it doubles the conversation on every retry — the
+   defect in a different hat. **The four-argument signature is DROPPED, not left
+   as an overload**: Postgres would keep both and a caller that forgot the key
+   would silently get the one with no identity at all. The API REQUIRES a key
+   (`cleanImportKey`, the tenant's charset rather than `cleanId`, because the
+   oldest records carry `String(Date.now()) + Math.random().toString(16)` and
+   turning exactly those away would strand the ones most worth preserving).
+3. **THE ACCOUNT SWITCH STILL DELETED WHAT SOMEBODY TYPED**, and a guard demanded
+   it. `AGENTS_KEY` was on `enterApp`'s wipe list, which satisfies "the next
+   account must not see them" by destroying the only copy of agents written
+   before this screen had an account behind it. **The property was never "delete
+   them"; it is "show them only to the account they own"**, which is a filter:
+   the switch STAMPS every unstamped record with the OUTGOING uid — the one
+   moment that identity is known — and `agentsLocal` answers only what the
+   current account owns, `[]` with nobody signed in. **AND THE SENTENCE THAT USED
+   TO CLOSE THIS PARAGRAPH WAS FALSE**: it read *"unstamped means 'never been
+   through a switch', which can only be the current account's"*, which `doSignOut`
+   falsifies by erasing the marker. The fifth finding below is that hole; the
+   claim now runs on every sign-in, takes the MARKER, and an unstamped record is
+   shown to nobody. `agentMarkImported`
+   maps over the WHOLE store, never the filtered view: mapping the view and
+   writing it back is the wipe returning through the back door, inside the
+   function whose job is to preserve.
+4. **A DELAYED ANSWER LANDED WHEREVER THE SCREEN HAD GOT TO.** `agentSend`
+   captured nothing, so a message typed into A appeared in B — a message nobody
+   sent, in a conversation somebody was reading — and a failure for A put a red
+   sentence under B's box. `agentBind()` is taken before the request and
+   `agentSame`/`agentSameEdit` asked after it, comparing **both the conversation
+   and the ACCOUNT**; nothing that fails may write. The message draft is keyed by
+   agent (`agentMsgDrafts`) rather than one string for the screen, so A's unsent
+   words wait in A. The same wall is on the thread read, the list read, the save,
+   the delete and the import — including the import's THROW path, which had none.
+   **A refused answer never means the work failed**: it is saved, and appears the
+   next time that conversation is opened.
+
+**Guards**: `test/agent-binding.test.mjs` (**19**, new) loads `public/chat.js`
+the way the browser does — the page's own script list, derived from `index.html`
+— and drives the real functions with responses it can hold open, release, and
+land after moving the screen. Two fixture traps paid for on the way in: **a
+classic script's `let`/`const` are NOT properties of the global object** (four
+cases passed VACUOUSLY reading their own writes back off the sandbox), and **an
+array built inside a vm has that realm's `Array.prototype`**, which
+`assert.deepEqual` rejects — correct code failing with a message about the value.
+`agent-api` 41 → 42, and six older guards re-anchored.
+
+**Sweep: 26 mutants, 26 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Four survived pass 1; three were guard gaps and **one was
+INERT and is recorded rather than hunted**: the import loop's top-of-iteration
+account check cannot differ from the one below the request, because nothing
+between them awaits. The wall that CAN be driven was kept, and writing the
+measurement down found a real gap next to it — the `catch` had no check at all.
+Plus **three SQL mutants on a real PostgreSQL**, all caught: a retry that raises,
+a retry that re-inserts the conversation, and an identity not scoped to the
+tenant.
+#### …AND THE FIFTH: WHOSE THE LEGACY RECORDS ARE, ACROSS A SIGN-OUT (2026-09-15)
+
+Owner: *"`doSignOut()` removes `zephyr_owner_v1` without first assigning
+ownership to unstamped legacy agents. `agentsLocal()` then allows unstamped
+records through for any signed-in account… Unknown ownership must mean hidden
+and not importable — not 'belongs to whoever signs in next.'"*
+
+**FINDING 3 ABOVE WAS HALF A FIX AND ITS OWN REASONING NAMED THE HOLE.** It
+said unstamped means "never been through a switch, which can only be the current
+account's" — and `doSignOut` erases the marker that carries the outgoing
+identity, so after one sign-out every one of A's records is unstamped with
+nothing left to place them. B signs in, sees them, and the import copies them
+into B's account for good. **A rule true because of a layer below it expires
+when that layer moves**, where the layer is the sign-out three hundred lines
+away in the same file.
+
+**THE MARKER IS THE ONE AUTHORITY, EVERYWHERE, and that is the whole design.**
+`zephyr_owner_v1` is the only thing in a browser that says which account was
+last in it, so it is the only thing that can establish whose an unstamped legacy
+record is. Both doors now read it and neither reads who is present:
+
+- **`enterApp`** — `prevOwner ? agentsClaimFor(prevOwner) : agentsSealUnknown()`,
+  ABOVE the `setItem` that moves the marker. Claiming for the arriving `uid`
+  instead is the bug through a different door, and it is one of the sweep's
+  mutants. **The claim now runs for EVERY sign-in**, not only a switch: the
+  ordinary upgrade is the same person with records written before this code
+  stamped anything, and it needs the claim as much as a switch does.
+- **`doSignOut`** — the claim runs BEFORE the wipe (`Auth.signOut()` is below it,
+  so the identity still exists), and it takes the MARKER rather than
+  `Auth.userId()`. **The two can disagree and the case that separates them is
+  driven**: a browser whose store refused the boot's write is signed in as B with
+  the marker still naming A, and the unstamped records really are A's.
+
+**AND THE MARKER NEVER MOVES AHEAD OF THE OWNERSHIP RECORD.** `agentsStore`
+READS THE VALUE BACK rather than trusting `setItem`, so `agentsClaimFor` and
+`agentsSealUnknown` answer whether the write landed; `enterApp` gates the marker
+write on that, and `doSignOut` KEEPS the marker when the claim failed — it is
+the only other place the answer exists, and erasing it would lose it. **Nothing
+is exposed either way**, because the reader is an exact match. **The cost is
+stated in the code**: while that write keeps failing, every reload re-runs the
+cache wipe (those keys are caches; the price is re-fetching them).
+
+**`agentOwns(a, uid)` IS THE ONE PREDICATE — `!!uid && !!a && a.uid === uid`.**
+No pass for an unstamped record, and the direction is deliberate: the cost of
+being wrong here is somebody having to write an agent again, against one person
+reading another's written instructions.
+
+**`AGENT_OWNER_UNKNOWN` (`'?unknown'`) IS A VALUE, NOT AN ABSENCE, AND THAT IS
+THE POINT.** An unclaimed record can still be claimed by whatever next
+establishes an identity; a SEALED one can never be, because no uuid equals
+`?unknown`. Without it the seal would be laundered one sign-in later: this
+visit's own marker would read as "the same account as last time". **The seal is
+permanent** — `agentsClaimFor` never overwrites a stamp.
+**THE COST, STATED: a browser whose last sign-out ran the old code has no marker,
+so its records are preserved and PERMANENTLY HIDDEN, from everyone including the
+person who wrote them.** That is the requirement met rather than a regression.
+
+**THE IMPORT ASKS THE SAME PREDICATE AT THE POINT IT WOULD SEND, and it is not a
+second copy of anything.** `agentImport` reads `agentsStored()` — the store, not
+the offer — and asks `agentOwns(a, agentUid())` per record. The list asks "what
+may I show"; this asks "may I send THIS", and they are different questions with
+different consequences. **It is NOT redundant with the binding check** (`bound.uid
+!== agentUid()`, which asks whether the account changed since the press):
+measured, signed in as B with A's records in the browser, the binding check is
+satisfied from the first line to the last and the ownership test is the only
+refusal. **Silent, deliberately** — naming the skips would tell the person that
+another account has records in this browser, which is what the filter exists to
+prevent.
+
+**Guards**: `test/agent-binding.test.mjs` **19 → 27**, all eight driving the
+page's real boot and the real `doSignOut` (a second `loadScreen` over the same
+`store` IS the reload a sign-out ends with, so the sequence under test is the one
+a person performs). The four the owner named, plus: B arriving on A's browser
+with no sign-out, the sign-out's marker-versus-present authority, the refused
+write in BOTH shapes a browser really refuses (`QuotaExceededError`, and a write
+accepted that does not persist — only the read-back sees the second), and the
+control that a working store DOES forget the account. **Each import case asserts
+the action had a record in hand** (`agentsStored().filter(r => !r.imported)`),
+because "nothing was sent" is a negative assertion.
+
+**Three older guards re-anchored, not appeased, and TWO WERE BYTE WINDOWS OUTRUN
+BY THIS CHANGE'S OWN PARAGRAPHS** — the recorded trap, twice in one change:
+`agent-builder-view`'s `branch.slice(0, 1800)` and `media-deleted`'s
+`slice(i - 1200, i)` both stopped finding calls that had not moved. Both window
+landmark-to-landmark now. The third is the one that matters: the view guard was
+pinned to `/!a\.uid \|\| a\.uid === uid/` — **it asserted the defect as
+correct**, which is the same shape as finding 1's guard above, and it reads the
+property (`agentOwns` exact, no unstamped pass, no signed-out pass) now.
+`media-deleted`'s owner-key census moved off "the marker is in sign-out's wipe
+list" and onto the ORDER: the claim occurs before the removal.
+
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — the reader passing an unstamped record (the defect itself),
+the reader unfiltered, a marker-less browser claimed for whoever arrived, one left
+unstamped rather than sealed, the boot claiming for `uid` instead of the marker,
+the marker moving with ownership unrecorded, the seal stamping nothing, the claim
+re-assigning an owned record, the claim answering true over a refused write, the
+store trusting `setItem`, sign-out not claiming at all, sign-out claiming for
+`Auth.userId()`, sign-out forgetting the account unconditionally, the marker back
+in the unconditional wipe list, the import's ownership test dropped, the import
+asking `!a.uid` instead (so a SEALED record is sent), and the offer counting the
+store. **Suite 6,560** — 6,552 + 8, and the arithmetic closes exactly.
+
+**AND THE SWEEP RAN TWICE BECAUSE THE FIRST TALLY WAS NOT TRUSTWORTHY — the
+recorded "A CONTROL MUST BE DECLARED, NOT MERELY LABELLED", met again.** The
+runner reads `m.control`; the spec said `isControl`, so both controls were run as
+ordinary mutants, printed as SURVIVORS, tallied `0 comment-only controls`, and the
+runner's own `CONTROL WAS KILLED` branch — its one check on its own honesty — was
+never armed. The 17 product mutants died on both passes; the tally above is one
+run's own answer, which is the only kind worth stamping.
+**CI HAS READ IT: `unit tests` run 2590 on `ca58222`, green (2026-09-15
+22:16:42→22:18:44Z, the suite step 109 s) — `# tests 6560 / # pass 6557 /
+# fail 0 / # skipped 3`**, against local `6560 / 6558 / 0 / 2`; the third is the
+recorded environment skip, which is why the number to carry is the TOTAL. Run
+2591 is `unit.yml`'s `pull_request` trigger on the same sha. **No `site build`
+fired and none was due**: the six changed files are two documents, `public/chat.js`
+and three guards, and none is under `builder/**`, `worker.js` or any other glob in
+that workflow's `paths`.
+
+**NOT PROVEN LIVE.** Every measurement is from driving `public/chat.js` in a real
+page scope; nothing is merged or deployed.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

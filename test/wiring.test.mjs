@@ -12,6 +12,7 @@
 // because every previous instance had four of five links working.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { AGENT_ROUTES } from "../agent-store.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -860,6 +861,9 @@ test("every /api path the client calls is answered by a route in worker.js", () 
   assert.ok(literals.size > 20, `only ${literals.size} literal routes found — the scan broke`);
   assert.ok(literals.has("/api/credits"), "a known route is not being seen");
   assert.ok(regexes.length >= 1, "the pathname regexes are not being read");
+  const dispatchesAgentRoutes = worker.includes("Object.hasOwn(AGENT_ROUTES, url.pathname)");
+  assert.ok(dispatchesAgentRoutes,
+    "worker.js no longer dispatches on AGENT_ROUTES — those seven paths must be literals here again");
 
   const answered = (p) => {
     if (literals.has(p) || regexes.some((r) => r.test(p))) return true;
@@ -870,6 +874,19 @@ test("every /api path the client calls is answered by a route in worker.js", () 
       const tail = "/" + seg.slice(2).join("/");
       if (worker.includes('"' + tail + '"') || worker.includes('endsWith("' + tail)) return true;
     }
+    // A ROUTE FAMILY DISPATCHED FROM AN IMPORTED LIST. The agent builder's seven
+    // paths are not literals in `worker.js`: it asks
+    // `Object.hasOwn(AGENT_ROUTES, url.pathname)` against a list from
+    // `agent-store.mjs`, deliberately one list so the module and the dispatch
+    // cannot disagree about what is handled. Read as literals alone, four
+    // working routes came back as dead client calls — a FALSE ALARM, which this
+    // test's own header says is the one thing it must not produce.
+    //
+    // ADMITTED ONLY BECAUSE THE DISPATCH IS ASSERTED. Without that clause this
+    // would say yes on the module's word, and a path declared there and never
+    // wired would read as answered — the exact wiring defect this file exists
+    // to catch, one layer up.
+    if (dispatchesAgentRoutes && Object.hasOwn(AGENT_ROUTES, p)) return true;
     // `/api/db/<slug>/…` is the last sub-router this needs to know about.
     // `/api/m/` was the second and came off on 2026-09-12 with the media proxy
     // — and leaving it would have been a hole rather than dead weight: this

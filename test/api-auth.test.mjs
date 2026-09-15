@@ -11,6 +11,7 @@
 // deliberate, because it means putting something on the public internet.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { AGENT_ROUTES } from "../agent-store.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -280,6 +281,51 @@ test("every /api route requires a Supabase session", () => {
     if (!gatesWithin(line)) open.push(`${name} (worker.js:${line + 1})`);
   }
   assert.deepEqual(open, [], "these routes have no authUser/UNAUTHED near their dispatch:\n  " + open.join("\n  "));
+});
+
+test("⚠ A ROUTE FAMILY DISPATCHED FROM AN IMPORTED LIST IS GATED ONCE, ABOVE ALL OF IT", () => {
+  // **THE CENSUS ABOVE CANNOT SEE THESE AND THAT IS WHY THIS EXISTS.** `routes()`
+  // finds a route by its own `url.pathname === "/api/…"` line and then looks
+  // FORWARD for a gate. The agent builder's seven paths are not dispatched that
+  // way: `worker.js` asks `Object.hasOwn(AGENT_ROUTES, url.pathname)` against a
+  // list imported from `agent-store.mjs`, deliberately, so the module and the
+  // dispatch cannot disagree about what is handled.
+  //
+  // Gated ONCE for the whole family is STRICTER than seven separate gates — an
+  // eighth route cannot be added ungated, because there is nowhere to add it that
+  // is not already behind the gate. But it is invisible to a forward-looking
+  // reader, so without this case seven authenticated routes would be covered by
+  // nothing at all, which is the silent direction: no red run, no route in the
+  // census, and a whole family outside the wall the file exists to hold.
+  const at = SRC.indexOf("Object.hasOwn(AGENT_ROUTES, url.pathname)");
+  assert.ok(at > 0, "worker.js no longer dispatches the agent routes from the imported list — re-read this");
+  assert.equal(SRC.indexOf("Object.hasOwn(AGENT_ROUTES, url.pathname)", at + 1), -1,
+    "there is more than one agent dispatch, so one gate does not cover them all");
+
+  // THE GATE IS THE FIRST THING IN THE BLOCK, not merely somewhere in it. A gate
+  // below a branch that already answered is a gate that route walked past.
+  const end = SRC.indexOf("// GET /api/site/genprobe", at);
+  assert.ok(end > at, "the block's closing landmark moved — re-read the block");
+  const block = SRC.slice(at, end);
+  const gate = block.indexOf("await authUser(request)");
+  const refuse = block.indexOf("if (!user) return UNAUTHED()");
+  assert.ok(gate > 0, "the agent block does not verify the caller");
+  assert.ok(refuse > gate, "the agent block reads a user and never refuses an absent one");
+  // Nothing may happen before the refusal: no body read, no store, no answer.
+  for (const after of ["readJsonBody", "makeAgentStore", "handleAgentApi", "SUPABASE_SERVICE_KEY"]) {
+    const where = block.indexOf(after);
+    assert.ok(where > refuse, `${after} runs before the caller is refused`);
+  }
+
+  // And the tenant handed over is the VERIFIED id — the wall is not the gate
+  // alone, it is which account the gate's answer scopes the query to.
+  assert.match(block, /tenant: user\.id/, "the block gates and then scopes to something other than the caller");
+
+  // EVERY route in the list is inside this one block, by construction: the
+  // membership test is the dispatch. Asserted as a count so a list that grows
+  // stays covered and a second dispatch elsewhere is the failure above.
+  assert.ok(Object.keys(AGENT_ROUTES).length >= 7,
+    `AGENT_ROUTES holds ${Object.keys(AGENT_ROUTES).length} routes, so this case covers almost nothing`);
 });
 
 test("the public allow-list is exactly what we think it is", () => {

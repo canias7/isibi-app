@@ -155,6 +155,177 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The fifth one: whose the old agents are, across a sign-out
+
+You were right, and the hole was exactly where you pointed. Signing out wiped
+the one thing in the browser that said which account it belonged to, and it did
+that WITHOUT first writing down whose the old agents were — and the reader I had
+just written treated a record with no owner on it as belonging to whoever was
+signed in. So: A signs out, B signs in, and B's screen shows A's agents and
+offers to bring them into B's account for good.
+
+**What it does now, in order.** Signing out records ownership FIRST and only
+then forgets the account. Opening the app does the same thing from the other
+side: it reads the marker, stamps every unowned record with it, and only then
+moves the marker to whoever has just arrived. And an unowned record is no longer
+shown to anybody at all — an exact match, so "we don't know" means hidden.
+
+**Unknown means hidden, permanently, and that has a cost I want you to know
+about.** A browser where somebody signed out under yesterday's code has no
+marker left, so there is nothing on that machine that can say whose those
+records are. They are kept — every field, every message — and sealed: shown to
+nobody, ever, including the person who wrote them. The alternative is handing
+them to the next person who signs in, which is the bug. I chose hidden.
+
+**If the browser refuses to save, nothing is exposed and nothing is lost.** A
+full or blocked store means ownership cannot be written down — so the marker is
+KEPT rather than erased, because it is the only other place the answer exists,
+and the next sign-in has another go. The records stay invisible to everyone
+meanwhile. And when the store starts working again, the marker that was kept is
+what puts them back in the right hands. I drove both ways a browser refuses
+(throwing, and accepting a write that does not persist).
+
+**The import asks the same question, at the moment it would send.** A filter on
+the list is a filter on what somebody can SEE; the import is what copies
+somebody's written instructions into another account. So every record is checked
+against the account making the request, right where the request is built — and
+the test presses the button with another account's record sitting in the browser
+and asserts nothing left the machine.
+
+**Tested locally:** eight new browser cases driving the real screen — A signs
+out and B signs in (cannot see, cannot import), A signs back in (everything
+there, messages included), a browser nobody can place (kept and hidden, and the
+seal cannot be undone by a later marker), a refused save in both its shapes with
+its own control, B arriving on A's browser without A signing out, and a sign-out
+proving it claims for the marker rather than for whoever is leaving. **Root suite
+6,560 green** (6,558 pass, 2 skipped — the recorded environment ones), up from
+6,552 by exactly the eight. **Sweep: 17 mutants, 17 killed, nothing survived,
+both comment-only controls survived.**
+
+**And I ran that sweep twice, because the first run's tally was not trustworthy.**
+I declared the two controls with the wrong field name, so the runner never knew
+they were controls: it printed them as survivors and its own "a control that got
+killed means the control is not behaviour-free" check was switched off — the exact
+mistake this repository has written down, made again. The 17 real mutants died in
+both runs; the number above is one run's own answer. **CI agrees** — the
+automatic check on the push read 6,560 and came back green.
+
+**Three older checks went red and were re-anchored rather than appeased** — two
+of them had been pinned to a byte distance and were outrun by the paragraphs
+this change added, which is the trap this repository records most often.
+
+**Not merged, not deployed** — as you said.
+
+---
+
+## 2026-09-15 — The four you found in the agent PR, each reproduced first
+
+All four were real and none of them was cosmetic. Nothing is merged; the PR is
+still open.
+
+**1. Delete could never have worked.** The request that removes an agent told
+Supabase the wrong thing about which schema to use — it sent the header that
+only applies to reading — so it would have looked for the table in the wrong
+place and failed every time. What makes it worth writing down is that the test
+I wrote for it asserted the broken behaviour as correct, with a confident
+explanation of why. I measured what each of the nine requests really sends,
+per verb, before and after. It is now derived from the verb itself, so there is
+nothing left for a future request to forget.
+
+**2. Pressing "bring them over" twice could make two copies.** One transaction
+stopped a half-imported agent; it did not stop a SECOND agent when the answer
+was lost on the way back and somebody pressed again — which looks exactly like
+a request that never arrived. Each browser record's own id is now the import's
+identity, the database enforces one per account, and a second press gets the
+same agent back with its conversation unchanged. Proved on a real database and
+again live: same id, two messages after two presses (not four), and another
+account using the same local id gets its own.
+
+**3. Switching accounts still deleted the agents in the browser.** That was me
+satisfying one of your rules by breaking another: the next person must not see
+them, so I wiped them — and those records are the only copy of anything written
+before this screen had an account behind it. They are now STAMPED with the
+account leaving, at the one moment that identity is known, and only shown to
+the account that owns them. Nothing is deleted, the next person sees nothing,
+and signing back in finds everything.
+
+**4. A slow answer could land in the wrong conversation.** Send in A, open B,
+and A's message appeared in B — a message nobody sent, in a conversation
+somebody was reading; a failure for A put a red error under B's box. Every
+request now remembers which conversation AND which account it left from, and
+refuses to touch the screen if either moved. The message box is per
+conversation rather than one for the screen, so A's unsent words wait in A. The
+same wall is on every other call, including the one path that had none — an
+import that dies.
+
+**Tested locally:** the real-database check 243 → 261, the browser checks 19 new
+cases driving the actual screen with answers I hold open and release after
+moving it, root suite 6,552, agent-builder 235. Sweep 26 mutants, 26 killed,
+nothing survived. Three SQL mutants on a real PostgreSQL, all caught.
+
+**Applied live:** the migration (the identity column, the index, the rewritten
+function). **Not deployed** — no Worker deploy, no merge, as you asked.
+
+**Two mistakes of mine worth recording**, because both made a test pass while
+proving nothing: four cases read their own writes back instead of reaching the
+real screen, and one compared an array built inside the test harness against a
+normal one, which fails even when the answer is right.
+
+---
+
+## 2026-09-15 — The agent builder's agents are on your account now
+
+Yesterday the agents screen kept everything in the browser, and said so on the
+screen. They are on the account now: sign in on another machine and they are
+there. **This milestone is storage only.** No model, no reply, no tools, no
+triggers. Sending a message saves a message — the thread still says so under the
+box before you send, because a chat that took your words in silence would read
+as an agent ignoring you.
+
+**What you can do now**
+
+Make an agent, rename it, rewrite its instructions, delete it, and type into its
+conversation. All of it is saved to your account, and another account cannot see
+or touch any of it.
+
+**Your old agents are not gone and I did not upload them behind your back**
+
+Anything written into this browser before today is still there. The list offers
+them at the top — "2 agents saved in this browser", with a button — and the
+offer only appears once the server has answered for your account, because
+putting somebody's written instructions into an account I cannot establish is
+the one mistake here that cannot be undone. Press it and each agent comes over
+with its whole conversation in one go. **Your copy in the browser is left
+exactly as it was either way**; an imported one is marked as brought over so it
+stops being offered, and nothing is deleted.
+
+**Three screens instead of one**
+
+Loading, empty, and "couldn't load". A read that FAILED never says "No agents
+yet" — that would read as your account having been emptied, which is the one
+wrong thing this screen can say. A failed save leaves your words in the box with
+a sentence under them; a failed send leaves the message in the message box.
+
+**What is proven and what is not**
+
+- **Proven on a real database**: another account cannot read or change your
+  agents or your conversations; nothing can store a message as having come from
+  the agent; deleting an agent takes its conversation with it; an import either
+  lands whole or leaves nothing behind. 243 checks, 0 failed.
+- **Proven live, but only the storage layer**: the three database objects are
+  applied to the live project, and all four things the API talks to are visible
+  to Supabase's API layer with the signed-out wall in front of them.
+- **NOT proven live**: nothing has run against the deployed site. The
+  two-browser, two-account check needs this merged and deployed — there is one
+  Worker and a merge is the only way to it. It is a PR, not a merge, as you
+  asked.
+
+**Screenshots in the chat** — the list, the import offer, a failed save with the
+edited instructions still in the box, the failed-read screen, a thread, and an
+empty account.
+
+---
+
 ## 2026-09-15 — The normalizer was still erasing meaning, and the live path is ready
 
 You were right, and the fix I shipped last round was one layer too late. The
