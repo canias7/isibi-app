@@ -361,45 +361,220 @@ const OWN_TEST = /app_user_id\s*\(\s*\)\s*=|=\s*app_user_id\s*\(/i;
 const ownish = (p) => OWN_TEST.test(String((p && p.q) || "") + " " + String((p && p.w) || ""));
 
 /**
- * One predicate as the set of facts it turns on.
+ * ONE PREDICATE AS A CANONICAL BOOLEAN TREE — the whole of it, not a summary.
  *
- * `other` IS THE FAIL-CLOSED CASE and it is why an unrecognised predicate can
- * never read as an open one: an empty token list would otherwise be produced
- * both by `USING (true)` and by `USING (status = 'live')`, so a hand-written
- * policy on somebody's table would compare equal to no policy at all.
+ * ── WHY THE SUMMARY HAD TO GO (2026-09-15) ──────────────────────────────────
+ *
+ * The first cut fingerprinted a predicate as the SET OF FACTS it mentioned:
+ * `deleted_at`, `own`, `members`, and an `other` catch-all. That erases exactly
+ * the thing a policy means. Driven:
+ *
+ *     predicateShape("(deleted_at IS NULL)")      === "deleted_at"
+ *     predicateShape("(deleted_at IS NOT NULL)")  === "deleted_at"
+ *
+ * — the same fingerprint for opposite rules. A live table whose SELECT policy
+ * showed only the soft-DELETED rows recovered clean, and the next apply emitted
+ * `IS NULL`: every visible row hidden and every hidden row visible. The `AND`
+ * and `OR` between the facts were struck out too, so `a AND b` and `a OR b`
+ * fingerprinted the same.
+ *
+ * ── WHAT REPLACES IT ────────────────────────────────────────────────────────
+ *
+ * The predicate is parsed into a boolean tree and rendered canonically.
+ * `AND`/`OR`/`NOT` are structure and are KEPT; each operand is kept as its own
+ * text, so `IS NULL` and `IS NOT NULL`, `=` and `<>`, `>` and `<` are different
+ * strings. What is normalised away is only what POSTGRES ITSELF rewrites:
+ * quoting, table qualifiers, casts, whitespace, case, the redundant parens it
+ * adds around a function argument, and `true` under an AND. `AND`/`OR` operands
+ * are SORTED, because both are commutative and Postgres is free to reorder.
+ *
+ * AND A PREDICATE THIS CANNOT PARSE IS REFUSED, never compared.
+ * `canonPredicate` answers `{ok: false, why}` and `verifyDeclaration` turns that
+ * into `policy-not-comparable` — the table is left alone, which is the
+ * fail-closed direction. A refusal is NOT a mismatch and is never rendered into
+ * a string that could accidentally equal another one.
+ *
+ * ONE LIMIT, STATED: grouping parens INSIDE an operand are dropped only where
+ * they sit between a `(`, a `,` or the operand's edge and another of those —
+ * the shape Postgres creates around a function argument. A pair adjacent to an
+ * operator is KEPT, so `(a + b) * c` cannot collapse into `a + (b * c)`.
+ */
+
+/** Everything Postgres rewrites, and which must not read as a difference. */
+function scrubPredicate(s) {
+  return String(s || "")
+    .toLowerCase()
+    // A quoted identifier and a bare one are the same column.
+    .replace(/"/g, "")
+    // `x.col` and `col` are the same column inside one table's policy.
+    .replace(/\b[a-z_][a-z0-9_]*\s*\.\s*(?=[a-z_])/g, "")
+    // `::text`, `::uuid`, `::character varying` — Postgres adds these itself.
+    .replace(/::\s*[a-z_][a-z0-9_]*(\s+[a-z]+)?/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Tokens: parens, commas, string literals, words, numbers, operator runs. */
+function lexPredicate(s) {
+  const out = [];
+  for (let i = 0; i < s.length;) {
+    const c = s[i];
+    if (c === " ") { i++; continue; }
+    if (c === "(" || c === ")" || c === ",") { out.push(c); i++; continue; }
+    if (c === "'") {
+      let j = i + 1;
+      while (j < s.length) {
+        if (s[j] === "'" && s[j + 1] === "'") { j += 2; continue; }
+        if (s[j] === "'") break;
+        j++;
+      }
+      if (j >= s.length) return { ok: false, why: "unterminated-string" };
+      out.push(s.slice(i, j + 1)); i = j + 1; continue;
+    }
+    let m = /^[a-z_][a-z0-9_$]*/.exec(s.slice(i));
+    if (m) { out.push(m[0]); i += m[0].length; continue; }
+    m = /^[0-9][0-9.]*/.exec(s.slice(i));
+    if (m) { out.push(m[0]); i += m[0].length; continue; }
+    m = /^[=<>!+\-*/%|@~^&#?:]+/.exec(s.slice(i));
+    if (m) { out.push(m[0]); i += m[0].length; continue; }
+    return { ok: false, why: "unknown-character" };
+  }
+  return { ok: true, tokens: out };
+}
+
+const BOOL_WORD = new Set(["and", "or"]);
+
+/** Drop the parens Postgres adds around a whole function argument, and no others. */
+function dropRedundantParens(toks) {
+  const out = toks.slice();
+  const edge = (t) => t === undefined || t === "(" || t === ")" || t === ",";
+  for (let pass = 0; pass < 12; pass++) {
+    let open = -1, close = -1;
+    for (let i = 0; i < out.length && open < 0; i++) {
+      if (out[i] !== "(") continue;
+      // A call's own parens are preceded by the function name. Never touched.
+      //
+      // REDUNDANT WITH `edge(before)` BELOW, DELIBERATELY, and measured so:
+      // `edge` admits only `undefined`, `(`, `)` and `,`, and a function name is
+      // an identifier, so the pair below is already refused for every call.
+      // Removing this line alone changes nothing on any real shape (driven over
+      // five, including the nested `to_char` Postgres writes) — it is the belt
+      // to that check's braces, because tearing the arguments out of a function
+      // call would make two different predicates canonicalise the same. The
+      // sweep mutates the PAIR; a sweep cannot say a redundancy is deliberate,
+      // and the next session deletes what nothing appears to need.
+      const before = i > 0 ? out[i - 1] : undefined;
+      if (typeof before === "string" && /^[a-z_][a-z0-9_$]*$/.test(before)) continue;
+      let depth = 0, j = i;
+      for (; j < out.length; j++) {
+        if (out[j] === "(") depth++;
+        else if (out[j] === ")") { depth--; if (!depth) break; }
+      }
+      if (j >= out.length) continue;
+      const after = out[j + 1];
+      // Removable only where neither side is an operator, so grouping that
+      // decides precedence is never dropped.
+      if (edge(before) && edge(after)) { open = i; close = j; }
+    }
+    if (open < 0) break;
+    out.splice(close, 1);
+    out.splice(open, 1);
+  }
+  return out;
+}
+
+function parsePredicate(toks) {
+  let at = 0;
+  const peek = () => toks[at];
+  function parseOr() {
+    const kids = [parseAnd()];
+    while (peek() === "or") { at++; kids.push(parseAnd()); }
+    return kids.length === 1 ? kids[0] : { op: "or", kids };
+  }
+  function parseAnd() {
+    const kids = [parseNot()];
+    while (peek() === "and") { at++; kids.push(parseNot()); }
+    return kids.length === 1 ? kids[0] : { op: "and", kids };
+  }
+  function parseNot() {
+    // `IS NOT NULL` belongs to its operand and must never be read here: a `not`
+    // is this operator only when it STARTS an operand.
+    if (peek() === "not") { at++; return { op: "not", kid: parseNot() }; }
+    return parsePrim();
+  }
+  function parsePrim() {
+    if (peek() === "(") {
+      at++;
+      const node = parseOr();
+      if (peek() !== ")") throw new Error("unbalanced");
+      at++;
+      return node;
+    }
+    const start = at;
+    let depth = 0;
+    while (at < toks.length) {
+      const t = toks[at];
+      if (t === "(") depth++;
+      else if (t === ")") { if (!depth) break; depth--; }
+      else if (!depth && BOOL_WORD.has(t)) break;
+      at++;
+    }
+    if (at === start) throw new Error("empty-operand");
+    return { atom: toks.slice(start, at).join(" ") };
+  }
+  const node = parseOr();
+  if (at !== toks.length) throw new Error("trailing-tokens");
+  return node;
+}
+
+/** `true` is the identity of AND and absorbs OR. Postgres folds it; so must this. */
+function foldTrue(n) {
+  if (!n || n.atom !== undefined) return n;
+  if (n.op === "not") return { op: "not", kid: foldTrue(n.kid) };
+  const kids = n.kids.map(foldTrue);
+  if (n.op === "and") {
+    const rest = kids.filter((k) => k.atom !== "true");
+    if (!rest.length) return { atom: "true" };
+    return rest.length === 1 ? rest[0] : { op: "and", kids: rest };
+  }
+  if (kids.some((k) => k.atom === "true")) return { atom: "true" };
+  return { op: "or", kids };
+}
+
+function renderPredicate(n) {
+  if (n.atom !== undefined) return n.atom;
+  if (n.op === "not") return "!(" + renderPredicate(n.kid) + ")";
+  return n.op + "(" + n.kids.map(renderPredicate).sort().join(",") + ")";
+}
+
+/**
+ * The canonical form, or a named refusal.
+ *
+ * An empty predicate is `{ok: true, form: ""}` — an INSERT policy has no USING
+ * clause and a SELECT policy has no WITH CHECK, and "absent" is a real answer
+ * that both sides agree on.
+ */
+export function canonPredicate(text) {
+  const s = scrubPredicate(text);
+  if (!s) return { ok: true, form: "" };
+  const lex = lexPredicate(s);
+  if (!lex.ok) return { ok: false, why: lex.why };
+  try {
+    return { ok: true, form: renderPredicate(foldTrue(parsePredicate(dropRedundantParens(lex.tokens)))) };
+  } catch (e) {
+    return { ok: false, why: String((e && e.message) || e).slice(0, 40) };
+  }
+}
+
+/**
+ * The canonical form alone, for a reader that has already established both
+ * sides are comparable. A refusal answers `""`, which is why every caller that
+ * COMPARES goes through `canonPredicate` and reports `policy-not-comparable`
+ * instead — an unparsable predicate must never quietly equal an absent one.
  */
 export function predicateShape(text) {
-  const s = String(text || "");
-  if (!s.trim()) return "";
-  const out = [];
-  if (/\bdeleted_at\b/i.test(s)) out.push("deleted_at");
-  if (/\bexpires_at\b/i.test(s)) out.push("expires_at");
-  if (/\bpublish_at\b/i.test(s)) out.push("publish_at");
-  if (/\bteam_id\b/i.test(s)) out.push("team_id");
-  if (OWN_TEST.test(s)) out.push("own");
-  else if (/app_user_id\s*\(\s*\)\s*IS\s+NOT\s+NULL/i.test(s)) out.push("members");
-  // Whatever is left once the recognised pieces are struck out. `true`, the
-  // parens and the boolean glue are expected; anything else is a predicate this
-  // vocabulary does not describe.
-  //
-  // THE TABLE QUALIFIER IS STRUCK FIRST, and forgetting it made every correct
-  // pair read as a mismatch. `policiesFor` writes `"notes"."owner_id" =
-  // app_user_id()` and Postgres stores `(owner_id = app_user_id())` — so the
-  // emitted side carried a bare `notes` into the residue and fired `other` on
-  // all four commands of every member table. Found by running both sides
-  // through a real Postgres 16; no fixture would have shown it, because a
-  // fixture writes both sides in one hand.
-  const rest = s
-    .replace(/"?[a-z_][a-z0-9_]*"?\s*\./gi, "")
-    .replace(/\bdeleted_at\b|\bexpires_at\b|\bpublish_at\b|\bteam_id\b|\bowner_id\b/gi, "")
-    .replace(/app_user_id\s*\(\s*\)|app_team_id\s*\(\s*\)/gi, "")
-    .replace(/to_char\s*\(/gi, "(")
-    .replace(/now\s*\(\s*\)|AT TIME ZONE|'UTC'|'YYYY-MM-DD HH24:MI:SS'/gi, "")
-    .replace(/\bIS\s+NOT\s+NULL\b|\bIS\s+NULL\b|\bAND\b|\bOR\b|\btrue\b|\bNOT\b/gi, "")
-    .replace(/::\s*\w+/g, "")
-    .replace(/["'()\s.<>=]/g, "");
-  if (rest) out.push("other");
-  return out.sort().join("+");
+  const c = canonPredicate(text);
+  return c.ok ? c.form : "";
 }
 
 /**
@@ -436,27 +611,47 @@ export function statementShape(stmt) {
   const c = /\bWITH\s+CHECK\s*\(/i.exec(s);
   const using = u ? readParens(s, u.index + u[0].length - 1) : "";
   const check = c ? readParens(s, c.index + c[0].length - 1) : "";
-  return { cmd, shape: predicateShape(using) + "|" + predicateShape(check) };
+  return { cmd, ...pairShape(using, check) };
+}
+
+/**
+ * One policy's two clauses as a comparable pair, or a refusal.
+ *
+ * A REFUSAL IS NOT A SHAPE. `predicateShape` answers `""` for a predicate it
+ * cannot parse, and `""` is also the honest answer for an ABSENT clause — so
+ * folding the two together would let an unparsable USING compare equal to a
+ * policy that has none. `ok: false` travels all the way to
+ * `verifyDeclaration`, which leaves the table alone.
+ */
+function pairShape(using, check) {
+  const a = canonPredicate(using), b = canonPredicate(check);
+  if (!a.ok || !b.ok) return { ok: false, why: (a.ok ? b.why : a.why) };
+  return { ok: true, shape: a.form + "|" + b.form };
 }
 
 /** Every policy a table has, live, as `{cmd: shape}`. */
 export function livePolicyShapes(policies, table) {
-  const out = {};
+  const out = {}, unreadable = [];
   for (const p of Array.isArray(policies) ? policies : []) {
     if (!p || p.t !== table) continue;
-    out[String(p.c || "ALL").toUpperCase()] = predicateShape(p.q) + "|" + predicateShape(p.w);
+    const cmd = String(p.c || "ALL").toUpperCase();
+    const sh = pairShape(p.q, p.w);
+    if (sh.ok) out[cmd] = sh.shape;
+    else unreadable.push({ cmd, why: sh.why });
   }
-  return out;
+  return { shapes: out, unreadable };
 }
 
 /** Every policy a declaration would emit, as `{cmd: shape}`. */
 export function emittedPolicyShapes(statements) {
-  const out = {};
+  const out = {}, unreadable = [];
   for (const s of Array.isArray(statements) ? statements : []) {
     const sh = statementShape(s);
-    if (sh) out[sh.cmd] = sh.shape;
+    if (!sh) continue;
+    if (sh.ok) out[sh.cmd] = sh.shape;
+    else unreadable.push({ cmd: sh.cmd, why: sh.why });
   }
-  return out;
+  return { shapes: out, unreadable };
 }
 
 /**
@@ -587,9 +782,15 @@ export function verifyDeclaration({ table, declared, live = {}, emit = null } = 
 
   const liveP = livePolicyShapes(live.policies, table);
   const mineP = emittedPolicyShapes(policyStmts);
-  const cmds = [...new Set([...Object.keys(liveP), ...Object.keys(mineP)])].sort();
-  const policyDiff = cmds.filter((c) => (liveP[c] || "") !== (mineP[c] || ""))
-    .map((c) => ({ cmd: c, live: liveP[c] || "(none)", would: mineP[c] || "(none)" }));
+  // A PREDICATE THIS CANNOT PARSE IS REFUSED, NEVER COMPARED. Reading it as a
+  // mismatch would be the same verdict by luck; reading it as an empty shape —
+  // which is what an ABSENT clause answers — would let it compare EQUAL to a
+  // policy that has no such clause at all.
+  const unreadable = [...liveP.unreadable.map((u) => ({ ...u, side: "live" })), ...mineP.unreadable.map((u) => ({ ...u, side: "would" }))];
+  if (unreadable.length) return { ok: false, why: "policy-not-comparable", unreadable };
+  const cmds = [...new Set([...Object.keys(liveP.shapes), ...Object.keys(mineP.shapes)])].sort();
+  const policyDiff = cmds.filter((c) => (liveP.shapes[c] || "") !== (mineP.shapes[c] || ""))
+    .map((c) => ({ cmd: c, live: liveP.shapes[c] || "(none)", would: mineP.shapes[c] || "(none)" }));
   if (policyDiff.length) return { ok: false, why: "policy-would-change", policyDiff };
 
   const liveG = liveGrantAccess(live.grants, table);

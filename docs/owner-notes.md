@@ -155,6 +155,155 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The four failures you found, fixed through the commands
+
+You said to fix these *through the actual command paths*, and that was the part
+that mattered: two of the four were invisible to every test I had, because the
+tests call helpers and the failures live in how the scripts run as programs.
+
+All four are reproduced **before** and **after**. Nothing below is me reading the
+code and concluding something.
+
+### 1. The identity check was asking about the wrong database
+
+The project's connection string ends in `/neondb` — that's the project's default
+database, not your site's. The script built its query client with the right
+database and then handed the **original** connection to the identity check. So it
+asked *"is `/neondb` the right database for repairbench-1?"*, got "no" (correctly),
+and refused before it ever spoke to the real database.
+
+```
+before:  connection-does-not-name-the-intended-database  (named neondb,
+                                                          expected site_repairbench_1)
+         → refused on all five sites, before asking the database anything
+after:   proven — the project row for this slug names a database the server confirms
+```
+
+The connection is now built **once**, in the survey, and that same one is what
+both the identity check and every query use. They cannot come apart again.
+
+**And the mismatched case still refuses** — I kept a control where the server
+answers a different database name than the connection claims, and that now fails
+at the *third* link (`server-answers-a-different-database`) instead of the second.
+That's a stronger refusal, because it means the connection actually reached a
+server and the server disagreed.
+
+### 2. The policy comparison threw away what a policy means
+
+This is the one that could have damaged a live site. The comparison reduced a
+policy to the list of column names it mentions, so:
+
+```
+before:  "deleted_at IS NULL"      and  "deleted_at IS NOT NULL"   →  identical
+         "a AND b"                 and  "a OR b"                   →  identical
+```
+
+A table set to hide deleted rows and a table set to show *only* deleted rows
+looked the same to it. So the recovery would have said "no change" and the next
+schema change would have written the reversed rule: every hidden row visible,
+every visible row hidden, days later, with nothing connecting the two events.
+
+It now compares the actual structure of the condition — the ANDs, the ORs, the
+NOTs, and each comparison exactly as written. It still ignores the cosmetic
+things Postgres rewrites on its own (quotes, table prefixes, type casts,
+spacing), so a correct recovery still reads as correct.
+
+```
+after:   "deleted_at is null"  vs  "deleted_at is not null"   →  different
+         and(...)              vs  or(...)                    →  different
+         → the recovery refuses that table: "policy-would-change"
+```
+
+**A condition it cannot parse is refused rather than guessed at.** Refusing means
+the table is left exactly as it is, which is the safe direction.
+
+I also added your counterexample to the real-PostgreSQL test. It now applies five
+tables, forgets every declaration, recovers them, re-applies, and diffs the
+permissions: **5 recovered with no change to any policy, grant or column.** The
+old algorithm on the same databases **changed 3 of them.**
+
+### 3. Both `--verify` commands could exit 0 while failing
+
+```
+before:  backend-repair --verify   printed "0 verified, 1 not verified"  → exit 0
+         repairbench-count-fix --verify   saw bookings=3, function=0, route=0
+                                          → fell through to preview → exit 0
+after:   both exit 1
+```
+
+If you'd run either of these in a script, or a workflow step, or just checked
+`$?`, both would have reported success while telling you on screen that they had
+failed.
+
+Verify is an explicit mode in both now, it always checks its postconditions, and
+it exits nonzero when they fail. Two details worth knowing:
+
+- **"Nothing to do" is not a pass in verify mode.** If you name a site and it has
+  no reachable database, that's a *failed* postcondition — the site was supposed
+  to have one by the time you're verifying.
+- **I test both scripts as real processes now.** That's the only way to see an
+  exit code: it isn't visible from inside the code. That gap is exactly how a
+  verification that printed its own failure came to exit 0 with every test green.
+
+### 4. Recovery couldn't save anything when `_meta` didn't exist
+
+The recovery writes what it found into a small table called `_meta`. On a site
+where that table has never been created — which is the exact state the recovery
+exists for — it failed:
+
+```
+before:  write-failed — relation "_meta" does not exist
+after:   recovered, and it created the table first
+```
+
+It now creates the table using **the platform's own statement for it**, not a
+hand-written copy, so a repair can't create a `_meta` that differs from the one a
+normal build would create.
+
+And I proved the whole sequence as three separate program runs: **apply →
+verify → repeat.** Apply creates the table and writes; verify reads `1 verified`;
+the repeat says `nothing missing`. **Across all three runs, no application table
+was touched** — no DROP, no ALTER, no TRUNCATE, no insert into anything but
+`_meta`. I assert that, rather than just observing that it seemed to work.
+
+### The numbers
+
+Suite **6,464**, green. Mutation sweep **111 mutants, 111 killed, 0 survived, 3
+comment-only controls survived**. Three survived the first pass and **none was a
+real bug** — two were changes that genuinely do nothing (measured, then either
+mutated as a pair or the code restructured so the line matters), and one I closed
+with a different kind of test because that mutation can't change behaviour at
+all.
+
+Four older tests were re-anchored rather than silenced, each saying what moved.
+
+### Scope, unchanged
+
+The repair is still the five sites — `ashgrove-1`, `fretwork-1`, `northgroup-5`,
+`repairbench-1`, `washhouse-1` — and the count correction is still
+`repairbench-1` only, by name, asserted as a literal.
+
+### What still needs your press
+
+Unchanged. Both scripts preview by default and write nothing until you say so;
+they need the Supabase service key and a database connection, which this session
+doesn't have.
+
+```
+node scripts/backend-repair.mjs --preview          # reads only
+node scripts/backend-repair.mjs --apply
+node scripts/backend-repair.mjs --verify           # now exits 1 if it fails
+
+node scripts/repairbench-count-fix.mjs             # reads only
+node scripts/repairbench-count-fix.mjs --apply
+node scripts/repairbench-count-fix.mjs --verify    # now exits 1 if it fails
+```
+
+Until then: the five sites are still incomplete, `repairbench-1`'s `bookings`
+declaration is still missing, and `/status` still says `0`.
+
+---
+
 ## 2026-09-15 — The five gaps you found in that repair, closed
 
 You read the repair and found five things wrong with it. All five are fixed, and

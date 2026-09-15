@@ -63,6 +63,10 @@ import { repairPlan, backendState, unsetDbFilter, dbNameFromConn } from "../site
 import { readSchemaState, reconcileSpec, RECOVER_QUERIES, META_SCHEMA_SQL } from "../site-schema-recover.mjs";
 import { policiesFor, grantsFor } from "../site-rls.mjs";
 import { connForDatabase, dbNameForSite, sqlQuery } from "../site-db.mjs";
+// The ENGINE'S OWN `_meta` statement. A recovery meets databases that have
+// tables and no `_meta` at all, and a fourth hand-written copy of two column
+// definitions is how a repair creates a store the product cannot read.
+import { META_TABLE_SQL } from "../site-schema.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 
@@ -124,14 +128,34 @@ export async function survey(key, only = "") {
     const project = byProject.get(site.slug) || null;
     const plan = repairPlan({ slug: site.slug, site, project, derive: dbNameForSite });
     const state = backendState({ site, project });
+    // The database to CONNECT to: the recorded name where there is one, the
+    // derived name where the reference is what is missing.
+    const db = plan.act === "backfill" ? plan.db : state.db;
+    // ── THE RESOLVED CONNECTION, BUILT ONCE (2026-09-15) ──────────────────
+    //
+    // `site_project.neon_conn` is the PROJECT's connection and its path is the
+    // project's default database — `/neondb` on every real row. `main` built
+    // its SQL client with `connForDatabase(site.conn, site.db)` and then handed
+    // the raw `site.conn` to `repairSite` and `verifySite`, so identity was
+    // asked about `/neondb` while every query went to `/site_<slug>`:
+    //
+    //   connection-does-not-name-the-intended-database (named neondb,
+    //   expected site_repairbench_1)
+    //
+    // — a refusal before the database was asked anything, on every site there
+    // is. One connection is resolved here and it is the one BOTH use, so the
+    // thing proved and the thing queried cannot come apart again.
+    let conn = null;
+    if (project && db) { try { conn = connForDatabase(project.neon_conn, db); } catch { conn = null; } }
     out.push({
       ...plan,
       state: state.state,
-      // The database to CONNECT to: the recorded name where there is one, the
-      // derived name where the reference is what is missing.
-      db: plan.act === "backfill" ? plan.db : state.db,
+      db,
       uid: site.uid,
-      conn: project ? project.neon_conn : null,
+      conn,
+      // The project's own connection is kept for the record, and is NEVER what
+      // a query or an identity check is given.
+      projectConn: project ? project.neon_conn : null,
       projectSlug: project ? project.slug : null,
     });
   }
@@ -238,7 +262,12 @@ export async function writeRef(key, slug, uid, db, proof) {
 export async function recoverSchema(sql, { prior = null, emit = EMIT } = {}) {
   const st = await readSchemaState({ sql, scrub: safeErr });
   if (!st.ok) return { ok: false, why: st.state + ":" + st.why, detail: st.detail || "" };
-  if (st.state === "empty") return { ok: true, changed: false, why: "empty", kept: [], recovered: [], uncertain: [], ambiguous: [] };
+  // ABSENT TABLE AND ABSENT ROW ARE DIFFERENT FACTS, and the write needs the
+  // difference: `INSERT INTO _meta` on a database that has no `_meta` fails
+  // with `relation "_meta" does not exist`, which is what a recovery on exactly
+  // the kind of site this repair is for met every time.
+  const metaTable = st.why !== "no-meta-table";
+  if (st.state === "empty") return { ok: true, changed: false, why: "empty", metaTable, kept: [], recovered: [], uncertain: [], ambiguous: [] };
   const live = { columns: st.columns, grants: [], policies: [], triggers: [] };
   try {
     const [grants, policies, triggers] = await Promise.all([
@@ -253,7 +282,7 @@ export async function recoverSchema(sql, { prior = null, emit = EMIT } = {}) {
     // write:"none"` for every table on the site.
     return { ok: false, why: "permissions-unreadable", detail: safeErr(e) };
   }
-  return { ok: true, ...reconcileSpec({ stored: st.spec, live, prior, emit }), why: st.state };
+  return { ok: true, ...reconcileSpec({ stored: st.spec, live, prior, emit }), why: st.state, metaTable };
 }
 
 /**
@@ -303,8 +332,14 @@ export async function repairSite({ site, sql, write, mode = "preview", prior = n
     recovered: rec.recovered || [], uncertain: rec.uncertain || [], ambiguous: rec.ambiguous || [], kept: rec.kept || [],
   };
   if (rec.changed && mode === "apply") {
-    try { await sql("INSERT INTO _meta (k,v) VALUES ('schema', $1) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(rec.spec)]); }
-    catch (e) { report.schema = { ...report.schema, act: "failed", why: "write-failed", detail: safeErr(e) }; }
+    try {
+      // THE METADATA TABLE FIRST, and only where it is absent. `CREATE TABLE IF
+      // NOT EXISTS` is idempotent, so this is safe either way; asking first is
+      // what keeps a run that has nothing to create from issuing DDL at all.
+      // It touches no application table: `_meta` is the platform's own store.
+      if (!rec.metaTable) { await sql(META_TABLE_SQL, []); report.schema.created = "_meta"; }
+      await sql("INSERT INTO _meta (k,v) VALUES ('schema', $1) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v", [JSON.stringify(rec.spec)]);
+    } catch (e) { report.schema = { ...report.schema, act: "failed", why: "write-failed", detail: safeErr(e) }; }
   }
   return report;
 }
@@ -356,13 +391,24 @@ async function main() {
   for (const r of rows) byState[r.state] = (byState[r.state] || 0) + 1;
   console.log(`${rows.length} site(s): ${reachable.length} with a database ` +
     `(${Object.entries(byState).map(([k, v]) => k + " " + v).join(", ") || "none"})`);
-  if (!reachable.length) { console.log("nothing to do."); return; }
+  // IN VERIFY MODE "nothing to do" IS NOT A PASS — a named slug that matched no
+  // reachable site is a postcondition that FAILED, because the site was
+  // supposed to have a database by now. It falls THROUGH to the tally rather
+  // than returning with its own copy of the exit rule: one place decides, and
+  // `!verified` there is load-bearing instead of a second belt.
+  if (!reachable.length) {
+    console.log("nothing to do.");
+    if (args.mode !== "verify") return;
+    console.log(args.slug ? `VERIFY FAILED: ${args.slug} has no reachable database.` : "VERIFY FAILED: nothing was verified.");
+  }
 
   const write = (slug, uid, db, proof) => writeRef(key, slug, uid, db, proof);
   let refs = 0, schemas = 0, refused = 0, failed = 0, verified = 0;
 
   for (const site of reachable) {
-    const sql = (q, p) => sqlQuery(connForDatabase(site.conn, site.db), q, p || []);
+    // ONE CONNECTION, RESOLVED IN `survey`. Re-resolving here is what let the
+    // identity check and the queries address different databases.
+    const sql = (q, p) => sqlQuery(site.conn, q, p || []);
 
     if (args.mode === "verify") {
       const v = await verifySite({ site, sql });
@@ -391,13 +437,24 @@ async function main() {
     if (s.ambiguous && s.ambiguous.length) console.log(`    schema: LEFT ALONE (access not derivable): ${fmt(s.ambiguous.map((a) => a.name))}`);
   }
 
+  // ── THE EXIT CODE IS THE ANSWER (2026-09-15) ────────────────────────────
+  //
+  // `--verify` printed "0 verified, 1 not verified" and exited 0. Anything
+  // reading this as a command — a shell, a runbook, a workflow step — read that
+  // as a pass. A verification that cannot fail the process is a report, not a
+  // verification.
   if (args.mode === "verify") {
     console.log(`\n${verified} verified, ${failed} not verified.`);
+    if (failed || !verified) process.exitCode = 1;
     return;
   }
   console.log(`\n${refs} reference(s) written, ${schemas} schema(s) recovered, ${refused} refused on identity, ${failed} failed.`);
-  if (args.mode === "apply") console.log("re-run with --verify to read the result back.");
-  else console.log("(preview — nothing written. --apply writes.)");
+  if (args.mode === "apply") {
+    console.log("re-run with --verify to read the result back.");
+    // AN APPLY THAT REFUSED OR FAILED IS NOT A SUCCESSFUL APPLY. A preview is a
+    // report and exits 0 whatever it found; an apply is an action.
+    if (failed || refused) process.exitCode = 1;
+  } else console.log("(preview — nothing written. --apply writes.)");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -634,22 +634,6 @@
     "to": "    const check = source === \"prior\" ? { ok: true } : verifyDeclaration({ table: name, declared: candidate, live: { columns: cols, grants, policies }, emit });"
   },
   {
-    "label": "the predicate fingerprint keeps the table qualifier, so every correct pair reads as a mismatch",
-    "files": [
-      "site-schema-recover.mjs"
-    ],
-    "from": "    .replace(/\"?[a-z_][a-z0-9_]*\"?\\s*\\./gi, \"\")\n    .replace(/\\bdeleted_at\\b",
-    "to": "    .replace(/\\bdeleted_at\\b"
-  },
-  {
-    "label": "an unrecognised predicate fingerprints the same as `USING (true)`",
-    "files": [
-      "site-schema-recover.mjs"
-    ],
-    "from": "  if (rest) out.push(\"other\");",
-    "to": "  if (false) out.push(\"other\");"
-  },
-  {
     "label": "the privilege list splits flat, so a two-column-list GRANT parses as rubbish",
     "files": [
       "site-schema-recover.mjs"
@@ -737,5 +721,197 @@
     ],
     "from": "export const MANAGED_COLUMNS = new Set(ENGINE_MANAGED);",
     "to": "export const MANAGED_COLUMNS = new Set([...ENGINE_MANAGED, \"payment_status\", \"payment_ref\", \"amount_total\", \"currency\", \"paid_at\"]);"
+  },
+  {
+    "label": "the survey hands back the PROJECT connection, so identity and the queries address different databases",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    if (project && db) { try { conn = connForDatabase(project.neon_conn, db); } catch { conn = null; } }",
+    "to": "    if (project && db) { conn = project.neon_conn; }"
+  },
+  {
+    "label": "main re-resolves and the queries go to the project's default database",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    const sql = (q, p) => sqlQuery(site.conn, q, p || []);",
+    "to": "    const sql = (q, p) => sqlQuery(site.projectConn || site.conn, q, p || []);"
+  },
+  {
+    "label": "the row no longer carries the project connection, so the count fix cannot fall back",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      projectConn: project ? project.neon_conn : null,",
+    "to": "      projectConn: null,"
+  },
+  {
+    "label": "THE NAMED DEFECT: and/or collapse, so `a AND b` and `a OR b` fingerprint the same",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "  return n.op + \"(\" + n.kids.map(renderPredicate).sort().join(\",\") + \")\";",
+    "to": "  return \"(\" + n.kids.map(renderPredicate).sort().join(\",\") + \")\";"
+  },
+  {
+    "label": "the operand's own text is thrown away, so IS NULL and IS NOT NULL fingerprint the same",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    return { atom: toks.slice(start, at).join(\" \") };",
+    "to": "    return { atom: toks.slice(start, at).filter((t) => ![\"not\", \"is\", \"null\"].includes(t)).join(\" \") };"
+  },
+  {
+    "label": "a predicate that will not parse is reported as an empty shape instead of refused",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    return { ok: false, why: String((e && e.message) || e).slice(0, 40) };",
+    "to": "    return { ok: true, form: \"\" };"
+  },
+  {
+    "label": "an unparsable clause folds into an absent one at the pair",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "  if (!a.ok || !b.ok) return { ok: false, why: (a.ok ? b.why : a.why) };",
+    "to": "  if (false) return { ok: false, why: (a.ok ? b.why : a.why) };"
+  },
+  {
+    "label": "the verification stops refusing a policy it cannot compare",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "  if (unreadable.length) return { ok: false, why: \"policy-not-comparable\", unreadable };",
+    "to": "  if (false) return { ok: false, why: \"policy-not-comparable\", unreadable };"
+  },
+  {
+    "label": "`true` stops folding under AND, so a display+trash table reads as a mismatch",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    const rest = kids.filter((k) => k.atom !== \"true\");",
+    "to": "    const rest = kids;"
+  },
+  {
+    "label": "grouping parens that decide precedence are dropped too",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "      if (edge(before) && edge(after)) { open = i; close = j; }",
+    "to": "      { open = i; close = j; }"
+  },
+  {
+    "label": "the call-paren PAIR goes: a function's arguments are torn out of the atom",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "      if (typeof before === \"string\" && /^[a-z_][a-z0-9_$]*$/.test(before)) continue;",
+    "to": "      if (false) continue;\n      const edge2 = () => true;\n      if (edge2()) { open = i; close = j; break; }"
+  },
+  {
+    "label": "the table qualifier stops being normalised, so every correct pair reads as a mismatch",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    .replace(/\\b[a-z_][a-z0-9_]*\\s*\\.\\s*(?=[a-z_])/g, \"\")",
+    "to": "    .replace(/\\bZZNOTHINGZZ/g, \"\")"
+  },
+  {
+    "label": "a failed --verify exits 0 again",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    if (failed || !verified) process.exitCode = 1;",
+    "to": "    if (false) process.exitCode = 1;"
+  },
+  {
+    "label": "a --verify that verified NOTHING exits 0",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    if (failed || !verified) process.exitCode = 1;",
+    "to": "    if (failed) process.exitCode = 1;"
+  },
+  {
+    "label": "a --verify on a site with no reachable database returns before the tally",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    if (args.mode !== \"verify\") return;",
+    "to": "    return;"
+  },
+  {
+    "label": "an --apply that refused everything exits 0",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    if (failed || refused) process.exitCode = 1;",
+    "to": "    if (false) process.exitCode = 1;"
+  },
+  {
+    "label": "the count fix's verify falls through to the preview again",
+    "files": [
+      "scripts/repairbench-count-fix.mjs"
+    ],
+    "from": "  if (args.mode === \"verify\") {\n    const agree =",
+    "to": "  if (false) {\n    const agree ="
+  },
+  {
+    "label": "the count fix's verify stops asking whether the correction was applied",
+    "files": [
+      "scripts/repairbench-count-fix.mjs"
+    ],
+    "from": "    if (pending.ok) lines.push(`the function still counts \"${WRONG_TABLE}\" \u2014 the correction has not been applied`);",
+    "to": "    if (false) lines.push(`the function still counts \"${WRONG_TABLE}\" \u2014 the correction has not been applied`);"
+  },
+  {
+    "label": "the count fix's verify stops comparing the three numbers",
+    "files": [
+      "scripts/repairbench-count-fix.mjs"
+    ],
+    "from": "    if (!agree) lines.push(`the three counts disagree:",
+    "to": "    if (false) lines.push(`the three counts disagree:"
+  },
+  {
+    "label": "the count fix's verify exits 0 whatever it found",
+    "files": [
+      "scripts/repairbench-count-fix.mjs"
+    ],
+    "from": "    process.exit(lines.length ? 1 : 0);",
+    "to": "    process.exit(0);"
+  },
+  {
+    "label": "THE NAMED DEFECT: the declaration is written without creating the missing `_meta`",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (!rec.metaTable) { await sql(META_TABLE_SQL, []); report.schema.created = \"_meta\"; }",
+    "to": "      if (false) { await sql(META_TABLE_SQL, []); report.schema.created = \"_meta\"; }"
+  },
+  {
+    "label": "the created metadata table is a hand-written copy rather than the engine's own",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "await sql(META_TABLE_SQL, []); report.schema.created",
+    "to": "await sql(\"CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)\", []); report.schema.created"
+  },
+  {
+    "label": "absent-table and absent-row are collapsed again, so the create never fires",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  const metaTable = st.why !== \"no-meta-table\";",
+    "to": "  const metaTable = true;"
+  },
+  {
+    "label": "the engine stops using its own `_meta` statement, so the two can drift",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "  await sqlQuery(uuid, META_TABLE_SQL);",
+    "to": "  await sqlQuery(uuid, \"CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)\");"
   }
 ]

@@ -17,6 +17,21 @@
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
 import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
+
+/**
+ * THE STORE EVERY SITE'S APPLICATION METADATA LIVES IN, spelled once.
+ *
+ * `_meta` holds the schema the site believes it has, its declared connections
+ * and jobs, and the owner's own API keys. It is created on the provision path
+ * and again here, and `scripts/backend-repair.mjs` has to create it too — a
+ * database can be real, hold tables, and have no `_meta` at all, which is the
+ * state a recovery meets when it goes to write the declaration it just rebuilt.
+ *
+ * EXPORTED so the repair writes the SAME table the engine reads. A fourth copy
+ * of two column definitions is how a repair creates a store the product cannot
+ * use.
+ */
+export const META_TABLE_SQL = "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)";
 import { resolveAccess, accessNameFor, accessLabel } from "./site-access.mjs";
 import { normalizeConfirm } from "./site-mail.mjs";
 import { normalizeSms } from "./site-sms.mjs";
@@ -1593,7 +1608,7 @@ export async function applySiteSchema(uuid, spec) {
   // API's allow-list — their data still exists (CREATE IF NOT EXISTS above never
   // drops it) but the data API would 404 them. Re-declared tables win; untouched
   // ones are preserved. (A revise cannot silently drop a table this way.)
-  await sqlQuery(uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  await sqlQuery(uuid, META_TABLE_SQL);
   // The owner's own API keys — their Stripe key and its webhook secret — live in
   // the SITE's database rather than in a central table, and created HERE rather
   // than on a payments-only path for the reason `_sessions` had to move into

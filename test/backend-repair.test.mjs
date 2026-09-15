@@ -17,11 +17,12 @@ import { backendState, repairPlan, unsetDbFilter, dbNameFromConn, BACKEND_STATES
 import {
   reconcileSpec, deriveAccess, RECOVER_QUERIES, MANAGED_COLUMNS, UNPROVABLE_FLAGS, isInternalName,
   readSchemaState, deriveFlags, verifyDeclaration, predicateShape, splitPrivileges, emittedGrantAccess,
-  liveGrantAccess, DERIVED_FLAGS, UNDERIVABLE_EVIDENCE, SCHEMA_STATES, META_SCHEMA_SQL, readParens,
+  liveGrantAccess, DERIVED_FLAGS, UNDERIVABLE_EVIDENCE, SCHEMA_STATES, META_SCHEMA_SQL, readParens, canonPredicate,
 } from "../site-schema-recover.mjs";
 import { grantsFor, policiesFor } from "../site-rls.mjs";
 import { READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
-import { dbNameForSite } from "../site-db.mjs";
+import { connForDatabase, dbNameForSite } from "../site-db.mjs";
+import { META_TABLE_SQL } from "../site-schema.mjs";
 import { parseArgs, safeErr, proveIdentity, recoverSchema, survey, workList, writeRef, repairSite, verifySite, EMIT } from "../scripts/backend-repair.mjs";
 
 /** The real emitters, as the product hands them in. Nothing here verifies against a copy. */
@@ -324,34 +325,106 @@ test("the catalog queries ask for what the derivation reads, including COLUMN pr
 
 // ── The fingerprints, and the two real Postgres found wrong ─────────────────
 
-test("a predicate is fingerprinted by the facts it turns on, not by its text", () => {
-  // POSTGRES DOES NOT STORE A PREDICATE AS IT WAS WRITTEN. `policiesFor` emits
-  // `"notes"."owner_id" = app_user_id()`; `pg_policies` reports
-  // `(owner_id = app_user_id())`. Both must fingerprint the same or every
-  // correct pair reads as a mismatch.
-  assert.equal(predicateShape('("notes"."owner_id" = app_user_id())'), predicateShape("(owner_id = app_user_id())"));
-  assert.equal(predicateShape('(("notes"."owner_id" = app_user_id()) AND "notes"."deleted_at" IS NULL)'),
-    predicateShape("((owner_id = app_user_id()) AND (deleted_at IS NULL))"));
+test("a predicate is compared as a boolean TREE, so opposite rules never fingerprint the same", () => {
+  // RE-ANCHORED 2026-09-15, and the PROPERTY changed, so the old assertions are
+  // gone rather than moved. This case used to assert that
+  // `predicateShape("(owner_id = app_user_id())") === "own"` — a SUMMARY of the
+  // facts a predicate mentions, which erases what it does with them. Driven:
+  //
+  //     "(deleted_at IS NULL)"  and  "(deleted_at IS NOT NULL)"  ->  "deleted_at"
+  //
+  // A live table whose SELECT policy showed only the soft-DELETED rows recovered
+  // clean, and the next apply emitted `IS NULL`. The predicate is parsed and
+  // canonicalised now; the vocabulary is gone.
+  const same = (a, b) => assert.equal(predicateShape(a), predicateShape(b), a + "  !=  " + b);
+  const differ = (a, b) => assert.notEqual(predicateShape(a), predicateShape(b), a + "  ==  " + b);
 
-  // THE TABLE QUALIFIER WAS THE BUG, found by a real Postgres 16 and by nothing
-  // else: the emitted side carried a bare `notes` into the residue and fired
-  // `other` on all four commands of every member table. A fixture could not
-  // show it, because a fixture writes both sides in one hand.
-  assert.ok(!predicateShape('("notes"."owner_id" = app_user_id())').includes("other"),
-    "the table qualifier is being read as an unrecognised term again");
+  // THE COUNTEREXAMPLE, first.
+  differ("(deleted_at IS NULL)", "(deleted_at IS NOT NULL)");
+  differ("((owner_id = app_user_id()) AND (deleted_at IS NULL))", "((owner_id = app_user_id()) OR (deleted_at IS NULL))");
+  differ("(a = b)", "(a <> b)");
+  differ("(a > b)", "(a < b)");
+  differ("(owner_id = app_user_id())", "(app_user_id() IS NOT NULL)");
+  differ("(true)", "(status = 'live')");
 
-  // OWN AND MEMBERS ARE THE EQUALITY, not the function — both mention it.
-  assert.equal(predicateShape("(owner_id = app_user_id())"), "own");
-  assert.equal(predicateShape("(app_user_id() IS NOT NULL)"), "members");
-  assert.notEqual(predicateShape("(owner_id = app_user_id())"), predicateShape("(app_user_id() IS NOT NULL)"));
+  // AND WHAT POSTGRES REWRITES IS STILL NORMALISED AWAY — quoting, the table
+  // qualifier, casts, whitespace, case, and the parens it adds around a whole
+  // function argument. These pairs are the real emitted/stored pairs, taken
+  // from `test/integration/local-pg-recover.mjs`'s own catalog reads.
+  same('("notes"."owner_id" = app_user_id())', "(owner_id = app_user_id())");
+  same('(("notes"."owner_id" = app_user_id()) AND "notes"."deleted_at" IS NULL)',
+    "((owner_id = app_user_id()) AND (deleted_at IS NULL))");
+  same("(owner_id = app_user_id()::uuid)", "(owner_id = app_user_id())");
+  same("app_user_id() IS NOT NULL AND (\"posts\".\"expires_at\" IS NULL OR \"posts\".\"expires_at\" > to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))",
+    "((app_user_id() IS NOT NULL) AND ((expires_at IS NULL) OR (expires_at > to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text))))");
+  // AND/OR ARE COMMUTATIVE, so Postgres reordering them is not a difference.
+  same("(a = 1 AND b = 2)", "(b = 2 AND a = 1)");
+  // `true` IS THE IDENTITY OF AND — `read: "public"` + `trash` emits
+  // `USING (true AND deleted_at IS NULL)` and must equal the folded form.
+  same("(true AND (deleted_at IS NULL))", "(deleted_at IS NULL)");
+  same("(true)", "true");
 
-  // `other` IS THE FAIL-CLOSED CASE. Without it an unrecognised predicate and
-  // `USING (true)` would both fingerprint empty, so a hand-written policy on
-  // somebody's table would compare equal to no policy at all.
-  assert.equal(predicateShape("(true)"), "");
-  assert.equal(predicateShape(""), "");
-  assert.equal(predicateShape("(status = 'live')"), "other");
-  assert.notEqual(predicateShape("(status = 'live')"), predicateShape("(true)"));
+  // A PREDICATE THIS CANNOT PARSE IS REFUSED, NOT GUESSED AT.
+  assert.equal(canonPredicate("(a + b) * c").ok, false);
+  assert.equal(canonPredicate("(unbalanced").ok, false);
+  assert.equal(canonPredicate("").ok, true, "an ABSENT clause is a real answer both sides agree on");
+  assert.equal(canonPredicate("").form, "");
+});
+
+test("an unparsable predicate is `policy-not-comparable`, never an empty shape", () => {
+  // THE TRAP THE REFUSAL EXISTS FOR: `predicateShape` answers `""` for a
+  // predicate it cannot parse, and `""` is ALSO the honest answer for a clause
+  // that is absent. Folding the two together would let a policy nobody can read
+  // compare EQUAL to a policy that has no such clause.
+  const notes = { name: "notes", read: "own", write: "own", columns: [{ name: "body", type: "text" }] };
+  const live = liveOf([notes]);
+  assert.equal(verifyDeclaration({ table: "notes", declared: notes, live, emit: REAL }).ok, true, "the control: a readable pair verifies");
+
+  const odd = { ...live, policies: live.policies.map((p) => (p.c === "SELECT" ? { ...p, q: "(a + b) * c" } : p)) };
+  const r = verifyDeclaration({ table: "notes", declared: notes, live: odd, emit: REAL });
+  assert.equal(r.ok, false);
+  assert.equal(r.why, "policy-not-comparable", JSON.stringify(r));
+  assert.ok(r.unreadable.some((u) => u.cmd === "SELECT" && u.side === "live"));
+
+  // AND IT IS NOT MISTAKEN FOR AN ABSENT CLAUSE: a table whose SELECT policy is
+  // genuinely gone is a `policy-would-change`, which is a different verdict.
+  const gone = { ...live, policies: live.policies.filter((p) => p.c !== "SELECT") };
+  assert.equal(verifyDeclaration({ table: "notes", declared: notes, live: gone, emit: REAL }).why, "policy-would-change");
+});
+
+test("the counterexample end to end: a policy that shows only DELETED rows is never recovered as its opposite", () => {
+  // The owner's own case. `notes` is soft-delete-shaped, but its live SELECT
+  // policy shows the soft-DELETED rows — whatever the reason, that is what the
+  // database enforces, and a recovery that emits `IS NULL` reverses which rows
+  // every member of that site can see.
+  const live = {
+    columns: [{ t: "notes", c: "id", ty: "integer" }, { t: "notes", c: "body", ty: "text" },
+      { t: "notes", c: "owner_id", ty: "uuid" }, { t: "notes", c: "deleted_at", ty: "text" }, { t: "notes", c: "created_at", ty: "text" }],
+    grants: [
+      { t: "notes", g: "authenticated", p: "SELECT", lvl: "table", col: "" },
+      { t: "notes", g: "authenticated", p: "DELETE", lvl: "table", col: "" },
+      { t: "notes", g: "authenticated", p: "INSERT", lvl: "column", col: "body" },
+      { t: "notes", g: "authenticated", p: "UPDATE", lvl: "column", col: "body" },
+    ],
+    policies: [
+      { t: "notes", c: "SELECT", q: "((owner_id = app_user_id()) AND (deleted_at IS NOT NULL))", w: "" },
+      { t: "notes", c: "INSERT", q: "", w: "(owner_id = app_user_id())" },
+      { t: "notes", c: "UPDATE", q: "(owner_id = app_user_id())", w: "(owner_id = app_user_id())" },
+      { t: "notes", c: "DELETE", q: "(owner_id = app_user_id())", w: "" },
+    ],
+    triggers: [],
+  };
+  const out = reconcileSpec({ stored: { tables: [] }, live, emit: REAL });
+  assert.deepEqual(out.recovered, [], "a policy showing the opposite rows was recovered anyway");
+  assert.deepEqual(out.uncertain.map((u) => u.name + ":" + u.why), ["notes:policy-would-change"]);
+  assert.equal(out.spec.tables.length, 0, "the table reached the spec, so the next apply would rewrite its policy");
+
+  // THE CONTROL, and it is what makes the refusal a refusal rather than a
+  // module that refuses everything: the same table with `IS NULL` recovers.
+  const ok = { ...live, policies: live.policies.map((p) => (p.c === "SELECT" ? { ...p, q: "((owner_id = app_user_id()) AND (deleted_at IS NULL))" } : p)) };
+  const good = reconcileSpec({ stored: { tables: [] }, live: ok, emit: REAL });
+  assert.deepEqual(good.recovered.map((r) => r.name), ["notes"]);
+  assert.deepEqual(good.recovered[0].flags, ["trash"]);
 });
 
 test("a GRANT's privileges split at depth zero, and the verb comes from before the ON", () => {
@@ -1129,4 +1202,165 @@ test("the rename guard is a SECOND wall, and the pair is what must not both go",
   assert.ok(!unbounded.includes("count_booked_repairs"), "the pair is not redundant on this definition — re-derive the argument");
   const rw = (await import("../scripts/repairbench-count-fix.mjs")).rewriteDefinition(def);
   assert.ok(rw.sql.includes("count_booked_repairs"));
+});
+
+// ── THE FOUR THAT SURVIVED THE FIRST ROUND (2026-09-15) ─────────────────────
+
+test("identity and the queries use ONE connection, resolved in the survey", async () => {
+  // THE DEFECT: `site_project.neon_conn` is the PROJECT's connection and its
+  // path is the project's default database — `/neondb` on every real row.
+  // `main` built its SQL client with `connForDatabase(site.conn, site.db)` and
+  // handed the RAW `site.conn` to `repairSite`, so identity was asked about
+  // `/neondb` while every query went to `/site_<slug>`. Measured: every site
+  // refused with `connection-does-not-name-the-intended-database` before its
+  // database was asked anything at all.
+  const PROJ = "postgres://u:p@ep-x.neon.tech/neondb?sslmode=require";
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u) => {
+    const s = String(u);
+    if (/site_backends/.test(s)) return new Response(JSON.stringify([{ slug: "repairbench-1", uid: "u1", neon_db: "" }]), { headers: { "content-type": "application/json" } });
+    if (/site_project/.test(s)) return new Response(JSON.stringify([{ slug: "repairbench-1", neon_conn: PROJ }]), { headers: { "content-type": "application/json" } });
+    return new Response("[]", { headers: { "content-type": "application/json" } });
+  };
+  let rows;
+  try { rows = await survey("KEY"); } finally { globalThis.fetch = real; }
+  const site = rows[0];
+
+  // THE ROW CARRIES THE RESOLVED CONNECTION, and the project's own is kept
+  // separately so nothing can reach for it by accident.
+  assert.equal(site.conn, connForDatabase(PROJ, dbNameForSite("repairbench-1")));
+  assert.equal(site.projectConn, PROJ);
+  assert.equal(dbNameFromConn(site.conn), site.db, "the row's connection does not name the row's database");
+
+  // AND `main`'s OWN CLIENT IS THAT CONNECTION. A re-resolve here is what let
+  // the two come apart, so this asserts they are the same string rather than
+  // that they happen to agree.
+  assert.equal(connForDatabase(site.conn, site.db), site.conn, "resolving the row's connection again moves it");
+
+  const asked = [];
+  const sql = async (q) => {
+    asked.push(q);
+    return /current_database/.test(q) ? [{ db: dbNameForSite("repairbench-1") }] : [];
+  };
+  const r = await repairSite({ site, sql, write: async () => ({ wrote: true }), mode: "preview", emit: REAL });
+  assert.equal(r.identity.proven, true, JSON.stringify(r.identity));
+  assert.ok(asked.some((q) => /current_database/.test(q)), "identity refused without asking the database");
+
+  // THE CONTROL: a genuinely mismatched database stays refused, and for the
+  // RIGHT reason — the server's own answer, not the connection's spelling.
+  const bad = await repairSite({
+    site, write: async () => ({ wrote: true }), mode: "preview", emit: REAL,
+    sql: async (q) => (/current_database/.test(q) ? [{ db: "site_someone_else" }] : []),
+  });
+  assert.equal(bad.identity.proven, false);
+  assert.equal(bad.identity.why, "server-answers-a-different-database");
+  // AND `verifySite` READS THE SAME ROW THE SAME WAY.
+  const v = await verifySite({ site, sql });
+  assert.ok(v.checks.some((c) => c.ok && /answers/.test(c.name)), JSON.stringify(v.checks));
+});
+
+test("a missing `_meta` is created before the declaration is written, with the ENGINE's own statement", async () => {
+  // `INSERT INTO _meta` on a database that has no `_meta` fails with
+  // `relation "_meta" does not exist` — which is the state a recovery meets on
+  // exactly the kind of site this repair is for: real tables, no metadata.
+  const bookings = { name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] };
+  const live = liveOf([bookings]);
+  const statements = [];
+  let metaTable = false, stored = null;
+  const sql = async (q, p) => {
+    statements.push(q.replace(/\s+/g, " ").trim());
+    if (/current_database/.test(q)) return [{ db: "site_s1" }];
+    if (/information_schema\.columns/.test(q)) return live.columns;
+    if (/role_table_grants/.test(q)) return live.grants;
+    if (/pg_policies/.test(q)) return live.policies;
+    if (/pg_trigger/.test(q)) return [];
+    if (/CREATE TABLE IF NOT EXISTS _meta/i.test(q)) { metaTable = true; return []; }
+    if (!metaTable && /_meta/.test(q)) throw new Error('relation "_meta" does not exist');
+    if (/INSERT INTO _meta/.test(q)) { stored = JSON.parse(p[0]); return []; }
+    return [];
+  };
+  const site = { slug: "s1", state: "incomplete", act: "backfill", db: "site_s1", uid: "u1",
+                 conn: "postgres://u:p@h/site_s1", projectSlug: "s1" };
+
+  const first = await repairSite({ site, sql, write: async () => ({ wrote: true }), mode: "apply", emit: REAL });
+  assert.equal(first.schema.act, "recovered", JSON.stringify(first.schema));
+  assert.equal(first.schema.created, "_meta", "the metadata table was not created");
+  assert.ok(stored && (stored.tables || []).some((t) => t.name === "bookings"));
+
+  // THE STATEMENT IS THE ENGINE'S, not a fourth hand-written copy of two column
+  // definitions — a repair that creates a store the product cannot read is
+  // worse than one that fails.
+  assert.ok(statements.includes(META_TABLE_SQL), "the created table is not the engine's own: " + JSON.stringify(statements.filter((s2) => /_meta/i.test(s2))));
+
+  // NOTHING APPLICATION-SHAPED WAS TOUCHED. `_meta` is the platform's own
+  // store; a repair that altered a customer's table would be a different and
+  // much larger thing.
+  for (const st of statements) {
+    assert.ok(!/\b(DROP|ALTER|TRUNCATE)\b/i.test(st), "the repair issued " + st);
+    assert.ok(!/CREATE TABLE(?! IF NOT EXISTS _meta)/i.test(st), "the repair created an application table: " + st);
+    assert.ok(!/INSERT INTO (?!_meta)/i.test(st), "the repair wrote an application row: " + st);
+  }
+
+  // AND A SECOND RUN FINDS NOTHING TO DO — `_meta` now holds the declaration,
+  // so the reconcile answers `nothing-missing` and no statement is issued for
+  // it. That is the whole of "running it twice is running it once".
+  statements.length = 0;
+  const meta = stored;
+  const again = await repairSite({
+    site: { ...site, state: "ready", act: "skip" }, write: async () => ({ wrote: true }), mode: "apply", emit: REAL,
+    sql: async (q, p) => {
+      statements.push(q.replace(/\s+/g, " ").trim());
+      if (/_meta/.test(q) && !/INSERT/.test(q)) return [{ v: JSON.stringify(meta) }];
+      return sql(q, p);
+    },
+  });
+  assert.equal(again.schema.act, "nothing-missing", JSON.stringify(again.schema));
+  assert.ok(!statements.some((st) => /INSERT INTO _meta/i.test(st)), "the repeat wrote the declaration again");
+  assert.ok(!statements.some((st) => /CREATE TABLE/i.test(st)), "the repeat issued DDL");
+});
+
+test("a `_meta` the database will not let us create is a NAMED failure, not a crash", async () => {
+  const bookings = { name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] };
+  const live = liveOf([bookings]);
+  const sql = async (q) => {
+    if (/current_database/.test(q)) return [{ db: "site_s1" }];
+    if (/information_schema\.columns/.test(q)) return live.columns;
+    if (/role_table_grants/.test(q)) return live.grants;
+    if (/pg_policies/.test(q)) return live.policies;
+    if (/pg_trigger/.test(q)) return [];
+    if (/CREATE TABLE IF NOT EXISTS _meta/i.test(q)) throw new Error("permission denied for schema public");
+    if (/_meta/.test(q)) throw new Error('relation "_meta" does not exist');
+    return [];
+  };
+  const r = await repairSite({
+    site: { slug: "s1", state: "incomplete", act: "backfill", db: "site_s1", uid: "u1", conn: "postgres://u:p@h/site_s1", projectSlug: "s1" },
+    sql, write: async () => ({ wrote: true }), mode: "apply", emit: REAL,
+  });
+  assert.equal(r.schema.act, "failed");
+  assert.equal(r.schema.why, "write-failed");
+  assert.match(r.schema.detail, /permission denied/);
+});
+
+test("the `_meta` statement has ONE copy across the engine and the repair", () => {
+  // A REPAIR THAT CREATES A STORE THE PRODUCT CANNOT READ is worse than one
+  // that fails, and two hand-written copies of two column definitions is how
+  // that happens. The sweep could not see this on its own: reverting the
+  // repair's reference to the literal it equals is inert by construction, so
+  // the property has to be asserted about the REPOSITORY rather than driven.
+  const engine = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
+  const script = fs.readFileSync(new URL("../scripts/backend-repair.mjs", import.meta.url), "utf8");
+  assert.match(engine, /^export const META_TABLE_SQL = /m, "the engine stopped exporting the statement");
+  assert.match(engine, /await sqlQuery\(uuid, META_TABLE_SQL\);/, "the engine no longer uses its own constant");
+  assert.match(script, /import \{ META_TABLE_SQL \} from "\.\.\/site-schema\.mjs";/, "the repair no longer reads the engine's constant");
+  // NEITHER FILE MAY CARRY THE DDL AS TEXT.
+  const literal = /CREATE TABLE IF NOT EXISTS _meta/;
+  const decl = 'export const META_TABLE_SQL = "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)";';
+  assert.ok(!literal.test(engine.replace(decl, "")), "the engine writes the statement out as well as exporting it");
+  assert.ok(!literal.test(script), "the repair writes its own copy of the statement");
+  // `worker.js` KEEPS TWO COPIES ON THE PROVISION PATH. Named rather than
+  // silently excluded: they are not this change's, and folding them in would be
+  // capability work on the money path.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.equal((w.match(new RegExp(literal.source, "g")) || []).length, 2,
+    "worker.js's `_meta` copies moved — this census names two on the provision path");
 });

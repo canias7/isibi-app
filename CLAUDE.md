@@ -3350,6 +3350,164 @@ are the owner's: `node scripts/backend-repair.mjs --preview` (writes nothing),
 then `--apply`, then `--verify`; and `node scripts/repairbench-count-fix.mjs`
 preview → `--apply` → `--verify`.
 
+### …AND FOUR FAILURES IN THAT REPAIR, FIXED THROUGH THE COMMANDS (2026-09-15)
+
+Owner, on `3711218c`: *"Identity checks the wrong connection… The policy
+comparison erases meaning… Both verification commands can exit successfully on
+failure… Recovery cannot persist when `_meta` itself is missing."* And the
+instruction that shaped the round: ***"Fix these through the actual command
+paths."*** Every one was reproduced before it was fixed, and every fix is driven
+through `survey → main` or through the script as a PROCESS.
+
+**1. IDENTITY WAS ASKED ABOUT A CONNECTION THE QUERIES DO NOT USE.**
+`site_project.neon_conn` is the PROJECT's connection and its path is the
+project's default database — `/neondb` on every real row. `main` built its SQL
+client with `connForDatabase(site.conn, site.db)` and handed the RAW `site.conn`
+to `repairSite` and `verifySite`, so identity was asked about `/neondb` while
+every query went to `/site_<slug>`. **Reproduced through `survey → main`:**
+`{"ok":false,"proven":false,"why":"connection-does-not-name-the-intended-database","named":"neondb","expectDb":"site_repairbench_1"}`
+— **refused at link 2, before the database was asked anything**, on all five
+sites. The resolution moved INTO `survey`, which is the one place holding the
+project row and the intended name at once: `conn` is built there and is what both
+the identity check and the SQL client are given, so *the thing proved and the
+thing queried cannot come apart again*. After: `proven: true`, `why:
+"project-row-for-this-slug-names-a-database-the-server-confirms"` — **and the
+mismatched control still refuses**, now at link 3 with
+`server-answers-a-different-database`, which is the link that only exists because
+the connection reached a server at all.
+
+**2. THE POLICY FINGERPRINT ERASED THE THING A POLICY MEANS.** `predicateShape`
+answered the SET OF FACTS a predicate mentioned. Driven:
+
+    predicateShape("(deleted_at IS NULL)")     === "deleted_at"
+    predicateShape("(deleted_at IS NOT NULL)") === "deleted_at"   // equal
+    predicateShape("(a AND b)") === predicateShape("(a OR b)")    // equal
+
+— **the same fingerprint for opposite rules**, so a `trash` table whose live
+SELECT policy showed only the soft-DELETED rows recovered CLEAN and the next
+apply emitted `IS NULL`: every visible row hidden and every hidden row visible.
+The comparison is a CANONICAL BOOLEAN TREE now. `AND`/`OR`/`NOT` are structure
+and are kept; each operand keeps its own text, so `IS NULL` and `IS NOT NULL`,
+`=` and `<>`, `>` and `<` are different strings. **What is normalised away is
+only what POSTGRES ITSELF rewrites** — quoting, table qualifiers, casts,
+whitespace, case, the redundant parens it adds around a function argument, and
+`true` under an AND — and `AND`/`OR` operands are SORTED, because both are
+commutative and Postgres is free to reorder. After: `"deleted_at is null"` vs
+`"deleted_at is not null"`, `and(…)` vs `or(…)`, and the reconcile answers
+`uncertain: ["notes:policy-would-change"]` instead of recovering the reversal.
+
+- **A PREDICATE THIS CANNOT PARSE IS REFUSED, NEVER COMPARED.** `canonPredicate`
+  answers `{ok:false, why}` and `verifyDeclaration` turns that into
+  `policy-not-comparable` — the table is left alone, which is the fail-closed
+  direction. **A refusal must never fold into the `""` an ABSENT clause answers**
+  (an INSERT policy has no USING and a SELECT policy has no WITH CHECK, and
+  "absent" is a real answer both sides agree on), so `pairShape` carries the
+  refusal out rather than rendering it into a string that could equal another.
+- **THE ONE LIMIT, STATED IN THE CODE**: grouping parens inside an operand are
+  dropped only where BOTH neighbours are edges (`undefined`, `(`, `)`, `,`) —
+  the shape Postgres creates around a function argument. A pair adjacent to an
+  operator is KEPT, so `(a + b) * c` cannot collapse into `a + (b * c)`.
+- **`IS NOT NULL` IS NOT A `NOT`.** The parser reads `not` as the operator only
+  when it STARTS an operand; inside `x IS NOT NULL` it belongs to the atom.
+- **THE REAL-POSTGRES PROBE GAINED THE COUNTEREXAMPLE.** A `notices` table
+  (`display` + `trash`) makes Postgres store `(true AND (deleted_at IS NULL))`,
+  which is the `true`-fold and the redundant-paren rule in one live artifact.
+  `test/integration/local-pg-recover.mjs` now reads **5 tables recovered and
+  re-applied with NO change to any policy, grant or column; the pre-fix control
+  changed 3** (`notes`, `posts`, `notices`).
+
+**3. BOTH VERIFICATIONS COULD EXIT 0 ON FAILURE.** `backend-repair --verify`
+printed *"0 verified, 1 not verified"* and exited **0**; `repairbench-count-fix
+--verify` observed `bookings=3, direct=0, route=0`, fell through to the preview
+branch and exited **0**. **Anything reading either as a command — a shell, a
+runbook, a workflow step — read that as a pass.** Both now have an EXPLICIT
+verify mode that always checks its postconditions and exits nonzero when they
+fail. Two shapes worth keeping:
+
+- **IN VERIFY MODE "NOTHING TO DO" IS NOT A PASS.** A named slug matching no
+  reachable site is a postcondition that FAILED — the site was supposed to have a
+  database by now. It falls THROUGH to the tally rather than returning with its
+  own copy of the exit rule, so **one place decides** and `!verified` there is
+  load-bearing instead of a second belt. (A sweep survivor found that: as an early
+  return, `!verified` was unreachable.)
+- **THE COUNT-FIX'S VERIFY SITS ABOVE THE REWRITE.** Its three postconditions are
+  the three numbers agreeing, the route answering 200, and `rewriteDefinition`
+  finding nothing left to do; a verification placed after the rewrite logic would
+  be reporting on a decision rather than on the database.
+
+**AND AN EXIT CODE IS NOT OBSERVABLE FROM INSIDE THE MODULE** — `main()` is not
+exported and `process.exitCode` is set on the way out, which is exactly how a
+verification that PRINTED its own failure came to exit 0 with every unit guard
+green. `test/repair-commands.test.mjs` (**10**) spawns both scripts:
+`node --import test/fixtures/repair-process.mjs scripts/<x>.mjs --verify`.
+**ONE `globalThis.fetch` installed before the script's module graph loads covers
+BOTH halves** — Supabase is plain `fetch` and Neon is `@neondatabase/serverless`,
+which is `fetch` over HTTP — so nothing is stubbed, re-implemented or replaced:
+the real `main()` runs, the real argument parsing runs, and the process exits
+however it really exits. **The scenario is a JSON file the preload writes back on
+exit**, because `apply → verify → repeat` is three PROCESSES and a fixture that
+reset between them would have the verify checking the state the apply started
+from, and the repeat would be a first run wearing a second run's name.
+
+**4. RECOVERY COULD NOT PERSIST WHEN `_meta` ITSELF WAS MISSING.** The write was
+one `INSERT … ON CONFLICT`, so the `tables-without-metadata` state — the one the
+whole recovery exists for — reproduced as
+`{"act":"failed","why":"write-failed","detail":"relation \"_meta\" does not
+exist"}`, with the recovery correct and unwritable. **Absent TABLE and absent ROW
+are separate cases now**: `readSchemaState` already told them apart
+(`why: "no-meta-table"` versus a read that succeeded and found no row), so
+`recoverSchema` carries `metaTable` out and the write creates the table first
+**using the engine's own statement**. `META_TABLE_SQL` is exported from
+`site-schema.mjs` and `applySiteSchema` uses it too — one copy, so a repair
+cannot create a `_meta` the platform would not have created.
+**Proven apply → verify → repeat as three processes**: the apply issues
+`CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)` and then the
+INSERT and answers `act: "recovered", created: "_meta"`; the verify reads
+`1 verified, 0 not verified` and exits 0; the repeat reads `schema: nothing
+missing`. **And the guard asserts the negative**: across all three processes no
+statement issued a `DROP`, an `ALTER`, a `TRUNCATE`, a `CREATE TABLE` for
+anything but `_meta`, or an `INSERT` into anything but `_meta` — *no application
+table was altered*, which is the half an "it worked" reading cannot establish.
+
+**Guards**: `test/repair-commands.test.mjs` (**10**, new) — verify exits 1 on a
+failed postcondition; verify reaches the SITE's database and not the project's
+(asserted from the database each statement really went to, recorded per
+statement); verify fails when the named slug has no reachable database; apply →
+verify → repeat over a `_meta`-less database with the application-table negative;
+preview writes nothing and exits 0; apply exits 1 when identity refuses; the
+count-fix's verify exits 1 while the function counts the wrong table; its apply →
+verify passes and a second apply refuses `already-names-bookings`; its verify
+fails when the route disagrees with the direct call; and the correction never
+leaves `repairbench-1`. `test/backend-repair.test.mjs` **44 → 50**.
+
+**Four older guards were re-anchored, not appeased**, each naming the property
+that moved: the predicate guard went from a feature-vocabulary expectation to
+`differ`/`same` over the canonical form (with the owner's own counterexample end
+to end, and `policy-not-comparable` separated from an absent clause); the survey
+guard reads `conn` rather than `projectConn`; the recovery guard asserts the
+`_meta` creation by the engine's own statement rather than by its text; and the
+`_meta` write anchor moved off `INSERT INTO _meta` alone. **One census guard was
+ADDED rather than a mutant written**: `META_TABLE_SQL`'s revert is inert by
+construction (the literal and the constant are the same bytes), so the guard
+counts the copies of that DDL in the tree instead — `worker.js` keeps exactly two
+pre-existing literal copies and the count is pinned, so a third cannot appear
+unnoticed.
+
+**Sweep: 111 mutants, 111 killed, 0 survived, 0 never applied, 3 comment-only
+controls survived.** Pass 1 killed 108 and three survived — **none of them the
+product's**. Two were measured INERT and are declared in the code rather than
+deleted: the call-paren `continue` in `dropRedundantParens` (redundant with the
+`edge(before)` test, measured identical over five real shapes, so the PAIR is
+mutated together), and `!verified` (which the early return made unreachable — the
+code was restructured so the line matters, rather than the guard being widened
+around it). The third was `META_TABLE_SQL`'s inert revert, closed with the census
+above. All three were replaced with observable mutants and pass 2 is the tally.
+**Suite 6,464 green.**
+
+**STILL NOT RUN LIVE, and still for a credential rather than a judgement.** The
+five sites are `incomplete`, `repairbench-1`'s `bookings` declaration is missing,
+and `count_booked_repairs` counts `repairs` and answers `0`.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -3752,7 +3910,20 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   harness timings, 17m46s against 11m33s on trees that differ by four files,
   are the same lesson the image-step band records: **the runner decides, and no
   inference from the diff to the duration is available.**
-  The unit suite is **6,448** (2026-09-15, local — the five gaps in the
+  The unit suite is **6,464** (2026-09-15, local — the four failures in that
+  repair fixed through the commands, whose new cases are
+  `test/repair-commands.test.mjs`'s **10** (new — both scripts spawned as real
+  PROCESSES through the `--import` preload, exit codes read off the process:
+  verify failing, verify reaching the site's database and not the project's,
+  verify with no reachable database, apply → verify → repeat over a `_meta`-less
+  database with the application-table negative, preview writing nothing, apply
+  refused on identity, and the count-fix's four) and `backend-repair`'s **six**
+  (44 → 50: the resolved connection through `survey`, the canonical predicate's
+  counterexample, `policy-not-comparable` beside an absent clause, the `_meta`
+  creation by the engine's own statement, a named failure when it cannot be
+  created, and the one-copy census); 6,448 + 10 + 6 closes exactly. **Four
+  re-anchors added no case.** CI has NOT read this number yet.
+  **6,448** before it (2026-09-15, local — the five gaps in the
   database-discovery repair, whose new cases are `backend-repair`'s **22**
   (22 → 44: the identity chain link by link, the writer's wall with its control,
   the three separated tasks and the driven rerun, `--verify` connecting, the

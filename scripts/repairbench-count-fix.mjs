@@ -102,7 +102,11 @@ async function connect(key) {
   const site = rows[0];
   if (!site) throw new Error(`no site_backends row for ${ONLY_SLUG}`);
   const db = site.db || dbNameForSite(ONLY_SLUG);
-  const conn = connForDatabase(site.conn, db);
+  // THE CONNECTION `survey` ALREADY RESOLVED. Re-resolving here was harmless
+  // only because `connForDatabase` is idempotent; taking the row's own is what
+  // keeps identity and the queries on one connection, which is the defect this
+  // round fixed one file over.
+  const conn = site.conn || connForDatabase(site.projectConn, db);
   const sql = (q, p) => sqlQuery(conn, q, p || []);
   const id = await proveIdentity({ slug: ONLY_SLUG, expectDb: db, conn, projectSlug: site.projectSlug, sql });
   if (!id.proven) throw new Error(`identity not proven for ${ONLY_SLUG}: ${id.why}`);
@@ -161,13 +165,27 @@ async function main() {
   if (!def) { console.error(`${FN} does not exist in this database — nothing to correct.`); process.exit(1); }
   console.log(`current definition (${def.length} chars):\n${def}`);
 
+  // ── VERIFY IS ITS OWN MODE, AND IT ALWAYS DECIDES (2026-09-15) ──────────
+  //
+  // It used to be a branch INSIDE the "the function does not need rewriting"
+  // arm, so a `--verify` run on a function that still counted the wrong table
+  // read the three numbers, saw 3 / 0 / 0, fell through to the preview and
+  // exited 0. Driven and measured. A verification has exactly one job: check
+  // the postconditions and fail the process when they do not hold — whatever
+  // state the function is in, and never writing anything.
+  if (args.mode === "verify") {
+    const agree = before.rows === before.direct && before.direct === before.route;
+    const pending = rewriteDefinition(def);
+    const lines = [];
+    if (!agree) lines.push(`the three counts disagree: ${RIGHT_TABLE}=${before.rows}, ${FN}()=${JSON.stringify(before.direct)}, route=${JSON.stringify(before.route)}`);
+    if (before.routeStatus !== 200) lines.push(`the site's own route answered HTTP ${before.routeStatus}`);
+    if (pending.ok) lines.push(`the function still counts "${WRONG_TABLE}" — the correction has not been applied`);
+    console.log(lines.length ? "\nVERIFY FAILED:\n  " + lines.join("\n  ") : "\nVERIFY PASSED — all three counts agree and the function reads " + RIGHT_TABLE + ".");
+    process.exit(lines.length ? 1 : 0);
+  }
+
   const rw = rewriteDefinition(def);
   if (!rw.ok) {
-    if (args.mode === "verify") {
-      const ok = before.rows === before.direct && before.direct === before.route;
-      console.log(`\nverify: ${ok ? "PASS" : "FAIL"} — ${rw.why}; counts ${before.rows}/${before.direct}/${JSON.stringify(before.route)}`);
-      process.exit(ok ? 0 : 1);
-    }
     console.error(`\nREFUSED: ${rw.why}. Nothing written.`);
     process.exit(1);
   }

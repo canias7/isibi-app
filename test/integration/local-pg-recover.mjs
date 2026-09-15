@@ -167,6 +167,13 @@ const SPEC = {
     { name: "posts", access: "feed", columns: [
       { name: "body", type: "text" },
     ], scheduled: true, expires: true },
+    // `display` + `trash` is the one shape that makes Postgres CONSTANT-FOLD:
+    // `read: "public"` emits `USING (true AND "t"."deleted_at" IS NULL)` and
+    // Postgres stores whatever it makes of that. The canonical form has to
+    // agree with it, which is why this table is here rather than reasoned about.
+    { name: "notices", access: "display", columns: [
+      { name: "headline", type: "text" },
+    ], trash: true },
     // `payment` IS AN OBJECT, NOT A BOOLEAN — `normalizePayment` wants the
     // catalogue table a basket is priced from and its two columns, and answers
     // `null` for anything else. The first draft of this probe wrote
