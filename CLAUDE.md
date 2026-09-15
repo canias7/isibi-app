@@ -3885,11 +3885,66 @@ integration`**, the MCP tool answers the same 403 on the same endpoint, and a
 **read control on the same token answers 200** — so it is the `actions: write`
 permission and not the credential. The press is the owner's, as recorded.
 
-**STILL NOT REPAIRED.** The five sites are `incomplete` (only `repairbench-1`
-has been previewed), the reference is unwritten, and `count_booked_repairs`
-still counts `repairs` and answers `0` — which the backend repair does not fix
-and never claimed to: that is `scripts/repairbench-count-fix.mjs`, a separate
-object.
+### AND IT RAN — `repairbench-1`'s REFERENCE IS WRITTEN AND VERIFIED (2026-09-15)
+
+The owner's two presses, both green, the code under them proved unchanged first.
+
+**`backend repair` run 2, 17:10:10→17:10:27Z, `--apply-reference --slug
+repairbench-1`, green in 17 s:**
+
+```
+mode: apply-reference  slug: repairbench-1
+scope: ashgrove-1, fretwork-1, northgroup-5, repairbench-1, washhouse-1
+1 site(s): 1 with a database (incomplete 1)
+repairbench-1 [incomplete]: identity PROVEN (project-row-for-this-slug-names-a-database-the-server-confirms)
+    reference: written site_repairbench_1
+    schema: nothing missing (2 declared)
+
+1 reference(s) written, 0 schema(s) recovered, 0 refused on identity, 0 failed.
+```
+
+**`backend repair` run 3, 17:16:24→17:16:39Z, `--verify --slug repairbench-1`,
+green in 15 s, exit 0:**
+
+```
+1 site(s): 1 with a database (ready 1)
+repairbench-1: VERIFIED
+    ok   reference recorded — site_repairbench_1
+    ok   reference is the derived name — site_repairbench_1 vs site_repairbench_1
+    ok   database answers and is this site's — project-row-for-this-slug-names-a-database-the-server-confirms
+    ok   stored schema readable — stored (stored)
+    ok   every live table declared — 2 table(s), all declared
+
+1 verified, 0 not verified.
+```
+
+- **THE STATE LINE IS THE INDEPENDENT READ-BACK.** Every earlier run said
+  `incomplete 1`; run 3 says **`ready 1`** — a fresh process re-reading Supabase
+  through `siteBackendDetail` and classifying the site, which only answers
+  `ready` when `neon_db` names a database. The verdict is not the writer saying
+  it succeeded.
+- **NOTHING WAS WITHHELD BECAUSE NOTHING WAS OUTSTANDING.** `schema: nothing
+  missing` matches the preview, so the `NOT APPLIED` sentence and the
+  `REPORTED AND NOT APPLIED` tally are correctly absent rather than skipped —
+  the reference-only bound was never tested against real schema work here, and
+  that is what the driven demonstration in the section above is for.
+- **`shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}`** is in both
+  run headers, so the verify's nonzero exit could reach the step.
+- **THE CODE THAT RAN WAS THE CODE REVIEWED, CHECKED RATHER THAN ASSUMED.**
+  `main` moved under the presses — `76ef26c8` → `ef55f4de`, another session's
+  `agent-builder` tree, 52 files and 17,746 insertions, **all additions**. A
+  diff over `scripts/backend-repair.mjs`, `scripts/repairbench-count-fix.mjs`,
+  both workflows, `site-backend-state.mjs`, `site-schema-recover.mjs` and
+  `site-schema.mjs` across those two commits is EMPTY. *A `checkout` pinned to
+  `ref: main` means the tool's code is whatever main holds at press time, so
+  "the reviewed tip" and "the tip that ran" are two different questions.*
+
+**`repairbench-1` IS OUT OF THE FIVE.** Four remain `incomplete` and untouched:
+`ashgrove-1`, `fretwork-1`, `northgroup-5`, `washhouse-1`.
+
+**STILL NOT REPAIRED.** Those four, and `count_booked_repairs` still counts
+`repairs` and answers `0` — which the backend repair does not fix and never
+claimed to: that is `scripts/repairbench-count-fix.mjs`, a separate object.
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -5025,13 +5080,17 @@ rule and the measurement.
   it in full. `ensureSiteBackend` records the name on every provision, so no new
   site can enter this state; `siteBackendDetail` resolves the five that already
   have, and stops rather than calling them empty when it cannot.
-  `scripts/backend-repair.mjs --apply` closes the rows for good. **The five are
-  `ashgrove-1`, `fretwork-1`, `northgroup-5`, `repairbench-1`, `washhouse-1`**,
-  and the derivation is proven credential-free over the whole corpus: **27 of 27
+  `scripts/backend-repair.mjs --apply-reference` closes the rows for good, and
+  the derivation is proven credential-free over the whole corpus: **27 of 27
   sites with a recorded name equal `dbNameForSite(slug)`, zero mismatches**. The
   script still verifies each one by connecting, because a name that derives is
-  not a database that answers. **The run needs the service key and is the
-  owner's press.**
+  not a database that answers.
+  **ONE OF THE FIVE IS REPAIRED — `repairbench-1`, 2026-09-15**, the owner's
+  press: `--apply-reference` wrote `site_repairbench_1` after proving identity,
+  and a separate `--verify` process re-read Supabase and classified the site
+  **`ready`** on five postconditions with exit 0. **FOUR REMAIN `incomplete`:
+  `ashgrove-1`, `fretwork-1`, `northgroup-5`, `washhouse-1`** — untouched by
+  instruction, and each is the same two presses.
 - **AN ADDON DESIGNS A TABLE THAT NOTHING CAN EVER FILL — REPORTED SINCE
   2026-09-15, and deliberately not refused.** `repairs` was declared `read: "none", write: "none"` — the `admin`
   pair — so no client grant is emitted (measured live: `42501 permission denied

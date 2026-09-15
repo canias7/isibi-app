@@ -522,12 +522,43 @@ Then Actions → **repairbench count fix** → Run workflow, branch `main`, `mod
 The other four sites stay untouched — the slug box narrows the run to one site,
 and I have left it filled in.
 
-### Nothing has been repaired
+### You pressed it, and repairbench-1 is fixed
 
-The five sites are still incomplete (only `repairbench-1` has been previewed),
-the reference is still blank, and `/status` still says `0` — which this repair
-was never going to fix, that being the separate count correction. **No database
-has been touched.**
+Both runs green, seventeen and fifteen seconds.
+
+**The repair** wrote exactly one thing — `neon_db` = `site_repairbench_1` —
+after proving the database was really this site's. It reported `schema: nothing
+missing`, the same as the preview, so there was nothing for it to withhold. No
+table, row, policy or permission was touched.
+
+**The verification is the part worth trusting**, because it is a separate run
+that re-reads the database from scratch rather than the writer telling you it
+worked:
+
+```
+1 site(s): 1 with a database (ready 1)
+repairbench-1: VERIFIED
+    ok   reference recorded
+    ok   reference is the derived name
+    ok   database answers and is this site's
+    ok   stored schema readable
+    ok   every live table declared — 2 table(s), all declared
+```
+
+**`ready`** is the word that changed. Every run before this said `incomplete`.
+That is the whole defect, closed on this site.
+
+**One thing I checked rather than assumed.** `main` moved between the merge and
+your press — another session merged an agent-builder tree, 52 new files. I
+diffed the repair script, both workflows and every module they use across those
+two commits: **no change at all**. So what ran is what you reviewed.
+
+**Four sites left**, untouched as you said: `ashgrove-1`, `fretwork-1`,
+`northgroup-5`, `washhouse-1`. Each is the same two presses whenever you want
+them.
+
+**And `/status` still says `0`** — that was never this repair's job. It is the
+count correction, the third press.
 
 ---
 
