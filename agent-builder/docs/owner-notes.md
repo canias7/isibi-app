@@ -1123,6 +1123,18 @@ journal table at all now; the three completed runs of that deployment hold 19 en
 each. Rows in a table the caller cannot write to can only have got there through the
 fenced function.
 
+**It is deployed and verified, and the fix caught the problem happening again on its own
+run.** That run produced THREE versions of the Worker in seven seconds — one from the
+deploy, one from the secret upload that no tool ever printed, and one from the new final
+deploy. The check asked `/health`, got the invisible middle one first (answering
+perfectly healthily), refused it because it was not the id this run had made, waited ten
+seconds and got the right one. The old check would have stopped at the first answer and
+reported the wrong version for the third deploy in a row.
+
+Live now: **version `47e5e88a-6f1e-4f76-ad61-615eaf2f9b91`**, from commit `3344755`,
+Actions run 34941653115 — green, **71 checks passed, 0 failed**, the throwaway customer
+deleted and no verification data left behind.
+
 **What none of this changes:** the fence itself, which was the milestone, and the
 distinction it rests on. Database fencing stops a displaced worker writing to the log; it
 cannot recall an external action already sent, and an uncertain non-repeatable action

@@ -1357,7 +1357,32 @@ followed by an answer, which demonstrates nothing about progress.
 no wrangler and no Cloudflare credential in the session that wrote this, so what
 exists is everything up to the two commands somebody has to run.
 
-### ✅ DEPLOYED AND VERIFIED LIVE (2026-09-15, Actions run 2)
+### ✅ DEPLOYED AND VERIFIED LIVE (2026-09-15, Actions run 6 — the current deployment)
+
+**`https://agent-builder-api.aniascapital.workers.dev`**, version
+**`47e5e88a-6f1e-4f76-ad61-615eaf2f9b91`** (`deployedAt 2026-09-15T07:26:19.985979Z`),
+model `stand-in`, commit `3344755`. Actions run **34941653115**, green in 6m55s;
+**71 passed, 0 failed** — 69 before, plus the version assertion and the caching check.
+
+| check | run | observed |
+|---|---|---|
+| the long task | `a833bdf5-4e14-4e52-8b5b-f1434bbfbb7e` | 202 in 1,103 ms, **74.4 s of work after it**, progress at ten points, **9 model / 8 tool, attempts 1** |
+| one execution | `8ab9e35e-c0a4-4985-ba50-ff1fcd0135b4` | two simultaneous mid-run resumes both `already-running`, the holder's lease untouched, a direct second claim `{"claimed":false}`, **9 model for 9 steps, attempts 1** |
+| the handover | `dcb63fab-55b2-4ccc-8f43-98ea49609582` | lease revoked at 2 steps, a different consumer took over **after 32 s**, steps 2→9 never backwards, **9 model for 9 steps, 8 tool, ATTEMPTS EXACTLY 2** |
+| the blocked action | `6374bbcf-3de0-4cb6-b35b-a9d2e233884f` | **1 model, 0 tool** — the in-flight `commit` never written, no stop, pending call visible, a resume changed nothing |
+| the fence | `f2b67cba-26e4-4cb0-a553-c522c7e93dd3` | direct insert **403 `42501`**; identical retry `already`; different body `conflict`; paused holder `lease-expired`; sweeper offered **0 rows** while a duplicate delivery claimed it; old consumer `not-holder`, replacement `stored`; same-name reclaim `bad-token`; finished work `finished`; probe run deleted 204 |
+
+**THE BLOCKED-ACTION ROW IS THE FENCE'S BEFORE/AFTER.** The same check on the pre-fence
+deployment (`4d3c4d0d…`, version `2dfb8be6…`) reached **4 model / 3 tool, step 4** — 32
+seconds of work after its lease was revoked. Post-fence it is **1 model / 0 tool, step
+1**, twice over (`1ec246d9…` on `64ac3bb4…`, `6374bbcf…` here). Both still end
+`status: running` with the pending call visible, which is the `cannot-resume` refusal
+working throughout — what went is the displaced consumer's extra work.
+
+The throwaway customer was deleted and the `if: always()` cleanup reported
+`13 users listed, 0 left by a verification`.
+
+### ✅ The deployment before it (2026-09-15, Actions run 2)
 
 **`https://agent-builder-api.aniascapital.workers.dev`**, version
 `2dfb8be6-3bf1-400d-91dc-ee5990081ffd`, model `stand-in`, on the hosted project.
@@ -1529,6 +1554,30 @@ honestly still running the old one. **The verification then printed that as "the
 deployed version" and passed 69 checks.** Nothing was broken; the run simply could not
 say which deployment it had verified — and *a report of the version that answered reads
 exactly like a report of the version that was deployed.*
+
+**✅ PROVEN LIVE, AND THE PROOF IS BETTER THAN THE DIAGNOSIS — Actions run 34941653115
+(2026-09-15 07:25:45→07:32:40Z, green).** That run printed **THREE version ids inside
+seven seconds**, which is the whole defect visible at once:
+
+| id | where it came from |
+|---|---|
+| `726bb8f2-4a19-48c9-a21c-bf39719260ef` | the deploy step's own `Current Version ID`, 07:26:15.869Z |
+| `472ad34c-7c21-479b-8f21-bb9716c57255` | **nowhere — the secret upload's version, which wrangler never printed.** Caught only because `/health` was asked |
+| `47e5e88a-6f1e-4f76-ad61-615eaf2f9b91` | the re-deploy's, 07:26:22.093Z — `the version that must be serving` |
+
+And the wait step's two lines are the argument for polling on the ID:
+
+```
+  attempt 1: version=472ad34c-7c21-479b-8f21-bb9716c57255 ok=1
+  attempt 2: version=47e5e88a-6f1e-4f76-ad61-615eaf2f9b91 ok=1
+```
+
+**Attempt 1 answered `ok=1` on a version this run had no id for.** The old step would
+have stopped there and the verification would have reported `472ad34c…` as the deployed
+version — wrong for the third deploy running, and green. The new step waited ten seconds
+and got the id it was holding the Worker to. `/health` has served
+`47e5e88a-6f1e-4f76-ad61-615eaf2f9b91`, stamped `2026-09-15T07:26:19.985979Z`, ever
+since, with `cache-control: no-store`.
 
 **TWO PROPERTIES, and they are different ones**, both guarded by
 `test/deploy-workflow.test.mjs` — the workflow had no guard at all until now, which is
@@ -1749,7 +1798,9 @@ answered. The only thing this section still names correctly is the model provide
   queue function bodies match this repo's migration **byte for byte**
   (`md5(pg_get_functiondef(...))` compared against a local apply, before and after a
   comment-only edit to the file).
-- **The live verification, driven end to end: 69 checks, 0 failed**
+- **The live verification against the DEPLOYMENT: 71 checks, 0 failed** (Actions run
+  34941653115, version `47e5e88a…`). Driven end to end locally too: **69 checks, 0
+  failed**
   (`npm run verify:local`) — the same `verify-live.mjs` an operator points at a
   deployment, run unmodified against a real PostgreSQL with these migrations and TWO
   separate consumer processes. 50 before the fence; **17 of the 19 since are check 5's**,

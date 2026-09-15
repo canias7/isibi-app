@@ -89,6 +89,19 @@ and an edge that had not yet picked either new version up answered honestly with
 version" and passed 69 checks. Nothing was wrong with the Worker; the run simply could
 not say which Worker it had verified.
 
+**AND IT HAPPENED AGAIN, ON THE RUN THAT FIXED IT, WHICH IS THE PROOF.** Actions run
+34941653115 printed three version ids in seven seconds: `726bb8f2…` from the deploy step,
+`47e5e88a…` from the re-deploy — and `472ad34c…`, which wrangler never printed anywhere,
+serving in between. The wait step's own log:
+
+```
+  attempt 1: version=472ad34c-7c21-479b-8f21-bb9716c57255 ok=1
+  attempt 2: version=47e5e88a-6f1e-4f76-ad61-615eaf2f9b91 ok=1
+```
+
+Attempt 1 answered `ok: true` on a version the run had no id for. **That is exactly what
+the old step accepted**, and why `ok: true` is not a substitute for the id.
+
 So the workflow now ends with a **deploy** rather than a secret upload. It re-uploads
 the same code — secrets are settings and survive a deploy — and its only purpose is
 that the run finishes holding one version id, printed by the step that created it. Two
