@@ -976,6 +976,46 @@ followed by an answer, which demonstrates nothing about progress.
 no wrangler and no Cloudflare credential in the session that wrote this, so what
 exists is everything up to the two commands somebody has to run.
 
+### ✅ DEPLOYED AND VERIFIED LIVE (2026-09-15, Actions run 2)
+
+**`https://agent-builder-api.aniascapital.workers.dev`**, version
+`2dfb8be6-3bf1-400d-91dc-ee5990081ffd`, model `stand-in`, on the hosted project.
+Actions run **34931112854**, green; **52 checks, 0 failed** — and every run below is a
+row in `agent.runs` on `ujrqdmmtcptvimazlhom`, read back afterwards rather than taken
+from the log.
+
+| run | id | observed |
+|---|---|---|
+| the long task | `8f7d4d7f-d62a-4e13-aafb-3304026bce01` | 202 in well under a second, **72.9 s of work after it**, progress readable at 10 points (`0@666ms … 9@72937ms`), answer retrievable. **9 model / 8 tool entries, attempts 1** |
+| one execution | `fca9851c-c139-4543-826c-f02e7a9872e7` | two SIMULTANEOUS resumes mid-run both answered `already-running`; the holder's lease untouched; a direct second `claim_run` answered `{"claimed":false}`. **9 model for 9 steps, attempts 1** — the two resumes cost no extra attempt at all |
+| the handover | `1946e28b-0d58-40ed-8c1b-e9b66a630863` | lease revoked at 2 steps; **a different consumer took it over after 69 s** (`w-ee9f4a87…` → `w-6072b92f…`); steps went 2 → 4 → 9, never backwards. **9 model for 9 steps, 8 tool, ATTEMPTS EXACTLY 2** — one original, one replacement |
+| the blocked action | `4d3c4d0d-e553-426f-b110-74e76b25e5a7` | **4 model, 3 tool** — one answer more than results, so the in-flight `commit` was never recorded. No stop written, status still `running`, pending `[{step:4,name:"commit"}]` visible, `problems` empty. A resume changed nothing: still 3 tool results 90 s later |
+
+**`attempts` IS THE CLEANEST EVIDENCE IN THE WHOLE RUN.** 1 where one consumer did the
+work, 1 where two people pressed resume mid-run, and exactly 2 where a consumer was
+replaced. A duplicate execution cannot hide from that column.
+
+**⚠ TWO HONEST READINGS OF THE SAME RUN, because the log says more than the checks
+asked.** The guarded run's lease was revoked with **2 entries written** and the run
+reached **4 model / 3 tool** before its consumer stopped:
+
+- **THE ONE-BEAT WINDOW IS REAL AND WAS OBSERVED.** A worker learns its lease is gone
+  at its next beat, so for up to `BEAT_EVERY_MS` it keeps working and its writes
+  succeed — the database has no idea the lease lapsed. That is exactly what the
+  runner's own note says, and this is the first time it has been seen rather than
+  reasoned about. **Nothing was lost by it**: the writes were the run's own next
+  steps, and the moment the beat caught up, the in-flight result was refused.
+- **AND THE GRACE IS WHAT KEPT IT SAFE — AT ITS TIGHTEST.** `SWEEP_GRACE_S` (30 s) is
+  `>= BEAT_EVERY_MS` (30,000 ms) **with equality**, so in the worst case the holder
+  notices at the same instant the sweeper becomes willing to hand the run on. Here the
+  cron's own minute added the real slack and there was no overlap — the original
+  stopped by ~05:07:48 and the replacement claimed at ~05:08:24. **A margin would be
+  better than equality**, and that is a change to make deliberately and re-verify,
+  not one to slip in after a green run.
+
+The throwaway customer (`0c8d3504-eb8c-447f-b734-33dd5cc071a4`) was deleted, and the
+`if: always()` cleanup then reported `13 users listed, 0 left by a verification`.
+
 ### It deploys through GitHub Actions, on a push to this branch only
 
 **`.github/workflows/agent-deploy.yml` IS THE ONE FILE THIS PRODUCT HAS OUTSIDE

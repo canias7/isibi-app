@@ -930,3 +930,46 @@ user through the admin API and deletes it afterwards — **no mail is sent**, wh
 matters because an earlier round of this work spent one of your 200 daily sends
 signing up the ordinary way. The cleanup matches on both halves of the throwaway name
 so it can never touch a real customer.
+
+### It is live
+
+**`https://agent-builder-api.aniascapital.workers.dev`** — version
+`2dfb8be6-3bf1-400d-91dc-ee5990081ffd`, running the stand-in, on your existing
+Supabase project. Actions run
+[34931112854](https://github.com/canias7/isibi-app/actions/runs/34931112854), green.
+**52 checks, 0 failed.**
+
+The four runs it made are rows in your database, and I read them back afterwards
+rather than trusting the log:
+
+| | run id | what happened |
+|---|---|---|
+| long task | `8f7d4d7f…` | 202 immediately, **72.9 s of work after it**, progress readable the whole way, answer retrievable. 9 model / 8 tool entries, 1 attempt |
+| one execution | `fca9851c…` | two resumes pressed at the same moment, both told `already-running`; a second claim got nothing. 9 answers for 9 steps, **1 attempt** |
+| handover | `1946e28b…` | I revoked its lease at 2 steps; a different consumer picked it up **69 seconds later** and finished at 9. **Exactly 2 attempts** — one original, one replacement |
+| blocked action | `4d3c4d0d…` | lease revoked mid-call on a tool marked not-repeatable: **4 answers, 3 results** — the in-flight one was never written, no ending was recorded, and asking again changed nothing |
+
+That `attempts` column is the part I'd point at. 1 where one consumer did the work, 1
+where two people pressed resume, and exactly 2 where a consumer was replaced. A run
+executed twice could not hide from it.
+
+**Two things the log showed that the checks didn't ask about**, and both are worth
+your attention:
+
+**The one-beat window is real, and I saw it.** A worker finds out its lease is gone at
+its next heartbeat — 30 seconds — and until then it keeps working and its writes land,
+because the database has no idea. On the guarded run that meant two more stages
+completed after I revoked the lease. Nothing was lost: those were the run's own next
+steps, and the moment the heartbeat caught up the in-flight result was refused, which
+is the behaviour that matters.
+
+**But the margin protecting that is exactly zero.** The sweeper waits 30 seconds
+before offering a dropped run to anyone else, and a heartbeat is 30 seconds — equal.
+In this run the cron's own minute gave real slack and there was no overlap (the
+original stopped by 05:07:48, the replacement claimed at 05:08:24). I'd rather widen
+the sweeper's wait than rely on the cron's timing, but that is a change to make on
+purpose and re-verify, not one to slip in after a green run. **Your call.**
+
+**Housekeeping**: the throwaway customer was deleted and the cleanup confirmed `13
+users listed, 0 left by a verification`. The four verification runs are still in
+`agent.runs` as the evidence above — say the word and I'll remove them.
