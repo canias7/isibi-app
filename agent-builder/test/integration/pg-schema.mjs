@@ -955,6 +955,149 @@ try {
   check("messages carry a total order the database assigns",
     jget(`select count(distinct seq) from agent.agent_messages where agent_id='${AUTH_A1}';`) === "2");
 
+  console.log("\n── the list screen's one read ──");
+  // `agent.agent_overview` is what the agents list draws a row from: the agent,
+  // plus the last thing said to it. It exists so the preview line is one plain
+  // request instead of an embedded child select whose behaviour nothing here can
+  // run. So the thing to drive is that the derived column is RIGHT, and that the
+  // view is not a hole through the row level security under it.
+  check("the view answers one row per agent, not one per message",
+    jget(`select count(*) from agent.agent_overview where tenant_id='t1';`) === "1",
+    jget(`select count(*) from agent.agent_overview where tenant_id='t1';`));
+  // THE LAST one, not the first. A1 has two messages and the older one sorts
+  // first by every ordering except the one the view asks for, so a view that
+  // ordered ascending would pass a count check and fail this.
+  check("the preview line is the LAST message",
+    jget(`select last_message from agent.agent_overview where id='${AUTH_A1}';`) === "and the 10-gauge sets?",
+    jget(`select last_message from agent.agent_overview where id='${AUTH_A1}';`));
+  // NULL, never the empty string: a body cannot be blank (the check above refuses
+  // one), so NULL can only mean "nothing said yet" and the caller never guesses.
+  check("an agent nobody has written to has a NULL preview, not an empty one",
+    jget(`select coalesce(last_message, '<null>') from agent.agent_overview where id='${AUTH_A2}';`) === "<null>");
+  check("the view carries the fields the list row draws",
+    jget(`select name || '|' || instructions || '|' || (created_at is not null)::text || '|' || (updated_at is not null)::text
+            from agent.agent_overview where id='${AUTH_A1}';`)
+      === "Booking assistant 2|Answer questions about opening hours.|true|true");
+
+  // THE SAFETY ARGUMENT, DRIVEN. Without `security_invoker` a view runs as its
+  // owner and every tenant's agents would come back to anyone who can select
+  // from it — the one way this object can be worse than no object at all.
+  check("it is declared security_invoker",
+    jget(`select (select count(*) from pg_options_to_table(c.reloptions)
+                   where option_name = 'security_invoker' and option_value = 'true')
+            from pg_class c join pg_namespace n on n.oid = c.relnamespace
+           where n.nspname = 'agent' and c.relname = 'agent_overview';`) === "1");
+  check("one tenant reading the view sees its own agent",
+    psql(`select count(*) from agent.agent_overview;`, claimT1).out === "1");
+  // THE OBSERVER IS ALIVE: the same read as the account next door answers 1 too,
+  // so "0 for the other tenant" below is isolation and not an empty view.
+  check("...and the other tenant sees its own, which is what makes the next line evidence",
+    psql(`select count(*) from agent.agent_overview;`, claimT2).out === "1");
+  check("neither tenant can see the other's row through the view",
+    psql(`select count(*) from agent.agent_overview where id='${AUTH_A2}';`, claimT1).out === "0" &&
+    psql(`select count(*) from agent.agent_overview where id='${AUTH_A1}';`, claimT2).out === "0");
+  // A MESSAGE IS A SECOND RELATION UNDER THE VIEW and has its own policy, so the
+  // preview line is a separate reach that has to be refused separately: t2 can
+  // see its own row and must not see t1's WORDS through it.
+  check("a tenant with no messages of its own still gets a NULL preview rather than somebody else's",
+    psql(`select coalesce(last_message, '<null>') from agent.agent_overview where tenant_id='t2';`, claimT2).out === "<null>");
+  check("no claims at all reads nothing through the view",
+    psql(`select count(*) from agent.agent_overview;`, { role: "authenticated", claims: "" }).out === "0");
+  refused("anon cannot reach the view at all",
+    `select count(*) from agent.agent_overview;`, "permission denied", { role: "anon" });
+
+  console.log("\n── bringing one agent over from a browser ──");
+  // `agent.import_agent` is the only write on this side that is more than one
+  // statement, and the only reason it exists is that the import can be pressed
+  // twice: the local copy is never deleted, so a failure must leave NOTHING
+  // behind rather than half an agent for somebody to find and tidy up.
+  const IMP = jget(`select agent.import_agent('t1', 'Imported assistant', 'Brought over from a browser.',
+    '[{"body":"first thing I asked","at":"2026-09-01T10:00:00Z"},
+      {"body":"second thing","at":"2026-09-01T10:05:00Z"},
+      {"body":"third, with no time at all"}]'::jsonb);`);
+  check("it answers the new agent's id", /^[0-9a-f-]{36}$/.test(IMP), IMP);
+  check("the agent landed under the tenant the CALLER named",
+    jget(`select tenant_id || '|' || name from agent.agents where id='${IMP}';`)
+      === "t1|Imported assistant");
+  check("all three messages landed",
+    jget(`select count(*) from agent.agent_messages where agent_id='${IMP}';`) === "3");
+  // ARRAY ORDER IS THE CONVERSATION'S ORDER. The third message has no time at
+  // all, so an implementation that ordered on `created_at` would put it first
+  // or last by accident; `seq` is assigned as each row goes in.
+  check("the thread reads back in the order it was typed",
+    jget(`select string_agg(body, ' / ' order by seq) from agent.agent_messages where agent_id='${IMP}';`)
+      === "first thing I asked / second thing / third, with no time at all");
+  check("a message's own time is kept when the browser knew it",
+    jget(`select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI')
+            from agent.agent_messages where agent_id='${IMP}' and seq = (
+              select min(seq) from agent.agent_messages where agent_id='${IMP}');`)
+      === "2026-09-01 10:00");
+  // Losing a message's time is worth far less than losing the message, so an
+  // absent or unparseable one becomes now() instead of failing the import.
+  check("...and a message with no time still arrives, dated now",
+    jget(`select (created_at > now() - interval '1 minute')::text
+            from agent.agent_messages where agent_id='${IMP}'
+           order by seq desc limit 1;`) === "true");
+  check("the imported agent shows its last message on the list screen",
+    jget(`select last_message from agent.agent_overview where id='${IMP}';`)
+      === "third, with no time at all");
+  check("an import with no messages is an agent with an empty thread, not a refusal",
+    /^[0-9a-f-]{36}$/.test(jget(`select agent.import_agent('t1', 'Empty one', 'Nothing said yet.', '[]'::jsonb);`)));
+
+  // ── ALL OF IT OR NONE OF IT ────────────────────────────────────────────────
+  const beforeRollback = jget(`select count(*) from agent.agents where tenant_id='t1';`);
+  refused("an import carrying a blank message is refused whole",
+    `select agent.import_agent('t1', 'Half an agent', 'Should not survive.',
+      '[{"body":"this one is fine"},{"body":"   "}]'::jsonb);`,
+    "agent_messages_body_check", asWriter);
+  // THE POINT OF THE WHOLE FUNCTION, and the one thing a loop of inserts could
+  // not give: the agent from the refused import is not there either.
+  check("...and it left NO agent behind",
+    jget(`select count(*) from agent.agents where tenant_id='t1';`) === beforeRollback,
+    `was ${beforeRollback}, now ${jget(`select count(*) from agent.agents where tenant_id='t1';`)}`);
+  check("...and no message either",
+    jget(`select count(*) from agent.agent_messages m
+           where m.body = 'this one is fine';`) === "0");
+  // A FORGED SPEAKER IS DROPPED, NOT REFUSED, and that is the right shape here:
+  // `role` is not part of the payload the function reads, so a caller who sends
+  // one is not making a request the function can honour or decline — the column
+  // default and its `check (role = 'user')` decide, and they cannot be reached.
+  // The assertion is therefore about the ROW, not about an error.
+  const FAKE = jget(`select agent.import_agent('t1', 'Fake reply', 'x',
+    '[{"body":"hi","role":"agent"},{"body":"there","role":"assistant"}]'::jsonb);`);
+  check("a payload naming the agent as the speaker stores the person as the speaker anyway",
+    jget(`select string_agg(distinct role, ',') from agent.agent_messages where agent_id='${FAKE}';`)
+      === "user");
+  check("...and both messages are still there, so nothing was quietly dropped with it",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FAKE}';`) === "2");
+  refused("a mangled payload is refused rather than read as an empty conversation",
+    `select agent.import_agent('t1', 'Mangled', 'x', '"not an array"'::jsonb);`,
+    "messages must be a JSON array", asWriter);
+  refused("...including a null one",
+    `select agent.import_agent('t1', 'Mangled', 'x', null);`,
+    "messages must be a JSON array", asWriter);
+  refused("a nameless import is refused by the table's own gate",
+    `select agent.import_agent('t1', '  ', 'x', '[]'::jsonb);`,
+    "agents_name_check", asWriter);
+
+  // ── AND A CUSTOMER CANNOT CALL IT AT ALL ───────────────────────────────────
+  // It takes the tenant as an ARGUMENT, so this grant is the only thing between
+  // one account and another's rows. `execute` defaults to PUBLIC on a new
+  // function, which is exactly why the migration revokes it by name.
+  check("only service_role may execute it",
+    jget(`select has_function_privilege('service_role',
+            'agent.import_agent(text,text,text,jsonb)', 'execute')::text || '|' ||
+          has_function_privilege('authenticated',
+            'agent.import_agent(text,text,text,jsonb)', 'execute')::text || '|' ||
+          has_function_privilege('anon',
+            'agent.import_agent(text,text,text,jsonb)', 'execute')::text;`)
+      === "true|false|false");
+  refused("a signed-in customer calling it for their OWN tenant is still refused",
+    `select agent.import_agent('t1', 'Mine surely', 'x', '[]'::jsonb);`,
+    "permission denied", claimT1);
+
+  psql(`delete from agent.agents where tenant_id='t1' and id <> '${AUTH_A1}';`, asWriter);
+
   console.log("\n── deleting an agent takes its conversation ──");
   allowed("the writer deletes the agent", `delete from agent.agents where id='${AUTH_A1}';`, asWriter);
   check("...and its messages went with it",
