@@ -193,3 +193,21 @@ test("wireTools is the ONE place that knows the provider's shape", () => {
   for (const w of wire) assert.equal(w.run, undefined, "a tool's run function was put on the wire");
   for (const w of wire) assert.equal(w.scope, undefined, "a tenant's scope names were put on the wire");
 });
+
+test("`repeatable` DEFAULTS TO PROTECT, and is refused rather than coerced", () => {
+  // It answers one question, and only a resume asks it: if we cannot tell whether
+  // this tool already ran, is running it again safe? A read is; taking a payment
+  // is not. Unlike `scope` it is not compelled, because here one default is simply
+  // safe — a wrong `false` is an inconvenience, a wrong `true` is somebody billed
+  // twice.
+  assert.equal(defineTool(goodTool()).repeatable, false, "a tool is repeatable unless it says otherwise");
+  assert.equal(defineTool({ ...goodTool(), repeatable: true }).repeatable, true);
+  assert.equal(defineTool({ ...goodTool(), repeatable: false }).repeatable, false);
+  // `Boolean("false")` is TRUE, so a string out of a config file must not be the
+  // thing that makes a payment tool repeatable.
+  for (const bad of ["false", "true", 1, 0, null, [], {}, "yes"]) {
+    assert.throws(() => defineTool({ ...goodTool(), repeatable: bad }), { name: "TypeError" },
+      `repeatable accepted ${JSON.stringify(bad) ?? String(bad)}`);
+  }
+  assert.equal(Boolean("false"), true, "the fact the refusal rests on");
+});

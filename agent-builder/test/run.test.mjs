@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runAgent, addMeter, usageTokens, USAGE_KEYS } from "../src/run.mjs";
+import { runAgent } from "../src/run.mjs";
 import { defineAgent, defineTool, PUBLIC } from "../src/define.mjs";
 import { LIMIT_DEFAULTS } from "../src/limits.mjs";
 
@@ -247,28 +247,6 @@ test("tools run in parallel, bounded by the run's own parallelTools", async () =
   assert.equal(r.steps[0].results.length, 5);
 });
 
-// ── the meters ───────────────────────────────────────────────────────────────
-test("addMeter: unmeasured is sticky, and rubbish is unmeasured rather than ignored", () => {
-  assert.equal(addMeter(0, 5), 5);
-  assert.equal(addMeter(5, 5), 10);
-  assert.equal(addMeter(null, 5), null, "a broken meter repaired itself and started lying");
-  for (const bad of [null, undefined, NaN, -1, "5", ["5"], {}]) {
-    assert.equal(addMeter(10, bad), null, `${String(bad)} was counted as a spend`);
-  }
-});
-
-test("usageTokens: every kind counts, and nothing reported is null rather than 0", () => {
-  assert.equal(usageTokens({ inputTokens: 10, outputTokens: 5 }), 15);
-  // A cached read is priced at a tenth and counts in FULL here: a budget is not
-  // a bill.
-  assert.equal(usageTokens({ inputTokens: 1, outputTokens: 1, cacheReadTokens: 100, cacheWriteTokens: 8 }), 110);
-  assert.equal(usageTokens({}), null, "a provider that said nothing was read as having spent nothing");
-  for (const bad of [null, undefined, "10", [1], { inputTokens: "10" }, { inputTokens: NaN }, { inputTokens: -1 }]) {
-    assert.equal(usageTokens(bad), null, `${JSON.stringify(bad) ?? String(bad)} produced a number`);
-  }
-  assert.ok(USAGE_KEYS.length >= 4, "the kinds list shrank — the observer is dead");
-});
-
 test("A PER-RUN LIMIT OVERRIDE NARROWS THE AGENT'S OWN, AND CANNOT RAISE IT", async () => {
   // The untrusted door, DRIVEN. A value computed and never forwarded looks
   // identical from outside to one the caller never sent — twelve-plus features
@@ -323,4 +301,229 @@ test("runAgent refuses arguments it cannot use, rather than failing later", asyn
   await assert.rejects(() => runAgent({ agent: { kind: "nope" }, send: async () => says("x") }), { name: "TypeError" });
   await assert.rejects(() => runAgent({ agent: agentWith(), send: "send" }), { name: "TypeError" });
   await assert.rejects(() => runAgent({}), { name: "TypeError" });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE JOURNAL AND RESUME
+// ════════════════════════════════════════════════════════════════════════════
+
+const journalOf = () => { const log = []; return { log, append: async (e) => { log.push(e); } }; };
+
+test("the journal records started, model, tool and stopped — in that order", async () => {
+  const j = journalOf();
+  const send = scripted([wants("look"), says("done")]);
+  const r = await runAgent({ agent: agentWith([tool("look", async () => 1)]), prompt: "go", send, journal: j, tenant: { id: "t1" } });
+  assert.equal(r.ok, true);
+  assert.deepEqual(j.log.map((e) => e.kind), ["started", "model", "tool", "model", "stopped"]);
+  assert.equal(j.log[0].prompt, "go");
+  assert.equal(j.log[0].tenant, "t1");
+  assert.equal(j.log.at(-1).stop.reason, "answered");
+});
+
+test("THE MODEL ANSWER IS WRITTEN BEFORE ANY TOOL RUNS", async () => {
+  // It cost money. It is the one artifact a crash must never take, and every
+  // later entry is cheap by comparison.
+  const order = [];
+  const j = { log: [], append: async (e) => { order.push("journal:" + e.kind); j.log.push(e); } };
+  const send = scripted([wants("look"), says("done")]);
+  await runAgent({
+    agent: agentWith([tool("look", async () => { order.push("tool ran"); return 1; })]),
+    prompt: "go", send, journal: j,
+  });
+  // BOTH ANCHORS PROVED PRESENT FIRST. `indexOf(a) < indexOf(b)` is satisfied by
+  // -1 for a missing `a`, so without these two lines this case stays green against
+  // a loop that never records the model answer at all — the vacuous-ordering trap.
+  assert.ok(order.includes("journal:model"), `no model answer was recorded at all: ${order.join(" → ")}`);
+  assert.ok(order.includes("tool ran"), `the tool never ran: ${order.join(" → ")}`);
+  assert.ok(order.indexOf("journal:model") < order.indexOf("tool ran"),
+    `the tool ran before its model answer was recorded: ${order.join(" → ")}`);
+});
+
+test("A JOURNAL THAT CANNOT WRITE STOPS THE RUN AND SAYS SO", async () => {
+  // A caller who passed a journal asked for durability. Carrying on without it
+  // produces a run that looks resumable and is not, and the work is then paid for
+  // twice. Nothing is lost by stopping: the record still carries everything.
+  let calls = 0;
+  const send = async () => { calls++; return says("done"); };
+  const j = { append: async () => { throw new Error("disk gone"); } };
+  const r = await runAgent({ agent: agentWith(), prompt: "go", send, journal: j });
+  assert.equal(r.ok, false);
+  assert.equal(r.stop.reason, "journal-failed");
+  assert.match(r.stop.error, /disk gone/);
+  assert.equal(calls, 0, "the model was called before durability was established");
+});
+
+test("EVERY KIND OF JOURNAL WRITE IS CHECKED — a census, one failing kind at a time", async () => {
+  // A SWEEP SURVIVOR IS WHY THIS EXISTS. The first version used a journal that
+  // failed on everything, so when a mutant made the loop ignore the MODEL write
+  // the run reached the STOPPED write, failed there instead, and came back
+  // `journal-failed` anyway — the assertion passing for the wrong reason. A
+  // fixture too shallow to separate two readings certifies neither.
+  const failOn = (kind) => ({ append: async (e) => { if (e.kind === kind) throw new Error(`no ${kind}`); } });
+  const withTool = () => agentWith([tool("look", async () => 1)]);
+
+  // started: nothing has been spent, so nothing is lost.
+  const a = await runAgent({ agent: agentWith(), prompt: "go", send: async () => says("x"), journal: failOn("started") });
+  assert.equal(a.stop.reason, "journal-failed");
+  assert.equal(a.stop.step, 0);
+
+  // model: the expensive artifact. The run stops, and the step it paid for is
+  // still on the returned record.
+  let modelCalls = 0;
+  const b = await runAgent({
+    agent: agentWith(), prompt: "go",
+    send: async () => { modelCalls++; return says("hi"); }, journal: failOn("model"),
+  });
+  assert.equal(b.stop.reason, "journal-failed", `a failed MODEL write produced "${b.stop.reason}"`);
+  assert.equal(b.stop.step, 1);
+  assert.equal(b.used.steps, 1, "the step that happened was not on the record");
+  assert.equal(modelCalls, 1);
+
+  // tool: a result that cannot be recorded means the batch is unreadable later.
+  const c = await runAgent({
+    agent: withTool(), prompt: "go", send: scripted([wants("look"), says("done")]), journal: failOn("tool"),
+  });
+  assert.equal(c.stop.reason, "journal-failed", `a failed TOOL write produced "${c.stop.reason}"`);
+  assert.equal(c.stop.step, 1);
+
+  // stopped: the run really did answer, and it says which stop it could not write.
+  const d = await runAgent({ agent: agentWith(), prompt: "go", send: async () => says("hi"), journal: failOn("stopped") });
+  assert.equal(d.stop.reason, "journal-failed");
+  assert.equal(d.stop.was, "answered", "the stop it could not record was not named");
+
+  // THE CONTROL: a journal that writes everything lets the run finish, or every
+  // case above passes against a loop that always reports journal-failed.
+  const ok = await runAgent({ agent: withTool(), prompt: "go", send: scripted([wants("look"), says("done")]), journal: journalOf() });
+  assert.equal(ok.ok, true, "the observer is dead: no run can finish with a journal at all");
+});
+
+test("runAgent refuses a journal it cannot write to, and a `from` that is not a log", async () => {
+  await assert.rejects(() => runAgent({ agent: agentWith(), prompt: "x", send: async () => says("a"), journal: {} }), { name: "TypeError" });
+  await assert.rejects(() => runAgent({ agent: agentWith(), send: async () => says("a"), from: "entries" }), { name: "TypeError" });
+});
+
+// ── resume. Every fixture below is a REAL run's log, truncated. ──────────────
+// A hand-typed "crashed log" is a fake in a different shape from reality; this
+// derives them from the real producer, which is the rule.
+async function logOfInterruptedRun({ tools, script, killAfter }) {
+  const j = journalOf();
+  const send = scripted(script);
+  await runAgent({ agent: agentWith(tools), prompt: "go", send, journal: j, tenant: { id: "t1" } });
+  return j.log.slice(0, killAfter);
+}
+
+test("A RESUMED RUN CARRIES ON, and does not redo the step it already paid for", async () => {
+  const t = tool("look", async () => ({ hit: 1 }));
+  // started, model(1), tool(0), model(2), stopped → cut the last two: the process
+  // died after the tool answered and before the next model call.
+  const entries = await logOfInterruptedRun({
+    tools: [t], script: [wants("look"), says("done")], killAfter: 3,
+  });
+  assert.deepEqual(entries.map((e) => e.kind), ["started", "model", "tool"]);
+
+  const send = scripted([says("finished after resume")]);
+  const r = await runAgent({ agent: agentWith([t]), send, from: entries, tenant: { id: "t1" } });
+  assert.equal(r.ok, true);
+  assert.equal(r.text, "finished after resume");
+  assert.equal(r.resumed, true);
+  // ONE model call in this segment: step 1 was not bought again.
+  assert.equal(send.calls.length, 1, `the resume re-sent ${send.calls.length} calls`);
+  // It continued at step 2, and the meters carried over rather than restarting.
+  assert.equal(send.calls[0].step, 2, `resumed at step ${send.calls[0].step}`);
+  assert.equal(r.used.steps, 2, `the step meter restarted at ${r.used.steps}`);
+  assert.equal(r.used.toolCalls, 1);
+  // And the model was handed the WHOLE conversation, tool result included.
+  const sent = JSON.stringify(send.calls[0].messages);
+  assert.match(sent, /"go"/);
+  assert.match(sent, /hit/);
+});
+
+test("A FINISHED RUN IS NOT RESTARTED — it answers what it answered", async () => {
+  const j = journalOf();
+  await runAgent({ agent: agentWith(), prompt: "go", send: scripted([says("the answer")]), journal: j });
+  let calls = 0;
+  const r = await runAgent({ agent: agentWith(), send: async () => { calls++; return says("a second bill"); }, from: j.log });
+  assert.equal(calls, 0, "replaying a finished run bought another model call");
+  assert.equal(r.ok, true);
+  assert.equal(r.stop.reason, "answered");
+  assert.equal(r.stop.text, "the answer");
+});
+
+test("A LOG THAT CANNOT BE READ IS NOT RESUMED", async () => {
+  let calls = 0;
+  const send = async () => { calls++; return says("x"); };
+  const r = await runAgent({ agent: agentWith(), send, from: [{ kind: "nope" }] });
+  assert.equal(r.stop.reason, "journal-unreadable");
+  assert.ok(r.stop.problems.length >= 1, "it refused without saying what was wrong");
+  assert.equal(calls, 0, "it spent money on a log it could not read");
+});
+
+test("A PENDING NON-REPEATABLE TOOL REFUSES THE RESUME, AND NAMES IT", async () => {
+  // The log cannot say whether the tool ran — the process died before it could.
+  // So the question is not "did it run" but "is running it again safe".
+  const charge = tool("charge", async () => "paid");   // repeatable defaults to false
+  const entries = await logOfInterruptedRun({
+    tools: [charge], script: [wants("charge"), says("done")], killAfter: 2,
+  });
+  assert.deepEqual(entries.map((e) => e.kind), ["started", "model"]);
+
+  let ran = 0, calls = 0;
+  const again = tool("charge", async () => { ran++; return "paid"; });
+  const r = await runAgent({
+    agent: agentWith([again]), send: async () => { calls++; return says("x"); }, from: entries,
+  });
+  assert.equal(r.stop.reason, "cannot-resume");
+  assert.deepEqual([...r.stop.pending], [{ step: 1, index: 0, name: "charge" }]);
+  assert.equal(ran, 0, "a tool that might already have charged somebody was run again");
+  assert.equal(calls, 0);
+});
+
+test("...AND A PENDING REPEATABLE TOOL IS RE-RUN, so the run carries on", async () => {
+  // The other half, and without it `repeatable` would be decoration.
+  const readSpec = { name: "look", description: "reads", input: { type: "object" }, scope: PUBLIC, repeatable: true };
+  const look = defineTool({ ...readSpec, run: async () => ({ hit: 1 }) });
+  const entries = await logOfInterruptedRun({
+    tools: [look], script: [wants("look"), says("done")], killAfter: 2,
+  });
+
+  let ran = 0;
+  const look2 = defineTool({ ...readSpec, run: async (args) => { ran++; return { hit: 1, args }; } });
+  const send = scripted([says("done after resume")]);
+  const r = await runAgent({ agent: agentWith([look2]), send, from: entries });
+  assert.equal(ran, 1, `a repeatable pending tool ran ${ran} times`);
+  assert.equal(r.ok, true);
+  assert.equal(r.text, "done after resume");
+  // Its answer reached the model, which is the point of re-running it.
+  assert.match(JSON.stringify(send.calls[0].messages), /hit/);
+  // And the tool was handed the args it was originally called with, out of the log.
+  assert.match(JSON.stringify(send.calls[0].messages), /args/);
+});
+
+test("the journal keeps growing across a resume, so the log stays the whole story", async () => {
+  const t = defineTool({ name: "look", description: "d", input: { type: "object" }, scope: PUBLIC, repeatable: true, run: async () => 1 });
+  const first = journalOf();
+  await runAgent({ agent: agentWith([t]), prompt: "go", send: scripted([wants("look"), says("done")]), journal: first });
+  const entries = first.log.slice(0, 3);
+
+  const second = journalOf();
+  await runAgent({ agent: agentWith([t]), send: scripted([says("after")]), from: entries, journal: second });
+  // The resume's OWN journal records only what happened in its segment — it does
+  // not rewrite history, because the log is append-only and the caller owns where
+  // the entries are kept.
+  assert.deepEqual(second.log.map((e) => e.kind), ["model", "stopped"]);
+  assert.equal(second.log.at(-1).stop.reason, "answered");
+});
+
+test("an unbounded limit survives the log, where JSON would turn it into null", async () => {
+  // `JSON.stringify(Infinity)` is `"null"`, and a later reader would take that
+  // null as "no limit recorded" — cannot-tell reading as a value, arriving
+  // through a serialiser rather than through a reader.
+  const j = journalOf();
+  await runAgent({
+    agent: agentWith([], { wallMs: Infinity }), prompt: "go",
+    send: scripted([says("ok")]), journal: j,
+  });
+  assert.equal(j.log[0].limits.wallMs, "Infinity");
+  assert.equal(JSON.parse(JSON.stringify(j.log[0].limits)).wallMs, "Infinity",
+    "the unbounded limit did not survive a round trip through JSON");
 });

@@ -1,0 +1,167 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  replay, startedEntry, modelEntry, toolEntry, stoppedEntry,
+  userMessage, assistantMessage, toolMessage, toolResultFor, ENTRY_KINDS,
+} from "../src/journal.mjs";
+
+// ── fixtures, DERIVED from the real constructors ──────────────────────────────
+const started = (o = {}) => startedEntry({ at: 0, tenant: "t1", agent: "a", model: "m", prompt: "go", limits: { steps: 8 }, ...o });
+const model = (o = {}) => modelEntry({ at: 0, step: 1, ms: 100, text: "", toolCalls: [], usage: { inputTokens: 5, outputTokens: 5 }, costMicros: 20, ...o });
+const call = (id, name) => ({ id, name, args: { q: id } });
+const toolOk = (o = {}) => toolEntry({ at: 0, step: 1, index: 0, name: "look", ms: 10, ok: true, value: { hit: 1 }, ...o });
+
+test("the kind list is derived and every constructor produces one of them", () => {
+  assert.deepEqual([...ENTRY_KINDS], ["started", "model", "tool", "stopped"]);
+  for (const e of [started(), model(), toolOk(), stoppedEntry({ at: 0, stop: { reason: "answered" } })]) {
+    assert.ok(ENTRY_KINDS.includes(e.kind), `${e.kind} is not a journal kind`);
+    assert.ok(Object.isFrozen(e), `a ${e.kind} entry can be mutated after it is written`);
+  }
+});
+
+// ── status ───────────────────────────────────────────────────────────────────
+test("an empty log is NEW, a started log is RUNNING, a stopped log is STOPPED", () => {
+  assert.equal(replay([]).status, "new");
+  assert.equal(replay([started()]).status, "running");
+  assert.equal(replay([started(), stoppedEntry({ at: 9, stop: { reason: "answered", text: "hi" } })]).status, "stopped");
+  // The absence of a stop is what says "still going" — so an interrupted run and
+  // a finished one are different logs rather than the same log read two ways.
+  assert.equal(replay([started(), model()]).status, "running");
+});
+
+test("a stopped log carries the original stop back", () => {
+  const r = replay([started(), model({ text: "done" }), stoppedEntry({ at: 9, stop: { reason: "answered", text: "done", step: 1 } })]);
+  assert.deepEqual(r.stop, { reason: "answered", text: "done", step: 1 });
+});
+
+// ── the conversation ─────────────────────────────────────────────────────────
+test("the conversation is rebuilt in order: user, assistant, tool", () => {
+  const calls = [call("c0", "look"), call("c1", "count")];
+  const r = replay([
+    started(), model({ toolCalls: calls, text: "checking" }),
+    toolOk({ index: 0, name: "look", value: { hit: 1 } }),
+    toolEntry({ at: 0, step: 1, index: 1, name: "count", ms: 5, ok: false, error: "boom" }),
+    model({ step: 2, text: "it is 1" }),
+  ]);
+  assert.deepEqual(r.messages, [
+    userMessage("go"),
+    assistantMessage("checking", calls.map((c) => ({ id: c.id, name: c.name, args: c.args }))),
+    toolMessage([
+      toolResultFor(calls[0], true, { hit: 1 }),
+      toolResultFor(calls[1], false, "boom"),
+    ]),
+    assistantMessage("it is 1"),
+  ]);
+});
+
+test("a step with no tool calls gets no tool message", () => {
+  const r = replay([started(), model({ text: "just words" })]);
+  assert.equal(r.messages.length, 2);
+  assert.equal(r.messages[1].toolCalls, undefined, "an assistant message with no calls carried a toolCalls key");
+});
+
+test("STEPS ARE REBUILT IN ASCENDING ORDER, not in append order", () => {
+  // A log is evidence, not a promise. Rebuilding a conversation out of order
+  // would be worse than refusing to.
+  const r = replay([started(), model({ step: 2, text: "second" }), model({ step: 1, text: "first" })]);
+  assert.deepEqual(r.messages.map((m) => m.content), ["go", "first", "second"]);
+  assert.equal(r.step, 2);
+});
+
+// ── the meters ───────────────────────────────────────────────────────────────
+test("the meters are rebuilt from the log, counting the whole asked-for batch", () => {
+  const r = replay([
+    started(),
+    model({ step: 1, toolCalls: [call("c0", "look"), call("c1", "x")], usage: { inputTokens: 10, outputTokens: 2 }, costMicros: 30 }),
+    toolOk({ index: 0 }), toolOk({ index: 1, name: "x" }),
+    model({ step: 2, usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 5 }),
+  ]);
+  assert.equal(r.used.steps, 2);
+  assert.equal(r.used.tokens, 14);
+  assert.equal(r.used.costMicros, 35);
+  // Counted the way the live loop counts it — the whole batch when it was asked
+  // for — or a resumed run believes it has more tool budget left than it does.
+  assert.equal(r.used.toolCalls, 2);
+});
+
+test("`used.wallMs` IS WORK TIME, NOT CALENDAR TIME", () => {
+  // A run that died at midnight and resumes at nine did not spend nine hours
+  // working. Charging it nine hours would fail every resumed run on arrival.
+  const r = replay([
+    started({ at: 0 }),
+    model({ step: 1, at: 1_000, ms: 100, toolCalls: [call("c0", "look")] }),
+    toolOk({ at: 50_000_000, index: 0, ms: 10 }),        // hours later by the clock
+    model({ step: 2, at: 60_000_000, ms: 200 }),
+  ]);
+  assert.equal(r.used.wallMs, 310, `wall read ${r.used.wallMs} — calendar time leaked into the budget`);
+  // A missing or nonsense ms contributes nothing rather than NaN, which would
+  // make every later comparison false and silently disable the wall bound.
+  const junk = replay([started(), model({ ms: undefined }), model({ step: 2, ms: -5 })]);
+  assert.equal(junk.used.wallMs, 0);
+  assert.ok(!Number.isNaN(junk.used.wallMs));
+});
+
+test("an unreported usage makes the replayed total UNMEASURED, not smaller", () => {
+  const r = replay([started(), model({ usage: null, costMicros: null })]);
+  assert.equal(r.used.tokens, null, "a gap in the log was rebuilt as zero spend");
+  assert.equal(r.used.costMicros, null);
+});
+
+// ── pending: the resume hazard ───────────────────────────────────────────────
+test("A TOOL CALL WITH NO RESULT IS PENDING, and is named", () => {
+  const calls = [call("c0", "look"), call("c1", "charge")];
+  const r = replay([started(), model({ toolCalls: calls }), toolOk({ index: 0, name: "look" })]);
+  assert.deepEqual([...r.pending], [{ step: 1, index: 1, name: "charge", id: "c1" }]);
+  // The results we DO have are still in the conversation — a partial batch is not
+  // a lost batch.
+  assert.deepEqual(r.messages[2], toolMessage([toolResultFor(calls[0], true, { hit: 1 })]));
+});
+
+test("nothing is pending when every call has an answer", () => {
+  const calls = [call("c0", "look")];
+  assert.deepEqual([...replay([started(), model({ toolCalls: calls }), toolOk({ index: 0 })]).pending], []);
+});
+
+// ── problems: a junk entry is named, never skipped ───────────────────────────
+test("A JUNK ENTRY IS NAMED, NEVER SILENTLY SKIPPED", () => {
+  // Skipping one rebuilds a SHORTER conversation and a SMALLER bill than the run
+  // really had: the model sent a history missing a step, the meters
+  // under-reporting. Entries come back from storage, so they come from outside.
+  for (const junk of [null, undefined, 4, "model", [], {}, { kind: "nope" }]) {
+    const r = replay([started(), junk]);
+    assert.equal(r.problems.length, 1, `${JSON.stringify(junk) ?? String(junk)} was accepted as an entry`);
+    assert.match(r.problems[0], /entry 1/);
+  }
+});
+
+test("a contradictory log is named rather than resolved by guessing", () => {
+  assert.match(replay([started(), started()]).problems[0], /a second "started"/);
+  assert.match(replay([started(), model(), model()]).problems[0], /a second model answer for step 1/);
+  assert.match(
+    replay([started(), model({ toolCalls: [call("c0", "look")] }), toolOk(), toolOk()]).problems[0],
+    /a second result for step 1 tool 0/);
+  assert.match(replay([started(), stoppedEntry({ at: 1, stop: {} }), stoppedEntry({ at: 2, stop: {} })]).problems[0], /a second "stopped"/);
+  // A log with entries but no start cannot say whose run it was or what was asked.
+  assert.match(replay([model()]).problems[0], /no "started" entry/);
+  // A model or tool entry with no usable position cannot be placed at all.
+  assert.match(replay([started(), model({ step: 0 })]).problems[0], /model with no usable step/);
+  assert.match(replay([started(), toolEntry({ at: 0, step: 1, index: "0", ms: 1, ok: true })]).problems[0], /no usable step\/index/);
+  // THE CONTROL: a healthy log has no problems, or every case above passes
+  // against a replay that complains about everything.
+  assert.deepEqual([...replay([started(), model(), stoppedEntry({ at: 1, stop: { reason: "answered" } })]).problems], []);
+});
+
+test("replay refuses a non-array rather than reading past it", () => {
+  for (const bad of [null, undefined, 4, "entries", {}]) {
+    assert.throws(() => replay(bad), { name: "TypeError" });
+  }
+});
+
+test("what the started entry recorded comes back", () => {
+  const r = replay([started()]);
+  assert.equal(r.prompt, "go");
+  assert.equal(r.tenant, "t1");
+  assert.equal(r.agent, "a");
+  assert.equal(r.model, "m");
+  assert.deepEqual(r.limits, { steps: 8 });
+});

@@ -77,12 +77,30 @@ export function defineTool(spec) {
       "to say out loud that this one needs none. It is compelled because both defaults are wrong.",
     );
   }
+  // `repeatable` IS OPTIONAL AND ITS DEFAULT PROTECTS. It answers one question,
+  // and only a resume ever asks it: *if we cannot tell whether this tool already
+  // ran, is running it again safe?* A read is; taking a payment is not.
+  //
+  // UNLIKE `scope` THIS IS NOT COMPELLED, and the difference is which way being
+  // wrong hurts. Both of scope's defaults are actively wrong, so the author must
+  // choose. Here one default is simply safe: `false` means a resume REFUSES and
+  // names the tool rather than risking a second charge, which is an inconvenience
+  // — where a wrong `true` is somebody billed twice. "The flag defaults to
+  // protect, because of which way being wrong hurts."
+  //
+  // REFUSED IF IT IS NOT A BOOLEAN, never coerced: `Boolean("false")` is true,
+  // and a string from a config file must not be the thing that makes a payment
+  // tool repeatable.
+  if (Object.hasOwn(spec, "repeatable") && typeof spec.repeatable !== "boolean") {
+    throw new TypeError(`${where}: repeatable must be true or false — Boolean("false") is true, so it is not coerced`);
+  }
   return Object.freeze({
     kind: "tool",
     name: spec.name,
     description: spec.description,
     input: spec.input,
     scope: spec.scope,
+    repeatable: spec.repeatable === true,
     run: spec.run,
   });
 }

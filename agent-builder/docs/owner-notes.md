@@ -117,3 +117,74 @@ yet — so nothing is deployed and nothing is live. It is a library with tests.
   tools. The day someone else writes one, a message that quotes a connection
   string is how a secret ends up in a transcript — the website builder already
   has a scrubber for exactly that and this has nothing.
+
+---
+
+## 2026-09-14 — A run can now survive the thing that keeps killing them
+
+You said keep going, so I built the resumability piece. Plain version: **if the
+machine running an agent disappears halfway through, the work already paid for is
+not lost.**
+
+**How it works.** Everything the run does gets written down as it happens, to a
+list that is only ever added to — never rewritten. That shape is the one that
+survives a process vanishing mid-write: there is no half-updated record to
+puzzle over, and the worst a crash can cost you is the very last line. **The
+model's answer is written the instant it arrives, before any tool runs**, because
+that answer is the part that cost money.
+
+**The one genuinely hard bit, and it is about your money.** If the power goes out
+right after the model asks for a tool, the record cannot tell whether that tool
+ran. Not "probably" — cannot. So the question is not *did it run*, it is **is
+running it again safe?** Reading a database twice is fine. Charging a card twice
+is not.
+
+So a tool can now say whether it is safe to repeat, and **the default is the
+careful one**: if a tool has not said, a resume **stops and names it** rather
+than risking it. That means a stuck run sometimes needs you to look at it — which
+is annoying, and it is the right way round, because being told is recoverable and
+a double charge is not. If you would rather it carried on and told the model "we
+could not tell whether this ran", say so and I will switch it; it is written down
+as your call.
+
+**Three other things it now refuses to do**, each of which would have cost you:
+
+- **Replaying a finished run does not buy a second one.** It hands back the
+  answer it already gave.
+- **A record it cannot read is not resumed at all**, and nothing is spent finding
+  out. Reading past a corrupt line would send the model a conversation with a
+  step missing and under-report the bill.
+- **If it cannot write the record, it stops and says so.** You asked for
+  durability; carrying on without it produces a run that looks resumable and
+  isn't, and then the work gets paid for twice.
+
+One small thing worth knowing: **"how long a run has taken" now means time spent
+working, not time on the calendar.** A run that died at midnight and picks up at
+nine did not spend nine hours working, and charging it nine hours would fail
+every resumed run the moment it restarted.
+
+### What is proven and what is not
+
+**Proven:** 93 tests, all green.
+
+**Half-proven, and I am not rounding it up:** the deliberate-breakage sweep came
+back **50 of 51 caught**. The one that got through was **my test's fault, not the
+code's** — I had used a fake record-keeper that failed on *every* write, so when
+the breakage made the code ignore one particular write, it tripped over the next
+one and still reported the right error. The test passed for the wrong reason.
+That is fixed, with a proper one-at-a-time version. **I have not re-run the sweep
+to confirm the fix catches it**, so there is no clean number for this slice yet
+and I have not written one down.
+
+**NOT proven live:** still nothing against a real model, Worker, container or
+Supabase. No storage, no HTTP route, no migration. Where the record gets *kept*
+is deliberately not decided in the code — it takes whatever you hand it.
+
+### And a fair hit you took at me
+
+You asked why I keep focusing on the site builder. I wasn't building it, but you
+were right that it kept showing up: my comments and notes cite its rules
+constantly as justification, and I reuse its sweep runner. The first one is
+clutter and makes your new product read like an appendix to the old one. I have
+offered to strip the cross-references, and to move the whole thing to its own
+repo, which would end it properly. Waiting on you.

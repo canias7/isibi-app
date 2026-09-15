@@ -75,6 +75,8 @@ what makes every branch below drivable in a test instead of waited on.
 - **`limits.mjs`** — the bounds on one run, and the whole safety argument.
 - **`define.mjs`** — `defineAgent` / `defineTool`, and the tenancy wall.
 - **`fanout.mjs`** — N tools at once, bounded, losing none of them.
+- **`meters.mjs`** — what a run has spent, and the one rule about not knowing.
+- **`journal.mjs`** — the append-only record, and the replay that rebuilds a run.
 - **`run.mjs`** — the loop.
 
 ### The law, module by module
@@ -177,21 +179,107 @@ what makes every branch below drivable in a test instead of waited on.
 - **AN UNREPORTED USAGE IS `null` AND IS STICKY** (`addMeter`). All token kinds
   count in full: a budget is not a bill.
 
+**`meters.mjs`**
+
+- **LIFTED OUT OF `run.mjs` WHEN THE REPLAY NEEDED THE SAME ARITHMETIC.** Two
+  copies would drift in the direction where a RESUMED run believes it has spent
+  less than it has.
+
+**`journal.mjs`**
+
+- **APPEND-ONLY, AND THAT IS THE WHOLE DESIGN.** A container recycles and an
+  isolate dies; on this stack that is Tuesday, not an edge case. A log you only
+  add to has no half-updated state to reason about, and the worst a crash can do
+  is lose the last entry.
+- **THE MODEL ANSWER IS WRITTEN THE MOMENT IT ARRIVES, BEFORE ANY TOOL RUNS.** It
+  cost money and it is the one artifact a crash must never take; every later
+  entry is cheap beside it. The root product's "store the raw answer ONCE, before
+  anything can refuse it".
+- **THE MESSAGE BUILDERS LIVE HERE, and that is the reason this module exists
+  rather than a `replay()` bolted onto the loop.** The loop composes the
+  conversation as it goes and the replay composes it again from the log; two
+  copies of that composition drift in the worst possible direction — a RESUMED
+  run sending the model a conversation subtly different from the one it would
+  have had, with both halves looking right on their own.
+- **`used.wallMs` IS WORK TIME, NOT CALENDAR TIME.** A run that died at midnight
+  and resumes at nine did not spend nine hours working, and charging it nine
+  hours would fail every resumed run on arrival. The replayed wall is the SUM OF
+  RECORDED `ms`; the live loop adds its own segment on top. Written down because
+  "wall clock" now means something slightly different from what the words say.
+- **A JUNK ENTRY IS NAMED IN `problems`, NEVER SKIPPED.** Entries come back from
+  storage, so they come from outside. Skipping one rebuilds a SHORTER
+  conversation and a SMALLER bill than the run really had — the model sent a
+  history missing a step, the meters under-reporting.
+- **STEPS ARE REBUILT IN ASCENDING ORDER, not append order.** A tool entry
+  follows its model entry in a healthy log, but a log is evidence rather than a
+  promise.
+- **A BATCH IS COUNTED WHOLE, the way the live loop counts it** — asked-for, not
+  answered — or a resumed run believes it has more tool budget left than it does.
+- **THE ABSENCE OF A `stopped` ENTRY IS WHAT SAYS "STILL RUNNING".** That is how
+  an interrupted run and a finished one are different logs rather than one log
+  read two ways.
+
+### Resuming a run
+
+- **PENDING TOOL CALLS ARE THE WHOLE HAZARD.** A call with no recorded result may
+  have run, half-run, or never started — the log cannot say, because the process
+  died before it could. **So the question is not "did it run" but "is running it
+  again safe"**, which is what `repeatable` answers.
+- **`repeatable` IS OPTIONAL AND ITS DEFAULT PROTECTS** (`false`). Unlike `scope`
+  it is not compelled, and the difference is which way being wrong hurts: both of
+  scope's defaults are actively wrong, so the author must choose; here a wrong
+  `false` is an inconvenience and a wrong `true` is somebody billed twice.
+  **Refused rather than coerced, because `Boolean("false")` is `true`** and a
+  string out of a config file must not be what makes a payment tool repeatable.
+- **A NON-REPEATABLE PENDING CALL REFUSES THE RESUME AND NAMES EVERY BLOCKER.**
+  Refusing strands the run, which is bad; charging somebody twice is worse, and
+  only one of the two is reversible by a person who has been told. **OPEN**: the
+  alternative is to hand the model a "we could not tell whether this ran" result
+  and let it continue. Not taken, and it is the owner's call.
+- **THE GAPS ARE FILLED IN THE LOG AND THE LOG IS RE-REPLAYED**, rather than the
+  message list being patched. That keeps ONE composer of the conversation.
+- **A FINISHED RUN IS NOT RESTARTED** — its own stop comes back, so replaying a
+  completed run twice cannot produce a second bill.
+- **A LOG THAT CANNOT BE READ IS NOT RESUMED** (`journal-unreadable`), and
+  nothing is spent finding out.
+- **A FAILED JOURNAL WRITE STOPS THE RUN** (`journal-failed`). A caller who
+  passed a journal asked for durability; carrying on without it produces a run
+  that looks resumable and is not, and the work is then paid for twice. Nothing
+  is lost: the record still carries everything so far.
+- **`Infinity` DOES NOT SURVIVE JSON** — `JSON.stringify(Infinity)` is `"null"`
+  — so an unbounded limit is logged as the STRING `"Infinity"`. The recorded
+  "cannot-tell must never read as a value" trap arriving through a serialiser
+  instead of through a reader.
+- **NO STORAGE IS CHOSEN HERE.** `journal.append` is injected, so Postgres, R2, a
+  Durable Object or an array in a test are all the same to this code. **Nothing
+  has been written against a real store yet.**
+
 ### Measured
 
-- **Suite: 65 tests, 0 failures** (`cd agent-builder && npm test`).
+- **Suite: 93 tests, 0 failures** (`cd agent-builder && npm test`).
 - **The root product's suite is UNAFFECTED: 6,316 tests, 0 failures** — run
   BEFORE this directory existed and again with it in the tree, same count, same
-  colour. Measured rather than argued from the path filters. Note for a fresh container: the root
-  suite needs `npm ci` first or ~361 cases fail on missing modules — that is the
-  environment, not the product, and `playwright-core` is NOT needed for it (its
-  six checks belong to the container harness).
-- **Sweep: 34 mutants, 34 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived** — both controls carry `control: true` and not merely the
-  word in their label, so the runner's own `CONTROL WAS KILLED` branch was armed.
-  Run with `--test-timeout=20000`, because the "step counted after the call"
-  mutant HANGS rather than failing. One mutant survived the first pass and was
-  proved INERT by measurement rather than hunted: see `okLimit` above.
+  colour. Measured rather than argued from the path filters. Note for a fresh
+  container: it needs `npm ci` first or ~361 cases fail on missing modules (the
+  environment, not the product), and `playwright-core` is NOT needed for it —
+  those six checks belong to the container harness.
+- **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
+  applied, 2 comment-only controls survived.**
+- **Sweep, WITH THE JOURNAL AND RESUME: 51 mutants, 50 killed, ONE SURVIVED, 0
+  never applied, 2 controls survived.** The survivor was a real test gap and is
+  recorded rather than smoothed over: the mutant made the loop ignore a failed
+  MODEL-entry write, and the fixture was a journal that failed on EVERY write —
+  so the run reached the `stopped` write, failed there instead, and came back
+  `journal-failed` anyway. **The assertion passed for the wrong reason**, which
+  is the recorded "a fixture too shallow to separate the two readings". Replaced
+  by a census that fails one entry KIND at a time, with a control.
+  **THE CONFIRMING RE-RUN HAS NOT BEEN DONE, so there is no clean-sweep number
+  for this slice yet** — writing one here would be a claim ahead of its evidence,
+  which is this file's own rule.
+- Both controls carry `control: true` and not merely the word in their label, so
+  the runner's own `CONTROL WAS KILLED` branch was armed. Run with
+  `--test-timeout=20000`, because the "step counted after the call" mutant HANGS
+  rather than failing.
 
 ## Where things stand
 
