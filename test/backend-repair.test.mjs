@@ -338,3 +338,72 @@ test("the survey decides with the shared function, so a hand run and a build agr
     assert.deepEqual((await survey("k", "inc")).map((r) => r.slug), ["inc"]);
   } finally { globalThis.fetch = real; }
 });
+
+// ── The population check and the seed report (owner, 2026-09-15) ─────────────
+//
+// CLOSED AT THE MODULE because the ROUTE path that applies a table wants a
+// container and a compile, so most of these shapes cannot be reached there —
+// the recorded "a wall nobody can drive is a wall nobody is guarding", met in
+// the branch whose wrong answer blocks a legitimate table.
+
+test("the population check reports and never refuses: five legitimate shapes stay silent", async () => {
+  const A = await import("../builder/site-add.mjs");
+  const table = (o) => ({ name: "repairs", columns: [{ name: "who", type: "text" }], ...o });
+  const ask = (spec, seed) => A.missingPopulation({ spec, seed: seed || {}, readers: A.readTables({ spec }) });
+
+  // THE ONE THAT MUST FIRE — run 47's shape.
+  const read = { tables: [table({ read: "none", write: "none" })], functions: [{ name: "c", body: "SELECT COUNT(*) FROM repairs" }] };
+  assert.deepEqual(ask(read), ["repairs"], "the observer is dead: run 47's own table is not reported");
+
+  // 1. NOBODY READS IT. A read-only lookup table nobody has queried yet is not
+  //    a problem to raise, and reporting it would fire on half the platform.
+  assert.deepEqual(ask({ tables: [table({ read: "none", write: "none" })] }), []);
+  // 2. A SEED FILLS IT.
+  assert.deepEqual(ask(read, { repairs: [{ who: "a" }] }), []);
+  // 3. A DECLARED FUNCTION WRITES IT — the owner's own example.
+  assert.deepEqual(ask({ ...read, functions: [{ name: "w", body: "INSERT INTO repairs (who) VALUES ('x'); SELECT COUNT(*) FROM repairs" }] }), []);
+  // 4. A JOB WRITES IT — the other half of the owner's example, and the bodies
+  //    are scanned separately, so this is not the same assertion as 3.
+  assert.deepEqual(ask({ ...read, jobs: [{ name: "j", body: "INSERT INTO repairs (who) VALUES ('x')" }] }), []);
+  // 5. THE CLIENT WRITES IT — every booking form on the platform.
+  assert.deepEqual(ask({ tables: [table({ access: "collect" })], functions: [{ name: "c", body: "SELECT COUNT(*) FROM repairs" }] }), []);
+  // AND AN UPDATE COUNTS AS A WRITER, not only an INSERT.
+  assert.deepEqual(ask({ ...read, functions: [{ name: "u", body: "UPDATE repairs SET who='x'; SELECT COUNT(*) FROM repairs" }] }), []);
+});
+
+test("the reader scan is word-bounded, so repairs_archive is not repairs", async () => {
+  const A = await import("../builder/site-add.mjs");
+  const spec = {
+    tables: [{ name: "repairs", columns: [] }, { name: "repairs_archive", columns: [] }],
+    functions: [{ name: "c", body: "SELECT COUNT(*) FROM repairs_archive" }],
+  };
+  // THE RECORDED `bookings` / `bookings_old` RULE. A substring match would read
+  // the archive's name as a read of `repairs` and report the wrong table.
+  assert.deepEqual(A.readTables({ spec }), ["repairs_archive"],
+    "a longer name matched a shorter one, so the check reports a table nothing reads");
+});
+
+test("a seed skip is said as an effect, and nothing is said when nothing was skipped", async () => {
+  const A = await import("../builder/site-add.mjs");
+  // NOTHING SKIPPED, NOTHING SAID — "do not imply seeding was required when it
+  // wasn't" is the owner's own wording, and an empty list is the case that
+  // tests it.
+  assert.equal(A.seedSkipNote([]), "");
+  assert.equal(A.seedSkipNote(null), "");
+  assert.equal(A.seedSkipNote(["   "]), "", "a blank entry produced a sentence about nothing");
+  // THE ENGINE'S OWN SENTENCE, rendered as an effect rather than as our rule.
+  const one = A.seedSkipNote(["repairs: only display tables are seeded (read none / write none)"]);
+  assert.match(one, /starter rows ready for repairs/);
+  assert.match(one, /starts empty/, "the sentence does not say what it means for the feature");
+  assert.ok(!/display table/.test(one), "our own vocabulary reached the customer");
+  // TWO READS AS TWO.
+  assert.match(A.seedSkipNote(["a: x", "b: y"]), /\ba, b\b/);
+});
+
+test("the unfillable sentence names the table and offers the ways out", async () => {
+  const A = await import("../builder/site-add.mjs");
+  assert.equal(A.populationNote([]), "");
+  const s = A.populationNote(["repairs"]);
+  assert.match(s, /repairs/, "the table is not named, so the customer cannot act on it");
+  assert.match(s, /form|import|yourself/, "no way out is offered");
+});

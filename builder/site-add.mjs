@@ -2750,6 +2750,14 @@ export function populationNote(names) {
  */
 export function seedSkipNote(skipped) {
   const list = (Array.isArray(skipped) ? skipped : []).map((s) => String(s || "")).filter(Boolean);
+  // TWO EMPTY CHECKS, AND THE REDUNDANCY IS DELIBERATE — said here because a
+  // sweep cannot say it and the next session deletes what nothing appears to
+  // need. The first refuses an empty LIST; the second refuses a list whose
+  // entries carry no table name (`"  "`, `": nothing"`). Each catches the
+  // other's input today, so a mutant removing either alone survives; a mutant
+  // removing BOTH composes a sentence about nothing, which is exactly the
+  // "imply seeding was required when it wasn't" the owner ruled out, and that
+  // pair is what the sweep mutates.
   if (!list.length) return "";
   const named = list.map((s) => s.split(":")[0].trim()).filter(Boolean);
   const uniq = [...new Set(named)];

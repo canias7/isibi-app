@@ -3038,6 +3038,144 @@ could act on and does not get. No SMS has been sent. And the run pushed its own
 screenshot commit to `main` (existing `lane-sweep.yml` behaviour, `6b72131` and
 `1f2d98e`), which is worth knowing before reading main's history.
 
+### THE FOUR STATES "NO DATABASE" MEANT (2026-09-15)
+
+Owner, after run 47: *"Stop treating an unavailable existing backend as an empty
+site… Resolve the existing backend or stop the dependent addon steps with a
+specific explanation. Do not design against tables: [] when the existing schema
+is unknown."*
+
+**`siteBackendBySlug` ANSWERS ONE `null` FOR FOUR DIFFERENT FACTS**, and
+`site-backend-state.mjs` is the one pure function that tells them apart —
+shared by the Worker, the job child and `scripts/backend-repair.mjs`, so a
+repair run by hand and a repair run by a build can never disagree about what a
+site is.
+
+| state | means |
+|---|---|
+| `ready` | `site_backends.neon_db` names a database |
+| `none` | no name AND no `site_project` row — genuinely frontend-only, and **the only state in which `{tables: []}` is true** |
+| `incomplete` | no name but a project row EXISTS: the database is real, the REFERENCE is missing |
+| `unreadable` | a lookup threw. Asked FIRST, so a partial answer never decides a state |
+
+**AND THE KV CACHE IS WHY IT HID FOR A YEAR OF DEPLOYS.** `lookupRoute` checks
+`env.SITE_ROUTES` before Supabase, so in the WORKER an `incomplete` site
+resolves out of the cache whichever build last provisioned it wrote, and
+nothing looks wrong — the data proxy answers today for exactly that reason.
+**`builder/container-env.mjs` says in as many words that `SITE_ROUTES` is ABSENT
+in the container**, so when the addon moved behind `JOB_RUNNER_EVERYONE` it
+started reading Supabase directly and met the blank column. *A rule true because
+of a layer below it expires when that layer moves* — and a repair that consulted
+the cache would report every affected site as healthy, which is why
+`siteBackendDetail` reads Supabase and never `siteBackendBySlug`.
+
+**`incomplete` IS RESOLVED AND THEN PROVED, in that order.** The name derives
+(`dbNameForSite`) and the project row carries the credential, so a connection can
+be built — but **a name that derives is not a database that answers**, so it is
+probed with one trivial query first. A probe that fails answers `unreadable` with
+its own reason, never `none`.
+
+**THE ROOT IS ONE LINE, AND IT IS IN THE PROVISION.** `saveBackend` inside
+`ensureSiteBackendPure` is an INSERT with `resolution=ignore-duplicates`: for a
+site whose first build was frontend-only the row ALREADY EXISTS with
+`neon_db: ""`, so the claim is a no-op and the column stays empty for ever.
+`ensureSiteBackend` writes it now, **from the connection it is about to hand
+back** rather than re-deriving off the slug — the two agree today (MEASURED over
+ten slugs) and the difference is which question it asks, which is recorded in
+the code as deliberate rather than left for a sweep to read as a gap.
+
+**THE SCHEMA READ HAS THREE OUTCOMES, NOT TWO.** `readStoredSpec` separates a
+stored spec, a read that SUCCEEDED and found nothing (a database provisioned and
+never applied to — honestly empty, and refusing it would make the first backend
+addition on such a site impossible), and a read that FAILED or will not parse
+(unknown → stop). `_meta` not existing is the second case, matched on Postgres's
+own wording and on nothing else.
+
+**RECOVERING A DROPPED DECLARATION** — `site-schema-recover.mjs`. An addon
+writes `_meta.schema` WHOLE, so a route that read `{tables: []}` published a spec
+with the site's earlier tables missing while the tables themselves carried on
+holding rows. `reconcileSpec` keeps every stored entry EXACTLY as it stands (it
+carries metadata no catalog can rebuild) and rebuilds an entry for each table the
+database has and the spec does not. `deriveAccess` is the inverse of `grantsFor`
+and `policiesFor`; **a table whose access cannot be derived is NAMED and left
+out, never guessed**, because a wrong pair written back has the next apply
+re-issue grants on a live table. The flags no catalog can prove (`payment`,
+`timestamps`, `writeRoles`, …) are reported rather than invented.
+
+**THE SIXTEEN-CELL ROUND-TRIP CAUGHT A REAL BUG IN THAT DERIVATION.**
+`policiesFor` writes BOTH member levels against `app_user_id()` — `own` is
+`"t"."owner_id" = app_user_id()`, `members` is `app_user_id() IS NOT NULL` — so
+"mentions the function" called **seven of sixteen cells** `own` that are
+`members`, in the direction that NARROWS a live table's access. It is the
+EQUALITY that separates them. The guard asserts all sixteen exactly rather than a
+floor, because a floor is what let it sit under a passing assertion.
+
+**A DEPENDENCY CHECK, NOT A BLANKET REFUSAL** (owner: *"No client write grant
+does not mean no writer: a function, job, import, or server operation may
+populate the table"*). `missingPopulation` names a table only when this change
+gave it a READER and nothing anywhere can fill it — a seed, a declared function
+body, a job body or a client write grant all count, so every `display` table and
+price list on the platform stays silent. **It reports; it never refuses.** The
+owner's own Data panel is deliberately NOT counted as a path (it would make the
+check vacuous) and is named in the sentence instead.
+
+**AND THE SEED SKIPS REACH THE CUSTOMER.** `seedSiteRows` has answered
+`{seeded, skipped}` since it was written and the skip list went into the
+migration record, where only a developer with a token could read it —
+`"repairs: only display tables are seeded"` is the single sentence that can say
+why a brand-new table arrived empty, and run 47's customer never saw it. It is
+accurate by construction: the engine only records a skip against the design's own
+seed keys, so it can never imply seeding was required where it was not.
+
+**`scripts/backend-repair.mjs`** — preview by default, `--apply` the only mode
+that writes, `--verify` re-reads. **It verifies identity before writing**: the
+plan says `backfill` (only `incomplete`; `ready` and `none` skipped by NAME), the
+derived database ANSWERS, and it holds tables the stored spec declares. A
+database that answers and holds none of them is REFUSED — writing the reference
+there would point the platform at somebody else's data — and an empty one is
+`unproven` rather than `verified`, because rounding that up is the reading this
+whole change exists to stop. Repeatable by construction: the reference write is
+fenced in the STORE (`unsetDbFilter`, both spellings of unset), and the recovery
+only ADDS. Nothing here creates a database, drops a table or deletes a row.
+
+**THE DERIVATION IS PROVEN OVER THE WHOLE CORPUS, credential-free: 27 of 27
+sites with a recorded `neon_db` equal `dbNameForSite(slug)`, zero mismatches**,
+and exactly **five** sites are `incomplete` — `ashgrove-1`, `fretwork-1`,
+`northgroup-5`, `repairbench-1`, `washhouse-1`. Three sites are blank with no
+project row and must NOT be touched.
+
+**Guards**: `test/backend-repair.test.mjs` (**22**) drives the modules and the
+script — every permission fixture DERIVED from `grantsFor`/`policiesFor` rather
+than typed, because a hand-typed permission is a second copy of the emitter.
+`test/addon-route.test.mjs` **27 → 40**, every state and both reports driven
+through `POST /api/site/<slug>/addon` with no paid model call — including, for
+the first time, **the whole provision path end to end** (Neon's control plane
+stubbed in its own response shapes), because the line that fixes this at its root
+sits at the end of a provision and a sweep mutant deleting it survived
+everything until that existed: *a wall nobody can drive is a wall nobody is
+guarding.*
+
+**Three older guards went red and were re-anchored, not appeased**: the
+Dockerfile's transitive import walk (the new module was missing from the image —
+*staging is not enough*, and it is the guard written for exactly that), the
+`let adb = await siteBackendBySlug(env, ownerSlug);` spelling, and the inline
+`SELECT v FROM _meta` query. **Sweep: 45 mutants, 45 killed, 0 survived, 0 never
+applied, 2 comment-only controls survived.** Fifteen survived the first pass and
+**every one was a guard gap, not the product's**; two of the last three were the
+recorded shapes rather than gaps and are declared in the code — swapping
+`dbNameFromConn` for `dbNameForSite` is INERT (measured: the two agree on every
+slug, because the connection is built from the second), and `seedSkipNote`'s two
+empty checks are a deliberate PAIR, mutated together. **Suite 6,422** — 6,387 +
+22 + 13, and the arithmetic closes exactly.
+
+**NOT RUN LIVE, and the reason is a credential rather than a judgement.** The
+backfill and the schema recovery both need `SUPABASE_SERVICE_KEY` and a Neon
+connection; this session has neither (`scripts/grants-backfill.mjs` is in the
+same position and for the same reason). The five sites are still `incomplete`,
+`repairbench-1`'s `bookings` declaration is still missing, and
+`count_booked_repairs` still counts `repairs` and answers `0`. **The owner's
+press is what runs it**, exactly as with every paid harness here.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -3440,7 +3578,20 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   harness timings, 17m46s against 11m33s on trees that differ by four files,
   are the same lesson the image-step band records: **the runner decides, and no
   inference from the diff to the duration is available.**
-  The unit suite is **6,387** (2026-09-15, local — the rollout pre-flight, whose
+  The unit suite is **6,422** (2026-09-15, local — the database-discovery
+  repair, whose new cases are `backend-repair`'s **22** (the four states and the
+  census, the repair's three conditions, the heal's filter by the property it
+  enforces, the sixteen-cell round-trip through the real grant and policy
+  emitters, the ambiguity refusal, the reconcile over run 47's own state, its
+  idempotence, the internal-table and managed-column rules, `MANAGED_COLUMNS`
+  against the engine, the catalog queries, the script's preview-by-default wall,
+  the credential scrubber, identity proved four ways, an unreadable stored spec,
+  the survey, and the four population/seed module cases) and `addon-route`'s
+  **thirteen** (27 → 40: the four states, both reads, the probe, the heal's
+  no-op, the two reports and their controls, and the provision path driven end
+  to end); 6,387 + 22 + 13 closes exactly. **Three re-anchors added no case.**
+  CI has NOT read this number yet.
+  **6,387** before it (2026-09-15, local — the rollout pre-flight, whose
   new cases are `addon-sweep`'s **six**: a matching pair and a short sha by
   prefix, a mismatch on either half, cannot-tell refusing with the `unstamped`
   case taken from `healthImage` itself, the two readers' disagreement asked with
@@ -4062,12 +4213,19 @@ rule and the measurement.
   earlier table's DECLARATION is dropped while the table itself survives.**
   That makes this a data-model defect on the money path, not a reporting gap:
   every addon on an affected site designs against a site it cannot see.
-  The fix shape is a PATCH beside the claim, or a heal on read. The name is
-  derivable either way (`dbNameForSite(slug)`), which is what
-  `scripts/grants-backfill.mjs` and `build-smoke` both use to reach a site's own
-  database without it.
-- **AN ADDON DESIGNS A TABLE THAT NOTHING CAN EVER FILL (open, 2026-09-15, run
-  47).** `repairs` was declared `read: "none", write: "none"` — the `admin`
+  **FIXED IN CODE 2026-09-15, NOT YET RUN** — the section "THE FOUR STATES" has
+  it in full. `ensureSiteBackend` records the name on every provision, so no new
+  site can enter this state; `siteBackendDetail` resolves the five that already
+  have, and stops rather than calling them empty when it cannot.
+  `scripts/backend-repair.mjs --apply` closes the rows for good. **The five are
+  `ashgrove-1`, `fretwork-1`, `northgroup-5`, `repairbench-1`, `washhouse-1`**,
+  and the derivation is proven credential-free over the whole corpus: **27 of 27
+  sites with a recorded name equal `dbNameForSite(slug)`, zero mismatches**. The
+  script still verifies each one by connecting, because a name that derives is
+  not a database that answers. **The run needs the service key and is the
+  owner's press.**
+- **AN ADDON DESIGNS A TABLE THAT NOTHING CAN EVER FILL — REPORTED SINCE
+  2026-09-15, and deliberately not refused.** `repairs` was declared `read: "none", write: "none"` — the `admin`
   pair — so no client grant is emitted (measured live: `42501 permission denied
   for table repairs` to an anonymous POST) **and `seedSiteRows` skips it**, that
   function seeding the `display` pair and nothing else by a rule with its own
@@ -4076,14 +4234,24 @@ rule and the measurement.
   `0` for ever. **Nothing anywhere notices**: no step asks whether a table the
   same change designed a reader for has any way of gaining a row. The fix shape
   is a check at the cleaner, not a prompt — a table with no writer and no seed
-  is a state the tool can refuse.
-- **THE SEED SKIP REACHES NOBODY (open, 2026-09-15).** `seedSiteRows` answers
+  is a state the tool can refuse. **What shipped instead is a REPORT**, on the
+  owner's correction that *"no client write grant does not mean no writer"*:
+  `missingPopulation` names such a table only when the same change gave it a
+  reader, and a seed, a function body, a job body or a client grant all count as
+  a writer. A blanket refusal would have blocked every `display` table on the
+  platform. **Still open**: nothing stops the designer choosing that shape in the
+  first place — the customer is told, and the table is still empty.
+- **THE SEED SKIP NOW REACHES THE CUSTOMER (closed 2026-09-15).** `seedSiteRows` answers
   `{seeded, skipped}` and `skipped` carries the exact sentence
   `"repairs: only display tables are seeded (…)"` — **the only thing that can
   say why a new table arrived empty**, in that function's own words. It is
   written into the migration record (`withApplied(…, { seeded: aSeeded })`) and
   no reply, no customer sentence and no developer record surfaces it; reading it
-  needs an owner token. One clause on the addon reply is the fix.
+  needed an owner token. It rides `seedSkips` on the reply and its own clause
+  in `coverNote` now, said as an EFFECT (the table starts empty) rather than as
+  our rule about which tables are seeded — and it can never fire for a table
+  nobody asked to seed, because the engine only records a skip against the
+  design's own seed keys.
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The availability calendar's own legend (open, live on `fretwork-1` since
   run 16).** `availability-calendar.tsx` prints "Each square is the night

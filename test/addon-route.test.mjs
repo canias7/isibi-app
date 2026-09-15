@@ -867,3 +867,121 @@ test("the CONTROL for the dependency check: a table a declared function writes i
   assert.ok(!/Nothing can put rows into/.test(r.body.coverNote || ""),
     "the customer was told a populated table cannot be filled: " + r.body.coverNote);
 });
+
+test("a derived name that will not ANSWER stops the step — it never reads as a site with no database", async () => {
+  // A NAME THAT DERIVES IS NOT A DATABASE THAT EXISTS. `siteBackendDetail` asks
+  // the derived connection one trivial question before handing it back, and a
+  // refusal there is a fact about reachability — reporting it as an empty site
+  // is the whole defect this replaces, arriving by a different door.
+  const r = await addon("fw-probefail", "add a function that counts the bookings", {
+    backend: "incomplete", probeFail: true, kinds: ["function"],
+    answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT 1", internal: true }] } },
+  });
+  assert.equal(r.status, 503, "an unreachable database did not stop the step: " + JSON.stringify(r.body));
+  assert.equal(r.body.backend, "derived-database-unreachable",
+    "the reason is not named, so 'Supabase is down' and 'that database is not there' read alike");
+  assert.equal(r.body.cost, 0);
+  // AND NOTHING WAS WRITTEN ANYWHERE on the way out.
+  assert.equal(r.patched.filter((p) => /site_backends/.test(p.url)).length, 0,
+    "a reference was recorded for a database that does not answer");
+});
+
+test("a stored schema that will not parse stops the step rather than becoming an empty one", async () => {
+  // THE WORST CASE TO GUESS AT: the site HAS a schema and we cannot read it.
+  // An empty answer here is run 47's defect with a different cause.
+  const r = await addon("fw-metajunk", "add a function that counts the bookings", {
+    metaJunk: true, kinds: ["function"],
+    answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT 1", internal: true }] } },
+  });
+  assert.equal(r.body.ok, false, "an unparseable schema was designed against: " + JSON.stringify(r.body));
+  assert.equal(r.body.reason, "no-meta");
+  assert.equal(r.body.cost, 0);
+});
+
+test("a second repair run claims nothing: an empty representation is 'already set', not a heal", async () => {
+  // THIS IS WHAT REPEATABLE LOOKS LIKE FROM THE ROUTE. The filter matched no
+  // row because the name is already recorded; reporting that as a repair would
+  // make every run after the first claim work it did not do.
+  const r = await addon("fw-healnoop", "add a function that counts the bookings", {
+    backend: "incomplete", healNoop: true, kinds: ["function"],
+    answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT COUNT(*) FROM bookings", internal: true }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.backend, "incomplete");
+  assert.equal(r.body.backendHealed, undefined, "a PATCH that matched nothing was reported as a repair");
+  // THE ATTEMPT STILL HAPPENED — this is about what is CLAIMED, not about
+  // skipping the write, and without it the assertion above passes vacuously.
+  assert.equal(r.patched.filter((p) => /site_backends/.test(p.url)).length, 1,
+    "the heal was not attempted at all, so the claim assertion proves nothing");
+});
+
+test("the seed skip the engine computed reaches the customer, and a resolved reference is never a provision", async () => {
+  // Owner: *"Surface relevant seed skips accurately."* The report has existed in
+  // `seedSiteRows` since it was written and went into the migration record,
+  // where only a developer with a token could read it. Run 47's customer was
+  // never told why `repairs` arrived empty.
+  const r = await addon("fw-seedskip", "add a repairs table with some starter rows", {
+    backend: "incomplete", publishes: true, kinds: ["table"],
+    answers: { table: { table: [{
+      table: { name: "repairs", read: "none", write: "none", columns: [{ name: "who", type: "text" }] },
+      seed: [{ who: "Sam" }, { who: "Priya" }],
+    }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.ok(Array.isArray(r.body.seedSkips) && r.body.seedSkips.length,
+    "the engine's skip report did not reach the reply: " + JSON.stringify(r.body.seedSkips));
+  assert.match(r.body.seedSkips[0], /repairs/);
+  assert.match(r.body.coverNote, /starter rows ready for repairs/,
+    "the customer was not told why the table starts empty: " + r.body.coverNote);
+  // AND THE RESOLVED REFERENCE IS NOT A PROVISION. Run 47's reply said the site
+  // "got its database for it" about one it had had for twelve minutes.
+  assert.ok(!r.body.provisioned, "a resolved reference was reported as a newly made database");
+  assert.equal(r.body.backendHealed, true);
+});
+
+test("the CONTROL: a table that IS seeded says nothing about seeding", async () => {
+  // "Do not imply seeding was required when it wasn't" — the same change, with
+  // a display table whose rows really land.
+  const r = await addon("fw-seedok", "add a menu with some starter rows", {
+    publishes: true, kinds: ["table"],
+    answers: { table: { table: [{
+      table: { name: "menu", read: "public", write: "none", columns: [{ name: "item", type: "text" }] },
+      seed: [{ item: "Flat white" }],
+    }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.seedSkips, undefined, "a seeded table was reported as skipped");
+  assert.ok(!/starter rows ready/.test(r.body.coverNote || ""),
+    "the customer was told about a skip that did not happen: " + r.body.coverNote);
+});
+
+test("a provision records the database name on the ownership row — the defect's root, driven", async () => {
+  // THE ONE LINE THAT FIXES RUN 47 AT ITS SOURCE, and the only way to reach it.
+  //
+  // `saveBackend` inside `ensureSiteBackendPure` is an INSERT with
+  // `resolution=ignore-duplicates`: for a site whose first build was
+  // frontend-only the row ALREADY EXISTS with `neon_db: ""`, so the claim is a
+  // no-op and the column stays empty for ever. Five live sites are in that
+  // state. The fixture answers that claim with an empty representation, which
+  // is exactly the live shape, so this drives the real failure rather than a
+  // convenient one.
+  const r = await addon("fw-provision", "add a table that stores repair bookings", {
+    backend: "none", provisions: true, publishes: true, kinds: ["table"],
+    answers: { table: { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] } },
+  });
+  assert.equal(r.body.ok, true, "the provision path did not complete: " + JSON.stringify(r.body));
+  // THE PROVISION REALLY RAN — without this the assertion below could pass on a
+  // site that never needed one.
+  assert.ok(r.neonCalls.some((u) => u === "/projects"), "no Neon project was created: " + JSON.stringify(r.neonCalls));
+  assert.equal(r.body.provisioned, true, "a site that had no database was not reported as getting one");
+  // AND THE NAME WAS RECORDED. The PATCH is the fix; without it the next addon
+  // reads a blank column, calls the site empty, and designs a second table.
+  const patch = r.patched.find((p) => /site_backends/.test(p.url));
+  assert.ok(patch, "the provision did not record the database name — every later addon will read this site as empty");
+  const { dbNameForSite } = await import("../site-db.mjs");
+  assert.equal(patch.body.neon_db, dbNameForSite("fw-provision"),
+    "the recorded name is not the database that was made: " + JSON.stringify(patch.body));
+  // READ OFF THE CONNECTION, NOT RE-DERIVED. The two agree here by construction,
+  // which is the point: the row can never name a database nothing connects to.
+  assert.ok(/neon_db\.is\.null/.test(patch.url), "the record is written without the fence that stops it overwriting a set name");
+});

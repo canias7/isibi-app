@@ -6367,6 +6367,18 @@ async function ensureSiteBackend(env, slug, uid, brief, mark, chatId = "") {
   // for a string it cannot parse and the heal then does nothing, which is the
   // right direction for a line that only decorates a record.
   //
+  // AND `dbNameForSite(slug)` WOULD ANSWER THE SAME THING TODAY — MEASURED over
+  // ten slugs including the five affected sites, the two agree every time,
+  // because the connection is BUILT from `dbNameForSite` a few lines up. So a
+  // sweep mutant swapping one for the other is INERT, and is recorded here
+  // rather than hunted as a test gap: the difference is not what it computes
+  // now, it is which QUESTION it asks. "What database is this connection
+  // pointing at" survives a future where the two diverge — an `already exists`
+  // recovery, a rename, a name Neon truncated — and "what would we call it"
+  // does not. Kept deliberately; the guard asserts the recorded name equals the
+  // database that was really made, which is the property either expression has
+  // to satisfy.
+  //
   // Best-effort and deliberately AFTER the return value is settled: the
   // database exists, the schema is appliable and the caller's work can proceed
   // whether or not this lands. A failure logs; the next provision retries it,

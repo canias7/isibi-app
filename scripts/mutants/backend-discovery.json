@@ -1,0 +1,380 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the four states",
+    "control": true,
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": " * Decide from the two rows, and nothing else.",
+    "to": " * Decide from the two rows, and from nothing else at all."
+  },
+  {
+    "label": "CONTROL 2: a comment only, in the reconciler",
+    "control": true,
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": " * STORED ENTRIES ARE NEVER TOUCHED. A stored table carries metadata no catalog",
+    "to": " * STORED ENTRIES ARE LEFT ALONE. A stored table carries metadata no catalog"
+  },
+  {
+    "label": "cannot-tell is no longer asked first: a failed lookup decides a state from rows it could not read",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "  if (failed) {\n    return { state: \"unreadable\"",
+    "to": "  if (failed && !site) {\n    return { state: \"unreadable\""
+  },
+  {
+    "label": "an incomplete reference reads as no database again — the run-47 defect itself",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "  if (project) return { state: \"incomplete\", db: null, why: \"project-without-db-name\" };",
+    "to": "  return { state: \"none\", db: null, why: \"no-database\" };\n  if (project) return { state: \"incomplete\", db: null, why: \"project-without-db-name\" };"
+  },
+  {
+    "label": "a whitespace-only column reads as a recorded name",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "  const db = typeof site.neon_db === \"string\" ? site.neon_db.trim() : \"\";",
+    "to": "  const db = typeof site.neon_db === \"string\" ? site.neon_db : \"\";"
+  },
+  {
+    "label": "the repair acts on every state, so a ready site's valid name is overwritten",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "  if (st.state !== \"incomplete\") {",
+    "to": "  if (st.state === \"nothing-is-ever-this\") {"
+  },
+  {
+    "label": "the repair acts on a frontend-only site, inventing a database name for one that has none",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "  if (st.state !== \"incomplete\") {",
+    "to": "  if (st.state !== \"incomplete\" && st.state !== \"none\") {"
+  },
+  {
+    "label": "a deriver that throws still produces a write",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "  try { db = String(derive(slug) || \"\"); } catch (e) { db = \"\"; }\n  if (!db) return { act: \"skip\"",
+    "to": "  try { db = String(derive(slug) || \"\"); } catch (e) { db = String(slug); }\n  if (!db) return { act: \"skip\""
+  },
+  {
+    "label": "the filter covers only NULL, so every row written as an empty string stays unrepaired",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "export function unsetDbFilter() { return \"or=(neon_db.is.null,neon_db.eq.)\"; }",
+    "to": "export function unsetDbFilter() { return \"neon_db=is.null\"; }"
+  },
+  {
+    "label": "the filter stops fencing on neon_db at all — the heal overwrites a valid setting",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "export function unsetDbFilter() { return \"or=(neon_db.is.null,neon_db.eq.)\"; }",
+    "to": "export function unsetDbFilter() { return \"order=slug\"; }"
+  },
+  {
+    "label": "an unparseable connection yields the whole string as a database name",
+    "files": [
+      "site-backend-state.mjs"
+    ],
+    "from": "  } catch { return \"\"; }\n}",
+    "to": "  } catch { return String(conn || \"\"); }\n}"
+  },
+  {
+    "label": "members reads as own again: the derivation asks for the function instead of the comparison",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "const ownish = (p) => /app_user_id\\s*\\(\\s*\\)\\s*=|=\\s*app_user_id\\s*\\(/i.test(",
+    "to": "const ownish = (p) => /app_user_id\\s*\\(|owner_id/i.test("
+  },
+  {
+    "label": "the WITH CHECK half goes, so an insert-only own table reads as members",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "String((p && p.q) || \"\") + \" \" + String((p && p.w) || \"\"));",
+    "to": "String((p && p.q) || \"\"));"
+  },
+  {
+    "label": "an underivable access is guessed at instead of refused",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "  if (read === null || write === null) return null;",
+    "to": "  if (read === null) read = \"none\";\n  if (write === null) write = \"none\";"
+  },
+  {
+    "label": "column privileges are not read, so every booking form derives as write: none",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    \"UNION \" +\n    \"SELECT table_name AS t, grantee AS g, privilege_type AS p FROM information_schema.column_privileges \" +\n    \"WHERE table_schema = 'public'\",",
+    "to": "    \"\","
+  },
+  {
+    "label": "a stored table is rewritten from the catalog, losing the metadata no catalog can rebuild",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    if (known.has(String(name).toLowerCase())) continue;",
+    "to": "    if (false) continue;"
+  },
+  {
+    "label": "internal tables are recovered into the customer's schema",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    if (!r || !r.t || isInternalName(r.t)) continue;",
+    "to": "    if (!r || !r.t) continue;"
+  },
+  {
+    "label": "managed columns are declared, so the next apply fights the engine's own DDL",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    const declared = columns.filter((c) => !MANAGED_COLUMNS.has(String(c.name).toLowerCase()));",
+    "to": "    const declared = columns;"
+  },
+  {
+    "label": "the recovery is not idempotent: it reports a change with nothing added",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    changed: add.length > 0,",
+    "to": "    changed: true,"
+  },
+  {
+    "label": "the flags a catalog cannot prove are never named, so a recovery reads as complete",
+    "files": [
+      "site-schema-recover.mjs"
+    ],
+    "from": "    unprovable: add.length ? UNPROVABLE_FLAGS.slice() : [],",
+    "to": "    unprovable: [],"
+  },
+  {
+    "label": "the route asks the cached reader again, which reports every affected site as healthy",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aBack = await siteBackendDetail(env, ownerSlug);",
+    "to": "            const aBack = { state: \"ready\", conn: await siteBackendBySlug(env, ownerSlug), db: \"\", uid: ou.id, why: \"recorded\" };"
+  },
+  {
+    "label": "an unreadable backend designs against an empty site instead of stopping",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (aBack.state === \"unreadable\") {",
+    "to": "            if (false) {"
+  },
+  {
+    "label": "the stop does not name which link failed, so three different failures read alike",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                ok: false, error: \"backend\", cost: 0, ours: true, backend: aBack.why,",
+    "to": "                ok: false, error: \"backend\", cost: 0, ours: true,"
+  },
+  {
+    "label": "an unreadable backend is charged for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                ok: false, error: \"backend\", cost: 0, ours: true, backend: aBack.why,",
+    "to": "                ok: false, error: \"backend\", cost: 1, ours: true, backend: aBack.why,"
+  },
+  {
+    "label": "the empty spec is keyed on the connection again — a site with tables reads as having none",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (aBack.state === \"none\") aSpec = { tables: [] };",
+    "to": "            if (!adb) aSpec = { tables: [] };"
+  },
+  {
+    "label": "a frontend-only site is refused instead of given an honest empty spec",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (aBack.state === \"none\") aSpec = { tables: [] };",
+    "to": ""
+  },
+  {
+    "label": "the incomplete reference is never repaired, so every later addon meets the blank column",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (aBack.state === \"incomplete\") {\n              const h = await healSiteBackendDb(",
+    "to": "            if (false) {\n              const h = await healSiteBackendDb("
+  },
+  {
+    "label": "a resolved reference is reported as a provision, as run 47's reply did",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                provisioned: aProvisioned || undefined,\n                migration: migrationSummary(aMigration),",
+    "to": "                provisioned: (aProvisioned || aHealedRef) || undefined,\n                migration: migrationSummary(aMigration),"
+  },
+  {
+    "label": "a schema read that FAILED becomes an empty site",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (!stored.ok) throw new Error(\"schema read: \" + stored.why);",
+    "to": "                if (!stored.ok) stored.spec = { tables: [] };"
+  },
+  {
+    "label": "a missing _meta table is refused instead of read as an honestly empty database",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (/relation .* does not exist|undefined_table|42P01/i.test(m)) return { ok: true, spec: { tables: [] }, why: \"no-meta-table\" };",
+    "to": "    if (false) return { ok: true, spec: { tables: [] }, why: \"no-meta-table\" };"
+  },
+  {
+    "label": "a stored spec that will not parse is read as an empty one",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    return { ok: false, why: \"unparseable\" };",
+    "to": "    return { ok: true, spec: { tables: [] }, why: \"unparseable\" };"
+  },
+  {
+    "label": "the derived database is never probed, so a name that derives is taken as one that answers",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    try { await sqlQuery(conn, \"SELECT 1\"); }",
+    "to": "    try { if (false) await sqlQuery(conn, \"SELECT 1\"); }"
+  },
+  {
+    "label": "a database that will not answer reads as a site with no database",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      return { state: \"unreadable\", db: dbNameForSite(s), why: \"derived-database-unreachable\",",
+    "to": "      return { state: \"none\", db: null, why: \"derived-database-unreachable\","
+  },
+  {
+    "label": "the heal writes whatever it is handed, overwriting a set name",
+    "files": [
+      "worker.js"
+    ],
+    "from": "&uid=eq.${encodeURIComponent(u)}&${unsetDbFilter()}`,",
+    "to": "&uid=eq.${encodeURIComponent(u)}`,"
+  },
+  {
+    "label": "an empty representation is reported as a heal, so a repeat run claims work it did not do",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    return { ok: true, healed: Array.isArray(rows) && rows.length > 0, status: r.status };",
+    "to": "    return { ok: true, healed: true, status: r.status };"
+  },
+  {
+    "label": "provisioning stops recording the database name — the defect's own root, back",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  await healSiteBackendDb(env, slug, uid, dbNameFromConn(conn));",
+    "to": ""
+  },
+  {
+    "label": "the recorded name is wrong, so the row points at a database nothing connects to",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  await healSiteBackendDb(env, slug, uid, dbNameFromConn(conn));",
+    "to": "  await healSiteBackendDb(env, slug, uid, \"wrong_db\");"
+  },
+  {
+    "label": "the population check refuses instead of reporting, so every legitimate read-only table is blocked",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (!wanted.has(name)) continue;",
+    "to": "    if (false) continue;"
+  },
+  {
+    "label": "a function that writes the table is not counted as a population path",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (seeded.has(name) || written.has(name)) continue;",
+    "to": "    if (seeded.has(name)) continue;"
+  },
+  {
+    "label": "a seeded table is reported as unfillable",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (seeded.has(name) || written.has(name)) continue;",
+    "to": "    if (written.has(name)) continue;"
+  },
+  {
+    "label": "a client-writable table is reported as unfillable",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (write !== \"none\") continue;",
+    "to": "    if (write === \"nothing-is-ever-this\") continue;"
+  },
+  {
+    "label": "jobs are not scanned for writers, so a table a job fills is reported",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  for (const j of Array.isArray(s.jobs) ? s.jobs : []) if (j && typeof j.body === \"string\") bodies.push(j.body);",
+    "to": ""
+  },
+  {
+    "label": "the reader scan matches a longer name, so repairs_archive counts as repairs",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (new RegExp(\"\\\\b\" + String(n).replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\") + \"\\\\b\", \"i\").test(blob) && !out.includes(n)) out.push(n);",
+    "to": "    if (blob.toLowerCase().includes(String(n).toLowerCase()) && !out.includes(n)) out.push(n);"
+  },
+  {
+    "label": "the unfillable table is never named to the customer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  populationNote(aNoFill),",
+    "to": ""
+  },
+  {
+    "label": "the seed skips go back to reaching nobody",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  seedSkipNote(aSeedSkips),",
+    "to": ""
+  },
+  {
+    "label": "BOTH empty checks go, so a sentence about nothing implies seeding was required",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (!list.length) return \"\";\n  const named = list.map((s) => s.split(\":\")[0].trim()).filter(Boolean);\n  const uniq = [...new Set(named)];\n  if (!uniq.length) return \"\";",
+    "to": "  const named = list.map((s) => s.split(\":\")[0].trim()).filter(Boolean);\n  const uniq = [...new Set(named)];"
+  },
+  {
+    "label": "the seed skips are never read off the engine's answer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice(0, 12) : [];",
+    "to": "                aSeedSkips = [];"
+  }
+]

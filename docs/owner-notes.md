@@ -155,6 +155,137 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The repair for what the live test found
+
+All five things you asked for are built, guarded and committed. **None of them
+has run against the live platform yet, and the reason is a credential rather
+than a judgement** — I'll come to that at the end, because it's the one thing
+that needs your press.
+
+### What was actually wrong, more completely than I said last time
+
+I told you `site_backends.neon_db` was blank and that the addon therefore
+thought the site had no tables. That was right as far as it went and it was
+missing the half that explains why nobody noticed for so long.
+
+**There is a cache in front of that column, and the container cannot see it.**
+The Worker checks a KV store before it asks the database — so in the Worker an
+affected site resolves out of the cache some earlier build wrote, and everything
+works. That's why your site's data routes answer perfectly today. The
+container has no such cache (it's written down in our own code that it doesn't),
+so when addons moved into the container they started asking the database
+directly and met the blank column. The defect was created weeks ago and became
+*reachable* the day we moved the work.
+
+### 1. Provisioning records the name, and the five old sites can be closed
+
+The root is one line. When a site is built frontend-only, its ownership row
+already exists — so the later "record the database" step is an insert that
+quietly does nothing, and the column stays empty for ever. It's written on every
+provision now, taken from the connection we're about to use, and fenced so it can
+never overwrite a name that's already there. Running it twice is running it once.
+
+**Which sites, and how I know the name is right.** Five: `ashgrove-1`,
+`fretwork-1`, `northgroup-5`, `repairbench-1`, `washhouse-1`. Three others are
+blank *and have no database* — genuinely frontend-only — and must not be touched;
+the repair skips them by name, not by a filter someone has to keep getting right.
+
+I checked the naming rule against every site that has one: **27 out of 27
+recorded names are exactly what the platform would derive, zero mismatches.**
+That's as far as I can verify without a database connection, and it isn't far
+enough on its own — a name that derives is not a database that exists — so the
+script still connects and asks before it writes anything.
+
+### 2. "No database" now has four different answers
+
+It used to have one, and it meant four things. Now:
+
+- **ready** — normal.
+- **none** — no database at all. The *only* case where "this site has no tables"
+  is true.
+- **incomplete** — the database is real, the reference is missing. Resolved, and
+  the row repaired on the way past.
+- **unreadable** — we couldn't tell. **Stops the work and says which link
+  failed**, costs nothing, changes nothing.
+
+And reading the schema now has three outcomes instead of two: a schema, an
+honestly empty database, and *a read that failed* — which stops rather than
+pretending the site is empty.
+
+### 3. Recovering a lost declaration
+
+The tables are still in Postgres; what went is our record of them. So the repair
+reconciles: every stored entry is kept exactly as it stands, and anything the
+database has that the record doesn't is rebuilt from what the database can
+actually prove — its columns, and who may read and write it.
+
+**Where it can't prove something, it says so instead of guessing.** Two
+permission levels look identical unless you read the policies, so a table whose
+access can't be pinned down is named and left alone rather than written back
+wrong — writing a wrong one would have the next change re-issue permissions on a
+live table. And flags that leave no trace once their setup has run (whether a
+table takes payments, for instance) simply cannot be recovered; the report says
+which.
+
+**That check found a real bug in my own derivation.** I'd used "does the policy
+mention the signed-in user" to tell the two member levels apart — and both of
+them mention it. Seven of sixteen combinations came out wrong, in the direction
+that *narrows* who can read a live table. It's the equals sign that separates
+them. Caught by round-tripping all sixteen through the real permission code
+rather than by reading it.
+
+### 4. A report, not a refusal — your correction, taken
+
+I had planned to refuse any table nothing could write to. You were right that
+this is wrong: *"a function, job, import, or server operation may populate the
+table"*. Every price list and opening-hours table on the platform would have
+been blocked.
+
+So it reports, and only when the same change gave the table something that reads
+it. A seed, a function that inserts, a job, or a public form all count as a way
+in — I drove all five silent cases plus run 47's own, so the check is proved
+awake as well as quiet. Your own Data panel deliberately doesn't count (it would
+make the check meaningless), and the sentence names it as a way out instead.
+
+### 5. Seed skips are said
+
+We've always computed *why* a new table arrived empty and filed it where only a
+developer with a token could read it. It's on the reply now, phrased as what it
+means rather than as our internal rule — and it can't fire for a table nobody
+asked to seed, because the report is only ever written against the design's own
+seed list.
+
+### What I verified, and what I couldn't
+
+Everything above is driven through the real addon route with no paid model call:
+the four states, both kinds of failed read, the probe, the repair's no-op on a
+second run, both reports and their controls — and, for the first time here, **the
+whole "make this site a database" path end to end.** That last one mattered
+because the single line that fixes this at its root sits at the end of a
+provision, and a deliberately-broken version of it survived every check I had
+until that path could be driven.
+
+Suite **6,422 green**. Mutation sweep **45 of 45 caught, nothing survived**, both
+controls intact — fifteen survived the first pass and every one was a gap in my
+new checks rather than a fault in the product.
+
+**What has NOT happened:** the five sites are still unrepaired,
+`repairbench-1`'s `bookings` record is still missing, and `/status` still reads
+`0`. The repair needs the service key and a database connection, and this
+session has neither — same wall as the grants backfill, and the same answer:
+
+```
+node scripts/backend-repair.mjs --preview                    # writes nothing
+node scripts/backend-repair.mjs --apply --slug repairbench-1 # one site
+node scripts/backend-repair.mjs --verify
+```
+
+I'd start with `--preview` on everything: it prints what it would do to each of
+the five and refuses any whose database doesn't answer or doesn't look like
+theirs, without writing a thing.
+
+---
+
 ## 2026-09-15 — The live test ran, and it found a real one
 
 You pressed the button twice. Both runs are done. **The reporting patch works,
