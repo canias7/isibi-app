@@ -3942,9 +3942,72 @@ repairbench-1: VERIFIED
 **`repairbench-1` IS OUT OF THE FIVE.** Four remain `incomplete` and untouched:
 `ashgrove-1`, `fretwork-1`, `northgroup-5`, `washhouse-1`.
 
-**STILL NOT REPAIRED.** Those four, and `count_booked_repairs` still counts
-`repairs` and answers `0` — which the backend repair does not fix and never
-claimed to: that is `scripts/repairbench-count-fix.mjs`, a separate object.
+### AND THE COUNT FUNCTION IS CORRECTED — `/status` READS 3 (2026-09-15)
+
+Three presses on `repairbench count fix`, all green, all on `main` `ef55f4de`.
+**Run 1 (preview, 17:19:06→17:19:47Z)**, **run 2 (apply, 17:48:02→17:48:34Z)**,
+**run 3 (verify, 17:52:25→17:52:40Z, exit 0)**.
+
+**ONE IDENTIFIER MOVED AND THE ARITHMETIC PROVES IT: the definition went 159 →
+160 characters**, which is exactly `bookings`(8) − `repairs`(7). `RETURNS
+bigint`, `LANGUAGE sql` and **`SECURITY DEFINER`** all came through as Postgres
+itself had written them, because the statement was rewritten from
+`pg_get_functiondef` rather than rebuilt from a template — the recorded reason
+that rule exists, now with a live instance behind it.
+
+    - AS $function$ SELECT COUNT(*) FROM repairs  $function$
+    + AS $function$ SELECT COUNT(*) FROM bookings $function$
+
+**THE THREE NUMBERS, before and after, from the run's own output:**
+
+| reader | before | after |
+|---|---|---|
+| `SELECT COUNT(*) FROM bookings` | 3 | **3** |
+| `count_booked_repairs()` direct | **0** | **3** |
+| the site's own public RPC (HTTP 200) | **0** | **3** |
+
+`PASS — all three agree` on the apply; `VERIFY PASSED — all three counts agree
+and the function reads bookings` on the separate verify run, which sits ABOVE
+the rewrite and exits nonzero on any failed postcondition. **And the RPC was
+read a second time from this session**, through both addresses
+(`gofarther.dev/api/db/…` and `repairbench-1.gofarther.app/api/db/…`), both
+**200 answering `3`** — two processes, one number.
+
+**AND THE BROWSER CHECK IS ITS OWN CLAIM, with a baseline taken BEFORE the
+press.** A real Chromium opened `/status` twice with the same script: the
+rendered figure under *"Repairs currently booked"* went **`0` → `3`**, the
+page's own recorded network call went `…/rpc/count_booked_repairs → 0` → `→ 3`,
+and there were no page errors either time. **`x-site-version
+01789437370636-f11bde` in both**, so the site was never republished and never
+needed to be — the page had been asking the right question all along and the
+function was answering about the wrong table. That is why this cost no build,
+no container and no credits.
+**The two checks are deliberately separate and neither substitutes for the
+other**: the RPC asks the database over HTTP, the browser runs the real route
+chunk and reads the pixels' own source — and the RECORDED CALL is what ties
+"the page shows 3" to the call that produced it rather than to a number that
+happens to be on screen. This is the shape the "a 200 is an availability check
+and never a health check" trap asks for, run for the first time.
+
+**THE SESSION'S BROWSER TRUST STORE WAS EMPTY, and that is worth recording
+because a render is now a usable instrument here.** Chromium refused the site's
+certificate with `net::ERR_CERT_AUTHORITY_INVALID`: the agent proxy
+re-terminates TLS, and `/root/.pki/nssdb` held **zero** certificates despite the
+proxy's README saying the browser NSS store is set up. The fix is
+`apt-get install libnss3-tools` then `certutil -A -n ccr-agent-proxy -t "C,," -d
+sql:$HOME/.pki/nssdb -i /root/.ccr/agent-proxy-ca.crt` — **trusting ONE NAMED CA,
+never `--ignore-certificate-errors`**, which would be the disabling this
+environment forbids. The executable is `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`
+(the bare `chromium` symlink's `chrome-linux/chrome` does not exist).
+
+**WHAT THIS DOES NOT CLOSE.** `repairs` still exists, is still `read:"none",
+write:"none"`, and still has no way of gaining a row — the backlog entry stands
+exactly as written. What changed is that nothing reads it any more, so the
+site's own page is correct while the underlying design defect is not fixed.
+`search_path` is untouched and stays recorded on its own: the corrected function
+is still `SECURITY DEFINER` with no `SET search_path`, which the repair
+PRESERVED rather than changed, and whether that is exploitable here is still
+unmeasured in both directions.
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -5097,8 +5160,11 @@ rule and the measurement.
   for table repairs` to an anonymous POST) **and `seedSiteRows` skips it**, that
   function seeding the `display` pair and nothing else by a rule with its own
   measured history. The designer answered starter rows and they were correctly
-  discarded. The table is empty by construction and the page counting it reads
-  `0` for ever. **Nothing anywhere notices**: no step asks whether a table the
+  discarded. The table is empty by construction. **The page no longer counts it
+  — the count correction moved `count_booked_repairs` onto `bookings` on
+  2026-09-15 and `/status` reads 3 — so the SYMPTOM is gone and the DEFECT is
+  not**: `repairs` still exists, still has no writer and no seed, and the next
+  addon that chooses that shape gets the same table. **Nothing anywhere notices**: no step asks whether a table the
   same change designed a reader for has any way of gaining a row. The fix shape
   is a check at the cleaner, not a prompt — a table with no writer and no seed
   is a state the tool can refuse. **What shipped instead is a REPORT**, on the

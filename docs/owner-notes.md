@@ -560,6 +560,62 @@ them.
 **And `/status` still says `0`** — that was never this repair's job. It is the
 count correction, the third press.
 
+### And then /status said 3
+
+Three presses on the count fix — preview, apply, verify — all green.
+
+**The change was one word.** The definition went from 159 characters to 160,
+which is exactly the difference between `repairs` and `bookings`. Nothing else
+in that function moved, and that includes the `SECURITY DEFINER` line that lets
+it read the table at all — it was rewritten from what Postgres itself had
+stored, not rebuilt from a template, which is how a repair like this quietly
+breaks something days later.
+
+**The three numbers, before and after:**
+
+| | before | after |
+|---|---|---|
+| rows in `bookings` | 3 | 3 |
+| the function, called directly | **0** | **3** |
+| the function, through the site's own address | **0** | **3** |
+
+The apply said `PASS — all three agree`; the separate verify run said
+`VERIFY PASSED`. I also read that number again myself, from here, through both
+addresses — both 3. So it has been read by two different machines.
+
+### And I actually looked at the page
+
+Separately from the database check, I opened `/status` in a real browser before
+and after, with the same script both times. It went from **0** to **3** under
+"Repairs currently booked", and I recorded the page's own request each time, so
+the number on screen is tied to the call that produced it rather than to
+something that merely looks right. Both screenshots are in the chat.
+
+**The site was never republished** — same version header before and after. The
+page had been asking the right question the whole time; the function was
+answering about the wrong table. That is why this cost nothing: no build, no
+container, no credits.
+
+### What is not fixed
+
+The `repairs` table is still there, still with no way of getting a row into it.
+Nothing reads it now, so nothing on the site is wrong — but the thing that
+*made* it is unchanged, and the next time a design goes that way you get the
+same empty table. That stays on the list.
+
+The `search_path` question is untouched and stays on its own: the corrected
+function is still `SECURITY DEFINER` with no `search_path` set, exactly as it
+was. I preserved it rather than changing it, because a repair is the wrong
+place to make a different decision under this one's approval.
+
+Four sites still have the blank reference: `ashgrove-1`, `fretwork-1`,
+`northgroup-5`, `washhouse-1`. Same two presses each, whenever you want them.
+
+**One environment note**, because it makes a browser check repeatable from here
+in future: this session's browser trusted nothing at all, so Chromium refused
+the site's certificate. I added the proxy's own certificate authority by name —
+verification stays on — rather than turning certificate checking off.
+
 ---
 
 ## 2026-09-15 — The four failures you found, fixed through the commands
