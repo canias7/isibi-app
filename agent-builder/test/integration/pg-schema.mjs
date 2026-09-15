@@ -264,10 +264,37 @@ try {
   refused("a client cannot delete a run", `delete from agent.runs where tenant_id='t1';`, "permission denied", claimT1);
   refused("an anonymous caller cannot even read", `select count(*) from agent.runs;`, "permission denied", { role: "anon", claims: '{"tenant_id":"t1"}' });
 
+  console.log("\n── A SINGLE ENTRY CANNOT BE DELETED WHILE ITS RUN REMAINS ──");
+  // Losing one entry corrupts the log in the one way a reader cannot SEE: a model
+  // entry whose tool result is gone replays as a call still PENDING, and `problems`
+  // is empty, because a deleted entry is indistinguishable from one never written.
+  // Measured before the fix — a completed `charge` came back pending.
+  refused("a client cannot delete an entry (no such grant)",
+    `delete from agent.run_entries where run_id='${T1}' and seq=2;`, "permission denied", claimT1);
+  refused("nor can the writer",
+    `delete from agent.run_entries where run_id='${T1}' and seq=2;`, "permission denied", asWriter);
+  refused("NOR CAN A CALLER WITH EVERY PRIVILEGE — the trigger, not the grant",
+    `delete from agent.run_entries where run_id='${T1}' and seq=2;`, "cannot be deleted on its own", {});
+  check("the tool result is still there", psql(`select count(*) from agent.run_entries where run_id='${T1}' and seq=2;`, asWriter).out === "1");
+  refused("...and it cannot be done inside a transaction that touches nothing else",
+    `begin; delete from agent.run_entries where run_id='${T1}' and seq=2; commit;`, "cannot be deleted on its own", {});
+
   console.log("\n── retention still works, and takes the log with it ──");
+  check("t2's log exists before the delete (or the next check proves nothing)",
+    psql(`select count(*) from agent.run_entries where run_id='${T2}';`, asWriter).out === "1");
   allowed("the writer can delete a run", `delete from agent.runs where id='${T2}';`, asWriter);
   check("...and its entries went with it",
     psql(`select count(*) from agent.run_entries where run_id='${T2}';`, asWriter).out === "0");
+  check("...and the run is gone too", psql(`select count(*) from agent.runs where id='${T2}';`, asWriter).out === "0");
+
+  console.log("\n── the marker does not leak past the transaction that set it ──");
+  // A pooled connection reuses sessions. If the marker survived a commit, the next
+  // statement on that connection could delete an entry on its own.
+  refused("after a run delete has committed, a lone entry delete is refused again",
+    `delete from agent.run_entries where run_id='${T1}' and seq=2;`, "cannot be deleted on its own", {});
+  check("CONTROL: the log that survived all of that is intact",
+    psql(`select count(*) from agent.run_entries where run_id='${T1}';`, asWriter).out === "6",
+    psql(`select count(*) from agent.run_entries where run_id='${T1}';`, asWriter).out);
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

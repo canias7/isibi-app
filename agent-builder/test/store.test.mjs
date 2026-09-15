@@ -1,370 +1,89 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeRunStore, duplicateKind, LOGICAL_UNIQUE, POSITION_UNIQUE, DUPLICATE } from "../src/store.mjs";
-
-// ── a fake PostgREST. Answers are scripted; every request is recorded. ────────
-const reply = (status, body) => ({
-  ok: status >= 200 && status < 300,
-  status,
-  text: async () => (body === undefined ? "" : JSON.stringify(body)),
-});
-const ok = (body) => reply(200, body);
-const dup = (constraint, details = "") => reply(409, {
-  code: DUPLICATE, message: `duplicate key value violates unique constraint "${constraint}"`, details,
-});
-
-function fakeRest(answers) {
-  const calls = [];
-  const fetch = async (url, init) => {
-    calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined });
-    const a = answers[calls.length - 1];
-    if (a === undefined) throw new Error(`fake rest ran past its script at call ${calls.length}`);
-    return typeof a === "function" ? a(calls.at(-1)) : a;
-  };
-  fetch.calls = calls;
-  return fetch;
-}
-const storeWith = (answers) => {
-  const fetch = fakeRest(answers);
-  return { fetch, store: makeRunStore({ fetch, url: "https://p.supabase.co/", key: "svc-key" }) };
-};
-
-// ── duplicateKind: it must refuse to guess ───────────────────────────────────
-test("duplicateKind tells a LOGICAL duplicate from a POSITION one", () => {
-  for (const c of LOGICAL_UNIQUE) {
-    assert.equal(duplicateKind({ code: DUPLICATE, message: `...constraint "${c}"` }), "logical", `${c} misread`);
-  }
-  assert.equal(duplicateKind({ code: DUPLICATE, message: `...constraint "${POSITION_UNIQUE}"` }), "position");
-  // The two need OPPOSITE handling — one is "already recorded", the other is "that
-  // slot is taken" — so collapsing them is the one way this could lose an entry.
-  assert.ok(LOGICAL_UNIQUE.length >= 4, "the logical rules shrank — every kind needs one");
-});
-
-test("duplicateKind REFUSES TO GUESS at anything it does not recognise", () => {
-  // Reading an unknown refusal as "already recorded" would silently drop a real
-  // entry, which is the one outcome the whole module exists to prevent.
-  assert.equal(duplicateKind({ code: DUPLICATE, message: 'constraint "some_other_index"' }), null);
-  assert.equal(duplicateKind({ code: "23503", message: `constraint "${POSITION_UNIQUE}"` }), null, "a foreign-key error read as a duplicate");
-  for (const bad of [null, undefined, "23505", 23505, [], { code: DUPLICATE }]) {
-    assert.equal(duplicateKind(bad), null, `${JSON.stringify(bad) ?? String(bad)} produced a kind`);
-  }
-});
-
-// ── the doors refuse what they cannot use ────────────────────────────────────
-test("makeRunStore refuses arguments it cannot use", () => {
-  const f = async () => ok([]);
-  for (const o of [{}, { fetch: f }, { fetch: f, url: "u" }, { fetch: "f", url: "u", key: "k" },
-                   { fetch: f, url: "", key: "k" }, { fetch: f, url: "u", key: "" }]) {
-    assert.throws(() => makeRunStore(o), { name: "TypeError" });
-  }
-  assert.doesNotThrow(() => makeRunStore({ fetch: f, url: "u", key: "k" }));
-});
-
-test("createRun and the journal refuse ids they cannot use", async () => {
-  const { store } = storeWith([]);
-  for (const bad of [undefined, null, 4, "", "  ", ["id"]]) {
-    await assert.rejects(() => store.createRun({ id: bad, tenant: "t1" }), { name: "TypeError" });
-    await assert.rejects(() => store.createRun({ id: "r1", tenant: bad }), { name: "TypeError" });
-    assert.throws(() => store.journalFor({ runId: bad }), { name: "TypeError" });
-    await assert.rejects(() => store.load(bad), { name: "TypeError" });
-  }
-});
-
-// ── createRun ────────────────────────────────────────────────────────────────
-test("createRun writes ONLY id and tenant — everything else is the database's", async () => {
-  const { fetch, store } = storeWith([reply(201)]);
-  await store.createRun({ id: "r1", tenant: "t1" });
-  assert.deepEqual(fetch.calls[0].body, { id: "r1", tenant_id: "t1" });
-  // A status or a limits column written here would be a second copy of a fact the
-  // log already states, and two copies of one fact eventually disagree.
-  assert.deepEqual(Object.keys(fetch.calls[0].body), ["id", "tenant_id"]);
-  assert.equal(fetch.calls[0].url, "https://p.supabase.co/rest/v1/runs");
-  assert.equal(fetch.calls[0].headers["content-profile"], "agent", "the non-public schema was not named");
-  assert.equal(fetch.calls[0].headers["authorization"], "Bearer svc-key");
-});
-
-test("a REPEATED createRun is not an error", async () => {
-  // The caller cannot know which side of the commit its connection died on.
-  const { store } = storeWith([dup("runs_pkey")]);
-  await assert.doesNotReject(() => store.createRun({ id: "r1", tenant: "t1" }));
-});
-
-test("a real createRun failure DOES throw, and names itself", async () => {
-  const { store } = storeWith([reply(403, { message: "permission denied for table runs" })]);
-  await assert.rejects(() => store.createRun({ id: "r1", tenant: "t1" }), (e) => {
-    assert.equal(e.status, 403);
-    assert.match(e.message, /permission denied/);
-    return true;
-  });
-});
-
-// ── append ───────────────────────────────────────────────────────────────────
-const entry = (kind, extra = {}) => ({ kind, at: 1, ...extra });
-
-test("append stores the entry verbatim at the next seq, and counts up", async () => {
-  const { fetch, store } = storeWith([reply(201), reply(201)]);
-  const j = store.journalFor({ runId: "r1" });
-  assert.equal(await (async () => (await j.append(entry("started"))).seq)(), 0);
-  assert.equal((await j.append(entry("model", { step: 1, usage: null }))).seq, 1);
-  assert.deepEqual(fetch.calls[1].body, { run_id: "r1", seq: 1, body: { kind: "model", at: 1, step: 1, usage: null } });
-  // The entry goes in UNTOUCHED — `usage: null` is the artifact, and a store that
-  // normalised it would turn "unreported" into "zero".
-  assert.equal("usage" in fetch.calls[1].body.body, true);
-  assert.equal(fetch.calls[1].body.body.usage, null);
-  assert.equal(j.seq, 2);
-});
-
-test("a journal resumes its numbering where the last one left off", async () => {
-  const { fetch, store } = storeWith([reply(201)]);
-  const j = store.journalFor({ runId: "r1", seq: 7 });
-  await j.append(entry("model", { step: 4 }));
-  assert.equal(fetch.calls[0].body.seq, 7, "a resumed journal restarted at 0 and would collide");
-  for (const bad of [undefined, -1, 1.5, "7", null, NaN]) {
-    assert.equal(store.journalFor({ runId: "r1", seq: bad }).seq, 0, `seq ${String(bad)} was taken as a position`);
-  }
-});
-
-test("A LOGICAL DUPLICATE IS A SUCCESS — that is what makes a retry safe", async () => {
-  // The network dropped after Postgres committed. The retry must not kill a run
-  // that is fine, and the entry it is re-sending already holds a paid-for answer.
-  const { store } = storeWith([dup("entries_one_model_per_step", "Key (run_id, step)=(r1, 1) already exists.")]);
-  const j = store.journalFor({ runId: "r1" });
-  const r = await j.append(entry("model", { step: 1 }));
-  assert.equal(r.already, true);
-  assert.equal(r.stored, false, "a re-send was reported as a fresh write");
-  assert.equal(j.seq, 1, "the counter did not move past a slot that is now spoken for");
-});
-
-test("A POSITION CLASH MOVES UP AND TRIES ONCE, and cannot double-write", async () => {
-  // Most likely this journal's counter is behind after a resume. Retrying is safe
-  // because if the entry really is a duplicate, the logical rule catches it on the
-  // second attempt — which is exactly what the second case here proves.
-  const { fetch, store } = storeWith([dup(POSITION_UNIQUE), reply(201)]);
-  const j = store.journalFor({ runId: "r1" });
-  const r = await j.append(entry("model", { step: 1 }));
-  assert.equal(r.seq, 1, "it did not move to a free position");
-  assert.equal(r.stored, true);
-  assert.deepEqual(fetch.calls.map((c) => c.body.seq), [0, 1]);
-
-  // The same entry behind a taken position: the logical rule fires on the retry,
-  // so nothing is written twice.
-  const second = storeWith([dup(POSITION_UNIQUE), dup("entries_one_model_per_step")]);
-  const r2 = await second.store.journalFor({ runId: "r1" }).append(entry("model", { step: 1 }));
-  assert.equal(r2.already, true, "a duplicate slipped in at a new position");
-  assert.equal(r2.stored, false);
-});
-
-test("a position clash twice running throws rather than looping", async () => {
-  const { fetch, store } = storeWith([dup(POSITION_UNIQUE), dup(POSITION_UNIQUE)]);
-  await assert.rejects(() => store.journalFor({ runId: "r1" }).append(entry("model", { step: 1 })));
-  assert.equal(fetch.calls.length, 2, "it kept trying");
-});
-
-test("an UNRECOGNISED failure throws — it is never read as already-recorded", async () => {
-  for (const bad of [reply(500, { message: "boom" }), reply(401, { message: "bad key" }),
-                     dup("some_index_we_do_not_know")]) {
-    const { store } = storeWith([bad]);
-    await assert.rejects(() => store.journalFor({ runId: "r1" }).append(entry("model", { step: 1 })),
-      `${bad.status} was swallowed`);
-  }
-});
-
-// ── load ─────────────────────────────────────────────────────────────────────
-test("load returns the entries in order, the replayed state, and the decoded limits", async () => {
-  const rows = [
-    { seq: 0, body: { kind: "started", at: 0, tenant: "t1", agent: "a", model: "m", limits: { steps: 8, wallMs: "Infinity" } } },
-    { seq: 1, body: { kind: "model", at: 1, step: 1, ms: 10, text: "hi", toolCalls: [], usage: { inputTokens: 2, outputTokens: 1 }, costMicros: 5 } },
-  ];
-  const { fetch, store } = storeWith([ok(rows)]);
-  const r = await store.load("r1");
-  assert.deepEqual(r.entries, rows.map((x) => x.body));
-  assert.equal(r.state.status, "running");
-  assert.equal(r.state.used.tokens, 3);
-  // The unbounded limit comes back a NUMBER, not the string it was stored as.
-  assert.equal(r.limits.wallMs, Infinity);
-  assert.equal(r.limits.steps, 8);
-  assert.match(fetch.calls[0].url, /order=seq\.asc/);
-  assert.equal(fetch.calls[0].headers["accept-profile"], "agent");
-  assert.equal(fetch.calls[0].method, "GET");
-});
-
-test("nextSeq comes from the HIGHEST seq stored, never from the row count", async () => {
-  // A gap — a retention delete, or a position clash that moved up — makes a
-  // count-based answer collide with an entry that is still there.
-  const { store } = storeWith([ok([{ seq: 0, body: { kind: "started" } }, { seq: 4, body: { kind: "model", step: 1 } }])]);
-  const r = await store.load("r1");
-  assert.equal(r.nextSeq, 5, `nextSeq was ${r.nextSeq} — a count, which would overwrite seq 4`);
-  const empty = storeWith([ok([])]);
-  assert.equal((await empty.store.load("r1")).nextSeq, 0);
-  assert.equal((await empty.store.load("r1").catch(() => null))?.state?.status ?? "new", "new");
-});
-
-test("load surfaces the replay's PROBLEMS rather than handing back a bare array", async () => {
-  // A log with problems must not be resumed, and a bare array invites somebody to
-  // pass it straight to runAgent without looking.
-  const { store } = storeWith([ok([{ seq: 0, body: { kind: "nope" } }])]);
-  const r = await store.load("r1");
-  assert.ok(r.state.problems.length >= 1, "a junk entry came back with nothing said about it");
-});
-
-test("load throws on a failed read instead of answering an empty log", async () => {
-  // An empty answer and a failed read mean opposite things: one is a new run, the
-  // other is a run whose history we could not see.
-  const { store } = storeWith([reply(500, { message: "gateway" })]);
-  await assert.rejects(() => store.load("r1"), (e) => e.status === 500);
-});
-
-test("resumable asks for started-and-not-stopped, for one tenant only", async () => {
-  const { fetch, store } = storeWith([ok([{ id: "r1", tenant_id: "t1", limits: { wallMs: "Infinity" } }])]);
-  const rows = await store.resumable("t1");
-  assert.equal(rows[0].limits.wallMs, Infinity);
-  assert.match(fetch.calls[0].url, /tenant_id=eq\.t1/);
-  assert.match(fetch.calls[0].url, /status=eq\.running/);
-  await assert.rejects(() => store.resumable(""), { name: "TypeError" });
-});
+import { defineAgent, defineTool, PUBLIC } from "../src/define.mjs";
+import { runAgent } from "../src/run.mjs";
+import { replay } from "../src/journal.mjs";
 
 // ════════════════════════════════════════════════════════════════════════════
-// THE WIRING: the store IS a journal runAgent can use, and a run resumes from it
-// ════════════════════════════════════════════════════════════════════════════
+// A FAKE POSTGREST WHOSE RULES ARE THE PROVEN ONES.
 //
-// A FAKE WHOSE RULES ARE THE PROVEN ONES. This stands in for PostgREST, and its
-// refusals mirror the four logical uniqueness rules and the primary key that
-// `test/integration/pg-schema.mjs` proves against a real PostgreSQL. The split is
-// deliberate: the SQL is proved on the engine, and what is proved HERE is that the
-// store speaks to those rules correctly and that `runAgent` can drive it.
-
+// Its refusals and its derived `status` mirror what
+// `test/integration/pg-schema.mjs` proves against a real PostgreSQL 16. The split
+// is deliberate: the SQL is proved on the engine, and what is proved HERE is that
+// the store speaks to those rules correctly and that `runAgent` can drive it.
+// ════════════════════════════════════════════════════════════════════════════
 function memoryRest() {
-  const runs = new Map();
-  const entries = new Map();               // runId -> Map(seq -> body)
-  const logicalKey = (b) => {
-    if (b.kind === "started" || b.kind === "stopped") return b.kind;
-    if (b.kind === "model") return `model:${b.step}`;
-    return `tool:${b.step}:${b.index}`;
-  };
-  const conflict = (constraint) => ({
-    ok: false, status: 409,
-    text: async () => JSON.stringify({ code: DUPLICATE, message: `duplicate key value violates unique constraint "${constraint}"` }),
-  });
-  const done = (status, body) => ({
+  const runs = new Map();                  // id -> { id, tenant_id, status, ... }
+  const entries = new Map();               // id -> Map(seq -> body)
+  const logicalKey = (b) => b.kind === "started" || b.kind === "stopped" ? b.kind
+    : b.kind === "model" ? `model:${b.step}` : `tool:${b.step}:${b.index}`;
+  const constraintFor = (key) => key === "started" ? "entries_one_started"
+    : key === "stopped" ? "entries_one_stopped"
+    : key.startsWith("model") ? "entries_one_model_per_step" : "entries_one_tool_per_slot";
+  const res = (status, body) => ({
     ok: status < 300, status,
     text: async () => (body === undefined ? "" : JSON.stringify(body)),
   });
+  const conflict = (c) => res(409, { code: DUPLICATE, message: `duplicate key value violates unique constraint "${c}"` });
+
   const fetch = async (url, init) => {
     const u = new URL(url);
+    const p = u.pathname;
     const body = init.body ? JSON.parse(init.body) : undefined;
-    if (u.pathname.endsWith("/runs") && init.method === "POST") {
+    const eq = (k) => { const v = u.searchParams.get(k); return v === null ? null : v.replace(/^eq\./, ""); };
+
+    if (p.endsWith("/runs") && init.method === "POST") {
       if (runs.has(body.id)) return conflict("runs_pkey");
-      runs.set(body.id, body); entries.set(body.id, new Map());
-      return done(201);
+      runs.set(body.id, { ...body, status: "new", agent_name: null, model: null, limits: null, stop: null, created_at: "2026-09-15T00:00:00Z" });
+      entries.set(body.id, new Map());
+      return res(201);
     }
-    if (u.pathname.endsWith("/run_entries") && init.method === "POST") {
+    if (p.endsWith("/runs") && init.method === "GET") {
+      const id = eq("id"), tenant = eq("tenant_id"), status = eq("status");
+      const rows = [...runs.values()].filter((r) =>
+        (id === null || r.id === id) && (tenant === null || r.tenant_id === tenant) && (status === null || r.status === status));
+      return res(200, rows);
+    }
+    if (p.endsWith("/run_entries") && init.method === "POST") {
       const log = entries.get(body.run_id);
-      if (!log) return done(409, { code: "23503", message: "run_entries_run_id_fkey" });
+      if (!log) return res(409, { code: "23503", message: "run_entries_run_id_fkey" });
       if (log.has(body.seq)) return conflict(POSITION_UNIQUE);
       const key = logicalKey(body.body);
-      for (const b of log.values()) {
-        if (logicalKey(b) === key) {
-          const which = { started: "entries_one_started", stopped: "entries_one_stopped" }[key]
-            ?? (key.startsWith("model") ? "entries_one_model_per_step" : "entries_one_tool_per_slot");
-          return conflict(which);
-        }
-      }
+      for (const b of log.values()) if (logicalKey(b) === key) return conflict(constraintFor(key));
       log.set(body.seq, body.body);
-      return done(201);
+      // The projection the database maintains by trigger, mirrored here.
+      const run = runs.get(body.run_id);
+      if (body.body.kind === "started") {
+        run.status = run.status === "new" ? "running" : run.status;
+        run.agent_name = body.body.agent ?? null;
+        run.model = body.body.model ?? null;
+        run.limits = body.body.limits ?? null;
+      } else if (body.body.kind === "stopped") {
+        run.status = "stopped";
+        run.stop = body.body.stop ?? null;
+      }
+      return res(201);
     }
-    if (u.pathname.endsWith("/run_entries") && init.method === "GET") {
-      const id = (u.searchParams.get("run_id") ?? "").replace(/^eq\./, "");
-      const log = entries.get(id) ?? new Map();
-      return done(200, [...log.entries()].sort((a, b) => a[0] - b[0]).map(([seq, b]) => ({ seq, body: b })));
+    if (p.endsWith("/run_entries") && init.method === "GET") {
+      const log = entries.get(eq("run_id")) ?? new Map();
+      return res(200, [...log.entries()].sort((a, b) => a[0] - b[0]).map(([seq, b]) => ({ seq, body: b })));
     }
-    throw new Error(`the memory rest does not serve ${init.method} ${u.pathname}`);
+    throw new Error(`the memory rest does not serve ${init.method} ${p}`);
   };
-  return { fetch, runs, entries };
+  const calls = [];
+  const counted = async (url, init) => { calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined }); return fetch(url, init); };
+  counted.calls = calls;
+  return { fetch: counted, runs, entries };
 }
-
-test("A RUN WRITES ITS WHOLE LOG THROUGH THE STORE, AND RESUMES OUT OF IT", async () => {
-  const { defineAgent, defineTool, PUBLIC } = await import("../src/define.mjs");
-  const { runAgent } = await import("../src/run.mjs");
-
-  const look = defineTool({
-    name: "look", description: "reads", input: { type: "object" },
-    scope: PUBLIC, repeatable: true, run: async () => ({ hit: 1 }),
-  });
-  const agent = defineAgent({
-    name: "support", model: "claude-sonnet-5", instructions: "help",
-    tools: [look], limits: { wallMs: Infinity },
-  });
-
+const liveStore = () => {
   const rest = memoryRest();
-  const store = makeRunStore({ fetch: rest.fetch, url: "https://p.supabase.co", key: "svc" });
-  const runId = "aaaaaaaa-0000-0000-0000-000000000001";
-  await store.createRun({ id: runId, tenant: "t1" });
+  return { rest, store: makeRunStore({ fetch: rest.fetch, url: "https://p.supabase.co/", key: "svc" }) };
+};
 
-  // ── segment one: the process dies after the tool answers ──────────────────
-  const first = scriptedSend([
-    { text: "", toolCalls: [{ id: "c0", name: "look", args: { q: "x" } }], usage: { inputTokens: 4, outputTokens: 2 }, costMicros: 9 },
-  ]);
-  const journal = store.journalFor({ runId });
-  const dead = await runAgent({ agent, prompt: "how many", send: first.send, journal, tenant: { id: "t1" } });
-  // The script runs out on the second call, which is what a crash looks like from
-  // inside the loop: the run ends, and the log is what survives it.
-  assert.equal(dead.ok, false);
-
-  const mid = await store.load(runId);
-  assert.deepEqual(mid.entries.map((e) => e.kind), ["started", "model", "tool", "stopped"]);
-  assert.equal(mid.limits.wallMs, Infinity, "the unbounded limit did not survive the store");
-
-  // ── what a real crash leaves: no stopped entry ─────────────────────────────
-  // Taken by dropping the last entry, because a process that vanishes never
-  // writes one — which is exactly how `replay` tells "still running" from "over".
-  const crashed = mid.entries.filter((e) => e.kind !== "stopped");
-  const state = (await import("../src/journal.mjs")).replay(crashed);
-  assert.equal(state.status, "running");
-  assert.deepEqual([...state.problems], [], "the stored log did not replay cleanly");
-  assert.equal(state.used.tokens, 6);
-
-  // ── segment two: resume from the stored log ───────────────────────────────
-  const second = scriptedSend([{ text: "it is 1", toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 2 }]);
-  const resumed = await runAgent({
-    agent, send: second.send, from: crashed, tenant: { id: "t1" },
-    journal: store.journalFor({ runId, seq: mid.nextSeq }),
-  });
-  assert.equal(resumed.ok, true, `resume stopped on "${resumed.stop.reason}"`);
-  assert.equal(resumed.text, "it is 1");
-  assert.equal(resumed.resumed, true);
-  assert.equal(second.send.calls.length, 1, "the resume re-bought a model call");
-  assert.equal(second.send.calls[0].step, 2, `resumed at step ${second.send.calls[0].step}`);
-  // The meters carried across the process boundary.
-  assert.equal(resumed.used.steps, 2);
-  assert.equal(resumed.used.tokens, 8);
-  // And the first segment's tool result was in the conversation it sent.
-  assert.match(JSON.stringify(second.send.calls[0].messages), /hit/);
-});
-
-test("A REDELIVERED APPEND IS ABSORBED, and writes nothing twice", async () => {
-  // The whole reason a duplicate is read as a success. Appending the same entry
-  // again must be harmless, because the caller cannot know whether the first one
-  // committed before the connection dropped.
-  const rest = memoryRest();
-  const store = makeRunStore({ fetch: rest.fetch, url: "https://p.supabase.co", key: "svc" });
-  const runId = "aaaaaaaa-0000-0000-0000-000000000002";
-  await store.createRun({ id: runId, tenant: "t1" });
-  const j = store.journalFor({ runId });
-
-  const e = { kind: "model", at: 1, step: 1, ms: 5, text: "hi", toolCalls: [], usage: null, costMicros: null };
-  const first = await j.append(e);
-  assert.equal(first.stored, true);
-  // The same entry, sent again by a journal that does not know it landed.
-  const again = await store.journalFor({ runId }).append(e);
-  assert.equal(again.already, true, "a redelivered entry was written a second time");
-  assert.equal(rest.entries.get(runId).size, 1, `the log holds ${rest.entries.get(runId).size} copies`);
-  // And a repeated createRun is absorbed too.
-  await assert.doesNotReject(() => store.createRun({ id: runId, tenant: "t1" }));
-});
-
-// A send driven by a script, which THROWS when it runs out — the honest stand-in
-// for a process that stops existing.
-function scriptedSend(answers) {
+// A scripted send that THROWS when it runs out — the honest stand-in for a
+// process that stops existing.
+function scripted(answers) {
   const calls = [];
   const send = async (req) => {
     calls.push(req);
@@ -373,5 +92,384 @@ function scriptedSend(answers) {
     return a;
   };
   send.calls = calls;
-  return { send };
+  return send;
 }
+const says = (text) => ({ text, toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 });
+const wants = (...names) => ({ text: "", usage: { inputTokens: 2, outputTokens: 2 }, costMicros: 4,
+  toolCalls: names.map((n, i) => ({ id: `c${i}`, name: n, args: { i } })) });
+
+const repeatableTool = (name, run) => defineTool({
+  name, description: `does ${name}`, input: { type: "object" }, scope: PUBLIC, repeatable: true, run,
+});
+const agentOf = (tools = [], limits = {}) => defineAgent({
+  name: "support", model: "claude-sonnet-5", instructions: "help", tools, limits,
+});
+
+// ── duplicateKind ────────────────────────────────────────────────────────────
+test("duplicateKind tells a LOGICAL duplicate from a POSITION one", () => {
+  for (const c of LOGICAL_UNIQUE) assert.equal(duplicateKind({ code: DUPLICATE, message: `constraint "${c}"` }), "logical", c);
+  assert.equal(duplicateKind({ code: DUPLICATE, message: `constraint "${POSITION_UNIQUE}"` }), "position");
+  assert.ok(LOGICAL_UNIQUE.length >= 4, "the logical rules shrank — every kind needs one");
+});
+
+test("duplicateKind REFUSES TO GUESS at anything it does not recognise", () => {
+  // Reading an unknown refusal as "already recorded" would silently drop a real
+  // entry, which is the one outcome this module exists to prevent.
+  assert.equal(duplicateKind({ code: DUPLICATE, message: 'constraint "some_other_index"' }), null);
+  assert.equal(duplicateKind({ code: "23503", message: `constraint "${POSITION_UNIQUE}"` }), null);
+  for (const bad of [null, undefined, "23505", 23505, [], { code: DUPLICATE }]) assert.equal(duplicateKind(bad), null);
+});
+
+// ── the doors ────────────────────────────────────────────────────────────────
+test("makeRunStore and forTenant refuse what they cannot use", () => {
+  const f = async () => ({ ok: true, status: 200, text: async () => "[]" });
+  for (const o of [{}, { fetch: f }, { fetch: f, url: "u" }, { fetch: "f", url: "u", key: "k" },
+                   { fetch: f, url: "", key: "k" }, { fetch: f, url: "u", key: "" }]) {
+    assert.throws(() => makeRunStore(o), { name: "TypeError" });
+  }
+  const store = makeRunStore({ fetch: f, url: "u", key: "k" });
+  for (const bad of [undefined, null, "", "   ", 4, ["t1"], {}]) {
+    assert.throws(() => store.forTenant(bad), { name: "TypeError" }, `forTenant accepted ${JSON.stringify(bad) ?? String(bad)}`);
+  }
+});
+
+test("THERE IS NO UNSCOPED DOOR, AND NO CALL TAKES A TENANT", () => {
+  // The structural half of "never accept the request body's tenant id as
+  // authority": there is nowhere to put one. A census over the real surface
+  // rather than a promise in a comment.
+  const f = async () => ({ ok: true, status: 200, text: async () => "[]" });
+  const store = makeRunStore({ fetch: f, url: "u", key: "k" });
+  assert.deepEqual(Object.keys(store), ["forTenant"], "the store grew a door that is not tenant-scoped");
+  const scoped = store.forTenant("t1");
+  assert.deepEqual(Object.keys(scoped).sort(), ["create", "load", "open", "resumable", "tenant"].sort());
+  // Every operation takes at most a run id and options — never a tenant.
+  assert.equal(scoped.create.length, 1, "create takes more than a run id");
+  assert.equal(scoped.open.length, 1);
+  assert.equal(scoped.load.length, 1);
+  assert.equal(scoped.resumable.length, 0, "resumable takes a positional argument");
+  assert.equal(scoped.tenant, "t1");
+});
+
+// ── create ───────────────────────────────────────────────────────────────────
+test("create writes ONLY id and tenant, and takes the tenant from the scope", async () => {
+  const { rest, store } = liveStore();
+  await store.forTenant("t1").create("r1");
+  const post = rest.fetch.calls.find((c) => c.method === "POST");
+  assert.deepEqual(post.body, { id: "r1", tenant_id: "t1" });
+  assert.deepEqual(Object.keys(post.body), ["id", "tenant_id"]);
+  assert.equal(post.headers["content-profile"], "agent", "the non-public schema was not named");
+  assert.equal(rest.runs.get("r1").tenant_id, "t1");
+  // A status written here would be a second copy of a fact the log already states.
+  assert.equal(rest.runs.get("r1").status, "new");
+});
+
+test("a REPEATED create is absorbed and still hands back a journal", async () => {
+  const { store } = liveStore();
+  const t = store.forTenant("t1");
+  await t.create("r1");
+  const again = await t.create("r1");
+  assert.equal(again.runId, "r1");
+  assert.equal(typeof again.journal.append, "function");
+});
+
+test("A REPEATED create CANNOT HAND OVER ANOTHER TENANT'S RUN", async () => {
+  // The primary key is on the id ALONE, so a duplicate could be somebody else's
+  // run with the same id — and answering with a journal for it would be the leak.
+  const { store } = liveStore();
+  await store.forTenant("t1").create("shared-id");
+  await assert.rejects(() => store.forTenant("t2").create("shared-id"), (e) => {
+    assert.equal(e.code, "not-found");
+    return true;
+  });
+});
+
+test("create refuses an unusable run id, and a real failure throws with its status", async () => {
+  const { store } = liveStore();
+  for (const bad of [undefined, null, "", "  ", 4, ["r1"]]) {
+    await assert.rejects(() => store.forTenant("t1").create(bad), { name: "TypeError" });
+  }
+  const broken = makeRunStore({
+    fetch: async () => ({ ok: false, status: 403, text: async () => JSON.stringify({ message: "permission denied for table runs" }) }),
+    url: "u", key: "k",
+  });
+  await assert.rejects(() => broken.forTenant("t1").create("r1"), (e) => {
+    assert.equal(e.status, 403);
+    assert.match(e.message, /permission denied/);
+    return true;
+  });
+});
+
+// ── the ownership boundary ───────────────────────────────────────────────────
+test("A TENANT CANNOT OPEN OR LOAD ANOTHER TENANT'S RUN", async () => {
+  const { store } = liveStore();
+  const mine = await store.forTenant("t1").create("r1");
+  await mine.journal.append({ kind: "started", at: 0, agent: "support", model: "m", limits: { steps: 4 } });
+
+  for (const op of ["open", "load"]) {
+    await assert.rejects(() => store.forTenant("t2")[op]("r1"), (e) => {
+      assert.equal(e.code, "not-found", `${op} answered ${e.code}`);
+      return true;
+    }, `${op} let another tenant in`);
+  }
+  // THE CONTROL: the owner can, so the refusal is about the tenant and not about
+  // the run being unreadable.
+  assert.equal((await store.forTenant("t1").open("r1")).state.status, "running");
+});
+
+test("ANOTHER TENANT'S RUN IS 'NOT FOUND', NEVER 'FORBIDDEN'", async () => {
+  // The difference between them is information: "forbidden" tells a stranger the
+  // id they guessed is real.
+  const { store } = liveStore();
+  await store.forTenant("t1").create("r1");
+  const other = await store.forTenant("t2").open("r1").catch((e) => e);
+  const missing = await store.forTenant("t2").open("never-existed").catch((e) => e);
+  assert.equal(other.code, missing.code, "somebody else's run is distinguishable from a missing one");
+  assert.equal(other.status, 404);
+  assert.notEqual(other.status, 403);
+  assert.equal(other.message.includes("t1"), false, "the error named the owning tenant");
+});
+
+test("the ownership check asks for BOTH filters in one request", async () => {
+  // Reading the run and then comparing its tenant in JavaScript is the same
+  // question asked somewhere that forgetting the comparison still compiles.
+  const { rest, store } = liveStore();
+  await store.forTenant("t1").create("r1");
+  rest.fetch.calls.length = 0;
+  await store.forTenant("t1").open("r1");
+  const check = rest.fetch.calls.find((c) => c.method === "GET" && c.url.includes("/runs"));
+  assert.match(check.url, /id=eq\.r1/);
+  assert.match(check.url, /tenant_id=eq\.t1/);
+  assert.equal(check.headers["accept-profile"], "agent");
+});
+
+test("resumable is scoped to the tenant and asks for started-and-not-stopped", async () => {
+  const { rest, store } = liveStore();
+  const a = await store.forTenant("t1").create("r1");
+  await a.journal.append({ kind: "started", at: 0, agent: "x", model: "m", limits: { wallMs: "Infinity" } });
+  const b = await store.forTenant("t2").create("r2");
+  await b.journal.append({ kind: "started", at: 0, agent: "y", model: "m", limits: null });
+
+  const mine = await store.forTenant("t1").resumable();
+  assert.deepEqual(mine.map((r) => r.id), ["r1"], "resumable crossed tenants");
+  assert.equal(mine[0].limits.wallMs, Infinity, "the unbounded limit came back undecoded");
+  const q = rest.fetch.calls.at(-1).url;
+  assert.match(q, /tenant_id=eq\.t1/);
+  assert.match(q, /status=eq\.running/);
+});
+
+// ── append ───────────────────────────────────────────────────────────────────
+test("append stores the entry verbatim and counts up", async () => {
+  const { rest, store } = liveStore();
+  const { journal } = await store.forTenant("t1").create("r1");
+  assert.equal((await journal.append({ kind: "started", at: 0 })).seq, 0);
+  const r = await journal.append({ kind: "model", at: 1, step: 1, usage: null });
+  assert.equal(r.seq, 1);
+  const post = rest.fetch.calls.at(-1).body;
+  // The entry goes in UNTOUCHED — `usage: null` is the artifact, and a store that
+  // normalised it would turn "unreported" into "zero".
+  assert.deepEqual(post, { run_id: "r1", seq: 1, body: { kind: "model", at: 1, step: 1, usage: null } });
+  assert.equal("usage" in post.body, true);
+  assert.equal(post.body.usage, null);
+  assert.equal(journal.seq, 2);
+});
+
+test("A LOGICAL DUPLICATE IS A SUCCESS — that is what makes a retry safe", async () => {
+  // The network dropped after Postgres committed. The retry must not kill a run
+  // that is fine, and the entry it re-sends holds an answer already paid for.
+  const { rest, store } = liveStore();
+  const t = store.forTenant("t1");
+  const first = await t.create("r1");
+  const e = { kind: "model", at: 1, step: 1, ms: 5, usage: null };
+  assert.equal((await first.journal.append(e)).stored, true);
+  // A second journal that does not know the first one landed.
+  const again = await t.open("r1");
+  const r = await again.journal.append(e);
+  assert.equal(r.already, true, "a redelivered entry was written a second time");
+  assert.equal(r.stored, false);
+  assert.equal(rest.entries.get("r1").size, 1, `the log holds ${rest.entries.get("r1").size} copies`);
+});
+
+test("A POSITION CLASH MOVES UP AND TRIES ONCE, and cannot double-write", async () => {
+  const scriptStore = (answers) => {
+    let n = 0;
+    const fetch = async () => answers[n++];
+    return makeRunStore({ fetch, url: "u", key: "k" });
+  };
+  const res = (status, body) => ({ ok: status < 300, status, text: async () => (body === undefined ? "" : JSON.stringify(body)) });
+  const conflict = (c) => res(409, { code: DUPLICATE, message: `constraint "${c}"` });
+
+  // create, then a position clash, then success.
+  const s1 = scriptStore([res(201), conflict(POSITION_UNIQUE), res(201)]);
+  const j1 = (await s1.forTenant("t1").create("r1")).journal;
+  const r1 = await j1.append({ kind: "model", at: 1, step: 1 });
+  assert.equal(r1.seq, 1, "it did not move to a free position");
+  assert.equal(r1.stored, true);
+
+  // The same entry behind a taken position: the logical rule fires on the retry.
+  const s2 = scriptStore([res(201), conflict(POSITION_UNIQUE), conflict("entries_one_model_per_step")]);
+  const j2 = (await s2.forTenant("t1").create("r1")).journal;
+  const r2 = await j2.append({ kind: "model", at: 1, step: 1 });
+  assert.equal(r2.already, true, "a duplicate slipped in at a new position");
+
+  // Twice running throws rather than looping.
+  const s3 = scriptStore([res(201), conflict(POSITION_UNIQUE), conflict(POSITION_UNIQUE)]);
+  const j3 = (await s3.forTenant("t1").create("r1")).journal;
+  await assert.rejects(() => j3.append({ kind: "model", at: 1, step: 1 }));
+});
+
+test("an UNRECOGNISED failure throws — it is never read as already-recorded", async () => {
+  const res = (status, body) => ({ ok: status < 300, status, text: async () => JSON.stringify(body) });
+  for (const bad of [res(500, { message: "boom" }), res(401, { message: "bad key" }),
+                     res(409, { code: DUPLICATE, message: 'constraint "unknown_index"' })]) {
+    let n = 0;
+    const store = makeRunStore({ fetch: async () => (n++ === 0 ? res(201, undefined) : bad), url: "u", key: "k" });
+    const { journal } = await store.forTenant("t1").create("r1");
+    await assert.rejects(() => journal.append({ kind: "model", at: 1, step: 1 }), `${bad.status} was swallowed`);
+  }
+});
+
+// ── open: what it hands back ─────────────────────────────────────────────────
+test("open returns the entries in order, the replayed state, the decoded limits and a positioned journal", async () => {
+  const { store } = liveStore();
+  const t = store.forTenant("t1");
+  const { journal } = await t.create("r1");
+  await journal.append({ kind: "started", at: 0, agent: "support", model: "m", limits: { steps: 8, wallMs: "Infinity", tokens: 1000 } });
+  await journal.append({ kind: "model", at: 1, step: 1, ms: 10, text: "hi", toolCalls: [], usage: { inputTokens: 2, outputTokens: 1 }, costMicros: 5 });
+
+  const o = await t.open("r1");
+  assert.deepEqual(o.entries.map((e) => e.kind), ["started", "model"]);
+  assert.equal(o.state.used.tokens, 3);
+  assert.equal(o.limits.wallMs, Infinity, "an unbounded limit did not survive the store");
+  assert.equal(o.limits.steps, 8);
+  assert.equal(o.nextSeq, 2);
+  assert.equal(o.journal.seq, 2, "the journal would have overwritten the last entry");
+  assert.equal(o.run.status, "running");
+});
+
+test("nextSeq comes from the HIGHEST seq stored, never from the row count", async () => {
+  // A gap — a position clash that moved up — makes a count collide with an entry
+  // that is still there.
+  const rest = memoryRest();
+  const store = makeRunStore({ fetch: rest.fetch, url: "https://p.supabase.co", key: "k" });
+  const t = store.forTenant("t1");
+  await t.create("r1");
+  rest.entries.get("r1").set(0, { kind: "started", at: 0 });
+  rest.entries.get("r1").set(4, { kind: "model", at: 1, step: 1 });
+  const o = await t.open("r1");
+  assert.equal(o.nextSeq, 5, `nextSeq was ${o.nextSeq} — a count, which would overwrite seq 4`);
+  const fresh = await t.create("r2");
+  assert.equal((await t.open("r2")).nextSeq, 0);
+  assert.equal(fresh.journal.seq, 0);
+});
+
+test("open surfaces the replay's PROBLEMS rather than handing back a bare array", async () => {
+  const rest = memoryRest();
+  const store = makeRunStore({ fetch: rest.fetch, url: "https://p.supabase.co", key: "k" });
+  const t = store.forTenant("t1");
+  await t.create("r1");
+  rest.entries.get("r1").set(0, { kind: "nope" });
+  const o = await t.open("r1");
+  assert.ok(o.state.problems.length >= 1, "a junk entry came back with nothing said about it");
+});
+
+test("a failed read throws instead of answering an empty log", async () => {
+  // An empty log and a log we could not see mean opposite things: one is a new
+  // run, the other is a run whose history is unknown.
+  let n = 0;
+  const store = makeRunStore({
+    fetch: async () => (n++ === 0
+      ? { ok: true, status: 200, text: async () => JSON.stringify([{ id: "r1", status: "running" }]) }
+      : { ok: false, status: 500, text: async () => JSON.stringify({ message: "gateway" }) }),
+    url: "u", key: "k",
+  });
+  await assert.rejects(() => store.forTenant("t1").open("r1"), (e) => e.status === 500);
+});
+
+test("load is open without a journal", async () => {
+  const { store } = liveStore();
+  const t = store.forTenant("t1");
+  await t.create("r1");
+  const l = await t.load("r1");
+  assert.equal(l.journal, undefined, "a read-only view handed out a way to write");
+  assert.equal(l.runId, "r1");
+  assert.ok(l.state);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE ROUND TRIP: run → persist → reload → resume
+// ════════════════════════════════════════════════════════════════════════════
+test("A RUN PERSISTS, RELOADS AND RESUMES — and does not re-buy what it paid for", async () => {
+  const look = repeatableTool("look", async () => ({ hit: 1 }));
+  const agent = agentOf([look], { wallMs: Infinity });
+  const { rest, store } = liveStore();
+  const t = store.forTenant("t1");
+  const { journal } = await t.create("r1");
+
+  // Segment one: the model asks for a tool, the tool answers, the process dies.
+  const first = scripted([wants("look")]);
+  const died = await runAgent({ agent, prompt: "how many", send: first, journal, tenant: { id: "t1" } });
+  assert.equal(died.ok, false, "the first segment was supposed to be interrupted");
+  assert.equal(first.calls.length, 2, "the crash did not happen where this test needs it");
+
+  // What a real crash leaves: no `stopped` entry, because the process never wrote
+  // one. Taken by dropping it rather than by hand-building a log.
+  const whole = await t.open("r1");
+  assert.deepEqual(whole.entries.map((e) => e.kind), ["started", "model", "tool", "stopped"]);
+  const crashed = whole.entries.filter((e) => e.kind !== "stopped");
+  assert.equal(replay(crashed).status, "running");
+  assert.deepEqual([...replay(crashed).problems], [], "the stored log did not replay cleanly");
+
+  // Segment two: a different process reopens and carries on.
+  const again = await t.open("r1");
+  assert.equal(again.limits.wallMs, Infinity, "the unbounded limit did not survive storage");
+  const second = scripted([says("it is 1")]);
+  const done = await runAgent({
+    agent, send: second, from: crashed, tenant: { id: "t1" },
+    journal: again.journal,
+  });
+  assert.equal(done.ok, true, `resume stopped on "${done.stop.reason}"`);
+  assert.equal(done.text, "it is 1");
+  assert.equal(done.resumed, true);
+  assert.equal(second.calls.length, 1, "the resume re-bought a model call");
+  assert.equal(second.calls[0].step, 2, `resumed at step ${second.calls[0].step}`);
+  // The meters crossed the process boundary, and the tool result reached the model.
+  assert.equal(done.used.steps, 2);
+  assert.equal(done.used.tokens, 6);
+  assert.match(JSON.stringify(second.calls[0].messages), /hit/);
+  // Nothing was written twice.
+  const kinds = [...rest.entries.get("r1").values()].map((e) => e.kind);
+  assert.equal(kinds.filter((k) => k === "model").length, 2, `the log holds ${kinds.filter((k) => k === "model").length} model answers`);
+});
+
+test("A COMPLETED RUN RELOADED MUST NOT EXECUTE AGAIN", async () => {
+  const agent = agentOf();
+  const { store } = liveStore();
+  const t = store.forTenant("t1");
+  const { journal } = await t.create("r1");
+  const finished = await runAgent({ agent, prompt: "go", send: scripted([says("the answer")]), journal, tenant: { id: "t1" } });
+  assert.equal(finished.ok, true);
+
+  const reloaded = await t.open("r1");
+  assert.equal(reloaded.state.status, "stopped");
+  assert.equal(reloaded.run.status, "stopped", "the database's own projection did not record the ending");
+
+  let calls = 0;
+  const resumed = await runAgent({
+    agent, send: async () => { calls++; return says("a second bill"); },
+    from: reloaded.entries, tenant: { id: "t1" }, journal: reloaded.journal,
+  });
+  assert.equal(calls, 0, "replaying a finished run bought another model call");
+  assert.equal(resumed.ok, true);
+  assert.equal(resumed.stop.reason, "answered");
+  assert.equal(resumed.stop.text, "the answer", "it answered something other than what it had answered");
+});
+
+test("A CROSS-TENANT RESUME CANNOT EVEN GET THE LOG", async () => {
+  const agent = agentOf();
+  const { store } = liveStore();
+  const { journal } = await store.forTenant("t1").create("r1");
+  await runAgent({ agent, prompt: "go", send: scripted([says("mine")]), journal, tenant: { id: "t1" } });
+  // The only way to a run's entries is through an authorised open, so the wrong
+  // tenant never reaches the point of being able to resume.
+  await assert.rejects(() => store.forTenant("t2").open("r1"), (e) => e.code === "not-found");
+});

@@ -297,9 +297,36 @@ none of them can be written in the first place:
 **APPEND-ONLY IS A TRIGGER, NOT A GRANT.** UPDATE is refused for everyone,
 including a caller with every privilege, because editing history is the one
 operation that makes the whole design worthless and a grant would not stop the
-role that writes the log. **DELETE IS DELIBERATELY NOT REFUSED**: deleting a run
-must cascade, and retention has to be possible. The wall for deletes is the
-grants.
+role that writes the log.
+
+**AND A SINGLE ENTRY CANNOT BE DELETED WHILE ITS RUN REMAINS — a separate hole
+and a worse one, found by looking for it (2026-09-15).** Deleting one entry
+corrupts the log in the one way a reader CANNOT SEE: a model entry whose tool
+result is gone replays as a call still PENDING, and `problems` comes back EMPTY,
+because a deleted entry is indistinguishable from one that was never written.
+**MEASURED before the fix**: a completed `charge` came back pending with nothing
+flagged. On resume that is a payment taken twice, or a run stranded, depending on
+how the tool is declared.
+
+**RETENTION IS THE ONLY WAY THROUGH: delete the RUN and its log goes with it.** A
+pair of triggers says exactly that — `agent.runs`' own BEFORE DELETE sets a
+transaction-local marker, and an entry may be deleted only while that marker is
+set.
+
+- **WHY A MARKER RATHER THAN ASKING WHETHER THE PARENT IS STILL THERE.** The
+  obvious test — `exists (select 1 from agent.runs where id = old.run_id)`, since
+  a cascade removes the parent first — depends on that row being VISIBLE to the
+  check, and `agent.runs` has FORCE row level security, so visibility varies with
+  the role and with the platform. **A wall whose answer depends on who is looking
+  fails OPEN when it fails.** The marker has no such dependency.
+- **THE PRIMARY WALL IS STILL THE GRANT.** No role is given DELETE on the entries,
+  so the only caller that can try is the table's owner; the triggers are what stop
+  the owner doing it by hand. The redundancy is deliberate and is declared here
+  because a sweep cannot see it and the next reader deletes what nothing appears
+  to need.
+- **THE MARKER IS TRANSACTION-LOCAL**, so it cannot leak into the next statement
+  on a pooled connection — checked, because a leaked marker would reopen the hole
+  for every later statement on that session.
 
 ### Tenant isolation
 
@@ -345,6 +372,29 @@ knowing before trusting the wall further than it goes.
 
 - **`fetch` IS INJECTED.** Every branch is drivable with no network and no
   database.
+- **THE TENANT IS A CLOSURE, NOT AN ARGUMENT, and that is the whole shape of the
+  boundary.** `makeRunStore` returns ONE method, `forTenant`, and every operation
+  comes from what that returns. **No call takes a tenant, so a tenant id in a
+  request body cannot become authority even by accident — there is nowhere to put
+  it.** Asserted as a census over the real surface rather than promised in a
+  comment. The tenant handed to `forTenant` must come from a VERIFIED token, and
+  that is the one obligation this module cannot check for its caller.
+- **A JOURNAL IS UNREACHABLE WITHOUT PASSING THE OWNERSHIP CHECK.** `create` and
+  `open` are its only sources and both authorise first; a public
+  `journalFor(runId)` would be a way to append to another tenant's log, so it does
+  not exist. `load` is `open` minus the journal, so a read-only view cannot hand
+  out a way to write.
+- **THE OWNERSHIP CHECK ASKS FOR BOTH FILTERS IN ONE REQUEST.** Reading the run
+  and then comparing its tenant in JavaScript is the same question asked somewhere
+  that forgetting the comparison still compiles.
+- **NOT FOUND, NEVER FORBIDDEN.** A run belonging to somebody else and a run that
+  does not exist answer the SAME error, because the difference between them is
+  information: "forbidden" tells a stranger the id they guessed is real. The error
+  also never names the owning tenant.
+- **A REPEATED `create` CANNOT HAND OVER ANOTHER TENANT'S RUN.** The primary key
+  is on the id ALONE, so a duplicate could be somebody else's run with the same
+  id, and answering with a journal for it would be the leak. A duplicate is
+  absorbed only after ownership is confirmed.
 - **A REFUSED DUPLICATE IS A SUCCESS, and this is the one thing to understand
   before changing that file.** An append can be retried: the network drops after
   Postgres committed and before the answer came back, and the caller cannot know
@@ -389,16 +439,22 @@ Each cost a round, and each is the fixture being wrong rather than the product:
 
 ### What is proven, and what is not
 
-- **`npm run test:pg` — 51 checks, 0 failed, against a real PostgreSQL 16.13** in
+- **`npm run test:pg` — 60 checks, 0 failed, against a real PostgreSQL 16.13** in
   a throwaway database. **The DDL is never typed in the check**: it comes out of
   the migration FILE, so what is proved is what would be applied. Every refusal is
   read for its REASON (a refusal from the wrong gate looks exactly like the wall
   working), and every group carries a CONTROL that must succeed, without which a
   database refusing everything would pass the file.
-- **THE SQL IS NOT MUTATION-SWEPT**, and that is a named gap: the sweep runs the
-  unit suite, which cannot see a schema. What stands in is that all 51 checks are
-  adversarial by construction — each one tries to break a specific guarantee and
-  names the gate that must stop it.
+- **THE 51 — NOW 60 — DATABASE CHECKS ARE NOT A SQL MUTATION SWEEP, and the
+  distinction is kept deliberately.** The sweep runs the unit suite, which cannot
+  see a schema, so **no schema guarantee here has been proved by breaking the
+  schema and watching a check go red.** What the checks DO is weaker and worth
+  having: each one tries to break a specific guarantee from the outside and names
+  the gate that must stop it, and each group carries a control that must succeed.
+  That is hand-written adversarial coverage, not mechanical coverage, and the
+  difference is that nothing proves the checks would CATCH a schema edited in a
+  way nobody thought of. Building one is feasible — mutate the migration file and
+  run `npm run test:pg` — and has not been done.
 - **NOT APPLIED TO SUPABASE.** Nothing has been created in any Supabase project.
   The only project this repository holds credentials for belongs to another
   product, and putting these tables there is the mixing this directory exists to
@@ -407,8 +463,8 @@ Each cost a round, and each is the fixture being wrong rather than the product:
 
 ### Measured
 
-- **Unit suite: 117 tests, 0 failures** (`cd agent-builder && npm test`).
-- **Schema check: 51 checks, 0 failed** against a real PostgreSQL 16.13
+- **Unit suite: 121 tests, 0 failures** (`cd agent-builder && npm test`).
+- **Schema check: 60 checks, 0 failed** against a real PostgreSQL 16.13
   (`npm run test:pg`). Skips with a message, and exits 0, where there is no
   local cluster — "no database here" is not a failing schema.
 - **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 0 failures**
@@ -418,10 +474,10 @@ Each cost a round, and each is the fixture being wrong rather than the product:
   environment, not the code.)
 - **Sweep, FIRST FOUR MODULES: 34 mutants, 34 killed, 0 survived, 0 never
   applied, 2 comment-only controls survived.**
-- **Sweep: 68 mutants, 68 killed, 0 survived, 0 never applied, 2 comment-only
+- **Sweep: 74 mutants, 74 killed, 0 survived, 0 never applied, 2 comment-only
   controls survived** (`npm run sweep`). Measured after the run, not before it.
-  The earlier passes were 34 (the first four modules) and 54 (with the journal and
-  resume); the 14 added here cover the store and the limits codec.
+  The passes went 34 (the first four modules) → 54 (the journal and resume) → 68
+  (the store and the limits codec) → 74 (the ownership boundary).
   **ONE SURVIVED THE FIRST PASS AND IT WAS THE TEST'S FAULT, kept here because
   the shape repeats:** the mutant made the loop ignore a failed MODEL-entry
   write, and the fixture was a journal that failed on EVERY write — so the run

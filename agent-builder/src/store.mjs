@@ -5,6 +5,19 @@
  * without a database. The real thing talks to PostgREST; the tests hand in a
  * function.
  *
+ * THE TENANT IS A CLOSURE, NOT AN ARGUMENT, and that is the whole shape of this
+ * module's security. `makeRunStore(...)` gives back ONE method, `forTenant`, and
+ * every operation comes from the object that returns. There is no unscoped door to
+ * reach for by mistake: no call takes a tenant, so **a tenant id in a request body
+ * cannot become authority even by accident** — there is nowhere to put it. The
+ * tenant handed to `forTenant` must come from a VERIFIED token, and that is the
+ * one obligation this module cannot check for its caller.
+ *
+ * AND A JOURNAL CANNOT BE OBTAINED WITHOUT PASSING THE OWNERSHIP CHECK. `create`
+ * and `open` are the only sources of one, and both authorise first. A
+ * `journalFor(runId)` that anybody could call would be a way to append to another
+ * tenant's log, so it does not exist.
+ *
  * NOTHING IN HERE DECIDES ANYTHING ABOUT A RUN. It writes entries and reads them
  * back. The schema is in `supabase/migrations/` and IT is where the guarantees
  * live — one `started` per run, one model answer per step, one result per tool
@@ -114,97 +127,153 @@ export function makeRunStore(opts = {}) {
     return e;
   }
 
+  /**
+   * NOT FOUND, NEVER FORBIDDEN. A run belonging to somebody else and a run that
+   * does not exist answer the SAME error, because the difference between them is
+   * information: "forbidden" tells a stranger that the id they guessed is real.
+   */
+  function notFound(runId) {
+    const e = new Error(`run ${runId} not found`);
+    e.code = "not-found";
+    e.status = 404;
+    return e;
+  }
+
   return {
     /**
-     * Start a run's row. ONLY `id` and `tenant_id` are written: everything else
-     * about a run is derived from its log by the database, so there is nothing
-     * here that could disagree with the entries.
-     */
-    async createRun({ id, tenant }) {
-      if (typeof id !== "string" || id.trim() === "") throw new TypeError("createRun: id must be a non-empty string");
-      if (typeof tenant !== "string" || tenant.trim() === "") throw new TypeError("createRun: tenant must be a non-empty string");
-      const r = await req("POST", RUNS, { body: { id, tenant_id: tenant }, write: true, prefer: "return=minimal" });
-      // A REPEATED CREATE IS NOT AN ERROR, for the same reason a repeated append
-      // is not: the caller cannot know which side of the commit its connection
-      // died on. The primary key makes the second one a no-op.
-      if (!r.ok && duplicateKind(r.body) === null && r.body?.code !== DUPLICATE) throw fail("createRun", r);
-      return { id, tenant };
-    },
-
-    /**
-     * A journal for one run — `append` is exactly what `runAgent` takes.
+     * Scope every operation to one tenant.
      *
-     * `seq` is this journal's own counter, starting where `load` left off. It is
-     * an ordering, not an identity: the logical rules in the schema are the
-     * identity, which is why a collision on `seq` can simply move up.
+     * **`tenant` MUST COME FROM A VERIFIED TOKEN.** It is the authority for
+     * everything below, and this module cannot check where its caller got it —
+     * which is exactly why nothing below takes a tenant of its own.
      */
-    journalFor({ runId, seq = 0 }) {
-      if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("journalFor: runId must be a non-empty string");
-      let next = Number.isInteger(seq) && seq >= 0 ? seq : 0;
-      return {
-        get seq() { return next; },
-        async append(entry) {
-          for (let attempt = 0; attempt < 2; attempt++) {
-            const at = next;
-            const r = await req("POST", ENTRIES, {
-              body: { run_id: runId, seq: at, body: entry }, write: true, prefer: "return=minimal",
-            });
-            if (r.ok) { next = at + 1; return { seq: at, stored: true }; }
+    forTenant(tenant) {
+      if (typeof tenant !== "string" || tenant.trim() === "") {
+        throw new TypeError("forTenant: tenant must be a non-empty string, from a verified token");
+      }
 
-            const dup = duplicateKind(r.body);
-            if (dup === "logical") {
-              // Already recorded. The retry that produced this was safe, and
-              // saying so is what keeps a network blip from ending a paid run.
-              next = at + 1;
-              return { seq: at, stored: false, already: true };
+      /**
+       * A journal for one run. PRIVATE: reachable only through `create` or
+       * `open`, both of which have already established that this tenant owns the
+       * run. `seq` is this journal's own ordering, starting where the stored log
+       * left off — an ordering and not an identity, which is why a collision on it
+       * can simply move up.
+       */
+      function journalFor(runId, seq) {
+        let next = Number.isInteger(seq) && seq >= 0 ? seq : 0;
+        return {
+          get seq() { return next; },
+          async append(entry) {
+            for (let attempt = 0; attempt < 2; attempt++) {
+              const at = next;
+              const r = await req("POST", ENTRIES, {
+                body: { run_id: runId, seq: at, body: entry }, write: true, prefer: "return=minimal",
+              });
+              if (r.ok) { next = at + 1; return { seq: at, stored: true }; }
+
+              const dup = duplicateKind(r.body);
+              if (dup === "logical") {
+                // Already recorded. The retry that produced this was safe, and
+                // saying so is what keeps a network blip from ending a paid run.
+                next = at + 1;
+                return { seq: at, stored: false, already: true };
+              }
+              if (dup === "position" && attempt === 0) {
+                // That slot is taken by something else — most likely this journal's
+                // counter is behind. Move up and try once. If the entry really is a
+                // duplicate, the logical rule above catches it on the second
+                // attempt, so this cannot write the same entry twice.
+                next = at + 1;
+                continue;
+              }
+              throw fail("append", r);
             }
-            if (dup === "position" && attempt === 0) {
-              // That slot is taken by something else — most likely this journal's
-              // counter is behind after a resume. Move up and try once. If the
-              // entry really is a duplicate, the logical rule above catches it on
-              // this second attempt, so this cannot write the same entry twice.
-              next = at + 1;
-              continue;
-            }
-            throw fail("append", r);
-          }
-          throw new Error("append: the position was taken twice running");
+            throw new Error("append: the position was taken twice running");
+          },
+        };
+      }
+
+      /** Does this tenant own this run? The ownership check, and the only one. */
+      async function owns(runId) {
+        if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("runId must be a non-empty string");
+        // BOTH filters in ONE request. Reading the run and then comparing its
+        // tenant in JavaScript would be the same question asked in a place where
+        // forgetting the comparison still compiles.
+        const q = `${RUNS}?id=eq.${encodeURIComponent(runId)}&tenant_id=eq.${encodeURIComponent(tenant)}`
+          + `&select=id,status,agent_name,model,limits,stop,created_at`;
+        const r = await req("GET", q);
+        if (!r.ok) throw fail("owns", r);
+        const rows = Array.isArray(r.body) ? r.body : [];
+        return rows.length ? rows[0] : null;
+      }
+
+      return {
+        tenant,
+
+        /**
+         * Start a run. ONLY `id` and `tenant_id` are written — everything else
+         * about a run is derived from its log by the database, so there is nothing
+         * here that could disagree with the entries. The tenant comes from the
+         * scope and cannot be passed.
+         */
+        async create(runId) {
+          if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("create: runId must be a non-empty string");
+          const r = await req("POST", RUNS, { body: { id: runId, tenant_id: tenant }, write: true, prefer: "return=minimal" });
+          // A REPEATED CREATE IS NOT AN ERROR, for the same reason a repeated
+          // append is not: the caller cannot know which side of the commit its
+          // connection died on. The primary key makes the second one a no-op.
+          if (!r.ok && r.body?.code !== DUPLICATE) throw fail("create", r);
+          // ...BUT A REPEAT MUST NOT HAND THIS TENANT SOMEBODY ELSE'S RUN. The
+          // primary key is on the id ALONE, so a duplicate could be another
+          // tenant's run with the same id, and answering with a journal for it
+          // would be the leak this whole file is built to prevent.
+          if (!r.ok && !(await owns(runId))) throw notFound(runId);
+          return { runId, tenant, journal: journalFor(runId, 0) };
+        },
+
+        /**
+         * Authorise, load, and hand back everything needed to resume: the entries,
+         * the replayed state, the decoded limits, and a journal positioned after
+         * the last stored entry.
+         *
+         * The replay happens HERE rather than being left to the caller so that
+         * `problems` cannot be skipped by accident — a log with problems must not
+         * be resumed, and a bare array invites passing it straight to `runAgent`.
+         */
+        async open(runId) {
+          const run = await owns(runId);
+          if (!run) throw notFound(runId);
+          const q = `${ENTRIES}?run_id=eq.${encodeURIComponent(runId)}&select=seq,body&order=seq.asc`;
+          const r = await req("GET", q);
+          if (!r.ok) throw fail("open", r);
+          const rows = Array.isArray(r.body) ? r.body : [];
+          const entries = rows.map((row) => row.body);
+          // `nextSeq` comes from the HIGHEST seq stored, not from the row count: a
+          // gap would make a count-based answer collide with an entry still there.
+          const nextSeq = rows.length ? Math.max(...rows.map((row) => row.seq)) + 1 : 0;
+          const state = replay(entries);
+          return {
+            runId, tenant, run, entries, nextSeq, state,
+            limits: limitsFromJson(state.limits),
+            journal: journalFor(runId, nextSeq),
+          };
+        },
+
+        /** The same authorised read, without a journal — for showing a run. */
+        async load(runId) {
+          const { journal, ...rest } = await this.open(runId);
+          return rest;
+        },
+
+        /** This tenant's runs that could be resumed: started and not stopped. */
+        async resumable({ limit = 50 } = {}) {
+          const q = `${RUNS}?tenant_id=eq.${encodeURIComponent(tenant)}&status=eq.running`
+            + `&select=id,agent_name,model,limits,created_at&order=created_at.asc&limit=${Number(limit) || 50}`;
+          const r = await req("GET", q);
+          if (!r.ok) throw fail("resumable", r);
+          return (Array.isArray(r.body) ? r.body : []).map((row) => ({ ...row, limits: limitsFromJson(row.limits) }));
         },
       };
-    },
-
-    /**
-     * Read a run back: its entries in order, the replayed state, and where the
-     * next entry goes.
-     *
-     * The replay is done HERE rather than left to the caller so that `problems`
-     * cannot be skipped by accident — a log with problems is one that must not be
-     * resumed, and handing back a bare array invites somebody to pass it straight
-     * to `runAgent` without looking.
-     */
-    async load(runId) {
-      if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("load: runId must be a non-empty string");
-      const q = `${ENTRIES}?run_id=eq.${encodeURIComponent(runId)}&select=seq,body&order=seq.asc`;
-      const r = await req("GET", q);
-      if (!r.ok) throw fail("load", r);
-      const rows = Array.isArray(r.body) ? r.body : [];
-      const entries = rows.map((row) => row.body);
-      // `nextSeq` comes from the HIGHEST seq stored, not from the row count: a
-      // retention delete or a gap would make a count-based answer collide with an
-      // entry that is still there.
-      const nextSeq = rows.length ? Math.max(...rows.map((row) => row.seq)) + 1 : 0;
-      const state = replay(entries);
-      return { runId, entries, nextSeq, state, limits: limitsFromJson(state.limits) };
-    },
-
-    /** The runs a tenant could resume: started and not stopped. */
-    async resumable(tenant, { limit = 50 } = {}) {
-      if (typeof tenant !== "string" || tenant.trim() === "") throw new TypeError("resumable: tenant must be a non-empty string");
-      const q = `${RUNS}?tenant_id=eq.${encodeURIComponent(tenant)}&status=eq.running`
-        + `&select=id,tenant_id,agent_name,model,limits,created_at&order=created_at.asc&limit=${Number(limit) || 50}`;
-      const r = await req("GET", q);
-      if (!r.ok) throw fail("resumable", r);
-      return (Array.isArray(r.body) ? r.body : []).map((row) => ({ ...row, limits: limitsFromJson(row.limits) }));
     },
   };
 }

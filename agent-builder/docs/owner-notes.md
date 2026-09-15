@@ -308,3 +308,90 @@ wall that has to stop it.
 
 Still no HTTP route, no real model calls, no container — you scoped those out and
 they're untouched.
+
+---
+
+## 2026-09-15 — You were right about the single-entry delete, and it was the bad kind of wrong
+
+You asked me to check whether one journal entry could be deleted with its run left
+in place. **It could, and the damage is exactly the shape you described — worse,
+actually, because nothing complains.**
+
+**What I found.** The runner can't do it (no permission) and a customer can't
+(no permission). But a caller with full database privileges could, and when I
+deleted one entry the log was left describing a payment that had been *asked for*
+with no record of it *completing*. Replay reads that as **still pending** — and
+**reports no problem at all**, because a deleted entry looks identical to one that
+was never written. So a charge that already went through would be re-attempted on
+resume, or the run would strand, depending on how the tool is declared. Measured,
+not guessed.
+
+**The fix, and retention still works the way you wanted.** Deleting a single entry
+is now refused outright — including for a caller with every privilege, since that
+was the only caller who could do it. **Deleting a run still deletes its whole
+journal with it**, which is the only route through, and I checked that it still
+does rather than assuming.
+
+One detail worth recording because the obvious approach would have been wrong:
+the natural way to allow the cascade is to ask "is the run still there?", since
+deleting a run removes it first. But whether that row is *visible* depends on who
+is asking, and **a wall whose answer depends on who is looking fails open when it
+fails.** So it uses an explicit marker instead, and I checked the marker can't
+survive past the transaction that set it — a leaked one would reopen the hole for
+everything else on that connection.
+
+### The storage adapter, and the boundary you asked for
+
+**The tenant is no longer something any call accepts.** The store now gives out
+exactly one thing — "work as this tenant" — and everything else comes from that.
+**No operation takes a tenant at all, so a tenant id arriving in a request body
+cannot become authority even by mistake: there is nowhere to put it.** That's
+checked as a census over the real surface, not promised in a comment.
+
+**Loading is authorised too**, which was the gap you pointed at. And you cannot
+get a way to *write* to a run without having passed that check first — the only
+two sources of one both authorise, and the read-only view deliberately can't hand
+one out.
+
+**Somebody else's run reads as "not found", never "forbidden"**, and the error
+never names who owns it. "Forbidden" would tell a stranger that the id they
+guessed is real.
+
+**One subtle one I'd have missed without looking:** creating a run twice is
+harmless by design, but the id is unique on its own — so a "duplicate" could be
+*another tenant's* run with the same id. Handing back a way to write to it would
+have been the exact leak. It now confirms ownership before absorbing a duplicate.
+
+### The round trip you asked for, end to end
+
+Run → saved → reloaded in a fresh process → resumed. It picks up at the right
+step, **does not re-buy the model call it already paid for**, carries its spending
+across the gap, and the earlier tool result reaches the model. Nothing is written
+twice.
+
+Plus the two cases you named: **a customer cannot reach another customer's run to
+resume it at all**, and **a finished run reloaded does not run again** — it hands
+back the answer it already gave, with zero model calls.
+
+### ⚠ The distinction you asked me to keep explicit
+
+**The 60 database checks are NOT a SQL mutation sweep, and I am not going to blur
+that.** No schema guarantee has been proved by deliberately breaking the schema
+and watching a check go red. What the checks do is weaker: each one attacks a
+specific guarantee from the outside and names which wall has to stop it, and each
+group has a control that must succeed. That is hand-written coverage, not
+mechanical coverage — **nothing proves those checks would catch a schema broken in
+a way I didn't think of.** Building a real one is feasible (break the migration
+file, run the database checks, confirm they go red) and I have not done it. Say
+the word if you want it.
+
+### Where it stands
+
+- **121 unit tests green.**
+- **60 database checks against a real PostgreSQL 16.13, 0 failed.**
+- **74 deliberate breakages, 74 caught**, both controls surviving. All seven new
+  ones aimed at the ownership boundary died.
+
+**Still NOT applied to Supabase — nothing created in any project.** As you said,
+we settle which project first. Still no HTTP route, no real model calls, no
+container.

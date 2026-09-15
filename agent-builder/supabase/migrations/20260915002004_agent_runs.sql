@@ -146,10 +146,31 @@ create index entries_in_order on agent.run_entries (run_id, seq);
 -- one operation that makes the whole design worthless, and a grant would not
 -- stop the role that writes the log in the first place.
 --
--- DELETE IS DELIBERATELY NOT REFUSED. Deleting a run has to cascade to its
--- entries, and a retention policy has to be able to drop old runs; refusing
--- deletes here would make both impossible. The wall for deletes is the grants
--- below, which give no client the privilege.
+-- AND A SINGLE ENTRY CANNOT BE DELETED WHILE ITS RUN REMAINS, which is a
+-- separate hole and a worse one. Losing one entry does not corrupt the log in any
+-- way a reader can SEE: a model entry whose tool result was deleted replays as a
+-- call that is still PENDING, with no problem reported, because a deleted entry
+-- is indistinguishable from one that was never written. Measured — a completed
+-- `charge` came back pending and `problems` was empty. On resume that is a
+-- payment taken twice, or a run stranded, depending on which way the tool is
+-- declared.
+--
+-- RETENTION STILL WORKS, AND IS THE ONLY WAY THROUGH: delete the RUN and its log
+-- goes with it. The pair of triggers below say exactly that — an entry may be
+-- deleted only while its own run is being deleted in the same transaction.
+--
+-- WHY A TRANSACTION MARKER RATHER THAN ASKING WHETHER THE PARENT IS STILL THERE.
+-- The obvious test is `exists (select 1 from agent.runs where id = old.run_id)`,
+-- since a cascade removes the parent first. It would work here and it depends on
+-- the parent being VISIBLE to the check — and `agent.runs` has FORCE row level
+-- security, so whether a given role can see that row varies with the role and
+-- with the platform. A wall whose answer depends on who is looking is the wrong
+-- shape for a wall: when it fails it fails OPEN, allowing the delete. The marker
+-- has no such dependency.
+--
+-- THE PRIMARY WALL IS STILL THE GRANT — no role is given DELETE on the entries at
+-- all, so the only caller that can try this is the table's owner. The triggers are
+-- what stop the owner doing it by hand, and are declared redundant deliberately.
 create or replace function agent.entries_are_append_only() returns trigger
   language plpgsql
   set search_path = ''
@@ -164,6 +185,46 @@ $$;
 create trigger entries_append_only
   before update on agent.run_entries
   for each row execute function agent.entries_are_append_only();
+
+-- Deleting a run marks the transaction, so its cascade is recognised. A BEFORE
+-- ROW trigger fires before the row goes and before the referential action that
+-- deletes the children, so the marker is always set first.
+create or replace function agent.run_delete_begins() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  -- Transaction-local: it is gone at commit or rollback, so it cannot leak into
+  -- the next statement on a pooled connection.
+  perform set_config('agent.deleting_run', 'on', true);
+  return old;
+end;
+$$;
+
+create trigger runs_delete_marks
+  before delete on agent.runs
+  for each row execute function agent.run_delete_begins();
+
+create or replace function agent.entries_go_with_their_run() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  -- Anything we cannot read as "a run is being deleted" is not one: an unset
+  -- marker, an empty one, or any other value refuses. Fails closed.
+  if coalesce(nullif(current_setting('agent.deleting_run', true), ''), 'off') <> 'on' then
+    raise exception 'agent.run_entries: entry (run %, seq %) cannot be deleted on its own — delete the run and its log goes with it',
+      old.run_id, old.seq
+      using errcode = 'restrict_violation',
+            hint = 'A missing entry replays as a tool call that is still pending, with no problem reported.';
+  end if;
+  return old;
+end;
+$$;
+
+create trigger entries_only_with_their_run
+  before delete on agent.run_entries
+  for each row execute function agent.entries_go_with_their_run();
 
 -- ── the projection the log owns ─────────────────────────────────────────────
 --
