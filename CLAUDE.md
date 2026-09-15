@@ -3922,7 +3922,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   counterexample, `policy-not-comparable` beside an absent clause, the `_meta`
   creation by the engine's own statement, a named failure when it cannot be
   created, and the one-copy census); 6,448 + 10 + 6 closes exactly. **Four
-  re-anchors added no case.** CI has NOT read this number yet.
+  re-anchors added no case.** **CI HAS READ IT: `unit tests` run 2558 on
+  `2a6cc32c`, green (2026-09-15 05:12:04Z, the suite step ~105 s) —
+  `# tests 6464 / # pass 6461 / # fail 0 / # skipped 3`**, against local
+  `6464 / 6464 / 0 / 0`. The three are the recorded environment skips, which is
+  why the number to carry is the TOTAL.
   **6,448** before it (2026-09-15, local — the five gaps in the
   database-discovery repair, whose new cases are `backend-repair`'s **22**
   (22 → 44: the identity chain link by link, the writer's wall with its control,

@@ -277,6 +277,8 @@ all.
 
 Four older tests were re-anchored rather than silenced, each saying what moved.
 
+CI agrees: `unit tests` run **2558**, green — `# tests 6464 / # fail 0`.
+
 ### Scope, unchanged
 
 The repair is still the five sites — `ashgrove-1`, `fretwork-1`, `northgroup-5`,
