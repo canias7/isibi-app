@@ -471,6 +471,57 @@ Mutation sweep: **14 mutants, 14 killed**, including the nastiest one — the fl
 quietly parsing as the WIDE mode, so a reference-only press would have applied
 everything. Suite **6,476**, green locally and in CI (`unit tests` run 2570).
 
+### Merged and deployed — deploy 2121, green in 46 seconds
+
+`main` went `9a4ac614` → `76ef26c8`, a clean fast-forward of 4 commits across 7
+files. I checked before merging that the branch held nothing beyond what you
+reviewed: the reference-only change itself, and three documentation commits.
+
+**The container did not roll, and I knew that before I pressed merge.** The
+image id is a pure function of the files the container is built from, so I
+computed it on both sides first: `origin/main` and the branch tip both came out
+`6246eb17cd6595c4`. The deploy then agreed with the arithmetic —
+`reused isibi-app-sitebuildcontainer:6246eb…7cd6595c4 (registry answered 200)`,
+and Wrangler's own line `no changes isibi-app-sitebuildcontainer`. **So there is
+no 15–20 minute wait on this one**, and the Worker was up 46 seconds after the
+push.
+
+Nothing a visitor downloads changed either (`No updated asset files to upload` —
+this change lives in a workflow, a script and its tests), so instead of a file
+check the proof is the platform still answering the way it should: the two
+owner-gated routes return **401** and a made-up path returns **404**.
+
+**And I checked the site itself rather than just that it loads.** All five sites
+answer 200, but a 200 only proves the script is serving — so on `repairbench-1`
+I also fetched `/status` (200, same version as before) and called the counting
+function through the site's own public route. It still answers **`0`**, exactly
+as it did before the merge. Nothing improved and nothing broke, which is the
+right answer: this deploy carried a repair *tool*, and the repair has not run.
+
+### The two buttons are live on main, and I still cannot press them
+
+Both workflows are registered on `main` and I asked for each **by name** rather
+than trusting the listing — `backend repair` and `repairbench count fix` both
+come back 200, and main's copy of the repair form really does carry the new
+`apply-reference` option.
+
+I re-tested the dispatch rather than assuming last week's answer still held. It
+is still **403 — "Resource not accessible by integration"** — both through the
+tool and through a direct request, while a read on the same credential returns
+200. So it is the permission, not the token, exactly as recorded.
+
+**What to press, in this order.** Actions → **backend repair** → Run workflow,
+branch `main`:
+
+1. `mode` = **apply-reference**, `slug` = **repairbench-1**, `confirm` = **apply**
+2. then again: `mode` = **verify**, `slug` = **repairbench-1**, `confirm` empty
+
+Then Actions → **repairbench count fix** → Run workflow, branch `main`, `mode` =
+**preview**, `confirm` empty. That one writes nothing.
+
+The other four sites stay untouched — the slug box narrows the run to one site,
+and I have left it filled in.
+
 ### Nothing has been repaired
 
 The five sites are still incomplete (only `repairbench-1` has been previewed),

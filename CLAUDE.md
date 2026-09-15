@@ -3850,6 +3850,41 @@ reports `nothing-missing` over real outstanding work. Both killed on pass 2.
 two windows on one event, kept because they fail differently, and said in the
 code because a sweep cannot say it.
 
+**MERGED AND LIVE — deploy 2121, 2026-09-15 16:35:17→16:36:03Z, green in 46
+seconds**, on `main` `9a4ac614` → `76ef26c8` (fast-forward; 4 commits, 7 files).
+**THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED WITH IT**:
+`origin/main` and the branch tip both hashed to `6246eb17cd6595c4` (182 inputs),
+so nothing an image is built from moved — and the step's own line reads `IMAGE
+SiteBuildContainer: reused isibi-app-sitebuildcontainer:6246eb…7cd6595c4
+(registry answered 200; …82 inputs off ./Dockerfile)`, 1 second. Wrangler
+answered `no changes isibi-app-sitebuildcontainer` and `╰ No changes to be
+made`, so **the container did NOT roll and no 15–20 minute hold applies** — read
+out of the log's own diff rather than inferred from the step's duration.
+`Uploaded isibi-app (3.55 sec)`, `Current Version ID: c85b09e4-2c50-4ff5-9a25-…`.
+**NO SERVED ASSET CHANGED** (`No updated asset files to upload` — the merge
+touched `.github/workflows/`, `scripts/`, `test/` and the two documents, nothing
+under `public/`), so there is no file-hash check for this deploy; what stands in
+is the gate discriminator, measured after it: `/api/site/build-health` **401**,
+`/api/site/runtime` **401**, `/api/nope-not-a-route` **404**. The five sites all
+answer **200** (`repairbench-1` 45,928 B · `ashgrove-1` 31,120 · `fretwork-1`
+58,285 · `northgroup-5` 1,641 · `washhouse-1` 52,404) — **an availability check
+and never a health check**, this file's own rule, which is why the interactive
+half was measured too: `/status` **200**, 5,970 B, `x-site-version
+01789437370636-f11bde`, build `mu20t4j1-ziyak2`, and the public RPC
+`POST /api/db/repairbench-1/data/rpc/count_booked_repairs` **200 answering `0`**
+— unchanged, because the repair has not run.
+
+**BOTH WORKFLOWS ARE REGISTERED ON MAIN AND THE FORM REALLY OFFERS THE NEW
+MODE.** Asked BY NAME rather than off the listing: `GET
+/actions/workflows/backend-repair.yml` **200** and `repairbench-count-fix.yml`
+**200**, and main's own copy of the file carries `options: [preview,
+apply-reference, apply, verify]` and `shell: bash`. **The dispatch is still
+refused**, re-tested rather than asserted: a direct REST POST with the right
+endpoint, headers and body answers **403 `Resource not accessible by
+integration`**, the MCP tool answers the same 403 on the same endpoint, and a
+**read control on the same token answers 200** — so it is the `actions: write`
+permission and not the credential. The press is the owner's, as recorded.
+
 **STILL NOT REPAIRED.** The five sites are `incomplete` (only `repairbench-1`
 has been previewed), the reference is unwritten, and `count_booked_repairs`
 still counts `repairs` and answers `0` — which the backend repair does not fix
