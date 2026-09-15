@@ -163,7 +163,24 @@ export async function survey(key, only = "") {
 }
 
 /**
- * THE SITES THE LOOP VISITS — every one with a database, `ready` included.
+ * THE FIVE SITES THIS REPAIR IS FOR, BY NAME.
+ *
+ * The scope is a WALL IN THE SCRIPT, not a promise in a workflow input, because
+ * an input is a thing somebody types and this is a thing that writes to
+ * customers' databases. These are the five the survey found `incomplete` —
+ * measured over the whole corpus, 27 of 27 recorded names equal
+ * `dbNameForSite(slug)` and exactly these five carry a project row with a blank
+ * `neon_db`. Three more sites are blank with NO project row and must not be
+ * touched at all; every other site is `ready` and is nobody's business here.
+ *
+ * A NAME OFF THIS LIST IS REFUSED BY NAME rather than filtered out — a silent
+ * drop reads exactly like "that site was already fine", which is the one answer
+ * a person running a repair must never be given by accident.
+ */
+export const REPAIR_SITES = ["ashgrove-1", "fretwork-1", "northgroup-5", "repairbench-1", "washhouse-1"];
+
+/**
+ * THE SITES THE LOOP VISITS — in scope, and with a database.
  *
  * SPELLED ONCE AND EXPORTED, because this line IS the separation. It used to be
  * `rows.filter(r => r.act === "backfill")` inline in `main`, which visits only
@@ -171,9 +188,16 @@ export async function survey(key, only = "") {
  * that site dropped out of the work list and its schema could never be
  * recovered by a rerun. A `ready` site is here for its schema; its reference is
  * skipped by name inside `repairSite`.
+ *
+ * TWO QUESTIONS, BOTH ASKED HERE: is this site in scope, and does it have a
+ * database. The scope is asked FIRST, so a site outside it is never reached by
+ * anything downstream whatever state it is in.
  */
 export function workList(rows) {
-  return (Array.isArray(rows) ? rows : []).filter((r) => r && (r.state === "ready" || r.state === "incomplete"));
+  const scope = new Set(REPAIR_SITES);
+  return (Array.isArray(rows) ? rows : [])
+    .filter((r) => r && scope.has(String(r.slug || "")))
+    .filter((r) => r.state === "ready" || r.state === "incomplete");
 }
 
 /**
@@ -384,6 +408,13 @@ async function main() {
   const key = process.env.SUPABASE_SERVICE_KEY;
   if (!key) { console.error("SUPABASE_SERVICE_KEY is not set"); process.exit(2); }
   console.log(`mode: ${args.mode}${args.slug ? "  slug: " + args.slug : ""}`);
+  console.log(`scope: ${REPAIR_SITES.join(", ")}`);
+  // A SLUG OFF THE LIST IS REFUSED BY NAME AND NOTHING RUNS. Filtering it out
+  // would print "nothing to do", which reads as "that site was already fine".
+  if (args.slug && !REPAIR_SITES.includes(args.slug)) {
+    console.error(`${args.slug} is not one of the five sites this repair is for — refusing, nothing was read or written`);
+    process.exit(2);
+  }
 
   const rows = await survey(key, args.slug);
   const reachable = workList(rows);

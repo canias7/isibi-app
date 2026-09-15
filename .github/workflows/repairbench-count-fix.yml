@@ -1,0 +1,81 @@
+# MAKE `/status` ON repairbench-1 COUNT THE TABLE THAT HOLDS THE BOOKINGS.
+#
+# Run 47 published a page whose route chunk calls `count_booked_repairs`, and
+# that function counts `repairs` — a second table the addon designed because the
+# blank-`neon_db` defect told its designer the site had no tables. `repairs` is
+# empty by construction and always will be, so the page reads `0` on a site with
+# three bookings. This rewrites ONE identifier in ONE function body.
+#
+# SCOPED TO ONE SITE BY NAME, IN THE SCRIPT. `ONLY_SLUG` is the literal
+# `repairbench-1`; there is no slug input on this form at all, because a repair
+# that names one site does not need one and an input is a thing somebody types.
+#
+# THE BODY COMES FROM `pg_get_functiondef`, which is already a complete
+# `CREATE OR REPLACE` carrying the exact signature, language, volatility,
+# SECURITY DEFINER and search_path. One identifier changes and nothing else —
+# rebuilding the statement from a template is how a repair quietly takes
+# SECURITY DEFINER off a function every RLS-bypassing read depends on.
+#
+# THREE REFUSALS BEFORE IT WRITES: the function is absent, it already names
+# `bookings`, or it does not name `repairs`. A second apply is a refusal, not a
+# second rewrite.
+#
+# VERIFY IS THREE NUMBERS THAT MUST AGREE — `SELECT COUNT(*) FROM bookings`, the
+# function called directly, and the function through the site's OWN public RPC
+# route, which is the call `/status` really makes. A 200 from `/status` is not
+# one of them: fetching the document exercises no query at all, and run 47 is the
+# instance. Verify EXITS NONZERO when they disagree.
+#
+# DISPATCH ONLY, for the reason `test/merge-triggers.test.mjs` enforces.
+name: repairbench count fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preview (reads only) | apply (WRITES one function body) | verify (reads only, exits nonzero on failure)'
+        required: true
+        default: 'preview'
+        type: choice
+        options: [preview, apply, verify]
+      confirm:
+        description: 'For apply ONLY, type the word: apply'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  countfix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund --loglevel=error
+      - name: refuse an apply that was not asked for
+        if: ${{ github.event.inputs.mode == 'apply' }}
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
+        run: |
+          W=$(printf '%s' "$CONFIRM" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); if [ "$W" != "apply" ]; then echo "mode is apply and confirm is not the word 'apply' — refusing, nothing was written"; exit 1; fi
+      # ONE LINE, because test/ci-browser-order.test.mjs reads the first line of
+      # a `run:` block and must see the script name there.
+      - name: repairbench count fix
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          node scripts/repairbench-count-fix.mjs --"${MODE:-preview}" 2>&1 | tee repairbench-count-fix.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repairbench-count-fix-log
+          path: repairbench-count-fix.log
+          if-no-files-found: ignore
+          retention-days: 90

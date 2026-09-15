@@ -3508,6 +3508,106 @@ above. All three were replaced with observable mutants and pass 2 is the tally.
 five sites are `incomplete`, `repairbench-1`'s `bookings` declaration is missing,
 and `count_booked_repairs` counts `repairs` and answers `0`.
 
+### …AND THE NORMALISER STILL ERASED SQL MEANING BEFORE PARSING (2026-09-15)
+
+Owner, on `2a6cc32c`: *"`scrubPredicate` lowercases everything and removes
+identifier quotes… a live policy `USING ("true")` on a boolean column named
+`true` is accepted as equivalent to the generated `USING (true)`… String
+literals `'APPROVED'` and `'approved'` also compare equal. Preserve quoted
+identifiers and literal contents during tokenization. Do not discard casts or
+qualifiers unless their equivalence is established for the supported
+expression."*
+
+**THE FIX WAS ONE LAYER TOO LATE.** The canonical boolean tree was right; what
+fed it was a REGEX OVER THE WHOLE STRING, and a regex cannot tell a quoted
+identifier from the word it spells or a literal's contents from SQL. Five
+reproduced, each a real PostgreSQL 16 storage form:
+
+    "true"           -> true            …and `true` is AND's identity, so
+                                        `(owner_id = app_user_id()) AND "true"`
+                                        folded to just the first half
+    'APPROVED'       -> 'approved'      two different rows
+    other_table.col  -> col             a policy reading ANOTHER table
+    1::int           -> 1
+
+**THE LEXER RUNS ON THE RAW TEXT NOW AND NORMALISES ONE TOKEN AT A TIME**: a
+bare word lowercases (Postgres folds unquoted names), a STRING LITERAL is kept
+verbatim, and a QUOTED identifier keeps its content and keeps its quotes unless
+the content is a bare lowercase name that is not a `SYNTAX_WORD`. A quoted token
+starts with `"` and a literal with `'`, neither of which a bare word can
+produce, so the three can never collide downstream.
+
+- **`SYNTAX_WORDS` IS DERIVED FROM THE COMPARATOR, NOT FROM POSTGRES.** It is
+  `BOOL_WORD ∪ {not, true}` — the words `parsePredicate` and `foldTrue`
+  themselves give meaning to — so it cannot drift from them and is **not a copy
+  of Postgres's reserved-word list**. **THE UNQUOTING IS SYMMETRIC**, which is
+  what makes that sufficient: a name Postgres keeps quoted because IT reserves
+  the word (`"user"`) unquotes on BOTH sides and still matches our own emitter,
+  which quotes everything. Driven.
+- **EACH EQUIVALENCE IS MEASURED, AND THERE ARE EXACTLY TWO.** Our emitter
+  writes **8 distinct predicate expressions across all 16 read×write cells and
+  every flag, and ZERO casts** — so a cast can only arrive from Postgres, and
+  the one place it does is a STRING LITERAL: `to_char(now() AT TIME ZONE 'UTC',
+  '…')` comes back as `to_char((now() AT TIME ZONE 'UTC'::text), '…'::text)`.
+  So **`::text` directly after a string literal is dropped and nothing else is**
+  — `1::int`, `col::text` and `'x'::uuid` are kept, each reads as a difference,
+  and the table is left alone. The second is the qualifier: `policiesFor` writes
+  `"t"."owner_id"` and `pg_policies` stores `owner_id`, so a qualifier naming
+  **the table the policy is ON** is dropped and no other. **WITH NO TABLE NAME
+  NOTHING IS STRIPPED** — a caller that cannot say which table it is asking
+  about gets the strict comparison, not a lenient one.
+- **THE TABLE IS THREADED** through `canonPredicate` → `pairShape` →
+  `statementShape` → `emittedPolicyShapes`, because the emitted side needs it as
+  much as the live side; reading only one side through it is its own mutant.
+
+**PROVEN BY POSTGRES, AND THE PROBE GAINED ITS NEGATIVE ARM.**
+`test/integration/local-pg-recover.mjs` is **5 recovered with no change and the
+flag-stripped control changing 3**, unchanged — plus:
+
+- **ARM 3a, END TO END**: a live `notes` policy narrowed by a real boolean column
+  named `true`. **The OLD comparator called it equal to our emitted policy** (so
+  the recovery would have dropped the conjunct and widened the policy); the new
+  one refuses `policy-would-change`, the reconcile leaves `notes` out of the
+  spec, and applying that spec leaves the table **exactly as it was**.
+- **ARM 3b**: eight pairs CREATEd as real policies and read back out of
+  `pg_policies` — 2 that must canonicalise the SAME and 6 that must DIFFER, with
+  the observer proved alive in both directions. Three of the six are marked in
+  the output as ones the old comparator called equal.
+- **A BARE FOREIGN QUALIFIER IS DRIVEN IN THE UNIT GUARD, NOT HERE** — Postgres
+  cannot STORE `other.col` in a policy on `m`; a predicate reaching another
+  table has to be a subquery. Saying so beats a probe row that claims to test
+  something Postgres never holds.
+
+**AND THE REPAIR'S SCOPE IS A WALL IN THE SCRIPT.** `REPAIR_SITES` names the
+five sites by hand and `workList` asks it FIRST, so a site outside it is never
+reached by anything downstream whatever state it is in. **A `--slug` off the
+list is refused BY NAME with exit 2 and nothing is read** — a silent filter
+prints "nothing to do", which reads as *"that site was already fine"*, the one
+answer a person running a repair must never get by accident. The count
+correction stays `repairbench-1` by literal, with no slug input at all.
+
+**THE LIVE PATH IS TWO DISPATCH-ONLY WORKFLOWS** — `.github/workflows/backend-repair.yml`
+and `repairbench-count-fix.yml`, both `preview` by default, both taking the
+service key from Actions secrets the way `grants preview` does, both requiring
+the typed word `apply` to write, both uploading their log `if: always()`.
+`test/merge-triggers.test.mjs` is a census and still requires `deploy.yml` to be
+the only workflow a push to main starts.
+
+**Guards**: `test/backend-repair.test.mjs` **50 → 50** (the predicate case
+rewritten onto the new property: the five erasures as `differ` rows, the two
+measured equivalences and the symmetric-unquoting row as `same`, and the bare
+foreign qualifier both with a table and without) and `test/repair-commands.test.mjs`
+**10 → 11** (the scope wall driven as a process: an out-of-scope slug exits 2,
+reads nothing and does not say "nothing to do", with the control that a run with
+no slug still visits the five). **Three older guards were re-anchored, not
+appeased**: two fixtures moved onto real in-scope slugs because `workList` asks
+the scope first now, and the `verify`-with-no-database case moved onto an
+in-scope name because the scope refusal is its own case.
+
+**STILL NOT RUN LIVE.** The five sites are `incomplete`, `repairbench-1`'s
+`bookings` declaration is missing, and `count_booked_repairs` counts `repairs`
+and answers `0`. The dispatch is armed and is the owner's press.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -3910,7 +4010,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   harness timings, 17m46s against 11m33s on trees that differ by four files,
   are the same lesson the image-step band records: **the runner decides, and no
   inference from the diff to the duration is available.**
-  The unit suite is **6,464** (2026-09-15, local — the four failures in that
+  The unit suite is **6,465** (2026-09-15, local — the normaliser erasing SQL
+  meaning before parsing, whose new case is `repair-commands`'s **one** (the
+  scope wall driven as a process: an out-of-scope slug exits 2, reads nothing
+  and does not say "nothing to do", with the control that a run with no slug
+  still visits the five); 6,464 + 1 closes exactly. **The predicate guard was
+  REWRITTEN onto the new property rather than added to**, and three older
+  fixtures were re-anchored onto in-scope slugs — none of those is a new case.
+  CI has NOT read this number yet.
+  **6,464** before it (2026-09-15, local — the four failures in that
   repair fixed through the commands, whose new cases are
   `test/repair-commands.test.mjs`'s **10** (new — both scripts spawned as real
   PROCESSES through the `--import` preload, exit codes read off the process:

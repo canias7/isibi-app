@@ -155,6 +155,127 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The normalizer was still erasing meaning, and the live path is ready
+
+You were right, and the fix I shipped last round was one layer too late. The
+comparison of the *structure* was correct; what fed it was still a
+search-and-replace over the whole predicate text, and that cannot tell a column
+named `true` from the word `true`, or the contents of `'APPROVED'` from SQL.
+
+### What was wrong, reproduced
+
+```
+before:  "true"            read as   true        ← a boolean column named `true`
+         'APPROVED'        read as   'approved'  ← two different rows
+         other_table.col   read as   col         ← a policy reading ANOTHER table
+         1::int            read as   1
+after:   all four are different
+```
+
+The `"true"` one is the dangerous one, exactly as you said: `true` is what AND
+folds away, so a live policy reading *"my rows, where the flag is set"* looked
+identical to *"my rows"*. The recovery would have accepted it and the next
+schema change would have dropped the flag — widening who can see what.
+
+### The fix, and the two things it is allowed to ignore
+
+The text is now read one token at a time instead of scrubbed all at once. A
+plain word lowercases (Postgres does that itself), a quoted name keeps its
+quotes and its spelling, and anything in quotes stays exactly as written.
+
+**It ignores only two things, and I measured both rather than assuming them:**
+
+1. Postgres drops the table prefix off a policy's own table (`"notes"."owner_id"`
+   is stored as `owner_id`) — so that one prefix is ignored, and a prefix naming
+   a *different* table is not.
+2. Postgres adds `::text` to text written in quotes — so that one is ignored,
+   and every other type conversion is kept.
+
+Anything else it cannot safely compare, it refuses, and refusing means the table
+is left alone.
+
+### Proved against a real PostgreSQL, including the bad cases
+
+The existing check still passes unchanged: **5 tables recovered and re-applied
+with no change to any policy, grant or column**, with the old algorithm still
+breaking 3 as the control.
+
+I added the bad cases you asked for. The strongest one runs end to end: a real
+table given a real boolean column named `true`, its policy narrowed by it. **The
+old comparison called that equal to what we would generate**; the new one
+refuses, the repair leaves the table out, and applying the repair leaves the
+table byte for byte as it was. Plus eight predicate pairs created as real
+policies and read back from Postgres — two that must match and six that must
+not, so it is asserting in both directions rather than just saying "different"
+to everything.
+
+### The live path is built and ready for your press
+
+Two buttons in GitHub Actions, using the key that is already there. **I am not
+asking you for any credentials.**
+
+- **`backend repair`** — the five sites.
+- **`repairbench count fix`** — `repairbench-1` only.
+
+Both **preview by default** (reads only), both need you to type the word `apply`
+to write anything, both keep their full log as a downloadable file.
+
+**The five sites are a list inside the script, not a box on the form.** If you
+type any other site name it stops with *"not one of the five sites this repair
+is for"* and reads nothing at all — it does not quietly skip it and tell you
+there was nothing to do.
+
+### The order I would run it in
+
+**repairbench-1 first, on its own**, because it is the one where we can check the
+answer against something real: it has three bookings, so the page should say 3.
+
+1. `backend repair` → mode `preview`, slug `repairbench-1`
+2. `backend repair` → mode `apply`, slug `repairbench-1`, confirm `apply`
+3. `backend repair` → mode `verify`, slug `repairbench-1`
+4. `repairbench count fix` → mode `preview`
+5. `repairbench count fix` → mode `apply`, confirm `apply`
+6. `repairbench count fix` → mode `verify` ← **the one that matters**
+
+Step 6 checks three numbers agree: the rows in `bookings`, the function called
+directly, and the function called through the site's own public address — which
+is the call the `/status` page really makes. It exits red if they disagree, so a
+green run there is the proof. **Then send me the result and I will look at it
+before we touch the other four.**
+
+### What a blank slug actually visits — correcting myself
+
+I wrote "the remaining four" above in an earlier draft. **That was wrong.** Leaving
+the slug blank visits **all five**, `repairbench-1` included — the allowlist has
+five names and a blank slug means "every one of them".
+
+Re-running `repairbench-1` is harmless (the reference write is fenced to a row
+whose name is still unset, and the recovery only adds declarations that are
+missing, so a second run finds nothing to do and says so). But if you want it
+excluded once it is done, **name the other four explicitly, one run each**:
+
+```
+backend repair  mode=preview  slug=ashgrove-1     → then apply, then verify
+backend repair  mode=preview  slug=fretwork-1     → then apply, then verify
+backend repair  mode=preview  slug=northgroup-5   → then apply, then verify
+backend repair  mode=preview  slug=washhouse-1    → then apply, then verify
+```
+
+Blank-slug is the shorter route and visits all five; explicit slugs are the
+precise one. Either is safe; only one of them is what I said.
+
+### The numbers
+
+Suite **6,465**, green. Mutation sweep re-run over an extended spec.
+
+### Nothing has been merged, deployed or repaired
+
+The code is on the branch. The five sites are still incomplete,
+`repairbench-1`'s `bookings` declaration is still missing, and `/status` still
+says `0`.
+
+---
+
 ## 2026-09-15 — The four failures you found, fixed through the commands
 
 You said to fix these *through the actual command paths*, and that was the part

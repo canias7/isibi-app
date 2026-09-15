@@ -29,7 +29,7 @@
 import { execFileSync } from "node:child_process";
 import { applySiteSchema } from "../../site-schema.mjs";
 import { policiesFor, grantsFor } from "../../site-rls.mjs";
-import { RECOVER_QUERIES, reconcileSpec, deriveAccess, MANAGED_COLUMNS } from "../../site-schema-recover.mjs";
+import { RECOVER_QUERIES, reconcileSpec, deriveAccess, MANAGED_COLUMNS, predicateShape, readParens } from "../../site-schema-recover.mjs";
 
 function findPsql() {
   for (const c of ["psql", "/usr/lib/postgresql/16/bin/psql", "/usr/bin/psql"]) {
@@ -310,6 +310,142 @@ if (!controlDirty.length) {
   if (!mentionsTrash) problems.push("the control changed something, but not `notes`'s deleted_at filter — that is the defect this arm is the control for");
 }
 
+// ── ARM 3: THE COMPARATOR'S OWN NEGATIVE CASES, AGAINST REAL STORED TEXT ─────
+//
+// Arms 1 and 2 ask "does a recovery this code ACCEPTS change the database".
+// They cannot see the opposite failure: a live policy the comparator accepts as
+// equivalent when it is NOT. That is the 2026-09-15 defect — the normaliser
+// lowercased the whole predicate and deleted every `"` before parsing, so a
+// column really named `true`, a string literal's case and a qualifier naming
+// ANOTHER table were all erased before anything could compare them.
+//
+// Every predicate below is CREATEd as a real policy and read back out of
+// `pg_policies`, so the text compared is Postgres's own — which is the whole
+// point: the bug was a disagreement between what Postgres preserves and what
+// this code threw away.
+
+/**
+ * THE PRE-FIX NORMALISER, written out rather than derived — the one line that
+ * changed. `canonPredicate` on the scrubbed string reproduces the old
+ * behaviour exactly, because a string this has been through carries no quotes,
+ * no qualifier and no cast for the new lexer to preserve.
+ */
+const oldScrub = (s) => String(s || "").toLowerCase().replace(/"/g, "")
+  .replace(/\b[a-z_][a-z0-9_]*\s*\.\s*(?=[a-z_])/g, "")
+  .replace(/::\s*[a-z_][a-z0-9_]*(\s+[a-z]+)?/g, "")
+  .replace(/\s+/g, " ").trim();
+const oldShape = (text) => predicateShape(oldScrub(text));
+
+console.log("\n── ARM 3a: an adversarial live policy the OLD comparator accepted ──");
+{
+  const db = `recprobe_${process.pid}_adv`;
+  made.push(db);
+  psql("postgres", `-q -d postgres -c ${shq(`DROP DATABASE IF EXISTS ${db};`)} -c ${shq(`CREATE DATABASE ${db};`)}`);
+  psql(db, `-q -v ON_ERROR_STOP=1 -d __DB__ -f -`, BOOT);
+  await applyInto(db, SPEC);
+
+  // A boolean column really named `true`, and the site's own SELECT policy
+  // narrowed by it. `deriveAccess` still reads `own` off the second conjunct,
+  // so this isolates the PREDICATE COMPARATOR and nothing else.
+  const setup = [
+    `ALTER TABLE "notes" ADD COLUMN "true" boolean DEFAULT false`,
+    `DROP POLICY IF EXISTS "isibi_notes_read" ON "notes"`,
+    `CREATE POLICY "isibi_notes_read" ON "notes" FOR SELECT USING (("true") AND ("notes"."owner_id" = app_user_id()) AND ("notes"."deleted_at" IS NULL))`,
+  ];
+  for (const s of setup) {
+    const r = run(db, s);
+    if (!r.ok) problems.push("arm 3a setup refused: " + s + " — " + r.err);
+  }
+
+  const liveAdv = catalog(db);
+  const advPolicy = (liveAdv.policies.find((p) => p.t === "notes" && String(p.c).toUpperCase() === "SELECT") || {}).q || "";
+  const mine = (policiesFor(SPEC.tables.find((t) => t.name === "notes")) || [])
+    .find((s) => /FOR\s+SELECT/i.test(s)) || "";
+  const mineUsing = readParens(mine, /USING\s*\(/i.exec(mine).index + /USING\s*\(/i.exec(mine)[0].length - 1);
+  console.log(`  live  (pg_policies): ${advPolicy}`);
+  console.log(`  would (policiesFor): ${mineUsing}`);
+
+  // THE CONTROL: the old normaliser called these two the same, which is why
+  // this case is a real defect and not an invented one.
+  const oldSame = oldShape(advPolicy) === oldShape(mineUsing);
+  const nowSame = predicateShape(advPolicy, "notes") === predicateShape(mineUsing, "notes");
+  console.log(`  old comparator: ${oldSame ? "EQUAL (would have recovered, dropping the `true` conjunct)" : "different"}`);
+  console.log(`  new comparator: ${nowSame ? "EQUAL" : "different (refused)"}`);
+  if (!oldSame) problems.push("arm 3a proves nothing: the OLD comparator already told these apart, so the case is not the defect");
+  if (nowSame) problems.push("arm 3a: the new comparator still reads a `\"true\"` conjunct as the boolean literal — the next apply would widen this policy");
+
+  // AND END TO END: the reconcile must leave the table alone.
+  const before = surface(db, "notes");
+  const out = reconcileSpec({ stored: { tables: [] }, live: liveAdv, emit: { policiesFor, grantsFor } });
+  const refused = [...out.uncertain, ...out.ambiguous].find((x) => x.name === "notes");
+  const recovered = out.recovered.find((r) => r.name === "notes");
+  console.log(`  reconcile: ${recovered ? "RECOVERED notes" : `refused notes (${(refused && refused.why) || "not listed"})`}`);
+  if (recovered) problems.push("arm 3a: the reconcile recovered `notes` from an adversarial policy — applying it would drop the `true` conjunct");
+  await applyInto(db, out.spec);
+  const advDiff = diffSurface(before, surface(db, "notes"));
+  if (advDiff.length) {
+    for (const x of advDiff) console.log(`      ${x.what}\n        before ${JSON.stringify(x.before)}\n        after  ${JSON.stringify(x.after)}`);
+    problems.push("arm 3a: applying the reconcile changed the adversarial table's " + advDiff.map((x) => x.what).join(", "));
+  } else console.log("  applying the reconcile left `notes` exactly as it was");
+}
+
+console.log("\n── ARM 3b: pairs Postgres really stores, canonicalised ──");
+{
+  const db = `recprobe_${process.pid}_pairs`;
+  made.push(db);
+  psql("postgres", `-q -d postgres -c ${shq(`DROP DATABASE IF EXISTS ${db};`)} -c ${shq(`CREATE DATABASE ${db};`)}`);
+  psql(db, `-q -v ON_ERROR_STOP=1 -d __DB__ -f -`, BOOT);
+  const boot = [
+    `CREATE FUNCTION app_user_id() RETURNS text LANGUAGE sql AS $fn$ SELECT 'x'::text $fn$`,
+    `CREATE TABLE "m" ("true" boolean, status text, owner_id text, kind int, expires_at text)`,
+    `CREATE TABLE "other" (owner_id text)`,
+    `ALTER TABLE "m" ENABLE ROW LEVEL SECURITY`,
+  ];
+  for (const s of boot) { const r = run(db, s); if (!r.ok) problems.push("arm 3b boot refused: " + s + " — " + r.err); }
+
+  let nth = 0;
+  /** CREATE the predicate as a real policy and hand back what Postgres stored. */
+  const stored = (expr) => {
+    const name = `p${++nth}`;
+    const r = run(db, `CREATE POLICY "${name}" ON "m" FOR SELECT USING (${expr})`);
+    if (!r.ok) { problems.push(`arm 3b could not create ${expr}: ${r.err}`); return null; }
+    const q = run(db, `SELECT qual FROM pg_policies WHERE tablename='m' AND policyname='${name}'`);
+    return q.ok ? q.out : null;
+  };
+
+  const Q = String.fromCharCode(39);
+  const PAIRS = [
+    // want === true means the two MUST canonicalise the same.
+    { want: true, why: "our own qualifier is what Postgres drops", a: `"m"."owner_id" = app_user_id()`, b: `owner_id = app_user_id()` },
+    { want: true, why: "Postgres adds ::text to a string literal", a: `expires_at > to_char(now() AT TIME ZONE ${Q}UTC${Q}, ${Q}YYYY-MM-DD HH24:MI:SS${Q})`, b: `expires_at > to_char(now() AT TIME ZONE ${Q}UTC${Q}::text, ${Q}YYYY-MM-DD HH24:MI:SS${Q}::text)` },
+    { want: false, why: "a column named `true` is not the literal", a: `"true"`, b: `true` },
+    { want: false, why: "`true` is AND's identity, so the conjunct would vanish", a: `("true") AND (owner_id = app_user_id())`, b: `owner_id = app_user_id()` },
+    { want: false, why: "a string literal's case is data", a: `status = ${Q}APPROVED${Q}`, b: `status = ${Q}approved${Q}` },
+    // Postgres cannot STORE a bare `other.owner_id` in a policy on `m` — a
+    // predicate reaching another table has to be a subquery — so this row is
+    // about what Postgres really keeps. The bare foreign qualifier, which the
+    // old scrub deleted whatever it named, is driven in `backend-repair`.
+    { want: false, why: "a predicate reading ANOTHER table is not this table's", a: `"m"."owner_id" = app_user_id()`, b: `(SELECT owner_id FROM "other" LIMIT 1) = app_user_id()` },
+    { want: false, why: "a cast that is not ::text-on-a-literal is kept", a: `kind = 1`, b: `kind::text = ${Q}1${Q}` },
+    { want: false, why: "IS NULL is not IS NOT NULL", a: `expires_at IS NULL`, b: `expires_at IS NOT NULL` },
+  ];
+  for (const p of PAIRS) {
+    const A = stored(p.a), B = stored(p.b);
+    if (A === null || B === null) continue;
+    const now = predicateShape(A, "m") === predicateShape(B, "m");
+    const old = oldShape(A) === oldShape(B);
+    const ok = now === p.want;
+    if (!ok) problems.push(`arm 3b: ${p.why} — stored ${JSON.stringify(A)} vs ${JSON.stringify(B)} canonicalise ${now ? "the SAME" : "DIFFERENTLY"}, wanted ${p.want ? "the same" : "different"}`);
+    const note = !p.want && old ? "  <- the OLD comparator called these equal" : "";
+    console.log(`  ${ok ? "ok  " : "FAIL"} ${p.want ? "same " : "differ"}  ${p.why}${note}`);
+  }
+  // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: a run where every pair
+  // answered "different" would pass every `want: false` row for free.
+  if (!PAIRS.some((p) => p.want) || !PAIRS.some((p) => !p.want)) {
+    problems.push("arm 3b has no positive or no negative pair, so it is asserting in one direction only");
+  }
+}
+
 console.log("\n── RESULT ──");
 if (problems.length) {
   for (const p of problems) console.log("  FAIL: " + p);
@@ -317,4 +453,5 @@ if (problems.length) {
   process.exit(1);
 }
 console.log(`  PASS — ${keep.out.recovered.length} table(s) recovered and re-applied with no change to any policy, grant or column;`);
-console.log(`         the flag-stripped control changed ${controlDirty.length} table(s).`);
+console.log(`         the flag-stripped control changed ${controlDirty.length} table(s);`);
+console.log(`         an adversarial policy the old comparator accepted is refused, and every stored pair reads as it should.`);

@@ -400,26 +400,66 @@ const ownish = (p) => OWN_TEST.test(String((p && p.q) || "") + " " + String((p &
  * operator is KEPT, so `(a + b) * c` cannot collapse into `a + (b * c)`.
  */
 
-/** Everything Postgres rewrites, and which must not read as a difference. */
-function scrubPredicate(s) {
-  return String(s || "")
-    .toLowerCase()
-    // A quoted identifier and a bare one are the same column.
-    .replace(/"/g, "")
-    // `x.col` and `col` are the same column inside one table's policy.
-    .replace(/\b[a-z_][a-z0-9_]*\s*\.\s*(?=[a-z_])/g, "")
-    // `::text`, `::uuid`, `::character varying` — Postgres adds these itself.
-    .replace(/::\s*[a-z_][a-z0-9_]*(\s+[a-z]+)?/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+const BOOL_WORD = new Set(["and", "or"]);
 
-/** Tokens: parens, commas, string literals, words, numbers, operator runs. */
-function lexPredicate(s) {
+/**
+ * THE WORDS THIS COMPARATOR READS AS SYNTAX RATHER THAN AS A NAME.
+ *
+ * DERIVED from the two places that give a bare word meaning — `parsePredicate`
+ * (`and`, `or`, `not`) and `foldTrue` (`true`) — so it cannot drift away from
+ * them, and it is NOT a copy of Postgres's reserved-word list. Its only job is
+ * the unquoting rule below: a quoted identifier spelling one of these keeps its
+ * quotes, so a column really named `true` can never be folded into the boolean
+ * literal. Every other quoted name unquotes, on BOTH sides, so a name Postgres
+ * keeps quoted because IT considers it reserved still matches our own emitted
+ * `"t"."user"` — the rule is symmetric, which is what stops it needing to know
+ * which words Postgres reserves.
+ */
+const SYNTAX_WORDS = new Set([...BOOL_WORD, "not", "true"]);
+
+/** A name that needs no quotes: Postgres folds exactly these to bare lower case. */
+const bareName = (s) => /^[a-z_][a-z0-9_$]*$/.test(s);
+
+/**
+ * TOKENS, LEXED OFF THE RAW TEXT AND NORMALISED ONE AT A TIME.
+ *
+ * ── WHY THE WHOLE-STRING SCRUB HAD TO GO (2026-09-15) ───────────────────────
+ *
+ * The first cut lowercased the predicate and deleted every `"` BEFORE lexing.
+ * A regex over the whole string cannot tell a quoted identifier from the word
+ * it spells, or a string literal's contents from SQL. Driven, and every one is
+ * a real Postgres shape:
+ *
+ *     "true"              -> true              a boolean column named `true`
+ *                                              became the literal, and `true`
+ *                                              is AND's identity, so
+ *                                              `(owner_id = app_user_id()) AND "true"`
+ *                                              folded to just the first half.
+ *     'APPROVED'          -> 'approved'        two different rows.
+ *     other_table.col     -> col               a policy reading ANOTHER table.
+ *     1::int              -> 1
+ *
+ * MEASURED against a real PostgreSQL 16, which is what decides the rules here:
+ * `pg_policies` stores `USING ("true")` with its quotes, `'APPROVED'::text`
+ * with its case, `"m1"."owner_id" = app_user_id()` as `owner_id = …` and
+ * `kind = 1::int` as `kind = 1`.
+ *
+ * So each token is normalised as its own kind:
+ *   - a bare word lowercases, because Postgres folds unquoted names;
+ *   - a QUOTED identifier keeps its content verbatim, and keeps its quotes
+ *     unless the content is a bare lowercase name that is not a SYNTAX_WORD;
+ *   - a STRING LITERAL is kept exactly as written, contents and case;
+ *   - `.`, numbers and operator runs are kept as they are.
+ *
+ * A quoted token starts with `"` and a literal with `'`, neither of which a
+ * bare word can produce, so the three can never collide downstream.
+ */
+function lexPredicate(raw) {
+  const s = String(raw || "");
   const out = [];
   for (let i = 0; i < s.length;) {
     const c = s[i];
-    if (c === " ") { i++; continue; }
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") { i++; continue; }
     if (c === "(" || c === ")" || c === ",") { out.push(c); i++; continue; }
     if (c === "'") {
       let j = i + 1;
@@ -429,12 +469,29 @@ function lexPredicate(s) {
         j++;
       }
       if (j >= s.length) return { ok: false, why: "unterminated-string" };
+      // VERBATIM. Its contents are data, never syntax and never case-folded.
       out.push(s.slice(i, j + 1)); i = j + 1; continue;
     }
-    let m = /^[a-z_][a-z0-9_$]*/.exec(s.slice(i));
-    if (m) { out.push(m[0]); i += m[0].length; continue; }
+    if (c === '"') {
+      let j = i + 1;
+      while (j < s.length) {
+        if (s[j] === '"' && s[j + 1] === '"') { j += 2; continue; }
+        if (s[j] === '"') break;
+        j++;
+      }
+      if (j >= s.length) return { ok: false, why: "unterminated-identifier" };
+      const body = s.slice(i + 1, j).replace(/""/g, '"');
+      i = j + 1;
+      out.push(bareName(body) && !SYNTAX_WORDS.has(body) ? body : '"' + body + '"');
+      continue;
+    }
+    let m = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(s.slice(i));
+    if (m) { out.push(m[0].toLowerCase()); i += m[0].length; continue; }
     m = /^[0-9][0-9.]*/.exec(s.slice(i));
     if (m) { out.push(m[0]); i += m[0].length; continue; }
+    // A qualifier's dot is a TOKEN now, because the qualifier is no longer
+    // deleted by a regex that could not see which table it named.
+    if (c === ".") { out.push("."); i++; continue; }
     m = /^[=<>!+\-*/%|@~^&#?:]+/.exec(s.slice(i));
     if (m) { out.push(m[0]); i += m[0].length; continue; }
     return { ok: false, why: "unknown-character" };
@@ -442,7 +499,54 @@ function lexPredicate(s) {
   return { ok: true, tokens: out };
 }
 
-const BOOL_WORD = new Set(["and", "or"]);
+/**
+ * THE ONE CAST EQUIVALENCE, AND IT IS MEASURED RATHER THAN ASSUMED.
+ *
+ * Our emitter writes NO cast anywhere — driven over all 16 read×write cells and
+ * every flag: **8 distinct predicate expressions, zero `::`**. So a cast can
+ * only ever arrive from Postgres, and there is exactly one place it does in our
+ * own corpus: a STRING LITERAL. `to_char(now() AT TIME ZONE 'UTC', '…')` comes
+ * back as `to_char((now() AT TIME ZONE 'UTC'::text), '…'::text)`.
+ *
+ * So `::text` directly after a string literal is dropped, and NOTHING else is.
+ * `1::int`, `col::text` and `'x'::uuid` are kept, which means each reads as a
+ * difference and leaves the table alone — the fail-closed direction, and
+ * correct, because our emitter cannot have produced the other side.
+ */
+function dropLiteralTextCasts(toks) {
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    const prev = out[out.length - 1];
+    if (toks[i] === "::" && toks[i + 1] === "text" && typeof prev === "string" && prev.startsWith("'")) { i++; continue; }
+    out.push(toks[i]);
+  }
+  return out;
+}
+
+/**
+ * THE ONE QUALIFIER EQUIVALENCE, AND IT IS THE POLICY'S OWN TABLE.
+ *
+ * `policiesFor` writes `"t"."owner_id" = app_user_id()` and `pg_policies`
+ * stores `owner_id = app_user_id()` — MEASURED. That is established for a
+ * qualifier naming the table the policy is ON and for no other: a predicate
+ * qualified with a DIFFERENT table reads a different table's column, and
+ * stripping it would have made the two compare equal.
+ *
+ * With no table name in hand nothing is stripped, so a caller that cannot say
+ * which table it is asking about gets the strict comparison rather than a
+ * lenient one.
+ */
+function dropOwnQualifier(toks, table) {
+  const own = String(table || "");
+  if (!own) return toks;
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    const nameNext = typeof toks[i + 2] === "string" && (bareName(toks[i + 2]) || toks[i + 2].startsWith('"'));
+    if (toks[i] === own && toks[i + 1] === "." && nameNext) { i++; continue; }
+    out.push(toks[i]);
+  }
+  return out;
+}
 
 /** Drop the parens Postgres adds around a whole function argument, and no others. */
 function dropRedundantParens(toks) {
@@ -554,13 +658,14 @@ function renderPredicate(n) {
  * clause and a SELECT policy has no WITH CHECK, and "absent" is a real answer
  * that both sides agree on.
  */
-export function canonPredicate(text) {
-  const s = scrubPredicate(text);
-  if (!s) return { ok: true, form: "" };
-  const lex = lexPredicate(s);
+export function canonPredicate(text, table) {
+  if (!String(text || "").trim()) return { ok: true, form: "" };
+  const lex = lexPredicate(text);
   if (!lex.ok) return { ok: false, why: lex.why };
+  if (!lex.tokens.length) return { ok: true, form: "" };
   try {
-    return { ok: true, form: renderPredicate(foldTrue(parsePredicate(dropRedundantParens(lex.tokens)))) };
+    const toks = dropRedundantParens(dropOwnQualifier(dropLiteralTextCasts(lex.tokens), table));
+    return { ok: true, form: renderPredicate(foldTrue(parsePredicate(toks))) };
   } catch (e) {
     return { ok: false, why: String((e && e.message) || e).slice(0, 40) };
   }
@@ -572,8 +677,8 @@ export function canonPredicate(text) {
  * COMPARES goes through `canonPredicate` and reports `policy-not-comparable`
  * instead — an unparsable predicate must never quietly equal an absent one.
  */
-export function predicateShape(text) {
-  const c = canonPredicate(text);
+export function predicateShape(text, table) {
+  const c = canonPredicate(text, table);
   return c.ok ? c.form : "";
 }
 
@@ -602,7 +707,7 @@ export function readParens(text, from) {
  * first `)` under a flat scan — this repository's own most-repeated regex trap,
  * and the predicates here are nested by construction.
  */
-export function statementShape(stmt) {
+export function statementShape(stmt, table) {
   const s = String(stmt || "");
   const m = /\bFOR\s+(SELECT|INSERT|UPDATE|DELETE|ALL)\b/i.exec(s);
   if (!/CREATE\s+POLICY/i.test(s) || !m) return null;
@@ -611,7 +716,7 @@ export function statementShape(stmt) {
   const c = /\bWITH\s+CHECK\s*\(/i.exec(s);
   const using = u ? readParens(s, u.index + u[0].length - 1) : "";
   const check = c ? readParens(s, c.index + c[0].length - 1) : "";
-  return { cmd, ...pairShape(using, check) };
+  return { cmd, ...pairShape(using, check, table) };
 }
 
 /**
@@ -623,8 +728,8 @@ export function statementShape(stmt) {
  * policy that has none. `ok: false` travels all the way to
  * `verifyDeclaration`, which leaves the table alone.
  */
-function pairShape(using, check) {
-  const a = canonPredicate(using), b = canonPredicate(check);
+function pairShape(using, check, table) {
+  const a = canonPredicate(using, table), b = canonPredicate(check, table);
   if (!a.ok || !b.ok) return { ok: false, why: (a.ok ? b.why : a.why) };
   return { ok: true, shape: a.form + "|" + b.form };
 }
@@ -635,7 +740,7 @@ export function livePolicyShapes(policies, table) {
   for (const p of Array.isArray(policies) ? policies : []) {
     if (!p || p.t !== table) continue;
     const cmd = String(p.c || "ALL").toUpperCase();
-    const sh = pairShape(p.q, p.w);
+    const sh = pairShape(p.q, p.w, table);
     if (sh.ok) out[cmd] = sh.shape;
     else unreadable.push({ cmd, why: sh.why });
   }
@@ -643,10 +748,10 @@ export function livePolicyShapes(policies, table) {
 }
 
 /** Every policy a declaration would emit, as `{cmd: shape}`. */
-export function emittedPolicyShapes(statements) {
+export function emittedPolicyShapes(statements, table) {
   const out = {}, unreadable = [];
   for (const s of Array.isArray(statements) ? statements : []) {
-    const sh = statementShape(s);
+    const sh = statementShape(s, table);
     if (!sh) continue;
     if (sh.ok) out[sh.cmd] = sh.shape;
     else unreadable.push({ cmd: sh.cmd, why: sh.why });
@@ -781,7 +886,7 @@ export function verifyDeclaration({ table, declared, live = {}, emit = null } = 
   }
 
   const liveP = livePolicyShapes(live.policies, table);
-  const mineP = emittedPolicyShapes(policyStmts);
+  const mineP = emittedPolicyShapes(policyStmts, table);
   // A PREDICATE THIS CANNOT PARSE IS REFUSED, NEVER COMPARED. Reading it as a
   // mismatch would be the same verdict by luck; reading it as an empty shape —
   // which is what an ABSENT clause answers — would let it compare EQUAL to a

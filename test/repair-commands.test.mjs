@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dbNameForSite } from "../site-db.mjs";
+import { REPAIR_SITES } from "../scripts/backend-repair.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRELOAD = path.join(ROOT, "test/fixtures/repair-process.mjs");
@@ -113,11 +114,40 @@ test("backend-repair --verify reaches the SITE's database, not the project's", (
 
 test("backend-repair --verify fails when the named site has no reachable database", () => {
   // "nothing to do" is not a pass in verify mode: the site was supposed to have
-  // a database by now.
-  const f = scenario({ sites: [{ slug: "frontend-only", uid: "u1", neon_db: "" }], projects: [] });
-  const r = run("backend-repair.mjs", ["--verify", "--slug", "frontend-only"], f);
+  // a database by now. RE-ANCHORED 2026-09-15 onto an IN-SCOPE slug, because
+  // the scope wall now refuses an unknown name before anything is read — which
+  // is its own case, below.
+  const f = scenario({ sites: [{ slug: "washhouse-1", uid: "u1", neon_db: "" }], projects: [] });
+  const r = run("backend-repair.mjs", ["--verify", "--slug", "washhouse-1"], f);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /VERIFY FAILED/);
+});
+
+test("the repair is scoped to five sites by name, and a sixth is refused before anything is read", () => {
+  // THE SCOPE IS A WALL IN THE SCRIPT, NOT A PROMISE IN THE WORKFLOW FORM.
+  // Driven as a process, because that is the only place the exit code and the
+  // "nothing was read" half are both observable.
+  assert.deepEqual(REPAIR_SITES, ["ashgrove-1", "fretwork-1", "northgroup-5", "repairbench-1", "washhouse-1"]);
+
+  // A NAME OFF THE LIST IS REFUSED BY NAME. A silent filter would print
+  // "nothing to do", which reads as "that site was already fine".
+  const f = scenario({
+    sites: [{ slug: "northgroup-9", uid: "u1", neon_db: "" }, { slug: "repairbench-1", uid: "u1", neon_db: "" }],
+    projects: [{ slug: "northgroup-9", neon_conn: PROJ }, { slug: "repairbench-1", neon_conn: PROJ }],
+    tables: { bookings: BOOKINGS },
+  });
+  const off = run("backend-repair.mjs", ["--apply", "--slug", "northgroup-9"], f);
+  assert.equal(off.code, 2, "an out-of-scope slug exited " + off.code + ":\n" + off.out);
+  assert.match(off.out, /not one of the five sites/);
+  assert.equal(off.statements.length, 0, "it read something: " + JSON.stringify(off.statements));
+  assert.ok(!/nothing to do/.test(off.out), "a refusal must not read as `nothing to do`");
+
+  // AND WITH NO SLUG THE LOOP STILL VISITS ONLY THE FIVE — the control, without
+  // which a wall that refused EVERY site would pass the assertion above.
+  const all = run("backend-repair.mjs", ["--preview"], f);
+  assert.equal(all.code, 0, all.out);
+  assert.match(all.out, /repairbench-1/);
+  assert.ok(!/northgroup-9 \[/.test(all.out), "an out-of-scope site was visited:\n" + all.out);
 });
 
 test("apply -> verify -> repeat, on a database with no `_meta` at all", () => {

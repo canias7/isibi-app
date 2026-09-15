@@ -336,8 +336,11 @@ test("a predicate is compared as a boolean TREE, so opposite rules never fingerp
   // A live table whose SELECT policy showed only the soft-DELETED rows recovered
   // clean, and the next apply emitted `IS NULL`. The predicate is parsed and
   // canonicalised now; the vocabulary is gone.
-  const same = (a, b) => assert.equal(predicateShape(a), predicateShape(b), a + "  !=  " + b);
-  const differ = (a, b) => assert.notEqual(predicateShape(a), predicateShape(b), a + "  ==  " + b);
+  // RE-ANCHORED AGAIN 2026-09-15: the comparator takes the TABLE it is asking
+  // about, because the qualifier equivalence is established for the policy's
+  // OWN table and for no other. A call with no table gets the strict reading.
+  const same = (a, b, t = "notes") => assert.equal(predicateShape(a, t), predicateShape(b, t), a + "  !=  " + b);
+  const differ = (a, b, t = "notes") => assert.notEqual(predicateShape(a, t), predicateShape(b, t), a + "  ==  " + b);
 
   // THE COUNTEREXAMPLE, first.
   differ("(deleted_at IS NULL)", "(deleted_at IS NOT NULL)");
@@ -347,26 +350,59 @@ test("a predicate is compared as a boolean TREE, so opposite rules never fingerp
   differ("(owner_id = app_user_id())", "(app_user_id() IS NOT NULL)");
   differ("(true)", "(status = 'live')");
 
-  // AND WHAT POSTGRES REWRITES IS STILL NORMALISED AWAY — quoting, the table
-  // qualifier, casts, whitespace, case, and the parens it adds around a whole
-  // function argument. These pairs are the real emitted/stored pairs, taken
-  // from `test/integration/local-pg-recover.mjs`'s own catalog reads.
+  // ── WHAT THE WHOLE-STRING SCRUB ERASED (2026-09-15) ───────────────────────
+  //
+  // Lowercasing the predicate and deleting every `"` before parsing cannot tell
+  // a quoted identifier from the word it spells, or a literal's contents from
+  // SQL. Each pair below came back EQUAL from that shape; each is a real
+  // PostgreSQL 16 storage form, measured in `local-pg-recover.mjs`'s arm 3b.
+  differ('"true"', "true");                                     // a column named `true`
+  differ('("true") AND (owner_id = app_user_id())', "(owner_id = app_user_id())"); // …and it FOLDS
+  differ("(status = 'APPROVED')", "(status = 'approved')");      // a literal's case is data
+  differ('("Mixed")', "(mixed)");                                // a quoted name keeps its case
+  differ("(kind = 1::int)", "(kind = 1)");                       // a cast that is not ::text-on-a-literal
+  differ("(kind::text = a)", "(kind = a)");                      // …including one on a column
+  differ("(owner_id = app_user_id()::uuid)", "(owner_id = app_user_id())");
+  // A QUALIFIER NAMING ANOTHER TABLE READS ANOTHER TABLE'S COLUMN. Postgres
+  // cannot STORE this in a policy — a predicate reaching another table has to
+  // be a subquery — so it is driven here rather than in the Postgres probe.
+  differ('("notes"."owner_id" = app_user_id())', '("other"."owner_id" = app_user_id())');
+  differ('("notes"."owner_id" = app_user_id())', '("other"."owner_id" = app_user_id())', "");
+  // WITH NO TABLE, NOTHING IS STRIPPED — and this row has to be the BARE shape.
+  // `dropOwnQualifier` runs before `dropRedundantParens`, so in a parenthesised
+  // predicate the first token is `(` and a mutant that read the first token as
+  // the qualifier was inert; `readParens` hands exactly this bare form for a
+  // simple policy, which is where it is observable. A sweep survivor found it.
+  differ("notes.owner_id = app_user_id()", "owner_id = app_user_id()", "");
+  same("notes.owner_id = app_user_id()", "owner_id = app_user_id()", "notes");
+
+  // AND WHAT POSTGRES ITSELF REWRITES IS STILL NORMALISED AWAY — the OWN table
+  // qualifier, `::text` on a string literal, whitespace, keyword case, and the
+  // parens it adds around a whole function argument. These are the real
+  // emitted/stored pairs out of the probe's own catalog reads.
   same('("notes"."owner_id" = app_user_id())', "(owner_id = app_user_id())");
   same('(("notes"."owner_id" = app_user_id()) AND "notes"."deleted_at" IS NULL)',
     "((owner_id = app_user_id()) AND (deleted_at IS NULL))");
-  same("(owner_id = app_user_id()::uuid)", "(owner_id = app_user_id())");
   same("app_user_id() IS NOT NULL AND (\"posts\".\"expires_at\" IS NULL OR \"posts\".\"expires_at\" > to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'))",
-    "((app_user_id() IS NOT NULL) AND ((expires_at IS NULL) OR (expires_at > to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text))))");
+    "((app_user_id() IS NOT NULL) AND ((expires_at IS NULL) OR (expires_at > to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD HH24:MI:SS'::text))))", "posts");
+  // UNQUOTING IS SYMMETRIC, which is what stops this needing Postgres's
+  // reserved-word list: a name Postgres keeps quoted because IT reserves the
+  // word still matches our own emitter, which quotes everything.
+  same('("notes"."user" = app_user_id())', '("user" = app_user_id())');
   // AND/OR ARE COMMUTATIVE, so Postgres reordering them is not a difference.
   same("(a = 1 AND b = 2)", "(b = 2 AND a = 1)");
   // `true` IS THE IDENTITY OF AND — `read: "public"` + `trash` emits
   // `USING (true AND deleted_at IS NULL)` and must equal the folded form.
   same("(true AND (deleted_at IS NULL))", "(deleted_at IS NULL)");
   same("(true)", "true");
+  // KEYWORD CASE IS NOT LITERAL CASE: an unquoted word folds, a literal does not.
+  same("(deleted_at IS NULL)", "(deleted_at is null)");
 
   // A PREDICATE THIS CANNOT PARSE IS REFUSED, NOT GUESSED AT.
   assert.equal(canonPredicate("(a + b) * c").ok, false);
   assert.equal(canonPredicate("(unbalanced").ok, false);
+  assert.equal(canonPredicate('"unterminated').ok, false, "an unterminated quoted identifier is refused, never read as a bare word");
+  assert.equal(canonPredicate("'unterminated").ok, false);
   assert.equal(canonPredicate("").ok, true, "an ABSENT clause is a real answer both sides agree on");
   assert.equal(canonPredicate("").form, "");
 });
@@ -686,13 +722,16 @@ test("the reference and the schema are separate tasks, and a `ready` site is sti
   // THE SEPARATION ITSELF. `main` filtered on `act === "backfill"`, so the
   // moment a reference was written that site dropped out of the work list and a
   // rerun could never finish its schema recovery.
+  // RE-ANCHORED 2026-09-15: `workList` asks TWO questions now — is this site in
+  // scope, and does it have a database — so the fixture uses real in-scope
+  // names. The scope half gets its own case below.
   const rows = [
-    { slug: "a", state: "ready", act: "skip" },
-    { slug: "b", state: "incomplete", act: "backfill" },
-    { slug: "c", state: "none", act: "skip" },
-    { slug: "d", state: "unreadable", act: "skip" },
+    { slug: "ashgrove-1", state: "ready", act: "skip" },
+    { slug: "fretwork-1", state: "incomplete", act: "backfill" },
+    { slug: "northgroup-5", state: "none", act: "skip" },
+    { slug: "washhouse-1", state: "unreadable", act: "skip" },
   ];
-  assert.deepEqual(workList(rows).map((r) => r.slug), ["a", "b"],
+  assert.deepEqual(workList(rows).map((r) => r.slug), ["ashgrove-1", "fretwork-1"],
     "a site with a good reference and a broken declaration is not visited");
 
   // AND THE RERUN IS WHAT FINISHES THE JOB — driven end to end. Run one writes
@@ -702,7 +741,7 @@ test("the reference and the schema are separate tasks, and a `ready` site is sti
   const live = liveOf([bookings]);
   let meta = null, permsWork = false;
   const sql = async (q, p) => {
-    if (/current_database/.test(q)) return [{ db: "site_s1" }];
+    if (/current_database/.test(q)) return [{ db: "site_repairbench_1" }];
     if (/information_schema\.columns/.test(q)) return live.columns;
     if (/role_table_grants/.test(q)) { if (!permsWork) throw new Error("connection terminated"); return live.grants; }
     if (/pg_policies/.test(q)) return live.policies;
@@ -713,7 +752,8 @@ test("the reference and the schema are separate tasks, and a `ready` site is sti
   };
   let wrote = 0;
   const write = async () => { wrote++; return { wrote: true }; };
-  const first = { slug: "s1", state: "incomplete", act: "backfill", db: "site_s1", uid: "u1", conn: "postgres://u:p@h/site_s1", projectSlug: "s1" };
+  // AN IN-SCOPE SLUG, because `workList` asks the scope first now.
+  const first = { slug: "repairbench-1", state: "incomplete", act: "backfill", db: "site_repairbench_1", uid: "u1", conn: "postgres://u:p@h/site_repairbench_1", projectSlug: "repairbench-1" };
 
   const r1 = await repairSite({ site: first, sql, write, mode: "apply", emit: REAL });
   assert.equal(r1.ref.act, "written", "the reference did not go");
