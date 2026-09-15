@@ -4037,6 +4037,61 @@ is still `SECURITY DEFINER` with no `SET search_path`, which the repair
 PRESERVED rather than changed, and whether that is exploitable here is still
 unmeasured in both directions.
 
+### THE BASELINE FOR THE ADDON TEST, TAKEN BEFORE THE SPEND (2026-09-15 19:16:49Z)
+
+Owner: *"prove the fixed addon can automatically build a working feature using an
+existing site's database"* — one live request on `repairbench-1`, and
+***"Record the initial outcome before making any manual correction. A manually
+repaired result must not count as automatic addon success."*** **This entry is
+written and pushed BEFORE the press**, because a baseline recorded afterwards is
+not a baseline.
+
+| condition | reading |
+|---|---|
+| the page name is free | `GET /booking-check` **404** (control: `/status` **200**, so the site is up and the 404 is an answer) |
+| the function name is free | `POST …/rpc/count_existing_bookings` **404**, `PGRST202 Could not find the function public.count_existing_bookings` |
+| **`bookings` EXISTS** | `GET …/data/bookings?select=id` **403**, `42501 permission denied for table bookings` |
+| **the count is 3** | `POST …/rpc/count_booked_repairs` **200**, answering `3` |
+
+**THE REFUSAL IS THE EXISTENCE PROOF, and that is the interesting one.** A table
+Postgres does not have answers `42P01 relation does not exist` (PGRST205); this
+answers `42501 permission denied`, which only a table that IS there can produce.
+`bookings` is `collect` — anyone writes, nobody reads — so a client SELECT is
+refused by design, and the refusal's own code is what establishes the table.
+
+**THE COUNT IS INDEPENDENT OF THE THING UNDER TEST, AND ITS LIMIT IS STATED.**
+`count_booked_repairs` is a DIFFERENT function from the one this run will design,
+so it cannot be its own witness — but it is not a raw row read either, because
+this session has no Neon credential. The raw `SELECT COUNT(*) FROM bookings` leg
+was read at **17:52:40Z** by the count-fix verify run and answered **3**; the RPC
+answers **3** again ninety minutes later. Two readings, one of them a real row
+count, agreeing.
+
+**WHICH CODE WILL ANSWER, both halves, checked not assumed.** Worker: deploy
+**`87b4057e`** (run 2123, 17:51Z), and `git diff 9a4ac614..origin/main --
+worker.js builder/ Dockerfile .dockerignore site-schema.mjs site-apis.mjs` is
+**EMPTY** — so the addon path is byte for byte the code deploy 2120 shipped.
+Container: `origin/main` hashes to **`6246eb17cd6595c4`** (182 inputs), which is
+the id deploy 2120 rolled to and nothing has moved it since.
+
+**EXACTLY ONE PAID POST, MEASURED RATHER THAN HOPED.** The harness's second paid
+call (`POST /api/site/<slug>/edit`, the photo hop) is gated on `c.hop`, and
+`askCase` — the case a free-text `ask` builds — sets no `hop` field, so that
+branch is unreachable on this run. The only other loop is a bounded re-READ of
+the site's build id. **There are no automatic paid retries.**
+
+**AND THE `budget` INPUT CANNOT MAKE A HARD CAP — said plainly because the owner
+asked for one.** `if (spent > BUDGET) break` is checked BEFORE each case, and an
+`ask` collapses the case list to exactly one (`casesFor` answers `[askCase(said)]`),
+so at the only check `spent` is 0 and the gate never fires. More fundamentally
+the credits are spent INSIDE the single addon request, and nothing outside that
+request can stop it mid-flight — **no harness setting can bound one addon run.**
+What does bound it: the ledger refuses a bill above the balance (**161**), the
+ask forbids a new table, and the measured precedent is run 47's **13** for the
+larger `table · function · page` shape against **31** for the most expensive run
+ever seen on this account. The field is set to 40 anyway: it costs nothing and is
+correct the day the harness runs more than one case.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while

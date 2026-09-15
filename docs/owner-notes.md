@@ -9628,3 +9628,43 @@ number.
 **So the wire probe is ready to fire whenever you want it**, and it costs
 nothing. Job probe → Run workflow → `probe` = **wire**, everything else as it
 comes up, branch `main`, `jobId` empty.
+
+### The baseline, written before you press
+
+You asked me to record the initial outcome before any manual correction, so
+here is the state of `repairbench-1` at **19:16:49Z**, committed before a single
+credit is spent.
+
+| what | reading |
+|---|---|
+| `/booking-check` | **404** — the name is free (`/status` answers 200, so the site is up) |
+| `count_existing_bookings` | **404** — no such function |
+| `bookings` exists | **403 permission denied** — see below |
+| the count | **3** |
+
+**The permission error is the proof the table is there.** A table Postgres
+doesn't have says "relation does not exist"; this says "permission denied for
+table bookings", which only a real table can say. `bookings` is write-only to
+visitors by design, so that refusal is correct and it's also the evidence.
+
+**On the count being independent:** `count_booked_repairs` is a different
+function from the one this run will create, so it can't vouch for itself. It
+isn't a raw row count either — I have no database credential here. The raw count
+was read at 17:52Z by the verify run and said 3; the RPC says 3 again now.
+
+**Which code will answer** — Worker on `87b4057e`, and the addon path is
+byte-identical to what deploy 2120 shipped. Container on `6246eb17cd6595c4`,
+unmoved since that same deploy. Both are filled into the form as refusals: the
+run stops before spending if either is wrong.
+
+**One paid call, no retries.** I checked rather than assumed — the harness's
+second paid call only fires for the photo case, and a free-text ask can't reach
+it. One POST, one answer.
+
+**The 40-credit cap isn't enforceable and I'm not going to pretend it is.** The
+budget box is checked *between* cases, and one ask is one case, so it never
+fires. Deeper than that: the credits get spent inside the single request, so
+nothing outside it can stop it partway. What actually bounds this: the ledger
+won't allow a bill above your balance (161), the ask forbids a new table, and
+the closest comparison — run 47, a bigger job — cost 13. The most expensive run
+ever on this account was 31. I've set the box to 40 anyway; it costs nothing.
