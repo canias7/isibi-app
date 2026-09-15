@@ -26,6 +26,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { addon, promptFor, storedAnswer, writtenPage, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+// THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
+// is derived from what the engine really emits rather than typed by hand — a
+// hand-typed permission is a second copy of the emitter and the two drift.
+import { grantsFor, policiesFor } from "../site-rls.mjs";
+import { splitPrivileges, readParens } from "../site-schema-recover.mjs";
 
 /** An internal function and a job over it: the pageless pair, so the whole
  *  route runs without a container. */
@@ -984,4 +989,127 @@ test("a provision records the database name on the ownership row — the defect'
   // READ OFF THE CONNECTION, NOT RE-DERIVED. The two agree here by construction,
   // which is the point: the row can never name a database nothing connects to.
   assert.ok(/neon_db\.is\.null/.test(patch.url), "the record is written without the fence that stops it overwriting a set name");
+});
+
+// ── A SPEC THAT DISAGREES WITH THE DATABASE (2026-09-15) ─────────────────────
+//
+// Owner: *"Prove an existing database is empty. Missing `_meta` or a missing
+// schema row does not prove there are no application tables. Inspect the
+// catalog. If tables exist but their metadata is unavailable, recover safely
+// or stop before designing against an empty schema."*
+//
+// Every case below hands the route a `catalog` — what Postgres really holds —
+// and asks what the DESIGNERS were told, which is the only thing run 47 got
+// wrong. Without the seam the fixture answers no rows, which is the honestly
+// empty database the earlier cases are about.
+
+/** The catalog rows for one `collect` table, derived from the real emitters. */
+function catalogFor(name, cols) {
+  const t = { name, access: "collect", columns: cols.map((c) => ({ name: c, type: "text" })) };
+  const columns = [{ t: name, c: "id", ty: "integer" }, { t: name, c: "created_at", ty: "text" },
+    ...cols.map((c) => ({ t: name, c, ty: "text" }))];
+  const grants = [], policies = [];
+  for (const stmt of grantsFor(t, cols)) {
+    const m = /^GRANT\s+([\s\S]+?)\s+ON\s+"([^"]+)"\s+TO\s+(\w+)/i.exec(stmt);
+    if (!m) continue;
+    for (const { verb, cols: c } of splitPrivileges(m[1])) {
+      if (c) for (const one of c) grants.push({ t: m[2], g: m[3], p: verb, lvl: "column", col: one });
+      else grants.push({ t: m[2], g: m[3], p: verb, lvl: "table", col: "" });
+    }
+  }
+  for (const stmt of policiesFor(t)) {
+    const s = String(stmt);
+    const m = /CREATE POLICY\s+\S+\s+ON\s+"([^"]+)"\s+FOR\s+(\w+)/i.exec(s);
+    if (!m) continue;
+    const u = /\bUSING\s*\(/i.exec(s), c = /\bWITH\s+CHECK\s*\(/i.exec(s);
+    policies.push({ t: m[1], c: m[2].toUpperCase(), q: u ? readParens(s, u.index + u[0].length - 1) : "", w: c ? readParens(s, c.index + c[0].length - 1) : "" });
+  }
+  return { columns, grants, policies, triggers: [] };
+}
+
+test("run 47's own state through the route: a live table the spec forgot is recovered, and the designer is told about it", async () => {
+  // THE SITE: `bookings` exists in Postgres. The stored spec does not declare
+  // it — which is exactly what run 47's addon left behind on repairbench-1.
+  const r = await addon("fw-recover", "add a function that counts booked repairs", {
+    metaMissing: true, kinds: ["function"],
+    catalog: catalogFor("bookings", ["customer_name", "bike", "drop_off_day"]),
+    answers: { function: { function: [{ name: "count_booked", returns: "bigint", body: "SELECT count(*) FROM bookings", internal: true }] } },
+  });
+  assert.equal(r.body.ok, true, "a recoverable spec stopped the step: " + JSON.stringify(r.body));
+
+  // THE DESIGNER SAW THE TABLE. This is the whole defect: run 47's table
+  // designer was told the site had none, so it made a second one and counted
+  // that.
+  //
+  // THE NEEDLE IS `siteNote`'S OWN SENTENCE, NOT THE BARE WORD — the first
+  // draft of this case matched `/bookings/` anywhere in the prompts and passed
+  // on the CONTROL, because the picker's own static prose uses "bookings" as an
+  // example of an ask that needs storage. The recorded "prose contains the
+  // thing it forbids", in a guard, caught by writing the control.
+  const note = r.prompts.map((p) => JSON.stringify(p)).join("\n");
+  assert.ok(/It stores:[^"]*bookings/.test(note), "the designer was still told the site has no tables");
+  assert.ok(!/It has NO database yet/.test(note), "the designer was told the site has no database at all");
+
+  // AND THE RECOVERY IS RECORDED RATHER THAN SILENT.
+  assert.ok(r.sql.some((q) => /INSERT INTO _meta/i.test(q) && /bookings/.test(q))
+    || JSON.stringify(r.body).includes("bookings"),
+    "the recovered declaration never reached the stored spec");
+
+  // THE CONTROL, AND IT IS THE HALF THAT MAKES THE ASSERTION ABOVE MEAN
+  // ANYTHING: the same ask on the same empty `_meta` with NOTHING in the
+  // catalog must NOT name `bookings` to the designer. Without it, a note that
+  // happened to mention the word for some other reason would pass.
+  const blind = await addon("fw-recover-control", "add a function that counts booked repairs", {
+    metaMissing: true, kinds: ["function"],
+    catalog: { columns: [], grants: [], policies: [], triggers: [] },
+    answers: { function: { function: [{ name: "count_booked", returns: "bigint", body: "SELECT 1", internal: true }] } },
+  });
+  assert.ok(!/It stores:[^"]*bookings/.test(blind.prompts.map((p) => JSON.stringify(p)).join("\n")),
+    "the control named a table that is in neither the spec nor the catalog, so the case above proves nothing");
+});
+
+test("a live table that cannot be recovered safely STOPS the step, and says which", async () => {
+  // A TABLE WHOSE ACCESS CANNOT BE DERIVED — a member SELECT grant with the
+  // policies unreadable. Recovering it would mean guessing between `own` and
+  // `members`, which is a live table's access; so it is not recovered, and a
+  // spec still missing it must not be designed against.
+  const cat = catalogFor("bookings", ["who"]);
+  cat.policies = []; // the policies read as empty: `own` and `members` are indistinguishable
+  cat.grants = [{ t: "bookings", g: "authenticated", p: "SELECT", lvl: "table", col: "" },
+                { t: "bookings", g: "authenticated", p: "INSERT", lvl: "column", col: "who" }];
+  const r = await addon("fw-stuck", "add a function that counts booked repairs", {
+    metaMissing: true, kinds: ["function"], catalog: cat,
+    answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT 1", internal: true }] } },
+  });
+  assert.equal(r.body.ok, false, "the step designed against a spec missing a live table: " + JSON.stringify(r.body));
+  assert.equal(r.body.escalate, true);
+  assert.equal(r.body.reason, "no-meta");
+  assert.equal(r.body.cost, 0, "a stop that could not design cost the customer something");
+});
+
+test("a genuinely empty database is still empty — the catalog is what says so", async () => {
+  // THE CONTROL, and without it the two cases above would also pass on a route
+  // that refused every site with no stored spec. A database provisioned and
+  // never applied to has no `_meta` AND no tables, and the first backend
+  // addition on such a site must work.
+  const r = await addon("fw-reallyempty", "add a table that stores repair bookings", {
+    metaMissing: true, publishes: true, kinds: ["table"],
+    catalog: { columns: [], grants: [], policies: [], triggers: [] },
+    answers: { table: { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] } },
+  });
+  assert.equal(r.body.ok, true, "an honestly empty database was refused: " + JSON.stringify(r.body));
+  assert.ok(r.sql.some((q) => /CREATE TABLE IF NOT EXISTS "repairs"/i.test(q)));
+});
+
+test("internal tables are not a disagreement — every site has `_meta`", async () => {
+  // `_meta` IS IN THE CATALOG OF EVERY SITE THERE IS. Counting it as a live
+  // table the spec does not declare would stop every addon on the platform.
+  const r = await addon("fw-internalonly", "add a function that counts booked repairs", {
+    kinds: ["function"],
+    catalog: { columns: [{ t: "_meta", c: "k", ty: "text" }, { t: "bookings", c: "who", ty: "text" }], grants: [], policies: [], triggers: [] },
+    answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT 1", internal: true }] } },
+  });
+  // `bookings` IS declared by the fixture's stored schema, so the only
+  // undeclared name in that catalog is `_meta` — and the step must proceed.
+  assert.equal(r.body.ok, true, "an internal table was treated as an undeclared one: " + JSON.stringify(r.body));
 });

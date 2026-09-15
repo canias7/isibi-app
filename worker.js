@@ -25,6 +25,12 @@ import { lookupRoute, saveRoute, dropRoute } from "./site-routing.mjs";
 // The four states "no database" used to mean, and the one place that decides
 // between them. See `site-backend-state.mjs` — run 47 is what the collapse cost.
 import { backendState, unsetDbFilter, dbNameFromConn } from "./site-backend-state.mjs";
+// The declaration repair, and the two emitters it VERIFIES a rebuilt
+// declaration through. `reconcileSpec` takes them injected rather than
+// importing them, so the comparison can never be against a second copy — see
+// site-schema-recover.mjs.
+import { readSchemaState, reconcileSpec, RECOVER_QUERIES } from "./site-schema-recover.mjs";
+import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
@@ -5801,49 +5807,73 @@ async function siteBackendDetail(env, slug) {
 }
 
 /**
- * THE STORED SCHEMA, WITH "NOTHING STORED" AND "COULD NOT READ" TOLD APART.
+ * THE STORED SCHEMA — AND "THE DATABASE IS EMPTY" AS A MEASUREMENT.
  *
  * `SELECT v FROM _meta WHERE k='schema'` used to sit inline behind an
  * `if (adb)`, and every way it could fail arrived as one throw the caller
- * escalated on. Three outcomes hide in there and only one of them is an error:
+ * escalated on. The first correction split that into three outcomes and one of
+ * the three was still an INFERENCE: a missing `_meta`, or a `_meta` with no
+ * schema row, answered `{tables: []}` — from the absence of ONE ROW to the
+ * absence of every table. That is the run-47 defect with a different cause, and
+ * a site whose declaration this very repair is about is exactly the site it
+ * fires on.
  *
- *   ok, a spec        — the ordinary case.
- *   ok, `{tables:[]}` — the read SUCCEEDED and there is no row, which is a
- *                       database provisioned and never applied to. Empty is the
- *                       TRUTH here, and refusing it would make the first backend
- *                       addition on such a site impossible.
- *   not ok            — the query threw, or the stored JSON will not parse. The
- *                       schema is UNKNOWN, and the owner's instruction is exact:
- *                       do not design against `tables: []` when the existing
- *                       schema is unknown.
+ * `readSchemaState` ASKS THE CATALOG FIRST, so `empty` means the catalog
+ * confirmed there are no application tables. Four outcomes now:
  *
- * `_meta` ITSELF MAY NOT EXIST, and that is the second case rather than the
- * third: `ensureSiteBackend` creates it when it records the auth and data
- * endpoints, so a database that predates those writes has no table and no rows,
- * which is still "nothing stored". Matched on Postgres's own wording for a
- * missing relation, and on nothing else — anything we cannot recognise is
- * unknown, which is the safe direction.
+ *   stored                   — a spec parsed. `missing` may still name live
+ *                              tables it does not declare.
+ *   empty                    — no spec AND no tables. The honest empty, and the
+ *                              only state in which `{tables: []}` is true.
+ *   tables-without-metadata   — no spec and the catalog HAS tables.
+ *   unreadable               — a read threw or the JSON will not parse.
+ *
+ * AND THE LAST TWO ARE NOT THE SAME ANSWER. `ok` is about readability alone;
+ * `missing` is the disagreement, and the caller RECOVERS or STOPS on it — the
+ * owner's own words, in that order.
  */
 async function readStoredSpec(conn) {
-  let rows;
-  try { rows = await sqlQuery(conn, "SELECT v FROM _meta WHERE k = 'schema'"); }
-  catch (e) {
-    const m = String((e && (e.detail || e.message)) || e);
-    if (/relation .* does not exist|undefined_table|42P01/i.test(m)) return { ok: true, spec: { tables: [] }, why: "no-meta-table" };
-    return { ok: false, why: "query-failed", detail: scrubSecrets(m).slice(0, 200) };
-  }
-  const row = (rows || [])[0];
-  if (!row || !row.v) return { ok: true, spec: { tables: [] }, why: "no-row" };
+  const sql = (q, p) => sqlQuery(conn, q, p || []);
+  const st = await readSchemaState({ sql, scrub: scrubSecrets });
+  return st;
+}
+
+/**
+ * RECOVER THE TABLES THE SPEC FORGOT, OR STOP — never design against a spec
+ * that is missing a table the database really has.
+ *
+ * READ-ONLY HERE. Nothing is written to `_meta`: the reconciled spec is used
+ * for THIS run, and the addon's own apply writes the merged result at the end
+ * if it gets that far. A route that repaired somebody's stored schema as a side
+ * effect of reading it would be a write nobody asked for, on the money path.
+ *
+ * A TABLE THAT CANNOT BE RECOVERED SAFELY STOPS THE STEP. `reconcileSpec`
+ * verifies every rebuilt declaration through the real `policiesFor`/`grantsFor`
+ * and refuses the ones that would change behaviour; what is left over is a live
+ * table the designers would not be told about, which is precisely run 47.
+ */
+async function specForAddon(conn) {
+  const st = await readStoredSpec(conn);
+  if (!st.ok) return { ok: false, why: st.state + ":" + st.why };
+  if (!st.missing.length) return { ok: true, spec: st.spec, recovered: [] };
+
+  let grants = [], policies = [], triggers = [];
   try {
-    const spec = JSON.parse(row.v);
-    if (!spec || typeof spec !== "object") return { ok: false, why: "not-an-object" };
-    return { ok: true, spec, why: "stored" };
+    [grants, policies, triggers] = await Promise.all([
+      sqlQuery(conn, RECOVER_QUERIES.grants),
+      sqlQuery(conn, RECOVER_QUERIES.policies),
+      sqlQuery(conn, RECOVER_QUERIES.triggers),
+    ]);
   } catch (e) {
-    // STORED AND UNREADABLE IS THE WORST CASE TO GUESS AT: the site has a
-    // schema and we cannot see it, so an empty answer here would be the run-47
-    // defect with a different cause.
-    return { ok: false, why: "unparseable" };
+    // WITHOUT THE PERMISSION SURFACE NOTHING CAN BE VERIFIED, so nothing may be
+    // recovered — and a spec still missing a live table must not be designed
+    // against.
+    return { ok: false, why: "permissions-unreadable" };
   }
+  const out = reconcileSpec({ stored: st.spec, live: { columns: st.columns, grants, policies, triggers }, emit: { policiesFor, grantsFor } });
+  const left = st.missing.filter((n) => !out.recovered.some((r) => String(r.name).toLowerCase() === String(n).toLowerCase()));
+  if (left.length) return { ok: false, why: "unrecoverable-tables", tables: left.slice(0, 8) };
+  return { ok: true, spec: out.spec, recovered: out.recovered.map((r) => r.name) };
 }
 
 /**
@@ -22972,7 +23002,7 @@ async function handleRequest(request, env, ctx) {
               aMark("backend", "healed", { ref: aHealedRef ? 1 : 0 });
             }
 
-            let aLook = null, aCss = "", aSpec = null;
+            let aLook = null, aCss = "", aSpec = null, aRecovered = [];
             // `{ tables: [] }` IS TRUE IN EXACTLY ONE STATE and this is it: no
             // database recorded AND no project row, which is every frontend-only
             // site. It is set HERE, against the state, rather than derived from
@@ -22992,13 +23022,17 @@ async function handleRequest(request, env, ctx) {
               aLook = lookWithMarks(cfg.config);
               aCss = typeof cfg.config.css === "string" ? cfg.config.css : "";
               if (adb) {
-                const stored = await readStoredSpec(adb);
                 // A READ THAT COULD NOT TELL STOPS THE STEP; a read that
-                // SUCCEEDED and found nothing stored is an empty schema, which
-                // is the honest answer for a database provisioned and never
-                // applied to. Those two used to be one throw.
-                if (!stored.ok) throw new Error("schema read: " + stored.why);
+                // SUCCEEDED and found nothing stored is an empty schema ONLY
+                // when the catalog agrees there are no tables. And a spec
+                // missing a table the database really has is RECOVERED here —
+                // verified through the real emitters — or the step stops.
+                // Those three used to be one throw and then one inference.
+                const stored = await specForAddon(adb);
+                if (!stored.ok) throw new Error("schema read: " + stored.why + (stored.tables ? " " + JSON.stringify(stored.tables) : ""));
                 aSpec = stored.spec;
+                aRecovered = stored.recovered || [];
+                if (aRecovered.length) aMark("backend", "recovered", { tables: aRecovered.length });
               }
             } catch (e) { console.error("addon meta read failed:", ownerSlug, e && e.message); return aEscalate("no-meta"); }
             if (!aLook || !aSpec) return aEscalate("no-meta");

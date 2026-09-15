@@ -155,6 +155,134 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The five gaps you found in that repair, closed
+
+You read the repair and found five things wrong with it. All five are fixed, and
+**I reproduced each one first so the before-and-after is a measurement rather
+than my word for it.** Nothing here has run against the live platform; that is
+still one credential away and is still your press.
+
+### 1. The identity check proved nothing, and did not stop the write
+
+You were exactly right on both halves. It compared the database's own tables
+with the database's own stored schema — which tells you a database is internally
+consistent and nothing at all about whose it is — and when it couldn't tell, it
+said so in a field nobody read and let the write go ahead.
+
+**Reproduced:** handed a database holding a stranger's tables (`orders`,
+`products`) and no stored schema, it answered *"ok: true, unproven: true"* and
+the reference write went straight to Supabase.
+
+It now proves ownership from **your side of the mapping outward**: the project
+row found under *this site's slug* → the connection built from it must name the
+database we're about to record → and the server itself must agree it *is* that
+database. Every link is required, there's no "probably" any more, and **the
+refusal lives inside the function that does the writing** rather than at the
+place that calls it — so no later edit can go around it. Reproduced after: it
+answers *"the server answers a different database"* and the write never opens a
+connection.
+
+### 2. Reference, schema and verification are three jobs now
+
+The loop only visited sites whose *reference* was missing. So the moment a site's
+reference was repaired it fell out of the list — which means a run that fixed the
+reference and then failed the schema recovery could never finish, because the
+rerun skipped the site it had just fixed. That is the exact sequence you asked me
+to demonstrate, and it's now driven end to end in the tests: reference written →
+recovery fails → rerun completes the recovery. Neither half can block the other,
+in either direction.
+
+**And `--verify` genuinely verifies now.** It used to read the flag and then just
+skip the writes — a mode that reports on a run it never made. It connects, and
+asks five questions, the important one being *"does the stored schema declare
+every table the database actually has?"*, which is precisely the state run 47
+left `repairbench-1` in.
+
+### 3. "The database is empty" is now something we checked, not something we assumed
+
+A missing `_meta`, or a `_meta` with no schema row, told us nothing whatever
+about whether there are tables — and we were treating it as "no tables", which is
+the same mistake as before wearing a different hat. **The catalogue is asked
+first now.** Four answers: there's a stored schema (and here are the live tables
+it fails to mention); it's genuinely empty and the catalogue confirms it; there
+are tables and no metadata; or we couldn't read it. On the addon path we
+**recover the missing tables or stop** — your words, in your order — and the read
+writes nothing back as a side effect.
+
+### 4. Recovery could quietly change your sites a week later — and a real Postgres proved it
+
+This was the serious one. The recovery rebuilt a table's declaration from the
+catalogue and dropped every flag, so a table with soft-delete would come back
+without it — and the *next* schema change would then republish a rule that shows
+deleted rows again. Days later. With nothing connecting the two.
+
+**I installed a real PostgreSQL 16 and measured it end to end:** apply five
+tables, snapshot every permission, forget all the declarations, recover, apply
+the recovery, snapshot again, compare. **Four tables recovered and re-applied
+with no change to a single policy, grant or column.** The payable one was
+correctly refused. And the control — the old code on the same databases —
+**changed two of them**, exactly as predicted.
+
+The wall that makes this safe is simple to state: a rebuilt declaration is run
+back through the *real* rule-writing code and compared with what the database
+actually has. If it doesn't match, the table is left alone entirely. If we can't
+compare at all, nothing is written.
+
+**Four things only the real database could have told me**, each a bug in code
+that read perfectly well: Postgres reports a whole-table permission as if it were
+set on every column (so the two look identical unless you ask a second view); our
+comparison was including the table's own name and reading it as an unknown term,
+which made every correct match look wrong; a permission statement with two column
+lists was being cut in the wrong place; and the payment setting is a
+configuration object, not a yes/no — my first test fixture said `true`, which the
+engine ignores, so that test was passing while proving nothing.
+
+**The mutation sweep then caught a false alarm in my own fix**: I keyed "this is
+a payment table" on five column names, one of which is `currency` — an ordinary
+word. A price list with a `currency` column was being refused for a feature it
+doesn't have. Narrowed to the one column nobody writes by accident.
+
+### 5. The count function on repairbench-1
+
+You're right that restoring the `bookings` declaration doesn't touch it. It's a
+separate object and needs a separate correction, which is now written as its own
+script (`scripts/repairbench-count-fix.mjs`) and **scoped to that one site by
+name** — not by a flag someone could point elsewhere.
+
+It reads the live function definition, changes the one table name inside it, and
+writes it back. It refuses if the function is missing, already fixed, or shaped
+differently, so it can't clobber anything and running it twice is running it
+once. Then it checks **three numbers must agree**: the row count in `bookings`,
+the function called directly, and the function called through the site's own
+public route — which is the call the `/status` page really makes. Fetching
+`/status` and getting a 200 is *not* one of the three; that's what we did last
+time and it told us nothing.
+
+### The numbers
+
+Suite **6,448**, green. Mutation sweep **92 mutants, 89 killed, 0 survived, 3
+comment-only controls survived**. Twelve survived the first pass — eleven were
+gaps in my tests and one was the real `currency` bug above. Five older tests were
+re-anchored rather than silenced, each one saying what moved.
+
+### What still needs your press
+
+Both scripts preview by default and write nothing until you say so. They need the
+Supabase service key and a database connection, which this session doesn't have.
+
+```
+node scripts/backend-repair.mjs --preview          # reads only
+node scripts/backend-repair.mjs --apply
+node scripts/backend-repair.mjs --verify
+
+node scripts/repairbench-count-fix.mjs             # reads only
+node scripts/repairbench-count-fix.mjs --apply
+node scripts/repairbench-count-fix.mjs --verify
+```
+
+Until then: the five sites are still incomplete, `repairbench-1`'s `bookings`
+declaration is still missing, and `/status` still says `0`.
+
 ## 2026-09-15 — The repair for what the live test found
 
 All five things you asked for are built, guarded and committed. **None of them

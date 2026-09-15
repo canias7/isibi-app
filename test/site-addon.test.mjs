@@ -336,7 +336,13 @@ test("a failed addon leaves the site untouched, and an unusable one escalates", 
   // (the schema is unknown and the step must stop). The property this line has
   // always been about is that the addon reads the site's schema at all, and that
   // it only does so when there is a database to read it from.
-  const meta = code.indexOf("const stored = await readStoredSpec(adb);");
+  // RE-ANCHORED AGAIN (2026-09-15, the same day): `readStoredSpec` is now
+  // wrapped by `specForAddon`, which adds the half that was missing — the
+  // catalog is asked, so "nothing stored" can no longer be read as "no tables",
+  // and a spec missing a live table is RECOVERED or the step STOPS. The
+  // property is unchanged and is what is asserted: the addon reads the site's
+  // schema, and only where there is a database to read it from.
+  const meta = code.indexOf("const stored = await specForAddon(adb);");
   assert.ok(meta > 0, "the addon no longer reads the site's schema");
   assert.match(code.slice(code.lastIndexOf("if (adb)", meta), meta), /^if \(adb\)/, "the schema read is not gated on there being a database");
   // AND THE EMPTY SPEC IS KEYED ON THE ONE STATE IN WHICH IT IS TRUE.
@@ -350,7 +356,14 @@ test("a failed addon leaves the site untouched, and an unusable one escalates", 
   assert.match(code, /if \(aBack\.state === "none"\) aSpec = \{ tables: \[\] \};/,
     "a site with no database is not given an honest empty spec");
   // A READ THAT COULD NOT TELL STOPS THE STEP rather than becoming an empty one.
-  assert.match(code, /if \(!stored\.ok\) throw new Error\("schema read: " \+ stored\.why\);/,
+  //
+  // RE-ANCHORED 2026-09-15: this was pinned to the whole expression
+  // `throw new Error("schema read: " + stored.why);` and went red on an honest
+  // addition — the message now names the tables it could not recover. That is
+  // the recorded "assert the property, not the spelling", in the guard for the
+  // one branch that decides whether a paid step designs against a schema it
+  // could not resolve. The PROPERTY is the refusal and the reason on it.
+  assert.match(code, /if \(!stored\.ok\) throw new Error\("schema read: " \+ stored\.why/,
     "a schema read that failed no longer stops the step");
   // RE-ANCHORED 2026-09-03: this held that a designed table on a site with
   // no database was refused by name (`no-database`) before any schema work.

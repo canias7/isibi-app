@@ -67,6 +67,21 @@ export const STORED_SCHEMA = {
   functions: [], apis: [], jobs: [],
 };
 
+/**
+ * Catalog rows in NEON'S OWN WIRE SHAPE: arrays plus a `fields` list naming the
+ * columns. Its driver does `c.map` over `fields`, so an object row makes it
+ * throw — the recorded "a fixture in a different shape from reality", already
+ * paid for once in this file.
+ */
+function neonRows(rows, cols) {
+  return new Response(JSON.stringify({
+    command: "SELECT",
+    rowCount: rows.length,
+    rows: rows.map((r) => cols.map((c) => (r[c] === undefined ? "" : r[c]))),
+    fields: cols.map((c) => ({ name: c, dataTypeID: 25 })),
+  }), { status: 200, headers: { "content-type": "application/json" } });
+}
+
 function bucket(slug, stored) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
@@ -119,7 +134,7 @@ function bucket(slug, stored) {
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null }) {
+function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -270,6 +285,21 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
       if (probeFail && /^SELECT 1\s*$/i.test(q.trim())) {
         return new Response(JSON.stringify({ message: "database \"site_fw_probefail\" does not exist" }), { status: 400, headers: { "content-type": "application/json" } });
       }
+      // ── THE CATALOG (2026-09-15) ────────────────────────────────────────
+      //
+      // `specForAddon` asks Postgres what tables really exist BEFORE it reads
+      // `_meta`, because "no stored spec" said nothing whatever about whether
+      // the database holds tables — run 47's defect, one inference over. With
+      // no `catalog` seam every case here answers no rows, which is the
+      // honestly-empty database the older cases are about; a case that hands
+      // one in is driving the recovery.
+      //
+      // ROWS ARE ARRAYS WITH `fields`, which is Neon's own wire shape — an
+      // object row makes the driver throw `c.map`.
+      if (catalog && /information_schema\.columns/i.test(q)) return neonRows(catalog.columns || [], ["t", "c", "ty"]);
+      if (catalog && /role_table_grants/i.test(q)) return neonRows(catalog.grants || [], ["t", "g", "p", "lvl", "col"]);
+      if (catalog && /pg_policies/i.test(q)) return neonRows(catalog.policies || [], ["t", "c", "q", "w"]);
+      if (catalog && /pg_trigger/i.test(q)) return neonRows(catalog.triggers || [], ["t", "g"]);
       if (/^SELECT v FROM _meta WHERE k\s*=\s*'?schema/i.test(q.trim())) {
         // THE TWO WAYS A SCHEMA READ CAN COME BACK WITHOUT A SPEC, and they
         // need opposite answers from the route. `metaFail` is Neon refusing the

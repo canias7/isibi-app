@@ -3176,6 +3176,180 @@ same position and for the same reason). The five sites are still `incomplete`,
 `count_booked_repairs` still counts `repairs` and answers `0`. **The owner's
 press is what runs it**, exactly as with every paid harness here.
 
+### …AND FIVE GAPS IN THAT REPAIR, EACH REPRODUCED BEFORE IT WAS FIXED (2026-09-15)
+
+Owner, on the repair above: *"Enforce the identity condition… Separate reference
+repair, schema recovery, and verification… Prove an existing database is empty…
+Preserve behavior through the next apply… Finish the specific repairbench-1
+repair."* Every one was DRIVEN before and after; nothing here is a source read.
+
+**1. IDENTITY WAS CIRCULAR AND NON-BLOCKING.** `proveIdentity` compared the
+catalog with `_meta` FROM THAT SAME DATABASE, which establishes that a database
+is internally CONSISTENT and says nothing whatever about whose it is — and it
+answered `ok: true, unproven: true` for a database holding a stranger's tables,
+which the only caller read as `ok`. **Reproduced: a database answering
+`["orders","products"]` with no `_meta` came back `{"ok":true,"unproven":true}`
+and the write went straight to Supabase.** Identity is the AUTHORITATIVE MAPPING
+now, as a chain from the site's own slug outward: the `site_project` row found
+UNDER THIS SLUG → the connection built from it NAMING `dbNameForSite(slug)` →
+`SELECT current_database()` agreeing. **Every link is required and there is no
+"probably"**: `ok === proven` always, and `unproven` is gone. **The wall is in
+`writeRef`, not at its call site** — a wall nobody can drive is a wall nobody is
+guarding, and the guard proves an unproven proof never opens a socket, with the
+control that a proven one does.
+
+**2. THE THREE TASKS WERE ONE LOOP.** `main` filtered on `act === "backfill"`,
+so a site with a good reference and a broken declaration was never looked at —
+**and every site is in exactly that state the moment its reference is repaired**,
+which makes the rerun the run that can never finish the job. `workList` is the
+separation, spelled once and exported: `ready` **and** `incomplete`, because a
+`ready` site is here for its SCHEMA and its reference is skipped BY NAME inside
+`repairSite`. The demonstration the owner asked for is driven end to end —
+reference written → recovery fails on the permission read → rerun, now `ready`,
+completes the recovery — and neither task gates the other in EITHER direction.
+**`--verify` used to parse the flag and then do nothing but skip the writes**; it
+connects and reads five postconditions back now, and the one that matters is
+"every live table declared", which is the run-47 state.
+
+**3. "EMPTY" WAS AN INFERENCE.** A missing `_meta`, or a `_meta` with no schema
+row, answered `{tables: []}` — from the absence of ONE ROW to the absence of
+every table. **`readSchemaState` asks the CATALOG FIRST**, and the order is the
+fix. Four outcomes: `stored` (with `missing` naming live tables the spec does not
+declare — repairbench-1 today), `empty` (the catalog CONFIRMS no application
+tables, the only state in which `{tables: []}` is true), `tables-without-metadata`
+(recoverable), `unreadable`. A catalog we could not read is `unreadable`, never
+"no tables". In the Worker, `specForAddon` RECOVERS the missing tables or STOPS —
+the owner's own words, in that order — and it is READ-ONLY: nothing is written to
+`_meta` as a side effect of reading it.
+
+**4. RECOVERY CHANGED BEHAVIOUR ONE APPLY LATER — and this is the one proven
+against a real PostgreSQL 16.** The first cut rebuilt `{name, columns, read,
+write}` and dropped every flag. **Reproduced: a `trash` table whose live SELECT
+policy reads `USING ((owner_id = app_user_id()) AND (deleted_at IS NULL))`
+recovered without the flag, and `policiesFor` on that declaration emits
+`USING (owner_id = app_user_id())`** — every soft-deleted row visible again on
+the next schema change, days later, with nothing connecting the two. Two fixes
+and only the second is a wall: flags are DERIVED from the artifacts the engine
+leaves (a column it owns, or a trigger it names — `DERIVED_FLAGS`, read off
+`site-schema.mjs`'s own DDL, with the `trg_<t>_del` read separating `sync` from
+`timestamps`); and **the rebuilt declaration is run back through the REAL
+`policiesFor`/`grantsFor`, INJECTED as `emit`, and compared with the database**.
+**The policy comparison is EXACT and the grant comparison is ONE-SIDED**, and the
+asymmetry is deliberate: every apply DROPs and re-CREATEs a table's policies from
+its declaration, so the live policy IS the fingerprint of the true declaration
+and any difference is ours — while a site that has had no schema change since
+2026-09-13 still carries table-wide write grants and the next apply narrows them,
+which is the platform's own fix. So grants are asked only "could this let a
+client write something the database does not already let them write". **With no
+`emit` every recovery is `uncertain`**: a caller that cannot verify must not
+write, and an uncertain table is kept out of the spec entirely so the next apply
+does not touch it.
+
+**PROVEN BY POSTGRES, TWICE OVER — `test/integration/local-pg-recover.mjs`.**
+Apply five tables spanning the flag space with the real `applySiteSchema` →
+snapshot the permission surface → forget every declaration → recover → apply the
+recovery → snapshot again → DIFF. **4 recovered and re-applied with NO change to
+any policy, grant or column; `orders` (payable) correctly refused.** And the
+NEGATIVE CONTROL is what makes that worth anything: the PRE-FIX algorithm on the
+same databases **changed `notes` (lost its `deleted_at` filter) and `posts` (lost
+both `expires_at` and `publish_at`)**.
+
+**FOUR THINGS ONLY A REAL POSTGRES COULD HAVE SAID**, and every one was a defect
+in code that read correctly:
+- **`information_schema.column_privileges` EXPANDS a table-level grant across
+  every column** — measured, not read off the docs. A table-wide `GRANT SELECT`
+  on a four-column table appears there as four SELECT rows, so the column list
+  means "column-scoped" only where `role_table_grants` has no row for the same
+  pair. `RECOVER_QUERIES.grants` carries `lvl` for exactly that.
+- **The predicate fingerprint kept the TABLE QUALIFIER.** `policiesFor` writes
+  `"notes"."owner_id" = app_user_id()` and `pg_policies` stores
+  `(owner_id = app_user_id())`; the emitted side carried a bare `notes` into the
+  residue and fired `other` on all four commands of every member table. **No
+  fixture would have shown it, because a fixture writes both sides in one hand.**
+- **`GRANT INSERT ("body","title"), UPDATE ("body","title")` split flat** into
+  the column `"update(title"` — the repository's own most-repeated regex trap, on
+  the emitter for the member-write cell, which is `user` and `feed`.
+- **`payment` IS AN OBJECT, NOT A BOOLEAN.** `normalizePayment` answers
+  `{from, price, name, currency}` and `null` for anything else, so the probe's
+  first `payment: true` fixture created no payment columns at all and the arm
+  passed while proving nothing. A payable table is `uncertain` by name now
+  (`UNDERIVABLE_EVIDENCE`) — **and the round-trip cannot see it**, because a
+  payable table emits no write grant and no write policy and neither does a
+  `{read:"none", write:"none"}` declaration, so the comparison is between two
+  empty surfaces. That is why the refusal is a separate check.
+
+**AND THE SWEEP FOUND A FALSE ALARM IN MY OWN FIX.** The payable refusal keyed on
+all five `PAYMENT_COLUMNS`, so **a `display` price list declaring `currency` read
+as payable and was refused recovery for a feature it has not got**. `currency`
+and `amount_total` are ordinary words a designer writes; `payment_status` is not,
+and the engine creates all five together, so one is sufficient and is the only
+one with no false alarm. The same correction took the payment columns back OUT of
+`MANAGED_COLUMNS`: `site-schema.mjs:1011` adds them to its managed set only FOR A
+PAYABLE TABLE, and an unconditional union here strips `currency` off every
+ordinary table — **a NARROWING the one-sided grant check allows through in
+silence**.
+
+**5. THE COUNT FUNCTION IS A SEPARATE OBJECT FROM THE DECLARATION.**
+`scripts/repairbench-count-fix.mjs`, scoped to `repairbench-1` BY NAME (asserted
+as a literal, because `process.env.SLUG || "repairbench-1"` reads identically in
+a test and is anything at all in a shell). **`_meta.functions` stores
+`{name, args, returns, internal}` and NO BODY** — `applySiteSchema` writes those
+four fields and `normalizeSchema` drops a function whose body is empty — so the
+stored declaration has nothing to correct and a later apply will not re-create
+the function from it. **The body is rewritten from `pg_get_functiondef`, which is
+already a complete `CREATE OR REPLACE` carrying the exact signature, language,
+volatility, SECURITY DEFINER and search_path**, so changing ONE identifier
+changes one identifier; rebuilding the statement from a template is how a repair
+quietly takes SECURITY DEFINER off a function every RLS-bypassing read depends
+on. Three refusals before it writes (absent · already names `bookings` · does not
+name `repairs`), a word-bounded replacement, and a rename guard that is a
+DECLARED second wall — `\brepairs\b` cannot match inside `count_booked_repairs`
+because `_` is a word character, so the guard never fires while the boundary is
+there, and the guard for it mutates the PAIR. **Verification is three numbers
+that must agree**: `SELECT COUNT(*) FROM bookings`, the function called directly,
+and the function through the site's OWN public RPC route — which is the call
+`/status` really makes. **A 200 from `/status` is not one of them**: fetching the
+document exercises no query at all, this repository's own recorded "a 200 is an
+availability check and never a health check", and run 47 is the instance.
+
+**Guards**: `test/backend-repair.test.mjs` **22 → 44**, `test/addon-route.test.mjs`
+**40 → 44** (the four route cases drive the recovery through
+`POST /api/site/<slug>/addon` with a `catalog` seam in Neon's own wire shape —
+run 47's state recovered with its CONTROL, an unrecoverable table stopping the
+step, an honestly empty database still working, and `_meta` not counting as a
+disagreement). **Suite 6,448** — 6,422 + 22 + 4, and the arithmetic closes
+exactly. **Five older guards were re-anchored, not appeased**, each naming the
+property that moved: the six `reconcileSpec` call sites now hand in the real
+emitters; `grantRows` and `policyRows` read with the product's own
+`splitPrivileges` and `readParens` rather than a second parser; the apply-gate
+guard's `indexOf('if (args.mode !== "apply")')` is GONE rather than moved,
+because a position is a claim about run order only while the code between is
+straight-line and the gate moved into `repairSite`; the identity case is a
+PROPERTY rewrite; and `site-addon`'s schema-read anchor went from the whole
+expression to the refusal and its reason — *assert the property, not the
+spelling*, in the guard for the branch that decides whether a paid step designs
+against a schema it could not resolve.
+
+**Sweep: 92 mutants, 89 killed, 0 survived, 0 never applied, 3 comment-only
+controls survived.** Twelve survived the first pass; **eleven were guard gaps and
+one was the product's** (the `currency` false alarm above). Two of the twelve
+were BADLY WRITTEN rather than gaps and were replaced with observable mutants
+after being measured: a `why`-string change on the success path of
+`proveIdentity` (inert — every gate still ran), and a payment-column union that
+the correction had already removed. Two more are DECLARED redundancies mutated as
+PAIRS: the rename guard beside the word boundary, and — measured over ten shapes
+— `created` versus the declared column list, which emit identical grants for a
+DERIVED declaration and diverge only for a PRIOR one naming a column the table
+has not got yet, where handing `grantsFor` the really-created list is what stops
+a perfectly good recorded declaration reading as a widening.
+
+**STILL NOT RUN LIVE, and still for a credential rather than a judgement.** The
+five sites are `incomplete`, `repairbench-1`'s `bookings` declaration is missing,
+and `count_booked_repairs` counts `repairs` and answers `0`. The three presses
+are the owner's: `node scripts/backend-repair.mjs --preview` (writes nothing),
+then `--apply`, then `--verify`; and `node scripts/repairbench-count-fix.mjs`
+preview → `--apply` → `--verify`.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -3578,7 +3752,20 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   harness timings, 17m46s against 11m33s on trees that differ by four files,
   are the same lesson the image-step band records: **the runner decides, and no
   inference from the diff to the duration is available.**
-  The unit suite is **6,422** (2026-09-15, local — the database-discovery
+  The unit suite is **6,448** (2026-09-15, local — the five gaps in the
+  database-discovery repair, whose new cases are `backend-repair`'s **22**
+  (22 → 44: the identity chain link by link, the writer's wall with its control,
+  the three separated tasks and the driven rerun, `--verify` connecting, the
+  catalog-before-`_meta` order, the four fingerprint cases, the round-trip with
+  `trash` and a widening, the derived flags against the engine's own DDL, prior
+  metadata preferred and still verified, the `currency` false alarm, the
+  count-function correction, and the eight that closed the sweep's survivors) and
+  `addon-route`'s **four** (40 → 44: run 47's state recovered through the route
+  with its control, an unrecoverable table stopping the step, an honestly empty
+  database still working, and `_meta` not counting as a disagreement);
+  6,422 + 22 + 4 closes exactly. **Five re-anchors added no case.** CI has NOT
+  read this number yet.
+  **6,422** before it (2026-09-15, local — the database-discovery
   repair, whose new cases are `backend-repair`'s **22** (the four states and the
   census, the repair's three conditions, the heal's filter by the property it
   enforces, the sixteen-cell round-trip through the real grant and policy
