@@ -1272,6 +1272,15 @@ story of how each got there is in `git show a4d0f5e5:CLAUDE.md`.
   **`AGENTS_KEY` IS ON THE ACCOUNT-SWITCH WIPE LIST** — localStorage belongs to the
   browser, not the account, so without it the next person signing in on this machine
   inherits the last one's written instructions.
+  **A ROW OPENS THE CONVERSATION; the instructions are behind the pencil**, and the
+  row's preview line is the last message once there is one. **NOTHING PRETENDS TO
+  ANSWER**: no model is wired to it, so there is no bubble from the agent — not even
+  one saying so — because a reply that is not a reply is the dead control that ANSWERS,
+  wrongly. The thread says it under the box before you send, and a guard fails if
+  anything writes a message with a role other than the person's.
+  **`AGENT_THREAD_MAX` is 200 per agent**, because this shares one `localStorage` with
+  the sites list: an unbounded thread does not merely grow, it throws on write and takes
+  those with it.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose
@@ -1282,7 +1291,7 @@ story of how each got there is in `git show a4d0f5e5:CLAUDE.md`.
   empty main), and requires **every** known view to have a `render…` call, which catches
   a door-to-nothing under any name. Re-anchored, not appeased: proved against three
   breakages — gallery restored, a view with no renderer, `home` listed as a view.
-  Suite **6,480** (6,478 pass, 2 skipped), +4 being the new guard's own cases.
+  Suite **6,483** (6,481 pass, 2 skipped); the agent builder's own guard holds 7 of them.
 - **TYPING IN THE START BOX IS A FRESH BUILD, NEVER A REVISE** (owner). Three
   conditions, each a refusal to guess: the DESIGNER chose the name, the chat is
   POSITIVELY known to own no site (`mine === null`, never truthiness — a blip
