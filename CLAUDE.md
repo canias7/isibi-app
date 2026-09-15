@@ -3644,9 +3644,57 @@ appeased**: two fixtures moved onto real in-scope slugs because `workList` asks
 the scope first now, and the `verify`-with-no-database case moved onto an
 in-scope name because the scope refusal is its own case.
 
+**MERGED AND DEPLOYED — deploy 2120, 2026-09-15 06:38:31→06:41:17Z, green in
+2m46s**, on `main` `1f2d98ed` → `9a4ac614` (fast-forward, 14 commits, 23 files,
++8,745/−41). The whole repair — the four states, the recovery, the comparator,
+both scripts and both workflows — is live.
+
+- **THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND MATCHED, and this is the
+  second time that technique has been cross-checked against reality.**
+  `origin/main` → **`16cb42353dc4a343`** (180 inputs), which is EXACTLY what run
+  47's pre-flight read off the live container; the tip → **`6246eb17cd6595c4`**
+  (182 inputs, the two new modules). The deploy then printed `built
+  isibi-app-sitebuildcontainer:6246eb17cd6595c4 (registry answered 404; 182
+  inputs off ./Dockerfile)`.
+- **AND THE ID IS WHAT MADE THE HARNESS COVERAGE EXACT.** `c5b59cc6` (the tree
+  `site build` 1142 ran on), `b6e4939c` and `9a4ac614` all hash to the SAME
+  `6246eb17cd6595c4` — so 1142's green covers the merged container by the id not
+  moving, which is a stronger statement than reading a `paths` list.
+- **CONTAINER ROLLED at 06:41:13.7Z**: `EDIT isibi-app-sitebuildcontainer`,
+  `16cb42353dc4a343` → `6246eb17cd6595c4`, `SUCCESS Modified application` —
+  **read out of the log's own diff rather than inferred from the step's
+  duration**. So the 15–20 minute hold ran to ~06:56–07:01Z.
+- **WORKER**: `Uploaded isibi-app (3.54 sec)`, `Deployed isibi-app triggers`,
+  `Worker Startup Time: 26 ms`, `Total Upload 3446.05 KiB / gzip 928.42 KiB`.
+  Image step 2m06s, Wrangler 17s. **`No updated asset files to upload`** — 99
+  files read and none changed, because `public/` is untouched and the new
+  modules are bundled into the script, **so there is no file-hash check for this
+  deploy**; the standby is the gate discriminator (`/api/site/build-health`
+  **401**, `/api/site/runtime` **401**, `/api/site/job-probe` **401**,
+  `/api/nope-not-a-route` **404**).
+- **REGRESSION: BYTE-IDENTICAL, baseline taken BEFORE the push and compared
+  after.** Six sites 200 at the same sizes (repairbench-1 45,947 · fretwork-1
+  58,285 · ashgrove-1 31,120 · northgroup-5 1,641 · washhouse-1 52,404 ·
+  ben-crowe-guitar 52,060), `/status` 200/5,970 on the same
+  `x-site-version 01789437370636-f11bde`, and `count_booked_repairs` still `0`.
+  Correct on both counts: a Worker deploy changes nothing a visitor sees until a
+  site republishes, and the `0` is the unrepaired defect, not a regression.
+- **THE MERGE GATE IS PROVEN CLOSED FROM GITHUB'S OWN SIDE**: both workflows
+  answered **404** to `GET /actions/workflows/<file>` before the merge and are
+  registered now — `backend repair` id **358472078**, `repairbench count fix`
+  id **358472079**, both `state: active`, both `blob/main`.
+- **AND THE SESSION STILL CANNOT PRESS, RE-TESTED RATHER THAN ASSERTED.** The
+  dispatch answers **403 `Resource not accessible by integration`** through the
+  MCP tool AND through a direct REST POST with the right endpoint, headers and
+  body — **with the control that the SAME credential reads that workflow at
+  200**, and `X-Accepted-Github-Permissions: metadata=read` on the repo read.
+  The 403 is sharper than the old one: the endpoint now RESOLVES (403, not 404),
+  so the only thing left is `actions: write`.
+
 **STILL NOT RUN LIVE.** The five sites are `incomplete`, `repairbench-1`'s
 `bookings` declaration is missing, and `count_booked_repairs` counts `repairs`
-and answers `0`. The dispatch is armed and is the owner's press.
+and answers `0`. The dispatch is armed, the button exists, and it is the owner's
+press.
 
 ### The write grants are column-scoped (2026-09-13)
 

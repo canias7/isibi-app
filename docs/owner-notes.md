@@ -351,11 +351,47 @@ Real PostgreSQL 16 probe, re-run on the restored tree: **5 tables recovered and
 re-applied with no change to any policy, grant or column; the flag-stripped
 control changed 3; the adversarial `"true"` policy refused.**
 
-### Nothing has been merged, deployed or repaired
+### Merged and deployed — deploy 2120, green in 2m46s
 
-The code is on the branch. The five sites are still incomplete,
-`repairbench-1`'s `bookings` declaration is still missing, and `/status` still
-says `0`.
+`main` went `1f2d98ed` → `9a4ac614`, a clean fast-forward of 14 commits. Deploy
+**2120**, 06:38:31→06:41:17Z.
+
+**Both halves are on the merged build, and I read that out of the deploy's own
+log rather than inferring it from how long a step took:**
+
+| | |
+|---|---|
+| Worker | `Uploaded isibi-app (3.54 sec)`, triggers deployed, startup 26 ms |
+| Container image | built **`6246eb17cd6595c4`** (182 inputs; the registry had never seen it) |
+| Container rolled | 06:41:13.7Z — `16cb42353dc4a343` → `6246eb17cd6595c4`, **SUCCESS Modified application** |
+
+**I predicted that image id before merging and it matched** — and the OLD id,
+`16cb42353dc4a343`, is exactly what run 47 read off the live container, so the
+arithmetic was checked against reality and not just against itself. The same id
+also proves the `site build` harness covered this exact container: the commit it
+ran on and the tip hash to the same image.
+
+The container rolled at 06:41, so the usual 15–20 minute settle ran to about
+07:00.
+
+**Nothing broke.** I took a baseline before pushing and compared it after: all
+six live sites answer 200 at byte-identical sizes, `/status` is unchanged on the
+same version stamp, and the sign-in gates still gate. `count_booked_repairs`
+still answers `0` — that is the defect we have not repaired yet, not something
+the deploy did.
+
+### Your two buttons exist now
+
+Before the merge GitHub answered 404 for both; they are registered and active on
+`main` now. **I still cannot press them** — I re-tested rather than taking my
+earlier word for it, and the dispatch is refused 403 while the same credential
+reads the same workflow at 200. So it is `actions: write` my access lacks, and
+the press is yours.
+
+### Nothing has been repaired
+
+The five sites are still incomplete, `repairbench-1`'s `bookings` declaration is
+still missing, and `/status` still says `0`. **No database has been touched.**
 
 ---
 
