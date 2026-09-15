@@ -2942,21 +2942,101 @@ the sender correctly. It does not prove real delivery."*
    unmeasured, and saying so is the point. `scripts/grants-backfill.mjs
    --preview` is the pattern for asking where the credentials already live.
 
-**NOT PROVEN LIVE, AND THERE IS NO ISOLATED PLACE TO PROVE IT (2026-09-14).**
-Every measurement is from driving the real route and the real job runner against
-stubbed seams; nothing has run against a real customer message. **The platform
-has ONE Worker** — `isibi-app` in `wrangler.jsonc`, no `env` block, bound to
-`gofarther.dev`, `www.gofarther.dev` and the `gofarther.app` zone — and the
-addon's work runs in the site's CONTAINER, whose image is built by that same
-deploy. So a live check on `repairbench-1` needs BOTH halves to be the candidate
-build, and the only way to get there is `deploy.yml`, which fires on a push to
-`main` (or a `workflow_dispatch` that deploys whatever ref it is given **to that
-same production Worker**). **There is no staging, no preview environment and no
-second Worker**; `OWNER_BASE_URL` overrides the harness's target and there is
-nothing else to point it at. **A live check is therefore a production deploy**,
-and the owner's standing instruction is not to merge or deploy yet — so the
-check is NOT run and this stays unproven rather than being bought with a deploy
-nobody asked for.
+**THERE IS NO ISOLATED PLACE TO PROVE IT — A LIVE CHECK IS A PRODUCTION DEPLOY
+(2026-09-14).** **The platform has ONE Worker** — `isibi-app` in
+`wrangler.jsonc`, no `env` block, bound to `gofarther.dev`, `www.gofarther.dev`
+and the `gofarther.app` zone — and the addon's work runs in the site's
+CONTAINER, whose image is built by that same deploy. So a live check needs BOTH
+halves to be the candidate build, and the only way to get there is `deploy.yml`,
+which fires on a push to `main` (or a `workflow_dispatch` that deploys whatever
+ref it is given **to that same production Worker**). **There is no staging, no
+preview environment and no second Worker**; `OWNER_BASE_URL` overrides the
+harness's target and there is nothing else to point it at.
+
+### AND IT WAS PROVEN LIVE — the reporting works, and it caught a real defect (2026-09-15)
+
+Owner: *"You may merge PR #928 and deploy this patch, then complete the
+controlled live verification… Verify that both the Worker and the container
+executing the test use the merged changes. Elapsed rollout time alone is
+insufficient evidence."*
+
+**Merged `4bd5a919` to `main` (fast-forward), deploy 2119 green in 2m48s.**
+Then two dispatched `lane sweep` runs on `repairbench-1`, the owner pressing the
+button (a session has no `actions: write` — see the rule above). **Setup and
+behaviour are separate runs deliberately**, because a baseline bought inside the
+run under test cannot be told from the thing being tested.
+
+- **Run 46 (setup, 8 credits, 293 s)** — *"Add a table that stores repair
+  bookings: the customer's name, the bike, and the day they're bringing it
+  in."* Made `bookings` (`customer_name`, `bike`, `drop_off_day`, `collect`).
+- **Run 47 (the test, 13 credits, 506 s, balance 174 → 161)** — *"Add a page at
+  /status that shows how many repairs are booked, and a function the page calls
+  to count them."* Routed `table · function · page`.
+
+**BOTH HALVES OF WHICH-CODE-IS-ANSWERING WERE PROVED BEFORE EITHER RUN SPENT A
+CREDIT**, which is what the pre-flight is for: `worker deploy:
+4bd5a9191593743b0e61c00d1a1b2caeffe1b933 [build-health 200]`, `container image
+(cold start, lane health-probe): 16cb42353dc4a343 health="ok 850968e5fecd
+16cb42353dc4a343"`, the runtime route agreeing, then `the code under test is the
+code answering — proceeding`.
+
+**WHAT SHIPPED, VERIFIED FROM OUTSIDE.** `/status` **404 → 200** (5,970 bytes,
+`x-site-version 01789437370636-f11bde`, build `mu1zo5lj-y6ovi1` →
+`mu20t4j1-ziyak2`), in `sitemap.xml`, linked from the header, on the site's own
+design. Its route chunk calls `useRpc("count_booked_repairs", {})`, and that
+function answers the site's real public route —
+`POST /api/db/repairbench-1/data/rpc/count_booked_repairs` — **HTTP 200**.
+
+**AND IT ANSWERS `0` ON A SITE WITH THREE BOOKINGS.** A fresh `201` insert into
+`bookings` immediately before and after left the count at `0`, which is the
+control that rules out "the rows were never there".
+
+**THE CAUSE IS THE BLANK `neon_db` BACKLOG DEFECT, and the chain is four lines
+of the addon route.** `let adb = await siteBackendBySlug(env, ownerSlug)`
+answers null because `site_backends.neon_db` is `''` (read live, still `''`
+after both runs — **a fourth confirmation**); the very next line is `let aSpec =
+adb ? null : { tables: [] }`, and the `_meta.schema` read sits under `if (adb)`.
+**So the designers were told, truthfully as far as the route could tell, that
+the site had no tables** — the table designer's own words: *"I'll add a repairs
+table so the status page's count function has booked jobs to count."* It made
+`repairs`; the function counts `repairs`; `bookings` is never looked at. The
+same falsy `adb` drove `aProvisioned = true`, so the reply says **"AND THE SITE
+GOT ITS DATABASE FOR IT"** about a site that has had one since run 46.
+
+**AND `repairs` IS EMPTY BY CONSTRUCTION, which is a second, independent
+mistake.** It was declared `read: "none", write: "none"` — the `admin` pair —
+so nothing can write to it (measured: `42501 permission denied for table
+repairs` to an anonymous POST) **and `seedSiteRows` skips it**, because that
+function seeds the `display` pair and nothing else, by a rule with its own
+measured history. The designer answered a seed of starter rows and the seed was
+correctly discarded. **So the page reads `0` today and would read `0` for ever.**
+
+**THE MERGE COMPOUNDS IT, PROVEN BY DRIVING THE REAL FUNCTION**:
+`mergeAddonSchema({tables: []}, …)` answers `["repairs"]` where
+`mergeAddonSchema({tables: [bookings]}, …)` answers `["bookings","repairs"]`.
+So the spec written back to `_meta.schema` declares only `repairs` — **the
+physical `bookings` table survives and its DECLARATION is gone**, which is the
+state the next addon on that site starts from.
+
+**WHAT THE PATCH UNDER TEST DID, AND IT IS EXACTLY WHAT IT WAS BUILT FOR.** The
+coverage record reads **`{total: 7, covered: 4, elsewhere: 3, unsupported: 0,
+unreadable: 0, delivered: 0, failed: 0, unverified: 7, configured: 1}`** —
+**`delivered: 0`**, on a change where a name match alone would have delivered
+three claims, and `configured: 1` where the old reader would have promoted
+configuration to delivery. The customer was told: *"I've set that up, but I
+can't confirm from here that Booked repairs are stored so the count is a real
+number of jobs; or that Visitors see a count, not customer names or what is
+wrong with the bike — have a look and tell me if it isn't right."* **The first
+of those two clauses is the defect, named to the customer before anybody looked
+at the page.** Three hand-offs stayed outstanding (`STILL OWED`) rather than
+being settled by steps that never heard them. `checked` stays empty.
+
+**WHAT IS STILL NOT PROVEN, and none of it is the reporting.** The `seeded`/
+`skipped` report is written into the migration record and **reaches nobody** —
+`"repairs: only display tables are seeded"` is a concrete sentence the customer
+could act on and does not get. No SMS has been sent. And the run pushed its own
+screenshot commit to `main` (existing `lane-sweep.yml` behaviour, `6b72131` and
+`1f2d98e`), which is worth knowing before reading main's history.
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -3263,9 +3343,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 182 credits** (read off the ledger 2026-09-15 00:38Z, its row last
-  moved 2026-09-14 02:25Z — runs 44 and 45 on `repairbench-1` and their two
-  6-credit refunds). **244 stood here for four days and was stale**, which is
+- **Balance: 161 credits** (read off the ledger by the harness itself at the end
+  of run 47, 2026-09-15 02:00Z). The two verification runs on `repairbench-1`
+  took it 182 → 174 (run 46, the `bookings` setup, **8**) → 161 (run 47, the
+  `/status` page + counting function, **13**). Before them, **182**
+  (2026-09-15 00:38Z, its row last moved 2026-09-14 02:25Z — runs 44 and 45 on
+  `repairbench-1` and their two 6-credit refunds). **244 stood here for four
+  days and was stale**, which is
   exactly what the last line of this entry warns about; read the ledger.
   Before it, **244** (2026-09-11 17:56Z, after
   `saltmarsh-kayak-co-2` took 275 → 244 — **31 credits**, the most expensive
@@ -3703,6 +3787,16 @@ rule and the measurement.
 - **A DIAGNOSTIC FIELD IS NOT A SUBSTITUTE FOR THE ARTIFACT.** Three past sessions
   hit one wall and each bought a narrower field instead of the file. Store the raw
   answer ONCE, before anything can refuse it.
+- **A 200 IS AN AVAILABILITY CHECK AND NEVER A HEALTH CHECK** (owner,
+  2026-09-15: *"The six sites returning HTTP 200 are useful availability checks;
+  they don't yet establish that their interactive features still work."*).
+  Fetching a document proves the script is up and serving; it exercises no form,
+  no query and no control. **The two are different claims and a post-deploy
+  sweep measures only the first.** What an interactive check really costs is
+  run 47's shape: fetch the page, read its route chunk for the call it makes,
+  POST that call to the site's own route, and compare the answer against a
+  number established some other way — which is how `/status` was found answering
+  `0` while serving a perfect 200.
 - **A CHECK THAT REPORTS IS ONLY AS GOOD AS ITS READERS.** The render check saw
   seven routes throw and said so; the publish shipped it (by design) and the
   harness called it `ok`. **When a check is report-only, list its readers.**
@@ -3947,14 +4041,49 @@ rule and the measurement.
   platform reader resolves through — answers `conn: null`.
   **MEASURED: four of the thirty-one sites with a Neon project are in this
   state** — `northgroup-5`, `ashgrove-1`, `washhouse-1`, `fretwork-1`, every one
-  created after frontend-only became the default. **What that costs those sites
-  is NOT verified**, only that the reader cannot resolve them; the addon path
-  reaches its database through `ensureSiteBackend`'s own return, which is why
-  runs 30–34 worked on fretwork-1 while this was true.
+  created after frontend-only became the default, plus `repairbench-1` since
+  2026-09-15.
+  **AND WHAT IT COSTS IS NOW VERIFIED, ON A LIVE CUSTOMER-SHAPED RUN (run 47,
+  2026-09-15) — it is much worse than "the reader cannot resolve them".** The
+  earlier note said the cost was unverified and that the addon reaches its
+  database through `ensureSiteBackend`'s own return. **Both halves of that were
+  true and the conclusion drawn from them was wrong**: the addon route resolves
+  `adb` through `siteBackendBySlug` FIRST, and the two lines under it are
+  `let aSpec = adb ? null : { tables: [] }` and an `if (adb)` around the
+  `_meta.schema` read. So a site in this state tells every add designer it has
+  **no tables**, whatever is really in its database. Run 47 asked for a page
+  counting booked repairs on a site whose `bookings` table was twelve minutes
+  old; the designer said *"I'll add a repairs table so the status page's count
+  function has booked jobs to count"*, made a second table, and the published
+  page reads `0`. `aProvisioned` rides the same falsy `adb`, so the reply also
+  claims the site got its database for it. And the merged spec written back to
+  `_meta.schema` is derived from that empty baseline — `mergeAddonSchema` driven
+  both ways answers `["repairs"]` against `["bookings","repairs"]` — so **the
+  earlier table's DECLARATION is dropped while the table itself survives.**
+  That makes this a data-model defect on the money path, not a reporting gap:
+  every addon on an affected site designs against a site it cannot see.
   The fix shape is a PATCH beside the claim, or a heal on read. The name is
   derivable either way (`dbNameForSite(slug)`), which is what
   `scripts/grants-backfill.mjs` and `build-smoke` both use to reach a site's own
   database without it.
+- **AN ADDON DESIGNS A TABLE THAT NOTHING CAN EVER FILL (open, 2026-09-15, run
+  47).** `repairs` was declared `read: "none", write: "none"` — the `admin`
+  pair — so no client grant is emitted (measured live: `42501 permission denied
+  for table repairs` to an anonymous POST) **and `seedSiteRows` skips it**, that
+  function seeding the `display` pair and nothing else by a rule with its own
+  measured history. The designer answered starter rows and they were correctly
+  discarded. The table is empty by construction and the page counting it reads
+  `0` for ever. **Nothing anywhere notices**: no step asks whether a table the
+  same change designed a reader for has any way of gaining a row. The fix shape
+  is a check at the cleaner, not a prompt — a table with no writer and no seed
+  is a state the tool can refuse.
+- **THE SEED SKIP REACHES NOBODY (open, 2026-09-15).** `seedSiteRows` answers
+  `{seeded, skipped}` and `skipped` carries the exact sentence
+  `"repairs: only display tables are seeded (…)"` — **the only thing that can
+  say why a new table arrived empty**, in that function's own words. It is
+  written into the migration record (`withApplied(…, { seeded: aSeeded })`) and
+  no reply, no customer sentence and no developer record surfaces it; reading it
+  needs an owner token. One clause on the addon reply is the fix.
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The availability calendar's own legend (open, live on `fretwork-1` since
   run 16).** `availability-calendar.tsx` prints "Each square is the night

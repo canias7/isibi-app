@@ -155,6 +155,147 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-15 — The live test ran, and it found a real one
+
+You pressed the button twice. Both runs are done. **The reporting patch works,
+and it caught a genuine defect on the very first real customer-shaped ask** —
+which is a better result than a clean pass, because a clean pass would only have
+told us the machinery does not crash.
+
+**The short version: the /status page is live, it loads, its function answers
+through the site's real route — and it says `0` when the shop has 3 bookings.**
+The reason is not the page and not the function. It is that the addon could not
+see the table you made twelve minutes earlier.
+
+### What the two runs were
+
+Separate on purpose: a baseline bought inside the run under test cannot be told
+apart from the thing being tested.
+
+| run | ask | cost | took |
+|---|---|---|---|
+| 46 — setup | *"Add a table that stores repair bookings: the customer's name, the bike, and the day they're bringing it in."* | 8 | 293 s |
+| 47 — the test | *"Add a page at /status that shows how many repairs are booked, and a function the page calls to count them."* | 13 | 506 s |
+
+Balance **182 → 174 → 161**, read off the ledger by the harness itself.
+
+### Your first requirement, answered before either run spent anything
+
+*"Elapsed rollout time alone is insufficient evidence."* It was not used as
+evidence. Both runs printed this before the browser, the balance or the first
+post — a refusal there would have cost nothing:
+
+```
+worker deploy: 4bd5a9191593743b0e61c00d1a1b2caeffe1b933  [build-health 200]
+container image (cold start, lane health-probe): 16cb42353dc4a343
+   health="ok 850968e5fecd 16cb42353dc4a343" in 1525ms
+runtime for repairbench-1: deploy=4bd5a919… runner=true async=true  [200]
+the code under test is the code answering — proceeding
+```
+
+Two halves, two readers, both matched. That is the wall the last change built,
+doing its job on a real paid run.
+
+### What shipped, checked from outside
+
+- `/status` went **404 → 200** at 01:58:50Z. 5,970 bytes, version
+  `01789437370636-f11bde`, build `mu1zo5lj-y6ovi1 → mu20t4j1-ziyak2`.
+- It is in `sitemap.xml`, linked from the header, and wears the site's design.
+- Its code calls `useRpc("count_booked_repairs", {})`, and that function answers
+  the site's own public route — `POST /api/db/repairbench-1/data/rpc/
+  count_booked_repairs` — **HTTP 200**.
+
+So every hop you asked me to exercise works. The number is what is wrong.
+
+### The defect, and how I pinned it
+
+The page reads **0**. I had put 2 bookings into the site in run 46's checks, and
+I put a third one in just now — `201 Created`, before and after, with the count
+`0` on both sides. So the rows are there and the function is not counting them.
+
+**It is counting a different table.** Run 47 made a *new* table called
+`repairs`, and the function is `SELECT COUNT(*) FROM repairs`. The designer said
+so in its own words: *"I'll add a repairs table so the status page's count
+function has booked jobs to count."* It thought the site had nothing to count.
+
+**And it thought that because the addon route genuinely could not see your
+data.** `site_backends.neon_db` is blank for this site — that is the backlog
+item from 13 Sept, and it is still blank. The route resolves the database
+through that column, gets nothing, and then the next two lines say *"this site
+has no tables"* and skip reading the real schema. So every designer in the run
+was told, in good faith, that the shop had no database. The same blank column is
+why the reply also said the site *"got its database for it"* — on a site that
+has had one since run 46.
+
+**`repairs` is empty for ever, too**, which is a second mistake on top: it was
+declared read-nobody/write-nobody, so nothing can put a row in it (I checked —
+an anonymous write is refused), and the starter rows the designer wrote were
+correctly discarded, because we only seed the read-public kind. The page would
+read 0 next year.
+
+**And the declaration of `bookings` was dropped.** I drove the real merge both
+ways: starting from "no tables" it writes back a schema containing only
+`repairs`. The table itself is still there — the *record* of it is not. That is
+the state the next addon on this site would start from.
+
+### What the patch we shipped actually did about all that
+
+This is the part worth reading. The coverage record came back:
+
+```
+total 7 · covered 4 · elsewhere 3 · unsupported 0
+delivered 0 · failed 0 · unverified 7 · configured 1
+```
+
+**`delivered: 0`.** Before this change, three of those claims name things that
+really exist — a table called `repairs`, a function called
+`count_booked_repairs`, a page at `/status` — and a name match was all it took
+to be called delivered. Not one was. And what you were told was:
+
+> *"I've set that up, but I can't confirm from here that Booked repairs are
+> stored so the count is a real number of jobs; or that Visitors see a count,
+> not customer names or what is wrong with the bike — have a look and tell me if
+> it isn't right."*
+
+The first of those two clauses **is the defect**, named to you before anybody
+opened the page. Three hand-offs also stayed on the outstanding list instead of
+being quietly settled by steps that never heard them.
+
+So: the reporting is honest, and the thing it was honest about turned out to be
+real. `checked` is still empty, as you asked.
+
+### What I did not fix, and what I did not do
+
+- **I changed no code.** You asked for the rollout and the verification; the
+  fixes below are decisions for you, not something to slip in at the end of a
+  verification.
+- **No SMS was sent.** Nothing went near a phone.
+- **Everything I wrote went into `repairbench-1`** — three booking rows, nothing
+  else, no other site touched.
+- **The rollback was not needed.** Nothing regressed, so the prepared revert
+  stays unused.
+- **One thing nobody is told**: we record *why* a table arrived empty
+  (`"repairs: only display tables are seeded"`) into the migration record, and
+  that sentence reaches no one. It is exactly the kind of thing you could act
+  on.
+- **The run pushed its own screenshot commits to `main`** (`6b72131`,
+  `1f2d98e`) — that is existing `lane-sweep.yml` behaviour, not something new,
+  but worth knowing before you read main's history.
+
+### The three fixes this points at, in the order I would do them
+
+1. **Write `neon_db` when the database is provisioned** — or heal it on read.
+   This is the root cause and it is small. Until it is done, *every* addon on
+   the five affected sites designs against a site it cannot see, and can quietly
+   drop the record of tables that already exist.
+2. **A table the addon designs to be counted must be writable by something.**
+   Read-nobody/write-nobody plus no seed is a table that can only ever be empty,
+   and nothing today notices.
+3. **Surface the seed skip.** One sentence, already computed, currently filed
+   where only a developer with a token can read it.
+
+---
+
 ## 2026-09-15 — Merged, deployed, and what the deploy proved
 
 **Merged `4bd5a919`** — a fast-forward of `main` from `e876ada9`, nine commits,
@@ -233,6 +374,20 @@ Read live at 00:47Z, after the deploy and after the container roll:
   pointer.
 
 **Nothing to roll back.** The procedure above stays written down and unused.
+
+**AND THOSE SIX SITES ARE AN AVAILABILITY CHECK, NOT A HEALTH CHECK — your
+correction, 2026-09-15: *"The six sites returning HTTP 200 are useful
+availability checks; they don't yet establish that their interactive features
+still work."*** It is exactly right and worth keeping as a rule rather than a
+one-off note. A 200 with an unmoved version stamp says the script is up and
+serving the bytes it served before — which is what a deploy could plausibly
+break and is genuinely worth reading. It says nothing about whether a form
+submits, a database query answers or a control does anything, because none of
+that is exercised by fetching the document. **The two are different claims and
+only one of them was measured.** The run-47 verification above is what an
+interactive check actually costs: fetching a page, reading its route chunk to
+find the call it makes, POSTing that call to the site's own route, and reading
+the answer against a number established independently.
 
 ### AND THEN I HIT A WALL I CANNOT GET PAST: I CANNOT PRESS THE BUTTON
 
