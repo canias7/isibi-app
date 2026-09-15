@@ -3888,6 +3888,10 @@ permission and not the credential. The press is the owner's, as recorded.
 ### AND IT RAN — `repairbench-1`'s REFERENCE IS WRITTEN AND VERIFIED (2026-09-15)
 
 The owner's two presses, both green, the code under them proved unchanged first.
+**THE RUNS, BY LINK, because a quoted log is a transcription and the run is the
+record** — `https://github.com/canias7/isibi-app/actions/runs/<id>`: `backend
+repair` preview **34939144314**, apply-reference **34999557540**, verify
+**35000218315**.
 
 **`backend repair` run 2, 17:10:10→17:10:27Z, `--apply-reference --slug
 repairbench-1`, green in 17 s:**
@@ -3946,7 +3950,9 @@ repairbench-1: VERIFIED
 
 Three presses on `repairbench count fix`, all green, all on `main` `ef55f4de`.
 **Run 1 (preview, 17:19:06→17:19:47Z)**, **run 2 (apply, 17:48:02→17:48:34Z)**,
-**run 3 (verify, 17:52:25→17:52:40Z, exit 0)**.
+**run 3 (verify, 17:52:25→17:52:40Z, exit 0)** —
+`https://github.com/canias7/isibi-app/actions/runs/<id>`, ids **35000500401**,
+**35003509208**, **35003953873**.
 
 **ONE IDENTIFIER MOVED AND THE ARITHMETIC PROVES IT: the definition went 159 →
 160 characters**, which is exactly `bookings`(8) − `repairs`(7). `RETURNS
@@ -3955,8 +3961,30 @@ itself had written them, because the statement was rewritten from
 `pg_get_functiondef` rather than rebuilt from a template — the recorded reason
 that rule exists, now with a live instance behind it.
 
-    - AS $function$ SELECT COUNT(*) FROM repairs  $function$
-    + AS $function$ SELECT COUNT(*) FROM bookings $function$
+**THE DIFF AS THE RUN PRINTED IT, both definitions whole rather than the one
+changed line**, because "the rest of the definition is preserved" is a claim
+about the parts that did NOT move and a one-line diff cannot carry it:
+
+```
+current definition (159 chars):
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM repairs $function$
+
+would replace 1 occurrence(s) of "repairs" with "bookings":
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM bookings $function$
+```
+
+Run 3 read it back at **160 chars** with `FROM bookings`. **`1 occurrence(s)` is
+the wall doing its job in the log**: `\brepairs\b` cannot match inside
+`count_booked_repairs` because `_` is a word character, so the function's own
+NAME was never a candidate — the count in that sentence is what says so.
 
 **THE THREE NUMBERS, before and after, from the run's own output:**
 

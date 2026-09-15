@@ -524,7 +524,17 @@ and I have left it filled in.
 
 ### You pressed it, and repairbench-1 is fixed
 
-Both runs green, seventeen and fifteen seconds.
+Both runs green, seventeen and fifteen seconds. The six runs, so you can open
+any of them yourself — `github.com/canias7/isibi-app/actions/runs/<id>`:
+
+| run | id |
+|---|---|
+| backend repair — preview | 34939144314 |
+| backend repair — apply-reference | 34999557540 |
+| backend repair — verify | 35000218315 |
+| count fix — preview | 35000500401 |
+| count fix — apply | 35003509208 |
+| count fix — verify | 35003953873 |
 
 **The repair** wrote exactly one thing — `neon_db` = `site_repairbench_1` —
 after proving the database was really this site's. It reported `schema: nothing
@@ -569,7 +579,28 @@ which is exactly the difference between `repairs` and `bookings`. Nothing else
 in that function moved, and that includes the `SECURITY DEFINER` line that lets
 it read the table at all — it was rewritten from what Postgres itself had
 stored, not rebuilt from a template, which is how a repair like this quietly
-breaks something days later.
+breaks something days later. Here is both halves as the run printed them, so
+you can see what stayed as well as what moved:
+
+```
+current definition (159 chars):
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM repairs $function$
+
+would replace 1 occurrence(s) of "repairs" with "bookings":
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM bookings $function$
+```
+
+`1 occurrence(s)` is worth a second's attention: the function is *called*
+`count_booked_repairs`, so a sloppy replace would have renamed the function
+too. It matched once, in the table name, which is the wall working.
 
 **The three numbers, before and after:**
 
