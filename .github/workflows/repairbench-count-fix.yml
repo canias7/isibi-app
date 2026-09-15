@@ -64,9 +64,18 @@ jobs:
           CONFIRM: ${{ github.event.inputs.confirm }}
         run: |
           W=$(printf '%s' "$CONFIRM" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); if [ "$W" != "apply" ]; then echo "mode is apply and confirm is not the word 'apply' — refusing, nothing was written"; exit 1; fi
+      # `shell: bash` IS LOAD-BEARING — see the same note in backend-repair.yml.
+      # GitHub's unspecified Linux shell is `bash -e {0}`, no `pipefail`, so a
+      # command ending in `| tee` reports TEE's status. That matters most on
+      # THIS script's `--verify`, whose whole job is to exit nonzero when the
+      # three counts disagree: without `pipefail` that failure reads as a pass.
+      # MEASURED with a failing stub — `bash -e` exits 0, `shell: bash` exits 1,
+      # and the log is byte-identical. Driven in test/repair-workflows.test.mjs.
+      #
       # ONE LINE, because test/ci-browser-order.test.mjs reads the first line of
       # a `run:` block and must see the script name there.
       - name: repairbench count fix
+        shell: bash
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           MODE: ${{ github.event.inputs.mode }}

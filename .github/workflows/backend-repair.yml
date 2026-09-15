@@ -77,9 +77,20 @@ jobs:
           CONFIRM: ${{ github.event.inputs.confirm }}
         run: |
           W=$(printf '%s' "$CONFIRM" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'); if [ "$W" != "apply" ]; then echo "mode is apply and confirm is not the word 'apply' — refusing, nothing was written"; exit 1; fi
+      # `shell: bash` IS LOAD-BEARING, NOT TIDINESS. GitHub's unspecified Linux
+      # shell is `bash -e {0}` — `set -e` WITHOUT `pipefail` — and the command
+      # below ends in `| tee`, so the step's status is TEE's. MEASURED with a
+      # stub that exits 1: under `bash -e` the step exits **0** and a failed
+      # repair or a failed `--verify` reads GREEN; under `shell: bash`
+      # (`bash --noprofile --norc -eo pipefail {0}`) it exits **1**. The log is
+      # byte-identical either way, so nothing is traded for it.
+      # Driven in `test/repair-workflows.test.mjs` — the command and its shell
+      # setting together, because either alone proves nothing.
+      #
       # ONE LINE, because test/ci-browser-order.test.mjs reads the first line of
       # a `run:` block and must see the script name there.
       - name: backend repair
+        shell: bash
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           MODE: ${{ github.event.inputs.mode }}

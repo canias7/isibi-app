@@ -3593,6 +3593,46 @@ the typed word `apply` to write, both uploading their log `if: always()`.
 `test/merge-triggers.test.mjs` is a census and still requires `deploy.yml` to be
 the only workflow a push to main starts.
 
+**AND A STEP THAT PIPES INTO `tee` REPORTS TEE'S STATUS UNLESS THE SHELL IS SAID
+OUT LOUD (2026-09-15, owner: *"neither declares `shell: bash` nor enables
+`pipefail`… a failed repair or verification can therefore produce a green step
+because `tee` succeeded"*).** GitHub's UNSPECIFIED Linux shell is **`bash -e
+{0}`** — `set -e` with **no `pipefail`** — and a pipeline's status is its LAST
+command's. **MEASURED with a stub exiting 1: under `bash -e` the step exits `0`;
+under `shell: bash` (`bash --noprofile --norc -eo pipefail {0}`) it exits `1`;
+the log is byte-identical (73 bytes) either way**, so nothing is traded for it.
+GitHub's own job log prints `shell: /usr/bin/bash -e {0}` above every
+unspecified step, which is where the default can be read rather than recalled.
+- **THIS IS THE `--verify` DEFECT ONE LAYER UP.** Both scripts were given an
+  explicit verify mode *precisely* so a failed postcondition exits nonzero; a
+  workflow that swallows it restores "a verification that PRINTS its failure and
+  REPORTS success" at the step level. The two walls are independent and both are
+  needed.
+- **THE GUARD DRIVES THE COMMAND, IT DOES NOT GREP FOR THE SPELLING.**
+  `test/repair-workflows.test.mjs` reads the step's `shell:` and its real `run:`
+  text out of the YAML, then EXECUTES that text under the argv that shell
+  implies, with `node` replaced by a stub whose exit code the case picks. So
+  **`shell: sh` fails here** where a name check would pass, and deleting
+  `shell: bash` goes red for the real reason. **The default-shell case is the
+  CONTROL** — without it, "the failing stub exits nonzero" could be true for
+  some reason other than pipefail.
+- **A CENSUS, NOT A LIST OF TWO**: every `run:` line in the directory that pipes
+  into `tee` must sit under a pipefail shell. **MEASURED: exactly 2 such lines
+  exist**, both `shell: bash` — and the scan reads RUN BLOCKS ONLY, so the
+  prose above these steps (which quotes `| tee` while explaining the rule) is
+  not counted. That is this file's own "prose contains the thing it forbids",
+  met in a census, and a mutant widening the scan to comments is killed.
+- **`keepsPipeFailure` IS A DECLARED REDUNDANCY**: with the workflows correct,
+  replacing its body with `true` changes no result, because the cases still
+  execute under `SHELL_ARGV`'s argv. Measured, declared in the code, and the
+  observable mutants live on `SHELL_ARGV` and on the workflow files instead.
+**Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — each workflow losing its shell, each naming `sh` instead,
+stderr off the log, the log not written, the guard's model of either shell
+altered, the stub off `PATH` (so the real node runs and no case is about the
+shell), the census matching nothing or matching comments, the failing stub made
+a success, and the step reader ignoring `shell:` altogether.
+
 **Guards**: `test/backend-repair.test.mjs` **50 → 50** (the predicate case
 rewritten onto the new property: the five erasures as `differ` rows, the two
 measured equivalences and the symmetric-unquoting row as `same`, and the bare
@@ -4010,7 +4050,20 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   harness timings, 17m46s against 11m33s on trees that differ by four files,
   are the same lesson the image-step band records: **the runner decides, and no
   inference from the diff to the duration is available.**
-  The unit suite is **6,465** (2026-09-15, local — the normaliser erasing SQL
+  **AND RUN 1142 READ IT A SEVENTH TIME (2026-09-15 05:57:01→06:16:43Z on
+  `c5b59cc6`, ALL TWENTY STEPS GREEN): `site-build.mjs` `382 passed, 0 failed`**,
+  with kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47 beside it — every count read out of that job's
+  own log by bounding each `N passed` to its own `##[group]`, because a forward
+  search from a step marker picks up the NEXT step's count and silently
+  mis-attributes it (measured: four steps all reported 29 that way).
+  The unit suite is **6,472** (2026-09-15, local — the repair steps' shell,
+  whose new case file is `test/repair-workflows.test.mjs`'s **seven**: for each
+  of the two steps a failing repair that must fail the step with its log intact,
+  a succeeding control, and the DEFAULT-shell control that reproduces the
+  swallowed failure — plus the directory-wide census of piped commands;
+  6,465 + 7 closes exactly. CI has NOT read this number yet.
+  **6,465** before it (2026-09-15, local — the normaliser erasing SQL
   meaning before parsing, whose new case is `repair-commands`'s **one** (the
   scope wall driven as a process: an out-of-scope slug exits 2, reads nothing
   and does not say "nothing to do", with the control that a run with no slug

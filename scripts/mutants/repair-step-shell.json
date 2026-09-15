@@ -1,0 +1,124 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the guard",
+    "control": true,
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "// A REPAIR STEP MUST NOT REPORT `tee`'s STATUS.",
+    "to": "// A REPAIR STEP MUST NOT REPORT THE STATUS OF `tee`."
+  },
+  {
+    "label": "CONTROL: a comment only, in the workflow",
+    "control": true,
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "      # `shell: bash` IS LOAD-BEARING, NOT TIDINESS. GitHub's unspecified Linux",
+    "to": "      # `shell: bash` IS LOAD-BEARING and not tidiness. GitHub's unspecified Linux"
+  },
+  {
+    "label": "backend repair: the shell is unspecified again, so the step reports tee's status",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "      - name: backend repair\n        shell: bash\n",
+    "to": "      - name: backend repair\n"
+  },
+  {
+    "label": "count fix: the shell is unspecified again",
+    "files": [
+      ".github/workflows/repairbench-count-fix.yml"
+    ],
+    "from": "      - name: repairbench count fix\n        shell: bash\n",
+    "to": "      - name: repairbench count fix\n"
+  },
+  {
+    "label": "backend repair: a shell IS named, and it is one without pipefail",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "      - name: backend repair\n        shell: bash\n",
+    "to": "      - name: backend repair\n        shell: sh\n"
+  },
+  {
+    "label": "count fix: a shell IS named, and it is one without pipefail",
+    "files": [
+      ".github/workflows/repairbench-count-fix.yml"
+    ],
+    "from": "      - name: repairbench count fix\n        shell: bash\n",
+    "to": "      - name: repairbench count fix\n        shell: sh\n"
+  },
+  {
+    "label": "backend repair: stderr stops reaching the log, so the failure's reason is not uploaded",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "node scripts/backend-repair.mjs --\"${MODE:-preview}\" $S 2>&1 | tee backend-repair.log",
+    "to": "node scripts/backend-repair.mjs --\"${MODE:-preview}\" $S | tee backend-repair.log"
+  },
+  {
+    "label": "count fix: the log is no longer written at all",
+    "files": [
+      ".github/workflows/repairbench-count-fix.yml"
+    ],
+    "from": "node scripts/repairbench-count-fix.mjs --\"${MODE:-preview}\" 2>&1 | tee repairbench-count-fix.log",
+    "to": "node scripts/repairbench-count-fix.mjs --\"${MODE:-preview}\" 2>&1"
+  },
+  {
+    "label": "the guard's model of `shell: bash` loses pipefail, so it stops testing the thing",
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "  bash: [\"--noprofile\", \"--norc\", \"-eo\", \"pipefail\"],",
+    "to": "  bash: [\"--noprofile\", \"--norc\", \"-e\"],"
+  },
+  {
+    "label": "the guard's model of the DEFAULT shell gains pipefail, so the control stops being one",
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "  \"\": [\"-e\"],",
+    "to": "  \"\": [\"-eo\", \"pipefail\"],"
+  },
+  {
+    "label": "the stub is not on PATH, so the real node runs and no case is about the shell",
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MODE: \"verify\", SLUG: \"\" },",
+    "to": "      env: { ...process.env, MODE: \"verify\", SLUG: \"\" },"
+  },
+  {
+    "label": "the census stops matching any piped command, so its absence proves nothing",
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "      if (!/\\|\\s*tee\\b/.test(l)) continue;",
+    "to": "      if (!/\\|\\s*teeeee\\b/.test(l)) continue;"
+  },
+  {
+    "label": "the census counts comment prose as a command, so the scan is not reading run blocks",
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "      const isRunText = inRun || /^\\s*(?:- )?run:\\s*\\S/.test(l);",
+    "to": "      const isRunText = true;"
+  },
+  {
+    "label": "the failing stub exits 0, so every case is driven with a success",
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "    const bad = runStep({ run, shell, code: 1, log: s.log });\n    assert.notEqual(bad.status, 0,",
+    "to": "    const bad = runStep({ run, shell, code: 0, log: s.log });\n    assert.notEqual(bad.status, 0,"
+  },
+  {
+    "label": "the step reader ignores `shell:` entirely, so it judges a file it did not read",
+    "files": [
+      "test/repair-workflows.test.mjs"
+    ],
+    "from": "    if (sh) shell = sh[1];\n    if (/^\\s*run:\\s*\\|\\s*$/.test(l)) { runAt = i; break; }",
+    "to": "    if (/^\\s*run:\\s*\\|\\s*$/.test(l)) { runAt = i; break; }"
+  }
+]

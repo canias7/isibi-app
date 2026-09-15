@@ -281,15 +281,54 @@ backend repair  mode=preview  slug=washhouse-1    → then apply, then verify
 Blank-slug is the shorter route and visits all five; explicit slugs are the
 precise one. Either is safe; only one of them is what I said.
 
+### You were right about the shell, and it was the worse half
+
+You spotted that both repair steps pipe Node into `tee` without saying which
+shell to use. **That is a real hole and I have measured it rather than argued
+about it.** GitHub's unspecified Linux shell is `bash -e` — which stops on an
+error but does **not** turn on `pipefail` — and a pipeline reports its LAST
+command's status. `tee` always succeeds. So:
+
+| shell | node exits | the STEP exits | log |
+|---|---|---|---|
+| unspecified (`bash -e`) | 1 | **0 — green** | 73 bytes, intact |
+| `shell: bash` (`bash --noprofile --norc -eo pipefail`) | 1 | **1 — red** | 73 bytes, intact |
+
+**Nothing is traded for the fix** — the log is byte-identical either way and
+still uploads on failure.
+
+**This is the same defect you already made me fix, one layer up.** I gave both
+scripts an explicit verify mode so a failed check exits nonzero; a workflow that
+swallows that exit code puts back exactly what we removed — a verification that
+prints its own failure and reports success. It would have bitten hardest on
+`repairbench count fix → verify`, whose entire job is to go red when the three
+counts disagree.
+
+Both steps now say `shell: bash`.
+
+**The test drives the real command, it does not look for the words.** It reads
+the step's shell and its actual command out of the workflow file, then runs that
+command under that shell with a fake `node` that fails on purpose. So `shell: sh`
+would fail the test too, which a word-search would not catch. There is a passing
+control (node succeeds → step passes) and a control that reproduces the bug (same
+command, no shell declared → step goes green on a failure), because without that
+second one I would only be proving a coincidence. I also checked every workflow in
+the repository, not just these two: exactly two commands pipe into `tee` and both
+are now covered.
+
 ### The numbers
 
-Suite **6,465**, green **on my machine and in CI**, and the two are written apart
-because they do not read the same:
+Suite **6,472**, green **on my machine**; the **6,465** below it is the number CI
+has read, and the two are written apart because they do not count the same:
 
 | where | run | result |
 |---|---|---|
-| local | `node --test "test/*.test.mjs"` | `6465 / 6465 pass / 0 fail / 0 skipped` |
+| local | `node --test "test/*.test.mjs"` | `6472 / 6472 pass / 0 fail / 0 skipped` |
 | CI | `unit tests` **2561** on `c5b59cc6` | `6465 / 6462 pass / 0 fail / 3 skipped`, green, suite step 104.3 s |
+| CI | `site build` **1142** on `c5b59cc6` | **green, all twenty steps**, `site-build.mjs` **382 passed / 0 failed** |
+
+The seven new tests are the shell fix's; CI has not read 6,472 yet — the push
+that carries this is what reads it.
 
 The three skips are the recorded environment skips (they need things this
 sandbox has and a GitHub runner does not), which is why the number I carry is
