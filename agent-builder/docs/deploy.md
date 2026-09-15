@@ -65,10 +65,46 @@ What the run does, in order, stopping at the first thing it cannot confirm:
    a re-deploy-and-retry because this repository records that a standalone
    `secret put` after a deploy can meet Cloudflare's versioned-deployments guard on
    this account;
-6. **is it serving** — `/health` polled until it answers `ok: true`;
-7. **the live verification** — all four checks below;
-8. **cleanup** — `if: always()`, removing the throwaway customer the verification
+6. **a re-deploy, so the run holds ONE version id** — see below; without it the run
+   has no id it can hold the Worker to;
+7. **is it serving** — `/health` polled until it answers **that version** with
+   `ok: true`, and the run FAILS if it never does;
+8. **the live verification** — all five checks below, the first of which asserts the
+   version rather than reporting it;
+9. **cleanup** — `if: always()`, removing the throwaway customer the verification
    created.
+
+### Which version is serving, and why the run re-deploys
+
+**`wrangler secret put` MINTS A VERSION OF ITS OWN AND PRINTS NO ID.** Measured on run
+34938312961: the deploy step printed `Current Version ID: e3bdf22e…` at 06:45:07.785Z,
+the secret landed at 06:45:09.242Z, and the Worker served `64ac3bb4…` — stamped
+**06:45:09.382489Z**, 140 ms after the secret step's first line — from then on. So the
+id the deploy step prints is never the serving one once a secret is uploaded after it,
+and the id that IS serving appears in no log at all.
+
+**What that cost.** The wait step asked `/health` once, two seconds after the upload,
+and an edge that had not yet picked either new version up answered honestly with
+`2dfb8be6…` from the deploy BEFORE last. The verification printed that as "the deployed
+version" and passed 69 checks. Nothing was wrong with the Worker; the run simply could
+not say which Worker it had verified.
+
+So the workflow now ends with a **deploy** rather than a secret upload. It re-uploads
+the same code — secrets are settings and survive a deploy — and its only purpose is
+that the run finishes holding one version id, printed by the step that created it. Two
+separate properties follow, and both are guarded by `test/deploy-workflow.test.mjs`:
+
+- **the run must hold an id at all.** A deploy that prints no readable version id
+  stops the run, because the id comes from wrangler's own wording and this repository
+  has already paid once for a guessed string guessed wrong.
+- **`/health` must be asked until it answers that id.** A version reaches Cloudflare's
+  edges over seconds, so one read proves nothing — and `ok: true` is no help, because
+  the previous deployment answers `ok: true` just as truthfully. The loop compares the
+  id, and a run that never sees it fails instead of verifying an unknown version.
+
+`/health` also answers `cache-control: no-store`. That is **not** a fix for
+propagation — an edge can honestly still be on the old version — it removes the OTHER
+explanation for a stale answer, so that a reader which keeps asking is really asking.
 
 ### If it is blocked
 

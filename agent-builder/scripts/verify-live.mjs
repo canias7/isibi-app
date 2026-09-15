@@ -47,6 +47,18 @@ const SUPABASE_URL = (env.SUPABASE_URL ?? "").replace(/\/+$/, "");
 const PUB = env.SUPABASE_PUBLISHABLE_KEY ?? "";
 const SVC = env.SUPABASE_SERVICE_KEY ?? "";
 const SCHEMA = env.AGENT_SCHEMA ?? "agent";
+/**
+ * **WHICH VERSION THIS RUN IS ENTITLED TO VERIFY.** Set by the deploy workflow to the
+ * id of the version it uploaded last. Without it this script can only report whatever
+ * answered — and a report of the version that answered reads exactly like a report of
+ * the version that was deployed, which is the defect this exists to close: a run once
+ * printed a version TWO deploys old as "the deployed version", because it asked once,
+ * two seconds after the upload, and believed the answer.
+ *
+ * Unset is a legitimate state (a hand run against whatever is live), and then the
+ * check SAYS it could not hold anything to an expectation rather than passing quietly.
+ */
+const EXPECT_VERSION = (env.EXPECT_VERSION ?? "").trim();
 /** How long to wait for the whole handover: a beat, then the grace, then a cron tick. */
 const HANDOVER_MS = Number(env.HANDOVER_MS) || 300_000;
 const STEP_MS = Number(env.POLL_MS) || 3_000;
@@ -119,6 +131,27 @@ check("both verification agents are registered",
 const VERSION = healthBody.version ?? "(no version metadata binding)";
 console.log(`      version:   ${VERSION}`);
 console.log(`      deployed:  ${healthBody.deployedAt ?? "—"}`);
+// **THE VERSION IS HELD TO THE ONE THIS RUN UPLOADED, when the run knows it.** Every
+// check below this line is evidence about whatever version answered, so a mismatch
+// here does not weaken them — it says they are evidence about the WRONG deployment,
+// which is worth more than the checks themselves.
+// **THE COMPARISON IS WRITTEN ONCE.** It was written twice — once as the condition and
+// once inside the message — and a sweep mutant that replaced the CONDITION with `true`
+// survived, because the guard reading this file still found the expression in the copy.
+// Two copies of one thing, in the space of three lines.
+const versionOk = healthBody.version === EXPECT_VERSION;
+if (EXPECT_VERSION) {
+  check("the version serving is the one this run deployed", versionOk,
+    versionOk ? EXPECT_VERSION
+      : `serving ${VERSION}, expected ${EXPECT_VERSION} — every check below is about the version that answered`);
+} else {
+  console.log("      (EXPECT_VERSION is not set, so the version above is reported, not verified)");
+}
+// **`no-store`, so that a reader which keeps asking is really asking.** A cached 200
+// is the other explanation for a stale version, and it is the one that can be ruled
+// out from here.
+const cacheControl = healthRes.headers.get("cache-control") ?? "";
+check("/health forbids caching", /no-store/i.test(cacheControl), `cache-control: ${cacheControl || "(none)"}`);
 
 /**
  * A THROWAWAY CUSTOMER, created server-side and deleted afterwards.

@@ -222,6 +222,25 @@ const configGap = (e) => new Response(JSON.stringify({ error: String(e?.message 
  * BEFORE the configuration check, so an unconfigured deployment can still say what
  * it is — which is the moment the question is asked most often.
  */
+/**
+ * **`no-store`, BECAUSE THIS ROUTE IS READ TO DECIDE WHETHER A DEPLOY LANDED.**
+ * A 200 with no cache directive is cacheable by anything between the reader and the
+ * Worker, and the one question this route exists to answer — WHICH version is
+ * serving — is the one question a cached body answers wrongly while looking
+ * perfectly healthy.
+ *
+ * **IT IS NOT A FIX FOR PROPAGATION, and must not be read as one.** A new version
+ * reaches Cloudflare's edges over some seconds, so an edge can honestly answer with
+ * the version it is still running; `no-store` only removes the OTHER explanation, so
+ * that a reader which keeps asking is really asking. What makes a version claim
+ * trustworthy is asking until the expected id comes back — see the deploy workflow's
+ * wait step, which fails the run when it never does.
+ */
+const HEALTH_HEADERS = {
+  "content-type": "application/json; charset=utf-8",
+  "cache-control": "no-store",
+};
+
 function health(env) {
   const missing = missingSettings(env);
   const v = env?.CF_VERSION_METADATA ?? null;
@@ -244,7 +263,7 @@ function health(env) {
     schema: SCHEMA,
     agents: Object.keys(AGENTS),
     missing,
-  }), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
+  }), { status: 200, headers: HEALTH_HEADERS });
 }
 
 export default {

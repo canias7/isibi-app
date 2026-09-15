@@ -66,12 +66,23 @@ console.log(`  local rest on ${rest.url}`);
 
 // The API process, with an INERT queue binding: nothing here executes a run, so the
 // consumers below are the only thing that can — which is what makes the handover real.
+/**
+ * **A VERSION ID, SO THE VERIFICATION'S VERSION CHECK IS EXERCISED HERE FIRST.**
+ * Against a deployment the id comes from Cloudflare's binding and the expectation from
+ * the deploy step; here both come from this line, and they are a FRESH id per run
+ * rather than a constant, so a check that had stopped comparing would pass the run
+ * before and fail this one. The check exists because a run once reported a version two
+ * deploys old as the deployed version — and the rule this repository keeps paying for
+ * is that an instrument nobody has run is a claim.
+ */
+const LOCAL_VERSION = `local-${crypto.randomUUID()}`;
 const env = {
   SUPABASE_URL: rest.url,
   SUPABASE_SERVICE_KEY: "local-service-role",
   SUPABASE_PUBLISHABLE_KEY: "local-publishable",
   SUPABASE_JWT_SECRET: SECRET,
   MODEL: "stand-in",
+  CF_VERSION_METADATA: { id: LOCAL_VERSION, tag: "local", timestamp: new Date().toISOString() },
   [QUEUE_BINDING]: { send: async () => {} },
 };
 const ctx = { waitUntil: () => { throw new Error("the API process must not run work"); } };
@@ -129,6 +140,7 @@ try {
         SUPABASE_PUBLISHABLE_KEY: "local-publishable",
         SUPABASE_SERVICE_KEY: "local-service-role",
         AGENT_USER_TOKEN: token,
+        EXPECT_VERSION: LOCAL_VERSION,
         // The clock, compressed: a handover here costs seconds, not a cron tick.
         HANDOVER_MS: "120000", SETTLE_MS: "15000", POLL_MS: "1000",
       },

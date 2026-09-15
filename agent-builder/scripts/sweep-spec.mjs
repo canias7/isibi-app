@@ -24,6 +24,14 @@ const S = at("store.mjs");
 const A = at("auth.mjs");
 const H = at("api.mjs");
 const W = at("worker.mjs");
+/**
+ * THE TWO FILES OUTSIDE `src/` THAT DECIDE WHETHER A DEPLOYMENT CAN BE IDENTIFIED —
+ * the workflow that mints the version id and the script that holds the Worker to it.
+ * They are swept because the defect they close was invisible from `src/`: every module
+ * was correct and the run still reported a version two deploys old.
+ */
+const Y = path.resolve(SRC, "..", "..", ".github", "workflows", "agent-deploy.yml");
+const V = path.resolve(SRC, "..", "scripts", "verify-live.mjs");
 const m = (label, file, from, to, control = false) => ({ label, files: [file], from, to, control });
 
 const spec = [
@@ -605,11 +613,63 @@ const spec = [
   m("runner: two deliveries in one isolate share a worker name", at("runner.mjs"),
     "    : () => `w-${crypto.randomUUID()}`;", "    : () => \"w\";"),
 
+  // ── the deploy's version identity ─────────────────────────────────────────
+  //
+  // Each of these is the shape of a REAL defect: run 34938312961 reported a version
+  // two deploys old as "the deployed version", and the reason was not in any module —
+  // it was that `secret put` mints a version of its own and prints no id, so nothing
+  // downstream had an id to hold the Worker to, and printing whatever answered read
+  // exactly like verifying it.
+  m("deploy: THE VERSION SERVING IS NOT COMPARED WITH THE ONE DEPLOYED — ok:true is enough again", Y,
+    'if [ "$got" = "$EXPECT_VERSION" ] && [ "$ok" != "0" ]; then', 'if [ "$ok" != "0" ]; then'),
+  m("deploy: a deployment that never reports this version is accepted", Y,
+    'an unknown version is evidence about the wrong deployment."\n          exit 1',
+    'an unknown version is evidence about the wrong deployment."\n          exit 0'),
+  // ONE iteration, not two: a loop that runs once is the defect wearing a loop's shape,
+  // and the guard that only asked for "a number" passed it.
+  m("deploy: the wait no longer loops, so one read decides", Y,
+    "          for i in $(seq 1 30); do", "          for i in $(seq 1 1); do"),
+  m("deploy: THE VERIFICATION IS NOT TOLD WHICH VERSION THIS RUN DEPLOYED", Y,
+    "          AGENT_URL: ${{ steps.deploy.outputs.url }}\n          EXPECT_VERSION: ${{ steps.serving.outputs.version }}\n          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}",
+    "          AGENT_URL: ${{ steps.deploy.outputs.url }}\n          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}"),
+  m("deploy: the re-deploy keeps no step id, so its version reaches nothing", Y,
+    "        id: serving\n", "        id: serving_\n"),
+  m("deploy: a deploy that printed no version id is accepted", Y,
+    '          if [ -z "$ver" ]; then\n            echo\n            echo \'The deploy printed no version id', '          if [ -n "$ver" ]; then\n            echo\n            echo \'The deploy printed no version id'),
+  // NOT a rename: renaming a step changes a DISPLAY STRING and nothing about the run, so
+  // the first version of this mutant was inert by construction and survived for that
+  // reason rather than for a missing check. Gating the step off is the real breakage —
+  // the readers then compare against an empty string, which is the original defect back.
+  m("deploy: the step that mints the version is gated off, so the readers get nothing", Y,
+    "      - name: re-deploy, so the code and the secret are one version\n        id: serving\n        if: steps.gate.outputs.armed == 'true'",
+    "      - name: re-deploy, so the code and the secret are one version\n        id: serving\n        if: false"),
+  // THE ORIGINAL DEFECT, written out as a mutant: the wait held the Worker to the id the
+  // DEPLOY step printed, which a later secret upload had already superseded.
+  m("deploy: the wait is held to the deploy's id instead of the one that is serving", Y,
+    "          EXPECT_VERSION: ${{ steps.serving.outputs.version }}\n        run: |\n          echo \"waiting for version",
+    "          EXPECT_VERSION: ${{ steps.deploy.outputs.version }}\n        run: |\n          echo \"waiting for version"),
+  m("worker: /health is cacheable again, so a stale version reads as the deployed one", W,
+    '  "cache-control": "no-store",', "  \"x-note\": \"none\","),
+  m("verify: the expected version is PRINTED rather than checked", V,
+    '  check("the version serving is the one this run deployed",', '  console.log("the version serving is the one this run deployed",'),
+  m("verify: the version check passes whatever answered", V,
+    "const versionOk = healthBody.version === EXPECT_VERSION;", "const versionOk = true;"),
+  m("verify: a missing expectation is silent, so a broken hop reads as a pass", V,
+    '  console.log("      (EXPECT_VERSION is not set, so the version above is reported, not verified)");',
+    "  void 0;"),
+  m("verify: nothing checks that /health is uncacheable", V,
+    'check("/health forbids caching", /no-store/i.test(cacheControl),', 'check("/health forbids caching", true,'),
+
   // ── the controls: comment-only, and they MUST survive ──────────────────────
   m("CONTROL (comment only, limits.mjs)", L, "* THE BOUNDS ON ONE AGENT RUN", "* THE BOUNDS ON ONE AGENT RUN (control)", true),
   m("CONTROL (comment only, run.mjs)", R, "* THE AGENT LOOP.", "* THE AGENT LOOP (control).", true),
   m("CONTROL (comment only, runner.mjs)", at("runner.mjs"),
     "* THE CONSUMER — claim a delivery", "* THE CONSUMER (control) — claim a delivery", true),
+  // The workflow gets its own control, because the guard that reads it splits on a
+  // six-space `- name:` and a control proves the split still finds the steps when
+  // ONLY a comment moved.
+  m("CONTROL (comment only, agent-deploy.yml)", Y,
+    "# ── the version this run may be held to ─", "# ── the version this run may be held to (control) ─", true),
 ];
 
 // THE PRE-CHECK. Every anchor must occur EXACTLY once in its file, and the

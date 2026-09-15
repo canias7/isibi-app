@@ -233,25 +233,79 @@ jobs:
           fi
           echo "SUPABASE_SERVICE_KEY uploaded to the agent Worker."
 
+      # ── the version this run may be held to ───────────────────────────────
+      #
+      # **`secret put` MINTS A VERSION OF ITS OWN AND PRINTS NO ID**, so the id the
+      # deploy step printed is never the one serving once a secret has been uploaded
+      # after it. MEASURED on run 34938312961: the deploy printed
+      # `e3bdf22e…` at 06:45:07.785Z, the secret landed at 06:45:09.242Z, and the
+      # Worker has served `64ac3bb4…`, stamped **06:45:09.382489Z**, ever since — the
+      # secret step's version, 140 ms after its own first line, with no id in the log.
+      #
+      # So the run had no id it could hold the Worker to, and the verification
+      # reported whatever `/health` answered as "the deployed version" — which on that
+      # run was a version TWO deploys old, because it asked once, two seconds in.
+      #
+      # **A DEPLOY IS MADE THE LAST THING THAT CHANGES THE WORKER.** It re-uploads the
+      # same code (secrets survive a deploy — they are settings, not code), so its only
+      # effect is that this run ends holding ONE version id, printed by the step that
+      # created it. Everything downstream is then an assertion instead of an echo.
+      - name: re-deploy, so the code and the secret are one version
+        id: serving
+        if: steps.gate.outputs.armed == 'true'
+        working-directory: agent-builder
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          out=$(npx --yes wrangler@4.107.0 deploy --config wrangler.jsonc 2>&1 | tee /dev/stderr)
+          ver=$(printf '%s' "$out" | grep -oiE 'version id:?[[:space:]]*[0-9a-f-]{8,}' | head -1 | grep -oE '[0-9a-f-]{8,}$')
+          if [ -z "$ver" ]; then
+            echo
+            echo 'The deploy printed no version id, so nothing downstream can be held to'
+            echo "one. Stopping rather than verifying an unknown version: the wording of"
+            echo "wrangler's own output is the only place this id comes from, and a guessed"
+            echo "string guessed wrong is what this step exists to stop."
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "the version that must be serving: $ver"
+
       # ── is it actually serving? ───────────────────────────────────────────
-      - name: wait for the deployment to answer
+      #
+      # **ONE READ PROVES NOTHING.** A version reaches Cloudflare's edges over some
+      # seconds, so an edge asked immediately can honestly answer with the version it
+      # is still running — and believing that answer is how a run reports the wrong
+      # version while every other check passes. So this asks until the expected id
+      # comes back, and FAILS when it never does; `ok:true` alone is not enough,
+      # because the previous deployment answers `ok:true` too.
+      - name: wait for THIS version to answer
         if: steps.gate.outputs.armed == 'true'
         env:
           AGENT_URL: ${{ steps.deploy.outputs.url }}
+          EXPECT_VERSION: ${{ steps.serving.outputs.version }}
         run: |
+          echo "waiting for version $EXPECT_VERSION at $AGENT_URL/health"
           for i in $(seq 1 30); do
-            body=$(curl -sS --max-time 15 "$AGENT_URL/health" || true)
-            echo "$body"
-            if printf '%s' "$body" | grep -q '"ok":true'; then
-              echo "serving, and configured."
+            body=$(curl -sS --max-time 15 -H 'cache-control: no-cache' "$AGENT_URL/health" || true)
+            got=$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version??""))}catch{process.stdout.write("")}})' || true)
+            ok=$(printf '%s' "$body" | grep -c '"ok":true' || true)
+            echo "  attempt $i: version=${got:-(unreadable)} ok=${ok}"
+            if [ "$got" = "$EXPECT_VERSION" ] && [ "$ok" != "0" ]; then
+              echo "serving $EXPECT_VERSION, and configured."
               exit 0
             fi
             sleep 10
           done
           echo
-          echo 'The deployment never answered /health with ok:true. Its missing list'
-          echo "above names what it is waiting for — that list is settings by NAME and"
-          echo "never a value."
+          echo "$body"
+          echo
+          echo "/health never reported $EXPECT_VERSION with ok:true inside five minutes."
+          echo "Either the deployment is not propagating, or it is answering with a"
+          echo "different version — and its missing list above names anything it is"
+          echo "waiting for, by NAME and never as a value. Not verifying: a check against"
+          echo "an unknown version is evidence about the wrong deployment."
           exit 1
 
       # ── the live verification ─────────────────────────────────────────────
@@ -264,6 +318,7 @@ jobs:
         working-directory: agent-builder
         env:
           AGENT_URL: ${{ steps.deploy.outputs.url }}
+          EXPECT_VERSION: ${{ steps.serving.outputs.version }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           read_var() {

@@ -437,6 +437,14 @@ test("GET /health SAYS WHAT IS DEPLOYED, WITHOUT A TOKEN AND WITHOUT A SECRET", 
   for (const path of ["/health", "/", "/health/"]) {
     const res = await worker.fetch(new Request(`https://x${path}`), env, { waitUntil() {} });
     assert.equal(res.status, 200, `${path} answered ${res.status}`);
+    // **IT FORBIDS CACHING, because this route is read to decide whether a deploy
+    // landed.** A 200 with no directive is cacheable by anything in between, and the
+    // one question it exists to answer — which version is serving — is the question a
+    // cached body answers wrongly while looking perfectly healthy. It is not a fix for
+    // propagation (an edge can honestly still be on the old version); it removes the
+    // OTHER explanation, so that a reader which keeps asking is really asking.
+    assert.match(res.headers.get("cache-control") ?? "", /no-store/,
+      `${path} may be cached, so a stale version can be reported as the deployed one`);
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.equal(body.model, "stand-in");

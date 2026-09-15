@@ -1050,3 +1050,81 @@ schema — and I fixed all four; the schema check went from 177 to 185 checks do
 second pass, which would confirm those four fixes actually catch their breakages, was
 stopped at 10 of 67 so I could commit and deploy. I will finish it and report the number
 rather than leave the old one standing.
+
+---
+
+## 2026-09-15 — the sweep finished, and a defect in my own reporting
+
+**The SQL sweep is done and it is clean: 64 breakages, 64 caught, none that failed to
+apply, and the three comment-only controls survived as they must.** The code sweep was
+re-run for today's change and reads **202 breakages, 202 caught, 0 survived, 4 controls**;
+the suite is **233 tests, 0 failures**, and the verification script itself passes **69
+checks** end to end against a local database with two consumer processes. That closes the
+honestly-unfinished item above — the four gaps the first pass found were in my check
+file, not in your schema, and this pass confirms the fixes for them really do catch
+their breakages. The migration files are back exactly as committed, checked against git
+rather than by eye, and every one of the sweep's 67 anchors is present exactly once.
+
+**Then I found something wrong with the run I had just reported to you as verified.**
+Not with the Worker — with my ability to say WHICH Worker I had verified. The deploy
+printed version `e3bdf22e…`; the Worker has actually been serving `64ac3bb4…` since that
+run. The reason is a small fact nobody had measured: **uploading the runtime secret
+creates a version of its own, and prints no id at all.** So the id my report quoted was
+never the one serving, and the id that was serving appeared in no log.
+
+Worse, the check that was supposed to catch this could not. It asked `/health` once, two
+seconds after the upload, and got the version from the deploy *before* last — which is a
+truthful answer from an edge that had not picked the new one up yet. The verification
+printed it. **Printing a version reads exactly like verifying one**, and 69 checks passed
+underneath it.
+
+**What I changed.** The deploy run now ends with a deploy rather than a secret upload, so
+it finishes holding one version id printed by the step that made it; `/health` is then
+asked repeatedly until it answers *that* id, and the run fails if it never does — `ok:
+true` is not accepted as a substitute, because the previous deployment answers `ok: true`
+just as truthfully. The verification asserts the id instead of echoing it, and says so
+out loud when it has no id to hold anything to. `/health` also forbids caching now, which
+rules out the other explanation for a stale answer rather than fixing the propagation
+one.
+
+**The sweep caught me out, and that part is worth telling you.** Five of its breakages
+survived — every one of them in a guard I had written minutes earlier for this very
+change. One accepted a renamed step because it matched part of a name rather than the
+whole of it; one accepted a loop that runs exactly once; two survived because I was
+READING the verification script instead of RUNNING it, so a check quietly rewired to
+always pass still looked right in the source; and one of my own breakages turned out to
+change nothing at all, which is not a test gap but a badly written test of a test. All
+five are fixed and the pass after them is clean — and the lesson is that a guard written
+in the same sitting as the change inherits the same blind spots. The sweep is the only
+thing that reads it as an opponent.
+
+**And the workflow now has a guard, which it never had.** That is the gap that let this
+ship: nothing in the test suite had ever read the deploy file, so a step could stop
+checking and no run would go red. The guard asserts the order of the steps, that nothing
+touches the Worker after the version is minted, that the id reaches both the wait and the
+verification, and that a run which never sees its version fails.
+
+**The fence itself, measured on the deployment rather than described.** I read the rows
+out of your live project — the same check, the same agent, before and after:
+
+| | run | what the displaced worker wrote |
+|---|---|---|
+| before | `4d3c4d0d…` | 8 entries — 4 model answers, 3 tool results, up to step 4, over the 32 seconds AFTER its lease was taken away |
+| after | `1ec246d9…` | 2 entries — 1 model answer, 0 tool results, step 1. It stopped at the first checkpoint |
+
+Both runs end the same way on purpose: still `running`, no stop written, one tool call
+left pending. That is the rule you asked for — an action that may already have gone out
+is not repeated automatically. What the fence removed is the three extra model answers
+and three tool results the old worker used to add to a run it no longer held.
+
+**And the deployed Worker is provably using the new database functions, from a privilege
+rather than from a version number.** The service key has no INSERT permission on the
+journal table at all now; the three completed runs of that deployment hold 19 entries
+each. Rows in a table the caller cannot write to can only have got there through the
+fenced function.
+
+**What none of this changes:** the fence itself, which was the milestone, and the
+distinction it rests on. Database fencing stops a displaced worker writing to the log; it
+cannot recall an external action already sent, and an uncertain non-repeatable action
+stays blocked from automatic replay. The stand-in model is still the only model this
+deploys with.

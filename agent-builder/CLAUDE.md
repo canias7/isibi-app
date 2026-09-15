@@ -43,6 +43,13 @@ Not inherited from anywhere — this is how work in this directory ships.
 - **Derive a fixture from its real producer.** A fake in a different shape from
   reality hides bugs, and one that is MORE capable hides them just as well as one
   that is less.
+- **NO READING OF THE TREE MEANS ANYTHING WHILE A SWEEP IS RUNNING — not a commit, and
+  not a test run either.** `npm test` during a sweep reported `233 tests, 232 pass, 1
+  fail`, which was a mutant applied at that instant and not a regression; the same run
+  minutes later was clean. The rule used to cover committing only, because that is the
+  form that leaves damage behind — but a red suite read mid-sweep is a false alarm, and
+  a GREEN one read mid-sweep is worse, because a comment-only mutant was applied and the
+  run proves nothing about the tree anybody will commit. **Wait for the tally.**
 - **A KILLED SWEEP REALLY DOES LEAVE A LIVE MUTANT — confirmed in practice, not
   quoted.** The SQL sweep was stopped part way through and
   `20260915015602_agent_runs.sql` was left with `entries_one_tool_per_slot` dropped: the
@@ -60,6 +67,22 @@ Not inherited from anywhere — this is how work in this directory ships.
   one and called all six test gaps.
 - **A mutant aimed at something a later file REDEFINES is inert by construction.**
   Ask the files which one is in force rather than counting them.
+- **REPORTING WHAT ANSWERED IS NOT REPORTING WHAT IS DEPLOYED, and the two read
+  identically.** A run printed a version id two deploys old as "the deployed version"
+  and passed 69 checks under it. Two separate things have to be true: the run must END
+  holding one id printed by the LAST step that changes the thing (`wrangler secret put`
+  mints a version of its own and prints no id, so a deploy has to come after it), and
+  the thing must be ASKED UNTIL it answers that id — one read seconds after a change
+  proves nothing, and a liveness answer like `ok: true` is no substitute, because the
+  previous deployment gives it just as truthfully.
+- **A CHECK THAT CANNOT BE MADE IS NOT A CHECK THAT PASSED.** When the expectation is
+  absent, say so where the result is read; a silent skip is how a missing wiring hop
+  reads as a pass.
+- **THE THING THAT RUNS YOUR GUARDS NEEDS A GUARD.** The deploy workflow had none for
+  three deploys, so a step could stop checking and no run would go red — it fails in the
+  safe-looking direction. `test/deploy-workflow.test.mjs` reads it now; for a file with
+  no parser available, split on an exact structural anchor and PROVE THE READER ALIVE
+  before asserting anything about what it found.
 
 ## Living in a shared repository
 
@@ -1005,6 +1028,73 @@ confirmed before a single mutant is written.
 a `unique` dropped, a raise turned into a return, a marker widened. A migration
 that will not apply proves nothing.
 
+### The fence round's sweep is COMPLETE, and one lesson came from stopping it
+
+**64 mutants, 64 killed, 0 survived, 0 never applied, 3 comment-only controls survived**
+— the pass that confirms the four fixes below really do catch their breakages, taken
+after the run rather than predicted before it. The spec holds 67 entries, which is those
+64 plus the three controls; the tally counts controls apart from mutants deliberately, so
+the two numbers never have to be reconciled by arithmetic.
+
+**THE MIGRATION FILES ARE PROVED RESTORED AGAINST GIT, NOT BY EYE.** `git diff HEAD --
+supabase/migrations/` is empty and all 67 anchors occur exactly once. **And a census of
+my own was a false alarm worth recording**: checking that no mutant's REPLACEMENT text
+survives in the tree flagged 8 of them, and all 8 were the check's fault — the
+replacement text also occurs in the committed file, so the needle could not tell a landed
+mutant from ordinary source. *A needle that can match the original cannot prove the
+original was restored.* Git can.
+
+**⚠ AND THE INTERRUPTION LEFT A LIVE MUTANT IN THE TREE, exactly as this repository's
+root notes say it would.** An earlier pass was killed mid-run to make a commit, and
+`entries_one_tool_per_slot` was still dropped from the migration when it died: a killed
+sweep skips its `finally`. It was caught by the spec generator's own anchor census on the
+next run (`ANCHOR NOT FOUND`) rather than by anything looking for it, and restored from
+git. **The rule is not "be careful" — it is that the pre-check which refuses an ambiguous
+anchor also happens to be the only thing that notices a tree the previous run corrupted,
+so it must run before every pass and its failure must never be waved through.**
+
+### What the version-identity round found — FIVE SURVIVORS, ALL IN GUARDS WRITTEN MINUTES EARLIER
+
+Every one of the five was a guard I had just written for the deploy chain, and **each is
+a trap already recorded in this repository**, which is the finding worth more than the
+fixes: a guard written in the same sitting as the change it guards inherits the author's
+own blind spots, and the sweep is the only thing that reads it adversarially.
+
+- **A SUBSTRING MATCH ON AN IDENTIFIER.** `/id: serving/` is satisfied by
+  `id: serving_`, so a mutant renaming the step — which breaks every
+  `steps.serving.outputs.version` reader — survived. *A needle that can match a longer
+  name cannot prove a class.* The id is matched to END OF LINE now and, better,
+  **DERIVED**: the guard reads whatever id the minting step declares and asserts the
+  readers name THAT one, so a rename either reaches both sides or fails.
+- **A LOOP OF ONE IS NOT A LOOP.** `/for i in \$\(seq 1 \d+\)/` accepted
+  `seq 1 1` — the exact defect the loop exists to prevent, wearing a loop's shape. The
+  guard reads the bound AND the sleep and requires their PRODUCT to be at least three
+  minutes, because what has to outlast propagation is the window, not the iteration
+  count.
+- **A MUTANT THAT WAS INERT BY CONSTRUCTION: renaming a workflow step.** `name` is a
+  display string; `if` decides whether a step runs. So the mutant changed nothing
+  observable and its survival said nothing about coverage. Replaced by one that gates the
+  step OFF — and the guard now asserts the minting step's condition is EXACTLY the deploy
+  step's, taken from the deploy step rather than written out, so the two cannot drift.
+- **TWO MUTANTS PROVED THE DIFFERENCE BETWEEN READING AN INSTRUMENT AND RUNNING IT.**
+  Replacing a check's condition with `true` survived every source read, because the words
+  were all still there — and in one case the guard's needle found the comparison in the
+  check's own MESSAGE, three lines below the condition it had been deleted from. **Two
+  copies of one thing, in the space of three lines.** Fixed twice over: the comparison is
+  written ONCE (`versionOk`), and `test/deploy-workflow.test.mjs` now **DRIVES
+  `verify-live.mjs`** against a stub that answers `/health` — matching version, wrong
+  version, cacheable answer, and no expectation at all — asserting the `ok`/`FAIL` line
+  each produces. The matching case is the positive control, without which a check wired
+  to always fail would satisfy every negative case.
+
+**AND THE SPOT-CHECK IS PART OF THE METHOD NOW, not a shortcut.** The seven changed
+mutants were applied one at a time against the two test files that can see them before
+the full pass was spent — replacing through a FUNCTION and verifying the LANDED text is
+the written text, because `String.prototype.replace` reads `$'` in a replacement and this
+repository has already had a mutant that "applied" by checksum and was not the one
+written. A narrow list can only produce a false SURVIVOR, never a false kill, so the
+full pass still decides.
+
 ### What the fence round found (2026-09-15)
 
 **FOUR MUTANTS SURVIVED THE FIRST PASS AND EVERY ONE WAS THIS FILE'S FAULT, not the
@@ -1394,6 +1484,84 @@ request while every setting is present — so `ok` folds in `modelKnown`, and th
 is echoed rather than defaulted. **A sweep found that**: with the model hardcoded to
 the default, nothing could see the difference.
 
+### ✅ THE FENCE, MEASURED ON THE DEPLOYMENT: THE SAME CHECK, THE SAME AGENT, TWO DEPLOYS
+
+Read out of `agent.run_entries` on the live project rather than out of a log, so it is
+the rows a visitor's run would have left:
+
+| | deploy | run | what the displaced consumer wrote |
+|---|---|---|---|
+| **before** | `2dfb8be6…` | `4d3c4d0d-e553-426f-b110-74e76b25e5a7` | **8 entries — 4 model, 3 tool, step 4**, written 05:07:08→05:07:40Z: **32 seconds and three whole steps AFTER its lease was revoked** |
+| **after** | `64ac3bb4…` | `1ec246d9-77d2-4d98-ba68-c553b7e7db02` | **2 entries — 1 model, 0 tool, step 1**, written 06:51:48→06:51:56Z: it stopped at the first checkpoint |
+
+Same agent (`guarded`), same check, same revocation. Both runs end `status: running` with
+no stop and a pending tool call, which is the `cannot-resume` refusal working in both —
+**what changed is the three model answers and three tool results the old consumer used to
+add to a run it no longer held.**
+
+**AND THE DEPLOYED WORKER IS PROVABLY ON THE FENCED PATH, from a privilege rather than
+from a version string.** `service_role` has **no INSERT on `agent.run_entries`**
+(`has_table_privilege` → false, live), and the three `slow` runs of that same deployment
+each hold **19 entries (9 model, 8 tool)** written between 06:45:11Z and 06:51:47Z. Rows
+that exist in a table the caller cannot insert into can only have arrived through
+`agent.append_entry`, which is `security definer`. **Only the two functions that write the
+journal are DEFINER** — `append_entry` and `accept_run`; `claim_run`, `beat_run`,
+`release_run`, `requeue_run` and `sweep_run_work` are `security invoker` deliberately,
+because they touch `run_work`, which `service_role` reaches directly. There is exactly
+ONE `append_entry` and **no token-less overload of `beat_run` or `release_run` survives**,
+so nothing can reach the old unfenced signature. `run_work.claim_token` exists, and it is
+`null` on every finished row because `release_run` clears it.
+
+### ⚠ WHICH VERSION IS SERVING, AND HOW A RUN ONCE REPORTED THE WRONG ONE (2026-09-15)
+
+**`wrangler secret put` MINTS A VERSION OF ITS OWN AND PRINTS NO ID.** That one fact is
+the whole defect, and it is measured rather than reasoned: on Actions run 34938312961
+the deploy step printed `Current Version ID: e3bdf22e…` at 06:45:07.785Z, the secret
+step's first line came at 06:45:09.242Z, and the Worker has served **`64ac3bb4…`,
+stamped 06:45:09.382489Z**, ever since — 140 ms after that line, with no id anywhere in
+the log.
+
+So the id the deploy step printed could never be the serving one, and the serving one
+was unobtainable. On top of that the wait step asked `/health` ONCE, two seconds after
+the upload, and got `2dfb8be6…` — the version from the deploy BEFORE last, because a
+version reaches Cloudflare's edges over some seconds and the edge that answered was
+honestly still running the old one. **The verification then printed that as "the
+deployed version" and passed 69 checks.** Nothing was broken; the run simply could not
+say which deployment it had verified — and *a report of the version that answered reads
+exactly like a report of the version that was deployed.*
+
+**TWO PROPERTIES, and they are different ones**, both guarded by
+`test/deploy-workflow.test.mjs` — the workflow had no guard at all until now, which is
+this repository's own recorded trap that *the thing that runs your guards is not itself
+guarded unless somebody writes it down*, and it fails in the safe-looking direction
+because a workflow that stops checking produces no red run:
+
+1. **THE RUN MUST END HOLDING ONE VERSION ID.** A `wrangler deploy` is now the LAST
+   thing that changes the Worker (it re-uploads the same code; secrets are settings and
+   survive a deploy), so the id comes from the step that created it, on that step's own
+   output. A deploy printing no readable id STOPS the run: the id comes from wrangler's
+   own wording, and a guessed string guessed wrong is what failed the deploy before
+   this one. The guard also asserts nothing between that step and the verification
+   touches the Worker again, because that is exactly how the id stopped being the
+   serving one the first time.
+2. **`/health` MUST BE ASKED UNTIL IT ANSWERS THAT ID.** `ok: true` is not a substitute
+   and that substitution IS the bug: the previous deployment answers `ok: true` just as
+   truthfully. The loop compares the id and a run that never sees it FAILS, because a
+   check against an unknown version is evidence about the wrong deployment.
+
+**`cache-control: no-store` on `/health` is the third thing and the smallest.** It is
+NOT a fix for propagation — an edge can honestly still be on the old version — it
+removes the OTHER explanation for a stale answer, so that a reader which keeps asking is
+really asking. Both halves are guarded, and the version check is exercised by
+`verify:local`, which binds a FRESH id per run and hands the same id in as the
+expectation: a check that had stopped comparing would pass every previous run and fail
+that one.
+
+**AND `verify-live.mjs` NOW ASSERTS RATHER THAN ECHOES.** The version was printed
+correctly all along — the defect was that printing it counted as verifying it. An unset
+expectation (a hand run against whatever is live) SAYS it verified nothing rather than
+passing quietly: *a check that cannot be made is not a check that passed.*
+
 ### The five things a live verification checks
 
 `npm run verify:local` runs `scripts/verify-live.mjs` UNMODIFIED against a local
@@ -1548,9 +1716,14 @@ answered. The only thing this section still names correctly is the model provide
 
 ### Measured
 
-- **Unit suite: 229 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
+- **Unit suite: 233 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
   the queue round, 219 after it, 222 after the deployment; **the seven net since are the
-  fence's** — the three-way drift guard on `CLAIM_GONE`, every append answer read with
+  fence's**, and **the four after them are the deploy version identity's** — the run
+  holding one id printed by the step that minted it, `/health` asked until it answers
+  that id, the verification asserting rather than echoing, and check 0 DRIVEN against a
+  stub for all four of its answers (right version, wrong version, cacheable, no
+  expectation) — the three-way drift guard
+  on `CLAIM_GONE`, every append answer read with
   the two successes told apart, a journal refusing to exist without a claim, `open`'s
   options refusing to carry a tenant, a conflict told from a duplicate, `work.append`'s
   closed vocabulary, the ownership checks' ORDER, a checkpoint that refuses writing
@@ -1576,10 +1749,13 @@ answered. The only thing this section still names correctly is the model provide
   queue function bodies match this repo's migration **byte for byte**
   (`md5(pg_get_functiondef(...))` compared against a local apply, before and after a
   comment-only edit to the file).
-- **The live verification, driven end to end: 67 checks, 0 failed**
+- **The live verification, driven end to end: 69 checks, 0 failed**
   (`npm run verify:local`) — the same `verify-live.mjs` an operator points at a
   deployment, run unmodified against a real PostgreSQL with these migrations and TWO
-  separate consumer processes. 50 before the fence; **the 17 since are check 5's.**
+  separate consumer processes. 50 before the fence; **17 of the 19 since are check 5's**,
+  and the last two are the version identity's — a FRESH version id per local run, handed
+  in as the expectation, so a check that had stopped comparing would pass every earlier
+  run and fail this one.
   The handover: a consumer lost the run at 2 steps, another took it over and it
   finished at 9 steps with **9 model entries for 9 steps**. The blocked action:
   **1 model entry, 0 tool results** — the in-flight result was never written, no stop
@@ -1605,12 +1781,13 @@ answered. The only thing this section still names correctly is the model provide
   same claim. (In a fresh container that
   suite needs `npm ci` first or ~361 cases fail on missing modules — the
   environment, not the code.)
-- **Code sweep: 189 mutants, 189 killed, 0 survived, 0 never applied, 3
+- **Code sweep: 202 mutants, 202 killed, 0 survived, 0 never applied, 4
   comment-only controls survived** (`npm run sweep`). Measured after the run, not
-  before it. 173 before the fence; the net 16 are the fence's, against five removed
-  as declared-inert and four re-anchored onto spellings that moved.
-  **THREE PASSES, and the two that were not clean are recorded above** under "What the
-  sweep found": 8 survivors, then 5, then 0. The passes went 34 (the first four modules) → 54 (the journal and
+  before it. 173 before the fence, 189 after it; **the 13 since are the version
+  identity's**, including a fourth control on the workflow — a file this sweep had never
+  touched. **TWO PASSES for this round: 5 survivors, then 0, and all five were in guards
+  written minutes earlier** (recorded above). The fence round took three passes: 8, then
+  5, then 0. The passes went 34 (the first four modules) → 54 (the journal and
   resume) → 68 (the store and the limits codec) → 74 (the ownership boundary) → 98
   (auth and the HTTP surface) → 108 (the Worker and the tenant claims) → 164 (the
   three auth strategies, `work.mjs`, `runner.mjs` and the three Worker handlers) →
@@ -1643,16 +1820,16 @@ answered. The only thing this section still names correctly is the model provide
   `catch` around `crypto.subtle.verify` is reachable only through the **decode** —
   a wrong-LENGTH signature makes WebCrypto answer false rather than throw, so the
   obvious test proved the comparison and nothing about the catch.
-- **SQL sweep: 64 mutants, 60 killed, 4 survived, 0 never applied, 3 comment-only
+- **SQL sweep: 64 mutants, 64 killed, 0 survived, 0 never applied, 3 comment-only
   controls survived** (`npm run sweep:sql`), over all FOUR migrations — 22 before the
-  queue, 43 after it, and 21 more the fence's. **⚠ THIS IS THE FIRST PASS, AND THE
-  SECOND IS UNREAD.** All four survivors were this file's fault and all four are fixed
-  above (the state-repairing check, the release asked in the wrong state, the blank
-  worker, and the row lock no sequential check could see) — the schema check went 177 →
-  185 closing them, and the spec went to 67 mutants. **The second pass was stopped part
-  way through, at 10 of 67, to commit**, so the number that stands is the first pass's
-  and the four fixes are proved only by the checks themselves going green. Re-run it and
-  stamp the answer; a count nobody re-measured is a claim ahead of its evidence.
+  queue, 43 after it, and 21 more the fence's; 67 spec entries, being those 64 plus the
+  three controls. **RE-MEASURED after the run, and this is the pass that closes the
+  round.** The first pass read 60 killed / 4 survived, all four this file's fault and all
+  four fixed above (the state-repairing check, the release asked in the wrong state, the
+  blank worker, and the row lock no sequential check could see) — the schema check went
+  177 → 185 closing them. A second pass was stopped at 10 of 67 to commit, **which left a
+  live mutant in the tree** (recorded above); this third one ran to the end untouched,
+  and the migrations are proved restored against git rather than by eye.
   **A POSITION IS NOT AN IDENTITY.** The spec aimed its tenant mutants at
   `files[files.length - 1]`, which was right for exactly as long as the tenant
   function lived in the newest migration — and a third migration pointed every one
