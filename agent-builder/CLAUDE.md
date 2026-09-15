@@ -43,6 +43,23 @@ Not inherited from anywhere — this is how work in this directory ships.
 - **Derive a fixture from its real producer.** A fake in a different shape from
   reality hides bugs, and one that is MORE capable hides them just as well as one
   that is less.
+- **A KILLED SWEEP REALLY DOES LEAVE A LIVE MUTANT — confirmed in practice, not
+  quoted.** The SQL sweep was stopped part way through and
+  `20260915015602_agent_runs.sql` was left with `entries_one_tool_per_slot` dropped: the
+  runner skips its restore when it is killed. **The check that catches it is the SPEC
+  GENERATOR**, which asserts every anchor occurs exactly once in its file, so a missing
+  anchor is a mutant still applied. Run it before committing after any interrupted
+  sweep; `git checkout -- supabase/migrations/` is the restore, and an UNTRACKED
+  migration has no such safety net.
+- **A CHANGE CAN CREATE REDUNDANCY, and the sweep will report it as a test gap.**
+  When a wall moves DOWN a layer — into the database, into a privilege — the check
+  that used to be the wall becomes a second one in front of it, and no single mutant
+  can kill either. Measure both versions, keep the one that earns its place, delete
+  the one that was the same wall written twice, and DECLARE what is left where the
+  next reader will meet it. Six of these arrived in one change; the sweep found every
+  one and called all six test gaps.
+- **A mutant aimed at something a later file REDEFINES is inert by construction.**
+  Ask the files which one is in force rather than counting them.
 
 ## Living in a shared repository
 
@@ -79,8 +96,10 @@ what makes every branch below drivable in a test instead of waited on.
 - **`meters.mjs`** — what a run has spent, and the one rule about not knowing.
 - **`journal.mjs`** — the append-only record, the replay that rebuilds a run, and
   the limits codec.
-- **`store.mjs`** — where the log is kept: Supabase, over PostgREST.
-- **`work.mjs`** — the durable queue's memory: six RPCs over the same wire.
+- **`store.mjs`** — where the log is kept: Supabase, over PostgREST. It READS the log
+  and hands every write to the fence.
+- **`work.mjs`** — the durable queue's memory: seven RPCs over the same wire, one of
+  which (`append_entry`) is the only door into the log.
 - **`runner.mjs`** — the consumer. The ONLY place that executes a run.
 - **`auth.mjs`** — who is asking, verified against the project rather than a secret.
 - **`api.mjs`** — the HTTP surface: accept a run, read it, ask for it again.
@@ -645,7 +664,13 @@ behavioural test while quietly restoring the old durability.
   a lost delivery costs latency and never work. Answering 500 would tell a caller
   their run was rejected when it is sitting in the queue, ready.
 
-### Exactly one execution, and three things enforce it
+### Exactly one execution, and FOUR things enforce it
+
+**THE FOURTH ARRIVED ON 2026-09-15 and is the section "Fencing the journal" above:**
+the claim is a TOKEN, and every journal write presents it, validated in the same
+transaction as the insert. The three below are what decides who MAY run; the fence is
+what decides who may WRITE, and the deployment proved that the first three are not
+enough on their own.
 
 - **THE CLAIM IS THE ONE GATE AND IT IS THE DATABASE'S.** One conditional `UPDATE`:
   the row is taken only if nobody holds a live lease. A duplicate delivery, a
@@ -743,11 +768,227 @@ together rather than one at a time.
 the intended state**, not a finding to fix: there is no grant for a policy to
 permit. Eighteen tables in this project are in the same state for the same reason.
 
+## Fencing the journal (2026-09-15)
+
+`supabase/migrations/20260915061219_agent_entry_fencing.sql`, and the code that speaks
+to it. **The gap this closes was MEASURED on the live deployment, not imagined**, and
+the measurement is in the deployment section below: a consumer whose lease was revoked
+at 2 entries reached **4 model answers and 3 tool results** before it stopped, because
+"do I still hold this run" was answered from a FLAG in its own process, refreshed at
+most once every `BEAT_EVERY_MS` (30 s). The flag was correct about the world as of
+thirty seconds ago.
+
+### THE GAP WAS NEVER THE GRACE PERIOD
+
+**`agent.claim_run` TAKES A LAPSED LEASE WITH NO GRACE AT ALL.** The grace belongs to
+the sweeper, which is only ONE of the ways a run is offered again — a duplicate
+delivery arriving a second after a lease lapses claims it immediately. So the window a
+wider grace could cover is not the window that existed, and `SWEEP_GRACE_S` is
+deliberately UNCHANGED by this work. Both proofs assert that out loud: the replacement
+claims the run while `sweep_run_work(30)` still refuses to offer it.
+
+**AND `attempts` IS NOT EVIDENCE OF EXCLUSIVITY EITHER.** It counts CLAIMS, so it is
+evidence about the queue and says nothing about what a displaced holder went on to
+write — which is exactly the thing that was wrong. The evidence here is refusals.
+
+### The claim is a TOKEN, and a write presents it
+
+`agent.run_work.claim_token` is a uuid minted by `claim_run` **per claim**, answered on
+the same UPDATE that takes the row. `beat_run`, `release_run` and the new
+`agent.append_entry` all require it, and the unfenced signatures of the first two are
+DROPPED rather than left beside the new ones — an overload that does not ask for the
+token is the bypass door this exists to close, and two overloads make a named-argument
+call ambiguous as well.
+
+**WHY A TOKEN AND NOT THE WORKER NAME.** A name says *who*; a token says *which claim*.
+They come apart in the one case that matters — a run reclaimed by a worker of the SAME
+NAME — and that case used to be a hole with a test asserting it: the old `beat_run` was
+gated on `claimed_by` alone, so a displaced worker sharing the holder's name kept its
+lease, "which is the whole problem" in that test's own words. It is now refused
+`bad-token`, and the test records the fix instead of the hazard.
+
+### `agent.append_entry` is the ONLY door into the log
+
+One function, `SECURITY DEFINER`, `search_path` pinned empty, revoked from `public`. It
+**LOCKS THE WORK ROW** (`for update` — the same row every claim and reclaim takes) and
+checks the holder, the token, that the work is unfinished and that the lease is live,
+**in the same transaction as the insert**. A check over PostgREST followed by an insert
+would be two statements with a reclaim able to fit between them: the race, moved up a
+layer. There are only two orderings and both are safe — whoever takes the row lock
+first wins, and the loser reads what the winner left.
+
+**AND THE DIRECT DOOR IS CLOSED, not merely unused.** `revoke insert on
+agent.run_entries from service_role` — the role the Worker runs as. A runner that asked
+PostgREST to insert a row is refused by a privilege rather than by our own good
+intentions. `accept_run` became `SECURITY DEFINER` for the same reason: after the
+revoke, it is one of only two things that can write an entry at all. **The limit,
+stated: this is a GRANT, so the table's owner and any superuser can still insert
+directly.** Nothing that runs in production is the owner.
+
+### Nine answers, and two pairs that must never collapse
+
+| answer | means |
+|---|---|
+| `stored` | the entry is in the log at this seq |
+| `already` | **THIS EXACT entry** was already recorded — a retry, and safe |
+| `conflict` | the same logical slot holds a **DIFFERENT** entry: somebody else wrote it |
+| `position` | that seq is taken by something else; the caller's counter is behind |
+| `no-work` · `finished` · `not-holder` · `bad-token` · `lease-expired` | this worker may not write |
+
+- **`already` vs `conflict` IS THE PAIR THE WHOLE THING TURNS ON.** A network drop after
+  Postgres committed leaves the caller unable to tell which side of the commit it died
+  on, and killing a run over that throws away a model answer already paid for — so an
+  IDENTICAL body is a success. A DIFFERENT body at the same logical position is two
+  writers, which no retry can explain, and **reading the second as the first is how a
+  double execution disappears from the record.** The bodies are COMPARED with `jsonb`
+  equality, so key order and whitespace do not matter and values do.
+- **THE COMPARISON IS EXACT BY CONSTRUCTION RATHER THAN BY LUCK.** A retry replays the
+  same entry object and its JSON is byte-identical; a second worker's redo carries its
+  own `at` and `ms` and cannot be.
+- **`position` vs `conflict`** need opposite things done about them — move up and try
+  again, versus stop and re-read the log — so they are separate answers. The logical
+  slot is looked for BEFORE the position, which is what makes a `position` answer mean
+  "this exact entry is not in the log" and the one retry safe.
+- **A malformed entry RAISES** (`entry_kind_known`, `entry_position_matches_kind`) rather
+  than becoming a tenth answer. It is a bug in the caller, not a state.
+
+**⚠ AND `conflict` IS NEARLY UNREACHABLE ONCE THE FENCE IS IN PLACE, which is worth
+knowing before trusting a test that produces one.** Two fenced writers cannot interleave
+on one run: a holder is refused from the instant its lease LAPSES, not from the instant
+somebody else claims, so a replacement's snapshot is always taken after the previous
+holder was already walled off. What remains reachable is an entry written BEFORE the
+fence existed, an entry re-sent with a modified body (a caller bug), and a `position`
+collision whose other occupant is not this entry. So it is a wall for a state that should
+not occur — kept because the ANSWER has to be precise either way, and because "already
+recorded" is the one reading that must never cover it. **The tests reach it by handing
+the store a scripted answer or by writing two different bodies as the same holder**,
+which is honest about what is being proved: the READING, not an interleaving the fence
+still permits.
+
+### What changed above the database
+
+- **`store.mjs` HAS NO DIRECT INSERT LEFT.** `appendEntry` is injected and REQUIRED — a
+  store without it is refused rather than built, because one that could authorise, read
+  and replay a run and then not record a thing about it would fail several steps later
+  wearing a journal error's clothes.
+- **A JOURNAL NEEDS BOTH THE OWNERSHIP CHECK AND THE CLAIM.** `open(runId, { hold })`
+  requires the hold; `load(runId)` is the reader's door and cannot write. `create` hands
+  back NO journal at all, because creating a run gives nobody a claim on it and a
+  journal that always answers `no-work` is worse than none.
+- **OWNERSHIP IS ASKED OF THE DATABASE BEFORE ANY NEW WORK.** `runAgent` gained a
+  `checkpoint` seam, called before each model call and before each tool batch (including
+  the ones a resume finishes). The runner's checkpoint is a BEAT — because "may I still
+  work on this" and "I am still here" are the same fact about the same row, and two RPCs
+  for one fact is two answers that can disagree.
+- **A CHECKPOINT THAT REFUSES THROWS, AND THE THROW IS THE MECHANISM.** It escapes
+  `runAgent` with no stop written, which leaves the run exactly as the next holder needs
+  to find it. A `return` would need `run.mjs` to invent a stop reason, and writing a
+  stop is the one thing a process that has lost the run must not do.
+- **`conflict` IS ITS OWN OUTCOME and does NOT take the run off the queue.** The claim
+  may still be ours; what is stale is our snapshot of the log. The next delivery reads
+  what is really there, which terminates.
+- **THE FIVE `CLAIM_GONE` REFUSALS ALL REPORT AS `lease-lost`, WITH THE REASON BESIDE
+  THEM.** An outcome exists to tell a caller what to DO and the answer is identical for
+  all five; what differs is what an operator should conclude, so the name rides in the
+  delivery's `error` and in the event.
+
+### ⚠ WHAT FENCING CANNOT DO, and it is the distinction the whole design rests on
+
+**It stops the RECORD of an action, never the action.** A tool call already sent cannot
+be recalled by a database. A stale worker that fired a payment and was then refused its
+write leaves a model answer with no result — which is exactly a PENDING CALL — and if
+that tool is not `repeatable`, `replay` reports it pending and the run refuses to resume
+(`cannot-resume`) instead of firing it again. **That refusal is the guarantee; fencing
+narrows the window in which the send can happen.** Neither replaces the other, and the
+live verification checks them as two separate things.
+
+**THE COST, STATED RATHER THAN GLOSSED.** A result a stale worker really did obtain is
+now thrown away rather than recorded, so a run that would have completed can end up
+waiting for a person. That is the safe direction — exclusivity over completion — and it
+is the trade this change makes on purpose.
+
+### Applied live, and verified by reading it back
+
+**APPLIED 2026-09-15 to `ujrqdmmtcptvimazlhom`, recorded as remote version
+`20260915061219`, and the file is named for that** rather than for when it was written.
+Read back with `pg_get_functiondef` and compared by md5 against a LOCAL apply of the
+repository's own migration files: **all five functions this change touches match byte
+for byte** — `accept_run`, `append_entry`, `beat_run`, `claim_run`, `release_run` — so
+what is live is what is in the tree.
+
+No work row was claimed when it was applied, which was checked first: the whole-claim
+constraint would otherwise refuse the ALTER, and the backfill covers the case anyway.
+
+**THE ORDER MATTERS ON AN UPGRADE AND THE WINDOW IS LOUD.** The migration revokes
+INSERT on `agent.run_entries`, and a Worker built before it writes entries with a direct
+POST. Migration-then-deploy fails every write of an in-flight run; deploy-then-migration
+answers `PGRST202` for a function that is not there yet. Either way the failure is loud
+and the runs are left resumable — never silent. It was applied first, with nothing in
+flight.
+
+### ⚠ A PRE-EXISTING DIVERGENCE FOUND BY THAT COMPARISON, and it is not this change's
+
+**TWO FUNCTIONS FROM THE FIRST MIGRATION DO NOT MATCH THE REPOSITORY, and the
+difference is em dashes turned into `--`.** `agent.entries_go_with_their_run` and
+`agent.run_delete_begins` were applied in an earlier session with every `—` replaced by
+`--`. In `run_delete_begins` it is inside comments only. In `entries_go_with_their_run`
+one of them is inside the RAISE message — so the live refusal reads "cannot be deleted
+on its own -- delete the run and its log goes with it" where the repository says "…on
+its own — delete the run…".
+
+**It is cosmetic, and it is left alone deliberately**: nothing reads past the dash (the
+database check matches on "cannot be deleted on its own"), and fixing it means another
+migration on a shared project for a punctuation mark. Recorded because
+`supabase/migrations/` IS NOT THE RECORD OF WHAT IS LIVE, and this is the first concrete
+instance of that in this product. **Today's apply did NOT do it** — all five of its
+functions match exactly, em dashes included, so the connector is not what mangles them.
+
+### What the sweep found, and the shape is worth more than the fixes
+
+**EIGHT MUTANTS SURVIVED THE FIRST PASS AND NOT ONE WAS THE PRODUCT'S.** The shape is
+the recorded "two redundant defences cannot be killed one at a time", arriving six times
+at once — because the fence made six process-level checks redundant in a single change.
+
+**THREE WERE ACTED ON:**
+
+- **ONE WAS DEAD CODE AND WAS DELETED, not declared.** The store had a branch raising a
+  fenced refusal for the five `CLAIM_GONE` answers, and the line below it produced
+  character for character the same error for every answer that is not `position`. It was
+  the same wall written twice, so it went.
+- **ONE MUTANT WAS BADLY WRITTEN AND SURVIVED FOR THE WRONG REASON**: it left `hold`
+  undefined, so `journalFor`'s own check threw instead of the one being removed. A
+  mutant that produces a FABRICATED hold reaches the journal and dies.
+- **ONE WAS A REAL GAP AT THE WRONG LAYER.** An unrecognised append answer is raised by
+  the store's closed vocabulary as well as by `work.mjs`, so the mutant at the lower
+  layer survived until a test drove `work.append` directly. **The recorded "a guard
+  proves the branch it drives, and no other."**
+
+**FIVE ARE DECLARED INERT AND REMOVED FROM THE SPEC**, each with its declaration in
+`runner.mjs` where the next reader will meet it: `assertHeld()`'s own throw, the same
+call in the `send` wrapper, the same call in the `journal` wrapper, `mayStart`'s throw,
+and `if (held)` before the release. **Two of the five stand in front of SQL, which the
+JavaScript sweep cannot mutate** — `agent.append_entry` refuses the write and
+`agent.release_run` refuses the release, and the SQL sweep kills those walls. **Reading
+the two sweeps together is the only honest coverage claim for that pair.** What survives
+as a JavaScript mutant is the one that removes the whole ownership check
+(`checkpoint: undefined`), and it dies.
+
+**AND ONE FIX DID NOT DO WHAT ITS COMMENT CLAIMED, which is worth more than the fix.**
+The checkpoint test used a `send` that THROWS, which cannot tell "the work never
+started" from "the work started and its stop write was refused" — both answer
+`lease-lost`. It counts model calls now, which is a better test and STILL did not kill
+the mutant: `assertHeld()` in the `send` wrapper stops the call before the counter can
+move. The count is kept because it asserts the right property; the mutant is inert for a
+different reason than the comment first said, and saying so is the point.
+
 ## The SQL mutation sweep (2026-09-15)
 
-`npm run sweep:sql` — **20 mutants, 20 killed, 0 survived, 0 never applied, 1
-comment-only control.** Focused on the four guarantees the notes make loudest:
-tenant isolation, duplicate prevention, journal immutability, whole-run deletion.
+`npm run sweep:sql`. **The current count is in "Measured" at the end of this file, and
+this line deliberately does not repeat it** — it said `20 mutants, 20 killed` for two
+rounds after it had stopped being true, which is a number stamped in two places drifting
+because only one was corrected. Focused on the guarantees the notes make loudest: tenant
+isolation, duplicate prevention, journal immutability, whole-run deletion, and since
+2026-09-15 the fence.
 
 **IT WORKS BY DRIVING THE DATABASE CHECK.** `node --test` runs
 `test/integration/pg-schema.mjs` as one test and propagates its exit code, so the
@@ -763,6 +1004,56 @@ confirmed before a single mutant is written.
 **EVERY MUTANT IS A CHANGE A CARELESS EDIT COULD REALLY MAKE** — a policy loosened,
 a `unique` dropped, a raise turned into a return, a marker widened. A migration
 that will not apply proves nothing.
+
+### What the fence round found (2026-09-15)
+
+**FOUR MUTANTS SURVIVED THE FIRST PASS AND EVERY ONE WAS THIS FILE'S FAULT, not the
+schema's.** Two were plain coverage gaps, one was a check that REPAIRED the thing it was
+testing, and one was a property no sequential harness could observe at all.
+
+- **A CHECK THAT PUT THE STATE BACK FOR THE MUTANT IT WAS TESTING.** The
+  before/after demonstration grants INSERT on `agent.run_entries` and revokes it again as
+  the owner — so deleting `revoke insert … from service_role` from the MIGRATION changed
+  nothing this file could see: the file re-established the state itself. **A check that
+  repairs what it is testing proves nothing about whatever was supposed to have done it.**
+  The migration's own revoke is now asserted FIRST, through `has_table_privilege`, before
+  anything here touches a grant.
+- **A CHECK ASKED IN THE ONE STATE THAT CANNOT TEST IT.** `release_run` gained
+  `and lease_expires_at > now()` so a lapsed holder cannot end a run mid-flight — and
+  removing it survived, because the only release-refusal check ran AFTER a replacement
+  had taken the row, where `claimed_by` refuses first and the lease condition is never
+  reached. It is now asked while the holder's name and token are BOTH still current,
+  which is the only state that exercises it. **The recorded "a refusal from the wrong
+  gate looks exactly like the wall working."**
+- **A BLANK WORKER HAD NO CHECK AT ALL** on the append: with the raise removed it
+  becomes the answer `not-holder`, which is plausible enough to pass unnoticed.
+- **AND THE ONE THAT MATTERS MOST: `for update` COULD NOT BE OBSERVED, because every
+  check in this file is a SEQUENTIAL `psql` process and a lock only means anything under
+  concurrency.** Removing it is not an inert mutant — it is the atomicity argument
+  itself. So the harness gained `holdRowLock`: a second session takes the row lock and
+  sleeps holding it, and a fenced write is run with `lock_timeout` so that WAITING
+  becomes an observable refusal. **It waits for the lock to be VISIBLE in `pg_locks`
+  rather than guessing with a pause** — a fixed sleep would be flaky in the direction
+  that reports the product as broken — and the control is the same write once the row is
+  free, which is what makes the refusal about the lock rather than about the write.
+
+- **A POSITION IS NOT AN IDENTITY — the same trap, a second time, one layer over.** The
+  fence migration REDEFINES `claim_run`, `accept_run`, `beat_run` and `release_run`, so
+  thirteen mutants aimed at the queue migration's copies of them became **INERT BY
+  CONSTRUCTION the moment it landed**: mutating dead code, arriving through migration
+  order. The spec already had `lastDefining(needle)` for exactly this, from the round
+  before — it just had not been applied per FUNCTION. `mFn(name)` asks the files which
+  migration last defines each one, so it cannot go stale, and an anchor pointing at a
+  superseded copy fails the pre-check rather than surviving the run.
+- **AN ANCHOR CAN BE A SUBSTRING OF ITS OWN NEIGHBOUR THROUGH INDENTATION.**
+  `append_entry`'s `position` answer appears twice — the main path at four spaces, the
+  unique-violation handler at six — and `"    return …"` is contained in
+  `"      return …"`. The anchor carries a leading newline now, which pins the indent.
+  The pre-check caught it as AMBIGUOUS; without the newline the mutant would have landed
+  in whichever occurrence came first.
+- **AND A DELIBERATE REDUNDANCY IN SQL NEEDED THE SAME TREATMENT AS ONE IN JAVASCRIPT.**
+  The `already` answer is produced in both the main path and the handler; the mutant for
+  it names the `conflict` line after it, so it is unmistakably the main path's.
 
 ### What the queue round found (2026-09-15)
 
@@ -1103,7 +1394,7 @@ request while every setting is present — so `ok` folds in `modelKnown`, and th
 is echoed rather than defaulted. **A sweep found that**: with the model hardcoded to
 the default, nothing could see the difference.
 
-### The four things a live verification checks
+### The five things a live verification checks
 
 `npm run verify:local` runs `scripts/verify-live.mjs` UNMODIFIED against a local
 PostgreSQL with these migrations and **two separate consumer processes** — because a
@@ -1125,7 +1416,22 @@ handover between consumers is not something one process can demonstrate. **50 ch
    `guarded` agent's tool is declared NOT repeatable; its lease is revoked with a tool
    call in flight, and the in-flight result is **never written** (1 model, 0 tool), no
    stop is recorded, the pending call is visible, `problems` is empty, and asking
-   again refuses again without repeating the action.
+   again refuses again without repeating the action;
+5. **the fence** — a holder writes; the same entry re-sent is `already`; a different
+   entry in the same slot is a `conflict`; a paused holder whose lease expired is
+   refused; a **duplicate delivery claims the run while the sweeper's grace has not
+   expired** and its write succeeds where the old holder's fails; and a reclaim under
+   the SAME worker name still refuses the previous claim. Plus: the service key can no
+   longer insert an entry directly at all.
+   **IT NEEDS NO TIMING AND NO LUCK, deliberately.** The gap it closes was found by
+   watching a consumer keep writing for 30 seconds after its lease was revoked, and a
+   reproduction that depends on catching a 30-second window is one nobody re-runs.
+   **AND WHAT "A DUPLICATE DELIVERY" AMOUNTS TO IS SAID OUT LOUD, so nobody reads more
+   into it than is there**: a delivery's only effect on exclusivity is that the consumer
+   calls `claim_run`, so check 5 calls the same function the same way. The real delivery
+   path is proved by different checks — 2 races two resumes and a second claim against a
+   LIVE lease through the deployment, and 3 has a real second consumer take a run over.
+   The three together are the claim; none of them is it alone.
 
 - **HOW AN INTERRUPTION IS PRODUCED, SAID PLAINLY: the lease is revoked** with the
   service key, which is what the platform's own reclaim does to a consumer that has
@@ -1234,17 +1540,33 @@ Also still not connected: **a real model provider** (one `MODELS` entry plus a
 `send`), and **any deployment at all** — no Worker, no queue, no route, no domain.
 `docs/deploy.md` is the step-by-step, with the exact secret names.
 
+**⚠ THE LAST SENTENCE IS SUPERSEDED TWICE OVER and is kept for the reasoning above it,
+which still holds.** There IS a deployment (see "✅ DEPLOYED AND VERIFIED LIVE"), the
+service key came from Actions rather than from a transcript, and the fence round added
+`rpc/append_entry` and a direct `POST /run_entries` to what the hosted PostgREST has
+answered. The only thing this section still names correctly is the model provider.
+
 ### Measured
 
-- **Unit suite: 222 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
-  the queue round, 219 after it; the three since are `/health`, the grace-versus-beat
-  invariant and the lease knobs' fallback.
-- **Schema check: 125 checks, 0 failed** against a real PostgreSQL 16.13
-  (`npm run test:pg`), over all THREE migrations — 78 before the queue, and the 47
-  are the queue's own (accepting, the claim, the lease, the resume, the grants, the
-  cascade) plus the long-healthy-run pair a sweep found missing. Skips with a
-  message, and exits 0, where there is no local cluster — "no database here" is not
-  a failing schema.
+- **Unit suite: 229 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
+  the queue round, 219 after it, 222 after the deployment; **the seven net since are the
+  fence's** — the three-way drift guard on `CLAIM_GONE`, every append answer read with
+  the two successes told apart, a journal refusing to exist without a claim, `open`'s
+  options refusing to carry a tenant, a conflict told from a duplicate, `work.append`'s
+  closed vocabulary, the ownership checks' ORDER, a checkpoint that refuses writing
+  nothing, a reclaim mid-run stopping the old consumer, and a conflict as its own
+  outcome — against several retired with the direct-insert path, since `duplicateKind`
+  and the constraint-name reading went with it.
+- **Schema check: 185 checks, 0 failed** against a real PostgreSQL 16.13
+  (`npm run test:pg`), over all FOUR migrations — 78 before the queue, 125 after it,
+  and **the 60 since are the fence's**: the token, the two duplicate readings, every
+  refusal by name, the before/after on the direct-insert grant (measured in BOTH
+  directions on the same database), the three-party scenario, and the census that every
+  overload of `beat_run` and `release_run` requires the token, **and the row lock
+  observed from a second session under `lock_timeout`**. Skips with a message, and
+  exits 0, where there is no local cluster — "no database here" is not a failing
+  schema. **Eight of the 60 were added by a sweep** rather than thought of: see "What
+  the fence round found".
 - **The long run, end to end: a 75 ms response and 65,593 ms of work after it**
   (`npm run demo:long`), with **9 progress observations** while it ran, all 8 stages
   executed, and every entry in a real PostgreSQL. Re-run on the final tree, not
@@ -1254,26 +1576,41 @@ Also still not connected: **a real model provider** (one `MODELS` entry plus a
   queue function bodies match this repo's migration **byte for byte**
   (`md5(pg_get_functiondef(...))` compared against a local apply, before and after a
   comment-only edit to the file).
-- **The live verification, driven end to end: 50 checks, 0 failed**
+- **The live verification, driven end to end: 67 checks, 0 failed**
   (`npm run verify:local`) — the same `verify-live.mjs` an operator points at a
   deployment, run unmodified against a real PostgreSQL with these migrations and TWO
-  separate consumer processes. The handover: a consumer lost the run at 2 steps,
-  another took it over **5 s later**, and it finished at 9 steps with **9 model
-  entries for 9 steps**. The blocked action: **1 model entry, 0 tool results** —
-  the in-flight result was never written, no stop was recorded, and asking again
-  refused again.
+  separate consumer processes. 50 before the fence; **the 17 since are check 5's.**
+  The handover: a consumer lost the run at 2 steps, another took it over and it
+  finished at 9 steps with **9 model entries for 9 steps**. The blocked action:
+  **1 model entry, 0 tool results** — the in-flight result was never written, no stop
+  was recorded, and asking again refused again. The fence: the service key was refused
+  `permission denied for table run_entries` on a direct insert, an identical entry
+  re-sent came back `already` and a different one `conflict`, a paused holder was
+  refused `lease-expired`, **the sweeper offered 0 rows at the moment a duplicate
+  delivery claimed it**, the old holder's write failed and the replacement's was
+  stored, and a reclaim under the SAME NAME still refused the previous claim
+  `bad-token`.
+  **ONE INSTRUMENT GAP WAS FOUND AND FIXED RATHER THAN WORKED AROUND**: the local
+  PostgREST shim did not serve `DELETE /runs`, which the hosted API does, so the
+  probe's own cleanup reported a false failure. A shim LESS capable than the thing it
+  stands in for reports the product as broken.
 - **The auth probe: all checks passed** against the live project
   (`scripts/auth-probe.mjs`) — the published ES256 key imports, and Supabase Auth
   answers a genuine token and a tampered one differently.
 - **NOTHING ELSE IN THE TREE CHANGED: its suite reads 6,316 tests, 6,314 passing,
-  0 failures** — run BEFORE this directory existed, again with it present, and
-  again after the queue round: same count, same colour every time. Measured, not
-  argued from the path filters. (In a fresh container that
+  0 failures** — run BEFORE this directory existed, again with it present, again
+  after the queue round, and again after the fence: same count, same colour every
+  time. Measured, not argued from the path filters — and `git diff --name-only`
+  answers nothing outside `agent-builder/` as well, which is the cheap half of the
+  same claim. (In a fresh container that
   suite needs `npm ci` first or ~361 cases fail on missing modules — the
   environment, not the code.)
-- **Code sweep: 173 mutants, 173 killed, 0 survived, 0 never applied, 3
+- **Code sweep: 189 mutants, 189 killed, 0 survived, 0 never applied, 3
   comment-only controls survived** (`npm run sweep`). Measured after the run, not
-  before it. The passes went 34 (the first four modules) → 54 (the journal and
+  before it. 173 before the fence; the net 16 are the fence's, against five removed
+  as declared-inert and four re-anchored onto spellings that moved.
+  **THREE PASSES, and the two that were not clean are recorded above** under "What the
+  sweep found": 8 survivors, then 5, then 0. The passes went 34 (the first four modules) → 54 (the journal and
   resume) → 68 (the store and the limits codec) → 74 (the ownership boundary) → 98
   (auth and the HTTP surface) → 108 (the Worker and the tenant claims) → 164 (the
   three auth strategies, `work.mjs`, `runner.mjs` and the three Worker handlers) →
@@ -1306,10 +1643,16 @@ Also still not connected: **a real model provider** (one `MODELS` entry plus a
   `catch` around `crypto.subtle.verify` is reachable only through the **decode** —
   a wrong-LENGTH signature makes WebCrypto answer false rather than throw, so the
   obvious test proved the comparison and nothing about the catch.
-- **SQL sweep: 43 mutants, 43 killed, 0 survived, 0 never applied, 2 comment-only
-  controls survived** (`npm run sweep:sql`), over all three migrations. 22 before
-  the queue; the 21 are the claim, the lease, accepting, asking again and the
-  grants.
+- **SQL sweep: 64 mutants, 60 killed, 4 survived, 0 never applied, 3 comment-only
+  controls survived** (`npm run sweep:sql`), over all FOUR migrations — 22 before the
+  queue, 43 after it, and 21 more the fence's. **⚠ THIS IS THE FIRST PASS, AND THE
+  SECOND IS UNREAD.** All four survivors were this file's fault and all four are fixed
+  above (the state-repairing check, the release asked in the wrong state, the blank
+  worker, and the row lock no sequential check could see) — the schema check went 177 →
+  185 closing them, and the spec went to 67 mutants. **The second pass was stopped part
+  way through, at 10 of 67, to commit**, so the number that stands is the first pass's
+  and the four fixes are proved only by the checks themselves going green. Re-run it and
+  stamp the answer; a count nobody re-measured is a claim ahead of its evidence.
   **A POSITION IS NOT AN IDENTITY.** The spec aimed its tenant mutants at
   `files[files.length - 1]`, which was right for exactly as long as the tenant
   function lived in the newest migration — and a third migration pointed every one

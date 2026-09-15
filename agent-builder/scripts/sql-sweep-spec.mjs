@@ -57,6 +57,25 @@ const m = (label, from, to, control = false) => ({ label, files: [SQL], from, to
 const mTenant = (label, from, to) => ({ label, files: [TENANT_FN], from, to, control: false });
 const mWork = (label, from, to, control = false) => ({ label, files: [WORK], from, to, control });
 
+/**
+ * A mutant aimed at whichever migration LAST defines a function.
+ *
+ * **THIS IS THE RECORDED TRAP ARRIVING A SECOND TIME, and it is why `lastDefining`
+ * exists.** The fence migration redefines `claim_run`, `accept_run`, `beat_run` and
+ * `release_run`, so every mutant that was aimed at the queue migration's copies of
+ * them became INERT BY CONSTRUCTION the moment it landed — mutating dead code,
+ * arriving through migration order. Asking the files which one is in force cannot go
+ * stale, and a `-- no such function` would fail the pre-check rather than survive the
+ * run.
+ */
+const FN = (name) => lastDefining(`function agent.${name}(`);
+const mFn = (name) => (label, from, to, control = false) => ({ label, files: [FN(name)], from, to, control });
+const mClaim = mFn("claim_run");
+const mBeat = mFn("beat_run");
+const mRelease = mFn("release_run");
+const mAccept = mFn("accept_run");
+const mAppend = mFn("append_entry");
+
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
   m("SQL/isolation: the runs policy stops comparing the tenant",
@@ -153,31 +172,46 @@ const spec = [
   // The claim is a single conditional UPDATE and every one of these breaks one of
   // its conditions. They are the difference between "one run executes once" and
   // "a duplicate delivery pays for the same model calls twice".
-  mWork("SQL/queue: the claim stops being exclusive, so a duplicate delivery runs the same run",
+  mClaim("SQL/queue: the claim stops being exclusive, so a duplicate delivery runs the same run",
     "     and (claimed_by is null or lease_expires_at <= now())",
     "     and (claimed_by is null or true)"),
-  mWork("SQL/queue: a lapsed lease is never reclaimable, so a dropped run is stranded for ever",
+  mClaim("SQL/queue: a lapsed lease is never reclaimable, so a dropped run is stranded for ever",
     "     and (claimed_by is null or lease_expires_at <= now())",
     "     and claimed_by is null"),
-  mWork("SQL/queue: finished work is claimable again",
+  mClaim("SQL/queue: finished work is claimable again",
     "   where run_id = p_run_id\n     and done_at is null\n     and (claimed_by is null",
     "   where run_id = p_run_id\n     and (claimed_by is null"),
-  mWork("SQL/queue: the claim no longer answers whose run it is, so a consumer must trust the message",
+  mClaim("SQL/queue: the claim no longer answers whose run it is, so a consumer must trust the message",
     "    'tenant_id', v_row.tenant_id,", "    'tenant_id', null,"),
-  mWork("SQL/queue: the claim stops counting attempts, so a run that keeps failing never gives up",
+  mClaim("SQL/queue: the claim stops counting attempts, so a run that keeps failing never gives up",
     "         attempts = attempts + 1", "         attempts = attempts"),
+  mClaim("SQL/queue: THE CLAIM DOES NOT ANSWER ITS TOKEN, so no holder can ever write",
+    "    'claim_token', v_row.claim_token,", "    'claim_token', null,"),
+  mClaim("SQL/queue: A RECLAIM REUSES THE PREVIOUS CLAIM'S TOKEN, so a displaced worker keeps writing",
+    "         claim_token = gen_random_uuid(),", "         claim_token = coalesce(claim_token, gen_random_uuid()),"),
 
   // ── THE LEASE ─────────────────────────────────────────────────────────────
-  mWork("SQL/queue: A LAPSED LEASE CAN BE REVIVED, so two workers run one run",
+  mBeat("SQL/queue: A LAPSED LEASE CAN BE REVIVED, so two workers run one run",
     "     and done_at is null\n     and lease_expires_at > now()\n  returning true into v_ok;",
     "     and done_at is null\n  returning true into v_ok;"),
-  mWork("SQL/queue: anybody may extend anybody's lease",
-    "   where run_id = p_run_id\n     and claimed_by = p_worker\n     and done_at is null\n     and lease_expires_at > now()",
-    "   where run_id = p_run_id\n     and done_at is null\n     and lease_expires_at > now()"),
-  mWork("SQL/queue: a worker that lost its lease may still release somebody else's claim",
-    "   where run_id = p_run_id\n     and claimed_by = p_worker\n  returning true into v_ok;",
-    "   where run_id = p_run_id\n  returning true into v_ok;"),
-  mWork("SQL/queue: releasing always marks the work done, so a retryable failure is never retried",
+  mBeat("SQL/queue: anybody may extend anybody's lease",
+    "     and claimed_by = p_worker\n     and claim_token = p_token\n     and done_at is null",
+    "     and done_at is null"),
+  mBeat("SQL/queue: THE BEAT IGNORES THE TOKEN, so a replaced claim keeps its lease alive",
+    "     and claim_token = p_token\n     and done_at is null", "     and done_at is null"),
+  mBeat("SQL/queue: a beat with no token at all is accepted",
+    "  if p_token is null then\n    raise exception 'beat_run: the claim token is required';\n  end if;",
+    "  -- no token needed"),
+  mRelease("SQL/queue: a worker that lost its lease may still release somebody else's claim",
+    "   where run_id = p_run_id\n     and claimed_by = p_worker\n     and claim_token = p_token\n     and lease_expires_at > now()",
+    "   where run_id = p_run_id"),
+  mRelease("SQL/queue: A LAPSED HOLDER MAY STILL END THE RUN, mid-flight",
+    "     and claim_token = p_token\n     and lease_expires_at > now()\n  returning true into v_ok;",
+    "     and claim_token = p_token\n  returning true into v_ok;"),
+  mRelease("SQL/queue: a released row keeps its token, so the dead holder can write again",
+    "         claim_token = null,\n         done_at = case when p_done then now()",
+    "         done_at = case when p_done then now()"),
+  mRelease("SQL/queue: releasing always marks the work done, so a retryable failure is never retried",
     "         done_at = case when p_done then now() else null end,", "         done_at = now(),"),
   mWork("SQL/queue: the sweeper selects on ELAPSED TIME, so a long healthy run is taken away",
     "   where done_at is null\n     and (claimed_by is null or lease_expires_at <= now() - make_interval(secs => p_grace_s))",
@@ -187,16 +221,16 @@ const spec = [
     "   where true\n     and (claimed_by is null or lease_expires_at <= now()"),
 
   // ── ACCEPTING WORK ────────────────────────────────────────────────────────
-  mWork("SQL/queue: A RETRY CAN ATTACH TO ANOTHER TENANT'S RUN ID",
+  mAccept("SQL/queue: A RETRY CAN ATTACH TO ANOTHER TENANT'S RUN ID",
     "  if not exists (select 1 from agent.runs where id = p_run_id and tenant_id = p_tenant) then",
     "  if not exists (select 1 from agent.runs where id = p_run_id) then"),
-  mWork("SQL/queue: accept stops writing the first entry, so the prompt is not durable",
+  mAccept("SQL/queue: accept stops writing the first entry, so the prompt is not durable",
     "  insert into agent.run_entries (run_id, seq, body) values (p_run_id, 0, p_entry)\n  on conflict do nothing;",
     "  -- no entry written"),
-  mWork("SQL/queue: accept stops writing the work row, so nothing will ever run it",
+  mAccept("SQL/queue: accept stops writing the work row, so nothing will ever run it",
     "  insert into agent.run_work (run_id, tenant_id, kind)\n  values (p_run_id, p_tenant, p_kind)\n  on conflict (run_id) do nothing\n  returning * into v_existing;",
     "  select * into v_existing from agent.run_work where run_id = p_run_id;"),
-  mWork("SQL/queue: any entry may be the first one, so a run can start mid-log",
+  mAccept("SQL/queue: any entry may be the first one, so a run can start mid-log",
     "  if p_entry is null or p_entry ->> 'kind' is distinct from 'started' then",
     "  if false then"),
 
@@ -232,6 +266,64 @@ const spec = [
   mWork("SQL/queue: the work row outlives its run",
     "  run_id            uuid primary key references agent.runs(id) on delete cascade,",
     "  run_id            uuid primary key references agent.runs(id) on delete no action,"),
+
+  // ── THE FENCE: a write must present the claim it is writing under ─────────
+  // **EVERY ONE OF THESE IS THE MEASURED GAP COMING BACK.** The hole was that
+  // ownership was answered from a flag in the consumer's own process; each mutant
+  // below removes one of the four things the database now checks at write time, or
+  // one of the two readings that keep a retry apart from a second writer.
+  mAppend("SQL/fence: THE WORK ROW IS NOT LOCKED, so a reclaim fits between the check and the write",
+    "  select * into v_work from agent.run_work where run_id = p_run_id for update;",
+    "  select * into v_work from agent.run_work where run_id = p_run_id;"),
+  mAppend("SQL/fence: THE HOLDER IS NOT CHECKED — anybody may write to anybody's run",
+    "  if v_work.claimed_by is null or v_work.claimed_by is distinct from p_worker then\n    return jsonb_build_object('ok', false, 'why', 'not-holder');\n  end if;",
+    "  -- no holder check"),
+  mAppend("SQL/fence: THE TOKEN IS NOT CHECKED, so a displaced worker sharing a name writes on",
+    "  if v_work.claim_token is null or v_work.claim_token is distinct from p_token then\n    return jsonb_build_object('ok', false, 'why', 'bad-token');\n  end if;",
+    "  -- no token check"),
+  mAppend("SQL/fence: THE LEASE IS NOT CHECKED, so a paused holder writes for as long as it likes",
+    "  if v_work.lease_expires_at is null or v_work.lease_expires_at <= now() then\n    return jsonb_build_object('ok', false, 'why', 'lease-expired');\n  end if;",
+    "  -- no lease check"),
+  mAppend("SQL/fence: FINISHED WORK STILL TAKES WRITES",
+    "  if v_work.done_at is not null then\n    return jsonb_build_object('ok', false, 'why', 'finished');\n  end if;",
+    "  -- finished work is writable"),
+  mAppend("SQL/fence: a run with no work row is written to anyway",
+    "  if v_work.run_id is null then\n    return jsonb_build_object('ok', false, 'why', 'no-work');\n  end if;",
+    "  -- no work row needed"),
+  mAppend("SQL/fence: A DIFFERENT ENTRY IN THE SAME SLOT IS READ AS A DUPLICATE",
+    "    if v_body = p_body then\n      return jsonb_build_object('ok', true, 'stored', false, 'already', true, 'seq', v_seq);\n    end if;\n    return jsonb_build_object('ok', false, 'why', 'conflict', 'seq', v_seq);",
+    "    return jsonb_build_object('ok', true, 'stored', false, 'already', true, 'seq', v_seq);"),
+  mAppend("SQL/fence: AN IDENTICAL RETRY IS READ AS A CONFLICT, so a lost answer kills a paid-for run",
+    "    if v_body = p_body then", "    if false then"),
+  // **THE ANCHOR CARRIES THE `conflict` LINE AFTER IT, and that is not tidiness.**
+  // The `already` answer occurs TWICE — once in the main path and once in the
+  // unique-violation handler, which is a deliberate redundancy — so the shorter
+  // anchor was AMBIGUOUS and the pre-check refused it. Naming the neighbour is what
+  // makes it the main path's.
+  mAppend("SQL/fence: the `already` answer does not say where the entry really is",
+    "return jsonb_build_object('ok', true, 'stored', false, 'already', true, 'seq', v_seq);\n    end if;\n    return jsonb_build_object('ok', false, 'why', 'conflict', 'seq', v_seq);",
+    "return jsonb_build_object('ok', true, 'stored', false, 'already', true, 'seq', null);\n    end if;\n    return jsonb_build_object('ok', false, 'why', 'conflict', 'seq', v_seq);"),
+  // **THE LEADING NEWLINE PINS THE INDENT, and without it this anchor is a SUBSTRING
+  // of the handler's own copy** (six spaces contains four) — the recorded "a mutant
+  // whose anchor is a substring of another's", arriving through indentation.
+  mAppend("SQL/fence: a taken position is reported as a conflict, so the caller stops instead of moving up",
+    "\n    return jsonb_build_object('ok', false, 'why', 'position', 'seq', p_seq);",
+    "\n    return jsonb_build_object('ok', false, 'why', 'conflict', 'seq', p_seq);"),
+  mAppend("SQL/fence: an empty or blank worker is accepted",
+    "  if p_worker is null or btrim(p_worker) = '' then\n    raise exception 'append_entry: worker must be a non-empty string';\n  end if;",
+    "  -- any worker will do"),
+  mAppend("SQL/fence: A NULL TOKEN IS READ AS NOT NEEDING ONE",
+    "  if p_token is null then\n    raise exception 'append_entry: the claim token is required';\n  end if;",
+    "  -- no token needed"),
+  mAppend("SQL/fence: THE SERVICE ROLE KEEPS ITS DIRECT INSERT, so the fence can be walked around",
+    "revoke insert on agent.run_entries from service_role;", "-- the direct door stays open"),
+  mAppend("SQL/fence: the fence is granted to signed-in customers",
+    "grant execute on function agent.append_entry(uuid, integer, jsonb, text, uuid) to service_role;",
+    "grant execute on function agent.append_entry(uuid, integer, jsonb, text, uuid) to service_role, authenticated;"),
+  mAppend("SQL/fence: a claimed row may exist with no token",
+    "  or (claimed_by is not null and claimed_at is not null and lease_expires_at is not null and claim_token is not null)",
+    "  or (claimed_by is not null and claimed_at is not null and lease_expires_at is not null)"),
+  mAppend("SQL/fence/CONTROL (comment only)", "-- FENCING THE JOURNAL:", "-- FENCING THE JOURNAL (control):", true),
 
   // ── THE CONTROL: comment-only, and it MUST survive ────────────────────────
   m("SQL/CONTROL (comment only)", "-- ============================================================================\n-- AGENT RUNS:",

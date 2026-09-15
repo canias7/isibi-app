@@ -1,8 +1,14 @@
 /**
  * THE DURABLE WORK RECORD — the queue's memory, as opposed to its doorbell.
  *
- * Six RPCs in the `agent` schema, spoken over PostgREST. `fetch` is INJECTED, so
+ * Seven RPCs in the `agent` schema, spoken over PostgREST. `fetch` is INJECTED, so
  * every branch here is drivable with no network and no database.
+ *
+ * **THE CLAIM IS A TOKEN, NOT JUST A NAME, AND THE TOKEN IS WHAT A WRITE
+ * PRESENTS.** `claim` answers a `claim_token` minted by the database for that
+ * claim alone; `beat`, `release` and `append` all require it. A worker name says
+ * WHO; a token says WHICH CLAIM — and those differ in exactly the case that
+ * matters, a run reclaimed while its previous holder is still running.
  *
  * **THIS IS WHAT `ctx.waitUntil` WAS MISSING.** `waitUntil` keeps work alive after
  * the response; it does not write down that the work exists. An isolate that is
@@ -27,6 +33,7 @@ const RPC = Object.freeze({
   beat: "beat_run",
   release: "release_run",
   sweep: "sweep_run_work",
+  append: "append_entry",
 });
 
 /** Postgres's "you may not" — what `accept_run` raises for another tenant's id. */
@@ -36,6 +43,31 @@ const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /** The states `accept` and `requeue` can answer. A state not on this list is a bug. */
 export const WORK_STATES = Object.freeze(["queued", "running", "finished", "not-found"]);
+
+/**
+ * What `append` can answer. Nine outcomes, because each needs something different
+ * done about it — and two pairs must never be collapsed:
+ *
+ *   `already` vs `conflict`   — the SAME entry re-sent, versus a DIFFERENT entry at
+ *                               the same logical position. The first is a retry and
+ *                               is safe; the second is two writers and is not.
+ *   `position` vs `conflict`  — the seq is taken by something else (move up and try
+ *                               again), versus the entry itself is already there in
+ *                               another form (stop).
+ *
+ * An answer not on this list is raised rather than guessed at.
+ */
+export const APPEND_ANSWERS = Object.freeze([
+  "stored", "already", "position", "conflict",
+  "no-work", "finished", "not-holder", "bad-token", "lease-expired",
+]);
+
+/**
+ * The five that mean THIS WORKER MAY NOT WRITE — the claim is gone, or was never
+ * this worker's. Every one of them says stop; none of them says try harder, and a
+ * retry under any of them is the double execution the fence exists to prevent.
+ */
+export const LOST_CLAIM = Object.freeze(["no-work", "finished", "not-holder", "bad-token", "lease-expired"]);
 
 export function makeWork(opts = {}) {
   const doFetch = opts.fetch;
@@ -122,26 +154,69 @@ export function makeWork(opts = {}) {
       const answer = await rpc(RPC.claim, { p_run_id: runId, p_worker: worker, p_ttl_s: ttlS });
       if (answer?.claimed !== true) return { claimed: false };
       if (!isText(answer.tenant_id)) throw new Error("claim: the claim carries no tenant");
+      // **A CLAIM WITH NO TOKEN IS REFUSED, not carried on with.** Every write this
+      // worker is about to make has to present one, so a claim missing it would
+      // produce a run that cannot write a single entry — and the failure would show
+      // up several steps later wearing a journal error's clothes. The database mints
+      // it in the same UPDATE that takes the row; its absence means we are talking
+      // to something that is not `claim_run`.
+      if (!isText(answer.claim_token)) throw new Error("claim: the claim carries no token");
       return {
         claimed: true,
         runId: answer.run_id,
         tenant: answer.tenant_id,
         kind: answer.kind,
         attempts: answer.attempts ?? 0,
+        token: answer.claim_token,
       };
     },
 
     /**
-     * Still here. `false` means the lease is gone and this worker must stop —
-     * never that it should try harder.
+     * Still here, and still THIS claim. `false` means the claim is gone and this
+     * worker must stop — never that it should try harder.
+     *
+     * **THIS IS ALSO THE OWNERSHIP CHECK, and that is deliberate rather than
+     * convenient.** "May I still work on this run" and "I am still here" are the
+     * same question asked of the same row, so making them two RPCs would be two
+     * answers that can disagree. The runner asks it before it starts anything new.
      */
-    async beat({ runId, worker, ttlS }) {
-      return (await rpc(RPC.beat, { p_run_id: runId, p_worker: worker, p_ttl_s: ttlS })) === true;
+    async beat({ runId, worker, token, ttlS }) {
+      return (await rpc(RPC.beat, { p_run_id: runId, p_worker: worker, p_token: token, p_ttl_s: ttlS })) === true;
     },
 
     /** `done` means nothing more should be delivered; without it the row stays outstanding. */
-    async release({ runId, worker, done = true, error = null }) {
-      return (await rpc(RPC.release, { p_run_id: runId, p_worker: worker, p_done: done, p_error: error })) === true;
+    async release({ runId, worker, token, done = true, error = null }) {
+      return (await rpc(RPC.release, { p_run_id: runId, p_worker: worker, p_token: token, p_done: done, p_error: error })) === true;
+    },
+
+    /**
+     * **THE ONLY DOOR INTO THE LOG.** The holder, the token, the work being
+     * unfinished and the lease still being live are all checked inside the same
+     * transaction that inserts the row, against the work row it locks — so a
+     * reclaim cannot fit between the check and the write. `service_role` has no
+     * INSERT on `agent.run_entries` at all, which is what makes this the only door
+     * rather than the preferred one.
+     *
+     * Answers one of `APPEND_ANSWERS`, and reading them is the caller's whole job:
+     * `stored` and `already` are successes, `position` says move up and try again,
+     * and the six others say stop.
+     */
+    async append({ runId, seq, body, worker, token }) {
+      const a = await rpc(RPC.append, {
+        p_run_id: runId, p_seq: seq, p_body: body, p_worker: worker, p_token: token,
+      });
+      // The two success shapes are told apart by `already` rather than by absence,
+      // because "not stored" and "already stored" are opposite readings of the same
+      // missing field.
+      const answer = a?.ok === true
+        ? (a.already === true ? "already" : a.stored === true ? "stored" : null)
+        : a?.why ?? null;
+      if (!APPEND_ANSWERS.includes(answer)) {
+        throw new Error(`append: unrecognised answer ${JSON.stringify(a)}`);
+      }
+      // `seq` is the database's, not ours: an `already` names where the entry
+      // REALLY is, which can be a position this journal never proposed.
+      return { answer, seq: Number.isInteger(a?.seq) ? a.seq : null };
     },
 
     /** Work whose lease is not live. What a redelivery is built from. */

@@ -44,7 +44,7 @@ const ENTRY_COLUMNS = new Set(["seq", "body", "run_id", "kind", "step", "idx", "
  * make a verification pass for the wrong reason.
  */
 const WORK_COLUMNS = new Set(["run_id", "tenant_id", "kind", "enqueued_at", "attempts",
-  "claimed_by", "claimed_at", "lease_expires_at", "done_at", "last_error"]);
+  "claimed_by", "claimed_at", "lease_expires_at", "claim_token", "done_at", "last_error"]);
 const WORK_WRITABLE = new Set(["lease_expires_at"]);
 
 /** Every RPC, with how its answer comes back. A name not here is a 404. */
@@ -52,9 +52,12 @@ const RPCS = {
   accept_run: { args: ["p_run_id::uuid", "p_tenant", "p_entry::jsonb", "p_kind"], shape: "value" },
   requeue_run: { args: ["p_run_id::uuid", "p_tenant"], shape: "value" },
   claim_run: { args: ["p_run_id::uuid", "p_worker", "p_ttl_s::integer"], shape: "value" },
-  beat_run: { args: ["p_run_id::uuid", "p_worker", "p_ttl_s::integer"], shape: "value" },
-  release_run: { args: ["p_run_id::uuid", "p_worker", "p_done::boolean", "p_error"], shape: "value" },
+  beat_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_ttl_s::integer"], shape: "value" },
+  release_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_done::boolean", "p_error"], shape: "value" },
   sweep_run_work: { args: ["p_grace_s::integer", "p_limit::integer"], shape: "set" },
+  // THE FENCE. It is an RPC like the others here, which is the point: the shim
+  // translates HTTP and the guarantee is the function's.
+  append_entry: { args: ["p_run_id::uuid", "p_seq::integer", "p_body::jsonb", "p_worker", "p_token::uuid"], shape: "value" },
 };
 
 export function startLocalRest({ db, port = 0, quiet = true } = {}) {
@@ -139,10 +142,13 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(200, JSON.parse(r.out || "[]"));
       }
+      // **THE DIRECT DOOR IS NOT SERVED, and it would not work if it were.** The
+      // migration revokes INSERT on `agent.run_entries` from `service_role`, and this
+      // shim runs as `service_role` exactly so that difference is real — so the honest
+      // answer here is the refusal PostgREST would give, not a translation nobody can
+      // use. Entries go through `rpc/append_entry`.
       if (p === "/rest/v1/run_entries" && req.method === "POST") {
-        const r = await sql(`insert into agent.run_entries (run_id, seq, body) values (${lit(body.run_id)}::uuid, ${Number(body.seq)}, ${lit(JSON.stringify(body.body))}::jsonb);`);
-        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
-        return send(201);
+        return send(403, { code: "42501", message: "permission denied for table run_entries" });
       }
       if (p === "/rest/v1/run_entries" && req.method === "GET") {
         const cols = selectOf(url.searchParams, ENTRY_COLUMNS, ["seq", "body"]);
@@ -170,10 +176,26 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
         return send(204);
       }
 
+      // **RETENTION, WHICH THE HOSTED API SERVES AND THIS SHIM DID NOT.** The fence
+      // probe removes its own run afterwards — it is an instrument, not a customer's
+      // work — and a shim that is LESS capable than the thing it stands in for reports
+      // the product as broken. Only `id=eq.` is accepted, so it can never be a
+      // statement about more than one run.
+      if (p === "/rest/v1/runs" && req.method === "DELETE") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        if (!/^[0-9a-fA-F-]{36}$/.test(id)) return send(400, { message: "runs DELETE needs id=eq.<uuid>" });
+        const r = await sql(`delete from agent.runs where id = ${lit(id)}::uuid;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(204);
+      }
+
       // ── the queue's functions ─────────────────────────────────────────────
       const rpc = /^\/rest\/v1\/rpc\/([a-z_]+)$/.exec(p);
       if (rpc && req.method === "POST") {
-        const spec = RPCS[rpc[1]];
+        // `Object.hasOwn`, never truthiness: `RPCS["constructor"]` is truthy and has
+        // no `args`, so a lookup by a caller-supplied name has to ask for ownership.
+        // This product's own recorded rule, one line of shim over.
+        const spec = Object.hasOwn(RPCS, rpc[1]) ? RPCS[rpc[1]] : null;
         if (!spec) return send(404, { message: `no function ${rpc[1]}` });
         const args = spec.args.map((a) => {
           const [name, cast] = a.split("::");

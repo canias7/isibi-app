@@ -5,6 +5,7 @@ import { makeApi } from "../src/api.mjs";
 import { makeVerifier, TENANT_CLAIM, HS } from "../src/auth.mjs";
 import { defineAgent, defineTool, PUBLIC } from "../src/define.mjs";
 import { startedEntry, limitsToJson } from "../src/journal.mjs";
+import { makeRunStore } from "../src/store.mjs";
 import { liveStore } from "./helpers/memory-rest.mjs";
 
 const NOW = 1_800_000_000_000;
@@ -291,8 +292,10 @@ test("A LOST LEASE COSTS NO MODEL CALL AT ALL, because the gate is IN FRONT of t
   b.store.forTenant = (t) => {
     const scoped = realForTenant(t);
     const realOpen = scoped.open.bind(scoped);
-    return { ...scoped, open: async (id) => {
-      const opened = await realOpen(id);
+    // **THE HOLD IS FORWARDED, because a journal cannot be built without it.** A
+    // wrapper that dropped it would make this test about a TypeError.
+    return { ...scoped, open: async (id, o) => {
+      const opened = await realOpen(id, o);
       b.advance(LEASE_TTL_S * 1000 + 1);   // the lease lapses while the log is read
       await b.timer.fire();
       return opened;
@@ -341,8 +344,11 @@ test("A BROKEN JOURNAL IS RETRYABLE; A MISSING AGENT IS NOT", async () => {
   const realOpen = a.store.forTenant.bind(a.store);
   a.store.forTenant = (t) => {
     const s2 = realOpen(t);
-    return { ...s2, open: async (id) => {
-      const o = await s2.open(id);
+    return { ...s2, open: async (id, opts) => {
+      const o = await s2.open(id, opts);
+      // A journal outage, which is NOT a fenced refusal: no `code`, so the runner must
+      // read it as a broken journal and leave the work retryable. That distinction is
+      // the point of this half of the test.
       return { ...o, journal: { append: async () => { throw new Error("the log is unwritable"); } } };
     } };
   };
@@ -361,38 +367,56 @@ test("A BROKEN JOURNAL IS RETRYABLE; A MISSING AGENT IS NOT", async () => {
   assert.notEqual(b.rest.work.get(r2.runId).done_at, null, "a run needing a deployment is being retried for ever");
 });
 
-test("TWO DELIVERIES IN ONE ISOLATE MUST NOT SHARE A WORKER NAME", async () => {
-  // **THE HAZARD, WHICH IS NOT THE OBVIOUS ONE.** The claim already stops two
-  // deliveries running one run, whatever they are called. What a shared name breaks
-  // is the HANDOVER: worker A's lease lapses, worker B claims the same run, and A's
-  // next beat is gated on `claimed_by = <name>` — which MATCHES if they share one.
-  // A then believes it still holds a lease B is holding, and two workers run one run.
+test("A SHARED WORKER NAME NO LONGER BREAKS A HANDOVER — THE CLAIM TOKEN DOES THAT", async () => {
+  // **THIS TEST RECORDS THE FIX RATHER THAN THE HAZARD, and the old version is worth
+  // remembering.** It used to assert that with a SHARED name the displaced worker's
+  // beat SUCCEEDS — "which is the whole problem" — because the beat was gated on
+  // `claimed_by = <name>` alone. A reclaim by a worker of the same name left the old
+  // one believing it still held the lease, and two workers ran one run.
+  //
+  // A token minted per CLAIM closes that by construction: the name says WHO and the
+  // token says WHICH CLAIM, so the displaced worker is refused on the half that
+  // cannot be shared.
   const b = bench({ answers: [says("x")] });
   const { runId } = await b.accept("t1");
 
   const shared = "same-name";
-  assert.equal((await b.work.claim({ runId, worker: shared, ttlS: 1 })).claimed, true, "A could not claim");
+  const a1 = await b.work.claim({ runId, worker: shared, ttlS: 1 });
+  assert.equal(a1.claimed, true, "A could not claim");
+  assert.ok(a1.token, "the claim carried no token");
   b.advance(2000);                                        // A's lease lapses
-  assert.equal((await b.work.claim({ runId, worker: shared, ttlS: 90 })).claimed, true, "B could not take it over");
-  assert.equal(await b.work.beat({ runId, worker: shared, ttlS: 90 }), true,
-    "with a shared name, A's beat succeeds — which is the whole problem");
+  const a2 = await b.work.claim({ runId, worker: shared, ttlS: 90 });
+  assert.equal(a2.claimed, true, "B could not take it over");
+  assert.notEqual(a2.token, a1.token, "the reclaim reused the first claim's token");
 
-  // With distinct names the handover is clean: A's beat is refused, so A stops.
+  assert.equal(await b.work.beat({ runId, worker: shared, token: a1.token, ttlS: 90 }), false,
+    "the DISPLACED worker kept its lease although its claim had been replaced");
+  assert.equal(await b.work.beat({ runId, worker: shared, token: a2.token, ttlS: 90 }), true,
+    "the current holder cannot beat");
+  // And it cannot write, which is the half that matters: the beat only tells it to
+  // stop, the fence stops it.
+  assert.equal((await b.work.append({ runId, seq: 9, body: { kind: "model", at: 1, step: 9, ms: 1 },
+    worker: shared, token: a1.token })).answer, "bad-token",
+    "a displaced worker sharing the holder's name wrote to the log");
+
+  // A DISTINCT NAME IS REFUSED ON THE OTHER HALF, so both walls are real.
   const c = bench({ answers: [says("x")] });
   const r2 = await c.accept("t1");
-  assert.equal((await c.work.claim({ runId: r2.runId, worker: "A", ttlS: 1 })).claimed, true);
+  const ca = await c.work.claim({ runId: r2.runId, worker: "A", ttlS: 1 });
   c.advance(2000);
-  assert.equal((await c.work.claim({ runId: r2.runId, worker: "B", ttlS: 90 })).claimed, true);
-  assert.equal(await c.work.beat({ runId: r2.runId, worker: "A", ttlS: 90 }), false,
-    "the displaced worker was allowed to keep its lease");
-  assert.equal(await c.work.beat({ runId: r2.runId, worker: "B", ttlS: 90 }), true, "the new holder cannot beat");
+  const cb = await c.work.claim({ runId: r2.runId, worker: "B", ttlS: 90 });
+  assert.equal(cb.claimed, true);
+  assert.equal(await c.work.beat({ runId: r2.runId, worker: "A", token: ca.token, ttlS: 90 }), false);
+  assert.equal((await c.work.append({ runId: r2.runId, seq: 9, body: { kind: "model", at: 1, step: 9, ms: 1 },
+    worker: "A", token: ca.token })).answer, "not-holder");
 
-  // So the DEFAULT namer must produce a fresh name per delivery. The bench injects a
-  // counter, so the default is checked on its own here — by running it.
+  // THE DEFAULT NAMER STILL PRODUCES A FRESH NAME PER DELIVERY, and that stays
+  // deliberate: it is what keeps two concurrent deliveries in ONE isolate from
+  // reading each other's claim as their own before any token is involved.
   const names = new Set();
   const spy = {
     claim: async ({ worker }) => { names.add(worker); return { claimed: false }; },
-    beat: async () => true, release: async () => true, sweep: async () => [],
+    beat: async () => true, release: async () => true, sweep: async () => [], append: async () => ({ answer: "stored", seq: 0 }),
   };
   const plain = makeRunner({
     work: spy, store: b.store, send: async () => says("x"), timer: fakeTimer(),
@@ -660,10 +684,10 @@ test("A JUNK LEASE OR BEAT FALLS BACK TO THE MODULE'S OWN NUMBER, never to the j
     leaseTtlS: 5, nameWorker: () => "w1",
   });
   // Claim it first with the injected length and read the lease the fake recorded.
-  await c.work.claim({ runId: r2.runId, worker: "probe", ttlS: 5 });
+  const probe = await c.work.claim({ runId: r2.runId, worker: "probe", ttlS: 5 });
   const lease = c.rest.work.get(r2.runId).lease_expires_at;
   assert.equal(lease - c.clock, 5_000, `a 5 s lease was recorded as ${lease - c.clock} ms`);
-  await c.work.release({ runId: r2.runId, worker: "probe", done: false });
+  await c.work.release({ runId: r2.runId, worker: "probe", token: probe.token, done: false });
   assert.equal((await runner.deliver(r2.runId)).ran, true);
   // A usable beat interval IS honoured, so the fallback above is selective.
   const t2 = fakeTimer();
@@ -690,4 +714,145 @@ test("makeRunner refuses to exist without what it needs", () => {
   }
   assert.throws(() => makeRunner({ ...ok, agents: {} }), { name: "TypeError" });
   assert.equal(MAX_ATTEMPTS > 1, true, "one attempt means no retry at all");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE FENCE: ownership is asked of the DATABASE, not of a flag in this process
+// ════════════════════════════════════════════════════════════════════════════
+
+test("OWNERSHIP IS ASKED BEFORE EVERY MODEL CALL AND EVERY TOOL BATCH", async () => {
+  // **WHAT THIS PINS IS THE ORDER, because the order is the whole value.** A check
+  // after the call has already spent the money; a check after the tool batch has
+  // already fired it at the outside world. So the sequence is asserted, not the count.
+  const order = [];
+  const tool = defineTool({
+    name: "look", description: "looks", input: { type: "object" }, scope: PUBLIC, repeatable: true,
+    run: async () => { order.push("tool"); return { hit: 1 }; },
+  });
+  const b = bench({ tools: [tool] });
+  const r = await b.accept("t1");
+
+  const answers = [wants("look"), says("done")];
+  let n = 0;
+  const watched = { ...b.work, beat: async (a) => { order.push("ask"); return b.work.beat(a); } };
+  const runner = makeRunner({
+    work: watched, store: b.store, timer: fakeTimer(), now: () => b.clock, nameWorker: () => "w1",
+    agents: { support: defineAgent({ name: "support", model: "m", instructions: "help", tools: [tool] }) },
+    send: async (req) => { order.push(`model:${req.step}`); return answers[n++]; },
+  });
+  const out = await runner.deliver(r.runId);
+  assert.equal(out.ran, true, `the run did not finish: ${out.why} ${out.error ?? ""}`);
+
+  // step 1: ask → model → ask → tool ; step 2: ask → model (no tools, so no batch)
+  assert.deepEqual(order, ["ask", "model:1", "ask", "tool", "ask", "model:2"],
+    `the ownership checks are in the wrong places: ${order.join(" ")}`);
+
+  // AND IT IS NOT ASKED PER JOURNAL WRITE, which would be a round trip per entry for
+  // no extra safety — the write itself is fenced by the database.
+  assert.equal(order.filter((x) => x === "ask").length, 3,
+    "ownership is being asked more often than there is new work to start");
+});
+
+test("A CHECKPOINT THAT REFUSES STOPS THE RUN WITHOUT WRITING A STOP", async () => {
+  // The run must be left exactly as the next holder needs to find it: no stop entry,
+  // because a stop is what says the run is over.
+  const b = bench({ answers: [says("never asked for")] });
+  const r = await b.accept("t1");
+  const before = b.kinds(r.runId).length;
+
+  // The claim is taken away before the first model call, by somebody else.
+  //
+  // **THE MODEL CALLS ARE COUNTED, NOT MADE TO THROW, and a sweep is why.** A `send`
+  // that throws proves nothing here: the throw becomes `call-failed`, whose stop write
+  // is then refused, and the delivery answers `lease-lost` either way — so the test
+  // passed whether or not the call had been made.
+  //
+  // **AND THE COUNT STILL DOES NOT KILL THE MUTANT IT WAS WRITTEN FOR — measured, and
+  // said here rather than left as a wrong comment.** Neutering `mayStart`'s throw
+  // SURVIVES, because `assertHeld()` in the `send` wrapper refuses before the counter
+  // can move. That is a redundancy declared in `runner.mjs`, not a gap; the mutant that
+  // dies is the one removing the ownership check altogether. The count stays because it
+  // asserts the property this test is named for, which the throw never did.
+  let calls = 0;
+  const stolen = { ...b.work, beat: async () => false };
+  const runner = makeRunner({
+    work: stolen, store: b.store, timer: fakeTimer(), now: () => b.clock, nameWorker: () => "w1",
+    agents: { support: defineAgent({ name: "support", model: "m", instructions: "help" }) },
+    send: async () => { calls++; return says("a call that should never have been made"); },
+  });
+  const out = await runner.deliver(r.runId);
+  assert.equal(calls, 0, `${calls} model call(s) were bought after the claim was gone`);
+  assert.equal(out.why, "lease-lost", `reported as "${out.why}"`);
+  assert.equal(b.kinds(r.runId).length, before, "something was written after the claim was gone");
+  assert.equal(b.kinds(r.runId).includes("stopped"), false, "a stop was recorded by a process that had lost the run");
+  // The work is NOT taken off the queue: somebody else is doing it, or it needs
+  // redelivering.
+  assert.equal(b.rest.work.get(r.runId).done_at, null, "a run that was taken over was marked done");
+});
+
+test("A RECLAIM MID-RUN STOPS THE OLD CONSUMER AT ITS NEXT WRITE — the live shape", async () => {
+  // **THIS IS THE GAP THAT WAS MEASURED ON THE DEPLOYMENT, driven end to end.** The
+  // beat has NOT fired (the timer is never advanced), so the process's own flag still
+  // says it holds the run — exactly the state a consumer is in for up to
+  // `BEAT_EVERY_MS` after being reclaimed. Before the fence it wrote its next entries
+  // regardless. Now the database refuses the write itself.
+  let reclaimed = null;
+  const b = bench({
+    answers: [async () => {
+      // The reclaim happens DURING the model call, which is when a real one does: the
+      // old consumer is busy and cannot notice.
+      b.rest.work.get(id).lease_expires_at = b.clock - 1;
+      reclaimed = await b.work.claim({ runId: id, worker: "replacement", ttlS: 90 });
+      return says("an answer nobody may record");
+    }],
+  });
+  const { runId: id } = await b.accept("t1");
+  const before = b.kinds(id).length;
+
+  const out = await b.runner.deliver(id);
+  assert.equal(reclaimed?.claimed, true, "the replacement never got the run, so this proves nothing");
+
+  // **NOTHING WAS WRITTEN.** The model answer it paid for is thrown away rather than
+  // recorded over the new holder's run — which is the trade this change makes on
+  // purpose: exclusivity over completion.
+  assert.equal(b.kinds(id).length, before, `${b.kinds(id).length - before} entries were written after the reclaim`);
+  assert.equal(b.kinds(id).includes("stopped"), false, "a stop was written by the displaced consumer");
+
+  // And it is reported as a lost claim, WITH THE REASON NAMED — `not-holder`, because
+  // the replacement took it under a different name.
+  assert.equal(out.why, "lease-lost", `reported as "${out.why}"`);
+  assert.equal(out.error, "not-holder", `the reason was "${out.error}" rather than the fence's own`);
+  assert.equal(out.ran, false);
+
+  // THE ROW IS THE REPLACEMENT'S, and the displaced consumer released nothing.
+  assert.equal(b.rest.work.get(id).claimed_by, "replacement");
+  assert.equal(b.rest.work.get(id).done_at, null);
+
+  // THE CONTROL: the replacement can finish it, so the run was not broken — only taken.
+  const done = await b.runner.deliver(id);
+  assert.equal(done.why, "not-claimable", "the replacement's own lease was not respected");
+});
+
+test("A CONFLICTING ENTRY IS ITS OWN OUTCOME, and leaves the work redeliverable", async () => {
+  // A different entry arrived in a slot this run's snapshot thought was free. The claim
+  // may still be ours, so this is NOT a lost lease: it is a log we are behind on, and
+  // the answer is a fresh delivery that reads what is really there.
+  const b = bench({ answers: [says("mine")] });
+  const { runId } = await b.accept("t1");
+  const conflicting = { ...b.work, append: async () => ({ answer: "conflict", seq: 1 }) };
+  const store = makeRunStore({
+    fetch: b.rest.fetch, url: "https://p.supabase.co/", key: "svc", appendEntry: conflicting.append,
+  });
+  const runner = makeRunner({
+    work: conflicting, store, send: async () => says("mine"), timer: fakeTimer(),
+    now: () => b.clock, nameWorker: () => "w1",
+    agents: { support: defineAgent({ name: "support", model: "m", instructions: "help" }) },
+  });
+  const out = await runner.deliver(runId);
+  assert.equal(out.why, "conflict", `reported as "${out.why}"`);
+  assert.ok(OUTCOMES.includes("conflict"), "conflict is not a declared outcome");
+  // NOT done: another delivery must read the log again rather than the run being
+  // abandoned.
+  assert.equal(b.rest.work.get(runId).done_at, null, "a conflict took the run off the queue");
+  assert.match(b.rest.work.get(runId).last_error, /another writer/);
 });

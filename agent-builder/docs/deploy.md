@@ -170,13 +170,21 @@ by sweeping the table.
 ## 3. The database
 
 Already done, on the project the rest of this repository uses
-(`ujrqdmmtcptvimazlhom`). Three migrations, all applied:
+(`ujrqdmmtcptvimazlhom`). Four migrations, all applied:
 
 | remote version | file |
 |---|---|
 | `20260915015602` | `agent_runs` — the runs and the append-only journal |
 | `20260915022217` | `agent_tenant_falls_back_to_subject` |
 | `20260915032807` | `agent_run_work` — the durable queue |
+| `20260915061219` | `agent_entry_fencing` — the claim token, and `append_entry` as the only door into the log |
+
+**THE FOURTH ONE CHANGES WHAT THE WORKER NEEDS, so the order matters on an upgrade.**
+It revokes INSERT on `agent.run_entries` from `service_role`, and a Worker built before
+it writes entries with a direct POST that will now be refused. Apply the migration and
+deploy in either order and there is a window; the window is short and its failure mode
+is loud (every journal write refused, every run reported `failed`), never silent. On a
+fresh project there is no window at all.
 
 Also already done: `agent` is in PostgREST's exposed schemas, set as an in-database
 override on the `authenticator` role. If you ever need to redo that:
@@ -187,14 +195,14 @@ notify pgrst, 'reload config';
 notify pgrst, 'reload schema';   -- BOTH signals; the first alone leaves the tables invisible
 ```
 
-If a fresh project is ever used instead, apply the three files in
+If a fresh project is ever used instead, apply the four files in
 `supabase/migrations/` in name order and then do the two `notify` lines above.
 
 ---
 
 ## 4. Verify it
 
-One command, and it checks the four things that matter rather than describing them:
+One command, and it checks the five things that matter rather than describing them:
 
 ```sh
 cd agent-builder
@@ -228,7 +236,27 @@ What it checks:
    `guarded` agent's tool is declared *not repeatable*; its lease is revoked while a
    tool call is in flight, and the in-flight result is **never written**, no stop is
    recorded, the pending call is visible, `problems` is empty, and asking again
-   refuses again without repeating the action.
+   refuses again without repeating the action;
+5. **the fence — a write must present the claim it is writing under.** A holder
+   writes; the SAME entry re-sent is absorbed as `already`; a DIFFERENT entry in the
+   same logical slot is a `conflict`; the holder is paused, its lease expires and its
+   write is refused `lease-expired`; a **duplicate delivery claims the run while the
+   sweeper's grace has not expired**, its write succeeds and the old holder's fails;
+   and a reclaim by a worker of the SAME NAME still refuses the previous claim
+   (`bad-token`), which is the half a worker name cannot cover. It also checks that
+   the service key can no longer insert an entry directly at all.
+
+**Check 5 needs no timing and no luck**, which is deliberate: the gap it closes was
+found by watching a real consumer keep writing for 30 seconds after its lease was
+revoked, and a reproduction that depends on catching a 30-second window is one nobody
+re-runs. It asks the database directly instead — claim, expire, reclaim, both write.
+
+**What fencing does NOT do, and the distinction is the safety argument.** It stops the
+RECORD of an action, never the action. A tool call already sent cannot be recalled by a
+database, so a stale worker refused its write leaves a model answer with no result — a
+pending call — and if that tool is not `repeatable` the run refuses to resume rather
+than firing it again. Check 4 is that refusal; check 5 is the fence. Neither replaces
+the other.
 
 **How an interruption is produced, said plainly:** the lease is revoked with the
 service key, which is exactly what the platform's own reclaim does to a consumer that
@@ -278,14 +306,14 @@ seconds after the response. `guarded` is the same shape with a non-repeatable to
   consumer continues from the log — the same mechanism check 3 above exercises
   deliberately. But no run has actually reached that ceiling: the longest driven end
   to end is 65.6 seconds, and the verification says so in its own closing lines.
-- **The service-key legs of the verification are unexercised against the hosted
-  PostgREST.** Reading `agent.run_work` and revoking a lease as `service_role` has
-  been proved on a real PostgreSQL and at the database level on the hosted project,
-  but not over its HTTP API — because no service key has been available here. They
-  will fail loudly with a named HTTP error rather than quietly if anything is wrong.
-  **What HAS been confirmed on the hosted project: PostgREST's schema cache knows the
-  table and all six queue functions.** Called with their real argument names they
-  answer the `anon` permission wall (`permission denied for schema agent`), while a
-  nonexistent function with the same argument names answers `PGRST202` — the control
-  that makes that conclusive, because PGRST202 covers both "not in the cache" and
-  "wrong arguments" and cannot tell them apart on its own.
+- **~~The service-key legs of the verification are unexercised against the hosted
+  PostgREST.~~ DONE — they ran, in Actions, with a real service key**, and the fence
+  round added `rpc/append_entry` and a direct `POST /run_entries` to them. What was
+  only a database-level fact is now an HTTP one.
+- **A consumer that dies MID-WRITE is still not reproduced.** Every interruption here
+  is a revoked lease, which is what the platform's own reclaim does to a consumer that
+  has stopped answering. Killing a real isolate between its model call and its journal
+  write needs something nothing in this repository can do. **What the fence changes
+  about that gap is that it no longer matters as much**: a write from a process in any
+  state is refused unless it presents a live claim, so the untested case is "did the
+  process die here or there", not "could a stale write land".

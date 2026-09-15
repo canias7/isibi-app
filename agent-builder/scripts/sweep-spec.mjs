@@ -162,33 +162,58 @@ const spec = [
     "await write(stoppedEntry({ at: now(), stop }));"),
 
   // ── store.mjs ─────────────────────────────────────────────────────────────
-  m("store: an UNKNOWN duplicate is read as already-recorded, silently dropping an entry", S,
-    '  if (text.includes(POSITION_UNIQUE)) return "position";\n  return null;',
-    '  if (text.includes(POSITION_UNIQUE)) return "position";\n  return "logical";'),
-  m("store: any error is read as a duplicate, whatever its code", S,
-    "if (body.code !== DUPLICATE) return null;", "if (false) return null;"),
-  m("store: a logical duplicate THROWS, so a retry kills a paid-for run", S,
-    'if (dup === "logical") {', "if (false) {"),
+  // ── the fence, as the store reads its answers ─────────────────────────────
+  m("store: A CONFLICT IS READ AS A DUPLICATE, so a double execution vanishes from the record", S,
+    'if (answer === "conflict") {', "if (false) {"),
+  m("store: an identical retry THROWS, so a lost answer kills a paid-for run", S,
+    'if (answer === "already") {', "if (false) {"),
   m("store: a position clash is never retried", S,
-    'if (dup === "position" && attempt === 0) {', "if (false) {"),
+    'if (answer === "position" && attempt < POSITION_RETRIES) {', "if (false) {"),
+  // NO MUTANT FOR A `CLAIM_GONE` BRANCH IN THE STORE: THERE ISN'T ONE ANY MORE.
+  // The first cut had one, it SURVIVED, and measurement showed why — it threw exactly
+  // what the line below it throws for every answer that is not `position`, so it was
+  // the same wall written twice rather than a second wall. Deleted from the product.
+  // What remains is the single throw, and its mutant (just below) dies.
+  m("store: an UNRECOGNISED answer is read as a success", S,
+    'throw refused("fenced", runId, answer === "position" ? "position-twice" : answer, where);',
+    "return { seq: at, stored: true };"),
+  m("store: A JOURNAL CAN BE BUILT WITH NO CLAIM TO WRITE UNDER", S,
+    'if (typeof hold?.token !== "string" || hold.token.trim() === "") {', "if (false) {"),
+  // **THE MUTANT HAS TO PRODUCE A USABLE HOLD, or `journalFor`'s own check catches it
+  // and the mutant survives for the wrong reason** — which is what the first version
+  // did (it introduced an unused variable and left `hold` undefined). Fabricating one
+  // reaches a journal that writes under a claim nobody issued, which is the thing being
+  // forbidden.
+  m("store: open hands out a journal under a FABRICATED claim when given none", S,
+    'const hold = opts.hold;\n          if (!hold) throw new TypeError("open: hold must be the claim ({ worker, token }) — use load to read");',
+    'const hold = opts.hold ?? { worker: "anyone", token: "any" };'),
+  m("store: a store can be built with no fenced writer at all", S,
+    'if (typeof opts.appendEntry !== "function") throw new TypeError("makeRunStore: appendEntry must be a function — the fenced writer");',
+    "  /* no writer needed */"),
+  m("store: the claim is not sent with the write, so the fence has nothing to check", S,
+    "runId, seq: at, body: entry, worker: hold.worker, token: hold.token,",
+    "runId, seq: at, body: entry, worker: hold.worker, token: null,"),
+  m("store: an `already` does not clear the position the entry really landed at", S,
+    "next = Math.max(next, landed + 1);", "next = at + 1;"),
   m("store: a journal ignores where the last one left off", S,
     "let next = Number.isInteger(seq) && seq >= 0 ? seq : 0;", "let next = 0;"),
   m("store: create asserts a status the database is supposed to derive", S,
     'body: { id: runId, tenant_id: tenant }, write: true, prefer: "return=minimal"',
     'body: { id: runId, tenant_id: tenant, status: "running" }, write: true, prefer: "return=minimal"'),
   m("store: the counter does not advance on a successful append", S,
-    "if (r.ok) { next = at + 1; return { seq: at, stored: true }; }",
-    "if (r.ok) { return { seq: at, stored: true }; }"),
+    'if (answer === "stored") { next = at + 1; return { seq: at, stored: true }; }',
+    'if (answer === "stored") { return { seq: at, stored: true }; }'),
   m("store: a failed read answers an empty log instead of failing", S,
     'if (!r.ok) throw fail("open", r);', 'if (false) throw fail("open", r);'),
   m("store: the stored limits are handed back undecoded", S,
-    "limits: limitsFromJson(state.limits),", "limits: state.limits,"),
+    "return { runId, tenant, run, entries, nextSeq, state, limits: limitsFromJson(state.limits) };",
+    "return { runId, tenant, run, entries, nextSeq, state, limits: state.limits };"),
   // ── the ownership boundary ────────────────────────────────────────────────
   m("store: THE OWNERSHIP CHECK DROPS THE TENANT FILTER — any run by id", S,
     "const q = `${RUNS}?id=eq.${encodeURIComponent(runId)}&tenant_id=eq.${encodeURIComponent(tenant)}`",
     "const q = `${RUNS}?id=eq.${encodeURIComponent(runId)}`"),
-  m("store: open does not check ownership at all", S,
-    "const run = await owns(runId);\n          if (!run) throw notFound(runId);",
+  m("store: the read does not check ownership at all", S,
+    "const run = await owns(runId);\n        if (!run) throw notFound(runId);",
     'const run = { status: "running" };'),
   m("store: a repeated create hands over another tenant's run", S,
     "if (!r.ok && !(await owns(runId))) throw notFound(runId);", "if (false) throw notFound(runId);"),
@@ -197,10 +222,10 @@ const spec = [
   m("store: forTenant accepts an empty tenant", S,
     'if (typeof tenant !== "string" || tenant.trim() === "") {', "if (false) {"),
   m("store: a resumed journal is positioned at zero and overwrites the log", S,
-    "journal: journalFor(runId, nextSeq),", "journal: journalFor(runId, 0),"),
+    "journal: journalFor(runId, read.nextSeq, hold) };", "journal: journalFor(runId, 0, hold) };"),
   m("store: load hands out a journal with its read-only view", S,
-    "const { journal, ...rest } = await this.open(runId);\n          return rest;",
-    "return await this.open(runId);"),
+    "        async load(runId) {\n          return readRun(runId);",
+    '        async load(runId) {\n          return this.open(runId, { hold: { worker: "r", token: "r" } });'),
   m("store: the non-public schema is never named on the wire", S,
     '[write ? "content-profile" : "accept-profile"]: schema,', '"x-not-a-profile": schema,'),
   m("store: resumable is not scoped to one tenant", S,
@@ -363,12 +388,12 @@ const spec = [
     "  const missing = Object.keys(SETTINGS).filter((k) => env?.[k] === undefined);"),
   m("worker: AN UNKNOWN MODEL SILENTLY BECOMES THE STAND-IN", W,
     "if (!make) throw new TypeError(`no such model: ${modelName}`);", "void 0;"),
-  m("worker: THE SCHEMA IS LEFT TO THE STORE'S DEFAULT", W,
-    "const store = makeRunStore({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA });",
-    "const store = makeRunStore({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY });"),
-  m("worker: THE QUEUE'S SCHEMA IS LEFT TO ITS DEFAULT", W,
-    "const work = makeWork({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA });",
-    "const work = makeWork({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY });"),
+  m("worker: THE SCHEMA IS LEFT TO THE DEFAULT, for the store and the queue alike", W,
+    "const wire = { fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA };",
+    "const wire = { fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY };"),
+  m("worker: THE STORE IS WIRED TO SOMETHING THAT IS NOT THE FENCE", W,
+    "const store = makeRunStore({ ...wire, appendEntry: work.append });",
+    'const store = makeRunStore({ ...wire, appendEntry: async () => ({ answer: "stored", seq: 0 }) });'),
   m("worker: a configuration gap throws instead of answering a named 503", W,
     "const configGap = (e) => new Response(JSON.stringify({ error: String(e?.message ?? e) }), {",
     "const configGap = (e) => { throw e; } && ((e) => new Response(JSON.stringify({ error: String(e?.message ?? e) }), {"),
@@ -448,9 +473,25 @@ const spec = [
     'if (!isText(answer.tenant_id)) throw new Error("claim: the claim carries no tenant");', "void 0;"),
   m("work: a refused claim is read as claimed", at("work.mjs"),
     "      if (answer?.claimed !== true) return { claimed: false };", "      if (false) return { claimed: false };"),
-  m("work: A FALSY BEAT IS READ AS STILL HOLDING THE LEASE", at("work.mjs"),
-    'return (await rpc(RPC.beat, { p_run_id: runId, p_worker: worker, p_ttl_s: ttlS })) === true;',
-    "await rpc(RPC.beat, { p_run_id: runId, p_worker: worker, p_ttl_s: ttlS }); return true;"),
+  m("work: A FALSY BEAT IS READ AS STILL HOLDING THE CLAIM", at("work.mjs"),
+    'return (await rpc(RPC.beat, { p_run_id: runId, p_worker: worker, p_token: token, p_ttl_s: ttlS })) === true;',
+    "await rpc(RPC.beat, { p_run_id: runId, p_worker: worker, p_token: token, p_ttl_s: ttlS }); return true;"),
+  m("work: THE BEAT DOES NOT PRESENT ITS TOKEN, so a replaced claim keeps its lease", at("work.mjs"),
+    "{ p_run_id: runId, p_worker: worker, p_token: token, p_ttl_s: ttlS })) === true;",
+    "{ p_run_id: runId, p_worker: worker, p_token: null, p_ttl_s: ttlS })) === true;"),
+  m("work: A CLAIM WITH NO TOKEN IS ACCEPTED, so every write fails later for the wrong reason", at("work.mjs"),
+    'if (!isText(answer.claim_token)) throw new Error("claim: the claim carries no token");', "void 0;"),
+  m("work: THE APPEND DOES NOT PRESENT THE CLAIM AT ALL", at("work.mjs"),
+    "p_run_id: runId, p_seq: seq, p_body: body, p_worker: worker, p_token: token,",
+    "p_run_id: runId, p_seq: seq, p_body: body, p_worker: worker, p_token: null,"),
+  m("work: AN UNRECOGNISED APPEND ANSWER IS READ AS A SUCCESS", at("work.mjs"),
+    "      if (!APPEND_ANSWERS.includes(answer)) {\n        throw new Error(`append: unrecognised answer ${JSON.stringify(a)}`);\n      }",
+    '      if (false) { throw new Error("x"); }'),
+  m("work: `already` IS READ AS `stored`, so a retry looks like a fresh write", at("work.mjs"),
+    '? (a.already === true ? "already" : a.stored === true ? "stored" : null)', '? "stored"'),
+  m("work: the release does not present its token", at("work.mjs"),
+    "{ p_run_id: runId, p_worker: worker, p_token: token, p_done: done, p_error: error })) === true;",
+    "{ p_run_id: runId, p_worker: worker, p_token: null, p_done: done, p_error: error })) === true;"),
   m("work: the schema is not named, so the queue's functions are looked for in public", at("work.mjs"),
     '        "content-profile": schema,', "        // no profile"),
 
@@ -462,27 +503,85 @@ const spec = [
   // mutant, above, dies), so the fallback can never fire. The wall is in `work.mjs`,
   // one layer down, and that is the right place for it — the claim is where a
   // consumer learns whose run it is.
-  m("runner: A LOST LEASE DOES NOT STOP THE MODEL CALLS", at("runner.mjs"),
-    "      if (!held) throw new Error(`the lease on this run is gone (${lostBecause})`);", "      if (false) throw new Error(\"x\");"),
-  m("runner: the lease is not checked before a model call, so a lost lease costs money", at("runner.mjs"),
-    "        send: async (req) => { assertHeld(); return send(req); },", "        send: async (req) => send(req),"),
-  m("runner: A WORKER WITHOUT A LEASE WRITES HISTORY", at("runner.mjs"),
-    "        journal: { append: async (entry) => { assertHeld(); return open.journal.append(entry); } },",
-    "        journal: open.journal,"),
-  m("runner: a definitive lease loss is tolerated as a blip", at("runner.mjs"),
-    '      } else if (!ok) {\n        // Definitive: the database says this lease is not ours.\n        held = false; lostBecause = "lease-lost"; return;',
-    "      } else if (!ok) {\n        misses += 1; return;"),
+  // ══════════════════════════════════════════════════════════════════════════
+  // FIVE MUTANTS THAT ARE DELIBERATELY NOT HERE, each PROVED INERT BY MEASUREMENT
+  // rather than hunted, and each declared in `runner.mjs` where the next reader meets
+  // it. Written down because a sweep cannot see a deliberate redundancy and the next
+  // reader deletes what nothing appears to need.
+  //
+  //   · `assertHeld()`'s own throw — the shared cheap wall. Every caller of it has
+  //     either just asked the database (`mayStart`, one line up) or is about to be
+  //     refused by it (`append_entry`), so removing it alone changes nothing.
+  //   · `assertHeld()` in the `send` wrapper, and the `throw` at the end of `mayStart`
+  //     — a PAIR: with either one gone the other still stops the call. The mutant below
+  //     removes the whole check and dies.
+  //   · `assertHeld()` in the `journal` wrapper, and `if (held)` before the release —
+  //     these stand in front of SQL, which THIS sweep cannot mutate. `agent.append_entry`
+  //     refuses the write and `agent.release_run` refuses the release, and the SQL
+  //     sweep's own mutants kill both walls (`SQL/fence: THE LEASE IS NOT CHECKED…`,
+  //     `SQL/queue: A LAPSED HOLDER MAY STILL END THE RUN…`). Reading the two sweeps
+  //     together is the only honest coverage claim for these two.
+  //
+  // **AND THE SECOND PASS IS WHY THE LIST IS FIVE RATHER THAN EIGHT.** The first pass
+  // had eight survivors; three were real and were fixed — one was DEAD CODE and was
+  // deleted from the product, one mutant was badly written (it left `hold` undefined so
+  // a different wall threw), and one needed a test at the layer where the answer is
+  // first read. The other five are these.
+  // ══════════════════════════════════════════════════════════════════════════
+  // **THREE PROCESS-LEVEL WALLS ARE NOW REDUNDANT WITH THE DATABASE, MEASURED, and
+  // each is declared in `runner.mjs` where the next reader will meet it.** Removing any
+  // one of them alone SURVIVES, and none of those survivors was a test gap:
+  //   · `assertHeld()` in the `send` wrapper — the checkpoint asked the database one
+  //     line earlier, so only a beat answering `false` in between is left to catch;
+  //   · `assertHeld()` in the `journal` wrapper — `agent.append_entry` refuses the
+  //     write anyway, in the same transaction that would have performed it;
+  //   · `if (held)` before the release — `release_run` is gated on the holder, the
+  //     token and a live lease, so a stale release is a no-op.
+  // The first CAN be paired with the thing it stands in front of, and the pair dies.
+  // The other two stand in front of SQL, which this sweep cannot mutate — the SQL sweep
+  // kills those walls, and reading the two sweeps together is the only honest coverage
+  // claim here.
+  // **THE MUTANT THAT REMOVES THE OWNERSHIP CHECK ALTOGETHER, and it is the only one of
+  // this family that can die.** Without the checkpoint, `mayStart` is unreachable and
+  // the process-level flag is left with nothing to refuse until the periodic beat fires
+  // — so a lost claim buys a model call, and a test that COUNTS them sees it.
+  m("runner: OWNERSHIP IS NEVER ASKED BEFORE NEW WORK, so a lost claim buys model calls", at("runner.mjs"),
+    "        checkpoint: mayStart,\n        // The cheap wall in front of it",
+    "        checkpoint: undefined,\n        // The cheap wall in front of it"),
+  // ── the fence, as the consumer uses it ────────────────────────────────────
+  m("runner: OWNERSHIP IS NEVER ASKED BEFORE NEW WORK, so a stale worker starts it", at("runner.mjs"),
+    "        checkpoint: mayStart,", "        checkpoint: undefined,"),
+  m("runner: the ownership check asks nothing of the database, only its own flag", at("runner.mjs"),
+    "      if (await beatOnce()) return;", "      if (held) return;"),
+  m("runner: A FENCED REFUSAL IS READ AS A BROKEN JOURNAL, so the run is retried as ours", at("runner.mjs"),
+    "              if (e?.code === \"fenced\" && CLAIM_GONE.includes(e.why)) {\n                held = false; lostBecause = \"lease-lost\"; refusal = e.why;",
+    "              if (false) {\n                held = false; lostBecause = \"lease-lost\"; refusal = e.why;"),
+  m("runner: A CONFLICT IS READ AS A LOST CLAIM, so the log is never re-read", at("runner.mjs"),
+    "      if (refusal === \"conflict\") {\n        return await finish(false, \"conflict\", \"another writer's entry is in this run's log\");\n      }",
+    "      void 0;"),
+  m("runner: a conflict takes the run OFF the queue, so nobody ever reads the real log", at("runner.mjs"),
+    "        return await finish(false, \"conflict\", \"another writer's entry is in this run's log\");",
+    "        return await finish(true, \"conflict\", \"another writer's entry is in this run's log\");"),
+  m("runner: the reason a claim was refused is thrown away", at("runner.mjs"),
+    "      if (!held) return await finish(false, lostBecause ?? \"lease-lost\", refusal, null);",
+    "      if (!held) return await finish(false, lostBecause ?? \"lease-lost\", null, null);"),
+  m("runner: THE CRASH PATH WRITES A STOP WITHOUT PRESENTING THE CLAIM", at("runner.mjs"),
+    "    const open = await scoped.open(runId, { hold });\n    if (open.state.status === \"stopped\") return;",
+    "    const open = await scoped.open(runId, { hold: { worker: hold.worker, token: \"any\" } });\n    if (open.state.status === \"stopped\") return;"),
+  m("runner: the journal is not bound to this claim at all", at("runner.mjs"),
+    "      const open = await scoped.open(runId, { hold });", "      const open = await scoped.open(runId, { hold: { worker: hold.worker, token: \"any\" } });"),
+  m("runner: a definitive claim loss is tolerated as a blip", at("runner.mjs"),
+    '      if (!ok) {\n        // Definitive: the database says this claim is not ours.\n        held = false; lostBecause = "lease-lost";\n        return false;\n      }',
+    "      if (!ok) { misses += 1; return true; }"),
   m("runner: an unanswerable beat is worked through for ever", at("runner.mjs"),
-    "        if (misses > TOLERATED_MISSES) { held = false; lostBecause = \"beat-failed\"; return; }", "        void 0;"),
+    "        if (misses > TOLERATED_MISSES) { held = false; lostBecause = \"beat-failed\"; }", "        void 0;"),
   m("runner: the tolerance is a chosen number rather than derived from the TTL", at("runner.mjs"),
     "export const TOLERATED_MISSES = Math.max(0, Math.floor((LEASE_TTL_S * 1000) / BEAT_EVERY_MS) - 2);",
     "export const TOLERATED_MISSES = 5;"),
-  m("runner: A WORKER THAT LOST ITS LEASE RELEASES ANYWAY", at("runner.mjs"),
-    "      if (held) {\n        try { await work.release({ runId, worker, done, error }); }", "      if (true) {\n        try { await work.release({ runId, worker, done, error }); }"),
   m("runner: the heartbeat is never started, so any long run loses its lease", at("runner.mjs"),
     "    handle = timer.set(tick, beatEveryMs);\n\n    const assertHeld", "    void 0;\n\n    const assertHeld"),
   m("runner: the heartbeat keeps beating after the run is over", at("runner.mjs"),
-    "      stopBeating();\n      // **A LOST LEASE RELEASES NOTHING.**", "      // **A LOST LEASE RELEASES NOTHING.**"),
+    "      stopBeating();\n      // **A LOST CLAIM RELEASES NOTHING.**", "      // **A LOST CLAIM RELEASES NOTHING.**"),
   m("runner: A FINISHED RUN IS EXECUTED AGAIN", at("runner.mjs"),
     'if (open.state.status === "stopped") return await finish(true, "already-finished", null, open.state.stop);',
     "if (false) return await finish(true, \"already-finished\");"),

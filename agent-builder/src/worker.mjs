@@ -130,8 +130,16 @@ function parts(env, { notify, fetchImpl } = {}) {
   if (!make) throw new TypeError(`no such model: ${modelName}`);
   const doFetch = fetchImpl ?? globalThis.fetch.bind(globalThis);
 
-  const store = makeRunStore({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA });
-  const work = makeWork({ fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA });
+  const wire = { fetch: doFetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY, schema: SCHEMA };
+  const work = makeWork(wire);
+  // **THE STORE'S WRITER IS THE QUEUE'S FENCE, and it is wired here because this is
+  // the only file that gets to choose the real things.** `work.append` is
+  // `agent.append_entry`, which validates the holder, the token, the work being
+  // unfinished and the lease inside the same transaction as the insert. The store
+  // refuses to be built without it, so there is no deployment in which a journal
+  // write goes out unfenced — and `service_role` has no INSERT on the log anyway,
+  // which is the wall behind the wiring.
+  const store = makeRunStore({ ...wire, appendEntry: work.append });
 
   // **THE MESSAGE CARRIES A RUN ID AND NOTHING ELSE.** It is a doorbell: the
   // consumer learns whose run it is from the claim, in the same statement that

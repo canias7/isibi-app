@@ -133,8 +133,15 @@ test("THE SCHEMA IS PASSED EXPLICITLY, not left to the store's default", () => {
   // The store has a default and a default is the thing that silently keeps working
   // while meaning something else. Read from the source, because the value reaching
   // the store is not observable from outside it.
+  //
+  // **ASSERTED AS THE PROPERTY AND NOT AS THE SPELLING.** The store and the queue are
+  // built from ONE object now, so a check pinned to `makeRunStore({… schema: SCHEMA`
+  // reported a working deployment as unconfigured the moment the two stopped
+  // repeating themselves. What has to be true is that the object both are built from
+  // names the schema, and that neither is built from anything else.
   const src = fs.readFileSync(path.join(DIR, "src", "worker.mjs"), "utf8");
-  assert.match(src, /makeRunStore\(\{[^}]*schema: SCHEMA/, "the store is built without naming the schema");
+  assert.match(src, /const wire = \{[^}]*schema: SCHEMA/, "the shared wire does not name the schema");
+  assert.match(src, /makeRunStore\(\{ \.\.\.wire/, "the store is not built from the wire that names the schema");
   assert.equal(SCHEMA, "agent");
 });
 
@@ -320,8 +327,9 @@ test("THE QUEUE TARGETS THE SAME SCHEMA AS THE STORE, named explicitly", () => {
   // outside — and a default is what silently keeps working while meaning something
   // else the day a second schema exists. Read from the source, as the store's is.
   const src = fs.readFileSync(path.join(DIR, "src", "worker.mjs"), "utf8");
-  assert.match(src, /makeWork\(\{[^}]*schema: SCHEMA/, "the queue is built without naming the schema");
-  assert.match(src, /makeRunStore\(\{[^}]*schema: SCHEMA/, "the store is built without naming the schema");
+  assert.match(src, /const wire = \{[^}]*schema: SCHEMA/, "the shared wire does not name the schema");
+  assert.match(src, /makeWork\(wire\)/, "the queue is not built from the wire that names the schema");
+  assert.match(src, /makeRunStore\(\{ \.\.\.wire/, "the store is not built from the wire that names the schema");
 });
 
 // ── the registry and the stand-in ────────────────────────────────────────────

@@ -973,3 +973,80 @@ purpose and re-verify, not one to slip in after a green run. **Your call.**
 **Housekeeping**: the throwaway customer was deleted and the cleanup confirmed `13
 users listed, 0 left by a verification`. The four verification runs are still in
 `agent.runs` as the evidence above — say the word and I'll remove them.
+
+### The stale-writer window is closed, and not by widening the grace
+
+You asked me to close the gap the last round found — the one where a consumer whose
+lease I had revoked kept working, and writing, for another thirty seconds. It is closed,
+and the way it is closed matters more than the fact:
+
+**The database now decides at write time.** Every claim gets a token (a fresh uuid, per
+claim), and every journal write has to present it. The check is not "ask, then write" —
+that is two statements with a reclaim able to fit between them, which is the same race
+one layer up. It is one function that locks the work row, checks the holder, the token,
+that the run is unfinished and that the lease is live, and inserts, all in one
+transaction. Whoever takes the row lock first wins; the loser reads what the winner
+left. There is no third possibility.
+
+**And the direct door is shut, not merely unused.** The Worker's own credential no
+longer has permission to insert a log entry at all. That is the difference between a
+wall and a habit: however the code is written, an entry can only go in through the
+function that checks.
+
+**I did NOT widen the sweeper's grace, and here is why that was the wrong lever.** You
+have the note from last time where I said the margin was zero and offered to widen it.
+Looking at it properly: the claim function takes a lapsed lease with *no* grace at all
+— the grace only governs the sweeper, which is one of several ways a run gets offered
+again. A duplicate delivery arriving a second after a lease lapses claims it
+immediately. So the window a bigger grace would cover is not the window that existed.
+Both proofs assert that out loud: the replacement takes the run over while the sweeper
+still refuses to offer it.
+
+**I also did not lean on the `attempts` column.** It counts claims, so it is evidence
+about the queue and says nothing about what a displaced worker went on to write — which
+is precisely what was wrong. The evidence here is refusals: the old holder's write comes
+back `lease-expired`, or `not-holder`, or `bad-token`, and the replacement's is stored.
+
+**The one thing fencing cannot do, said plainly because it is easy to believe
+otherwise.** It stops the *record* of an action, never the action. A tool call already
+sent cannot be recalled by a database. If a stale worker fired a payment and then had
+its write refused, the run is left with a model answer and no result — a pending call —
+and because that tool is marked not-repeatable, the run refuses to resume rather than
+firing it again. That refusal is still the guarantee. Fencing narrows the window in
+which the send can happen; it does not replace the rule.
+
+**And a cost, so you have it before you find it.** A result a stale worker really did
+obtain is now thrown away rather than written, so a run that would have limped to the
+end can instead end up waiting for a person. I chose exclusivity over completion. If
+you would rather have it the other way round for some class of tool, that is a decision
+to make deliberately.
+
+**One thing I found while checking my own work, which is not mine and which I left
+alone.** Two functions from the very first migration don't match the repository: an
+earlier session's apply turned every em dash into `--`. In one of them that dash is
+inside an error message, so the live wording differs by one character from the file.
+Cosmetic, nothing reads past it, and fixing it means another migration on your shared
+project for a punctuation mark — so it is written down rather than changed. Today's
+apply did not do it: all five functions I touched match the file exactly.
+
+**What it took to prove, and the numbers.** 185 checks against a real PostgreSQL 16.13
+— up from 125 — including the exact scenario you described: a paused holder, its lease
+expired, a replacement claimed through a duplicate delivery while the sweeper would
+still have refused to offer the run. The old holder's write fails, the replacement's is
+stored, and the log holds the replacement's entry. It also measures the before/after on
+the revoked permission in BOTH directions on the same database: with the old grant a
+direct insert lands, and with it revoked the same statement is refused by name. 229 unit
+tests. 67 checks through the same verification script an operator points at the
+deployment, run unmodified against a local PostgreSQL with two consumer processes. The
+code sweep took three passes to come clean — 8 survivors, then 5, then 0 — and none of
+the eight was the product: one was dead code I deleted, one mutant was badly written,
+one needed a test at the layer where the answer is first read, and five are redundancies
+the fence created, now written down in the code so the next reader does not delete them.
+Your other product's suite still reads 6,316 tests, 6,314 passing, 0 failures.
+
+**One thing is honestly unfinished, and it is about my coverage rather than the code.**
+The SQL sweep's first pass found four gaps — all of them in the CHECK file, none in the
+schema — and I fixed all four; the schema check went from 177 to 185 checks doing it. The
+second pass, which would confirm those four fixes actually catch their breakages, was
+stopped at 10 of 67 so I could commit and deploy. I will finish it and report the number
+rather than leave the old one standing.

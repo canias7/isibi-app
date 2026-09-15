@@ -51,7 +51,7 @@ test("A CLAIM THAT CARRIES NO TENANT IS REFUSED — the consumer must never act 
   // The claim is where a consumer learns whose run it is. A claim answering `true`
   // with no tenant would make it act as whatever the next line happened to read.
   for (const tenant of [undefined, null, "", "   ", 4, ["t1"], {}]) {
-    const { work } = answering({ body: { claimed: true, run_id: "r1", tenant_id: tenant, kind: "start", attempts: 1 } });
+    const { work } = answering({ body: { claimed: true, run_id: "r1", tenant_id: tenant, kind: "start", attempts: 1, claim_token: "tok" } });
     await assert.rejects(
       () => work.claim({ runId: "r1", worker: "w1", ttlS: 90 }),
       /carries no tenant/,
@@ -59,11 +59,27 @@ test("A CLAIM THAT CARRIES NO TENANT IS REFUSED — the consumer must never act 
     );
   }
   // THE CONTROL.
-  const { work } = answering({ body: { claimed: true, run_id: "r1", tenant_id: "t1", kind: "start", attempts: 2 } });
+  const { work } = answering({ body: { claimed: true, run_id: "r1", tenant_id: "t1", kind: "start", attempts: 2, claim_token: "tok" } });
   const c = await work.claim({ runId: "r1", worker: "w1", ttlS: 90 });
   assert.equal(c.claimed, true);
   assert.equal(c.tenant, "t1");
   assert.equal(c.attempts, 2);
+  assert.equal(c.token, "tok");
+});
+
+test("A CLAIM THAT CARRIES NO TOKEN IS REFUSED — every write this worker makes needs one", async () => {
+  // **THE SAME RULE AS THE TENANT, ONE FIELD OVER.** A claim answering `true` with no
+  // token would produce a worker that holds the run and cannot write a single entry,
+  // and the failure would arrive several steps later wearing a journal error's
+  // clothes rather than naming the claim.
+  for (const token of [undefined, null, "", "   ", 4, ["tok"], {}]) {
+    const { work } = answering({ body: { claimed: true, run_id: "r1", tenant_id: "t1", kind: "start", attempts: 1, claim_token: token } });
+    await assert.rejects(
+      () => work.claim({ runId: "r1", worker: "w1", ttlS: 90 }),
+      /carries no token/,
+      `a claim with token ${JSON.stringify(token)} was accepted`,
+    );
+  }
 });
 
 test("A REFUSED CLAIM IS NOT A FAILURE, and carries nothing else", async () => {
@@ -150,17 +166,54 @@ test("the arguments go out under the names the functions declare", async () => {
   // A parameter name is the whole of a PostgREST RPC call. Renaming one silently
   // makes the function take its default instead, which for `p_done` would mean every
   // release marking the work finished.
-  const { work, calls } = answering((n) => (n === 4 ? { body: true } : { body: { state: "queued", claimed: true, tenant_id: "t1" } }));
+  const { work, calls } = answering((n) => (n === 4 || n === 6 ? { body: true }
+    : n === 5 ? { body: { ok: true, stored: true, seq: 3 } }
+    : { body: { state: "queued", claimed: true, tenant_id: "t1", claim_token: "tok" } }));
   await work.accept({ runId: "r1", tenant: "t1", entry: startedEntry, kind: "resume" });
   assert.deepEqual(calls[0].body, { p_run_id: "r1", p_tenant: "t1", p_entry: startedEntry, p_kind: "resume" });
   await work.requeue({ runId: "r1", tenant: "t1" });
   assert.deepEqual(calls[1].body, { p_run_id: "r1", p_tenant: "t1" });
   await work.claim({ runId: "r1", worker: "w1", ttlS: 90 });
   assert.deepEqual(calls[2].body, { p_run_id: "r1", p_worker: "w1", p_ttl_s: 90 });
-  await work.beat({ runId: "r1", worker: "w1", ttlS: 90 });
-  assert.deepEqual(calls[3].body, { p_run_id: "r1", p_worker: "w1", p_ttl_s: 90 });
-  await work.release({ runId: "r1", worker: "w1", done: false, error: "e" });
-  assert.deepEqual(calls[4].body, { p_run_id: "r1", p_worker: "w1", p_done: false, p_error: "e" });
+  await work.beat({ runId: "r1", worker: "w1", token: "tok", ttlS: 90 });
+  assert.deepEqual(calls[3].body, { p_run_id: "r1", p_worker: "w1", p_token: "tok", p_ttl_s: 90 });
+  await work.append({ runId: "r1", seq: 3, body: startedEntry, worker: "w1", token: "tok" });
+  assert.deepEqual(calls[4].body, { p_run_id: "r1", p_seq: 3, p_body: startedEntry, p_worker: "w1", p_token: "tok" });
+  await work.release({ runId: "r1", worker: "w1", token: "tok", done: false, error: "e" });
+  assert.deepEqual(calls[5].body, { p_run_id: "r1", p_worker: "w1", p_token: "tok", p_done: false, p_error: "e" });
   await work.sweep({ graceS: 5, limit: 7 });
-  assert.deepEqual(calls[5].body, { p_grace_s: 5, p_limit: 7 });
+  assert.deepEqual(calls[6].body, { p_grace_s: 5, p_limit: 7 });
+});
+
+test("AN APPEND ANSWER THE VOCABULARY DOES NOT COVER IS RAISED, never read as a success", async () => {
+  // **DRIVEN AT THIS LAYER BECAUSE THE LAYER ABOVE HIDES IT — a sweep's finding.** The
+  // store's own vocabulary is closed too, so removing this check there still produced a
+  // throw and the mutant survived. `work.append` is where the answer is first read, and
+  // this is the only place the closed vocabulary can be proved rather than inferred.
+  for (const body of [
+    { ok: true },                                  // success with neither `stored` nor `already`
+    { ok: true, stored: false },                   // "not stored" is not "already stored"
+    { ok: false },                                 // a refusal with no reason
+    { ok: false, why: "something-new" },           // a reason from a newer database
+    { ok: "true", stored: true },                  // `Boolean("false")` is `true`, so this is compared
+    null, [], "stored", 7,
+  ]) {
+    const { work } = answering({ body });
+    await assert.rejects(
+      () => work.append({ runId: "r1", seq: 0, body: startedEntry, worker: "w1", token: "tok" }),
+      /unrecognised answer/,
+      `append accepted ${JSON.stringify(body)}`,
+    );
+  }
+  // THE CONTROLS: the two success shapes, told apart.
+  const a = answering({ body: { ok: true, stored: true, seq: 3 } });
+  assert.deepEqual(await a.work.append({ runId: "r1", seq: 3, body: startedEntry, worker: "w1", token: "tok" }),
+    { answer: "stored", seq: 3 });
+  const b = answering({ body: { ok: true, stored: false, already: true, seq: 1 } });
+  assert.deepEqual(await b.work.append({ runId: "r1", seq: 3, body: startedEntry, worker: "w1", token: "tok" }),
+    { answer: "already", seq: 1 });
+  // ...and a refusal keeps its own name, with no seq invented for it.
+  const c = answering({ body: { ok: false, why: "lease-expired" } });
+  assert.deepEqual(await c.work.append({ runId: "r1", seq: 3, body: startedEntry, worker: "w1", token: "tok" }),
+    { answer: "lease-expired", seq: null });
 });

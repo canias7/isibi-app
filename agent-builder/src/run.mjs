@@ -54,6 +54,21 @@ const ended = (reason, extra = {}) => Object.freeze({ reason, ...extra });
  * `journal.append(entry)` is called as each thing HAPPENS — never batched at the
  * end, which would defeat the whole point. `from` is a previous run's entries,
  * and handing them in resumes rather than restarts.
+ *
+ * `checkpoint({ what, step })` is asked BEFORE anything new is started — before each
+ * model call, and before each batch of tool calls including the ones a resume
+ * finishes. **IT MAY THROW, AND A THROW ESCAPES THIS FUNCTION DELIBERATELY.** Its
+ * one caller uses it to ask the database whether this process still holds the run's
+ * claim, and a process that does not hold it must write NOTHING — not even a stop,
+ * because a stop is what tells the next holder the run is over. So there is no
+ * `ended("...")` for it: the record is not the product here, the absence of a write
+ * is.
+ *
+ * **WHAT IT CANNOT DO, said where somebody will read it before trusting it.** It is
+ * asked before the work starts, so it stops work that has not begun. It cannot
+ * recall a tool call already sent — nothing in a database can — which is why
+ * `repeatable` and the `cannot-resume` refusal above are the guarantee and this is
+ * only the narrowing.
  */
 export async function runAgent(opts = {}) {
   const { agent, tenant, send } = opts;
@@ -64,6 +79,14 @@ export async function runAgent(opts = {}) {
   if (journal !== null && typeof journal.append !== "function") {
     throw new TypeError("runAgent: journal must have an append function");
   }
+  // REFUSED, NOT IGNORED. A `checkpoint` that is present and not callable is a
+  // caller that believes it has an ownership check and has none — and the failure
+  // would be invisible, because a missing check looks exactly like a passing one.
+  if (Object.hasOwn(opts, "checkpoint") && opts.checkpoint !== undefined && typeof opts.checkpoint !== "function") {
+    throw new TypeError("runAgent: checkpoint must be a function");
+  }
+  const checkpoint = typeof opts.checkpoint === "function" ? opts.checkpoint : null;
+  const mayStart = async (what, step) => { if (checkpoint) await checkpoint({ what, step }); };
 
   // THE AGENT'S OWN LIMITS ARE THE AUTHOR'S AND ARE TRUSTED; a per-run override
   // is NOT, so it goes through `narrowLimits` and may only ever reduce them.
@@ -149,6 +172,10 @@ export async function runAgent(opts = {}) {
     // keeps ONE composer of the conversation: the gaps are filled in the log and
     // the log is the thing that builds the messages.
     for (const p of prior.pending) {
+      // ASKED BEFORE THE TOOL RUNS, not after. These are the pending calls of a run
+      // somebody else may now own, and they are `repeatable` — which makes running
+      // them safe to REPEAT, not safe to run twice at once.
+      await mayStart("tools", p.step);
       const tool = callable.get(p.name);
       const at = now();
       let done;
@@ -202,6 +229,11 @@ export async function runAgent(opts = {}) {
 
     // The per-call ceiling is min(its own cap, what the run has left).
     const callMs = capMs(limits.callMs, leftOf(limits.wallMs, used.wallMs));
+
+    // **OWNERSHIP BEFORE MONEY.** Asked before the step is even counted, so a run
+    // that has lost its claim costs nothing at all — not a call, not a meter, not an
+    // entry.
+    await mayStart("model", nextStep);
 
     // COUNTED BEFORE THE CALL, NOT AFTER. A `send` that always throws would
     // otherwise never advance the step meter and this loop would never end —
@@ -263,6 +295,12 @@ export async function runAgent(opts = {}) {
         limit: limits.toolCalls, used: used.toolCalls, asked: asked.length,
       }));
     }
+    // **OWNERSHIP BEFORE SIDE EFFECTS.** The model answer is written by now, so
+    // this costs the run nothing to skip; what it buys is that a worker which lost
+    // its claim during the model call does not go on to fire this batch at the
+    // outside world.
+    await mayStart("tools", stepNo);
+
     used.toolCalls += asked.length;
 
     const results = await runFanout(asked, async (call) => {

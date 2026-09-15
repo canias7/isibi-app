@@ -8,7 +8,7 @@
  *   SUPABASE_PUBLISHABLE_KEY=… SUPABASE_SERVICE_KEY=… \
  *   node scripts/verify-live.mjs
  *
- * Four things, and every one of them is CHECKED rather than narrated:
+ * Five things, and every one of them is CHECKED rather than narrated:
  *
  *   1. a real customer signs in, starts the long stand-in task, is answered 202
  *      promptly, and can read progress and then the final result;
@@ -16,7 +16,17 @@
  *   3. an interrupted consumer is replaced by another that continues from saved
  *      progress, keeping the work already done — and an uncertain, non-repeatable
  *      action still refuses to be repeated;
- *   4. a consumer whose lease is gone cannot start new work or write to the log.
+ *   4. a consumer whose lease is gone cannot start new work or write to the log;
+ *   5. **THE FENCE**: a paused holder whose lease has expired cannot write, a
+ *      replacement claimed through a duplicate delivery can, and the same entry
+ *      re-sent is absorbed while a DIFFERENT entry in the same slot is a conflict.
+ *
+ * **CHECK 5 IS THE BEFORE/AFTER, and it is deliberately not timing-dependent.** The
+ * gap it closes was measured on the deployment of 2026-09-15: a consumer whose lease
+ * was revoked kept writing for a further beat, because it only learns at its next
+ * one. So the fence is proved by asking the database directly — claim, expire,
+ * reclaim, then both parties write — which needs no pause and no luck, and asserts
+ * out loud that the sweeper's grace has NOT expired when the replacement takes over.
  *
  * **HOW AN INTERRUPTION IS PRODUCED, SAID PLAINLY: the lease is revoked** with the
  * service key, which is exactly what the platform's own reclaim does to a consumer
@@ -418,6 +428,114 @@ if (runIds.guarded) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 5. THE FENCE: a write must present the claim it is writing under
+// ════════════════════════════════════════════════════════════════════════════
+// **THE SCENARIO THE GAP WAS MEASURED IN, on the hosted database, deterministically.**
+// A holder is paused (it simply does not write for a while), its lease expires, and a
+// DUPLICATE DELIVERY claims the run before the sweeper would ever offer it. The old
+// holder's write must fail and the replacement's must succeed.
+//
+// It runs on a run of its own, accepted through the service key and claimed
+// immediately so no real consumer can take it, and released as done at the end so the
+// cron never runs it. Nothing here makes a model call.
+head("5. the fence: a stale holder cannot write, and a replacement can");
+{
+  const fenceRun = crypto.randomUUID();
+  const started = {
+    kind: "started", at: Date.now(), tenant, agent: "no-such-agent-fence-probe",
+    model: "stand-in", prompt: "the fence probe never executes", limits: { steps: 1 },
+  };
+  const m1 = { kind: "model", at: 1, step: 1, ms: 10, text: "one", toolCalls: [], usage: null, costMicros: null };
+  const m1diff = { ...m1, ms: 99, text: "SOMETHING ELSE" };
+  const m2 = { kind: "model", at: 2, step: 2, ms: 10, text: "two", toolCalls: [], usage: null, costMicros: null };
+  const append = (seq, body, worker, token) =>
+    rest("POST", "rpc/append_entry", { body: { p_run_id: fenceRun, p_seq: seq, p_body: body, p_worker: worker, p_token: token } });
+
+  const accepted = await rest("POST", "rpc/accept_run",
+    { body: { p_run_id: fenceRun, p_tenant: tenant, p_entry: started, p_kind: "start" } });
+  check("a run is accepted for the probe", accepted?.state === "queued", JSON.stringify(accepted).slice(0, 120));
+  runIds.fence = fenceRun;
+
+  // **THE DIRECT DOOR IS SHUT ON THE HOSTED DATABASE TOO.** This is the half that
+  // makes the fence unbypassable rather than merely preferred, and it is checked
+  // against the deployment's own credential rather than inferred from the migration.
+  const direct = await fetch(`${SUPABASE_URL}/rest/v1/run_entries`, {
+    method: "POST",
+    headers: { apikey: SVC, authorization: `Bearer ${SVC}`, "content-type": "application/json", "content-profile": SCHEMA },
+    body: JSON.stringify({ run_id: fenceRun, seq: 90, body: m2 }),
+  });
+  const directBody = await direct.text();
+  check("the service key CANNOT insert an entry directly any more", direct.status === 403,
+    `HTTP ${direct.status} — ${directBody.slice(0, 120)}`);
+  check("...and it says so as a privilege rather than as a constraint",
+    /permission denied/i.test(directBody), directBody.slice(0, 120));
+
+  const a = await rest("POST", "rpc/claim_run", { body: { p_run_id: fenceRun, p_worker: "probe-A", p_ttl_s: 90 } });
+  check("the claim answers a token", isText(a?.claim_token), JSON.stringify(a).slice(0, 140));
+  check("the holder's write is stored", (await append(1, m1, "probe-A", a?.claim_token))?.stored === true);
+
+  // The two duplicate readings, which must never collapse into one.
+  const same = await append(1, m1, "probe-A", a?.claim_token);
+  check("THE SAME ENTRY RE-SENT IS `already`, not an error", same?.already === true && same?.ok === true,
+    JSON.stringify(same));
+  const differs = await append(8, m1diff, "probe-A", a?.claim_token);
+  check("A DIFFERENT ENTRY IN THE SAME SLOT IS A `conflict`", differs?.ok === false && differs?.why === "conflict",
+    JSON.stringify(differs));
+
+  // THE PAUSE AND THE EXPIRY. No replacement yet, so the only thing that can refuse
+  // the holder is the lease itself.
+  await rest("PATCH", `run_work?run_id=eq.${fenceRun}`, { body: { lease_expires_at: new Date(Date.now() - 1000).toISOString() } });
+  const late = await append(2, m2, "probe-A", a?.claim_token);
+  check("A PAUSED HOLDER WHOSE LEASE EXPIRED IS REFUSED `lease-expired`",
+    late?.ok === false && late?.why === "lease-expired", JSON.stringify(late));
+
+  // **AND THE SWEEPER'S GRACE HAS NOT EXPIRED**, which is what makes this the gap that
+  // was demonstrated rather than one a wider grace would have covered.
+  const offered = await rest("POST", "rpc/sweep_run_work", { body: { p_grace_s: 30, p_limit: 50 } });
+  check("THE SWEEPER WOULD NOT HAVE OFFERED IT YET",
+    Array.isArray(offered) && !offered.some((r) => r.run_id === fenceRun),
+    `${Array.isArray(offered) ? offered.length : "?"} row(s) offered`);
+
+  // **WHAT "A DUPLICATE DELIVERY" AMOUNTS TO HERE, so nobody reads more into it than is
+  // there.** A delivery's ONLY effect on exclusivity is that the consumer calls
+  // `claim_run` — so this calls the same function the same way, which makes the fence
+  // provable without waiting for a message to arrive twice. The real delivery path is
+  // covered by the other checks, and by different ones: check 2 races two resumes and a
+  // second claim against a LIVE lease through the deployment, and check 3 has a real
+  // second consumer of the deployed Worker take over a run whose lease was revoked.
+  // Read the three together.
+  const bClaim = await rest("POST", "rpc/claim_run", { body: { p_run_id: fenceRun, p_worker: "probe-B", p_ttl_s: 90 } });
+  check("A DUPLICATE DELIVERY CLAIMS IT ANYWAY — `claim_run` has no grace",
+    bClaim?.claimed === true && bClaim?.claim_token !== a?.claim_token, JSON.stringify(bClaim).slice(0, 140));
+
+  const old = await append(2, m2, "probe-A", a?.claim_token);
+  check("THE OLD CONSUMER'S WRITE FAILS", old?.ok === false, JSON.stringify(old));
+  const fresh = await append(2, m2, "probe-B", bClaim?.claim_token);
+  check("THE REPLACEMENT'S WRITE SUCCEEDS", fresh?.stored === true, JSON.stringify(fresh));
+
+  // The token is the half a shared worker NAME cannot cover, so it is proved on its
+  // own: reclaim under the SAME name and the previous claim is still refused.
+  await rest("PATCH", `run_work?run_id=eq.${fenceRun}`, { body: { lease_expires_at: new Date(Date.now() - 1000).toISOString() } });
+  const b2 = await rest("POST", "rpc/claim_run", { body: { p_run_id: fenceRun, p_worker: "probe-B", p_ttl_s: 90 } });
+  check("a reclaim BY THE SAME NAME mints a different token", b2?.claim_token !== bClaim?.claim_token);
+  const stale = await append(3, { ...m2, at: 3, step: 3, text: "three" }, "probe-B", bClaim?.claim_token);
+  check("...and the replaced claim is refused `bad-token` although the NAME still matches",
+    stale?.why === "bad-token", JSON.stringify(stale));
+
+  const released = await rest("POST", "rpc/release_run",
+    { body: { p_run_id: fenceRun, p_worker: "probe-B", p_token: b2?.claim_token, p_done: true, p_error: "fence probe" } });
+  check("the probe releases its run so no consumer ever sees it", released === true, String(released));
+  const closed = await append(4, { ...m2, at: 4, step: 4 }, "probe-B", b2?.claim_token);
+  check("a write to finished work is refused `finished`", closed?.why === "finished", JSON.stringify(closed));
+
+  // The probe's rows go: it is an instrument, not a customer's run.
+  const gone = await fetch(`${SUPABASE_URL}/rest/v1/runs?id=eq.${fenceRun}`, {
+    method: "DELETE", headers: { apikey: SVC, authorization: `Bearer ${SVC}`, "content-profile": SCHEMA },
+  });
+  check("the probe's run is deleted", gone.ok, `HTTP ${gone.status}`);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // **THE THROWAWAY CUSTOMER GOES.** Best effort here, and the workflow removes any
 // that a failed run left behind — because a script that dies half way through is
 // exactly when cleanup matters and exactly when it does not run.
@@ -443,6 +561,13 @@ if (failed) {
   console.log("\nFAILURES:");
   for (const r of results.filter((x) => !x.ok)) console.log(`  - ${r.what}${r.detail ? ` — ${r.detail}` : ""}`);
 }
+console.log("\nWHAT FENCING DOES NOT DO, stated because it is the thing most easily");
+console.log("believed: it stops the RECORD of an action, never the action. A tool call");
+console.log("already sent cannot be recalled by a database. A stale worker refused its");
+console.log("write leaves a model answer with no result — a PENDING call — and if that");
+console.log("tool is not `repeatable` the run refuses to resume rather than firing it");
+console.log("again. Check 4 is that refusal; check 5 is the fence. They are different");
+console.log("guarantees and neither replaces the other.");
 console.log("\nNOT VERIFIED HERE, and it cannot be from outside: crossing a consumer");
 console.log("invocation's own wall-clock ceiling. The design answer is that the lease");
 console.log("lapses and the run is resumed from the log — the same mechanism check 3");

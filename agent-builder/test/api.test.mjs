@@ -542,15 +542,18 @@ test("A DOORBELL THAT DID NOT RING STILL ACCEPTS THE WORK, and says so", async (
 });
 
 test("A RUN WITH NO WORK ROW IS A NOT-FOUND ON RESUME, never a silent queue", async () => {
-  // Reachable for a run created straight through the store rather than through
-  // `accept` — an older run, or an SDK caller. The store says the run is this
-  // tenant's and the queue has never heard of it, and the two disagreeing must not
-  // read as "queued".
+  // A run whose log exists and whose work row does not. Since the fence that cannot
+  // be produced by writing — every append presents a claim on a work row — so it is
+  // what it really is in production: a run from before the fence, or one whose work
+  // row retention has taken. **The log is put in place directly for exactly that
+  // reason**, and the store's own door is used for the run row so the ownership half
+  // is real.
   const h = harness();
   const token = await tokenFor("t1");
   const scoped = h.store.forTenant("t1");
-  const { journal } = await scoped.create("orphan-run");
-  await journal.append({ kind: "started", at: NOW, tenant: "t1", agent: "support", model: "claude-sonnet-5", prompt: "go", limits: {} });
+  await scoped.create("orphan-run");
+  h.rest.entries.get("orphan-run").set(0,
+    { kind: "started", at: NOW, tenant: "t1", agent: "support", model: "claude-sonnet-5", prompt: "go", limits: {} });
 
   assert.ok(h.rest.runs.has("orphan-run"), "the run was not created");
   assert.equal(h.rest.work.has("orphan-run"), false, "this fixture accidentally created a work row");

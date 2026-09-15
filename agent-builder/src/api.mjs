@@ -210,7 +210,11 @@ export function makeApi(opts = {}) {
           const runId = decodeURIComponent(m[1]);
           const { bad } = await readBody(request);
           if (bad) return bad;
-          const open = await scoped.open(runId);        // authorises, or throws not-found
+          // `load`, NOT `open`: this route reads a run and asks for it to be picked
+          // up again. It never writes an entry, and since the fence a writer has to
+          // present a claim — which an HTTP request does not hold and must not be
+          // able to fabricate.
+          const open = await scoped.load(runId);        // authorises, or throws not-found
 
           // A FINISHED RUN IS NOT QUEUED. `runAgent` would refuse to execute it
           // anyway, and so would the runner — three walls, deliberately: this one
