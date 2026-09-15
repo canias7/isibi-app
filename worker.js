@@ -219,7 +219,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -23341,7 +23341,13 @@ async function handleRequest(request, env, ctx) {
             // composing the coverage would have thrown `ReferenceError` in a
             // place `node --check` cannot see and no source guard can either.
             // The recorded trap, met on the first draft of this change.
-            let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [];
+            // …AND `aJobErrors` JOINS THEM FOR EXACTLY THAT REASON (2026-09-15).
+            // It sat four hundred lines below, which cost nothing while only the
+            // reply read it — and `aFailedItems()` reads it from inside
+            // `aCoverage()`, whose first possible call is a refusal in the kinds
+            // loop ABOVE that line. The same trap, in the same route, found by
+            // reading rather than by a throw this time.
+            let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [], aJobErrors = [];
             // `holds` and `fails` are the closed vocabulary `claimEvidence`
             // checks a claim against, and `appliedFacts` owns both — LIFTED OUT
             // OF THIS ROUTE because a decision about the schema engine's own
@@ -23385,6 +23391,37 @@ async function handleRequest(request, env, ctx) {
                 return APPLIED_KINDS.includes(k) && aApplied;
               });
             };
+            // ── WHAT THE SITE ALREADY HAD, beside what this change applied ──
+            //
+            // `aSpec` is the stored schema, and reaching this line at all means
+            // it was READ rather than guessed: `specForAddon` recovers a table
+            // the catalog has and the spec does not, or stops, and a `none`
+            // site is `{tables: []}` against its own state. So it is the
+            // trustworthy existing-site evidence item 2 asks for. `aSrc` is the
+            // stored page source — the site's real routes.
+            //
+            // A change that REUSES a function it did not need to create leaves
+            // nothing in `aMade()`, and without this the reconciliation read
+            // that silence as "still to do" about something live.
+            const aExisting = () => existingFacts({
+              spec: aSpec,
+              pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+              // …AND THE LOOK, for the two kinds a site carries by name rather
+              // than in its schema. `aLook` is the resolved config this step
+              // merges into, so it is the same picture every designer was given.
+              look: aLook,
+            });
+            // ── AND WHICH INDIVIDUAL THINGS FAILED, not which kinds ─────────
+            //
+            // `aFailedKinds` is per-KIND, so one refused function blocked every
+            // requirement handed to the function step — including one naming a
+            // function Postgres created without complaint. These are the names,
+            // so a requirement that says what it depends on is judged on that.
+            const aFailedItems = () => [
+              ...aFnErrors.map((e) => ({ kind: "function", name: (e && e.name) || "" })),
+              ...aJobErrors.map((e) => ({ kind: "job", name: (e && e.name) || "" })),
+              ...aMissing.map((r) => ({ kind: "page", name: r })),
+            ].filter((f) => f.name);
             // WHICH STEPS WERE REALLY HANDED AN OUTSTANDING REQUIREMENT. Filled
             // where the brief is composed, never where it is merely intended:
             // a hop that exists in this file and does not run is this
@@ -23415,7 +23452,7 @@ async function handleRequest(request, env, ctx) {
                 // landed and what each item really guarantees; `told` is which
                 // steps were really handed an outstanding requirement.
                 coverNote: [
-                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade(), reportable: aReportable(), unexpressed: [...aUnexpressed] }),
+                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed] }),
                   // THE MISSING PAGES' OWN SENTENCE, joined rather than folded
                   // into `requirementNote`: that function is about REQUIREMENTS
                   // the designers declared, and a page that did not survive the
@@ -23689,7 +23726,9 @@ async function handleRequest(request, env, ctx) {
             const aRecord = () => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
-              failed: [...aFailedKinds], made: aMade(), reportable: aReportable(), unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
+              failed: [...aFailedKinds], failedItems: aFailedItems(),
+              made: aMade(), reportable: aReportable(), existing: aExisting(),
+              unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
               unknownKit: [...aUnknownKit], missingPages: aMissing,
             });
             const aSaveAnswer = async () => {
@@ -23720,7 +23759,7 @@ async function handleRequest(request, env, ctx) {
             // without both a run where every claim was unverifiable is
             // indistinguishable from one where every claim held.
             {
-              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], made: aMade(), reportable: aReportable() });
+              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting() });
               aMark("coverage", "ok", {
                 ...requirementCounts(aReq, aReqSkipped), bad: aBadProps.size, moved: aChanged.size,
                 // BESIDE `bad`, NEVER SUMMED INTO IT: a run where the addon lost
@@ -23740,6 +23779,12 @@ async function handleRequest(request, env, ctx) {
                 broke: st.filter((r) => r.state === "failed" || r.state === "blocked").length,
                 unsure: st.filter((r) => r.state === "unverified" || r.state === "configured").length,
                 gone: st.filter((r) => r.state === "missing").length,
+                // NOBODY COULD SEE IT EITHER WAY — beside `unsure` rather than
+                // in it: a run of these built nothing anybody can point at, and
+                // summed together the two read as a productive run nobody
+                // checked. It is also the number that says the existing-site
+                // readers went quiet, which is a platform fact worth watching.
+                unseen: st.filter((r) => r.state === "unknown").length,
                 unsent: st.filter((r) => r.handoff === "undelivered").length,
                 unbuilt: Object.values(aUnbuilt).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0),
               });
@@ -23791,7 +23836,10 @@ async function handleRequest(request, env, ctx) {
             // table that already has rows, exactly as it does on a revise.
             const aBackend = backendDesigned(aDesigned);
             let aSeeded = null, aSeedUsage = null, aSeedTopUp = null;
-            let aProvisioned = false, aJobErrors = [], aSecrets = [];
+            // `aJobErrors` IS DECLARED WITH THE OTHER APPLIED RESULTS, above the
+            // kinds loop — `aFailedItems()` reads it and a refusal there can
+            // compose the coverage before this line ever runs.
+            let aProvisioned = false, aSecrets = [];
             // What sequence #1 reserved ahead of the schema apply, and whether it
             // did — see the block before `aApplyBackend`.
             let aFirst = 0, aFirstPlaced = false;

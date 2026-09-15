@@ -26,6 +26,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { addon, promptFor, storedAnswer, writtenPage, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+import { existingFacts } from "../builder/site-add.mjs";
+import { SITE_KINDS, OPAQUE_KINDS } from "../builder/site-requirements.mjs";
 // THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
 // is derived from what the engine really emits rather than typed by hand — a
 // hand-typed permission is a second copy of the emitter and the two drift.
@@ -299,8 +301,22 @@ test("a requirement handed BACK to a step that already ran stays outstanding", a
   // stronger claim is the one run 48 shipped as a falsehood.
   assert.doesNotMatch(r.body.coverNote, /Still to do/,
     "work nobody looked at was reported as work that is not there");
-  assert.match(r.body.coverNote, /can't confirm from here that the reminder shows their booking time/,
+  // ── RE-ANCHORED AGAIN 2026-09-15, AND IT MOVED A SECOND TIME ─────────────
+  //
+  // It asserted the "I've set that up, but I can't confirm" clause. The
+  // requirement names no thing to look for, so nobody established that
+  // anything was set up — the function step made A function, and whether one
+  // of them is what this asked for is precisely what cannot be told. The
+  // owner's own instruction: *"'I've set that up' is inappropriate when
+  // implementation is unknown."*
+  assert.doesNotMatch(r.body.coverNote, /I've set that up/,
+    "an implementation nobody could find was reported as work that was done");
+  assert.match(r.body.coverNote, /can't see from here whether the reminder shows their booking time/,
     "the requirement stopped being mentioned to the customer at all");
+  const bq = storedAnswer(r, "fw-backward").coverage.requirements
+    .find((x) => x.need === "the reminder shows their booking time");
+  assert.equal(bq.implementation, "unknown");
+  assert.equal(bq.state, "unknown", "a populated kind with no name to match was read as work that exists");
   // WHAT THIS CASE IS REALLY FOR, kept exactly: the hand-off reached nobody and
   // the record says so, rather than a step that ran being read as satisfaction.
   assert.ok((r.body.requirements || []).some((x) => x.need === "the reminder shows their booking time"),
@@ -1199,7 +1215,14 @@ test("run 48: a hand-off to a step that already ran, whose function WAS applied,
   // THE NAME MAY APPEAR — the can't-confirm clause quotes the need, which
   // contains it, and that is correct. What it may not appear in is a sentence
   // saying the work is outstanding, which is the whole of run 48's defect.
-  assert.match(r.body.coverNote, /can't confirm from here that A new function named count_existing_bookings/,
+  // RE-ANCHORED 2026-09-15 and it MOVED rather than broke, one clause over.
+  // This entry names no `item`, so nothing established that the thing it asks
+  // for exists — and the can't-confirm clause opens *"I've set that up"*,
+  // which is a claim about work nobody found. The unknown clause says the
+  // true thing and still names the need, which is what this line is for.
+  assert.doesNotMatch(r.body.coverNote, /I've set that up/,
+    "an implementation nobody could find was reported as work that was done");
+  assert.match(r.body.coverNote, /can't see from here whether A new function named count_existing_bookings/,
     "the requirement stopped being mentioned to the customer at all");
   const cov = storedAnswer(r, "fw-late-made").coverage;
   // THE TWO ANSWERS, SEPARATE AND BOTH KEPT. The hand-off really did reach
@@ -1216,7 +1239,7 @@ test("run 48: a hand-off to a step that already ran, whose function WAS applied,
   // as `found`. Either answer keeps the customer's sentence honest; only this
   // one is true.
   assert.equal(late.implementation, "unknown");
-  assert.equal(late.state, "unverified", "an applied implementation was read as anything but unchecked");
+  assert.equal(late.state, "unknown", "an implementation nobody could find was folded back into `unverified`");
 });
 
 test("run 48 with the thing NAMED: the same hand-off resolves against the applied function exactly", async () => {
@@ -1301,6 +1324,11 @@ test("a page that did not survive is missing, and a coverage composed before the
   // and the customer hears the dependency sentence. Both are honest and the
   // distinction is the owner's: this points them at the other part.
   assert.equal(want.state, "blocked", "a page nobody could build read as work simply not done");
+  // …AND IT NAMES THE ROUTE, not the step. A SWEEP SURVIVOR: with the missing
+  // pages off `aFailedItems` the requirement is still blocked — by the KIND —
+  // so the state alone cannot tell the two readings apart, and what a customer
+  // can act on is which page it was.
+  assert.match(want.why, /\/gallery/, "the blocked page requirement does not name the page: " + want.why);
   assert.ok((cov.applied || []).every((m) => m.name !== "/gallery"),
     "a page that did not survive is in the applied result: " + JSON.stringify(cov.applied));
   assert.ok((cov.applied || []).some((m) => m.kind === "page" && m.name === "/booking-check"),
@@ -1328,10 +1356,16 @@ test("a coverage composed before anything published cannot answer `absent` for a
   const cov = storedAnswer(r, "fw-page-early").coverage;
   const want = cov.requirements.find((q) => q.need === WANT.need);
   assert.equal(want.implementation, "unknown", "a page step whose publish never ran answered about its own absence");
-  assert.equal(want.state, "unverified");
+  // RE-ANCHORED 2026-09-15: `unknown` is its own state now rather than a quiet
+  // `unverified`, and this case is exactly why — nothing was published, so
+  // nothing was set up, and the clause that says so must not be the one that
+  // opens *"I've set that up"*.
+  assert.equal(want.state, "unknown");
   assert.equal(cov.counts.missing, 0, "work that was never attempted was reported as work that is not there");
   assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
     "a refused change reported its unattempted pages as still to do: " + r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote || "", /I've set that up/,
+    "a change that published nothing claimed it had set the page up: " + r.body.coverNote);
 });
 
 test("run 48's shape when the database REFUSED the function: the dependency is blocked, not merely unchecked", async () => {
@@ -1367,7 +1401,7 @@ test("run 48's shape when the database REFUSED the function: the dependency is b
     "a blocked need was ALSO reported as work nobody built: " + r.body.coverNote);
 });
 
-test("a kind this layer cannot see is unverified, never missing — even when it ran", async () => {
+test("a kind this layer cannot see is UNKNOWN, never missing and never 'set up' — even when it ran", async () => {
   // TWO SWEEP SURVIVORS, CLOSED TOGETHER, and they are the same rule from two
   // sides: **cannot-tell must never read as a value**, this repository's most
   // repeated one, met where the wrong direction tells a customer a shipped
@@ -1398,9 +1432,22 @@ test("a kind this layer cannot see is unverified, never missing — even when it
   const need = cov.requirements.find((q) => q.need === NEEDS_SECTION.need);
   assert.equal(need.handoff, "delivered", "the component step was told and the ledger says otherwise");
   assert.equal(need.implementation, "unknown", "a kind with no applied list answered about its own absence");
-  assert.equal(need.state, "unverified");
+  // ── THE OWNER'S "UNOBSERVABLE COMPONENT", IN ITS OWN WORDS (2026-09-15) ──
+  //
+  // `component` is an `OPAQUE_KIND`: a section folded into an existing page
+  // leaves no item in any applied list AND no entry in any site inventory, so
+  // NOTHING can establish either presence or absence. The state is `unknown`
+  // and the sentence must not be the one that claims the work was done.
+  assert.equal(need.state, "unknown", "an unobservable kind was read as work that exists");
   assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
     "a section this layer cannot see was reported as still to do: " + r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote || "", /I've set that up/,
+    "a section nobody can see was reported as work that was done: " + r.body.coverNote);
+  assert.match(r.body.coverNote || "", /can't see from here whether The page carries a note/,
+    "the unobservable need is not said to the customer at all");
+  const cnt = storedAnswer(r, "fw-unseeable").coverage.counts;
+  assert.equal(cnt.unknown, 1, "the record has no number for what nobody could see");
+  assert.equal(cnt.unverified, 0, "an unobservable need was counted as an established implementation");
 });
 
 test("a hand-off FORWARD, to a step that heard it and delivered, stays the control", async () => {
@@ -1512,4 +1559,212 @@ test("the input digest is the step's INPUT, never its output", async () => {
   // THE CONTROL, so the case above is not satisfied by a digest that is always
   // the baseline: the second entry really moved, and it moved forwards.
   assert.ok(shown[1].tables.length > shown[0].tables.length, "nothing about the picture changed between the two steps");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE THREE REPORTING CASES (owner, 2026-09-15), each driven through the route
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a MIXED-SUCCESS function step blocks only the requirement whose own function failed", async () => {
+  // ── ITEM 1 (owner): *"Scope failures to the referenced item and its actual
+  // dependencies. One failed function must not block a requirement whose
+  // different function applied successfully. Preserve real dependency
+  // failures."*
+  //
+  // `aFailedKinds` is per-KIND, so ONE refused function marked the whole
+  // function step failed and every requirement handed to it read `blocked` —
+  // including one naming a function Postgres created without complaint. Both
+  // halves are asserted here, because a fix that simply stopped blocking would
+  // lose the real dependency failure, which is the other half of the ask.
+  const OK_NEED = { need: "the page can count what is stored", status: "elsewhere", step: "function", item: "count_ok" };
+  const BAD_NEED = { need: "the owner gets a nightly summary", status: "elsewhere", step: "function", item: "count_bad" };
+  const r = await addon("fw-mixed-fn", "count what is stored and send me a summary", {
+    kinds: ["function", "job"],
+    fnFail: "count_bad",
+    answers: {
+      function: {
+        function: [
+          { name: "count_ok", internal: true, returns: "int", body: "BEGIN RETURN 1; END;" },
+          { name: "count_bad", internal: true, returns: "int", body: "BEGIN RETURN 2; END;" },
+        ],
+      },
+      job: { job: [{ name: "nightly", fn: "count_ok", everyMinutes: 1440, at: "09:00" }], requirements: [OK_NEED, BAD_NEED] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION IS THE WHOLE POINT and is asserted rather than assumed:
+  // one function of the two really was created and the other really was
+  // refused. Without the mix this case tests nothing at all.
+  assert.deepEqual(r.body.functions, ["count_ok"], "both functions applied — this case tests nothing");
+  assert.deepEqual((r.body.functionErrors || []).map((e) => e.name), ["count_bad"],
+    "the database did not refuse the other one — this case tests nothing");
+  const cov = storedAnswer(r, "fw-mixed-fn").coverage;
+  const ok = cov.requirements.find((q) => q.need === OK_NEED.need);
+  const bad = cov.requirements.find((q) => q.need === BAD_NEED.need);
+  // THE FIX: the requirement whose own function is there is not blocked by
+  // somebody else's failure, and it claims no more than that the thing exists.
+  assert.equal(ok.state, "unverified", "a requirement whose own function applied was blocked by a different one's failure");
+  assert.equal(ok.implementation, "found");
+  assert.equal(ok.implementedBy, "count_ok");
+  assert.equal(ok.foundIn, "applied");
+  // AND THE REAL DEPENDENCY FAILURE IS PRESERVED, naming the item rather than
+  // the step — which is what a customer can act on.
+  assert.equal(bad.state, "blocked", "a requirement whose own function the database refused stopped being blocked");
+  assert.match(bad.why, /count_bad/, "the blocked requirement does not name the thing that failed");
+  assert.equal(cov.counts.blocked, 1, "the blocked count swept in the requirement that was fine");
+  // …AND THE CUSTOMER HEARS BOTH, in the two different sentences they need.
+  assert.match(r.body.coverNote, /waiting on another part of the same change that didn't work[^.]*nightly summary/,
+    "the failed dependency is not pointed at: " + r.body.coverNote);
+  // …AND THE SENTENCE ITSELF NAMES THE ITEM. A SWEEP SURVIVOR: `requirementNote`
+  // recomputes the outcomes from its own arguments, so dropping `failedItems`
+  // THERE leaves the stored record right and the customer's sentence generic.
+  // The two are composed separately and both have to be told.
+  assert.match(r.body.coverNote, /count_bad/,
+    "the customer's sentence does not name the thing that failed: " + r.body.coverNote);
+  assert.match(r.body.coverNote, /can't confirm from here that the page can count what is stored/,
+    "the requirement that was fine is not reported as built-and-unchecked: " + r.body.coverNote);
+});
+
+test("a function the site ALREADY HAS is not 'still to do' when this change reuses it", async () => {
+  // ── ITEM 2 (owner): *"Distinguish 'not added by this change' from 'absent
+  // from the site.' Reconcile against trustworthy existing-site evidence as
+  // well as applied additions."*
+  //
+  // The site already declares `count_existing_bookings`; the change adds a page
+  // that calls it and CORRECTLY creates no function. `appliedFacts` is
+  // therefore silent about it — and reading that silence as absence is run 48's
+  // defect wearing a different hat.
+  const HAVE = {
+    tables: STORED_SCHEMA.tables,
+    functions: [{ name: "count_existing_bookings", returns: "bigint", internal: false }],
+    apis: [], jobs: [],
+  };
+  const REUSE = { need: "the page shows the stored booking total", status: "elsewhere", step: "function", item: "count_existing_bookings" };
+  const r = await addon("fw-reuse", "add a page showing the booking total", {
+    kinds: ["page"], publishes: true, stored: HAVE,
+    answers: { page: { page: [CHECK_PAGE], requirements: [REUSE] } },
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.functions, undefined, "the change created a function — this case tests reuse, not creation");
+  const cov = storedAnswer(r, "fw-reuse").coverage;
+  const q = cov.requirements.find((x) => x.need === REUSE.need);
+  assert.equal(q.implementation, "found", "a function the site already has was not found at all");
+  assert.equal(q.foundIn, "existing", "the record does not distinguish reuse from this change having made it");
+  assert.equal(q.implementedBy, "count_existing_bookings");
+  assert.equal(q.state, "unverified", "a function the site already has was not read as there-and-unchecked");
+  assert.equal(cov.counts.missing, 0, "reuse was counted as work that is not there");
+  assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
+    "a function the site already has was reported as still to do: " + r.body.coverNote);
+  // THE CONTROL, and without it this proves nothing: the SAME change, the SAME
+  // requirement, on a site that does NOT declare it — where "not added and not
+  // there" is the true answer and must still be said.
+  const c = await addon("fw-reuse-control", "add a page showing the booking total", {
+    kinds: ["page"], publishes: true,
+    answers: { page: { page: [CHECK_PAGE], requirements: [REUSE] } },
+    written: [writtenPage("/booking-check")],
+  });
+  assert.equal(c.body.ok, true, JSON.stringify(c.body));
+  const cq = storedAnswer(c, "fw-reuse-control").coverage.requirements.find((x) => x.need === REUSE.need);
+  assert.equal(cq.implementation, "absent", "a function neither added nor on the site was not seen as absent");
+  assert.equal(cq.state, "missing");
+  assert.match(c.body.coverNote, /Still to do: the page shows the stored booking total/,
+    "the control lost the real finding: " + c.body.coverNote);
+});
+
+test("on a site that already has things of a kind, a requirement naming none of them is UNKNOWN", async () => {
+  // THE OTHER HALF OF ITEM 2, and the one that keeps it from over-claiming in
+  // the opposite direction. A requirement with no `item` can only ever be
+  // answered from emptiness — and that has to be emptiness of BOTH readers.
+  // This change makes no function; the site has one; nothing here can say
+  // whether THAT function is the one the requirement meant, so "still to do" is
+  // a claim nobody is entitled to.
+  //
+  // THE SHAPE IS A JOB-ONLY CHANGE deliberately: `aReportable` answers TRUE for
+  // a kind this change never RAN (it made none, definitionally), so `function`
+  // and `qr` are both answerable here and the case is not resting on the route
+  // going quiet for some other reason.
+  const HAVE = {
+    tables: STORED_SCHEMA.tables,
+    functions: [{ name: "send_reminder", returns: "void", internal: true }],
+    apis: [], jobs: [],
+  };
+  const VAGUE = { need: "something counts what is stored", status: "elsewhere", step: "function" };
+  const CODE = { need: "the poster's code opens the booking page", status: "elsewhere", step: "qr", item: "wifi" };
+  // …AND ONE HANDED TO A KIND NOTHING CAN EVER ENUMERATE. This change ran no
+  // component step, so `aReportable` answers TRUE for it — "it made none,
+  // definitionally" — which for every other kind is enough to say `absent`.
+  // `OPAQUE_KINDS` is what stops it here, and it is the whole of what stops it:
+  // a section folded into an existing page leaves no item in any list, so a
+  // working one and an absent one look identical from here.
+  const PART = { need: "the page shows opening hours", status: "elsewhere", step: "component", item: "hours-band" };
+  const r = await addon("fw-stocked", "remind them the day before", {
+    kinds: ["job"], stored: HAVE,
+    look: { qr: [{ name: "wifi", points: "WIFI:S=Fretwork;;", label: "Wi-Fi" }] },
+    answers: { job: { job: [JOB], requirements: [VAGUE, CODE, PART] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, asserted rather than assumed: the apply ran (which is what
+  // makes the kinds answerable at all) and created no function whatever.
+  assert.deepEqual(r.body.functions || [], [], "the change created a function — this case is about one it did NOT create");
+  const cov = storedAnswer(r, "fw-stocked").coverage;
+  const vague = cov.requirements.find((q) => q.need === VAGUE.need);
+  // NOT `missing`: the site has a function and this change made none, and those
+  // are two different silences. Only both being empty is evidence of absence.
+  assert.equal(vague.implementation, "unknown",
+    "a requirement naming no function was answered from this change's silence alone");
+  assert.equal(vague.state, "unknown");
+  assert.equal(vague.implementedBy, undefined, "an unnamed requirement was credited to some function or other");
+  // ── AND THE SITE'S LOOK IS AN INVENTORY TOO ──────────────────────────────
+  //
+  // `qr` and `three` are the two kinds a site carries by NAME rather than in
+  // its schema, so without the stored look this requirement has no reader at
+  // all and reads `unknown` — which is honest and is not the answer, because
+  // the code is right there on the site.
+  const code = cov.requirements.find((q) => q.need === CODE.need);
+  assert.equal(code.implementation, "found", "a QR code the site already carries was not found");
+  assert.equal(code.foundIn, "existing");
+  assert.equal(code.implementedBy, "wifi");
+  assert.equal(code.state, "unverified", "an existing QR code was not read as there-and-unchecked");
+  // AND THE UNOBSERVABLE KIND, whose only wall is `OPAQUE_KINDS` — this change
+  // could report absence for any other kind it never ran.
+  const part = cov.requirements.find((q) => q.need === PART.need);
+  assert.equal(part.implementation, "unknown",
+    "a kind nothing can enumerate was answered `absent` because this change made none of them");
+  assert.equal(part.state, "unknown");
+  assert.equal(cov.counts.missing, 0, "a site's own contents were counted as work that is not there");
+  assert.equal(cov.counts.unknown, 2, "the two silences were not told apart: " + JSON.stringify(cov.counts));
+  // THE CUSTOMER HEARS THE TWO DIFFERENT SENTENCES, and neither is "still to do".
+  assert.match(r.body.coverNote, /can't see from here whether something counts what is stored/,
+    "the unanswerable need is not said as unanswerable: " + r.body.coverNote);
+  assert.match(r.body.coverNote, /I've set that up, but I can't confirm from here that the poster's code/,
+    "the existing QR code is not said as there-and-unchecked: " + r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /Still to do/,
+    "a site's own contents were reported as still to do: " + r.body.coverNote);
+});
+
+test("existing-site evidence is used only where it was really read", async () => {
+  // THE THIRD READING OF ITEM 2, and the one that keeps it from over-claiming:
+  // *"Where existing presence cannot be established, report unknown — not
+  // missing."* The module never assumes an inventory it was not handed, and
+  // `existingFacts` derives which kinds it can speak for from what it was
+  // really given rather than from a list of its own.
+  const spec = { tables: [{ name: "bookings" }], functions: [{ name: "count_it" }], apis: [], jobs: [] };
+  const full = existingFacts({ spec, pages: ["/", "/menu"], look: { qr: [{ name: "wifi", points: "x", label: "Wi-Fi" }], three: "a globe" } });
+  assert.deepEqual(full.kinds.slice().sort(), ["api", "function", "job", "page", "qr", "table", "three"],
+    "the enumerable kinds are not the ones the caller supplied");
+  assert.ok(full.items.some((m) => m.kind === "function" && m.name === "count_it"));
+  assert.ok(full.items.some((m) => m.kind === "page" && m.name === "/menu"));
+  assert.ok(full.items.some((m) => m.kind === "qr" && m.name === "wifi"));
+  assert.ok(full.items.some((m) => m.kind === "three" && m.name === "three"),
+    "a site's one scene has no entry, so a requirement handed to `three` can never resolve");
+  // NOTHING HANDED OVER MEANS NOTHING CLAIMED — the conservative default, and
+  // the answer an unchanged caller keeps.
+  assert.deepEqual(existingFacts(), { items: [], kinds: [] });
+  assert.deepEqual(existingFacts({ pages: [] }), { items: [], kinds: ["page"] },
+    "an empty page list is a READ that found nothing, not a reader that stayed silent");
+  // AND IT CANNOT CLAIM A KIND THE RECONCILIATION DOES NOT BELIEVE A SITE HOLDS:
+  // `kinds` is intersected with `SITE_KINDS`, so the two cannot drift apart.
+  for (const k of full.kinds) assert.ok(SITE_KINDS.includes(k), k + " is enumerated and is not a SITE_KIND");
+  for (const k of OPAQUE_KINDS) assert.ok(!full.kinds.includes(k), k + " is unobservable and was enumerated anyway");
 });

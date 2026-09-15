@@ -50,6 +50,34 @@ export const COVERAGE = ["covered", "elsewhere", "unsupported"];
 export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "component", "qr", "three", "photo", "edit"];
 
 /**
+ * ── WHETHER A SITE CAN ALREADY HOLD ONE, AND WHETHER ANYONE CAN LOOK ────────
+ *
+ * Owner, 2026-09-15: *"Distinguish 'not added by this change' from 'absent from
+ * the site.'"* Doing that means knowing, per step, which question is even
+ * askable — and the three answers are genuinely different, so they are three
+ * lists rather than one flag.
+ *
+ *   SITE_KINDS    — the site can already hold one, and something can enumerate
+ *                   them. A miss here means "not added AND not there" only when
+ *                   the caller really READ that inventory (`existing.kinds`);
+ *                   otherwise nobody looked and the answer is `unknown`.
+ *   OPAQUE_KINDS  — the site may hold one and NOTHING can enumerate them. A
+ *                   `component` folded into an existing page leaves no item
+ *                   anywhere, and a `photo` is a URL inside a file. Absence is
+ *                   never establishable, so these are never `absent`.
+ *   neither       — `edit` alone. It names no artifact a site holds; "they can
+ *                   change the wording later" is a real answer and the only
+ *                   question about it is whether THIS CHANGE did it, which the
+ *                   applied evidence answers on its own.
+ *
+ * `test/requirement-coverage.test.mjs` censuses the three against
+ * `COVERAGE_STEPS` in both directions, so a step added next month must be
+ * placed deliberately rather than falling into whichever branch it lands in.
+ */
+export const SITE_KINDS = ["table", "function", "api", "job", "page", "qr", "three"];
+export const OPAQUE_KINDS = ["component", "photo"];
+
+/**
  * WHAT BECAME OF A REQUIREMENT ONCE THE WHOLE CHANGE RAN.
  *
  *   delivered   — a behaviour something really EXERCISED ties this need to what
@@ -57,10 +85,15 @@ export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "compo
  *   configured  — the implementation is there and a SETTING read back off it
  *                 matches the claim. Recorded, never promoted: "the function is
  *                 public" does not prove it checks ownership.
- *   unverified  — the implementation is there (or nothing here can see whether
- *                 it is) and NOTHING ties it to this particular claim.
+ *   unverified  — the implementation IS established — this change applied it,
+ *                 or the site already had it — and NOTHING ties it to this
+ *                 particular claim.
+ *   unknown     — nothing here can establish whether the implementation is
+ *                 there at all. Separate from `unverified` since 2026-09-15,
+ *                 because that one's sentence opens *"I've set that up"*.
  *   missing     — the implementation is not there, and this layer can see that
- *                 it is not.
+ *                 it is not: this change did not add it AND the site does not
+ *                 have it, both read from a source that can enumerate.
  *   blocked     — the step this need depends on ran and failed.
  *   failed      — the platform said it could not do it, or the step that
  *                 CLAIMED it failed.
@@ -92,7 +125,7 @@ export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "compo
  * `unverified` rather than `missing`. Silence is never read as success and
  * never as failure.
  */
-export const REQUIREMENT_STATES = ["delivered", "configured", "unverified", "missing", "blocked", "failed"];
+export const REQUIREMENT_STATES = ["delivered", "configured", "unverified", "unknown", "missing", "blocked", "failed"];
 
 /**
  * WHAT BECAME OF THE HAND-OFF ITSELF, beside what became of the work.
@@ -561,25 +594,68 @@ export function claimEvidence(claim, made) {
  * vocabulary. The only list that settles a requirement is `checked`, and
  * nothing fills it (`appliedFacts`).
  */
-export function implementationOf(r, made = [], reportable = []) {
+export function implementationOf(r, made = [], reportable = [], existing = null) {
   const kind = r && typeof r === "object" && r.status === "elsewhere" ? String(r.step || "") : "";
   if (!kind) return { state: "unknown", by: "", name: "", kind: "" };
-  const can = (Array.isArray(reportable) ? reportable : []).includes(kind);
-  const mine = (Array.isArray(made) ? made : []).filter((m) => m && String(m.kind || "") === kind);
+  const low = (v) => String((v && v.name) || "").trim().toLowerCase();
+  const ofKind = (list) => (Array.isArray(list) ? list : []).filter((m) => m && String(m.kind || "") === kind);
+  // ── TWO SOURCES OF PRESENCE, AND THEY ARE NOT THE SAME CLAIM ────────────
+  //
+  // `made` is what THIS CHANGE applied; `existing` is what the site ALREADY
+  // had, and a caller supplies it only for kinds it can really enumerate.
+  // Both answer "the thing is there"; neither alone answers "it is not".
+  const canApplied = (Array.isArray(reportable) ? reportable : []).includes(kind);
+  const ex = existing && typeof existing === "object" ? existing : null;
+  const canExisting = !!ex && (Array.isArray(ex.kinds) ? ex.kinds : []).includes(kind);
+  const mine = ofKind(made);
+  const theirs = ex ? ofKind(ex.items) : [];
+  // **ABSENCE NEEDS EVERY READER THAT COULD SPEAK TO HAVE SPOKEN**, which is
+  // the owner's instruction — *"Where existing presence cannot be established,
+  // report unknown — not missing"* — and NOT a blanket demand for two readers.
+  // The three cases are `SITE_KINDS` / `OPAQUE_KINDS` / neither:
+  //
+  //   * a kind the site can hold is `absent` only when its inventory was really
+  //     read (`canExisting`); unread, nobody looked, so `unknown`.
+  //   * a kind nothing can enumerate is NEVER absent, whatever was applied.
+  //   * `edit` names no artifact, so the applied evidence is the whole answer —
+  //     demanding a site inventory there would lose a real finding, which is
+  //     what the first cut of this change did.
+  const opaque = OPAQUE_KINDS.includes(kind);
+  const holdable = SITE_KINDS.includes(kind);
+  const visible = canApplied && !opaque && (!holdable || canExisting);
   const item = typeof r.item === "string" ? r.item.trim().toLowerCase() : "";
   if (item) {
-    const hit = mine.find((m) => String(m.name || "").trim().toLowerCase() === item);
-    if (hit) return { state: "found", by: "item", name: String(hit.name), kind };
-    return { state: can ? "absent" : "unknown", by: "item", name: item, kind };
+    const hit = mine.find((m) => low(m) === item);
+    if (hit) return { state: "found", by: "item", where: "applied", name: String(hit.name), kind };
+    // NOT ADDED BY THIS CHANGE IS NOT ABSENT FROM THE SITE. A change that
+    // deliberately reuses a function it did not need to create leaves nothing
+    // in `made`, and reading that as "still to do" is run 48's defect wearing
+    // a different hat.
+    const had = theirs.find((m) => low(m) === item);
+    if (had) return { state: "found", by: "item", where: "existing", name: String(had.name), kind };
+    return { state: visible ? "absent" : "unknown", by: "item", name: item, kind };
   }
-  // No name to match: only the EMPTY direction is sound. See the head.
-  if (mine.length) return { state: "unknown", by: "kind", name: "", kind };
-  return { state: can ? "absent" : "unknown", by: "kind", name: "", kind };
+  // No name to match: only the EMPTY direction is sound. See the head — and it
+  // is emptiness of BOTH, because a site that already has things of this kind
+  // cannot say whether one of them is the thing this requirement asked for.
+  if (mine.length || theirs.length) return { state: "unknown", by: "kind", name: "", kind };
+  return { state: visible ? "absent" : "unknown", by: "kind", name: "", kind };
 }
 
-export function requirementOutcomes(list, { told = [], failed = [], made = [], reportable = [] } = {}) {
+export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null } = {}) {
   const heard = new Set((Array.isArray(told) ? told : []).filter((k) => typeof k === "string"));
   const bad = new Set((Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"));
+  // ── WHICH THING FAILED, NOT WHICH KIND (owner, 2026-09-15) ──────────────
+  //
+  // *"One failed function must not block a requirement whose different
+  // function applied successfully."* `failed` is a set of KINDS, so one
+  // refused function blocked every requirement handed to the function step —
+  // including one naming a function the database created without complaint.
+  // `failedItems` is `[{kind, name}]`: the things that really failed, so a
+  // requirement that NAMES its dependency is judged on that dependency.
+  const broken = new Set((Array.isArray(failedItems) ? failedItems : [])
+    .filter((f) => f && typeof f === "object")
+    .map((f) => String(f.kind || "") + "::" + String(f.name || "").trim().toLowerCase()));
   const out = [];
   for (const r of Array.isArray(list) ? list : []) {
     if (!r || typeof r !== "object") continue;
@@ -591,15 +667,34 @@ export function requirementOutcomes(list, { told = [], failed = [], made = [], r
     // separately below. Run 48 collapsed the two and told a customer a live,
     // working function was still to do.
     const handoff = r.status === "elsewhere" ? (owner && heard.has(owner) ? "delivered" : "undelivered") : "";
-    const impl = r.status === "elsewhere" ? implementationOf(r, made, reportable) : null;
+    const impl = r.status === "elsewhere" ? implementationOf(r, made, reportable, existing) : null;
+    // THE NAMED DEPENDENCY, AND WHETHER IT IS THE ONE THAT BROKE. Asked in
+    // this order deliberately: a thing KNOWN to have failed is blocked before
+    // anything else is asked about it, and only then does a thing known to be
+    // there excuse its step's other failures. The two are disjoint today (the
+    // route puts only CREATED items in `made`), and the fail-closed order is
+    // what keeps that an observation rather than a dependency.
+    const dep = impl && typeof r.item === "string" ? r.item.trim().toLowerCase() : "";
+    const depBroke = !!dep && broken.has(String(owner || "") + "::" + dep);
+    const depThere = !!impl && impl.state === "found";
     let state = "unverified", why = r.why || "", configuredBy = "";
     if (r.status === "unsupported") {
       // The step said so itself, in its own words.
       state = "failed";
-    } else if (r.status === "elsewhere" && owner && bad.has(owner)) {
+    } else if (r.status === "elsewhere" && depBroke) {
+      // THIS requirement's own dependency failed — the strongest and most
+      // specific thing that can be said, and it names the item.
+      state = "blocked";
+      why = why || "the " + dep + " it needs could not be created";
+    } else if (r.status === "elsewhere" && owner && bad.has(owner) && !depThere) {
       // A DEPENDENCY FAILED. Its own state, because "the part this needed did
       // not work" is a different thing to tell somebody from "we could not do
       // this" — the first names something to go and fix.
+      //
+      // `!depThere` is the scope: the step had A failure, and if the thing THIS
+      // requirement names is nonetheless there, that failure was somebody
+      // else's. A requirement that names nothing still blocks, because a step
+      // that failed is the only evidence available about it.
       state = "blocked";
       why = why || "the " + owner + " step could not do its part";
     } else if (r.status === "covered" && owner && bad.has(owner)) {
@@ -612,10 +707,18 @@ export function requirementOutcomes(list, { told = [], failed = [], made = [], r
         why = why || (handoff === "undelivered"
           ? "the " + (owner || "next") + " step never got it, and nothing of that kind was added"
           : "the " + (owner || "next") + " step was told and added nothing for it");
-      } else {
-        // FOUND, or a kind this layer cannot see. Either way the behaviour is
-        // unchecked — an applied item proves existence and never conduct.
+      } else if (impl.state === "found") {
+        // THE IMPLEMENTATION IS ESTABLISHED and its behaviour is not — an item
+        // proves existence and never conduct, whether this change applied it
+        // or the site already had it.
         state = "unverified";
+      } else {
+        // NOTHING HERE CAN SEE WHETHER IT IS THERE, and that is its own answer
+        // rather than a quiet "unverified" (owner, 2026-09-15): the customer's
+        // sentence for `unverified` opens *"I've set that up"*, which is a
+        // claim nobody is entitled to make about an implementation nobody
+        // could find.
+        state = "unknown";
       }
     } else if (r.status === "covered") {
       // ── CONFIGURATION SETTLES NOTHING (owner, 2026-09-14) ────────────────
@@ -636,7 +739,10 @@ export function requirementOutcomes(list, { told = [], failed = [], made = [], r
       // carries the name it SOUGHT out of a miss too, which is useful inside
       // it and is a lie on the wire: a field named "implemented by" beside
       // `implementation: "absent"` reads as the thing existing.
-      ...(impl ? { implementation: impl.state, ...(impl.state === "found" && impl.name ? { implementedBy: impl.name } : {}) } : {}),
+      // …AND `foundIn` SAYS WHICH READER ANSWERED, because "this change made
+      // it" and "the site already had it" are the distinction item 2 is about
+      // and a record that collapses them cannot be audited later.
+      ...(impl ? { implementation: impl.state, ...(impl.state === "found" && impl.name ? { implementedBy: impl.name, foundIn: impl.where || "applied" } : {}) } : {}),
       ...(configuredBy ? { configuredBy } : {}),
       ...(why ? { why } : {}),
     });
@@ -644,8 +750,8 @@ export function requirementOutcomes(list, { told = [], failed = [], made = [], r
   return out;
 }
 
-export function requirementNote(list, { told = [], invalid = [], failed = [], made = [], reportable = [], unexpressed = [] } = {}) {
-  const outcomes = requirementOutcomes(list, { told, failed, made, reportable });
+export function requirementNote(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [] } = {}) {
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
   const lost = (Array.isArray(unexpressed) ? unexpressed : []).filter((x) => typeof x === "string" && x);
   const unsupported = outcomes.filter((r) => r.state === "failed" && r.status === "unsupported");
@@ -657,7 +763,13 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], ma
   // sentence to a person. The two are separate in the RECORD, where the
   // difference is actionable.
   const unsure = outcomes.filter((r) => r.state === "unverified" || r.state === "configured");
-  if (!unsupported.length && !broke.length && !blocked.length && !gone.length && !unsure.length && !bad.length && !lost.length) return "";
+  // …AND `unknown` IS NOT ONE OF THEM (owner, 2026-09-15): *"'I've set that up'
+  // is inappropriate when implementation is unknown."* The clause below opens
+  // with exactly that, so a need whose implementation nobody could find gets
+  // its own sentence rather than a claim about work that may not exist.
+  const unseen = outcomes.filter((r) => r.state === "unknown");
+  if (!unsupported.length && !broke.length && !blocked.length && !gone.length && !unsure.length
+    && !unseen.length && !bad.length && !lost.length) return "";
   const parts = [];
   if (unsupported.length) {
     parts.push("One thing your site can't do yet: " + unsupported.slice(0, 3)
@@ -689,6 +801,19 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], ma
   if (unsure.length) {
     parts.push("I've set that up, but I can't confirm from here that " + unsure.slice(0, 2)
       .map((r) => r.need).join("; or that ") + " — have a look and tell me if it isn't right.");
+  }
+  // ── AND A DIFFERENT SENTENCE FOR A DIFFERENT SILENCE ─────────────────────
+  //
+  // The clause above says *the work is there and I could not check it*; this
+  // one says *I could not even see whether it is there*. Telling somebody the
+  // first about the second is a claim, and the thing to do about it is the
+  // same look with a different question — so it asks for that, and it invites
+  // the ask again rather than a correction, because there may be nothing to
+  // correct.
+  if (unseen.length) {
+    parts.push("I can't see from here whether " + unseen.slice(0, 2)
+      .map((r) => r.need).join("; or whether ")
+      + " — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.");
   }
   // ONE CLAUSE, AND IT DOES NOT NAME THE PROPERTY. The count is what a customer
   // can act on ("ask me again and say which"); the names are the developer's.
@@ -728,8 +853,8 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], ma
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], made = [], reportable = [], unbuilt = {}, unexpressed = [] } = {}) {
-  const outcomes = requirementOutcomes(list, { told, failed, made, reportable });
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [] } = {}) {
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
     counts: {
@@ -744,6 +869,10 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
       // loses the only half of the evidence this path can actually produce.
       configured: n("configured"),
       unverified: n("unverified"),
+      // NOBODY COULD SEE WHETHER IT IS THERE — its own number, because a run
+      // full of these is a run that answered almost nothing, and folded into
+      // `unverified` it reads as a run that built a lot and checked none of it.
+      unknown: n("unknown"),
       // THE WORK IS NOT THERE / A DEPENDENCY FAILED / THE STEP SAID IT COULD
       // NOT — three different things to do about it, so three numbers.
       missing: n("missing"), blocked: n("blocked"), failed: n("failed"),

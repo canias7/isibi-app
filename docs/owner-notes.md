@@ -9751,3 +9751,83 @@ nothing outside it can stop it partway. What actually bounds this: the ledger
 won't allow a bill above your balance (161), the ask forbids a new table, and
 the closest comparison — run 47, a bigger job — cost 13. The most expensive run
 ever on this account was 31. I've set the box to 40 anyway; it costs nothing.
+
+## Three more reporting cases, and a sweep that found one I'd missed
+
+You asked for three things. All three are done, demonstrated through the addon
+route, and nothing was merged, deployed, rerun or cleaned up.
+
+### 1. One failed function no longer blocks everything
+
+The failure was recorded per KIND. So one function the database refused marked
+the whole function step failed, and every requirement pointing at that step read
+"waiting on another part that didn't work" — including one naming a function
+Postgres had created without complaint.
+
+Now the failures are recorded by NAME as well, and a requirement that says what
+it depends on is judged on that. The demonstration builds two functions, makes
+the database refuse exactly one, and asserts both halves: the good one's
+requirement is no longer blocked, and the bad one's still is — **and now names
+`count_bad` in the sentence you'd read**, which is the thing you can act on.
+
+**Both halves matter.** A fix that just stopped blocking would have thrown away
+the real dependency failure, which is the other half of what you asked for.
+
+### 2. "We didn't add it" and "the site hasn't got it" are different
+
+A change that reuses a function it didn't need to create leaves no trace in what
+was applied — and reading that silence as "still to do" is run 48's defect in a
+new hat. So the reconciliation now reads the site itself too: its stored schema,
+its real routes, and its QR codes and scene. The record says which reader
+answered (`applied` or `existing`), so reuse and creation can be told apart later.
+
+**And where nothing could look, it says so rather than guessing.** That splits
+into three groups, and the split is the whole of the fix:
+
+- things a site holds and can be listed — tables, functions, connections, jobs,
+  pages, QR codes, the scene: "not there" needs the list to have been read.
+- things nothing can list — a component folded into an existing page, a
+  photograph: these can **never** be reported absent, because a working one and
+  a missing one look identical from here.
+- `edit`, which names nothing on the site at all, so what the change did is the
+  whole answer.
+
+My first attempt demanded both readers everywhere and quietly lost a real finding
+(a wording change that genuinely wasn't done). That's what made me split it.
+
+### 3. "I've set that up" is gone from the unknown case
+
+That sentence is a claim, and it was being made about work nobody could find. An
+unknown implementation gets its own state and its own sentence now: *"I can't see
+from here whether … — nothing I can check says either way, so have a look, and
+ask me for it again if it isn't there."* An invitation to ask again, not a
+correction, because there may be nothing to correct.
+
+It also gets its own number, beside the "there but unchecked" count and never
+inside it — summed together, a run that built nothing anybody can point at reads
+as a productive run nobody checked.
+
+### What the sweep caught, which is the part worth telling you about
+
+Twenty-eight deliberate breakages. Pass 1 killed twenty; seven survived. Six were
+gaps in my new tests — but **one was a real property of the product that nothing
+was guarding.**
+
+The rule "a component can never be reported absent" only bites for a change that
+never ran a component step at all. I'd convinced myself it was redundant with
+another check and was about to write that down. The surviving mutant said
+otherwise, and I went and measured instead: it isn't redundant, and without it a
+change that made no sections could tell you a section was still to do. There's a
+test for it now.
+
+Pass 2: **28 of 28 killed, nothing survived, both no-op controls survived.**
+
+### The numbers
+
+- **Suite 6,491, all green** (6,487 + 4 new cases; the arithmetic closes exactly).
+- **Sweep 28/28**, two controls survived.
+- Five older guards re-anchored — each says in the file what moved and why.
+- Nothing merged, nothing deployed, no paid call, no site touched.
+- CI runs on the push; I'll report what it reads.
+
+The `search_path` review stays queued, as you asked.

@@ -129,7 +129,7 @@ import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
-import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, cleanRequirements, requirementBrief } from "./site-requirements.mjs";
+import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, SITE_KINDS, cleanRequirements, requirementBrief } from "./site-requirements.mjs";
 // THE TWO BODY WALLS, IMPORTED RATHER THAN RETYPED. Both engines SLICE, and a
 // slice is silent: the cleaner refuses at the same number so the customer hears
 // about it instead of the site quietly POSTing half a request for ever. The
@@ -2789,6 +2789,76 @@ export function addRepairNote(round) {
       : `Some pages still aren't rendering properly (${stuck.slice(0, 3).join(", ")}); they're published as they are. Ask me to rebuild them and I'll have another go.`;
   }
   return "";
+}
+
+/**
+ * WHAT THE SITE ALREADY HAS, beside what this change applied (2026-09-15).
+ *
+ * Owner: *"Distinguish 'not added by this change' from 'absent from the site.'
+ * Reconcile against trustworthy existing-site evidence as well as applied
+ * additions."* A change that reuses a function it did not need to create leaves
+ * nothing in `appliedFacts`, and reading that silence as absence tells a
+ * customer a live function is still to do — run 48's defect one door over.
+ *
+ * `{ items: [{kind, name}], kinds: [...] }`, the same two-part shape
+ * `implementationOf` reads for applied results: `items` is what is there, and
+ * `kinds` is where an ABSENCE is visible. They are separate because presence
+ * and absence are separate claims, and `kinds` is DERIVED FROM WHAT THE CALLER
+ * REALLY HANDED OVER rather than being a constant:
+ *
+ *   * a `spec` — the site's own `_meta.schema`, which the addon route reads
+ *     through `specForAddon` and which STOPS rather than guessing — makes
+ *     `table`, `function`, `api` and `job` enumerable. It is the record the
+ *     whole platform already treats as what a site has: `siteNote` describes
+ *     the site from it, `cleanAdd("job")` admits a job only against its
+ *     function list, and `applySiteSchema` writes it. **The limit, stated: it
+ *     is a DECLARATION.** A function that exists in Postgres and is not
+ *     declared is invisible here — and invisible everywhere else on the
+ *     platform too, so this claims nothing the rest of the system does not.
+ *   * `pages` — the stored page source — makes `page` enumerable. Those ARE
+ *     the site's routes.
+ *   * `look` — the stored config — makes `qr` and `three` enumerable, the two
+ *     `SINGLE_FIELDS`/`ADD_ONLY_FIELDS` kinds a site really carries by name.
+ *     `qrList` is the one reader of the code list, here as everywhere.
+ *
+ * **`kinds` IS INTERSECTED WITH `SITE_KINDS` RATHER THAN LISTED AGAIN**, so
+ * this cannot claim to enumerate a kind the reconciliation does not believe a
+ * site can hold, and a kind added to one list has to be added to the other on
+ * purpose. `component` and `photo` are `OPAQUE_KINDS` and appear in neither.
+ *
+ * A caller that hands over nothing gets `{items: [], kinds: []}`, which makes
+ * every holdable kind's absence `unknown` — the conservative answer, and the
+ * one an unchanged caller keeps.
+ */
+export function existingFacts({ spec = null, pages = null, look = null } = {}) {
+  const items = [];
+  const kinds = [];
+  const names = (list) => (Array.isArray(list) ? list : [])
+    .map((x) => String((x && x.name) || "").trim()).filter(Boolean);
+  const speaks = (k) => { if (SITE_KINDS.includes(k) && !kinds.includes(k)) kinds.push(k); };
+  if (spec && typeof spec === "object") {
+    for (const [kind, key] of [["table", "tables"], ["function", "functions"], ["api", "apis"], ["job", "jobs"]]) {
+      speaks(kind);
+      for (const n of names(spec[key])) items.push({ kind, name: n });
+    }
+  }
+  if (Array.isArray(pages)) {
+    speaks("page");
+    for (const p of pages) {
+      const r = typeof p === "string" ? p : String((p && p.path) || "");
+      if (r.trim()) items.push({ kind: "page", name: r.trim() });
+    }
+  }
+  if (look && typeof look === "object") {
+    speaks("qr");
+    for (const q of qrList(look.qr)) { const n = String((q && q.name) || "").trim(); if (n) items.push({ kind: "qr", name: n }); }
+    speaks("three");
+    // A SITE CARRIES AT MOST ONE SCENE (`SINGLE_FIELDS`), so it has no name of
+    // its own and the kind IS the name — which is the whole of what a
+    // requirement handed to `three` can be asking about.
+    if (look.three) items.push({ kind: "three", name: "three" });
+  }
+  return { items, kinds };
 }
 
 /** How many tables' columns a stored input digest keeps, and how many each. */

@@ -4231,6 +4231,125 @@ and a step that was told and failed is `blocked` instead of `missing`.
 **NOT DEPLOYED AND NOT MERGED** — the owner's instruction for this round. Run 48
 stands exactly as it ran; nothing was repaired by hand and no paid call was made.
 
+### …AND THREE REPORTING CASES THE SEPARATION LEFT OPEN (2026-09-15)
+
+Owner, on the hand-off/implementation split: *"Scope failures to the referenced
+item and its actual dependencies… Distinguish 'not added by this change' from
+'absent from the site'… Separate unknown implementation from existing-but-
+unverified behavior in the customer wording. 'I've set that up' is inappropriate
+when implementation is unknown."* Plus: ***"Demonstrate all three through the
+addon route, asserting the stored outcomes and customer sentence. Include a
+mixed-success function step, reuse of an existing function without creating it
+again, and an unobservable component."***
+
+**1. A FAILURE WAS SCOPED TO A KIND, NOT TO A THING.** `aFailedKinds` is per-KIND,
+so ONE refused function marked the whole `function` step failed and every
+requirement handed to it read `blocked` — including one naming a function
+Postgres created without complaint. `failedItems` is `[{kind, name}]`, built in
+the route from `aFnErrors` + `aJobErrors` + `aMissing`, and a requirement that
+NAMES its dependency is judged on that dependency. **Both halves are asserted,
+because a fix that simply stopped blocking would lose the real dependency
+failure**: the kind-wide rule survives with `!depThere` as its scope — the step
+had A failure, and if the thing THIS requirement names is nonetheless there,
+that failure was somebody else's. A requirement that names nothing still blocks,
+because a failed step is the only evidence available about it.
+**THE ORDER IS FAIL-CLOSED AND SAID SO IN THE CODE**: `depBroke` is asked before
+`depThere`, so a thing KNOWN to have failed is blocked before anything excuses
+it. The two are disjoint today (only CREATED items reach `made`) and the order
+is what keeps that an observation rather than a dependency.
+
+**2. "NOT ADDED BY THIS CHANGE" IS NOT "ABSENT FROM THE SITE".** A change that
+deliberately REUSES a function leaves nothing in `made`, and reading that silence
+as "still to do" is run 48's defect wearing a different hat. `existingFacts`
+(`builder/site-add.mjs`) is the second presence source — the stored spec's four
+tiers, the site's own routes, and the look's `qr` and `three`, which are the two
+kinds a site carries by NAME rather than in its schema. `implementationOf` asks
+`made` first and `existing` second, and the record carries **`foundIn`**
+(`applied` | `existing`), because *this change made it* and *the site already had
+it* are the distinction this item is about and a record collapsing them cannot be
+audited later.
+
+**THE EVIDENCE IS TRUSTWORTHY BY CONSTRUCTION, and that is why it may be
+believed.** `aSpec` reaches this code only through `specForAddon`, which recovers
+a table the catalog has and the spec does not or STOPS; a `none` site is
+`{tables: []}` against its own measured state. `aSrc` is the stored page source.
+Neither is a guess.
+
+**ABSENCE NEEDS EVERY READER THAT COULD SPEAK TO HAVE SPOKEN — and that is NOT a
+blanket demand for two readers.** The first cut demanded both everywhere and lost
+a real finding, which is how the partition was found. `COVERAGE_STEPS` splits
+into three, **total and disjoint**, censused both ways:
+
+| group | kinds | absence |
+|---|---|---|
+| `SITE_KINDS` | `table · function · api · job · page · qr · three` | only when the site's inventory was really READ (`canExisting`); unread, nobody looked → `unknown` |
+| `OPAQUE_KINDS` | `component · photo` | **never** — an addition folded into an existing page leaves no item in any list, so a working section and an absent one look identical |
+| neither | `edit` | names no site artifact, so the applied evidence is the whole answer |
+
+**`OPAQUE_KINDS` IS LOAD-BEARING AND A SWEEP PROVED IT.** `aReportable` answers
+TRUE for a kind this change never RAN — it made none, definitionally — so for
+`component` every other wall is open and this one is the whole of what stops a
+change reporting a section as still to do. **The first reading called it
+redundant with `APPLIED_KINDS` and that was wrong**, and the mutant that
+survived is what said so.
+
+**3. UNKNOWN IS ITS OWN STATE AND ITS OWN SENTENCE.** `unverified`'s clause opens
+*"I've set that up, but I can't confirm…"*, which is a claim nobody is entitled
+to make about an implementation nobody could find. **Seven states now**
+(`delivered · configured · unverified · unknown · missing · blocked · failed`)
+and `unknown` gets: *"I can't see from here whether … — nothing I can check says
+either way, so have a look, and ask me for it again if it isn't there."* It is an
+invitation to ask again rather than a correction, because there may be nothing to
+correct. Its own number on the record (`unknown`) and on the trace mark
+(`unseen`) — **beside `unsure`, never in it**: a run of these built nothing
+anybody can point at, and summed together the two read as a productive run
+nobody checked.
+
+**`checked` STAYS EMPTY**, and the guard drives all five applied kinds to assert
+it: nothing on this path exercises a behaviour, so `configured` is as far as a
+claim about a real setting can get. Existence and behaviour stay separate.
+
+**THE TEMPORAL DEAD ZONE BIT A THIRD TIME IN THIS ROUTE, and was caught by
+reading.** `aFailedItems()` is read from inside `aCoverage()`, whose first
+possible call is a refusal in the kinds loop — four hundred lines ABOVE where
+`aJobErrors` was declared. It is hoisted onto the accumulator line with the
+reason recorded in both places. *Declare what a closure reads above its first
+possible call, not above its obvious one.*
+
+**Guards**: `test/addon-route.test.mjs` **55 → 59**, each of the three demonstrated
+through `POST /api/site/<slug>/addon` and asserted on the customer's own
+sentence — a mixed-success function step (one created, one refused, asserted as
+the precondition) where only the requirement naming the refused one is blocked
+and the sentence names `count_bad`; a reuse case with its CONTROL, the same
+change and the same requirement on a site that does NOT declare the function,
+where "still to do" is the true answer and must still be said; and a stocked
+site where an unnamed requirement, an existing QR code and an unobservable
+component give three different answers in one reply.
+`test/requirement-coverage.test.mjs` gained the three-group census and the
+`unseen` counter.
+
+**Sweep: 28 mutants, 28 killed, 0 survived, 1 never applied on pass 1 and 0 on
+pass 2, 2 comment-only controls survived.** Pass 1 killed 20 of 28 with seven
+survivors and one ambiguous anchor; **every survivor was a guard gap and one of
+them was a PRODUCT property nobody had reached** — `OPAQUE_KINDS` above. The
+others: a missing page named on the blocked `why` rather than only in the state,
+the customer's SENTENCE told which items failed (it recomputes the outcomes from
+its own arguments, so the record can be right while the sentence is generic), an
+unnamed requirement on a stocked site, the look as an inventory, and the trace
+mark's two. The ambiguous anchor was `pages: (aSrc || [])…`, which occurs twice
+in the route.
+
+**Five older guards were re-anchored, not appeased**, each naming the property
+that moved: the mark's key census and its predicate loop gained `unseen`, the
+mark's outcome call gained `failedItems` and `existing`, and two expectations
+MOVED rather than broke.
+
+**Suite 6,491.**
+
+**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
+the last. No paid call was made and no demo site was touched. **The `search_path`
+review stays queued.**
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -4640,7 +4759,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   own log by bounding each `N passed` to its own `##[group]`, because a forward
   search from a step marker picks up the NEXT step's count and silently
   mis-attributes it (measured: four steps all reported 29 that way).
-  The unit suite is **6,487** (2026-09-15, local — run 48's reporting fix and
+  The unit suite is **6,491** (2026-09-15, local — the three reporting cases the
+  hand-off/implementation split left open, whose new cases are all
+  `addon-route`'s **four** (55 → 59: the mixed-success function step, the reuse
+  of an existing function, its CONTROL on a site that does not declare it, and
+  the stocked site answering three different silences in one reply); **6,487 + 4
+  closes exactly**. `requirement-coverage` gained the three-group census and
+  the `unseen` counter as ASSERTIONS inside existing cases and no new case. CI
+  has NOT read this number yet.
+  **6,487** before it (2026-09-15, local — run 48's reporting fix and
   the three evidence gaps, whose new cases are all `addon-route`'s **eleven**
   (44 → 55: run 48's late hand-off with its function applied, the same named by
   `item`, with nothing applied, with creation refused, the forward control, a
