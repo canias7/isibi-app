@@ -65,6 +65,33 @@ const wait = defineTool({
 });
 
 /**
+ * THE SAME WAIT, DECLARED UNSAFE TO REPEAT.
+ *
+ * It exists to make the refusal provable against a real deployment. The rule that
+ * matters — a tool call with no recorded result may have run, so running it again is
+ * only allowed when running it twice is harmless — can otherwise only be shown with
+ * a tool that really does something, and a verification run must not do anything to
+ * anybody.
+ *
+ * **SO THIS IS A PAYMENT'S SHAPE WITHOUT A PAYMENT: `repeatable` is absent, which
+ * means false.** It waits, it returns, and the platform must still refuse to resume
+ * past it — because the refusal is decided by the DECLARATION and never by what the
+ * tool happens to do.
+ */
+const commit = defineTool({
+  name: "commit",
+  description: "Stands in for an action that must not happen twice. It only waits.",
+  input: { type: "object", properties: { ms: { type: "number" } }, required: ["ms"] },
+  scope: PUBLIC,
+  // repeatable is deliberately NOT set. The default protects.
+  run: async (args) => {
+    const ms = Math.min(Math.max(Number(args?.ms) || 0, 0), 25_000);
+    await new Promise((r) => setTimeout(r, ms));
+    return { committed: true, waited: ms };
+  },
+});
+
+/**
  * The long-running agent. Its bounds are deliberately wide enough for a run that
  * lasts minutes, because that is the case the queue exists for — and every one of
  * them is still enforced in code.
@@ -84,4 +111,18 @@ export const SLOW = Object.freeze({
  * THE REGISTRY. Built LAST, from the agents above, so adding one is adding it here
  * rather than remembering to — a request can only ever NAME what is in this object.
  */
-export const AGENTS = Object.freeze({ ...support, ...SLOW });
+/**
+ * The agent a live verification uses to prove the refusal. Same model, same shape as
+ * `slow`, one difference: its tool may not be repeated.
+ */
+export const GUARDED = Object.freeze({
+  guarded: defineAgent({
+    name: "guarded",
+    model: "stand-in",
+    instructions: "Work through the task in stages, committing between them.",
+    tools: [commit],
+    limits: { steps: 16, toolCalls: 16, wallMs: 900_000, toolMs: 30_000 },
+  }),
+});
+
+export const AGENTS = Object.freeze({ ...support, ...SLOW, ...GUARDED });

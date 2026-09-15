@@ -969,6 +969,110 @@ writes a model entry and a tool result, so PROGRESS accumulates in the log and a
 reader can watch it move. One sixty-second sleep would be a minute of silence
 followed by an answer, which demonstrates nothing about progress.
 
+## Deploying it, and verifying the deployment (2026-09-15)
+
+`wrangler.jsonc`, `scripts/deploy.sh`, `scripts/verify-live.mjs`,
+`scripts/verify-local.mjs`, `docs/deploy.md`. **Nothing is deployed yet** — there is
+no wrangler and no Cloudflare credential in the session that wrote this, so what
+exists is everything up to the two commands somebody has to run.
+
+### One secret, and the ordering is not a preference
+
+- **THE NON-SENSITIVE SETTINGS ARE COMMITTED, DELIBERATELY.** `SUPABASE_URL` and
+  `SUPABASE_PUBLISHABLE_KEY` are `vars` in `wrangler.jsonc`: a project URL is public
+  and a publishable key is designed to be handed to browsers. So the deployment needs
+  exactly ONE `wrangler secret put SUPABASE_SERVICE_KEY`.
+- **`SENSITIVE` IS THE LIST AND THE GUARD IS DERIVED FROM IT.** A test asserts no name
+  on it is ever a var in the committed config, that every name on it is a setting this
+  Worker really reads, and that every setting NOT on it *is* configured — so a deploy
+  from that file cannot be quietly half-configured, which at runtime is the same 503
+  as a missing secret.
+- **⚠ THE SECRET GOES IN BEFORE THE FIRST DEPLOY, and that is this repository's own
+  recorded fact rather than a guess.** On this account a standalone `wrangler secret
+  put` AFTER a deploy fails with "the latest version of your Worker isn't currently
+  deployed" (Cloudflare's versioned-deployments guard) — which is why the root
+  product uploads its secrets INSIDE the deploy step, recorded in its own
+  `deploy.yml`. So: secret first (wrangler offers to create the Worker — say yes),
+  then `./scripts/deploy.sh`.
+- **THE QUEUE VERDICT IS PRINTED, NOT SWALLOWED.** `queues create` fails when the
+  queue already exists, so it needs `|| true` — and a token WITHOUT the Queues edit
+  permission fails identically from a silent `|| true`, surfacing later as a Worker
+  answering 503 for a binding nobody created. Reused from the root product's own
+  lesson rather than re-learned.
+- The script runs the tests first and pins `wrangler@4.107.0`, the same CLI the rest
+  of the repository deploys with — a different one is a second variable nobody wants
+  when something goes wrong.
+
+### `GET /health`, the one unauthenticated route
+
+It exists because **a deployment cannot be verified if nothing can be asked which
+version answered**, and `deployments list` says what was UPLOADED, not what is
+serving. It answers the version from Cloudflare's own `version_metadata` binding, the
+model, the schema, the agent list, and whether it is configured BY NAME — which is
+exactly what the 503 already tells any caller, so it adds nothing a stranger could not
+learn with one request. **Never a setting's value, a tenant, a run or a count**, and
+it is answered BEFORE the configuration check, because an unconfigured deployment is
+when the question is asked most.
+
+**IT REPORTS THE MODEL AS CONFIGURED AND WHETHER THIS WORKER CAN RUN IT, as two
+fields.** A deployment whose `MODEL` names something unknown answers 503 on every
+request while every setting is present — so `ok` folds in `modelKnown`, and the model
+is echoed rather than defaulted. **A sweep found that**: with the model hardcoded to
+the default, nothing could see the difference.
+
+### The four things a live verification checks
+
+`npm run verify:local` runs `scripts/verify-live.mjs` UNMODIFIED against a local
+PostgreSQL with these migrations and **two separate consumer processes** — because a
+handover between consumers is not something one process can demonstrate. **50 checks,
+0 failed.**
+
+1. **a real customer signs in, starts the long task, is answered 202 promptly, and
+   reads progress and then the final result** — plus that the prompt was committed
+   BEFORE the response and that the stored log matches what the API reported;
+2. **one run, one execution** — two simultaneous resumes mid-run are both refused as
+   `already-running` without disturbing the holder's lease; a direct second
+   `claim_run` while the lease is live gets nothing; the finished log holds exactly one
+   model answer per step;
+3. **an interrupted consumer is replaced and progress is kept** — measured locally: a
+   consumer lost the run at 2 steps, another took it over **5 s later**, and it
+   finished at 9 steps with **9 model entries for 9 steps**, so it continued rather
+   than restarting;
+4. **a lost lease writes nothing and an uncertain action stays blocked** — the
+   `guarded` agent's tool is declared NOT repeatable; its lease is revoked with a tool
+   call in flight, and the in-flight result is **never written** (1 model, 0 tool), no
+   stop is recorded, the pending call is visible, `problems` is empty, and asking
+   again refuses again without repeating the action.
+
+- **HOW AN INTERRUPTION IS PRODUCED, SAID PLAINLY: the lease is revoked** with the
+  service key, which is what the platform's own reclaim does to a consumer that has
+  died. **What it does NOT reproduce is a consumer that dies mid-write** — that needs
+  a real isolate killed at a chosen instant, and nothing here can do it.
+- **`guarded` IS A PAYMENT'S SHAPE WITHOUT A PAYMENT.** Its `commit` tool only waits,
+  and `repeatable` is absent — so the refusal is proved by the DECLARATION, which is
+  the only thing that decides it. A verification must not do anything to anybody.
+- **THE STAND-IN TREATS `wait` AND `commit` IDENTICALLY**, and that is the point:
+  whether a tool may be retried is the platform's business and not something a model
+  gets to see.
+- **`spawn`, NEVER `execFileSync`, FOR THE CHILD.** `verify-local.mjs` is also the
+  process serving the shim and the API, and a synchronous child blocks its event loop
+  — so every request timed out with no server having seen it, and the failure read
+  like a broken deployment rather than a blocked host. Cost one run.
+
+### ⚠ A REFUSAL THAT COVERS TWO CAUSES: PGRST202
+
+Asking the hosted project whether PostgREST had picked up the new queue functions,
+`rpc/claim_run` with `{}` answered **PGRST202, "no matches were found in the schema
+cache"** — which reads exactly like a stale cache and is not one. `claim_run`'s first
+two arguments have no defaults, so `{}` genuinely does not match; **PGRST202 covers
+"not in the cache" AND "wrong arguments" and cannot tell them apart.**
+
+**WHAT SETTLES IT IS THE ARGUMENT NAMES PLUS A CONTROL.** Called as
+`{p_run_id, p_worker, p_ttl_s}`, `claim_run` and `accept_run` answer `permission
+denied for schema agent` — the `anon` wall, which only a function PostgREST has found
+can reach — while a NONEXISTENT function with the same argument names still answers
+PGRST202. So the cache knows the table and all six functions.
+
 ## The long run, demonstrated (2026-09-15)
 
 `npm run demo:long`. **65.6 SECONDS OF WORK AFTER AN 82 ms RESPONSE, with every
@@ -1049,9 +1153,9 @@ Also still not connected: **a real model provider** (one `MODELS` entry plus a
 
 ### Measured
 
-- **Unit suite: 219 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
-  the queue round; the 58 are `runner`'s 20, `work`'s 10, `auth`'s 13 new ones, the
-  Worker's 8 and the API's 3, less the four dispatcher cases the queue retired.
+- **Unit suite: 222 tests, 0 failures** (`cd agent-builder && npm test`). 161 before
+  the queue round, 219 after it; the three since are `/health`, the grace-versus-beat
+  invariant and the lease knobs' fallback.
 - **Schema check: 125 checks, 0 failed** against a real PostgreSQL 16.13
   (`npm run test:pg`), over all THREE migrations — 78 before the queue, and the 47
   are the queue's own (accepting, the claim, the lease, the resume, the grants, the
@@ -1067,6 +1171,14 @@ Also still not connected: **a real model provider** (one `MODELS` entry plus a
   queue function bodies match this repo's migration **byte for byte**
   (`md5(pg_get_functiondef(...))` compared against a local apply, before and after a
   comment-only edit to the file).
+- **The live verification, driven end to end: 50 checks, 0 failed**
+  (`npm run verify:local`) — the same `verify-live.mjs` an operator points at a
+  deployment, run unmodified against a real PostgreSQL with these migrations and TWO
+  separate consumer processes. The handover: a consumer lost the run at 2 steps,
+  another took it over **5 s later**, and it finished at 9 steps with **9 model
+  entries for 9 steps**. The blocked action: **1 model entry, 0 tool results** —
+  the in-flight result was never written, no stop was recorded, and asking again
+  refused again.
 - **The auth probe: all checks passed** against the live project
   (`scripts/auth-probe.mjs`) — the published ES256 key imports, and Supabase Auth
   answers a genuine token and a tampered one differently.
@@ -1076,12 +1188,22 @@ Also still not connected: **a real model provider** (one `MODELS` entry plus a
   argued from the path filters. (In a fresh container that
   suite needs `npm ci` first or ~361 cases fail on missing modules — the
   environment, not the code.)
-- **Code sweep: 164 mutants, 164 killed, 0 survived, 0 never applied, 3
+- **Code sweep: 173 mutants, 173 killed, 0 survived, 0 never applied, 3
   comment-only controls survived** (`npm run sweep`). Measured after the run, not
   before it. The passes went 34 (the first four modules) → 54 (the journal and
   resume) → 68 (the store and the limits codec) → 74 (the ownership boundary) → 98
-  (auth and the HTTP surface) → 108 (the Worker and the tenant claims) → **164 (the
-  three auth strategies, `work.mjs`, `runner.mjs` and the three Worker handlers)**.
+  (auth and the HTTP surface) → 108 (the Worker and the tenant claims) → 164 (the
+  three auth strategies, `work.mjs`, `runner.mjs` and the three Worker handlers) →
+  **173 (`/health` and the lease knobs)**.
+  **THE DEPLOYMENT ROUND LEFT THREE SURVIVORS AND EVERY ONE WAS A FIXTURE THAT COULD
+  NOT SEE THE NUMBER:** `/health` echoing the default model (the test had `MODEL`
+  unset, so the default and the echo were the same string — and fixing it found a
+  real dishonesty, a deployment with an unrunnable model reporting `ok: true`); the
+  Worker forwarding the lease knobs (INERT — `makeRunner` refuses a non-finite value
+  one layer down, so the mutants moved there); and a junk BEAT interval, invisible
+  because `fakeTimer` **discarded the delay it was asked for**. A fake that throws
+  away a number cannot tell a 30-second heartbeat from a 0 ms busy loop, so it records
+  the interval now.
   **TWENTY SURVIVED THE FIRST PASS OF THE QUEUE ROUND and every one was the tests'
   fault, not the product's** — which is the ordinary shape when a sweep grows by
   sixty mutants at once. Sixteen were plain gaps and closed. **Four were INERT and

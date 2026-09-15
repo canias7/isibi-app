@@ -771,3 +771,115 @@ at all.
 - **A real model provider.** One registry entry plus a `send` function.
 - **Nothing is deployed.** No Worker, no queue, no route, no domain. `docs/deploy.md`
   is the step-by-step.
+
+---
+
+## 2026-09-15 — Ready to deploy, and one command from you
+
+### ⚠ I cannot deploy it. Here is exactly why, and exactly what to run.
+
+There is no `wrangler` and no Cloudflare credential in this session — the rest of
+your repo deploys through GitHub Actions with `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`, and neither is reachable from here. So I did everything up
+to the two commands and nothing beyond them.
+
+### The one secret, and the exact command
+
+**I configured everything that isn't a secret myself.** The project URL and the
+publishable key are now committed in `agent-builder/wrangler.jsonc` — a URL is public
+and a publishable key is the one you hand to browsers — so you need exactly one:
+
+```sh
+cd agent-builder
+wrangler secret put SUPABASE_SERVICE_KEY -c wrangler.jsonc
+```
+
+It prompts, doesn't echo, and doesn't touch your shell history. Paste the
+service-role key (or an `sb_secret_…` key).
+
+**Run it BEFORE the first deploy.** Wrangler will say the Worker doesn't exist and
+offer to create it — say yes. This is not fussiness: on your account a standalone
+`wrangler secret put` *after* a deploy fails with "the latest version of your Worker
+isn't currently deployed", which is why your other product uploads its secrets inside
+the deploy step. That's recorded in your own `deploy.yml`; I reused it rather than
+rediscovering it.
+
+Then:
+
+```sh
+CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… ./scripts/deploy.sh
+```
+
+That runs the tests, creates the `agent-runs` queue, prints the queue verdict loudly
+(a token missing the **Queues edit** permission fails in a way that looks exactly
+like success, which is your own recorded trap), and deploys.
+
+### Then one command verifies all four things you asked about
+
+```sh
+AGENT_URL=https://agent-builder-api.<your-subdomain>.workers.dev \
+AGENT_USER_EMAIL=… AGENT_USER_PASSWORD=… \
+SUPABASE_URL=https://ujrqdmmtcptvimazlhom.supabase.co \
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_icEWWZsuue5VG4ogSwFFCA_D01jLquT \
+SUPABASE_SERVICE_KEY=… \
+node scripts/verify-live.mjs
+```
+
+It signs in as that customer for real and reports the version, the endpoint, every
+run id and every result. **About eight minutes**, because three of the runs are the
+65-second task and a handover costs a beat plus the sweep's grace plus a cron tick.
+
+### I ran that script before handing it to you — 50 checks, 0 failed
+
+Not against your project (no service key), but against a real PostgreSQL with your
+real migrations and **two separate consumer processes**, which is what makes a
+handover something that happens rather than something described. The same file,
+unmodified. What it showed:
+
+- **the long task**: 202 promptly, progress readable the whole way, final result
+  retrievable, and the stored log matching what the API reported;
+- **one run, one execution**: two simultaneous resumes mid-run both refused as
+  `already-running` without disturbing the holder; a second claim got nothing; nine
+  model entries for nine steps, so nothing ran twice;
+- **the handover**: a consumer lost the run at 2 steps, another took it over **5
+  seconds later**, and it finished at 9 steps with 9 model entries — it continued
+  rather than restarting;
+- **the blocked action**: the `guarded` agent's tool is declared not-repeatable. Its
+  lease was revoked with the tool call in flight, and **the result was never
+  written** — no stop recorded, the pending call visible, and asking again refused
+  again without repeating it.
+
+One thing worth naming: `guarded` is a payment's shape without a payment. Its tool
+only waits. The refusal is decided by the **declaration**, which is the only thing
+that should decide it, and a verification must not do anything to anybody.
+
+### Two things I found while doing this
+
+**A refusal that covers two causes.** Checking whether Supabase's API had picked up
+the new queue functions, `claim_run` answered "no matches found in the schema cache" —
+which reads exactly like a stale cache and isn't one. Called with `{}`, it genuinely
+doesn't match, because two of its arguments have no defaults. Called with its real
+argument names it answers the `anon` permission wall, while a function that doesn't
+exist still answers the cache error. **So your API does know the table and all six
+functions** — but only a control could tell those apart.
+
+**An invariant nobody had written down.** A worker learns its lease is gone at its
+next beat, so there is a window in which it is still working and doesn't know. The
+sweeper's 30-second grace is what stops that window overlapping with another
+consumer's — and nothing said so. It's now asserted, and `consume.mjs` refuses to
+start with a grace shorter than a beat.
+
+### ⚠ Still not done, and one of them is a real gap
+
+- **Nothing is deployed.** Two commands from you.
+- **Crossing a consumer invocation's own time ceiling is untested.** The design
+  answer is that the lease lapses and the run resumes from the log — which is exactly
+  what the handover check exercises on purpose — but no run has actually reached that
+  ceiling. The longest driven end to end is 65.6 seconds. The verification script says
+  so in its own closing lines rather than leaving it implied.
+- **The service-key half of the verification is unexercised against your hosted
+  API.** Reading the queue table and revoking a lease as `service_role` is proved on a
+  real PostgreSQL and at the database level on your project, but not over its HTTP
+  API, because no service key has been available to me. It will fail loudly with a
+  named error rather than quietly if anything is wrong.
+- **A real model provider.** One registry entry plus a `send`.

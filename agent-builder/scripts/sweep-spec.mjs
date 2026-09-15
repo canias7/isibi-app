@@ -409,6 +409,34 @@ const spec = [
     "    const missing = missingSettings(env);\n    if (missing.length) { console.error(\"agent-sweep\", `not configured: ${missing.join(\", \")}`); return; }",
     "    void 0;"),
 
+  // ── worker.mjs: /health, and the lease knobs ──────────────────────────────
+  m("worker: /health QUOTES THE SETTINGS back to an unauthenticated caller", W,
+    "    schema: SCHEMA,\n    agents: Object.keys(AGENTS),\n    missing,",
+    "    schema: SCHEMA,\n    agents: Object.keys(AGENTS),\n    missing, env,"),
+  m("worker: /health needs configuration first, so an unconfigured deploy cannot be diagnosed", W,
+    "    if ((path === \"/health\" || path === \"/\") && request.method === \"GET\") return health(env);",
+    "    void path;"),
+  m("worker: /health INVENTS a version when there is no binding", W,
+    "    version: v?.id ?? null,", '    version: v?.id ?? "unknown",'),
+  m("worker: /health answers a WRITE as well as a read", W,
+    '&& request.method === "GET") return health(env);', "|| true) return health(env);"),
+  m("worker: /health reports the wrong model, so a canned-script deployment reads as a provider", W,
+    '  const model = isText(env?.MODEL) ? env.MODEL : "stand-in";', '  const model = "stand-in";'),
+  m("worker: /health calls a deployment with an UNRUNNABLE model ok", W,
+    "    ok: missing.length === 0 && modelKnown,", "    ok: missing.length === 0,"),
+  m("worker: /health claims every model is known", W,
+    "  const modelKnown = Object.hasOwn(MODELS, model);", "  const modelKnown = true;"),
+  // NOT "the Worker forwards the lease knobs unconditionally": that mutant SURVIVED
+  // and is INERT, because `makeRunner` already refuses a non-finite value and an
+  // absent one is what the deployed path passes either way. The wall is one layer
+  // down, so that is where the mutant belongs — and these two die.
+  m("runner: A JUNK LEASE LENGTH IS TAKEN AT FACE VALUE", at("runner.mjs"),
+    "  const ttlS = Number.isFinite(opts.leaseTtlS) && opts.leaseTtlS > 0 ? opts.leaseTtlS : LEASE_TTL_S;",
+    "  const ttlS = opts.leaseTtlS ?? LEASE_TTL_S;"),
+  m("runner: A JUNK BEAT INTERVAL IS TAKEN AT FACE VALUE", at("runner.mjs"),
+    "  const beatEveryMs = Number.isFinite(opts.beatEveryMs) && opts.beatEveryMs > 0 ? opts.beatEveryMs : BEAT_EVERY_MS;",
+    "  const beatEveryMs = opts.beatEveryMs ?? BEAT_EVERY_MS;"),
+
   // ── work.mjs: the durable record ──────────────────────────────────────────
   m("work: an unrecognised state is read as one we know", at("work.mjs"),
     "    if (!WORK_STATES.includes(state)) throw new Error(`${where}: unrecognised state ${JSON.stringify(state)}`);",

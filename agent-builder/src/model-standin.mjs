@@ -18,8 +18,18 @@
  * stand-in that had to be configured per agent would be a second registry.
  */
 
-/** The tool that means "this agent's work takes time". See `agents.mjs`. */
-export const SLOW_TOOL = "wait";
+/**
+ * The tools that mean "this agent's work takes time". See `agents.mjs`.
+ *
+ * TWO NAMES, ONE SHAPE. `wait` is repeatable and `commit` is not, which is the only
+ * difference between them — and it is a difference the MODEL must not see, because
+ * whether a tool may be retried is the platform's business and not something a model
+ * decides. So the stand-in treats them identically.
+ */
+export const SLOW_TOOLS = Object.freeze(["wait", "commit"]);
+
+/** Kept as its own name: the first is what a plain long run uses. */
+export const SLOW_TOOL = SLOW_TOOLS[0];
 
 /**
  * How a long run is shaped: this many rounds, each waiting this long.
@@ -40,12 +50,13 @@ export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } 
     const offered = Array.isArray(tools) ? tools : [];
 
     // ── an agent whose work takes time ────────────────────────────────────────
-    if (offered.some((t) => t?.name === SLOW_TOOL)) {
+    const slow = offered.find((t) => SLOW_TOOLS.includes(t?.name));
+    if (slow) {
       const n = Number.isInteger(rounds) && rounds >= 1 ? rounds : SLOW_ROUNDS;
       const ms = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : SLOW_STEP_MS;
       if (step <= n) {
         return {
-          text: "", toolCalls: [{ id: `call-${step}`, name: SLOW_TOOL, args: { ms } }],
+          text: "", toolCalls: [{ id: `call-${step}`, name: slow.name, args: { ms } }],
           usage: { inputTokens: 10, outputTokens: 4 }, costMicros: 30,
         };
       }

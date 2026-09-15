@@ -52,6 +52,21 @@ export const SETTINGS = Object.freeze({
 });
 
 /**
+ * Which of those must be a SECRET, and which may be a committed `var`.
+ *
+ * **THE DISTINCTION IS NOT COSMETIC: it decides what ends up in git.** The project
+ * URL is public and the publishable key is designed to be handed to browsers, so
+ * putting them in `wrangler.jsonc` costs nothing and makes the deployment one
+ * command instead of three. The service key is the one credential that can read and
+ * write every tenant's runs, so it is a secret, and a test asserts it is never a
+ * `var` in the committed config.
+ *
+ * `SUPABASE_JWT_SECRET` is not here because it is not required at all; if an
+ * operator opts into it, it belongs with the service key.
+ */
+export const SENSITIVE = Object.freeze(["SUPABASE_SERVICE_KEY", "SUPABASE_JWT_SECRET"]);
+
+/**
  * Settings that change how this Worker behaves and that it runs fine without.
  *
  * `SUPABASE_JWT_SECRET` is an OPT-IN performance choice: with it, an HS256 token
@@ -158,7 +173,7 @@ export function buildApi(env, { now, newId, notify, fetchImpl } = {}) {
 }
 
 /** Build the consumer. The only thing in the deployment that executes a run. */
-export function buildRunner(env, { now, notify, fetchImpl } = {}) {
+export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryMs } = {}) {
   // THE CONSUMER NEVER PRODUCES. It claims, executes and releases; the only thing
   // that sends a message is the sweeper, and that is a different handler.
   const missing = missingFor(env, "consume");
@@ -166,6 +181,11 @@ export function buildRunner(env, { now, notify, fetchImpl } = {}) {
   const { store, work, send } = parts(env, { notify, fetchImpl });
   return makeRunner({
     work, store, send, agents: AGENTS, now,
+    // Passed through for a LOCAL driver only. The deployed Worker hands in neither,
+    // so both fall back to `runner.mjs`'s own constants — and a test asserts that
+    // this file never names a number of its own for them.
+    ...(Number.isFinite(leaseTtlS) ? { leaseTtlS } : {}),
+    ...(Number.isFinite(beatEveryMs) ? { beatEveryMs } : {}),
     onError: (e) => console.error("agent-runner", JSON.stringify(e)),
     onEvent: (e) => console.log("agent-runner", JSON.stringify(e)),
   });
@@ -175,8 +195,56 @@ const configGap = (e) => new Response(JSON.stringify({ error: String(e?.message 
   status: 503, headers: { "content-type": "application/json; charset=utf-8" },
 });
 
+/**
+ * WHAT IS DEPLOYED, ANSWERED WITHOUT A TOKEN.
+ *
+ * A deployment cannot be verified if there is no way to ask which version answered,
+ * and reading it off a `wrangler deployments list` afterwards is a different
+ * question — that says what was uploaded, not what is serving. So this is the one
+ * unauthenticated route, and it is deliberately narrow:
+ *
+ *   - the version id and tag, from Cloudflare's own `version_metadata` binding;
+ *   - which model this deployment runs, which is the fact a verification most needs
+ *     (a Worker quietly answering from a canned script is the expensive silence);
+ *   - the schema, and WHETHER it is configured, by NAME — exactly what the 503
+ *     already says to any caller, so this adds nothing a stranger could not learn by
+ *     sending one request.
+ *
+ * **IT NEVER CARRIES A SETTING'S VALUE, A TENANT, A RUN OR A COUNT.** It is answered
+ * BEFORE the configuration check, so an unconfigured deployment can still say what
+ * it is — which is the moment the question is asked most often.
+ */
+function health(env) {
+  const missing = missingSettings(env);
+  const v = env?.CF_VERSION_METADATA ?? null;
+  // **THE MODEL IS ECHOED AS CONFIGURED, NOT AS RESOLVED**, and whether this Worker
+  // can actually run it is its own field. A deployment whose `MODEL` names something
+  // the Worker does not know answers 503 on every request while `missingSettings`
+  // sees nothing wrong — so reporting `ok: true` there would be the one lie this
+  // route could tell. A sweep found it: with the model hardcoded to the default,
+  // nothing could see the difference.
+  const model = isText(env?.MODEL) ? env.MODEL : "stand-in";
+  const modelKnown = Object.hasOwn(MODELS, model);
+  return new Response(JSON.stringify({
+    ok: missing.length === 0 && modelKnown,
+    service: "agent-builder-api",
+    version: v?.id ?? null,
+    tag: v?.tag ?? null,
+    deployedAt: v?.timestamp ?? null,
+    model,
+    modelKnown,
+    schema: SCHEMA,
+    agents: Object.keys(AGENTS),
+    missing,
+  }), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
+}
+
 export default {
   async fetch(request, env, ctx) {
+    // Before the configuration check on purpose — see `health`.
+    const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
+    if ((path === "/health" || path === "/") && request.method === "GET") return health(env);
+
     let api;
     try { api = buildApi(env); }
     catch (e) { return configGap(e); }          // Named, and with no value in it.

@@ -34,6 +34,18 @@ const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 /** The columns `store.mjs` is allowed to ask for, so a `select=` cannot be injected. */
 const RUN_COLUMNS = new Set(["id", "tenant_id", "status", "agent_name", "model", "limits", "stop", "created_at", "stopped_at"]);
 const ENTRY_COLUMNS = new Set(["seq", "body", "run_id", "kind", "step", "idx", "at"]);
+/**
+ * The queue's own columns, readable and (for the lease) writable.
+ *
+ * **ONLY THE LEASE FIELDS MAY BE WRITTEN, and that is not a convenience.** The
+ * verification needs to revoke a lease — that is what "a consumer was interrupted"
+ * looks like from outside — and it must not be able to reach `done_at` or
+ * `tenant_id`, because a shim that can rewrite the work's identity is a shim that can
+ * make a verification pass for the wrong reason.
+ */
+const WORK_COLUMNS = new Set(["run_id", "tenant_id", "kind", "enqueued_at", "attempts",
+  "claimed_by", "claimed_at", "lease_expires_at", "done_at", "last_error"]);
+const WORK_WRITABLE = new Set(["lease_expires_at"]);
 
 /** Every RPC, with how its answer comes back. A name not here is a 404. */
 const RPCS = {
@@ -137,6 +149,25 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
         const r = await sql(`select coalesce(json_agg(t order by t.seq), '[]')::text from (select ${cols} from agent.run_entries ${whereOf(url.searchParams, ENTRY_COLUMNS)}) t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(200, JSON.parse(r.out || "[]"));
+      }
+
+      if (p === "/rest/v1/run_work" && req.method === "GET") {
+        const cols = selectOf(url.searchParams, WORK_COLUMNS, [...WORK_COLUMNS]);
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.run_work ${whereOf(url.searchParams, WORK_COLUMNS)}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/run_work" && req.method === "PATCH") {
+        const sets = Object.keys(body ?? {}).filter((k) => WORK_WRITABLE.has(k));
+        if (!sets.length) return send(400, { message: "nothing writable was asked for" });
+        const where = whereOf(url.searchParams, WORK_COLUMNS);
+        // NEVER AN UNFILTERED UPDATE. A PATCH with no filter would rewrite the lease
+        // on every run in the database, which is not a thing any caller means.
+        if (!where) return send(400, { message: "a PATCH must name which rows" });
+        const assign = sets.map((k) => `"${k}" = ${body[k] === null ? "null" : `${lit(body[k])}::timestamptz`}`).join(", ");
+        const r = await sql(`update agent.run_work set ${assign} ${where};`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(204);
       }
 
       // ── the queue's functions ─────────────────────────────────────────────

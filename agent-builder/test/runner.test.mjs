@@ -9,15 +9,26 @@ import { liveStore } from "./helpers/memory-rest.mjs";
 
 const NOW = 1_800_000_000_000;
 
-/** A timer nothing fires but a test. */
+/**
+ * A timer nothing fires but a test — AND ONE THAT REMEMBERS WHAT INTERVAL IT WAS
+ * ASKED FOR.
+ *
+ * Recording the delay is not decoration: a fake that discards it cannot tell a
+ * heartbeat asked to run every 30 seconds from one asked to run every 0 ms, which
+ * against a real timer is a busy loop hammering the database. A sweep found exactly
+ * that — the junk-beat mutant survived because nothing observed the number.
+ */
 function fakeTimer() {
   const pending = new Map();
+  const asked = [];
   let id = 0;
   return {
-    set: (fn) => { const h = ++id; pending.set(h, fn); return h; },
+    set: (fn, ms) => { const h = ++id; pending.set(h, fn); asked.push(ms); return h; },
     clear: (h) => { pending.delete(h); },
     async fire() { const fns = [...pending.values()]; pending.clear(); for (const f of fns) await f(); },
     get waiting() { return pending.size; },
+    /** Every interval this timer was asked to wait, in order. */
+    get asked() { return [...asked]; },
   };
 }
 
@@ -611,6 +622,59 @@ test("THE SWEEPER SELECTS ON THE LEASE AND NEVER ON ELAPSED TIME", async () => {
   open();
   await running;
   assert.deepEqual(await b.runner.reclaimable({ graceS: 0 }), [], "a finished run is still being offered");
+});
+
+test("A JUNK LEASE OR BEAT FALLS BACK TO THE MODULE'S OWN NUMBER, never to the junk", async () => {
+  // **THE DEPLOYED WORKER PASSES NEITHER, so this guard is what makes the knobs safe
+  // to have at all** — a local driver compresses the clock, and anything that is not
+  // a usable number must read as "not asked for" rather than as a value. `0` is the
+  // one that bites: `opts.leaseTtlS ?? LEASE_TTL_S` keeps it, and a zero-second lease
+  // is refused by `claim_run`, so every delivery would fail.
+  for (const bad of [0, -1, NaN, "90", null, undefined, {}, Infinity]) {
+    const b = bench({ answers: [says("fine")] });
+    const r = await b.accept("t1");
+    const timer = fakeTimer();
+    const runner = makeRunner({
+      work: b.work, store: b.store, send: async () => says("fine"), timer,
+      agents: { support: defineAgent({ name: "support", model: "m", instructions: "i" }) },
+      leaseTtlS: bad, beatEveryMs: bad,
+      nameWorker: () => "w1",
+    });
+    const out = await runner.deliver(r.runId);
+    assert.equal(out.ran, true, `leaseTtlS ${JSON.stringify(bad)} broke the delivery: ${out.why}`);
+    // The lease really was taken for the module's own length, not for the junk.
+    assert.equal(b.rest.work.get(r.runId).done_at !== null, true);
+    // **AND THE HEARTBEAT WAS SCHEDULED AT THE MODULE'S OWN INTERVAL.** A `0` here is
+    // the one that bites: against a real timer it is a busy loop beating the database
+    // as fast as it can answer.
+    assert.deepEqual(timer.asked, [BEAT_EVERY_MS],
+      `beatEveryMs ${JSON.stringify(bad)} was scheduled as ${JSON.stringify(timer.asked)}`);
+  }
+  // THE CONTROL: a usable number IS honoured, so the fallback is selective rather
+  // than the knob being ignored altogether.
+  const c = bench({ answers: [says("fine")] });
+  const r2 = await c.accept("t1");
+  const runner = makeRunner({
+    work: c.work, store: c.store, send: async () => says("fine"), timer: fakeTimer(),
+    agents: { support: defineAgent({ name: "support", model: "m", instructions: "i" }) },
+    leaseTtlS: 5, nameWorker: () => "w1",
+  });
+  // Claim it first with the injected length and read the lease the fake recorded.
+  await c.work.claim({ runId: r2.runId, worker: "probe", ttlS: 5 });
+  const lease = c.rest.work.get(r2.runId).lease_expires_at;
+  assert.equal(lease - c.clock, 5_000, `a 5 s lease was recorded as ${lease - c.clock} ms`);
+  await c.work.release({ runId: r2.runId, worker: "probe", done: false });
+  assert.equal((await runner.deliver(r2.runId)).ran, true);
+  // A usable beat interval IS honoured, so the fallback above is selective.
+  const t2 = fakeTimer();
+  const tuned = makeRunner({
+    work: c.work, store: c.store, send: async () => says("fine"), timer: t2,
+    agents: { support: defineAgent({ name: "support", model: "m", instructions: "i" }) },
+    beatEveryMs: 1234, nameWorker: () => "w2",
+  });
+  const r3 = await c.accept("t1");
+  await tuned.deliver(r3.runId);
+  assert.deepEqual(t2.asked, [1234], `a 1234 ms beat was scheduled as ${JSON.stringify(t2.asked)}`);
 });
 
 test("makeRunner refuses to exist without what it needs", () => {

@@ -4,14 +4,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import worker, {
-  SETTINGS, OPTIONAL, MODELS, SCHEMA, QUEUE_BINDING, SWEEP_GRACE_S, SWEEP_LIMIT,
+  SETTINGS, OPTIONAL, SENSITIVE, MODELS, SCHEMA, QUEUE_BINDING, SWEEP_GRACE_S, SWEEP_LIMIT,
   missingSettings, buildApi, buildRunner,
 } from "../src/worker.mjs";
 import { AGENTS } from "../src/agents.mjs";
 import { makeStandIn } from "../src/model-standin.mjs";
 import { runAgent } from "../src/run.mjs";
 import { memoryRest } from "./helpers/memory-rest.mjs";
-import { LEASE_TTL_S } from "../src/runner.mjs";
+import { LEASE_TTL_S, BEAT_EVERY_MS } from "../src/runner.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIR = path.resolve(HERE, "..");
@@ -362,12 +362,33 @@ test("THE WORKER CONFIG IS SEPARATE AND CANNOT SHIP BY ACCIDENT", () => {
   const cfg = JSON.parse(fs.readFileSync(mine, "utf8").replace(/^\s*\/\/.*$/gm, ""));
   assert.equal(cfg.main, "src/worker.mjs");
   assert.notEqual(cfg.name, "isibi-app", "it shares the other product's Worker name");
-  // NO SECRETS IN THE FILE. The three settings are `wrangler secret put`, and the
-  // service key in particular must never be committed.
+  // **NO SENSITIVE SETTING MAY BE A COMMITTED VAR — and the list is derived, so a
+  // setting added later is covered by existing.** The others deliberately ARE vars:
+  // a project URL is public and a publishable key is designed to be handed to
+  // browsers, so committing them makes the deployment one secret instead of three.
   const raw = fs.readFileSync(mine, "utf8");
-  for (const k of Object.keys(SETTINGS)) {
+  for (const k of SENSITIVE) {
     assert.equal(cfg.vars?.[k], undefined, `${k} is a var in the committed config`);
+    assert.equal(raw.includes(`"${k}":`), false, `${k} appears in the committed config`);
   }
+  // Every sensitive name must be a setting this Worker actually reads, or the list
+  // is protecting something that does not exist while missing something that does.
+  for (const k of SENSITIVE) {
+    assert.ok(Object.hasOwn(SETTINGS, k) || Object.hasOwn(OPTIONAL, k), `${k} is not a setting at all`);
+  }
+  // AND THE NON-SENSITIVE ONES REALLY ARE SET, so a deploy from this file is
+  // configured except for the one secret. A missing var here would read, at runtime,
+  // as exactly the same 503 as a missing secret.
+  for (const k of Object.keys(SETTINGS)) {
+    if (SENSITIVE.includes(k)) continue;
+    assert.ok(typeof cfg.vars?.[k] === "string" && cfg.vars[k].trim() !== "",
+      `${k} is neither a secret nor a configured var, so the deploy is incomplete`);
+  }
+  // The publishable key must BE a publishable one. A service key pasted into this
+  // slot would be committed and would look like it worked.
+  assert.doesNotMatch(cfg.vars.SUPABASE_PUBLISHABLE_KEY, /service_role/,
+    "a service-role key is committed in the publishable slot");
+  assert.match(cfg.vars.SUPABASE_URL, /^https:\/\/[a-z0-9-]+\.supabase\.co$/);
   assert.match(raw, /docs\/deploy\.md/, "the config does not point at the deployment steps");
 
   // **THE QUEUE IS CONFIGURED, AND ITS NAME COMES FROM THE CODE.** Two copies of a
@@ -400,4 +421,78 @@ test("THE WORKER CONFIG IS SEPARATE AND CANNOT SHIP BY ACCIDENT", () => {
     const rootCfg = fs.readFileSync(root, "utf8");
     assert.equal(rootCfg.includes("agent-builder"), false, "the root Worker config now references this directory");
   }
+});
+
+test("GET /health SAYS WHAT IS DEPLOYED, WITHOUT A TOKEN AND WITHOUT A SECRET", async () => {
+  // A deployment cannot be verified if nothing can be asked which version answered.
+  const env = good();
+  for (const path of ["/health", "/", "/health/"]) {
+    const res = await worker.fetch(new Request(`https://x${path}`), env, { waitUntil() {} });
+    assert.equal(res.status, 200, `${path} answered ${res.status}`);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.model, "stand-in");
+    assert.equal(body.schema, SCHEMA);
+    assert.deepEqual(body.missing, []);
+    assert.deepEqual(body.agents.sort(), Object.keys(AGENTS).sort(), "the agent list is not the registry's");
+    // **NOT A SINGLE SETTING VALUE, anywhere in the response.** This is the one
+    // unauthenticated route, so it is also the one that could leak by accident.
+    const whole = JSON.stringify(body);
+    for (const v of ["svc", "pub", "https://p.supabase.co", "s3cret"]) {
+      assert.equal(whole.includes(v), false, `/health quoted a setting's value: ${whole}`);
+    }
+  }
+
+  // IT ANSWERS WHEN THE WORKER IS NOT CONFIGURED, which is when it is asked most —
+  // and it names what is missing, exactly as the 503 already does to any caller.
+  const bare = await worker.fetch(new Request("https://x/health"), { MODEL: "stand-in" }, { waitUntil() {} });
+  assert.equal(bare.status, 200);
+  const bareBody = await bare.json();
+  assert.equal(bareBody.ok, false);
+  assert.deepEqual(bareBody.missing.sort(), ALL_REQUIRED());
+
+  // **A MODEL THIS WORKER CANNOT RUN IS REPORTED AS CONFIGURED AND NOT OK.** Such a
+  // deployment answers 503 on every request while every setting is present, so
+  // `missing` alone would say nothing is wrong — and echoing the default instead of
+  // the configured name would hide it completely. A sweep found this.
+  const wrongModel = await worker.fetch(new Request("https://x/health"),
+    { ...good(), MODEL: "grok-4" }, { waitUntil() {} });
+  const wm = await wrongModel.json();
+  assert.equal(wrongModel.status, 200, "/health stopped answering for an unknown model");
+  assert.equal(wm.model, "grok-4", "/health echoed the default instead of what is configured");
+  assert.equal(wm.modelKnown, false);
+  assert.equal(wm.ok, false, "/health called an unrunnable deployment ok");
+  assert.deepEqual(wm.missing, [], "the unknown model was reported as a missing setting");
+  // ...and a request really does fail, so `ok: false` is the truth and not caution.
+  assert.equal((await worker.fetch(new Request("https://x/runs"), { ...good(), MODEL: "grok-4" }, { waitUntil() {} })).status, 503);
+
+  // The version comes from Cloudflare's binding, and is `null` rather than invented
+  // when there is none — a made-up version is worse than no version.
+  assert.equal((await (await worker.fetch(new Request("https://x/health"), env, { waitUntil() {} })).json()).version, null);
+  const stamped = await worker.fetch(new Request("https://x/health"),
+    { ...env, CF_VERSION_METADATA: { id: "v-123", tag: "t", timestamp: "2026-09-15T00:00:00Z" } }, { waitUntil() {} });
+  const sb = await stamped.json();
+  assert.equal(sb.version, "v-123");
+  assert.equal(sb.deployedAt, "2026-09-15T00:00:00Z");
+
+  // And it is a READ: no other method reaches it, and /health never queues anything.
+  assert.equal((await worker.fetch(new Request("https://x/health", { method: "POST" }), env, { waitUntil() {} })).status, 401);
+  assert.equal(env[QUEUE_BINDING].sent.length, 0);
+});
+
+test("THE SWEEP'S GRACE IS AT LEAST ONE BEAT, so a lapsed lease is never handed on before its holder can notice", () => {
+  // **THE INVARIANT THAT MAKES THE LEASE GATES ENOUGH, and it was unpinned until a
+  // live verification had to reason about it.** A worker learns its lease is gone at
+  // its next beat, so there is a window — up to one beat — in which it is still
+  // working and does not know. The sweeper's grace is what keeps that window from
+  // overlapping with another consumer's: a lapsed lease is only offered to somebody
+  // else after the grace, by which time the holder has had a beat in which to stop.
+  //
+  // Drop the grace below a beat and the two windows overlap, which is two workers on
+  // one run. Nothing else in the codebase says so, so it is said here.
+  assert.ok(SWEEP_GRACE_S * 1000 >= BEAT_EVERY_MS,
+    `the sweep grace is ${SWEEP_GRACE_S}s and a beat is ${BEAT_EVERY_MS}ms — a lapsed lease can be handed on before its holder notices`);
+  // And the lease itself must outlast a beat, or a healthy worker loses its own run.
+  assert.ok(LEASE_TTL_S * 1000 > BEAT_EVERY_MS,
+    `the lease is ${LEASE_TTL_S}s and a beat is ${BEAT_EVERY_MS}ms — a beating worker would still lose its lease`);
 });

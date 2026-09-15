@@ -6,10 +6,15 @@
 // so this file cannot ship by accident. Deploying it is a deliberate
 // `wrangler deploy -c agent-builder/wrangler.jsonc`, and it has not been run.
 //
-// THE SECRETS ARE NOT HERE AND MUST NOT BE. See `docs/deploy.md` for the exact
-// names and the order to do things in. The service key is what lets the backend
-// write, and it stays server-side: it is never sent to a browser and never
-// appears in this file.
+// ONE SECRET, AND IT IS NOT HERE. `SUPABASE_SERVICE_KEY` is the only credential
+// this Worker needs that must not be committed — it can read and write every
+// tenant's runs. The other two settings below are NOT secrets (a project URL is
+// public; a publishable key is designed to be handed to browsers), so they live
+// here as plain vars and the deployment is one `wrangler secret put` instead of
+// three. `src/worker.mjs` exports `SENSITIVE` and a test asserts that nothing on
+// that list is ever a var in this file.
+//
+// See `docs/deploy.md` for the exact commands and the order they must go in.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "agent-builder-api",
@@ -20,7 +25,17 @@
   "vars": {
     // The model this deployment will run. `stand-in` costs nothing and calls no
     // provider; a name this Worker does not know is REFUSED rather than defaulted.
-    "MODEL": "stand-in"
+    "MODEL": "stand-in",
+
+    // The project the rest of this repository already uses. Public information: it
+    // is in the hostname of every request a browser makes to it.
+    "SUPABASE_URL": "https://ujrqdmmtcptvimazlhom.supabase.co",
+
+    // The publishable key. NOT A SECRET — it is the key a browser is given, and its
+    // whole job here is to let Supabase Auth be ASKED whether a customer's token is
+    // genuine. It grants nothing on the `agent` schema: `anon` is revoked from every
+    // table there, which is checked against a real PostgreSQL.
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_icEWWZsuue5VG4ogSwFFCA_D01jLquT"
   },
 
   "queues": {
@@ -55,6 +70,11 @@
       }
     ]
   },
+
+  // WHICH VERSION IS SERVING. Cloudflare fills this in per deployment, and
+  // `GET /health` hands back its id — the only honest answer to "what is deployed",
+  // as opposed to `deployments list`, which says what was uploaded.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
 
   // THE SWEEPER. What makes a lost doorbell cost latency instead of work: it finds
   // runs whose lease has lapsed and puts them back on the queue.
