@@ -1262,6 +1262,27 @@ case now, and it is safe on walls that already existed.
 Each of these is shipped and live. What is kept is the RULE and the NUMBERS; the
 story of how each got there is in `git show a4d0f5e5:CLAUDE.md`.
 
+- **THERE IS A THIRD VIEW: `agents`, the agent builder** (2026-09-15, owner: *"under
+  the A for the profile thing, put agent builder"*). A profile-menu row opens it,
+  `renderAgents` draws it, and it is a view in THIS app rather than a page on the agent
+  Worker's own domain — which would have meant a second sign-in to reach a menu item.
+  **ITS LIST LIVES IN `localStorage` AND NOWHERE ELSE**, said on the screen in its own
+  words, because `agent-builder/`'s API runs an agent that ALREADY EXISTS and has no
+  route that creates one: there an agent is code, which a request may not supply.
+  **`AGENTS_KEY` IS ON THE ACCOUNT-SWITCH WIPE LIST** — localStorage belongs to the
+  browser, not the account, so without it the next person signing in on this machine
+  inherits the last one's written instructions.
+- **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
+  `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
+  which was bought by a survivor that added `viewGallery` back — a door to a screen whose
+  renderer was deleted. Freezing the count protected that and failed identically for
+  every later view, dead or alive; the agent builder was the first legitimate addition
+  and showed the difference. It now forbids the deleted media views BY NAME, forbids
+  `home`/`landing` (aliases `showView` resolves, never views — listing one paints an
+  empty main), and requires **every** known view to have a `render…` call, which catches
+  a door-to-nothing under any name. Re-anchored, not appeased: proved against three
+  breakages — gallery restored, a view with no renderer, `home` listed as a view.
+  Suite **6,480** (6,478 pass, 2 skipped), +4 being the new guard's own cases.
 - **TYPING IN THE START BOX IS A FRESH BUILD, NEVER A REVISE** (owner). Three
   conditions, each a refusal to guess: the DESIGNER chose the name, the chat is
   POSITIVELY known to own no site (`mine === null`, never truthiness — a blip
