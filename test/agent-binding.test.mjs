@@ -879,6 +879,12 @@ function sending(t, { thread = [], sendAnswer = null, uid = "acct-A" } = {}) {
   });
   setRows(w);
   w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A";');
+  // ⚠ THE BOX SAYS WHICH CONVERSATION IT IS, because the real render emits
+  // `data-agent` and every composer read asks the ELEMENT for it. Without this the
+  // fixture was LESS CAPABLE than the screen: `agentComposerRead` answered "no
+  // conversation" and wrote nothing, which hid a defect the live site showed at once
+  // — a successful send left its words in the box, put back by the next redraw.
+  w.s.document.getElementById("agMsg").setAttribute("data-agent", "A");
   // ⚠ THE POLL IS STOPPED IN A HOOK, NEVER AT THE END OF A CASE — and this cost a
   // whole mutation sweep to learn. A running conversation arms a REAL 2.5-second
   // timer that RE-ARMS itself after each read, so a case whose assertion FAILS never
@@ -1256,4 +1262,38 @@ test("...and an absorbed press whose words differ keeps the edit rather than cle
   assert.deepEqual(b.w.val("agentMsgs.map((m) => m.text)"), [], "the stored message was drawn as this send's");
   await b.w.ev("agentSend()");
   assert.notEqual(b.sends[1].key, b.sends[0].key, "the next press reused the absorbed key");
+});
+
+test("⚠ A SUCCESSFUL SEND EMPTIES THE BOX, not just the draft — found on the live site", async (t) => {
+  // THE DEFECT, and it needed a real browser to see. `agentSend` drops the draft on
+  // success; the next render then READS the box before redrawing it, and the words
+  // still sitting in the textarea were written straight back into the draft it had
+  // just cleared. So the box kept the sent message, and the next press sent it again.
+  //
+  // Every unit case missed it because the fake `#agMsg` carried no `data-agent`, so
+  // the read answered "no conversation" and wrote nothing — the fixture was less
+  // capable than the render. It carries the attribute now, which is what makes this
+  // case able to fail.
+  const b = sending(t);
+  const box = b.w.s.document.getElementById("agMsg");
+  box.value = "when do you open on sunday?";
+  await b.w.ev("agentSend()");
+  assert.equal(b.sends.length, 1);
+  assert.equal(b.w.ev('agentDraftOf("A")'), "", "the draft survived a successful send");
+  assert.equal(box.value, "", "the BOX kept the sent message, so the next press sends it twice");
+  // AND THE REDRAW AGREES: the drawn textarea is empty too, which is the half a
+  // person sees.
+  assert.doesNotMatch(b.w.s.document.getElementById("viewAgents").innerHTML,
+    />when do you open on sunday\?<\/textarea>/, "the redrawn box still holds the sent message");
+});
+
+test("...and a FAILED send leaves the box exactly as it was", async (t) => {
+  // The control. Clearing the box on failure would throw away words the server never
+  // took — the opposite defect, and the one the draft-keeping rules exist for.
+  const b = sending(t, { sendAnswer: () => badRes("couldn’t reach the server") });
+  const box = b.w.s.document.getElementById("agMsg");
+  box.value = "did you get this";
+  await b.w.ev("agentSend()");
+  assert.equal(box.value, "did you get this", "a failed send emptied the box");
+  assert.equal(b.w.ev('agentDraftOf("A")'), "did you get this");
 });
