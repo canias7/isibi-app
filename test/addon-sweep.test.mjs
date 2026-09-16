@@ -1067,6 +1067,17 @@ test("the harness reads the registry before the post, and the press is its own s
   const pressAt = src.indexOf("body: { name: pick.name, run: true }");
   assert.ok(pressAt > 0, "the Run now press is gone");
   assert.ok(src.indexOf("jobRows(", pressAt) > pressAt, "nothing re-reads the registry after the press, so lastResult can never be seen");
+  // AND THE LINES ARE PRINTED, asserted by the branch's OWN CONDITION rather
+  // than by the call's position. `if (false) for (… of jobLines(…))` leaves
+  // `jobLines(` exactly where a search looks for it — this repository's
+  // "a positional guard cannot see a dead branch", and it is what survived
+  // this change's first sweep. Everything read back off a live job would be
+  // computed and thrown away, which is the wiring defect in its purest form.
+  const printAt = src.indexOf("for (const line of jobLines(");
+  assert.ok(printAt > 0, "nothing prints the job lines");
+  const cond = src.slice(src.lastIndexOf("\n", printAt) + 1, printAt);
+  assert.match(cond, /if \(c\.freeText\)/, "the job lines are printed under some other condition than a free-text ask");
+  assert.doesNotMatch(cond, /false/, "the job lines are computed and never printed");
   // THE WORKFLOW OFFERS THE BOX AND FORWARDS IT — a dispatch input that is not
   // forwarded is a control that answers, wrongly.
   assert.match(WF, /^ {6}run_job:$/m, "the workflow has no run_job input");
