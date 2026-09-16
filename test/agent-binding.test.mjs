@@ -1297,3 +1297,21 @@ test("...and a FAILED send leaves the box exactly as it was", async (t) => {
   assert.equal(box.value, "did you get this", "a failed send emptied the box");
   assert.equal(b.w.ev('agentDraftOf("A")'), "did you get this");
 });
+
+test("⚠ ...and it only removes WHAT WAS SENT, so typing your next message is not wiped", async (t) => {
+  // FOUND LIVE, one press after the defect above was fixed. The answer lands about a
+  // second after the press, so somebody who starts their next message inside that
+  // second had its first characters deleted mid-word — measured on the real site as 12
+  // characters gone, leaving "ake card payments".
+  const b = sending(t);
+  const box = b.w.s.document.getElementById("agMsg");
+  box.value = "when do you open?";
+  const sending1 = b.w.ev("agentSend()");
+  // Typed while the request is in the air, which is exactly the window that hurt.
+  box.value = "and do you take card";
+  b.w.ev(`agentDraftSet("A", "and do you take card");`);
+  await sending1;
+  assert.equal(box.value, "and do you take card", "the send's clear ate a message it never sent");
+  assert.equal(b.w.ev('agentDraftOf("A")'), "and do you take card",
+    "the words typed during the send were dropped from the draft");
+});

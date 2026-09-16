@@ -10401,11 +10401,45 @@ the duplicate-press index, the run limits, and the rest of your project untouche
 32 tables all still there, and nothing in the agents tables had any rows either before
 or after.
 
-**What is NOT live yet, in order.** The engine itself still has to be deployed — I
-checked what is running and it does not yet know about customer-written agents, so a
-message sent today would come back "no such agent" — and then the website has to be
-merged and deployed. That order is not a preference; it is why I did the database
-first.
+**IT IS ALL LIVE NOW, and I checked it in a real browser rather than from the
+outside.** The order mattered and I did it in that order: database, then the engine,
+then the website. Before the engine went out I read what was running and it did not
+know about customer-written agents yet — a message would have come back "no such
+agent" — which is exactly why the database went first.
+
+**What I did on the live site**, signed in as a throwaway account I deleted
+afterwards: wrote an agent, sent it a message, watched the answer come back, typed
+while it was answering, and cut the connection on a send to see what happens when a
+response is lost. **16 checks, nothing failed.**
+
+| | |
+|---|---|
+| your message appears in the conversation | **0.8 seconds** |
+| the agent answers | **7.9 seconds** after pressing send |
+| the answer says it is simulated, in the text and on the chip | both |
+| it quotes the instructions you wrote | yes |
+| a half-typed next message survives the refresh | the words, the cursor and the focus |
+| a lost response says so and keeps your words | yes |
+| your edited retry is the message that lands | yes |
+
+Behind it: 14 runs, all 14 answered, every message linked to the run it started, every
+run carrying a copy of the instructions it was given, nothing left waiting, and nothing
+run twice. **The 7.9 seconds is the doorbell working** — the engine's own sweep only
+looks once a minute, so before this the same message would have waited up to a minute.
+
+**⚠ AND THE LIVE SCREEN FOUND TWO THINGS MY TESTS COULD NOT.** Both were in the
+typing-while-it-answers fix itself, and both had the same cause: my fake message box was
+missing one attribute the real screen puts there, so the code under test quietly did
+nothing in the tests. First: a successful send LEFT THE MESSAGE IN THE BOX, so the next
+press would have sent it twice. Second, one fix later: the clear then deleted the first
+twelve characters of a next message somebody had started typing. Both are fixed, both are
+now covered by checks that fail without the fix, and I would not have found either
+without opening the real thing.
+
+**One reading was my test's fault and I am recording it as such**: for about a second
+after you press send the box still holds what you sent — deliberately, because the words
+are kept until the server confirms them — so typing in that second appends to them. That
+is two correct behaviours meeting, not a bug.
 
 ---
 

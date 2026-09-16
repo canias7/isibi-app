@@ -1642,9 +1642,23 @@ page scope; nothing is merged or deployed.
   which nothing drove directly: a chrome label written unconditionally (which would
   keep saying "simulated" over a real provider's answer) and a message with no run
   drawn as a failure.
-  **THE MIGRATION IS LIVE (2026-09-16, remote version `20260916031604`)** and was verified
-  by reading it back rather than by a success flag — see the engine's own notes. What is
-  not yet live is this Worker and the engine's.
+  **ALL THREE HALVES ARE LIVE (2026-09-16)** and each was verified rather than assumed:
+  the migration as remote version `20260916031604` (read back, bodies byte-identical to
+  this tree), the engine at `147fd716-a091-4c26-8e28-731d103971af` (its `/health` lists
+  `authored`, which it did NOT before — that is what fixed the order), and this Worker
+  through deploy **2125**, whose served `/chat.js` is byte-identical to the merged tree.
+  **PROVEN THROUGH THE LIVE UI in a real browser: 16 checks, 0 failed** — send to message
+  **824 ms**, send to answer **7.9 s** (the doorbell; the engine's own sweep is a
+  one-minute cron), the `[simulated]` label in the text and the chrome, a half-typed next
+  message surviving the poll with its caret and focus, a lost response keeping its words,
+  and an edited retry landing as its own message. 14 runs, all answered, `attempts` never
+  above 1.
+  **⚠ AND THE LIVE SCREEN FOUND TWO DEFECTS THE WHOLE SUITE MISSED** — a successful send
+  leaving its message in the box, and then the clear eating the first twelve characters of
+  a next message — both because the fake `#agMsg` carried no `data-agent`, so the composer
+  read wrote nothing. The full account is in `agent-builder/CLAUDE.md`; the rule to carry
+  is that *the fixture was less capable than the render, in the function whose defect it
+  was hiding.*
 
 - **⚠ THREE DEFECTS IN THAT SCREEN, FOUND BY REVIEW AND EACH REPRODUCED FIRST
   (2026-09-16).** All three are the recorded shape: the code reads correctly, every guard
@@ -5933,8 +5947,8 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   only above **100,000**, which no balance reaches, so **no server-side per-request
   cap exists**; the account balance is the only bound that binds, and the harness's
   `budget` is read BETWEEN cases, which an `ask` run never has two of.
-  The unit suite is **6,628** (2026-09-16, local, ON THE TREE WITH `main` MERGED IN —
-  6,626 pass, 2 skipped, 0 fail). The agent-run branch measured **6,606** and `main`
+  The unit suite was **6,631** (2026-09-16, local — 6,629 pass, 2 skipped, 0 fail; the
+  three since 6,628 are the two live-found composer defects and their control). The agent-run branch measured **6,606** and `main`
   carried **22** cases the branch had not seen (the addon reporting work), so
   **6,606 + 22 = 6,628 and the arithmetic closes exactly**. The branch's own chain:
   6,592 for the send, then **6,606** for the three review fixes — six browser cases
