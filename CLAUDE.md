@@ -7082,6 +7082,42 @@ and `builder/site-requirements.mjs`). Pass 1 killed 14 with two survivors and
 word. Automatic execution stays **explicitly unverified**: run 50's job has only
 ever been fired by hand.
 
+#### THE OBSERVATION BASELINE, AND WHY IT NEEDS THE DEPLOY
+
+**The row as run 50 left it**: `nightly_booking_count()` · `at 23:00
+Europe/London` · `everyMinutes 1440` · `last_run 2026-09-16T19:29:36.345Z` ·
+`lastResult "Done — counted 3 bookings."`
+
+**Both selectors driven against that exact row** (the deployed one read out of
+git at `origin/main`, not recalled):
+
+| code | first selects it | London |
+|---|---|---|
+| deployed (`origin/main`) | **2026-09-17T19:29:06Z** | 20:29 — the drift |
+| the fix | **2026-09-16T22:00:00Z** | 23:00 — the asked-for time |
+
+**The deployed number is `last_run + 24h − 30s` and the arithmetic closes to the
+millisecond**, which is what makes it a prediction rather than an observation
+waiting to be explained.
+
+**THE CORRECTED SCHEDULE CANNOT BECOME DUE UNTIL THIS IS DEPLOYED**, and a
+WORKER deploy is enough: `dueJobs` runs in the Worker's cron handler, not in a
+container, so the 15–20 minute container hold does not gate this particular
+observation (the merge still rolls the container, because `builder/` moved).
+
+**THE PANEL CANNOT BE READ FROM A SESSION** — `GET /api/site/<slug>/jobs` is
+owner-gated and no `SUPABASE_*` or `OWNER_*` credential exists in this
+environment, checked rather than assumed (the names were enumerated and their
+lengths printed; nothing was).
+
+**AND A TIMESTAMP DOES NOT IDENTIFY AN INVOCATION** (the owner's own correction).
+The row records the time and the result and nothing about what fired it. The one
+honest statement available is *this session pressed nothing* — a fact about what
+was done, not an inference from the row. A stamp within seconds of the due
+instant is CONSISTENT WITH the cron and is not proof of it; and **a two-minute
+cron is a cadence, not a deadline**, so a job that has not run by 22:02 has not
+thereby established that nothing fired it.
+
 
 ## Data, auth, payments, mail
 

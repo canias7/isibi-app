@@ -913,6 +913,44 @@ silencing could have eaten an unrelated "still to do". Closed both, re-ran:
 **Not merged, not deployed, nothing paid.** Automatic 11pm running is still
 **unverified** — run 50's job has only ever been fired by hand.
 
+### The observation baseline — and the fix has to be live for it to mean anything
+
+**The baseline, as run 50 left it**: `nightly_booking_count()` at **23:00
+Europe/London every 1440m**, last run **2026-09-16 19:29:36Z**, last result
+**"Done — counted 3 bookings."**
+
+I drove both versions of the selector against that exact row, and they disagree
+about the live job:
+
+| code | first selects it at | in London |
+|---|---|---|
+| **what is deployed now** (`main`) | **17 Sep 19:29:06Z** | **20:29 tonight** — the drift |
+| **the fix** | 16 Sep 22:00:00Z | 23:00 **last** night — the time you asked for |
+
+The deployed number is not a guess: it is `last_run + 24h − 30s`, and the
+arithmetic closes on the second.
+
+**So the corrected schedule cannot become due until this is merged and
+deployed** — and a Worker deploy is enough for this one, because the selection
+happens in the Worker and not in a container. **That is your call and I have not
+made it.** If you do merge it, the deploy takes about three minutes and the next
+23:00 London is the first occurrence the corrected code would pick up; leave it
+un-merged and what fires tonight is the drifted 20:29, which is the defect
+running rather than the fix.
+
+**And I cannot read the Jobs panel from here.** That route is owner-gated and
+this session holds no key for it — checked, not assumed. So the read is yours,
+exactly like the workflow buttons.
+
+**How to tell an automatic run from a manual one, honestly.** The panel records
+the time and the result and **nothing about what invoked it**, so a timestamp on
+its own settles nothing. What I can tell you is that **I will press nothing** —
+that is a statement about what I do, not an inference from the row. Beyond that,
+a tick landing within a couple of seconds of the due instant is *consistent with*
+the cron and is not proof of it. And the two-minute cron is a cadence, not a
+deadline: a firing can be late or skipped, so the job not having run by 22:02
+would not establish that nothing fired it.
+
 ---
 
 ### Still true: I cannot press any of these
