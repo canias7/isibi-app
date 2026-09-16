@@ -4804,7 +4804,7 @@ Postgres's own default**, and an unlisted `pg_temp` is searched **FIRST** for
 relations — so the caller never touches its own `search_path` either.
 
 **MEASURED ON A REAL POSTGRESQL 16** (`test/integration/local-pg-searchpath.mjs`,
-**47 checks**, real DDL out of `applySiteSchema` through the `fetch` seam, the
+**61 checks**, real DDL out of `applySiteSchema` through the `fetch` seam, the
 pre-fix side loaded out of git so the negative control is the code that shipped):
 a role refused `SELECT` on the table outright (`permission denied for table
 bookings`) creates `pg_temp.bookings` and the definer function that counts the
@@ -4845,13 +4845,14 @@ claims:**
   privilege surface asserted byte-identical (every function's ACL, every
   table/column grant, every policy) so a pin that quietly moved a privilege
   would be red.
-- **DEMONSTRATED — the upgrade path**, which arms 1-8 do NOT cover because they
-  each build into an empty database and **no live site takes that path**. Arm 9
-  stands up a site with the pre-fix DDL and its grants, confirms it IS
-  redirected, then replays the new engine's statements over the same database —
-  the `CREATE OR REPLACE` a revise, an addon or a rules change really sends.
-  The pin takes, **every grant survives byte for byte**, the rows are where they
-  were, and the redirect closes.
+- **CORRECTED — the upgrade path, which I claimed and got WRONG** (owner:
+  *"Arm 9 resends the full original function definitions, so it does not
+  demonstrate 'the site's next schema change upgrades existing functions.'"*).
+  The first arm 9 stood a site up on the pre-fix DDL and then replayed the
+  statements captured from the ORIGINAL spec — **full function bodies and all**
+  — and read the resulting pin as an upgrade. A real next change is composed
+  from what `_meta.schema` PERSISTED, which is a different thing, and the
+  correction is below. **The claim was the probe's fixture, not the product.**
 - **REACHABLE IN PRINCIPLE, NOT DEMONSTRATED — an in-product DDL door.**
   `normalizeSchema`'s `execute` ban stops DYNAMIC SQL, and a `plpgsql` body may
   contain a STATIC `CREATE TEMP TABLE`. Measured: such a body is **KEPT**. So a
@@ -4868,17 +4869,63 @@ claims:**
   expires when that layer moves", which is exactly the shape that has cost this
   repository four times.
 
+**THE CORRECTED SCOPE — which functions a next schema change really re-pins.**
+Measured twice, at the module (`test/site-searchpath.test.mjs` case 8, no
+database) and on a real server (arm 9), by composing the next change the way an
+addon composes one: **from what `_meta.schema` PERSISTED**, not from the spec
+the first build was handed.
+
+| family | on a site's next schema change |
+|---|---|
+| `app_user_id()`, `app_team_id()` | **RE-PINNED** — created unconditionally at the head of every apply |
+| every trigger function (`pgTrigger`) | **RE-PINNED** — the merged spec re-declares every table, so each is re-emitted |
+| **every model-written function** | **NOT TOUCHED. Not now, not ever, without separate work** |
+
+**AND THAT LAST ROW IS THE HIGH-VALUE HALF**, because the model's functions are
+the `SECURITY DEFINER` ones GRANTed to `anonymous`. The mechanism:
+`applySiteSchema` persists a function as `{name, args, returns, internal}` with
+**no body**, and `normalizeSchema` drops a bodiless function — correctly, since
+a body is what makes one. Measured end to end: the next change emitted
+`app_user_id`, `app_team_id` and three `trg_bookings_aud_*_fn`, **all pinned**,
+and **no `CREATE OR REPLACE` and no `ALTER FUNCTION` naming the model's
+function at all** — which arm 9 then confirms by redirecting it again through
+`pg_temp`, in the same database, after the change.
+
+**THE ONE PATH THAT DOES REACH IT** is an addon that RE-DECLARES the function
+with a body: `CREATE OR REPLACE` carries the pin, the grants survive, the
+redirect closes. Driven in both places. **Upgrading the rest is separate work
+and is NOT proposed here** — see the backlog entry; no backfill is written and
+none is run.
+
 **THE REACH IS LAZY AND PER-SITE, and there is no backfill.** `applySiteSchema`
 has three callers and all three are customer-driven; nothing in `scripts/` calls
 it, `site_rebuild` republishes without it, and `site-schema-recover.mjs` has no
-function reader at all. So an existing site keeps its unpinned functions until
-its owner next changes something schema-shaped — the same shape as the column
-grants, and **no customer database is touched by this review**. `_meta.functions`
-stores `{name, args, returns, internal}` and no body and no config, so **a
-stored spec can never say whether a site's live functions are pinned** —
-`pg_proc.proconfig` is the only reader.
+function reader at all. **No customer database is touched by this review.** And
+`_meta.functions` carries no body and no config, so **a stored spec can never
+say whether a site's live functions are pinned** — `pg_proc.proconfig` is the
+only reader.
 
-**Guards**: `test/site-searchpath.test.mjs` (**7**) — and the shape is the point.
+**THE PIN TRUSTS `public`, SO "public is not writable by untrusted roles" IS A
+REQUIREMENT THIS KEEPS — not a premise it retired** (owner: *"Pinning public,
+pg_temp does not remove that requirement"*). `SET search_path = public, pg_temp`
+closes the `pg_temp` vector and says nothing whatever about a `public` an
+untrusted role can write to. Case 9 pins the trusted set to exactly
+`["public", "pg_temp"]`, so widening it is a deliberate edit rather than a quiet
+one. **Whether a writable `public` is exploitable UNDER this pin is
+UNMEASURED** — a first draft tried to demonstrate it and could not (within one
+schema there is nothing to shadow, and a low-privilege role cannot drop an
+object it does not own), and it is recorded as unmeasured rather than claimed
+either way.
+
+**THE THREE CLASSES OF EVIDENCE, KEPT APART** (owner's instruction):
+
+| class | what it covers | status |
+|---|---|---|
+| **local tests** | everything above: the mechanism, the pin, the scope, the compatibility and privilege surfaces | run here — probe **61/61**, guards **9/9** |
+| **older probe results** | `neon-e2e`'s four `CREATE` privilege checks against a real Neon project | assertions that EXIST in that file; **no run of them is recorded in this repository**, so they are not being quoted as a live reading |
+| **current live permission evidence** | what `anonymous`/`authenticated` really hold on a real site today | **NONE. This session has no Neon credential.** `neon-e2e` is the only reader, and running it is the owner's |
+
+**Guards**: `test/site-searchpath.test.mjs` (**9**) — and the shape is the point.
 When the pin was added the WHOLE suite stayed green, because the existing
 `functionSql` guard asserts `create.includes(" SECURITY DEFINER ")` and a new
 trailing clause does not disturb it. **A change nothing could see is a change
@@ -4890,14 +4937,24 @@ assertion that a model function does NOT pin is inverted, the TEMP privilege it
 never asked about is now reported beside the four `CREATE` checks, and the order
 is asserted.
 
-**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived.** Pass 1 killed 15 with one survivor — a trigger pinned
-`pg_temp, public`, which the census could not see because it asked whether a pin
-was PRESENT while case 3 asked about the constant that mutant no longer used.
-Closed by reading the path out of each STATEMENT rather than out of
-`FN_SEARCH_PATH`. Every new case was proved RED against the pre-change modules
-first; case 6 is green by design, being the control that privilege must NOT move.
-**Suite 6,512** — 6,505 + 7, closes exactly.
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** An earlier pass killed 15 of 16 with one survivor — a
+trigger pinned `pg_temp, public`, which the census could not see because it
+asked whether a pin was PRESENT while case 3 asked about the constant that
+mutant no longer used. Closed by reading the path out of each STATEMENT rather
+than out of `FN_SEARCH_PATH`. The seventeenth mutant appends a third schema to
+the pinned path with `pg_temp` still last, so **only** the trust-set census
+sees it — which is what makes case 9 load-bearing rather than decorative.
+Every new case was proved RED against the pre-change modules first (case 8
+shows **5 of 5 re-issued functions unpinned** on the old tree); case 6 is green
+by design, being the control that privilege must NOT move.
+
+**AND THE PROBE'S OWN CONTROL HAD STOPPED BEING ONE.** `OLD_REF` defaulted to
+`HEAD`, so the moment the fix was committed HEAD *was* the fix: every BEFORE
+case inverted and the probe reported the PIN as broken. It defaults to
+`origin/main` now **and refuses to run at all** if that ref already pins — the
+recorded "a sweep whose control never applied is a sweep with no control", met
+in the probe written for this change.
 
 **THE DEPLOY WILL ROLL THE CONTAINER**: `site-rls.mjs` and `site-schema.mjs` are
 in the worker's module graph, so the image id moves and the 15–20 minute hold
@@ -5343,12 +5400,22 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,512** (2026-09-16, local — the `search_path` review,
-  whose new case file is `test/site-searchpath.test.mjs`'s **7**: the census
-  over the real emitted DDL, the two emitters counted apart, the ORDER, the
-  invoker form, the placement before `AS`, the privilege control, and the three
-  identity helpers. **6,505 + 7 closes exactly**; the re-anchor in `neon-e2e` is
-  an integration probe and is not in the suite. CI has NOT read this number.
+  The unit suite is **6,514** (2026-09-16, local — the `search_path` review
+  after its scope correction, whose new case file is
+  `test/site-searchpath.test.mjs`'s **9**: the census over the real emitted DDL,
+  the two emitters counted apart, the ORDER, the invoker form, the placement
+  before `AS`, the privilege control, the three identity helpers, **the SCOPE
+  (what a next schema change re-pins and what it does not)** and **the trusted
+  set pinned to exactly `public, pg_temp`**. **6,505 + 9 closes exactly**; the
+  re-anchor in `neon-e2e` is an integration probe and is not in the suite. CI
+  read **6,512** on `71c2c4b8` (run 2609) — the seven-case version — and has NOT
+  read 6,514. **`site build` run 1152 is GREEN on that same sha** (2026-09-16,
+  all twenty steps, `site-build.mjs` **382 passed / 0 failed**, with
+  kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47 beside it — the TWELFTH independent run to
+  answer 382. **The per-step `##[group]` bounding did not attach on this log
+  format**, so the seven counts are read in step order and match the recorded
+  six; that is weaker attribution than bounded and is said rather than glossed).
   Before it, **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
   sessions stamped a suite and neither number was the merged one**, which is
   this file's own "a number stamped in two places drifts when only one is
@@ -6187,6 +6254,25 @@ rule and the measurement.
   our rule about which tables are seeded — and it can never fire for a table
   nobody asked to seed, because the engine only records a skip against the
   design's own seed keys.
+- **EXISTING MODEL FUNCTIONS ARE NEVER RE-PINNED (open, 2026-09-16, kept
+  SEPARATE at the owner's instruction: *"If upgrading existing functions is
+  needed, propose that separately"*).** The `search_path` pin reaches a function
+  the engine RE-DECLARES, and `_meta.functions` stores no body, so
+  `normalizeSchema` drops every stored function and no schema change ever
+  re-emits one. Measured both at the module and on a real PostgreSQL 16: after a
+  next change, the identity helpers and every trigger function are pinned and
+  the model's function is still unpinned and still redirected through `pg_temp`.
+  **So every model-written function on every site built before the pin stays
+  exposed to the mechanism**, and those are exactly the `SECURITY DEFINER` ones
+  granted to `anonymous`.
+  **NOT PROPOSED, NOT WRITTEN, AND NO BACKFILL RUN.** The shapes worth weighing
+  when it is: (a) persist the body in `_meta` so a next change re-declares
+  naturally — the largest change, and it puts model-written SQL into the stored
+  spec; (b) an `ALTER FUNCTION … SET search_path` sweep over `pg_proc` per site,
+  which touches nothing but the setting and needs a credential and the same
+  preview/apply/verify discipline as `backend-repair`; (c) leave it, on the
+  reachability argument, and record that the argument rests on a layer we do not
+  own. **Which of the three is the owner's call**, and nothing here presumes it.
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The availability calendar's own legend (open, live on `fretwork-1` since
   run 16).** `availability-calendar.tsx` prints "Each square is the night

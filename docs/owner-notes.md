@@ -10205,3 +10205,59 @@ next month fails the test by existing.
 
 **Next decision is yours**: read the findings and say whether to merge. If you
 do, the container rolls, so the usual 15–20 minute hold applies.
+
+### You were right about the upgrade claim — corrected, and it shrinks the fix
+
+I said a site's next edit would fix its existing functions. It doesn't. I
+reproduced it exactly as you described before changing anything.
+
+**What I'd actually done**: my test stood up an old site and then replayed the
+*original* setup commands over it — which of course include every function's
+full text. A real next edit isn't built from that. It's built from what we
+saved, and **what we save about a function doesn't include the function's
+body**. Without a body the engine correctly ignores it, so nothing re-issues it
+and nothing re-pins it.
+
+**The corrected scope, measured twice** (once with no database at all, once on a
+real PostgreSQL):
+
+| | on a site's next edit |
+|---|---|
+| the two identity helpers | **fixed** — rebuilt on every change |
+| every trigger function | **fixed** — rebuilt with its table |
+| **every function the model wrote** | **untouched, and still hijackable** |
+
+That last row is the one that matters most, because those are precisely the
+ones that run as the owner and are callable by any visitor. After the next edit
+I re-ran the attack in the same database and it still worked.
+
+**So the honest headline is smaller than I gave you**: this fixes every function
+we create *from now on*, plus anything an edit re-declares. It does not repair
+what's already out there. **The one thing that does reach an old function is an
+edit that re-declares that same function** — I measured that too, and the pin
+takes, the permissions survive, the hijack closes.
+
+**Upgrading the rest is now its own backlog item and I have not started it** —
+three possible shapes written down, no code, no backfill, nothing run. Your
+call.
+
+**On the other thing you flagged**: you're right that pinning to `public,
+pg_temp` still trusts `public`. That requirement stays, and there's now a test
+that pins the trusted list to exactly those two so widening it has to be
+deliberate. Whether a writable `public` could actually be exploited *under* the
+pin — I tried to demonstrate it and couldn't, so it's written down as
+unmeasured rather than claimed either way.
+
+**And I separated the evidence**, since you asked: everything above is local
+tests on this machine. The live permission checks live in the Neon end-to-end
+probe, **and I can't find a record of that probe ever having been run** — so I'm
+not quoting it as live evidence. Current live permission evidence: none, this
+session has no database credential.
+
+**One more thing I broke and fixed**: my own test's "before" side was pointed at
+the latest commit, so the moment I committed the fix, the control *became* the
+fix and the whole probe reported the pin as broken. It points at `main` now and
+refuses to run if that already has the pin.
+
+**CI is finished on the candidate**: unit tests green, and the container harness
+green at 382/382. Nothing merged, nothing deployed, no paid test.

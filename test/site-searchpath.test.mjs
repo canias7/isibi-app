@@ -26,22 +26,37 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { functionSql, FN_SEARCH_PATH, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, APP_TEAM_FN } from "../site-rls.mjs";
-import { applySiteSchema } from "../site-schema.mjs";
+import { applySiteSchema, normalizeSchema } from "../site-schema.mjs";
 
 /**
  * Run the real engine with the wire stubbed and collect every statement it SENT.
  * No database, no network — the same seam `local-pg-grants.mjs` uses, which is
  * what makes a census of the real DDL possible in a unit test at all.
  */
-async function emitted(spec) {
+async function emitted(spec, meta) {
   const statements = [];
   const real = globalThis.fetch;
   const quiet = console.error;
   console.error = () => {};
   globalThis.fetch = async (_url, init) => {
-    let q = "";
-    try { q = JSON.parse(String((init && init.body) || "{}")).query || ""; } catch { /* not ours */ }
-    if (q) statements.push(String(q));
+    let body = {};
+    try { body = JSON.parse(String((init && init.body) || "{}")); } catch { /* not ours */ }
+    const q = String(body.query || "");
+    const params = Array.isArray(body.params) ? body.params : [];
+    if (q) statements.push(q);
+    // `meta` is the box case 8 needs: what `_meta.schema` REALLY persists, which
+    // is not the spec the engine was handed. The write is PARAMETERISED, so a
+    // seam reading only `query` never sees it.
+    if (meta) {
+      if (/_meta/i.test(q) && /INSERT|UPDATE/i.test(q)) {
+        for (const v of params) { try { const o = JSON.parse(v); if (o && o.tables) meta.value = o; } catch { /* another column */ } }
+      }
+      if (/FROM _meta/i.test(q)) {
+        return new Response(JSON.stringify({ command: "SELECT", rowCount: meta.value ? 1 : 0,
+          rows: meta.value ? [{ v: JSON.stringify(meta.value) }] : [], fields: [] }),
+          { status: 200, headers: { "content-type": "application/json" } });
+      }
+    }
     // Refuse Neon's extension so the engine takes its own FALLBACK identity
     // function — the form this change also moved, and the one a census that only
     // ever saw the native form would never look at.
@@ -215,4 +230,78 @@ test("7. all three identity helpers pin, and the fallback qualifies its own call
   // catalog except through a schema-qualified reference, so widening the path
   // would be undoing the pin for no gain.
   assert.ok(!/SET search_path = [^\n]*\bpublic\b/.test(APP_USER_FN_FALLBACK), APP_USER_FN_FALLBACK);
+});
+
+test("8. THE SCOPE: a next schema change re-pins the engine's functions and NOT the model's", async () => {
+  // **THIS CASE EXISTS BECAUSE A CLAIM I MADE WAS WRONG**, and the corrected
+  // scope is the deliverable. The integration probe's first upgrade arm stood a
+  // site up on the pre-fix DDL and replayed the ORIGINAL statements over it —
+  // full function bodies and all — and read the resulting pin as "its next
+  // schema change upgrades it". A real next change is composed from what
+  // `_meta.schema` PERSISTED, and that is a different thing.
+  //
+  // `applySiteSchema` writes a function to `_meta` as `{name, args, returns,
+  // internal}` with NO BODY, and `normalizeSchema` drops a bodiless function —
+  // correctly, since a body is what makes one. So the next change re-declares
+  // every TABLE and therefore re-emits every TRIGGER function, and re-creates
+  // the identity helpers unconditionally, and **never mentions the model's
+  // function at all**.
+  const meta = { value: null };
+  await emitted({
+    // `audit` is what gives a table trigger functions. `trash` adds a COLUMN and
+    // no function — measured, after this case first read as a product failure.
+    tables: [{ name: "bookings", access: "collect", columns: ["who"], audit: true }],
+    functions: [{ name: "count_bookings", returns: "bigint", language: "sql", body: "SELECT count(*) FROM bookings" }],
+  }, meta);
+
+  const persisted = (meta.value && meta.value.functions) || [];
+  assert.equal(persisted.length, 1, "the observer is alive — something was persisted");
+  assert.ok(!("body" in persisted[0]), "a persisted function carries no body: " + JSON.stringify(persisted[0]));
+  assert.equal(normalizeSchema(structuredClone(meta.value)).functions, undefined,
+    "a bodiless function does not survive normalizeSchema — which is the whole mechanism");
+
+  // The next change, composed the way an addon composes one.
+  const next = await emitted({
+    ...JSON.parse(JSON.stringify(meta.value)),
+    tables: [...meta.value.tables, { name: "notes", access: "display", columns: ["title"] }],
+  });
+  const creates = next.filter((s) => CREATE_FN.test(s));
+  const names = creates.map((s) => (s.match(/FUNCTION\s+"?([a-z0-9_]+)/i) || [])[1]);
+
+  // WHAT IS RE-PINNED — asserted, because "the pin reaches nothing" would be as
+  // wrong as the claim this case replaces.
+  assert.ok(names.includes("app_user_id") && names.includes("app_team_id"), names.join(","));
+  assert.ok(names.some((n) => /^trg_bookings_/.test(n)), "the existing table's trigger function: " + names.join(","));
+  for (const s of creates) assert.ok(safelyPinned(s), "re-issued unpinned: " + s.slice(0, 120));
+
+  // WHAT IS NOT. Both spellings, because `ALTER FUNCTION … SET search_path` is
+  // the other way it could be reached and the engine does not emit one.
+  assert.ok(!next.some((s) => /count_bookings/i.test(s) && /(CREATE|ALTER)\s+(OR REPLACE\s+)?FUNCTION/i.test(s)),
+    "nothing may re-declare the model's function: " + next.filter((s) => /count_bookings/i.test(s)).join(" | "));
+  assert.ok(!next.some((s) => /ALTER\s+FUNCTION/i.test(s)), "no ALTER FUNCTION anywhere");
+
+  // AND THE ONE PATH THAT DOES REACH IT, so the scope names a remedy rather than
+  // only a gap: an addon that re-declares the function WITH a body.
+  const redeclared = await emitted({
+    ...JSON.parse(JSON.stringify(meta.value)),
+    functions: [{ name: "count_bookings", returns: "bigint", language: "sql", body: "SELECT count(*) FROM bookings" }],
+  });
+  const again = redeclared.filter((s) => /CREATE OR REPLACE FUNCTION "count_bookings"/.test(s));
+  assert.equal(again.length, 1, "a re-declared function is re-emitted");
+  assert.ok(safelyPinned(again[0]), again[0].slice(0, 140));
+});
+
+test("9. the pin TRUSTS public, so `public` unwritable stays a requirement", () => {
+  // `SET search_path = public, pg_temp` closes the `pg_temp` vector and says
+  // nothing whatever about a `public` an untrusted role can write to. Asserted
+  // as a PROPERTY OF THE CONSTANT so that a later widening — `public` swapped
+  // for a schema somebody can create in, or a second schema appended — has to
+  // be a deliberate edit to this list rather than a quiet one.
+  //
+  // WHERE THE EVIDENCE FOR THE REQUIREMENT LIVES, kept separate on purpose:
+  // the LIVE reading is `neon-e2e`'s four `has_schema_privilege` checks against
+  // a real Neon project, and nothing in this suite can stand in for it.
+  const parts = FN_SEARCH_PATH.split(",").map((s) => s.trim());
+  assert.deepEqual(parts, ["public", "pg_temp"],
+    "the trusted set is exactly `public` — anything else added here is a new trust assumption");
 });

@@ -116,14 +116,36 @@ async function loadOldEngine(ref) {
   return import(path.join(dir, "site-schema.mjs"));
 }
 
-/** Run an engine and collect every statement it SENT. */
-async function capture(applyFn, spec) {
+/**
+ * Run an engine and collect every statement it SENT.
+ *
+ * `meta` is an optional box the seam writes the engine's own `_meta.schema`
+ * payload into and serves reads back from. It exists for arm 10: what a site's
+ * NEXT schema change sends is decided by what `_meta` really persisted, and
+ * that is NOT the spec the first build was handed. The `_meta` write is
+ * PARAMETERISED, so a seam reading only `query` never sees it — which is how
+ * the first version of arm 9 came to replay the original full-body definitions
+ * and call that an upgrade.
+ */
+async function capture(applyFn, spec, meta) {
   const statements = [];
   const real = globalThis.fetch;
   globalThis.fetch = async (_url, init) => {
-    let q = "";
-    try { q = JSON.parse(String((init && init.body) || "{}")).query || ""; } catch { /* not ours */ }
-    if (q) statements.push(String(q));
+    let body = {};
+    try { body = JSON.parse(String((init && init.body) || "{}")); } catch { /* not ours */ }
+    const q = String(body.query || "");
+    const params = Array.isArray(body.params) ? body.params : [];
+    if (q) statements.push(q);
+    if (meta) {
+      if (/_meta/i.test(q) && /INSERT|UPDATE/i.test(q)) {
+        for (const v of params) { try { const o = JSON.parse(v); if (o && o.tables) meta.value = o; } catch { /* another column */ } }
+      }
+      if (/FROM _meta/i.test(q)) {
+        return new Response(JSON.stringify({ command: "SELECT", rowCount: meta.value ? 1 : 0,
+          rows: meta.value ? [{ v: JSON.stringify(meta.value) }] : [], fields: [] }),
+          { status: 200, headers: { "content-type": "application/json" } });
+      }
+    }
     // REFUSE NEON'S EXTENSION so the engine takes its own FALLBACK identity
     // function — the one that reads `request.jwt.claims`, which is what a local
     // Postgres can honour, and which this change also pins.
@@ -215,11 +237,28 @@ END $$;`);
 makeDb(DB_NEW);
 makeDb(DB_OLD);
 
-const OLD_REF = process.env.OLD_REF || "HEAD";
+// `origin/main` AND NOT `HEAD`, because once this change is committed HEAD IS
+// the fix — and then every BEFORE case silently inverts and the probe reports
+// the pin as broken. That happened, on the first run after the commit: **a
+// control that has stopped being a control is worse than no control**, so the
+// ref is the unpinned tree and the assertion below refuses the run if it is not.
+const OLD_REF = process.env.OLD_REF || "origin/main";
 const oldEngine = await loadOldEngine(OLD_REF);
 
 const stmtsNew = await capture(applySiteSchema, structuredClone(SPEC));
 const stmtsOld = await capture(oldEngine.applySiteSchema, structuredClone(SPEC));
+
+// THE CONTROL IS PROVED TO BE ONE, BEFORE ANY ARM READS IT. Every "BEFORE"
+// case below asserts a redirect; if `OLD_REF` already carries the pin they all
+// fail and the probe reads as the FIX being broken rather than as the ref being
+// wrong. Refuse loudly instead.
+const oldModelDdl = stmtsOld.find((s) => /CREATE OR REPLACE FUNCTION "count_bookings"/.test(s)) || "";
+if (!oldModelDdl || /search_path/.test(oldModelDdl)) {
+  console.error(`\nOLD_REF (${OLD_REF}) is not a pre-fix tree — its model functions already pin, so`);
+  console.error("there is no control here and every BEFORE case would be meaningless.");
+  console.error("Pass OLD_REF=<a ref before the pin>. Saw: " + (oldModelDdl.slice(0, 120) || "<no such function>"));
+  process.exit(2);
+}
 
 console.log("\n─ replaying both trees ─");
 const badNew = replay(DB_NEW, stmtsNew, "after  (working tree)");
@@ -444,43 +483,149 @@ const good = sql(DB_R_NEW, `INSERT INTO pets (title, owners_id) VALUES ('rex', $
 ok("AFTER — and a real parent still inserts (the control)", good.ok && /INSERT 0 1/.test(good.tag),
   good.ok ? good.tag : good.err.split("\n")[0]);
 
-// ── 9. THE UPGRADE PATH, which is what every live site will really do ────────
+// ── 9. WHAT A SITE'S NEXT SCHEMA CHANGE REALLY RE-EMITS ──────────────────────
 //
-// Arms 1-8 build each tree in its own empty database, which is a first build.
-// NO LIVE SITE TAKES THAT PATH. A site that exists today carries UNPINNED
-// functions with grants already on them, and what reaches it is
-// `CREATE OR REPLACE` over those functions on its next schema change — a
-// different statement against a different starting state, and the one nobody
-// had measured. Three things have to hold: the pin takes, the grants survive
-// the replace, and the redirect closes.
-console.log("\n─ 9. an existing unpinned site, upgraded by its next schema change ─");
-const DB_UP = "sp_upgrade";
-makeDb(DB_UP);
-replay(DB_UP, stmtsOld, "  as it stands today (unpinned)");
-sql(DB_UP, "INSERT INTO bookings (who, bike, drop_off_day) VALUES ('a','x','mon'),('b','y','tue'),('c','z','wed')");
-const aclBefore = one(DB_UP, ACL);
-const attackBefore = one(DB_UP, ATTACK, { role: ROLE });
-ok("BEFORE the upgrade — the live site is redirected", / sql=1 /.test(attackBefore), attackBefore);
-// THE UPGRADE ITSELF: the same engine statements a revise, an addon or a rules
-// change would send. Nothing else runs — no migration, no backfill.
-const badUp = replay(DB_UP, stmtsNew, "  after its next schema change");
-ok("the upgrade replays with no unexpected refusal", badUp.length === 0, JSON.stringify(badUp));
-const attackAfter = one(DB_UP, ATTACK, { role: ROLE });
-ok("AFTER — the same attack in the same database now reads the owner's rows", / sql=3 /.test(attackAfter), attackAfter);
-ok("AFTER — and the plpgsql and invoker hops with it",
-  /plpgsql=3 / .test(attackAfter) && /via-invoker=3$/.test(attackAfter), attackAfter);
-// `CREATE OR REPLACE` PRESERVES AN ACL — true, documented, and asserted rather
-// than cited, because if it were false this change would silently open every
-// internal function on every site it touched.
-ok("AFTER — every grant survived the replace, byte for byte", aclBefore === one(DB_UP, ACL),
-  "before:\n" + aclBefore + "\nafter:\n" + one(DB_UP, ACL));
-ok("AFTER — and the catalog agrees the functions are pinned",
-  one(DB_UP, CFG).split("\n").includes("count_bookings=search_path=public, pg_temp"), one(DB_UP, CFG));
-// THE ROWS ARE UNTOUCHED. A schema change re-issues DDL over a live table, so
-// "the pin took" is worth nothing beside "and the data is still there".
-ok("AFTER — the site's own rows are where they were", one(DB_UP, "SELECT count(*) FROM bookings") === "3");
+// **THIS ARM REPLACED A WRONG ONE, and the correction is the finding.** The
+// first version stood a site up on the pre-fix DDL and then replayed
+// `stmtsNew` over it — the statements from the ORIGINAL spec, with every
+// function's full body — and read the resulting pin as "its next schema change
+// upgrades it". That is not what a next change sends. **A real one is built
+// from what `_meta.schema` PERSISTED**, and `applySiteSchema` writes a function
+// there as `{name, args, returns, internal}` with **NO BODY** — after which
+// `normalizeSchema` drops it, because a body is what makes a function a
+// function. So nothing re-declares it, and nothing re-pins it.
+//
+// The arm below is the lifecycle: first build → read back what was really
+// stored → an UNRELATED addition, exactly as an addon composes one → apply.
+console.log("\n─ 9. the real lifecycle: persisted metadata, then an unrelated addition ─");
+const LIFE_SPEC = {
+  // `audit` is what gives the table TRIGGER FUNCTIONS, so this arm can tell the
+  // two families apart instead of reporting one number for both. `trash` was
+  // the first choice and creates a COLUMN and no function — measured, and the
+  // arm read as a failure of the product until the spec was corrected.
+  tables: [{ name: "bookings", access: "collect", columns: ["who", "bike", "drop_off_day"], audit: true }],
+  functions: [
+    { name: "count_bookings", returns: "bigint", language: "sql", body: "SELECT count(*) FROM bookings" },
+  ],
+};
+const DB_LIFE = "sp_lifecycle";
+makeDb(DB_LIFE);
+// The site as it stands today: built by the PRE-FIX engine, so its functions
+// are unpinned and carry their grants.
+const metaBox = { value: null };
+const lifeFirst = await capture(oldEngine.applySiteSchema, structuredClone(LIFE_SPEC), metaBox);
+replay(DB_LIFE, lifeFirst, "  the site as built (pre-fix)");
+sql(DB_LIFE, "INSERT INTO bookings (who, bike, drop_off_day) VALUES ('a','x','mon'),('b','y','tue'),('c','z','wed')");
+ok("the persisted function entry carries NO body — which is the whole mechanism",
+  Array.isArray(metaBox.value && metaBox.value.functions)
+    && metaBox.value.functions.length === 1
+    && !("body" in metaBox.value.functions[0]),
+  JSON.stringify(metaBox.value && metaBox.value.functions));
+const aclLife = one(DB_LIFE, ACL);
+const lifeBefore = one(DB_LIFE, "SELECT 'sql=' || count_bookings()::text", { role: ROLE });
+ok("and the function answers the owner's rows before anything else happens", lifeBefore === "sql=3", lifeBefore);
+
+// THE NEXT CHANGE, composed the way the addon route composes one: the stored
+// spec plus the new thing. Nothing here invents a body it does not have.
+const nextSpec = {
+  ...JSON.parse(JSON.stringify(metaBox.value)),
+  tables: [...metaBox.value.tables, { name: "notes", access: "display", columns: ["title"] }],
+};
+ok("the spec a next change is built from still names the function",
+  (nextSpec.functions || []).some((f) => f && f.name === "count_bookings"), JSON.stringify(nextSpec.functions));
+const lifeNext = await capture(applySiteSchema, nextSpec);
+const badLife = replay(DB_LIFE, lifeNext, "  its next schema change (fixed engine)");
+ok("the next change replays with no unexpected refusal", badLife.length === 0, JSON.stringify(badLife));
+
+const CREATE_FN = /CREATE (?:OR REPLACE )?FUNCTION/i;
+const created = lifeNext.filter((s) => CREATE_FN.test(s));
+const namedIn = (s) => (s.match(/FUNCTION\s+"?([a-z0-9_]+)/i) || [])[1] || "";
+/** `pg_temp` last, read out of the STATEMENT — the unit guard's rule, restated here. */
+const safelyPinned = (s) => {
+  const m = String(s).match(/SET\s+search_path\s*=\s*([^\n]*?)\s+AS\s/i) || String(s).match(/SET\s+search_path\s*=\s*([a-z_, ]+)\s*$/i);
+  const parts = (m ? m[1] : "").split(",").map((x) => x.trim()).filter(Boolean);
+  return parts.length > 0 && parts[parts.length - 1] === "pg_temp";
+};
+const reissued = created.map(namedIn);
+console.log("      re-emitted: " + reissued.join(", "));
+// WHAT IS PINNED, and it is real: the identity helpers are created at the head
+// of EVERY apply, and every trigger function is rebuilt for every table in the
+// merged spec.
+ok("the identity helpers ARE re-issued, so they are pinned by any schema change",
+  reissued.includes("app_user_id") && reissued.includes("app_team_id"), reissued.join(","));
+ok("and so is the existing table's trigger function",
+  reissued.some((n) => /^trg_bookings_/.test(n)), reissued.join(","));
+for (const s of created) ok("  re-issued " + namedIn(s) + " is pinned", safelyPinned(s), s.slice(0, 120));
+// WHAT IS NOT, and this is the corrected claim.
+ok("NO statement re-declares the model's function",
+  !lifeNext.some((s) => /count_bookings/i.test(s) && /(CREATE|ALTER)\s+(OR REPLACE\s+)?FUNCTION/i.test(s)),
+  lifeNext.filter((s) => /count_bookings/i.test(s)).join(" | ").slice(0, 200));
+ok("and no ALTER FUNCTION anywhere — there is no other way it could be reached",
+  !lifeNext.some((s) => /ALTER\s+FUNCTION/i.test(s)));
+ok("so the catalog still shows it UNPINNED after the change",
+  one(DB_LIFE, CFG).split("\n").includes("count_bookings=<none>"), one(DB_LIFE, CFG));
+// THE CONSEQUENCE, stated as the attack rather than as a catalog reading.
+const lifeAttack = one(DB_LIFE, [
+  "CREATE TEMP TABLE bookings (id int, who text, bike text, drop_off_day text);",
+  "INSERT INTO bookings (id, who) VALUES (99, 'attacker');",
+  "SELECT 'sql=' || count_bookings()::text;",
+].join("\n"), { role: ROLE });
+ok("AND IT IS STILL REDIRECTED — the pin does not reach an existing model function",
+  lifeAttack === "sql=1", lifeAttack);
+// The half that DID hold everywhere: nothing was damaged by the change.
+ok("no grant moved across the whole lifecycle", aclLife === one(DB_LIFE, ACL),
+  "before:\n" + aclLife + "\nafter:\n" + one(DB_LIFE, ACL));
+ok("and the site's rows are where they were", one(DB_LIFE, "SELECT count(*) FROM bookings") === "3");
+
+// ── 10. RE-DECLARING THE FUNCTION IS THE ONE PATH THAT PINS IT ───────────────
+//
+// Not a proposal — a measurement of what the engine already does, so the
+// corrected scope says which sites are reachable today and which are not. An
+// addon that declares a function WITH a body emits `CREATE OR REPLACE`, and
+// that carries the pin. It reaches the function it re-declares and no other.
+console.log("\n─ 10. the one path that does pin an existing function ─");
+const redeclare = await capture(applySiteSchema, {
+  ...JSON.parse(JSON.stringify(metaBox.value)),
+  functions: [{ name: "count_bookings", returns: "bigint", language: "sql", body: "SELECT count(*) FROM bookings" }],
+});
+replay(DB_LIFE, redeclare, "  an addon that re-declares it");
+ok("a re-declared function IS pinned", one(DB_LIFE, CFG).split("\n").includes("count_bookings=search_path=public, pg_temp"),
+  one(DB_LIFE, CFG));
+ok("and the redirect closes for it", one(DB_LIFE, [
+  "CREATE TEMP TABLE bookings (id int, who text, bike text, drop_off_day text);",
+  "INSERT INTO bookings (id, who) VALUES (99, 'attacker');",
+  "SELECT 'sql=' || count_bookings()::text;",
+].join("\n"), { role: ROLE }) === "sql=3");
+ok("its grants survived the replace", aclLife === one(DB_LIFE, ACL),
+  "before:\n" + aclLife + "\nafter:\n" + one(DB_LIFE, ACL));
+
+// ── 11. THE PREREQUISITE THE PIN DOES NOT REMOVE ─────────────────────────────
+//
+// `SET search_path = public, pg_temp` TRUSTS `public`. It closes the `pg_temp`
+// vector and it does nothing whatever about a `public` an untrusted role can
+// write to — so "public is not writable by untrusted roles" is a REQUIREMENT
+// this change keeps rather than a premise it retired. Asserted here on a local
+// server; the LIVE reading belongs to `neon-e2e`, which is the only thing that
+// can ask a real project, and this probe cannot stand in for it.
+console.log("\n─ 11. public must stay unwritable — the pin assumes it ─");
+const pub = one(DB_LIFE,
+  "SELECT has_schema_privilege('anonymous','public','CREATE')::text || ' ' ||" +
+  " has_schema_privilege('authenticated','public','CREATE')::text");
+ok("neither Data API role may create in public (local server)", pub === "false false", pub);
+// AND WHAT IS *NOT* ASSERTED HERE, deliberately. A first draft tried to
+// DEMONSTRATE the consequence by granting CREATE on public and redirecting a
+// pinned function; it could not, because within one schema there is nothing to
+// shadow — the real table is already there, and a low-privilege role cannot
+// drop an object it does not own. Whether a writable `public` is exploitable
+// against a `public, pg_temp` pin (function overload resolution is the
+// candidate) is **UNMEASURED, and is recorded as unmeasured rather than
+// claimed either way**. What IS certain and is the whole point: the pin names
+// `public`, so `public` is trusted, so the requirement that untrusted roles
+// cannot write there is one this change KEEPS rather than one it retires.
+console.log("      (whether a writable public is exploitable under this pin is UNMEASURED —");
+console.log("       the requirement is retained, not the exploit demonstrated)");
 
 // ── done ─────────────────────────────────────────────────────────────────────
-for (const db of [DB_NEW, DB_OLD, DB_R_NEW, DB_R_OLD, DB_UP]) sql("postgres", `DROP DATABASE IF EXISTS ${db}`);
+for (const db of [DB_NEW, DB_OLD, DB_R_NEW, DB_R_OLD, DB_LIFE]) sql("postgres", `DROP DATABASE IF EXISTS ${db}`);
 console.log(`\n${pass} passed, ${fail} failed\n`);
 if (fail) { for (const f of failures) console.log("  FAILED: " + f); process.exit(1); }
