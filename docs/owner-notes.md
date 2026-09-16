@@ -10143,3 +10143,65 @@ written down as an open observation, not as a clean pass.
 
 **No paid call, no demo-site cleanup.** "Merge" lifted the merge and the deploy
 it fires, and nothing else. The `search_path` review is still queued.
+
+### The `search_path` review — the reason we left it open was wrong
+
+You asked me to finish this one first, with real Postgres behind it and the
+missing hardening kept separate from anything actually exploitable. Here's what
+I found and what I've written. **Nothing is merged or deployed** — that's yours.
+
+**The short version.** Every function the model writes runs as the database
+owner, and none of them said which schemas to look in. We'd left that open on
+the grounds that hijacking it needs a permission nobody has. That reasoning is
+in the repo in as many words, and **it's wrong** — there's a third way in that
+needs no permission at all, because Postgres hands *everyone* the right to make
+temporary tables, and it looks in the temporary space **first**.
+
+**Proved it on a real PostgreSQL 16, not on paper.** A visitor who is flatly
+refused any read of the bookings table makes a temporary table with the same
+name, and the owner-level function that counts the real bookings answers **1**
+instead of **3** — it counted theirs. It never had to touch any setting. Same
+result through a plpgsql function, and same through a second function called by
+the first.
+
+**What that would buy an attacker, in plain terms**: not usually *reading* your
+data — it's making an owner-level check look at a table *they* control. Anything
+that validates before it acts (a price lookup, a "does this parent record
+exist?" check) can be made to say yes.
+
+**The fix is one clause**, and the sharp part is that a plausible version of it
+does nothing: naming the normal schema isn't the fix, naming the temporary one
+**last** is. I measured both — the plausible version is hijacked exactly like no
+fix at all.
+
+**What I'm confident about, and what I'm not** — worth keeping apart:
+
+- **Confident**: the mechanism, both directions, and that the fix changes *only*
+  which names resolve. Every permission on every function, table, column and
+  policy is byte-for-byte identical before and after.
+- **Confident**: the upgrade. Our sites already exist with the old functions, so
+  I stood one up that way, confirmed it *is* hijackable, then ran what a normal
+  edit would send. It gets fixed, every permission survives, the rows are
+  untouched.
+- **Not proved**: that anyone can reach it on a live site today. The only public
+  door is Neon's data API, which has no way to send that kind of command. **But
+  that's a lock on somebody else's door, not ours** — and there's one path
+  *inside* our own product I did find: a plpgsql function is allowed to create a
+  temporary table, and if the model ever writes one, a visitor has the door. The
+  fix closes that too, which is a better answer than adding another ban-list.
+
+**Two things I checked that came back clean**: our own Supabase functions (69 of
+them, all already pinned), and the reach — nothing anywhere re-applies a schema
+in the background, so **no customer database is touched by any of this**. Each
+site gets fixed on its own next edit.
+
+**One number worth knowing**: 14 of the 15 functions the engine creates pinned
+nothing. The one exception had it from the day it was written.
+
+**The honest wrinkle.** When I added the fix, the entire test suite stayed
+green — nothing we had could see the change. That's its own problem, so the new
+guard is a *census* over the real commands the engine sends: a function added
+next month fails the test by existing.
+
+**Next decision is yours**: read the findings and say whether to merge. If you
+do, the container rolls, so the usual 15–20 minute hold applies.

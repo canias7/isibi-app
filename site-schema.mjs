@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, FN_SEARCH_PATH, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
 
 /**
@@ -890,9 +890,19 @@ async function pgTrigger(db, name, { timing, event, table, when, body, returns }
   // and stable now, which is what `DROP … IF EXISTS` on the next revise needs.
   const fn = derivedIdent(name, "_fn");
   const trg = derivedIdent(name);
+  // PINNED FOR THE SAME REASON A MODEL FUNCTION IS, and it is a SEPARABLE part
+  // of that change — these bodies are the ENGINE's, not a model's, and they are
+  // SECURITY INVOKER, so no privilege is escalated by redirecting one. What is
+  // redirected is a GUARANTEE: `enforceRefs` asks `SELECT 1 FROM <parent>` and a
+  // `pg_temp.<parent>` answers it, so the "missing parent" wall passes over a
+  // table the caller wrote; `audit` and `history` write their row into whichever
+  // table resolves first. The trigger fires inside the CALLER'S session, which is
+  // the session whose temp schema it is, so the reachability question is the same
+  // one — and so is the one-clause answer.
   await sqlQuery(db,
     "CREATE OR REPLACE FUNCTION " + fn + "() RETURNS TRIGGER AS $trg$ BEGIN " + body +
-    " RETURN " + (returns || (timing === "BEFORE" ? "NEW" : "NULL")) + "; END; $trg$ LANGUAGE plpgsql");
+    " RETURN " + (returns || (timing === "BEFORE" ? "NEW" : "NULL")) + "; END; $trg$ LANGUAGE plpgsql" +
+    " SET search_path = " + FN_SEARCH_PATH);
   await sqlQuery(db, "DROP TRIGGER IF EXISTS " + trg + " ON " + table);
   await sqlQuery(db, "CREATE TRIGGER " + trg + " " + timing + " " + event + " ON " + table +
     " FOR EACH ROW" + (when ? " WHEN (" + when + ")" : "") + " EXECUTE FUNCTION " + fn + "()");

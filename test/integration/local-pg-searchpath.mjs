@@ -1,0 +1,486 @@
+// A LIVE PROBE: can a conflicting object redirect a generated function?
+//
+// Every function the model declares is created SECURITY DEFINER — it is the
+// point of the feature, because a `collect` table has no read policy and only a
+// function running as the owner can hand a row back. Until 2026-09-16 none of
+// them pinned `search_path`, while the engine's own two helpers have pinned it
+// since they were written, on the argument spelled out above them in
+// `site-rls.mjs`: *a SECURITY DEFINER function that resolves names through the
+// caller's `search_path` is the classic escalation*.
+//
+// THE ARGUMENT FOR LEAVING THE MODEL'S FUNCTIONS UNPINNED WAS A PERMISSION
+// CLAIM, and `neon-e2e` wrote it down: the escalation "needs BOTH halves … a
+// caller can put a schema of their own ahead of `public`, and they can create
+// an object in it", and it measures four `CREATE` privileges to say nobody can.
+// **That premise is incomplete and this probe is what says so.** `TEMP` on the
+// database is granted to PUBLIC by Postgres's own default, an unlisted
+// `pg_temp` is searched FIRST for relations, and a temp relation is a
+// conflicting object. So the attack needs NO `CREATE` anywhere and never
+// touches the caller's own `search_path`.
+//
+// WHAT THIS PROBE CAN AND CANNOT SETTLE, stated up front because the two get
+// run together and they are different claims:
+//
+//   - IT SETTLES THE MECHANISM. Given a caller who can create a temp relation,
+//     an unpinned definer function reads the caller's table instead of the
+//     owner's, and the pin stops it. Both directions, on real DDL.
+//   - IT DOES NOT SETTLE REACHABILITY on a live site. Whether `anonymous` can
+//     get a `CREATE TEMP TABLE` executed through Neon's Data API is a property
+//     of PostgREST and of Neon, neither of which is here. That question is
+//     answered in the review, and the missing live measurement is named there.
+//
+// NOTHING IS TYPED HERE. The DDL comes out of the real `applySiteSchema`
+// through the `fetch` seam, for both trees; the PRE-FIX side is the real
+// emitter loaded out of git, so the negative control is the code that shipped
+// rather than a hand-written imitation of it.
+//
+// NEEDS A LOCAL POSTGRES and nothing else — no Neon, no Supabase, no network.
+//   pg_ctlcluster 16 main start
+//   node test/integration/local-pg-searchpath.mjs
+// It creates its own throwaway databases and drops them at the end.
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { applySiteSchema } from "../../site-schema.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+function findPsql() {
+  for (const c of ["psql", "/usr/lib/postgresql/16/bin/psql", "/usr/bin/psql"]) {
+    try { execFileSync("sh", ["-c", `command -v ${c} >/dev/null 2>&1 || test -x ${c}`]); return c; } catch { /* next */ }
+  }
+  return "";
+}
+const PSQL = findPsql();
+if (!PSQL) {
+  console.error("no psql on this machine. This probe needs a local PostgreSQL:");
+  console.error("  apt-get install -y postgresql && pg_ctlcluster 16 main start");
+  process.exit(1);
+}
+const AS_POSTGRES = (() => { try { return process.getuid() === 0; } catch { return false; } })();
+const shq = (s) => "'" + String(s).replace(/'/g, `'\\''`) + "'";
+
+function psql(db, args, input) {
+  const cmd = `${PSQL} -X ${args}`.replace("__DB__", db);
+  const stdio = [input === undefined ? "ignore" : "pipe", "pipe", "pipe"];
+  const opts = { encoding: "utf8", stdio, ...(input === undefined ? {} : { input }) };
+  return AS_POSTGRES ? execFileSync("su", ["postgres", "-c", cmd], opts) : execFileSync("sh", ["-c", cmd], opts);
+}
+
+/**
+ * One statement, optionally as another role. `tag` drops -q so psql prints the
+ * command tag, which is the only way to tell a write that happened from one a
+ * policy silently filtered to nothing — the recorded reading from the grants
+ * probe, kept because the same trap is live here.
+ */
+function sql(db, text, { role = null, pathTo = null, tag = false } = {}) {
+  const pre = [];
+  if (role) pre.push(`SET ROLE ${role};`);
+  if (pathTo) pre.push(`SET search_path = ${pathTo};`);
+  const body = pre.join("\n") + (pre.length ? "\n" : "") + text;
+  try {
+    const out = psql(db, `${tag ? "" : "-q "}-v ON_ERROR_STOP=1 -d __DB__ -At -c ${shq(body)}`);
+    const lines = out.trim().split("\n").filter((l) => l.trim());
+    return { ok: true, out: out.trim(), tag: lines[lines.length - 1] || "" };
+  } catch (e) {
+    return { ok: false, err: String((e.stderr || "") + (e.stdout || "")).trim() };
+  }
+}
+/** A one-value read, or "" when the statement was refused. */
+const one = (db, text, opts) => { const r = sql(db, text, opts); return r.ok ? r.out : ""; };
+
+let pass = 0, fail = 0;
+const failures = [];
+function ok(what, cond, detail) {
+  if (cond) { pass++; console.log("  ok   " + what); }
+  else { fail++; failures.push(what); console.log("  FAIL " + what + (detail ? "\n         " + detail : "")); }
+}
+
+// ── the PRE-FIX emitter, out of git ──────────────────────────────────────────
+//
+// `site-schema.mjs` and `site-rls.mjs` both moved, so BOTH are restored and the
+// old schema module is pointed at the old rls module — otherwise the "before"
+// tree would import the fixed emitter and the control would be the fix wearing
+// the control's name. Every other relative import is rewritten to the REAL
+// module at the repository root, because nothing else in this change moved and
+// a second copy of `site-db.mjs` would be a second thing to keep in step.
+async function loadOldEngine(ref) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "sp-old-"));
+  const show = (f) => execFileSync("git", ["show", `${ref}:${f}`], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const rewrite = (src, keepLocal) => src.replace(/from "\.\/([a-z0-9-]+\.mjs)"/g, (m, f) =>
+    keepLocal.includes(f) ? m : `from ${JSON.stringify(path.join(ROOT, f))}`);
+  writeFileSync(path.join(dir, "site-rls.mjs"), rewrite(show("site-rls.mjs"), []));
+  writeFileSync(path.join(dir, "site-schema.mjs"), rewrite(show("site-schema.mjs"), ["site-rls.mjs"]));
+  return import(path.join(dir, "site-schema.mjs"));
+}
+
+/** Run an engine and collect every statement it SENT. */
+async function capture(applyFn, spec) {
+  const statements = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    let q = "";
+    try { q = JSON.parse(String((init && init.body) || "{}")).query || ""; } catch { /* not ours */ }
+    if (q) statements.push(String(q));
+    // REFUSE NEON'S EXTENSION so the engine takes its own FALLBACK identity
+    // function — the one that reads `request.jwt.claims`, which is what a local
+    // Postgres can honour, and which this change also pins.
+    if (/pg_session_jwt/.test(q)) {
+      return new Response(JSON.stringify({ message: "extension pg_session_jwt is not available" }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ command: "SELECT", rowCount: 0, rows: [], fields: [] }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try { await applyFn("postgresql://u:p@ep-probe.eu-central-1.aws.neon.tech/db?sslmode=require", spec); }
+  finally { globalThis.fetch = real; }
+  return statements;
+}
+
+/**
+ * Statements a LOCAL Postgres cannot run for reasons that have nothing to do
+ * with name resolution. Named rather than swallowed, so the replay's own
+ * failures can never be mistaken for the product's.
+ */
+const EXPECTED_REPLAY_FAILURES = [
+  { re: /pg_session_jwt/, why: "Neon's own extension, absent locally — the engine falls back by design" },
+  { re: /\bneon_auth\b/, why: "Neon Auth's schema, created by Neon and not by us" },
+  { re: /\b_meta\b/, why: "the platform creates _meta elsewhere; not part of the resolution surface" },
+];
+
+function replay(db, statements, label) {
+  const unexpected = [];
+  let refused = 0;
+  for (const s of statements) {
+    const r = sql(db, s);
+    if (r.ok) continue;
+    refused++;
+    if (EXPECTED_REPLAY_FAILURES.find((k) => k.re.test(s))) continue;
+    unexpected.push({ sql: s.replace(/\s+/g, " ").slice(0, 110), err: (r.err.split("\n").find((l) => /ERROR/.test(l)) || r.err.split("\n")[0] || "").slice(0, 110) });
+  }
+  console.log(`  ${label}: ${statements.length} statements, ${refused} refused (${unexpected.length} unexpected)`);
+  for (const u of unexpected) console.log(`      UNEXPECTED: ${u.sql}\n                  ${u.err}`);
+  return unexpected;
+}
+
+// ── the spec, shaped like a real site ────────────────────────────────────────
+//
+// `bookings` is `collect` — anyone submits, NOBODY reads — which is the shape
+// that makes a definer function the only door and is the commonest table this
+// platform builds. Every function body is written the way a model writes one:
+// unqualified, because the tool never asks it to qualify and no rule tells it
+// to.
+const SPEC = {
+  tables: [
+    { name: "bookings", access: "collect", columns: ["who", "bike", "drop_off_day"] },
+    { name: "notes", access: "display", columns: ["title"] },
+  ],
+  functions: [
+    // The subject: a public definer function reading a table the caller cannot.
+    { name: "count_bookings", returns: "bigint", language: "sql", body: "SELECT count(*) FROM bookings" },
+    // The same thing in the other language the tool offers.
+    { name: "count_plpgsql", returns: "bigint", language: "plpgsql",
+      body: "DECLARE n bigint; BEGIN SELECT count(*) INTO n FROM bookings; RETURN n; END;" },
+    // THE INVOKER HOP. A SECURITY INVOKER function called from inside a definer
+    // one runs with the DEFINER's rights, so an unpinned callee is the same hole
+    // one step along. A model may declare both; nothing stops it.
+    { name: "inner_count", returns: "bigint", language: "sql", definer: false, body: "SELECT count(*) FROM bookings" },
+    { name: "outer_count", returns: "bigint", language: "sql", body: "SELECT inner_count()" },
+    // COMPATIBILITY, not attack: the references a real body actually makes.
+    { name: "list_notes", returns: "setof notes", language: "sql", body: "SELECT * FROM notes" },
+    { name: "who_am_i", returns: "uuid", language: "sql", body: "SELECT app_user_id()" },
+    { name: "catalog_call", returns: "text", language: "sql", body: "SELECT upper(md5('x'))" },
+  ],
+};
+
+const DB_NEW = "sp_new", DB_OLD = "sp_old";
+const ROLE = "anonymous"; // the real Data API role name, not a stand-in
+
+function makeDb(db) {
+  sql("postgres", `DROP DATABASE IF EXISTS ${db}`);
+  sql("postgres", `CREATE DATABASE ${db}`);
+}
+
+console.log("\nsearch_path on generated functions — a real PostgreSQL 16\n");
+console.log("  server: " + one("postgres", "SELECT version()").split(" on ")[0]);
+
+// The two Data API roles, cluster-wide, created once and granted NOTHING here:
+// every privilege they end up with comes from the engine's own statements.
+sql("postgres", `DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anonymous') THEN CREATE ROLE anonymous LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated LOGIN; END IF;
+END $$;`);
+
+makeDb(DB_NEW);
+makeDb(DB_OLD);
+
+const OLD_REF = process.env.OLD_REF || "HEAD";
+const oldEngine = await loadOldEngine(OLD_REF);
+
+const stmtsNew = await capture(applySiteSchema, structuredClone(SPEC));
+const stmtsOld = await capture(oldEngine.applySiteSchema, structuredClone(SPEC));
+
+console.log("\n─ replaying both trees ─");
+const badNew = replay(DB_NEW, stmtsNew, "after  (working tree)");
+const badOld = replay(DB_OLD, stmtsOld, `before (${OLD_REF})`);
+ok("the fixed engine's DDL replays with no unexpected refusal", badNew.length === 0, JSON.stringify(badNew));
+ok("the pre-fix engine's DDL replays with no unexpected refusal", badOld.length === 0, JSON.stringify(badOld));
+
+// ── 1. THE REACHABILITY FACTS, measured rather than recalled ─────────────────
+console.log("\n─ 1. what a role with no grants already holds ─");
+const privs = one(DB_NEW,
+  "SELECT has_database_privilege('anonymous', current_database(), 'CREATE')::text || ' ' ||" +
+  " has_database_privilege('anonymous', current_database(), 'TEMP')::text || ' ' ||" +
+  " has_schema_privilege('anonymous', 'public', 'CREATE')::text || ' ' ||" +
+  " has_schema_privilege('anonymous', 'public', 'USAGE')::text");
+const [dbCreate, dbTemp, pubCreate, pubUsage] = privs.split(" ");
+ok("anonymous cannot create a schema — the premise neon-e2e measures", dbCreate === "false", privs);
+ok("anonymous cannot create an object in public — the other half of it", pubCreate === "false", privs);
+ok("BUT anonymous CAN create TEMPORARY objects — PUBLIC holds TEMP by Postgres's default", dbTemp === "true", privs);
+ok("and it has USAGE on public, so it can see the functions", pubUsage === "true", privs);
+
+// ── 2. THE DOOR IS THE FUNCTION, not the table ───────────────────────────────
+console.log("\n─ 2. the caller cannot read the table at all ─");
+sql(DB_NEW, "INSERT INTO bookings (who, bike, drop_off_day) VALUES ('a','x','mon'),('b','y','tue'),('c','z','wed')");
+sql(DB_OLD, "INSERT INTO bookings (who, bike, drop_off_day) VALUES ('a','x','mon'),('b','y','tue'),('c','z','wed')");
+const direct = sql(DB_NEW, "SELECT count(*) FROM bookings", { role: ROLE });
+ok("a direct SELECT is refused — `collect` means nobody reads", !direct.ok && /permission denied/.test(direct.err),
+  direct.ok ? "it answered " + direct.out : direct.err.split("\n")[0]);
+ok("the definer function is the one way to that count, and it answers 3",
+  one(DB_NEW, "SELECT count_bookings()", { role: ROLE }) === "3");
+
+// ── 3. THE REDIRECT, both directions ─────────────────────────────────────────
+//
+// One session, so the temp table survives across the calls in it. Everything
+// after the CREATE TEMP runs with the caller's DEFAULT search_path — the
+// attacker never sets one, which is the part that makes `CREATE` irrelevant.
+console.log("\n─ 3. a temp relation against both trees ─");
+const ATTACK = [
+  "CREATE TEMP TABLE bookings (id int, who text, bike text, drop_off_day text);",
+  "INSERT INTO bookings (id, who) VALUES (99, 'attacker');",
+  "SELECT current_setting('search_path') || ' | sql=' || count_bookings()::text" +
+  " || ' plpgsql=' || count_plpgsql()::text || ' via-invoker=' || outer_count()::text;",
+].join("\n");
+const before = one(DB_OLD, ATTACK, { role: ROLE });
+const after = one(DB_NEW, ATTACK, { role: ROLE });
+console.log("      before: " + before);
+console.log("      after : " + after);
+ok("BEFORE — the caller's own search_path is untouched", /^"\$user", public \|/.test(before), before);
+ok("BEFORE — an unpinned sql definer function reads the ATTACKER's table", / sql=1 /.test(before), before);
+ok("BEFORE — so does the plpgsql one", /plpgsql=1 /.test(before), before);
+ok("BEFORE — and so does a definer function whose callee is INVOKER", /via-invoker=1$/.test(before), before);
+ok("AFTER — the pinned sql definer function reads the owner's table", / sql=3 /.test(after), after);
+ok("AFTER — so does the plpgsql one", /plpgsql=3 /.test(after), after);
+ok("AFTER — and the invoker hop is closed too", /via-invoker=3$/.test(after), after);
+
+// ── 4. A SCHEMA AHEAD OF `public`, the shape the old premise was about ───────
+//
+// This one needs CREATE, which no live role has — it is here because the owner
+// asked whether a conflicting object can redirect resolution, and a schema is
+// the other kind of conflicting object. Granted explicitly, so the measurement
+// is about RESOLUTION and never about whether the grant exists.
+console.log("\n─ 4. a schema ahead of public, with CREATE granted on purpose ─");
+for (const db of [DB_OLD, DB_NEW]) {
+  sql(db, "CREATE SCHEMA evil AUTHORIZATION anonymous");
+  sql(db, "GRANT USAGE ON SCHEMA evil TO anonymous");
+}
+const SCHEMA_ATTACK = [
+  "CREATE TABLE evil.bookings (id int, who text, bike text, drop_off_day text);",
+  "INSERT INTO evil.bookings (id, who) VALUES (7, 'attacker');",
+  "SELECT 'sql=' || count_bookings()::text || ' plpgsql=' || count_plpgsql()::text;",
+].join("\n");
+const sBefore = one(DB_OLD, SCHEMA_ATTACK, { role: ROLE, pathTo: "evil, public" });
+const sAfter = one(DB_NEW, SCHEMA_ATTACK, { role: ROLE, pathTo: "evil, public" });
+console.log("      before: " + sBefore + "      after: " + sAfter);
+ok("BEFORE — a schema on the caller's path redirects both bodies", sBefore === "sql=1 plpgsql=1", sBefore);
+ok("AFTER — the pin ignores the caller's path entirely", sAfter === "sql=3 plpgsql=3", sAfter);
+
+// A FUNCTION cannot be shadowed by pg_temp — Postgres's own rule, measured so
+// the review can say it rather than cite it — but it CAN be shadowed by a
+// schema, which is what makes `app_user_id()`'s own pin load-bearing.
+const FN_ATTACK = [
+  "CREATE FUNCTION evil.app_user_id() RETURNS uuid LANGUAGE sql AS $f$ SELECT '11111111-1111-1111-1111-111111111111'::uuid $f$;",
+  "SELECT coalesce(who_am_i()::text, 'null');",
+].join("\n");
+const fBefore = one(DB_OLD, FN_ATTACK, { role: ROLE, pathTo: "evil, public" });
+const fAfter = one(DB_NEW, FN_ATTACK, { role: ROLE, pathTo: "evil, public" });
+ok("BEFORE — an unpinned body's unqualified FUNCTION call is redirected too", fBefore.startsWith("11111111"), fBefore);
+ok("AFTER — it is not", fAfter === "null", fAfter);
+
+const tempFn = one(DB_NEW, [
+  "CREATE FUNCTION pg_temp.app_user_id() RETURNS uuid LANGUAGE sql AS $f$ SELECT '22222222-2222-2222-2222-222222222222'::uuid $f$;",
+  "SELECT coalesce(who_am_i()::text, 'null');",
+].join("\n"), { role: ROLE });
+ok("pg_temp can never shadow a FUNCTION — relations only, which is why the pin's order is the fix",
+  tempFn === "null", tempFn);
+
+// ── 5. COMPATIBILITY: every intended reference still resolves ────────────────
+console.log("\n─ 5. the references a real body makes ─");
+sql(DB_NEW, "INSERT INTO notes (title) VALUES ('one'),('two')");
+sql(DB_OLD, "INSERT INTO notes (title) VALUES ('one'),('two')");
+for (const [what, q] of [
+  ["an unqualified table read", "SELECT count_bookings()"],
+  ["a plpgsql body", "SELECT count_plpgsql()"],
+  ["a `setof <table>` return", "SELECT count(*) FROM list_notes()"],
+  ["a call to the engine's own app_user_id()", "SELECT coalesce(who_am_i()::text,'null')"],
+  ["a pg_catalog function the body never qualifies", "SELECT catalog_call()"],
+  ["one model function calling another", "SELECT outer_count()"],
+]) {
+  const a = one(DB_OLD, q, { role: ROLE }), b = one(DB_NEW, q, { role: ROLE });
+  ok(`${what} answers the same before and after (${JSON.stringify(a)})`, a === b && a !== "", `before=${a} after=${b}`);
+}
+
+// ── 6. PERMISSIONS ARE UNTOUCHED ─────────────────────────────────────────────
+//
+// The whole surface, not a spot check: every function's ACL and every role's
+// effective EXECUTE, plus the table grants and policies the change never went
+// near. A pin that quietly widened or narrowed one of these would be a worse
+// bug than the one it fixes.
+console.log("\n─ 6. the permission surface, before vs after ─");
+const ACL = `SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') acl=' ||
+  coalesce(array_to_string(p.proacl::text[], ','), '<default>') ||
+  ' anon=' || has_function_privilege('anonymous', p.oid, 'EXECUTE')::text ||
+  ' auth=' || has_function_privilege('authenticated', p.oid, 'EXECUTE')::text ||
+  ' definer=' || p.prosecdef::text
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' ORDER BY 1`;
+const aclOld = one(DB_OLD, ACL), aclNew = one(DB_NEW, ACL);
+ok("every function's ACL, EXECUTE and SECURITY DEFINER flag are byte-identical",
+  aclOld === aclNew && aclOld.length > 0, "before:\n" + aclOld + "\nafter:\n" + aclNew);
+ok("the observer is alive — it found the functions", (aclNew.match(/\n/g) || []).length >= 6, aclNew);
+
+const TABLE_ACL = `SELECT grantee || ' ' || table_name || ' ' || privilege_type || ' ' || coalesce(column_name,'*')
+  FROM (
+    SELECT grantee, table_name, privilege_type, NULL::text AS column_name FROM information_schema.role_table_grants WHERE table_schema='public'
+    UNION ALL
+    SELECT grantee, table_name, privilege_type, column_name FROM information_schema.column_privileges WHERE table_schema='public'
+  ) x WHERE grantee IN ('anonymous','authenticated') ORDER BY 1`;
+ok("the table and column grants are byte-identical", one(DB_OLD, TABLE_ACL) === one(DB_NEW, TABLE_ACL));
+const POL = "SELECT tablename||' '||policyname||' '||cmd||' '||coalesce(qual,'-')||' '||coalesce(with_check,'-') FROM pg_policies WHERE schemaname='public' ORDER BY 1";
+ok("every policy is byte-identical", one(DB_OLD, POL) === one(DB_NEW, POL));
+
+// ── 7. THE PIN IS REALLY ON THE FUNCTIONS, and only where it belongs ─────────
+console.log("\n─ 7. what the catalog says the pin is ─");
+const CFG = `SELECT p.proname || '=' || coalesce(array_to_string(p.proconfig, ','), '<none>')
+  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' ORDER BY 1`;
+const cfgNew = one(DB_NEW, CFG).split("\n").filter(Boolean);
+const cfgOld = one(DB_OLD, CFG).split("\n").filter(Boolean);
+ok("BEFORE — the model's functions pinned nothing",
+  cfgOld.some((l) => /^count_bookings=<none>$/.test(l)), cfgOld.join(" | "));
+ok("AFTER — every model function pins public, pg_temp",
+  ["count_bookings", "count_plpgsql", "inner_count", "outer_count", "list_notes", "who_am_i", "catalog_call"]
+    .every((n) => cfgNew.includes(n + "=search_path=public, pg_temp")), cfgNew.join(" | "));
+ok("AFTER — the fallback app_user_id() pins pg_catalog, pg_temp, like the native form it mirrors",
+  cfgNew.includes("app_user_id=search_path=pg_catalog, pg_temp"), cfgNew.join(" | "));
+// EVERY PINNED PATH ENDS WITH pg_temp, with no exception to read a body for.
+// MEASURED in this same probe: `pg_catalog, public` with an unqualified body is
+// redirected exactly as an unpinned function is, so naming `public` is not the
+// fix and naming `pg_temp` is — and a per-function exception would be an
+// argument about that function's body, which expires when the body changes.
+const pins = cfgNew.filter((l) => /=search_path=/.test(l));
+ok("AFTER — every pinned path ends with pg_temp, uniformly",
+  pins.length >= 7 && pins.every((l) => /,\s*pg_temp$/.test(l)), pins.join(" | "));
+// ASSERTED ON THE STATEMENT THE ENGINE SENT, not on the catalog, and the
+// distinction is the probe being honest about its own reach: `app_team_id()`
+// reads `neon_auth.member`, which is Neon Auth's table and does not exist on a
+// local Postgres, so its CREATE is one of the four expected replay failures and
+// the function is not in `pg_proc` here at all. Reading the catalog for it would
+// be asserting that a statement that never ran left no trace.
+// RE-ANCHORED ONTO THE PROPERTY, NOT THE SPELLING. This case read "byte-identical
+// before and after — it was already pinned", which was true until the helpers'
+// pins were made uniform (`pg_catalog` → `pg_catalog, pg_temp`). Byte-equality
+// was never the property; what matters is that it was pinned BEFORE and is
+// pinned with pg_temp LAST now — a change that TIGHTENS a pin must not read as
+// one that introduced it.
+const teamStmt = (s) => s.find((x) => /CREATE OR REPLACE FUNCTION app_team_id/.test(x)) || "";
+ok("app_team_id() was already pinned before this change", /SET search_path = pg_catalog/.test(teamStmt(stmtsOld)),
+  teamStmt(stmtsOld).slice(0, 160));
+ok("and its pin now ends with pg_temp, like every other", /SET search_path = pg_catalog, pg_temp AS/.test(teamStmt(stmtsNew)),
+  teamStmt(stmtsNew).slice(0, 160));
+const userStmt = (s) => s.find((x) => /CREATE OR REPLACE FUNCTION app_user_id/.test(x)) || "";
+ok("and the fallback app_user_id()'s DDL is the one that MOVED",
+  userStmt(stmtsOld) !== userStmt(stmtsNew) && !/search_path/.test(userStmt(stmtsOld)),
+  userStmt(stmtsOld).slice(0, 160));
+
+// ── 8. THE TRIGGER HALF — a guarantee, not a privilege ───────────────────────
+//
+// SEPARABLE, and said so: these bodies are the ENGINE's and they are SECURITY
+// INVOKER, so nothing is escalated. What is redirected is `enforceRefs`' own
+// wall — it asks `SELECT 1 FROM <parent>` and a temp relation answers.
+console.log("\n─ 8. enforceRefs under a temp parent ─");
+const REF_SPEC = {
+  tables: [
+    { name: "owners", access: "display", columns: ["title"] },
+    // A REF IS A COLUMN PROPERTY, not a table-level list — `refs` is built from
+    // each column's own `ref` at site-schema.mjs:1073. Declared the wrong way the
+    // engine emits no ref trigger at all and the arm passes by measuring nothing,
+    // which is how the first run of this probe read.
+    { name: "pets", access: "collect", enforceRefs: true,
+      columns: ["title", { name: "owners_id", type: "int", ref: "owners" }] },
+  ],
+};
+const DB_R_NEW = "sp_ref_new", DB_R_OLD = "sp_ref_old";
+makeDb(DB_R_NEW); makeDb(DB_R_OLD);
+replay(DB_R_NEW, await capture(applySiteSchema, structuredClone(REF_SPEC)), "after  (refs)");
+replay(DB_R_OLD, await capture(oldEngine.applySiteSchema, structuredClone(REF_SPEC)), "before (refs)");
+const REF_ATTACK = [
+  "CREATE TEMP TABLE owners (id bigint, title text);",
+  "INSERT INTO owners (id, title) VALUES (4242, 'invented');",
+  "INSERT INTO pets (title, owners_id) VALUES ('ghost', 4242);",
+  "SELECT 'inserted';",
+].join("\n");
+const rBefore = sql(DB_R_OLD, REF_ATTACK, { role: ROLE });
+const rAfter = sql(DB_R_NEW, REF_ATTACK, { role: ROLE });
+ok("BEFORE — a temp parent satisfies the enforceRefs wall", rBefore.ok && rBefore.out.includes("inserted"),
+  rBefore.ok ? rBefore.out : rBefore.err.split("\n")[0]);
+ok("AFTER — it raises 'missing parent' as it should",
+  !rAfter.ok && /missing parent/.test(rAfter.err), rAfter.ok ? "it inserted" : rAfter.err.split("\n")[0]);
+// THE CONTROL: the wall must still let a REAL parent through, or "it refuses"
+// would be true of a trigger that refuses everything.
+sql(DB_R_NEW, "INSERT INTO owners (title) VALUES ('real')");
+const realId = one(DB_R_NEW, "SELECT id FROM owners WHERE title='real'");
+const good = sql(DB_R_NEW, `INSERT INTO pets (title, owners_id) VALUES ('rex', ${realId})`, { role: ROLE, tag: true });
+ok("AFTER — and a real parent still inserts (the control)", good.ok && /INSERT 0 1/.test(good.tag),
+  good.ok ? good.tag : good.err.split("\n")[0]);
+
+// ── 9. THE UPGRADE PATH, which is what every live site will really do ────────
+//
+// Arms 1-8 build each tree in its own empty database, which is a first build.
+// NO LIVE SITE TAKES THAT PATH. A site that exists today carries UNPINNED
+// functions with grants already on them, and what reaches it is
+// `CREATE OR REPLACE` over those functions on its next schema change — a
+// different statement against a different starting state, and the one nobody
+// had measured. Three things have to hold: the pin takes, the grants survive
+// the replace, and the redirect closes.
+console.log("\n─ 9. an existing unpinned site, upgraded by its next schema change ─");
+const DB_UP = "sp_upgrade";
+makeDb(DB_UP);
+replay(DB_UP, stmtsOld, "  as it stands today (unpinned)");
+sql(DB_UP, "INSERT INTO bookings (who, bike, drop_off_day) VALUES ('a','x','mon'),('b','y','tue'),('c','z','wed')");
+const aclBefore = one(DB_UP, ACL);
+const attackBefore = one(DB_UP, ATTACK, { role: ROLE });
+ok("BEFORE the upgrade — the live site is redirected", / sql=1 /.test(attackBefore), attackBefore);
+// THE UPGRADE ITSELF: the same engine statements a revise, an addon or a rules
+// change would send. Nothing else runs — no migration, no backfill.
+const badUp = replay(DB_UP, stmtsNew, "  after its next schema change");
+ok("the upgrade replays with no unexpected refusal", badUp.length === 0, JSON.stringify(badUp));
+const attackAfter = one(DB_UP, ATTACK, { role: ROLE });
+ok("AFTER — the same attack in the same database now reads the owner's rows", / sql=3 /.test(attackAfter), attackAfter);
+ok("AFTER — and the plpgsql and invoker hops with it",
+  /plpgsql=3 / .test(attackAfter) && /via-invoker=3$/.test(attackAfter), attackAfter);
+// `CREATE OR REPLACE` PRESERVES AN ACL — true, documented, and asserted rather
+// than cited, because if it were false this change would silently open every
+// internal function on every site it touched.
+ok("AFTER — every grant survived the replace, byte for byte", aclBefore === one(DB_UP, ACL),
+  "before:\n" + aclBefore + "\nafter:\n" + one(DB_UP, ACL));
+ok("AFTER — and the catalog agrees the functions are pinned",
+  one(DB_UP, CFG).split("\n").includes("count_bookings=search_path=public, pg_temp"), one(DB_UP, CFG));
+// THE ROWS ARE UNTOUCHED. A schema change re-issues DDL over a live table, so
+// "the pin took" is worth nothing beside "and the data is still there".
+ok("AFTER — the site's own rows are where they were", one(DB_UP, "SELECT count(*) FROM bookings") === "3");
+
+// ── done ─────────────────────────────────────────────────────────────────────
+for (const db of [DB_NEW, DB_OLD, DB_R_NEW, DB_R_OLD, DB_UP]) sql("postgres", `DROP DATABASE IF EXISTS ${db}`);
+console.log(`\n${pass} passed, ${fail} failed\n`);
+if (fail) { for (const f of failures) console.log("  FAILED: " + f); process.exit(1); }

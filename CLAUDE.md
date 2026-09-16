@@ -2762,11 +2762,10 @@ credential-guidance field**, so a required secret reaches the owner as a bare
 name (`WEATHER_KEY`) with nothing saying where to get one; and `params` is a
 **name allow-list with no types and no required flag**, so a connection cannot
 say which parameter a page must supply. Both are capability work.
-**`search_path` STAYS EXPLICITLY UNRESOLVED** — every model function is
-`SECURITY DEFINER` with no `SET search_path`, and whether that is exploitable
-here depends on the role's real permissions and on which execution paths are
-reachable, neither of which has been checked. `scripts/grants-backfill.mjs
---preview` is the pattern for asking where the credentials already live.
+**`search_path` was UNRESOLVED here and is RESOLVED as of 2026-09-16** — the
+review section above has the measurement, the correction and what it does not
+settle. Left standing as it was written because the entry is dated; the fact
+that is true today is in that section.
 
 **NOT PROVEN LIVE.** Every measurement is from driving the real route against
 stubbed seams. The `repairbench-1` addon rerun is still the cheapest live proof
@@ -2965,12 +2964,14 @@ the sender correctly. It does not prove real delivery."*
 3. **NATIVE ONE-TIME SCHEDULING IS ABSENT.** `JOB_ITEM` carries `everyMinutes`
    and an optional `at` and no run-once field. **A missing field, not a missing
    capability** — the wording correction above is exactly this distinction.
-4. **`search_path` STAYS EXPLICITLY UNRESOLVED.** Every model function is
-   `SECURITY DEFINER` with no `SET search_path`; whether that is exploitable
-   here depends on the role's real permissions and on which execution paths are
-   reachable, and **neither has been checked**. Not "safe" and not "a hole" —
-   unmeasured, and saying so is the point. `scripts/grants-backfill.mjs
-   --preview` is the pattern for asking where the credentials already live.
+4. **`search_path` — MEASURED AND ANSWERED 2026-09-16**, and this item said
+   "neither has been checked", which was the honest state then and is not the
+   state now. Both halves were checked: the mechanism is real (a role with **no
+   `CREATE` anywhere** redirects an unpinned definer function through `pg_temp`,
+   measured on a real PostgreSQL 16) and the reachability turns on Neon's Data
+   API exposing no DDL, which is a layer we do not own. The correction is one
+   clause and is written, guarded and swept. **See the `search_path` review
+   section above; NOT merged and NOT deployed** — the press is the owner's.
 
 **THERE IS NO ISOLATED PLACE TO PROVE IT — A LIVE CHECK IS A PRODUCTION DEPLOY
 (2026-09-14).** **The platform has ONE Worker** — `isibi-app` in
@@ -4783,6 +4784,125 @@ measured, and only then was main fast-forwarded to it.
 *"Merge"*, which lifts the merge and the deploy it necessarily fires, and nothing
 else. **The `search_path` review stays queued.**
 
+### THE `search_path` REVIEW — the premise was wrong, and the fix is one clause (2026-09-16)
+
+Owner: *"Trace every generated SECURITY DEFINER function and its creation path.
+Check actual permissions where authorized access exists… Keep missing hardening
+separate from demonstrated exploitability… Use real PostgreSQL tests… Return the
+findings and concrete proposed change before deployment."*
+
+**NOT MERGED AND NOT DEPLOYED.** The change is written, guarded and proven; the
+press is the owner's.
+
+**THE PREMISE THAT KEPT IT OPEN WAS FALSE, AND `neon-e2e` HAD WRITTEN IT DOWN.**
+That probe said the escalation "needs BOTH halves … a caller can put a schema of
+their own ahead of `public`, and they can create an object in it", and measured
+four `CREATE` privileges to say nobody can. **The four checks are true and the
+premise is incomplete**: there is a third kind of conflicting object that needs
+no `CREATE` anywhere. `TEMP` on the database is granted to **PUBLIC by
+Postgres's own default**, and an unlisted `pg_temp` is searched **FIRST** for
+relations — so the caller never touches its own `search_path` either.
+
+**MEASURED ON A REAL POSTGRESQL 16** (`test/integration/local-pg-searchpath.mjs`,
+**47 checks**, real DDL out of `applySiteSchema` through the `fetch` seam, the
+pre-fix side loaded out of git so the negative control is the code that shipped):
+a role refused `SELECT` on the table outright (`permission denied for table
+bookings`) creates `pg_temp.bookings` and the definer function that counts the
+owner's three rows answers **1**. Same for the `plpgsql` form, and **same through
+an INVOKER callee** — a SECURITY INVOKER function called from inside a definer
+one runs with the DEFINER's rights, so pinning only the definer leaves the hole
+one hop along.
+
+**NAMING `pg_temp` IS THE FIX. NAMING `public` IS NOT, AND THE TWO LOOK ALIKE.**
+Measured: `SET search_path = pg_catalog, public` with an unqualified body is
+redirected **exactly as an unpinned function is**. A pin that does not name
+`pg_temp` pins nothing that matters. That is the shape a later edit reaches for,
+so the guard asserts the ORDER and the sweep mutates it.
+
+**THE CORRECTION IS ONE CLAUSE, in three places.** `FN_SEARCH_PATH = "public,
+pg_temp"` on every model function (definer AND invoker); the same on every
+trigger function `pgTrigger` writes (separable — those are the ENGINE's bodies
+and are invoker, so nothing is ESCALATED; what is redirected is a GUARANTEE,
+and `enforceRefs`' "missing parent" wall is measured passing over a temp
+parent); and `pg_catalog, pg_temp` on the three identity helpers. Those three
+were `pg_catalog` alone and were SAFE — measured — but **safe only because every
+relation in their bodies is schema-qualified**, which is an argument about the
+bodies that expires the first time one is edited. One token each makes the rule
+uniform: **every function the engine creates ends its path with `pg_temp`**, and
+no reader has to check a body.
+
+**14 OF THE 15 FUNCTIONS THE ENGINE CREATES PINNED NOTHING.** Measured by
+driving the pre-change engine over a wide spec; the one exception was
+`app_team_id`, which has had its pin since it was written. **The platform's own
+Supabase side is clean**: 69 functions across the applied migrations, **0**
+unpinned definer functions — the one grep hit was the phrase inside a COMMENT,
+this repository's own "prose contains the thing it forbids", met in my own scan.
+
+**WHAT IS DEMONSTRATED AND WHAT IS NOT, kept apart because they are different
+claims:**
+
+- **DEMONSTRATED — the mechanism**, both directions, on real DDL, with the
+  privilege surface asserted byte-identical (every function's ACL, every
+  table/column grant, every policy) so a pin that quietly moved a privilege
+  would be red.
+- **DEMONSTRATED — the upgrade path**, which arms 1-8 do NOT cover because they
+  each build into an empty database and **no live site takes that path**. Arm 9
+  stands up a site with the pre-fix DDL and its grants, confirms it IS
+  redirected, then replays the new engine's statements over the same database —
+  the `CREATE OR REPLACE` a revise, an addon or a rules change really sends.
+  The pin takes, **every grant survives byte for byte**, the rows are where they
+  were, and the redirect closes.
+- **REACHABLE IN PRINCIPLE, NOT DEMONSTRATED — an in-product DDL door.**
+  `normalizeSchema`'s `execute` ban stops DYNAMIC SQL, and a `plpgsql` body may
+  contain a STATIC `CREATE TEMP TABLE`. Measured: such a body is **KEPT**. So a
+  site whose model wrote a function that creates a temp table, granted to
+  `anonymous`, gives a visitor the door — needing that specific function to
+  exist AND a pooled PostgREST session reused across two calls. **The pin closes
+  it without a new deny-list**, which is the right answer here: a deny-list is a
+  claim about the producer, and this repository has that trap recorded.
+- **NOT DEMONSTRATED — any door through Neon's Data API itself.** PostgREST
+  exposes tables, views and RPC, and `proxySiteService` forwards only
+  `content-type, authorization, accept, prefer, cookie`; there is no raw-SQL
+  route anywhere in the tree. **That blocker is a property of a layer we do not
+  own and do not test** — the recorded "a rule true because of a layer below it
+  expires when that layer moves", which is exactly the shape that has cost this
+  repository four times.
+
+**THE REACH IS LAZY AND PER-SITE, and there is no backfill.** `applySiteSchema`
+has three callers and all three are customer-driven; nothing in `scripts/` calls
+it, `site_rebuild` republishes without it, and `site-schema-recover.mjs` has no
+function reader at all. So an existing site keeps its unpinned functions until
+its owner next changes something schema-shaped — the same shape as the column
+grants, and **no customer database is touched by this review**. `_meta.functions`
+stores `{name, args, returns, internal}` and no body and no config, so **a
+stored spec can never say whether a site's live functions are pinned** —
+`pg_proc.proconfig` is the only reader.
+
+**Guards**: `test/site-searchpath.test.mjs` (**7**) — and the shape is the point.
+When the pin was added the WHOLE suite stayed green, because the existing
+`functionSql` guard asserts `create.includes(" SECURITY DEFINER ")` and a new
+trailing clause does not disturb it. **A change nothing could see is a change
+nothing will notice being undone.** Case 1 is a **CENSUS over the DDL the engine
+really sends** (through the same `fetch` seam, no database), so a function added
+next month fails by existing; it asserts the ORDER and not the presence, which a
+sweep survivor is why. `neon-e2e` was **re-anchored, not appeased**: its
+assertion that a model function does NOT pin is inverted, the TEMP privilege it
+never asked about is now reported beside the four `CREATE` checks, and the order
+is asserted.
+
+**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 15 with one survivor — a trigger pinned
+`pg_temp, public`, which the census could not see because it asked whether a pin
+was PRESENT while case 3 asked about the constant that mutant no longer used.
+Closed by reading the path out of each STATEMENT rather than out of
+`FN_SEARCH_PATH`. Every new case was proved RED against the pre-change modules
+first; case 6 is green by design, being the control that privilege must NOT move.
+**Suite 6,512** — 6,505 + 7, closes exactly.
+
+**THE DEPLOY WILL ROLL THE CONTAINER**: `site-rls.mjs` and `site-schema.mjs` are
+in the worker's module graph, so the image id moves and the 15–20 minute hold
+applies.
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -5223,7 +5343,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
+  The unit suite is **6,512** (2026-09-16, local — the `search_path` review,
+  whose new case file is `test/site-searchpath.test.mjs`'s **7**: the census
+  over the real emitted DDL, the two emitters counted apart, the ORDER, the
+  invoker form, the placement before `AS`, the privilege control, and the three
+  identity helpers. **6,505 + 7 closes exactly**; the re-anchor in `neon-e2e` is
+  an integration probe and is not in the suite. CI has NOT read this number.
+  Before it, **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
   sessions stamped a suite and neither number was the merged one**, which is
   this file's own "a number stamped in two places drifts when only one is
   corrected": this branch measured **6,498** and `main` brought
