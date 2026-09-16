@@ -1,0 +1,262 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the exception's list",
+    "control": true,
+    "files": ["scripts/backend-repair.mjs"],
+    "from": " * THE ONE NARROW EXCEPTION, AND IT IS A TRIPLE RATHER THAN A RULE (2026-09-16).",
+    "to": " * THE ONE NARROW EXCEPTION, AND IT IS A TRIPLE AND NOT A RULE (2026-09-16)."
+  },
+  {
+    "label": "CONTROL: a comment only, beside the withheld error message",
+    "control": true,
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      // THE MESSAGE IS WITHHELD ON PURPOSE. A database error can quote the row",
+    "to": "      // THE MESSAGE IS WITHHELD DELIBERATELY. A database error can quote the row"
+  },
+
+  {
+    "label": "THE WIDENING: text joins COUNTS_TYPES, so every text column on every site may be grouped — customer_name included",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "export const COUNTS_TYPES = Object.freeze([\"date\", \"timestamp\", \"time\"]);",
+    "to": "export const COUNTS_TYPES = Object.freeze([\"date\", \"timestamp\", \"time\", \"text\"]);"
+  },
+  {
+    "label": "THE SITE HALF DROPPED: the exception keys on table and column alone, so any site's bookings.drop_off_day is read",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  COUNTS_TEXT_DATE.some((e) => e.slug === slug && e.table === table && e.column === column);",
+    "to": "  COUNTS_TEXT_DATE.some((e) => e.table === table && e.column === column);"
+  },
+  {
+    "label": "THE TABLE HALF DROPPED: any table with a column of that name on that site is read",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  COUNTS_TEXT_DATE.some((e) => e.slug === slug && e.table === table && e.column === column);",
+    "to": "  COUNTS_TEXT_DATE.some((e) => e.slug === slug && e.column === column);"
+  },
+  {
+    "label": "THE COLUMN HALF DROPPED: any column on that site's bookings is read, which is customer_name",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  COUNTS_TEXT_DATE.some((e) => e.slug === slug && e.table === table && e.column === column);",
+    "to": "  COUNTS_TEXT_DATE.some((e) => e.slug === slug && e.table === table);"
+  },
+  {
+    "label": "A SECOND ENTRY: another site's bookings joins the list",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  Object.freeze({ slug: \"repairbench-1\", table: \"bookings\", column: \"drop_off_day\" }),",
+    "to": "  Object.freeze({ slug: \"repairbench-1\", table: \"bookings\", column: \"drop_off_day\" }),\n  Object.freeze({ slug: \"fretwork-1\", table: \"bookings\", column: \"drop_off_day\" }),"
+  },
+  {
+    "label": "THE CHARACTER-TYPE WALL GONE: the triple admits whatever type that column happens to be, so `~` can reach Postgres as an operator error",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  const textDate = !typed && COUNTS_TEXT_TYPES.includes(ty) && countsTextDateAllowed(s, t, c);",
+    "to": "  const textDate = !typed && countsTextDateAllowed(s, t, c);"
+  },
+  {
+    "label": "THE PAIR: the belt AND the wall it is redundant with, mutated together — a typed column would take the text path",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  const textDate = !typed && COUNTS_TEXT_TYPES.includes(ty) && countsTextDateAllowed(s, t, c);",
+    "to": "  const textDate = countsTextDateAllowed(s, t, c);"
+  },
+  {
+    "label": "THE SLUG IS NEVER READ: countsPlan's fourth argument is dropped, so the exception can never fire",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  const s = typeof slug === \"string\" ? slug : \"\";",
+    "to": "  const s = \"\";"
+  },
+  {
+    "label": "THE WIRING HOP: main hands countsPlan the FORM's slug rather than the site really being read",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      const plan = countsPlan(columnInventory(st.columns), args.table, args.column, site.slug);",
+    "to": "      const plan = countsPlan(columnInventory(st.columns), args.table, args.column, args.slug);"
+  },
+  {
+    "label": "THE WIRING HOP, CUT: main never hands a slug at all",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      const plan = countsPlan(columnInventory(st.columns), args.table, args.column, site.slug);",
+    "to": "      const plan = countsPlan(columnInventory(st.columns), args.table, args.column);"
+  },
+
+  {
+    "label": "THE PROJECTION IS NOT THE WALL: the raw value is selected, so an unusable value — a customer name — leaves the database",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      sql: `SELECT CASE WHEN \"${c}\" ~ '${DATE_SHAPE}' THEN \"${c}\" ELSE NULL END AS v, ` +",
+    "to": "      sql: `SELECT \"${c}\" AS v, ` +"
+  },
+  {
+    "label": "THE SHAPE LOSES ITS TAIL ANCHOR, so `2026-10-01 and a note` passes as a date",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "const DATE_SHAPE = \"^[0-9]{4}-[0-9]{2}-[0-9]{2}$\";",
+    "to": "const DATE_SHAPE = \"^[0-9]{4}-[0-9]{2}-[0-9]{2}\";"
+  },
+  {
+    "label": "THE SHAPE LOSES ITS HEAD ANCHOR",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "const DATE_SHAPE = \"^[0-9]{4}-[0-9]{2}-[0-9]{2}$\";",
+    "to": "const DATE_SHAPE = \"[0-9]{4}-[0-9]{2}-[0-9]{2}$\";"
+  },
+  {
+    "label": "A CAST INSTEAD OF A SHAPE — which is the leak, because Postgres quotes the offending value in its error",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      sql: `SELECT CASE WHEN \"${c}\" ~ '${DATE_SHAPE}' THEN \"${c}\" ELSE NULL END AS v, ` +",
+    "to": "      sql: `SELECT \"${c}\"::date AS v, ` +"
+  },
+  {
+    "label": "THE `bad` FLAG IS A CONSTANT, so an unusable value reads as a genuinely absent one",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "        `(\"${c}\" IS NOT NULL AND \"${c}\" !~ '${DATE_SHAPE}') AS bad, ` +",
+    "to": "        `false AS bad, ` +"
+  },
+  {
+    "label": "A GENUINE NULL IS FLAGGED BAD, so an absent value is reported as rubbish",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "        `(\"${c}\" IS NOT NULL AND \"${c}\" !~ '${DATE_SHAPE}') AS bad, ` +",
+    "to": "        `(\"${c}\" IS NULL OR \"${c}\" !~ '${DATE_SHAPE}') AS bad, ` +"
+  },
+  {
+    "label": "THE GROUPING LOSES `bad`, so the two NULL buckets collapse into one",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "        `COUNT(*)::bigint AS n FROM \"${t}\" GROUP BY 1, 2 ORDER BY 3 DESC, 1` };",
+    "to": "        `COUNT(*)::bigint AS n FROM \"${t}\" GROUP BY 1 ORDER BY 3 DESC, 1` };"
+  },
+  {
+    "label": "BUSIEST FIRST BECOMES QUIETEST FIRST",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "        `COUNT(*)::bigint AS n FROM \"${t}\" GROUP BY 1, 2 ORDER BY 3 DESC, 1` };",
+    "to": "        `COUNT(*)::bigint AS n FROM \"${t}\" GROUP BY 1, 2 ORDER BY 3 ASC, 1` };"
+  },
+
+  {
+    "label": "SILENTLY DISCARDED: an unusable row is dropped without being counted",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    if (r && r.bad === true) { invalid += count; continue; }",
+    "to": "    if (r && r.bad === true) { continue; }"
+  },
+  {
+    "label": "THE `bad` ROWS ARE REPORTED AS GROUPS, so an unusable bucket is printed as a date group",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    if (r && r.bad === true) { invalid += count; continue; }",
+    "to": "    if (r && r.bad === false) { invalid += count; continue; }"
+  },
+  {
+    "label": "THE `bad` ROWS ARE NEVER READ, so the database's own verdict is thrown away",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    if (r && r.bad === true) { invalid += count; continue; }",
+    "to": "    /* the database's verdict is not read */;"
+  },
+  {
+    "label": "AN IMPOSSIBLE DATE IS REPORTED, because the calendar check is never asked",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    if (plan.textDate && value !== null && !calendarDate(value)) { invalid += count; continue; }",
+    "to": "    /* no calendar check */;"
+  },
+  {
+    "label": "AN IMPOSSIBLE DATE IS DROPPED WITHOUT BEING COUNTED",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    if (plan.textDate && value !== null && !calendarDate(value)) { invalid += count; continue; }",
+    "to": "    if (plan.textDate && value !== null && !calendarDate(value)) { continue; }"
+  },
+  {
+    "label": "THE CALENDAR CHECK RUNS ON EVERY PLAN, so a typed timestamp column's own values are called invalid",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    if (plan.textDate && value !== null && !calendarDate(value)) { invalid += count; continue; }",
+    "to": "    if (value !== null && !calendarDate(value)) { invalid += count; continue; }"
+  },
+  {
+    "label": "THE CALENDAR CHECK EATS A GENUINE NULL, so an absent value is reported as rubbish",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    if (plan.textDate && value !== null && !calendarDate(value)) { invalid += count; continue; }",
+    "to": "    if (plan.textDate && !calendarDate(value)) { invalid += count; continue; }"
+  },
+  {
+    "label": "THE TOTAL COUNTS ONLY WHAT IS REPORTABLE, so the arithmetic closes over a smaller table than there is",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "    const count = Number(r && r.n) || 0;\n    total += count;",
+    "to": "    const count = Number(r && r.n) || 0;"
+  },
+  {
+    "label": "FEBRUARY HAS THIRTY DAYS: the calendar check stops knowing months",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  return d >= 1 && d <= max;",
+    "to": "  return d >= 1 && d <= 31;"
+  },
+  {
+    "label": "THE LEAP RULE LOSES ITS CENTURY EXCEPTION, so 1900-02-29 reads as a date",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;",
+    "to": "  const leap = y % 4 === 0;"
+  },
+  {
+    "label": "THE PAIR: the month bound AND the out-of-range lookup it is redundant with, mutated together — month 13 becomes a date",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  if (mo < 1 || mo > 12) return false;\n  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;\n  const max = mo === 2 && leap ? 29 : DAYS_IN_MONTH[mo - 1];",
+    "to": "  if (mo < 1) return false;\n  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;\n  const max = mo === 2 && leap ? 29 : (DAYS_IN_MONTH[mo - 1] || 31);"
+  },
+  {
+    "label": "A NON-STRING IS COERCED RATHER THAN REFUSED",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(typeof s === \"string\" ? s : \"\");",
+    "to": "  const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(String(s));"
+  },
+
+  {
+    "label": "THE RAW MESSAGE IS PRINTED, which is the leak: a database error quotes the row that caused it",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  const c = e && typeof e.code === \"string\" ? e.code : \"\";\n  return /^[0-9A-Za-z]{5}$/.test(c) ? c : \"\";",
+    "to": "  return String((e && (e.code || e.message)) || \"\");"
+  },
+  {
+    "label": "THE CODE PATTERN IS UNANCHORED, so a message containing five characters is reported whole",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "  return /^[0-9A-Za-z]{5}$/.test(c) ? c : \"\";",
+    "to": "  return /[0-9A-Za-z]{5}/.test(c) ? c : \"\";"
+  },
+  {
+    "label": "THE CATCH PRINTS safeErr AGAIN, so the message reaches the log",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "        console.log(`    FAILED — the read did not complete${errCode(e) ? ` (SQLSTATE ${errCode(e)})` : \"\"}. ` +\n          `The message is withheld: a database error can quote a row's value.`);",
+    "to": "        console.log(`    FAILED — ${safeErr(e)}`);"
+  },
+
+  {
+    "label": "THE UNUSABLE LINE IS NEVER PRINTED, so a run silently reports fewer rows than the table holds",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      if (agg.invalid) {\n        console.log(`      (not a usable date)  ${agg.invalid}   ` +\n          `— counted, and the values themselves are deliberately not read back`);\n      }",
+    "to": "      /* the unusable rows are not printed */;"
+  },
+  {
+    "label": "THE ARITHMETIC NO LONGER CLOSES: the breakdown is dropped for a bare total",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      console.log(`    ${agg.groups} group(s), ${shown} grouped + ${agg.invalid} unusable = ${agg.total} row(s) in total`);",
+    "to": "      console.log(`    ${agg.groups} group(s), ${agg.total} row(s) in total`);"
+  },
+  {
+    "label": "THE EXCEPTION IS TAKEN IN SILENCE, so a reader cannot tell which rule answered",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "      if (plan.textDate) {\n        console.log(`    NARROW EXCEPTION: ${plan.slug} ${plan.table}.${plan.column} is ${plan.type}, ` +\n          `read as dates by SHAPE. Every other text column is still refused.`);\n      }",
+    "to": "      /* the exception is not announced */;"
+  },
+  {
+    "label": "THE MODE JOINS A WRITE LIST, which is the one way a read-only aggregate could write",
+    "files": ["scripts/backend-repair.mjs"],
+    "from": "export const WRITES_REFERENCE = Object.freeze([\"apply\", \"apply-reference\"]);",
+    "to": "export const WRITES_REFERENCE = Object.freeze([\"apply\", \"apply-reference\", \"counts\"]);"
+  },
+
+  {
+    "label": "THE FIXTURE ENCODES A BOOLEAN AS TEXT AGAIN — the defect that made the working feature report itself broken",
+    "files": ["test/fixtures/repair-process.mjs"],
+    "from": "    return rows(out, [\"v\", \"bad\", \"n\"], { bad: 16 });",
+    "to": "    return rows(out, [\"v\", \"bad\", \"n\"]);"
+  },
+  {
+    "label": "THE FIXTURE FLAGS EVERY VALUE BAD, so no date group survives and the whole reading is a count of nothing",
+    "files": ["test/fixtures/repair-process.mjs"],
+    "from": "      const bad = v !== null && !shape.test(v);",
+    "to": "      const bad = v !== null;"
+  },
+  {
+    "label": "THE FAILING READ IS NOT REACHED: the fixture answers a result set instead of the error the case asked for",
+    "files": ["test/fixtures/repair-process.mjs"],
+    "from": "    if (scenario.countsError) return json(scenario.countsError, 400);",
+    "to": "    /* the scenario's error is ignored */;"
+  }
+]

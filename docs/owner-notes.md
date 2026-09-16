@@ -222,7 +222,11 @@ where it is not needed is how a habit forms.
 ### What I can and cannot tell you before you press
 
 `bookings` is `collect` — anyone writes, nobody reads — so there is no client
-SELECT of its values, and the per-date split is genuinely unknown from here.
+SELECT of its values, and the per-date split is unknown to the free readers.
+(Written before the presses, and left as it stands: what it says about the free
+readers is true. Where I went wrong was the sentence further down that turned it
+into "unreadable" full stop — the correction and the narrow exception are at the
+end of this file.)
 What I do know free: the total is **3** (both counting functions, at both
 addresses; and the raw `SELECT COUNT(*)` read 3 on 2026-09-15), and the columns
 are `id`, `created_at`, `customer_name`, `bike`, `drop_off_day`.
@@ -303,10 +307,10 @@ asked for is what made it red.
 fails with Postgres's own message, which quotes the value — a bad row would leak a
 customer name out of the one mode built never to return one.
 
-**So the per-date split stays unreadable for free**, and with three rows it was
-only ever going to settle ordering in one of four shapes anyway. My recommendation
-is unchanged: run the paid test and state that limit up front rather than discover
-it afterwards.
+**I wrote "so the per-date split stays unreadable for free" and you corrected it,
+rightly.** The free readers can't get it; that was never the same as a credentialed
+read-only query being impossible, and I collapsed the two. The narrow exception is
+below — one triple, still read-only, still your press.
 
 **One thing the type tells us to watch**: a tie-break on a text date sorts
 alphabetically. That's chronological for `YYYY-MM-DD` and wrong for anything else,
@@ -11035,3 +11039,66 @@ version gates.
 
 **Nothing dispatched. No demo cleanup. No fixture row inserted. No previous
 authorization treated as approval for this run.**
+
+---
+
+## The per-date split is readable — one triple, still read-only (2026-09-16)
+
+You were right and I was wrong. I wrote "the per-date split cannot be read for
+free"; what was true is that the *free readers* cannot get it, and I turned that
+into a claim about queries in general. Those are two different things and only the
+first was measured.
+
+**What I built, exactly as scoped.** One frozen entry — `repairbench-1` ·
+`bookings` · `drop_off_day` — and all three have to match. It is asked **only
+after** the general type rule has already refused, so the text refusal is
+untouched: `customer_name` is still refused, `bike` is still refused, and so is
+`drop_off_day` on any other site or any other table. Widening the tool to accept
+text is the fix I did **not** make, for the reason I gave you before.
+
+**No writes, no schema change, no other site, no SQL you type.** The mode is on
+neither write list, both gates are `includes` over a frozen list, and the table
+and column names are checked against the live catalog *and* against a safe-
+identifier pattern before anything is built. The slug it keys on is the site the
+run is really reading, not the value in the form.
+
+**Only date-shaped values come back, and that is the statement's doing, not the
+reader's.** The query returns the value *only* where it matches `NNNN-NN-NN` and
+NULL otherwise, so anything else — a name typed into the date box, an empty cell
+— never leaves the database at all. What comes back about those rows is a count.
+
+**Nothing is silently dropped, and the run prints the arithmetic so you can see
+it close**: `4 group(s), 7 grouped + 3 unusable = 10 row(s) in total`. A bare
+total can't be checked; that can. Rows that are date-*shaped* but not real dates
+(`2026-13-45`, `2026-02-29` in a non-leap year) are caught too, counted with the
+rest, and never printed.
+
+**If the read itself fails you get the SQLSTATE and not the message.** A Postgres
+error quotes the row that caused it — I measured it on a real PostgreSQL:
+`invalid input syntax for type date: "Alice Bloom, 07700 900123"`. That is exactly
+the leak, and it is why there is no cast anywhere in this and why the error text
+is withheld.
+
+**Proven on a real PostgreSQL 16 before I asked you to press anything** — 48
+checks, 0 failed, over a text date column holding real dates, a blank, an empty
+string, a customer's name and phone number, and two impossible dates. The leak
+check is made against the raw output of `psql`, because "my reader dropped it" is
+a weaker claim than "it never arrived".
+
+### The press
+
+`backend repair` → **mode `counts`** · **slug `repairbench-1`** · **table
+`bookings`** · **column `drop_off_day`** · **confirm blank**.
+
+Free. Read-only. It writes nothing.
+
+**Order, because the workflow always runs `main`'s copy of the script:** I push
+this to `main` first (it touches only `scripts/`, `test/` and the two documents,
+all of which the deploy ignores — **so no deploy fires and none is needed**), and
+then the button runs the new code.
+
+**After you press I will tell you precisely what those three rows can and cannot
+test** — and per your correction, equal-count dates need no particular tie order,
+because the request only asks for busiest first. Then, separately, the paid-run
+inputs and the spend estimate. Your approval for that run is still its own
+decision and I am not treating anything here as it.

@@ -155,6 +155,78 @@ export const COUNTS_TYPES = Object.freeze(["date", "timestamp", "time"]);
 const PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * THE ONE NARROW EXCEPTION, AND IT IS A TRIPLE RATHER THAN A RULE (2026-09-16).
+ *
+ * Owner: *"Finish the baseline with a narrowly scoped exception for exactly
+ * repairbench-1 → bookings → drop_off_day. Keep the general refusal of text
+ * columns."* `bookings.drop_off_day` is `text` in the live catalog, so the
+ * type-derived rule above refuses it — correctly, and that refusal is what
+ * keeps `customer_name` (also `text`) out of reach.
+ *
+ * **WIDENING `COUNTS_TYPES` WOULD HAVE BEEN THE WRONG FIX AND IS NOT MADE.**
+ * Admitting text as a class trades the single property that makes this mode
+ * safe for one number. So does a cast: `"c"::date` fails at runtime with
+ * Postgres's own message, which QUOTES THE OFFENDING VALUE — a leak of a row
+ * out of a mode built to return dates and counts only.
+ *
+ * **AN EXACT TRIPLE CANNOT GENERALISE.** Site AND table AND column must all
+ * match, it is consulted ONLY after the general type check has refused, and it
+ * is keyed on the site really being read (`site.slug`, resolved through
+ * `REPAIR_SITES` and the identity chain) rather than on the form's input. A
+ * second site, a second table or a second column is a source edit and a red
+ * census, never a form value.
+ */
+export const COUNTS_TEXT_DATE = Object.freeze([
+  Object.freeze({ slug: "repairbench-1", table: "bookings", column: "drop_off_day" }),
+]);
+/** The character types the exception may read. Exact, not a prefix:
+ *  `information_schema.columns.data_type` spells these whole and keeps a
+ *  varchar's length in a different column. `~` is defined on all of them, so a
+ *  type outside this list falls back to the ordinary refusal rather than
+ *  reaching Postgres as an operator error. */
+const COUNTS_TEXT_TYPES = Object.freeze(["text", "character varying", "character"]);
+/** Does the exception cover exactly this site, table and column? */
+export const countsTextDateAllowed = (slug, table, column) =>
+  COUNTS_TEXT_DATE.some((e) => e.slug === slug && e.table === table && e.column === column);
+
+/**
+ * THE SHAPE A VALUE MUST HAVE TO LEAVE THE DATABASE AT ALL. Anchored at both
+ * ends and digits-and-dashes only, so the projection below can return either a
+ * ten-character `NNNN-NN-NN` string or NULL and has nowhere to put anything
+ * else. `[0-9]` rather than `\d` deliberately: no backslash, so the literal
+ * means the same thing whatever `standard_conforming_strings` is set to.
+ */
+const DATE_SHAPE = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
+const DAYS_IN_MONTH = Object.freeze([31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
+
+/**
+ * IS THIS DATE-SHAPED STRING A REAL DATE? `DATE_SHAPE` admits `2026-13-45`, so
+ * something has to ask, and on the text path that something is us — a typed
+ * column cannot produce an impossible date, which is why this runs on the
+ * exception's path alone.
+ *
+ * PURE ARITHMETIC, NO `Date`: `Date.UTC(1, 0, 1)` silently means 1901, so a
+ * round-trip through `Date` reports a perfectly well-formed early year as
+ * invalid. It also cannot throw, which is the property that matters in the one
+ * function standing between a row and a printed line.
+ */
+export function calendarDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(typeof s === "string" ? s : "");
+  if (!m) return false;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  // `mo > 12` IS A DECLARED REDUNDANCY, MEASURED INERT — `DAYS_IN_MONTH[12]` is
+  // `undefined` and `d <= undefined` is false, so every month past 12 already
+  // answers false (60,000 probes over every two-digit month, day and six years:
+  // 0 differences). It is KEPT because answering by an out-of-range array index
+  // is an accident of JavaScript rather than a rule, and the rule is the thing
+  // a reader needs. The sweep mutates the PAIR.
+  if (mo < 1 || mo > 12) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const max = mo === 2 && leap ? 29 : DAYS_IN_MONTH[mo - 1];
+  return d >= 1 && d <= max;
+}
+
+/**
  * May this aggregate run, and over what? PURE, so every refusal is drivable
  * with no database at all — which is the half that decides whether a
  * credentialed run is worth pressing.
@@ -164,11 +236,16 @@ const PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * column", and `PLAIN_NAME` answers "is its name safe to interpolate" — and a
  * real Postgres identifier may legally contain characters that make the second
  * question a different one from the first.
+ *
+ * `slug` is the site being read. OMITTED MEANS NO EXCEPTION, which is the
+ * fail-closed direction: a caller that cannot say which site it is asking about
+ * gets the general rule.
  */
-export function countsPlan(inventory, table, column) {
+export function countsPlan(inventory, table, column, slug) {
   const inv = inventory && typeof inventory === "object" ? inventory : {};
   const t = typeof table === "string" ? table : "";
   const c = typeof column === "string" ? column : "";
+  const s = typeof slug === "string" ? slug : "";
   if (!t || !c) return { ok: false, why: "need-table-and-column" };
   if (!Object.prototype.hasOwnProperty.call(inv, t)) {
     return { ok: false, why: "no-such-table", detail: t, tables: Object.keys(inv).sort() };
@@ -176,25 +253,84 @@ export function countsPlan(inventory, table, column) {
   const hit = (inv[t] || []).find((e) => String(e).split(" ")[0] === c);
   if (!hit) return { ok: false, why: "no-such-column", detail: `${t}.${c}`, columns: (inv[t] || []).map((e) => String(e).split(" ")[0]) };
   const ty = String(hit).slice(c.length + 1).trim().toLowerCase();
-  if (!COUNTS_TYPES.some((p) => ty.startsWith(p))) {
+  // THE GENERAL RULE IS ASKED FIRST AND IS UNTOUCHED. The exception is only
+  // ever reached by a column this has already refused, so removing the triple
+  // restores the old behaviour exactly and no widening can hide inside it.
+  //
+  // `!typed` IS A DECLARED REDUNDANCY, MEASURED INERT — the two lists are
+  // disjoint over every `data_type` spelling `information_schema` produces (27
+  // probed, 0 differences), so `COUNTS_TEXT_TYPES.includes(ty)` already
+  // excludes every typed column. It is KEPT because it states the ORDER, which
+  // is the whole design and is otherwise written down nowhere in code; the
+  // sweep mutates the PAIR, because a sweep cannot say this and the next
+  // session deletes what nothing appears to need.
+  const typed = COUNTS_TYPES.some((p) => ty.startsWith(p));
+  const textDate = !typed && COUNTS_TEXT_TYPES.includes(ty) && countsTextDateAllowed(s, t, c);
+  if (!typed && !textDate) {
     return { ok: false, why: "not-a-date-column", detail: `${t}.${c} is ${ty || "(untyped)"}`, allowed: [...COUNTS_TYPES] };
   }
   if (!PLAIN_NAME.test(t) || !PLAIN_NAME.test(c)) return { ok: false, why: "name-not-plain", detail: `${t}.${c}` };
-  // GROUP BY 1 / ORDER BY 2 DESC, 1 — the ordinals, so the emitted text names
-  // each identifier exactly once and the tie-break is deterministic, which is
-  // what makes "busiest first" a reproducible reading rather than a lucky one.
-  return { ok: true, table: t, column: c, type: ty,
+  // THE ORDINALS, so the emitted text names each identifier exactly once and
+  // the tie-break is deterministic — what makes "busiest first" a reproducible
+  // reading rather than a lucky one.
+  if (textDate) {
+    // THE PROJECTION IS THE WALL. `v` is the value only where it matches
+    // `DATE_SHAPE` and NULL otherwise, so an unusable value never leaves
+    // Postgres; `bad` separates "not date-shaped" from a genuine NULL, so
+    // neither is silently folded into the other; `COUNT(*)` is all that comes
+    // back about the unusable rows. Nothing here casts, so no database error
+    // can quote a row.
+    return { ok: true, table: t, column: c, type: ty, slug: s, textDate: true,
+      sql: `SELECT CASE WHEN "${c}" ~ '${DATE_SHAPE}' THEN "${c}" ELSE NULL END AS v, ` +
+        `("${c}" IS NOT NULL AND "${c}" !~ '${DATE_SHAPE}') AS bad, ` +
+        `COUNT(*)::bigint AS n FROM "${t}" GROUP BY 1, 2 ORDER BY 3 DESC, 1` };
+  }
+  return { ok: true, table: t, column: c, type: ty, slug: s,
     sql: `SELECT "${c}" AS v, COUNT(*)::bigint AS n FROM "${t}" GROUP BY 1 ORDER BY 2 DESC, 1` };
 }
 
-/** Run the planned aggregate. No parameters, because the plan has already
- *  established both identifiers against the catalog and nothing else varies. */
+/**
+ * Run the planned aggregate. No parameters, because the plan has already
+ * established both identifiers against the catalog and nothing else varies.
+ *
+ * **NOTHING IS SILENTLY DISCARDED**: every row is counted into exactly one of
+ * `rows` and `invalid`, and `total` is every row the table holds — so
+ * `sum(rows) + invalid === total` is an arithmetic that closes and is asserted.
+ */
 export async function countsOf(sql, plan) {
   if (!plan || plan.ok !== true) return { ok: false, why: (plan && plan.why) || "no-plan" };
-  const rows = (await sql(plan.sql, [])) || [];
-  const out = rows.map((r) => ({ value: r && r.v === null ? null : String(r && r.v), count: Number(r && r.n) || 0 }));
-  return { ok: true, rows: out, total: out.reduce((a, r) => a + r.count, 0), groups: out.length };
+  const raw = (await sql(plan.sql, [])) || [];
+  const rows = [];
+  let invalid = 0, total = 0;
+  for (const r of raw) {
+    const count = Number(r && r.n) || 0;
+    total += count;
+    // THE DATABASE'S OWN VERDICT FIRST — `bad` is the statement's answer and
+    // the value that earned it is already NULL by the time it reaches here.
+    if (r && r.bad === true) { invalid += count; continue; }
+    const value = r && r.v === null ? null : String(r && r.v);
+    // AND OURS SECOND, ONLY WHERE WE ARE THE VALIDATOR. A typed column is
+    // guaranteed by Postgres and renders shapes this check does not know (a
+    // timestamp carries a time), so running it there would report every row of
+    // a working column as invalid.
+    if (plan.textDate && value !== null && !calendarDate(value)) { invalid += count; continue; }
+    rows.push({ value, count });
+  }
+  return { ok: true, rows, invalid, total, groups: rows.length };
 }
+
+/**
+ * A FAILED AGGREGATE READ IS REPORTED BY CODE, NEVER BY MESSAGE (owner,
+ * 2026-09-16: *"report the number of invalid rows without printing those values
+ * or raw database errors"*). A Postgres error message can quote the row that
+ * caused it, so the one place a message could carry a customer's data out of
+ * this mode is exactly here. A SQLSTATE is five alphanumerics and can carry
+ * nothing; anything else answers `""` rather than falling back to the text.
+ */
+export const errCode = (e) => {
+  const c = e && typeof e.code === "string" ? e.code : "";
+  return /^[0-9A-Za-z]{5}$/.test(c) ? c : "";
+};
 
 /**
  * EVERY MODE THIS SCRIPT HAS, IN ONE PLACE — and `parseArgs` DERIVES its flags
@@ -710,7 +846,10 @@ async function main() {
       if (!id.proven) { failed++; continue; }
 
       const st = await describeContents(sql);
-      const plan = countsPlan(columnInventory(st.columns), args.table, args.column);
+      // THE SITE REALLY BEING READ, never `args.slug`. The exception is keyed
+      // on the slug that came through `REPAIR_SITES` and the identity chain,
+      // so a form value cannot name its way into it.
+      const plan = countsPlan(columnInventory(st.columns), args.table, args.column, site.slug);
       if (!plan.ok) {
         // A REFUSAL IS A SENTENCE AND A NONZERO EXIT. "Nothing came back"
         // and "we refused to ask" are two readings a blank collapses.
@@ -720,12 +859,34 @@ async function main() {
         if (plan.allowed) console.log(`    only a date or time column may be grouped: ${JSON.stringify(plan.allowed)}`);
         failed++; continue;
       }
+      if (plan.textDate) {
+        console.log(`    NARROW EXCEPTION: ${plan.slug} ${plan.table}.${plan.column} is ${plan.type}, ` +
+          `read as dates by SHAPE. Every other text column is still refused.`);
+      }
       console.log(`    reading: ${plan.sql}`);
       let agg;
+      // THE MESSAGE IS WITHHELD ON PURPOSE. A database error can quote the row
+      // that caused it, and this is the one read in this mode where a row could
+      // ride out on an error. The SQLSTATE says what went wrong and can carry
+      // nothing; see `errCode`.
       try { agg = await countsOf(sql, plan); }
-      catch (e) { console.log(`    FAILED — ${safeErr(e)}`); failed++; continue; }
+      catch (e) {
+        console.log(`    FAILED — the read did not complete${errCode(e) ? ` (SQLSTATE ${errCode(e)})` : ""}. ` +
+          `The message is withheld: a database error can quote a row's value.`);
+        failed++; continue;
+      }
       for (const r of agg.rows) console.log(`      ${r.value === null ? "(no date)" : r.value}  ${r.count}`);
-      console.log(`    ${agg.groups} group(s), ${agg.total} row(s) in total`);
+      // COUNTED, NEVER PRINTED, NEVER DISCARDED. A value that is not a usable
+      // date is reported as a number and its own text never left Postgres.
+      if (agg.invalid) {
+        console.log(`      (not a usable date)  ${agg.invalid}   ` +
+          `— counted, and the values themselves are deliberately not read back`);
+      }
+      // THE ARITHMETIC IS PRINTED SO IT CAN BE SEEN TO CLOSE: every row in the
+      // table is in exactly one of these numbers, which is what "nothing was
+      // silently discarded" means and is the only way a reader can check it.
+      const shown = agg.rows.reduce((a, r) => a + r.count, 0);
+      console.log(`    ${agg.groups} group(s), ${shown} grouped + ${agg.invalid} unusable = ${agg.total} row(s) in total`);
       verified++;
       continue;
     }

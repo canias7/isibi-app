@@ -491,7 +491,17 @@ test("counts groups by a date column, busiest first, and writes nothing", () => 
   const rows = r.out.split("\n").map((l) => /^\s+(\S+)\s+(\d+)\s*$/.exec(l.replace(/ /g, " "))).filter(Boolean);
   assert.deepEqual(rows.map((m) => [m[1], Number(m[2])]), [["2026-10-01", 2], ["2026-10-03", 1]],
     "the printed groups are not date-then-count, busiest first:\n" + r.out);
-  assert.match(r.out, /2 group\(s\), 3 row\(s\) in total/, "the total is not printed:\n" + r.out);
+  // RE-ANCHORED, NOT APPEASED (2026-09-16): this asserted `2 group(s), 3
+  // row(s) in total`, and the property it was ever about — every row is
+  // accounted for — is now PRINTED as arithmetic that closes, because a reader
+  // cannot check "nothing was discarded" against a bare total.
+  assert.match(r.out, /2 group\(s\), 3 grouped \+ 0 unusable = 3 row\(s\) in total/,
+    "the total is not printed as an arithmetic that closes:\n" + r.out);
+  // A TYPED COLUMN NEVER SAYS "narrow exception" — the control that the
+  // exception below is reached by the exception's own door and no other.
+  assert.doesNotMatch(r.out, /NARROW EXCEPTION/, "a real date column took the text path:\n" + r.out);
+  // …and it has no unusable rows to report, so the line is correctly absent.
+  assert.doesNotMatch(r.out, /not a usable date/, r.out);
 
   // ── READ-ONLY, ASSERTED OVER EVERY STATEMENT THE PROCESS REALLY SENT ──────
   // The negative is the half an "it worked" reading cannot establish.
@@ -572,4 +582,150 @@ test("counts refuses a text column, and refusing exits NONZERO", () => {
   assert.match(unproven.out, /identity NOT PROVEN/, unproven.out);
   assert.ok(!unproven.statements.some((s) => /GROUP BY/i.test(s.q || "")),
     "the aggregate ran against a database it had not proved:\n" + JSON.stringify(unproven.statements));
+});
+
+test("the narrow text-date exception reads repairbench-1, and no other site or column", () => {
+  // Owner, 2026-09-16: *"Finish the baseline with a narrowly scoped exception
+  // for exactly repairbench-1 → bookings → drop_off_day… Return only
+  // date-shaped values and aggregate counts. If values cannot safely be treated
+  // as dates, report the number of invalid rows without printing those values
+  // or raw database errors. Do not silently discard invalid rows."*
+  //
+  // THIS IS THE WIRING HOP AND ONLY A PROCESS CAN SEE IT. `countsPlan` takes
+  // the slug as its fourth argument; `main` has to hand it the SITE being read
+  // rather than the form's input, and a module that never receives it is
+  // indistinguishable from a module that ignores it — this repository's own
+  // most-repeated defect, in the function the whole exception turns on.
+  const DAYS = {
+    "2026-10-01": 3,                       // busiest
+    "2026-10-03": 2,
+    "2026-09-30": 1,
+    null: 1,                               // genuinely absent
+    "": 1,                                 // an empty string: not date-shaped
+    "Alice Bloom, 07700 900123": 1,        // free text, in the date column
+    "2026-13-45": 1,                       // date-SHAPED, and not a date
+  };
+  const withDays = (slug) => scenario({
+    sites: [{ slug, uid: "u1", neon_db: "site_" + slug.replace(/-/g, "_") }],
+    projects: [{ slug, neon_conn: PROJ }],
+    meta: JSON.stringify({ tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] }] }),
+    // THE COLUMN IS `text`, which is what the live catalog says and what the
+    // general rule refuses. A `date` fixture here would test nothing.
+    tables: {
+      bookings: { ...BOOKINGS, columns: ["id", "created_at", "who", "drop_off_day text"] },
+      repairs: { ...BOOKINGS, columns: ["id", "drop_off_day text"] },
+    },
+    groups: { bookings: DAYS, repairs: { "2026-10-01": 1 } },
+  });
+
+  const r = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"],
+    withDays("repairbench-1"));
+  assert.equal(r.code, 0, "the exception did not run:\n" + r.out);
+  assert.match(r.out, /identity PROVEN/, "it read before proving whose database it is:\n" + r.out);
+  assert.match(r.out, /NARROW EXCEPTION: repairbench-1 bookings\.drop_off_day is text/,
+    "the run does not say it took the exception:\n" + r.out);
+
+  // ── BUSIEST FIRST, off the printed order ──────────────────────────────────
+  // `(no date)` carries a space, so the reader is the print's own shape —
+  // value, two spaces, count, end of line. The unusable line has trailing prose
+  // and is deliberately not matched here; it has its own assertion below.
+  const printed = r.out.split("\n").map((l) => /^ {6}(.+?) {2}(\d+)\s*$/.exec(l)).filter(Boolean)
+    .map((m) => [m[1], Number(m[2])]);
+  assert.deepEqual(printed, [["2026-10-01", 3], ["2026-10-03", 2], ["2026-09-30", 1], ["(no date)", 1]],
+    "the printed groups are not date-then-count, busiest first, with the absent row its own line:\n" + r.out);
+
+  // ── NOTHING SILENTLY DISCARDED, and the arithmetic is printed ─────────────
+  // Three rows cannot be read as dates: the empty string, the name, and the
+  // date-shaped `2026-13-45`.
+  assert.match(r.out, /\(not a usable date\) {2}3/, "the unusable rows are not counted:\n" + r.out);
+  assert.match(r.out, /4 group\(s\), 7 grouped \+ 3 unusable = 10 row\(s\) in total/,
+    "the arithmetic is not printed, or does not close:\n" + r.out);
+
+  // ── AND NO VALUE THAT IS NOT A DATE IS PRINTED ANYWHERE ───────────────────
+  // Asserted over the WHOLE output, because "it is not in the group list" is a
+  // weaker claim than "it never reached this process".
+  assert.doesNotMatch(r.out, /Alice/, "a value from the date column was printed:\n" + r.out);
+  assert.doesNotMatch(r.out, /900123/, "a phone number from the date column was printed:\n" + r.out);
+  assert.doesNotMatch(r.out, /2026-13-45/, "an impossible date was printed rather than counted:\n" + r.out);
+
+  // ── READ-ONLY, over every statement the process really sent ───────────────
+  for (const s of r.statements) {
+    assert.doesNotMatch(s.q, /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE)\b/i,
+      "the exception issued a writing statement: " + s.q);
+  }
+  assert.ok(r.statements.some((s) => s.db === "site_repairbench_1"), "never reached the site's own database");
+  assert.ok(r.statements.some((s) => /CASE WHEN/.test(s.q)), "the exception's statement was never sent");
+  assert.ok(!r.statements.some((s) => /::date|to_date/i.test(s.q)), "a cast would let Postgres quote a row's value");
+
+  // ── THE SITE HALF, DRIVEN: the same table, the same text column, elsewhere ─
+  // The one case that can tell "the slug reached the plan" from "the plan
+  // ignores the slug". Without it, an exception keyed on table and column alone
+  // would pass every assertion above.
+  const other = run("backend-repair.mjs", ["--counts", "--slug", "washhouse-1", "--table", "bookings", "--column", "drop_off_day"],
+    withDays("washhouse-1"));
+  assert.equal(other.code, 1, "another site was allowed through the exception:\n" + other.out);
+  assert.match(other.out, /REFUSED \(not-a-date-column\)/, other.out);
+  assert.ok(!other.statements.some((s) => /CASE WHEN/.test(s.q)), "another site ran the exception's statement");
+
+  // ── AND THE TABLE HALF, on the SAME site and the SAME column name ─────────
+  const otherTable = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "repairs", "--column", "drop_off_day"],
+    withDays("repairbench-1"));
+  assert.equal(otherTable.code, 1, "another table with the same column name was allowed:\n" + otherTable.out);
+  assert.match(otherTable.out, /REFUSED \(not-a-date-column\)/, otherTable.out);
+
+  // ── AND THE COLUMN HALF: the customer's name is still out of reach ────────
+  const name = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "who"],
+    withDays("repairbench-1"));
+  assert.equal(name.code, 1, "the customer name was grouped:\n" + name.out);
+  assert.match(name.out, /REFUSED \(not-a-date-column\)/, name.out);
+  assert.ok(!name.statements.some((s) => /GROUP BY/i.test(s.q)), "a refused column still ran an aggregate");
+
+  // ── THE WRITE BOUNDARY IS UNMOVED: the exception is still a read-only mode ─
+  assert.doesNotMatch(r.out, /reference: written/, r.out);
+  assert.match(r.out, /read-only: this mode writes nothing/, r.out);
+
+  // ── AND THE SLUG IS THE SITE, NOT THE FORM (a sweep survivor) ─────────────
+  //
+  // Every case above passes `--slug repairbench-1`, so `args.slug` and
+  // `site.slug` are the same string and a `main` that handed over the FORM's
+  // value would pass all of them. A run with no `--slug` is the one shape that
+  // separates them: `args.slug` is `""` there and the exception could never
+  // fire, while the site really being read is `repairbench-1`.
+  const unslugged = run("backend-repair.mjs", ["--counts", "--table", "bookings", "--column", "drop_off_day"],
+    withDays("repairbench-1"));
+  assert.equal(unslugged.code, 0, "a run with no slug lost the exception:\n" + unslugged.out);
+  assert.match(unslugged.out, /NARROW EXCEPTION: repairbench-1 bookings\.drop_off_day/, unslugged.out);
+  assert.match(unslugged.out, /4 group\(s\), 7 grouped \+ 3 unusable = 10 row\(s\) in total/, unslugged.out);
+});
+
+test("a failed aggregate read withholds the message and gives the SQLSTATE", () => {
+  // A DATABASE ERROR CAN QUOTE THE ROW THAT CAUSED IT. That is the whole reason
+  // the statement does not cast, and it is also why this catch may not print
+  // the message: the error is the one place a value could still ride out.
+  //
+  // THE CATCH LIVES IN `main`, SO ONLY A PROCESS CAN SEE IT — the recorded "a
+  // wall nobody can drive is a wall nobody is guarding", and a sweep mutant
+  // putting `safeErr(e)` back survived everything until this case existed.
+  const LEAK = "Alice Bloom, 07700 900123";
+  const f = scenario({
+    sites: [{ slug: "repairbench-1", uid: "u1", neon_db: "site_repairbench_1" }],
+    projects: [{ slug: "repairbench-1", neon_conn: PROJ }],
+    meta: JSON.stringify({ tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] }] }),
+    tables: { bookings: { ...BOOKINGS, columns: ["id", "created_at", "who", "drop_off_day text"] } },
+    groups: { bookings: { "2026-10-01": 1 } },
+    // Postgres's own answer, verbatim, measured in
+    // `test/integration/local-pg-counts.mjs` — the message carries the row.
+    countsError: { message: `invalid input syntax for type date: "${LEAK}"`, code: "22007" },
+  });
+  const r = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"], f);
+
+  assert.equal(r.code, 1, "a read that failed exited 0:\n" + r.out);
+  assert.doesNotMatch(r.out, /Alice/, "the database's message reached the log:\n" + r.out);
+  assert.doesNotMatch(r.out, /900123/, "the database's message reached the log:\n" + r.out);
+  assert.doesNotMatch(r.out, /invalid input syntax/, "the database's message reached the log:\n" + r.out);
+  // AND IT IS NOT SILENT: the SQLSTATE says what went wrong and can carry
+  // nothing, and the log says the message was withheld rather than absent.
+  assert.match(r.out, /SQLSTATE 22007/, "the failure names nothing at all:\n" + r.out);
+  assert.match(r.out, /message is withheld/, r.out);
+  assert.match(r.out, /0 read, 1 not read/, r.out);
 });

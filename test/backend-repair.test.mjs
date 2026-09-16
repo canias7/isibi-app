@@ -24,7 +24,8 @@ import { READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
 import { connForDatabase, dbNameForSite } from "../site-db.mjs";
 import { META_TABLE_SQL } from "../site-schema.mjs";
 import { parseArgs, safeErr, proveIdentity, recoverSchema, survey, workList, writeRef, repairSite, verifySite, EMIT,
-  WRITES_REFERENCE, WRITES_META, writesReference, writesMeta, columnInventory, countsPlan, countsOf, COUNTS_TYPES, MODES } from "../scripts/backend-repair.mjs";
+  WRITES_REFERENCE, WRITES_META, writesReference, writesMeta, columnInventory, countsPlan, countsOf, COUNTS_TYPES, MODES,
+  COUNTS_TEXT_DATE, countsTextDateAllowed, calendarDate, errCode } from "../scripts/backend-repair.mjs";
 
 /** The real emitters, as the product hands them in. Nothing here verifies against a copy. */
 const REAL = { policiesFor, grantsFor };
@@ -1690,4 +1691,194 @@ test("the aggregate reads, sums and orders — and a plan it refused runs nothin
   assert.equal(asked, false, "a refused plan still ran a query");
   assert.equal((await countsOf(async () => { asked = true; return []; }, null)).why, "no-plan");
   assert.equal(asked, false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE NARROW TEXT-DATE EXCEPTION (2026-09-16)
+//
+// Owner: *"Finish the baseline with a narrowly scoped exception for exactly
+// repairbench-1 → bookings → drop_off_day. Keep the general refusal of text
+// columns. No data writes, no schema changes, no other sites, and no arbitrary
+// SQL input. Return only date-shaped values and aggregate counts. If values
+// cannot safely be treated as dates, report the number of invalid rows without
+// printing those values or raw database errors. Do not silently discard
+// invalid rows."*
+//
+// The case above is the CONTROL for all of this: it drives the general rule
+// with no slug at all, so if the exception ever widened into a rule that case
+// would still pass and these would be the ones to go red.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("the exception is an exact TRIPLE, asked only after the general rule refuses", () => {
+  // PINNED WHOLE. Adding a second entry — a second site, a second table, a
+  // second column — is a source edit and a red run, never a form value.
+  assert.deepEqual(COUNTS_TEXT_DATE.map((e) => [e.slug, e.table, e.column]),
+    [["repairbench-1", "bookings", "drop_off_day"]]);
+  assert.equal(Object.isFrozen(COUNTS_TEXT_DATE), true);
+  assert.equal(Object.isFrozen(COUNTS_TEXT_DATE[0]), true);
+  // THE GENERAL RULE IS UNTOUCHED, asserted as the constant it is decided from.
+  assert.deepEqual([...COUNTS_TYPES], ["date", "timestamp", "time"]);
+
+  // ALL THREE MUST MATCH, and each is driven on its own so a predicate that
+  // dropped one would be red rather than merely under-tested.
+  assert.equal(countsTextDateAllowed("repairbench-1", "bookings", "drop_off_day"), true);
+  assert.equal(countsTextDateAllowed("fretwork-1", "bookings", "drop_off_day"), false, "another site");
+  assert.equal(countsTextDateAllowed("repairbench-1", "repairs", "drop_off_day"), false, "another table");
+  assert.equal(countsTextDateAllowed("repairbench-1", "bookings", "customer_name"), false, "another column");
+  for (const junk of [null, undefined, 7, {}, [], "", "REPAIRBENCH-1"]) {
+    assert.equal(countsTextDateAllowed(junk, "bookings", "drop_off_day"), false, `slug ${JSON.stringify(junk)}`);
+    assert.equal(countsTextDateAllowed("repairbench-1", junk, "drop_off_day"), false, `table ${JSON.stringify(junk)}`);
+    assert.equal(countsTextDateAllowed("repairbench-1", "bookings", junk), false, `column ${JSON.stringify(junk)}`);
+  }
+
+  // ── THE PLAN, over the live catalog's own shape ───────────────────────────
+  const inv = columnInventory([
+    { t: "bookings", c: "id", ty: "integer" },
+    { t: "bookings", c: "customer_name", ty: "text" },
+    { t: "bookings", c: "bike", ty: "text" },
+    { t: "bookings", c: "drop_off_day", ty: "text" },
+    { t: "repairs", c: "drop_off_day", ty: "text" },
+  ]);
+  const p = countsPlan(inv, "bookings", "drop_off_day", "repairbench-1");
+  assert.equal(p.ok, true, JSON.stringify(p));
+  assert.equal(p.textDate, true);
+  assert.equal(p.slug, "repairbench-1", "the plan does not record which site authorised it");
+  assert.equal(p.type, "text");
+
+  // THE EMITTED TEXT, WHOLE. The projection IS the wall: `v` is the value only
+  // where it matches the shape and NULL otherwise, so an unusable value has
+  // nowhere to sit; `bad` separates unshaped from genuinely absent; nothing
+  // casts, so no database error can quote a row.
+  assert.equal(p.sql,
+    'SELECT CASE WHEN "drop_off_day" ~ \'^[0-9]{4}-[0-9]{2}-[0-9]{2}$\' THEN "drop_off_day" ELSE NULL END AS v, ' +
+    '("drop_off_day" IS NOT NULL AND "drop_off_day" !~ \'^[0-9]{4}-[0-9]{2}-[0-9]{2}$\') AS bad, ' +
+    'COUNT(*)::bigint AS n FROM "bookings" GROUP BY 1, 2 ORDER BY 3 DESC, 1');
+  assert.doesNotMatch(p.sql, /::date|to_date|CAST\s*\(/i, "a cast would let Postgres quote a row's value in its error");
+  assert.ok(!/\\/.test(p.sql), "a backslash in the pattern would mean two things under two settings");
+
+  // ── AND EVERY OTHER TEXT COLUMN IS STILL REFUSED ──────────────────────────
+  for (const [slug, t, c, why] of [
+    ["fretwork-1", "bookings", "drop_off_day", "another SITE"],
+    ["repairbench-1", "repairs", "drop_off_day", "another TABLE with the same column name"],
+    ["repairbench-1", "bookings", "customer_name", "the customer's name"],
+    ["repairbench-1", "bookings", "bike", "another text column beside it"],
+    ["", "bookings", "drop_off_day", "no slug at all"],
+    [undefined, "bookings", "drop_off_day", "an omitted slug"],
+  ]) {
+    const r = countsPlan(inv, t, c, slug);
+    assert.equal(r.ok, false, `${why} was allowed`);
+    assert.equal(r.why, "not-a-date-column", why);
+    assert.deepEqual(r.allowed, ["date", "timestamp", "time"], `${why} lost the allowed set`);
+  }
+
+  // THE TYPE STILL HAS TO BE A CHARACTER TYPE. The exception says WHICH column,
+  // not "whatever that column happens to be" — `~` is not defined on every
+  // type, and a triple that matched a json or bytea column would reach Postgres
+  // as an operator error instead of a refusal.
+  for (const ty of ["json", "jsonb", "bytea", "integer", "uuid", "boolean"]) {
+    const odd = columnInventory([{ t: "bookings", c: "drop_off_day", ty }]);
+    assert.equal(countsPlan(odd, "bookings", "drop_off_day", "repairbench-1").why, "not-a-date-column", ty);
+  }
+  // …and the character family IS admitted, so the rule is a positive list
+  // rather than one spelling of `text`.
+  for (const ty of ["text", "character varying", "character"]) {
+    const ok2 = columnInventory([{ t: "bookings", c: "drop_off_day", ty }]);
+    assert.equal(countsPlan(ok2, "bookings", "drop_off_day", "repairbench-1").ok, true, ty);
+  }
+
+  // A HOSTILE NAME IS STILL REFUSED ON THE EXCEPTION'S PATH TOO — the triple
+  // authorises a column, it does not excuse an identifier.
+  assert.equal(
+    countsPlan(columnInventory([{ t: "bookings", c: "drop_off_day", ty: "text" }]), "bookings", "drop_off_day", "repairbench-1").ok,
+    true, "the control for the refusal below");
+  const evil = countsPlan(columnInventory([{ t: "bookings", c: "drop_off_day", ty: "text" }]),
+    "bookings", 'drop_off_day" = x OR "1', "repairbench-1");
+  assert.equal(evil.ok, false, "an injected identifier was planned");
+
+  // A TYPED COLUMN NEVER TAKES THE EXCEPTION'S PATH, even on the named triple.
+  const typed = countsPlan(columnInventory([{ t: "bookings", c: "drop_off_day", ty: "date" }]),
+    "bookings", "drop_off_day", "repairbench-1");
+  assert.equal(typed.ok, true);
+  assert.equal(typed.textDate, undefined, "a real date column was read through the text path");
+  assert.equal(typed.sql, 'SELECT "drop_off_day" AS v, COUNT(*)::bigint AS n FROM "bookings" GROUP BY 1 ORDER BY 2 DESC, 1',
+    "the general statement moved when the exception was added");
+});
+
+test("invalid, absent and usable are three answers, and nothing is discarded", async () => {
+  const plan = countsPlan(columnInventory([{ t: "bookings", c: "drop_off_day", ty: "text" }]),
+    "bookings", "drop_off_day", "repairbench-1");
+  // The rows Postgres really returns for that statement: a shaped value per
+  // group, ONE group for everything unshaped (its value already NULL), one for
+  // a genuine NULL, and a shaped string that is not a real date.
+  const agg = await countsOf(async () => [
+    { v: "2026-10-01", bad: false, n: "3" },
+    { v: null, bad: true, n: "2" },          // the unshaped rows — a name, an empty string
+    { v: "2026-10-03", bad: false, n: "2" },
+    { v: "2026-13-45", bad: false, n: "1" }, // date-SHAPED, and not a date
+    { v: null, bad: false, n: "1" },         // genuinely absent
+  ], plan);
+
+  assert.deepEqual(agg.rows, [
+    { value: "2026-10-01", count: 3 },
+    { value: "2026-10-03", count: 2 },
+    { value: null, count: 1 },
+  ], "the reported groups are not the usable ones in the order the database gave");
+  assert.equal(agg.invalid, 3, "the unshaped rows and the impossible date are not both counted");
+  assert.equal(agg.total, 9);
+  // THE ARITHMETIC CLOSES, which is what "nothing was silently discarded"
+  // means and the only form of it a reader can check.
+  assert.equal(agg.rows.reduce((a, r) => a + r.count, 0) + agg.invalid, agg.total);
+  assert.equal(agg.groups, 3, "`groups` counts what is reportable, not what came back");
+  // AND A GENUINELY ABSENT VALUE IS NOT AN INVALID ONE. Folding them together
+  // would say a row held rubbish when it held nothing.
+  assert.ok(agg.rows.some((r) => r.value === null && r.count === 1), JSON.stringify(agg.rows));
+
+  // ── THE CALENDAR CHECK RUNS ONLY WHERE WE ARE THE VALIDATOR ───────────────
+  // A typed column is guaranteed by Postgres and renders shapes this check does
+  // not know — a timestamp carries a time — so running it there would report
+  // every row of a working column as invalid.
+  const typedPlan = countsPlan(columnInventory([{ t: "b", c: "at", ty: "timestamp with time zone" }]), "b", "at");
+  const typedAgg = await countsOf(async () => [{ v: "2026-10-01 09:30:00+00", n: "2" }], typedPlan);
+  assert.deepEqual(typedAgg.rows, [{ value: "2026-10-01 09:30:00+00", count: 2 }]);
+  assert.equal(typedAgg.invalid, 0, "a typed column's own values were called invalid");
+
+  // ── THE CALENDAR CHECK ITSELF, driven ─────────────────────────────────────
+  for (const good of ["2026-10-01", "2024-02-29", "2000-02-29", "0001-01-01", "9999-12-31"]) {
+    assert.equal(calendarDate(good), true, good);
+  }
+  for (const bad of ["2026-13-45", "2026-02-29", "1900-02-29", "2026-00-10", "2026-04-31",
+    // A MONTH PAST 12 WITH A DAY INSIDE EVERY MONTH. A sweep survivor is why
+    // these are here: `2026-13-45` above is refused by its DAY, so it cannot
+    // tell the month bound from the day bound, and nothing else drove a month
+    // whose day would otherwise pass.
+    "2026-13-01", "2026-99-28", "2026-31-12",
+    "2026-1-01", "26-01-01", "2026-01-01 ", " 2026-01-01", "2026/01/01", "", "nope", null, undefined, 20260101,
+    // `String(["2026-01-01"])` IS `"2026-01-01"` — this repository's own
+    // most-shipped value-that-lies, and coercing instead of refusing admits it.
+    // A sweep survivor is why this line exists: every other junk value above is
+    // refused by the REGEX whether the input is coerced or not, so none of them
+    // could tell the two readings apart.
+    ["2026-01-01"], [["2026-01-01"]], { toString: () => "2026-01-01" },
+  ]) {
+    assert.equal(calendarDate(bad), false, JSON.stringify(bad));
+  }
+});
+
+test("a failed aggregate read is reported by SQLSTATE, never by message", () => {
+  // Owner: *"report the number of invalid rows without printing those values or
+  // raw database errors."* A Postgres error message can QUOTE the row that
+  // caused it — `invalid input syntax for type date: "Alice Bloom"` is measured
+  // in `test/integration/local-pg-counts.mjs` — so the one read in this mode
+  // where a row could ride out on an error hands back a code and nothing else.
+  assert.equal(errCode({ code: "22007" }), "22007");
+  assert.equal(errCode({ code: "42P01" }), "42P01");
+  const leak = "Alice Bloom, 07700 900123";
+  for (const junk of [null, undefined, {}, { code: "" }, { code: 42 }, { code: ["22007"] },
+    { code: "2200" }, { code: "220077" }, { code: "22-07" }, { code: leak },
+    Object.assign(new Error(`invalid input syntax for type date: "${leak}"`), {})]) {
+    assert.equal(errCode(junk), "", JSON.stringify(junk && junk.code));
+  }
+  // A code is five characters and can carry nothing. Asserted as the property
+  // rather than as one spelling, so a widened pattern is red.
+  assert.match(errCode({ code: "22007" }), /^[0-9A-Za-z]{5}$/);
 });

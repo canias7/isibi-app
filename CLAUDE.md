@@ -5696,9 +5696,16 @@ fails at runtime with Postgres's own message, which quotes the offending
 **value**, so a single bad row leaks a customer name out of a mode built to
 return dates and counts only.
 
-**SO THE PER-DATE SPLIT CANNOT BE READ FOR FREE, and that is a stated limit
-rather than an open task.** `bookings` is `collect` (no client SELECT),
+**THE PER-DATE SPLIT CANNOT BE READ BY THIS SESSION, AND THAT IS A LIMIT OF THE
+FREE READERS, NOT OF WHAT A READ-ONLY QUERY CAN DO.** This paragraph read *"the
+per-date split cannot be read for free"* and the owner corrected it: *"The
+current helper cannot read it; that does not make a credentialed read-only query
+impossible."* Both halves of the correction are right. What is true of the free
+readers stays true — `bookings` is `collect` (no client SELECT of values),
 `count_booked_repairs` gives only the total, and the catalog holds no row values.
+What was wrong is the inference from that to the query. **The narrow exception
+below is that query**, and it is still read-only, still credentialed, and still
+the owner's press.
 
 **AND THE TYPE IS ITSELF SOMETHING THE ADDON HAS TO GET RIGHT.** A tie-break on
 a text date sorts lexicographically — chronological for `YYYY-MM-DD` and wrong
@@ -5865,6 +5872,157 @@ runs in a temp directory (`cwd: dir`) — so the guard was right and the hand-ru
 was not. Both names are in `.gitignore` now with the reason; the workflows are
 unaffected, each writing its log in the runner's workspace and uploading it as
 an artifact.
+
+
+### THE PER-DATE SPLIT IS READABLE AFTER ALL — one triple, read-only (2026-09-16)
+
+Owner, on the entry above: *"Keep them recorded, but correct 'the per-date split
+cannot be read for free.' The current helper cannot read it; that does not make a
+credentialed read-only query impossible. Finish the baseline with a narrowly
+scoped exception for exactly repairbench-1 → bookings → drop_off_day. Keep the
+general refusal of text columns. No data writes, no schema changes, no other
+sites, and no arbitrary SQL input. Return only date-shaped values and aggregate
+counts. If values cannot safely be treated as dates, report the number of invalid
+rows without printing those values or raw database errors. Do not silently
+discard invalid rows."*
+
+**THE CORRECTION IS THE SMALLER HALF AND IT IS MADE ABOVE.** What is true of the
+FREE readers stays true; what was wrong was inferring from it that no read-only
+query could answer. Two different claims, and the first does not carry the
+second.
+
+**`COUNTS_TEXT_DATE` IS AN EXACT TRIPLE, ASKED ONLY AFTER THE GENERAL RULE HAS
+REFUSED.** One frozen entry — `repairbench-1` · `bookings` · `drop_off_day` —
+and all three must match. Widening `COUNTS_TYPES` to admit text was the fix NOT
+made: the type rule is the entire reason `customer_name` (also `text`) cannot be
+grouped, and the general refusal is left untouched and is its own guard case.
+Every other text column, on every site, **including every other text column on
+that same table**, is refused exactly as before.
+
+- **THE SLUG IS THE SITE REALLY BEING READ, never the form's input** — `site.slug`,
+  which came through `REPAIR_SITES` and the identity chain. `countsPlan` takes it
+  as a fourth argument and **an omitted slug means no exception**, which is the
+  fail-closed direction: a caller that cannot say which site it is asking about
+  gets the general rule.
+- **THE TYPE MUST STILL BE A CHARACTER TYPE** (`COUNTS_TEXT_TYPES`, exact —
+  `information_schema.columns.data_type` spells these whole). The triple says
+  WHICH column, not "whatever that column happens to be": `~` is not defined on
+  every type, and a triple matching a `json` or `bytea` column would reach
+  Postgres as an operator error instead of a refusal.
+- **`!typed` IS A DECLARED REDUNDANCY, MEASURED INERT AND MUTATED AS A PAIR.**
+  The two lists are disjoint, so `COUNTS_TEXT_TYPES.includes(ty)` already
+  excludes every typed column. It is kept because it states the ORDER — the
+  general rule is asked first — which is the whole design and is not otherwise
+  written down in code.
+
+**THE PROJECTION IS THE WALL, NOT THE READER.**
+
+```sql
+SELECT CASE WHEN "drop_off_day" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN "drop_off_day" ELSE NULL END AS v,
+       ("drop_off_day" IS NOT NULL AND "drop_off_day" !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') AS bad,
+       COUNT(*)::bigint AS n
+FROM "bookings" GROUP BY 1, 2 ORDER BY 3 DESC, 1
+```
+
+`v` is the value only where it matches and NULL otherwise, so **an unusable value
+never leaves Postgres** and only its COUNT comes back. `bad` separates "not
+date-shaped" from a genuine NULL, so neither is folded into the other. `[0-9]`
+rather than `\d`: no backslash, so the literal means the same thing whatever
+`standard_conforming_strings` is set to.
+
+**NOTHING CASTS, AND THAT IS THE WHOLE REASON FOR THE SHAPE REGEX.**
+`"drop_off_day"::date` fails at runtime with Postgres's own message, **which
+quotes the offending value** — a single bad row leaks a customer name out of the
+one mode built never to return one. **MEASURED on a real PostgreSQL 16**:
+`ERROR: invalid input syntax for type date: "Alice Bloom, 07700 900123"`.
+
+**A FAILED READ IS REPORTED BY SQLSTATE AND NEVER BY MESSAGE.** `errCode` answers
+five alphanumerics or `""`, so it can carry nothing; a message that is not a code
+answers `""` rather than falling back to the text. This is the one read in the
+mode where a row could ride out on an error.
+
+**NOTHING IS SILENTLY DISCARDED, AND THE ARITHMETIC IS PRINTED SO IT CAN BE SEEN
+TO CLOSE.** Every row lands in exactly one of `rows` and `invalid`, `total` is
+every row the table holds, and the run prints
+`N group(s), G grouped + U unusable = T row(s) in total`. A bare total cannot be
+checked; this can.
+
+**THE CALENDAR CHECK IS OURS AND RUNS ONLY WHERE WE ARE THE VALIDATOR.**
+`DATE_SHAPE` admits `2026-13-45`, so `calendarDate` asks — pure arithmetic, no
+`Date` (`Date.UTC(1, 0, 1)` silently means 1901, so a round-trip reports a
+well-formed early year as invalid), and it cannot throw. On a TYPED column
+Postgres is the validator and the check is skipped: a timestamp renders a shape
+this check does not know, so running it there would report every row of a working
+column as invalid.
+
+**PROVEN ON A REAL POSTGRESQL 16 — `test/integration/local-pg-counts.mjs`, 48
+checks, 0 failed**, over a `text` date column holding real dates at different
+frequencies, a genuine NULL, an empty string, a customer's name and phone number,
+`2026-13-45` and `2026-02-29`. The statement comes out of the real `countsPlan`
+and the reading out of the real `countsOf`; nothing is typed. **The leak
+assertion is made against the RAW psql output**, because a reader that drops a
+value is a weaker claim than a value that never arrived: no customer name, no
+phone number, and every value on the wire date-shaped or NULL. Arm 5 asserts the
+negative — no statement carries a write verb, the row count is unchanged, the
+schema is unchanged.
+**AND THE PROBE'S OWN CONTROL WAS WRONG FIRST**: it asserted the cast's message
+quotes THE NAME, and Postgres stops at the FIRST value it cannot cast, which on
+that fixture is the empty string. The property is *"the message quotes the value
+it choked on"*; the name is then demonstrated by a second cast restricted to that
+row. *Assert the property, not the spelling* — in a probe's own control.
+
+**⚠ AND THE FIXTURE WAS THE LESS-CAPABLE FAKE AGAIN, IN THE ONE FIELD THE FEATURE
+TURNS ON.** `test/fixtures/repair-process.mjs` hardcoded `dataTypeID: 25` (text)
+for every column, so a JS `true` for `bad` came back through the real driver as
+the STRING `"true"`; `r.bad === true` was false, every unusable row read as a
+genuine NULL, and **the working feature reported itself broken**. MEASURED both
+ways: OID 16 with `"t"`/`"f"` parses to a real boolean, which is what a real Neon
+answer does and what the probe reads out of psql. The fixture encodes per-column
+OIDs now, and `bigint` is deliberately left a STRING because pg-types does.
+
+**Guards**: `test/backend-repair.test.mjs` **56 → 59** (the triple both ways with
+every junk argument, the emitted statement whole, the character-type family in and
+the other types out, the typed control, the three-answer reading with the
+arithmetic closing, the calendar check, and `errCode`); `test/repair-commands.test.mjs`
+**17 → 18** — **the wiring hop, which only a PROCESS can see**: `countsPlan` takes
+the slug as a fourth argument, and a module that never receives it is
+indistinguishable from one that ignores it, so the same table and the same text
+column on ANOTHER site is driven as a real run and refused.
+`test/integration/local-pg-counts.mjs` is new.
+
+**One older guard was re-anchored, not appeased**: `2 group(s), 3 row(s) in
+total` became the arithmetic that closes — the property it was ever about.
+
+**THE WRITE BOUNDARY IS UNMOVED.** `counts` is still on neither `WRITES_REFERENCE`
+nor `WRITES_META`, both gates are `includes` over a frozen list, and a mutant
+adding it to either is a red run.
+
+**Sweep: 40 mutants, 40 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — three passes, and the two middle ones are the record worth
+keeping. **Pass 1: 39 mutants, 33 killed, 6 survived**, and NOT ONE was the
+product's: three were guard gaps (the wiring hop, an array coerced by
+`calendarDate`, and the failing-read catch), two were redundancies MEASURED inert
+and replaced by PAIR mutants, and one was a test-side mutant measured inert
+against the product. **Pass 2: 40 mutants, 39 killed, 1 survived — and the pair
+mutant found a REAL gap**: `2026-13-45` is refused by its DAY, so no case
+anywhere drove a month past 12 whose day would otherwise pass. **Pass 3: 40/40/0**
+is the tally above. *A pair mutant is not a formality; this one bought a case.*
+
+**AND ONE AD-HOC MEASUREMENT MEASURED NOTHING BEFORE IT WAS MADE TO REFUSE.** The
+first probe of the test-side survivor compared two empty objects, because it
+built its plan with the wrong table name and `countsOf` answered `{ok: false}` —
+"an ad-hoc check that failed to apply its own mutation", this repository's own
+recorded trap. It refuses now when the plan under test is not the plan it asked
+for, and the answer was then the honest one: the product reads both row sets
+identically, because the calendar check catches everything the SQL regex would.
+
+**Suite 6,657** — 6,652 + 3 (`backend-repair`) + 2 (`repair-commands`), and the
+arithmetic closes exactly.
+
+**NOT RUN LIVE.** Every measurement is from driving the modules, the real process
+and a local PostgreSQL. The press is the owner's: `backend repair`, mode
+`counts`, slug `repairbench-1`, table `bookings`, column `drop_off_day`, confirm
+blank. Free, read-only, writes nothing.
 
 
 ## Data, auth, payments, mail
@@ -6217,7 +6375,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   guard and three documents. (`origin/main` itself hashes to
   `c2aba7a7bd276c36`; the branch differs because the `search_path` pin touches
   `site-rls.mjs` and `site-schema.mjs`, which are in the worker's module graph.)
-  The unit suite is **6,649** (2026-09-16, local, ON THE MERGED CANDIDATE —
+  The unit suite is **6,657** (2026-09-16, local — the narrow text-date
+  exception: `6657 / 6657 / 0 fail / 0 skipped`). **The arithmetic closes
+  exactly**: 6,652 + 3 (`backend-repair` 56 → 59) + 2 (`repair-commands`
+  17 → 19). `test/integration/local-pg-counts.mjs` is new and is a PROBE, not in
+  the suite; it reads **48 checks, 0 failed** on a real PostgreSQL 16. CI has
+  NOT read this number yet.
+  Before it, **6,649** (2026-09-16, local, ON THE MERGED CANDIDATE —
   `6649 / 6649 / 0 fail / 0 skipped`). **The arithmetic closes exactly**: the
   branch tip `7c2a9ff4` measured **6,642** — re-measured in a detached worktree
   at that commit rather than derived — plus `backend-repair`'s **3**,
