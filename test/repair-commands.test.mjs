@@ -93,6 +93,19 @@ test("backend-repair --verify exits NONZERO when a postcondition fails", () => {
   // AND IT REALLY CONNECTED. A mode that reports on a run it never made is the
   // defect; the statements the process sent are the proof it made one.
   assert.ok(r.statements.some((s) => /current_database/i.test(s.q || "")), "--verify never reached the database");
+
+  // ── THE COLUMN INVENTORY IS PRINTED ON A FAILING RUN (2026-09-16) ─────────
+  //
+  // It is the before/after instrument for a "no new columns" claim, and the
+  // run somebody most wants it from is the one that FAILED. Gating the print
+  // on `v.ok` survived every module guard, because the print lives in `main`
+  // and only a spawned PROCESS can see it — this repository's recorded "a wall
+  // nobody can drive is a wall nobody is guarding", met in the reader written
+  // to make a claim authoritative.
+  assert.match(r.out, /live columns \(\d+ table\(s\), from information_schema\)/,
+    "a failing --verify printed no column inventory:\n" + r.out);
+  assert.match(r.out, /bookings: \[/, "the inventory names no table");
+  assert.ok(/bookings: \[[^\]]*"who/.test(r.out), "the inventory carries no column for bookings:\n" + r.out);
 });
 
 test("backend-repair --verify reaches the SITE's database, not the project's", () => {

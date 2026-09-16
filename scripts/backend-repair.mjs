@@ -291,10 +291,36 @@ export async function describeContents(sql) {
   return {
     state: st.state,
     tables: st.tables,
+    // THE COLUMNS WERE ALWAYS READ AND NEVER CARRIED OUT (2026-09-16).
+    // `RECOVER_QUERIES.columns` is `information_schema.columns` joined to the
+    // base tables, so this reader has held every column of every application
+    // table since it was written — and dropped them one hop later, which left
+    // "no new columns" with nothing authoritative behind it. A per-NAME probe
+    // from outside is exact per name and is NOT an enumeration; this is.
+    columns: Array.isArray(st.columns) ? st.columns : [],
     declared: st.spec && Array.isArray(st.spec.tables) ? st.spec.tables.map((t) => t && t.name).filter(Boolean) : [],
     missing: st.missing,
     why: st.why,
   };
+}
+
+/**
+ * The live column inventory, `{ table: ["name type", …] }`, from the catalog.
+ *
+ * A REPORT AND NEVER A CHECK. There is no expectation to compare it against —
+ * the whole point is that a person holds a BEFORE and an AFTER beside each
+ * other — so it must not touch `out.ok`, or a verification would start failing
+ * on a site whose schema is perfectly fine and merely different from last week.
+ */
+export function columnInventory(rows) {
+  const out = {};
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const t = r && typeof r.t === "string" ? r.t : "";
+    const c = r && typeof r.c === "string" ? r.c : "";
+    if (!t || !c) continue;
+    (out[t] = out[t] || []).push(r.ty ? `${c} ${r.ty}` : c);
+  }
+  return out;
 }
 
 /**
@@ -442,6 +468,11 @@ export async function verifySite({ site, sql } = {}) {
     add("stored schema readable", st.state !== "unreadable", st.state + " (" + st.why + ")");
     add("every live table declared", st.missing.length === 0,
       st.missing.length ? "missing: " + JSON.stringify(st.missing) : `${st.tables.length} table(s), all declared`);
+    // THE INVENTORY RIDES BESIDE THE CHECKS AND IS NOT ONE OF THEM. A verify
+    // that FAILED because a column list differs from some remembered one would
+    // be asserting a thing nobody declared; what this is for is a person
+    // holding a before and an after beside each other and reading the diff.
+    out.inventory = columnInventory(st.columns);
   }
   out.ok = out.checks.every((c) => c.ok);
   return out;
@@ -491,6 +522,15 @@ async function main() {
       const v = await verifySite({ site, sql });
       console.log(`${site.slug}: ${v.ok ? "VERIFIED" : "NOT VERIFIED"}`);
       for (const c of v.checks) console.log(`    ${c.ok ? "ok  " : "FAIL"} ${c.name} — ${c.detail}`);
+      // PRINTED WHENEVER IT WAS READ, pass or fail — a NOT VERIFIED run is
+      // exactly when somebody wants to see what is really there. Absent means
+      // the catalog was never reached (identity refused), which is a different
+      // thing from a site with no tables and is why this is not a blank line.
+      if (v.inventory) {
+        const names = Object.keys(v.inventory).sort();
+        console.log(`    live columns (${names.length} table(s), from information_schema):`);
+        for (const t of names) console.log(`      ${t}: ${JSON.stringify(v.inventory[t])}`);
+      }
       if (v.ok) verified++; else failed++;
       continue;
     }

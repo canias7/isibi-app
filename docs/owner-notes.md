@@ -10561,113 +10561,151 @@ green at 382/382. Nothing merged, nothing deployed, no paid test.
 
 ---
 
-## The next live addon test — for your approval, NOT dispatched (16 Sep)
+## The next live addon test — REVISED, for your approval, NOT dispatched (16 Sep)
 
-This is item 2 of your list. Everything below is ready to press; nothing has
-been pressed and nothing has been spent.
+You were right on all four counts. The previous draft is replaced, not patched.
 
-### The request, word for word
+### 1. The expected grouping — and the fixture cannot discriminate it today
+
+**I cannot establish the date→count breakdown independently, and that is a fact
+about the site rather than an oversight.** `bookings` is collect-only: nobody may
+read it. The only readers of its rows are two counting functions that return a
+bare total. So with the fixture as it stands I can check that the counts sum to
+3 and that the list is in descending order — **but not that it grouped by the
+right column at all.** A function grouping by bike, or by customer, would also
+sum to 3.
+
+**The smallest fixture adjustment that fixes this — and it is free.** Insert
+**three rows with dates I choose**, through the public write grant the table
+already publishes (no credits, no model call, no deploy; run 48's control
+already did a 201 insert into this table):
+
+| rows | drop-off date | bike | customer |
+|---|---|---|---|
+| 2 | one date I pick | the same value on all three | the same value on all three |
+| 1 | a second date I pick | " | " |
+
+That single change discriminates everything at once:
+
+- **grouped by drop-off date** → my two dates appear with counts 2 and 1 ✓
+- **grouped by bike or by customer** → one group of 3, immediately wrong ✗
+- **descending order** → my 2 must come before my 1 ✓
+- **the rest** → the remaining groups must sum to 3, the three rows I can't read
+
+A collision (an existing row landing on one of my dates) shows up as a count
+higher than what I inserted, so it is **detectable rather than assumed away** —
+and I'd report it rather than let it pass.
+
+**What it costs**: the total goes 3 → 6, so `/status` will read 6 instead of 3.
+That is a visible change to the demo site's data, confined to `repairbench-1`,
+and it is its own decision — that's why it's here and not folded into the run.
+
+**If you'd rather not touch the data**: I keep the request as written and narrow
+the claim to sum-3 plus descending order, and say plainly that "it grouped by
+the drop-off day" then rests on reading the SQL the designer wrote rather than
+on the data. That is weaker and I'd rather not, but it costs nothing.
+
+### 2. Authoritative inventories — tables were already; columns now are
+
+**Tables**: `backend repair --verify --slug repairbench-1` reads
+`information_schema` and prints the real table list. Free, writes nothing, and
+it is a genuine enumeration. Before and after.
+
+**Columns**: the same command *read* every column and then threw them away one
+line later, so a "no new columns" claim had nothing authoritative behind it.
+**Fixed in this commit** — the verify now prints a live column inventory per
+table, from the catalog. It is a REPORT and never a check: there is no
+expectation to compare it against, so it must not decide the exit code, and it
+prints on a failing run too, which is exactly when you'd want it.
+
+**And the count claim is narrowed, because you're right about it.** The existing
+counting function answers **cardinality**, not identity: three rows deleted and
+three inserted reads the same. So "unchanged count" is all I'll claim from it —
+not "unchanged rows".
+
+### 3. The spending language was wrong, and here is the measured answer
+
+I said the harness `budget` couldn't cap the request. That was right but for a
+half-stated reason, and the rest of the sentence implied historical costs were a
+bound. They are not. **No server-side mechanism enforces a per-request limit.**
+Measured, from the ledger rather than from the code:
+
+| run | reserves inside ONE request | total |
+|---|---|---|
+| 46 | −3 then −5 | 8 |
+| 47 | −7 then −6 | 13 |
+| 48 | −5 then −7 | **12** |
+
+**A single addon request takes several separate reservations at different points
+in its own run.** Each is checked against the balance at that moment; nothing
+anywhere adds them up or stops the request when the total passes a number. The
+only ceiling in the database is a `bad cost` refusal above 100,000 credits,
+which is far past any balance and so never binds. `SWEEP_BUDGET` is read between
+harness cases, and an `ask` run has exactly one case, so it is never consulted.
+
+**So this is an explicit approval decision, not a cap.** Approving the run
+approves a request whose only hard bound is the account balance: **149 credits**
+(read off the ledger just now; it was 161 before run 48 took 12). If you want a
+real cap, the honest answer is that one does not exist and building one is its
+own piece of work — I am not starting that here.
+
+### 4. Main moved twice while I worked, so the numbers are recomputed
+
+Main took two more deploys (2125, 2126) from the agent-builder session,
+including a new root module that IS a container image input. I merged both,
+resolved two documentation conflicts by keeping both histories, and re-verified.
+
+| | reading |
+|---|---|
+| candidate suite | **6,642 green**, 0 fail, 0 skipped locally |
+| the merge caught a real thing | one case went red mid-merge — the image-input guard reading `HEAD` while the merge was staged and not committed. Committing it fixed it, which is the guard being right |
+| `expect_image` | **`62c2700fa8c843c2`** (183 inputs) for the merged candidate — main's own tip computes to `c2aba7a7bd276c36`, so this really does move the container |
+| `expect_deploy` | cannot exist until the merge lands |
+| balance | **149** |
+
+**And the honest caveat: main is moving under us.** Three deploys landed in the
+last hour from another session. Both version gates have to be **computed at
+merge time**, not now — a number I hand you today is stale the moment somebody
+else pushes. I'll recompute both and give you the pair immediately after the
+deploy, and the run refuses before spending a credit if either doesn't match.
+
+### The request, unchanged from the last draft
 
 > **Add a page at /workshop-load that shows how many bikes are booked in for
 > each date we're expecting them, busiest first, and a function the page calls
 > to work it out. Don't show customer names.**
 
-**Why this one.** You asked for a request that needs an existing column whose
-database name is *not* in the request. This needs `drop_off_day` — the column
-the whole page is grouped by — and none of "drop", "off" or "day" appears
-anywhere in the sentence. (My first draft said "on each day we've got them
-coming", which put "day" in it; I reworded it so the claim is exactly true
-rather than nearly true.) It also needs no new table, so "it added nothing it
-shouldn't have" is a real thing to check rather than a formality.
+`drop_off_day` is required and none of "drop", "off" or "day" appears. The other
+table, `repairs`, has **no drop-off day at all**, so a design reaching for the
+wrong table cannot answer this.
 
-**And the column choice is load-bearing, not incidental.** The site has two
-tables. `repairs` has `bike` and `customer_name` but **no drop-off day at all**
-— I checked, from outside, without touching anything. So a design that reaches
-for the wrong table cannot answer this question. The only way to get it right is
-to have actually read `bookings` and seen that column.
+### What I check, and with what
 
-### What I already know, checked today and before anything is spent
+1. **Schema receipt** — `shownSteps` on the developer record: the `function`
+   step's entry must say `database: YES` and list `bookings` with
+   `drop_off_day`. The harness prints it now.
+2. **The function's own SQL**, read from the designer's stored reply — a second,
+   independent leg beside 1.
+3. **The page and the RPC** — `/workshop-load` 404 → 200, the function answers
+   over the site's public address.
+4. **The numbers** — per item 1 above, subject to which fixture option you pick.
+5. **A real browser** — Chromium opens the page, records the call it makes,
+   reads the rendered figures, and I check loading and error states by
+   intercepting that call, with an untouched control. Free. The browser is
+   already verified working on this machine.
+6. **Tables and columns** — `--verify` before and after, both now authoritative.
+7. **Cardinality** — the existing counting function, claimed as cardinality only.
+8. **The exact completion sentence**, verbatim, with the coverage counts.
 
-All of this was read from outside with no credential and no writes:
+The initial outcome gets written down before anything is corrected by hand.
 
-| | reading |
-|---|---|
-| `/workshop-load` | **404** — the name is free |
-| `bookings` has | `id`, `customer_name`, `bike`, `drop_off_day`, `created_at`, `updated_at` |
-| `repairs` has | `id`, `customer_name`, `bike`, `created_at`, `updated_at` — **no drop-off day** |
-| rows in `bookings` | **3** (both existing counting functions answer 3, and a real row count agreed at the count fix) |
-| tables that exist | `bookings`, `repairs`, and nothing else I probed |
-| the live pages | `/` 46,151 B · `/status` 6,272 B · `/booking-check` 6,290 B, all on version `01789500698949-dggs37` |
+### The four decisions I need
 
-**How I can check columns without a credential**: asking for a column that
-exists gets "permission denied for the table" (the table is set to collect-only,
-so nobody may read it); asking for one that doesn't gets "column does not
-exist". Two different answers, no row written, no key needed. That's the
-before-inventory, and I'll take the same one after.
+1. **Fixture**: insert the three known rows (free, changes `/status` to 6), or
+   keep the data as it is and accept the narrower grouping claim?
+2. **Spend**: approve a run bounded only by the 149-credit balance — precedent
+   for this shape is 12–13 credits, but that is precedent, not a cap.
+3. **Merge and deploy** the candidate so the gates can be computed?
+4. **Then the press** is yours, with both gates filled in.
 
-### What the run must produce, and how each is checked
-
-1. **The function designer was shown the column.** The record now stores what
-   each designer was handed, per step — and I found the harness was never
-   printing it, so a run bought to prove this would have come back without the
-   proof. It prints it now. What I need to see: the `function` step's entry
-   saying `database: YES` and listing `bookings` with `drop_off_day` in it.
-2. **The page and function exist and answer.** `/workshop-load` goes 404 → 200,
-   and the function the page calls answers over the site's public address.
-   The run also prints each designer's own reply, so I can read the SQL it
-   wrote and see it name the table and the column — a second, independent leg
-   beside point 1.
-3. **The numbers add up to 3.** Whatever days come back, their counts must total
-   3 — which is the independent expected result, established before the run from
-   two readers that have nothing to do with this change. A run that invents a
-   fresh empty table gives 0. That's the discriminator.
-4. **A real browser shows it.** I'll open the page in Chromium, record the call
-   it makes, read the numbers off the rendered page, and check the loading and
-   error states by intercepting that call — the same way as last time, with an
-   untouched control run. Free, no dispatch. **I've already checked the browser
-   works on this machine rather than assuming it**: it opens `/status` and
-   `/booking-check`, records each one calling its counting function, reports no
-   page errors, and gets a plain "Not found" on `/workshop-load`. So the
-   instrument is ready now, not something to discover at the moment it matters.
-5. **No new tables, no new columns.** The same probes as above, run again. For a
-   properly authoritative list rather than name-by-name, the free
-   `backend repair --verify --slug repairbench-1` press reads the real table
-   list and writes nothing.
-6. **The exact sentence you're told.** Recorded verbatim, with the coverage
-   counts beside it.
-7. **The count is untouched.** The existing function still answers 3, so the run
-   neither added nor removed rows.
-
-I'll write the outcome down **before** correcting anything, however it comes out.
-
-### The gates
-
-`expect_deploy` and `expect_image` go on the form and the run **refuses before
-spending a credit** if either doesn't match — the Worker and the container roll
-separately, so they're two separate checks and "can't tell" refuses too.
-
-- **`expect_image`** is computable before the merge, and I've done it:
-  **`b5c638bdfb04f3c4`**, assuming this merges as a fast-forward with nothing
-  else landing on main in between. As a cross-check, today's `main` computes to
-  `c6980fe3efce66d3`, which is exactly the image the live container is on — so
-  the arithmetic is checked against reality, not only against itself. If
-  anything else lands on main first I'll recompute before handing you the
-  number.
-- **`expect_deploy`** is the merge commit's own sha and can't exist until the
-  merge. I'll fill it in from the deploy and hand you both values.
-
-**Order**: merge → deploy → wait out the container roll (15–20 min) → confirm
-both halves → you press. Not before.
-
-### The spending cap
-
-**40 credits on the form; balance is 161.** The honest caveat, because you asked
-for a cap: **no harness setting can bound a single addon run.** The credits are
-spent inside one request and nothing outside it can stop it mid-flight. What
-actually bounds it is the ledger refusing a bill over the balance, the request
-asking for no new table, and the measured precedent — the bigger
-`table · function · page` shape cost **13**, and the most expensive run ever
-seen on this account was **31**. This is one paid request; there are no
-automatic retries on this path.
-
-**Ready when you are. Nothing dispatched.**
+**Nothing dispatched. No demo cleanup. No fixture row inserted yet.**

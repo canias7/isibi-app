@@ -24,7 +24,7 @@ import { READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
 import { connForDatabase, dbNameForSite } from "../site-db.mjs";
 import { META_TABLE_SQL } from "../site-schema.mjs";
 import { parseArgs, safeErr, proveIdentity, recoverSchema, survey, workList, writeRef, repairSite, verifySite, EMIT,
-  WRITES_REFERENCE, WRITES_META, writesReference, writesMeta } from "../scripts/backend-repair.mjs";
+  WRITES_REFERENCE, WRITES_META, writesReference, writesMeta, columnInventory } from "../scripts/backend-repair.mjs";
 
 /** The real emitters, as the product hands them in. Nothing here verifies against a copy. */
 const REAL = { policiesFor, grantsFor };
@@ -802,6 +802,51 @@ test("--verify CONNECTS and reads the postconditions back", async () => {
   // A SITE WHOSE REFERENCE IS STILL BLANK FAILS TOO.
   const blank = await verifySite({ site: { ...site, state: "incomplete", db: "" }, sql: sqlFor(db, { tables: [bookings] }) });
   assert.equal(blank.ok, false);
+
+  // ── THE COLUMN INVENTORY (2026-09-16) ─────────────────────────────────────
+  //
+  // The catalog read has always held every column; `describeContents` dropped
+  // them one hop later, so "no new columns" had nothing authoritative behind
+  // it. The FIXTURE IS DERIVED from `liveOf`, which builds its rows from the
+  // real emitters, so a shape change here cannot be papered over by a
+  // hand-typed row.
+  assert.ok(ok.inventory, "a connected verify carries no column inventory at all");
+  assert.deepEqual(Object.keys(ok.inventory), ["bookings"], JSON.stringify(ok.inventory));
+  assert.ok(ok.inventory.bookings.some((c) => /^who\b/.test(c)),
+    "the declared column is missing from the inventory: " + JSON.stringify(ok.inventory.bookings));
+  // EVERY live column, not only the declared ones — the engine's managed
+  // columns are exactly what a "no new columns" claim has to cover.
+  assert.ok(ok.inventory.bookings.length > 1,
+    "the inventory carries one column, so it is reading the SPEC and not the catalog");
+
+  // AND IT IS A REPORT, NEVER A CHECK: the run that FAILS is the one somebody
+  // most wants the inventory from, so it must be present there too and must
+  // not have moved the verdict.
+  assert.ok(missing.inventory, "a failing verify drops the inventory, which is when it is most wanted");
+  assert.deepEqual(missing.inventory, ok.inventory, "the inventory reads the catalog, not the stored spec");
+  assert.equal(missing.checks.every((c) => c.name !== "live columns"), true,
+    "the inventory became a check — there is no expectation to compare it against");
+
+  // A verify that never reached the catalog has NO inventory, which is a
+  // different answer from a site with no tables and must not read as one.
+  assert.equal(blank.inventory, undefined, "an identity-refused verify invented an inventory");
+});
+
+test("the column inventory groups the catalog's own rows, and refuses a junk one", () => {
+  // Driven directly, because the route's fixture cannot produce a malformed
+  // catalog row and this reads a model-free wire shape off Postgres.
+  assert.deepEqual(columnInventory([
+    { t: "bookings", c: "id", ty: "uuid" },
+    { t: "bookings", c: "bike", ty: "text" },
+    { t: "repairs", c: "id", ty: "uuid" },
+  ]), { bookings: ["id uuid", "bike text"], repairs: ["id uuid"] });
+  // A row missing either name is dropped rather than rendered as `undefined`,
+  // and a column with no type keeps its name — cannot-tell must never read as
+  // a value, this repository's most repeated rule.
+  assert.deepEqual(columnInventory([
+    { t: "", c: "x", ty: "text" }, { t: "a", c: "", ty: "text" }, { t: "a", c: "n" }, { c: "n" }, null, "nope",
+  ]), { a: ["n"] });
+  for (const junk of [null, undefined, "rows", 7, {}]) assert.deepEqual(columnInventory(junk), {});
 });
 
 test("a stored spec that cannot be READ stops the recovery; one that is merely ABSENT does not", async () => {

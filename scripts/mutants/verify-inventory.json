@@ -1,0 +1,84 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the carried columns",
+    "control": true,
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    // THE COLUMNS WERE ALWAYS READ AND NEVER CARRIED OUT (2026-09-16).",
+    "to": "    // THE COLUMNS WERE ALWAYS READ AND NEVER HANDED ON (2026-09-16)."
+  },
+  {
+    "label": "CONTROL: a comment only, beside the printed inventory",
+    "control": true,
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      // PRINTED WHENEVER IT WAS READ, pass or fail — a NOT VERIFIED run is",
+    "to": "      // PRINTED WHENEVER IT WAS READ, pass or fail — a NOT-VERIFIED run is"
+  },
+  {
+    "label": "THE DEFECT ITSELF: describeContents drops the columns again, so nothing authoritative reaches the verify",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    columns: Array.isArray(st.columns) ? st.columns : [],\n",
+    "to": ""
+  },
+  {
+    "label": "THE INVENTORY IS NEVER ATTACHED — the read happens and the answer carries nothing",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    out.inventory = columnInventory(st.columns);",
+    "to": "    /* not attached */;"
+  },
+  {
+    "label": "THE SPEC STANDS IN FOR THE CATALOG — a declared column list read as the live one, which is the whole thing this replaces",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    out.inventory = columnInventory(st.columns);",
+    "to": "    out.inventory = Object.fromEntries((st.declared || []).map((n) => [n, []]));"
+  },
+  {
+    "label": "IT BECOMES A CHECK, so a verify fails on a column list nobody declared an expectation for",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    out.inventory = columnInventory(st.columns);",
+    "to": "    out.inventory = columnInventory(st.columns); add(\"live columns\", Object.keys(out.inventory).length === 0, \"\");"
+  },
+  {
+    "label": "A JUNK CATALOG ROW RENDERS AS A VALUE — cannot-tell read as a column named undefined",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    if (!t || !c) continue;",
+    "to": "    "
+  },
+  {
+    "label": "THE TYPE IS DROPPED, so a column whose TYPE changed reads as unchanged",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    (out[t] = out[t] || []).push(r.ty ? `${c} ${r.ty}` : c);",
+    "to": "    (out[t] = out[t] || []).push(c);"
+  },
+  {
+    "label": "A NON-ARRAY ARGUMENT THROWS instead of answering the empty inventory",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  for (const r of Array.isArray(rows) ? rows : []) {",
+    "to": "  for (const r of rows) {"
+  },
+  {
+    "label": "THE INVENTORY IS PRINTED ONLY ON A PASS — withheld from the run that most wants it",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (v.inventory) {",
+    "to": "      if (v.inventory && v.ok) {"
+  }
+]

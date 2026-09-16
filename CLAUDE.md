@@ -5886,8 +5886,53 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **PENDING_MERGED_TOTAL** (2026-09-16, local, ON THE TREE WITH
-  `main` MERGED IN). PENDING_MERGED_NOTE
+  The unit suite is **6,642** (2026-09-16, local, ON THE TREE WITH `main` MERGED
+  IN — `6642 / 6642 / 0 fail / 0 skipped`). **The arithmetic closes three ways and
+  that is what makes it a measurement**: `main` carried 6,505 → 6,628 (its agent
+  chain) → 6,630 (the send-box fix, `agent-binding` 42 → 44) and this branch
+  carried 6,505 → 6,516 (`site-searchpath`'s 9, then its 2 baseline cases), so the
+  merge is 6,630 + 11 = **6,641**, plus **one** for the column-inventory module
+  case = 6,642. **AND THE MERGE CAUGHT A REAL RED**: `container-images`' input walk
+  failed mid-merge on `agent-store.mjs` — `main`'s new root module, staged and not
+  yet committed, and the walk asks GIT AT HEAD. Committing the merge fixed it. That
+  is the recorded *"staging is not enough"* guard being exactly right, met for the
+  first time during a merge rather than during a Dockerfile edit. CI has NOT read
+  this number yet.
+  **AND THE COLUMN INVENTORY IS AUTHORITATIVE NOW** (owner: *"Make authoritative
+  schema inventories part of the before/after checks if claiming no new tables or
+  columns. Otherwise narrow the claim to the names actually probed."*).
+  `readSchemaState` has read `information_schema.columns` since it was written —
+  `appTables` is DERIVED from those rows — and `describeContents` dropped them one
+  hop later, so `--verify` could enumerate TABLES and nothing else. It carries
+  `columns` now and `verifySite` attaches `columnInventory(st.columns)`,
+  `{table: ["name type", …]}`. **A REPORT AND NEVER A CHECK**: there is no
+  expectation to compare it against, so it must not touch `out.ok` — a verify that
+  failed because a column list differs from a remembered one would be asserting
+  something nobody declared — and it PRINTS ON A FAILING RUN, which is when it is
+  most wanted. Absent means the catalog was never reached (identity refused), which
+  is a different answer from a site with no tables. **The write-free PostgREST
+  probe stays what it is: exact per NAME and not an enumeration**, so a
+  "no new columns" claim now rests on the catalog and the probe is the cheap
+  cross-check. **Sweep: 8 mutants, 8 killed, 0 survived, 0 never applied, 2
+  comment-only controls survived** — the columns dropped again, the inventory never
+  attached, the stored SPEC standing in for the catalog, the inventory made a
+  CHECK, a junk catalog row rendered as a value, the type dropped, a non-array
+  argument thrown on, and **the print gated on `v.ok`**. That last one SURVIVED
+  pass 1 and was the recorded *"a wall nobody can drive is a wall nobody is
+  guarding"*: the print lives in `main`, which no module guard runs, so it is
+  closed in `test/repair-commands.test.mjs`, which spawns the script as a real
+  PROCESS. Guards: `backend-repair` **51 → 52**, `repair-commands` **14** (the
+  failing-verify case gained the print assertions). Every new assertion was proved
+  RED four ways first.
+  **AND THE BALANCE IS 149, NOT 161** (read off `public.credits` 2026-09-16; its
+  row last moved 19:31:38Z on 2026-09-15). Run 48 took 161 → 149. **The ledger also
+  answers a question the SQL alone could not: ONE addon request makes SEVERAL
+  sequenced reservations** — run 46 `#1 −3`/`#4 −5` = 8, run 47 `#1 −7`/`#4 −6` =
+  13, run 48 `#1 −5`/`#4 −7` = **12** — each checked against the balance at that
+  moment and **nothing anywhere summing them**. `edit_reserve` raises `bad cost`
+  only above **100,000**, which no balance reaches, so **no server-side per-request
+  cap exists**; the account balance is the only bound that binds, and the harness's
+  `budget` is read BETWEEN cases, which an `ask` run never has two of.
   The unit suite is **6,628** (2026-09-16, local, ON THE TREE WITH `main` MERGED IN —
   6,626 pass, 2 skipped, 0 fail). The agent-run branch measured **6,606** and `main`
   carried **22** cases the branch had not seen (the addon reporting work), so
