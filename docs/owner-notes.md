@@ -11102,3 +11102,32 @@ test** — and per your correction, equal-count dates need no particular tie ord
 because the request only asks for busiest first. Then, separately, the paid-run
 inputs and the spend estimate. Your approval for that run is still its own
 decision and I am not treating anything here as it.
+
+### It is on `main` and the button runs the new code
+
+**Deploy 2129, green in 42 seconds.** I computed the container image id before
+pushing and it did not move — both sides `62c2700fa8c843c2` — so the deploy said
+**"no changes"** on the container and nothing rolled. No 15–20 minute wait; the
+button is live now.
+
+One thing I got wrong in my own head first and checked before claiming it: I
+expected this push to fire **no** deploy at all, because everything in it is under
+`scripts/`, `test/` or a `.md`. It fired one, because the workflow file itself is
+**not** in the deploy's ignore list. Harmless here — nothing a visitor sees
+changed — but worth saying rather than being surprised by.
+
+**Regression, byte-for-byte against the last deploy's numbers**: all six sites
+identical, `/status` and `/booking-check` both still answering **3**.
+
+### What happens after you press
+
+I read the dates and counts, then tell you **precisely** what those rows can and
+cannot test — including the case where they cannot discriminate ordering at all,
+which is a real possible answer and not a failure. Per your correction, dates
+sharing a count need no particular tie order; the ask is only "busiest first".
+
+Then, separately, the paid-run inputs and the spend estimate. **I will not
+describe that run as proving anything in advance.** Schema receipt will come from
+the actual `shownSteps` capture taken before the call, correctness from the
+independent aggregate against the RPC and the browser, and reporting accuracy from
+the reply you actually get. Your approval for it is still its own decision.

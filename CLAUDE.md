@@ -6024,6 +6024,45 @@ and a local PostgreSQL. The press is the owner's: `backend repair`, mode
 `counts`, slug `repairbench-1`, table `bookings`, column `drop_off_day`, confirm
 blank. Free, read-only, writes nothing.
 
+**MERGED AND DEPLOYED — deploy 2129, 2026-09-16 08:24:17→08:25:00Z, green in 42
+seconds**, on `main` `f88c9198` → `ea44a70c` (fast-forward). **It had to be
+merged**: the workflow checks out `ref: main`, so the button always runs main's
+copy of the script.
+
+- **IT DEPLOYED AT ALL BECAUSE `.github/workflows/**` IS NOT IN `paths-ignore`,
+  and that was checked rather than predicted.** Every other file in this push is
+  under `scripts/`, `test/` or `**.md`, all of which the filter covers — the
+  workflow file is what fired it. *A push that looks docs-only is not, if it
+  touches a workflow.*
+- **THE IMAGE ID WAS COMPUTED BEFORE THE PUSH AND THE DEPLOY AGREED — the fifth
+  cross-check of that technique.** `origin/main` and the candidate BOTH hashed
+  to **`62c2700fa8c843c2`** (183 inputs each), so nothing an image is built from
+  moved; the deploy's own line names that same reference and the container
+  answered **`no changes isibi-app-sitebuildcontainer`** / `No changes to be
+  made` — **read out of the log's own diff, never inferred from the step's 1
+  second. THE CONTAINER DID NOT ROLL, so no 15–20 minute hold applies.**
+- **WORKER**: `Uploaded isibi-app (3.35 sec)`, `Total Upload: 3484.55 KiB / gzip:
+  939.48 KiB`, 99 asset files read, `Current Version ID:
+  629b5db5-ead4-49a9-b03d-…`. The gate was left to expire on success.
+- **`No updated asset files to upload`** — `public/` is untouched, so **there is
+  no file-hash check for this deploy**. The standby is the gate discriminator,
+  measured after: `/api/site/build-health` **401**, `/api/site/runtime` **401**,
+  `/api/site/job-probe` **401**, `/api/nope-not-a-route` **404**.
+- **REGRESSION: BYTE-IDENTICAL to deploy 2128's recorded numbers** — repairbench-1
+  46,151 · fretwork-1 58,404 · ashgrove-1 31,120 · northgroup-5 1,641 ·
+  washhouse-1 52,404 · ben-crowe-guitar 52,060 — and the interactive half, because
+  a 200 is an availability check and never a health check: `/status` **200/6,272**
+  and `/booking-check` **200/6,290**, with `count_booked_repairs` and
+  `count_existing_bookings` both **200 answering 3**.
+- **THE FORM ON MAIN REALLY CARRIES THE NEW WORDING, asked BY NAME** rather than
+  off a listing: main's copy reads *"A text column is refused, except
+  repairbench-1 bookings.drop_off_day, which is read as dates by shape"*, keeps
+  `options: [preview, apply-reference, apply, verify, counts]` and keeps
+  `shell: bash`. Main's script carries `COUNTS_TEXT_DATE`, `DATE_SHAPE`,
+  `calendarDate` and `errCode`.
+- The merge started **exactly one workflow** — deploy 2129 and nothing else,
+  which is the merge-trigger census holding in the live.
+
 
 ## Data, auth, payments, mail
 
