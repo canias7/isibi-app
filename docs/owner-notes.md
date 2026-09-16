@@ -9991,8 +9991,9 @@ session deletes what nothing appears to need. The mutation test now breaks the
   replaced it rather than hunting it.
 - **Full suite 6,496 green** (6,494 + the two new cases), **and CI has read
   it**: `unit tests` run 2599, green, 6,496 tests / 0 failures.
-- And `site build` run **1148** was green on the previous commit — `382 passed /
-  0 failed`, the ninth independent run to answer 382.
+- And the container harness is green on this commit too — `site build` run
+  **1149**, all twenty steps, **382 passed / 0 failed**. That's the tenth
+  independent run to answer 382.
 
 Nothing merged, nothing deployed, no paid call, no site touched.
 

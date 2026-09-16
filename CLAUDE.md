@@ -5014,10 +5014,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `site-build.mjs` `382 passed, 0 failed` in 19m14s**, with kit-typecheck 4,
   contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
   site-runtime 47 beside it — every count bounded to its own `##[group]`, and
-  the count read rather than carried over from 1147. **Nine independent runs
-  over four days agreeing is what 382 rests on**; the two harness timings
-  either side of it, 17m11s and 19m14s on trees that differ by four files, are
-  the runner deciding again, exactly as the image-step band records.
+  the count read rather than carried over from 1147.
+  **AND RUN 1149 READ IT A TENTH TIME (2026-09-16 00:08:50→00:28:25Z on
+  `e032afad`, the kinded reference, ALL TWENTY STEPS GREEN): `site-build.mjs`
+  `382 passed, 0 failed` in 14m06s**, with kit-typecheck 4, contrast-cases 16,
+  theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it —
+  every count bounded to its own `##[group]`, and read rather than carried over
+  from 1148. **Ten independent runs over four days agreeing is what 382 rests
+  on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
+  that differ by a handful of files, are the runner deciding again, exactly as
+  the image-step band records.
   The unit suite is **6,496** (2026-09-16, local — the kinded reference, whose
   new cases are all `addon-route`'s **two** (62 → 64: the owner's two
   collisions, an applied TABLE against a claim about a FUNCTION of the same
