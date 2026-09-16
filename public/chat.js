@@ -1113,6 +1113,24 @@ const agentDraftOf = (id, uid) => {
 const agentDraftSet = (id, text, uid) => { if (id) agentMsgDrafts[agentDraftKey(id, uid)] = text; };
 const agentDraftDrop = (id, uid) => { if (id) delete agentMsgDrafts[agentDraftKey(id, uid)]; };
 const agentKeyDrop = (id, uid) => { if (id) delete agentSendKeys[agentDraftKey(id, uid)]; };
+/**
+ * ⚠ AND THE BOX ITSELF IS EMPTIED, NOT ONLY THE DRAFT — which is not belt and
+ * braces, it is the other half of the same fact.
+ *
+ * Every render READS the box before redrawing it (`agentComposerRead`), so a draft
+ * dropped after a successful send is RESURRECTED by the very next redraw out of the
+ * text still sitting in the textarea — the words came back, and the next press sent
+ * them again. FOUND ON THE LIVE SITE, and missed by every unit case because the fake
+ * element carried no `data-agent`, so the read wrote nothing: the fixture was less
+ * capable than the render it stood in for.
+ *
+ * Only this conversation's box, asked of the ELEMENT rather than of whatever is open.
+ */
+const agentBoxClear = (id) => {
+  if (typeof document === 'undefined' || !id) return;
+  const el = document.getElementById('agMsg');
+  if (el && ((el.getAttribute && el.getAttribute('data-agent')) || '') === String(id)) el.value = '';
+};
 
 /**
  * WHAT IS IN THE BOX RIGHT NOW, AND WHERE THE CURSOR IS — read before every
@@ -1931,7 +1949,7 @@ async function agentSend() {
   // would make the next press a different press, and a message the server may
   // already hold would be joined by a second copy with a second run — the lost
   // response case turned into the duplicate the key exists to prevent.
-  if (!failed && !mismatched) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); }
+  if (!failed && !mismatched) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); agentBoxClear(target); }
   // A MISMATCH KEEPS THE WORDS AND DROPS THE KEY, which is the opposite of a failure
   // and deliberately so: the old message is safe on the server, so the next press must
   // be a NEW press — the edited text as its own message — rather than a third attempt
