@@ -1,8 +1,8 @@
 {
-  "at": "2026-09-15T19:35:44.886Z",
+  "at": "2026-09-16T09:40:59.897Z",
   "site": "repairbench-1",
-  "start": 161,
-  "end": 149,
+  "start": 149,
+  "end": 137,
   "results": [
     {
       "name": "ask",
@@ -11,10 +11,10 @@
         "page"
       ],
       "verdict": "reported",
-      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"function\",\"page\"]\n      database: functions [\"count_existing_bookings\"]\n      pages: [\"/booking-check\",\"/\",\"/status\"]; build moved\n      home text 5183→5211 chars\n      coverage 3/5 covered, 2 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"A page at /booking-check shows only that total, with loading and error states\" (elsewhere → page); \"A new function named count_existing_bookings that totals rows in the existing bookings table\" (elsewhere → function)\n      the customer was told: \"Still to do: A new function named count_existing_bookings that totals rows in the existing bookings table. I've set that up, but I can't confirm from here that A visitor can get the total number of bookings already stored in the existing bookings table; or that A page at /booking-check shows only that total, with loading and error states — have a look and tell me if it isn't right.\"; repair clean",
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"function\",\"page\"]\n      database: functions [\"workshop_load\"]\n      pages: [\"/workshop-load\",\"/\"]; build moved\n      home text 5206→5234 chars\n      coverage 5/7 covered, 2 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"A page at /workshop-load shows how many bikes are booked in for each drop-off date\" (elsewhere → page); \"A function the page calls to work out how many bikes are booked per drop-off date\" (elsewhere → function)\n      the customer was told: \"I've set that up, but I can't confirm from here that A page at /workshop-load shows how many bikes are booked in for each drop-off date; or that A function the page calls works out booked bikes per date from the bookings — have a look and tell me if it isn't right.\"; repair clean",
       "cost": 12,
-      "wall": 348,
-      "build": "mu32igiu-dao04n",
+      "wall": 429,
+      "build": "mu3wolgr-eqt2r5",
       "pickedRight": true,
       "shots": [
         "docs/edits/addon-01-ask.png",
