@@ -12,10 +12,28 @@
 import { makeRunStore, DUPLICATE } from "../../src/store.mjs";
 import { makeWork } from "../../src/work.mjs";
 
+const isText = (v) => typeof v === "string" && v.trim() !== "";
+
 export function memoryRest({ now = () => Date.now() } = {}) {
   const runs = new Map();                  // id -> { id, tenant_id, status, ... }
   const entries = new Map();               // id -> Map(seq -> body)
   const work = new Map();                  // id -> the run_work row
+  // ── the automation side ───────────────────────────────────────────────────
+  // MIRRORED THE SAME WAY AND FOR THE SAME REASON as the queue's rows above: the SQL
+  // is proved on a real PostgreSQL 16 (`test/integration/pg-automations.mjs` and the
+  // migration's own probes) and what this stands in for is the PROTOCOL — that the
+  // cron, the store and the runner speak to those answers correctly.
+  //
+  // **WHERE IT IS DELIBERATELY LESS CAPABLE, and it is named rather than left to be
+  // discovered: the DST arithmetic is NOT here.** `automation_next_at` is a local-time
+  // calculation with two measured cases, and a JavaScript re-implementation of it
+  // would be a second copy of the one thing this repository proved on the engine. A
+  // row's `next_run_at` and `occurrence` are set by the test, and the advance is a
+  // plain day. What IS here is every decision the cron reads: fresh versus stale,
+  // filed versus already, disabled, paused.
+  const agents = new Map();                // id -> { id, tenant_id, status }
+  const autos = new Map();                 // id -> the automations row
+  const execs = new Map();                 // run id -> the automation_runs row
   let tokens = 0;                          // claim tokens, minted per claim
   /** Canonical JSON: what `jsonb` equality amounts to here — key order normalised. */
   const canon = (v) => JSON.stringify(v, (_k, x) =>
@@ -118,8 +136,13 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         project(id, entry);
       }
       if (!work.has(id)) {
+        // `executor` CARRIES THE COLUMN'S OWN DEFAULT, exactly as the migration writes
+        // it: a row accepted through this door is the agent loop's until something
+        // says otherwise, and the only thing that says otherwise is
+        // `accept_automation_run`, in the same transaction.
         work.set(id, { run_id: id, tenant_id: tenant, kind: kind ?? "start", enqueued_at: now(), attempts: 0,
-          claimed_by: null, claimed_at: null, lease_expires_at: null, claim_token: null, done_at: null, last_error: null });
+          claimed_by: null, claimed_at: null, lease_expires_at: null, claim_token: null, done_at: null, last_error: null,
+          executor: "agent" });
       }
       const w = work.get(id);
       return res(200, { run_id: id, tenant_id: tenant, state: stateOf(w), attempts: w.attempts });
@@ -147,7 +170,11 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       // A NEW TOKEN EVERY TIME, including for the same worker name claiming a run it
       // held before: the token identifies the CLAIM and not the claimer.
       w.claim_token = `tok-${++tokens}`;
+      // ⚠ **THE EXECUTOR RIDES ON THE CLAIM, in the statement that says whose the work
+      // is.** `kind` cannot carry it: `requeue_run` sets `kind = 'resume'`
+      // unconditionally, so it says why a row is outstanding and never what it is.
       return res(200, { claimed: true, run_id: id, tenant_id: w.tenant_id, kind: w.kind, attempts: w.attempts,
+        executor: w.executor ?? "agent",
         claim_token: w.claim_token, lease_expires_at: w.lease_expires_at });
     }
 
@@ -234,6 +261,153 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       // (`test/integration/pg-schema.mjs`).
     }
 
+    // ── the automation side ─────────────────────────────────────────────────
+
+    if (p.endsWith("/automation_runs") && init.method === "GET") {
+      const id = eq("id"), tenant = eq("tenant_id");
+      const rows = [...execs.values()].filter((e) =>
+        (id === null || e.id === id) && (tenant === null || e.tenant_id === tenant));
+      return res(200, rows);
+    }
+
+    /**
+     * `agent.accept_automation_run`, answer for answer.
+     *
+     * THE ORDER IS THE SECURITY ARGUMENT and it is the function's: whose automation is
+     * this and is its agent taking work → has this occurrence already been filed →
+     * disabled → paused → insert → accept the run → say which executor wants it.
+     *
+     * ⚠ **NOTHING IS WRITTEN ON EITHER REFUSAL.** A disabled automation and a paused
+     * agent both have to leave the world exactly as it was, or turning one back on
+     * would find work nobody asked for waiting in the queue.
+     */
+    if (p.endsWith("/rpc/accept_automation_run") && init.method === "POST") {
+      const { p_tenant: tenant, p_automation_id: autoId, p_run_id: runId, p_trigger: trigger, p_occurrence: occ = null } = body;
+      if (typeof tenant !== "string" || tenant.trim() === "") return res(400, { message: "accept_automation_run: tenant must be a non-empty string" });
+      if (!isText(runId)) return res(400, { message: "accept_automation_run: the execution needs a run id" });
+      if (!["manual", "schedule"].includes(trigger)) return res(400, { message: "accept_automation_run: a run is triggered manually or by a schedule" });
+      const a = autos.get(autoId);
+      if (!a || a.tenant_id !== tenant) return res(200, { ok: false, error: "no-automation" });
+      const g = agents.get(a.agent_id);
+
+      let exec = occ === null ? null : [...execs.values()].find((e) => e.automation_id === autoId && e.occurrence === occ) ?? null;
+      let fresh = false;
+      if (!exec) {
+        if (!a.enabled) return res(200, { ok: false, error: "disabled" });
+        if ((g?.status ?? null) !== "active") return res(200, { ok: false, error: "paused", status: g?.status ?? null });
+        exec = {
+          id: runId, automation_id: autoId, tenant_id: tenant, trigger, occurrence: occ,
+          // THE SNAPSHOT. What runs is the configuration recorded HERE, which is what
+          // makes an edit reach the next execution and never this one.
+          steps: a.steps, zone: a.zone, outcomes: null, missed: null, finished_at: null,
+        };
+        execs.set(runId, exec);
+        fresh = true;
+      }
+      // AN OCCURRENCE ALREADY FILED STARTS NOTHING — one copy of this answer, so the
+      // probe and a racing twin cannot disagree.
+      if (!fresh) return res(200, { ok: true, repeat: true, run_id: exec.id, occurrence: exec.occurrence, trigger: exec.trigger });
+
+      runs.set(runId, { id: runId, tenant_id: tenant, status: "new", agent_name: null, model: null, limits: null, stop: null, created_at: "2026-09-15T00:00:00Z" });
+      entries.set(runId, new Map());
+      const entry = { kind: "started", at: now(), tenant, agent: "automation", model: "none", prompt: a.name, automation: autoId };
+      entries.get(runId).set(0, entry);
+      project(runId, entry);
+      work.set(runId, { run_id: runId, tenant_id: tenant, kind: "start", enqueued_at: now(), attempts: 0,
+        claimed_by: null, claimed_at: null, lease_expires_at: null, claim_token: null, done_at: null, last_error: null,
+        // ⚠ IN THE SAME TRANSACTION as the work row, so there is no instant at which a
+        // consumer could claim this row and route it to the agent loop.
+        executor: "automation" });
+      return res(200, { ok: true, repeat: false, run_id: runId, occurrence: exec.occurrence, trigger: exec.trigger, state: "queued" });
+    }
+
+    /** `agent.record_automation_occurrence` — a finished run with NO work row. */
+    const recordOccurrence = (tenant, autoId, runId, occ, stop, missed) => {
+      const a = autos.get(autoId);
+      execs.set(runId, { id: runId, automation_id: autoId, tenant_id: tenant, trigger: "schedule",
+        occurrence: occ, steps: a?.steps ?? [], zone: a?.zone ?? null, outcomes: [], missed: missed ?? null,
+        finished_at: new Date(now()).toISOString() });
+      runs.set(runId, { id: runId, tenant_id: tenant, status: "stopped", agent_name: "automation", model: "none",
+        limits: null, stop, created_at: "2026-09-15T00:00:00Z" });
+      entries.set(runId, new Map([
+        [0, { kind: "started", at: now(), tenant, agent: "automation", model: "none", prompt: a?.name ?? "", automation: autoId }],
+        [1, { kind: "stopped", at: now(), stop }],
+      ]));
+    };
+
+    /** `agent.finish_automation_run` — the outcomes and the stop, through the fence. */
+    if (p.endsWith("/rpc/finish_automation_run") && init.method === "POST") {
+      const { p_run_id: id, p_worker: worker, p_token: token, p_outcomes: outcomes, p_stop: stop } = body;
+      if (!stop || typeof stop.reason !== "string") return res(400, { message: "finish_automation_run: an execution must say why it ended" });
+      if (!Array.isArray(outcomes)) return res(400, { message: "finish_automation_run: the outcomes must be a list, one per step attempted" });
+      const log = entries.get(id) ?? new Map();
+      const seq = log.size === 0 ? 0 : Math.max(...log.keys()) + 1;
+      // THROUGH `append_entry` ITSELF, never past it: the fence is what makes a
+      // finish exclusive, and a fixture that wrote around it would be proving a
+      // path that does not ship.
+      const fenced = await fetch(`${u.origin}/rest/v1/rpc/append_entry`, {
+        method: "POST", headers: init.headers,
+        body: JSON.stringify({ p_run_id: id, p_seq: seq, p_worker: worker, p_token: token,
+          p_body: { kind: "stopped", at: now(), stop } }),
+      });
+      const answer = JSON.parse(await fenced.text());
+      if (answer?.ok !== true) return res(200, answer);
+      const exec = execs.get(id);
+      if (exec && exec.finished_at === null) { exec.outcomes = outcomes; exec.finished_at = new Date(now()).toISOString(); }
+      const w = work.get(id);
+      if (w && w.claimed_by === worker && w.claim_token === token) {
+        w.claimed_by = null; w.claimed_at = null; w.lease_expires_at = null; w.claim_token = null; w.done_at = now();
+      }
+      return res(200, { ...answer, finished: true });
+    }
+
+    /**
+     * `agent.tick_automations` — file what is due, and advance past it.
+     *
+     * The advance is a plain day here rather than `automation_next_at`'s local-time
+     * arithmetic (see the note above the maps). Every DECISION the cron reads is
+     * mirrored: the catch-up window, which is what stops downtime becoming a burst;
+     * `filed` versus `already`; and the refusals, recorded rather than skipped.
+     */
+    if (p.endsWith("/rpc/tick_automations") && init.method === "POST") {
+      const catchup = Math.max(0, body?.p_catchup_s ?? 3600) * 1000;
+      const limit = Math.max(1, body?.p_limit ?? 25);
+      const due = [...autos.values()]
+        .filter((a) => a.enabled && a.schedule === "daily" && a.next_run_at !== null && a.next_run_at <= now())
+        .sort((x, y) => x.next_run_at - y.next_run_at)
+        .slice(0, limit);
+      const out = [];
+      for (const a of due) {
+        const occ = a.occurrence_for ?? new Date(a.next_run_at).toISOString().slice(0, 10);
+        const next = a.next_run_at + 86400000;
+        const runId = `auto-${a.id}-${occ}`;
+        if (now() - a.next_run_at <= catchup) {
+          const accepted = await fetch(`${u.origin}/rest/v1/rpc/accept_automation_run`, {
+            method: "POST", headers: init.headers,
+            body: JSON.stringify({ p_tenant: a.tenant_id, p_automation_id: a.id, p_run_id: runId, p_trigger: "schedule", p_occurrence: occ }),
+          });
+          const answer = JSON.parse(await accepted.text());
+          if (answer?.ok === true) {
+            out.push({ automation_id: a.id, occurrence: occ, run_id: answer.run_id,
+              action: answer.repeat === true ? "already" : "filed" });
+          } else {
+            // ⚠ **A REFUSED OCCURRENCE CARRIES NO `run_id`**, exactly as the function
+            // builds it: there is no work row, so a doorbell for one would ring for a
+            // run nothing will ever claim.
+            recordOccurrence(a.tenant_id, a.id, runId, occ, { reason: answer?.error ?? "error" }, null);
+            out.push({ automation_id: a.id, occurrence: occ, action: answer?.error ?? "error" });
+          }
+        } else {
+          // TOO OLD TO RUN: recorded, counted, and jumped over.
+          const total = Math.max(1, Math.round((next - a.next_run_at) / 86400000));
+          recordOccurrence(a.tenant_id, a.id, runId, occ, { reason: "missed", occurrences: total }, total);
+          out.push({ automation_id: a.id, occurrence: occ, action: "missed", occurrences: total });
+        }
+        a.next_run_at = next;
+      }
+      return res(200, out);
+    }
+
     if (p.endsWith("/rpc/sweep_run_work") && init.method === "POST") {
       const grace = (body?.p_grace_s ?? 30) * 1000;
       const limit = Math.max(1, body?.p_limit ?? 50);
@@ -251,7 +425,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const calls = [];
   const counted = async (url, init) => { calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined }); return fetch(url, init); };
   counted.calls = calls;
-  return { fetch: counted, runs, entries, work };
+  return { fetch: counted, runs, entries, work, agents, autos, execs };
 }
 
 /**

@@ -37,13 +37,32 @@ test("every declared step is whole, and a half-declared one throws at import", (
     assert.equal(typeof s.run, "function");
   }
   // EVERY PART IS COMPELLED, one at a time, so none of them is optional by accident.
-  const whole = { type: "x", kind: "action", label: "X", does: "does x", read: () => ({ config: {} }), run: () => ({}) };
+  //
+  // ⚠ **`fields` WAS MISSING FROM THIS FIXTURE, which made the whole loop VACUOUS.**
+  // Every variant threw — for the absent `fields` and not for the deleted key — so the
+  // loop passed while asserting nothing about any of the other six, and `fields` itself
+  // was never compelled at all. A sweep mutant that made `fields` optional survived,
+  // which is what said so. The CONTROL below is what stops it happening again: the
+  // whole spec has to be ACCEPTED, or "a step with no X is refused" is satisfied by a
+  // spec that is refused for some other reason.
+  const whole = {
+    type: "x", kind: "action", label: "X", does: "does x",
+    fields: [{ name: "text", kind: "text", label: "Text" }],
+    read: () => ({ config: {} }), run: () => ({}),
+  };
+  assert.equal(defineStep(whole).type, "x", "THE CONTROL: the whole spec is accepted");
   for (const missing of Object.keys(whole)) {
     const spec = { ...whole };
     delete spec[missing];
     assert.throws(() => defineStep(spec), TypeError, `a step with no ${missing} is refused`);
   }
   assert.throws(() => defineStep({ ...whole, kind: "sometimes" }), TypeError, "an invented kind is refused");
+  assert.throws(() => defineStep({ ...whole, fields: [] }), TypeError, "a step with an EMPTY field list is refused");
+  // A FIELD IS A PAIR, and both halves are asked for: a nameless one could never be
+  // read back off a form, and a kind this deployment does not draw is a control the
+  // screen would have to invent.
+  assert.throws(() => defineStep({ ...whole, fields: [{ kind: "text" }] }), TypeError);
+  assert.throws(() => defineStep({ ...whole, fields: [{ name: "t", kind: "colour" }] }), TypeError);
 });
 
 test("the catalog's names are derived, and two steps cannot share one", () => {
@@ -131,6 +150,29 @@ test("the local date comes from Intl, and the occurrence beats the clock", () =>
   // NO ZONE MEANS UTC AND SAYS SO, rather than guessing where the Worker is.
   const nowhere = executionDay({ occurrence: null, zone: null, now: Date.parse("2026-09-16T03:00:00Z") });
   assert.deepEqual(nowhere, { date: WED, weekday: "wed", zone: "UTC", from: "now" });
+
+  // ⚠ **AND "UTC" MUST BE A CONSTANT, NOT THE RUNTIME'S OWN LOCALITY** — which this
+  // machine cannot tell apart, because `Intl` resolves to UTC here. So the assertion
+  // above is measured under a DIFFERENT zone: a fallback that asked the runtime would
+  // answer Tokyo's date, and an automation's weekday condition would then mean
+  // whatever the edge that picked the delivery happens to think the date is.
+  const tz = process.env.TZ;
+  try {
+    process.env.TZ = "Asia/Tokyo";
+    assert.equal(new Intl.DateTimeFormat().resolvedOptions().timeZone, "Asia/Tokyo",
+      "the fixture could not move the runtime's zone, so this case proves nothing");
+    const elsewhere = executionDay({ occurrence: null, zone: null, now: Date.parse("2026-09-16T03:00:00Z") });
+    assert.deepEqual(elsewhere, { date: WED, weekday: "wed", zone: "UTC", from: "now" },
+      "the no-zone fallback followed the runtime instead of naming UTC");
+    // THE CONTROL: a zone that IS named is still honoured under the same TZ, so the
+    // equality above is about the fallback and not about `localDate` going blind.
+    assert.equal(executionDay({ occurrence: null, zone: "Asia/Tokyo", now: Date.parse("2026-09-16T03:00:00Z") }).date,
+      "2026-09-16");
+    assert.equal(executionDay({ occurrence: null, zone: "America/New_York", now: Date.parse("2026-09-16T03:00:00Z") }).date,
+      "2026-09-15");
+  } finally {
+    if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
+  }
 
   // A zone this runtime does not know falls back to UTC rather than throwing, because a
   // scheduler that dies on one bad row stops being a scheduler.
@@ -244,7 +286,7 @@ test("the stop carries the day it asked about, so a skip can be explained later"
  * loudly** rather than quietly answering `no-agent`, which is the wrong-looking-right
  * failure this fixture exists to make impossible.
  */
-function routed({ executor = "automation", exec, finish, automations, attempts = 1 } = {}) {
+function routed({ executor = "automation", exec, finish, automations, attempts = 1, now } = {}) {
   const events = [];
   const errors = [];
   const released = [];
@@ -260,6 +302,7 @@ function routed({ executor = "automation", exec, finish, automations, attempts =
   const store = { forTenant: () => ({ open: async () => { throw new Error("the agent path was taken"); }, load: async () => ({}) }) };
   const runner = makeRunner({
     work, store,
+    ...(now === undefined ? {} : { now: () => now }),
     send: async () => { throw new Error("a model was called for an automation"); },
     agents: { support: defineAgent({ name: "support", model: "m", instructions: "help" }) },
     automations: automations === null ? undefined : (automations ?? {
@@ -293,6 +336,25 @@ test("⚠ an automation delivery reaches the workflow and never the agent loop",
   assert.equal(sent[0].token, "tok-1", "the claim's own token is presented");
   assert.deepEqual(sent[0].outcomes.map((o) => o.outcome), ["ran"]);
   assert.ok(events.some((e) => e.at === "done" && e.why === "ran"));
+});
+
+test("⚠ the execution's OWN occurrence and zone reach the workflow, not the clock's", async () => {
+  // A CATCH-UP DELIVERY ASKS ABOUT THE DAY IT WAS FOR. The occurrence here is a
+  // Monday and the delivery is happening on a Wednesday, so a runner that handed the
+  // executor its own clock would answer "not a Monday" and SKIP an execution that was
+  // due — the one reading that makes "every Monday" mean what it says.
+  const { runner } = routed({
+    now: Date.parse("2026-09-23T02:00:00Z"),          // a Wednesday
+    exec: { ...EXEC, trigger: "schedule", occurrence: MON, zone: "Asia/Tokyo",
+      steps: [{ id: "s1", type: "weekday", days: ["mon"] }, { id: "s2", type: "note", text: "monday note" }] },
+  });
+  const out = await runner.deliver("r1");
+  assert.equal(out.stop.reason, "done", `the Monday execution was ${out.stop.reason}`);
+  assert.equal(out.stop.on, MON, "the day came from the clock rather than from the occurrence");
+  // AND THE ZONE IS THE AUTOMATION'S OWN, recorded at acceptance — it is what the
+  // reader needs to explain a skip afterwards, and "UTC" would be a different claim.
+  assert.equal(out.stop.zone, "Asia/Tokyo");
+  assert.equal(out.stop.result, "monday note");
 });
 
 test("an agent delivery is untouched by the routing", async () => {
@@ -387,6 +449,32 @@ test("⚠ the profile header is derived from the DIRECTION, not from the call si
   // THE TENANT IS IN THE FILTER, as a second wall behind the claim.
   assert.match(seen[0].url, /tenant_id=eq\.t1/);
   assert.match(seen[0].url, /id=eq\.r1/);
+});
+
+test("⚠ steps that are not a list read as NULL, because `[]` is a real workflow", async () => {
+  // The two are opposite facts and the runner reads them that way: `[]` is an
+  // automation somebody saved with no steps, which runs and answers nothing; `null` is
+  // a row this process cannot execute, which comes off the queue. Emptying it here
+  // would report a workflow nobody wrote as having succeeded.
+  const rowFor = (steps) => ({
+    id: "r1", automation_id: "c1", tenant_id: "t1", trigger: "manual",
+    occurrence: null, steps, zone: "Europe/London", finished_at: null,
+  });
+  const storeOver = (steps) => makeAutomationStore({
+    url: "https://p.example", key: "k",
+    fetch: async () => ({ ok: true, status: 200, text: async () => JSON.stringify([rowFor(steps)]) }),
+  });
+  for (const junk of [null, undefined, "[]", 0, {}, { 0: { type: "note" }, length: 1 }]) {
+    const got = await storeOver(junk).read("r1", "t1");
+    assert.equal(got.steps, null, `steps ${JSON.stringify(junk)} was read as a workflow`);
+  }
+  // THE TWO CONTROLS, without which "always null" would pass: a real list survives
+  // exactly as it stands, and an empty one is kept as an empty one.
+  const real = [{ id: "s1", type: "note", text: "hi" }];
+  assert.deepEqual((await storeOver(real).read("r1", "t1")).steps, real);
+  assert.deepEqual((await storeOver([]).read("r1", "t1")).steps, []);
+  // A zone that is not a string is the same rule one column over.
+  assert.equal((await storeOver(real).read("r1", "t1")).zone, "Europe/London");
 });
 
 test("the store refuses to be built, or called, without what it needs", () => {

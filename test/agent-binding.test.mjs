@@ -242,6 +242,89 @@ function hydrate(w) {
   return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked, pauseBox: pausedEl };
 }
 
+/**
+ * ⚠ HYDRATE THE AUTOMATION FORM FROM THE MARKUP IT REALLY DREW.
+ *
+ * The same shape as `hydrate` above and for the same reason: a case that adds a step
+ * must be pressing the control the form really drew, over the values it really drew, or
+ * it is testing a fixture. **THE STEP ROWS ARE WHERE THIS EARNS ITS PLACE** — the form's
+ * read-back walks `[data-step-type]` and then each row's own `[data-field]` and
+ * `[data-day]`, so a fake whose rows answered nothing would make the whole read
+ * unobservable and report the generation gate as working with the gate deleted.
+ */
+function hydrateAuto(w) {
+  const doc = w.s.document;
+  const html = doc.getElementById("viewAgents").innerHTML;
+  const val = (id) => {
+    const m = new RegExp(`id="${id}"[^>]*value="([^"]*)"`).exec(html);
+    return m ? m[1] : null;
+  };
+  // THE FORM'S OWN GENERATION, as an attribute, because that is how the read-back tells
+  // "the screen shows what I hold" from "the screen is older than what I hold".
+  const form = doc.getElementById("agAutoForm");
+  const gen = /id="agAutoForm" data-gen="(\d+)"/.exec(html);
+  if (gen) form.setAttribute("data-gen", gen[1]);
+  for (const id of ["agAutoName", "agAutoAt", "agAutoZone"]) {
+    const v = val(id);
+    if (v !== null) doc.getElementById(id).value = v;
+  }
+  const sched = /<option value="(manual|daily)" selected>/.exec(html);
+  doc.getElementById("agAutoSched").value = sched ? sched[1] : "manual";
+  const offBox = doc.getElementById("agAutoOff");
+  const drawnOff = /<input type="checkbox" id="agAutoOff"([^>]*)>/.exec(html);
+  offBox.checked = !!(drawnOff && / checked/.test(drawnOff[1]));
+
+  // One fake row per step the form drew, each answering its OWN fields — which is what
+  // `agentAutoValues` walks.
+  const chunks = html.split('class="ag-step" data-step-type="').slice(1);
+  const rows = chunks.map((chunk) => {
+    const type = chunk.slice(0, chunk.indexOf('"'));
+    const body = chunk.slice(0, chunk.indexOf('class="ag-step"') === -1 ? chunk.length : chunk.indexOf('class="ag-step"'));
+    const fields = [...body.matchAll(/data-field="([^"]+)"[^>]*value="([^"]*)"/g)].map((m) => ({
+      value: m[2].replace(/&#39;|&#x27;/g, "'").replace(/&amp;/g, "&"),
+      getAttribute: (k) => (k === "data-field" ? m[1] : null),
+    }));
+    const days = [...body.matchAll(/data-day="([^"]+)"([^>]*)>/g)].map((m) => ({
+      checked: / checked/.test(m[2]),
+      getAttribute: (k) => (k === "data-day" ? m[1] : null),
+    }));
+    return {
+      getAttribute: (k) => (k === "data-step-type" ? type : null),
+      querySelectorAll: (sel) => (sel === "[data-field]" ? fields : sel === "[data-day]" ? days : []),
+      fields, days,
+    };
+  });
+  doc.querySelectorAll = (sel) => (sel === "[data-step-type]" ? rows : []);
+  return { html, rows, form, offBox, gen: gen ? Number(gen[1]) : null };
+}
+
+/** The step catalog as the server sends it, derived from what the engine really has. */
+const STEP_CATALOG = [
+  { type: "weekday", kind: "condition", label: "Only on certain days", does: "Carry on only on the days you pick.",
+    fields: [{ name: "days", kind: "days", required: true }] },
+  { type: "note", kind: "action", label: "Save a note", does: "Write a line into this automation's results.",
+    fields: [{ name: "text", kind: "text", required: true, max: 2000 }] },
+];
+const DAY_LIST = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+/** One agent with one automation, and the screen opened on it. */
+function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false, onPost = () => {} } = {}) {
+  return (path, init) => {
+    const body = init?.body ? JSON.parse(init.body) : {};
+    if (path.startsWith("/api/agent/list")) {
+      return { ok: true, body: { ok: true, agents: [{ id: "A", name: "Shop", instructions: "help", created: 1, updated: 1, preview: "", status: "active", tools: [] }], tools: [] } };
+    }
+    if (path.startsWith("/api/agent/messages")) return { ok: true, body: { ok: true, id: "A", messages: [] } };
+    if (path.startsWith("/api/agent/automations")) {
+      if (listFails) return { ok: false, body: { error: "the store is away" } };
+      return { ok: true, body: { ok: true, agent: "A", automations, steps, days: DAY_LIST, max: 20 } };
+    }
+    if (path.startsWith("/api/agent/automation-history")) return { ok: true, body: { ok: true, id: body.id, executions: [] } };
+    onPost(path, body);
+    return { ok: true, body: { ok: true, id: "AU1", runId: "R1", notified: true, automation: { ...(automations[0] ?? {}), enabled: body.enabled } } };
+  };
+}
+
 /** What one `/api/agent/list` answer looks like, catalog and all. */
 const CATALOG = [{ name: "echo", label: "Echo", does: "Repeats a short piece of text back." }];
 
@@ -1628,4 +1711,380 @@ test("⚠ A SEND REFUSED FOR A PAUSE KEEPS THE WORDS AND THE KEY", async () => {
   await ok.ev("agentSend()");
   assert.equal(ok.ev('agentDraftOf("A")'), "");
   assert.deepEqual(ok.val('Object.keys(agentSendKeys)'), []);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE AUTOMATIONS SCREEN
+//
+// Its own section, driving the real `chat.js` in a real page scope. The cases below
+// are about the two things a screen like this gets wrong: a redraw that eats what
+// somebody is typing, and an answer that lands after they have moved on.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Open one agent's automations, with the catalog the server sends. */
+async function withAutomations(opts = {}) {
+  const posts = [];
+  const answer = autoAnswer({ ...opts, onPost: (p, b) => posts.push({ path: p, body: b }) });
+  const w = loadScreen({
+    answer: (p, init) => {
+      const a = answer(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  return { w, posts };
+}
+
+/**
+ * LET AN IN-FLIGHT READ LAND.
+ *
+ * `agentAutomations` and `agentAutoHistory` are NAVIGATION functions: they set the
+ * screen's state and START a read without awaiting it, exactly as `agentOpen` does
+ * for a conversation. So `await`-ing the call itself awaits `undefined` and the
+ * assertions run against a screen that still says "Loading…". A macrotask turn is
+ * enough because every fixture answer resolves immediately — nothing about the
+ * product's own timing is being waited on, which is why this is a turn and not a
+ * poll.
+ */
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+const ONE = {
+  id: "AU1", agentId: "A", name: "Opening check", enabled: true, schedule: "manual",
+  at: null, zone: "Europe/London", nextRunAt: null, updatedAt: "2026-09-16T10:00:00Z",
+  steps: [{ id: "s1", type: "weekday", days: ["mon"] }, { id: "s2", type: "note", text: "morning" }],
+};
+
+test("the automations screen draws the list, the catalog and the next scheduled run", async () => {
+  const daily = { ...ONE, schedule: "daily", at: "09:00", nextRunAt: "2026-09-17T08:00:00Z" };
+  const { w } = await withAutomations({ automations: [daily] });
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Opening check/);
+  assert.match(html, /Every day at 09:00 \(Europe\/London\)/, "the trigger is a sentence, not a cron line");
+  assert.match(html, /next /, "the next scheduled run is shown");
+  // THE STEPS READ AS WHAT THEY DO, not as the catalog's own description.
+  assert.match(html, /1\. Only on Mon/);
+  assert.match(html, /2\. Save a note: “morning”/);
+  // AND THE FOUR THINGS A ROW OFFERS.
+  for (const act of ["agent-auto-run", "agent-auto-toggle", "agent-auto-edit", "agent-auto-history"]) {
+    assert.match(html, new RegExp(act), act);
+  }
+});
+
+test("⚠ ADDING A STEP KEEPS WHAT WAS TYPED IN THE ONE ABOVE IT", async () => {
+  // THE DEFECT THIS IS THE GUARD FOR, found in a real browser: pressing "+ Save a note"
+  // builds a new draft with one more step and asks for a redraw — and the read-first
+  // door ran FIRST, read the form still showing the OLD step list, and wrote it back
+  // over the step just added. Zero steps, every time, with the whole suite green.
+  const { w } = await withAutomations({ automations: [] });
+  await w.ev('agentAutoNew()');
+  let f = hydrateAuto(w);
+  assert.equal(f.rows.length, 0, "a new automation starts with no steps");
+  w.s.document.getElementById("agAutoName").value = "Morning";
+
+  await w.ev('agentAutoStepAdd("note")');
+  f = hydrateAuto(w);
+  assert.equal(f.rows.length, 1, "the step was added");
+  // The name typed BEFORE the structural change survived it.
+  assert.equal(w.val("agentAutoDraft").name, "Morning");
+
+  // Type into the step, then add a SECOND one — the case the browser found.
+  f.rows[0].fields[0].value = "unlock the door";
+  await w.ev('agentAutoStepAdd("weekday")');
+  f = hydrateAuto(w);
+  assert.equal(f.rows.length, 2, "the second step was added");
+  assert.deepEqual(w.val("agentAutoDraft").steps.map((s) => s.type), ["note", "weekday"]);
+  assert.equal(w.val("agentAutoDraft").steps[0].text, "unlock the door",
+    "the note typed before the second step was added was eaten");
+  // AND THE FORM DREW IT BACK, which is the half a state assertion cannot see.
+  assert.equal(f.rows[0].fields[0].value, "unlock the door");
+});
+
+test("⚠ the read-back is gated on the drawing, and a generation is what gates it", async () => {
+  const { w } = await withAutomations({ automations: [] });
+  await w.ev("agentAutoNew()");
+  const first = hydrateAuto(w);
+  assert.equal(first.gen, 0, "a fresh form is the zeroth drawing");
+  await w.ev('agentAutoStepAdd("note")');
+  const second = hydrateAuto(w);
+  assert.equal(second.gen, 1, "a structural change marks the drawing stale");
+  // ⚠ AND THE FORM CARRIES IT, or nothing can tell the two apart. A STEP COUNT WOULD
+  // NOT DO IT — reordering keeps the count — which is why this is a number and not a
+  // length.
+  assert.match(second.html, /id="agAutoForm" data-gen="1"/);
+  await w.ev('agentAutoStepAdd("weekday")');
+  await w.ev("agentAutoStepMove(0, 1)");
+  const moved = hydrateAuto(w);
+  assert.deepEqual(w.val("agentAutoDraft").steps.map((s) => s.type), ["weekday", "note"]);
+  assert.equal(moved.gen, 3, "reordering marks it stale too, although the count did not change");
+});
+
+test("steps can be moved and taken out, and the order IS the workflow", async () => {
+  const { w } = await withAutomations({ automations: [ONE] });
+  await w.ev('agentAutoEdit("AU1")');
+  hydrateAuto(w);
+  assert.deepEqual(w.val("agentAutoForm()").steps.map((s) => s.type), ["weekday", "note"]);
+  await w.ev("agentAutoStepMove(1, -1)");
+  hydrateAuto(w);
+  assert.deepEqual(w.val("agentAutoDraft").steps.map((s) => s.type), ["note", "weekday"]);
+  await w.ev("agentAutoStepDrop(0)");
+  hydrateAuto(w);
+  assert.deepEqual(w.val("agentAutoDraft").steps.map((s) => s.type), ["weekday"]);
+  // A MOVE OFF EITHER END DOES NOTHING, rather than losing a step.
+  await w.ev("agentAutoStepMove(0, -1)");
+  await w.ev("agentAutoStepMove(0, 1)");
+  assert.equal(w.val("agentAutoDraft").steps.length, 1);
+});
+
+test("⚠ the save sends the steps and the schedule the form really shows", async () => {
+  const { w, posts } = await withAutomations({ automations: [] });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Weekday note";
+  w.s.document.getElementById("agAutoSched").value = "daily";
+  w.s.document.getElementById("agAutoAt").value = "09:00";
+  w.s.document.getElementById("agAutoZone").value = "Europe/London";
+  await w.ev('agentAutoStepAdd("weekday")');
+  await w.ev('agentAutoStepAdd("note")');
+  const f = hydrateAuto(w);
+  f.rows[1].fields[0].value = "shop opens at 9";
+  for (const d of f.rows[0].days) d.checked = ["mon", "tue"].includes(d.getAttribute("data-day"));
+  await w.ev("agentAutoSave()");
+  const sent = posts.find((x) => x.path === "/api/agent/automation-create");
+  assert.ok(sent, "the create was never sent");
+  assert.equal(sent.body.agent, "A", "it names which agent it belongs to");
+  assert.equal(sent.body.name, "Weekday note");
+  assert.equal(sent.body.schedule, "daily");
+  assert.equal(sent.body.at, "09:00");
+  assert.equal(sent.body.zone, "Europe/London");
+  assert.deepEqual(sent.body.steps, [
+    { type: "weekday", days: ["mon", "tue"] },
+    { type: "note", text: "shop opens at 9" },
+  ]);
+  // ⚠ THE SCREEN'S OWN BOOKKEEPING DOES NOT GO ON THE WIRE. `gen` says which drawing a
+  // draft is, which is a fact about a browser; a body should say what it means.
+  assert.equal(Object.hasOwn(sent.body, "gen"), false, "the generation went to the server");
+  // A CREATE BECOMES AN EDIT of what it just made, so the next press adjusts it.
+  assert.equal(w.val("agentAutoEditing"), "AU1");
+  assert.equal(w.val("agentAutoSaved"), true);
+});
+
+test("the pause control is OFF, so the box and the value cannot disagree", async () => {
+  const { w, posts } = await withAutomations({ automations: [] });
+  await w.ev("agentAutoNew()");
+  const f = hydrateAuto(w);
+  assert.equal(f.offBox.checked, false, "a new automation is on");
+  w.s.document.getElementById("agAutoName").value = "Off to start with";
+  f.offBox.checked = true;
+  await w.ev("agentAutoSave()");
+  assert.equal(posts.find((x) => x.path === "/api/agent/automation-create").body.enabled, false);
+});
+
+test("⚠ a failed save keeps the whole configuration, not just the name", async () => {
+  const w = loadScreen({
+    answer: (p, init) => {
+      const a = autoAnswer({ automations: [] })(p, init);
+      if (p === "/api/agent/automation-create") return badRes("couldn’t save that");
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Morning";
+  await w.ev('agentAutoStepAdd("note")');
+  const f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "the words that failed";
+  await w.ev("agentAutoSave()");
+  assert.match(w.ev("agentAutoActErr"), /save/i);
+  // THE DRAFT STAYS, so pressing Save again sends the same thing.
+  assert.equal(w.val("agentAutoDraft").name, "Morning");
+  assert.equal(w.val("agentAutoDraft").steps[0].text, "the words that failed");
+  // AND THE REDRAW SHOWS THEM — the half a state assertion alone cannot see.
+  const again = hydrateAuto(w);
+  assert.equal(again.rows[0].fields[0].value, "the words that failed");
+  assert.equal(w.val("agentAutoSaved"), false, "a failed save must not say Saved");
+});
+
+test("⚠ a save that lands after the screen moved on touches nothing", async () => {
+  const gate = held(okRes({ id: "AU9" }));
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p === "/api/agent/automation-create") return gate.res;
+      const a = autoAnswer({ automations: [] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Morning";
+  const saving = w.ev("agentAutoSave()");
+  // The form is closed while the save is in the air.
+  await w.ev("agentAutoCancel()");
+  gate.release();
+  await saving;
+  // A CREATE THAT LANDED ON A CLOSED FORM MUST NOT REOPEN IT as an edit of what it made.
+  assert.equal(w.val("agentAutoEditing"), null);
+  assert.equal(w.val("agentAutoSaved"), false);
+});
+
+test("a failed list read is NOT an empty agent", async () => {
+  const { w } = await withAutomations({ automations: [ONE] });
+  assert.equal(w.val("agentAutoRows").length, 1);
+  // The next read fails. The rows it had are left exactly as they were, so an error
+  // does not look like everything having been deleted.
+  w.ev('agentAutoLoadFails = 1');
+  const w2 = loadScreen({
+    answer: (p, init) => {
+      const a = autoAnswer({ automations: [], listFails: true })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w2.ev("agentsLoad()");
+  await w2.ev('agentAutomations("A")'); await settle();
+  assert.equal(w2.val("agentAutoRows"), null, "a read that never succeeded is not an empty list");
+  assert.equal(w2.ev("agentAutoState"), "error");
+  assert.match(w2.s.document.getElementById("viewAgents").innerHTML, /Couldn’t load the automations/);
+});
+
+test("a list answer for another agent is not written into this screen", async () => {
+  const gate = held(okRes({ agent: "A", automations: [ONE], steps: STEP_CATALOG, days: DAY_LIST, max: 20 }));
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automations")) return gate.res;
+      const a = autoAnswer({})(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  const opening = w.ev('agentAutomations("A")');
+  // Somebody leaves before the answer lands.
+  await w.ev("agentAutoBack()");
+  gate.release();
+  await opening;
+  assert.equal(w.val("agentAutoRows"), null, "an answer for a screen nobody is on was written in");
+});
+
+test("⚠ the toggle sends what the row says, and its own narrow body", async () => {
+  const { w, posts } = await withAutomations({ automations: [ONE] });
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  // The row draws the OPPOSITE of what it is, because that is what pressing it does.
+  assert.match(html, /data-act="agent-auto-toggle" data-id="AU1" data-on="off"/);
+  await w.ev('agentAutoToggle("AU1", "off")');
+  const sent = posts.find((x) => x.path === "/api/agent/automation-enable");
+  assert.deepEqual(sent.body, { id: "AU1", enabled: false },
+    "the toggle must carry nothing but which one and whether");
+  await w.ev('agentAutoToggle("AU1", "on")');
+  assert.equal(posts.filter((x) => x.path === "/api/agent/automation-enable").at(-1).body.enabled, true);
+});
+
+test("Run now opens the history and stops watching it", async () => {
+  const { w, posts } = await withAutomations({ automations: [ONE] });
+  await w.ev('agentAutoRun("AU1")');
+  assert.ok(posts.some((x) => x.path === "/api/agent/automation-run"), "the run was never asked for");
+  assert.equal(w.val("agentAutoRunsFor"), "AU1", "its history was opened");
+  // THE WATCH IS BOUNDED AND STOPS ITSELF. A permanent poll would be a redraw every
+  // couple of seconds for as long as the screen is open.
+  assert.equal(w.ev("AUTO_WATCH_TRIES") > 0 && w.ev("AUTO_WATCH_TRIES") < 20, true);
+  await w.ev("agentAutoWatchStop()");
+  assert.equal(w.val("agentAutoWatch"), null);
+});
+
+test("an empty catalog says so rather than drawing a form nobody can save", async () => {
+  // A REAL BRANCH: a Worker that predates the catalog answers no `steps` key.
+  const { w } = await withAutomations({ automations: [], steps: [] });
+  await w.ev("agentAutoNew()");
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /no kinds of step to add yet/);
+  assert.equal(/data-act="agent-auto-step-add"/.test(html), false, "it offered a step it has not got");
+});
+
+test("the history shows each step's outcome, and a skip is not a failure", async () => {
+  const runs = [{
+    id: "EX1", automationId: "AU1", trigger: "manual", occurrence: null, state: "skipped",
+    result: null, why: "Wednesday isn't one of the days this runs on", error: null,
+    on: "2026-09-16", missed: null, at: "2026-09-16T10:00:00Z", finishedAt: "2026-09-16T10:00:01Z",
+    steps: ONE.steps,
+    outcomes: [
+      { id: "s1", type: "weekday", outcome: "skipped", why: "Wednesday isn't one of the days this runs on" },
+      { id: "s2", type: "note", outcome: "skipped", why: "an earlier condition didn't match, so this one didn't run" },
+    ],
+  }];
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: runs });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /ag-chip-skipped/);
+  assert.match(html, /Skipped/);
+  // ⚠ NOTHING ANYWHERE READS AS A FAILURE, which is the requirement stated as a screen.
+  assert.equal(/Failed/.test(html), false, "a skipped run is drawn as a failure");
+  // EVERY STEP HAS A LINE, including the one that never got its turn, and the two say
+  // different things.
+  // THE APOSTROPHE ARRIVES ESCAPED, because `esc()` is the renderer doing its job — so
+  // the needle allows every encoding rather than pinning one. *Assert the property, not
+  // the spelling*, in a case about what a person reads.
+  assert.match(html, /an earlier condition didn(&#39;|&#x27;|&apos;|’|')t match/);
+  // ⚠ COUNTED ON A NEEDLE THAT CANNOT MATCH THE CONTAINER. `ag-run-step` is a prefix of
+  // `ag-run-steps`, so the bare name counted the wrapper as a third step — the recorded
+  // "a needle that can match a longer name cannot prove a class", met in a count.
+  assert.equal((html.match(/class="ag-run-step ag-step-/g) || []).length, 2);
+  // A SECOND PRESS CLOSES IT.
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  assert.equal(w.val("agentAutoRunsFor"), null);
+});
+
+test("⚠ AN EXECUTION ROW THAT DOES NOT CARRY THE THREE OPTIONAL LINES DRAWS NONE OF THEM", async () => {
+  // **REPRODUCED IN A REAL RENDER BEFORE IT WAS FIXED.** The three lines were gated on
+  // `!== null`, which is right for every row `executionRow` builds — it answers all
+  // three as `string | null` — and `undefined !== null` is TRUE, so a row that simply
+  // does not CARRY the keys drew the literal word `undefined` three times, the last of
+  // them in the red error slot. MEASURED: 3 occurrences before, 0 after.
+  //
+  // **NO EXISTING CASE COULD SEE IT, because every fixture here is the real producer's
+  // output** — which is the right way to build a fixture and is exactly why this one is
+  // deliberately NOT. A renderer is where a row of some other shape eventually arrives:
+  // an older Worker, a cached answer, a hand-built row in a future test.
+  const bare = {
+    id: "EX9", automationId: "AU1", trigger: "manual", occurrence: null, state: "done",
+    at: "2026-09-16T10:00:00Z", outcomes: [],
+    // `result`, `why` and `error` are ABSENT — not null.
+  };
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: [bare] });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(/undefined/.test(html), false, `the history drew "undefined": ${html.slice(0, 400)}`);
+  assert.equal(/ag-run-out|ag-run-why|ag-run-err/.test(html), false, "a line was drawn with nothing in it");
+  // THE OBSERVER IS ALIVE: the row itself IS on screen, so the absence above is about
+  // the three optional lines and not about the history failing to draw at all.
+  assert.match(html, /ag-run-top/);
+  assert.match(html, /ag-chip-done/);
+
+  // AND AN EMPTY STRING IS THE SAME ANSWER AS ABSENT — "nothing was said" is one fact,
+  // not three shapes every reader has to remember.
+  await w.ev('agentAutoRuns = ' + JSON.stringify([{ ...bare, result: "", why: "", error: "" }]) + '; renderAgents();');
+  assert.equal(/ag-run-out|ag-run-why|ag-run-err/.test(w.s.document.getElementById("viewAgents").innerHTML), false,
+    "an empty sentence was drawn as a line");
+
+  // THE CONTROL: a row that DOES carry a result draws it, so none of this is a renderer
+  // that has simply stopped drawing the three lines.
+  await w.ev('agentAutoRuns = ' + JSON.stringify([{ ...bare, result: "the note it saved" }]) + '; renderAgents();');
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /the note it saved/);
 });

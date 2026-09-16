@@ -1920,7 +1920,13 @@ function agentAutoFormRead() {
   if (agentAuto === null || agentAutoEditing === null) return;
   const form = document.getElementById('agAutoForm');
   if (!form) return;                                    // the form is not drawn
-  const drawn = (form.getAttribute && form.getAttribute('data-gen')) || '0';
+  // ⚠ **A FORM THAT DECLARES NO GENERATION IS NOT ONE THIS READ MAY TRUST.** `|| '0'`
+  // turned "there is no attribute" into generation zero — which is exactly what a fresh
+  // draft holds — so an element found before the form had ever been drawn passed the
+  // gate and the draft was overwritten with an EMPTY form. Cannot-tell must never read
+  // as a value, and the value it read as was the one that always matches.
+  const drawn = form.getAttribute ? form.getAttribute('data-gen') : null;
+  if (drawn === null) return;                           // nothing has drawn it yet
   if (drawn !== String(autoGen(agentAutoDraft))) return; // it is older than what we hold
   agentAutoDraft = { ...agentAutoValues(), gen: autoGen(agentAutoDraft) };
 }
@@ -2258,6 +2264,15 @@ const AUTO_STATE_WORDS = {
 };
 
 /** One automation's history: what each run did, step by step. */
+/**
+ * Is there a sentence to draw here?
+ *
+ * The one test every optional line in an execution goes through, so `null`, an absent
+ * key and an empty string are one answer — "nothing was said" — rather than three
+ * shapes each reader has to remember.
+ */
+function autoSaid(v) { return typeof v === 'string' && v !== ''; }
+
 function automationRunsHtml() {
   if (agentAutoRunsErr) return '<div class="ag-auto-runs"><div class="ag-err">' + esc(agentAutoRunsErr) + '</div></div>';
   if (agentAutoRuns === null) return '<div class="ag-auto-runs"><div class="ag-auto-none">Loading…</div></div>';
@@ -2272,9 +2287,19 @@ function automationRunsHtml() {
       '</div>' +
       // THE FINAL RESULT, THE REASON IT SKIPPED, OR THE ERROR — one of the three, never
       // two, because an execution ended exactly one way.
-      (r.result !== null ? '<div class="ag-run-out">' + esc(r.result) + '</div>' : '') +
-      (r.why !== null ? '<div class="ag-run-why">' + esc(r.why) + '</div>' : '') +
-      (r.error !== null ? '<div class="ag-run-err">' + esc(r.error) + '</div>' : '') +
+      //
+      // ⚠ **ASKED AS "IS THERE A SENTENCE HERE", NEVER AS `!== null`.** `executionRow`
+      // answers all three as `string | null`, so `!== null` was right for every row this
+      // Worker can send — and `undefined !== null` is TRUE, so a row that simply does not
+      // CARRY the key drew the literal word `undefined`, three times, in the execution
+      // history. **Measured, in a render**: a row with the three keys absent produced
+      // `<div class="ag-run-out">undefined</div>` and two more like it, the last of them in
+      // the red error slot. No unit case saw it because every fixture was the real
+      // producer's output. *Cannot-tell must never read as a value* — and a renderer is
+      // exactly where a row from some other shape eventually arrives.
+      (autoSaid(r.result) ? '<div class="ag-run-out">' + esc(r.result) + '</div>' : '') +
+      (autoSaid(r.why) ? '<div class="ag-run-why">' + esc(r.why) + '</div>' : '') +
+      (autoSaid(r.error) ? '<div class="ag-run-err">' + esc(r.error) + '</div>' : '') +
       (r.state === 'missed' && r.missed
         ? '<div class="ag-run-why">' + esc(String(r.missed)) + ' scheduled run' + (r.missed === 1 ? '' : 's') +
           ' went by while nothing was running them.</div>' : '') +

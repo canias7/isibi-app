@@ -11423,3 +11423,89 @@ describe that run as proving anything in advance.** Schema receipt will come fro
 the actual `shownSteps` capture taken before the call, correctness from the
 independent aggregate against the RPC and the browser, and reporting accuracy from
 the reply you actually get. Your approval for it is still its own decision.
+
+## Automations: one complete one, end to end (2026-09-16)
+
+You asked for trigger → condition → action → saved result, with the real model kept
+for the end. It is built, it runs, and it is **not deployed** — the branch is pushed
+and every number below is from this machine. I have not merged, applied the
+migration or touched a live account.
+
+### What it does
+
+An agent now has an **Automations** section. You make one, name it, give it an
+ordered list of steps, and start it either way:
+
+- **Run now** — a button on the row.
+- **Every day at a time you choose, in a zone you choose.**
+
+Both go through the *same* durable queue the agent runs already use. There is no
+second execution system and no second scheduler: the one-minute cron that recovers
+dropped work gained a second job, in its own `try` block, so a broken schedule can
+never take the recovery down with it.
+
+Two steps this round, and **neither uses the model**:
+
+- **Only on these days** — a condition. If today is not one of the days you picked,
+  the execution stops there and reads **Skipped**, not Failed, and so does every step
+  under it. That was your requirement and it is the wall as well as the word: the
+  stop's reason is one of `done`, `skipped`, `failed`, and each step carries its own.
+- **Save a note to the results** — an action. It writes a line into the automation's
+  results, which is what the history then shows you.
+
+The step format is deliberately open: a step declares its type, whether it is a
+condition or an action, what it is called, what it does, and the fields the form
+should draw for it. Adding an app action, a branch, a wait or an approval later is a
+new declaration rather than a new screen. **The one that will need more than a
+declaration is a WAIT or an APPROVAL**, and I would rather say so now than discover
+it then: a workflow that can pause between steps needs each step's outcome written
+down separately, and today the whole execution is one transaction.
+
+### What you can see
+
+The row says when it next runs. **Runs** opens the history: every execution with its
+state, what it saved or why it skipped, and a line per step. A run you start by hand
+appears immediately and the screen watches it for a few seconds.
+
+### The three things that had to be right about scheduling
+
+1. **A duplicate delivery cannot make a duplicate run.** The key is the local DATE in
+   the automation's own zone, and the database holds one execution per automation per
+   date on a unique index. Two ticks, a redelivered tick and a hand-run in the same
+   minute all lose the same way. A check in our code would have been a race dressed
+   up as a wall.
+2. **Daylight saving is one function.** 09:00 in London is 08:00Z in summer and
+   09:00Z in winter with nothing about the automation changing. A time inside the
+   spring-forward gap still answers an instant rather than stopping for ever.
+3. **Downtime is not a burst.** If nothing runs for a week, you get ONE record saying
+   the occurrence was missed and how many went by — not seven runs at once. The
+   schedule jumps to the next occurrence after *now*, and there is an hour-long
+   catch-up window for the ordinary "the tick was a few minutes late" case.
+
+### Control
+
+Turning an automation off, or pausing its agent, stops new executions — **and neither
+writes anything at all**, so turning it back on never finds work waiting that nobody
+asked for. An execution already accepted keeps the workflow it was accepted with, so
+editing an automation reaches the next run and never the one in flight. Every route
+takes the account from the signed-in token, and another account's automation reads
+exactly like one that does not exist.
+
+### The defects this round found, all of them by running things
+
+- **The claim never forwarded which executor wanted the work.** The column was right,
+  the database was right, the routing was right, and every automation delivery still
+  answered "no agent" — one hop between them dropped the field. The unit test could
+  not see it because its fake answered the field directly. The real dispatcher found
+  it.
+- **The screen drew zero steps.** A re-render reads the form back first so it cannot
+  eat what you are typing; adding a step then wrote the new list and the read-back
+  immediately replaced it with the old one. The form carries a generation number now.
+- **The execution history drew the word "undefined" three times**, once in the red
+  error slot — found the moment I rendered the screen in a real browser for these
+  screenshots, not by any test.
+- Three more that would have thrown on the first run (a module-level ordering, a
+  function declared in the wrong scope, a foreign key that had to be deferred) and
+  one design correction: the time zone belongs to the automation, not only to its
+  schedule, or "only on Mondays" on a Run-now automation would quietly have meant
+  Monday in UTC.

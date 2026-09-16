@@ -27,6 +27,8 @@ const W = at("worker.mjs");
 const A2 = at("agents.mjs");
 const RN = at("runner.mjs");
 const ST = at("model-standin.mjs");
+const AU = at("automations.mjs");
+const AS = at("automation-store.mjs");
 /**
  * THE TWO FILES OUTSIDE `src/` THAT DECIDE WHETHER A DEPLOYMENT CAN BE IDENTIFIED —
  * the workflow that mints the version id and the script that holds the Worker to it.
@@ -773,6 +775,185 @@ const spec = [
   // ONLY a comment moved.
   m("CONTROL (comment only, agent-deploy.yml)", Y,
     "# ── the version this run may be held to ─", "# ── the version this run may be held to (control) ─", true),
+  // ══════════════════════════════════════════════════════════════════════════
+  // automations.mjs — the second executor
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ⚠ THE ONE THE WHOLE MILESTONE TURNS ON. A condition that does not match is not a
+  // failure, and showing it as one tells a customer their automation is broken when it
+  // did exactly what they asked.
+  m("automations: a condition that does not match reads as FAILED", AU,
+    'outcomes.push({ id, type, outcome: met ? "ran" : "skipped", why });',
+    'outcomes.push({ id, type, outcome: met ? "ran" : "failed", why });'),
+  m("automations: a condition that does not match no longer stops the workflow", AU,
+    'if (!met) stopped = { kind: "skipped", at: id, why };',
+    'if (!met) stopped = null;'),
+  // A SKIP AND A FAILURE AFTER IT SAY THE SAME THING, so a reader cannot tell "an
+  // earlier condition said not today" from "an earlier step broke".
+  m("automations: the two kinds of skip stop saying different things", AU,
+    `        why: stopped.kind === "failed"
+          ? "an earlier step didn't work, so this one didn't run"
+          : "an earlier condition didn't match, so this one didn't run",`,
+    `        why: "this one didn't run",`),
+  // EVERY STEP GETS AN OUTCOME. A list shorter than the workflow shows a workflow that
+  // stops for no stated reason.
+  m("automations: the steps after a stop get no outcome at all", AU,
+    `    if (stopped) {
+      outcomes.push({`,
+    `    if (stopped) {
+      if (stopped) continue;
+      outcomes.push({`),
+  // ⚠ A CATCH-UP RUN MUST ASK ABOUT THE DAY IT WAS FOR. Reading the clock instead makes
+  // "every Monday" quietly become "most Mondays".
+  m("automations: the occurrence stops beating the clock", AU,
+    "  if (occurrence) {\n    const day = weekdayOf(occurrence);",
+    "  if (false) {\n    const day = weekdayOf(occurrence);"),
+  // NO ZONE MEANS UTC AND SAYS SO. Guessing the Worker's locality invents one.
+  m("automations: no zone guesses the runtime's own locality", AU,
+    'const where = isText(zone) ? zone : "UTC";',
+    "const where = isText(zone) ? zone : new Intl.DateTimeFormat().resolvedOptions().timeZone;"),
+  // A STORED STEP WHOSE TYPE IS GONE MUST FAIL, not be skipped: skipping runs a
+  // DIFFERENT workflow from the one somebody saved and reports it as fine.
+  m("automations: a step type this deployment lacks is skipped instead of failed", AU,
+    `      outcomes.push({ id, type, outcome: "failed", error: \`there is no step called \${type || "(nothing)"} on this deployment\` });
+      stopped = { kind: "failed", at: id, error: \`there is no step called \${type || "(nothing)"} on this deployment\` };`,
+    `      outcomes.push({ id, type, outcome: "skipped", why: "no such step" });`),
+  // ⚠ READ AGAIN AT RUN TIME. These steps came back from a database, so they came from
+  // outside — the same rule the journal follows for its own entries.
+  m("automations: the stored config is trusted rather than read again", AU,
+    "    const readIt = def.read(one);\n    if (readIt?.error) {",
+    "    const readIt = { config: one };\n    if (readIt?.error) {"),
+  // AN IMPOSSIBLE DATE IS NOT A DAY. `Date.UTC(2026, 1, 31)` rolls into March rather
+  // than refusing, so the round trip is the whole check.
+  m("automations: an impossible date is accepted as a day", AU,
+    "  if (d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) return null;",
+    "  void d;"),
+  // THE WEEK'S OWN ORDER, so saving one selection twice stores the same bytes.
+  m("automations: a day selection keeps the ticking order rather than the week's", AU,
+    "    return { config: { days: WEEKDAYS.filter((d) => picked.includes(d)) } };",
+    "    return { config: { days: picked } };"),
+  // REFUSED, NEVER COERCED: `String(["mon"])` is `"mon"`.
+  m("automations: a nested list is coerced into a day", AU,
+    '      if (typeof d !== "string") return { error: "one of the days didn\'t arrive as a day" };',
+    "      void 0;"),
+  m("automations: an empty day list is stored rather than refused", AU,
+    '    if (!days.length) return { error: "pick at least one day, or leave this step out" };',
+    "    void 0;"),
+  // THE ID IS THE POSITION. A caller's own id is a second identity for one thing.
+  m("automations: readWorkflow keeps a caller-supplied step id", AU,
+    "    steps.push(Object.freeze({ id: `s${at}`, type: def.type, ...readIt.config }));",
+    "    steps.push(Object.freeze({ id: one.id ?? `s${at}`, type: def.type, ...readIt.config }));"),
+  // IT REFUSES RATHER THAN SHORTENING.
+  m("automations: a workflow over the cap is shortened instead of refused", AU,
+    "  if (raw.length > max) return { error: `that's more steps than one automation can hold (${max})` };",
+    "  if (raw.length > max) raw = raw.slice(0, max);"),
+  // THE DAY THIS EXECUTION ASKED ABOUT RIDES ON THE STOP, or "skipped because it isn't
+  // Monday" is unanswerable after the fact.
+  m("automations: the stop forgets which day it asked about", AU,
+    "  return { outcomes, stop: { ...stop, on: ctx.date, weekday: ctx.weekday, zone: ctx.zone } };",
+    "  return { outcomes, stop };"),
+  // A STEP'S OWN THROW IS ITS OUTCOME, and `runWorkflow` never throws.
+  m("automations: a step that throws escapes the executor", AU,
+    "    } catch (e) {\n      const error = String(e?.message ?? e);\n      outcomes.push({ id, type, outcome: \"failed\", error });",
+    "    } catch (e) {\n      throw e;\n      // eslint-disable-next-line no-unreachable\n      const error = String(e?.message ?? e);\n      outcomes.push({ id, type, outcome: \"failed\", error });"),
+  // `fields` IS COMPELLED, so a step type cannot exist without saying what it is
+  // configured with — which is what the site's census and the form both read.
+  m("automations: a step may be declared with no fields", AU,
+    "  if (!Array.isArray(fields) || !fields.length) throw new TypeError(`defineStep(${type}): fields must say what this step is configured with`);",
+    "  void fields;"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // automation-store.mjs — the three things the engine says about one
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ⚠ THE PROFILE NAMES THE RELATION AND DIFFERS BY DIRECTION. PostgREST IGNORES the
+  // read header on a write, which is how a DELETE in the other product once resolved
+  // against `public` and could never have worked.
+  m("automation-store: every request sends the READ profile header", AS,
+    '    [write ? "content-profile" : "accept-profile"]: schema,',
+    '    "accept-profile": schema,'),
+  // THE TENANT IS IN THE FILTER, as the second wall behind the claim.
+  m("automation-store: the execution is read without its tenant", AS,
+    "        `automation_runs?id=eq.${encodeURIComponent(runId)}&tenant_id=eq.${encodeURIComponent(tenant)}`",
+    "        `automation_runs?id=eq.${encodeURIComponent(runId)}`"),
+  // REFUSED RATHER THAN COERCED: an unreadable `steps` is a row this process cannot
+  // execute, and running it as empty reports a workflow nobody wrote as succeeded.
+  m("automation-store: an unreadable steps list reads as an empty workflow", AS,
+    "        steps: Array.isArray(row.steps) ? row.steps : null,",
+    "        steps: Array.isArray(row.steps) ? row.steps : [],"),
+  m("automation-store: a claim with no tenant is allowed to read", AS,
+    '      if (!isText(tenant)) throw new TypeError("read: tenant must be a non-empty string, from the claim");',
+    "      void tenant;"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // work.mjs and runner.mjs — the hop, and the routing
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ⚠ THE HOP THAT REALLY SHIPPED DEAD. Every automation delivery came back `no-agent`
+  // with the branch, the column and the migration all correct.
+  m("work: the claim's executor is not forwarded to the runner", W ? at("work.mjs") : at("work.mjs"),
+    '        executor: isText(answer.executor) ? answer.executor.trim() : "agent",',
+    "        // the field is dropped"),
+  m("work: an unreadable executor fails OPEN to the automation path", at("work.mjs"),
+    '        executor: isText(answer.executor) ? answer.executor.trim() : "agent",',
+    '        executor: isText(answer.executor) ? answer.executor.trim() : "automation",'),
+  // THE ROUTING ITSELF, and it is asked BEFORE the agent registry is consulted.
+  m("runner: an automation delivery falls through to the agent loop", RN,
+    '      if (claim.executor === "automation") {\n        return await deliverAutomation();',
+    '      if (false) {\n        return await deliverAutomation();'),
+  m("runner: EVERY delivery is routed to the workflow", RN,
+    '      if (claim.executor === "automation") {\n        return await deliverAutomation();',
+    '      if (true) {\n        return await deliverAutomation();'),
+  // A DEPLOYMENT WITH NO EXECUTOR SAYS SO rather than routing into the agent loop.
+  m("runner: a deployment with no automation executor is silent about it", RN,
+    '      return await finish(true, "no-executor", "this deployment has no automation executor");',
+    '      return await finish(true, "ran", null);'),
+  // THE FINISHED TRANSACTION HAS ALREADY RELEASED. A second release clears a claim the
+  // database has already cleared and lies in the log about who let go of what.
+  m("runner: an automation releases twice", RN,
+    "      stopBeating();\n      onEvent({ at: \"done\", runId, why: \"ran\", done: true, reason: stop?.reason ?? null });\n      return { ran: true, why: \"ran\", runId, stop, error: null };",
+    "      return await finish(true, \"ran\", null, stop);"),
+  // A FENCED REFUSAL MEANS THE CLAIM IS GONE: the flag is corrected from the one source
+  // that knows, and nothing is released, because somebody else holds it.
+  m("runner: an automation's fenced refusal releases the run anyway", RN,
+    '        if (CLAIM_GONE.includes(why)) {\n          held = false; lostBecause = "lease-lost";\n          return await finish(false, "lease-lost", why);',
+    '        if (CLAIM_GONE.includes(why)) {\n          return await finish(true, "lease-lost", why);'),
+  // AN EXECUTION RECORD THAT IS GONE COMES OFF THE QUEUE — another delivery cannot help.
+  m("runner: a missing execution record is retried for ever", RN,
+    '      return await finish(true, "unreadable", "this run has no automation execution record");',
+    '      return await finish(false, "unreadable", "this run has no automation execution record");'),
+  // THE CONFIGURATION IS THE SNAPSHOT'S. Reading the definition instead would make an
+  // in-flight execution editable from outside.
+  m("runner: the workflow is read live instead of from the snapshot", RN,
+    "        steps: exec.steps,\n        zone: exec.zone,\n        occurrence: exec.occurrence,",
+    "        steps: exec.steps,\n        zone: null,\n        occurrence: null,"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // worker.mjs — the scheduler on the cron
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ⚠ THE TWO JOBS ARE TWO BLOCKS. A scheduler that threw would take down the sweeper,
+  // which is the recovery for every dropped run in the deployment.
+  m("worker: the schedule's failure takes the sweeper down with it", W,
+    "    let automations;\n    try { automations = buildAutomations(env); }",
+    "    let automations;\n    if (true) { automations = buildAutomations(env); }"),
+  m("worker: the cron no longer files what is due at all", W,
+    "      const filed = await automations.tick({\n        catchupS: AUTOMATION_CATCHUP_S, limit: AUTOMATION_TICK_LIMIT,\n      });",
+    "      const filed = [];"),
+  // ONLY A FILED EXECUTION HAS SOMETHING TO DELIVER. A missed or refused occurrence is
+  // already finished and has no work row, so ringing for one is a doorbell for a run
+  // nothing will ever claim.
+  m("worker: the cron rings for occurrences that were never queued", W,
+    '        if (action === "filed" && isText(runId)) {',
+    "        if (isText(runId)) {"),
+  // THE CATCH-UP WINDOW IS THE DECISION about what happens after downtime.
+  m("worker: the catch-up window becomes unbounded, so downtime is a burst", W,
+    "export const AUTOMATION_CATCHUP_S = 3600;",
+    "export const AUTOMATION_CATCHUP_S = 3600 * 24 * 3650;"),
+  m("worker: the runner is built with no automation executor", W,
+    "    work, store, automations, send, agents: AGENTS, now,",
+    "    work, store, send, agents: AGENTS, now,"),
+
 ];
 
 // THE PRE-CHECK. Every anchor must occur EXACTLY once in its file, and the

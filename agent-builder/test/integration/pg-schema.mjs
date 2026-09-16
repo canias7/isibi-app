@@ -1858,6 +1858,270 @@ try {
   check("...where the other tenant sees none of them",
     psql(`select count(*) from agent.agent_overview where status='paused';`,
          { role: "authenticated", claims: '{"tenant_id":"t2"}' }).out === "0");
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // AUTOMATIONS: ONE EXECUTION PER OCCURRENCE, AND WHAT A REFUSAL LEAVES BEHIND
+  //
+  // The once-a-day guarantee is a PARTIAL UNIQUE INDEX, the snapshot is a column
+  // written at acceptance, the catch-up window is arithmetic over local dates, and
+  // the pause is a join. Not one of those is observable from a fake: the index needs
+  // a real conflict, the local-date arithmetic needs a real time zone database, and
+  // `security_invoker` on a view is only a fact about a real planner.
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── automations: what an account configures ──");
+  const AG_ON = "aa000000-0000-0000-0000-0000000000a1";
+  const AG_OFF = "aa000000-0000-0000-0000-0000000000a2";
+  const AG_T2 = "aa000000-0000-0000-0000-0000000000a3";
+  const AU1 = "bb000000-0000-0000-0000-0000000000b1";
+  const AU2 = "bb000000-0000-0000-0000-0000000000b2";
+  const AU_T2 = "bb000000-0000-0000-0000-0000000000b3";
+  const STEPS = `'[{"id":"s1","type":"weekday","days":["mon"]},{"id":"s2","type":"note","text":"open up"}]'::jsonb`;
+  allowed("an agent to hang automations on",
+    `insert into agent.agents (id, tenant_id, name, instructions, status) values
+       ('${AG_ON}','t1','Shop','help','active'),
+       ('${AG_OFF}','t1','Resting','help','paused'),
+       ('${AG_T2}','t2','Theirs','help','active');`, asOwner);
+
+  const created = jget(`select agent.create_automation('t1','${AG_ON}','${AU1}','Daily note',
+    true, 'daily', '09:00'::time, 'Europe/London', ${STEPS}, 20)::text;`);
+  check("an automation is created and answers its own id", /"ok"\s*:\s*true/.test(created) && created.includes(AU1), created);
+  // THE FIRST INSTANT IS COMPUTED AT CREATION, so a schedule is due without anything
+  // having to notice it later.
+  check("...with its first occurrence already computed",
+    jget(`select next_run_at is not null from agent.automations where id='${AU1}';`) === "t");
+
+  refused("a daily schedule with no time is not a schedule",
+    `insert into agent.automations (id, tenant_id, agent_id, name, schedule, zone, next_run_at)
+       values (gen_random_uuid(),'t1','${AG_ON}','x','daily','Europe/London', now());`,
+    "automations_schedule_is_whole", asOwner);
+  refused("...and a manual one carrying a time is a control nothing reads",
+    `insert into agent.automations (id, tenant_id, agent_id, name, schedule, at_local)
+       values (gen_random_uuid(),'t1','${AG_ON}','x','manual','09:00'::time);`,
+    "automations_schedule_is_whole", asOwner);
+  refused("a stored time is whole minutes",
+    `insert into agent.automations (id, tenant_id, agent_id, name, schedule, at_local, zone, next_run_at)
+       values (gen_random_uuid(),'t1','${AG_ON}','x','daily','09:00:30'::time,'UTC', now());`,
+    "automations_at_is_whole_minutes", asOwner);
+  refused("a workflow longer than the cap is refused by the COLUMN",
+    `insert into agent.automations (id, tenant_id, agent_id, name, schedule, steps)
+       values (gen_random_uuid(),'t1','${AG_ON}','x','manual',
+               (select jsonb_agg(jsonb_build_object('type','note','text','x')) from generate_series(1,21)));`,
+    "automations_steps_shaped", asOwner);
+  allowed("THE CONTROL: a manual automation with no time and a workflow at the cap",
+    `insert into agent.automations (id, tenant_id, agent_id, name, schedule, steps)
+       values ('${AU2}','t1','${AG_ON}','Run on demand','manual',
+               (select jsonb_agg(jsonb_build_object('type','note','text','x')) from generate_series(1,20)));`, asOwner);
+
+  // THE CEILING IS THE CALLER'S, and it counts what this account already holds.
+  const overCap = jget(`select agent.create_automation('t1','${AG_ON}',gen_random_uuid(),'One too many',
+    true,'manual',null,null,'[]'::jsonb, 2)::text;`);
+  check("the automation ceiling is enforced where the row is written", /"error"\s*:\s*"too-many"/.test(overCap), overCap);
+
+  console.log("\n── automations: one execution per occurrence ──");
+  const R_MAN1 = "cc000000-0000-0000-0000-0000000000c1";
+  const R_MAN2 = "cc000000-0000-0000-0000-0000000000c2";
+  const R_OCC1 = "cc000000-0000-0000-0000-0000000000c3";
+  const R_OCC2 = "cc000000-0000-0000-0000-0000000000c4";
+  const R_OCC3 = "cc000000-0000-0000-0000-0000000000c5";
+
+  const man1 = jget(`select agent.accept_automation_run('t1','${AU1}','${R_MAN1}','manual',null)::text;`);
+  check("a manual run is accepted", /"ok"\s*:\s*true/.test(man1) && /"repeat"\s*:\s*false/.test(man1), man1);
+  check("...and it made a run", jget(`select count(*) from agent.runs where id='${R_MAN1}';`) === "1");
+  // ⚠ **THE EXECUTOR IS SET IN THE SAME TRANSACTION AS THE WORK ROW**, so there is no
+  // instant at which a consumer could claim this row and route it to the agent loop.
+  check("...and the work row says which executor wants it",
+    jget(`select executor from agent.run_work where run_id='${R_MAN1}';`) === "automation");
+  check("...and the journal's first entry names the automation",
+    jget(`select body->>'automation' from agent.run_entries where run_id='${R_MAN1}' and seq=0;`) === AU1);
+  // AND THE COLUMN ADMITS THOSE TWO AND NOTHING ELSE: an executor this deployment has
+  // no code for would be a work row nothing can ever run, sitting claimable for ever.
+  refused("the executor column admits only the executors that exist",
+    `update agent.run_work set executor='whatever' where run_id='${R_MAN1}';`,
+    "run_work_executor_known", asOwner);
+  // AND THE CLAIM ANSWERS IT — the one statement that says whose the work is.
+  const claimed = jget(`select agent.claim_run('${R_MAN1}','w-auto',90)::text;`);
+  check("the claim carries the executor, in the statement that says whose the work is",
+    /"executor"\s*:\s*"automation"/.test(claimed), claimed);
+
+  // A MANUAL RUN HAS NO OCCURRENCE, so the once-a-day index does not apply to it: two
+  // presses of Run now are two executions, which is what the button means.
+  const man2 = jget(`select agent.accept_automation_run('t1','${AU1}','${R_MAN2}','manual',null)::text;`);
+  check("a second manual run is its own execution", /"repeat"\s*:\s*false/.test(man2), man2);
+  check("...so the partial index really is partial",
+    jget(`select count(*) from agent.automation_runs where automation_id='${AU1}' and occurrence is null;`) === "2");
+
+  const occ1 = jget(`select agent.accept_automation_run('t1','${AU1}','${R_OCC1}','schedule','2026-09-21'::date)::text;`);
+  check("a scheduled occurrence is accepted once", /"repeat"\s*:\s*false/.test(occ1), occ1);
+  // ⚠ **THE DUPLICATE LOSES IN THE DATABASE.** A second tick, a redelivered tick and a
+  // hand-run of the same minute all arrive here, and every one of them loses on one
+  // index with its insert a no-op — not on a check in the scheduler, which would be a
+  // race wearing a wall's clothes.
+  const occDup = jget(`select agent.accept_automation_run('t1','${AU1}','${R_OCC2}','schedule','2026-09-21'::date)::text;`);
+  check("...and a second accept for the SAME occurrence is a repeat", /"repeat"\s*:\s*true/.test(occDup), occDup);
+  check("...answering the run id that was really filed", occDup.includes(R_OCC1), occDup);
+  check("...and the id it would have used was never written",
+    jget(`select count(*) from agent.runs where id='${R_OCC2}';`) === "0");
+  check("...and no second work row was made",
+    jget(`select count(*) from agent.run_work where run_id='${R_OCC2}';`) === "0");
+  check("...leaving exactly one execution for that day",
+    jget(`select count(*) from agent.automation_runs where automation_id='${AU1}' and occurrence='2026-09-21';`) === "1");
+  // THE CONTROL: the NEXT day is a different occurrence and is accepted, so the
+  // refusal above is about the occurrence and not about the automation being spent.
+  const occNext = jget(`select agent.accept_automation_run('t1','${AU1}','${R_OCC3}','schedule','2026-09-22'::date)::text;`);
+  check("THE CONTROL: the next day is a new execution", /"repeat"\s*:\s*false/.test(occNext), occNext);
+
+  refused("a scheduled execution without an occurrence is a row the guarantee cannot see",
+    `insert into agent.automation_runs (id, automation_id, tenant_id, trigger, occurrence, steps)
+       values ('${"dd000000-0000-0000-0000-0000000000d1"}','${AU1}','t1','schedule',null,'[]'::jsonb);`,
+    "automation_runs_occurrence_matches_trigger", asOwner);
+
+  // ⚠ **THE FOREIGN KEY IS DEFERRED, NOT ABSENT — and that distinction is the whole
+  // reason `accept_automation_run` can probe the occurrence BEFORE it makes the run.**
+  // A deferred constraint that had been dropped instead would let an execution point at
+  // nothing for ever, so it is checked at COMMIT rather than not at all.
+  const orphan = psqlSession([
+    `insert into agent.automation_runs (id, automation_id, tenant_id, trigger, occurrence, steps)
+       values ('${"dd000000-0000-0000-0000-0000000000d2"}','${AU1}','t1','schedule','2030-01-01'::date,'[]'::jsonb);`,
+  ], asOwner);
+  check("an execution naming no run is refused at COMMIT — the FK is deferred, not gone",
+    !orphan.ok && /automation_runs_id_fkey|foreign key/i.test(orphan.err), orphan.err.split("\n")[0]);
+
+  console.log("\n── automations: the configuration is the one recorded at acceptance ──");
+  // **AN EDIT REACHES THE NEXT EXECUTION AND NEVER THIS ONE.** The steps are copied into
+  // the execution when it is accepted, which is what makes "already-accepted work keeps
+  // its recorded workflow" a property of the schema rather than of a convention.
+  const edited = jget(`select agent.update_automation('t1','${AU1}','Renamed', true, 'daily','09:00'::time,'Europe/London',
+    '[{"id":"s1","type":"note","text":"CHANGED"}]'::jsonb)::text;`);
+  check("the automation is edited", /"ok"\s*:\s*true/.test(edited), edited);
+  check("...and the execution accepted before the edit still holds what it was given",
+    jget(`select steps::text from agent.automation_runs where id='${R_OCC1}';`).includes("open up"));
+  check("...where an execution accepted AFTER it holds the new configuration",
+    jget(`select agent.accept_automation_run('t1','${AU1}','${"cc000000-0000-0000-0000-0000000000c6"}','schedule','2026-09-23'::date)::text;`)
+    !== "" && jget(`select steps::text from agent.automation_runs where occurrence='2026-09-23';`).includes("CHANGED"));
+
+  console.log("\n── automations: a refusal leaves the world exactly as it was ──");
+  // ⚠ NOTHING IS WRITTEN ON EITHER REFUSAL — not the execution, not a run, not a work
+  // row — or turning something back on would find work nobody asked for waiting.
+  const AU_OFF = "bb000000-0000-0000-0000-0000000000b4";
+  const AU_PAUSED = "bb000000-0000-0000-0000-0000000000b5";
+  allowed("a disabled automation, and one on a paused agent",
+    `insert into agent.automations (id, tenant_id, agent_id, name, enabled, schedule) values
+       ('${AU_OFF}','t1','${AG_ON}','Off', false, 'manual'),
+       ('${AU_PAUSED}','t1','${AG_OFF}','On a resting agent', true, 'manual');`, asOwner);
+  for (const [what, id, reason] of [["disabled", AU_OFF, "disabled"], ["on a paused agent", AU_PAUSED, "paused"]]) {
+    const runId = `ee000000-0000-0000-0000-00000000${reason === "disabled" ? "e001" : "e002"}`;
+    const answer = jget(`select agent.accept_automation_run('t1','${id}','${runId}','manual',null)::text;`);
+    check(`an automation ${what} refuses, by name`, new RegExp(`"error"\\s*:\\s*"${reason}"`).test(answer), answer);
+    check(`...and wrote no execution`, jget(`select count(*) from agent.automation_runs where id='${runId}';`) === "0");
+    check(`...no run`, jget(`select count(*) from agent.runs where id='${runId}';`) === "0");
+    check(`...and nothing on the queue`, jget(`select count(*) from agent.run_work where run_id='${runId}';`) === "0");
+  }
+  // OWNERSHIP IS ENFORCED WHERE THE WRITE HAPPENS, and another account's automation
+  // reads the same as one that does not exist.
+  allowed("an automation belonging to the other account",
+    `insert into agent.automations (id, tenant_id, agent_id, name, schedule)
+       values ('${AU_T2}','t2','${AG_T2}','Theirs','manual');`, asOwner);
+  // ⚠ NAMED `autoStranger` RATHER THAN `stranger`: this file already has one, and a
+  // re-anchor that lands in a scope it did not write makes `node --test` report the
+  // WHOLE file as one failing test — the recorded shape, met while writing this block.
+  const autoStranger = jget(`select agent.accept_automation_run('t1','${AU_T2}','${"ee000000-0000-0000-0000-0000000000e3"}','manual',null)::text;`);
+  check("a stranger cannot start another account's automation", /"error"\s*:\s*"no-automation"/.test(autoStranger), autoStranger);
+  check("...and cannot tell it from one that is not there",
+    /"error"\s*:\s*"no-automation"/.test(
+      jget(`select agent.accept_automation_run('t1','${"bb000000-0000-0000-0000-00000000ffff"}','${"ee000000-0000-0000-0000-0000000000e4"}','manual',null)::text;`)));
+
+  console.log("\n── automations: finishing is fenced, like every other write ──");
+  const tokenOf = (id) => `(select claim_token from agent.run_work where run_id='${id}')`;
+  const wrongFinish = jget(`select agent.finish_automation_run('${R_MAN1}','w-auto',
+    '00000000-0000-0000-0000-000000000000'::uuid, '[]'::jsonb, '{"reason":"done"}'::jsonb)::text;`);
+  check("a finish under the wrong token is refused", /"ok"\s*:\s*false/.test(wrongFinish), wrongFinish);
+  check("...and wrote no outcomes",
+    jget(`select outcomes::text from agent.automation_runs where id='${R_MAN1}';`) === "[]");
+  check("...and left the run running",
+    jget(`select status from agent.runs where id='${R_MAN1}';`) === "running");
+  const rightFinish = jget(`select agent.finish_automation_run('${R_MAN1}','w-auto', ${tokenOf(R_MAN1)},
+    '[{"id":"s1","outcome":"ran"}]'::jsonb, '{"reason":"done","result":"open up"}'::jsonb)::text;`);
+  check("THE CONTROL: the holder's own token finishes it", /"ok"\s*:\s*true/.test(rightFinish), rightFinish);
+  check("...writing the outcomes",
+    jget(`select outcomes::text from agent.automation_runs where id='${R_MAN1}';`).includes('"ran"'));
+  check("...stopping the run through its own journal",
+    jget(`select status from agent.runs where id='${R_MAN1}';`) === "stopped");
+  check("...with the result readable off the run, not copied into the execution",
+    jget(`select stop->>'result' from agent.runs where id='${R_MAN1}';`) === "open up");
+  check("...and taking the work off the queue",
+    jget(`select done_at is not null from agent.run_work where run_id='${R_MAN1}';`) === "t");
+  check("...and the execution has no status column of its own to disagree with it",
+    jget(`select count(*) from information_schema.columns
+           where table_schema='agent' and table_name='automation_runs'
+             and column_name in ('status','result','error');`) === "0");
+
+  console.log("\n── automations: the schedule, downtime, and daylight saving ──");
+  // THE TWO MEASURED CASES. A local time either does not exist on the spring day or
+  // happens twice on the autumn one, and both are properties of a real time zone
+  // database rather than of arithmetic anybody can reason out.
+  check("a daily 09:00 in London lands at 08:00Z in summer",
+    jget(`select to_char(agent.automation_next_at('09:00'::time,'Europe/London','2026-06-01 10:00+00'::timestamptz)
+            at time zone 'UTC','YYYY-MM-DD HH24:MI');`) === "2026-06-02 08:00");
+  check("...and at 09:00Z in winter, without the row changing",
+    jget(`select to_char(agent.automation_next_at('09:00'::time,'Europe/London','2026-12-01 10:00+00'::timestamptz)
+            at time zone 'UTC','YYYY-MM-DD HH24:MI');`) === "2026-12-02 09:00");
+  // A LOCAL TIME THAT DOES NOT EXIST still has to answer an instant, or the spring
+  // forward would stop an automation for ever.
+  check("a local time inside the spring-forward gap still answers an instant",
+    jget(`select agent.automation_next_at('01:30'::time,'Europe/London','2027-03-27 12:00+00'::timestamptz) is not null;`) === "t");
+
+  const AU_DUE = "bb000000-0000-0000-0000-0000000000b6";
+  const AU_STALE = "bb000000-0000-0000-0000-0000000000b7";
+  allowed("one automation due now and one a week overdue",
+    `insert into agent.automations (id, tenant_id, agent_id, name, enabled, schedule, at_local, zone, next_run_at) values
+       ('${AU_DUE}','t1','${AG_ON}','Due', true,'daily','09:00'::time,'UTC', now() - interval '1 minute'),
+       ('${AU_STALE}','t1','${AG_ON}','Stale', true,'daily','09:00'::time,'UTC', now() - interval '7 days');`, asOwner);
+  const ticked = jget(`select coalesce(jsonb_agg(t), '[]'::jsonb)::text from agent.tick_automations(3600, 25) t;`);
+  check("the tick files what is fresh", /"action"\s*:\s*"filed"/.test(ticked), ticked);
+  // ⚠ **DOWNTIME IS NOT A BURST.** A week away produces ONE record saying how many
+  // occurrences went by — not seven executions on a customer's schedule.
+  check("...and records what is stale as MISSED rather than running it",
+    /"action"\s*:\s*"missed"/.test(ticked), ticked);
+  check("...counting the occurrences that went by, in LOCAL DATES",
+    /"occurrences"\s*:\s*[2-9]/.test(ticked), ticked);
+  check("...leaving exactly one record for the week, not one per day",
+    jget(`select count(*) from agent.automation_runs where automation_id='${AU_STALE}';`) === "1");
+  check("...with no work row, because nothing is going to run it",
+    jget(`select count(*) from agent.run_work w join agent.automation_runs r on r.id = w.run_id
+           where r.automation_id='${AU_STALE}';`) === "0");
+  check("...and the missed record is finished, so the history shows it",
+    jget(`select finished_at is not null from agent.automation_runs where automation_id='${AU_STALE}';`) === "t");
+  // BOTH ROWS ADVANCE PAST WHAT WAS HANDLED, which is what stops the next tick
+  // filing the same day again.
+  check("every automation the tick touched is advanced into the future",
+    jget(`select count(*) from agent.automations where id in ('${AU_DUE}','${AU_STALE}') and next_run_at > now();`) === "2");
+  check("...so a second tick a moment later finds nothing",
+    jget(`select count(*) from agent.tick_automations(3600, 25);`) === "0");
+
+  console.log("\n── automations: an account reads its own, through an invoker view ──");
+  // `security_invoker` IS THE WHOLE SAFETY ARGUMENT for a view over two RLS tables:
+  // without it the view runs as its OWNER and is a hole through both policies.
+  check("the history view is security_invoker",
+    jget(`select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+           where n.nspname='agent' and c.relname='automation_history'
+             and c.reloptions::text like '%security_invoker=%true%';`) === "1");
+  const mineAutos = jget(`select coalesce(string_agg(id::text, ',' order by id),'') from agent.automations where tenant_id='t1';`);
+  check("the observer is alive: t1 really has automations to see", mineAutos.length > 0, mineAutos);
+  check("...and a tenant reads exactly its own",
+    psql(`select coalesce(string_agg(id::text, ',' order by id),'') from agent.automations;`, claimT1).out === mineAutos);
+  check("...where the other account sees none of them",
+    psql(`select count(*) from agent.automations where tenant_id='t1';`, claimT2).out === "0");
+  check("an account reads its own execution history through the view",
+    Number(psql(`select count(*) from agent.automation_history;`, claimT1).out) > 0);
+  check("...and none of the other account's",
+    psql(`select count(*) from agent.automation_history where tenant_id='t1';`, claimT2).out === "0");
+  // A CUSTOMER MAY READ AND NEVER WRITE. The executions are the platform's record of
+  // what ran; an account that could edit one could rewrite its own history.
+  refused("an account cannot write an execution of its own",
+    `insert into agent.automation_runs (id, automation_id, tenant_id, trigger, steps)
+       values (gen_random_uuid(),'${AU1}','t1','manual','[]'::jsonb);`, "denied", claimT1);
+  refused("...nor delete one", `delete from agent.automation_runs where id='${R_MAN1}';`, "denied", claimT1);
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

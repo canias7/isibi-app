@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import worker, {
   SETTINGS, OPTIONAL, SENSITIVE, MODELS, SCHEMA, QUEUE_BINDING, SWEEP_GRACE_S, SWEEP_LIMIT,
+  AUTOMATION_CATCHUP_S, AUTOMATION_TICK_LIMIT,
   missingSettings, buildApi, buildRunner,
 } from "../src/worker.mjs";
 import { AGENTS } from "../src/agents.mjs";
@@ -319,6 +320,192 @@ test("A SWEEPER WITH NOWHERE TO RING DOES NOT EVEN LOOK FOR WORK", async () => {
     await worker.scheduled({}, env, ctx);
     assert.ok(rest.fetch.calls.filter((c) => String(c.url).includes("sweep_run_work")).length > before,
       "the sweeper never looks for work at all");
+  });
+});
+
+// ── the cron's second job: the schedule ──────────────────────────────────────
+/**
+ * THE AUTOMATION HALF OF THE CRON, driven through the REAL `worker.scheduled` and
+ * `worker.queue`.
+ *
+ * ⚠ **THESE EXIST BECAUSE A SWEEP SAID SO.** Four breakages survived with every module
+ * correct — the cron filing nothing, ringing for occurrences that were never queued,
+ * an unbounded catch-up window, and a runner built with no automation executor — and
+ * every one of them lives in `scheduled`, which nothing in this directory drove. *A
+ * wall nobody can drive is a wall nobody is guarding*, in the handler that decides
+ * what happens to a customer's schedule after downtime.
+ */
+const AUTO = "a1", AGENT = "g1", TENANT = "t1";
+const seedAutomation = (rest, { over = {}, status = "active" } = {}) => {
+  rest.agents.set(AGENT, { id: AGENT, tenant_id: TENANT, status });
+  const row = {
+    id: AUTO, tenant_id: TENANT, agent_id: AGENT, name: "Daily note",
+    enabled: true, schedule: "daily", at_local: "09:00", zone: "Europe/London",
+    steps: [{ id: "s1", type: "note", text: "the shop is open" }],
+    next_run_at: Date.now() - 60_000,          // a minute overdue
+    occurrence_for: "2026-09-21",              // a Monday
+    ...over,
+  };
+  rest.autos.set(row.id, row);
+  return row;
+};
+
+test("⚠ THE WHOLE SCHEDULED PATH: the cron files what is due, rings it, and the delivery runs the workflow", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest);
+
+    await worker.scheduled({}, env, ctx);
+
+    // ONE DOORBELL, CARRYING A RUN ID AND NOTHING ELSE — the same message shape the
+    // HTTP door sends, because it is the same queue and the same consumer.
+    assert.equal(env[QUEUE_BINDING].sent.length, 1, `the cron rang ${env[QUEUE_BINDING].sent.length} times`);
+    const { runId } = env[QUEUE_BINDING].sent[0];
+    assert.deepEqual(Object.keys(env[QUEUE_BINDING].sent[0]), ["runId"]);
+    assert.ok(rest.execs.has(runId), "nothing was filed for the occurrence");
+    assert.equal(rest.execs.get(runId).occurrence, "2026-09-21");
+    // THE SCHEDULE ADVANCED PAST WHAT IT HANDLED, so a second tick finds nothing.
+    assert.ok(rest.autos.get(AUTO).next_run_at > Date.now(), "the automation was left due");
+
+    // Nothing has executed yet: the row is durable and the work is on the queue.
+    assert.equal(rest.execs.get(runId).finished_at, null);
+    assert.deepEqual([...rest.entries.get(runId).values()].map((e) => e.kind), ["started"]);
+
+    // ── the delivery ─────────────────────────────────────────────────────────
+    // ⚠ THIS IS WHAT PROVES `buildRunner` WAS GIVEN AN AUTOMATION EXECUTOR. Without
+    // one the delivery answers `no-executor`, takes the work off the queue and writes
+    // no outcomes — which reads, from the queue's side alone, exactly like success.
+    const batch = batchOf(env[QUEUE_BINDING].sent);
+    await worker.queue(batch, env, ctx);
+    assert.deepEqual(batch.acked, [0]);
+
+    const exec = rest.execs.get(runId);
+    assert.notEqual(exec.finished_at, null, "the execution was never finished");
+    assert.deepEqual(exec.outcomes.map((o) => o.outcome), ["ran"], JSON.stringify(exec.outcomes));
+    assert.equal(rest.runs.get(runId).status, "stopped");
+    assert.equal(rest.runs.get(runId).stop.reason, "done");
+    assert.equal(rest.runs.get(runId).stop.result, "the shop is open",
+      "the saved note is the execution's result");
+    assert.notEqual(rest.work.get(runId).done_at, null, "finished work was left on the queue");
+  });
+});
+
+test("⚠ an occurrence that was ALREADY filed is not rung a second time", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest);
+    await worker.scheduled({}, env, ctx);
+    assert.equal(env[QUEUE_BINDING].sent.length, 1);
+    const first = env[QUEUE_BINDING].sent[0].runId;
+    // ⚠ THE FIRST DELIVERY IS CONSUMED FIRST, and not for tidiness: an unclaimed work
+    // row is exactly what the sweeper's own job re-offers, so without this the second
+    // tick's assertion would be satisfied by the SWEEPER ringing and say nothing about
+    // the schedule. (Measured — that is how this case failed when it was written.)
+    await worker.queue(batchOf(env[QUEUE_BINDING].sent), env, ctx);
+    assert.notEqual(rest.work.get(first).done_at, null, "the first delivery did not finish");
+    env[QUEUE_BINDING].sent.length = 0;
+
+    // **AN EDIT TO THE TIME OF DAY REWRITES `next_run_at`, AND CAN PUT IT BACK ON A DAY
+    // ALREADY FILED** — which is how `already` happens outside a race, and why the ring
+    // asks what the tick DID rather than merely whether a run id came back.
+    rest.autos.get(AUTO).next_run_at = Date.now() - 60_000;
+    await worker.scheduled({}, env, ctx);
+
+    assert.deepEqual(env[QUEUE_BINDING].sent, [], "a second doorbell for an occurrence already filed");
+    assert.equal([...rest.execs.values()].filter((e) => e.automation_id === AUTO).length, 1,
+      "the duplicate delivery made a second execution");
+    assert.ok(rest.execs.has(first));
+  });
+});
+
+test("⚠ DOWNTIME IS NOT A BURST: a stale occurrence is recorded as missed, never run", async () => {
+  // THE DECISION THIS BOUND CARRIES. Unbounded, a Worker that was away for a week
+  // would come back and run every occurrence it slept through, all at once, on a
+  // customer's schedule. Bounded, each automation gets at most its latest one.
+  assert.ok(AUTOMATION_CATCHUP_S > 0, "there is no catch-up window at all");
+  assert.ok(AUTOMATION_CATCHUP_S <= 24 * 3600,
+    `a catch-up window of ${AUTOMATION_CATCHUP_S}s is longer than a day, so downtime IS a burst`);
+  assert.ok(AUTOMATION_TICK_LIMIT > 0 && AUTOMATION_TICK_LIMIT <= 500);
+
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const stale = Date.now() - (AUTOMATION_CATCHUP_S * 1000 + 60_000);
+    seedAutomation(rest, { over: { next_run_at: stale } });
+
+    await worker.scheduled({}, env, ctx);
+
+    assert.deepEqual(env[QUEUE_BINDING].sent, [], "a missed occurrence was rung");
+    const missed = [...rest.execs.values()].filter((e) => e.automation_id === AUTO);
+    assert.equal(missed.length, 1, "a missed occurrence left no record at all");
+    // RECORDED, NOT SKIPPED. An account that was away and then sees nothing in the
+    // history cannot tell that from an automation that never worked.
+    assert.notEqual(missed[0].finished_at, null);
+    assert.equal(rest.runs.get(missed[0].id).stop.reason, "missed");
+    assert.equal(rest.work.has(missed[0].id), false, "a missed occurrence left work on the queue");
+    assert.ok(rest.autos.get(AUTO).next_run_at > stale, "the schedule never moved past the stale occurrence");
+
+    // THE CONTROL, in the same fixture: a FRESH occurrence on the same automation is
+    // filed and rung — so the refusal above is about the window and not about the
+    // scheduler being dead.
+    rest.autos.get(AUTO).next_run_at = Date.now() - 60_000;
+    rest.autos.get(AUTO).occurrence_for = "2026-09-22";
+    await worker.scheduled({}, env, ctx);
+    assert.equal(env[QUEUE_BINDING].sent.length, 1, "a fresh occurrence was not filed either");
+  });
+});
+
+test("a disabled automation and a paused agent are recorded, and neither is rung", async () => {
+  for (const [name, over] of [["disabled", { enabled: false }], ["paused", {}]]) {
+    await onFakeProject(async (rest) => {
+      const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+      const ctx = { waitUntil() {} };
+      // ⚠ A DISABLED AUTOMATION IS STILL SELECTED BY NOTHING — the tick's own filter
+      // takes it out — so the refusal that matters here is the PAUSE, which the tick
+      // cannot see and `accept_automation_run` answers. Both are driven, because the
+      // two are different sentences to an account and only one of them is in the tick.
+      seedAutomation(rest, { over, status: name === "paused" ? "paused" : "active" });
+      await worker.scheduled({}, env, ctx);
+      assert.deepEqual(env[QUEUE_BINDING].sent, [], `${name}: new work was queued anyway`);
+      assert.equal(rest.work.size, 0, `${name}: a work row was written`);
+      if (name === "paused") {
+        const rec = [...rest.execs.values()];
+        assert.equal(rec.length, 1, "a paused agent's occurrence left no record");
+        assert.equal(rest.runs.get(rec[0].id).stop.reason, "paused");
+      }
+    });
+  }
+});
+
+test("the schedule's failure cannot take the sweeper down, and vice versa", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest);
+    // A ZONE THE TIME ZONE DATABASE NO LONGER CARRIES is the shape that makes the
+    // arithmetic raise. Here it is a tick that throws outright, which is the same
+    // thing from `scheduled`'s side: two jobs, two blocks, neither silencing the other.
+    const token = await signFor(TENANT);
+    await worker.fetch(new Request("https://x/runs", {
+      method: "POST", headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ agent: "support", prompt: "go" }),
+    }), env, ctx);
+    env[QUEUE_BINDING].sent.length = 0;
+    rest.autos.get(AUTO).next_run_at = NaN;            // selected by nothing; the tick still runs
+    const real = rest.fetch;
+    let broke = 0;
+    const patched = async (url, init) => {
+      if (String(url).includes("tick_automations")) { broke += 1; throw new Error("the schedule went"); }
+      return real(url, init);
+    };
+    patched.calls = real.calls;
+    globalThis.fetch = patched;
+    await assert.doesNotReject(() => worker.scheduled({}, env, ctx));
+    assert.equal(broke, 1, "the scheduler never ran, so this proves nothing");
+    // THE SWEEPER STILL DID ITS JOB: the dropped run was offered again.
+    assert.equal(env[QUEUE_BINDING].sent.length, 1, "a broken schedule took the sweeper down with it");
   });
 });
 

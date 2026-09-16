@@ -85,6 +85,14 @@ const mSettings = (label, from, to, control = false) => ({ label, files: [SETTIN
 const mAuthored = mFn("authored_run");
 const mThread = (label, from, to, control = false) =>
   ({ label, files: [lastDefining("create or replace view agent.agent_thread")], from, to, control });
+/**
+ * THE AUTOMATIONS MIGRATION, found by what it defines rather than by its position —
+ * the same rule `lastDefining` exists for. `claim_run` is redefined THERE, so
+ * `mClaim` above already points at this file for anything it touches; these are the
+ * things only this migration has.
+ */
+const AUTOS = lastDefining("create table if not exists agent.automations");
+const mAuto = (label, from, to, control = false) => ({ label, files: [AUTOS], from, to, control });
 
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
@@ -473,6 +481,81 @@ const spec = [
   mSettings("SQL/settings/CONTROL (comment only)",
     "-- AGENT SETTINGS: A STATUS, AND A SELECTION OF TOOLS.",
     "-- Agent settings: a status, and a selection of tools.", true),
+
+  // ── automations: once per occurrence, and what a refusal leaves behind ────
+  //
+  // Every one of these is an edit somebody could really make while tidying: a
+  // `unique` dropped, a deferral removed, a gate turned off, a window widened, an
+  // advance forgotten. Not one is a syntax error — a migration that will not apply
+  // proves nothing.
+  mAuto("⚠ SQL/automations: the once-per-occurrence index stops being unique",
+    "create unique index if not exists automation_runs_one_per_occurrence",
+    "create index if not exists automation_runs_one_per_occurrence"),
+  mAuto("⚠ SQL/automations: the execution's FK stops being DEFERRED, so no accept can probe first",
+    "                            deferrable initially deferred,", "                            ,"),
+  mAuto("SQL/automations: a schedule need not be whole",
+    "  constraint automations_schedule_is_whole check (\n    (schedule = 'manual' and at_local is null and next_run_at is null)",
+    "  constraint automations_schedule_is_whole check (\n    true or (schedule = 'manual' and at_local is null and next_run_at is null)"),
+  mAuto("SQL/automations: a stored time need not be whole minutes",
+    "    at_local is null or (date_part('second', at_local) = 0", "    true or (date_part('second', at_local) = 0"),
+  mAuto("SQL/automations: the workflow cap on the column is lifted",
+    "jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 20",
+    "jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 2000"),
+  mAuto("SQL/automations: an execution's occurrence need not match its trigger",
+    "    (trigger = 'manual'   and occurrence is null)", "    true or (trigger = 'manual'   and occurrence is null)"),
+  mAuto("SQL/automations: the executor column admits an executor nothing can run",
+    "add constraint run_work_executor_known check (executor in ('agent', 'automation'));",
+    "add constraint run_work_executor_known check (executor is not null);"),
+
+  mAuto("⚠ SQL/accept: a DISABLED automation starts work anyway",
+    "    if not v_enabled then", "    if false then"),
+  mAuto("⚠ SQL/accept: a PAUSED agent's automations start work anyway",
+    "    if v_status is distinct from 'active' then", "    if false then"),
+  mAuto("⚠ SQL/accept: the tenant leaves the lookup, so a stranger can start it",
+    "   where a.id = p_automation_id and a.tenant_id = p_tenant;",
+    "   where a.id = p_automation_id;"),
+  mAuto("⚠ SQL/accept: the work row is never told which executor wants it",
+    "  update agent.run_work set executor = 'automation' where run_id = p_run_id;",
+    "  perform 1;"),
+  mAuto("⚠ SQL/accept: a duplicate occurrence is treated as a new execution",
+    "    v_new := v_exec.id is not null;", "    v_new := true;"),
+  mAuto("⚠ SQL/accept: the execution is filed with no configuration, so an edit reaches it",
+    "      (p_run_id, p_automation_id, p_tenant, p_trigger, p_occurrence, v_steps, v_zone)",
+    "      (p_run_id, p_automation_id, p_tenant, p_trigger, p_occurrence, '[]'::jsonb, v_zone)"),
+
+  mAuto("⚠ SQL/tick: the catch-up window becomes unbounded, so downtime IS a burst",
+    "           <= make_interval(secs => greatest(0, coalesce(p_catchup_s, 3600))) then",
+    "           <= make_interval(secs => 3650 * 86400) then"),
+  mAuto("⚠ SQL/tick: the schedule is never advanced, so the same day is filed for ever",
+    "      update agent.automations set next_run_at = v_next where id = r.id;",
+    "      perform 1;"),
+  mAuto("SQL/tick: a week of missed occurrences is counted as one",
+    "        v_total := greatest(1, (v_next at time zone r.zone)::date - v_occ);",
+    "        v_total := 1;"),
+  mAuto("SQL/record: an occurrence recorded unrun is left unfinished, so no history shows it",
+    "     p_missed, now())", "     p_missed, null)"),
+
+  mAuto("⚠ SQL/finish: the outcomes are written even when the fence refused",
+    "  if coalesce((v_answer -> 'ok')::boolean, false) is not true then\n    return v_answer;\n  end if;\n\n  -- `finished_at is null` IS WHAT MAKES A RETRY KEEP THE FIRST WRITER'S OUTCOMES.",
+    "  if false then\n    return v_answer;\n  end if;\n\n  -- `finished_at is null` IS WHAT MAKES A RETRY KEEP THE FIRST WRITER'S OUTCOMES."),
+  mAuto("⚠ SQL/finish: the work is never released, so it is claimed again for ever",
+    "  perform agent.release_run(p_run_id, p_worker, p_token, true, null);", "  perform 1;"),
+
+  mAuto("⚠ SQL/automations: the history view runs as its OWNER, past both policies",
+    "  with (security_invoker = true)", "  with (security_invoker = false)"),
+  mAuto("⚠ SQL/automations: an account reads every account's automations",
+    "create policy automations_own_tenant on agent.automations\n  for all\n  using (tenant_id = agent.tenant_id())",
+    "create policy automations_own_tenant on agent.automations\n  for all\n  using (true)"),
+  mAuto("⚠ SQL/automations: an account may write its own execution history",
+    "grant select on agent.automations, agent.automation_runs, agent.automation_history\n  to authenticated, service_role;",
+    "grant select, insert, update, delete on agent.automations, agent.automation_runs, agent.automation_history\n  to authenticated, service_role;"),
+
+  mAuto("⚠ SQL/schedule: the local time is read in UTC, so daylight saving moves it",
+    "  v_cand  := (v_today + p_at_local) at time zone p_zone;",
+    "  v_cand  := (v_today + p_at_local) at time zone 'UTC';"),
+  mAuto("SQL/automations/CONTROL (comment only)",
+    "-- ⚠ **THE ONCE-PER-OCCURRENCE GUARANTEE, IN THE DATABASE.**",
+    "-- The once-per-occurrence guarantee, in the database.", true),
 
   // ── THE CONTROL: comment-only, and it MUST survive ────────────────────────
   m("SQL/CONTROL (comment only)", "-- ============================================================================\n-- AGENT RUNS:",
