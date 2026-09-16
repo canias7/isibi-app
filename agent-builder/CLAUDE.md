@@ -2697,7 +2697,41 @@ DECIDES a thing must not go out before the side that ACTS on it.** The migration
 first for a different reason again (a 400, not a lie), so the full order is
 **migration → engine → site**, and the three reasons are three different failures.
 
-**LIVE, AND THE TWO HALVES ARE SEPARATE CLAIMS.** The migration is applied — remote
-version `20260916085453`, read back and byte-identical to this tree. The engine and
-the site builder are recorded where each was deployed; a paragraph that lumped them
-would be one claim standing in for two.
+**LIVE, AND THE THREE ARE SEPARATE CLAIMS — a paragraph that lumped them would be
+one claim standing in for three.**
+
+**1. The migration** — remote version `20260916085453`, applied and read back
+byte-identical to this tree, while the account held zero agents and zero messages.
+
+**2. The engine — `agent deploy` run 27 on `54b29a4`, 09:30:58→09:38:19Z, all
+thirteen steps green.** `deploy the agent Worker` → `upload the one agent runtime
+secret` → `re-deploy, so the code and the secret are one version` printed *the
+version that must be serving:* **`ece0a067-db5b-4410-ab63-61bd088a7bc7`**;
+`wait for THIS version to answer` read `attempt 1: version=ece0a067… ok=1` and
+`serving ece0a067…, and configured.`; `verify the deployment` ran **71 checks, 0
+failed** against the deployed Worker over five real runs (`long`, `exclusive`,
+`handover`, `guarded`, `fence`) — including `THE OLD CONSUMER'S WRITE FAILS —
+{"ok":false,"why":"not-holder"}`; and the cleanup read `13 users listed, 0 left by
+a verification`. `Uploaded agent-builder-api (1.67 sec)`, `Total Upload: 90.76 KiB
+/ gzip: 25.23 KiB`, `Worker Startup Time: 6 ms`.
+**READ BACK FROM A SECOND PROCESS**: `/health` answers that version, `deployedAt
+2026-09-16T09:31:32.897135Z`, `ok: true`, `modelKnown: true`, `missing: []`, the
+same four agents.
+**⚠ AND THE VERSION ID IS THE ONLY DISCRIMINATOR AVAILABLE HERE, which is worth
+saying rather than glossing.** `src/worker.mjs` is byte-identical between
+`6aec0ad5` and `54b29a4`, so `/health`'s SHAPE could not move and carries no
+`tools` key either way — a diff against the pre-deploy baseline is exactly two
+lines, the version and its timestamp. What makes it evidence is the CHAIN: run 27
+ran on that sha, wrangler deployed from that checkout, that deploy printed
+`ece0a067`, and `/health` answers `ece0a067`. A check that cannot tell two things
+apart is not made stronger by wanting it to.
+
+**3. The site builder** — deploy **2130**, `main` `f22c166` → `54b29a4`, green in
+2m49s, the container rolled `62c2700fa8c843c2` → `d927ff27fd186f30` at 09:43:09.99Z
+and both served assets are byte-identical to the merged tree. The site builder's
+own CLAUDE.md has that half in full.
+
+**NOT PROVEN LIVE: a customer ticking a tool and watching it run.** Signing in as
+the building account needs `SUPABASE_SERVICE_KEY`, which lives only in GitHub
+Actions, so the end-to-end press is the owner's — the same wall every paid harness
+in this repository meets. Each layer is established on its own instead.

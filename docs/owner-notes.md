@@ -223,9 +223,43 @@ nothing — which is precisely what it does today.
 visible.
 
 The rule I am taking from it: **whichever side decides a thing must not go out
-before the side that acts on it.** Each deploy is recorded on its own below rather
-than lumped together, because "it is live" standing in for two claims is how one of
-them goes unchecked.
+before the side that acts on it.**
+
+### All three are out, in that order
+
+**The engine went out at 09:31.** Its own deploy ran thirteen steps and the last
+three are the ones worth knowing about: it waited until the live engine answered
+the exact version it had just built (not merely "a healthy engine"), then ran **71
+live checks against it — 0 failed** — driving five real agent runs, then deleted
+the test account it had made. I read its health page afterwards from a separate
+process and it agrees.
+
+**The website went out at 09:43 — deploy 2130, green in 2m49s.** The settings form
+is live.
+
+**How I know it is really the new website and not a cached old one.** This deploy
+uploaded two files, and I compared the bytes the live site is serving against the
+bytes in the code — **identical, both of them**. The plainest version: the name of
+the Paused control appears **zero** times in the JavaScript the site served before
+this deploy and **twice** in what it serves now.
+
+**Nothing else moved.** I took a full reading of all six live sites 46 seconds
+before pushing and again four minutes after: **every one byte-for-byte the same**,
+and the two pages with real database features behind them (`/status` and
+`/booking-check` on repairbench-1) still answer **3** as they did.
+
+One thing I want to flag rather than have you spot it: **repairbench-1 did change
+size today, and it was not this deploy.** It republished between two of my own
+readings, before I pushed anything — it shows in both the before and the after, so
+this release did not cause it and did not affect it.
+
+**What I have NOT proved, and cannot from here.** Nobody has ticked a tool on a
+real agent and watched it run. Doing that means signing in as your building
+account, and the key for that lives only in GitHub — it is the same wall as every
+paid test here. So what is established is each layer separately: the database by
+reading the migration back, the engine by 71 live checks, the screen by the served
+bytes matching the code. **The first person to open an agent's settings and tick
+`Echo` is the end-to-end proof**, and I would like to hear what happens.
 
 ---
 

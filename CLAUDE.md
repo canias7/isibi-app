@@ -1836,6 +1836,75 @@ page scope; nothing is merged or deployed.
   an exemption; `agentRow`'s key set; the failed-save draft shape (a strictly
   stronger claim); and the `agentDraft = {…}` source scan, which was pinned to the
   literal and now reads the FIELD LIST.
+  **ALL THREE HALVES ARE LIVE (2026-09-16), IN THAT ORDER, AND THE ORDER IS THE
+  FINDING.** migration → engine → site, three pieces each first for its own
+  reason, and the middle one is the one that was nearly got wrong: this
+  product's own note said the two Workers were "order-free", which was true
+  about PERMISSIONS and silent about HONESTY. The live engine handed every
+  authored run `tools: []` and had no `narrowTools` — read out of `6aec0ad5`,
+  the sha the serving version `147fd716` was deployed from — so shipping the
+  settings form first would have put a tool tick on screen that saves, draws,
+  and can never be honoured. **A dead control that ANSWERS, which is the exact
+  defect this round was opened to fix, one product over.** Engine first is a
+  MEASURED no-op: until the site ships the tick nobody can set `tools`, every
+  row holds the column's `'{}'` default, and `narrowTools(agent, [])` offers
+  nothing — byte for byte what the old engine already did. **The rule to carry:
+  whichever side DECIDES a thing must not go out before the side that ACTS on
+  it.** The full account is in `agent-builder/CLAUDE.md`.
+  - **Migration** `20260916085453`, applied and read back byte-identical to this
+    tree, while there were zero agents and zero messages.
+  - **Engine**: `agent deploy` run 27 on `54b29a4`, all thirteen steps green.
+    `wait for THIS version to answer` read `attempt 1: version=ece0a067-db5b-
+    4410-ab63-61bd088a7bc7 ok=1`, the live verification **71 passed / 0 failed**
+    over five real runs, and the cleanup `13 users listed, 0 left`. Read back
+    from a second process: `/health` answers that version, `deployedAt
+    09:31:32Z`, `ok: true`, `missing: []`. **THE VERSION ID IS THE ONLY
+    DISCRIMINATOR AVAILABLE and that is said rather than glossed**: `worker.mjs`
+    is byte-identical between the two shas, so `/health`'s SHAPE could not move
+    — the chain is run 27 on that sha → wrangler deploy from that checkout →
+    `ece0a067` → `/health` answering it.
+  - **Site**: **deploy 2130, 09:40:28→09:43:17Z, green in 2m49s**, on `main`
+    `f22c166` → `54b29a4` (fast-forward). Image step 2m06s, Wrangler 18s.
+  **THE IMAGE ID WAS COMPUTED BEFORE THE PUSH AND THE DEPLOY AGREED ON BOTH
+  SIDES — the sixth cross-check, and the strongest form of it yet.** Earlier
+  ones matched the NEW id only; this log carries the OLD one too, so both ends
+  of the transition are checked against arithmetic done before anything moved:
+  `origin/main` → `62c2700fa8c843c2` and the candidate → `d927ff27fd186f30`
+  (183 inputs each). The step printed `built
+  isibi-app-sitebuildcontainer:d927ff27fd…86f30 (registry answered 404; …83
+  inputs off ./Dockerfile)` and **the container rolled**, read out of the log's
+  own diff rather than inferred from the step's duration:
+  `EDIT isibi-app-sitebuildcontainer` at **09:43:09.99Z**,
+  `- "image": "…:62c2700fa8c843c2"` / `+ "image": "…:d927ff27fd…86f30"`,
+  `SUCCESS Modified application`, `Applied changes` at 09:43:11.63Z. **So the
+  15–20 minute hold ran to ~09:58–10:03Z.**
+  **AND THE SERVED-FILE CHECK IS AVAILABLE THIS TIME**, because `public/` really
+  changed: `Found 2 new or modified static assets`, and both are **byte-identical
+  to the merged tree** — `chat.js` 665,502 bytes sha256 `a8b1dc1674cf5bf4`
+  (654,556 / `30ea523e42a0efb3` before) and `styles.css` 342,648 /
+  `8bfc582c9cd7d11c`. **The cheap discriminator for this particular change is
+  `agPaused`, 0 occurrences before and 2 after** — the identifier the whole fix
+  turns on, absent from every byte the platform served until this deploy.
+  **REGRESSION: BYTE-IDENTICAL, baseline taken 46 seconds before the push and
+  compared four minutes after.** Six sites 200 at the same sizes (repairbench-1
+  46,336 · ashgrove-1 31,120 · fretwork-1 58,404 · northgroup-5 1,641 ·
+  washhouse-1 52,404 · ben-crowe-guitar 52,060), and the interactive half
+  because a 200 is an availability check and never a health check: `/status`
+  200/6,272 and `/booking-check` 200/6,390 on the same `x-site-version
+  01789551373761-47doj7`, both RPCs answering **3**. Gate discriminator
+  401/401/401/404. **`repairbench-1` republished BETWEEN my two baselines and
+  not across this deploy** — 46,151 → 46,336 and the version moving from
+  `01789500698949-dggs37`, both already true at 09:39:42Z — which is why the
+  baseline is retaken immediately before the push rather than reused from
+  earlier in a session.
+  **The merge started exactly one workflow**, deploy 2130 and nothing else,
+  which is the merge-trigger census holding in the live.
+  **NOT PROVEN LIVE: a customer ticking a tool and watching it run.** That needs
+  a session on the building account, and signing in as the owner needs
+  `SUPABASE_SERVICE_KEY`, which lives only in GitHub Actions — the same wall
+  every paid harness here meets. What IS established is each layer on its own:
+  the database by the migration read-back, the engine by 71 live checks, and the
+  screen by the served bytes matching the tree.
 
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
