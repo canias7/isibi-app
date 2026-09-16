@@ -5407,9 +5407,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   before `AS`, the privilege control, the three identity helpers, **the SCOPE
   (what a next schema change re-pins and what it does not)** and **the trusted
   set pinned to exactly `public, pg_temp`**. **6,505 + 9 closes exactly**; the
-  re-anchor in `neon-e2e` is an integration probe and is not in the suite. CI
-  read **6,512** on `71c2c4b8` (run 2609) — the seven-case version — and has NOT
-  read 6,514. **`site build` run 1152 is GREEN on that same sha** (2026-09-16,
+  re-anchor in `neon-e2e` is an integration probe and is not in the suite.
+  **CI HAS READ IT: `unit tests` run 2612 on `748ae587`, green — `# tests 6514 /
+  # pass 6511 / # fail 0 / # skipped 3`**, against local `6514 / 6514 / 0 / 0`;
+  the three are the recorded environment skips, which is why the number to carry
+  is the TOTAL. **`site build` run 1152 is GREEN on the PARENT `71c2c4b8`**, and
+  it covers this tip by the recorded ancestor rule — the five files between the
+  two are `CLAUDE.md`, `docs/owner-notes.md`, a mutant spec and two test files,
+  and not one is under `builder/**`, `worker.js` or any other glob in that
+  workflow's `paths`, so no run fired for the tip and none was due. That run (2026-09-16,
   all twenty steps, `site-build.mjs` **382 passed / 0 failed**, with
   kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
   site-routing 14, site-runtime 47 beside it — the TWELFTH independent run to
