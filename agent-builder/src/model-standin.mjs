@@ -45,9 +45,71 @@ export const SLOW_STEP_MS = 8_000;
 /** What a run of the slow shape lasts, at least. Derived, so the two cannot drift. */
 export const SLOW_TOTAL_MS = SLOW_ROUNDS * SLOW_STEP_MS;
 
+/**
+ * WHAT EVERY STAND-IN ANSWER SAYS ABOUT ITSELF.
+ *
+ * **THE LABEL IS IN THE TEXT, not only in the screen that draws it**, and the
+ * redundancy is deliberate: a label in the chrome is gone the moment somebody
+ * copies the answer into an email, and a label in the text survives being quoted.
+ * Neither replaces the other — the chrome's label is visible before you read a
+ * word, and this one travels. Both are asserted.
+ *
+ * **IT IS NOT A DISCLAIMER BOLTED ON.** No model is connected, so there is no
+ * answer here to soften: this text IS the whole of what the stand-in produced,
+ * and saying anything that reads as an AI's reply would be the recorded
+ * dead-control finding in its worst form — a control that ANSWERS, wrongly.
+ */
+export const SIMULATED = "[simulated]";
+
+/** How much of an agent's own instructions an answer quotes back. A bound, not a style. */
+export const SIMULATED_QUOTE = 120;
+
+/**
+ * The answer a customer-authored agent gets today.
+ *
+ * **IT QUOTES THE INSTRUCTIONS AND COUNTS THE HISTORY ON PURPOSE.** Those two are
+ * the things this milestone connects, and they are invisible from outside unless
+ * the answer says what arrived: a run that was handed the wrong snapshot, or none,
+ * produces visibly different text rather than a plausible one nobody can check.
+ * So this doubles as the verification's own instrument.
+ */
+export function simulatedAnswer({ system, messages }) {
+  const said = [...(messages ?? [])].reverse().find((m) => m.role === "user")?.content ?? "";
+  const turns = (messages ?? []).filter((m) => m.role === "user").length - 1;
+  const brief = String(system ?? "").trim().slice(0, SIMULATED_QUOTE);
+  return [
+    `${SIMULATED} No model is connected to this agent yet, so this is a stand-in test`,
+    "result rather than an answer from an AI.",
+    brief ? `\n\nYour instructions begin: "${brief}".` : "\n\nThis agent has no instructions.",
+    `\nYou said: "${String(said).slice(0, SIMULATED_QUOTE)}".`,
+    turns > 0 ? `\nIt was given ${turns} earlier ${turns === 1 ? "turn" : "turns"} of this conversation.`
+              : "\nThis is the first message in the conversation.",
+  ].join(" ").replace(/ +\n/g, "\n");
+}
+
 export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } = {}) {
-  return async function send({ messages, step, tools }) {
+  return async function send({ messages, step, tools, system }) {
     const offered = Array.isArray(tools) ? tools : [];
+
+    // ── an agent with no tools at all ─────────────────────────────────────────
+    //
+    // **A MODEL WITH NOTHING TO CALL ANSWERS, and this branch is what makes that
+    // shape reachable.** Without it the ordinary shape below asks for `echo` on
+    // step 1 whatever it was offered, dispatch fails closed, and the run spends a
+    // step and a tool slot discovering that a tool it was never shown does not
+    // exist. That is a correct refusal and a wrong conversation.
+    //
+    // It is also the shape a CUSTOMER-AUTHORED agent runs in: the registered
+    // agent it executes under offers no tools, so a customer's instructions can
+    // never reach one in this milestone.
+    if (!offered.length) {
+      return {
+        text: simulatedAnswer({ system, messages }),
+        toolCalls: [],
+        usage: { inputTokens: 24, outputTokens: 14 },
+        costMicros: 70,
+      };
+    }
 
     // ── an agent whose work takes time ────────────────────────────────────────
     const slow = offered.find((t) => SLOW_TOOLS.includes(t?.name));

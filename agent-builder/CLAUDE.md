@@ -102,6 +102,21 @@ same colour.
   here can make it red — and nothing here is covered by it either.
 - **Nothing here deploys.** The deploy fires only on a push to `main`, and no
   Dockerfile copies this directory, so a push here rolls no container.
+- **⚠ ONE FILE HERE READS THE SITE BUILDER'S CODE, and it is declared rather than
+  discovered.** `scripts/verify-agent-chat.mjs` imports the ROOT's `agent-store.mjs`,
+  because the thing it verifies is the two halves TOGETHER — the site builder's route
+  driving this engine through one database. It is the only such file, it is a script
+  rather than a test, and **this directory's own suite still imports nothing outside
+  it** — `npm test` here is independent of the other tree, checked rather than assumed.
+  The cost is real and small: move or rename `agent-store.mjs` and `npm run
+  verify:chat` breaks, loudly, on its import.
+  **THE OTHER DIRECTION WAS ALREADY CROSSED AND IS NOT NEW**, and saying so corrects a
+  sentence this entry first carried: `test/agent-api.test.mjs` in the ROOT suite READS
+  migration files out of `agent-builder/supabase/migrations/`, to census its caps
+  against the columns' own check constraints. So a change to those files can make the
+  site builder's `unit tests` workflow red — which is the coupling working (that census
+  exists because a cap in one place and a constraint in the other is two copies of one
+  number), not a leak to be closed.
 - **A workflow added here must not fire on a push to `main`** and must have some
   trigger; a `workflow_dispatch`-only workflow is fine. A census elsewhere in the
   tree enforces that and will fail otherwise.
@@ -2007,7 +2022,360 @@ answered. The only thing this section still names correctly is the model provide
   `--test-timeout=20000`, because the "step counted after the call" mutant HANGS
   rather than failing.
 
+## A customer's own agent runs on the engine (2026-09-16)
+
+`supabase/migrations/20260916000000_agent_send_starts_a_run.sql` (**NOT APPLIED** —
+the name is a placeholder to be replaced with the remote version on the day it is),
+`src/define.mjs`'s `withInstructions`, the snapshot in `src/journal.mjs`,
+`src/agents.mjs`'s `AUTHORED`, `src/model-standin.mjs`'s `simulatedAnswer`, and the
+site builder's `/api/agent/send`.
+
+**THE DIVISION IS THE WHOLE THING: the customer owns the INSTRUCTIONS and the
+conversation, and this directory owns everything else.** A person writes a name and an
+instruction in a browser; they are DATA, stored in `agent.agents`. The tools, the
+bounds and the model are CODE, in `agents.mjs`, and cannot be reached from a request at
+all — which keeps "an agent is NAMED, never described" true while still letting the
+described half be somebody's own writing.
+
+### One transaction, and the app cannot decide anything in it
+
+`agent.send_to_agent(p_tenant, p_agent_id, p_message_id, p_body, p_send_key, p_run_id)`
+— **six arguments, not one of them structured**, asserted against the catalog (`jsonb`
+is the only type an entry, a bound list or a history could arrive as, and no argument
+is one). It verifies the agent is this tenant's, inserts the message, builds the run's
+first entry, calls `agent.accept_run`, and links the two.
+
+- **THE FIRST CUT TOOK THE WHOLE ENTRY AS AN ARGUMENT** and merged the snapshot over
+  it. That still let a caller decide the model and the bounds, with only the app's own
+  care between a bug and a run with sixteen steps. There is nothing to decide now.
+- **THE ORDER IS THE RETRY-SAFETY ARGUMENT.** The MESSAGE goes in first, because its
+  key is the gate: a repeat must be absorbed BEFORE any run exists. Minting the run
+  first would leave a second press having created a run and a work row no message
+  points at — and the queue would execute it, which is the duplicate this prevents
+  wearing an orphan's clothes.
+- **IT CALLS `accept_run` RATHER THAN REPEATING ITS THREE INSERTS.** A second copy
+  would be a second definition of "accepted", and the copy that drifts is the one that
+  leaves a run with a log and nothing to run it.
+- **THE SNAPSHOT IS READ HERE, NOT PASSED IN** — the instructions and the history come
+  from rows read in THIS transaction, so a later edit of the agent cannot reach a run
+  that has already been accepted.
+- **A SEND WITH NO KEY IS REFUSED, NOT ACCEPTED UNKEYED.** The partial unique index
+  covers non-null keys only, so an unkeyed send would insert every time: retry safety
+  failing OPEN, which is the direction that duplicates a conversation.
+- **BOTH ANSWERS CARRY THE STORED BODY**, never the one the call sent. They differ
+  exactly when a retry carries different text under the same key — a client bug — and
+  the honest answer is what the conversation really holds.
+
+### The message role constraint is inspected and DELIBERATELY UNCHANGED
+
+`agent_messages.role` admits `'user'` and nothing else. Widening it to
+`('user','agent')` and writing a row when a run finishes would be wrong twice: it would
+be **a second copy of a fact the journal already holds** (the run's stop IS the result,
+and a row repeating it can disagree with it), and it would make **a forged answer a row
+that EXISTS** — no client role has INSERT here, but the SERVER does, and the only thing
+stopping the server writing `role: 'agent'` from a request body would be our own care.
+Left at `'user'`, a forged agent reply is not a bug to be prevented; it is a row the
+database refuses, whatever any client or route asks for. So an answer is DISPLAYED FROM
+THE RUN and the browser has nowhere to put one.
+
+### `agent.agent_thread`, and what it can and cannot say
+
+One view, `security_invoker = true`, spanning three relations: the message, its run, and
+the log (for the step). **Without that option it would be a hole through the RLS on all
+three**; with it, a pointer at a run that is not the reader's answers NULL rather than a
+status — driven, as the owner and then as the tenant.
+
+**A VIEW RATHER THAN A POSTGREST EMBED, deliberately.** `agent_messages` has a foreign
+key to `agent.runs` now, so `select=…,runs(status,stop)` would work with no migration —
+and could only ever be asserted from documentation, because nothing here can run
+PostgREST. A view is plain SQL and the schema check drives it on a real PostgreSQL.
+
+**⚠ AND THE STEP IS WHAT SEPARATES QUEUED FROM WORKING, not the status — measured,
+after an expectation written the other way round.** `agent.runs.status` is projected off
+the LOG and `accept_run` writes the `started` entry in the accepting transaction, so a
+run reads **`running` from the instant it is queued**; `new` belongs to a run row with
+no log at all. `agent.run_work` would say it directly and is deliberately NOT joined:
+`authenticated` holds nothing on that table, so under `security_invoker` it would answer
+NULL for every customer and read as a run that never started.
+
+### `withInstructions`, and the two ways it can be wrong
+
+`withInstructions(agent, instructions)` — the only thing a customer may replace.
+
+- **IT TAKES A STRING AND AN AGENT AND NOTHING ELSE**, so there is nowhere for a tool
+  or a limit to arrive. Driven with instructions that ask for both.
+- **THE RUNNER READS IT FROM THE LOG ON EVERY DELIVERY**, which is what makes the
+  snapshot a snapshot: a long run is several invocations by design, and taking the
+  instructions from anywhere else would mean a resumed run continuing under whatever the
+  agent says NOW.
+- **A RUN WITH NO SNAPSHOT STILL RUNS**, on the registry's own text. Every run accepted
+  before this is that shape.
+
+### ⚠ `toolCalls: 0` IS A BRICK WALL, NOT A SECOND WALL — found by a guard, before it shipped
+
+`AUTHORED` was first written with `tools: []` AND `toolCalls: 0`, the second "saying the
+same thing as a bound". `toolCalls` is a RUN TOTAL and `stoppedBy` asks `used >= limit`:
+at the very start that is `0 >= 0`, so the run stops with
+`{reason: "spent", bound: "toolCalls", limit: 0, used: 0}` **before its first model
+call**. Every customer-authored agent would have answered nothing at all, and the
+failure would have read as a limit doing its job.
+
+**So the bound is ONE, and it is not a second wall — it is the smallest number that
+lets the run start.** The tool list is the only wall and it is sufficient: with
+`tools: []` there is nothing to dispatch TO, so the bound could be sixty-four and no
+tool would run. *Saying a thing twice is not available when one of the two ways is a
+brick.* Asserted as the MEASUREMENT (`stoppedBy` over the agent's own bounds answers
+`null`, and over the same bounds with `toolCalls: 0` answers the stop) rather than as
+the number.
+
+### The stand-in labels itself, and the label is about the RUN
+
+`simulatedAnswer({system, messages})` — `[simulated]`, one sentence saying no model is
+connected, then the instructions quoted back (bounded at `SIMULATED_QUOTE`, 120), the
+last thing said, and a COUNT of the earlier turns.
+
+- **IT QUOTES WHAT ARRIVED ON PURPOSE**, so a run handed the wrong snapshot, or none,
+  produces visibly different text rather than a plausible answer nobody can check. It
+  doubles as the verification's own instrument.
+- **THE LABEL IS IN THE TEXT AS WELL AS IN THE CHROME**, and the redundancy is
+  declared: the chrome's label is gone the moment somebody copies an answer into an
+  email, and this one travels.
+- **AND WHETHER AN ANSWER IS SIMULATED IS READ FROM THE RUN'S OWN MODEL**
+  (`agent.runs.model`, projected off its log), never from a constant and never sniffed
+  out of the text. Connect a real provider and the runs that used it are not labelled,
+  with no change to any reader — which is what "keep model selection replaceable"
+  amounts to in practice.
+
+### The census that keeps two declarations in step
+
+`agent.authored_run()` says what model and bounds an authored run executes under, and
+`AUTHORED` says it too. There is no arrangement in which only one holds it: the registry
+is code loaded at import and cannot be read from SQL, and the transaction that must be
+atomic is in the database. So it is a copy, **declared as one**, and
+`test/authored-run.test.mjs` compares them BOTH WAYS — the name, the model, and every
+bound, with the SQL read out of the migration file.
+
+- **IT WRITES ALL EIGHT BOUNDS, NOT THE FOUR THIS AGENT OVERRIDES, and the census found
+  that.** The API path writes `limitsToJson(agent.limits)` and `defineAgent` has already
+  planned them, so the entry there carries the whole set. Writing only the overrides
+  would leave the other four to be filled in from whatever the DEFAULTS are on the day a
+  run is REPLAYED — identical today, different the day a default moves.
+- **AND THE ENTRY SHAPES ARE CENSUSED TOO.** `startedEntry` gained `authoredAgent` and
+  `message` for the same reason: the SQL adds them AFTER building the entry, so without
+  them the JS producer could not express what the SQL path writes — two producers of one
+  shape, which is the thing that constructor exists to prevent.
+- **THE KEY READER IS DEPTH-AWARE**, because in `jsonb_build_object('kind', 'started',
+  …)` the keys are at EVEN positions and a `/'(\w+)',/` sweep reads `'started'` as a
+  field name. It did, on the first try, and reported a correct migration as broken.
+- **PROVED ALIVE ON SIX REAL BREAKAGES** — the tool budget widened, the model changed,
+  the step bound raised, a bound deleted, a snapshot field renamed, the agent name
+  changed. All six killed, the migration restored, and the hand-rolled checker REFUSES
+  to run when the source did not change.
+
+### Verified end to end, locally, against a real PostgreSQL
+
+`npm run verify:chat` (`scripts/verify-agent-chat.mjs`) — **58 checks, 0 failed.** It
+drives the site builder's real route (`handleAgentApi` + `makeAgentStore` over
+PostgREST), a throwaway PostgreSQL with these migrations applied, and the real engine
+(`makeRunner`, `makeRunStore`, `makeWork`, `runAgent`, the real journal and registry,
+claiming through `claim_run` and writing every entry through the fence).
+
+**WHAT IS SIMULATED, in one place: the HTTP translation** (PostgREST is
+`scripts/local-rest.mjs`, because writing to the hosted project needs a service
+credential) **and the MODEL** (`makeStandIn`). Nothing else — not the ownership check,
+the retry key, the queue, the lease, the journal, the snapshot, the bounds, or the
+reading the screen does.
+
+Twelve sections: the send committing everything before it answers; the snapshot being
+the agent's with the model and bounds the server's; the conversation reading queued;
+the runner claiming, running and releasing; the answer read back labelled and quoting
+the instructions; a double send absorbed to one message and one run; the second run
+given the first turn WITH its answer; an edit afterwards leaving an accepted run
+unchanged and reaching the next one; a failed run named `call-failed`; a reload
+mid-run needing no recovery; the account next door refused NOT FOUND with nothing
+written; and a finished run not run again.
+
+**⚠ IT FOUND A REAL WIRING GAP THAT EVERY UNIT GUARD MISSED.** The app reads
+`run_model` to decide whether an answer is simulated, and the view did not have that
+column — so `simulated` would have been false for every answer, with the whole root
+suite green, because the FIXTURE answered a column the database did not have. That is
+the recorded "a fixture MORE capable than reality" exactly, and the only place it is
+visible is a real database. The view carries it now and the schema check censuses every
+column the store asks for, by name.
+
+### Measured
+
+- **Unit suite: 256 tests, 0 failures** (254 after `test/authored-run.test.mjs`'s 19
+  landed, plus the two census cases). 235 before this round.
+- **Schema check: 365 checks, 0 failed** against a real PostgreSQL 16.13 — 262 before
+  this round, so **103 are this change's**: the send and its refusals, the snapshot, the
+  duplicate absorbed, the cross-account refusal, the history projection, the edit
+  afterwards, the role constraint still refusing `'agent'`, the privileges, retention
+  leaving the writing, the thread view's four states, its `security_invoker` across
+  three relations, the foreign-run NULL, and the column census — **and the 21 the SQL
+  sweep asked for**: a conversation longer than the window handing over its NEWEST turns,
+  a turn with no run surviving the join, a stop that is not an answer contributing no
+  text, `anon` asked as a PRIVILEGE rather than as a refusal, the grant census with its
+  observer proved alive, and the absorbed press that says its words differ.
+- **End to end: 67 checks, 0 failed** (`npm run verify:chat`) — 58 plus section 13's
+  nine, which drive the doorbell and its failure by the ring ALONE.
+- **The site builder's suite: 6,628 tests, 0 failures, 2 skipped** on the MERGED tree —
+  its own number, run from its own directory, and the one place a cross-product guard can
+  fire. 6,606 before main was merged in, plus main's 22, and the arithmetic closes.
+- **Code sweep: 65 mutants, 65 killed, 0 survived, 0 never applied, 4 comment-only
+  controls survived** — 26 here (`withInstructions`, the snapshot in the journal, the
+  runner's per-delivery read, the stand-in's label and the registry entry) and 39 in the
+  site builder. **Three survived a first pass here and every one was INERT BY
+  CONSTRUCTION, measured rather than hunted, and REPLACED by an observable mutant of the
+  same line**: an unused default parameter (a default does not count toward `.length`),
+  `tools: agent.tools` (`defineAgent` already freezes its list, so the two are identical
+  for any registered agent — what separates them is a hand-built object whose array is
+  mutable, which is now driven), and a runner line that read
+  `open.state.instructions || registered.instructions`, which is the same agent for
+  every input. **Two more were real guard gaps**: a refusal from the WRONG GATE
+  (`{}` still threw a TypeError, from the spread rather than from the check — so
+  `assert.throws(…, TypeError)` passed over a function that had stopped checking), and
+  a third argument that can only reach `name`, `model` and `kind`, because the spread
+  sits before the explicit fields. **`model` is the one worth asserting** and was the
+  survivor that made it get asserted.
+- **SQL sweep: 88 mutants, 88 killed, 0 survived, 0 never applied, 4 comment-only
+  controls survived** (`npm run sweep:sql`, 92 spec entries being those 88 plus the four
+  controls). **TWO PASSES, and the first one is the more useful.** The earlier partial
+  reading — 26 of 92, stopped to commit — had reached none of the controls, which is why
+  it was recorded as a partial READING rather than a partial result; *a sweep whose
+  control has not been reached is a sweep with no control.* Run to the end it came back
+  **81 killed, 7 SURVIVED**, and **every one of the seven was in this change's own
+  mutants**, because the spec runs in file order and the send's migration is the newest.
+  **AND THE SWEEP WAS RIGHT ABOUT ALL SEVEN.** Five were coverage gaps in the database
+  check, one was the SWEEP'S OWN blind spot, and two mutants were badly written:
+  - **A LONG CONVERSATION AND A RUN-LESS TURN WERE UNREACHABLE.** `order by m.seq desc`
+    → `asc` and `left join` → `join` both survived because the checked conversation is
+    three turns long and every turn has a run. A reversed window pins a customer's long
+    conversation to its first screen for ever; an inner join sends the model a history
+    with the customer's own questions missing. Closed with a fixture of
+    `history_turns() + 3` run-less messages on its own agent — INSERTED rather than sent,
+    because what is under test is the history READ and every check above already drives
+    the writer.
+  - **A STOP THAT IS NOT AN ANSWER COULD HAND OVER ITS TEXT.** `case when reason =
+    'answered'` survived because no stop the engine writes today carries `text` unless it
+    answered. It is the same rule `run.mjs:129` and `api.mjs:77` apply, in a third place
+    and deliberately: a bound-stopped run may carry partial text, and passing that on
+    puts words in the agent's mouth it never finished saying. The fixture writes the one
+    stop shape that could, which is exactly what the wall is for.
+  - **⚠ `anon` READING THE WHOLE CONVERSATION SURVIVED A CHECK WRITTEN FOR IT, and this
+    is the recorded "a refusal from the wrong gate looks exactly like the wall
+    working".** `anon` holds no USAGE on the schema, so every read as anon answers
+    `permission denied for schema agent` whatever table grants exist — and the check
+    asked only for `permission denied`. So GRANTING anon SELECT on `agent_thread` changed
+    nothing it could see. The gate is NAMED now, and the grant is asked DIRECTLY through
+    `has_table_privilege`, which is the only reader here that can see that mutant at all.
+    **A census beside it caught a defect in my own new check**:
+    `information_schema.role_table_grants` shows only grants whose grantee or grantor is
+    a CURRENTLY ENABLED role, and this runs as `postgres` — so it answered 0 for `anon`
+    AND 0 for `authenticated`, a negative assertion with a dead observer. The
+    observer-alive line is what found it; it reads `pg_class.relacl` through
+    `aclexplode` now, which does not care who is asking.
+  - **THE BOUNDS MUTANT WAS THE SWEEP'S OWN BLIND SPOT, not the schema's.** Widening
+    `authored_run()` (`steps` 2 → 16, `toolCalls` 1 → 64) survived while the tree was
+    guarded all along: `authored-run.test.mjs` parses that function out of the migration
+    and compares it with the engine's registry BOTH WAYS. The database check could not
+    see it because the authority for those numbers is the registry, which only that
+    census reads. **`sweep:sql` runs every check that guards these migrations now**, not
+    just the database one — *a sweep is only as good as the checks it runs*, and reading
+    that off one file made it weaker than the tree it was measuring.
+  - **TWO MUTANTS WERE BADLY WRITTEN AND WERE REPLACED AFTER BEING MEASURED.** A bare
+    `on conflict do nothing` is **MEASURED INERT** on two throwaway databases built from
+    these migrations: it still absorbs the send-key conflict, so a duplicate press
+    answers `repeat: true` with one message and one run either way, and the ONLY
+    observable difference is which refusal a reused message id gets
+    (`agent_messages_pkey` as written, the function's own "conflicted with a row that is
+    not there" bare) — both refusing having written nothing. The clause is DELETED
+    instead, which attacks the guarantee itself. And `perform 1;` appended after the
+    accept was a no-op whose LABEL claimed a reorder; the property is what the absorb
+    branch buys, so the replacement skips that branch (`if false`) and a duplicate press
+    mints a second run linked to nothing — the orphan the queue would execute.
+  - **(That "row that is not there" branch is reachable rather than paranoid**: under
+    READ COMMITTED a racing press can have its insert skipped by a row that is not
+    committed yet and is therefore invisible to the select below it.)
+  **THE SECOND PASS IS THE TALLY, taken after the run**: 88/88, and the tree is proved
+  restored TWO WAYS — `git status` clean with zero migration files differing from git,
+  and the spec generator's own anchor census green over all five files, which it cannot
+  be while a mutant is applied. **Measured mid-run, which is worth writing down**: the
+  generator refuses with `ANCHOR NOT FOUND` for whichever mutant is live, so it is a
+  reader of the tree and only means anything once the runner has exited.
+  **AND THE RUNNER IS NOT REAPED BY THE HARNESS**: it ran 4,700+ seconds in one
+  backgrounded call, well past the ten-minute tool ceiling, so the earlier truncation was
+  my own SIGTERM and not a timeout.
+
+### The doorbell, and the three review findings (2026-09-16)
+
+A code review found three things wrong once a run is really going. All three are the
+shape this product's own notes describe: the code reads correctly, every earlier check
+passes, and the defect only exists while time passes.
+
+- **THE DOORBELL IS THE ONE THAT BELONGS HERE.** Nothing told this engine when the site
+  builder accepted a run, so a committed run waited for the cron — `sweep_run_work`
+  offers a row with `claimed_by is null` **with no grace at all**, so the bound was one
+  tick, up to a minute of somebody watching a screen that says nothing. The site builder
+  now holds a Queues PRODUCER binding on `agent-runs` and rings `{ runId }` AFTER the
+  transaction commits. **THE MESSAGE IS A RUN ID AND NOTHING ELSE**, which is this
+  product's own rule (`claim_run` answers the tenant, so a stale or replayed delivery can
+  never make a consumer act as somebody) — and a census in the site builder's
+  `test/agent-send.test.mjs` reads THIS product's reader (`m.body?.runId`) and that
+  sender's payload, plus both wrangler configs, so a doorbell wired to a queue nobody
+  consumes fails a test rather than a customer.
+  **A DUPLICATE RING IS HARMLESS BY CONSTRUCTION AND THAT IS `claim_run`'S PROPERTY, not
+  the ringer's care**: a second delivery for a run already claimed or finished answers
+  `not-claimable` / `already-finished` and does nothing. So an absorbed press is rung too
+  — a first press whose ring failed left a row nobody had been told about.
+  **A FAILED RING IS SAID, NEVER RAISED** (`notified: false`): the work is durable before
+  that line runs, so answering an error would tell a customer their message failed when it
+  is committed and will run. **The sweep is unchanged and is the recovery**, which is
+  driven: a send whose doorbell throws leaves the work row claimable and the next pickup
+  runs it.
+  **MEASURED end to end: send → started → answered in 288 ms with no sweep involved**,
+  driven by the ring ALONE (no cron, no hand-written deliver) in `verify:chat`'s section
+  13. Locally, against a real PostgreSQL with these migrations.
+- **The other two are the site builder's** (a poll that destroyed what was being typed,
+  and a retry key that was not bound to its payload) and are recorded in the root
+  `CLAUDE.md`. What touches this product is the transaction's new `mismatch` field: an
+  absorbed press whose words differ from the stored ones SAYS SO, because a caller that
+  reads a repeat as a plain success clears a box holding an edit nobody saved.
+
+### Applied live, and verified by reading it back (2026-09-16)
+
+**APPLIED to `ujrqdmmtcptvimazlhom`, recorded as remote version `20260916031604`**, and
+the file is named for that. **VERIFIED BY READING IT BACK, not by the success flag**:
+`send_to_agent` with **6 arguments** and `security definer` with `search_path=""`, the
+thread view with **`security_invoker=true`** and 12 columns, the partial unique index,
+`authored_run()` answering all eight bounds with `steps: 2` and `toolCalls: 1`,
+`history_turns()` 20, EXECUTE for `service_role` and **not** for `authenticated`, `anon`
+holding no SELECT on the view, and `public` still holding its 32 tables so nothing else
+moved. `agent_messages` was empty before and after.
+
+**⚠ AND A SECOND REMOTE RECORD EXISTS FOR ONE FILE (`20260916031852`), which is a
+correction rather than a change.** The apply went through a tool that takes SQL as an
+argument and the text handed over had comments trimmed — so the live bodies were correct
+and did NOT match this tree byte for byte, which is the property this product verifies
+deployments with. Closed rather than documented: the three function definitions were
+re-applied VERBATIM and now match by md5 AND by length (`send_to_agent` 6,358 ·
+`authored_run` 900 · `history_turns` 11). No second file — that would be a second copy
+of the same DDL.
+
+### Not proven live, and the list is short
+
+**THE DEPLOYED ENGINE DOES NOT YET CARRY THE `authored` AGENT — read, not assumed.**
+`/health` on `agent-builder-api.aniascapital.workers.dev` answers version
+`c0334f7c-9cc1-4ad6-a641-496edd095e81` with `agents: ["support","slow","guarded"]`, so a
+run accepted for a customer's agent would come back `no-agent` today. **That fixes the
+deployment order: migration → THIS engine → the site builder**, and it is why the order
+is not a preference.
+
+**No real model has been called and none can be**: the registry gives this agent the
+stand-in and no tools.
+
 ## Where things stand
+
 
 Scaffolded 2026-09-14. No source yet — the decisions below came first.
 

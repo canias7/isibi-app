@@ -5028,6 +5028,33 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .ag-msg-when { color: var(--muted); font-size: .72rem; padding-right: .2rem; }
 
+/* THE OTHER SIDE OF THE CONVERSATION. `.ag-msg` aligns to the END of the column,
+   so the agent's side has to say `flex-start` — and the bubble's own corner mirrors,
+   because the tail is what makes the two sides read as two speakers. */
+.ag-msg-bot { align-items: flex-start; }
+.ag-bubble-bot {
+  background: var(--panel); color: var(--text); border: 1px solid var(--line-2);
+  border-radius: 16px 16px 16px 4px;
+}
+/* A RUN THAT HAS NOT ANSWERED IS NOT A BUBBLE. Progress and failure are the
+   platform talking about the work, so they read as a note beside the conversation
+   rather than as something the agent said. */
+.ag-run {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  font-size: .8rem; color: var(--muted); padding: .15rem .1rem;
+}
+.ag-run-wait .ag-run-t { font-style: italic; }
+.ag-run-fail .ag-run-t { color: var(--warn, #b23c17); }
+.ag-run-tag { padding-bottom: .15rem; }
+.ag-run-t { line-height: 1.4; }
+/* THE CHROME'S OWN LABEL. Small, and never the same colour as the answer: what it
+   has to do is be read before the words under it, without competing with them. */
+.ag-sim {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px;
+  padding: .05rem .4rem; white-space: nowrap; cursor: help;
+}
+
 .ag-send { display: flex; align-items: flex-end; gap: .5rem; padding-top: .4rem; }
 .ag-send-in {
   flex: 1 1 auto; min-width: 0; resize: none; font: inherit; line-height: 1.45;
@@ -5041,3 +5068,35 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   cursor: pointer; padding: 0;
 }
 .ag-send-btn svg { width: 17px; height: 17px; }
+
+/* The agents kept in this browser, offered rather than uploaded. It sits ABOVE
+   the list because it is about agents that are not in it — put below, it reads
+   as a footnote to a list that does not contain them. */
+.ag-import {
+  border: 1px solid var(--line-2); border-left: 3px solid var(--text);
+  border-radius: 10px; background: var(--panel); padding: .9rem 1rem; margin-bottom: 1rem;
+}
+.ag-import-t { font-weight: 600; font-size: .95rem; margin-bottom: .25rem; }
+.ag-import-s { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+.ag-import-go {
+  margin-top: .7rem; font: inherit; font-weight: 600; font-size: .88rem; cursor: pointer;
+  border: 1px solid var(--text); border-radius: 8px; padding: .4rem .8rem;
+  background: var(--text); color: var(--paper);
+}
+.ag-import-go:disabled { opacity: .55; cursor: default; }
+
+/* The way out of an error panel. Both the list's and the thread's use it, so it
+   is one rule rather than two that drift. */
+.ag-retry {
+  margin-top: .9rem; font: inherit; font-size: .88rem; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; padding: .35rem .8rem;
+  background: var(--panel); color: var(--text);
+}
+.ag-retry:hover { background: var(--panel-2); }
+
+/* A failed send sits between the box and the note, so it is read before the
+   sentence about nothing answering — which would otherwise look like the reason. */
+.ag-err-send { margin: .4rem .2rem 0; min-height: 0; }
+
+/* A disabled write control says so rather than looking pressable. */
+.ag-save:disabled, .ag-send-btn:disabled { opacity: .55; cursor: default; }

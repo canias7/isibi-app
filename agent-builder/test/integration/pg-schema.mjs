@@ -850,12 +850,780 @@ try {
            where n.nspname='agent' and p.proname in ('beat_run','release_run');`) === "2");
   allowed("clean up the fence's run", `delete from agent.runs where id='${F1}';`, asWriter);
 
+  // ══ what a person WROTE, which is not what RAN ════════════════════════════
+  //
+  // `agent.agents` and `agent.agent_messages` hold the customer's own agents and
+  // the messages typed to them. They are mutable and deletable, which is why they
+  // are not in the journal — and the checks below are about exactly two things:
+  // whose rows they are, and the one row this product must not be able to store.
+  console.log("\n── the authored agents, and whose they are ──");
+
+  const AUTH_A1 = "aaaaaaaa-0000-4000-8000-000000000001";   // t1's
+  const AUTH_A2 = "aaaaaaaa-0000-4000-8000-000000000002";   // t2's
+  const AUTH_M1 = "bbbbbbbb-0000-4000-8000-000000000001";
+
+  allowed("the writer stores an agent for t1",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('${AUTH_A1}', 't1', 'Booking assistant', 'Answer questions about opening hours.');`, asWriter);
+  allowed("...and one for t2",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('${AUTH_A2}', 't2', 'Somebody else''s', 'Not yours.');`, asWriter);
+
+  // THE WHOLE POINT, ASKED AS A REAL CUSTOMER rather than as the writer that
+  // bypasses the policies.
+  check("a customer sees their own agent",
+    psql(`select count(*) from agent.agents;`, claimT1).out === "1");
+  check("...and only their own — the other account's is invisible",
+    psql(`select count(*) from agent.agents where id='${AUTH_A2}';`, claimT1).out === "0");
+  check("a customer with no claims at all sees nothing",
+    psql(`select count(*) from agent.agents;`, { role: "authenticated", claims: "" }).out === "0");
+  check("claims that will not parse see nothing",
+    psql(`select count(*) from agent.agents;`, { role: "authenticated", claims: "not json" }).out === "0");
+  // The subject fallback is what a real Supabase token carries, so it is exercised
+  // as itself rather than assumed equivalent to an explicit tenant_id.
+  check("a real token's `sub` reaches its own rows",
+    psql(`select count(*) from agent.agents;`,
+      { role: "authenticated", claims: '{"sub":"t1"}' }).out === "1");
+
+  // ⚠ THE CLIENT CANNOT WRITE AT ALL. Ownership is the server's to decide, so the
+  // browser's role has no INSERT, UPDATE or DELETE — a missing grant, not a policy
+  // it could ever satisfy.
+  refused("a customer cannot create an agent, even for themselves",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('cccccccc-0000-4000-8000-000000000001', 't1', 'Mine', 'Mine.');`,
+    "permission denied", claimT1);
+  refused("a customer cannot edit their own agent",
+    `update agent.agents set name='Renamed' where id='${AUTH_A1}';`, "permission denied", claimT1);
+  refused("a customer cannot delete their own agent",
+    `delete from agent.agents where id='${AUTH_A1}';`, "permission denied", claimT1);
+  refused("anon has nothing here", `select count(*) from agent.agents;`,
+    "permission denied", { role: "anon", claims: "" });
+
+  // ⚠ AND THE WRITER CANNOT CROSS TENANTS BY UPDATE either — not because of a
+  // policy (it bypasses those) but because the API is the only caller and derives
+  // the tenant from a verified token. Stated as the limit it is: this is an
+  // application guarantee, and the check below is the READ side, which is the half
+  // the database really owns.
+  check("t2 cannot see t1's agent by id",
+    psql(`select count(*) from agent.agents where id='${AUTH_A1}';`, claimT2).out === "0");
+
+  console.log("\n── the messages, and the row that must not exist ──");
+  allowed("the writer stores a message",
+    `insert into agent.agent_messages (id, agent_id, body)
+     values ('${AUTH_M1}', '${AUTH_A1}', 'what needs reordering today?');`, asWriter);
+  check("its owner can read it",
+    psql(`select count(*) from agent.agent_messages where agent_id='${AUTH_A1}';`, claimT1).out === "1");
+  check("⚠ ANOTHER ACCOUNT CANNOT READ THE CONVERSATION",
+    psql(`select count(*) from agent.agent_messages;`, claimT2).out === "0");
+  refused("a customer cannot write a message either",
+    `insert into agent.agent_messages (id, agent_id, body)
+     values ('dddddddd-0000-4000-8000-000000000001', '${AUTH_A1}', 'typed by the client');`,
+    "permission denied", claimT1);
+
+  // **THE FAKE REPLY IS IMPOSSIBLE, NOT MERELY DISCOURAGED.** No model is wired to
+  // this feature, so a row claiming to have come from the agent is a lie the
+  // database refuses to hold — which is a wall a client bug cannot walk past.
+  refused("⚠ NOTHING CAN BE STORED AS HAVING COME FROM THE AGENT",
+    `insert into agent.agent_messages (id, agent_id, role, body)
+     values ('eeeeeeee-0000-4000-8000-000000000001', '${AUTH_A1}', 'agent', 'Sure, I will do that!');`,
+    "agent_messages_role_check", asWriter);
+  refused("...nor as any other speaker",
+    `insert into agent.agent_messages (id, agent_id, role, body)
+     values ('eeeeeeee-0000-4000-8000-000000000002', '${AUTH_A1}', 'assistant', 'hello');`,
+    "agent_messages_role_check", asWriter);
+  refused("an empty message is refused",
+    `insert into agent.agent_messages (id, agent_id, body)
+     values ('eeeeeeee-0000-4000-8000-000000000003', '${AUTH_A1}', '   ');`,
+    "agent_messages_body_check", asWriter);
+  refused("a nameless agent is refused",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+     values ('ffffffff-0000-4000-8000-000000000001', 't1', '  ', 'x');`,
+    "agents_name_check", asWriter);
+
+  console.log("\n── the two facts the engine owns ──");
+  // `updated_at` really moves, which this repository's OTHER product gets wrong:
+  // it has a column whose comment promises a bump that nothing performs.
+  const authBefore = jget(`select updated_at from agent.agents where id='${AUTH_A1}';`);
+  psql(`update agent.agents set name='Booking assistant 2' where id='${AUTH_A1}';`, asWriter);
+  check("an edit bumps updated_at",
+    jget(`select updated_at from agent.agents where id='${AUTH_A1}';`) !== authBefore, `was ${authBefore}`);
+  const authBeforeMsg = jget(`select updated_at from agent.agents where id='${AUTH_A1}';`);
+  psql(`insert into agent.agent_messages (id, agent_id, body)
+        values ('bbbbbbbb-0000-4000-8000-000000000002', '${AUTH_A1}', 'and the 10-gauge sets?');`, asWriter);
+  check("a new message makes its agent recent, so the list cannot sink mid-conversation",
+    jget(`select updated_at from agent.agents where id='${AUTH_A1}';`) !== authBeforeMsg);
+  check("messages carry a total order the database assigns",
+    jget(`select count(distinct seq) from agent.agent_messages where agent_id='${AUTH_A1}';`) === "2");
+
+  console.log("\n── the list screen's one read ──");
+  // `agent.agent_overview` is what the agents list draws a row from: the agent,
+  // plus the last thing said to it. It exists so the preview line is one plain
+  // request instead of an embedded child select whose behaviour nothing here can
+  // run. So the thing to drive is that the derived column is RIGHT, and that the
+  // view is not a hole through the row level security under it.
+  check("the view answers one row per agent, not one per message",
+    jget(`select count(*) from agent.agent_overview where tenant_id='t1';`) === "1",
+    jget(`select count(*) from agent.agent_overview where tenant_id='t1';`));
+  // THE LAST one, not the first. A1 has two messages and the older one sorts
+  // first by every ordering except the one the view asks for, so a view that
+  // ordered ascending would pass a count check and fail this.
+  check("the preview line is the LAST message",
+    jget(`select last_message from agent.agent_overview where id='${AUTH_A1}';`) === "and the 10-gauge sets?",
+    jget(`select last_message from agent.agent_overview where id='${AUTH_A1}';`));
+  // NULL, never the empty string: a body cannot be blank (the check above refuses
+  // one), so NULL can only mean "nothing said yet" and the caller never guesses.
+  check("an agent nobody has written to has a NULL preview, not an empty one",
+    jget(`select coalesce(last_message, '<null>') from agent.agent_overview where id='${AUTH_A2}';`) === "<null>");
+  check("the view carries the fields the list row draws",
+    jget(`select name || '|' || instructions || '|' || (created_at is not null)::text || '|' || (updated_at is not null)::text
+            from agent.agent_overview where id='${AUTH_A1}';`)
+      === "Booking assistant 2|Answer questions about opening hours.|true|true");
+
+  // THE SAFETY ARGUMENT, DRIVEN. Without `security_invoker` a view runs as its
+  // owner and every tenant's agents would come back to anyone who can select
+  // from it — the one way this object can be worse than no object at all.
+  check("it is declared security_invoker",
+    jget(`select (select count(*) from pg_options_to_table(c.reloptions)
+                   where option_name = 'security_invoker' and option_value = 'true')
+            from pg_class c join pg_namespace n on n.oid = c.relnamespace
+           where n.nspname = 'agent' and c.relname = 'agent_overview';`) === "1");
+  check("one tenant reading the view sees its own agent",
+    psql(`select count(*) from agent.agent_overview;`, claimT1).out === "1");
+  // THE OBSERVER IS ALIVE: the same read as the account next door answers 1 too,
+  // so "0 for the other tenant" below is isolation and not an empty view.
+  check("...and the other tenant sees its own, which is what makes the next line evidence",
+    psql(`select count(*) from agent.agent_overview;`, claimT2).out === "1");
+  check("neither tenant can see the other's row through the view",
+    psql(`select count(*) from agent.agent_overview where id='${AUTH_A2}';`, claimT1).out === "0" &&
+    psql(`select count(*) from agent.agent_overview where id='${AUTH_A1}';`, claimT2).out === "0");
+  // A MESSAGE IS A SECOND RELATION UNDER THE VIEW and has its own policy, so the
+  // preview line is a separate reach that has to be refused separately: t2 can
+  // see its own row and must not see t1's WORDS through it.
+  check("a tenant with no messages of its own still gets a NULL preview rather than somebody else's",
+    psql(`select coalesce(last_message, '<null>') from agent.agent_overview where tenant_id='t2';`, claimT2).out === "<null>");
+  check("no claims at all reads nothing through the view",
+    psql(`select count(*) from agent.agent_overview;`, { role: "authenticated", claims: "" }).out === "0");
+  refused("anon cannot reach the view at all",
+    `select count(*) from agent.agent_overview;`, "permission denied", { role: "anon" });
+
+  console.log("\n── bringing one agent over from a browser ──");
+  // `agent.import_agent` is the only write on this side that is more than one
+  // statement, and the only reason it exists is that the import can be pressed
+  // twice: the local copy is never deleted, so a failure must leave NOTHING
+  // behind rather than half an agent for somebody to find and tidy up.
+  const IMP = jget(`select agent.import_agent('t1', 'Imported assistant', 'Brought over from a browser.',
+    '[{"body":"first thing I asked","at":"2026-09-01T10:00:00Z"},
+      {"body":"second thing","at":"2026-09-01T10:05:00Z"},
+      {"body":"third, with no time at all"}]'::jsonb);`);
+  check("it answers the new agent's id", /^[0-9a-f-]{36}$/.test(IMP), IMP);
+  check("the agent landed under the tenant the CALLER named",
+    jget(`select tenant_id || '|' || name from agent.agents where id='${IMP}';`)
+      === "t1|Imported assistant");
+  check("all three messages landed",
+    jget(`select count(*) from agent.agent_messages where agent_id='${IMP}';`) === "3");
+  // ARRAY ORDER IS THE CONVERSATION'S ORDER. The third message has no time at
+  // all, so an implementation that ordered on `created_at` would put it first
+  // or last by accident; `seq` is assigned as each row goes in.
+  check("the thread reads back in the order it was typed",
+    jget(`select string_agg(body, ' / ' order by seq) from agent.agent_messages where agent_id='${IMP}';`)
+      === "first thing I asked / second thing / third, with no time at all");
+  check("a message's own time is kept when the browser knew it",
+    jget(`select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI')
+            from agent.agent_messages where agent_id='${IMP}' and seq = (
+              select min(seq) from agent.agent_messages where agent_id='${IMP}');`)
+      === "2026-09-01 10:00");
+  // Losing a message's time is worth far less than losing the message, so an
+  // absent or unparseable one becomes now() instead of failing the import.
+  check("...and a message with no time still arrives, dated now",
+    jget(`select (created_at > now() - interval '1 minute')::text
+            from agent.agent_messages where agent_id='${IMP}'
+           order by seq desc limit 1;`) === "true");
+  check("the imported agent shows its last message on the list screen",
+    jget(`select last_message from agent.agent_overview where id='${IMP}';`)
+      === "third, with no time at all");
+  check("an import with no messages is an agent with an empty thread, not a refusal",
+    /^[0-9a-f-]{36}$/.test(jget(`select agent.import_agent('t1', 'Empty one', 'Nothing said yet.', '[]'::jsonb);`)));
+
+  // ── ALL OF IT OR NONE OF IT ────────────────────────────────────────────────
+  const beforeRollback = jget(`select count(*) from agent.agents where tenant_id='t1';`);
+  refused("an import carrying a blank message is refused whole",
+    `select agent.import_agent('t1', 'Half an agent', 'Should not survive.',
+      '[{"body":"this one is fine"},{"body":"   "}]'::jsonb);`,
+    "agent_messages_body_check", asWriter);
+  // THE POINT OF THE WHOLE FUNCTION, and the one thing a loop of inserts could
+  // not give: the agent from the refused import is not there either.
+  check("...and it left NO agent behind",
+    jget(`select count(*) from agent.agents where tenant_id='t1';`) === beforeRollback,
+    `was ${beforeRollback}, now ${jget(`select count(*) from agent.agents where tenant_id='t1';`)}`);
+  check("...and no message either",
+    jget(`select count(*) from agent.agent_messages m
+           where m.body = 'this one is fine';`) === "0");
+  // A FORGED SPEAKER IS DROPPED, NOT REFUSED, and that is the right shape here:
+  // `role` is not part of the payload the function reads, so a caller who sends
+  // one is not making a request the function can honour or decline — the column
+  // default and its `check (role = 'user')` decide, and they cannot be reached.
+  // The assertion is therefore about the ROW, not about an error.
+  const FAKE = jget(`select agent.import_agent('t1', 'Fake reply', 'x',
+    '[{"body":"hi","role":"agent"},{"body":"there","role":"assistant"}]'::jsonb);`);
+  check("a payload naming the agent as the speaker stores the person as the speaker anyway",
+    jget(`select string_agg(distinct role, ',') from agent.agent_messages where agent_id='${FAKE}';`)
+      === "user");
+  check("...and both messages are still there, so nothing was quietly dropped with it",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FAKE}';`) === "2");
+  refused("a mangled payload is refused rather than read as an empty conversation",
+    `select agent.import_agent('t1', 'Mangled', 'x', '"not an array"'::jsonb);`,
+    "messages must be a JSON array", asWriter);
+  refused("...including a null one",
+    `select agent.import_agent('t1', 'Mangled', 'x', null);`,
+    "messages must be a JSON array", asWriter);
+  refused("a nameless import is refused by the table's own gate",
+    `select agent.import_agent('t1', '  ', 'x', '[]'::jsonb);`,
+    "agents_name_check", asWriter);
+
+  // ── AND A CUSTOMER CANNOT CALL IT AT ALL ───────────────────────────────────
+  // It takes the tenant as an ARGUMENT, so this grant is the only thing between
+  // one account and another's rows. `execute` defaults to PUBLIC on a new
+  // function, which is exactly why the migration revokes it by name.
+  // RE-ANCHORED 2026-09-15: the four-argument signature is DROPPED rather than
+  // left beside the five-argument one — Postgres would keep both as an overload
+  // set, and a caller that forgot the import key would silently get the version
+  // with no identity at all. The property is unchanged; the signature moved.
+  check("only service_role may execute it",
+    jget(`select has_function_privilege('service_role',
+            'agent.import_agent(text,text,text,jsonb,text)', 'execute')::text || '|' ||
+          has_function_privilege('authenticated',
+            'agent.import_agent(text,text,text,jsonb,text)', 'execute')::text || '|' ||
+          has_function_privilege('anon',
+            'agent.import_agent(text,text,text,jsonb,text)', 'execute')::text;`)
+      === "true|false|false");
+  refused("a signed-in customer calling it for their OWN tenant is still refused",
+    `select agent.import_agent('t1', 'Mine surely', 'x', '[]'::jsonb, null);`,
+    "permission denied", claimT1);
+
+  psql(`delete from agent.agents where tenant_id='t1' and id <> '${AUTH_A1}';`, asWriter);
+
+  console.log("\n── the import can be pressed twice ──");
+  // ATOMIC IS NOT IDEMPOTENT, and the gap between them is one lost response: the
+  // agent is created, the answer never arrives, the local record is still
+  // unmarked, and the obvious thing to do is press again. Without an identity
+  // that made a second agent carrying a second copy of the conversation.
+  const KEY1 = "11111111-2222-4333-8444-555555555555";   // a browser record's id
+  const FIRST = jget(`select agent.import_agent('t1', 'Retried', 'Brought over twice.',
+    '[{"body":"one"},{"body":"two"}]'::jsonb, '${KEY1}');`);
+  const AGAIN = jget(`select agent.import_agent('t1', 'Retried', 'Brought over twice.',
+    '[{"body":"one"},{"body":"two"}]'::jsonb, '${KEY1}');`);
+  check("pressing it again answers the SAME agent",
+    FIRST === AGAIN, `${FIRST} vs ${AGAIN}`);
+  check("...and there is still only one",
+    jget(`select count(*) from agent.agents where tenant_id='t1' and import_key='${KEY1}';`) === "1");
+  // THE HALF THAT IS EASY TO GET WRONG: answering the existing id while running
+  // the message loop anyway doubles the conversation on every press.
+  check("...with its conversation intact and NOT doubled",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FIRST}';`) === "2",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FIRST}';`));
+  check("...in the order it was typed, still",
+    jget(`select string_agg(body, ',' order by seq) from agent.agent_messages where agent_id='${FIRST}';`)
+      === "one,two");
+  // A RETRY CARRYING DIFFERENT WORDS DOES NOT REWRITE THE AGENT EITHER. The
+  // identity decides, and the first press is what landed; a second press is a
+  // retry, not an edit, and treating it as one would let a stale browser
+  // overwrite an agent somebody has since changed on another machine.
+  const SAME = jget(`select agent.import_agent('t1', 'Different name now', 'Different instructions.',
+    '[{"body":"three"}]'::jsonb, '${KEY1}');`);
+  check("a retry with different content is still the same agent",
+    SAME === FIRST);
+  check("...and did not overwrite what landed first",
+    jget(`select name from agent.agents where id='${FIRST}';`) === "Retried");
+  check("...and added no message",
+    jget(`select count(*) from agent.agent_messages where agent_id='${FIRST}';`) === "2");
+
+  // THE SCOPE IS THE TENANT'S, and that is the half that has to be in the
+  // database: two accounts holding the same local id each import their own.
+  const T2SAME = jget(`select agent.import_agent('t2', 'T2 has the same local id', 'Theirs.',
+    '[{"body":"t2 only"}]'::jsonb, '${KEY1}');`);
+  check("another account importing the SAME local id gets its own agent",
+    T2SAME !== FIRST, `${T2SAME} vs ${FIRST}`);
+  check("...under its own tenant",
+    jget(`select tenant_id from agent.agents where id='${T2SAME}';`) === "t2");
+  check("...and cannot see or touch the first account's",
+    psql(`select count(*) from agent.agents where id='${FIRST}';`, claimT2).out === "0");
+
+  // WITHOUT A KEY, NOTHING IS DEDUPLICATED — an agent made the ordinary way has
+  // no import identity, and any number of those may exist. Asserted so the
+  // partial index cannot quietly become a total one.
+  const N1 = jget(`select agent.import_agent('t1', 'No key A', 'x', '[]'::jsonb, null);`);
+  const N2 = jget(`select agent.import_agent('t1', 'No key B', 'x', '[]'::jsonb, null);`);
+  check("two imports with no key are two agents", N1 !== N2);
+  check("...and an empty key counts as no key, not as a shared one",
+    jget(`select agent.import_agent('t1', 'Blank key A', 'x', '[]'::jsonb, '  ');`)
+      !== jget(`select agent.import_agent('t1', 'Blank key B', 'x', '[]'::jsonb, '');`));
+  check("an agent created the ordinary way carries no import identity",
+    jget(`select count(*) from agent.agents where tenant_id='t1' and import_key is null;`) >= "4");
+
+  // THE WALL IS THE INDEX, so it refuses a second row even when nothing goes
+  // through the function — which is what makes the function's `on conflict` a
+  // loser-safe race rather than the only guard.
+  refused("the database itself refuses a second import of one local record",
+    `insert into agent.agents (id, tenant_id, name, instructions, import_key)
+     values (gen_random_uuid(), 't1', 'Sneaked in', 'x', '${KEY1}');`,
+    "agents_one_import_per_tenant", asWriter);
+  // CAST TO TEXT: psql prints a bare boolean as `t`, not `true`, so the first
+  // version of this line compared "t" with "true" and failed correct SQL.
+  check("the index is partial, so it is about imports and nothing else",
+    jget(`select (indexdef like '%WHERE (import_key IS NOT NULL)%')::text from pg_indexes
+           where schemaname='agent' and indexname='agents_one_import_per_tenant';`) === "true",
+    jget(`select coalesce(indexdef,'<no such index>') from pg_indexes
+           where schemaname='agent' and indexname='agents_one_import_per_tenant';`));
+  // AND THE OLD SIGNATURE IS GONE rather than left as an overload: a caller that
+  // forgot the new argument would otherwise get the version with no identity.
+  check("there is exactly ONE import_agent, and it takes the key",
+    jget(`select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+           where n.nspname='agent' and p.proname='import_agent';`) === "1");
+  check("...and it is still service_role only",
+    jget(`select has_function_privilege('service_role','agent.import_agent(text,text,text,jsonb,text)','execute')::text
+          || '|' || has_function_privilege('authenticated','agent.import_agent(text,text,text,jsonb,text)','execute')::text;`)
+      === "true|false");
+
+  psql(`delete from agent.agents where tenant_id in ('t1','t2') and id <> '${AUTH_A1}' and id <> '${AUTH_A2}';`, asWriter);
+
+  console.log("\n── deleting an agent takes its conversation ──");
+  allowed("the writer deletes the agent", `delete from agent.agents where id='${AUTH_A1}';`, asWriter);
+  check("...and its messages went with it",
+    jget(`select count(*) from agent.agent_messages where agent_id='${AUTH_A1}';`) === "0");
+  allowed("clean up the other account's agent", `delete from agent.agents where id='${AUTH_A2}';`, asWriter);
+
   console.log("\n── the log and the work go together ──");
   check("deleting the run takes its work row with it",
     psql(`delete from agent.runs where id='${Q1}';`, asWriter).ok
     && jget(`select count(*) from agent.run_work where run_id='${Q1}';`) === "0");
   check("...and its log",
     jget(`select count(*) from agent.run_entries where run_id='${Q1}';`) === "0");
+
+  // ══ sending a message to an authored agent starts a run ═══════════════════
+  //
+  // THE WHOLE POINT OF THIS SECTION IS THAT IT IS ONE TRANSACTION. Everything
+  // below is asked of `agent.send_to_agent` and never of the tables underneath
+  // it: a check that inserted a message itself and then called `accept_run`
+  // would be testing a second implementation of the thing under test.
+  console.log("\n── sending a message starts a run ──");
+  const SA  = "5a5a5a5a-0000-4000-8000-00000000a001";   // tenant t1's agent
+  const SB  = "5a5a5a5a-0000-4000-8000-00000000b001";   // tenant t2's agent
+  const MSG1  = "5a5a5a5a-0000-4000-8000-00000000ee01";
+  const MSG2  = "5a5a5a5a-0000-4000-8000-00000000ee02";
+  const MSG3  = "5a5a5a5a-0000-4000-8000-00000000ee03";
+  const R1  = "5a5a5a5a-0000-4000-8000-00000000fa01";
+  const R2  = "5a5a5a5a-0000-4000-8000-00000000fa02";
+  const R3  = "5a5a5a5a-0000-4000-8000-00000000fa03";
+  const INSTR = "Answer as a friendly bike shop. Never quote a price.";
+  // The stand-in's own shape: labelled, and the label travels with the text. The
+  // view has to hand this back verbatim, because the screen reads it from there.
+  const ANSWER = "[simulated] we open at nine";
+
+  const send = (a, mid, body, key, rid, tenant = "t1") =>
+    jget(`select agent.send_to_agent('${tenant}','${a}','${mid}',${shq(body)},${shq(key)},'${rid}');`);
+
+  allowed("an agent to send to", `insert into agent.agents (id, tenant_id, name, instructions)
+      values ('${SA}','t1','Bike shop',${shq(INSTR)});`, asWriter);
+  allowed("...and one belonging to somebody else",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+      values ('${SB}','t2','Theirs','Theirs.');`, asWriter);
+
+  const first = send(SA, MSG1, "when do you open?", "key-1", R1);
+  check("the send answers ok", /"ok"\s*:\s*true/.test(first), first);
+  check("...and it is not a repeat", /"repeat"\s*:\s*false/.test(first), first);
+  check("...and the work is queued", /"state"\s*:\s*"queued"/.test(first), first);
+  check("the message is stored",
+    jget(`select body from agent.agent_messages where id='${MSG1}';`) === "when do you open?");
+  check("...as a user message and nothing else",
+    jget(`select role from agent.agent_messages where id='${MSG1}';`) === "user");
+  check("...and it names the run it started",
+    jget(`select run_id from agent.agent_messages where id='${MSG1}';`) === R1);
+  check("the run exists under the same tenant",
+    jget(`select tenant_id from agent.runs where id='${R1}';`) === "t1");
+  check("...and it has work on the queue",
+    jget(`select count(*) from agent.run_work where run_id='${R1}' and done_at is null;`) === "1");
+  check("...and a log with exactly its first entry",
+    jget(`select count(*) from agent.run_entries where run_id='${R1}';`) === "1");
+
+  // ── the snapshot ─────────────────────────────────────────────────────────
+  check("the run's first entry carries the instructions as they are NOW",
+    jget(`select body ->> 'instructions' from agent.run_entries where run_id='${R1}' and seq=0;`) === INSTR);
+  check("...and the conversation it was given, which is empty for a first message",
+    jget(`select body ->> 'history' from agent.run_entries where run_id='${R1}' and seq=0;`) === "[]");
+  check("...and which authored agent and which message started it",
+    jget(`select (body ->> 'authoredAgent') || '|' || (body ->> 'message')
+           from agent.run_entries where run_id='${R1}' and seq=0;`) === `${SA}|${MSG1}`);
+  check("...and the prompt the caller sent",
+    jget(`select body ->> 'prompt' from agent.run_entries where run_id='${R1}' and seq=0;`) === "when do you open?");
+
+  // ⚠ THE WALL: A CALLER HAS NOWHERE TO PUT ANY OF THIS. The function takes six
+  // arguments and not one of them is an entry, a model, a bound, an instruction or
+  // a history — so there is no forged-entry case to write, which is the point.
+  // What the arguments CAN carry is checked instead: the ids and the words typed.
+  // ASSERTED AS THE PROPERTY RATHER THAN THE SPELLING: `jsonb` is the only type an
+  // entry, a bound list or a history could arrive as, and none of the arguments is
+  // one. Argument NAMES are deliberately not compared — a rename is not a widening.
+  check("no argument of the send is a jsonb, so nothing structured can be handed to it",
+    jget(`select count(*) from (
+            select ty.typname from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+              cross join unnest(p.proargtypes) as a(oid)
+              join pg_type ty on ty.oid = a.oid
+             where n.nspname = 'agent' and p.proname = 'send_to_agent') k
+           where k.typname = 'jsonb';`) === "0");
+  check("...and there are exactly six of them, so one cannot be added unnoticed",
+    jget(`select p.pronargs::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'agent' and p.proname = 'send_to_agent';`) === "6",
+    jget(`select pg_get_function_identity_arguments(p.oid) from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'agent' and p.proname = 'send_to_agent';`));
+  // ASSERTED AS THE PROPERTY, NOT THE SPELLING — this was pinned to the whole JSON
+  // string and went red on an honest change to the bounds it is about. What matters
+  // is that the shape names all three things and that the numbers reaching the log
+  // are the ones this function answers, which the next check reads.
+  check("...so the run's shape is the server's own, not a caller's",
+    jget(`select (agent.authored_run() ?& array['agent','model','limits'])::text
+            || '|' || (agent.authored_run() ->> 'agent')
+            || '|' || jsonb_typeof(agent.authored_run() -> 'limits')
+            || '|' || (jsonb_typeof(agent.authored_run() -> 'limits') = 'object'
+                       and (select count(*) from jsonb_each(agent.authored_run() -> 'limits')) >= 4)::text;`)
+      === "true|authored|object|true",
+    jget(`select agent.authored_run()::text;`));
+  check("...and they reach the log exactly as declared",
+    jget(`select (body -> 'limits')::text || '|' || (body ->> 'model') || '|' || (body ->> 'agent')
+           from agent.run_entries where run_id='${R1}' and seq=0;`)
+      === `${jget(`select (agent.authored_run() -> 'limits')::text;`)}|stand-in|authored`);
+  // ⚠ toolCalls MUST NOT BE ZERO: it is a run TOTAL, and the engine stops a run
+  // whose total is already spent — so a zero budget stops it before its first
+  // model call and an authored agent would answer nothing at all.
+  check("...with a tool budget the engine can actually start on",
+    jget(`select (agent.authored_run() -> 'limits' ->> 'toolCalls')::int > 0;`) === "t");
+
+  const forged = send(SA, MSG2, "again", "key-2", R2);
+  check("a second send starts a second run", /"ok"\s*:\s*true/.test(forged), forged);
+  check("...whose instructions are the agent's own row",
+    jget(`select body ->> 'instructions' from agent.run_entries where run_id='${R2}' and seq=0;`) === INSTR);
+  check("...and its history is the conversation that really happened",
+    jget(`select jsonb_array_length((body -> 'history')) from agent.run_entries where run_id='${R2}' and seq=0;`) === "1");
+  check("...whose one turn is the real first message",
+    jget(`select body -> 'history' -> 0 ->> 'user' from agent.run_entries where run_id='${R2}' and seq=0;`) === "when do you open?");
+  check("...with no answer, because that run has not finished",
+    jget(`select (body -> 'history' -> 0 -> 'agent') is null or (body -> 'history' -> 0 -> 'agent') = 'null'::jsonb
+           from agent.run_entries where run_id='${R2}' and seq=0;`) === "t");
+
+  // ── the duplicate send ───────────────────────────────────────────────────
+  const again = send(SA, "5a5a5a5a-0000-4000-8000-00000000eedd", "when do you open?", "key-1",
+                     "5a5a5a5a-0000-4000-8000-00000000fadd");
+  check("a repeated send is absorbed", /"repeat"\s*:\s*true/.test(again), again);
+  check("...answering the message that already landed", again.includes(MSG1), again);
+  check("...and the run it already started", again.includes(R1), again);
+  // THE STORED BODY, so a caller echoes the conversation rather than its own
+  // request. Driven with a retry that carries DIFFERENT text under the same key —
+  // a client bug, and the one case where the two answers diverge.
+  const reworded = send(SA, "5a5a5a5a-0000-4000-8000-00000000eede", "WHEN DO YOU OPEN???", "key-1",
+                        "5a5a5a5a-0000-4000-8000-00000000fade");
+  check("...and a retry with different words is answered with what is really stored",
+    /"body"\s*:\s*"when do you open\?"/.test(reworded), reworded);
+  // ⚠ AND THE ANSWER SAYS THE TWO DISAGREE. Without this a caller reads `ok` and is
+  // handed the original message, which from a browser is indistinguishable from its
+  // EDIT having been saved — so an edited retry after a lost response is thrown away
+  // silently. It is a fact about the two bodies, not a refusal: the earlier message is
+  // real and nothing is wrong with it.
+  check("...and says the words it absorbed are not the words that were sent",
+    /"mismatch"\s*:\s*true/.test(reworded), reworded);
+  check("...while an identical retry says they are the same",
+    /"mismatch"\s*:\s*false/.test(again), again);
+  check("...which did not overwrite the message either",
+    jget(`select body from agent.agent_messages where id='${MSG1}';`) === "when do you open?");
+  check("...so there is still one message for that key",
+    jget(`select count(*) from agent.agent_messages where agent_id='${SA}' and send_key='key-1';`) === "1");
+  check("...and NO second run was minted",
+    jget(`select count(*) from agent.runs where id='5a5a5a5a-0000-4000-8000-00000000fadd';`) === "0");
+  check("...and nothing was put on the queue for it",
+    jget(`select count(*) from agent.run_work where run_id='5a5a5a5a-0000-4000-8000-00000000fadd';`) === "0");
+
+  // ── somebody else's agent ────────────────────────────────────────────────
+  const stranger = send(SB, "5a5a5a5a-0000-4000-8000-00000000eeaa", "hello", "key-x",
+                        "5a5a5a5a-0000-4000-8000-00000000faaa", "t1");
+  check("sending to another account's agent is refused", /"error"\s*:\s*"no-agent"/.test(stranger), stranger);
+  check("...and it reads the same as an agent that does not exist",
+    /"error"\s*:\s*"no-agent"/.test(send("5a5a5a5a-0000-4000-8000-00000000c0ff", "5a5a5a5a-0000-4000-8000-00000000eeab",
+      "hello", "key-y", "5a5a5a5a-0000-4000-8000-00000000faab", "t1")));
+  check("...and wrote no message",
+    jget(`select count(*) from agent.agent_messages where agent_id='${SB}';`) === "0");
+  check("...and minted no run",
+    jget(`select count(*) from agent.runs where id='5a5a5a5a-0000-4000-8000-00000000faaa';`) === "0");
+
+  // ── a send with no key ───────────────────────────────────────────────────
+  refused("a send with no key is refused rather than accepted unkeyed",
+    `select agent.send_to_agent('t1','${SA}','5a5a5a5a-0000-4000-8000-00000000eeba','hi','','${R3}');`,
+    "needs its own key", asWriter);
+  check("...and it wrote nothing",
+    jget(`select count(*) from agent.agent_messages where id='5a5a5a5a-0000-4000-8000-00000000eeba';`) === "0");
+
+  // ── an answer reaches the next run's history, and an edit does not ───────
+  //
+  // The engine writes a `stopped` entry; the run's `stop` column is projected off
+  // it by trigger. Written through `append_entry`'s own door would need a claim,
+  // so this inserts the entry as the OWNER — which is honest about what is being
+  // checked here: the HISTORY READ, not the fence.
+  psql(`insert into agent.run_entries (run_id, seq, body) values ('${R1}', 1,
+        ${shq(`{"kind":"model","at":1700000000001,"step":1,"ms":12,"text":${JSON.stringify(ANSWER)},"toolCalls":[],"usage":null,"costMicros":null}`)}::jsonb);`);
+  psql(`insert into agent.run_entries (run_id, seq, body) values ('${R1}', 2,
+        ${shq(`{"kind":"stopped","at":1700000000002,"stop":{"reason":"answered","text":${JSON.stringify(ANSWER)}}}`)}::jsonb);`);
+  check("the run's stop is projected",
+    jget(`select stop ->> 'reason' from agent.runs where id='${R1}';`) === "answered");
+
+  allowed("the customer edits the agent's instructions afterwards",
+    `update agent.agents set instructions='Completely different now.' where id='${SA}';`, asWriter);
+  check("⚠ the run already accepted still carries the instructions it was started with",
+    jget(`select body ->> 'instructions' from agent.run_entries where run_id='${R1}' and seq=0;`) === INSTR);
+
+  const third = send(SA, MSG3, "and on sundays?", "key-3", R3);
+  check("a later send carries the NEW instructions", /"ok"\s*:\s*true/.test(third)
+    && jget(`select body ->> 'instructions' from agent.run_entries where run_id='${R3}' and seq=0;`)
+       === "Completely different now.");
+  check("...and the history holds the earlier turn WITH its answer",
+    jget(`select body -> 'history' -> 0 ->> 'agent' from agent.run_entries where run_id='${R3}' and seq=0;`)
+      === "[simulated] we open at nine");
+  check("...in the order it was said",
+    jget(`select (body -> 'history' -> 0 ->> 'user') || '|' || (body -> 'history' -> 1 ->> 'user')
+           from agent.run_entries where run_id='${R3}' and seq=0;`) === "when do you open?|again");
+
+  // ── the history read: three properties a sweep proved unguarded ───────
+  //
+  // THREE MUTANTS SURVIVED EVERY CHECK ABOVE AND NONE OF THEM WAS INERT: the newest
+  // turns taken oldest-first, a turn whose run is gone dropped by an inner join, and
+  // an unfinished run's text handed over as though it were an answer. They survived
+  // because the conversation above is three turns long and every one of those turns
+  // has a run — so the coverage could not reach the cases at all. That is the sweep
+  // doing the one thing hand-written coverage cannot: reading the checks adversarially.
+  //
+  // EACH ON ITS OWN AGENT, so no count above moves. The prior conversation is
+  // INSERTED rather than sent: what is under test here is the history READ, and every
+  // check above already drives the writer.
+  const SLONG  = "5a5a5a5a-0000-4000-8000-00000000a0ff";
+  const LMSG   = "5a5a5a5a-0000-4000-8000-00000000ef01";
+  const LRUN   = "5a5a5a5a-0000-4000-8000-00000000fb01";
+  const TURNS  = Number(jget(`select agent.history_turns();`));
+  check("the history bound is a number these checks can exceed",
+    Number.isInteger(TURNS) && TURNS > 0, String(TURNS));
+  allowed("an agent with a longer conversation than the window",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+      values ('${SLONG}','t1','Long','Be brief.');`, asWriter);
+  // TURNS + 3, so the window cannot reach the first turn however it is ordered.
+  allowed("...and the turns behind it",
+    `insert into agent.agent_messages (id, agent_id, body)
+       select gen_random_uuid(), '${SLONG}', 'turn ' || g from generate_series(1, ${TURNS + 3}) g;`, asWriter);
+  check("...all of them stored",
+    jget(`select count(*) from agent.agent_messages where agent_id='${SLONG}';`) === String(TURNS + 3));
+  const onLong = send(SLONG, LMSG, "and now?", "key-long", LRUN);
+  check("a send on top of a long conversation is accepted", /"ok"\s*:\s*true/.test(onLong), onLong);
+  check(`...and the history handed over is capped at the window (${TURNS})`,
+    jget(`select jsonb_array_length(body -> 'history') from agent.run_entries
+           where run_id='${LRUN}' and seq=0;`) === String(TURNS));
+  // ⚠ THE NEWEST TURNS, AND THEN IN THE ORDER THEY WERE SAID. Ordered ascending
+  // inside the window instead, a customer's long conversation is pinned to the first
+  // screen it ever had and the model never sees what was just said to it.
+  check("...and they are the NEWEST turns, oldest of them first",
+    jget(`select (body -> 'history' -> 0 ->> 'user') || '|' || (body -> 'history' -> -1 ->> 'user')
+           from agent.run_entries where run_id='${LRUN}' and seq=0;`)
+      === `turn 4|turn ${TURNS + 3}`);
+  check("...so the first turn of all is not in it",
+    jget(`select count(*) from agent.run_entries e,
+            jsonb_array_elements(e.body -> 'history') t
+           where e.run_id='${LRUN}' and e.seq=0 and t ->> 'user' = 'turn 1';`) === "0");
+  // ⚠ A TURN WHOSE RUN IS GONE IS STILL THE CONVERSATION THAT HAPPENED. Every turn
+  // above is run-less — which is what an imported conversation looks like, and what a
+  // retained-away run leaves behind — so an inner join answers an EMPTY history and
+  // sends the model a conversation it never had, the customer's own questions missing.
+  check("...and a turn with no run at all is handed over, with a null answer",
+    jget(`select count(*) from agent.run_entries e,
+            jsonb_array_elements(e.body -> 'history') t
+           where e.run_id='${LRUN}' and e.seq=0 and t -> 'agent' = 'null'::jsonb;`) === String(TURNS));
+
+  // ⚠ AND A STOP THAT IS NOT AN ANSWER CONTRIBUTES NO TEXT. `case when reason =
+  // 'answered'` is the same rule `run.mjs` and `api.mjs` apply, in a third place and
+  // deliberately: a run stopped by a bound may carry partial text, and passing that on
+  // as the agent's answer puts words in its mouth it never finished saying. No stop the
+  // engine writes today carries `text` unless it answered — so the fixture writes the
+  // one that could, which is the whole reason the wall is there.
+  const SSTOP = "5a5a5a5a-0000-4000-8000-00000000a0fe";
+  const SM1   = "5a5a5a5a-0000-4000-8000-00000000ef02";
+  const SR1   = "5a5a5a5a-0000-4000-8000-00000000fb02";
+  const SM2   = "5a5a5a5a-0000-4000-8000-00000000ef03";
+  const SR2   = "5a5a5a5a-0000-4000-8000-00000000fb03";
+  allowed("an agent whose first run stopped without answering",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+      values ('${SSTOP}','t1','Stopper','Be brief.');`, asWriter);
+  check("its first send is accepted", /"ok"\s*:\s*true/.test(send(SSTOP, SM1, "are you there?", "key-s1", SR1)));
+  psql(`insert into agent.run_entries (run_id, seq, body) values ('${SR1}', 1,
+        ${shq('{"kind":"stopped","at":1700000000003,"stop":{"reason":"spent","bound":"steps","text":"half of an answ"}}')}::jsonb);`);
+  check("...and its stop is projected as something other than an answer",
+    jget(`select stop ->> 'reason' from agent.runs where id='${SR1}';`) === "spent");
+  check("...carrying text all the same, which is what makes this checkable",
+    jget(`select stop ->> 'text' from agent.runs where id='${SR1}';`) === "half of an answ");
+  const afterStop = send(SSTOP, SM2, "still there?", "key-s2", SR2);
+  check("the next send is accepted", /"ok"\s*:\s*true/.test(afterStop), afterStop);
+  check("...and it is given that turn's QUESTION",
+    jget(`select body -> 'history' -> 0 ->> 'user' from agent.run_entries
+           where run_id='${SR2}' and seq=0;`) === "are you there?");
+  check("...with NO answer, because that run never answered",
+    jget(`select (body -> 'history' -> 0 -> 'agent' = 'null'::jsonb)::text
+           from agent.run_entries where run_id='${SR2}' and seq=0;`) === "true");
+
+  // ── the thread the screen draws ──────────────────────────────────────────
+  //
+  // `agent.agent_thread` is the ONE read behind a conversation: every message,
+  // and the state of whatever run it started. It exists because the answer is
+  // never copied into a message row — so a result has to be joined at read time,
+  // and doing that in JavaScript over two requests would be a second place a
+  // message could end up wearing another run's outcome.
+  console.log("\n── the thread the screen draws ──");
+  const SBMSG = "5a5a5a5a-0000-4000-8000-00000000ee0b";
+  allowed("a message for the other account's agent, so the isolation checks below have an observer",
+    `insert into agent.agent_messages (id, agent_id, body) values ('${SBMSG}','${SB}','theirs');`, asWriter);
+
+  check("one row per message, never one per run or one per entry",
+    jget(`select count(*) from agent.agent_thread where agent_id='${SA}';`) === "3",
+    jget(`select count(*) from agent.agent_thread where agent_id='${SA}';`));
+  check("a finished run's outcome arrives with its message",
+    jget(`select run_status || '|' || (run_stop ->> 'reason') || '|' || (run_stop ->> 'text')
+           from agent.agent_thread where id='${MSG1}';`) === `stopped|answered|${ANSWER}`,
+    jget(`select coalesce(run_status,'<null>') || '|' || coalesce(run_stop ->> 'text','<null>')
+           from agent.agent_thread where id='${MSG1}';`));
+  check("...and its progress is the log's own highest step",
+    jget(`select run_step from agent.agent_thread where id='${MSG1}';`) === "1");
+  // ⚠ MEASURED, AND IT CORRECTED AN EXPECTATION WRITTEN HERE FIRST: a run that is
+  // only QUEUED reads `running`, not `new`. `agent.runs.status` is projected off
+  // the LOG by trigger, and `accept_run` writes the `started` entry in the same
+  // transaction as the work row — so "a run has begun" is true from the instant it
+  // is accepted, and `new` is reachable only for a run row with no log at all.
+  //
+  // **SO THE STEP IS WHAT SEPARATES QUEUED FROM WORKING, and that is the reading
+  // the screen has to use**: `running` with no step is accepted and untouched;
+  // `running` with a step is a run going through it. The queue's own row would say
+  // it more directly and is deliberately NOT joined — `authenticated` has nothing
+  // on `agent.run_work`, not even SELECT, so a `security_invoker` view reaching it
+  // would answer NULL for every customer and read as a run that never started.
+  check("a run that is only queued has begun but taken no step",
+    jget(`select run_status || '|' || coalesce(run_stop::text,'<null>') || '|' || coalesce(run_step::text,'<null>')
+           from agent.agent_thread where id='${MSG2}';`) === "running|<null>|<null>",
+    jget(`select run_status from agent.agent_thread where id='${MSG2}';`));
+  check("...and the queue is where its waiting really lives, unreadable through the view",
+    jget(`select count(*) from agent.run_work where run_id='${R2}' and done_at is null and claimed_by is null;`) === "1");
+  // A MESSAGE THAT NEVER STARTED ANYTHING IS STILL A MESSAGE — every imported
+  // conversation is this shape, and a view that dropped it would delete somebody's
+  // writing from their own screen.
+  check("a message with no run at all is present with nothing beside it",
+    jget(`select body || '|' || coalesce(run_id::text,'<null>') || '|' || coalesce(run_status,'<null>')
+           from agent.agent_thread where id='${SBMSG}';`) === "theirs|<null>|<null>");
+  check("the view carries the order the thread is read by",
+    jget(`select count(distinct seq) from agent.agent_thread where agent_id='${SA}';`) === "3");
+  // ⚠ A CENSUS OVER EVERY COLUMN THE STORE ASKS FOR, because a column the view does
+  // not have is a 400 the customer reads as "couldn't load this conversation" — and
+  // `run_model` really was missing from the first cut while every unit guard passed,
+  // the fixture having answered a column the database did not have. Named one by one
+  // rather than counted, so a rename is caught as well as a removal.
+  for (const col of ["id", "agent_id", "seq", "body", "created_at", "run_id",
+                     "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at"]) {
+    check(`the view carries ${col}`,
+      jget(`select count(*) from information_schema.columns
+             where table_schema='agent' and table_name='agent_thread' and column_name='${col}';`) === "1");
+  }
+  check("...and the model it answers is the run's own",
+    jget(`select run_model from agent.agent_thread where id='${MSG1}';`) === "stand-in",
+    jget(`select coalesce(run_model,'<null>') from agent.agent_thread where id='${MSG1}';`));
+
+  // THE SAFETY ARGUMENT, DRIVEN — and here it spans three relations rather than
+  // two, because `run_step` reaches the log as well.
+  check("it is declared security_invoker",
+    jget(`select (select count(*) from pg_options_to_table(c.reloptions)
+                   where option_name = 'security_invoker' and option_value = 'true')
+            from pg_class c join pg_namespace n on n.oid = c.relnamespace
+           where n.nspname = 'agent' and c.relname = 'agent_thread';`) === "1");
+  check("a tenant reading the thread sees its own conversation, answer and all",
+    psql(`select count(*) from agent.agent_thread where agent_id='${SA}' and run_stop is not null;`, claimT1).out === "1");
+  // THE OBSERVER IS ALIVE: the account next door reads its own message through the
+  // very same view, so the two zeros below are isolation and not an empty view.
+  check("...and the other tenant reads its own, which is what makes the next line evidence",
+    psql(`select count(*) from agent.agent_thread where agent_id='${SB}';`, claimT2).out === "1");
+  check("neither tenant reads the other's conversation through the view",
+    psql(`select count(*) from agent.agent_thread where agent_id='${SB}';`, claimT1).out === "0" &&
+    psql(`select count(*) from agent.agent_thread where agent_id='${SA}';`, claimT2).out === "0");
+
+  // ⚠ THE RUN IS A SECOND RELATION UNDER THE VIEW AND HAS ITS OWN POLICY, so a
+  // pointer at a run that is not the reader's must answer NULL rather than a
+  // status. Built as the OWNER because no legitimate path can make one — a run is
+  // accepted under its own message's tenant — which is exactly why it has to be
+  // driven rather than argued: this is the case `security_invoker` is for.
+  const OTHER_RUN = "5a5a5a5a-0000-4000-8000-00000000fa0b";
+  const CROSS_MSG = "5a5a5a5a-0000-4000-8000-00000000ee0c";
+  psql(`insert into agent.runs (id, tenant_id, status) values ('${OTHER_RUN}','t2','running');`);
+  psql(`insert into agent.agent_messages (id, agent_id, body, run_id)
+          values ('${CROSS_MSG}','${SA}','whose run is this?','${OTHER_RUN}');`);
+  check("the owner can see that pointer, which is what makes the next line about the policy",
+    jget(`select run_status from agent.agent_thread where id='${CROSS_MSG}';`) === "running");
+  check("⚠ a reader who owns the message but not the run gets NO status rather than another tenant's",
+    psql(`select coalesce(run_status,'<null>') || '|' || coalesce(run_step::text,'<null>')
+           from agent.agent_thread where id='${CROSS_MSG}';`, claimT1).out === "<null>|<null>");
+  check("...and the message itself is still theirs to read",
+    psql(`select body from agent.agent_thread where id='${CROSS_MSG}';`, claimT1).out === "whose run is this?");
+  psql(`delete from agent.agent_messages where id='${CROSS_MSG}';`);
+  psql(`delete from agent.runs where id='${OTHER_RUN}';`);
+
+  check("no claims at all reads nothing through the thread",
+    psql(`select count(*) from agent.agent_thread;`, { role: "authenticated", claims: "" }).out === "0");
+  // ⚠ TWO DIFFERENT WALLS, AND A REFUSAL CAN ONLY ASK ONE OF THEM. `anon` holds no
+  // USAGE on the schema, so every read as anon answers "permission denied for schema
+  // agent" whatever table grants exist — which is exactly why GRANTING anon SELECT on
+  // this view SURVIVED this file. MEASURED, by the SQL sweep. So the gate is NAMED, and
+  // the grant is asked DIRECTLY: `has_table_privilege` reads the table privilege alone
+  // and is the only reader here that can see that mutant at all.
+  check("anon holds no select on the thread view",
+    jget(`select has_table_privilege('anon','agent.agent_thread','select')::text;`) === "false");
+  // ⚠ NOT `information_schema.role_table_grants` — it shows only grants whose grantee
+  // or grantor is a CURRENTLY ENABLED role, and this runs as `postgres`, so it answered
+  // 0 for `anon` AND 0 for `authenticated`: a negative assertion with a dead observer,
+  // which is the trap this file's own rules name. The observer check is what caught it.
+  // `pg_class.relacl` is the grant itself and does not care who is asking.
+  const grantsTo = (role) => jget(`select count(*) from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join lateral aclexplode(c.relacl) a
+     where n.nspname = 'agent' and a.grantee = '${role}'::regrole;`);
+  check("...nor anything else on any relation in the schema", grantsTo("anon") === "0");
+  check("...with the same census reading the signed-in role's real grants, so it is alive",
+    Number(grantsTo("authenticated")) > 0, grantsTo("authenticated"));
+  refused("...and anon cannot reach the schema it lives in either",
+    `select count(*) from agent.agent_thread;`, "permission denied for schema agent", { role: "anon" });
+
+  // ── the role constraint, still one value ─────────────────────────────────
+  refused("nothing can be stored as having come from the agent",
+    `insert into agent.agent_messages (id, agent_id, role, body)
+      values ('5a5a5a5a-0000-4000-8000-00000000eebb','${SA}','agent','I am the agent.');`,
+    "agent_messages_role_check", asWriter);
+  check("...so an answer is read from the run and never from a message row",
+    jget(`select count(*) from agent.agent_messages where agent_id='${SA}' and role <> 'user';`) === "0");
+
+  // ── who may call it ─────────────────────────────────────────────────────
+  check("send_to_agent is the server's alone",
+    jget(`select has_function_privilege('service_role','agent.send_to_agent(text,uuid,uuid,text,text,uuid)','execute')::text
+          || '|' || has_function_privilege('authenticated','agent.send_to_agent(text,uuid,uuid,text,text,uuid)','execute')::text
+          || '|' || has_function_privilege('anon','agent.send_to_agent(text,uuid,uuid,text,text,uuid)','execute')::text;`)
+      === "true|false|false");
+
+  // ── retention takes the run and leaves the writing ──────────────────────
+  allowed("a run is retained away", `delete from agent.runs where id='${R1}';`, asWriter);
+  check("⚠ the message it belonged to is still there",
+    jget(`select body from agent.agent_messages where id='${MSG1}';`) === "when do you open?");
+  check("...with its pointer cleared rather than dangling",
+    jget(`select run_id is null from agent.agent_messages where id='${MSG1}';`) === "t");
+  // AND THE SCREEN STILL DRAWS IT. A retained-away run takes its answer with it,
+  // which is the honest outcome — what must not happen is the message vanishing
+  // from the conversation along with it.
+  check("...and the thread still draws it, with the answer gone rather than the message",
+    jget(`select body || '|' || coalesce(run_status,'<null>') || '|' || coalesce(run_stop ->> 'text','<null>')
+           from agent.agent_thread where id='${MSG1}';`) === "when do you open?|<null>|<null>");
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

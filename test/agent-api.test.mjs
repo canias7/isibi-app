@@ -1,0 +1,776 @@
+// The agent builder's storage API — the wall being the tenant, and nothing else.
+//
+// WHAT THIS FILE IS ABOUT. Seven operations that read and write one account's
+// agents and conversations, with a SERVICE credential that bypasses row level
+// security. That last clause is the whole reason this file is long: on this path
+// RLS protects nobody, because `service_role` carries BYPASSRLS — so the only
+// thing standing between one customer and another's written instructions is the
+// `tenant_id=eq.` filter this code puts in the URL, and the fact that the value
+// in it came from a token GoTrue verified.
+//
+// **A SUITE THAT ONLY EVER SIGNS IN AS ONE ACCOUNT CANNOT SEE ANY OF THAT.**
+// Every query would look right, every test would pass, and a missing filter
+// would hand back the whole table. So the cases below are mostly about the
+// REQUEST THAT WENT OUT rather than the answer that came back: which tenant is
+// on the wire, which filter, and what happens to a caller who names somebody
+// else's agent or puts an account id in the body.
+//
+// It drives `worker.fetch` as well as the module. The wiring layer is this
+// repository's most repeated defect — twelve-plus features shipped dead with the
+// module perfect and one hop cut — and a route that reads the body of a GET, or
+// forgets to pass the verified id, is exactly that shape.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { hit, isUnrouted } from "./fixtures/worker-harness.mjs";
+import {
+  handleAgentApi, makeAgentStore, agentRow, messageRow,
+  cleanText, cleanId, cleanAt, readTenant,
+  AGENT_ROUTES, AGENT_POST_ROUTES, AGENT_SCHEMA, agentBodyMax,
+  AGENT_NAME_MAX, AGENT_INSTRUCTIONS_MAX, AGENT_BODY_MAX,
+  MAX_AGENTS, MAX_THREAD, MAX_IMPORT_MESSAGES, MAX_IMPORT_BODY,
+} from "../agent-store.mjs";
+
+const SRC = fs.readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8");
+const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+const MIG = fs.readFileSync(new URL(
+  "../agent-builder/supabase/migrations/20260915180525_agent_authored_agents_and_messages.sql",
+  import.meta.url), "utf8");
+const IMPORT_MIG = fs.readFileSync(new URL(
+  "../agent-builder/supabase/migrations/20260915182049_agent_import_one.sql",
+  import.meta.url), "utf8");
+
+const T1 = "11111111-1111-4111-8111-111111111111";   // one account
+const T2 = "22222222-2222-4222-8222-222222222222";   // the account next door
+const A1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";   // T1's agent
+const MID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";  // a message the send stored
+const RID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";  // the run it started
+const KEY = "service-key-that-must-never-be-said-out-loud";
+
+/** A recorder in PostgREST's own answer shape: `{ok, status, text()}`. */
+function recorder(answers = {}) {
+  const seen = [];
+  const doFetch = async (url, opts = {}) => {
+    seen.push({
+      url: String(url),
+      method: opts.method,
+      headers: opts.headers || {},
+      body: opts.body === undefined ? undefined : JSON.parse(opts.body),
+    });
+    const hit = Object.keys(answers).find((k) => String(url).includes(k));
+    const a = hit ? answers[hit] : { status: 200, body: [] };
+    const status = a.status || 200;
+    return { ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(a.body ?? []) };
+  };
+  return { seen, doFetch, store: makeAgentStore({ fetch: doFetch, url: "https://db.example", key: KEY }) };
+}
+
+/** A store whose every method records and answers, with no HTTP at all. */
+function fakeStore(over = {}) {
+  const calls = [];
+  const note = (name) => (...args) => { calls.push({ name, args }); return null; };
+  const base = {
+    list: async (...a) => { calls.push({ name: "list", args: a }); return []; },
+    count: async (...a) => { calls.push({ name: "count", args: a }); return 0; },
+    ownsAgent: async (...a) => { calls.push({ name: "ownsAgent", args: a }); return true; },
+    create: async (...a) => { calls.push({ name: "create", args: a }); return { id: A1 }; },
+    update: async (...a) => { calls.push({ name: "update", args: a }); return { id: A1 }; },
+    remove: async (...a) => { calls.push({ name: "remove", args: a }); return true; },
+    messages: async (...a) => { calls.push({ name: "messages", args: a }); return []; },
+    addMessage: async (...a) => { calls.push({ name: "addMessage", args: a }); return { id: "m" }; },
+    importOne: async (...a) => { calls.push({ name: "importOne", args: a }); return A1; },
+    // The answer `agent.send_to_agent` really gives, taken from the schema check's
+    // own driven output rather than invented — a fake in a different shape from
+    // reality hides bugs exactly as well as one that is less capable.
+    send: async (...a) => {
+      calls.push({ name: "send", args: a });
+      return {
+        ok: true, repeat: false, message_id: MID, run_id: RID, body: "hello",
+        seq: 1, created_at: "2026-09-15T12:00:00Z", state: "queued",
+      };
+    },
+  };
+  void note;
+  return { calls, store: { ...base, ...over } };
+}
+
+const call = (path, opts = {}) => handleAgentApi({
+  path, method: AGENT_ROUTES[path], tenant: T1, ...opts,
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 1. THE TENANT IS THE VERIFIED USER'S, AND THE BODY CANNOT SAY OTHERWISE
+// ────────────────────────────────────────────────────────────────────────────
+
+test("every operation is scoped by the tenant the handler was given", async () => {
+  // A CENSUS, not a sample: each of the seven is driven and the tenant has to
+  // reach the store. A route added later with no tenant fails by existing.
+  const reached = new Set();
+  for (const path of Object.keys(AGENT_ROUTES)) {
+    const f = fakeStore();
+    const r = await handleAgentApi({
+      path, method: AGENT_ROUTES[path], tenant: T1, store: f.store,
+      query: new URLSearchParams({ id: A1 }),
+      // `key` is the import's identity and is REQUIRED — a census that omitted
+      // it drove a 400 for that route and proved nothing about its scoping.
+      body: { id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [] },
+      newId: () => A1,
+    });
+    assert.equal(r.status, 200, `${path} answered ${r.status}`);
+    // The tenant is either an argument to a store call, or (for the two message
+    // operations) reached the ownership question that gates them.
+    const tenantSeen = f.calls.some((c) => c.args.some((a) => a === T1));
+    assert.ok(tenantSeen, `${path} never handed the tenant to the store: ${JSON.stringify(f.calls.map((c) => c.name))}`);
+    reached.add(path);
+  }
+  // COUNTED OFF THE ROUTE LIST, never a literal. This was pinned to 7 and went red
+  // on the eighth route — reporting a working census as broken, which is the
+  // recorded "a check that hardcodes a number the product exports is a second copy
+  // of it". What the number is FOR is proving the observer drove something, so a
+  // floor plus equality with the list is the property.
+  assert.ok(reached.size >= 7, `the observer drove only ${reached.size} routes`);
+  assert.equal(reached.size, Object.keys(AGENT_ROUTES).length, "the census did not drive every route");
+});
+
+test("⚠ THE ID IS OURS — a body cannot choose the primary key", async () => {
+  // **A FIXTURE TOO SHALLOW TO SEPARATE THE TWO READINGS**, which is this
+  // repository's own recorded trap and is exactly what the sweep found: the
+  // census below passes `id: A1` in the body AND `newId: () => A1`, so
+  // `cleanId(b.id) || mint()` and `mint()` answer the same string and a mutant
+  // letting the client choose the key survived every case in the file.
+  //
+  // The two readings only diverge when the two ids DIFFER. A client-chosen
+  // primary key is how one account writes a row at an id another account is
+  // about to use, and how a retry silently overwrites rather than duplicating.
+  const MINE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const THEIRS = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const f = fakeStore();
+  await handleAgentApi({
+    path: "/api/agent/create", method: "POST", tenant: T1, store: f.store,
+    newId: () => MINE,
+    body: { name: "N", instructions: "I", id: THEIRS },
+  });
+  const created = f.calls.find((c) => c.name === "create");
+  assert.equal(created.args[1].id, MINE, "the client chose the primary key");
+  assert.ok(!JSON.stringify(created.args).includes(THEIRS), "a body-supplied id reached the store");
+
+  // The same for a message's id, which is a primary key too.
+  const g = fakeStore();
+  await handleAgentApi({
+    path: "/api/agent/message", method: "POST", tenant: T1, store: g.store,
+    newId: () => MINE, body: { id: A1, body: "hello", messageId: THEIRS },
+  });
+  assert.equal(g.calls.find((c) => c.name === "addMessage").args[1].id, MINE);
+});
+
+test("an account id in the body is ignored — the verified one is what is stored", async () => {
+  const f = fakeStore();
+  await handleAgentApi({
+    path: "/api/agent/create", method: "POST", tenant: T1, store: f.store, newId: () => A1,
+    body: {
+      name: "Mine", instructions: "Do a thing",
+      // Every spelling a browser might try. None of these may reach a query.
+      tenant: T2, tenant_id: T2, uid: T2, owner: T2, owner_id: T2, account: T2, user_id: T2,
+    },
+  });
+  const created = f.calls.find((c) => c.name === "create");
+  assert.equal(created.args[0], T1, "the create was scoped to the wrong account");
+  assert.ok(!JSON.stringify(created.args).includes(T2), "a body-supplied account reached the store");
+});
+
+test("no route reads an account off the body or the query — asserted over the source", () => {
+  // The positive wall is the case above. This is the census that stops a NEW
+  // route reintroducing it: the handler may read `b.` and `q.` for exactly the
+  // fields below, and an account is not one of them.
+  const body = SRC.slice(SRC.indexOf("export async function handleAgentApi"));
+  assert.ok(body.length > 500, "the handler must have been found");
+  const reads = [...body.matchAll(/\b[bq]\.(?:get\(")?([A-Za-z_]+)/g)].map((m) => m[1]);
+  assert.ok(reads.length >= 8, `the scanner read nothing: ${reads.length}`);
+  const allowed = new Set(["id", "name", "instructions", "body", "at", "messages", "text", "key"]);
+  const strays = [...new Set(reads)].filter((k) => !allowed.has(k));
+  assert.deepEqual(strays, [], `the handler reads ${strays.join(", ")} off the request`);
+});
+
+test("a tenant the handler cannot read refuses the call rather than running unfiltered", async () => {
+  for (const bad of [undefined, null, "", "  ", 7, ["a"], {}, "has space", "semi;colon", "a".repeat(201), "comma,split", "paren(1)", "quote'"]) {
+    const f = fakeStore();
+    const r = await handleAgentApi({ path: "/api/agent/list", method: "GET", tenant: bad, store: f.store });
+    assert.equal(r.status, 401, `tenant ${JSON.stringify(bad)} was accepted`);
+    assert.deepEqual(f.calls, [], `tenant ${JSON.stringify(bad)} still reached the store`);
+  }
+  // THE OBSERVER IS ALIVE: a real Supabase user id passes, so the refusals above
+  // are about the value and not about the reader being broken.
+  assert.equal(readTenant(T1), T1);
+  const f = fakeStore();
+  assert.equal((await handleAgentApi({ path: "/api/agent/list", method: "GET", tenant: T1, store: f.store })).status, 200);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 2. WHAT REALLY GOES ON THE WIRE
+// ────────────────────────────────────────────────────────────────────────────
+
+test("every read and write carries a tenant filter, or asks about an agent that does", async () => {
+  const cases = [
+    ["list",       (s) => s.list(T1),                                   true],
+    ["count",      (s) => s.count(T1),                                  true],
+    ["ownsAgent",  (s) => s.ownsAgent(T1, A1),                          true],
+    ["update",     (s) => s.update(T1, A1, { name: "n", instructions: "i" }), true],
+    ["remove",     (s) => s.remove(T1, A1),                             true],
+    // These two carry the tenant in the ROW / the argument rather than a filter:
+    // a message has no tenant column, so its scoping is the ownership question
+    // the handler asks first (case above) plus the agent id here.
+    ["messages",   (s) => s.messages(A1),                               false],
+    ["addMessage", (s) => s.addMessage(A1, { id: "m", body: "b" }),      false],
+  ];
+  for (const [name, run, wantsFilter] of cases) {
+    const rec = recorder({ agents: { body: [{ id: A1 }] }, agent_messages: { body: [{ id: "m" }] }, agent_overview: { body: [] } });
+    await run(rec.store);
+    assert.equal(rec.seen.length, 1, `${name} sent ${rec.seen.length} requests`);
+    const { url } = rec.seen[0];
+    if (wantsFilter) {
+      assert.ok(url.includes(`tenant_id=eq.${T1}`), `${name} sent no tenant filter: ${url}`);
+    } else {
+      assert.ok(url.includes(`agent_id=eq.${A1}`) || (rec.seen[0].body || [])[0]?.agent_id === A1,
+        `${name} is not scoped to one agent: ${url}`);
+    }
+  }
+});
+
+test("a write that matched NO ROW answers so, and that is the whole of the 404", async () => {
+  // **THE SWEEP FOUND THIS.** Every other case about "somebody else's agent"
+  // drives the HANDLER against a fake store that answers `null` — so the STORE's
+  // own reading of an empty result was never exercised, and
+  // `agentRow(rows(r)[0] || { id })` survived. The tenant is in the filter, so a
+  // stranger's id produces zero rows and this branch IS the wall: read wrongly,
+  // an update of somebody else's agent comes back as a success.
+  const none = recorder({ agents: { status: 200, body: [] } });
+  assert.equal(await none.store.update(T1, A1, { name: "n", instructions: "i" }), null,
+    "an update that matched nothing answered as though it worked");
+  assert.equal(await none.store.remove(T1, A1), false,
+    "a delete that removed nothing answered true");
+
+  // THE OBSERVER IS ALIVE: one row back is a success, so the two above are about
+  // the empty answer and not about the store being broken.
+  const one = recorder({ agents: { status: 200, body: [{ id: A1, name: "n", instructions: "i" }] } });
+  assert.equal((await one.store.update(T1, A1, { name: "n", instructions: "i" })).id, A1);
+  assert.equal(await one.store.remove(T1, A1), true);
+
+  // And more than one row is not a success either: these filters name a primary
+  // key, so two rows would mean the filter did not do what it says.
+  const two = recorder({ agents: { status: 200, body: [{ id: A1 }, { id: "x" }] } });
+  assert.equal(await two.store.update(T1, A1, { name: "n", instructions: "i" }), null);
+  assert.equal(await two.store.remove(T1, A1), false);
+});
+
+test("the create stores the tenant on the row and an id we minted", async () => {
+  const rec = recorder({ agents: { status: 201, body: [{ id: A1, name: "N", instructions: "I", created_at: "2026-09-15T10:00:00Z", updated_at: "2026-09-15T10:00:00Z" }] } });
+  await rec.store.create(T1, { id: A1, name: "N", instructions: "I" });
+  const [row] = rec.seen[0].body;
+  assert.equal(row.tenant_id, T1);
+  assert.equal(row.id, A1);
+  assert.ok(!("role" in row));
+});
+
+test("a message insert sends no role at all", async () => {
+  // THE WALL IS THE COLUMN'S `check (role = 'user')` and its default. What this
+  // asserts is that the code does not send one — because a `role` on the wire is
+  // the first half of a reply this product does not have, and the moment one is
+  // sent, "which speaker" becomes a decision somebody can get wrong.
+  const rec = recorder({ agent_messages: { status: 201, body: [{ id: "m", body: "hi", created_at: "2026-09-15T10:00:00Z" }] } });
+  await rec.store.addMessage(A1, { id: "m", body: "hi" });
+  const [row] = rec.seen[0].body;
+  assert.deepEqual(Object.keys(row).sort(), ["agent_id", "body", "id"]);
+  assert.ok(!/\brole\b/.test(JSON.stringify(rec.seen[0])), "a role reached the wire");
+});
+
+test("PostgREST is told the agent schema, and the header matches the VERB", () => {
+  // **THIS CASE ASSERTED THE DEFECT AS CORRECT.** `remove` omitted the `write`
+  // flag, so the DELETE went out with `Accept-Profile` — which PostgREST ignores
+  // on a write — and this case's own comment explained why that was fine: "the
+  // DELETE is the one write with no body and therefore no content-profile to
+  // set". That reasoning is wrong. The profile names the RELATION, not a body,
+  // so every verb that changes something takes `Content-Profile`. The delete
+  // resolved against `public`, where `agents` does not exist, and could never
+  // have worked live.
+  //
+  // Re-anchored onto the property: a CENSUS over every request the store can
+  // make, keyed on the verb it used. Written this way, an operation added later
+  // is covered by existing, and there is no per-call flag for it to forget.
+  const READ_VERBS = new Set(["GET", "HEAD"]);
+  const rec = recorder({
+    agents: { body: [{ id: A1, name: "n", instructions: "i" }] },
+    agent_messages: { body: [{ id: "m", body: "b" }] },
+    agent_overview: { body: [] },
+    "rpc/import_agent": { body: A1 },
+  });
+  const every = [
+    () => rec.store.list(T1),
+    () => rec.store.count(T1),
+    () => rec.store.ownsAgent(T1, A1),
+    () => rec.store.messages(A1),
+    () => rec.store.create(T1, { id: A1, name: "n", instructions: "i" }),
+    () => rec.store.update(T1, A1, { name: "n", instructions: "i" }),
+    () => rec.store.remove(T1, A1),
+    () => rec.store.addMessage(A1, { id: "m", body: "b" }),
+    () => rec.store.importOne(T1, { name: "n", instructions: "i", messages: [], key: A1 }),
+  ];
+  return Promise.all(every.map((run) => run())).then(() => {
+    assert.equal(rec.seen.length, every.length, "not every operation sent a request");
+    const verbs = new Set(rec.seen.map((r) => r.method));
+    // THE OBSERVER IS ALIVE IN BOTH DIRECTIONS: without a read AND a write in
+    // the set, one half of this census would be vacuous.
+    assert.ok(verbs.has("GET"), "no read was driven, so the read half proves nothing");
+    assert.ok(verbs.has("DELETE"), "the DELETE was not driven — it is the one this case exists for");
+    for (const r of rec.seen) {
+      const want = READ_VERBS.has(r.method) ? "accept-profile" : "content-profile";
+      const other = want === "accept-profile" ? "content-profile" : "accept-profile";
+      assert.equal(r.headers[want], AGENT_SCHEMA,
+        `${r.method} ${r.url} sent no ${want} — it would resolve against public`);
+      assert.equal(r.headers[other], undefined,
+        `${r.method} ${r.url} sent ${other} as well`);
+    }
+  });
+});
+
+test("the profile header is derived from the verb, with no flag to forget", async () => {
+  // The structural half of the fix above. A caller cannot opt out, so a new
+  // operation cannot repeat the delete's mistake, and the four call sites that
+  // used to pass the flag no longer carry one.
+  const code = SRC.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+  assert.ok(!/write:\s*true/.test(code), "a call site still opts into the write header by hand");
+  assert.ok(!/write\s*=\s*false/.test(code), "`req` still takes a write flag");
+  assert.match(code, /WRITE_VERBS\.has\(method\)/, "the header is not derived from the verb");
+  assert.match(code, /new Set\(\["POST", "PATCH", "PUT", "DELETE"\]\)/,
+    "the write verbs are not the four that change something");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 3. ANOTHER ACCOUNT CANNOT READ OR MODIFY
+// ────────────────────────────────────────────────────────────────────────────
+
+test("somebody else's agent and a nonexistent one are the SAME answer", async () => {
+  // Two different 404s would let a stranger enumerate: "not yours" confirms the
+  // id exists. The tenant is in the filter, so the store cannot tell them apart
+  // either — which is the property, not a limitation.
+  const notMine = fakeStore({ ownsAgent: async () => false, update: async () => null, remove: async () => false });
+  const answers = [];
+  answers.push(await call("/api/agent/messages", { store: notMine.store, query: new URLSearchParams({ id: A1 }) }));
+  answers.push(await call("/api/agent/message", { store: notMine.store, body: { id: A1, body: "hello" } }));
+  answers.push(await call("/api/agent/update", { store: notMine.store, body: { id: A1, name: "n", instructions: "i" } }));
+  answers.push(await call("/api/agent/delete", { store: notMine.store, body: { id: A1 } }));
+  for (const a of answers) {
+    assert.equal(a.status, 404);
+    assert.match(a.body.error, /isn't here any more/);
+    assert.ok(!a.body.ok);
+  }
+  // THE OBSERVER IS ALIVE: the same four succeed for the owner.
+  const mine = fakeStore();
+  assert.equal((await call("/api/agent/messages", { store: mine.store, query: new URLSearchParams({ id: A1 }) })).status, 200);
+  assert.equal((await call("/api/agent/message", { store: mine.store, body: { id: A1, body: "hello" }, newId: () => A1 })).status, 200);
+  assert.equal((await call("/api/agent/update", { store: mine.store, body: { id: A1, name: "n", instructions: "i" } })).status, 200);
+  assert.equal((await call("/api/agent/delete", { store: mine.store, body: { id: A1 } })).status, 200);
+});
+
+test("a message is never written before ownership is established", async () => {
+  const order = [];
+  const store = {
+    ownsAgent: async () => { order.push("asked"); return false; },
+    addMessage: async () => { order.push("wrote"); return { id: "m" }; },
+  };
+  const r = await call("/api/agent/message", { store, body: { id: A1, body: "hello" } });
+  assert.equal(r.status, 404);
+  assert.deepEqual(order, ["asked"], "the write happened anyway");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 4. THE CREDENTIAL
+// ────────────────────────────────────────────────────────────────────────────
+
+test("the service key reaches a header and nothing else", async () => {
+  const rec = recorder({ agent: { status: 500, body: { message: `boom while using ${KEY}` } } });
+  // Every answer the handler can compose, including the failure path, must be
+  // free of it — a driver error quoting the URL it was handed is exactly how a
+  // credential leaks, and the failure sentence is composed from that message.
+  const answers = [];
+  for (const path of Object.keys(AGENT_ROUTES)) {
+    answers.push(await handleAgentApi({
+      path, method: AGENT_ROUTES[path], tenant: T1, store: rec.store,
+      query: new URLSearchParams({ id: A1 }),
+      body: { id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [] },
+      newId: () => A1,
+    }));
+  }
+  const said = JSON.stringify(answers);
+  assert.ok(!said.includes(KEY), "the service key came back in a response body");
+  assert.ok(!said.includes("service-key"), "part of the key came back");
+  assert.ok(rec.seen.length > 0, "nothing was sent, so this proves nothing");
+  assert.equal(rec.seen[0].headers.apikey, KEY, "the key must actually be used");
+});
+
+test("a store failure is a named refusal that keeps nothing and claims nothing", async () => {
+  const logged = [];
+  const store = { list: async () => { const e = new Error("connection lost"); e.status = 502; throw e; } };
+  const r = await call("/api/agent/list", { store, log: (...a) => logged.push(a.join(" ")) });
+  assert.equal(r.status, 502);
+  assert.ok(!r.body.ok, "a failure must not answer ok");
+  assert.equal(r.body.retry, true);
+  assert.match(r.body.error, /nothing was lost/);
+  assert.ok(logged.some((l) => l.includes("connection lost")), "the real reason was not logged");
+  // An empty list is NOT an acceptable answer to a failed read: it reads to the
+  // customer as "your agents are gone", which is the one thing it must not say.
+  assert.ok(!("agents" in r.body), "a failed read answered with a list");
+});
+
+test("a refusal from the store is a 4xx and an outage is a 5xx", async () => {
+  const four = { create: async () => { const e = new Error("bad"); e.status = 400; throw e; }, count: async () => 0 };
+  const five = { create: async () => { const e = new Error("down"); e.status = 503; throw e; }, count: async () => 0 };
+  const args = { body: { name: "n", instructions: "i" }, newId: () => A1 };
+  assert.equal((await call("/api/agent/create", { store: four, ...args })).status, 400);
+  assert.equal((await call("/api/agent/create", { store: five, ...args })).status, 502);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 5. WHAT ARRIVES, AND WHAT IS REFUSED
+// ────────────────────────────────────────────────────────────────────────────
+
+test("a non-string field is refused, never coerced", () => {
+  // `String(["a"])` is `"a"`, which has shipped as a real bug three times here.
+  for (const v of [["a"], 7, true, {}, null, undefined, { toString: () => "a" }]) {
+    assert.equal(cleanText(v, 100), null, `${JSON.stringify(v)} was accepted`);
+  }
+  assert.equal(cleanText("  Booking assistant  ", 100), "Booking assistant");
+  assert.equal(cleanText("", 100), null);
+  assert.equal(cleanText("   ", 100), null);
+  assert.equal(cleanText("x".repeat(101), 100), null);
+  assert.equal(cleanText("x".repeat(100), 100), "x".repeat(100));
+});
+
+test("an id is a uuid and nothing that could change a filter", () => {
+  assert.equal(cleanId(A1.toUpperCase()), A1);
+  for (const v of [
+    "", "not-a-uuid", `${A1},${A1}`, `${A1})`, `eq.${A1}`, `${A1}'`, `${A1} or true`,
+    ["a"], 7, null, undefined, `${A1}x`, A1.replace("-", ""),
+  ]) assert.equal(cleanId(v), null, `${JSON.stringify(v)} was accepted as an id`);
+});
+
+test("a message's own time is bounded, and an unusable one reads as absent", () => {
+  const now = Date.UTC(2026, 8, 15, 12, 0, 0);
+  assert.equal(cleanAt(Date.UTC(2026, 8, 1), now), "2026-09-01T00:00:00.000Z");
+  assert.equal(cleanAt(now + 30_000, now), new Date(now + 30_000).toISOString(), "a slightly fast clock is fine");
+  for (const v of [undefined, null, "2026-09-01", NaN, Infinity, -1, 0, Date.UTC(2019, 0, 1), now + 120_000, ["a"]])
+    assert.equal(cleanAt(v, now), null, `${JSON.stringify(v)} was accepted as a time`);
+});
+
+test("the refusals say which field, and each is its own sentence", async () => {
+  const f = fakeStore();
+  const cases = [
+    ["/api/agent/create", { instructions: "i" }, /name/i],
+    ["/api/agent/create", { name: "n" }, /what it should do/i],
+    ["/api/agent/update", { name: "n", instructions: "i" }, /which agent/i],
+    ["/api/agent/delete", {}, /which agent/i],
+    ["/api/agent/message", { id: A1 }, /nothing to send/i],
+    ["/api/agent/message", { body: "x" }, /which agent/i],
+  ];
+  for (const [path, body, re] of cases) {
+    const r = await call(path, { store: f.store, body });
+    assert.equal(r.status, 400, `${path} ${JSON.stringify(body)} answered ${r.status}`);
+    assert.match(r.body.error, re);
+  }
+  assert.equal((await call("/api/agent/messages", { store: f.store, query: new URLSearchParams() })).status, 400);
+});
+
+test("one account cannot hold more agents than the ceiling, and is told why", async () => {
+  const full = fakeStore({ count: async () => MAX_AGENTS });
+  const r = await call("/api/agent/create", { store: full.store, body: { name: "n", instructions: "i" } });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, new RegExp(String(MAX_AGENTS)));
+  assert.ok(!full.calls.some((c) => c.name === "create"), "it was created anyway");
+  // The observer: one under the ceiling still works.
+  const room = fakeStore({ count: async () => MAX_AGENTS - 1 });
+  assert.equal((await call("/api/agent/create", { store: room.store, body: { name: "n", instructions: "i" }, newId: () => A1 })).status, 200);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 6. THE SHAPES THE SCREEN READS
+// ────────────────────────────────────────────────────────────────────────────
+
+test("an agent arrives in the shape the list already draws", () => {
+  const row = agentRow({
+    id: A1, name: "Booking assistant", instructions: "Answer questions.",
+    created_at: "2026-09-15T10:00:00Z", updated_at: "2026-09-15T11:00:00Z",
+    last_message: "what needs reordering?",
+  });
+  assert.deepEqual(Object.keys(row).sort(), ["created", "id", "instructions", "name", "preview", "updated"]);
+  assert.equal(row.created, Date.parse("2026-09-15T10:00:00Z"));
+  assert.equal(row.updated, Date.parse("2026-09-15T11:00:00Z"));
+  assert.equal(row.preview, "what needs reordering?");
+  // NULL from the view is "" here, so the browser's own fallback to the
+  // instructions runs — a correct row rather than a blank line.
+  assert.equal(agentRow({ id: A1, last_message: null }).preview, "");
+  assert.equal(agentRow({}).updated, 0, "an unreadable time is 0, never NaN");
+  assert.ok(Number.isFinite(agentRow({ updated_at: "nonsense" }).updated));
+});
+
+test("a message arrives as text and a time, and carries no speaker", () => {
+  const m = messageRow({ id: "m", body: "hello", created_at: "2026-09-15T10:00:00Z" });
+  assert.deepEqual(Object.keys(m).sort(), ["at", "id", "text"]);
+  assert.equal(m.text, "hello");
+  assert.ok(!("role" in m), "a role on the wire is the first half of a fake reply");
+});
+
+test("a thread read takes the NEWEST of a long conversation and turns it round", async () => {
+  // The failure this stops: ordering ascending with a limit pins a long
+  // conversation to its oldest screen, so the part somebody is in is never shown.
+  const newest = [
+    { id: "c", body: "third", created_at: "2026-09-15T12:00:00Z", seq: 3 },
+    { id: "b", body: "second", created_at: "2026-09-15T11:00:00Z", seq: 2 },
+    { id: "a", body: "first", created_at: "2026-09-15T10:00:00Z", seq: 1 },
+  ];
+  // OFF `agent_thread`, THE VIEW — re-anchored when the read moved there, because a
+  // message now comes back with the state of the run it started. The property is
+  // unchanged and is what is asserted; only the relation moved.
+  const rec = recorder({ agent_thread: { body: newest } });
+  const out = await rec.store.messages(A1);
+  assert.ok(rec.seen[0].url.includes("/agent_thread?"), `not the thread view: ${rec.seen[0].url}`);
+  assert.ok(rec.seen[0].url.includes("order=seq.desc"), `not newest-first: ${rec.seen[0].url}`);
+  assert.ok(rec.seen[0].url.includes(`limit=${MAX_THREAD}`));
+  assert.deepEqual(out.map((m) => m.text), ["first", "second", "third"], "it was not turned round");
+  // A MESSAGE THAT STARTED NO RUN CARRIES `run: null`, not a failure — every
+  // imported conversation is that shape, and so is every message sent before this.
+  assert.deepEqual(out.map((m) => m.run), [null, null, null]);
+});
+
+test("the list is newest-first off the overview view, bounded by the ceiling", async () => {
+  const rec = recorder({ agent_overview: { body: [] } });
+  await rec.store.list(T1);
+  const { url } = rec.seen[0];
+  assert.ok(url.includes("agent_overview?"), `the list must read the view: ${url}`);
+  assert.ok(url.includes("order=updated_at.desc"), url);
+  assert.ok(url.includes(`limit=${MAX_AGENTS}`), url);
+  assert.ok(url.includes("last_message"), "the preview column must be selected");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 7. THE IMPORT
+// ────────────────────────────────────────────────────────────────────────────
+
+test("the import is ONE call, so a re-press cannot half-copy an agent", async () => {
+  const rec = recorder({ "rpc/import_agent": { body: A1 } });
+  const id = await rec.store.importOne(T1, { name: "n", instructions: "i", key: "L1", messages: [{ body: "a" }, { body: "b" }] });
+  assert.equal(id, A1);
+  assert.equal(rec.seen.length, 1, "an import that is two requests is not atomic");
+  assert.ok(rec.seen[0].url.endsWith("/rest/v1/rpc/import_agent"));
+  assert.equal(rec.seen[0].body.p_tenant, T1);
+  // THE IDENTITY IS ON THE WIRE. Atomic without it is not retry-safe: a press
+  // whose answer was lost, pressed again, makes a second agent.
+  assert.equal(rec.seen[0].body.p_import_key, "L1", "the import carries no identity");
+  assert.equal(rec.seen[0].body.p_messages.length, 2);
+  assert.ok(!JSON.stringify(rec.seen[0].body).includes("role"), "a speaker reached the import");
+});
+
+test("a message the import cannot read is counted and said, never dropped in silence", async () => {
+  const f = fakeStore();
+  const r = await call("/api/agent/import", {
+    store: f.store,
+    body: {
+      key: A1, name: "Brought over", instructions: "Do a thing",
+      messages: [{ text: "kept" }, { text: "" }, { text: ["a"] }, { at: 1 }, { text: "also kept" }],
+    },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.imported, 2);
+  assert.equal(r.body.unreadable, 3, "a dropped message was not counted");
+  const sent = f.calls.find((c) => c.name === "importOne").args[1];
+  assert.equal(sent.key, A1, "the import's identity never reached the store");
+  assert.deepEqual(sent.messages.map((m) => m.body), ["kept", "also kept"]);
+  // NO SPEAKER, AT THE HANDLER TOO. The store-level case asserts the wire; the
+  // sweep showed the handler could put one on the message before the store ever
+  // saw it, and the store passes `p_messages` straight through.
+  for (const m of sent.messages) {
+    assert.deepEqual(Object.keys(m).sort().filter((k) => k !== "at"), ["body"],
+      `an imported message carries ${Object.keys(m).join(", ")}`);
+  }
+  assert.ok(!JSON.stringify(sent).includes("role"), "the import composed a speaker");
+});
+
+test("an import longer than one request may carry is refused by its length, not truncated", async () => {
+  const f = fakeStore();
+  const messages = Array.from({ length: MAX_IMPORT_MESSAGES + 1 }, (_, i) => ({ text: `m${i}` }));
+  const r = await call("/api/agent/import", { store: f.store, body: { key: A1, name: "n", instructions: "i", messages } });
+  assert.equal(r.status, 413);
+  assert.match(r.body.error, new RegExp(String(MAX_IMPORT_MESSAGES)));
+  assert.deepEqual(f.calls, [], "it was imported anyway");
+  // At the cap it goes through, so the refusal is about the boundary.
+  const ok = fakeStore();
+  assert.equal((await call("/api/agent/import", { store: ok.store, body: { key: A1, name: "n", instructions: "i", messages: messages.slice(1) } })).status, 200);
+});
+
+test("an import with no name or no instructions is refused, so nothing lands half-described", async () => {
+  const f = fakeStore();
+  assert.equal((await call("/api/agent/import", { store: f.store, body: { key: A1, instructions: "i" } })).status, 400);
+  assert.equal((await call("/api/agent/import", { store: f.store, body: { key: A1, name: "n" } })).status, 400);
+  // AND AN IMPORT WITH NO IDENTITY IS REFUSED TOO. Without it this call cannot
+  // be retried safely, and an import that quietly loses that property is worse
+  // than one that refuses: the failure shows up as a duplicate agent nobody can
+  // explain, days later.
+  assert.equal((await call("/api/agent/import", { store: f.store, body: { name: "n", instructions: "i" } })).status, 400);
+  for (const bad of [7, ["a"], {}, "", "  ", "has space", "a".repeat(201), "semi;colon"]) {
+    assert.equal((await call("/api/agent/import", { store: f.store, body: { key: bad, name: "n", instructions: "i" } })).status, 400,
+      `key ${JSON.stringify(bad)} was accepted`);
+  }
+  // The observer: a legacy id that is NOT a uuid still imports — the oldest
+  // records carry `String(Date.now()) + Math.random().toString(16)`, and turning
+  // exactly those away would strand the ones most worth preserving.
+  assert.equal((await call("/api/agent/import", {
+    store: fakeStore().store, body: { key: "1757980800000a3f9c2b", name: "n", instructions: "i" },
+  })).status, 200);
+  assert.deepEqual(f.calls, []);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 8. THE CAPS ARE THE DATABASE'S OWN
+// ────────────────────────────────────────────────────────────────────────────
+
+test("every cap is the column's own check constraint, read out of the migration", () => {
+  const between = (col) => {
+    const re = new RegExp(`length\\(btrim\\(${col}\\)\\) between (\\d+) and (\\d+)`);
+    const m = MIG.match(re);
+    assert.ok(m, `no check constraint found for ${col}`);
+    return [Number(m[1]), Number(m[2])];
+  };
+  assert.deepEqual(between("name"), [1, AGENT_NAME_MAX]);
+  assert.deepEqual(between("instructions"), [1, AGENT_INSTRUCTIONS_MAX]);
+  assert.deepEqual(between("body"), [1, AGENT_BODY_MAX]);
+});
+
+test("only the import may carry a bigger body", () => {
+  // **THE SWEEP FOUND THIS TOO**: nothing drove `agentBodyMax` per path, so
+  // returning the import's allowance for everything survived. It matters in the
+  // ordinary direction — a 2 MB ceiling on every route is a 2 MB buffer any
+  // signed-in caller can make the Worker hold, on six routes that need 128 KB.
+  assert.equal(agentBodyMax("/api/agent/import"), MAX_IMPORT_BODY);
+  for (const p of Object.keys(AGENT_ROUTES)) {
+    if (p === "/api/agent/import") continue;
+    assert.equal(agentBodyMax(p), undefined, `${p} may carry the import's allowance`);
+  }
+  // `undefined` and not a number, deliberately: `readJsonBody`'s own default is
+  // what the other six get, so there is no second copy of that number here.
+  assert.equal(agentBodyMax("/api/agent/nope"), undefined);
+});
+
+test("the import's message cap is at or under the database's own ceiling", () => {
+  const m = IMPORT_MIG.match(/jsonb_array_length\(p_messages\) > (\d+)/);
+  assert.ok(m, "the function's own ceiling was not found");
+  const dbCeiling = Number(m[1]);
+  assert.ok(MAX_IMPORT_MESSAGES <= dbCeiling,
+    `the API (${MAX_IMPORT_MESSAGES}) is looser than the store (${dbCeiling})`);
+  // And the body allowance has to be able to carry a full one, or the cap above
+  // is unreachable and the real refusal is a size error nobody can act on.
+  assert.ok(MAX_IMPORT_BODY > MAX_IMPORT_MESSAGES * AGENT_BODY_MAX,
+    `${MAX_IMPORT_BODY} cannot carry ${MAX_IMPORT_MESSAGES} messages of ${AGENT_BODY_MAX}`);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 9. THE WIRING
+// ────────────────────────────────────────────────────────────────────────────
+
+test("every route is reachable and every one refuses an unauthenticated caller", async () => {
+  for (const [path, method] of Object.entries(AGENT_ROUTES)) {
+    const r = await hit(path, { method, headers: { "content-type": "application/json" }, body: method === "POST" ? "{}" : undefined });
+    assert.ok(!isUnrouted(r), `${method} ${path} fell through the router`);
+    assert.equal(r.status, 401, `${method} ${path} answered ${r.status} to a signed-out caller`);
+  }
+});
+
+test("the wrong method is a 405, not a fall-through to the bottom 404", async () => {
+  // A GET on a POST route answering the router's own 404 would read as "that
+  // route does not exist", which is the confusion the harness exists to end.
+  const f = fakeStore();
+  const r = await handleAgentApi({ path: "/api/agent/create", method: "GET", tenant: T1, store: f.store });
+  assert.equal(r.status, 405);
+  assert.deepEqual(f.calls, []);
+});
+
+test("a path this module does not handle answers null, so one dispatch decides", async () => {
+  for (const p of ["/api/agent/", "/api/agent/nope", "/api/agents/list", "/api/agent/list/x"]) {
+    assert.equal(await handleAgentApi({ path: p, method: "GET", tenant: T1, store: {} }), null, p);
+  }
+});
+
+test("the branch list and the route list are the same names, both ways", () => {
+  const body = SRC.slice(SRC.indexOf("export async function handleAgentApi"));
+  const branched = new Set([...body.matchAll(/path === "(\/api\/agent\/[a-z]+)"/g)].map((m) => m[1]));
+  assert.deepEqual([...branched].sort(), Object.keys(AGENT_ROUTES).sort(),
+    "a route with no branch answers 500; a branch with no route is unreachable");
+});
+
+test("worker.js dispatches on the module's own list and hands over the verified id", () => {
+  const at = WORKER.indexOf("Object.hasOwn(AGENT_ROUTES, url.pathname)");
+  assert.ok(at > 0, "the dispatch must read AGENT_ROUTES rather than a second copy of the paths");
+  const end = WORKER.indexOf("// GET /api/site/genprobe", at);
+  assert.ok(end > at, "the block's closing landmark moved");
+  const block = WORKER.slice(at, end);
+  assert.match(block, /await authUser\(request\)/, "the route must verify the caller");
+  assert.match(block, /if \(!user\) return UNAUTHED\(\)/, "an unverified caller must be refused");
+  assert.match(block, /tenant: user\.id/, "the tenant must be the verified user's id");
+  // THE BODY-SUPPLIED ACCOUNT HAS EXACTLY ONE CHANCE TO GET IN AND THIS IS IT,
+  // so every `tenant:` in the block is read and each has to be the verified id.
+  // Written first as `!/tenant:\s*(?!user\.id)/`, which passes nothing and fails
+  // everything: `\s*` backtracks to zero width, so the lookahead is asked at the
+  // space and always succeeds. A negative lookahead behind a greedy quantifier
+  // is not a negative assertion — count the occurrences instead.
+  const tenants = [...block.matchAll(/tenant:\s*([^,\n]+)/g)].map((m) => m[1].trim());
+  assert.deepEqual(tenants, ["user.id"], `the tenant comes from ${tenants.join(", ")}`);
+  assert.match(block, /key: env\.SUPABASE_SERVICE_KEY/, "the store needs the service credential");
+  assert.match(block, /AGENT_POST_ROUTES\.includes/, "the body must be read only where there is one");
+});
+
+test("worker.js reads a body only for the POST routes", () => {
+  // `readJsonBody` CONSUMES the request. Calling it on a GET is harmless today
+  // and is one refactor away from being the reason a list read fails, so the
+  // dispatch asks the module which routes carry a body rather than guessing.
+  assert.deepEqual([...AGENT_POST_ROUTES].sort(),
+    Object.keys(AGENT_ROUTES).filter((p) => AGENT_ROUTES[p] === "POST").sort());
+  // DERIVED, not a literal: this was pinned to 5 and the eighth route made it red.
+  // The property is that the two lists agree, which the assertion above is; this
+  // only has to prove the observer is looking at a non-empty list.
+  assert.ok(AGENT_POST_ROUTES.length >= 5, `only ${AGENT_POST_ROUTES.length} POST routes`);
+  assert.ok(!AGENT_POST_ROUTES.includes("/api/agent/list"));
+  assert.ok(!AGENT_POST_ROUTES.includes("/api/agent/messages"));
+});
+
+test("a missing service key is said, never answered as an empty account", () => {
+  const at = WORKER.indexOf("Object.hasOwn(AGENT_ROUTES, url.pathname)");
+  const block = WORKER.slice(at, WORKER.indexOf("// GET /api/site/genprobe", at));
+  assert.match(block, /!env\.SUPABASE_SERVICE_KEY/, "a Worker with no credential would query with `undefined`");
+  assert.match(block, /status: 503/, "cannot-reach must not read as nothing-there");
+});
+
+test("the module never imports from worker.js, so it can be driven anywhere", () => {
+  assert.ok(!/from\s+["'][^"']*worker\.js["']/.test(SRC));
+  assert.ok(!/^import /m.test(SRC), "this module is dependency-free on purpose");
+});
+
+test("the image carries the module the container's worker.js imports", () => {
+  // The container imports `worker.js` as the job runtime, so a module it imports
+  // and the image does not COPY is a throw at load. The transitive walk in
+  // test/dockerfile.test.mjs is the general guard; this is the one line.
+  const df = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
+  assert.match(df, /COPY worker\.js agent-store\.mjs /);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 10. NOTHING HERE EXECUTES AN AGENT
+// ────────────────────────────────────────────────────────────────────────────
+
+test("this milestone stores and runs nothing", () => {
+  // Storage only, by the owner's instruction. A model call, a reply, a tool or a
+  // trigger appearing in here is a scope change and should be a red run.
+  for (const banned of [
+    /api\.anthropic\.com/, /api\.x\.ai/, /\bmessages\/create\b/, /callBuilderModel/,
+    /\brole\s*:\s*["']assistant["']/, /\brole\s*:\s*["']agent["']/, /\bmax_tokens\b/,
+  ]) assert.ok(!banned.test(SRC), `the store reaches for ${banned}`);
+  // And it never touches the execution journal, which is the other half of the
+  // schema and has no foreign key to this one.
+  assert.ok(!/\brun_entries\b/.test(SRC.replace(/\/\*[\s\S]*?\*\//g, "")), "the store reaches into the journal");
+});

@@ -58,7 +58,22 @@ const RPCS = {
   // THE FENCE. It is an RPC like the others here, which is the point: the shim
   // translates HTTP and the guarantee is the function's.
   append_entry: { args: ["p_run_id::uuid", "p_seq::integer", "p_body::jsonb", "p_worker", "p_token::uuid"], shape: "value" },
+  // THE SEND. The site builder's `agent-store.mjs` reaches this, which is what makes
+  // the whole flow — a typed message, a queued run, an answer read back — drivable
+  // against a real PostgreSQL. Six arguments and not one of them is structured, so
+  // there is nothing here for a caller to hand over but ids and words.
+  send_to_agent: { args: ["p_tenant", "p_agent_id::uuid", "p_message_id::uuid", "p_body", "p_send_key", "p_run_id::uuid"], shape: "value" },
 };
+
+/**
+ * The AUTHORED side's columns — the customer's own agents and conversations.
+ *
+ * A SEPARATE SET FROM THE RUNS', because they are a separate half of the schema and
+ * reading one must never be able to name a column of the other.
+ */
+const AGENT_COLUMNS = new Set(["id", "tenant_id", "name", "instructions", "created_at", "updated_at", "last_message"]);
+const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "run_id",
+  "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at"]);
 
 export function startLocalRest({ db, port = 0, quiet = true } = {}) {
   if (!db) throw new TypeError("startLocalRest: db is required");
@@ -187,6 +202,72 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
         const r = await sql(`delete from agent.runs where id = ${lit(id)}::uuid;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(204);
+      }
+
+      // ── the customer's own agents and conversations ───────────────────────
+      //
+      // Enough for `agent-store.mjs` to be driven end to end: make an agent, ask
+      // whose it is, and read a conversation with the state of the run each message
+      // started. Narrow on purpose — the same reason the runs half is.
+      if (p === "/rest/v1/agents" && req.method === "POST") {
+        const rows = Array.isArray(body) ? body : [body];
+        const vals = rows.map((r) => `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.name)}, ${lit(r.instructions)})`).join(", ");
+        // A CTE, NOT A SUBQUERY: Postgres does not allow a data-modifying statement
+        // inside `from (...)`, which is a syntax error rather than a refusal — so the
+        // shim answered 400 and the route reported a save that had never been tried.
+        const r = await sql(`with ins as (
+            insert into agent.agents (id, tenant_id, name, instructions) values ${vals}
+            returning id, name, instructions, created_at, updated_at)
+          select coalesce(json_agg(t), '[]')::text from ins t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(201, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agents" && req.method === "GET") {
+        const cols = selectOf(url.searchParams, AGENT_COLUMNS, ["id"]);
+        const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.agents ${whereOf(url.searchParams, AGENT_COLUMNS)} ${limit}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agents" && req.method === "PATCH") {
+        const sets = ["name", "instructions"].filter((k) => typeof body?.[k] === "string");
+        if (!sets.length) return send(400, { message: "nothing writable was asked for" });
+        const where = whereOf(url.searchParams, AGENT_COLUMNS);
+        // NEVER AN UNFILTERED UPDATE — the same rule the queue's PATCH follows, and for
+        // the harder reason: without a filter this would rewrite every account's agents.
+        if (!where) return send(400, { message: "a PATCH must name which rows" });
+        const r = await sql(`with upd as (
+            update agent.agents set ${sets.map((k) => `"${k}" = ${lit(body[k])}`).join(", ")} ${where}
+            returning id, name, instructions, created_at, updated_at)
+          select coalesce(json_agg(t), '[]')::text from upd t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agents" && req.method === "DELETE") {
+        const where = whereOf(url.searchParams, AGENT_COLUMNS);
+        if (!where) return send(400, { message: "a DELETE must name which rows" });
+        const r = await sql(`with del as (delete from agent.agents ${where} returning id, name, instructions, created_at, updated_at)
+          select coalesce(json_agg(t), '[]')::text from del t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agent_overview" && req.method === "GET") {
+        const cols = selectOf(url.searchParams, AGENT_COLUMNS, ["id", "name"]);
+        const order = url.searchParams.get("order") === "updated_at.desc" ? "order by updated_at desc" : "";
+        const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.agent_overview ${whereOf(url.searchParams, AGENT_COLUMNS)} ${order} ${limit}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agent_thread" && req.method === "GET") {
+        const cols = selectOf(url.searchParams, THREAD_COLUMNS, ["id", "body"]);
+        // `seq.desc` is the only order the store asks for, and it is what makes a long
+        // conversation read at its live end rather than its oldest screen.
+        const order = url.searchParams.get("order") === "seq.desc" ? "order by seq desc" : "order by seq asc";
+        const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.agent_thread ${whereOf(url.searchParams, THREAD_COLUMNS)} ${order} ${limit}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
       }
 
       // ── the queue's functions ─────────────────────────────────────────────

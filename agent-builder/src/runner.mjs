@@ -62,6 +62,7 @@
 
 import { runAgent } from "./run.mjs";
 import { stoppedEntry } from "./journal.mjs";
+import { withInstructions } from "./define.mjs";
 
 /**
  * How long a claim is good for without a beat. **A LIVENESS CHECK, NOT A DURATION
@@ -289,10 +290,30 @@ export function makeRunner(opts = {}) {
       }
 
       const name = open.run?.agent_name ?? open.state.agent;
-      const agent = isText(name) ? registry.get(name) : undefined;
+      const registered = isText(name) ? registry.get(name) : undefined;
       // A run whose agent is no longer registered cannot be helped by another
       // delivery: that needs a deployment, not a retry.
-      if (!agent) return await finish(true, "no-agent", `the agent "${name ?? "?"}" is not registered here`);
+      if (!registered) return await finish(true, "no-agent", `the agent "${name ?? "?"}" is not registered here`);
+
+      /**
+       * **THE INSTRUCTIONS COME FROM THE LOG, AND THE TOOLS AND BOUNDS COME FROM
+       * THE CODE.** A customer-authored agent is a name, an instruction and a
+       * conversation — data — and it executes under a REGISTERED agent that owns
+       * everything capability-shaped. `withInstructions` is the only door between
+       * the two and it can carry nothing but the text.
+       *
+       * **READ FROM THE LOG ON EVERY DELIVERY, WHICH IS WHAT MAKES THE SNAPSHOT A
+       * SNAPSHOT.** The entry was written when the work was accepted and cannot be
+       * edited afterwards, so a customer who rewrites their agent's instructions
+       * while a run is going — or before a resume, or before the sweeper offers it
+       * again — changes what the NEXT run is told and never what this one was.
+       * Reading `agent.agents` here instead would make an in-flight run's own
+       * instructions mutable from the outside, which is the defect this whole
+       * arrangement exists to prevent.
+       */
+      const agent = open.state.instructions
+        ? withInstructions(registered, open.state.instructions)
+        : registered;
 
       const record = await runAgent({
         agent,

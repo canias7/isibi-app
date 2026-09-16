@@ -10,6 +10,7 @@
     "sweep:sql": "node scripts/sql-sweep.mjs",
     "serve": "node scripts/serve.mjs",
     "demo:long": "node scripts/demo-long-run.mjs",
-    "verify:local": "node scripts/verify-local.mjs"
+    "verify:local": "node scripts/verify-local.mjs",
+    "verify:chat": "node scripts/verify-agent-chat.mjs"
   }
 }

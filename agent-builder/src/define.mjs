@@ -200,3 +200,49 @@ export function toolsFor(agent, grants) {
 export function wireTools(tools) {
   return tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input }));
 }
+
+/**
+ * THE SAME AGENT, RUNNING A CUSTOMER'S OWN INSTRUCTIONS.
+ *
+ * **TOOLS AND BOUNDS ARE COPIED ACROSS UNTOUCHED, AND THAT IS THE ENTIRE
+ * SECURITY ARGUMENT OF THIS FUNCTION.** The rule is that an agent is NAMED and
+ * never described, because letting a request supply an agent is letting a request
+ * supply code. Instructions are the one part of an agent that is not code — they
+ * are the prompt — and a product whose whole point is that a person writes them
+ * has to be able to carry them. So this is the narrowest possible door: it can
+ * change the text handed to the model as `system`, and it cannot change which
+ * tools exist, which the tenant may use, how many steps there are, how long they
+ * may take or what they may cost. Those stay whatever `defineAgent` said.
+ *
+ * **THE NAME IS KEPT, DELIBERATELY.** A run records its agent's name and the
+ * runner looks that name up in the registry to execute it again — so a copy under
+ * a different name would be a run nothing can resume. The customer's own agent is
+ * identified by the `authoredAgent` id in the run's first entry, not by this name.
+ *
+ * REFUSED RATHER THAN COERCED, and an absent snapshot is not a reason to build
+ * anything: a caller with no instructions to substitute should use the agent it
+ * already has, and silently handing back the original would make "did the
+ * snapshot arrive" unanswerable from outside.
+ */
+export function withInstructions(agent, instructions) {
+  // ⚠ THE TOOL LIST AND THE BOUNDS ARE CHECKED TOO, and that is not belt-and-braces.
+  // `kind: "agent"` is a property anybody can write, and an object carrying it with no
+  // tool list threw from `[...agent.tools]` four lines down — "undefined is not
+  // iterable", a TypeError that names neither this function nor the argument. Found by
+  // a guard whose own census had been satisfied by the wrong gate. `defineAgent`
+  // guarantees both, so nothing legitimate is turned away.
+  if (!isPlainObject(agent) || agent.kind !== "agent"
+      || !Array.isArray(agent.tools) || !isPlainObject(agent.limits)) {
+    throw new TypeError("withInstructions: agent must come from defineAgent");
+  }
+  if (!isText(instructions)) {
+    throw new TypeError("withInstructions: instructions must be a non-empty string");
+  }
+  return Object.freeze({
+    ...agent,
+    instructions,
+    // Frozen again because the spread copies the references, not the freeze.
+    tools: Object.freeze([...agent.tools]),
+    limits: agent.limits,
+  });
+}
