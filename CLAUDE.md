@@ -1896,9 +1896,28 @@ page scope; nothing is merged or deployed.
   not across this deploy** — 46,151 → 46,336 and the version moving from
   `01789500698949-dggs37`, both already true at 09:39:42Z — which is why the
   baseline is retaken immediately before the push rather than reused from
-  earlier in a session.
+  earlier in a session. **AND THE CAUSE IS NOW KNOWN RATHER THAN GUESSED**: it
+  was `lane sweep` run 49, the owner's paid addon press, which republished that
+  site. The first reading of this recorded it as *unexplained but not ours*,
+  which was the honest answer at the time and is superseded by main's own
+  history five minutes later.
   **The merge started exactly one workflow**, deploy 2130 and nothing else,
   which is the merge-trigger census holding in the live.
+  **⚠ AND A RECORDED RULE WAS BROKEN WITH UNDER TWO MINUTES TO SPARE, which is
+  worth writing down precisely because nothing went wrong.** The rule is *never
+  push to main while a live run is in flight* — the roll replaces the container
+  under whatever is running. Measured, after the fact: `lane sweep` run 49 ran
+  **09:31:16→09:41:18Z**, my push to main was **09:40:23Z**, and the container
+  rolled at **09:43:09.99Z**. So the PUSH overlapped that run's last 55 seconds
+  and the ROLL — which is what the rule is really about — landed **1m52s after
+  it ended**. Nothing was harmed and the margin was thin.
+  **THE REASON IS STRUCTURAL AND IS THE REUSABLE PART: NOTHING TELLS ONE SESSION
+  THAT ANOTHER HAS A PAID RUN IN FLIGHT.** Main's history is the only signal and
+  it arrives at the COMMIT, which here was 09:46 — five minutes after the push
+  it would have warned about. **The cheap check that WOULD have seen it is a
+  read of the Actions runs before pushing**, not of main: `lane sweep` was
+  `in_progress` and visible from 09:31. Ask GitHub what is RUNNING, not what has
+  LANDED, before a push that rolls the container.
   **NOT PROVEN LIVE: a customer ticking a tool and watching it run.** That needs
   a session on the building account, and signing in as the owner needs
   `SUPABASE_SERVICE_KEY`, which lives only in GitHub Actions — the same wall
@@ -7577,6 +7596,15 @@ rule and the measurement.
   merge → deploy → press, and never promise a button that does not exist yet.
 - **A PUSH TO MAIN ROLLS THE CONTAINER UNDER WHATEVER IS RUNNING.** Never push
   while a live run is in flight; after any code push wait **15–20 minutes**.
+  **AND THE HARD PART IS KNOWING ONE IS IN FLIGHT — MEASURED 2026-09-16, a near
+  miss of 1m52s.** Another session's `lane sweep` run 49 ran 09:31:16→09:41:18Z;
+  a push to main at 09:40:23Z rolled the container at 09:43:09.99Z. Nothing was
+  harmed, and the push overlapped that run's last 55 seconds. **Main's history
+  is not the signal**: the run's own commit landed at 09:46, five minutes after
+  the push it would have warned about. **Ask GitHub what is RUNNING, not what
+  has LANDED** — the `lane sweep` run was `in_progress` and readable from 09:31,
+  so one listing of in-flight Actions runs before a container-rolling push is
+  the whole check.
 - **A COMMIT SAYS WHAT A COMMIT CHANGED; THE DEPLOY FIRES ON THE PUSH.** Two commit
   messages both said "nothing rolls" — true of each alone, false of the deploy they
   triggered. **The roll question has exactly two honest answers**: `git diff

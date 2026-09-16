@@ -251,7 +251,23 @@ and the two pages with real database features behind them (`/status` and
 One thing I want to flag rather than have you spot it: **repairbench-1 did change
 size today, and it was not this deploy.** It republished between two of my own
 readings, before I pushed anything — it shows in both the before and the after, so
-this release did not cause it and did not affect it.
+this release did not cause it and did not affect it. **It was your run 49**, the
+paid addon press, which I could only name once its own notes landed on main five
+minutes later.
+
+**And a near miss I would rather tell you about than not.** There is a standing
+rule here: never push to main while a live run is going, because the push swaps
+the container out from under it. Your run 49 finished at 09:41:18. I pushed at
+09:40:23 — **55 seconds before it ended** — and the container swap landed at
+09:43:10, **1 minute 52 seconds after**. So nothing was disturbed and your run is
+unaffected, but the gap was thin and it was luck rather than care.
+
+**The reason is worth fixing and it is not carelessness.** Nothing tells one of my
+sessions that another has a paid run going; I look at what has landed on main, and
+run 49's own notes did not land until 09:46 — five minutes after the push they
+would have warned me about. The fix is one extra check before any push that rolls
+the container: **ask what is RUNNING, not what has landed.** Your run was visible
+as in-progress from 09:31. I have written that into the rules.
 
 **What I have NOT proved, and cannot from here.** Nobody has ticked a tool on a
 real agent and watched it run. Doing that means signing in as your building
