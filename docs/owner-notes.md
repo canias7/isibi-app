@@ -270,6 +270,51 @@ harness's `budget` field is read between cases, which a single-ask run never
 has two of. Saying that plainly because it means the only real bound is that
 this is one request.
 
+### You pressed both, and the second one failing is the tool working
+
+**`verify` green in 51 s** (run 4), **`counts` red in 17 s** (run 5). I told you
+before the second press that it would refuse; it did, for exactly the stated
+reason, and it bought something the first four runs could not.
+
+**The inventory — the authoritative before-state for the paid test.** Six tables
+from `information_schema`; the four `_`-prefixed ones are platform-internal,
+which is why the checks say "2 declared" and the list says six.
+
+```
+bookings   id integer · customer_name text · bike text · drop_off_day text · updated_at text · created_at text
+repairs    id integer · customer_name text · bike text · issue text · updated_at text · created_at text
+```
+
+**It found `repairs.issue`, which my earlier probe missed** — that probe asks one
+name at a time and can only report names somebody guessed. You were right to
+require the authoritative read; the cheap probe would have under-reported the
+before-state and any "no new columns" claim after the run would have rested on it.
+
+**`drop_off_day` is `text`, so the aggregate refused it** — `not-a-date-column`,
+the allowed set named, exit 1, and no query issued. Three things held in order:
+identity proved before the plan, the refusal stopped the read (zero statements),
+and **the nonzero exit reached the step**. That last one had never happened live:
+run 5 is the first failing run of either repair workflow, 7 green before it. Under
+GitHub's default shell this same run would have shown GREEN — the pipefail fix you
+asked for is what made it red.
+
+**I am not widening the tool to accept text.** The type rule is the only reason
+`customer_name` can't be grouped, and it's text as well. Casting is worse: it
+fails with Postgres's own message, which quotes the value — a bad row would leak a
+customer name out of the one mode built never to return one.
+
+**So the per-date split stays unreadable for free**, and with three rows it was
+only ever going to settle ordering in one of four shapes anyway. My recommendation
+is unchanged: run the paid test and state that limit up front rather than discover
+it afterwards.
+
+**One thing the type tells us to watch**: a tie-break on a text date sorts
+alphabetically. That's chronological for `YYYY-MM-DD` and wrong for anything else,
+so if the generated function orders by the date instead of the count, its own
+output shows it.
+
+---
+
 ### Still true: I cannot press any of these
 
 Re-tested rather than recalled. A direct REST POST answers **403** — and the

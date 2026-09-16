@@ -5642,6 +5642,69 @@ answering `42703` as the control. **The per-date split is unknown from here**:
 `bookings` is `collect`, so no client SELECT of values exists, and reading it any
 other way means a live Neon credential in a session transcript.
 
+### AND BOTH PRESSES RAN — the inventory landed and the aggregate REFUSED (2026-09-16)
+
+The owner's two presses on `backend repair`, both on main `4de589cc`.
+**Run 4 `verify` green in 51 s** (35065641461) and **run 5 `counts` RED in 17 s**
+(35067011145) — and the red one is the tool being right.
+
+**THE AUTHORITATIVE BEFORE-STATE, out of `information_schema` rather than out of
+per-name probes.** Five postconditions ok, `ready 1`, `every live table declared
+— 2 table(s), all declared`, then the inventory:
+
+```
+_errors    id integer · at text · message text · stack text · route text · source text
+_meta      k text · v text
+_metrics   day text · reqs integer · errs integer
+_secrets   name text · cipher text · hint text · created_at text
+bookings   id integer · customer_name text · bike text · drop_off_day text · updated_at text · created_at text
+repairs    id integer · customer_name text · bike text · issue text · updated_at text · created_at text
+```
+
+- **SIX TABLES AGAINST "2 DECLARED" IS NOT A CONTRADICTION.** The four
+  `_`-prefixed ones are `INTERNAL_TABLES`, excluded from `st.tables` and present
+  in the catalog read, which walks every column in `public`.
+- **AND IT FOUND A COLUMN THE PROBE NEVER ASKED ABOUT — `repairs.issue`.** The
+  PostgREST probe is exact per NAME and is not an enumeration, so it can only
+  report on names somebody guessed; this is that recorded limit met live, and it
+  is the whole reason the owner required an authoritative inventory before a
+  before/after claim.
+
+**`drop_off_day` IS `text`, AND THAT IS WHY `counts` REFUSED IT.** `COUNTS_TYPES`
+is `["date","timestamp","time"]` asked of the catalog, so the run answered
+`REFUSED (not-a-date-column) — bookings.drop_off_day is text`, named the allowed
+set, and exited **1**. **Three properties held live, in order:**
+
+1. **IDENTITY IS PROVEN BEFORE THE PLAN** — `identity PROVEN` precedes the
+   refusal, so a run that cannot establish whose database it is never reaches the
+   question of what to group.
+2. **THE REFUSAL STOPPED THE READ** — MEASURED: the log carries **zero**
+   `reading:` lines, so no aggregate statement was ever issued.
+3. **THE NONZERO EXIT REACHED THE STEP** (`##[error]Process completed with exit
+   code 1`), under the step's own
+   `bash --noprofile --norc -e -o pipefail {0}`. **THIS IS THE PIPEFAIL FIX'S
+   FIRST LIVE PROOF IN THE FAILING DIRECTION**: measured, run 5 is the **first
+   failing run of either repair workflow** — 8 runs, the 7 before it all green —
+   so until now that wall had only ever been driven with a stub. Under the
+   default `bash -e` this exact run reads GREEN.
+
+**WIDENING `COUNTS_TYPES` TO TEXT IS THE WRONG FIX AND IS NOT BEING MADE.** The
+type rule is the entire reason `customer_name` cannot be grouped, and
+`customer_name` is `text` too — so admitting text trades the one property that
+makes the mode safe for one number. **A cast is worse**: `"drop_off_day"::date`
+fails at runtime with Postgres's own message, which quotes the offending
+**value**, so a single bad row leaks a customer name out of a mode built to
+return dates and counts only.
+
+**SO THE PER-DATE SPLIT CANNOT BE READ FOR FREE, and that is a stated limit
+rather than an open task.** `bookings` is `collect` (no client SELECT),
+`count_booked_repairs` gives only the total, and the catalog holds no row values.
+
+**AND THE TYPE IS ITSELF SOMETHING THE ADDON HAS TO GET RIGHT.** A tie-break on
+a text date sorts lexicographically — chronological for `YYYY-MM-DD` and wrong
+for every other format — so a generated function that orders by the date rather
+than by the count is visible in its own output.
+
 ### …AND A FORM VALUE COULD SELECT THE MODE, PAST THE APPROVAL GATE (2026-09-16)
 
 Owner, before this merged: *"The backend-repair workflow expands `$S` unquoted.
