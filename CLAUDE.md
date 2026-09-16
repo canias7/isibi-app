@@ -6000,7 +6000,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   that a repo-root run does not** — `render-sandbox`'s privilege-drop case is
   about writing outside the repo root, so it is the environment, not the
   product; the TOTAL is what carries across, which is why the total is the
-  number stamped.
+  number stamped. **CI HAS READ IT: `unit tests` run 2620 on `28969cb1`, green
+  (2026-09-16 05:34:15→05:36:13Z, the suite step 103.4 s) — `# tests 6649 /
+  # pass 6645 / # fail 0 / # skipped 4`.** The four are the three recorded
+  environment skips plus `site-searchpath`'s baseline-commit case, which needs
+  git objects `actions/checkout@v4`'s `fetch-depth: 1` does not fetch — the
+  prediction of 4 was written down before the run, which is the only way a skip
+  count is evidence rather than an observation. **AND 1154's GREEN STILL COVERS
+  THE PUSHED TIP**: `28969cb1` hashes to `62c2700fa8c843c2` too, and the twelve
+  files between the two are documents, scripts, a mutant spec, guards, a
+  workflow and `public/chat.js` — none under `builder/**`, `worker.js` or the
+  Dockerfile's context, so no `site build` fired and none was due.
   Before it, the suite was **6,642** (2026-09-16, local, ON THE TREE WITH `main`
   MERGED IN — `6642 / 6642 / 0 fail / 0 skipped`). **That arithmetic closes three ways and
   that is what makes it a measurement**: `main` carried 6,505 → 6,628 (its agent
