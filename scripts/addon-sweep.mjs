@@ -62,6 +62,19 @@ const SHOTS = String(process.env.GAP_SHOTS_DIR || "docs/edits").trim();
 // trimmed of its punctuation the way a case NAME is — this is a sentence a
 // person typed, and the step's whole job is to read it as written.
 const ASK = String(process.env.SWEEP_ASK || "").trim().slice(0, MAX_MESSAGE);
+// ── FIRING A SCHEDULED JOB, AND WHY IT IS ITS OWN SWITCH ──────────────────────
+//
+// A job is the one kind whose work does not happen during the addon request: the
+// request REGISTERS it and a later cron tick RUNS it, so a run that only reads
+// the reply proves the schedule was written down and nothing about whether it
+// works. `POST {name, run: true}` is the product's own "Run now" — the SAME deps
+// the cron uses, so what this presses is what the schedule would send.
+//
+// EMPTY MEANS DO NOT PRESS, and that default is the point rather than caution:
+// the press really runs the site's job, and on a site whose owner HAS pasted a
+// provider key it really sends. `auto` fires only a job THIS run registered,
+// which is the one case where nothing pre-existing can be set off by accident.
+const RUN_JOB = String(process.env.SWEEP_RUN_JOB || "").trim().toLowerCase();
 
 /** `node:https` rather than fetch — undici gives up at 300s and an addon outlives that. */
 function call(method, urlOrPath, { body, headers, token } = {}) {
@@ -314,6 +327,104 @@ export function ignoredNote(ask, want, rawAsk) {
  * "nothing was recorded" and "nothing was outstanding" are the two readings a
  * blank collapses.
  */
+/**
+ * ── WHAT THE SITE HAS SCHEDULED, AS ROWS ──────────────────────────────────────
+ *
+ * `GET /api/site/<slug>/jobs` is the only reader of what was really PERSISTED —
+ * the reply's `jobs` array is what the designer answered, and the two can
+ * disagree in exactly the way that matters (a job the reply names and the
+ * registration dropped). Keyed by NAME, because that is the identity
+ * `site_functions` stores and the identity "Run now" presses by.
+ *
+ * A READ THAT FAILED IS NOT A SITE WITH NO JOBS. `null` for unreadable against
+ * `{}` for none — the route itself makes that distinction (it answers 503 rather
+ * than an empty list on a bad read) and collapsing it here would report a broken
+ * reader as a working site that scheduled nothing, which is this repository's
+ * most-repeated wrong answer.
+ */
+export function jobRows(answer) {
+  if (!answer || typeof answer !== "object" || !Array.isArray(answer.jobs)) return null;
+  const out = {};
+  for (const j of answer.jobs) {
+    if (!j || typeof j !== "object" || !j.name) continue;
+    out[String(j.name)] = {
+      everyMinutes: Number(j.everyMinutes) || 0,
+      at: typeof j.at === "string" ? j.at : null,
+      tz: typeof j.tz === "string" ? j.tz : null,
+      enabled: j.enabled !== false,
+      lastRun: j.lastRun || null,
+      lastResult: typeof j.lastResult === "string" ? j.lastResult : null,
+    };
+  }
+  return out;
+}
+
+/**
+ * THE JOBS THIS RUN REALLY ADDED — the names present after and absent before.
+ *
+ * DERIVED FROM THE TWO READS, never from the reply. A job the reply names and
+ * the registry does not have is the defect this exists to see, so taking the
+ * reply's word for which names are new would hide it in the one direction that
+ * matters. Either read being unreadable answers `[]`: "I could not tell" must
+ * never arrive as "it added nothing".
+ */
+export function newJobs(before, after) {
+  if (!before || !after) return [];
+  return Object.keys(after).filter((n) => !Object.hasOwn(before, n)).sort();
+}
+
+/**
+ * WHICH JOB THE PRESS SHOULD FIRE, given the switch and what this run added.
+ *
+ * `auto` is deliberately NOT "the first job on the site" — it is the one job
+ * this run registered, and it REFUSES when the run added none or added several.
+ * A press that silently picked one of two would run a job nobody chose, on a
+ * site whose owner may have pasted a real provider key; and firing a job that
+ * was already there tests the registry rather than the change.
+ * A NAME is taken as typed and checked against what the site really has, so a
+ * typo is a refusal rather than a quiet no-op.
+ */
+export function jobToRun(want, added, have) {
+  const w = String(want || "").trim().toLowerCase();
+  if (!w) return { run: false, why: "not asked for" };
+  if (!have) return { run: false, why: "the jobs list could not be read" };
+  if (w === "auto") {
+    if (added.length === 1) return { run: true, name: added[0] };
+    return { run: false, why: added.length ? `this run added ${added.length} jobs (${added.join(", ")}) — name one` : "this run added no job" };
+  }
+  const hit = Object.keys(have).find((n) => n.toLowerCase() === w);
+  return hit ? { run: true, name: hit } : { run: false, why: `the site has no scheduled job called ${JSON.stringify(w)}` };
+}
+
+/**
+ * THE JOB LINES OF THE REPORT.
+ *
+ * SAID EVEN WHEN EMPTY, the rule the coverage lines already follow: "the site
+ * scheduled nothing" and "nobody looked" are different readings and a missing
+ * line collapses them.
+ */
+export function jobLines(before, after, ran) {
+  const out = [];
+  if (!after) { out.push(`   scheduled jobs: COULD NOT BE READ`); return out; }
+  const added = newJobs(before, after);
+  const names = Object.keys(after).sort();
+  out.push(`   scheduled jobs on the site: ${names.length ? JSON.stringify(names) : "none"}${before ? ` (this run added ${added.length ? JSON.stringify(added) : "none"})` : " (nothing to compare against)"}`);
+  for (const n of names) {
+    const j = after[n];
+    // THE ZONE IS PRINTED BESIDE THE CLOCK TIME AND NEVER INSTEAD OF IT. "09:00"
+    // is not a time until something says whose nine o'clock, and the zone is the
+    // BROWSER's — the one field on this row that no model chose.
+    const when = j.at ? `at ${j.at} ${j.tz || "(NO ZONE)"} every ${j.everyMinutes}m` : `every ${j.everyMinutes}m`;
+    out.push(`     · ${n}: ${when}${j.enabled ? "" : "  DISABLED"}  lastRun ${j.lastRun || "never"}  lastResult ${j.lastResult === null ? "(none)" : JSON.stringify(j.lastResult)}`);
+  }
+  if (ran) {
+    out.push(ran.run
+      ? `   ran ${ran.name} now: ${ran.status} sent ${ran.sent} — ${JSON.stringify(ran.result || "")}`
+      : `   did not run any job now: ${ran.why}`);
+  }
+  return out;
+}
+
 export function askLines(record, kinds) {
   const arr = (v) => (Array.isArray(v) ? v : []);
   const out = [`   the picker chose: ${JSON.stringify(arr(kinds))}`];
@@ -930,6 +1041,9 @@ async function main() {
     // addition without one (`bad-idem`), and a synchronous one ignores it.
     // `tz` IS WHAT THE BROWSER SENDS (2026-09-03): a job's clock time is read
     // in the owner's zone, and fretwork-1 is in Sheffield.
+    // READ BEFORE THE POST, or "this run added it" is not a claim anybody can
+    // make: the site may have carried a job of that name since a run in March.
+    const jobsBefore = jobRows((await call("GET", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json);
     let p = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/addon`, { token: TOKEN, body: { instruction: c.ask, picker: PICKER, idem: hex32(), tz: "Europe/London" } });
     console.log(`   answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
     // ── QUEUED: THE RECEIPT, THEN THE STORED REPLY (2026-09-03) ───────────
@@ -1021,6 +1135,25 @@ async function main() {
       extra.askKinds = Array.isArray(ans.kinds) ? ans.kinds : [];
       extra.askRecord = ans;
     }
+    // ── WHAT WAS PERSISTED, AND WHAT IT DOES WHEN FIRED ───────────────────
+    //
+    // The registry read is unconditional; the PRESS is not. A job registered
+    // on a schedule is a fact about the row, and the only way to see the
+    // runner work without waiting out the schedule is the product's own
+    // "Run now" — which really runs it, so it happens only when asked for.
+    //
+    // THE ORDER IS READ → PRESS → READ. The last read is what carries
+    // `lastRun` and `lastResult` back, and those are written by the route
+    // AFTER the run, so a single read taken before the press cannot see them.
+    extra.jobsBefore = jobsBefore;
+    extra.jobsAfter = jobRows((await call("GET", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json);
+    const pick = jobToRun(RUN_JOB, newJobs(jobsBefore, extra.jobsAfter), extra.jobsAfter);
+    if (pick.run) {
+      const rr = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN, body: { name: pick.name, run: true } });
+      const rb = (rr.json && typeof rr.json === "object") ? rr.json : {};
+      extra.ranJob = { run: true, name: pick.name, status: rr.status, sent: Number(rb.sent) || 0, result: rb.result || rb.error || "" };
+      extra.jobsAfter = jobRows((await call("GET", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json) || extra.jobsAfter;
+    } else extra.ranJob = pick;
     let verdict, note;
     if (p.status === 0) { verdict = "NO ANSWER"; note = `the request died: ${p.why || "?"}`; }
     // ── A FREE-TEXT ASK IS ALWAYS REPORTED, WHATEVER HAPPENED ──────────────
@@ -1060,6 +1193,10 @@ async function main() {
       const ans = c.freeText ? (extra.askRecord || {})
         : ((await call("GET", `/api/site/answer?slug=${encodeURIComponent(SLUG)}&kind=addon`, { token: TOKEN })).json || {}).answer || {};
       if (c.freeText) for (const line of askLines(ans, extra.askKinds)) console.log(line);
+      // THE REGISTRY BESIDE THE RECORD. The record says what the designers
+      // ANSWERED; these lines say what the site really carries, and a job the
+      // reply names with no row behind it is exactly the gap between them.
+      if (c.freeText) for (const line of jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob)) console.log(line);
       const replies = Array.isArray(ans.replies) ? ans.replies : [];
       for (const r of replies) {
         const said = (Array.isArray(r.content) ? r.content : []).map((b) => b && b.type === "text" ? String(b.text || "") : b && b.type === "tool_use" ? "tool_use " + JSON.stringify(b.input) : "").filter(Boolean).join(" | ");
