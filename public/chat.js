@@ -1085,6 +1085,36 @@ let agentMsgDrafts = {};
 const agentDraftOf = (id) => (id && Object.hasOwn(agentMsgDrafts, id) ? agentMsgDrafts[id] : '');
 
 /**
+ * ONE KEY PER PRESS, NOT PER REQUEST — and that distinction is the whole of retry
+ * safety on this screen.
+ *
+ * A double click and a lost response are the same event from here, and both must
+ * produce ONE message and ONE run. The server absorbs a repeat on this key (the
+ * database holds `(agent_id, send_key)` unique), so what the browser has to
+ * guarantee is that a RETRY carries the SAME key. Minting one inside `agentSend`
+ * would make every call a new press: two clicks landing before the re-render
+ * disables the button would be two messages, which is exactly the duplicate the
+ * key exists to prevent.
+ *
+ * So it is minted per AGENT, beside the draft, and cleared with it — on success
+ * only. A failed send keeps the words AND the key, so pressing again is the same
+ * press said twice.
+ */
+let agentSendKeys = {};
+function agentKeyFor(id) {
+  if (!id) return '';
+  if (!Object.hasOwn(agentSendKeys, id) || !agentSendKeys[id]) {
+    // `crypto.randomUUID` is absent on older browsers and over plain HTTP, and the
+    // server accepts this fallback deliberately: turning retry safety off for the
+    // browsers least likely to have a reliable connection is the wrong trade.
+    agentSendKeys[id] = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : String(Date.now()) + Math.random().toString(16).slice(2);
+  }
+  return agentSendKeys[id];
+}
+
+/**
  * WHO AND WHERE A REQUEST WAS MADE FROM.
  *
  * Every call below leaves the screen, waits, and comes back to a screen that may
@@ -1315,11 +1345,15 @@ async function agentsLoad(quiet) {
 }
 
 /** One thread, asked for when it is opened. */
-async function agentThreadLoad(id) {
+async function agentThreadLoad(id, quiet) {
   const bound = agentBind();
-  agentMsgs = null;
+  // A QUIET RELOAD KEEPS WHAT IS ON SCREEN. A poll that blanked the thread and drew
+  // "loading" every two and a half seconds would make a running conversation
+  // unreadable — and a scroll position is lost with it. Only a first open, or a
+  // deliberate retry, shows the loading state.
+  if (!quiet) { agentMsgs = null; agentMsgsErr = ''; }
   agentMsgsFor = id;
-  agentMsgsErr = '';
+  agentPollStop();
   renderAgents();
   try {
     const res = await apiFetch('/api/agent/messages?id=' + encodeURIComponent(id));
@@ -1335,11 +1369,142 @@ async function agentThreadLoad(id) {
       if (res.status === 404) { agentThread = null; agentsLoad(true); return; }
     } else {
       agentMsgs = Array.isArray(j.messages) ? j.messages : [];
+      agentMsgsErr = '';
     }
   } catch {
     if (agentMsgsFor === id) agentMsgsErr = 'Couldn’t reach the server.';
   }
   renderAgents();
+  // ASKED AFTER THE DRAW, off the rows that were just drawn. A poll scheduled on a
+  // FAILED read would keep asking a server that is not answering, at this interval,
+  // for as long as the screen is open — so it is the presence of live work in a
+  // successful answer that arms the next one, and nothing else.
+  if (!agentMsgsErr && agentLive(agentMsgs)) agentPollSoon(id);
+}
+
+/**
+ * WHICH RUNS ARE STILL GOING, out of the thread the server sent.
+ *
+ * `queued` and `working` are live; `answered` and `failed` are done; `null` is a
+ * message that started nothing, which every imported conversation is. Derived from
+ * the rows rather than remembered, so a reload mid-run is the ordinary case and not
+ * a recovery path — the browser holds no state about a run at all.
+ */
+const AGENT_LIVE_STATES = ['queued', 'working'];
+const agentLive = (msgs) =>
+  (Array.isArray(msgs) ? msgs : []).some((m) => m && m.run && AGENT_LIVE_STATES.indexOf(m.run.state) >= 0);
+
+/**
+ * How often the conversation is re-read while something is running.
+ *
+ * The engine's sweeper offers a queued run on its own minute-by-minute cron, so a
+ * run can sit for up to that long before its first step. Two and a half seconds is
+ * chosen against how it FEELS rather than against that: it is the interval at which
+ * a step appearing looks immediate, and the read is one small request against a
+ * view. It is not a lease, a timeout or a bound on anything — nothing breaks if a
+ * poll is missed, because the next one reads the same rows.
+ */
+const AGENT_POLL_MS = 2500;
+let agentPollTimer = null;
+
+/**
+ * Stop polling. Called before every start, on leaving the thread, and on a failed
+ * read — so there is never more than one timer, and a timer can never outlive the
+ * screen that wanted it.
+ */
+function agentPollStop() {
+  if (agentPollTimer !== null) { clearTimeout(agentPollTimer); agentPollTimer = null; }
+}
+
+/**
+ * Re-read this conversation in a moment, IF it is still the one on screen and
+ * something in it is still running.
+ *
+ * **THE BINDING IS RE-ASKED WHEN THE TIMER FIRES, not when it is set.** Between the
+ * two, somebody can open another conversation, sign out, or sign in as somebody
+ * else — and a poll that painted the old thread's rows into the new screen is the
+ * defect this whole file's binding rules exist to stop, arriving on a timer instead
+ * of on a response.
+ */
+function agentPollSoon(id) {
+  agentPollStop();
+  const bound = agentBind();
+  agentPollTimer = setTimeout(() => {
+    agentPollTimer = null;
+    if (!agentSame(bound) || agentMsgsFor !== id) return;
+    agentThreadLoad(id, true);
+  }, AGENT_POLL_MS);
+}
+
+/**
+ * ONE RUN, DRAWN — progress, result or failure, and nothing invented.
+ *
+ * `m.run` is `null` for a message that started nothing, which every imported
+ * conversation is and every message sent before this existed: those draw as the
+ * message alone, because there is no work to report and a bubble saying so would be
+ * a sentence about the platform in the middle of somebody's conversation.
+ *
+ * **THE LABEL IS DRAWN FROM `run.simulated`, WHICH IS ABOUT THE RUN THAT
+ * ANSWERED** — read from the model recorded in that run's own log. So the day a real
+ * provider is connected, the runs that used it are not labelled and this needs no
+ * change. A label from a constant would keep saying "simulated" over a real answer.
+ *
+ * **AND IT IS THE SECOND COPY OF THAT LABEL, DELIBERATELY.** The answer's own TEXT
+ * carries `[simulated]` from the engine, and this is the chrome's. Neither replaces
+ * the other: the chrome is visible before you read a word, and the text survives
+ * being copied into an email. Both are asserted by their own guards.
+ */
+function agentRunHtml(run) {
+  if (!run) return '';
+  var tag = run.simulated
+    ? '<span class="ag-sim" title="No model is connected yet. This is a stand-in test result, not an answer from an AI.">Simulated</span>'
+    : '';
+  if (run.state === 'queued') {
+    return '<div class="ag-msg ag-msg-bot">' +
+      '<div class="ag-run ag-run-wait">' + tag +
+        '<span class="ag-run-t">Queued\u2026</span>' +
+      '</div></div>';
+  }
+  if (run.state === 'working') {
+    return '<div class="ag-msg ag-msg-bot">' +
+      '<div class="ag-run ag-run-wait">' + tag +
+        '<span class="ag-run-t">Working\u2026 step ' + esc(String(run.step)) + '</span>' +
+      '</div></div>';
+  }
+  if (run.state === 'answered') {
+    // AN ANSWERED RUN WITH NO WORDS IS SAID, not drawn as an empty bubble. It is a
+    // thing that happened, and an empty bubble reads as a rendering fault.
+    var body = run.text
+      ? '<div class="ag-bubble ag-bubble-bot">' + esc(run.text) + '</div>'
+      : '<div class="ag-run ag-run-fail"><span class="ag-run-t">It finished without saying anything.</span></div>';
+    return '<div class="ag-msg ag-msg-bot">' +
+      (tag ? '<div class="ag-run ag-run-tag">' + tag + '</div>' : '') +
+      body +
+      (run.at ? '<div class="ag-msg-when">' + esc(agentWhen(run.at)) + '</div>' : '') +
+    '</div>';
+  }
+  // FAILED. The reason is the engine's own word and is shown rather than hidden: a
+  // run that stopped on a bound and one whose model call died need different things
+  // done about them, and "something went wrong" cannot tell them apart.
+  return '<div class="ag-msg ag-msg-bot">' +
+    '<div class="ag-run ag-run-fail">' + tag +
+      '<span class="ag-run-t">' + esc(agentWhyText(run.why)) + '</span>' +
+    '</div></div>';
+}
+
+/**
+ * The engine's stop reason, as a sentence.
+ *
+ * **AN UNKNOWN REASON IS SHOWN AS ITSELF, never swallowed into "something went
+ * wrong".** A reason this list has not met is still the most useful thing anybody
+ * has, and the engine gains stop reasons without this file being edited.
+ */
+function agentWhyText(why) {
+  if (why === 'spent') return 'It stopped: it reached one of its limits.';
+  if (why === 'call-failed') return 'It stopped: the model call failed.';
+  if (why === 'unmeasured') return 'It stopped: its spending could not be measured.';
+  if (why === 'unknown' || !why) return 'It stopped, and there is no reason recorded.';
+  return 'It stopped: ' + why + '.';
 }
 
 /**
@@ -1380,7 +1545,11 @@ function renderAgents() {
               '<div class="ag-msg ag-msg-you">' +
                 '<div class="ag-bubble">' + esc(m.text) + '</div>' +
                 '<div class="ag-msg-when">' + esc(agentWhen(m.at)) + '</div>' +
-              '</div>').join('')
+              '</div>' +
+              // WHAT THAT MESSAGE STARTED, IF ANYTHING. `agentRunHtml` answers '' for
+              // a message with no run, which is every imported conversation and every
+              // message sent before this existed.
+              agentRunHtml(m.run)).join('')
           : '<div class="ag-thread-empty">' +
               '<div class="ag-empty-t">' + esc(a.name) + '</div>' +
               '<div class="ag-empty-s">' + esc(a.instructions) + '</div>' +
@@ -1411,12 +1580,15 @@ function renderAgents() {
           '</button>' +
         '</div>' +
         (agentActErr ? '<div class="ag-err ag-err-send">' + esc(agentActErr) + '</div>' : '') +
-        // **SAID BEFORE YOU SEND, NOT AFTER.** Nothing answers yet, and a screen
-        // that took a message in silence would read as an agent ignoring you.
-        // It is a sentence rather than a fake reply on purpose: a bubble from
-        // the agent saying "not wired up" is this repo's recorded dead control
-        // one step worse — a control that ANSWERS, wrongly.
-        '<div class="ag-note">Saved to your account. Nothing answers yet — no model is wired to this chat.</div>' +
+        // **SAID BEFORE YOU SEND, NOT AFTER**, and it is a different sentence now
+        // that something does answer. What it must not do is let a stand-in read
+        // as an AI: the reply is real work, really queued, really executed and
+        // really recorded — and what produced its words is a placeholder. Saying
+        // that here AND on every answer is deliberate, because this line is gone
+        // the moment an answer is copied somewhere else.
+        '<div class="ag-note">Saved to your account and run on the server. ' +
+          'No model is connected yet, so replies are stand-in test results rather than ' +
+          'answers from an AI.</div>' +
       '</div>';
     wireActions(view);
     const box = document.getElementById('agThread');
@@ -1540,7 +1712,7 @@ function agentOpen(id) {
 }
 /** The pencil, from inside a thread: edit without losing your place. */
 function agentEdit(id) { agentEditing = String(id || ''); agentActErr = ''; renderAgents(); }
-function agentList() { agentThread = null; agentEditing = null; agentActErr = ''; renderAgents(); }
+function agentList() { agentPollStop(); agentThread = null; agentEditing = null; agentActErr = ''; renderAgents(); }
 /** Cancel returns where you came from — the thread if one is open. */
 function agentCancel() { agentEditing = null; agentDraft = null; agentDraftFor = null; agentActErr = ''; renderAgents(); }
 /** The list's error panel, and the thread's. */
@@ -1609,14 +1781,18 @@ async function agentSend() {
   const bound = agentBind();
   const target = bound.thread;
   agentMsgDrafts[target] = text;
+  // TAKEN BEFORE THE REQUEST AND NOT MINTED INSIDE IT. Two presses landing before
+  // the button is disabled carry the SAME key, so the server absorbs the second
+  // into the first — one message, one run. See `agentKeyFor`.
+  const key = agentKeyFor(target);
   agentBusy = true; agentActErr = ''; renderAgents();
   let failed = '';
   let saved = null;
   try {
-    const res = await apiFetch('/api/agent/message', {
+    const res = await apiFetch('/api/agent/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: target, body: text }),
+      body: JSON.stringify({ id: target, body: text, key }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn\u2019t send that.';
@@ -1626,7 +1802,12 @@ async function agentSend() {
   // THE DRAFT IS THIS CONVERSATION'S WHEREVER THE SCREEN IS NOW. Clearing it on
   // success and leaving it on failure are both writes to `agentMsgDrafts[target]`
   // — never to "the box", which may be showing another agent entirely.
-  if (!failed) delete agentMsgDrafts[target];
+  //
+  // THE KEY GOES WITH THE DRAFT, AND ONLY ON SUCCESS. Clearing it after a FAILURE
+  // would make the next press a different press, and a message the server may
+  // already hold would be joined by a second copy with a second run — the lost
+  // response case turned into the duplicate the key exists to prevent.
+  if (!failed) { delete agentMsgDrafts[target]; delete agentSendKeys[target]; }
 
   if (!agentSame(bound)) {
     // ANOTHER CONVERSATION — OR ANOTHER ACCOUNT — IS ON SCREEN. Nothing here is
@@ -1641,11 +1822,25 @@ async function agentSend() {
 
   agentBusy = false;
   if (failed) { agentActErr = failed; renderAgents(); return; }
-  // Appended rather than re-read: the answer IS the stored row, so a second
-  // request would ask the server to repeat what it just said.
+  // **APPENDED, THEN RE-READ, AND BOTH HALVES ARE LOAD-BEARING.**
+  //
+  // The append is what makes the message appear the instant it is saved: the answer
+  // IS the stored row, so asking the server to repeat it would be latency for
+  // nothing.
+  //
+  // The re-read is what starts the watching, and THE RUN'S STATE IS NEVER COMPOSED
+  // HERE. A run has exactly one reader — the thread — so a `{state: 'queued'}`
+  // written in this function would be a second composer of the same fact, and the
+  // two would disagree the moment either changed. What is appended is the MESSAGE
+  // with no run beside it, which draws as a message whose work has not been read
+  // yet; the quiet re-read a moment later fills it in.
   if (Array.isArray(agentMsgs) && agentMsgsFor === target && saved) agentMsgs = agentMsgs.concat([saved]);
-  else agentThreadLoad(target);
   renderAgents();
+  // AWAITED, so a caller that waits for the send has waited for the reading too.
+  // Un-awaited it is a race with nothing holding either side, and the appended row
+  // is replaced by the server's a moment later — which is correct and is not
+  // something a test, or a person reading this, should have to guess the order of.
+  await agentThreadLoad(target, true);
   // The row's preview line and its place in the list both moved.
   agentsLoad(true);
 }

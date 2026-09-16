@@ -1562,6 +1562,89 @@ that workflow's `paths`.
 
 **NOT PROVEN LIVE.** Every measurement is from driving `public/chat.js` in a real
 page scope; nothing is merged or deployed.
+- **THE AGENT BUILDER'S AGENTS NOW RUN (2026-09-16).** A message typed to a saved
+  agent is saved AND starts a run on the engine in `agent-builder/`, and the
+  conversation shows that run's progress, result or failure. **`agent-builder/` is a
+  SEPARATE PRODUCT with its own CLAUDE.md, and the full entry is there** — what
+  belongs here is the site builder's half.
+  **`POST /api/agent/send`** is the eighth `/api/agent/*` route. It mints the message
+  and run ids, takes the tenant from `authUser(request).id` as every other one does,
+  and calls ONE database function that saves the message and accepts the run in one
+  transaction. **NOTHING ABOUT THE RUN'S SHAPE PASSES THROUGH THIS WORKER**: the
+  function takes six arguments and not one of them is structured (asserted against
+  Postgres's catalog — `jsonb` is the only type an entry, a bound or a history could
+  arrive as), so the model, the tools and the bounds come from the engine's registry
+  and a bug here cannot widen them.
+  **THE KEY IS THE BROWSER'S AND IT IS MINTED PER PRESS, NOT PER REQUEST.** A double
+  click and a lost response are the same event from a browser, and the database holds
+  `(agent_id, send_key)` unique, so both must carry the SAME key — which is false the
+  moment one is minted inside `agentSend`. It lives beside the draft
+  (`agentSendKeys`), is cleared WITH it and **only on success**: clearing it after a
+  failure makes the next press a different press, and a message the server already
+  committed gains a second copy with a second run. The route REFUSES a send with no
+  key rather than minting one, because retry safety failing open is the direction that
+  duplicates a conversation.
+  **AND NEITHER THE DRAFT NOR THE KEY NEEDS CLEARING ON AN ACCOUNT CHANGE — checked,
+  not assumed.** `agentMsgDrafts` and `agentSendKeys` are in-memory maps keyed by agent
+  id, and `doSignOut` ends in `location.reload()`, so every account change discards
+  them with the page. They are unreachable in the meantime anyway: the composer draws
+  only for an agent in `agentRows`, which is the server's list for whoever is signed in
+  now. A defensive wipe would be a second wall in front of a reload, and the reload is
+  the one that exists.
+  **THE ANSWER IS READ FROM THE RUN AND NEVER COPIED INTO A MESSAGE ROW.**
+  `agent_messages.role` still admits `'user'` and nothing else, deliberately: a row
+  repeating the run's stop could disagree with it, and leaving the column as it is
+  makes a forged agent reply *a row the database refuses* rather than a bug for this
+  code to prevent. One view (`agent.agent_thread`) hands each message back with its
+  run, so the two are never lined up in JavaScript.
+  **FOUR STATES, AND QUEUED IS TOLD FROM WORKING BY THE STEP.** `agent.runs.status` is
+  projected off the log and the accepting transaction writes the `started` entry, so a
+  run reads `running` from the instant it is queued — measured on a real PostgreSQL,
+  after an expectation written the other way round. `runView` is the one reader;
+  `null` is a real answer for a message that started nothing (every imported
+  conversation), and a failure carries the engine's own reason rather than "something
+  went wrong".
+  **THE SIMULATION IS LABELLED TWICE AND BOTH ARE READ FROM THE RUN'S OWN MODEL.** The
+  answer's TEXT carries `[simulated]` from the engine and the chrome carries a chip;
+  the redundancy is deliberate, because the chrome's label is gone the moment somebody
+  copies an answer into an email. Neither is a constant and neither is sniffed out of
+  the text — both come from `agent.runs.model`, so connecting a real provider stops
+  the label with no change to any reader.
+  **THE SCREEN WATCHES ON A TIMER AND THE BINDING IS ASKED WHEN IT FIRES.**
+  `AGENT_POLL_MS` is 2,500; the poll is armed only by live work in a SUCCESSFUL read
+  (a failed read arming one would hammer a server that is down at that interval for as
+  long as the screen is open), and it re-asks the conversation AND the account when the
+  timer fires, because between arming and firing somebody can open another
+  conversation or sign in as somebody else. **A reload mid-run needs no recovery**:
+  the browser holds no state about a run, so a reload is an ordinary read of a
+  conversation that happens to have work in it.
+  **⚠ A GUARD THAT ARMS A REAL TIMER MUST STOP IT IN A HOOK, NOT AT THE END OF ITS
+  BODY — and this cost a whole mutation sweep.** A running conversation arms a 2.5
+  second timer that RE-ARMS after each read, so a case whose assertion FAILS never
+  reaches its own cleanup and the process never exits: `node --test` sat for eleven
+  minutes on a mutant it had correctly killed, and the runner read a HANG instead of a
+  kill. `t.after()` runs on the failing path too. **`--test-force-exit` IS NOT THE
+  FIX**: measured, it reported **31 tests where the file has 36**, so it truncates the
+  run — a flag that hides failures in exchange for exiting.
+  **AND KILLING THE SWEEP BY PID ORPHANS ITS CHILD**, which this repository already
+  records: a `node --test` from the first run was still holding a test file 23 minutes
+  after its parent was gone. `ps --forest` is what shows it.
+  **Guards**: `test/agent-send.test.mjs` (**22**, new) drives the route and the store;
+  `test/agent-binding.test.mjs` **27 → 36** drives the send, the double press, the
+  poll's binding, a reload mid-run, a failed run and what each state DRAWS;
+  `agent-api` 42, with three of its censuses re-anchored off hardcoded counts onto
+  `AGENT_ROUTES` itself. **Suite 6,590** — 6,560 + 22 + 8, and the arithmetic closes
+  exactly.
+  **Sweep: 39 mutants, 39 killed, 0 survived, 0 never applied, 2 comment-only controls
+  survived** (two runs, split by the file each mutant touches so each ran only against
+  the tests that can SEE it — a narrow list can only produce a false SURVIVOR, never a
+  false kill).** Two survived the first pass and both were guard gaps in `agentRunHtml`,
+  which nothing drove directly: a chrome label written unconditionally (which would
+  keep saying "simulated" over a real provider's answer) and a message with no run
+  drawn as a failure.
+  **NOT PROVEN LIVE.** The migration has never been applied to any project and nothing
+  here has run against the deployed Worker.
+
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

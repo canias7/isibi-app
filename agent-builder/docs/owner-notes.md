@@ -1193,3 +1193,46 @@ that file at all. It does not break the deploy, because that step prints and car
 design. But the message is always wrong now, and it tells whoever reads it not to do
 something that is already done. I have not touched it; say the word and I will fix it the
 same way I fixed mine.
+
+
+---
+
+## The engine runs a customer's own agent now (2026-09-16)
+
+The piece that was missing: an agent somebody wrote in the browser had nowhere to go.
+Now a message to one saves AND starts a run, the existing queue and runner execute it
+exactly as they execute anything else, and the answer comes back into the conversation.
+
+**The division is the whole design, and it is worth stating plainly: the customer owns
+the INSTRUCTIONS and the conversation, and this codebase owns everything else.** The
+tools, the limits and the model are code in `agents.mjs`. A request can name an agent;
+it can never describe one. What the customer writes is data, and a run carries a COPY
+of it in its own first journal entry — so editing an agent changes the next run and
+never one already accepted.
+
+**One transaction, and the app cannot decide anything in it.** The function takes six
+arguments and not one of them is structured — no entry, no model, no bound, no history.
+The first version took the whole journal entry as an argument and merged the important
+parts over it, which still left a caller choosing the bounds. There is nothing left to
+choose now.
+
+**A guard caught a real defect before it shipped, and it is the kind that would have
+looked like a feature working.** I first gave the customer-facing agent `toolCalls: 0`,
+meaning "and no budget to call one either". `toolCalls` is a run TOTAL, and the loop
+stops a run whose total is spent — at the start that is `0 >= 0`, so every
+customer-authored run would have stopped before its first model call, reported as a
+limit doing its job. The empty tool list is the real wall; the bound is now one, and it
+is written down that it is not a second wall.
+
+**What I checked**: 256 unit tests, 344 database checks on a real PostgreSQL 16, 65
+deliberate breakages in the code all caught, and the whole flow end to end — the site
+builder's route, this database, this queue, this runner — **58 checks, nothing failed.**
+
+**What is still simulated**: the model, and only the model. The stand-in answers and
+labels itself as one, in its own text and in the screen's chrome, and both labels read
+which model really ran so a real provider stops them automatically.
+
+**What is not done**: nothing is applied, deployed or merged. And when the site builder
+accepts a run, nothing rings this Worker's queue — the two are separate Workers — so the
+sweeper picks it up on its own minute-by-minute cron. That is correct and slow; a
+doorbell is the obvious next piece.

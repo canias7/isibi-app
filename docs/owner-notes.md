@@ -9630,3 +9630,72 @@ number.
 **So the wire probe is ready to fire whenever you want it**, and it costs
 nothing. Job probe → Run workflow → `probe` = **wire**, everything else as it
 comes up, branch `main`, `jobId` empty.
+
+
+---
+
+## Your agents actually run now (2026-09-16)
+
+You write an agent, you send it a message, and something happens: the message is
+saved, a real job is queued on the engine, the engine runs it, and the reply appears
+in the conversation. Progress while it works, the answer when it finishes, and a
+plain sentence naming the reason if it fails.
+
+**The reply is a stand-in and it says so twice.** No model is connected yet, so what
+comes back is a placeholder that quotes your instructions back at you and says, in its
+own words, that it is a stand-in test result and not an answer from an AI. There is
+also a small SIMULATED chip beside every one. I did both on purpose: the chip is gone
+the moment you copy an answer into an email, and the text travels with it. **Neither
+label is hardcoded** — both read which model really answered, so the day a real model
+is connected the labels stop on their own, with nothing to remember to change.
+
+**Pressing send twice gives you one message, not two.** The browser stamps each PRESS
+with its own key and the database refuses a second message under the same key, so a
+double click, or pressing again after the connection dropped, lands once. If a send
+fails, your words stay in the box AND the key is kept, so pressing again is the same
+press said twice rather than a new one.
+
+**Editing an agent does not rewrite what it already said.** Each run keeps a copy of
+the instructions it was started with, so a reply you got yesterday is still the reply
+to yesterday's instructions. The next message uses the new ones.
+
+**Nothing the browser sends can widen what an agent is allowed to do.** The tools, the
+limits and the model live in code, in the engine. The only things that cross from your
+browser are the words you typed and the ids — I checked that against the database's own
+catalog rather than by reading the code.
+
+**A reload mid-run is fine.** The screen remembers nothing about a running job; it just
+reads the conversation, and if something is still going it keeps watching.
+
+### What I checked, and where it stops
+
+The whole flow runs end to end on a real PostgreSQL here — your route, the database,
+the queue, the engine, the reply read back — **58 checks, nothing failed.** On top of
+that: 344 database checks, 6,592 tests on the site builder, 256 on the engine, and a
+mutation sweep of 65 deliberate breakages in the code, all caught.
+
+**One check is unfinished and I would rather say so than round it up.** There is a
+second sweep that breaks the DATABASE ninety ways and requires the checks to notice. It
+got 26 of the way through — 26 breakages, 26 caught — and I stopped it to commit, because
+running it leaves the files half-broken while it works and committing mid-run would
+commit a break. The migrations are proved back to normal. **What is missing is not just
+the other 64**: that sweep's own honesty checks sit at the end, so a quarter-run has
+nothing proving it would have let a harmless change through, and the 22 breakages aimed
+at THIS change are among the ones it never reached. It is one command and about an hour
+whenever you want it.
+
+**That run found a real bug nothing else could see.** The screen asks the database
+which model answered, and the database view I wrote did not have that column — so every
+answer would have quietly come back unlabelled, with every single test still green,
+because the test fixture answered a column the real database did not have. It is fixed,
+and there is now a check that names every column the screen asks for.
+
+**Nothing is live.** The migration has never been applied to any database, nothing is
+deployed, and no real model has been called. Everything above happened on a throwaway
+database on this machine. Say the word and I will put it live.
+
+**One thing worth knowing about the speed.** When a message starts a job, nothing
+rings the engine's doorbell yet — the two live in separate Workers. The engine sweeps
+for waiting work once a minute, so the first reply can take up to a minute to start.
+Nothing is lost by it; it is just slower than it needs to be, and the doorbell is a
+small, separate piece of work whenever you want it.

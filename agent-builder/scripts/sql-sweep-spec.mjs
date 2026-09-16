@@ -75,6 +75,10 @@ const mBeat = mFn("beat_run");
 const mRelease = mFn("release_run");
 const mAccept = mFn("accept_run");
 const mAppend = mFn("append_entry");
+const mSend = mFn("send_to_agent");
+const mAuthored = mFn("authored_run");
+const mThread = (label, from, to, control = false) =>
+  ({ label, files: [lastDefining("create or replace view agent.agent_thread")], from, to, control });
 
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
@@ -324,6 +328,71 @@ const spec = [
     "  or (claimed_by is not null and claimed_at is not null and lease_expires_at is not null and claim_token is not null)",
     "  or (claimed_by is not null and claimed_at is not null and lease_expires_at is not null)"),
   mAppend("SQL/fence/CONTROL (comment only)", "-- FENCING THE JOURNAL:", "-- FENCING THE JOURNAL (control):", true),
+
+  // ── SENDING A MESSAGE STARTS A RUN ────────────────────────────────────────
+  //
+  // The guarantees the notes make loudest about it: one press is one message and one
+  // run, the run's shape is the server's, the snapshot is read in the transaction, and
+  // the answer is read from the run because a message row cannot hold one.
+  mSend("SQL/send: THE KEY IS NOT REQUIRED, so an unkeyed send inserts every time",
+    "  if v_key is null then\n    raise exception 'send_to_agent: a send needs its own key, or a retry cannot be told from a new message';\n  end if;",
+    "  -- an unkeyed send is fine"),
+  mSend("SQL/send: the duplicate is not absorbed, so a second press makes a second message",
+    "  on conflict (agent_id, send_key) where send_key is not null\n  do nothing",
+    "  on conflict do nothing"),
+  mSend("SQL/send: AN ABSORBED PRESS STARTS A SECOND RUN ANYWAY",
+    "    return jsonb_build_object(\n      'ok', true, 'repeat', true,",
+    "    v_msg.id := v_msg.id; return jsonb_build_object(\n      'ok', true, 'repeat', false,"),
+  mSend("SQL/send: the ownership check is dropped, so any tenant may write to any agent",
+    "  select * into v_agent from agent.agents\n   where id = p_agent_id and tenant_id = p_tenant;",
+    "  select * into v_agent from agent.agents\n   where id = p_agent_id;"),
+  mSend("SQL/send: a missing agent is a raise rather than a named answer",
+    "    return jsonb_build_object('ok', false, 'error', 'no-agent');",
+    "    raise exception 'send_to_agent: no such agent';"),
+  mSend("SQL/send: the instructions come from nowhere, so a run is started without them",
+    "    'instructions', v_agent.instructions,", "    'instructions', null,"),
+  mSend("SQL/send: THE HISTORY IS OLDEST-FIRST, so a long conversation is pinned to its first screen",
+    "       order by m.seq desc\n       limit agent.history_turns()", "       order by m.seq asc\n       limit agent.history_turns()"),
+  mSend("SQL/send: the new message is given to the run as history as well as a prompt",
+    "         and m.id <> v_msg.id", "         and true"),
+  mSend("SQL/send: a turn whose run never answered is dropped along with its question",
+    "        left join agent.runs r on r.id = m.run_id", "        join agent.runs r on r.id = m.run_id"),
+  mSend("SQL/send: an unfinished run's text is handed over as though it were an answer",
+    "             case when r.stop ->> 'reason' = 'answered' then r.stop ->> 'text' end as answer",
+    "             r.stop ->> 'text' as answer"),
+  mSend("SQL/send: the message is not linked to the run it started",
+    "  update agent.agent_messages set run_id = p_run_id where id = v_msg.id;", "  -- no link"),
+  mSend("SQL/send: the message goes in AFTER the run, so a second press leaves an orphan the queue runs",
+    "  v_accept := agent.accept_run(p_run_id, p_tenant, v_entry, 'start');",
+    "  v_accept := agent.accept_run(p_run_id, p_tenant, v_entry, 'start');\n  perform 1;"),
+  mSend("SQL/send: it is granted to signed-in customers, who could then start work as anybody",
+    "grant execute on function agent.send_to_agent(text, uuid, uuid, text, text, uuid) to service_role;",
+    "grant execute on function agent.send_to_agent(text, uuid, uuid, text, text, uuid) to service_role, authenticated;"),
+  mSend("SQL/send: the answer echoes what was sent rather than what is stored",
+    "      'body', v_msg.body,\n      'seq', v_msg.seq", "      'body', p_body,\n      'seq', v_msg.seq"),
+  mAuthored("SQL/send: the run's bounds are widened",
+    "      'steps', 2,\n      'toolCalls', 1,", "      'steps', 16,\n      'toolCalls', 64,"),
+  mAuthored("SQL/send: THE TOOL BUDGET IS ZERO, which stops every authored run before its first call",
+    "      'toolCalls', 1,\n      'parallelTools', 8,", "      'toolCalls', 0,\n      'parallelTools', 8,"),
+  mThread("SQL/thread: the view is NOT security_invoker, so it is a hole through RLS on three tables",
+    "create or replace view agent.agent_thread\n  with (security_invoker = true) as",
+    "create or replace view agent.agent_thread as"),
+  mThread("SQL/thread: a message with no run is dropped from the conversation",
+    "from agent.agent_messages m\nleft join agent.runs r on r.id = m.run_id",
+    "from agent.agent_messages m\njoin agent.runs r on r.id = m.run_id"),
+  mThread("SQL/thread: the progress is a count of entries rather than the log's highest step",
+    "  select max(e.step) as step from agent.run_entries e where e.run_id = m.run_id",
+    "  select count(*)::int as step from agent.run_entries e where e.run_id = m.run_id"),
+  mThread("SQL/thread: anon can read the conversation",
+    "revoke all on agent.agent_thread from anon;", "grant select on agent.agent_thread to anon;"),
+  mThread("SQL/link: a retained run takes the customer's writing with it",
+    "alter table agent.agent_messages add column if not exists run_id uuid\n  references agent.runs (id) on delete set null;",
+    "alter table agent.agent_messages add column if not exists run_id uuid\n  references agent.runs (id) on delete cascade;"),
+  mThread("SQL/link: the send key is unique per TENANT rather than per conversation",
+    "create unique index if not exists messages_one_send_per_agent\n  on agent.agent_messages (agent_id, send_key)\n  where send_key is not null;",
+    "create unique index if not exists messages_one_send_per_agent\n  on agent.agent_messages (send_key)\n  where send_key is not null;"),
+  mSend("SQL/send/CONTROL (comment only)", "-- SENDING A MESSAGE TO AN AUTHORED AGENT STARTS A RUN",
+    "-- Sending a message to an authored agent starts a run", true),
 
   // ── THE CONTROL: comment-only, and it MUST survive ────────────────────────
   m("SQL/CONTROL (comment only)", "-- ============================================================================\n-- AGENT RUNS:",

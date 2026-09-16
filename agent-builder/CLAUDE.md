@@ -102,6 +102,21 @@ same colour.
   here can make it red — and nothing here is covered by it either.
 - **Nothing here deploys.** The deploy fires only on a push to `main`, and no
   Dockerfile copies this directory, so a push here rolls no container.
+- **⚠ ONE FILE HERE READS THE SITE BUILDER'S CODE, and it is declared rather than
+  discovered.** `scripts/verify-agent-chat.mjs` imports the ROOT's `agent-store.mjs`,
+  because the thing it verifies is the two halves TOGETHER — the site builder's route
+  driving this engine through one database. It is the only such file, it is a script
+  rather than a test, and **this directory's own suite still imports nothing outside
+  it** — `npm test` here is independent of the other tree, checked rather than assumed.
+  The cost is real and small: move or rename `agent-store.mjs` and `npm run
+  verify:chat` breaks, loudly, on its import.
+  **THE OTHER DIRECTION WAS ALREADY CROSSED AND IS NOT NEW**, and saying so corrects a
+  sentence this entry first carried: `test/agent-api.test.mjs` in the ROOT suite READS
+  migration files out of `agent-builder/supabase/migrations/`, to census its caps
+  against the columns' own check constraints. So a change to those files can make the
+  site builder's `unit tests` workflow red — which is the coupling working (that census
+  exists because a cap in one place and a constraint in the other is two copies of one
+  number), not a leak to be closed.
 - **A workflow added here must not fire on a push to `main`** and must have some
   trigger; a `workflow_dispatch`-only workflow is fine. A census elsewhere in the
   tree enforces that and will fail otherwise.
@@ -2006,6 +2021,251 @@ answered. The only thing this section still names correctly is the model provide
   the runner's own `CONTROL WAS KILLED` branch was armed. Run with
   `--test-timeout=20000`, because the "step counted after the call" mutant HANGS
   rather than failing.
+
+## A customer's own agent runs on the engine (2026-09-16)
+
+`supabase/migrations/20260916000000_agent_send_starts_a_run.sql` (**NOT APPLIED** —
+the name is a placeholder to be replaced with the remote version on the day it is),
+`src/define.mjs`'s `withInstructions`, the snapshot in `src/journal.mjs`,
+`src/agents.mjs`'s `AUTHORED`, `src/model-standin.mjs`'s `simulatedAnswer`, and the
+site builder's `/api/agent/send`.
+
+**THE DIVISION IS THE WHOLE THING: the customer owns the INSTRUCTIONS and the
+conversation, and this directory owns everything else.** A person writes a name and an
+instruction in a browser; they are DATA, stored in `agent.agents`. The tools, the
+bounds and the model are CODE, in `agents.mjs`, and cannot be reached from a request at
+all — which keeps "an agent is NAMED, never described" true while still letting the
+described half be somebody's own writing.
+
+### One transaction, and the app cannot decide anything in it
+
+`agent.send_to_agent(p_tenant, p_agent_id, p_message_id, p_body, p_send_key, p_run_id)`
+— **six arguments, not one of them structured**, asserted against the catalog (`jsonb`
+is the only type an entry, a bound list or a history could arrive as, and no argument
+is one). It verifies the agent is this tenant's, inserts the message, builds the run's
+first entry, calls `agent.accept_run`, and links the two.
+
+- **THE FIRST CUT TOOK THE WHOLE ENTRY AS AN ARGUMENT** and merged the snapshot over
+  it. That still let a caller decide the model and the bounds, with only the app's own
+  care between a bug and a run with sixteen steps. There is nothing to decide now.
+- **THE ORDER IS THE RETRY-SAFETY ARGUMENT.** The MESSAGE goes in first, because its
+  key is the gate: a repeat must be absorbed BEFORE any run exists. Minting the run
+  first would leave a second press having created a run and a work row no message
+  points at — and the queue would execute it, which is the duplicate this prevents
+  wearing an orphan's clothes.
+- **IT CALLS `accept_run` RATHER THAN REPEATING ITS THREE INSERTS.** A second copy
+  would be a second definition of "accepted", and the copy that drifts is the one that
+  leaves a run with a log and nothing to run it.
+- **THE SNAPSHOT IS READ HERE, NOT PASSED IN** — the instructions and the history come
+  from rows read in THIS transaction, so a later edit of the agent cannot reach a run
+  that has already been accepted.
+- **A SEND WITH NO KEY IS REFUSED, NOT ACCEPTED UNKEYED.** The partial unique index
+  covers non-null keys only, so an unkeyed send would insert every time: retry safety
+  failing OPEN, which is the direction that duplicates a conversation.
+- **BOTH ANSWERS CARRY THE STORED BODY**, never the one the call sent. They differ
+  exactly when a retry carries different text under the same key — a client bug — and
+  the honest answer is what the conversation really holds.
+
+### The message role constraint is inspected and DELIBERATELY UNCHANGED
+
+`agent_messages.role` admits `'user'` and nothing else. Widening it to
+`('user','agent')` and writing a row when a run finishes would be wrong twice: it would
+be **a second copy of a fact the journal already holds** (the run's stop IS the result,
+and a row repeating it can disagree with it), and it would make **a forged answer a row
+that EXISTS** — no client role has INSERT here, but the SERVER does, and the only thing
+stopping the server writing `role: 'agent'` from a request body would be our own care.
+Left at `'user'`, a forged agent reply is not a bug to be prevented; it is a row the
+database refuses, whatever any client or route asks for. So an answer is DISPLAYED FROM
+THE RUN and the browser has nowhere to put one.
+
+### `agent.agent_thread`, and what it can and cannot say
+
+One view, `security_invoker = true`, spanning three relations: the message, its run, and
+the log (for the step). **Without that option it would be a hole through the RLS on all
+three**; with it, a pointer at a run that is not the reader's answers NULL rather than a
+status — driven, as the owner and then as the tenant.
+
+**A VIEW RATHER THAN A POSTGREST EMBED, deliberately.** `agent_messages` has a foreign
+key to `agent.runs` now, so `select=…,runs(status,stop)` would work with no migration —
+and could only ever be asserted from documentation, because nothing here can run
+PostgREST. A view is plain SQL and the schema check drives it on a real PostgreSQL.
+
+**⚠ AND THE STEP IS WHAT SEPARATES QUEUED FROM WORKING, not the status — measured,
+after an expectation written the other way round.** `agent.runs.status` is projected off
+the LOG and `accept_run` writes the `started` entry in the accepting transaction, so a
+run reads **`running` from the instant it is queued**; `new` belongs to a run row with
+no log at all. `agent.run_work` would say it directly and is deliberately NOT joined:
+`authenticated` holds nothing on that table, so under `security_invoker` it would answer
+NULL for every customer and read as a run that never started.
+
+### `withInstructions`, and the two ways it can be wrong
+
+`withInstructions(agent, instructions)` — the only thing a customer may replace.
+
+- **IT TAKES A STRING AND AN AGENT AND NOTHING ELSE**, so there is nowhere for a tool
+  or a limit to arrive. Driven with instructions that ask for both.
+- **THE RUNNER READS IT FROM THE LOG ON EVERY DELIVERY**, which is what makes the
+  snapshot a snapshot: a long run is several invocations by design, and taking the
+  instructions from anywhere else would mean a resumed run continuing under whatever the
+  agent says NOW.
+- **A RUN WITH NO SNAPSHOT STILL RUNS**, on the registry's own text. Every run accepted
+  before this is that shape.
+
+### ⚠ `toolCalls: 0` IS A BRICK WALL, NOT A SECOND WALL — found by a guard, before it shipped
+
+`AUTHORED` was first written with `tools: []` AND `toolCalls: 0`, the second "saying the
+same thing as a bound". `toolCalls` is a RUN TOTAL and `stoppedBy` asks `used >= limit`:
+at the very start that is `0 >= 0`, so the run stops with
+`{reason: "spent", bound: "toolCalls", limit: 0, used: 0}` **before its first model
+call**. Every customer-authored agent would have answered nothing at all, and the
+failure would have read as a limit doing its job.
+
+**So the bound is ONE, and it is not a second wall — it is the smallest number that
+lets the run start.** The tool list is the only wall and it is sufficient: with
+`tools: []` there is nothing to dispatch TO, so the bound could be sixty-four and no
+tool would run. *Saying a thing twice is not available when one of the two ways is a
+brick.* Asserted as the MEASUREMENT (`stoppedBy` over the agent's own bounds answers
+`null`, and over the same bounds with `toolCalls: 0` answers the stop) rather than as
+the number.
+
+### The stand-in labels itself, and the label is about the RUN
+
+`simulatedAnswer({system, messages})` — `[simulated]`, one sentence saying no model is
+connected, then the instructions quoted back (bounded at `SIMULATED_QUOTE`, 120), the
+last thing said, and a COUNT of the earlier turns.
+
+- **IT QUOTES WHAT ARRIVED ON PURPOSE**, so a run handed the wrong snapshot, or none,
+  produces visibly different text rather than a plausible answer nobody can check. It
+  doubles as the verification's own instrument.
+- **THE LABEL IS IN THE TEXT AS WELL AS IN THE CHROME**, and the redundancy is
+  declared: the chrome's label is gone the moment somebody copies an answer into an
+  email, and this one travels.
+- **AND WHETHER AN ANSWER IS SIMULATED IS READ FROM THE RUN'S OWN MODEL**
+  (`agent.runs.model`, projected off its log), never from a constant and never sniffed
+  out of the text. Connect a real provider and the runs that used it are not labelled,
+  with no change to any reader — which is what "keep model selection replaceable"
+  amounts to in practice.
+
+### The census that keeps two declarations in step
+
+`agent.authored_run()` says what model and bounds an authored run executes under, and
+`AUTHORED` says it too. There is no arrangement in which only one holds it: the registry
+is code loaded at import and cannot be read from SQL, and the transaction that must be
+atomic is in the database. So it is a copy, **declared as one**, and
+`test/authored-run.test.mjs` compares them BOTH WAYS — the name, the model, and every
+bound, with the SQL read out of the migration file.
+
+- **IT WRITES ALL EIGHT BOUNDS, NOT THE FOUR THIS AGENT OVERRIDES, and the census found
+  that.** The API path writes `limitsToJson(agent.limits)` and `defineAgent` has already
+  planned them, so the entry there carries the whole set. Writing only the overrides
+  would leave the other four to be filled in from whatever the DEFAULTS are on the day a
+  run is REPLAYED — identical today, different the day a default moves.
+- **AND THE ENTRY SHAPES ARE CENSUSED TOO.** `startedEntry` gained `authoredAgent` and
+  `message` for the same reason: the SQL adds them AFTER building the entry, so without
+  them the JS producer could not express what the SQL path writes — two producers of one
+  shape, which is the thing that constructor exists to prevent.
+- **THE KEY READER IS DEPTH-AWARE**, because in `jsonb_build_object('kind', 'started',
+  …)` the keys are at EVEN positions and a `/'(\w+)',/` sweep reads `'started'` as a
+  field name. It did, on the first try, and reported a correct migration as broken.
+- **PROVED ALIVE ON SIX REAL BREAKAGES** — the tool budget widened, the model changed,
+  the step bound raised, a bound deleted, a snapshot field renamed, the agent name
+  changed. All six killed, the migration restored, and the hand-rolled checker REFUSES
+  to run when the source did not change.
+
+### Verified end to end, locally, against a real PostgreSQL
+
+`npm run verify:chat` (`scripts/verify-agent-chat.mjs`) — **58 checks, 0 failed.** It
+drives the site builder's real route (`handleAgentApi` + `makeAgentStore` over
+PostgREST), a throwaway PostgreSQL with these migrations applied, and the real engine
+(`makeRunner`, `makeRunStore`, `makeWork`, `runAgent`, the real journal and registry,
+claiming through `claim_run` and writing every entry through the fence).
+
+**WHAT IS SIMULATED, in one place: the HTTP translation** (PostgREST is
+`scripts/local-rest.mjs`, because writing to the hosted project needs a service
+credential) **and the MODEL** (`makeStandIn`). Nothing else — not the ownership check,
+the retry key, the queue, the lease, the journal, the snapshot, the bounds, or the
+reading the screen does.
+
+Twelve sections: the send committing everything before it answers; the snapshot being
+the agent's with the model and bounds the server's; the conversation reading queued;
+the runner claiming, running and releasing; the answer read back labelled and quoting
+the instructions; a double send absorbed to one message and one run; the second run
+given the first turn WITH its answer; an edit afterwards leaving an accepted run
+unchanged and reaching the next one; a failed run named `call-failed`; a reload
+mid-run needing no recovery; the account next door refused NOT FOUND with nothing
+written; and a finished run not run again.
+
+**⚠ IT FOUND A REAL WIRING GAP THAT EVERY UNIT GUARD MISSED.** The app reads
+`run_model` to decide whether an answer is simulated, and the view did not have that
+column — so `simulated` would have been false for every answer, with the whole root
+suite green, because the FIXTURE answered a column the database did not have. That is
+the recorded "a fixture MORE capable than reality" exactly, and the only place it is
+visible is a real database. The view carries it now and the schema check censuses every
+column the store asks for, by name.
+
+### Measured
+
+- **Unit suite: 256 tests, 0 failures** (254 after `test/authored-run.test.mjs`'s 19
+  landed, plus the two census cases). 235 before this round.
+- **Schema check: 344 checks, 0 failed** against a real PostgreSQL 16.13 — 262 before
+  this round, so **82 are this change's**: the send and its refusals, the snapshot, the
+  duplicate absorbed, the cross-account refusal, the history projection, the edit
+  afterwards, the role constraint still refusing `'agent'`, the privileges, retention
+  leaving the writing, the thread view's four states, its `security_invoker` across
+  three relations, the foreign-run NULL, and the column census.
+- **End to end: 58 checks, 0 failed** (`npm run verify:chat`).
+- **The site builder's suite: 6,592 tests, 0 failures, 2 skipped** — its own number,
+  run from its own directory, and the one place a cross-product guard can fire.
+- **Code sweep: 65 mutants, 65 killed, 0 survived, 0 never applied, 4 comment-only
+  controls survived** — 26 here (`withInstructions`, the snapshot in the journal, the
+  runner's per-delivery read, the stand-in's label and the registry entry) and 39 in the
+  site builder. **Three survived a first pass here and every one was INERT BY
+  CONSTRUCTION, measured rather than hunted, and REPLACED by an observable mutant of the
+  same line**: an unused default parameter (a default does not count toward `.length`),
+  `tools: agent.tools` (`defineAgent` already freezes its list, so the two are identical
+  for any registered agent — what separates them is a hand-built object whose array is
+  mutable, which is now driven), and a runner line that read
+  `open.state.instructions || registered.instructions`, which is the same agent for
+  every input. **Two more were real guard gaps**: a refusal from the WRONG GATE
+  (`{}` still threw a TypeError, from the spread rather than from the check — so
+  `assert.throws(…, TypeError)` passed over a function that had stopped checking), and
+  a third argument that can only reach `name`, `model` and `kind`, because the spread
+  sits before the explicit fields. **`model` is the one worth asserting** and was the
+  survivor that made it get asserted.
+- **⚠ SQL SWEEP: NOT COMPLETE, and the number is deliberately not stamped.** The spec
+  holds **90 mutants (4 control)**, 22 of them this change's — the send's key, the
+  absorbed duplicate, the ownership check, the snapshot, the history's order and its
+  left join, the link, the grant, the view's `security_invoker`, the progress column and
+  the `on delete set null`. The run was stopped at **26 of 90 — 26 killed, 0
+  survived** — to commit, and **every migration is proved restored against git**
+  (`git diff` on that directory is empty) plus the spec generator's own anchor census,
+  which is the check that catches a tree a killed sweep corrupted.
+  **⚠ AND NOT ONE OF THE FOUR CONTROLS HAD RUN, which is why this is a partial READING
+  rather than a partial result.** They sit at the END of the spec, so a run stopped a
+  quarter of the way through has no check on its own honesty at all — *a sweep whose
+  control never applied is a sweep with no control*, and one whose control has not been
+  reached yet is in exactly the same position. The 26 kills are real; what is missing is
+  the evidence that a comment-only change would have SURVIVED, without which "26 killed"
+  cannot be told from a harness that fails on everything. **And the 22 mutants this
+  change added are NOT among those 26**: the spec runs in file order and the send's
+  migration is the newest, so its own guarantees are the ones still unswept.
+  *A count nobody re-measured is a claim ahead of its evidence*, so what is recorded is
+  the partial run and the reason, not a total. **`npm run sweep:sql` from a green tree
+  is the one command that finishes it, and it wants about ninety minutes.**
+
+### Not proven live, and the list is short
+
+**The migration has never been applied to any project.** Nothing here has run against
+the hosted database, the deployed engine Worker or the deployed site-builder Worker. No
+real model has been called and none can be: the registry gives this agent the stand-in
+and no tools.
+
+**And a queued run waits for the cron.** Nothing rings the engine's queue when the site
+builder accepts a run — the two are separate Workers and the app holds no binding to the
+engine's queue — so the sweeper picks it up on its own minute-by-minute tick.
+`sweep_run_work` offers a row with `claimed_by is null` **with no grace at all**, so the
+bound is one cron tick and not a lease. That is correct and slow; a doorbell is the
+obvious next step and is not in this change.
 
 ## Where things stand
 

@@ -167,6 +167,26 @@ export function cleanImportKey(v) {
 }
 
 /**
+ * THE BROWSER'S OWN KEY FOR ONE PRESS, or `null`.
+ *
+ * A double click and a lost response are the same event from the browser, and both
+ * must produce ONE message and ONE run. The key is what tells a retry from a new
+ * message, and `agent.agent_messages` holds `(agent_id, send_key)` unique — so the
+ * absorbing is the index's, never a read-then-insert.
+ *
+ * **DELIBERATELY THE SAME CHARSET AS `cleanImportKey` AND NOT `cleanId`.** Both are
+ * ids a BROWSER minted, and a browser without `crypto.randomUUID` falls back to
+ * `String(Date.now()) + Math.random().toString(16)` — which is not a uuid and is a
+ * perfectly good key. Refusing it would turn retry safety off for exactly the
+ * browsers least likely to have a reliable connection. It never reaches a URL (it
+ * rides in the RPC's JSON body into a `text` column), so what this has to
+ * guarantee is size and sanity rather than injection.
+ */
+export function cleanSendKey(v) {
+  return cleanImportKey(v);
+}
+
+/**
  * A message's own time, as an ISO string, or `null` for "use now()".
  *
  * ONLY THE IMPORT SENDS ONE, and it is display metadata: `seq` orders a thread,
@@ -213,6 +233,75 @@ export function agentRow(r) {
 }
 
 /**
+ * THE ONE MODEL THAT IS NOT A MODEL.
+ *
+ * `agent.runs.model` records what a run really executed under, projected off its
+ * own log — so whether an answer is simulated is a fact about THAT RUN rather than
+ * a fact about the product today. That is what makes the label replaceable: connect
+ * a real provider and the runs that used it are not labelled, with no change here.
+ *
+ * It is a copy of the engine's stand-in model name, and
+ * `agent-builder/test/authored-run.test.mjs` censuses it against the registry —
+ * so the day `AUTHORED`'s model changes, that suite goes red and whoever changes it
+ * has to decide what the label should do. A label derived from a CONSTANT would
+ * quietly keep saying "simulated" over a real answer, and one sniffed out of the
+ * text would stop the day the text is reworded.
+ */
+export const STANDIN_MODEL = "stand-in";
+
+/**
+ * The four states a conversation can show, and they are a PARTITION.
+ *
+ * `queued` — accepted, nothing has happened yet. `working` — it has taken at least
+ * one step. `answered` — it stopped with something to show. `failed` — it stopped
+ * without. Every run is exactly one of them, so the screen needs no fifth branch
+ * and no "unknown" that reads as a blank bubble.
+ */
+export const RUN_STATES = Object.freeze(["queued", "working", "answered", "failed"]);
+
+/**
+ * What a message's run looks like on the wire, or `null` if it started none.
+ *
+ * **`null` IS A REAL ANSWER AND IS NOT A FAILURE.** Every imported conversation is
+ * that shape, and so is a message whose run was retained away — the run's record is
+ * gone, the writing is not. A screen that drew "failed" there would tell somebody
+ * their message broke when nothing did.
+ *
+ * ⚠ **QUEUED AND WORKING ARE TOLD APART BY THE STEP, NOT BY THE STATUS.**
+ * `agent.runs.status` is projected off the log and the accepting transaction writes
+ * the `started` entry, so a run reads `running` from the instant it is queued —
+ * measured on a real PostgreSQL, after an expectation written the other way round.
+ * The queue's own row would say it directly and is deliberately unreadable from
+ * here: `authenticated` holds nothing on `agent.run_work`, so a view reaching it
+ * would answer NULL for every customer and read as a run that never started.
+ */
+export function runView(r) {
+  const id = cleanId(r && r.run_id);
+  if (!id) return null;
+  const stop = r && r.run_stop && typeof r.run_stop === "object" && !Array.isArray(r.run_stop) ? r.run_stop : null;
+  const step = Number.isInteger(r && r.run_step) && r.run_step > 0 ? r.run_step : 0;
+  // The model that really answered, so the label is about this run.
+  const simulated = (r && r.run_model) === STANDIN_MODEL;
+  const at = ms(r && r.run_stopped_at);
+  if (r.run_status !== "stopped") {
+    return { id, state: step > 0 ? "working" : "queued", step, simulated, text: "", why: "", at: 0 };
+  }
+  if (stop && stop.reason === "answered") {
+    // The text is whatever the run produced. It is NOT trimmed, coerced or
+    // defaulted to a sentence of ours: an answered run with an empty answer is a
+    // thing that happened, and inventing words for it would be the dead control
+    // that ANSWERS, wrongly.
+    return { id, state: "answered", step, simulated, text: typeof stop.text === "string" ? stop.text : "", why: "", at };
+  }
+  // STOPPED WITHOUT AN ANSWER. `why` is the engine's own reason — `spent`,
+  // `call-failed`, `unmeasured` — and `"unknown"` where there is no stop to read,
+  // which is a cannot-tell said out loud rather than an empty string that reads
+  // like a reason nobody wrote down.
+  const why = stop && typeof stop.reason === "string" && stop.reason ? stop.reason : "unknown";
+  return { id, state: "failed", step, simulated, text: "", why, at };
+}
+
+/**
  * One message, in the shape the thread already draws.
  *
  * `text`, not `body` — the screen reads `m.text`, and renaming a field on the
@@ -222,6 +311,17 @@ export function agentRow(r) {
  */
 export function messageRow(r) {
   return { id: String(r && r.id || ""), text: String(r && r.body || ""), at: ms(r && r.created_at) };
+}
+
+/**
+ * One message AND the state of the run it started.
+ *
+ * `messageRow` plus `run`, so the screen has one row per message and never has to
+ * line two lists up — which is the second place a message could end up wearing
+ * another run's outcome.
+ */
+export function threadRow(r) {
+  return { ...messageRow(r), run: runView(r) };
 }
 
 // ── the store ───────────────────────────────────────────────────────────────
@@ -370,11 +470,17 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * to its oldest screen for ever.
      */
     async messages(agentId) {
+      // OFF `agent.agent_thread`, WHICH IS A VIEW AND NOT AN EMBED. The messages
+      // table has a foreign key to `agent.runs` now, so `select=…,runs(status,stop)`
+      // would work with no migration — and could only ever be asserted from
+      // documentation, because nothing in this repository can run PostgREST. A view
+      // is plain SQL and the schema check drives it on a real PostgreSQL.
       const r = await req("GET",
-        `agent_messages?agent_id=eq.${agentId}&select=id,body,created_at,seq` +
+        `agent_thread?agent_id=eq.${agentId}` +
+        `&select=id,body,created_at,seq,run_id,run_status,run_stop,run_step,run_model,run_stopped_at` +
         `&order=seq.desc&limit=${MAX_THREAD}`);
       if (!r.ok) throw storeFail("read messages", r);
-      return rows(r).map(messageRow).reverse();
+      return rows(r).map(threadRow).reverse();
     },
 
     /** NO `role` IS SENT. The column's default and its check decide. */
@@ -389,6 +495,38 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       const got = rows(r)[0];
       if (!got) throw storeFail("save message", { status: r.status, text: "the row did not come back" });
       return messageRow(got);
+    },
+
+    /**
+     * SAVE A MESSAGE AND START A RUN FOR IT, IN ONE TRANSACTION.
+     *
+     * **EVERY ARGUMENT IS AN ID OR THE WORDS SOMEBODY TYPED.** There is no entry,
+     * no model, no bound, no instruction and no history among them — the function
+     * takes six arguments and not one of them is structured, which is asserted by
+     * the schema check against the catalog. So the run's shape and the snapshot it
+     * is started with are the database's, and a bug in this process cannot widen a
+     * limit or rewrite an instruction even by accident.
+     *
+     * **THE IDS ARE OURS, never the caller's.** A browser choosing a run id could
+     * name somebody else's run; it supplies only `key`, which is scoped to the
+     * agent and decides nothing but whether this press is a retry.
+     *
+     * **A REPEAT IS A SUCCESS.** It answers the message that already landed and the
+     * run it already started, and starts nothing — the whole point of the key.
+     */
+    async send(tenant, { agentId, messageId, runId, body, key }) {
+      const r = await req("POST", "rpc/send_to_agent", {
+        body: {
+          p_tenant: tenant, p_agent_id: agentId, p_message_id: messageId,
+          p_body: body, p_send_key: key, p_run_id: runId,
+        },
+      });
+      if (!r.ok) throw storeFail("send to agent", r);
+      const a = r.body;
+      if (!a || typeof a !== "object" || Array.isArray(a)) {
+        throw storeFail("send to agent", { status: r.status, text: "no answer came back" });
+      }
+      return a;
     },
 
     /**
@@ -427,6 +565,7 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/update": "POST",
   "/api/agent/delete": "POST",
   "/api/agent/message": "POST",
+  "/api/agent/send": "POST",
   "/api/agent/import": "POST",
 });
 
@@ -544,6 +683,50 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       if (!(await store.ownsAgent(who, id))) return NO_AGENT();
       const saved = await store.addMessage(id, { id: mint(), body: text, at: cleanAt(b.at, at()) });
       return ok({ id, message: saved });
+    }
+
+    if (path === "/api/agent/send") {
+      const id = cleanId(b.id);
+      const text = cleanText(b.body, AGENT_BODY_MAX);
+      const key = cleanSendKey(b.key);
+      if (!id) return no(400, "which agent?");
+      if (!text) return no(400, "there was nothing to send");
+      // THE KEY IS REQUIRED AND IS NOT OPTIONAL WITH A FALLBACK. Minting one here
+      // would make every press a new key and every retry a second message and a
+      // second run — retry safety failing OPEN, which is the direction that
+      // duplicates a conversation and pays for the work twice. A refusal is
+      // recoverable; a silent duplicate is not.
+      if (!key) return no(400, "that send didn't say which press it was — try again");
+
+      // ⚠ NO OWNERSHIP CHECK HERE, AND THAT IS DELIBERATE RATHER THAN MISSING.
+      // The check is INSIDE the transaction, against the tenant this process
+      // verified, and it has to be: a check out here would be a separate statement
+      // with an agent deletion able to fit between it and the insert. Every other
+      // route asks first because its write is a single statement and the foreign
+      // key closes that window; this one has a window big enough to matter, so the
+      // question is asked where the answer cannot go stale.
+      const a = await store.send(who, {
+        agentId: id, messageId: mint(), runId: mint(), body: text, key,
+      });
+      // NOT FOUND, NEVER FORBIDDEN — the same answer a nonexistent agent gets, so
+      // this cannot confirm that somebody else's agent exists.
+      if (a.error === "no-agent" || a.ok === false) return NO_AGENT();
+      return ok({
+        id,
+        repeat: !!a.repeat,
+        // WHETHER THE WORK REALLY REACHED THE QUEUE, said rather than assumed. A
+        // repeat put nothing on it and says so; anything but `queued` from the
+        // accepting function means the run was not newly enqueued, which a caller
+        // watching for progress needs to know.
+        queued: a.state === "queued",
+        // The message as STORED, never as sent: a retry under one key with
+        // different words is answered with the conversation's own text.
+        message: messageRow({ id: a.message_id, body: a.body, created_at: a.created_at }),
+        // The run's id only. ITS STATE HAS EXACTLY ONE READER and it is the thread —
+        // describing it here too would be a second composer of the same fact, and
+        // the two would disagree the moment one of them was updated.
+        runId: cleanId(a.run_id),
+      });
     }
 
     if (path === "/api/agent/import") {

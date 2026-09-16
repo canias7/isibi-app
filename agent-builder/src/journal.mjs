@@ -31,6 +31,31 @@ export const ENTRY_KINDS = Object.freeze(["started", "model", "tool", "stopped"]
 export const startedEntry = (o) => Object.freeze({
   kind: "started", at: o.at, tenant: o.tenant ?? null, agent: o.agent,
   model: o.model, prompt: o.prompt, limits: o.limits ?? null,
+  // ── the snapshot a customer-authored run carries ──────────────────────────
+  //
+  // **PRESENT OR ABSENT, NEVER null-AS-A-VALUE.** A run of a code agent has no
+  // snapshot at all and its entry is byte for byte what it always was; a run
+  // started from an authored agent carries the instructions it was started with
+  // and the conversation it was given. `undefined` is "not applicable" and a
+  // stored null would be "we recorded nothing", which is a different fact — the
+  // recorded cannot-tell rule, met in an entry shape.
+  //
+  // **THESE ARE NORMALLY WRITTEN BY `agent.send_to_agent`, NOT BY A CALLER.**
+  // That function merges them over whatever this produced, from rows it read in
+  // the accepting transaction, so neither a request body nor the server's own
+  // earlier read can decide what a run was told. They are accepted here so this
+  // stays the ONE producer of the entry shape, which is what keeps a resumed
+  // conversation identical to the one the run would have had.
+  ...(o.instructions === undefined ? {} : { instructions: o.instructions }),
+  ...(o.history === undefined ? {} : { history: o.history }),
+  // WHICH authored agent, and WHICH message asked. Written here as well as in
+  // `agent.send_to_agent`'s merge for one reason: that merge adds them to the
+  // entry AFTER this built it, so without these two lines the SQL path and the
+  // JS path would produce different entry shapes — two producers of one shape,
+  // which is the exact thing this constructor exists to prevent. A local driver
+  // or a verification builds the entry here and would silently lose them.
+  ...(o.authoredAgent === undefined ? {} : { authoredAgent: o.authoredAgent }),
+  ...(o.message === undefined ? {} : { message: o.message }),
 });
 export const modelEntry = (o) => Object.freeze({
   kind: "model", at: o.at, step: o.step, ms: o.ms, text: o.text ?? "",
@@ -118,6 +143,43 @@ export function replay(entries) {
   const pending = [];
 
   if (started) {
+    // ── the conversation this run was given, before its own prompt ──────────
+    //
+    // **A TURN IS A QUESTION AND WHAT THE AGENT ANSWERED**, so the model sees a
+    // real alternating conversation rather than a pile of consecutive user
+    // turns. An answer that is absent — a run that failed, one still going, one
+    // whose record was retained away — leaves the question standing on its own:
+    // dropping the question because its answer is missing would send the model a
+    // history that never happened.
+    //
+    // **A MALFORMED TURN IS NAMED, NEVER SKIPPED**, exactly as a malformed entry
+    // is. The snapshot comes back from storage, so it comes from outside, and
+    // silently dropping one rebuilds a SHORTER conversation than the run really
+    // had — with both halves looking right on their own.
+    //
+    // NOTHING HERE TOUCHES A METER. This is conversation the run was handed, not
+    // work it did; charging a resumed run for the history it was given would
+    // make every reply more expensive than the one before it.
+    const history = started.history;
+    if (history !== undefined) {
+      if (!Array.isArray(history)) {
+        problems.push('the "started" entry\'s history is not a list, so the conversation is unknown');
+      } else {
+        for (let i = 0; i < history.length; i++) {
+          const turn = history[i];
+          if (turn === null || typeof turn !== "object" || Array.isArray(turn) || typeof turn.user !== "string" || turn.user === "") {
+            problems.push(`history ${i}: not a turn`);
+            continue;
+          }
+          messages.push(userMessage(turn.user));
+          // An answer is text or it is not there. Anything else is a turn we
+          // cannot read rather than a turn with no answer.
+          if (turn.agent === null || turn.agent === undefined) continue;
+          if (typeof turn.agent !== "string") { problems.push(`history ${i}: the answer is not text`); continue; }
+          if (turn.agent !== "") messages.push(assistantMessage(turn.agent));
+        }
+      }
+    }
     messages.push(userMessage(started.prompt));
     used.wallMs = 0;
   } else if (entries.length) {
@@ -169,6 +231,13 @@ export function replay(entries) {
     agent: started?.agent ?? null,
     model: started?.model ?? null,
     limits: started?.limits ?? null,
+    // The snapshot, read back for the runner. `null` here means this run has no
+    // snapshot and the registered agent's own instructions are the ones to use.
+    instructions: typeof started?.instructions === "string" && started.instructions !== "" ? started.instructions : null,
+    // Which customer-authored agent and which message started this, for a reader
+    // tracing one back to the other. Never used to decide anything.
+    authoredAgent: typeof started?.authoredAgent === "string" ? started.authoredAgent : null,
+    message: typeof started?.message === "string" ? started.message : null,
   });
 }
 

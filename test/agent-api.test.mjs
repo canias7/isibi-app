@@ -43,6 +43,8 @@ const IMPORT_MIG = fs.readFileSync(new URL(
 const T1 = "11111111-1111-4111-8111-111111111111";   // one account
 const T2 = "22222222-2222-4222-8222-222222222222";   // the account next door
 const A1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";   // T1's agent
+const MID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";  // a message the send stored
+const RID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";  // the run it started
 const KEY = "service-key-that-must-never-be-said-out-loud";
 
 /** A recorder in PostgREST's own answer shape: `{ok, status, text()}`. */
@@ -77,6 +79,16 @@ function fakeStore(over = {}) {
     messages: async (...a) => { calls.push({ name: "messages", args: a }); return []; },
     addMessage: async (...a) => { calls.push({ name: "addMessage", args: a }); return { id: "m" }; },
     importOne: async (...a) => { calls.push({ name: "importOne", args: a }); return A1; },
+    // The answer `agent.send_to_agent` really gives, taken from the schema check's
+    // own driven output rather than invented — a fake in a different shape from
+    // reality hides bugs exactly as well as one that is less capable.
+    send: async (...a) => {
+      calls.push({ name: "send", args: a });
+      return {
+        ok: true, repeat: false, message_id: MID, run_id: RID, body: "hello",
+        seq: 1, created_at: "2026-09-15T12:00:00Z", state: "queued",
+      };
+    },
   };
   void note;
   return { calls, store: { ...base, ...over } };
@@ -111,7 +123,13 @@ test("every operation is scoped by the tenant the handler was given", async () =
     assert.ok(tenantSeen, `${path} never handed the tenant to the store: ${JSON.stringify(f.calls.map((c) => c.name))}`);
     reached.add(path);
   }
-  assert.equal(reached.size, 7, "the observer must have driven all seven");
+  // COUNTED OFF THE ROUTE LIST, never a literal. This was pinned to 7 and went red
+  // on the eighth route — reporting a working census as broken, which is the
+  // recorded "a check that hardcodes a number the product exports is a second copy
+  // of it". What the number is FOR is proving the observer drove something, so a
+  // floor plus equality with the list is the property.
+  assert.ok(reached.size >= 7, `the observer drove only ${reached.size} routes`);
+  assert.equal(reached.size, Object.keys(AGENT_ROUTES).length, "the census did not drive every route");
 });
 
 test("⚠ THE ID IS OURS — a body cannot choose the primary key", async () => {
@@ -508,11 +526,18 @@ test("a thread read takes the NEWEST of a long conversation and turns it round",
     { id: "b", body: "second", created_at: "2026-09-15T11:00:00Z", seq: 2 },
     { id: "a", body: "first", created_at: "2026-09-15T10:00:00Z", seq: 1 },
   ];
-  const rec = recorder({ agent_messages: { body: newest } });
+  // OFF `agent_thread`, THE VIEW — re-anchored when the read moved there, because a
+  // message now comes back with the state of the run it started. The property is
+  // unchanged and is what is asserted; only the relation moved.
+  const rec = recorder({ agent_thread: { body: newest } });
   const out = await rec.store.messages(A1);
+  assert.ok(rec.seen[0].url.includes("/agent_thread?"), `not the thread view: ${rec.seen[0].url}`);
   assert.ok(rec.seen[0].url.includes("order=seq.desc"), `not newest-first: ${rec.seen[0].url}`);
   assert.ok(rec.seen[0].url.includes(`limit=${MAX_THREAD}`));
   assert.deepEqual(out.map((m) => m.text), ["first", "second", "third"], "it was not turned round");
+  // A MESSAGE THAT STARTED NO RUN CARRIES `run: null`, not a failure — every
+  // imported conversation is that shape, and so is every message sent before this.
+  assert.deepEqual(out.map((m) => m.run), [null, null, null]);
 });
 
 test("the list is newest-first off the overview view, bounded by the ceiling", async () => {
@@ -706,7 +731,10 @@ test("worker.js reads a body only for the POST routes", () => {
   // dispatch asks the module which routes carry a body rather than guessing.
   assert.deepEqual([...AGENT_POST_ROUTES].sort(),
     Object.keys(AGENT_ROUTES).filter((p) => AGENT_ROUTES[p] === "POST").sort());
-  assert.equal(AGENT_POST_ROUTES.length, 5);
+  // DERIVED, not a literal: this was pinned to 5 and the eighth route made it red.
+  // The property is that the two lists agree, which the assertion above is; this
+  // only has to prove the observer is looking at a non-empty list.
+  assert.ok(AGENT_POST_ROUTES.length >= 5, `only ${AGENT_POST_ROUTES.length} POST routes`);
   assert.ok(!AGENT_POST_ROUTES.includes("/api/agent/list"));
   assert.ok(!AGENT_POST_ROUTES.includes("/api/agent/messages"));
 });

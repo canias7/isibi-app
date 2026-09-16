@@ -18,6 +18,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { AGENT_ROUTES } from "../agent-store.mjs";
 
 const html = fs.readFileSync("public/index.html", "utf8");
 const js = fs.readFileSync("public/chat.js", "utf8");
@@ -251,8 +252,18 @@ test("a failed send keeps the message in the box — and in the RIGHT box", () =
     "the message is kept only after the request, so a network failure loses it");
   // Cleared ONLY on success, and keyed on the conversation it was typed in —
   // never on "the box", which may be showing another agent by then.
-  assert.match(body, /if \(!failed\) delete agentMsgDrafts\[target\];/,
-    "the draft is cleared without asking whether the send succeeded");
+  // RE-ANCHORED ONTO THE PROPERTY, not the statement. The line gained a second
+  // delete — the SEND KEY goes with the draft — and pinning the old spelling
+  // reported a working screen as broken. What matters is that the clear is inside a
+  // `!failed` test and names the conversation.
+  const clear = body.split("\n").find((l) => /if \(!failed\)/.test(l) && /agentMsgDrafts\[target\]/.test(l));
+  assert.ok(clear, "the draft is cleared without asking whether the send succeeded");
+  // ⚠ AND THE KEY IS CLEARED IN THE SAME BREATH. Clearing it after a FAILURE makes
+  // the next press a different press, so a message the server already holds gains a
+  // second copy and a second run — the lost-response case turned into the duplicate
+  // the key exists to prevent. It has to be the SAME condition, not a second one.
+  assert.match(clear, /agentSendKeys\[target\]/,
+    "the send key outlives a failed send, so a retry becomes a new message");
   assert.ok(body.indexOf("delete agentMsgDrafts[target]") > body.indexOf("await apiFetch("),
     "the box is cleared before the server has the message");
   assert.match(js, /placeholder="Message ' \+ esc\(a\.name\) \+ '">' \+ esc\(agentDraftOf\(a\.id\)\)/,
@@ -296,11 +307,27 @@ test("⚠ NOTHING PRETENDS TO ANSWER, and the thread says so before you send", (
   const send = js.slice(js.indexOf("async function agentSend()"));
   const body = send.slice(0, send.indexOf("\n}\n"));
   assert.ok(!/role:/.test(body), "a sent message carries a speaker, which the server decides");
-  assert.match(js, /Nothing answers yet — no model is wired to this chat\./,
-    "the thread does not say that nothing answers");
-  // And the thread draws every bubble as the person's, with no branch on a role.
+  // **RE-ANCHORED, AND THE SUBJECT CHANGED RATHER THAN MOVED.** Something DOES
+  // answer now: a real run, really queued, really executed, really recorded — whose
+  // words come from a stand-in. So the property is no longer "nothing answers"; it
+  // is that a stand-in is never presented as an AI, said in the chrome AND in every
+  // answer's own text. Both are asserted, and the redundancy is deliberate: the
+  // chrome's label is gone the moment somebody copies an answer into an email.
+  assert.match(js, /No model is connected yet, so replies are stand-in test results rather than/,
+    "the thread does not say its replies are stand-ins");
+  assert.match(js, /class="ag-sim"/, "there is no label on the answer itself");
+  assert.match(js, /run\.simulated/,
+    "the label is not read from the run, so it cannot stop when a real provider answers");
+  // AND IT IS NOT A CONSTANT OR A STRING SNIFF. A label hardcoded `true` would keep
+  // saying "simulated" over a real answer; one read out of the answer's text would
+  // stop the day the text is reworded.
+  assert.ok(!/simulated:\s*true/.test(js), "the label is a constant rather than a fact about the run");
+  assert.ok(!/startsWith\(\s*['"]\[simulated/.test(js), "the label is sniffed out of the answer's words");
+  // The thread draws the person's own message, and the agent's side is the RUN —
+  // never a message row, because nothing may write one.
   assert.match(js, /'<div class="ag-msg ag-msg-you">'/, "the thread no longer draws the person's own message");
-  assert.ok(!/ag-msg-agent|ag-msg-them|ag-msg-bot/.test(js), "there is markup for a reply nothing may write");
+  assert.match(js, /'<div class="ag-msg ag-msg-bot">'/, "the thread draws nothing for the work it started");
+  assert.ok(!/ag-msg-agent|ag-msg-them/.test(js), "there is markup for a speaker the database refuses");
 });
 
 test("the bound moved to the import, and an empty message is still not sent", () => {
@@ -366,10 +393,35 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   for (const c of chunks) {
     for (const m of c.matchAll(/'(\/api\/agent\/[a-z]+)/g)) viaApiFetch.add(m[1]);
   }
-  const paths = ["/api/agent/list", "/api/agent/create", "/api/agent/update",
-    "/api/agent/delete", "/api/agent/messages", "/api/agent/message", "/api/agent/import"];
+  // **DERIVED FROM `AGENT_ROUTES`, NOT LISTED.** It was a hand-typed list of seven
+  // and went red the day an eighth route arrived — the recorded "a check that
+  // hardcodes what the product exports is a second copy of it". A route added to the
+  // server and never called from the screen now fails by existing, which is the
+  // property that was wanted all along.
+  //
+  // `/api/agent/message` IS DECLARED SERVER-ONLY, deliberately. It saves a message
+  // WITHOUT starting a run — which is what the import's rows are and what an offline
+  // path would need — and the screen does not use it, because every message somebody
+  // types is meant to be answered. It is kept rather than deleted: it is reachable
+  // from outside and is the only operation that can add to a conversation without
+  // spending work on it.
+  const SERVER_ONLY = ["/api/agent/message"];
+  const paths = Object.keys(AGENT_ROUTES).filter((p) => !SERVER_ONLY.includes(p));
+  assert.ok(paths.length >= 6, `the census is looking at only ${paths.length} routes`);
+  // ⚠ MATCHED AT A PATH BOUNDARY, because `/api/agent/messages` CONTAINS
+  // `/api/agent/message` — the recorded "a needle that can match a longer name
+  // cannot prove a class", met here on the first try: a bare `includes` reported the
+  // thread read as a call to the route it is declared not to call.
+  const called = (path) => new RegExp(`['"\`]${path.replace(/\//g, "\\/")}(?=['"\`?])`).test(code);
+  for (const p of SERVER_ONLY) {
+    assert.ok(Object.hasOwn(AGENT_ROUTES, p), `${p} is declared server-only and does not exist`);
+    assert.ok(!called(p), `${p} is declared server-only and the screen calls it`);
+  }
+  // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: the matcher finds a route the
+  // screen really does call, and refuses one that only shares a prefix with it.
+  assert.ok(called("/api/agent/messages"), "the path matcher cannot see a call the screen makes");
   for (const path of paths) {
-    assert.ok(code.includes(path), `the client never calls ${path}`);
+    assert.ok(called(path), `the client never calls ${path}`);
     assert.ok(viaApiFetch.has(path), `${path} is not inside an apiFetch call, so it carries no token`);
   }
   // Every path the client names is one of the seven — a typo would be a 404 the

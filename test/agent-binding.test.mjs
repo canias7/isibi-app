@@ -204,7 +204,7 @@ test("⚠ A's answer landing while B is open cannot touch B's messages or its dr
   // into A appeared in B's conversation — a message somebody never sent, in a
   // conversation they were reading.
   const gate = held(okRes({ message: { id: "m-A", text: "for A", at: 1 } }));
-  const w = loadScreen({ answer: (p) => (p === "/api/agent/message" ? gate.p : okRes({ agents: [] })) });
+  const w = loadScreen({ answer: (p) => (p === "/api/agent/send" ? gate.p : okRes({ agents: [] })) });
   setRows(w);
 
   // In A: type and send. The request leaves; the answer is held.
@@ -233,7 +233,7 @@ test("⚠ a FAILURE for A cannot put an error on B's screen", async () => {
   // The half that reads worst: a red sentence under B's box saying the message
   // could not be sent, about a message sent somewhere else entirely.
   const gate = held(badRes("couldn’t save that just now"));
-  const w = loadScreen({ answer: (p) => (p === "/api/agent/message" ? gate.p : okRes({ agents: [] })) });
+  const w = loadScreen({ answer: (p) => (p === "/api/agent/send" ? gate.p : okRes({ agents: [] })) });
   setRows(w);
   w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A";');
   w.s.document.getElementById("agMsg").value = "for A";
@@ -454,7 +454,7 @@ test("⚠ a send answered after the ACCOUNT changed cannot write into the new on
   // message was in the air, with somebody else now at the keyboard. A binding
   // that only compared the conversation let A's message land in B's screen.
   const gate = held(okRes({ message: { id: "m-A", text: "for A", at: 1 } }));
-  const w = loadScreen({ uid: "acct-A", answer: (p) => (p === "/api/agent/message" ? gate.p : okRes({ agents: [] })) });
+  const w = loadScreen({ uid: "acct-A", answer: (p) => (p === "/api/agent/send" ? gate.p : okRes({ agents: [] })) });
   setRows(w);
   w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A";');
   w.s.document.getElementById("agMsg").value = "for A";
@@ -801,4 +801,280 @@ test("4c. a sign-out claims for the MARKER, never for whoever is signing out", a
     "B's sign-out claimed A's records for B");
   assert.equal(store.zephyr_owner_v1, undefined,
     "ownership was recorded and the marker was kept anyway");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// SENDING STARTS WORK, AND THE SCREEN WATCHES IT
+//
+// Five things that only go wrong when time passes, which is why they are here and
+// not in a source read: a double press, a reload mid-run, a failure, a run whose
+// answer lands after the screen has moved, and the watching itself.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** A thread row as `/api/agent/messages` really answers it. */
+const msg = (id, text, run = null) => ({ id, text, at: 1_700_000_000_000, run });
+const run = (state, over = {}) =>
+  ({ id: "run-" + state, state, step: 0, simulated: true, text: "", why: "", at: 0, ...over });
+
+/**
+ * A screen with one agent open and a server that answers both halves of a send.
+ *
+ * `sends` records every `/api/agent/send` body, so "one press, one message" is
+ * counted rather than inferred, and `thread` is what the next read answers — which
+ * is how a run is moved from queued to answered without waiting for anything.
+ */
+function sending(t, { thread = [], sendAnswer = null, uid = "acct-A" } = {}) {
+  const sends = [];
+  const reads = [];
+  let rows = thread;
+  const w = loadScreen({
+    uid,
+    answer: (path, opts) => {
+      if (path === "/api/agent/send") {
+        const body = JSON.parse(opts.body);
+        sends.push(body);
+        if (sendAnswer) return sendAnswer(body, sends.length);
+        return okRes({ id: body.id, repeat: sends.length > 1, queued: sends.length === 1,
+                       message: msg("m" + sends.length, body.body), runId: "run-queued" });
+      }
+      if (path.startsWith("/api/agent/messages")) { reads.push(path); return okRes({ messages: rows }); }
+      return okRes({ agents: ROWS });
+    },
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A";');
+  // ⚠ THE POLL IS STOPPED IN A HOOK, NEVER AT THE END OF A CASE — and this cost a
+  // whole mutation sweep to learn. A running conversation arms a REAL 2.5-second
+  // timer that RE-ARMS itself after each read, so a case whose assertion FAILS never
+  // reaches its own cleanup and the process never exits: `node --test` sat for eleven
+  // minutes on a mutant it had correctly killed, and the sweep read a hang instead of
+  // a kill. A hook runs on the failing path too.
+  if (t && typeof t.after === "function") t.after(() => { try { w.ev("agentPollStop();"); } catch { /* the page may be gone */ } });
+  return { w, sends, reads, serve: (next) => { rows = next; } };
+}
+
+/**
+ * Capture the POLL's own timer callback, and nothing else's.
+ *
+ * **BY ITS DELAY, DERIVED FROM THE PAGE'S OWN CONSTANT.** The render schedules
+ * timers of its own, so a stub that kept the last callback it was handed captured
+ * one of those instead — and the case then "fired the poll" and observed nothing,
+ * which read as the poll being correctly bound when it had never been armed.
+ */
+function catchPoll(w) {
+  const every = w.ev("AGENT_POLL_MS");
+  assert.ok(Number.isFinite(every) && every > 0, `the poll interval read as ${every}`);
+  let fn = null;
+  w.s.setTimeout = (f, ms) => { if (ms === every) fn = f; return 1; };
+  return { fire: () => { assert.ok(fn, "no poll was armed"); const f = fn; fn = null; return f(); },
+           get armed() { return !!fn; } };
+}
+
+test("A SEND STARTS A RUN AND THE CONVERSATION SHOWS IT", async (t) => {
+  const b = sending(t);
+  b.serve([msg("m1", "when do you open?", run("queued", { id: "run-1" }))]);
+  b.w.s.document.getElementById("agMsg").value = "when do you open?";
+  await b.w.ev("agentSend()");
+  assert.equal(b.sends.length, 1, "one press did not make one send");
+  assert.equal(b.sends[0].body, "when do you open?");
+  assert.ok(b.sends[0].key, "the send carried no key, so a retry cannot be told from a new message");
+  // THE RUN'S STATE CAME FROM THE SERVER, not from the browser. `agentSend` composes
+  // none of it: it appends the message and re-reads, and the thread is the one reader.
+  assert.deepEqual(b.w.val("agentMsgs.map((m) => m.run && m.run.state)"), ["queued"]);
+  assert.ok(b.reads.length >= 1, "the send did not re-read the conversation");
+});
+
+test("⚠ A DOUBLE PRESS IS ONE MESSAGE AND ONE RUN, because both presses carry ONE key", async (t) => {
+  // THE SCENARIO THE BUTTON'S `disabled` CANNOT COVER: two presses landing before
+  // the re-render, or the Enter key held. The server absorbs the second on the key,
+  // so what this has to prove is that the second press SENDS THE SAME KEY — which is
+  // false the moment a key is minted inside `agentSend`.
+  const b = sending(t);
+  b.w.s.document.getElementById("agMsg").value = "twice";
+  const first = b.w.ev("agentSend()");
+  const second = b.w.ev("agentSend()");
+  await Promise.all([first, second]);
+  assert.equal(b.sends.length, 2, "the second press never reached the server");
+  assert.equal(b.sends[0].key, b.sends[1].key,
+    "the two presses carried different keys, so the server saw two messages");
+});
+
+test("...AND A FAILED SEND KEEPS ITS KEY, so pressing again is the SAME press", async (t) => {
+  // A lost response is indistinguishable from a refusal here, and the recovery for
+  // both is the person pressing again. If the key were cleared on failure, that
+  // second press would be a new press — and a message the server already committed
+  // would gain a second copy with a second run.
+  let fail = true;
+  const b = sending(t, { sendAnswer: (body) => (fail ? badRes("couldn’t save that just now") : okRes({
+    id: body.id, repeat: true, queued: false, message: msg("m1", body.body), runId: "run-1" })) });
+  b.w.s.document.getElementById("agMsg").value = "for A";
+  await b.w.ev("agentSend()");
+  assert.equal(b.w.ev('agentDraftOf("A")'), "for A", "a failed send lost the words");
+  const key = b.sends[0].key;
+  fail = false;
+  await b.w.ev("agentSend()");
+  assert.equal(b.sends[1].key, key, "the retry was a new press, so the server saw a second message");
+  // AND ONCE IT LANDS, BOTH GO. A key kept after a success would make the NEXT
+  // message a retry of this one and be absorbed — the failure in the other direction.
+  assert.equal(b.w.ev('agentDraftOf("A")'), "");
+  b.w.s.document.getElementById("agMsg").value = "something new";
+  await b.w.ev("agentSend()");
+  assert.notEqual(b.sends[2].key, key, "a genuinely new message reused the last one's key");
+});
+
+test("A RELOAD MID-RUN NEEDS NO RECOVERY, because the browser remembers nothing", async (t) => {
+  // The screen holds no state about a run at all — `agentLive` is derived from the
+  // rows the server just sent. So a reload is an ordinary first read of a
+  // conversation that happens to have work in it, and the watching starts from that.
+  const fresh = sending(t, { thread: [msg("m1", "hello", run("working", { step: 2 }))] });
+  await fresh.w.ev('agentThreadLoad("A")');
+  assert.deepEqual(fresh.w.val("agentMsgs.map((m) => m.run.state)"), ["working"]);
+  assert.equal(fresh.w.val("agentLive(agentMsgs)"), true, "a running conversation is not being watched");
+  // AND A FINISHED ONE IS NOT WATCHED. Without this, the poll would run for ever on
+  // every conversation anybody opens.
+  const done = sending(t, { thread: [msg("m1", "hello", run("answered", { text: "[simulated] nine" }))] });
+  await done.w.ev('agentThreadLoad("A")');
+  assert.equal(done.w.val("agentLive(agentMsgs)"), false, "a finished conversation is still being watched");
+  assert.equal(done.w.ev("agentPollTimer === null"), true, "a finished conversation armed a poll");
+});
+
+test("A FAILED RUN IS SHOWN AS A FAILURE, with the engine's own reason", async (t) => {
+  const b = sending(t, { thread: [msg("m1", "hello", run("failed", { why: "call-failed" }))] });
+  await b.w.ev('agentThreadLoad("A")');
+  assert.equal(b.w.val("agentMsgs[0].run.state"), "failed");
+  assert.equal(b.w.val("agentLive(agentMsgs)"), false, "a failed run is still being watched");
+  // The sentence names the cause. "Something went wrong" cannot tell a run that hit
+  // a limit from one whose model call died, and they need different things done.
+  assert.match(b.w.ev('agentWhyText("call-failed")'), /model call failed/);
+  assert.match(b.w.ev('agentWhyText("spent")'), /limits/);
+  // AN UNKNOWN REASON IS SHOWN AS ITSELF rather than swallowed — the engine gains
+  // stop reasons without this file being edited.
+  assert.match(b.w.ev('agentWhyText("brand-new-reason")'), /brand-new-reason/);
+  assert.match(b.w.ev('agentWhyText("unknown")'), /no reason recorded/);
+});
+
+test("⚠ A POLL THAT FIRES AFTER THE SCREEN MOVED TOUCHES NOTHING", async (t) => {
+  // THE BINDING, ON A TIMER INSTEAD OF ON A RESPONSE. Between arming a poll and its
+  // firing, somebody can open another conversation or sign in as somebody else — and
+  // a poll that painted A's rows into B is the defect every other case in this file
+  // is about, arriving through the one door that has no request to bind.
+  const b = sending(t, { thread: [msg("m1", "hello", run("working", { step: 1 }))] });
+  // THE TIMER IS CAPTURED RATHER THAN WAITED FOR. `setTimeout` is an ordinary global
+  // in the page's scope, so replacing it here needs no seam in the product — and a
+  // case that really slept 2.5 seconds would be one nobody re-runs.
+  const poll = catchPoll(b.w);
+  await b.w.ev('agentThreadLoad("A")');
+  assert.ok(poll.armed, "a running conversation armed no poll");
+  const before = b.reads.length;
+  // B is opened, and only then does the timer fire.
+  b.w.ev('agentThread = "B"; agentMsgs = []; agentMsgsFor = "B";');
+  await poll.fire();
+  assert.equal(b.reads.length, before, "the poll read A's conversation after B was opened");
+  assert.deepEqual(b.w.val("agentMsgs"), [], "the poll painted A's rows into B");
+  // THE CONTROL: with the screen left on A, the very same timer DOES read. Without
+  // it, "the poll touched nothing" could be true because the poll never polls.
+  const c = sending(t, { thread: [msg("m1", "hello", run("working", { step: 1 }))] });
+  const onA = catchPoll(c.w);
+  await c.w.ev('agentThreadLoad("A")');
+  const had = c.reads.length;
+  await onA.fire();
+  assert.equal(c.reads.length, had + 1, "the poll never reads, so the case above proves nothing");
+  // AND THE SAME WALL ON THE ACCOUNT. A session that expires mid-run and is replaced
+  // is the other way the screen moves, and a poll must not carry A's rows into it.
+  const d = sending(t, { thread: [msg("m1", "hello", run("working", { step: 1 }))] });
+  const other = catchPoll(d.w);
+  await d.w.ev('agentThreadLoad("A")');
+  const seen = d.reads.length;
+  d.w.signIn("acct-B");
+  await other.fire();
+  assert.equal(d.reads.length, seen, "the poll read a conversation for the account that left");
+});
+
+test("LEAVING THE CONVERSATION STOPS THE WATCHING", async (t) => {
+  const b = sending(t, { thread: [msg("m1", "hello", run("queued"))] });
+  await b.w.ev('agentThreadLoad("A")');
+  assert.equal(b.w.ev("agentPollTimer !== null"), true, "no poll was armed");
+  b.w.ev("agentList();");
+  assert.equal(b.w.ev("agentPollTimer === null"), true, "the poll outlived the screen that wanted it");
+});
+
+test("A READ THAT FAILED ARMS NO POLL, so a server that is down is not hammered", async (t) => {
+  // At this interval, for as long as the screen is open. It is the presence of live
+  // work in a SUCCESSFUL answer that arms the next read, and nothing else.
+  //
+  // ⚠ AND THE STOP IS A HOOK HERE TOO, which is what the sweep found: with a poll
+  // armed on a failed read, the chain is read → arm → fire → read → arm, for ever, and
+  // the assertion below fails without ever reaching a cleanup at the end of the body.
+  // `node --test` then never exits and the runner reads a hang instead of a kill —
+  // eleven minutes on a mutant it had correctly killed. Every screen that can arm a
+  // timer stops it in a hook, including the ones built by hand.
+  const w = loadScreen({ answer: (path) => (path.startsWith("/api/agent/messages")
+    ? badRes("couldn’t load this conversation") : okRes({ agents: ROWS })) });
+  t.after(() => { try { w.ev("agentPollStop();"); } catch { /* the page may be gone */ } });
+  setRows(w);
+  w.ev('agentThread = "A";');
+  await w.ev('agentThreadLoad("A")');
+  assert.ok(w.ev("agentMsgsErr").length > 0, "a failed read said nothing");
+  assert.equal(w.ev("agentPollTimer === null"), true, "a failed read armed a poll");
+});
+
+test("WHAT EACH RUN STATE DRAWS, and what a message with no run draws", (t) => {
+  // **DRIVEN AS A FUNCTION, because two sweep mutants survived every case above.**
+  // `agentRunHtml` is pure, and the two things it must get right are invisible from a
+  // case that only ever asks for a queued or answered run: that a message with NO run
+  // draws NOTHING, and that the chrome's label is absent when the answer is not a
+  // stand-in. Both would otherwise be found by a customer.
+  const w = loadScreen({ answer: () => okRes({ agents: ROWS }) });
+  t.after(() => { try { w.ev("agentPollStop();"); } catch { /* the page may be gone */ } });
+  const draw = (run) => w.ev(`agentRunHtml(${JSON.stringify(run)})`);
+
+  // A MESSAGE THAT STARTED NOTHING DRAWS NOTHING. Every imported conversation is that
+  // shape, and so is every message sent before this existed — a bubble there would be
+  // a sentence about the platform in the middle of somebody's conversation.
+  for (const none of [null, undefined, 0, ""]) {
+    assert.equal(draw(none), "", `${JSON.stringify(none)} drew something`);
+  }
+
+  const queued = draw(run("queued"));
+  assert.match(queued, /ag-msg-bot/, "a queued run draws nothing on the agent's side");
+  assert.match(queued, /Queued/);
+  assert.ok(!/ag-bubble-bot/.test(queued), "a run with no answer drew a bubble");
+
+  const working = draw(run("working", { step: 3 }));
+  assert.match(working, /Working/);
+  assert.match(working, /step 3/, "the progress does not say how far it has got");
+
+  const answered = draw(run("answered", { step: 1, text: "[simulated] we open at nine", at: 1 }));
+  assert.match(answered, /ag-bubble-bot/, "an answer is not drawn as a bubble");
+  assert.match(answered, /we open at nine/);
+
+  const failed = draw(run("failed", { why: "call-failed" }));
+  assert.match(failed, /ag-run-fail/);
+  assert.match(failed, /model call failed/);
+  assert.ok(!/ag-bubble-bot/.test(failed), "a failure drew a bubble, which reads as an answer");
+
+  // ⚠ THE CHROME'S LABEL IS DRAWN FOR A STAND-IN AND NOT FOR A REAL ANSWER, in every
+  // state. A label written unconditionally survives every other case in this file —
+  // it did — and would keep saying "simulated" over a real provider's answer, which is
+  // the one thing this milestone must not do.
+  for (const state of ["queued", "working", "answered", "failed"]) {
+    const on = draw(run(state, { simulated: true, text: "x", why: "spent", step: 1 }));
+    const off = draw(run(state, { simulated: false, text: "x", why: "spent", step: 1 }));
+    assert.match(on, /class="ag-sim"/, `${state}: a stand-in is not labelled`);
+    assert.ok(!/ag-sim/.test(off), `${state}: a real answer is labelled as a simulation`);
+    // And the STATE still draws either way, so the label is not what carries it.
+    assert.match(off, /ag-msg-bot/, `${state}: nothing is drawn for a real answer`);
+  }
+
+  // AN ANSWERED RUN WITH NO WORDS IS SAID, not drawn as an empty bubble — an empty
+  // bubble reads as a rendering fault rather than as what happened.
+  const silent = draw(run("answered", { text: "" }));
+  assert.match(silent, /without saying anything/);
+  assert.ok(!/ag-bubble-bot/.test(silent), "an empty answer drew an empty bubble");
+
+  // The agent's words are ESCAPED. They come from a model, and the thread is built
+  // with `innerHTML`.
+  const nasty = draw(run("answered", { text: '<img src=x onerror="alert(1)">' }));
+  assert.ok(!nasty.includes("<img"), "a model's answer reached the page as markup");
+  assert.match(nasty, /&lt;img/);
 });
