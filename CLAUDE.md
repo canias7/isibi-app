@@ -5711,7 +5711,18 @@ fourth was my own vacuous assertion — it excused `apply`, the one value it mos
 needed to forbid — and closing it found the real product gap in (2) above.
 
 **Suite 6,652** — 6,649 + one case in each of the three guards, and the
-arithmetic closes exactly.
+arithmetic closes exactly. **CI HAS READ IT: `unit tests` run 2622 on
+`91fc2a8b`, green — `# tests 6652 / # pass 6648 / # fail 0 / # skipped 4`**,
+against local `6652 / 6652 / 0 / 0`; the four are the recorded environment skips
+plus `site-searchpath`'s baseline-commit case.
+
+**AND NOTHING OF THIS REPAIR TOOLING IS ON MAIN YET, checked rather than
+assumed.** `origin/main` (`c20226e6`) has no `countsPlan` and no
+`columnInventory`, and its form offers `[preview, apply-reference, apply,
+verify]`. So the `counts` press, the column inventory on `--verify`, and this
+argument fix all reach the owner only through a merge — and by the recorded
+`workflow_dispatch` rule, **a button that is not on the default branch does not
+exist**. Plan the order as merge → deploy → press.
 
 
 ## Data, auth, payments, mail

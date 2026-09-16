@@ -10818,6 +10818,38 @@ real second bug: a refused parse still remembered the mode it had got to, so
 
 ---
 
+### Where the addon test stands, and what it waits on
+
+**Everything you asked for in step 3 is written and ready.** The request, with
+the column's real name (`drop_off_day`) nowhere in it — checked word by word,
+none of "drop", "off" or "day" appears:
+
+> **Add a page at /workshop-load that shows how many bikes are booked in for
+> each date we're expecting them, busiest first, and a function the page calls
+> to work it out. Don't show customer names.**
+
+The other table, `repairs`, has **no drop-off date column at all**, so a design
+that reaches for the wrong table cannot answer this — that is what makes it a
+test of whether the designer really saw the existing schema.
+
+**Steps 1, 2 and 4 all wait on the merge, and I checked rather than assumed
+why.** `main` today has no `counts` mode and no column inventory — its form
+still offers only `preview / apply-reference / apply / verify`. A dispatch-only
+button does not exist until its file is on `main`, and the tool it runs is
+always `main`'s copy. So:
+
+| what | needs |
+|---|---|
+| the dates and counts | the `counts` press — **which needs the merge first** |
+| the authoritative column inventory | `--verify`, whose inventory is also only on the branch |
+| whether those rows can test grouping | the counts result |
+| the addon run itself | your approval, separately |
+
+**So the order is: merge → deploy → your free `counts` press → I report the
+expected dates and counts → then, separately, you decide on the paid run.**
+Nothing here presumes the merge; say the word and I will do it and hand you both
+version gates.
+
 ### The three decisions left
 
 1. **Run the free `counts` press** so the expected dates and counts are the live
