@@ -1,11 +1,25 @@
 -- ============================================================================
 -- SENDING A MESSAGE TO AN AUTHORED AGENT STARTS A RUN — IN ONE TRANSACTION.
 --
--- ⚠ NOT APPLIED. Every other file in this directory is named for the remote
--- version the apply recorded, because that is the one way the two can be lined
--- up later. This one has never been applied to any project, so its name is a
--- placeholder: **rename it to the remote version on the day it is applied**, and
--- read what is live out of the database rather than out of this file.
+-- ✅ APPLIED 2026-09-16 to `ujrqdmmtcptvimazlhom`, recorded as remote version
+-- **20260916031604**, and this file is named for that rather than for when it was
+-- written — lining the two up by NAME is the only thing that works later.
+--
+-- **THERE IS A SECOND REMOTE RECORD FOR THIS ONE FILE, `20260916031852`, and it is
+-- not a second change.** The first apply went through a tool that takes the SQL as
+-- an argument, and the text handed over had some of the comments below trimmed to
+-- keep the call manageable — so the live function bodies were correct and did NOT
+-- match this file byte for byte. That property is how this product verifies a
+-- deployment (`md5(pg_get_functiondef(...))` against a local apply), so it was
+-- closed rather than documented: the three function definitions were re-applied
+-- VERBATIM from this file, and all three now match by md5 AND by length
+-- (`send_to_agent` 6,358 · `authored_run` 900 · `history_turns` 11). There is no
+-- second file, because a second file would be a second copy of the same DDL.
+--
+-- READ WHAT IS LIVE OUT OF THE DATABASE, not out of this file: this directory is
+-- not the record of what is deployed, which this product has one recorded
+-- instance of already (two first-migration functions live with their em dashes
+-- mangled to `--`).
 --
 -- WHAT THIS CONNECTS. Two halves already existed and had nothing between them:
 -- `agent.agents` / `agent.agent_messages` (what a person wrote, mutable, theirs)

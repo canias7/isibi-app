@@ -417,7 +417,7 @@ test("⚠ THE ROUTE READS EVERY `ok: false` AS NOT-FOUND, and the census is what
   //
   // READ OUT OF THE MIGRATION, so adding one is a RED RUN rather than a wrong sentence.
   const mig = readFileSync(new URL(
-    "../agent-builder/supabase/migrations/20260916000000_agent_send_starts_a_run.sql",
+    "../agent-builder/supabase/migrations/20260916031604_agent_send_starts_a_run.sql",
     import.meta.url), "utf8");
   const body = mig.slice(mig.indexOf("create or replace function agent.send_to_agent"));
   assert.ok(body.length > 500, "the send function is not in that migration");

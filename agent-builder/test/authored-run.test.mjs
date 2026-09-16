@@ -421,7 +421,7 @@ test("IT REPORTS USAGE AND COST, so the meters and the budget are exercised rath
 // them equal, in BOTH directions, because a copy without a census is how a bound
 // gets tightened in one place for a year.
 
-const SQL = readFileSync(new URL("../supabase/migrations/20260916000000_agent_send_starts_a_run.sql", import.meta.url), "utf8");
+const SQL = readFileSync(new URL("../supabase/migrations/20260916031604_agent_send_starts_a_run.sql", import.meta.url), "utf8");
 
 /** What `agent.authored_run()` answers, read out of the migration's own body. */
 function authoredRunSql() {
