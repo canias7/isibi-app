@@ -1125,11 +1125,19 @@ const agentKeyDrop = (id, uid) => { if (id) delete agentSendKeys[agentDraftKey(i
  * capable than the render it stood in for.
  *
  * Only this conversation's box, asked of the ELEMENT rather than of whatever is open.
+ *
+ * ⚠ AND ONLY WHILE IT STILL HOLDS WHAT WAS SENT — which the first cut did not check,
+ * and the live screen showed the cost: the answer lands about a second after the press,
+ * so anybody who starts typing their NEXT message inside that second had the first
+ * characters wiped mid-word (measured: 12 of them, leaving "ake card payments"). The
+ * text we are entitled to remove is the text we sent; anything else is somebody's new
+ * message, and the next redraw keeps it because the read puts it back in the draft.
  */
-const agentBoxClear = (id) => {
+const agentBoxClear = (id, sent) => {
   if (typeof document === 'undefined' || !id) return;
   const el = document.getElementById('agMsg');
-  if (el && ((el.getAttribute && el.getAttribute('data-agent')) || '') === String(id)) el.value = '';
+  if (!el || ((el.getAttribute && el.getAttribute('data-agent')) || '') !== String(id)) return;
+  if (el.value === sent) el.value = '';
 };
 
 /**
@@ -1949,7 +1957,7 @@ async function agentSend() {
   // would make the next press a different press, and a message the server may
   // already hold would be joined by a second copy with a second run — the lost
   // response case turned into the duplicate the key exists to prevent.
-  if (!failed && !mismatched) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); agentBoxClear(target); }
+  if (!failed && !mismatched) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); agentBoxClear(target, text); }
   // A MISMATCH KEEPS THE WORDS AND DROPS THE KEY, which is the opposite of a failure
   // and deliberately so: the old message is safe on the server, so the next press must
   // be a NEW press — the edited text as its own message — rather than a third attempt
