@@ -6589,6 +6589,24 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
+  **AND RUNS 1156 AND 1157 READ IT AGAIN (2026-09-16, the create's paused
+  status): 1156 on `55bb554f` and 1157 on `ab0ac826`, both ALL TWENTY STEPS
+  GREEN, both `site-build.mjs` `382 passed, 0 failed`**, with kit-typecheck 4,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47 beside them — every count bounded to its own `##[group]`, and
+  read rather than carried over. 1157's harness step ran 09:04:20→09:22:32Z (18m12s)
+  inside a job of 09:02:11→09:27:02Z.
+  **⚠ AND THE ORDINAL IS DROPPED, because the chain had already drifted.** Two
+  entries below both said "the twelfth" (1152 and 1155) while 1154 said "a
+  thirteenth", which is this file's own *a number stamped in two places drifts
+  when only one is corrected* met in the very line that counts the evidence.
+  **DERIVE IT INSTEAD**: a scan of this file for a run number in the same
+  paragraph as a `382 passed` claim answers **14 runs** (1114 · 1117 · 1127 ·
+  1133 · 1137 · 1138 · 1142 · 1147 · 1148 · 1149 · 1150 · 1152 · 1154 · 1155) —
+  1065 read **373** and is not one of them, and 1115's count is recorded as
+  UNREAD and is not one either. **With 1156 and 1157 that is 16 independent runs
+  over five days**, and the way to check it is the scan rather than the next
+  ordinal in a sentence.
   **AND RUN 1154 READ IT A THIRTEENTH TIME (2026-09-16 04:56:20→05:18:10Z on
   `7c2a9ff4`, the column inventory's tree, ALL TWENTY STEPS GREEN):
   `site-build.mjs` `382 passed, 0 failed`**, with kit-typecheck 4, contrast-cases
