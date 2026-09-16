@@ -5139,7 +5139,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   a case that already existed — `evidenceItems` driven arm by arm, both halves
   of the item identity, the kindless item, the folded name, the fail-closed
   unknown `by`, a non-array `made`, the scope end to end, and a hand-off's prose
-  ignored. **CI has NOT read this number yet.**
+  ignored. **CI HAS READ IT: `unit tests` run 2602 on `561db453`, green
+  (2026-09-16 01:07:50→01:09:40Z, the suite step 97.9 s) — `# tests 6498 /
+  # pass 6495 / # fail 0 / # skipped 3`**, against local `6498 / 6498 / 0 / 0`;
+  the three are the recorded environment skips, which is why the number to
+  carry is the TOTAL. **`site build` run 1150 fired on this sha** (the change
+  is under `builder/**`) and its result is deliberately UNSTAMPED rather than
+  carried over from 1149.
   **6,496** before it (2026-09-16, local — the kinded reference, whose
   new cases are all `addon-route`'s **two** (62 → 64: the owner's two
   collisions, an applied TABLE against a claim about a FUNCTION of the same
