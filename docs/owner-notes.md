@@ -491,6 +491,76 @@ it stays a stated limit rather than something I work around.
 
 ---
 
+### You ran it — and it built the right thing off the existing database
+
+**Run 49, green in 10m02s. 12 credits, 149 → 137** — inside the 12–13 I quoted.
+
+**The pre-flight cleared both halves before a credit went**, which is the whole
+reason it exists: the Worker on `ea44a70c`, the container on `62c2700fa8c843c2`,
+the runtime route agreeing, then *"the code under test is the code answering —
+proceeding"*.
+
+**The milestone is proven, and not from the feature working.** The capture taken
+before each designer's call records what it was really handed:
+
+```
+· function — database: YES — 2 table(s): ["bookings","repairs"]
+    bookings: customer_name, bike, drop_off_day
+    repairs:  customer_name, bike, issue
+· page     — database: YES — 2 table(s)
+```
+
+Run 47 was told the site had no tables and invented a `repairs` table. Run 49 was
+told the truth. That's the difference, and it's now on the record rather than
+inferred.
+
+**It picked the right table.** The function it wrote:
+
+```sql
+SELECT ... json_agg(... ORDER BY booked DESC)
+FROM (SELECT drop_off_day, COUNT(*)::int AS booked
+      FROM bookings GROUP BY drop_off_day) counts
+```
+
+`bookings`, not `repairs` — and `repairs` has no `drop_off_day` at all, so that
+choice is the test. It made **no new table**; it routed function + page only.
+
+**Three readers agree, which is what a 200 could never say:**
+
+| | |
+|---|---|
+| your `counts` baseline, before the run | 18th → 2, 19th → 1 |
+| the site's own RPC (200) | `[{"drop_off_day":"2026-09-18","booked":2},{"drop_off_day":"2026-09-19","booked":1}]` |
+| a real browser on the page | the same two rows, **0 errors** |
+
+Screenshot above. `/status` and `/booking-check` still answer 3 — nothing
+regressed.
+
+**No customer names, checked three ways**: the page's own code file has
+`customer_name` zero times, the RPC returns only a date and a count, and nothing
+on the rendered page carries a name or a number.
+
+**What it told you**: *"I've set that up, but I can't confirm from here that…
+have a look and tell me if it isn't right."* Nothing was called "still to do" —
+that's run 48's defect not coming back. And **that sentence is honest rather than
+modest**: the platform genuinely cannot confirm its own feature works, because
+nothing in that path runs the feature. The browser check above is what confirmed
+it, and that was me from outside, not the product.
+
+**Two small things worth knowing.** The harness's `STILL OWED` line looks worse
+than the states are — it prints the raw list, and every state underneath is
+"can't confirm", none is failed or missing. And the function orders by the COUNT
+(`ORDER BY booked DESC`) — I can read that in its SQL, but the output can't prove
+it, because on your two rows busiest-first and oldest-first happen to give the
+same answer.
+
+**One press left, free**: `backend repair`, mode `verify`, slug `repairbench-1`.
+That reads `information_schema` and is the authoritative "no new tables or
+columns" — I probed seven plausible names and got nothing, but a probe only
+answers about names somebody guessed.
+
+---
+
 ### Still true: I cannot press any of these
 
 Re-tested rather than recalled. A direct REST POST answers **403** — and the

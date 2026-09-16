@@ -6250,6 +6250,119 @@ the format is not a property of the data*, and only the read could say so.
 data writes"), so it is recorded as a limit of the baseline rather than worked
 around.
 
+### RUN 49: THE ADDON BUILT THE FEATURE FROM THE EXISTING DATABASE (2026-09-16)
+
+The owner's press, `lane sweep` run **49** (**35079881765**, green in 10m02s on
+`main` `f22c166c`; the addon job itself **429.2 s**, cost **12**, balance
+**149 → 137**). One free-text ask, the date column's SQL name absent from it.
+
+**BOTH HALVES OF WHICH-CODE-IS-ANSWERING WERE PROVED BEFORE A CREDIT WAS SPENT**
+— the pre-flight's whole purpose, and this is the second run to clear it:
+
+```
+worker deploy: ea44a70c90bfb44e769a1eee6bc9131622e5b224  [build-health 200]
+container image (cold start, lane health-probe): 62c2700fa8c843c2  health="ok 850968e5fecd 62c2700fa8c843c2" in 1941ms
+runtime for repairbench-1: deploy=ea44a70c… runner=true async=true  [200]
+the code under test is the code answering — proceeding
+```
+
+**AND SCHEMA RECEIPT IS ESTABLISHED FROM THE PRE-CALL CAPTURE, NOT FROM THE
+FEATURE WORKING.** `shownSteps` — the instrumentation written for run 48's Gap A
+and printed by `askLines` for the first time here — records what each designer
+was really handed, taken above the await:
+
+```
+· function — database: YES — 2 table(s): ["bookings","repairs"]
+  {"kind":"function","tables":["bookings","repairs"],
+   "columns":{"bookings":["customer_name","bike","drop_off_day"],
+              "repairs":["customer_name","bike","issue"]},
+   "functions":["count_booked_repairs","count_existing_bookings"],"hasDatabase":true}
+· page — database: YES — 2 table(s): ["bookings","repairs"]
+```
+
+**`hasDatabase: true` with both tables and their columns is run 47's defect not
+recurring**, and it is the milestone the owner set. Run 47 was told the site had
+no tables and invented `repairs`; run 49 was told the truth and used it.
+
+**THE FUNCTION IT WROTE, VERBATIM — and it picked the right table:**
+
+```sql
+SELECT COALESCE(json_agg(json_build_object('drop_off_day', drop_off_day,
+                                           'booked', booked)
+                         ORDER BY booked DESC), '[]'::json)
+FROM (SELECT drop_off_day, COUNT(*)::int AS booked
+      FROM bookings GROUP BY drop_off_day) counts
+```
+
+`bookings`, not `repairs` — which is the discriminator, because `repairs` has no
+`drop_off_day` at all. It routed **`function · page`** and made **no table**.
+
+**CORRECTNESS, THREE INDEPENDENT READINGS AGREEING**, which is what a 200 alone
+could never say:
+
+| reader | answer |
+|---|---|
+| the baseline aggregate (your `counts` press, before the run) | `2026-09-18 → 2`, `2026-09-19 → 1` |
+| the site's own public RPC `workshop_load` (**200**) | `[{"drop_off_day":"2026-09-18","booked":2},{"drop_off_day":"2026-09-19","booked":1}]` |
+| a real Chromium on `/workshop-load` | the same two rows, **0 page errors** |
+
+`/workshop-load` **200/6,561 B**, `x-site-version 01789551373761-47doj7`, build
+`mu32igiu-dao04n → mu3wolgr-eqt2r5`, linked from the header. The browser's own
+RECORDED network call is `workshop_load → [{18: 2},{19: 1}]`, which is what ties
+the pixels to the query rather than to a number that happens to be on screen.
+**Controls unchanged**: `count_booked_repairs` and `count_existing_bookings`
+both still **200 answering 3**; `/status` and `/booking-check` both 200.
+
+**NO CUSTOMER NAME REACHES THE PAGE, checked three ways.** The route chunk
+`workshop-load-BJi9w4fU.js` (4,180 B) contains `workshop_load` ×1,
+`drop_off_day` ×8, `booked` ×4 and **`customer_name` ×0, `repairs` ×0**; the RPC
+returns only the date and the count; the rendered text contains no name, no
+phone number and no `customer_name`.
+
+**NO NEW TABLE**, by seven per-name PostgREST probes (`workshop_loads`,
+`bookings_by_day`, `daily_load`, `workshop`, `bikes_booked`, `load_by_date` —
+every one `PGRST205`). **That is exact per name and is NOT an enumeration**: the
+authoritative read is `backend repair --verify`, free and the owner's press.
+
+**THE REPORTING IS HONEST AND RUN 48'S DEFECT DID NOT RECUR.** The record reads
+`{total: 7, covered: 5, elsewhere: 2, unsupported: 0, unreadable: 0, delivered:
+0, configured: 0, unverified: 7, unknown: 0, missing: 0, blocked: 0, failed:
+0}` — **nothing `missing` and nothing `failed`**, so nothing working was called
+"Still to do". The customer heard the `unverified` clause: *"I've set that up,
+but I can't confirm from here that A page at /workshop-load shows how many bikes
+are booked in for each drop-off date; or that A function the page calls works out
+booked bikes per date from the bookings — have a look and tell me if it isn't
+right."*
+
+**AND `unverified` IS THE CEILING BY DESIGN, WHICH IS THE GAP THAT REMAINS.**
+`delivered` needs a `checked` behaviour and `checked` is deliberately empty —
+nothing on this path exercises a behaviour — so **the platform cannot confirm its
+own feature works; the browser and the RPC comparison above are what confirmed
+it, from outside.** That is the honest reading and it is a limit of the design
+rather than a defect in it.
+
+**THE HARNESS'S `STILL OWED` LINE READS MORE ALARMING THAN THE STATES DO**, and
+saying so is the point: it prints the route's `requirements` list verbatim
+(`askLines`, `list(r.requirements)`), which carries both `elsewhere` hand-offs —
+including the FORWARD one the `page` step really was handed. The STATES are all
+`unverified`, and the customer's sentence is the can't-confirm one. Two readings
+of one run, and only the state one is about whether the work happened.
+
+**AND THE ORDERING CLAIM IS SOURCE EVIDENCE, NEVER OUTPUT EVIDENCE.** The SQL
+says `ORDER BY booked DESC` — it orders by the COUNT — and that is read off the
+function's own body. The OUTPUT cannot discriminate it, because on these rows
+busiest-first and oldest-first coincide (the confound recorded above). Both
+statements are true and they are about different things; collapsing them is what
+the falsified tie-break claim did.
+
+**NO DEPLOY OVERLAPPED THE PAID WORK, checked rather than assumed.** Another
+session's deploy **2130** ran 09:40:25→09:43:18Z; the addon job finished at
+~09:39:19Z (429.2 s from ~09:32:10). The live verification above therefore reads
+the sweep's own publish — `x-site-version` is the build the run made, and a
+Worker deploy changes nothing a visitor sees until a site republishes.
+**The run pushed its own screenshots to main** (`9872f111`, existing
+`lane-sweep.yml` behaviour), which started no deploy — docs only, `paths-ignore`.
+
 
 ## Data, auth, payments, mail
 
@@ -6723,7 +6836,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   PROCESS. Guards: `backend-repair` **51 → 52**, `repair-commands` **14** (the
   failing-verify case gained the print assertions). Every new assertion was proved
   RED four ways first.
-  **AND THE BALANCE IS 149, NOT 161** (read off `public.credits` 2026-09-16; its
+  **AND THE BALANCE IS 137 AS OF RUN 49** (2026-09-16 09:41Z; the harness read it
+  at both ends — `149 → 137`, spent **12**, which is inside the 12–13 band quoted
+  before the press). Before it, **149** (read off `public.credits` 2026-09-16; its
   row last moved 19:31:38Z on 2026-09-15). Run 48 took 161 → 149. **The ledger also
   answers a question the SQL alone could not: ONE addon request makes SEVERAL
   sequenced reservations** — run 46 `#1 −3`/`#4 −5` = 8, run 47 `#1 −7`/`#4 −6` =
