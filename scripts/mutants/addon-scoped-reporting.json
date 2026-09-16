@@ -1,0 +1,247 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the three-group partition",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": " *   OPAQUE_KINDS  — the site may hold one and NOTHING can enumerate them. A",
+    "to": " *   OPAQUE_KINDS  — the site may hold one and NOTHING can list them out. A"
+  },
+  {
+    "label": "CONTROL: a comment only, above the route's existing-site reader",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // A change that REUSES a function it did not need to create leaves",
+    "to": "            // A change that REUSES a function it never needed to create leaves"
+  },
+
+  {
+    "label": "ITEM 1: the kind-wide block stops asking whether THIS thing is there",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (r.status === \"elsewhere\" && owner && bad.has(owner) && !depThere) {",
+    "to": "    } else if (r.status === \"elsewhere\" && owner && bad.has(owner)) {"
+  },
+  {
+    "label": "ITEM 1: the named dependency is never matched, so its failure is only a kind's",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const depBroke = !!dep && broken.has(String(owner || \"\") + \"::\" + dep);",
+    "to": "    const depBroke = false;"
+  },
+  {
+    "label": "ITEM 1: the failed-item index drops the kind, so one kind's failure blocks another's",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    .map((f) => String(f.kind || \"\") + \"::\" + String(f.name || \"\").trim().toLowerCase()));",
+    "to": "    .map((f) => String(f.name || \"\").trim().toLowerCase()));"
+  },
+  {
+    "label": "ITEM 1: a requirement naming nothing stops blocking on its step's failure",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const depThere = !!impl && impl.state === \"found\";",
+    "to": "    const depThere = !impl || impl.state !== \"absent\";"
+  },
+  {
+    "label": "ITEM 1: the route stops naming which functions failed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              ...aFnErrors.map((e) => ({ kind: \"function\", name: (e && e.name) || \"\" })),",
+    "to": "              ...[].map((e) => ({ kind: \"function\", name: (e && e.name) || \"\" })),"
+  },
+  {
+    "label": "ITEM 1: the route stops naming which pages did not survive",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              ...aMissing.map((r) => ({ kind: \"page\", name: r })),",
+    "to": "              ...[].map((r) => ({ kind: \"page\", name: r })),"
+  },
+  {
+    "label": "ITEM 1: the customer sentence stops being told which items failed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed] }),",
+    "to": "                  requirementNote(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed] }),"
+  },
+  {
+    "label": "ITEM 1: `aJobErrors` loses its hoist, so the closure reads it before its line",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [], aJobErrors = [];",
+    "to": "            let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [];"
+  },
+
+  {
+    "label": "ITEM 2: the site's own inventory is never consulted for a named item",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const had = theirs.find((m) => low(m) === item);",
+    "to": "    const had = null;"
+  },
+  {
+    "label": "ITEM 2: absence stops needing the site inventory to have been read",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const visible = canApplied && !opaque && (!holdable || canExisting);",
+    "to": "  const visible = canApplied;"
+  },
+  {
+    "label": "ITEM 2: an unobservable kind becomes absent-able again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const opaque = OPAQUE_KINDS.includes(kind);",
+    "to": "  const opaque = false;"
+  },
+  {
+    "label": "ITEM 2: `component` joins the kinds a site can be enumerated for",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "export const OPAQUE_KINDS = [\"component\", \"photo\"];",
+    "to": "export const OPAQUE_KINDS = [\"photo\"];"
+  },
+  {
+    "label": "ITEM 2: `edit` is treated as a kind the site can hold, losing a real finding",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "export const SITE_KINDS = [\"table\", \"function\", \"api\", \"job\", \"page\", \"qr\", \"three\"];",
+    "to": "export const SITE_KINDS = [\"table\", \"function\", \"api\", \"job\", \"page\", \"qr\", \"three\", \"edit\"];"
+  },
+  {
+    "label": "ITEM 2: a kind with no `item` goes back to reading a stocked site as absent",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (mine.length || theirs.length) return { state: \"unknown\", by: \"kind\", name: \"\", kind };",
+    "to": "  if (mine.length) return { state: \"unknown\", by: \"kind\", name: \"\", kind };"
+  },
+  {
+    "label": "ITEM 2: `existingFacts` claims to have read a schema it was never handed",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (spec && typeof spec === \"object\") {\n    for (const [kind, key] of [[\"table\", \"tables\"], [\"function\", \"functions\"], [\"api\", \"apis\"], [\"job\", \"jobs\"]]) {\n      speaks(kind);",
+    "to": "  {\n    for (const [kind, key] of [[\"table\", \"tables\"], [\"function\", \"functions\"], [\"api\", \"apis\"], [\"job\", \"jobs\"]]) {\n      speaks(kind);"
+  },
+  {
+    "label": "ITEM 2: `existingFacts` forgets the site's own pages",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (r.trim()) items.push({ kind: \"page\", name: r.trim() });",
+    "to": "      if (false) items.push({ kind: \"page\", name: r.trim() });"
+  },
+  {
+    "label": "ITEM 2: `existingFacts` forgets the marks a site carries by name",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    for (const q of qrList(look.qr)) { const n = String((q && q.name) || \"\").trim(); if (n) items.push({ kind: \"qr\", name: n }); }",
+    "to": "    for (const q of []) { const n = String((q && q.name) || \"\").trim(); if (n) items.push({ kind: \"qr\", name: n }); }"
+  },
+  {
+    "label": "ITEM 2: the route stops handing the site's own routes to the reader",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              spec: aSpec,\n              pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),",
+    "to": "              spec: aSpec,\n              pages: null,"
+  },
+  {
+    "label": "ITEM 2: the route stops handing the resolved look to the reader",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              look: aLook,\n            });",
+    "to": "              look: null,\n            });"
+  },
+  {
+    "label": "ITEM 2: the record stops saying which reader found it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "{ implementedBy: impl.name, foundIn: impl.where || \"applied\" }",
+    "to": "{ implementedBy: impl.name, foundIn: \"applied\" }"
+  },
+
+  {
+    "label": "ITEM 3: an unknown implementation is claimed as work that was set up",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const unsure = outcomes.filter((r) => r.state === \"unverified\" || r.state === \"configured\");",
+    "to": "  const unsure = outcomes.filter((r) => r.state === \"unverified\" || r.state === \"configured\" || r.state === \"unknown\");"
+  },
+  {
+    "label": "ITEM 3: the honest clause is never composed",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    parts.push(\"I can't see from here whether \" + unseen.slice(0, 2)",
+    "to": "    if (false) parts.push(\"I can't see from here whether \" + unseen.slice(0, 2)"
+  },
+  {
+    "label": "ITEM 3: a note that is only unknowns returns empty, so nothing is said at all",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    && !unseen.length && !bad.length && !lost.length) return \"\";",
+    "to": "    && !bad.length && !lost.length) return \"\";"
+  },
+  {
+    "label": "ITEM 3: `unknown` comes off the state list, so the census stops covering it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "export const REQUIREMENT_STATES = [\"delivered\", \"configured\", \"unverified\", \"unknown\", \"missing\", \"blocked\", \"failed\"];",
+    "to": "export const REQUIREMENT_STATES = [\"delivered\", \"configured\", \"unverified\", \"missing\", \"blocked\", \"failed\"];"
+  },
+  {
+    "label": "ITEM 3: the record folds unknown into unverified",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      unknown: n(\"unknown\"),",
+    "to": "      unknown: 0,"
+  },
+  {
+    "label": "ITEM 3: the trace mark stops counting what nobody could see",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                unseen: st.filter((r) => r.state === \"unknown\").length,",
+    "to": "                unseen: 0,"
+  },
+  {
+    "label": "ITEM 3: the stored record is decided without the site's own evidence",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              made: aMade(), reportable: aReportable(), existing: aExisting(),\n",
+    "to": "              made: aMade(), reportable: aReportable(),\n"
+  },
+  {
+    "label": "ITEM 3: the trace mark's outcomes are decided without the site's own evidence",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting() });",
+    "to": "              const st = requirementOutcomes(aReq, { told: [...aTold], failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable() });"
+  }
+]

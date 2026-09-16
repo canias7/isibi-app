@@ -50,29 +50,112 @@ export const COVERAGE = ["covered", "elsewhere", "unsupported"];
 export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "component", "qr", "three", "photo", "edit"];
 
 /**
- * WHAT BECAME OF A REQUIREMENT ONCE THE WHOLE CHANGE RAN — and there are THREE
- * answers, not two.
+ * ── WHETHER A SITE CAN ALREADY HOLD ONE, AND WHETHER ANYONE CAN LOOK ────────
  *
- *   delivered   — something we can check ties this need to what was built.
- *   failed      — the platform said it could not, or the step that owned it did
- *                 not run, or ran and refused.
- *   unverified  — the step ran and produced something, and NOTHING here ties
- *                 that something to this particular claim.
+ * Owner, 2026-09-15: *"Distinguish 'not added by this change' from 'absent from
+ * the site.'"* Doing that means knowing, per step, which question is even
+ * askable — and the three answers are genuinely different, so they are three
+ * lists rather than one flag.
  *
- * THE THIRD ONE IS THE CORRECTION. `requirementNote` used to read "the step
- * that owns it ran" as covered, so a planned page, a generated file or a
- * created table was taken as proof of "customers see only their own bookings"
- * or "the same slot cannot be taken twice". Existence is not evidence: the
- * page exists whether or not it enforces anything.
+ *   SITE_KINDS    — the site can already hold one, and something can enumerate
+ *                   them. A miss here means "not added AND not there" only when
+ *                   the caller really READ that inventory (`existing.kinds`);
+ *                   otherwise nobody looked and the answer is `unknown`.
+ *   OPAQUE_KINDS  — the site may hold one and NOTHING can enumerate them. A
+ *                   `component` folded into an existing page leaves no item
+ *                   anywhere, and a `photo` is a URL inside a file. Absence is
+ *                   never establishable, so these are never `absent`.
+ *   neither       — `edit` alone. It names no artifact a site holds; "they can
+ *                   change the wording later" is a real answer and the only
+ *                   question about it is whether THIS CHANGE did it, which the
+ *                   applied evidence answers on its own.
  *
- * AND THE EVIDENCE IS ASYMMETRIC, which is why `failed` and `unverified` are
- * separate rather than one "not done". A call to a function that failed PROVES
- * a problem; the absence of such a call proves nothing at all. So every
- * positive signal this module accepts is a check against something really
- * created, and everything else falls to `unverified` rather than to either
- * verdict — silence is never read as success, and it is never read as failure.
+ * `test/requirement-coverage.test.mjs` censuses the three against
+ * `COVERAGE_STEPS` in both directions, so a step added next month must be
+ * placed deliberately rather than falling into whichever branch it lands in.
  */
-export const REQUIREMENT_STATES = ["delivered", "failed", "unverified"];
+export const SITE_KINDS = ["table", "function", "api", "job", "page", "qr", "three"];
+export const OPAQUE_KINDS = ["component", "photo"];
+
+/**
+ * THE KINDS A REFERENCE MAY NAME — every step that owns an artifact.
+ *
+ * DERIVED from `COVERAGE_STEPS`, which is the census's own list, so a step added
+ * next month is offered here by construction. `edit` is the one exclusion and it
+ * is excluded BY MEANING rather than by being left out of a second list: it
+ * names no artifact a site holds, so `{kind: "edit", item: "x"}` could never be
+ * looked up in anything.
+ *
+ * `component` and `photo` ARE offered and always answer `unknown`, which is the
+ * honest pair: the designer can say what it made, and this layer says it cannot
+ * see one. Refusing the kind would leave them naming nothing or lying.
+ */
+export const ITEM_KINDS = Object.freeze(COVERAGE_STEPS.filter((k) => k !== "edit"));
+
+/**
+ * WHAT BECAME OF A REQUIREMENT ONCE THE WHOLE CHANGE RAN.
+ *
+ *   delivered   — a behaviour something really EXERCISED ties this need to what
+ *                 was built. Nothing fills that list today; see `claimEvidence`.
+ *   configured  — the implementation is there and a SETTING read back off it
+ *                 matches the claim. Recorded, never promoted: "the function is
+ *                 public" does not prove it checks ownership.
+ *   unverified  — the implementation IS established — this change applied it,
+ *                 or the site already had it — and NOTHING ties it to this
+ *                 particular claim.
+ *   unknown     — nothing here can establish whether the implementation is
+ *                 there at all. Separate from `unverified` since 2026-09-15,
+ *                 because that one's sentence opens *"I've set that up"*.
+ *   missing     — the implementation is not there, and this layer can see that
+ *                 it is not: this change did not add it AND the site does not
+ *                 have it, both read from a source that can enumerate.
+ *   blocked     — the step this need depends on ran and failed.
+ *   failed      — the platform said it could not do it, or the step that
+ *                 CLAIMED it failed.
+ *
+ * ── A HANDOFF IS NOT AN IMPLEMENTATION (2026-09-15, owner, after run 48) ────
+ *
+ * *"A requirement sent backward to an earlier step is an unresolved handoff;
+ * that alone does not establish that its implementation is missing."*
+ *
+ * This list had three entries and an `elsewhere` requirement whose step was
+ * never told fell straight to `failed`. Run 48 is the instance and it is exact:
+ * the PAGE step handed *"a new function named count_existing_bookings"* to the
+ * FUNCTION step, which runs before it in `ADD_KINDS` order and so could not
+ * have heard it — and the customer was told **"Still to do: A new function
+ * named count_existing_bookings"** about a function that had been created in
+ * that same change, was live, and answered `3` through the site's own public
+ * route within the minute.
+ *
+ * The undelivered handoff was REAL and is still reported (`handoff`), and the
+ * rule that produced it is right: a hand-off nobody delivered must never read
+ * as satisfied. What was wrong is that it was the only question asked. The
+ * implementation is a SECOND question with its own answer, and
+ * `implementationOf` asks it against what was really applied.
+ *
+ * AND THE EVIDENCE IS STILL ASYMMETRIC, which is why `missing` and `unverified`
+ * are separate rather than one "not done". Seeing an applied item proves it
+ * exists; NOT seeing one proves it is absent only where this layer can see that
+ * kind at all — `APPLIED_KINDS` is that list, and a kind off it answers
+ * `unverified` rather than `missing`. Silence is never read as success and
+ * never as failure.
+ */
+export const REQUIREMENT_STATES = ["delivered", "configured", "unverified", "unknown", "missing", "blocked", "failed"];
+
+/**
+ * WHAT BECAME OF THE HAND-OFF ITSELF, beside what became of the work.
+ *
+ *   delivered    — the step it names was really composed a brief and sent it.
+ *   undelivered  — it named a step that never heard it: one that had already
+ *                  run, or one this change never ran at all.
+ *
+ * Its own field because the two answers are independent in both directions. A
+ * delivered handoff whose step then made nothing is `missing` work with a
+ * delivered handoff; an undelivered handoff whose thing exists anyway — run
+ * 48 — is a real bookkeeping gap over working software. Collapsing them is what
+ * let one of those be reported as the other.
+ */
+export const HANDOFF_STATES = ["delivered", "undelivered"];
 
 /** A ceiling, never a quota — the rules say "one per thing the change needs". */
 export const MAX_REQUIREMENTS = 12;
@@ -127,6 +210,48 @@ export const REQUIREMENT_ITEM = {
       enum: COVERAGE_STEPS,
       description: "For \"elsewhere\" only: which step owns it.",
     },
+    // ── WHAT KIND OF THING `item` NAMES, AND IT IS THE `covered` HALF ONLY ──
+    //
+    // Owner, 2026-09-15: *"Allow covered requirements to name a different
+    // implementation kind explicitly; the authoring step alone cannot identify
+    // it."* An `elsewhere` reference is a request TO a named step, so `step`
+    // already says what kind of thing is being asked for. A `covered` reference
+    // does not: `from` is which CALL answered, and the tool invites a table step
+    // to name the function that does the work, so the step is not the kind.
+    //
+    // WITHOUT IT THE REFERENCE IS AMBIGUOUS AND STAYS `unknown`. Searching every
+    // kind by name instead is what let an applied TABLE satisfy a claim about a
+    // FUNCTION of the same name — `bookings` is the ordinary shape of that
+    // collision, not a contrived one.
+    kind: {
+      type: "string",
+      enum: ITEM_KINDS,
+      description:
+        "For \"covered\" only, and only beside `item`: what KIND of thing `item` names — a \"table\", a " +
+        "\"function\", a \"page\" and so on. Name it whenever you name an item, INCLUDING when it is the same " +
+        "kind of thing this step makes: a table and a function may share a name, and without this we cannot tell " +
+        "which of them you meant and will report that we could not check it.",
+    },
+    // THE EXPLICIT REFERENCE, AND IT IS OPTIONAL ON PURPOSE. With it, "is that
+    // thing really there" is one equality against an applied name; without it
+    // the question falls back to the kind, which is coarser and still
+    // structural. Asking for it unconditionally would get one invented, and an
+    // invented name reads as a thing that was never made.
+    //
+    // OFFERED FOR BOTH STATUSES SINCE 2026-09-15 (owner: *"Support explicit
+    // item references for covered requirements"*). `by` already names the thing
+    // inside a sentence; this is the same name on its own, where it can be
+    // compared by equality instead of searched for in prose.
+    item: {
+      type: "string",
+      description:
+        "ONLY if you can name it exactly: the name of the one thing this rests on — a function name, a table " +
+        "name, a route like \"/booking-check\". For \"elsewhere\" it is what you are asking that step to make; " +
+        "for \"covered\" it is the thing in your own design that does the work, the same name `by` mentions. " +
+        "It is what lets us check afterwards whether that thing is really there. LEAVE IT OUT rather than " +
+        "inventing one: a guessed name is worse than none, because it reads as something that was asked for " +
+        "and never built.",
+    },
     why: {
       type: "string",
       description:
@@ -172,17 +297,62 @@ export function cleanRequirements(raw, from = "") {
     const status = str(r.status, 20).toLowerCase();
     if (!COVERAGE.includes(status)) { skipped.push({ need, why: "bad-status" }); continue; }
     const e = { need, status, ...(owner ? { from: owner } : {}) };
+    // THE EXPLICIT REFERENCE SURVIVES CLEANING FOR BOTH STATUSES (owner,
+    // 2026-09-15: *"Support explicit item references for covered requirements,
+    // preserve them through cleaning"*). It sat inside the `elsewhere` branch,
+    // so a `covered` entry that named its thing exactly had that name dropped
+    // one hop after it was written — the recorded shape of `readAddAnswer`'s
+    // own defect, in the field added to stop guessing.
+    //
+    // NOT VALIDATED AGAINST ANYTHING, because there is nothing to validate it
+    // against yet — the thing it names is what this change may be about to
+    // make. It is compared by equality once the results are in, and an empty
+    // or unreadable one simply leaves the reconcile on the kind.
+    const item = str(r.item, 80);
+    if (item) e.item = item;
     if (status === "covered") {
       const by = str(r.by, MAX_BY);
       if (by) e.by = by;
+      // …AND THE KIND THAT MAKES THE REFERENCE AN IDENTITY (owner, 2026-09-15:
+      // *"Use the same explicit kind + item identity … Preserve that reference
+      // through cleaning"*). Kept ONLY for `covered`: an `elsewhere` entry's
+      // kind IS its `step`, and a second field carrying the same fact is a
+      // two-field invariant that can disagree with itself.
+      //
+      // A KIND WE DO NOT KNOW IS DROPPED AND THE REFERENCE GOES AMBIGUOUS,
+      // never repaired to a plausible one: `unknown` is a sentence the customer
+      // can act on and a wrong kind is a lookup in the wrong list.
+      const kind = str(r.kind, 20).toLowerCase();
+      if (ITEM_KINDS.includes(kind)) e.kind = kind;
     } else if (status === "elsewhere") {
       const step = str(r.step, 20).toLowerCase();
       // A STEP NOBODY RUNS IS NOT A HAND-OFF. Refused to `unsupported` rather
       // than dropped, because the requirement is still real — what is wrong is
       // only the claim about who owns it, and the customer should hear it.
       if (COVERAGE_STEPS.includes(step)) e.step = step;
-      else { e.status = "unsupported"; e.why = "named a step this change does not run"; }
-    }
+      else { e.status = "unsupported"; e.why = "named a step this change does not run"; delete e.item; }
+    } else delete e.item;
+    // A REFERENCE BELONGS TO A STATUS THAT CAN USE ONE. `kind` is only ever
+    // written on the `covered` branch above, so this is the same rule `item`
+    // gets when a step refuses: an `unsupported` entry refers to nothing this
+    // change will run, and a reference left on it invites a later reconcile.
+    //
+    // **THIS LINE IS A DELIBERATE BELT AND IS INERT TODAY, MEASURED** (720
+    // probes — every status including junk and wrong-case, every kind including
+    // junk, empty and `undefined`, every step including junk and `undefined` —
+    // byte-identical with it and without it). `e` is built fresh above and
+    // `e.kind` is assigned inside `if (status === "covered")` and nowhere else,
+    // and the one status rewrite in this function is on the `elsewhere` branch,
+    // which a `covered` entry never takes. So the structure is what really
+    // enforces the rule and this restates it.
+    //
+    // IT IS KEPT AND SAID OUT LOUD because a sweep cannot say it and the next
+    // session deletes what nothing appears to need: the PAIR is "the assignment
+    // sits inside the covered branch" and "a non-covered entry cannot keep a
+    // kind", and hoisting the assignment out is a one-line refactor that reads
+    // as tidying. `scripts/mutants/kind-identity.json` mutates the two
+    // together, which is the only way a redundancy can be sweep-tested at all.
+    if (e.status !== "covered") delete e.kind;
     if (e.status === "unsupported" && !e.why) {
       const why = str(r.why, MAX_WHY);
       e.why = why || "no reason was given";
@@ -376,7 +546,9 @@ function wordIn(text, needle) {
  * saying `bookings access user` about a table applied as `collect` is not
  * merely unproven, it disagrees with the database; reading the rest of the
  * sentence for something that happens to hold would let a wrong claim buy
- * itself a verdict off an incidental word.
+ * itself a verdict off an incidental word. It answers `contradicted` — its own
+ * kind, never `null` — because the item was named and really applied, so the
+ * IMPLEMENTATION is established and only the guarantee is denied.
  *
  * WHY THIS CANNOT CRY WOLF, STATED. Every reading here moves a requirement
  * TOWARDS `unverified` and never towards `failed`: there is no corpus of real
@@ -385,18 +557,97 @@ function wordIn(text, needle) {
  * direction that costs a sentence inviting the customer to check. A false
  * "I can't confirm" costs a look; a false "done" costs them the guarantee.
  */
+/**
+ * THE ITEMS A CLAIM MAY BE WEIGHED AGAINST — the same haystack the
+ * IMPLEMENTATION reading used, and never a wider one.
+ *
+ * Owner, 2026-09-16: *"claimEvidence(r.by, made) still searches every applied
+ * kind … Carry the explicit kind + name identity through the evidence lookup
+ * too. Evidence from another item must not turn an unknown implementation into
+ * configured, unverified, or delivered. Missing or ambiguous references must
+ * not regain certainty through an unrestricted prose match."*
+ *
+ * THE BYPASS THIS CLOSES, reproduced before it was written. An applied TABLE
+ * `bookings`, a `covered` requirement whose reference is `{kind: "component",
+ * item: "bookings"}`, and `by: "bookings shows the total"`. The reference reads
+ * `implementation: "unknown"` — `component` is opaque, nothing can enumerate one
+ * — and the claim was then matched against EVERY applied item, found the table,
+ * and answered `named` → `unverified` → *"I've set that up."* The same shape
+ * rescues a `function` reference whenever function inventory is unavailable:
+ * the exact question has no answer and a prose match about a different thing
+ * supplies one anyway.
+ *
+ * SO THE HAYSTACK IS THE IDENTITY, AND THERE ARE EXACTLY THREE ANSWERS, keyed
+ * off what `implementationOf` already resolved rather than re-deriving it:
+ *
+ *   `by: "item"`   the reference is `{kind, name}` — that item and nothing else.
+ *                  A miss is an EMPTY haystack, which is right whichever way the
+ *                  implementation read: absent (the thing is not there), or
+ *                  unknown (nobody could look). Neither may be talked over by a
+ *                  sentence that happens to name something else.
+ *   `by: "kind"`   no reference at all. The claim is weighed against the output
+ *                  of THE STEP RESPONSIBLE, which is the question the no-name
+ *                  branch of `implementationOf` already asks in as many words —
+ *                  one haystack, two readers. Restricted, not unrestricted.
+ *   no kind        ambiguous (a name with no kind), or not reconciled at all.
+ *                  Nothing to scope by, so nothing to weigh against.
+ *
+ * **AND THE `kind` TEST IS WHAT MAKES THE LAST CASE SAFE.** An ambiguous
+ * reference carries `kind: ""`, and a filter for that would match every applied
+ * item whose own kind is missing rather than none of them — the empty-needle
+ * shape, in the branch whose whole job is to answer nothing.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO: narrow an item reference by `from`. That
+ * is which CALL answered, never a claim about where the thing lives — the
+ * distinction `referenceOf` is built on — and it is only the no-reference
+ * haystack's scope because there the question really is about a step's output.
+ */
+export function evidenceItems(made, impl) {
+  if (!impl || !impl.kind) return [];
+  const all = (Array.isArray(made) ? made : []).filter((m) => m && typeof m === "object");
+  const ofKind = all.filter((m) => String(m.kind || "") === impl.kind);
+  if (impl.by === "kind") return ofKind;
+  if (impl.by === "item") return ofKind.filter((m) => String(m.name || "").trim().toLowerCase() === impl.name);
+  return [];
+}
+
 export function claimEvidence(claim, made) {
   const text = typeof claim === "string" ? claim.toLowerCase() : "";
   if (!text) return null;
   const low = (v) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+  // ── THE EXISTENCE HALF WAS BEING THROWN AWAY (owner, 2026-09-15) ─────────
+  //
+  // A claim naming an applied item and none of its guarantees used to answer
+  // `null`, which read as no evidence at all — so *"bookings.slot with a unique
+  // slot so two cannot be taken"* about a table this change really applied fell
+  // through to the `covered` label, and the label is exactly what may not stand
+  // in for evidence. The name match is weaker than a guarantee and it is not
+  // nothing: it locates the implementation. It is kept as its own kind and
+  // answers `unverified`, never `configured` and never `delivered`.
+  //
+  // KEPT RATHER THAN RETURNED, because a later item may carry a real
+  // guarantee — returning the first bare name would hide the stronger answer
+  // behind the weaker one, which is this file's own asked-in-order rule broken.
+  let named = null;
   for (const m of Array.isArray(made) ? made : []) {
     const name = low(m && m.name);
     if (name.length < 3 || !wordIn(text, name)) continue;
     // ASKED FIRST: a claim that disagrees with what was applied is not evidence
-    // for anything, whatever else it happens to say.
+    // for anything, whatever else it happens to say — INCLUDING the bare name,
+    // so a contradicted claim cannot buy `configured` or `delivered` off the
+    // existence half.
+    //
+    // **IT IS ITS OWN KIND AND NOT A `null` (2026-09-15).** Answering nothing
+    // made a contradiction indistinguishable from a claim with nothing to check
+    // against, and once `covered` started reading its implementation the two
+    // fell to opposite states: `unknown`, whose sentence says *"nothing I can
+    // check says either way"*, is FALSE here — something can be checked and it
+    // says the opposite. The item was named and really applied, so the
+    // implementation is established; what is not is the guarantee. That is
+    // `unverified`, and the fact that denied it rides out for the record.
     for (const raw of Array.isArray(m.fails) ? m.fails : []) {
       const t = low(raw);
-      if (t.length >= 3 && wordIn(text, t)) return null;
+      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: "contradicted" };
     }
     // A BEHAVIOUR SOMETHING REALLY EXERCISED comes first, because it is the
     // only kind of fact that can settle the requirement rather than describe
@@ -409,8 +660,9 @@ export function claimEvidence(claim, made) {
       const t = low(raw);
       if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: "config" };
     }
+    if (!named) named = { name: m.name, token: "", kind: "named" };
   }
-  return null;
+  return named;
 }
 
 /**
@@ -457,58 +709,411 @@ export function claimEvidence(claim, made) {
  * route recorded which kind wrote the entry. With no `from`, a `covered` entry
  * cannot be tied to a failed step and rests on its own evidence alone.
  */
-export function requirementOutcomes(list, { told = [], failed = [], made = [] } = {}) {
+/**
+ * DID THE STEP A REQUIREMENT WAS HANDED TO REALLY MAKE THE THING?
+ *
+ * `{ state: "found" | "absent" | "unknown", by, name, kind }`.
+ *
+ * ── EXPLICIT REFERENCES, NOT ANOTHER KEYWORD SCAN (owner, 2026-09-15) ───────
+ *
+ * *"Reconcile requirements with actual applied results using explicit
+ * references, such as kind and item name — not another keyword heuristic."*
+ *
+ * Two comparisons and both are structural. `r.step` is an enum off
+ * `COVERAGE_STEPS` and `m.kind` is stamped by the loop in `appliedFacts` that
+ * produced the entry, so `r.step === m.kind` reads one label against another.
+ * `r.item` — when the designer named what it was asking for — is compared to
+ * `m.name` by EQUALITY, lowercased and trimmed and nothing else. No text is
+ * searched, so the recorded failure modes of `evidenceName` (a substring, a
+ * name that happens to appear in a sentence about something else) cannot arise.
+ *
+ * ── AND THE TWO DIRECTIONS ARE NOT SYMMETRIC, WHICH IS THE WHOLE CARE HERE ──
+ *
+ * With an `item`, both directions are exact: the named thing is in the applied
+ * list or it is not.
+ *
+ * WITHOUT one, only ONE direction is sound. A kind that applied NOTHING
+ * certainly did not apply the particular thing, so `absent` follows. A kind
+ * that applied SOMETHING tells you nothing about whether that something is what
+ * this requirement asked for — a job step writing *"the reminder shows their
+ * booking time — that is the function step's"* is not answered by the existence
+ * of a function designed before the request. So a populated kind with no `item`
+ * answers **`unknown`**, never `found`.
+ *
+ * That asymmetry is this module's own rule kept: seeing a thing proves it
+ * exists, and not seeing one proves absence only where absence is visible.
+ * Reading a populated kind as `found` would make any function satisfy any
+ * request for a function, which is the coarse version of exactly the collapse
+ * this change exists to undo.
+ *
+ * `reportable` is the kinds whose answer is KNOWN when the question is asked —
+ * the route's own list. A kind off it answers `unknown` whatever `made` holds,
+ * and with no `reportable` at all NOTHING is absent, so an unchanged caller
+ * keeps the conservative answer.
+ *
+ * **WHAT THIS CANNOT ESTABLISH, STATED.** That the thing WORKS. An applied
+ * function establishes that a function was created and nothing whatever about
+ * whether it does what the requirement asked — which is why `found` answers
+ * `unverified` and never `delivered`, and why `page` entries carry an empty
+ * vocabulary. The only list that settles a requirement is `checked`, and
+ * nothing fills it (`appliedFacts`).
+ */
+/**
+ * THE ONE IDENTITY A REQUIREMENT'S REFERENCE HAS: `{kind, name}` or `null`.
+ *
+ * Owner, 2026-09-15: *"Use the same explicit kind + item identity for applied,
+ * existing, and failed items … Ambiguous references should remain unknown."*
+ * Three lookups asked the same question three ways before this — `made`,
+ * `existing.items` and `failedItems` — and the `covered` half of each ignored
+ * the kind, so a name was enough to match anything.
+ *
+ * WHERE THE KIND COMES FROM IS THE ONLY PER-STATUS PART:
+ *
+ *   `elsewhere` — the STEP is the kind. A request to the function step is a
+ *                 request for a function; there is nothing to declare and a
+ *                 second field saying it could only ever disagree.
+ *   `covered`   — the DECLARED `kind`, and nothing else. `from` is which call
+ *                 answered, and the tool invites a table step to name the
+ *                 function that does the work, so the step cannot stand in.
+ *
+ * `null` MEANS UNIDENTIFIABLE, NOT ABSENT — no name, or a `covered` name with
+ * no kind beside it. Every caller reads it as `unknown`: a reference we cannot
+ * resolve is one we may not answer either way.
+ */
+export function referenceOf(r) {
+  if (!r || typeof r !== "object") return null;
+  const name = typeof r.item === "string" ? r.item.trim().toLowerCase() : "";
+  if (!name) return null;
+  const kind = r.status === "elsewhere" ? String(r.step || "") : String(r.kind || "");
+  return kind ? { kind, name } : null;
+}
+
+export function implementationOf(r, made = [], reportable = [], existing = null) {
+  const status = r && typeof r === "object" ? r.status : "";
+  // ── BOTH STATUSES ARE RECONCILED, AGAINST THE SAME RESULTS (owner, 2026-09-15)
+  //
+  // *"Do not let the model's covered label substitute for implementation
+  // evidence … reconcile both covered and elsewhere against the same item-level
+  // results and existing-site evidence."* A `covered` entry used to skip this
+  // reader entirely and rest on its own label, so "I've set that up" was said
+  // about work nothing had looked for.
+  if (status !== "elsewhere" && status !== "covered") return { state: "unknown", by: "", name: "", kind: "" };
+  // ── WHOSE RESULTS ANSWER IT, AND THAT IS NOT ONE QUESTION ────────────────
+  //
+  // `elsewhere` NAMES A STEP. The requirement is a request TO that step, so
+  // "did it make this" is asked of that step's applied items and of nobody
+  // else's — a function turning up under some other kind is not the function
+  // the page step asked the function step for.
+  //
+  // `covered` names no step. `from` is OUR OWN bookkeeping of which call
+  // answered, never the model's claim about where the thing lives — so it
+  // answers "did the step responsible produce anything", which is the question
+  // the no-name branch at the foot of this function asks, and NOT "what kind of
+  // thing is this reference". That second question is `referenceOf`'s.
+  const kind = status === "elsewhere" ? String(r.step || "") : String(r.from || "");
+  if (!kind) return { state: "unknown", by: "", name: "", kind: "" };
+  const low = (v) => String((v && v.name) || "").trim().toLowerCase();
+  const ofKind = (list, k) => (Array.isArray(list) ? list : []).filter((m) => m && String(m.kind || "") === k);
+  // ── TWO SOURCES OF PRESENCE, AND THEY ARE NOT THE SAME CLAIM ────────────
+  //
+  // `made` is what THIS CHANGE applied; `existing` is what the site ALREADY
+  // had, and a caller supplies it only for kinds it can really enumerate.
+  // Both answer "the thing is there"; neither alone answers "it is not".
+  const ex = existing && typeof existing === "object" ? existing : null;
+  // VISIBILITY IS ASKED OF WHICHEVER KIND IS BEING LOOKED IN, because "could we
+  // have seen one of these" is a question about the haystack and not about the
+  // step that asked. The item branch below asks it of the REFERENCE's kind; the
+  // no-name branch asks it of the step's.
+  const seeable = (k) => {
+    const canApplied = (Array.isArray(reportable) ? reportable : []).includes(k);
+    const canExisting = !!ex && (Array.isArray(ex.kinds) ? ex.kinds : []).includes(k);
+    return canApplied && !OPAQUE_KINDS.includes(k) && (!SITE_KINDS.includes(k) || canExisting);
+  };
+  const mine = ofKind(made, kind);
+  const theirs = ex ? ofKind(ex.items, kind) : [];
+  // **ABSENCE NEEDS EVERY READER THAT COULD SPEAK TO HAVE SPOKEN**, which is
+  // the owner's instruction — *"Where existing presence cannot be established,
+  // report unknown — not missing"* — and NOT a blanket demand for two readers.
+  // The three cases are `SITE_KINDS` / `OPAQUE_KINDS` / neither:
+  //
+  //   * a kind the site can hold is `absent` only when its inventory was really
+  //     read (`canExisting`); unread, nobody looked, so `unknown`.
+  //   * a kind nothing can enumerate is NEVER absent, whatever was applied.
+  //   * `edit` names no artifact, so the applied evidence is the whole answer —
+  //     demanding a site inventory there would lose a real finding, which is
+  //     what the first cut of this change did.
+  const ref = referenceOf(r);
+  if (typeof r.item === "string" && r.item.trim()) {
+    // ── ONE IDENTITY, AND IT IS `{kind, name}` (owner, 2026-09-15) ─────────
+    //
+    // *"Use the same explicit kind + item identity for applied, existing, and
+    // failed items."* The search used to be BY NAME ACROSS EVERY KIND for a
+    // `covered` claim, and two collisions fell straight out of it, both
+    // reproduced before this was written: an applied TABLE `bookings` answered
+    // a claim about the FUNCTION `bookings` with `found` and *"I've set that
+    // up"*, and a FAILED function `bookings` blocked a claim about the TABLE.
+    // `bookings` is the ordinary name for both, not a contrived one.
+    //
+    // AN UNIDENTIFIABLE REFERENCE STAYS `unknown` — never widened back into a
+    // name search, which is the collision, and never narrowed onto `from`,
+    // which is the step that ANSWERED and not the kind of the thing.
+    if (!ref) return { state: "unknown", by: "ambiguous", name: String(r.item).trim().toLowerCase(), kind: "" };
+    const hit = ofKind(made, ref.kind).find((m) => low(m) === ref.name);
+    if (hit) return { state: "found", by: "item", where: "applied", name: String(hit.name), kind: ref.kind };
+    // NOT ADDED BY THIS CHANGE IS NOT ABSENT FROM THE SITE. A change that
+    // deliberately reuses a function it did not need to create leaves nothing
+    // in `made`, and reading that as "still to do" is run 48's defect wearing
+    // a different hat. Same identity, second source.
+    const had = ex ? ofKind(ex.items, ref.kind).find((m) => low(m) === ref.name) : null;
+    if (had) return { state: "found", by: "item", where: "existing", name: String(had.name), kind: ref.kind };
+    return { state: seeable(ref.kind) ? "absent" : "unknown", by: "item", name: ref.name, kind: ref.kind };
+  }
+  // No name to match: only the EMPTY direction is sound. See the head — and it
+  // is emptiness of BOTH, because a site that already has things of this kind
+  // cannot say whether one of them is the thing this requirement asked for.
+  //
+  // AND THIS BRANCH STAYS KIND-SCOPED FOR BOTH STATUSES, deliberately: with no
+  // name the question is no longer "does the thing exist" but "did the step
+  // responsible produce anything at all", and that is a question about one
+  // step's output whichever status asked it.
+  if (mine.length || theirs.length) return { state: "unknown", by: "kind", name: "", kind };
+  return { state: seeable(kind) ? "absent" : "unknown", by: "kind", name: "", kind };
+}
+
+export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null } = {}) {
   const heard = new Set((Array.isArray(told) ? told : []).filter((k) => typeof k === "string"));
   const bad = new Set((Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"));
+  // ── WHICH THING FAILED, NOT WHICH KIND (owner, 2026-09-15) ──────────────
+  //
+  // *"One failed function must not block a requirement whose different
+  // function applied successfully."* `failed` is a set of KINDS, so one
+  // refused function blocked every requirement handed to the function step —
+  // including one naming a function the database created without complaint.
+  // `failedItems` is `[{kind, name}]`: the things that really failed, so a
+  // requirement that NAMES its dependency is judged on that dependency.
+  const items = (Array.isArray(failedItems) ? failedItems : []).filter((f) => f && typeof f === "object");
+  // ONE INDEX, KEYED THE WAY `referenceOf` ANSWERS (owner, 2026-09-15). It was
+  // this index PLUS a bare-name one for `covered`, and the bare-name half was
+  // the second reported collision: a failed FUNCTION `bookings` blocked a claim
+  // about the applied TABLE `bookings`, because the names matched and nothing
+  // compared the kinds. A requirement whose reference cannot be identified has
+  // no dependency to be blocked on and reads `unknown` instead.
+  const broken = new Set(items.map((f) => String(f.kind || "") + "::" + String(f.name || "").trim().toLowerCase()));
   const out = [];
   for (const r of Array.isArray(list) ? list : []) {
     if (!r || typeof r !== "object") continue;
     const owner = r.status === "elsewhere" ? r.step : r.from;
-    let state = "unverified", why = r.why || "";
-    if (r.status === "unsupported") {
-      state = "failed";
-    } else if (owner && bad.has(owner)) {
-      state = "failed";
-      why = why || "the " + owner + " step could not do its part";
-    } else if (r.status === "elsewhere" && (!owner || !heard.has(owner))) {
-      state = "failed";
-      why = why || "the " + (owner || "next") + " step never got it";
-    }
-    // ── CONFIGURATION SETTLES NOTHING (owner, 2026-09-14) ──────────────────
+    // ── THE HAND-OFF'S OWN ANSWER, DECIDED FIRST AND KEPT WHATEVER ELSE ────
     //
-    // A configuration fact is recorded BESIDE the verdict and never becomes
-    // one: *"'The function is public' does not prove it checks ownership."*
-    // Only a `checked` token — a behaviour something really exercised — can
-    // answer `delivered`, and nothing fills that list today, so this reads
-    // `unverified` with the configuration it DID match written down.
-    let configured = "";
-    if (state === "unverified" && r.status === "covered") {
-      const ev = claimEvidence(r.by, made);
-      if (ev && ev.kind === "checked") state = "delivered";
-      else if (ev) configured = String(ev.name) + ": " + String(ev.token);
+    // A hand-off that reached nobody is a real finding and is still reported
+    // here — what it is NOT is evidence about the work, which is decided
+    // separately below. Run 48 collapsed the two and told a customer a live,
+    // working function was still to do.
+    const handoff = r.status === "elsewhere" ? (owner && heard.has(owner) ? "delivered" : "undelivered") : "";
+    const reconciled = r.status === "elsewhere" || r.status === "covered";
+    const impl = reconciled ? implementationOf(r, made, reportable, existing) : null;
+    // THE NAMED DEPENDENCY, AND WHETHER IT IS THE ONE THAT BROKE. Asked in
+    // this order deliberately: a thing KNOWN to have failed is blocked before
+    // anything else is asked about it, and only then does a thing known to be
+    // there excuse its step's other failures. The two are disjoint today (the
+    // route puts only CREATED items in `made`), and the fail-closed order is
+    // what keeps that an observation rather than a dependency.
+    //
+    // THE REFERENCE IS THE SAME OBJECT THE IMPLEMENTATION READER USED, which is
+    // the whole of the owner's "the same explicit kind + item identity for
+    // applied, existing, and failed items": one `{kind, name}`, three lookups.
+    const ref = reconciled ? referenceOf(r) : null;
+    const dep = ref ? ref.name : "";
+    const depBroke = !!ref && broken.has(ref.kind + "::" + ref.name);
+    const depThere = !!impl && impl.state === "found";
+    // A REFERENCE NOBODY CAN RESOLVE IS ITS OWN FINDING, and it is actionable
+    // in a way "nobody looked" is not: the designer named a thing and left off
+    // what KIND it is, so the tool could have been answered and was not.
+    const unresolved = !!impl && impl.by === "ambiguous";
+    // THE CLAIM, READ ONLY FOR `covered` — `elsewhere` carries no `by`, the
+    // cleaner never keeps one for it, and a requirement that asks another step
+    // for something has made no claim of its own to weigh.
+    //
+    // …AND READ AGAINST THE SAME IDENTITY THE IMPLEMENTATION WAS (owner,
+    // 2026-09-16). `made` used to go in whole, so a prose match against ANY
+    // applied item could turn an implementation nobody could find into
+    // `unverified`, `configured` or `delivered`. `evidenceItems` is the one
+    // scope, derived from `impl` rather than re-resolved, so the two readers
+    // cannot come apart.
+    const ev = r.status === "covered" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;
+    let state = "unverified", why = r.why || "", configuredBy = "", contradictedBy = "";
+    if (r.status === "unsupported") {
+      // The step said so itself, in its own words.
+      state = "failed";
+    } else if (reconciled && depBroke) {
+      // THIS requirement's own dependency failed — the strongest and most
+      // specific thing that can be said, and it names the item. **Both
+      // statuses**, because a `covered` claim resting on a function the
+      // database refused is waiting on the same broken part as a hand-off is.
+      state = "blocked";
+      why = why || "the " + dep + " it needs could not be created";
+    } else if (reconciled && owner && bad.has(owner) && !depThere) {
+      // THE STEP FAILED AND NOTHING SAYS THIS REQUIREMENT ESCAPED IT.
+      //
+      // **`!depThere` IS THE WHOLE SCOPE, AND IT NOW GUARDS BOTH STATUSES**
+      // (owner, 2026-09-15: *"covered + from:function + an unrelated function
+      // failure still becomes failed, even when the referenced function
+      // applied … Block only on the requirement's actual failed
+      // dependencies."*). The step had A failure; if the thing THIS
+      // requirement names is nonetheless there, that failure was somebody
+      // else's and this requirement is judged on its own evidence below.
+      //
+      // A requirement that names nothing still stops here, because a step that
+      // failed is then the only evidence available about it — and the two
+      // statuses part company only on WHICH SENTENCE that earns: a hand-off is
+      // waiting on another part, a claim the failed step made goes down with
+      // the step that made it.
+      state = r.status === "covered" ? "failed" : "blocked";
+      why = why || "the " + owner + " step could not do its part";
+    } else if (unresolved) {
+      // ── AN AMBIGUOUS REFERENCE OUTRANKS EVERY WEAKER READING ─────────────
+      //
+      // Owner, 2026-09-15: *"Ambiguous references should remain unknown."* The
+      // designer NAMED the thing this rests on and left off what kind it is, so
+      // the one exact question has no answer — and the readings below it are
+      // all kind-blind prose matches over `by`, which is the same collision one
+      // layer over: an applied TABLE `bookings` satisfies a sentence about the
+      // FUNCTION `bookings` just as easily as the old item search did.
+      //
+      // So nothing weaker may rescue it. Falling through to `claimEvidence`
+      // would answer the question the designer did not ask with evidence about
+      // a thing they may not have meant, and say *"I've set that up"* off it.
+      //
+      // **A DECLARED REDUNDANCY SINCE 2026-09-16, AND MEASURED INERT rather
+      // than assumed.** `evidenceItems` now scopes an ambiguous reference to
+      // nothing (it carries no kind), so `ev` is already `null` here and the
+      // fall-through lands on `unknown` anyway: **27,216 probes over every
+      // status, kind, item, `from`, claim, failed kind and failed item —
+      // byte-identical with this branch and with it cut.** It is KEPT because
+      // the two say different things and only one of them is about scope: this
+      // branch is the ORDER (ambiguity outranks every weaker reading, and in
+      // particular is asked AFTER the two failure branches), and the haystack
+      // is the SCOPE. Widen the scope by one line — an ambiguous reference
+      // falling back to the step's kind is the plausible version — and this
+      // becomes the only wall again. The sweep mutates the PAIR, because a
+      // sweep cannot say this and the next session deletes what nothing
+      // appears to need.
+      state = "unknown";
+    } else if (impl && impl.state === "absent") {
+      // THE NAMED THING IS NOT THERE, and the explicit reference outranks the
+      // claim: a designer that named the item answered the narrower question,
+      // and an incidental name inside `by` must not talk over it.
+      state = "missing";
+      why = why || (r.status === "covered"
+        ? "the " + (dep || "thing") + " it says covers this was not added"
+        : handoff === "undelivered"
+          ? "the " + (owner || "next") + " step never got it, and nothing of that kind was added"
+          : "the " + (owner || "next") + " step was told and added nothing for it");
+    } else if (ev && ev.kind === "checked") {
+      // ── CONFIGURATION SETTLES NOTHING (owner, 2026-09-14) ────────────────
+      //
+      // A configuration fact is its own STATE rather than a note beside
+      // `unverified`: *"'The function is public' does not prove it checks
+      // ownership."* Only a `checked` token — a behaviour something really
+      // exercised — answers `delivered`, and nothing fills that list today, so
+      // `configured` is as far as a claim about a real setting can get.
+      state = "delivered";
+    } else if (ev && ev.kind === "config") {
+      state = "configured";
+      configuredBy = String(ev.name) + ": " + String(ev.token);
+    } else if ((impl && impl.state === "found") || (ev && (ev.kind === "named" || ev.kind === "contradicted"))) {
+      // THE IMPLEMENTATION IS ESTABLISHED and its behaviour is not — an item
+      // proves existence and never conduct, whether this change applied it, the
+      // site already had it, or the claim named it (`named`: an applied item's
+      // real name, word-bounded, with nothing it says contradicted).
+      //
+      // `contradicted` IS HERE AND NOT IN `unknown`, and the reason is which
+      // sentence would be a lie: the claim named an item this change really
+      // applied, so the thing exists — what is wrong is the guarantee it claims
+      // about it, which nothing here may promote to a refusal (the never-move-
+      // towards-`failed` rule above). The fact that denied it is recorded.
+      state = "unverified";
+      if (ev && ev.kind === "contradicted") contradictedBy = String(ev.name) + ": " + String(ev.token);
+    } else {
+      // NOTHING HERE CAN SEE WHETHER IT IS THERE, and that is its own answer
+      // rather than a quiet "unverified" (owner, 2026-09-15): the customer's
+      // sentence for `unverified` opens *"I've set that up"*, which is a claim
+      // nobody is entitled to make about an implementation nobody could find —
+      // **and that is now as true of a `covered` label as of a hand-off.**
+      state = "unknown";
     }
-    out.push({ ...r, state, ...(configured ? { configured } : {}), ...(why ? { why } : {}) });
+    out.push({
+      ...r, state,
+      ...(handoff ? { handoff } : {}),
+      // `implementedBy` IS ONLY EVER THE THING THAT WAS FOUND. The reader
+      // carries the name it SOUGHT out of a miss too, which is useful inside
+      // it and is a lie on the wire: a field named "implemented by" beside
+      // `implementation: "absent"` reads as the thing existing.
+      // …AND `foundIn` SAYS WHICH READER ANSWERED, because "this change made
+      // it" and "the site already had it" are the distinction item 2 is about
+      // and a record that collapses them cannot be audited later.
+      ...(impl ? { implementation: impl.state, ...(impl.state === "found" && impl.name ? { implementedBy: impl.name, foundIn: impl.where || "applied" } : {}) } : {}),
+      ...(configuredBy ? { configuredBy } : {}),
+      // THE ONE READING THAT SAYS SOMETHING POSITIVE, and it would otherwise
+      // vanish: `unverified` reached three ways means three different things to
+      // a developer, and "the applied item says the opposite of this claim" is
+      // the one worth acting on. The CUSTOMER hears the same sentence either
+      // way, deliberately — nothing here is entitled to call a claim wrong.
+      ...(contradictedBy ? { contradictedBy } : {}),
+      // DEVELOPER-FACING, and it separates two `unknown`s that need different
+      // work: "nobody could look" is ours to fix, "the reference names no kind"
+      // is one word the designer could have written. The customer hears the
+      // same can't-see sentence either way — a reference is our bookkeeping.
+      ...(unresolved ? { unresolved: "no-kind" } : {}),
+      ...(why ? { why } : {}),
+    });
   }
   return out;
 }
 
-export function requirementNote(list, { told = [], invalid = [], failed = [], made = [], unexpressed = [] } = {}) {
-  const outcomes = requirementOutcomes(list, { told, failed, made });
+export function requirementNote(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [] } = {}) {
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const bad = (Array.isArray(invalid) ? invalid : []).filter((x) => typeof x === "string" && x);
   const lost = (Array.isArray(unexpressed) ? unexpressed : []).filter((x) => typeof x === "string" && x);
-  const broke = outcomes.filter((r) => r.state === "failed");
-  const unsure = outcomes.filter((r) => r.state === "unverified");
-  if (!broke.length && !unsure.length && !bad.length && !lost.length) return "";
+  const unsupported = outcomes.filter((r) => r.state === "failed" && r.status === "unsupported");
+  const broke = outcomes.filter((r) => r.state === "failed" && r.status !== "unsupported");
+  const blocked = outcomes.filter((r) => r.state === "blocked");
+  const gone = outcomes.filter((r) => r.state === "missing");
+  // CONFIGURED SITS WITH UNVERIFIED IN WHAT THE CUSTOMER HEARS, and it should:
+  // both mean "it is there and nothing here checked what it does", which is one
+  // sentence to a person. The two are separate in the RECORD, where the
+  // difference is actionable.
+  const unsure = outcomes.filter((r) => r.state === "unverified" || r.state === "configured");
+  // …AND `unknown` IS NOT ONE OF THEM (owner, 2026-09-15): *"'I've set that up'
+  // is inappropriate when implementation is unknown."* The clause below opens
+  // with exactly that, so a need whose implementation nobody could find gets
+  // its own sentence rather than a claim about work that may not exist.
+  const unseen = outcomes.filter((r) => r.state === "unknown");
+  if (!unsupported.length && !broke.length && !blocked.length && !gone.length && !unsure.length
+    && !unseen.length && !bad.length && !lost.length) return "";
   const parts = [];
-  const unsupported = broke.filter((r) => r.status === "unsupported");
-  const handed = broke.filter((r) => r.status !== "unsupported");
   if (unsupported.length) {
     parts.push("One thing your site can't do yet: " + unsupported.slice(0, 3)
       .map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
     if (unsupported.length > 3) parts.push("And " + (unsupported.length - 3) + " more like it.");
   }
-  if (handed.length) {
-    parts.push("Still to do: " + handed.slice(0, 3).map((r) => r.need).join("; ") + ".");
+  // ── "STILL TO DO" MEANS THE WORK IS NOT THERE, AND NOTHING ELSE ──────────
+  //
+  // It used to be said about any hand-off nobody delivered, whatever had been
+  // built — run 48's *"Still to do: A new function named
+  // count_existing_bookings"* about a function that was live and answering. It
+  // is reached now only from `missing` (this layer looked and the thing is not
+  // there) and from a `covered` claim whose own step failed.
+  const absent = [...gone, ...broke];
+  if (absent.length) {
+    parts.push("Still to do: " + absent.slice(0, 3).map((r) => r.need).join("; ") + ".");
+  }
+  // A DIFFERENT SENTENCE FOR A DEPENDENCY, because it points somewhere else: a
+  // customer can act on "the part this needed didn't work" by asking about that
+  // part, where "still to do" invites them to ask for the same thing again.
+  if (blocked.length) {
+    parts.push("And this one is waiting on another part of the same change that didn't work: "
+      + blocked.slice(0, 2).map((r) => r.need + (r.why ? " — " + r.why : "")).join("; ") + ".");
   }
   // THE HONEST CLAUSE, AND IT IS THE POINT OF THE THIRD STATE. What was built
   // is built; what nothing here can confirm is said as exactly that, rather
@@ -517,6 +1122,19 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], ma
   if (unsure.length) {
     parts.push("I've set that up, but I can't confirm from here that " + unsure.slice(0, 2)
       .map((r) => r.need).join("; or that ") + " — have a look and tell me if it isn't right.");
+  }
+  // ── AND A DIFFERENT SENTENCE FOR A DIFFERENT SILENCE ─────────────────────
+  //
+  // The clause above says *the work is there and I could not check it*; this
+  // one says *I could not even see whether it is there*. Telling somebody the
+  // first about the second is a claim, and the thing to do about it is the
+  // same look with a different question — so it asks for that, and it invites
+  // the ask again rather than a correction, because there may be nothing to
+  // correct.
+  if (unseen.length) {
+    parts.push("I can't see from here whether " + unseen.slice(0, 2)
+      .map((r) => r.need).join("; or whether ")
+      + " — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.");
   }
   // ONE CLAUSE, AND IT DOES NOT NAME THE PROPERTY. The count is what a customer
   // can act on ("ask me again and say which"); the names are the developer's.
@@ -556,22 +1174,40 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], ma
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], failed = [], made = [], unbuilt = {}, unexpressed = [] } = {}) {
-  const outcomes = requirementOutcomes(list, { told, failed, made });
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [] } = {}) {
+  const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
     counts: {
       ...requirementCounts(list, skipped),
-      // THE THREE STATES, BESIDE THE THREE STATUSES AND NOT INSTEAD OF THEM.
-      // A status is what the MODEL said; a state is what really became of it.
+      // EVERY STATE, BESIDE THE THREE STATUSES AND NOT INSTEAD OF THEM. A
+      // status is what the MODEL said; a state is what really became of it.
       // Keeping both is what makes "the designer said covered and nothing here
       // can confirm it" a countable thing rather than an impression.
-      delivered: n("delivered"), failed: n("failed"), unverified: n("unverified"),
-      // WHAT WAS CHECKED AND DID NOT SETTLE IT. A requirement whose claim
-      // matched a configuration fact is a different kind of unverified from
-      // one nothing could be said about at all, and collapsing the two loses
-      // the only half of the evidence this path can actually produce.
-      configured: outcomes.filter((r) => r.configured).length,
+      delivered: n("delivered"),
+      // A CLAIM THAT MATCHED A REAL SETTING is a different kind of unverified
+      // from one nothing could be said about at all, and collapsing the two
+      // loses the only half of the evidence this path can actually produce.
+      configured: n("configured"),
+      unverified: n("unverified"),
+      // NOBODY COULD SEE WHETHER IT IS THERE — its own number, because a run
+      // full of these is a run that answered almost nothing, and folded into
+      // `unverified` it reads as a run that built a lot and checked none of it.
+      unknown: n("unknown"),
+      // THE WORK IS NOT THERE / A DEPENDENCY FAILED / THE STEP SAID IT COULD
+      // NOT — three different things to do about it, so three numbers.
+      missing: n("missing"), blocked: n("blocked"), failed: n("failed"),
+    },
+    // ── THE HAND-OFF LEDGER, SEPARATE FROM THE WORK (2026-09-15) ───────────
+    //
+    // `undelivered` is the count of requirements that named a step which never
+    // heard them. It is a real defect in this change's own bookkeeping and is
+    // worth reading on its own — but it is NOT the count of things that did not
+    // get built, and reading it as one is what run 48 did. Its neighbours above
+    // are what did not get built.
+    handoffs: {
+      delivered: outcomes.filter((r) => r.handoff === "delivered").length,
+      undelivered: outcomes.filter((r) => r.handoff === "undelivered").length,
     },
     requirements: outcomes.slice(0, MAX_REQUIREMENTS),
     unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),
@@ -598,6 +1234,15 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // The two disagreeing is the finding: a step named by a requirement that
     // had already run is a hand-off nobody could have delivered.
     toldSteps: (Array.isArray(told) ? told : []).filter((k) => typeof k === "string"),
+    // ── AND WHAT EACH STEP WAS SHOWN ABOUT THE DATABASE (2026-09-15) ───────
+    //
+    // Run 48's first demonstration — *"the function designer's actual input
+    // includes the existing bookings schema"* — had NO stored answer, because
+    // the only `site` on the record was the one value left at the end of the
+    // loop. `shownSteps` is per kind, in run order, and each entry is taken
+    // from the object really handed to that call (`shownSchema`). It is the
+    // smallest thing that settles "did this step see that table?" as a fact.
+    shownSteps: (Array.isArray(shown) ? shown : []).filter((x) => x && typeof x === "object").slice(0, MAX_REQUIREMENTS),
     ran: (Array.isArray(ran) ? ran : []).filter((k) => typeof k === "string"),
     failedSteps: (Array.isArray(failed) ? failed : []).filter((k) => typeof k === "string"),
     // WHAT THE ENGINE DROPPED WHOLE, PER TIER — the report that did not exist

@@ -82,13 +82,19 @@ function neonRows(rows, cols) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function bucket(slug, stored) {
+function bucket(slug, stored, look) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
     // there is more than one answer.
     ["source/" + slug + "/pages.json", JSON.stringify(Array.isArray(stored) && stored.length ? stored : PAGES)],
-    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Fretwork", pages: [] }, css: "" })],
+    // …AND ITS STORED LOOK, which a case may extend (2026-09-15). Two kinds a
+    // site carries live here rather than in its schema — its QR codes and its
+    // one scene — so a case about existing-site evidence for either has to be
+    // able to say the site already has one. MERGED over the default rather
+    // than replacing it: `brand` and `pages` are what every other case relies
+    // on, and a case adding a QR code is not saying the site has no name.
+    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Fretwork", pages: [], ...(look || {}) }, css: "" })],
   ]);
   return {
     store,
@@ -376,7 +382,12 @@ export async function addon(slug, instruction, opts) {
   // THE STORED SCHEMA IS PER CALL, not a shared module object: `meta.value`
   // moves when the apply writes, and a case that read another case's leftovers
   // would be the shared-slug trap one field over.
-  const meta = { value: JSON.stringify(STORED_SCHEMA) };
+  // …AND A CASE MAY START THE SITE FROM A DIFFERENT ONE (2026-09-15), for the
+  // demonstrations about EXISTING-site evidence: "this change did not add it"
+  // and "the site does not have it" are different sentences, and telling them
+  // apart needs a site that already has something. `stored` replaces the whole
+  // schema rather than merging, so a case says exactly what the site is.
+  const meta = { value: JSON.stringify((opts && opts.stored) || STORED_SCHEMA) };
   const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls });
   // ── A COMPILER ONLY WHEN THE CASE NEEDS ONE ──────────────────────────────
   //
@@ -388,7 +399,7 @@ export async function addon(slug, instruction, opts) {
   const c = (opts && opts.publishes) ? installCompiler() : null;
   try {
     const worker = await loadWorker();
-    const store = bucket(slug, opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null);
+    const store = bucket(slug, opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null, opts && opts.look);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },

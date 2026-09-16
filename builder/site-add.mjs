@@ -129,7 +129,7 @@ import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
-import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, cleanRequirements, requirementBrief } from "./site-requirements.mjs";
+import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, SITE_KINDS, cleanRequirements, requirementBrief } from "./site-requirements.mjs";
 // THE TWO BODY WALLS, IMPORTED RATHER THAN RETYPED. Both engines SLICE, and a
 // slice is silent: the cleaner refuses at the same number so the customer hears
 // about it instead of the site quietly POSTing half a request for ever. The
@@ -2792,12 +2792,173 @@ export function addRepairNote(round) {
 }
 
 /**
+ * WHAT THE SITE ALREADY HAS, beside what this change applied (2026-09-15).
+ *
+ * Owner: *"Distinguish 'not added by this change' from 'absent from the site.'
+ * Reconcile against trustworthy existing-site evidence as well as applied
+ * additions."* A change that reuses a function it did not need to create leaves
+ * nothing in `appliedFacts`, and reading that silence as absence tells a
+ * customer a live function is still to do — run 48's defect one door over.
+ *
+ * `{ items: [{kind, name}], kinds: [...] }`, the same two-part shape
+ * `implementationOf` reads for applied results: `items` is what is there, and
+ * `kinds` is where an ABSENCE is visible. They are separate because presence
+ * and absence are separate claims, and `kinds` is DERIVED FROM WHAT THE CALLER
+ * REALLY HANDED OVER rather than being a constant:
+ *
+ *   * a `spec` — the site's own `_meta.schema`, which the addon route reads
+ *     through `specForAddon` and which STOPS rather than guessing — makes
+ *     `table`, `function`, `api` and `job` enumerable. It is the record the
+ *     whole platform already treats as what a site has: `siteNote` describes
+ *     the site from it, `cleanAdd("job")` admits a job only against its
+ *     function list, and `applySiteSchema` writes it. **The limit, stated: it
+ *     is a DECLARATION.** A function that exists in Postgres and is not
+ *     declared is invisible here — and invisible everywhere else on the
+ *     platform too, so this claims nothing the rest of the system does not.
+ *   * `pages` — the stored page source — makes `page` enumerable. Those ARE
+ *     the site's routes.
+ *   * `look` — the stored config — makes `qr` and `three` enumerable, the two
+ *     `SINGLE_FIELDS`/`ADD_ONLY_FIELDS` kinds a site really carries by name.
+ *     `qrList` is the one reader of the code list, here as everywhere.
+ *
+ * **`kinds` IS INTERSECTED WITH `SITE_KINDS` RATHER THAN LISTED AGAIN**, so
+ * this cannot claim to enumerate a kind the reconciliation does not believe a
+ * site can hold, and a kind added to one list has to be added to the other on
+ * purpose. `component` and `photo` are `OPAQUE_KINDS` and appear in neither.
+ *
+ * A caller that hands over nothing gets `{items: [], kinds: []}`, which makes
+ * every holdable kind's absence `unknown` — the conservative answer, and the
+ * one an unchanged caller keeps.
+ */
+export function existingFacts({ spec = null, pages = null, look = null } = {}) {
+  const items = [];
+  const kinds = [];
+  const names = (list) => (Array.isArray(list) ? list : [])
+    .map((x) => String((x && x.name) || "").trim()).filter(Boolean);
+  const speaks = (k) => { if (SITE_KINDS.includes(k) && !kinds.includes(k)) kinds.push(k); };
+  if (spec && typeof spec === "object") {
+    for (const [kind, key] of [["table", "tables"], ["function", "functions"], ["api", "apis"], ["job", "jobs"]]) {
+      speaks(kind);
+      for (const n of names(spec[key])) items.push({ kind, name: n });
+    }
+  }
+  if (Array.isArray(pages)) {
+    speaks("page");
+    for (const p of pages) {
+      const r = typeof p === "string" ? p : String((p && p.path) || "");
+      if (r.trim()) items.push({ kind: "page", name: r.trim() });
+    }
+  }
+  if (look && typeof look === "object") {
+    speaks("qr");
+    for (const q of qrList(look.qr)) { const n = String((q && q.name) || "").trim(); if (n) items.push({ kind: "qr", name: n }); }
+    speaks("three");
+    // A SITE CARRIES AT MOST ONE SCENE (`SINGLE_FIELDS`), so it has no name of
+    // its own and the kind IS the name — which is the whole of what a
+    // requirement handed to `three` can be asking about.
+    if (look.three) items.push({ kind: "three", name: "three" });
+  }
+  return { items, kinds };
+}
+
+/** How many tables' columns a stored input digest keeps, and how many each. */
+export const MAX_SHOWN_TABLES = 12;
+export const MAX_SHOWN_COLUMNS = 24;
+
+/**
+ * WHAT A DESIGNER WAS REALLY SHOWN ABOUT THE SITE'S DATABASE (2026-09-15).
+ *
+ * Owner, after run 48: *"Recover the actual designer input if it was recorded.
+ * Otherwise mark schema receipt unverified and prepare minimal instrumentation
+ * for the next test."* **It was not recorded, and this is the instrumentation.**
+ *
+ * What the addon stored was `site: aSite` — ONE value, written after the whole
+ * loop, so it is the facts as they stood at the END and not what any particular
+ * designer was handed. Run 48's `function` designer ran first; by the time the
+ * record was written `aSite` had been rebuilt over its own answer. So "did the
+ * function step see `bookings`?" had no direct answer in the record at all, and
+ * the run's whole first demonstration rested on inference.
+ *
+ * THE DIGEST IS TAKEN FROM THE OBJECT REALLY HANDED TO THE CALL, never
+ * re-derived beside it. A second derivation is a second copy that can disagree
+ * with the first, which is this repository's most-repeated defect and is
+ * precisely the class of thing this exists to settle.
+ *
+ * **SCHEMA ONLY, AND DELIBERATELY NOT THE PROMPT.** The composed note carries
+ * the customer's own words, the page labels and the kit menu; storing it would
+ * put a customer's sentence into a per-kind record for a second time and make
+ * the record grow with the catalog. The question this answers is narrow — which
+ * tables, with which columns, were in front of this step — so the digest is
+ * narrow, and `hasDatabase` rides with it because a site the step was told has
+ * NO database is the exact shape run 47 met.
+ */
+export function shownSchema(site) {
+  const s = site && typeof site === "object" ? site : {};
+  const names = (v) => (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x);
+  const cols = s.columns && typeof s.columns === "object" ? s.columns : {};
+  return {
+    tables: names(s.tables).slice(0, MAX_SHOWN_TABLES),
+    columns: Object.fromEntries(names(s.tables).slice(0, MAX_SHOWN_TABLES)
+      .map((t) => [t, names(cols[t]).slice(0, MAX_SHOWN_COLUMNS)])),
+    functions: names(s.functions).slice(0, MAX_SHOWN_TABLES),
+    apis: names(s.apis).slice(0, MAX_SHOWN_TABLES),
+    jobs: names(s.jobs).slice(0, MAX_SHOWN_TABLES),
+    // A BOOLEAN, because `hasDatabase: false` beside a non-empty `tables` is a
+    // contradiction worth being able to read back — and it is the one field
+    // whose false value is the whole of run 47's defect.
+    hasDatabase: !!s.hasDatabase,
+  };
+}
+
+/**
+ * THE KINDS `appliedFacts` CAN SPEAK FOR — and the reason this list exists is
+ * the answer it makes possible for every kind that is NOT on it.
+ *
+ * `implementationOf` asks whether a step really made the thing a requirement
+ * was handed to it for. With no entries of that kind there are two different
+ * facts underneath: *the step made nothing*, and *nothing here can see what
+ * that step makes*. `component` is the second — an addition folded into an
+ * existing page leaves no item in any applied list — and reading it as the
+ * first would report a working section as missing, which is the exact defect
+ * run 48 found one kind over.
+ *
+ * So a kind on this list can answer `absent`; a kind off it answers `unknown`,
+ * which falls to `unverified`. **Cannot-tell must never read as a value**, this
+ * repository's most-repeated rule, met where the wrong direction is a sentence
+ * telling a customer a shipped feature is still to do.
+ */
+export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "page"]);
+
+/**
  * WHAT A CHANGE REALLY APPLIED, AND WHAT EACH ITEM REALLY GUARANTEES.
  *
- * `[{ name, holds, fails, checked }]`, which is what `claimEvidence` checks a
- * `covered` claim against: `holds` are words from a CLOSED VOCABULARY that are
+ * `[{ kind, name, holds, fails, checked }]`, which is what `claimEvidence` checks
+ * a `covered` claim against: `holds` are words from a CLOSED VOCABULARY that are
  * true of the item as it was applied, `fails` are words from that SAME
  * vocabulary that are false of it.
+ *
+ * ── `kind` IS THE EXPLICIT REFERENCE, AND IT IS WHY IT EXISTS (2026-09-15) ───
+ *
+ * Owner, after run 48: *"Reconcile requirements with actual applied results
+ * using explicit references, such as kind and item name — not another keyword
+ * heuristic."*
+ *
+ * Every entry used to carry a NAME and nothing else, so the only way to ask
+ * "did the function step really make something" was to scan text for the name —
+ * which is the heuristic `claimEvidence` already is, and which cannot answer a
+ * question about a HANDOFF at all, because a handoff carries no `by` clause to
+ * scan. `kind` is stamped by the loop that produced the entry — it is which
+ * list the name came out of, not a reading of anything — so
+ * `implementationOf` can ask a structural question (`r.step === m.kind`,
+ * `r.item === m.name`) and get a structural answer.
+ *
+ * `page` IS HERE FOR THE SAME REASON AND CARRIES NO GUARANTEES. A published
+ * route is an applied result — the page step really made it — and that is the
+ * whole of what its presence establishes, so `holds` is EMPTY rather than
+ * carrying the route or its name. A page existing has never been evidence that
+ * the page does anything, which is this module's oldest rule; what changed is
+ * only that its EXISTENCE is now readable, so an implementation can be
+ * distinguished from a missing one without claiming the behaviour.
  *
  * ── EVERYTHING HERE IS CONFIGURATION, AND `checked` IS EMPTY ON PURPOSE ─────
  *
@@ -2866,7 +3027,7 @@ export function addRepairNote(round) {
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], fnErrors = [] } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [] } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   const factsFor = (name) => {
@@ -2885,7 +3046,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     ...(Array.isArray(altered) ? altered : []).map((a) => a && a.table).filter(Boolean)];
   for (const name of named) {
     const n = String(name || "").toLowerCase();
-    if (n) out.push({ name: n, ...factsFor(n) });
+    if (n) out.push({ kind: "table", name: n, ...factsFor(n) });
   }
   // ── A FUNCTION'S GUARANTEES ARE ITS APPLIED SETTINGS (2026-09-14) ─────────
   //
@@ -2902,13 +3063,13 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const fnList = (spec && Array.isArray(spec.functions)) ? spec.functions : [];
   for (const n of (Array.isArray(functions) ? functions : [])) {
     const f = fnList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
-    if (!f) { out.push({ name: n, holds: [], fails: [], checked: [] }); continue; }
+    if (!f) { out.push({ kind: "function", name: n, holds: [], fails: [], checked: [] }); continue; }
     const holds = [], fails = [];
     if (f.internal) { holds.push("internal"); fails.push("public"); }
     else { holds.push("public"); fails.push("internal"); }
     if (typeof f.returns === "string" && f.returns) holds.push(...String(f.returns).toLowerCase().split(/[^a-z0-9_]+/).filter((w) => w.length >= 3));
     for (const a of (Array.isArray(f.args) ? f.args : [])) if (a && a.name) holds.push(String(a.name).toLowerCase());
-    out.push({ name: n, holds, fails, checked: [] });
+    out.push({ kind: "function", name: n, holds, fails, checked: [] });
   }
   // ── A CONNECTION PROVES CONFIGURATION, NEVER BEHAVIOUR ───────────────────
   //
@@ -2926,7 +3087,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   const apiList = (spec && Array.isArray(spec.apis)) ? spec.apis : [];
   for (const n of (Array.isArray(apis) ? apis : [])) {
     const a = apiList.find((x) => x && String(x.name || "").toLowerCase() === String(n).toLowerCase());
-    if (!a) { out.push({ name: n, holds: [], fails: [], checked: [] }); continue; }
+    if (!a) { out.push({ kind: "api", name: n, holds: [], fails: [], checked: [] }); continue; }
     const holds = [], fails = [];
     let host = "";
     try { host = new URL(String(a.url || "")).hostname.toLowerCase(); } catch { host = ""; }
@@ -2936,7 +3097,7 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     fails.push(method === "post" ? "get" : "post");
     for (const p of (Array.isArray(a.params) ? a.params : [])) if (p) holds.push(String(p).toLowerCase());
     if (Number(a.ttl) > 0) holds.push(String(a.ttl));
-    out.push({ name: n, holds, fails, checked: [] });
+    out.push({ kind: "api", name: n, holds, fails, checked: [] });
   }
   // ── THE SECOND WALL, AND THE REDUNDANCY IS DELIBERATE ────────────────────
   //
@@ -2953,7 +3114,16 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   for (const j of (Array.isArray(jobs) ? jobs : [])) {
     if (!j || !j.name) continue;
     if (dead.has(String(j.fn || "").toLowerCase())) continue;
-    out.push({ name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [], checked: [] });
+    out.push({ kind: "job", name: j.name, holds: [String(j.everyMinutes || ""), String(j.at || "")].filter(Boolean), fails: [], checked: [] });
+  }
+  // A PUBLISHED ROUTE, AND DELIBERATELY WITH AN EMPTY VOCABULARY. See the head
+  // of this function: existence is the entire claim, so there is nothing here
+  // for `claimEvidence` to promote and nothing for a claim to contradict. What
+  // reads it is `implementationOf`, which asks whether the page step produced
+  // anything at all — never what the page does.
+  for (const p of (Array.isArray(pages) ? pages : [])) {
+    const n = String(p || "").trim();
+    if (n) out.push({ kind: "page", name: n, holds: [], fails: [], checked: [] });
   }
   return out;
 }

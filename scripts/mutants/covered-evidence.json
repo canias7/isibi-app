@@ -1,0 +1,237 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the contradiction's own kind",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    // ASKED FIRST: a claim that disagrees with what was applied is not evidence",
+    "to": "    // ASKED FIRST: a claim at odds with what was applied is not evidence"
+  },
+  {
+    "label": "CONTROL: a comment only, above the route's engine-dropped items",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "              // …AND THE ITEMS THE ENGINE DROPPED WHOLE (2026-09-15). This was",
+    "to": "              // …AND THE ITEMS THE ENGINE DROPPED WHOLE (2026-09-15). That was"
+  },
+
+  {
+    "label": "COVERED: the whole reconcile is reverted — the label stands in for the evidence again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const reconciled = r.status === \"elsewhere\" || r.status === \"covered\";",
+    "to": "    const reconciled = r.status === \"elsewhere\";"
+  },
+  {
+    "label": "COVERED: the implementation reader refuses the status, so nothing is ever looked for",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (status !== \"elsewhere\" && status !== \"covered\") return { state: \"unknown\", by: \"\", name: \"\", kind: \"\" };",
+    "to": "  if (status !== \"elsewhere\") return { state: \"unknown\", by: \"\", name: \"\", kind: \"\" };"
+  },
+  {
+    "label": "COVERED: the claim's own step is read off `step`, which a covered entry never has",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const kind = status === \"elsewhere\" ? String(r.step || \"\") : String(r.from || \"\");",
+    "to": "  const kind = String(r.step || \"\");"
+  },
+  {
+    "label": "COVERED: the item search is scoped by kind, so a claim naming another kind's thing is lost",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const anyKind = status === \"covered\";",
+    "to": "  const anyKind = false;"
+  },
+  {
+    "label": "COVERED: every item search goes cross-kind, so a hand-off is satisfied by what nobody asked for",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const anyKind = status === \"covered\";",
+    "to": "  const anyKind = true;"
+  },
+  {
+    "label": "COVERED: the applied haystack ignores the widened search",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const appliedIn = anyKind ? all(made) : mine;",
+    "to": "    const appliedIn = mine;"
+  },
+  {
+    "label": "COVERED: the site haystack ignores the widened search",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const siteIn = anyKind ? (ex ? all(ex.items) : []) : theirs;",
+    "to": "    const siteIn = theirs;"
+  },
+  {
+    "label": "COVERED: a claim's dependency is matched with a kind it never carried",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      ? brokenAny.has(dep)\n      : broken.has(String(owner || \"\") + \"::\" + dep));",
+    "to": "      ? broken.has(String(owner || \"\") + \"::\" + dep)\n      : broken.has(String(owner || \"\") + \"::\" + dep));"
+  },
+  {
+    "label": "COVERED: a hand-off's dependency loses its kind too, blocking on somebody else's failure",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      ? brokenAny.has(dep)\n      : broken.has(String(owner || \"\") + \"::\" + dep));",
+    "to": "      ? brokenAny.has(dep)\n      : brokenAny.has(dep));"
+  },
+  {
+    "label": "COVERED: the named-dependency block never fires for a claim",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (reconciled && depBroke) {",
+    "to": "    } else if (r.status === \"elsewhere\" && depBroke) {"
+  },
+  {
+    "label": "COVERED: the step-wide failure is unscoped again — a claim whose own thing applied still fails",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (reconciled && owner && bad.has(owner) && !depThere) {",
+    "to": "    } else if (reconciled && owner && bad.has(owner)) {"
+  },
+  {
+    "label": "COVERED: a claim by a step that failed is said as waiting on somebody else",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      state = r.status === \"covered\" ? \"failed\" : \"blocked\";",
+    "to": "      state = \"blocked\";"
+  },
+  {
+    "label": "COVERED: a hand-off to a step that failed goes down as our own refusal",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      state = r.status === \"covered\" ? \"failed\" : \"blocked\";",
+    "to": "      state = \"failed\";"
+  },
+  {
+    "label": "COVERED: a claim whose own thing is absent is not read as absent at all",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (impl && impl.state === \"absent\") {",
+    "to": "    } else if (impl && impl.state === \"absent\" && r.status === \"elsewhere\") {"
+  },
+  {
+    "label": "COVERED: the missing claim stops naming the thing it says covers it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "        ? \"the \" + (dep || \"thing\") + \" it says covers this was not added\"",
+    "to": "        ? \"it was not added\""
+  },
+  {
+    "label": "EVIDENCE: a bare name match is thrown away again, so a located thing reads as unseen",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (!named) named = { name: m.name, token: \"\", kind: \"named\" };",
+    "to": "    if (!named) named = null;"
+  },
+  {
+    "label": "EVIDENCE: the bare name is RETURNED rather than kept, hiding a later real guarantee",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (!named) named = { name: m.name, token: \"\", kind: \"named\" };",
+    "to": "    return { name: m.name, token: \"\", kind: \"named\" };"
+  },
+  {
+    "label": "EVIDENCE: a bare name no longer establishes the implementation",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if ((impl && impl.state === \"found\") || (ev && (ev.kind === \"named\" || ev.kind === \"contradicted\"))) {",
+    "to": "    } else if ((impl && impl.state === \"found\") || (ev && ev.kind === \"contradicted\")) {"
+  },
+  {
+    "label": "EVIDENCE: a contradicted claim falls to `unknown`, whose sentence says nothing can be checked",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if ((impl && impl.state === \"found\") || (ev && (ev.kind === \"named\" || ev.kind === \"contradicted\"))) {",
+    "to": "    } else if ((impl && impl.state === \"found\") || (ev && ev.kind === \"named\")) {"
+  },
+  {
+    "label": "EVIDENCE: a contradiction is read as configuration that holds",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: \"contradicted\" };",
+    "to": "      if (t.length >= 3 && wordIn(text, t)) return { name: m.name, token: raw, kind: \"config\" };"
+  },
+  {
+    "label": "EVIDENCE: the fact that denied a claim is never recorded",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (ev && ev.kind === \"contradicted\") contradictedBy = String(ev.name) + \": \" + String(ev.token);",
+    "to": "      if (false) contradictedBy = String(ev.name) + \": \" + String(ev.token);"
+  },
+  {
+    "label": "EVIDENCE: the denial is computed and left off the record",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      ...(contradictedBy ? { contradictedBy } : {}),",
+    "to": "      ...({}),"
+  },
+  {
+    "label": "CLEANER: a covered claim's item is dropped, so nothing can be reconciled against it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const item = str(r.item, 80);\n    if (item) e.item = item;",
+    "to": "    const item = str(r.item, 80);\n    if (item && status !== \"covered\") e.item = item;"
+  },
+  {
+    "label": "CLEANER: an item survives onto an entry whose step we do not run",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      else { e.status = \"unsupported\"; e.why = \"named a step this change does not run\"; delete e.item; }",
+    "to": "      else { e.status = \"unsupported\"; e.why = \"named a step this change does not run\"; }"
+  },
+  {
+    "label": "CLEANER: an unsupported answer keeps a reference to the thing that would have done it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else delete e.item;",
+    "to": "    }"
+  },
+  {
+    "label": "TOOL: the item is offered for `elsewhere` only again, so a claim can never name its own thing",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "        \"ONLY if you can name it exactly: the name of the one thing this rests on — a function name, a table \" +",
+    "to": "        \"For \\\"elsewhere\\\" only, and ONLY if you can name it exactly: the name of the one thing this rests on — a function name, a table \" +"
+  },
+  {
+    "label": "ROUTE: the items the engine dropped whole are off the failed list, so their kind blocks wholesale",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              ...Object.entries(aUnbuilt).flatMap(([k, names]) =>",
+    "to": "              ...Object.entries({}).flatMap(([k, names]) =>"
+  }
+]

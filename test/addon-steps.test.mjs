@@ -36,7 +36,7 @@ import {
 } from "../site-schema.mjs";
 import { MAX_API_BODY, normalizeApi } from "../site-apis.mjs";
 import { cleanAdd, addRefusal, proposedSpec, appliedFacts, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, addTool, auditFrontend, frontendItem, missingPages, missingPagesNote } from "../builder/site-add.mjs";
-import { claimEvidence, requirementOutcomes } from "../builder/site-requirements.mjs";
+import { claimEvidence, requirementOutcomes, requirementNote } from "../builder/site-requirements.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 import { siteHasTables, siteHasBackend, schemaDigest, pageRulesFor } from "../builder/page-gen.mjs";
 
@@ -627,15 +627,31 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
   }
   assert.ok(!t.fails.includes("user") && !t.fails.includes("own"), "a level the table really has reads as a contradiction");
   // AND THE PAIR IS WHAT DECIDES A CLAIM, both ways.
-  assert.ok(claimEvidence("bookings access user, so a member sees only their own rows", [t]));
-  assert.equal(claimEvidence("bookings, readable by anyone", [t]), null);
+  // RE-ANCHORED 2026-09-15 onto what each answer BUYS rather than onto the
+  // shape of the refusal. A contradicted claim used to answer `null`, which
+  // became indistinguishable from "nothing here could see either way" once a
+  // `covered` claim started reading its implementation — and that reading is
+  // false here: the table was named and really applied, so what is denied is
+  // the guarantee and not the thing. The property is unchanged — a claim the
+  // applied permissions contradict may not read as configuration that holds.
+  assert.equal(claimEvidence("bookings access user, so a member sees only their own rows", [t]).kind, "config");
+  assert.equal(claimEvidence("bookings, readable by anyone", [t]).kind, "contradicted");
   // A TABLE THE SPEC DOES NOT DESCRIBE CARRIES NO GUARANTEES — never invented
   // ones, which would make a name match evidence again through the back door.
   // RE-ANCHORED 2026-09-14 for `checked`, the list that separates a
   // configuration fact from a behaviour something really exercised. Every
   // entry carries it and every entry's is EMPTY, because nothing on this path
   // runs a function, calls a connection or fires a job to see what it does.
-  assert.deepEqual(appliedFacts({ spec, tables: ["waitlist"] })[0], { name: "waitlist", holds: [], fails: [], checked: [] });
+  // RE-ANCHORED 2026-09-15 off the whole-object shape and onto the PROPERTY:
+  // every entry now carries an explicit `kind`, which is the structural
+  // reference the requirement reconciliation matches on, so a `deepEqual`
+  // against a four-key literal reported an honest new field as the feature
+  // being gone — this file's own "assert the property, not the spelling".
+  const unknown = appliedFacts({ spec, tables: ["waitlist"] })[0];
+  assert.equal(unknown.name, "waitlist");
+  assert.equal(unknown.kind, "table", "an applied entry does not say what KIND of thing it is");
+  assert.deepEqual([unknown.holds, unknown.fails, unknown.checked], [[], [], []],
+    "a table the spec does not describe was given guarantees it never declared");
   // A JOB'S SCHEDULE IS ITS GUARANTEE, and a job whose function the database
   // refused is not a result at all.
   const jobs = [{ name: "daily", fn: "send_reminder", everyMinutes: 1440, at: "09:00" }];
@@ -794,10 +810,31 @@ test("configuration is recorded and never promoted, and only a checked behaviour
   const ask = (by, m) => requirementOutcomes([{ need: "customers only see their own booking", status: "covered", from: "function", by }],
     { told: [], failed: [], made: m })[0];
   const cfg = ask("send_reminder is public and only sends to the person who booked", made);
-  assert.equal(cfg.state, "unverified", "a configuration word settled a behavioural requirement");
-  assert.equal(cfg.configured, "send_reminder: public", "the configuration that was checked is not recorded");
+  // RE-ANCHORED 2026-09-15, an expectation that MOVED rather than broke. The
+  // state a matched configuration answers is now named `configured` rather than
+  // folded into `unverified` — the owner's own distinction, "applied
+  // implementation, behavior unchecked". **The property this case is about is
+  // unchanged and is asserted twice**: it is not a delivery, and the customer
+  // hears the same can't-confirm sentence either way, so nothing was promoted
+  // by giving the record a word for it.
+  assert.notEqual(cfg.state, "delivered", "a configuration word settled a behavioural requirement");
+  assert.equal(cfg.state, "configured", "a claim resting on a real setting is not recorded as one");
+  assert.equal(cfg.configuredBy, "send_reminder: public", "the configuration that was checked is not recorded");
+  assert.match(
+    requirementNote([{ need: "customers only see their own booking", status: "covered", from: "function", by: "send_reminder is public and only sends to the person who booked" }],
+      { told: [], failed: [], made }),
+    /can't confirm from here that customers only see their own booking/,
+    "a configured claim stopped being said to the customer as unconfirmed");
   // AND THE DOOR IS REAL: a producer that really exercised a behaviour says so,
   // and that — and only that — answers delivered.
-  const checked = [{ name: "send_reminder", holds: [], fails: [], checked: ["ownership"] }];
+  // RE-ANCHORED 2026-09-16, and DERIVED rather than re-typed. The evidence
+  // lookup is scoped by `{kind, name}` since the bypass fix, so this hand-typed
+  // item — the door's only driver — was in no haystack and the door read shut.
+  // It is built from the real producer's own answer now, with nothing but
+  // `checked` filled in: a second hand-written copy of `appliedFacts`' shape is
+  // exactly the drift that hid the gap, and the recorded rule is to derive a
+  // fixture from its producer.
+  const checked = made.map((m) => ({ ...m, holds: [], fails: [], checked: ["ownership"] }));
+  assert.equal(checked[0].kind, "function", "the producer's own kind did not survive into the door's fixture");
   assert.equal(ask("send_reminder ownership was exercised", checked).state, "delivered");
 });

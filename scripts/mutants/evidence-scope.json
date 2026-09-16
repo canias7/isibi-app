@@ -1,0 +1,132 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the evidence scope",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": " * THE ITEMS A CLAIM MAY BE WEIGHED AGAINST — the same haystack the",
+    "to": " * THE ITEMS A CLAIM MAY BE WEIGHED AGAINST — exactly the haystack the"
+  },
+  {
+    "label": "CONTROL: a comment only, beside the scoped call",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    // cannot come apart.\n    const ev = r.status === \"covered\"",
+    "to": "    // cannot drift apart.\n    const ev = r.status === \"covered\""
+  },
+  {
+    "label": "SCOPE: the claim is weighed against every applied item again — the bypass",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "const ev = r.status === \"covered\" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;",
+    "to": "const ev = r.status === \"covered\" ? claimEvidence(r.by, made) : null;"
+  },
+  {
+    "label": "SCOPE: the haystack is re-resolved from the requirement instead of from `impl`",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "const ev = r.status === \"covered\" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;",
+    "to": "const ev = r.status === \"covered\" ? claimEvidence(r.by, evidenceItems(made, ref ? { by: \"item\", kind: ref.kind, name: ref.name } : null)) : null;"
+  },
+  {
+    "label": "SCOPE: an `elsewhere` hand-off starts reading a claim it never made",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "const ev = r.status === \"covered\" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;",
+    "to": "const ev = reconciled ? claimEvidence(r.by, evidenceItems(made, impl)) : null;"
+  },
+  {
+    "label": "ITEMS: an item reference matches on NAME alone, so the kind stops separating them",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (impl.by === \"item\") return ofKind.filter((m) => String(m.name || \"\").trim().toLowerCase() === impl.name);",
+    "to": "  if (impl.by === \"item\") return all.filter((m) => String(m.name || \"\").trim().toLowerCase() === impl.name);"
+  },
+  {
+    "label": "ITEMS: an item reference matches on KIND alone, so any item of the kind answers",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (impl.by === \"item\") return ofKind.filter((m) => String(m.name || \"\").trim().toLowerCase() === impl.name);",
+    "to": "  if (impl.by === \"item\") return ofKind;"
+  },
+  {
+    "label": "ITEMS: the name comparison keeps its case, so a capitalised reference matches nothing",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (impl.by === \"item\") return ofKind.filter((m) => String(m.name || \"\").trim().toLowerCase() === impl.name);",
+    "to": "  if (impl.by === \"item\") return ofKind.filter((m) => String(m.name || \"\").trim() === impl.name);"
+  },
+  {
+    "label": "ITEMS: a reference-less claim is weighed against every kind, not its own step's",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (impl.by === \"kind\") return ofKind;",
+    "to": "  if (impl.by === \"kind\") return all;"
+  },
+  {
+    "label": "ITEMS: a reference-less claim is weighed against nothing, losing a real finding",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (impl.by === \"kind\") return ofKind;",
+    "to": "  if (impl.by === \"kind\") return [];"
+  },
+  {
+    "label": "ITEMS: an unrecognised `by` falls through to everything instead of to nothing",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (impl.by === \"item\") return ofKind.filter((m) => String(m.name || \"\").trim().toLowerCase() === impl.name);\n  return [];",
+    "to": "  if (impl.by === \"item\") return ofKind.filter((m) => String(m.name || \"\").trim().toLowerCase() === impl.name);\n  return all;"
+  },
+  {
+    "label": "ITEMS: the kind guard goes, so an ambiguous reference matches every kindless item",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (!impl || !impl.kind) return [];",
+    "to": "  if (!impl) return [];"
+  },
+  {
+    "label": "ITEMS: a null implementation throws instead of answering nothing",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (!impl || !impl.kind) return [];",
+    "to": "  if (!impl.kind) return [];"
+  },
+  {
+    "label": "ITEMS: a non-array `made` throws instead of answering nothing",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const all = (Array.isArray(made) ? made : []).filter((m) => m && typeof m === \"object\");",
+    "to": "  const all = (made || []).filter((m) => m && typeof m === \"object\");"
+  },
+  {
+    "label": "ITEMS: a kindless applied item is admitted to every haystack",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const ofKind = all.filter((m) => String(m.kind || \"\") === impl.kind);",
+    "to": "  const ofKind = all.filter((m) => !m.kind || String(m.kind) === impl.kind);"
+  },
+  {
+    "label": "PAIR (DECLARED REDUNDANT): the ambiguity branch AND the evidence scope, both down at once",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const unresolved = !!impl && impl.by === \"ambiguous\";\n    // THE CLAIM, READ ONLY FOR `covered` — `elsewhere` carries no `by`, the\n    // cleaner never keeps one for it, and a requirement that asks another step\n    // for something has made no claim of its own to weigh.\n    //\n    // …AND READ AGAINST THE SAME IDENTITY THE IMPLEMENTATION WAS (owner,\n    // 2026-09-16). `made` used to go in whole, so a prose match against ANY\n    // applied item could turn an implementation nobody could find into\n    // `unverified`, `configured` or `delivered`. `evidenceItems` is the one\n    // scope, derived from `impl` rather than re-resolved, so the two readers\n    // cannot come apart.\n    const ev = r.status === \"covered\" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;",
+    "to": "    const unresolved = false;\n    const ev = r.status === \"covered\" ? claimEvidence(r.by, made) : null;"
+  }
+]

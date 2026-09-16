@@ -218,6 +218,86 @@ this change added, which is the trap this repository records most often.
 
 ---
 
+## 2026-09-15 — Run 48's reporting contradiction, fixed
+
+You were right on both counts, and the two are about different things.
+
+**The feature worked.** One sentence built a page at `/booking-check` and a
+function `count_existing_bookings` reading the `bookings` table that was already
+there. No new table. The function answers **3** through the site's own public
+call and a real browser reads **3** on the page.
+
+**The report contradicted it.** The customer was told *"Still to do: A new
+function named count_existing_bookings"* about a function that was live and
+answering within the minute.
+
+### Why
+
+The page step handed *"a new function named count_existing_bookings"* back to
+the function step, which runs BEFORE it — so that step could never have heard
+it. That hand-off really was undelivered. The mistake was that it was the only
+question being asked, so an undelivered hand-off went straight to "failed", and
+"failed" is what "Still to do" is made from.
+
+### What changed
+
+**Two questions where there was one.** Was the hand-off delivered, and is the
+work there? They are recorded separately and neither stands in for the other.
+An undelivered hand-off is still reported — it is a real bookkeeping defect —
+but it no longer decides what the customer hears about the work.
+
+**The second question matches on names, not words.** Every applied thing now
+says what KIND it is, and a requirement may name the thing it is about. A claim
+about a function can only be answered by a function that was really created,
+by name. No keyword matching anywhere.
+
+**And it refuses to guess in the direction that hurts.** Seeing a thing proves
+it exists; not seeing one only proves it is absent where we can see that kind of
+thing at all. A section folded into an existing page leaves no trace anywhere,
+so a requirement about one reads "I can't confirm" — never "still to do".
+
+**Six words instead of three, because they need different sentences to you:**
+delivered, configured (the setting is right, the behaviour unchecked),
+unverified, missing (we looked and it is not there), blocked (the part this
+needed failed — go and look at that), failed (we said we could not).
+
+**`checked` is still empty.** Nothing on this path exercises a behaviour, so
+nothing gets promoted to "done" on my say-so.
+
+### Two more defects the sweep found in my own wiring
+
+1. The stored record's last update only ran when a page went MISSING — so on the
+   ordinary path, where everything shipped, the stored copy said no page was
+   applied. The reply was right and the record was not, which is the worse way
+   round: the reply is read once, the record is what anybody comes back to.
+2. The shipped-page list held FILE names where a requirement names a ROUTE. It
+   is routes now, derived from the list that already knows both, so a page that
+   did not survive can never count as the work being there.
+
+### The evidence gaps you named
+
+- **The designer's input was not recorded** — the record kept one snapshot taken
+  after every step ran, so for run 48 (whose function step went first) it had
+  already moved on. **Schema receipt for run 48 is unverified and stays that
+  way.** The instrumentation exists now: one entry per step, in order, taken
+  from what that step was really handed. Next run answers it outright.
+- **The no-new-table claim is narrowed.** What I have is exact per NAME — the
+  database tells existence and absence apart by its own error codes — but it is
+  not a list of every table. The authoritative BEFORE is already on record
+  (`backend repair --verify` read *"2 table(s), all declared"* before run 48).
+  **The AFTER is the same command**: it writes nothing, costs nothing, and is
+  one press. Until then the honest claim is "no table of any name I probed", not
+  "no table".
+- **Loading and error states: done, browser-only.** I intercepted the call
+  inside Chromium — nothing touched your site or the database. Held open: the
+  spinner shows and the number is absent. Failed: *"That didn't load / Failed to
+  fetch / Try again"*. A 500: the same shell carrying the server's own message
+  rather than a canned one. It retries three times before giving up, which is
+  the framework's default. Screenshots are in the chat.
+
+Suite 6,487. Sweep 28/28 killed, 0 survived, both controls survived.
+**Nothing merged, nothing deployed, no paid call, no demo site touched.**
+The `search_path` review is still queued next.
 ## 2026-09-15 — The four you found in the agent PR, each reproduced first
 
 All four were real and none of them was cosmetic. Nothing is merged; the PR is
@@ -642,12 +722,181 @@ Mutation sweep: **14 mutants, 14 killed**, including the nastiest one — the fl
 quietly parsing as the WIDE mode, so a reference-only press would have applied
 everything. Suite **6,476**, green locally and in CI (`unit tests` run 2570).
 
-### Nothing has been repaired
+### Merged and deployed — deploy 2121, green in 46 seconds
 
-The five sites are still incomplete (only `repairbench-1` has been previewed),
-the reference is still blank, and `/status` still says `0` — which this repair
-was never going to fix, that being the separate count correction. **No database
-has been touched.**
+`main` went `9a4ac614` → `76ef26c8`, a clean fast-forward of 4 commits across 7
+files. I checked before merging that the branch held nothing beyond what you
+reviewed: the reference-only change itself, and three documentation commits.
+
+**The container did not roll, and I knew that before I pressed merge.** The
+image id is a pure function of the files the container is built from, so I
+computed it on both sides first: `origin/main` and the branch tip both came out
+`6246eb17cd6595c4`. The deploy then agreed with the arithmetic —
+`reused isibi-app-sitebuildcontainer:6246eb…7cd6595c4 (registry answered 200)`,
+and Wrangler's own line `no changes isibi-app-sitebuildcontainer`. **So there is
+no 15–20 minute wait on this one**, and the Worker was up 46 seconds after the
+push.
+
+Nothing a visitor downloads changed either (`No updated asset files to upload` —
+this change lives in a workflow, a script and its tests), so instead of a file
+check the proof is the platform still answering the way it should: the two
+owner-gated routes return **401** and a made-up path returns **404**.
+
+**And I checked the site itself rather than just that it loads.** All five sites
+answer 200, but a 200 only proves the script is serving — so on `repairbench-1`
+I also fetched `/status` (200, same version as before) and called the counting
+function through the site's own public route. It still answers **`0`**, exactly
+as it did before the merge. Nothing improved and nothing broke, which is the
+right answer: this deploy carried a repair *tool*, and the repair has not run.
+
+### The two buttons are live on main, and I still cannot press them
+
+Both workflows are registered on `main` and I asked for each **by name** rather
+than trusting the listing — `backend repair` and `repairbench count fix` both
+come back 200, and main's copy of the repair form really does carry the new
+`apply-reference` option.
+
+I re-tested the dispatch rather than assuming last week's answer still held. It
+is still **403 — "Resource not accessible by integration"** — both through the
+tool and through a direct request, while a read on the same credential returns
+200. So it is the permission, not the token, exactly as recorded.
+
+**What to press, in this order.** Actions → **backend repair** → Run workflow,
+branch `main`:
+
+1. `mode` = **apply-reference**, `slug` = **repairbench-1**, `confirm` = **apply**
+2. then again: `mode` = **verify**, `slug` = **repairbench-1**, `confirm` empty
+
+Then Actions → **repairbench count fix** → Run workflow, branch `main`, `mode` =
+**preview**, `confirm` empty. That one writes nothing.
+
+The other four sites stay untouched — the slug box narrows the run to one site,
+and I have left it filled in.
+
+### You pressed it, and repairbench-1 is fixed
+
+Both runs green, seventeen and fifteen seconds. The six runs, so you can open
+any of them yourself — `github.com/canias7/isibi-app/actions/runs/<id>`:
+
+| run | id |
+|---|---|
+| backend repair — preview | 34939144314 |
+| backend repair — apply-reference | 34999557540 |
+| backend repair — verify | 35000218315 |
+| count fix — preview | 35000500401 |
+| count fix — apply | 35003509208 |
+| count fix — verify | 35003953873 |
+
+**The repair** wrote exactly one thing — `neon_db` = `site_repairbench_1` —
+after proving the database was really this site's. It reported `schema: nothing
+missing`, the same as the preview, so there was nothing for it to withhold. No
+table, row, policy or permission was touched.
+
+**The verification is the part worth trusting**, because it is a separate run
+that re-reads the database from scratch rather than the writer telling you it
+worked:
+
+```
+1 site(s): 1 with a database (ready 1)
+repairbench-1: VERIFIED
+    ok   reference recorded
+    ok   reference is the derived name
+    ok   database answers and is this site's
+    ok   stored schema readable
+    ok   every live table declared — 2 table(s), all declared
+```
+
+**`ready`** is the word that changed. Every run before this said `incomplete`.
+That is the whole defect, closed on this site.
+
+**One thing I checked rather than assumed.** `main` moved between the merge and
+your press — another session merged an agent-builder tree, 52 new files. I
+diffed the repair script, both workflows and every module they use across those
+two commits: **no change at all**. So what ran is what you reviewed.
+
+**Four sites left**, untouched as you said: `ashgrove-1`, `fretwork-1`,
+`northgroup-5`, `washhouse-1`. Each is the same two presses whenever you want
+them.
+
+**And `/status` still says `0`** — that was never this repair's job. It is the
+count correction, the third press.
+
+### And then /status said 3
+
+Three presses on the count fix — preview, apply, verify — all green.
+
+**The change was one word.** The definition went from 159 characters to 160,
+which is exactly the difference between `repairs` and `bookings`. Nothing else
+in that function moved, and that includes the `SECURITY DEFINER` line that lets
+it read the table at all — it was rewritten from what Postgres itself had
+stored, not rebuilt from a template, which is how a repair like this quietly
+breaks something days later. Here is both halves as the run printed them, so
+you can see what stayed as well as what moved:
+
+```
+current definition (159 chars):
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM repairs $function$
+
+would replace 1 occurrence(s) of "repairs" with "bookings":
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM bookings $function$
+```
+
+`1 occurrence(s)` is worth a second's attention: the function is *called*
+`count_booked_repairs`, so a sloppy replace would have renamed the function
+too. It matched once, in the table name, which is the wall working.
+
+**The three numbers, before and after:**
+
+| | before | after |
+|---|---|---|
+| rows in `bookings` | 3 | 3 |
+| the function, called directly | **0** | **3** |
+| the function, through the site's own address | **0** | **3** |
+
+The apply said `PASS — all three agree`; the separate verify run said
+`VERIFY PASSED`. I also read that number again myself, from here, through both
+addresses — both 3. So it has been read by two different machines.
+
+### And I actually looked at the page
+
+Separately from the database check, I opened `/status` in a real browser before
+and after, with the same script both times. It went from **0** to **3** under
+"Repairs currently booked", and I recorded the page's own request each time, so
+the number on screen is tied to the call that produced it rather than to
+something that merely looks right. Both screenshots are in the chat.
+
+**The site was never republished** — same version header before and after. The
+page had been asking the right question the whole time; the function was
+answering about the wrong table. That is why this cost nothing: no build, no
+container, no credits.
+
+### What is not fixed
+
+The `repairs` table is still there, still with no way of getting a row into it.
+Nothing reads it now, so nothing on the site is wrong — but the thing that
+*made* it is unchanged, and the next time a design goes that way you get the
+same empty table. That stays on the list.
+
+The `search_path` question is untouched and stays on its own: the corrected
+function is still `SECURITY DEFINER` with no `search_path` set, exactly as it
+was. I preserved it rather than changing it, because a repair is the wrong
+place to make a different decision under this one's approval.
+
+Four sites still have the blank reference: `ashgrove-1`, `fretwork-1`,
+`northgroup-5`, `washhouse-1`. Same two presses each, whenever you want them.
+
+**One environment note**, because it makes a browser check repeatable from here
+in future: this session's browser trusted nothing at all, so Chromium refused
+the site's certificate. I added the proxy's own certificate authority by name —
+verification stays on — rather than turning certificate checking off.
 
 ---
 
@@ -9631,6 +9880,437 @@ number.
 nothing. Job probe → Run workflow → `probe` = **wire**, everything else as it
 comes up, branch `main`, `jobId` empty.
 
+### The baseline, written before you press
+
+You asked me to record the initial outcome before any manual correction, so
+here is the state of `repairbench-1` at **19:16:49Z**, committed before a single
+credit is spent.
+
+| what | reading |
+|---|---|
+| `/booking-check` | **404** — the name is free (`/status` answers 200, so the site is up) |
+| `count_existing_bookings` | **404** — no such function |
+| `bookings` exists | **403 permission denied** — see below |
+| the count | **3** |
+
+**The permission error is the proof the table is there.** A table Postgres
+doesn't have says "relation does not exist"; this says "permission denied for
+table bookings", which only a real table can say. `bookings` is write-only to
+visitors by design, so that refusal is correct and it's also the evidence.
+
+**On the count being independent:** `count_booked_repairs` is a different
+function from the one this run will create, so it can't vouch for itself. It
+isn't a raw row count either — I have no database credential here. The raw count
+was read at 17:52Z by the verify run and said 3; the RPC says 3 again now.
+
+**Which code will answer** — Worker on `87b4057e`, and the addon path is
+byte-identical to what deploy 2120 shipped. Container on `6246eb17cd6595c4`,
+unmoved since that same deploy. Both are filled into the form as refusals: the
+run stops before spending if either is wrong.
+
+**One paid call, no retries.** I checked rather than assumed — the harness's
+second paid call only fires for the photo case, and a free-text ask can't reach
+it. One POST, one answer.
+
+**The 40-credit cap isn't enforceable and I'm not going to pretend it is.** The
+budget box is checked *between* cases, and one ask is one case, so it never
+fires. Deeper than that: the credits get spent inside the single request, so
+nothing outside it can stop it partway. What actually bounds this: the ledger
+won't allow a bill above your balance (161), the ask forbids a new table, and
+the closest comparison — run 47, a bigger job — cost 13. The most expensive run
+ever on this account was 31. I've set the box to 40 anyway; it costs nothing.
+
+## Three more reporting cases, and a sweep that found one I'd missed
+
+You asked for three things. All three are done, demonstrated through the addon
+route, and nothing was merged, deployed, rerun or cleaned up.
+
+### 1. One failed function no longer blocks everything
+
+The failure was recorded per KIND. So one function the database refused marked
+the whole function step failed, and every requirement pointing at that step read
+"waiting on another part that didn't work" — including one naming a function
+Postgres had created without complaint.
+
+Now the failures are recorded by NAME as well, and a requirement that says what
+it depends on is judged on that. The demonstration builds two functions, makes
+the database refuse exactly one, and asserts both halves: the good one's
+requirement is no longer blocked, and the bad one's still is — **and now names
+`count_bad` in the sentence you'd read**, which is the thing you can act on.
+
+**Both halves matter.** A fix that just stopped blocking would have thrown away
+the real dependency failure, which is the other half of what you asked for.
+
+### 2. "We didn't add it" and "the site hasn't got it" are different
+
+A change that reuses a function it didn't need to create leaves no trace in what
+was applied — and reading that silence as "still to do" is run 48's defect in a
+new hat. So the reconciliation now reads the site itself too: its stored schema,
+its real routes, and its QR codes and scene. The record says which reader
+answered (`applied` or `existing`), so reuse and creation can be told apart later.
+
+**And where nothing could look, it says so rather than guessing.** That splits
+into three groups, and the split is the whole of the fix:
+
+- things a site holds and can be listed — tables, functions, connections, jobs,
+  pages, QR codes, the scene: "not there" needs the list to have been read.
+- things nothing can list — a component folded into an existing page, a
+  photograph: these can **never** be reported absent, because a working one and
+  a missing one look identical from here.
+- `edit`, which names nothing on the site at all, so what the change did is the
+  whole answer.
+
+My first attempt demanded both readers everywhere and quietly lost a real finding
+(a wording change that genuinely wasn't done). That's what made me split it.
+
+### 3. "I've set that up" is gone from the unknown case
+
+That sentence is a claim, and it was being made about work nobody could find. An
+unknown implementation gets its own state and its own sentence now: *"I can't see
+from here whether … — nothing I can check says either way, so have a look, and
+ask me for it again if it isn't there."* An invitation to ask again, not a
+correction, because there may be nothing to correct.
+
+It also gets its own number, beside the "there but unchecked" count and never
+inside it — summed together, a run that built nothing anybody can point at reads
+as a productive run nobody checked.
+
+### What the sweep caught, which is the part worth telling you about
+
+Twenty-eight deliberate breakages. Pass 1 killed twenty; seven survived. Six were
+gaps in my new tests — but **one was a real property of the product that nothing
+was guarding.**
+
+The rule "a component can never be reported absent" only bites for a change that
+never ran a component step at all. I'd convinced myself it was redundant with
+another check and was about to write that down. The surviving mutant said
+otherwise, and I went and measured instead: it isn't redundant, and without it a
+change that made no sections could tell you a section was still to do. There's a
+test for it now.
+
+Pass 2: **28 of 28 killed, nothing survived, both no-op controls survived.**
+
+### The numbers
+
+- **Suite 6,491, all green** (6,487 + 4 new cases; the arithmetic closes exactly).
+- **Sweep 28/28**, two controls survived.
+- **Eight** older guards re-anchored — each says in the file what moved and why.
+  I first wrote five, then counted the cases in the commit's own diff instead of
+  from memory and corrected it before pushing.
+- Nothing merged, nothing deployed, no paid call, no site touched.
+- **CI read it and it's green** — `unit tests` run 2594, `6491 tests / 6488
+  pass / 0 fail / 3 skipped`. The three skips are the usual environment ones,
+  not a smaller suite; locally they run, which is why the number to compare is
+  the total.
+- **And the container harness is green too** — `site build` run 1147, all twenty
+  steps, `site-build.mjs` **382 passed / 0 failed** in 17m11s. That's the eighth
+  independent run to answer 382. It fired because this change touches
+  `worker.js` and `builder/`, which is what the harness is for: it compiles and
+  serves a real site, which the unit suite structurally cannot.
+
+The `search_path` review stays queued, as you asked.
+
+## The same rules now apply to "covered" — and the label buys nothing
+
+Both things you named are fixed, demonstrated through the addon route, and
+nothing was merged, deployed, rerun or cleaned up.
+
+### What was actually wrong
+
+The reconciliation I built last round only ever ran for requirements handed to
+another step. A requirement the designer marked **covered** — "I did this" —
+skipped it entirely and kept the old answer, which meant the model's own label
+was the only thing behind it. Both of your cases fall straight out of that:
+
+- **An unrelated failure condemned a good claim.** One function the database
+  refused marked the whole function step failed, and every claim that step had
+  made went down with it — including one naming a function Postgres created
+  without complaint. There was a scope on this for hand-offs and none for claims.
+- **"I've set that up" was said about nothing.** A covered label with no named
+  thing, no matching applied item and nothing to check against still got the
+  sentence that claims work exists.
+
+### What it does now
+
+A covered claim can name the thing it rests on, the same way a hand-off names
+what it's asking for, and that name is carried through cleaning and checked
+against exactly the same two sources: what this change applied, and what the
+site already had.
+
+**The one real difference is what gets searched, and it isn't arbitrary.** A
+hand-off says "page step, make me this" — so a function of that name is not what
+was asked for. A covered claim says "this thing does the work" and doesn't name
+a step at all, so it's looked for everywhere: your table step is invited, in the
+tool's own words, to name the function that does the job. Both directions are
+tested, because widening the search for everything would quietly satisfy a
+hand-off with something nobody asked for.
+
+Three answers now come out of one mixed-success step, which is the demonstration:
+
+- the claim whose function was built → *"I've set that up, but I can't confirm…"*
+- the claim whose function was refused → *"waiting on another part of the same
+  change that didn't work: … — the count_bad it needs could not be created"*
+- the claim resting on nothing → *"Still to do: …"*
+
+And **hand-off tracking stays separate**, as you asked: a covered claim asked
+nobody for anything, so it gets no hand-off verdict and isn't in that ledger.
+
+### Two things I found while doing it
+
+**A claim the database contradicts.** My first cut made these fall to "I can't
+see either way" — which is false: something *can* be checked, and it says the
+opposite. They read "I can't confirm" again, with the fact that denied them kept
+on the developer record. The customer hears the same sentence whether a claim is
+merely unchecked or actually contradicted, on purpose — nothing here is entitled
+to tell you a claim is wrong.
+
+**A function the engine drops silently.** A function the *database* refuses gets
+named. A function the *engine* won't build — a return type naming a table nobody
+declared — vanishes with no error anywhere, and the whole kind was failing off
+it. So the claim naming the dropped thing and the claim naming the one that
+worked got the same verdict. Now the dropped thing is named like any other
+failed dependency.
+
+### The numbers
+
+- **Suite 6,494, all green** (6,491 + 3 new cases; the arithmetic closes exactly).
+- **Sweep 27/27 killed**, two no-op controls survived. Pass 1 left three
+  survivors and **all three were gaps in my tests, not bugs** — including the
+  tool's own wording, which no behaviour test can see: if the tool still said
+  "for hand-offs only", the whole feature would be correct and unreachable.
+- **Both new route cases were proved to FAIL against the old code** before I
+  believed them. A new test that passes either way is worth nothing.
+- **Four** older guards re-anchored — each says in the file what moved and why.
+  I counted them from the commit's own diff rather than from memory.
+- Nothing merged, nothing deployed, no paid call, no site touched.
+
+The `search_path` review is still queued.
+
+## A reference now says WHAT it is, not just what it is called
+
+Both collisions you reproduced are fixed, driven through the addon route, and
+nothing was merged, deployed, rerun or cleaned up.
+
+### What was wrong
+
+When the round before this taught `covered` claims to check their own
+implementation, it looked the thing up **by name across every kind**. That is
+fine right up until two things share a name — and on a real site they do. Your
+two cases, both reproduced here before I touched anything:
+
+| the site has | the claim is about | what it said |
+|---|---|---|
+| an applied table `bookings`, no function of that name | the **function** `bookings` | "found" — and *"I've set that up"* |
+| an applied table `bookings`, a **failed** function `bookings` | the **table** `bookings` | "blocked" |
+
+Both are the same mistake in opposite directions: the table answered for the
+function, and the function's failure was charged to the table.
+
+### The fix
+
+A reference is now **`{kind, name}`** everywhere — in what this change applied,
+in what the site already had, and in what failed. One reader produces it, and
+the failure index is keyed the same way, so the two cannot drift apart.
+
+The only part that differs by status is **where the kind comes from**, and it
+had to:
+
+- A **hand-off** names a step, so the step IS the kind. Asking the function step
+  for something is asking for a function.
+- A **claim** names no step — `from` is only our own note of which call answered
+  it, and the tool deliberately lets a table step credit the function that does
+  the work. So the kind is **declared**, which is what you asked for. The tool
+  now asks for it and the cleaner keeps it.
+
+**If it isn't declared, the answer is "I can't see whether that's there".** Not a
+guess at the kind, and — this is the part worth knowing — not rescued by the
+older prose check underneath either. That check matches names inside the
+sentence the model wrote, across every kind, which is the very same collision
+one layer down. So a reference with no kind stops there. It still loses to a
+dependency you can see really failed: a real breakage outranks an unclear one.
+
+One more that only shows up on exactly the claim the declared kind exists for:
+**"could anyone have seen one of these?" is now asked about the kind the claim
+names, not the kind of the step that made it.** A page step resting on a
+function, where nothing listed the functions, used to read as *"still to do"* on
+the strength of having listed the pages.
+
+### One line I kept although it does nothing
+
+There's a belt in the cleaner that strips a kind off anything that isn't a
+claim. **I measured it: 720 combinations, byte-identical with it and without
+it** — the code's structure already guarantees it. I kept it and wrote in the
+file *why*, because a sweep can't tell "belt" from "dead code" and the next
+session deletes what nothing appears to need. The mutation test now breaks the
+**pair** together, which is the only way to test a belt at all.
+
+### What was run
+
+- Both of your cases driven end to end through the real addon route, checked on
+  the stored record **and** on the sentence the customer reads. The three
+  `covered` cases from last round were kept, updated to name their kinds.
+- Guard files: `addon-route` 62 → 64. `requirement-coverage` stays at 22 and
+  gained assertions inside cases that already existed.
+- **Five** older guards re-anchored — counted from the commit's own diff, not
+  from memory.
+- **Mutation sweep: 25 mutants, 25 killed, 0 survived, 2 controls survived.**
+  First pass left four alive and **every one was a hole in my new tests, not in
+  the product** — one of which turned out to be the inert belt above, so I
+  replaced it rather than hunting it.
+- **Full suite 6,496 green** (6,494 + the two new cases), **and CI has read
+  it**: `unit tests` run 2599, green, 6,496 tests / 0 failures.
+- And the container harness is green on this commit too — `site build` run
+  **1149**, all twenty steps, **382 passed / 0 failed**. That's the tenth
+  independent run to answer 382.
+
+Nothing merged, nothing deployed, no paid call, no site touched.
+
+The `search_path` review is still queued.
+
+---
+
+## The last way evidence could come from the wrong thing
+
+You found it: the kind+name identity reached the *implementation* check and
+stopped there. Underneath it sits an older check that reads the sentence the
+model wrote (`by`) and looks for the names of things we applied — and that one
+was still searching **everything**. So whenever the exact question had no
+answer, the loose one supplied one anyway.
+
+Your reproduction, driven here before I touched anything:
+
+| the site has | the claim is about | what it said |
+|---|---|---|
+| an applied table `bookings` | a **component** `bookings` | "I've set that up" |
+
+The component can't be seen by anything here — a section folded into a page
+leaves no trace we can list — so the honest answer is *"I can't see whether
+that's there"*. It said the other thing because the sentence happened to contain
+the word `bookings`, and a table of that name really had been made.
+
+### The fix
+
+**The sentence is now weighed against the same shortlist the implementation
+check used, and never a longer one.** Three cases, and each is a different
+statement about what may count as proof:
+
+- **The claim names a thing** (`{kind, name}`) — that thing and nothing else. A
+  miss means an empty shortlist, which is right whether the thing is absent or
+  simply not visible from here.
+- **The claim names nothing** — the output of the step responsible. Restricted,
+  not unrestricted.
+- **The claim names something but not what kind it is** — nothing at all. An
+  unclear reference can't buy itself certainty from the prose.
+
+There was a second, quieter face of the same bug and it's now covered too: even
+when the reference resolved perfectly, the *"here's the setting I checked"* note
+on the record could be read off a completely different item the sentence
+mentioned in passing. A claim about the bookings table was being annotated with
+a fact about a function.
+
+### The one judgement call, and I measured it rather than guessed
+
+For a claim that names nothing, I could have gone stricter still and allowed no
+prose match at all. **I tried it: it breaks nine guards instead of four, and
+five of those are real findings lost** — including three of your own earlier
+demonstrations (public versus internal functions, the stored connection, the
+configuration-is-not-behaviour case). A claim resting on a guarantee its own
+step's work really carries would have been reported as *"nothing I can check
+says either way"*, which is false when something can be checked and it holds.
+So it's the step's own output, and I've written down where the line is.
+
+### Test fixtures that had quietly drifted
+
+Four guard fixtures were hand-typed applied items with **no kind on them** —
+which cost nothing while the search was kind-blind and is impossible in the real
+product, where every applied item is stamped. They read as the scoping being
+broken. I re-anchored them onto the shape the real producer makes, and derived
+one of them from that producer outright rather than typing a second copy.
+
+### One line I kept although it now does nothing
+
+The branch that stops an unclear reference being rescued is now redundant — the
+shortlist is already empty in that case. **27,216 combinations, byte-identical
+with it and without it.** Kept, with the reason written in the file, because the
+two say different things: one is about *order*, the other about *scope*, and
+widening the scope by a line would make it load-bearing again. The mutation test
+breaks the pair together.
+
+### What was run
+
+- Your case driven end to end through the real addon route, checked on the
+  stored record **and** on the sentence the customer reads, with a
+  matching-item positive control in the same reply — same name, same applied
+  table, only the reference's kind differs. Plus the second face of the bug with
+  its own control. **Both proved red against the pre-change code first.**
+- The function-inventory case is driven at the module rather than the route, and
+  I've said why in the test: on the route the stored schema is always read, so
+  functions are always listable there. A route case would have had to fake it.
+- Guard files: `addon-route` 64 → 66. `requirement-coverage` stays at 22 and
+  gained assertions inside a case that already existed.
+- **Four** older guards re-anchored — counted from the commit's own diff.
+- **Mutation sweep: 14 mutants, 14 killed, 0 survived, 2 controls survived.**
+  First pass left five alive and **every one was a hole in my new tests, not in
+  the product**.
+- **Full suite 6,498 green** (6,496 + the two new cases), **and CI has read
+  it**: `unit tests` run 2602, green, 6,498 tests / 0 failures.
+- And the container harness is green on this commit too — `site build` run
+  **1150**, all twenty steps, **382 passed / 0 failed**. That's the eleventh
+  independent run to answer 382.
+
+Nothing merged, nothing deployed, no paid call, no site touched. The
+`search_path` review is still queued.
+
+### Merged (2026-09-16), and what the merge itself needed
+
+`main` had moved under me — another session's agent-builder work and some app
+chrome — so this was **not** a fast-forward. Merged main into the branch first,
+resolved there, and measured before anything touched main.
+
+- **No conflicts**, including in both documents: the two sessions had appended
+  to different regions.
+- **The suite number was wrong on both sides and neither was the merged one.**
+  This branch measured 6,498, main's own entry says 6,483, and the merged tree
+  is **6,505** — main's new agent-builder view guard is 7 cases, and
+  6,498 + 7 closes exactly. Measured by running that file on its own rather
+  than by subtracting. Corrected in the Live state stamp.
+- **The container WILL roll.** The image id computed before the merge:
+  `main` `6246eb17cd6595c4`, the merged tree `c6980fe3efce66d3` — same 182
+  inputs, different content, because the requirements module is in the worker's
+  module graph and the image carries it. **Main's own changes are not image
+  inputs**: the merge and my branch tip hash identically.
+- Nothing was in flight — no workflow run in progress when main was pushed.
+
+### It's merged and live — deploy 2124
+
+**`main` `989d32a0` → `0dc1d27c`, deploy 2124 green in 2m53s**, and the merge
+started exactly one workflow, which is the rule holding.
+
+- **The container rolled**, as expected: the image id moved
+  `6246eb17cd6595c4` → `c6980fe3efce66d3`, `SUCCESS Modified application` at
+  01:49:55Z, read from the deploy's own diff. **So the 15–20 minute hold ran to
+  about 02:10Z** — nothing container-side should have been fired before then,
+  and nothing was.
+- **I computed that id before merging and the deploy printed the same one.**
+  Third time that's been checked against reality rather than against itself.
+- **Both features the addon path built still answer after the roll**: `/status`
+  200 with its count reading **3**, `/booking-check` 200 with run 48's function
+  reading **3**. A 200 alone wouldn't have told you that.
+
+**One thing I should flag rather than bury.** I did not take a fresh
+before-the-push reading of the live sites this round — the recorded practice is
+a baseline before, compared after — so what I compared against is deploy 2121's
+numbers, which are nine hours and two other deploys old. Four of six sites are
+byte-for-byte identical to it. `repairbench-1` differs and is explained (run 48
+republished it). **`fretwork-1` is 119 bytes larger and I cannot explain it**:
+it's not per-request variance (five reads, same number, with another site as the
+control) and the site hasn't republished (its version is days old and unmoved),
+so by the standing rule this deploy isn't the cause — but with no
+before-reading I can't say whether it moved before the merge or across it. It's
+written down as an open observation, not as a clean pass.
+
+**No paid call, no demo-site cleanup.** "Merge" lifted the merge and the deploy
+it fires, and nothing else. The `search_path` review is still queued.
 
 ---
 

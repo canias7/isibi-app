@@ -4244,11 +4244,908 @@ reports `nothing-missing` over real outstanding work. Both killed on pass 2.
 two windows on one event, kept because they fail differently, and said in the
 code because a sweep cannot say it.
 
-**STILL NOT REPAIRED.** The five sites are `incomplete` (only `repairbench-1`
-has been previewed), the reference is unwritten, and `count_booked_repairs`
-still counts `repairs` and answers `0` — which the backend repair does not fix
-and never claimed to: that is `scripts/repairbench-count-fix.mjs`, a separate
-object.
+**MERGED AND LIVE — deploy 2121, 2026-09-15 16:35:17→16:36:03Z, green in 46
+seconds**, on `main` `9a4ac614` → `76ef26c8` (fast-forward; 4 commits, 7 files).
+**THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED WITH IT**:
+`origin/main` and the branch tip both hashed to `6246eb17cd6595c4` (182 inputs),
+so nothing an image is built from moved — and the step's own line reads `IMAGE
+SiteBuildContainer: reused isibi-app-sitebuildcontainer:6246eb…7cd6595c4
+(registry answered 200; …82 inputs off ./Dockerfile)`, 1 second. Wrangler
+answered `no changes isibi-app-sitebuildcontainer` and `╰ No changes to be
+made`, so **the container did NOT roll and no 15–20 minute hold applies** — read
+out of the log's own diff rather than inferred from the step's duration.
+`Uploaded isibi-app (3.55 sec)`, `Current Version ID: c85b09e4-2c50-4ff5-9a25-…`.
+**NO SERVED ASSET CHANGED** (`No updated asset files to upload` — the merge
+touched `.github/workflows/`, `scripts/`, `test/` and the two documents, nothing
+under `public/`), so there is no file-hash check for this deploy; what stands in
+is the gate discriminator, measured after it: `/api/site/build-health` **401**,
+`/api/site/runtime` **401**, `/api/nope-not-a-route` **404**. The five sites all
+answer **200** (`repairbench-1` 45,928 B · `ashgrove-1` 31,120 · `fretwork-1`
+58,285 · `northgroup-5` 1,641 · `washhouse-1` 52,404) — **an availability check
+and never a health check**, this file's own rule, which is why the interactive
+half was measured too: `/status` **200**, 5,970 B, `x-site-version
+01789437370636-f11bde`, build `mu20t4j1-ziyak2`, and the public RPC
+`POST /api/db/repairbench-1/data/rpc/count_booked_repairs` **200 answering `0`**
+— unchanged, because the repair has not run.
+
+**BOTH WORKFLOWS ARE REGISTERED ON MAIN AND THE FORM REALLY OFFERS THE NEW
+MODE.** Asked BY NAME rather than off the listing: `GET
+/actions/workflows/backend-repair.yml` **200** and `repairbench-count-fix.yml`
+**200**, and main's own copy of the file carries `options: [preview,
+apply-reference, apply, verify]` and `shell: bash`. **The dispatch is still
+refused**, re-tested rather than asserted: a direct REST POST with the right
+endpoint, headers and body answers **403 `Resource not accessible by
+integration`**, the MCP tool answers the same 403 on the same endpoint, and a
+**read control on the same token answers 200** — so it is the `actions: write`
+permission and not the credential. The press is the owner's, as recorded.
+
+### AND IT RAN — `repairbench-1`'s REFERENCE IS WRITTEN AND VERIFIED (2026-09-15)
+
+The owner's two presses, both green, the code under them proved unchanged first.
+**THE RUNS, BY LINK, because a quoted log is a transcription and the run is the
+record** — `https://github.com/canias7/isibi-app/actions/runs/<id>`: `backend
+repair` preview **34939144314**, apply-reference **34999557540**, verify
+**35000218315**.
+
+**`backend repair` run 2, 17:10:10→17:10:27Z, `--apply-reference --slug
+repairbench-1`, green in 17 s:**
+
+```
+mode: apply-reference  slug: repairbench-1
+scope: ashgrove-1, fretwork-1, northgroup-5, repairbench-1, washhouse-1
+1 site(s): 1 with a database (incomplete 1)
+repairbench-1 [incomplete]: identity PROVEN (project-row-for-this-slug-names-a-database-the-server-confirms)
+    reference: written site_repairbench_1
+    schema: nothing missing (2 declared)
+
+1 reference(s) written, 0 schema(s) recovered, 0 refused on identity, 0 failed.
+```
+
+**`backend repair` run 3, 17:16:24→17:16:39Z, `--verify --slug repairbench-1`,
+green in 15 s, exit 0:**
+
+```
+1 site(s): 1 with a database (ready 1)
+repairbench-1: VERIFIED
+    ok   reference recorded — site_repairbench_1
+    ok   reference is the derived name — site_repairbench_1 vs site_repairbench_1
+    ok   database answers and is this site's — project-row-for-this-slug-names-a-database-the-server-confirms
+    ok   stored schema readable — stored (stored)
+    ok   every live table declared — 2 table(s), all declared
+
+1 verified, 0 not verified.
+```
+
+- **THE STATE LINE IS THE INDEPENDENT READ-BACK.** Every earlier run said
+  `incomplete 1`; run 3 says **`ready 1`** — a fresh process re-reading Supabase
+  through `siteBackendDetail` and classifying the site, which only answers
+  `ready` when `neon_db` names a database. The verdict is not the writer saying
+  it succeeded.
+- **NOTHING WAS WITHHELD BECAUSE NOTHING WAS OUTSTANDING.** `schema: nothing
+  missing` matches the preview, so the `NOT APPLIED` sentence and the
+  `REPORTED AND NOT APPLIED` tally are correctly absent rather than skipped —
+  the reference-only bound was never tested against real schema work here, and
+  that is what the driven demonstration in the section above is for.
+- **`shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}`** is in both
+  run headers, so the verify's nonzero exit could reach the step.
+- **THE CODE THAT RAN WAS THE CODE REVIEWED, CHECKED RATHER THAN ASSUMED.**
+  `main` moved under the presses — `76ef26c8` → `ef55f4de`, another session's
+  `agent-builder` tree, 52 files and 17,746 insertions, **all additions**. A
+  diff over `scripts/backend-repair.mjs`, `scripts/repairbench-count-fix.mjs`,
+  both workflows, `site-backend-state.mjs`, `site-schema-recover.mjs` and
+  `site-schema.mjs` across those two commits is EMPTY. *A `checkout` pinned to
+  `ref: main` means the tool's code is whatever main holds at press time, so
+  "the reviewed tip" and "the tip that ran" are two different questions.*
+
+**`repairbench-1` IS OUT OF THE FIVE.** Four remain `incomplete` and untouched:
+`ashgrove-1`, `fretwork-1`, `northgroup-5`, `washhouse-1`.
+
+### AND THE COUNT FUNCTION IS CORRECTED — `/status` READS 3 (2026-09-15)
+
+Three presses on `repairbench count fix`, all green, all on `main` `ef55f4de`.
+**Run 1 (preview, 17:19:06→17:19:47Z)**, **run 2 (apply, 17:48:02→17:48:34Z)**,
+**run 3 (verify, 17:52:25→17:52:40Z, exit 0)** —
+`https://github.com/canias7/isibi-app/actions/runs/<id>`, ids **35000500401**,
+**35003509208**, **35003953873**.
+
+**ONE IDENTIFIER MOVED AND THE ARITHMETIC PROVES IT: the definition went 159 →
+160 characters**, which is exactly `bookings`(8) − `repairs`(7). `RETURNS
+bigint`, `LANGUAGE sql` and **`SECURITY DEFINER`** all came through as Postgres
+itself had written them, because the statement was rewritten from
+`pg_get_functiondef` rather than rebuilt from a template — the recorded reason
+that rule exists, now with a live instance behind it.
+
+**THE DIFF AS THE RUN PRINTED IT, both definitions whole rather than the one
+changed line**, because "the rest of the definition is preserved" is a claim
+about the parts that did NOT move and a one-line diff cannot carry it:
+
+```
+current definition (159 chars):
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM repairs $function$
+
+would replace 1 occurrence(s) of "repairs" with "bookings":
+CREATE OR REPLACE FUNCTION public.count_booked_repairs()
+ RETURNS bigint
+ LANGUAGE sql
+ SECURITY DEFINER
+AS $function$ SELECT COUNT(*) FROM bookings $function$
+```
+
+Run 3 read it back at **160 chars** with `FROM bookings`. **`1 occurrence(s)` is
+the wall doing its job in the log**: `\brepairs\b` cannot match inside
+`count_booked_repairs` because `_` is a word character, so the function's own
+NAME was never a candidate — the count in that sentence is what says so.
+
+**THE THREE NUMBERS, before and after, from the run's own output:**
+
+| reader | before | after |
+|---|---|---|
+| `SELECT COUNT(*) FROM bookings` | 3 | **3** |
+| `count_booked_repairs()` direct | **0** | **3** |
+| the site's own public RPC (HTTP 200) | **0** | **3** |
+
+`PASS — all three agree` on the apply; `VERIFY PASSED — all three counts agree
+and the function reads bookings` on the separate verify run, which sits ABOVE
+the rewrite and exits nonzero on any failed postcondition. **And the RPC was
+read a second time from this session**, through both addresses
+(`gofarther.dev/api/db/…` and `repairbench-1.gofarther.app/api/db/…`), both
+**200 answering `3`** — two processes, one number.
+
+**AND THE BROWSER CHECK IS ITS OWN CLAIM, with a baseline taken BEFORE the
+press.** A real Chromium opened `/status` twice with the same script: the
+rendered figure under *"Repairs currently booked"* went **`0` → `3`**, the
+page's own recorded network call went `…/rpc/count_booked_repairs → 0` → `→ 3`,
+and there were no page errors either time. **`x-site-version
+01789437370636-f11bde` in both**, so the site was never republished and never
+needed to be — the page had been asking the right question all along and the
+function was answering about the wrong table. That is why this cost no build,
+no container and no credits.
+**The two checks are deliberately separate and neither substitutes for the
+other**: the RPC asks the database over HTTP, the browser runs the real route
+chunk and reads the pixels' own source — and the RECORDED CALL is what ties
+"the page shows 3" to the call that produced it rather than to a number that
+happens to be on screen. This is the shape the "a 200 is an availability check
+and never a health check" trap asks for, run for the first time.
+
+**THE SESSION'S BROWSER TRUST STORE WAS EMPTY, and that is worth recording
+because a render is now a usable instrument here.** Chromium refused the site's
+certificate with `net::ERR_CERT_AUTHORITY_INVALID`: the agent proxy
+re-terminates TLS, and `/root/.pki/nssdb` held **zero** certificates despite the
+proxy's README saying the browser NSS store is set up. The fix is
+`apt-get install libnss3-tools` then `certutil -A -n ccr-agent-proxy -t "C,," -d
+sql:$HOME/.pki/nssdb -i /root/.ccr/agent-proxy-ca.crt` — **trusting ONE NAMED CA,
+never `--ignore-certificate-errors`**, which would be the disabling this
+environment forbids. The executable is `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`
+(the bare `chromium` symlink's `chrome-linux/chrome` does not exist).
+
+**WHAT THIS DOES NOT CLOSE.** `repairs` still exists, is still `read:"none",
+write:"none"`, and still has no way of gaining a row — the backlog entry stands
+exactly as written. What changed is that nothing reads it any more, so the
+site's own page is correct while the underlying design defect is not fixed.
+`search_path` is untouched and stays recorded on its own: the corrected function
+is still `SECURITY DEFINER` with no `SET search_path`, which the repair
+PRESERVED rather than changed, and whether that is exploitable here is still
+unmeasured in both directions.
+
+### THE BASELINE FOR THE ADDON TEST, TAKEN BEFORE THE SPEND (2026-09-15 19:16:49Z)
+
+Owner: *"prove the fixed addon can automatically build a working feature using an
+existing site's database"* — one live request on `repairbench-1`, and
+***"Record the initial outcome before making any manual correction. A manually
+repaired result must not count as automatic addon success."*** **This entry is
+written and pushed BEFORE the press**, because a baseline recorded afterwards is
+not a baseline.
+
+| condition | reading |
+|---|---|
+| the page name is free | `GET /booking-check` **404** (control: `/status` **200**, so the site is up and the 404 is an answer) |
+| the function name is free | `POST …/rpc/count_existing_bookings` **404**, `PGRST202 Could not find the function public.count_existing_bookings` |
+| **`bookings` EXISTS** | `GET …/data/bookings?select=id` **403**, `42501 permission denied for table bookings` |
+| **the count is 3** | `POST …/rpc/count_booked_repairs` **200**, answering `3` |
+
+**THE REFUSAL IS THE EXISTENCE PROOF, and that is the interesting one.** A table
+Postgres does not have answers `42P01 relation does not exist` (PGRST205); this
+answers `42501 permission denied`, which only a table that IS there can produce.
+`bookings` is `collect` — anyone writes, nobody reads — so a client SELECT is
+refused by design, and the refusal's own code is what establishes the table.
+
+**THE COUNT IS INDEPENDENT OF THE THING UNDER TEST, AND ITS LIMIT IS STATED.**
+`count_booked_repairs` is a DIFFERENT function from the one this run will design,
+so it cannot be its own witness — but it is not a raw row read either, because
+this session has no Neon credential. The raw `SELECT COUNT(*) FROM bookings` leg
+was read at **17:52:40Z** by the count-fix verify run and answered **3**; the RPC
+answers **3** again ninety minutes later. Two readings, one of them a real row
+count, agreeing.
+
+**WHICH CODE WILL ANSWER, both halves, checked not assumed.** Worker: deploy
+**`87b4057e`** (run 2123, 17:51Z), and `git diff 9a4ac614..origin/main --
+worker.js builder/ Dockerfile .dockerignore site-schema.mjs site-apis.mjs` is
+**EMPTY** — so the addon path is byte for byte the code deploy 2120 shipped.
+Container: `origin/main` hashes to **`6246eb17cd6595c4`** (182 inputs), which is
+the id deploy 2120 rolled to and nothing has moved it since.
+
+**EXACTLY ONE PAID POST, MEASURED RATHER THAN HOPED.** The harness's second paid
+call (`POST /api/site/<slug>/edit`, the photo hop) is gated on `c.hop`, and
+`askCase` — the case a free-text `ask` builds — sets no `hop` field, so that
+branch is unreachable on this run. The only other loop is a bounded re-READ of
+the site's build id. **There are no automatic paid retries.**
+
+**AND THE `budget` INPUT CANNOT MAKE A HARD CAP — said plainly because the owner
+asked for one.** `if (spent > BUDGET) break` is checked BEFORE each case, and an
+`ask` collapses the case list to exactly one (`casesFor` answers `[askCase(said)]`),
+so at the only check `spent` is 0 and the gate never fires. More fundamentally
+the credits are spent INSIDE the single addon request, and nothing outside that
+request can stop it mid-flight — **no harness setting can bound one addon run.**
+What does bound it: the ledger refuses a bill above the balance (**161**), the
+ask forbids a new table, and the measured precedent is run 47's **13** for the
+larger `table · function · page` shape against **31** for the most expensive run
+ever seen on this account. The field is set to 40 anyway: it costs nothing and is
+correct the day the harness runs more than one case.
+
+### RUN 48: THE FEATURE WORKED AND THE REPORT CONTRADICTED IT (2026-09-15)
+
+Owner: *"Keep run 48 recorded as automatic functional success with a
+customer-reporting failure."* **Both halves are true and they are about
+different things**, which is the whole finding.
+
+**WHAT RUN 48 BUILT, AUTOMATICALLY, FROM ONE SENTENCE**: a page at
+`/booking-check` and a function `count_existing_bookings` reading the site's
+EXISTING `bookings` table. The page is live, the function answers **3** through
+the site's own public RPC, and a real Chromium reads **3** on the page. No new
+table. That is the thing being proven and it is proven.
+
+**WHAT IT TOLD THE CUSTOMER**: *"Still to do: A new function named
+count_existing_bookings"* — about a function created in that same change, live
+and answering within the minute.
+
+**THE CAUSE IS FOUR LINES AND IT IS A CONFLATION, NOT A BUG IN THE EVIDENCE.**
+The `page` step handed *"a new function named count_existing_bookings"* BACK to
+the `function` step, which runs before it in `ADD_KINDS` order and so could not
+have heard it. That hand-off really was undelivered — and `requirementOutcomes`
+asked only that one question, so an undelivered hand-off fell straight to
+`failed` and `failed` is what "Still to do" is composed from.
+
+**THE FIX IS TWO QUESTIONS WHERE THERE WAS ONE**, and the owner's own wording is
+the design: *"A requirement sent backward to an earlier step is an unresolved
+handoff; that alone does not establish that its implementation is missing."*
+
+- **`handoff` IS ITS OWN FIELD AND IS DECIDED FIRST**, kept whatever else
+  happens: `delivered` | `undelivered`, with a `handoffs` ledger on the record.
+  The bookkeeping defect is still reported; what it stopped doing is standing in
+  for the work.
+- **`implementationOf` IS THE SECOND QUESTION, AND IT MATCHES ON EXPLICIT
+  REFERENCES** (owner: *"kind and item name — not another keyword heuristic"*).
+  Every `appliedFacts` entry now carries a **`kind`**; `REQUIREMENT_ITEM` gained
+  an optional **`item`** for `elsewhere` only, with *"LEAVE IT OUT rather than
+  inventing one"* in its own description. A claim about a `function` can only be
+  answered by an applied `function`, by name.
+- **AND IT IS ASYMMETRIC ON PURPOSE.** Finding an item proves existence; NOT
+  finding one proves absence only where this layer can see that kind at all.
+  `APPLIED_KINDS` is `table · function · api · job · page`; `component` is
+  deliberately off it, because an addition folded into an existing page leaves no
+  item in any list, so a working section and an absent one look identical.
+  A kind off the list answers `unknown` → `unverified`, never `missing`.
+  **A populated kind with NO `item` also answers `unknown`** — only the EMPTY
+  direction is sound there, or any function would satisfy any request for one.
+
+**SIX STATES, AND EACH PAIR EXISTS BECAUSE THE TWO NEED DIFFERENT SENTENCES:**
+
+| state | when | what the customer hears |
+|---|---|---|
+| `delivered` | a `checked` behaviour ties the claim to the work | nothing |
+| `configured` | a real SETTING read back off what was applied matches | "I can't confirm…" |
+| `unverified` | it is there, or nothing here can see whether it is | "I can't confirm…" |
+| `missing` | this layer looked and the work is not there | "Still to do: …" |
+| `blocked` | the step this need depends on ran and FAILED | "waiting on another part of the same change that didn't work" |
+| `failed` | we said we could not, or the claiming step failed | "Still to do: …" |
+
+**`checked` IS STILL EMPTY** and the guard drives all five applied kinds to
+assert it: nothing on this path exercises a behaviour, so `configured` is as far
+as a claim about a real setting can get.
+
+**`reportable` IS WHAT MAKES `missing` SAFE, and its first clause does most of
+the work**: a kind this change never RAN is reportable — it made none,
+definitionally. A kind that ran is reportable only once its results exist
+(`aApplied` after the backend apply, `aShipped` after the publish), because
+before then "nothing was applied" and "nothing has been applied YET" are the
+same empty list.
+
+**TWO WIRING DEFECTS THE SWEEP FOUND, both in this change's own plumbing.**
+(1) The record's last re-write sat inside `if (aMissing.length)`, so on the
+ORDINARY path — every page shipped — the stored coverage was composed while
+`aShipped` was still null and said no page was applied. The REPLY was right and
+the RECORD was not, which is the worse way round. It is unconditional now.
+(2) **`aShipped` was FILE names and a requirement names a ROUTE.** It is the
+requested routes LESS `aMissing` now — derived from the one reader that already
+knows both, so the two lists are complements by construction and a page that did
+not survive can never count as the work being there.
+
+**AND THE EVIDENCE GAPS THE RUN LEFT, closed or narrowed by measurement:**
+
+- **GAP A — the designer's input was NOT recorded, and the instrumentation now
+  exists.** `saveAddonAnswer` stored ONE `site` value written after the whole
+  kinds loop, so for run 48 — whose `function` step ran first — the stored facts
+  had already been rebuilt over that step's own answer. **Schema receipt for run
+  48 is UNVERIFIED and is recorded as such.** `shownSchema(site)` is the fix:
+  `shownSteps` on the developer record, one entry per kind in run order, taken
+  **from the object really handed to the call and ABOVE the await** — a digest
+  taken after it records the OUTPUT wearing the input's name, which the sweep
+  drives. Schema only (tables, their columns, the other three tiers by name,
+  `hasDatabase`), never the composed prompt: that carries the customer's words
+  and the kit menu, and the question being settled is narrow.
+- **GAP B — NARROWED, and the authoritative reading is one free press away.**
+  The no-new-table claim rests on per-NAME PostgREST probes, which are exact per
+  name (`42501 permission denied` proves a table exists; `PGRST205` proves the
+  schema cache has no such relation) and are **not a catalog enumeration**. The
+  proxy does not forward PostgREST's root, so no OpenAPI listing is reachable.
+  **The BEFORE is authoritative and already recorded**: `backend repair
+  --verify --slug repairbench-1` (run 35000218315, 17:16:39Z, before run 48)
+  read *"every live table declared — 2 table(s), all declared"*, and `st.tables`
+  is `information_schema` BASE TABLEs in `public` less the internal names. **The
+  AFTER is the same command**, writes nothing, costs nothing, and is the owner's
+  press. Until then the claim is *"no table of any name we probed was created"*,
+  not *"no table was created"*.
+- **GAP C — CLOSED, browser-only, nothing touched.** `/booking-check`'s loading
+  and error states, with the RPC intercepted inside Chromium: **loading** — the
+  call held open 12 s, `spinner: 1` in the DOM against `0` in the control, and
+  the number absent; **error (transport)** — *"That didn't load / Failed to
+  fetch / Try again"*; **error (HTTP 500)** — the same shell carrying the
+  SERVER'S own message (`boom`), not a canned string. **Measured: the page
+  retries 3 times** before showing the error, which is TanStack Query's default
+  and is real behaviour worth knowing. The control run, untouched, reads `3`.
+  **Deliberately separate runs from the successful live request**, and the
+  control is what proves the interception is doing the work.
+
+**Guards**: `test/addon-route.test.mjs` **44 → 55**, every case driven through
+`POST /api/site/<slug>/addon` and asserted on the customer's own sentence — run
+48's late hand-off with its function applied, the same with the function NAMED
+by `item`, with nothing applied, with creation REFUSED, the forward control, a
+kind this layer cannot see, a page that did not survive, a coverage composed
+before the publish, and the two input-digest cases with the output-order wall.
+`test/requirement-coverage.test.mjs` and `test/addon-steps.test.mjs` re-anchored.
+
+**Sweep: 28 mutants, 28 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 20 of 25 and **all five survivors were gaps
+in the new guards, not the product's**; pass 2 killed 25 of 28 with three more,
+**two of which were real product defects the guards had not reached** (the
+conditional record write, and `aShipped` carrying files where a requirement
+names a route). **Nine older guards were re-anchored, not appeased**, each
+naming the property that moved — the six-state list, the mark's counters (now
+asserted as *a filter over the outcomes naming the states it claims to count*
+rather than by one predicate's spelling), the `configured`/`configuredBy`
+rename, and two expectations that MOVED rather than broke: an undelivered
+hand-off to a populated kind now reads "can't confirm" instead of "still to do",
+and a step that was told and failed is `blocked` instead of `missing`.
+**Suite 6,487.**
+
+**NOT DEPLOYED AND NOT MERGED** — the owner's instruction for this round. Run 48
+stands exactly as it ran; nothing was repaired by hand and no paid call was made.
+
+### …AND THREE REPORTING CASES THE SEPARATION LEFT OPEN (2026-09-15)
+
+Owner, on the hand-off/implementation split: *"Scope failures to the referenced
+item and its actual dependencies… Distinguish 'not added by this change' from
+'absent from the site'… Separate unknown implementation from existing-but-
+unverified behavior in the customer wording. 'I've set that up' is inappropriate
+when implementation is unknown."* Plus: ***"Demonstrate all three through the
+addon route, asserting the stored outcomes and customer sentence. Include a
+mixed-success function step, reuse of an existing function without creating it
+again, and an unobservable component."***
+
+**1. A FAILURE WAS SCOPED TO A KIND, NOT TO A THING.** `aFailedKinds` is per-KIND,
+so ONE refused function marked the whole `function` step failed and every
+requirement handed to it read `blocked` — including one naming a function
+Postgres created without complaint. `failedItems` is `[{kind, name}]`, built in
+the route from `aFnErrors` + `aJobErrors` + `aMissing`, and a requirement that
+NAMES its dependency is judged on that dependency. **Both halves are asserted,
+because a fix that simply stopped blocking would lose the real dependency
+failure**: the kind-wide rule survives with `!depThere` as its scope — the step
+had A failure, and if the thing THIS requirement names is nonetheless there,
+that failure was somebody else's. A requirement that names nothing still blocks,
+because a failed step is the only evidence available about it.
+**THE ORDER IS FAIL-CLOSED AND SAID SO IN THE CODE**: `depBroke` is asked before
+`depThere`, so a thing KNOWN to have failed is blocked before anything excuses
+it. The two are disjoint today (only CREATED items reach `made`) and the order
+is what keeps that an observation rather than a dependency.
+
+**2. "NOT ADDED BY THIS CHANGE" IS NOT "ABSENT FROM THE SITE".** A change that
+deliberately REUSES a function leaves nothing in `made`, and reading that silence
+as "still to do" is run 48's defect wearing a different hat. `existingFacts`
+(`builder/site-add.mjs`) is the second presence source — the stored spec's four
+tiers, the site's own routes, and the look's `qr` and `three`, which are the two
+kinds a site carries by NAME rather than in its schema. `implementationOf` asks
+`made` first and `existing` second, and the record carries **`foundIn`**
+(`applied` | `existing`), because *this change made it* and *the site already had
+it* are the distinction this item is about and a record collapsing them cannot be
+audited later.
+
+**THE EVIDENCE IS TRUSTWORTHY BY CONSTRUCTION, and that is why it may be
+believed.** `aSpec` reaches this code only through `specForAddon`, which recovers
+a table the catalog has and the spec does not or STOPS; a `none` site is
+`{tables: []}` against its own measured state. `aSrc` is the stored page source.
+Neither is a guess.
+
+**ABSENCE NEEDS EVERY READER THAT COULD SPEAK TO HAVE SPOKEN — and that is NOT a
+blanket demand for two readers.** The first cut demanded both everywhere and lost
+a real finding, which is how the partition was found. `COVERAGE_STEPS` splits
+into three, **total and disjoint**, censused both ways:
+
+| group | kinds | absence |
+|---|---|---|
+| `SITE_KINDS` | `table · function · api · job · page · qr · three` | only when the site's inventory was really READ (`canExisting`); unread, nobody looked → `unknown` |
+| `OPAQUE_KINDS` | `component · photo` | **never** — an addition folded into an existing page leaves no item in any list, so a working section and an absent one look identical |
+| neither | `edit` | names no site artifact, so the applied evidence is the whole answer |
+
+**`OPAQUE_KINDS` IS LOAD-BEARING AND A SWEEP PROVED IT.** `aReportable` answers
+TRUE for a kind this change never RAN — it made none, definitionally — so for
+`component` every other wall is open and this one is the whole of what stops a
+change reporting a section as still to do. **The first reading called it
+redundant with `APPLIED_KINDS` and that was wrong**, and the mutant that
+survived is what said so.
+
+**3. UNKNOWN IS ITS OWN STATE AND ITS OWN SENTENCE.** `unverified`'s clause opens
+*"I've set that up, but I can't confirm…"*, which is a claim nobody is entitled
+to make about an implementation nobody could find. **Seven states now**
+(`delivered · configured · unverified · unknown · missing · blocked · failed`)
+and `unknown` gets: *"I can't see from here whether … — nothing I can check says
+either way, so have a look, and ask me for it again if it isn't there."* It is an
+invitation to ask again rather than a correction, because there may be nothing to
+correct. Its own number on the record (`unknown`) and on the trace mark
+(`unseen`) — **beside `unsure`, never in it**: a run of these built nothing
+anybody can point at, and summed together the two read as a productive run
+nobody checked.
+
+**`checked` STAYS EMPTY**, and the guard drives all five applied kinds to assert
+it: nothing on this path exercises a behaviour, so `configured` is as far as a
+claim about a real setting can get. Existence and behaviour stay separate.
+
+**THE TEMPORAL DEAD ZONE BIT A THIRD TIME IN THIS ROUTE, and was caught by
+reading.** `aFailedItems()` is read from inside `aCoverage()`, whose first
+possible call is a refusal in the kinds loop — four hundred lines ABOVE where
+`aJobErrors` was declared. It is hoisted onto the accumulator line with the
+reason recorded in both places. *Declare what a closure reads above its first
+possible call, not above its obvious one.*
+
+**Guards**: `test/addon-route.test.mjs` **55 → 59**, each of the three demonstrated
+through `POST /api/site/<slug>/addon` and asserted on the customer's own
+sentence — a mixed-success function step (one created, one refused, asserted as
+the precondition) where only the requirement naming the refused one is blocked
+and the sentence names `count_bad`; a reuse case with its CONTROL, the same
+change and the same requirement on a site that does NOT declare the function,
+where "still to do" is the true answer and must still be said; and a stocked
+site where an unnamed requirement, an existing QR code and an unobservable
+component give three different answers in one reply.
+`test/requirement-coverage.test.mjs` gained the three-group census and the
+`unseen` counter.
+
+**Sweep: 28 mutants, 28 killed, 0 survived, 1 never applied on pass 1 and 0 on
+pass 2, 2 comment-only controls survived.** Pass 1 killed 20 of 28 with seven
+survivors and one ambiguous anchor; **every survivor was a guard gap and one of
+them was a PRODUCT property nobody had reached** — `OPAQUE_KINDS` above. The
+others: a missing page named on the blocked `why` rather than only in the state,
+the customer's SENTENCE told which items failed (it recomputes the outcomes from
+its own arguments, so the record can be right while the sentence is generic), an
+unnamed requirement on a stocked site, the look as an inventory, and the trace
+mark's two. The ambiguous anchor was `pages: (aSrc || [])…`, which occurs twice
+in the route.
+
+**EIGHT older guards were re-anchored, not appeased** (five in
+`requirement-coverage`, three in `addon-route`), each naming the property that
+moved — **and the number was CORRECTED from five before it was pushed**, by
+counting the cases that gained a note in this commit's own diff rather than by
+recalling how many I had touched. The mark's key census and its predicate loop
+gained `unseen`; the mark's outcome call gained `failedItems` and `existing`;
+the six-state list became seven; and several expectations MOVED rather than
+broke — an `elsewhere` hand-off with nothing applied and no `item` reads
+`unknown` where it read `missing`, and its clause is the can't-see one rather
+than "still to do".
+
+**Suite 6,491.**
+
+**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
+the last. No paid call was made and no demo site was touched. **The `search_path`
+review stays queued.**
+
+### …AND THE SAME EVIDENCE RULES FOR `covered` (2026-09-15)
+
+Owner: *"The earlier handoff cases now work. Apply the same evidence rules to
+covered requirements too … Do not let the model's covered label substitute for
+implementation evidence. Support explicit item references for covered
+requirements, preserve them through cleaning, and reconcile both covered and
+elsewhere against the same item-level results and existing-site evidence. Keep
+handoff tracking separate."*
+
+**`covered` NEVER REACHED THE IMPLEMENTATION READER AT ALL.** `implementationOf`
+refused any status but `elsewhere`, so a `covered` entry fell through to the
+initial `state = "unverified"` and its customer clause — *"I've set that up, but
+I can't confirm…"* — was composed off the LABEL. Two consequences, both the
+owner's own:
+
+1. **A claim whose own function applied still read `failed`** when an unrelated
+   function in the same step did not. The kind-wide rule (`the owning step is in
+   failed`) had the `!depThere` scope added for `elsewhere` last round and a
+   separate, unscoped `covered` branch beside it. There is ONE branch now, and
+   the two statuses part company only on which SENTENCE it earns: a hand-off is
+   `blocked` (waiting on another part), a claim the failed step MADE goes down
+   with the step that made it (`failed`).
+2. **A `covered` label with nothing behind it claimed the work was set up.** It
+   is `unknown` now — the same state, and the same sentence, an `elsewhere`
+   hand-off with nothing behind it already got.
+
+**THE HAYSTACK IS THE ONE DIFFERENCE BETWEEN THE TWO, and it is the whole of
+what is status-specific.** Same equality, same two sources (`made` and the site's
+own inventory), same three-group visibility rule. `elsewhere` NAMES a step, so
+its `item` is a request TO that step and a thing of another kind is not what was
+asked for. `covered` names no step — `from` is OUR bookkeeping of which call
+answered, never a claim about where the thing lives — so its `item` is a claim
+that THE THING EXISTS and is looked for across every kind, in `made` and in the
+site's contents alike. **The no-item branch stays kind-scoped for both**: with no
+name the question is "did the responsible step produce anything at all", which is
+about one step's output whichever status asked it. `depBroke` follows the same
+split — `brokenAny` (bare names) for a claim, the kinded index for a hand-off —
+and the looser match can only ever move a requirement to `blocked`, whose
+sentence invites a look at the other part.
+
+**`cleanRequirements` KEEPS `item` FOR BOTH**, and the tool says so: the
+description was *"For \"elsewhere\" only"*, which is the wiring trap in prose —
+the reconciliation would have been perfect and unreachable, and from outside "the
+model did not name it" and "we told it not to" are the same missing field. **An
+`item` is deleted when the status IS or BECOMES `unsupported`**, because the
+reference then names nothing this change will ever run.
+
+**A CONTRADICTION IS ITS OWN KIND, NOT A `null`** — and this is the correction
+the round's own first cut needed. `claimEvidence` answered nothing both for "a
+`fails` token matched" and for "there was nothing to check against"; once
+`covered` started reading its implementation, those fell to opposite states and
+`unknown`'s sentence — *"nothing I can check says either way"* — is FALSE of a
+contradiction, where something can be checked and it says the opposite. It
+answers `contradicted`, which reads `unverified` (the item was named and really
+applied, so the implementation is established and only the guarantee is denied)
+and records `contradictedBy` for the developer. **The customer hears the same
+sentence either way, deliberately**: nothing here is entitled to call a claim
+wrong, which is the never-move-towards-`failed` rule this file already carries.
+A BARE NAME is kept as `named` for the same reason and is KEPT rather than
+returned, so a later item carrying a real guarantee still wins.
+
+**HAND-OFF TRACKING STAYS SEPARATE**, in as many words: `handoff` is set only for
+`elsewhere`, the ledger counts only those, and a `covered` claim carries no
+hand-off verdict — it asked nobody for anything.
+
+**AND THE ROUTE HAD ONE WRITER OF `aFailedKinds` WITH NOTHING ON THE ITEM LIST.**
+A function the database REFUSES is named in `functionErrors`; a function the
+ENGINE will not build is dropped WHOLE — no field to point at, no statement
+issued, nothing in `functionErrors` — and the kind was failing wholesale off it,
+so a claim naming the dropped thing and a claim naming the one that applied got
+the same verdict. `aUnbuilt`'s entries join `aFailedItems()` (declared at the
+accumulator, well above the closure's first possible call — this route's own
+thrice-recorded temporal-dead-zone trap).
+
+**Guards**: `test/addon-route.test.mjs` **59 → 62** — the two cases the owner
+named, each driven through `POST /api/site/<slug>/addon` and asserted on the
+stored outcomes AND the customer's own sentence (a `covered` claim in a
+mixed-success function step, where the claim whose function applied is
+`unverified`, the one whose function was refused is `blocked` NAMING `count_bad`,
+and a claim resting on nothing still `failed` — three sentences from one step;
+and a `covered` claim about a section nobody can see, `unknown`, with the control
+that the SAME step's claim naming an applied function moves to `unverified`),
+plus the engine-dropped item. **Both new cases were proved RED against the
+pre-change module** (`git show 82e3c885:builder/site-requirements.mjs` swapped
+in) before being believed. `requirement-coverage` and `addon-steps` gained
+assertions inside existing cases and no new case — the cross-kind haystack
+asserted BOTH WAYS ROUND (one direction alone passes with the haystack widened
+for everything), the `covered` `missing` naming its own thing, `brokenAny` with
+its kinded control, the kept-not-returned bare name, the tool's own description,
+and the `unsupported` item drop.
+
+**Four older guards were re-anchored, not appeased** — counted from this commit's
+own diff rather than recalled — each naming the property that moved:
+`appliedFacts`' two `claimEvidence` answers (asserted on what each BUYS rather
+than on the shape of the refusal), `requirementNote`'s bare covered claim (now
+the can't-SEE clause, with *"I've set that up"* asserted ABSENT), the six-state
+fixture's second entry and its `claimEvidence` block, and the developer record's
+counts — where **both entries are now the same state and that IS the property**:
+two different statuses with the same nothing behind them get the same honest
+answer, with a CONTROL beside it so `unknown` cannot become a new default.
+
+**Sweep: 27 mutants, 27 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 24 with three survivors, and **all three were
+guard gaps, not the product's** — the SITE half of the widened search (a claim
+resting on something the site already had, across kinds), the tool's description
+(the prose half of the wiring trap, which no behaviour test can see), and the
+route's engine-dropped items, which needed a case where the engine drops a
+function whole (`returns: "setof nowhere"`) rather than the database refusing it.
+**Every anchor was checked to occur exactly once before each run.**
+
+**Suite 6,494. CI has read it: `unit tests` run 2597 on `23f6ae22`, green —
+`# tests 6494 / # pass 6491 / # fail 0 / # skipped 3`.**
+
+**AND ONE READING OF MY OWN WAS WRONG BEFORE `date` CORRECTED IT.** Watching
+that run, the API answered `in_progress` for a step whose band is ~100 s and
+the run's `updated_at` sat BEHIND its own steps — which is this file's recorded
+tell for a stale snapshot, and I read it as one. It was not: **`date -u` said
+23:27, ninety seconds after the push.** The background `sleep`s I had started
+were never awaited — I read each one's empty output file and polled GitHub
+immediately, so no time had passed at all. **The trap entry's own last line is
+the fix and it works**: `date` is the cheap check before calling anything hung,
+and it is equally the check before calling an instrument stale. A wait is only a
+wait when something blocks on it.
+
+**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
+the last two. No paid call was made and no demo site was touched. **The
+`search_path` review stays queued.**
+
+### …AND A REFERENCE IS `{kind, name}`, BECAUSE A NAME COLLIDES (2026-09-16)
+
+Owner, on the round above: *"covered references now lose their kind.
+`implementationOf` searches all kinds by name, and `brokenAny` similarly ignores
+kind."* Two failures, reproduced at the module before anything was touched, both
+on the name every real site uses for both things:
+
+| reproduced | what the reader said |
+|---|---|
+| applied TABLE `bookings`, no function `bookings` | a `covered` claim about the FUNCTION → `implementation: found` and *"I've set that up"* |
+| applied TABLE `bookings`, FAILED function `bookings` | a `covered` claim about the TABLE → `blocked` |
+
+**ONE IDENTITY, `{kind, name}`, FOR ALL THREE LOOKUPS** — applied, existing and
+failed. `referenceOf(r)` is the single producer and `broken` is keyed the way it
+answers (`kind + "::" + name`), so the index and the lookup cannot drift apart.
+`brokenAny` and the cross-kind `anyKind` search are gone.
+
+**WHERE THE KIND COMES FROM IS THE ONLY PER-STATUS PART, and it is not a
+symmetry that could have been collapsed.** An `elsewhere` reference is a request
+TO a named step, so the STEP is the kind — a request to the function step is a
+request for a function, and a second field beside it would be a two-field
+invariant that can disagree with itself. A `covered` reference has no such
+field: **`from` is which CALL answered, never a claim about where the thing
+lives**, and the tool deliberately invites a table step to name the function that
+does the work. So the kind is DECLARED, which is the owner's own instruction —
+*"Allow covered requirements to name a different implementation kind explicitly;
+the authoring step alone cannot identify it."*
+
+- **`ITEM_KINDS` IS DERIVED** (`COVERAGE_STEPS` less `edit`) and censused both
+  ways against the tool's own enum. `edit` is out BY MEANING — it names no
+  artifact a site holds, so `{kind: "edit", item: "x"}` could never be looked up
+  in anything. `component` and `photo` are deliberately IN although they always
+  answer `unknown`: the designer can say what it made and this layer says it
+  cannot see one, where refusing the kind leaves them naming nothing.
+- **THE KIND IS PRESERVED THROUGH CLEANING for `covered` and dropped for
+  everything else**, and a kind outside `ITEM_KINDS` is DROPPED rather than
+  repaired to a plausible one — a wrong kind is a lookup in the wrong list, and
+  `unknown` is a sentence the customer can act on.
+- **AMBIGUOUS OUTRANKS EVERY WEAKER READING, and that is the whole reason the
+  branch exists.** With nothing in `by` the fall-through lands on `unknown`
+  anyway; it changes an answer only when `by` NAMES an applied item — and
+  `claimEvidence` matches on PROSE across every kind, which is the same
+  collision one layer over. So a reference with no kind reads `unknown` with
+  `unresolved: "no-kind"` on the record, never rescued by evidence about a thing
+  the designer may not have meant. It is asked AFTER the two failure branches,
+  so a known dependency failure and a failed owning step still win.
+- **"COULD WE HAVE SEEN ONE" IS ASKED OF THE REFERENCE'S KIND, NEVER THE
+  STEP'S.** The two agree on a claim about the step's own work and part company
+  on exactly the claim the declared kind exists for — the `page` step resting on
+  a FUNCTION. Reading the step's kind there would turn "nobody enumerated
+  functions" into "still to do" on the strength of having read the pages.
+- **A ROUTE-SIDE FAILURE CARRIES ITS OWN KIND**: the function errors, the job
+  errors, the missing pages and the engine-dropped items each name theirs, so
+  the second collision cannot come back from the producing end either.
+
+**THE ONE INERT LINE IS DECLARED RATHER THAN DELETED, and it was MEASURED
+inert, not reasoned about.** `if (e.status !== "covered") delete e.kind;` is a
+belt: `e` is built fresh and `e.kind` is assigned inside the `covered` branch and
+nowhere else, and the one status rewrite in `cleanRequirements` is on the
+`elsewhere` branch, which a `covered` entry never takes. **720 probes — every
+status including junk and wrong-case, every kind including junk, empty and
+`undefined`, every step including junk and `undefined` — byte-identical with the
+line and without it.** It stays because the PAIR is "the assignment sits inside
+the covered branch" and "a non-covered entry cannot keep a kind", and hoisting
+the assignment out is a one-line refactor that reads as tidying; the spec mutates
+**the two together**, which is the only way a redundancy can be sweep-tested at
+all, and the code says so because a sweep cannot.
+
+**Guards**: `test/addon-route.test.mjs` **62 → 64** — the owner's two collisions
+driven through `POST /api/site/<slug>/addon` and asserted on the stored coverage
+AND the customer's own sentence, both on a site whose stored schema declares
+neither name (`STORED_SCHEMA` already has `bookings`, which would have made the
+addition an EXTENSION and the case about something else). The three `covered`
+cases from the round above were re-anchored onto explicit kinds and kept, which
+is the owner's *"Retain the successful mixed-function and unknown-component
+cases."* `test/requirement-coverage.test.mjs` stays **22** and gained
+assertions inside existing cases: the `ITEM_KINDS` census both ways plus the
+tool's enum, `referenceOf` driven directly for both kind sources and both halves
+of its `null`, ambiguity outranking a prose match WITH its control, a junk kind
+dropped, a stray kind on a hand-off, and the visibility question asked of the
+reference's kind with the control that makes it about the haystack.
+
+**Five older guards were re-anchored, not appeased** — counted from this
+commit's own diff rather than recalled: three route fixtures that gained an
+explicit kind (`OK`/`BAD`, `GONE`/`KEPT`, `SECTION`/`BACKED`), case 15's
+haystack block rewritten onto the kinded identity, and case 17's `kind: "table"`
+control with its `vague` counterpart.
+
+**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 21 of 25 and **all four survivors were
+guard gaps, not the product's** — a junk kind kept, a stray kind on a hand-off,
+the visibility question asked of the wrong kind, and the ambiguity branch, whose
+only observable case needs `by` to name an applied item. One of the four was
+then measured INERT (above) and REPLACED with the pair mutant rather than
+hunted. **Every anchor was checked to occur exactly once before each run.**
+
+**Suite 6,496** — 6,494 + `addon-route`'s two collision cases, and the
+arithmetic closes exactly: everything in `requirement-coverage` is an assertion
+inside a case that already existed. **CI has read it: `unit tests` run 2599 on
+`e032afad`, green — `# tests 6496 / # pass 6493 / # fail 0 / # skipped 3`.**
+
+**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
+the last three: *"Keep this correction bounded. No merge, deployment, paid
+rerun, or demo-site cleanup yet."* No paid call was made and no demo site was
+touched. **The `search_path` review stays queued.**
+
+### …AND THE EVIDENCE LOOKUP HAD THE SAME BYPASS UNDER IT (2026-09-16)
+
+Owner, on the round above: *"The original two collisions are fixed. One bypass
+remains: `claimEvidence(r.by, made)` still searches every applied kind …
+Evidence from another item must not turn an unknown implementation into
+configured, unverified, or delivered. Missing or ambiguous references must not
+regain certainty through an unrestricted prose match."*
+
+**THE IDENTITY REACHED `implementationOf` AND STOPPED THERE.** Underneath it
+sits an older, kind-blind reader — `claimEvidence` matches the applied items'
+names inside the sentence the model wrote — and it was handed `made` WHOLE. So
+whenever the exact question had no answer, the loose one supplied one.
+Reproduced at the module before anything was touched:
+
+| applied | the reference | what it said |
+|---|---|---|
+| TABLE `bookings` | `{kind: "component", item: "bookings"}` | `implementation: unknown`, state `unverified`, *"I've set that up"* |
+| TABLE `bookings` | `{kind: "table", item: "bookings"}` + prose naming an applied FUNCTION | `configuredBy` read off the FUNCTION |
+
+The second is the quieter face and it puts a wrong FACT on the record rather
+than a wrong state: the reference resolves perfectly and the *"here is the
+setting I checked"* note comes off a different item the sentence mentions in
+passing.
+
+**`evidenceItems(made, impl)` IS THE ONE SCOPE, DERIVED FROM `impl` RATHER THAN
+RE-RESOLVED**, so the two readers cannot come apart. Three answers, each a
+different claim about what may count as proof:
+
+| `impl.by` | haystack |
+|---|---|
+| `item` | that `{kind, name}` and nothing else. A miss is EMPTY, which is right for `absent` (not there) and for `unknown` (nobody could look) alike |
+| `kind` | the responsible STEP's own output — which is the question `implementationOf`'s no-name branch already asks in as many words. One haystack, two readers |
+| no kind | nothing. Ambiguous, or not reconciled at all |
+
+- **THE `kind` TEST IS WHAT MAKES THE LAST CASE SAFE.** An ambiguous reference
+  carries `kind: ""`, and filtering for that matches every applied item whose
+  OWN kind is missing rather than none of them — the empty-needle shape, in the
+  branch whose whole job is to answer nothing.
+- **AN ITEM REFERENCE IS NEVER NARROWED BY `from`.** That is which CALL
+  answered, never a claim about where the thing lives; it is the no-reference
+  haystack's scope only because there the question really is about a step's
+  output.
+- **THE LINE FOR A REFERENCE-LESS CLAIM WAS MEASURED, NOT ARGUED.** The
+  stricter reading — no prose match at all — was driven: **9 guards red against
+  4, and the five extra are real findings lost**, three of them the owner's own
+  earlier demonstrations (public versus internal functions, the stored
+  connection, configuration-is-not-behaviour). A claim resting on a guarantee
+  its own step's applied item really carries would read *"nothing I can check
+  says either way"*, which is FALSE when something can be checked and it holds.
+
+**THE `unresolved` BRANCH IS NOW A DECLARED REDUNDANCY, MEASURED INERT:
+27,216 probes over every status, kind, item, `from`, claim, failed kind and
+failed item — byte-identical with it and with it cut.** Kept because the two say
+different things: the branch is the ORDER (ambiguity outranks every weaker
+reading, and is asked AFTER the two failure branches), the haystack is the
+SCOPE. Widen the scope by one line — an ambiguous reference falling back to the
+step's kind is the plausible version — and it is the only wall again. The sweep
+mutates the PAIR.
+
+**FOUR GUARD FIXTURES HAD DRIFTED FROM THEIR PRODUCER, AND THAT IS WHAT THE
+FIRST RUN REPORTED.** Each was a hand-typed applied item with **no `kind`** (one
+also called `cleanRequirements` with no `from`) — free while the search was
+kind-blind, and impossible in the product: `appliedFacts` stamps a kind on every
+item and the route always hands the kind that answered. They read as the scoping
+being broken. Re-anchored onto the producer's shape, and `addon-steps`' `checked`
+fixture is now DERIVED from `appliedFacts` outright — the recorded "derive a
+fixture from its real producer", in the one fixture that drove the `delivered`
+door.
+
+**Guards**: `test/addon-route.test.mjs` **64 → 66** — the owner's reproduction
+driven through `POST /api/site/<slug>/addon` with its matching-item positive
+control IN THE SAME REPLY (same name, same applied table, only the reference's
+kind differs), and the `configuredBy` face with its own control; **both proved
+RED against the pre-change module** before being believed.
+`test/requirement-coverage.test.mjs` stays **22** and gained assertions inside a
+case that already existed: the three arms driven directly, both halves of the
+item identity, a kindless item in no haystack, the folded name comparison, the
+fail-closed unknown `by`, a non-array `made`, the scope driven end to end
+through `requirementOutcomes`, and a hand-off's prose ignored.
+**THE FUNCTION-INVENTORY CASE IS AT THE MODULE, DELIBERATELY, AND THE TEST SAYS
+WHY**: on the route `aSpec` is always read (`specForAddon` recovers or stops), so
+`existingFacts` always speaks for `function` and that state is unreachable there
+— saying so beats a route case that fakes it.
+
+**Four older guards were re-anchored, not appeased** — counted from this
+commit's own diff: `requirementNote says only what is still outstanding`, `the
+six states separate implementation from hand-off`, `ACCEPTANCE: the reproduced
+omitted requirement`, and `addon-steps`' `configuration is recorded and never
+promoted`.
+
+**Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 9 with five survivors, and **every one was a
+gap in the new guards, not the product's** — three of them about shapes the
+route cannot produce, which is what a module guard is for: a hand-off reading a
+`by` the cleaner drops, an unrecognised `by` falling through to everything, a
+non-array `made`, a kindless applied item admitted everywhere, and a name
+comparison folded on one side only. **Every anchor was checked to occur exactly
+once before each run.**
+
+**Suite 6,498** — 6,496 + `addon-route`'s two, and the arithmetic closes
+exactly.
+
+**MERGED AND LIVE — deploy 2124, 2026-09-16 01:47:09→01:50:02Z, green in 2m53s**,
+on `main` `989d32a0` → `0dc1d27c`. **NOT a fast-forward to begin with**: main had
+moved to another session's agent-builder work and some app chrome, so main was
+merged INTO the branch first (no conflicts, in either document), the merged tree
+measured, and only then was main fast-forwarded to it.
+
+- **THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED — the third
+  time that technique has been cross-checked against reality.** `origin/main` →
+  `6246eb17cd6595c4` (182 inputs), **which is the id the live container was on**;
+  the merged tree → `c6980fe3efce66d3` (182 inputs — the same COUNT, different
+  content, because `builder/site-requirements.mjs` is in the worker's module
+  graph and the image carries it). The step's own line: `IMAGE SiteBuildContainer:
+  built isibi-app-sitebuildcontainer:c6980fe3efce66d3 (registry answered 404; 182
+  inputs off ./Dockerfile)`.
+- **AND THE MERGE COMMIT HASHES IDENTICALLY TO THE BRANCH TIP**, which is the
+  exact answer to "is main's own work an image input": it is not. `agent-builder/`
+  and `public/` are outside the Dockerfile's COPY set, and the id not moving says
+  so more strongly than reading a `paths` list.
+- **CONTAINER ROLLED at 01:49:55.6Z**: `EDIT isibi-app-sitebuildcontainer`,
+  `6246eb17cd6595c4` → `c6980fe3efce66d3`, `SUCCESS Modified application`,
+  `Applied changes` — read out of the log's own diff rather than inferred from the
+  step's duration. **So the 15–20 minute hold ran to ~02:05–02:10Z.**
+- **WORKER**: `Uploaded isibi-app (3.85 sec)`, `Worker Startup Time: 32 ms`,
+  `Total Upload: 3463.86 KiB / gzip: 933.59 KiB`, 99 asset files read.
+- **`No updated asset files to upload` — AND THE REASON IS NOT THE USUAL ONE.**
+  The merge DOES carry `public/chat.js`, `index.html` and `styles.css` changes;
+  they are main's, and deploy 2123 already uploaded them, so 2124 saw them
+  unchanged. **The `/chat.js` comparison therefore proves the served bytes are
+  main's and CANNOT discriminate 2124 from 2123**: live 603,362 bytes, sha256
+  `b5572f382c733be0`, identical to the merged tree. Saying which of the two a
+  check can settle is the whole point of running it. The standby is the gate
+  discriminator, measured after: `/api/site/build-health` **401**,
+  `/api/site/runtime` **401**, `/api/site/job-probe` **401**,
+  `/api/nope-not-a-route` **404**.
+- **THE PRE-PUSH BASELINE WAS NOT TAKEN THIS ROUND, and that is a process miss
+  rather than a judgement.** The recorded practice is a baseline BEFORE the push
+  compared after; what stands in is deploy 2121's recorded numbers, which are
+  nine hours and two other-session deploys old. Four of six sites are
+  byte-identical to it — `ashgrove-1` 31,120 · `northgroup-5` 1,641 ·
+  `washhouse-1` 52,404 · `ben-crowe-guitar` 52,060. `repairbench-1` 45,928 →
+  **46,151** is explained and expected: run 48 republished it, and its
+  `x-site-version` moved to `01789500698949-dggs37` (build `mu32igiu-dao04n`).
+- **`fretwork-1` IS 58,285 → 58,404 AND THAT IS UNEXPLAINED FROM HERE.** It is
+  **not** per-request variance — five consecutive reads answer 58,404 exactly,
+  with `ashgrove-1` stable at 31,120 as the control — and the site has **not**
+  republished: `x-site-version 01788755899622-6w90uf`, days old and unmoved. So
+  by the standing rule (a Worker deploy changes nothing a visitor sees until a
+  site republishes) this deploy is not the cause, and with no pre-push reading
+  there is nothing here that can say whether the 119 bytes moved before it or
+  across it. **Recorded as an open observation, not as a clean regression pass.**
+- **THE INTERACTIVE HALF, because a 200 is an availability check and never a
+  health check**: `/status` **200** and its RPC `count_booked_repairs` **3**;
+  `/booking-check` **200** and run 48's `count_existing_bookings` **3**. Both
+  features built by the addon path still answer after the roll.
+- **The merge started exactly one workflow** — `Deploy to Cloudflare` run 2124
+  and nothing else, which is the merge-trigger census holding in the live.
+
+**NO PAID CALL WAS MADE AND NO DEMO SITE WAS TOUCHED** — the owner said
+*"Merge"*, which lifts the merge and the deploy it necessarily fires, and nothing
+else. **The `search_path` review stays queued.**
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -4659,7 +5556,109 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   own log by bounding each `N passed` to its own `##[group]`, because a forward
   search from a step marker picks up the NEXT step's count and silently
   mis-attributes it (measured: four steps all reported 29 that way).
-  The unit suite is **6,472** (2026-09-15, local — the repair steps' shell,
+  **AND RUN 1147 READ IT AN EIGHTH TIME (2026-09-15 22:24:15→22:47:54Z on
+  `82e3c885`, the three reporting cases, ALL TWENTY STEPS GREEN):
+  `site-build.mjs` `382 passed, 0 failed` in 17m11s**, with kit-typecheck 4,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47 beside it — every count bounded to its own `##[group]`.
+  **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23**: three of them are
+  GitHub's automatic post-steps (numbered 39–41), so `len(steps)` is not the
+  step count this line means — checked rather than "corrected", because the
+  phrasing was right and a number moved for the wrong reason is still a wrong
+  number.
+  **AND RUN 1148 READ IT A NINTH TIME (2026-09-15 23:26:02→23:52:28Z on
+  `23f6ae22`, the covered-evidence round, ALL TWENTY STEPS GREEN):
+  `site-build.mjs` `382 passed, 0 failed` in 19m14s**, with kit-typecheck 4,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47 beside it — every count bounded to its own `##[group]`, and
+  the count read rather than carried over from 1147.
+  **AND RUN 1149 READ IT A TENTH TIME (2026-09-16 00:08:50→00:28:25Z on
+  `e032afad`, the kinded reference, ALL TWENTY STEPS GREEN): `site-build.mjs`
+  `382 passed, 0 failed` in 14m06s**, with kit-typecheck 4, contrast-cases 16,
+  theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it —
+  every count bounded to its own `##[group]`, and read rather than carried over
+  from 1148.
+  **AND RUN 1150 READ IT AN ELEVENTH TIME (2026-09-16 01:07:50→01:32:50Z on
+  `561db453`, the evidence scope, ALL TWENTY STEPS GREEN): `site-build.mjs`
+  `382 passed, 0 failed` in 18m11s**, with kit-typecheck 4, contrast-cases 16,
+  theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it —
+  every count bounded to its own `##[group]` by parsing the job's own log, and
+  read rather than carried over from 1149. **Eleven independent runs over four
+  days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
+  that differ by a handful of files, are the runner deciding again, exactly as
+  the image-step band records.
+  The unit suite is **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
+  sessions stamped a suite and neither number was the merged one**, which is
+  this file's own "a number stamped in two places drifts when only one is
+  corrected": this branch measured **6,498** and `main` brought
+  `test/agent-builder-view.test.mjs`, whose **7** cases are the whole
+  difference — **6,498 + 7 = 6,505, and the arithmetic closes exactly**,
+  measured by running that file alone rather than by subtracting. The
+  `agent-builder/test/*.test.mjs` files are NOT in this count: `npm test` runs
+  `node --test "test/*.test.mjs"` and that glob does not reach them.
+  **6,498** before the merge (2026-09-16, local — the evidence lookup's own
+  bypass, whose new cases are all `addon-route`'s **two** (64 → 66: the
+  component/table reproduction with its matching-item positive control in the
+  same reply, and the `configuredBy` face with its own control); **6,496 + 2
+  closes exactly**. `requirement-coverage` stays 22 and gained ASSERTIONS inside
+  a case that already existed — `evidenceItems` driven arm by arm, both halves
+  of the item identity, the kindless item, the folded name, the fail-closed
+  unknown `by`, a non-array `made`, the scope end to end, and a hand-off's prose
+  ignored. **CI HAS READ IT: `unit tests` run 2602 on `561db453`, green
+  (2026-09-16 01:07:50→01:09:40Z, the suite step 97.9 s) — `# tests 6498 /
+  # pass 6495 / # fail 0 / # skipped 3`**, against local `6498 / 6498 / 0 / 0`;
+  the three are the recorded environment skips, which is why the number to
+  carry is the TOTAL. **AND `site build` run 1150 IS GREEN ON THIS SHA** — all
+  twenty steps, `site-build.mjs` 382/0, stamped above.
+  **6,496** before it (2026-09-16, local — the kinded reference, whose
+  new cases are all `addon-route`'s **two** (62 → 64: the owner's two
+  collisions, an applied TABLE against a claim about a FUNCTION of the same
+  name and a FAILED function against a claim about the TABLE); **6,494 + 2
+  closes exactly**. `requirement-coverage` stays 22 and gained ASSERTIONS
+  inside existing cases and no new case — the `ITEM_KINDS` census both ways
+  with the tool's enum, `referenceOf` driven directly, ambiguity outranking a
+  prose match with its control, a junk kind dropped, a stray kind on a hand-off,
+  and the visibility question asked of the reference's kind. **CI HAS READ IT:
+  `unit tests` run 2599 on `e032afad`, green (2026-09-16 00:08:50→00:10:47Z,
+  the suite step 104.3 s) — `# tests 6496 / # pass 6493 / # fail 0 /
+  # skipped 3`**, against local `6496 / 6496 / 0 / 0`; the three are the
+  recorded environment skips, which is why the number to carry is the TOTAL.
+  **6,494** before it (2026-09-15, local — the same evidence rules
+  applied to `covered`, whose new cases are all `addon-route`'s **three**
+  (59 → 62: a `covered` claim in a mixed-success function step, a `covered`
+  claim about a section nobody can see with its control, and an item the ENGINE
+  dropped whole); **6,491 + 3 closes exactly**. `requirement-coverage` and
+  `addon-steps` gained ASSERTIONS inside existing cases and no new case — the
+  cross-kind haystack both ways round, `brokenAny` with its kinded control, the
+  kept-not-returned bare name, the tool's own description and the `unsupported`
+  item drop. **CI HAS READ IT: `unit tests` run 2597 on `23f6ae22`, green
+  (2026-09-15 23:26:02→23:27:51Z, the suite step 90.6 s) — `# tests 6494 /
+  # pass 6491 / # fail 0 / # skipped 3`**, against local `6494 / 6494 / 0 / 0`;
+  the three are the recorded environment skips, which is why the number to carry
+  is the TOTAL.
+  **6,491** before it (2026-09-15, local — the three reporting cases the
+  hand-off/implementation split left open, whose new cases are all
+  `addon-route`'s **four** (55 → 59: the mixed-success function step, the reuse
+  of an existing function, its CONTROL on a site that does not declare it, and
+  the stocked site answering three different silences in one reply); **6,487 + 4
+  closes exactly**. `requirement-coverage` gained the three-group census and
+  the `unseen` counter as ASSERTIONS inside existing cases and no new case.
+  **CI HAS READ IT: `unit tests` run 2594 on `82e3c885`, green (2026-09-15
+  22:24:15→22:26:48Z) — `# tests 6491 / # pass 6488 / # fail 0 / # skipped 3`**,
+  against local `6491 / 6491 / 0 / 0`; the three are the recorded environment
+  skips, which is why the number to carry is the TOTAL.
+  **6,487** before it (2026-09-15, local — run 48's reporting fix and
+  the three evidence gaps, whose new cases are all `addon-route`'s **eleven**
+  (44 → 55: run 48's late hand-off with its function applied, the same named by
+  `item`, with nothing applied, with creation refused, the forward control, a
+  kind this layer cannot see, a page that did not survive, a coverage composed
+  before the publish, and the two input-digest cases with the output-order
+  wall); **6,476 + 11 closes exactly**. `requirement-coverage` and
+  `addon-steps` gained ASSERTIONS inside existing cases and no new case — the
+  six-state list, the mark's counters, the `configuredBy` rename, the hand-off
+  ledger and both halves of the run-48 shape. CI has NOT read this number yet.
+  **6,476** before it (2026-09-15, the reference-only apply mode);
+  **6,472** before that (2026-09-15, local — the repair steps' shell,
   whose new case file is `test/repair-workflows.test.mjs`'s **seven**: for each
   of the two steps a failing repair that must fail the step with its log intact,
   a succeeding control, and the DEFAULT-shell control that reproduces the
@@ -5384,21 +6383,28 @@ rule and the measurement.
   it in full. `ensureSiteBackend` records the name on every provision, so no new
   site can enter this state; `siteBackendDetail` resolves the five that already
   have, and stops rather than calling them empty when it cannot.
-  `scripts/backend-repair.mjs --apply` closes the rows for good. **The five are
-  `ashgrove-1`, `fretwork-1`, `northgroup-5`, `repairbench-1`, `washhouse-1`**,
-  and the derivation is proven credential-free over the whole corpus: **27 of 27
+  `scripts/backend-repair.mjs --apply-reference` closes the rows for good, and
+  the derivation is proven credential-free over the whole corpus: **27 of 27
   sites with a recorded name equal `dbNameForSite(slug)`, zero mismatches**. The
   script still verifies each one by connecting, because a name that derives is
-  not a database that answers. **The run needs the service key and is the
-  owner's press.**
+  not a database that answers.
+  **ONE OF THE FIVE IS REPAIRED — `repairbench-1`, 2026-09-15**, the owner's
+  press: `--apply-reference` wrote `site_repairbench_1` after proving identity,
+  and a separate `--verify` process re-read Supabase and classified the site
+  **`ready`** on five postconditions with exit 0. **FOUR REMAIN `incomplete`:
+  `ashgrove-1`, `fretwork-1`, `northgroup-5`, `washhouse-1`** — untouched by
+  instruction, and each is the same two presses.
 - **AN ADDON DESIGNS A TABLE THAT NOTHING CAN EVER FILL — REPORTED SINCE
   2026-09-15, and deliberately not refused.** `repairs` was declared `read: "none", write: "none"` — the `admin`
   pair — so no client grant is emitted (measured live: `42501 permission denied
   for table repairs` to an anonymous POST) **and `seedSiteRows` skips it**, that
   function seeding the `display` pair and nothing else by a rule with its own
   measured history. The designer answered starter rows and they were correctly
-  discarded. The table is empty by construction and the page counting it reads
-  `0` for ever. **Nothing anywhere notices**: no step asks whether a table the
+  discarded. The table is empty by construction. **The page no longer counts it
+  — the count correction moved `count_booked_repairs` onto `bookings` on
+  2026-09-15 and `/status` reads 3 — so the SYMPTOM is gone and the DEFECT is
+  not**: `repairs` still exists, still has no writer and no seed, and the next
+  addon that chooses that shape gets the same table. **Nothing anywhere notices**: no step asks whether a table the
   same change designed a reader for has any way of gaining a row. The fix shape
   is a check at the cleaner, not a prompt — a table with no writer and no seed
   is a state the tool can refuse. **What shipped instead is a REPORT**, on the
