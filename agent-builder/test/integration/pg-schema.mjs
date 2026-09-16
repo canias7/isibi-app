@@ -1970,6 +1970,52 @@ try {
   const occNext = jget(`select agent.accept_automation_run('t1','${AU1}','${R_OCC3}','schedule','2026-09-22'::date)::text;`);
   check("THE CONTROL: the next day is a new execution", /"repeat"\s*:\s*false/.test(occNext), occNext);
 
+  // ⚠ **THE RACING TWIN, AND IT IS THE ONLY PATH THE RE-READ IS ON.** Every check above
+  // reaches the duplicate through the PROBE — the occurrence is already committed, so
+  // the insert is never attempted. What that leaves undriven is the case the unique
+  // index exists for: two transactions inserting the same occurrence at the same
+  // instant, where the loser's `on conflict do nothing` returns NO ROW and has to go
+  // back and read what the winner filed. A sweep said so: `v_new := true` survived
+  // every sequential check in this file, and under it the loser would have created a
+  // SECOND run for the same day — the whole once-a-day guarantee, gone, only under
+  // concurrency.
+  const RACE_OCC = "2026-09-24";
+  const RACE_A = "cc000000-0000-0000-0000-0000000000ca";
+  const RACE_B = "cc000000-0000-0000-0000-0000000000cb";
+  {
+    // The winner accepts inside an open transaction and sleeps holding it.
+    const winner = spawn("su", ["postgres", "-c",
+      `psql -X -q -d ${DB} -c ${shq(`begin; select agent.accept_automation_run('t1','${AU1}','${RACE_A}','schedule','${RACE_OCC}'::date); select pg_sleep(6); commit;`)}`],
+      { stdio: "ignore", detached: true });
+    // WAIT FOR THE INSERT TO HAVE HAPPENED, not for a guessed number of milliseconds:
+    // the row is uncommitted and invisible, so what is polled for is the table lock the
+    // insert takes. A fixed pause would make this flaky in the direction that reports
+    // the product as broken.
+    let waited = 0;
+    const holding = () => psql(`select count(*) from pg_locks l
+        join pg_class c on c.oid = l.relation
+        join pg_stat_activity a on a.pid = l.pid
+       where c.relname = 'automation_runs' and l.mode = 'RowExclusiveLock' and l.granted
+         and a.pid <> pg_backend_pid();`).out;
+    while (waited < 8000 && holding() === "0") {
+      try { execFileSync("sleep", ["0.2"], { stdio: "ignore" }); } catch { /* best effort */ }
+      waited += 200;
+    }
+    check("the observer is alive: a twin really is holding an uncommitted occurrence", holding() !== "0");
+    // The loser asks for the SAME occurrence under its own run id. It blocks on the
+    // index until the winner commits, and then has to answer about the winner's row.
+    const raced = jget(`select agent.accept_automation_run('t1','${AU1}','${RACE_B}','schedule','${RACE_OCC}'::date)::text;`);
+    check("a racing twin is told the occurrence is already filed", /"repeat"\s*:\s*true/.test(raced), raced);
+    check("...answering the WINNER's run id, not the one it minted", raced.includes(RACE_A), raced);
+    check("...and the id it would have used was never written",
+      jget(`select count(*) from agent.runs where id='${RACE_B}';`) === "0");
+    check("...and it started no work",
+      jget(`select count(*) from agent.run_work where run_id='${RACE_B}';`) === "0");
+    check("...leaving exactly one execution for that day",
+      jget(`select count(*) from agent.automation_runs where automation_id='${AU1}' and occurrence='${RACE_OCC}';`) === "1");
+    try { process.kill(-winner.pid, "SIGKILL"); } catch { try { winner.kill("SIGKILL"); } catch { /* gone */ } }
+  }
+
   refused("a scheduled execution without an occurrence is a row the guarantee cannot see",
     `insert into agent.automation_runs (id, automation_id, tenant_id, trigger, occurrence, steps)
        values ('${"dd000000-0000-0000-0000-0000000000d1"}','${AU1}','t1','schedule',null,'[]'::jsonb);`,
@@ -2065,6 +2111,17 @@ try {
   check("...and at 09:00Z in winter, without the row changing",
     jget(`select to_char(agent.automation_next_at('09:00'::time,'Europe/London','2026-12-01 10:00+00'::timestamptz)
             at time zone 'UTC','YYYY-MM-DD HH24:MI');`) === "2026-12-02 09:00");
+  // ⚠ **AND TODAY'S OWN OCCURRENCE IS A DIFFERENT BRANCH, which a sweep had to point
+  // out.** Both checks above are asked from AFTER the local time, so both fall through
+  // to the "tomorrow" return and the candidate line is never the answer — a mutant that
+  // read the candidate in UTC survived them both. Asked from BEFORE it, today's 09:00
+  // London is 08:00Z and the candidate line IS the answer.
+  check("asked before the time, it answers TODAY's occurrence, still in the right zone",
+    jget(`select to_char(agent.automation_next_at('09:00'::time,'Europe/London','2026-06-01 06:00+00'::timestamptz)
+            at time zone 'UTC','YYYY-MM-DD HH24:MI');`) === "2026-06-01 08:00");
+  check("...and in winter, where the same clock time is an hour later in UTC",
+    jget(`select to_char(agent.automation_next_at('09:00'::time,'Europe/London','2026-12-01 06:00+00'::timestamptz)
+            at time zone 'UTC','YYYY-MM-DD HH24:MI');`) === "2026-12-01 09:00");
   // A LOCAL TIME THAT DOES NOT EXIST still has to answer an instant, or the spring
   // forward would stop an automation for ever.
   check("a local time inside the spring-forward gap still answers an instant",
