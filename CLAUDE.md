@@ -6527,7 +6527,9 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   guard and three documents. (`origin/main` itself hashes to
   `c2aba7a7bd276c36`; the branch differs because the `search_path` pin touches
   `site-rls.mjs` and `site-schema.mjs`, which are in the worker's module graph.)
-  **THE MERGED TREE IS __MERGED__** (2026-09-16, local) — and **the two numbers below
+  **THE MERGED TREE IS 6,680** (2026-09-16, local — 6,678 pass, 2 skipped, 0 fail),
+  **and the arithmetic closes exactly**: main's 6,657 plus this branch's 23 over the
+  shared ancestor (22 for the agent settings, 1 for the create's control) — and **the two numbers below
   it are two BRANCHES rather than a sequence**, which is why neither is the head and
   why saying so beats letting a reader take the larger for the latest. Main's chain
   ran to **6,657** and this one to **6,654** over a shared **6,631**; the merge is
