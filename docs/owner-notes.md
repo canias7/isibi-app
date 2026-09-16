@@ -604,10 +604,32 @@ than the states are — it prints the raw list, and every state underneath is
 it, because on your two rows busiest-first and oldest-first happen to give the
 same answer.
 
-**One press left, free**: `backend repair`, mode `verify`, slug `repairbench-1`.
-That reads `information_schema` and is the authoritative "no new tables or
-columns" — I probed seven plausible names and got nothing, but a probe only
-answers about names somebody guessed.
+### You pressed it, and it closes the milestone
+
+**Run 7, green in 22 seconds, nothing written.** Five checks ok, and the site
+came back **`ready`** — that's a fresh process re-reading Supabase and deciding
+for itself, not the tool vouching for its own earlier write.
+
+**The column list is identical to the one before run 49.** Same six tables, same
+columns, same types, same order:
+
+| table | columns |
+|---|---|
+| `bookings` | id, customer_name, bike, **drop_off_day**, updated_at, created_at |
+| `repairs` | id, customer_name, bike, issue, updated_at, created_at |
+| *plus* | the four internal ones — `_errors`, `_meta`, `_metrics`, `_secrets` |
+
+So the careful wording comes off: **run 49 created no table and no column.** Not
+"none of the names I guessed" — this is read out of the database's own catalog.
+Worth saying why that mattered: `repairs.issue` only ever showed up in one of
+these inventories. No probe had thought to ask about it.
+
+**The milestone is closed.** The addon reads the database the site really has,
+builds the right thing off it, and tells you the truth about what it did — each
+of those three proven by a different reader, not by the other two.
+
+**The one thing still open is the same one**: it cannot confirm its own work. The
+browser check was me, from outside. That's the design's limit, not a bug in it.
 
 ---
 

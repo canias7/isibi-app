@@ -6451,6 +6451,51 @@ Worker deploy changes nothing a visitor sees until a site republishes.
 **The run pushed its own screenshots to main** (`9872f111`, existing
 `lane-sweep.yml` behaviour), which started no deploy — docs only, `paths-ignore`.
 
+### CLOSED — the after-inventory is authoritative and unchanged (2026-09-16)
+
+`backend repair` run **7** (**35131202825**, the owner's press,
+`--verify --slug repairbench-1`, green in 22 s, exit 0, on main `6624ca40`).
+Five postconditions ok, the site classified **`ready`** by a fresh process
+re-reading Supabase, `every live table declared — 2 table(s), all declared`.
+
+**THE COLUMN INVENTORY IS BYTE-IDENTICAL TO THE PRE-RUN-49 READING** — run 4
+(06:51Z, before the paid run) and run 7 (17:56Z, after it) list the same six
+tables, the same columns, the same types, in the same order:
+
+```
+_errors    id · at · message · stack · route · source          (all text bar id)
+_meta      k · v
+_metrics   day · reqs · errs
+_secrets   name · cipher · hint · created_at
+bookings   id · customer_name · bike · drop_off_day · updated_at · created_at
+repairs    id · customer_name · bike · issue · updated_at · created_at
+```
+
+**So the hedge comes off.** The run-49 entry above says *"no new table, by seven
+per-name PostgREST probes … exact per name and NOT an enumeration"*, and names
+`--verify` as the authoritative read. It has now been taken: **run 49 created no
+table and no column.** `information_schema`, not names somebody guessed — and
+the difference is not theoretical, since the inventory is where `repairs.issue`
+was first seen, a column no probe had asked about.
+
+**THE MILESTONE IS CLOSED**: *the addon receives the existing schema, builds the
+correct feature automatically, and reports its outcome accurately.* Each third
+proven by its own reader and not by the other two — receipt from the pre-call
+`shownSteps` capture, correctness from three independent readings (the `counts`
+baseline, the site's own RPC, a real browser with its network call recorded),
+reporting from the stored coverage and the customer's own sentence. **What is
+NOT closed is `delivered`**: `checked` is empty by design, so the platform still
+cannot confirm its own feature works, and the browser check is what confirmed
+this one from outside. That is the design's stated limit, recorded above.
+
+**Three things the run's own log says in passing**, each a wall proving itself
+live rather than in a guard: `scope:` printed the five sites before anything was
+read and the named slug narrowed it to one, so the other four were untouched;
+the step header carries `bash --noprofile --norc -e -o pipefail`, so a failed
+postcondition could have reached the step; and `refuse an apply that was not
+asked for` reads **skipped**, the confirm gate correctly standing down for a
+read-only mode.
+
 
 ## Data, auth, payments, mail
 
