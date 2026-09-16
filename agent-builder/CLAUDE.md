@@ -2668,12 +2668,36 @@ builder's list read asks for `status,tools` by name, so against a view that has 
 got them PostgREST answers 400 and every account's agent list fails — not
 degraded, refused. Apply the migration, then deploy.
 
-**THE TWO WORKERS ARE ORDER-FREE, checked rather than assumed.** If the site
-builder deploys first it starts writing `tools` into new entries and an old engine
-ignores the key, handing those runs `AUTHORED.tools` — which in the old engine is
-`[]`, so they get nothing, which is what they would have got anyway. If the engine
-deploys first it narrows against entries that carry no `tools`, which is `[]` by
-the fail-closed default. Neither order widens anything.
+**THE TWO WORKERS ARE ORDER-FREE ON PERMISSIONS, checked rather than assumed.** If
+the site builder deploys first it starts writing `tools` into new entries and an old
+engine ignores the key, handing those runs `AUTHORED.tools` — which in the old engine
+is `[]`, so they get nothing, which is what they would have got anyway. If the engine
+deploys first it narrows against entries that carry no `tools`, which is `[]` by the
+fail-closed default. **Neither order widens anything**, and that sentence is about
+permissions only.
 
-**NOT PROVEN LIVE.** The migration has not been applied to any project and nothing
-here has run against the deployed Worker.
+**⚠ AND ON HONESTY THEY ARE NOT ORDER-FREE AT ALL — THE ENGINE GOES FIRST
+(2026-09-16).** The paragraph above stopped one question short: it asked whether an
+order could WIDEN a permission and never whether one could make the screen lie. Site
+first does. The settings form's tool checkboxes are what that deploy ships, so from
+the moment it lands a customer can tick `echo`, the save succeeds, the list draws the
+tick — **and the live engine hands every authored run `tools: []` and ignores the
+snapshot entirely**, because `narrowTools` and `OFFERED` are not in it. A control
+that answers and is discarded is this repository's own worst shape of the
+dead-control finding, and it is the *exact* defect this round was opened to fix. So
+shipping the site first would reintroduce it one product over, in the same week, for
+however long the two deploys were apart.
+
+**ENGINE FIRST IS A MEASURED NO-OP, which is what makes it the safe half of an
+asymmetry rather than a preference.** Until the site ships the control nobody can set
+`tools`, so every row holds the column's `'{}'` default, every entry records `[]`, and
+`narrowTools(agent, [])` offers nothing — byte for byte what the old engine's
+`AUTHORED.tools: []` already does. **The order rule is therefore: whichever side
+DECIDES a thing must not go out before the side that ACTS on it.** The migration is
+first for a different reason again (a 400, not a lie), so the full order is
+**migration → engine → site**, and the three reasons are three different failures.
+
+**LIVE, AND THE TWO HALVES ARE SEPARATE CLAIMS.** The migration is applied — remote
+version `20260916085453`, read back and byte-identical to this tree. The engine and
+the site builder are recorded where each was deployed; a paragraph that lumped them
+would be one claim standing in for two.

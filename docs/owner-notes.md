@@ -197,12 +197,35 @@ next door seeing neither the agent nor its settings; a paused agent refusing whi
 its conversation stays whole; a run accepted before a pause finishing anyway; a
 ticked tool really running and an unticked one being unable to.
 
-**The database half IS live now** (2026-09-16) — the two new columns, the widened
-list and the corrected bounds — and it had to go first: the website asks for those
-columns by name, so putting the website out first would have made every agent list
-fail outright rather than look a bit old. It went in while there were no agents at
-all, and the website that is live right now asks for less, so neither half was
-broken for a moment. **The website half goes out below.**
+**This goes out in three pieces, in an order, and each piece is first for its own
+reason.** I worked the order out by measuring what breaks rather than by picking
+one, so here it is in plain terms.
+
+**1. The database.** Already live (2026-09-16) — the two new columns, the widened
+list and the corrected bounds. It had to go first because the website asks for
+those columns by name: put the website out first and every agent list fails
+outright rather than looking a bit old. It went in while there were no agents at
+all, and the website that was live at that moment asks for less, so neither half
+was broken for a moment.
+
+**2. The engine** — the part that actually runs an agent. This is the one I nearly
+got wrong. My own notes said the engine and the website could go out in either
+order, and that was true about *safety* and silent about *honesty*: the engine that
+is running right now gives every agent **no tools at all** and ignores the list
+entirely. So if the website went first, you could tick `Echo`, watch it save,
+watch the list draw the tick — and it would do nothing, for as long as the two
+deploys were apart. **That is the exact defect you caught on the Paused switch**, a
+week old, in a different product. Engine first costs nothing: until the website
+ships the tick, nobody can set a tool, so the engine finds an empty list and offers
+nothing — which is precisely what it does today.
+
+**3. The website** — the settings form itself, which is what makes all of the above
+visible.
+
+The rule I am taking from it: **whichever side decides a thing must not go out
+before the side that acts on it.** Each deploy is recorded on its own below rather
+than lumped together, because "it is live" standing in for two claims is how one of
+them goes unchecked.
 
 ---
 

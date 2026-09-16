@@ -6529,7 +6529,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `site-rls.mjs` and `site-schema.mjs`, which are in the worker's module graph.)
   **THE MERGED TREE IS 6,680** (2026-09-16, local — 6,678 pass, 2 skipped, 0 fail),
   **and the arithmetic closes exactly**: main's 6,657 plus this branch's 23 over the
-  shared ancestor (22 for the agent settings, 1 for the create's control) — and **the two numbers below
+  shared ancestor (22 for the agent settings, 1 for the create's control).
+  **CI HAS READ IT: `unit tests` run 2632 on `ab0ac826`, green (2026-09-16
+  09:02:07→09:04:08Z, the suite step 104.9 s) — `# tests 6680 / # pass 6676 /
+  # fail 0 / # skipped 4`**, against local `6680 / 6678 / 0 / 2`; **the TOTAL is
+  what matches and the skips are what differ**, which is the whole reason the
+  number to carry is the total — the two extra are the recorded environment skips,
+  and quoting a `pass` count alone drifts between the two machines. And **the two numbers below
   it are two BRANCHES rather than a sequence**, which is why neither is the head and
   why saying so beats letting a reader take the larger for the latest. Main's chain
   ran to **6,657** and this one to **6,654** over a shared **6,631**; the merge is
