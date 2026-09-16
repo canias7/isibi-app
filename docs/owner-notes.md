@@ -10683,27 +10683,71 @@ approves a request whose only hard bound is the account balance: **149 credits**
 real cap, the honest answer is that one does not exist and building one is its
 own piece of work — I am not starting that here.
 
-### 4. Main moved twice while I worked, so the numbers are recomputed
+### 4. The candidate is finished, and here are the numbers
 
-Main took two more deploys (2125, 2126) from the agent-builder session,
-including a new root module that IS a container image input. I merged both,
-resolved two documentation conflicts by keeping both histories, and re-verified.
+`site build` — the 25-minute harness that compiles and renders a real site in a
+real container — **finished green**: run 1154, twenty steps, **382 passed, 0
+failed**. That is the thirteenth independent run to answer 382.
+
+I then merged main again (it had moved twice more) and re-verified everything.
 
 | | reading |
 |---|---|
-| candidate suite | **6,642 green**, 0 fail, 0 skipped locally |
-| the merge caught a real thing | one case went red mid-merge — the image-input guard reading `HEAD` while the merge was staged and not committed. Committing it fixed it, which is the guard being right |
-| `expect_image` | **`62c2700fa8c843c2`** (183 inputs) for the merged candidate — main's own tip computes to `c2aba7a7bd276c36`, so this really does move the container |
-| `expect_deploy` | cannot exist until the merge lands |
-| balance | **149** |
+| candidate suite | **6,649 green**, 0 fail, 0 skipped |
+| the site-build harness | **run 1154, all twenty steps, 382/0** |
+| does that green still count after the merge? | **yes, and by arithmetic rather than by hope** — the tree the harness ran on and the merged tree hash to the *same container image id*, so nothing the container is built from moved |
+| `expect_image` | **`62c2700fa8c843c2`** — main's own tip is `c2aba7a7bd276c36`, so this really does roll the container |
+| `expect_deploy` | **cannot exist until the merge lands.** I compute it from the merge commit and hand it to you then |
+| balance | **149** (unchanged; the ledger row last moved 2026-09-15 19:31Z) |
 
-**And the honest caveat: main is moving under us.** Three deploys landed in the
-last hour from another session. Both version gates have to be **computed at
-merge time**, not now — a number I hand you today is stale the moment somebody
-else pushes. I'll recompute both and give you the pair immediately after the
-deploy, and the run refuses before spending a credit if either doesn't match.
+**The merge caught a real thing, twice over.** One guard went red mid-merge —
+the one that checks the container image carries every module it imports, reading
+git at `HEAD` while the merge was staged and not yet committed. Committing it
+fixed it. That is the guard being exactly right about "staged is not shipped".
 
-### The request, unchanged from the last draft
+---
+
+### 5. YOUR IDEA WORKED — the expected result can come from the live data
+
+You asked whether the verification workflow could run a narrow, read-only count
+instead of us adding rows. **It can, and I have built it.** It is one more
+choice on the same dropdown you already used three times: mode **`counts`**.
+
+What it does: groups one table by one date column and prints **the date and the
+count, busiest first**. Nothing else. It writes nothing.
+
+**And it cannot return a name — that is built in, not promised.** Two walls:
+
+- The mode is on **neither** of the two lists that permit a write. Both gates ask
+  those lists and nothing else, so a mode they have never heard of writes
+  nothing without one new line being added anywhere.
+- The column you group by **must be a date**, and it asks the database what type
+  it really is. `customer_name` is refused **by the tool**, with a sentence
+  saying why. That is a rule about what is *allowed*, not a list of words to
+  avoid — which is the version that stays correct when a column is renamed.
+
+It is free, it reads only, and it exits red rather than printing a blank if it
+refuses or cannot reach the database.
+
+**To run it**: *backend repair* → mode **`counts`** → slug `repairbench-1` →
+table `bookings` → column `drop_off_day`. Leave `confirm` empty; this one does
+not take the word, because it does not write.
+
+**What I already know, free, re-read today:**
+
+| | |
+|---|---|
+| total bookings | **3** — two different functions, at two different addresses, all four answering 3 |
+| the columns `bookings` really has | `id`, `created_at`, `customer_name`, `bike`, `drop_off_day` |
+| the split per date | **unknown from here** — the table is write-only to the outside world, so there is no way to read the values without a database password, and I am not putting one of those in a transcript |
+
+**So the expected result is one free press away, and it is yours.** Once you run
+it I will have the exact dates and counts, and the test becomes: does the page
+show *these* dates in *this* order?
+
+---
+
+### The request, unchanged
 
 > **Add a page at /workshop-load that shows how many bikes are booked in for
 > each date we're expecting them, busiest first, and a function the page calls
@@ -10715,31 +10759,36 @@ wrong table cannot answer this.
 
 ### What I check, and with what
 
-1. **Schema receipt** — `shownSteps` on the developer record: the `function`
-   step's entry must say `database: YES` and list `bookings` with
-   `drop_off_day`. The harness prints it now.
+1. **Schema receipt** — the developer record now carries what each designer was
+   *shown* about the database, and the harness prints it. The `function` step's
+   entry must say `database: YES` and list `bookings` with `drop_off_day`.
 2. **The function's own SQL**, read from the designer's stored reply — a second,
    independent leg beside 1.
 3. **The page and the RPC** — `/workshop-load` 404 → 200, the function answers
    over the site's public address.
-4. **The numbers** — per item 1 above, subject to which fixture option you pick.
+4. **The numbers** — each date and each count, in order, against whatever the
+   `counts` run tells us.
 5. **A real browser** — Chromium opens the page, records the call it makes,
    reads the rendered figures, and I check loading and error states by
-   intercepting that call, with an untouched control. Free. The browser is
-   already verified working on this machine.
-6. **Tables and columns** — `--verify` before and after, both now authoritative.
+   intercepting that call, with an untouched control. Free.
+6. **Tables and columns** — `--verify` before and after, both authoritative now.
 7. **Cardinality** — the existing counting function, claimed as cardinality only.
 8. **The exact completion sentence**, verbatim, with the coverage counts.
 
 The initial outcome gets written down before anything is corrected by hand.
 
-### The four decisions I need
+### The three decisions left
 
-1. **Fixture**: insert the three known rows (free, changes `/status` to 6), or
-   keep the data as it is and accept the narrower grouping claim?
-2. **Spend**: approve a run bounded only by the 149-credit balance — precedent
-   for this shape is 12–13 credits, but that is precedent, not a cap.
-3. **Merge and deploy** the candidate so the gates can be computed?
-4. **Then the press** is yours, with both gates filled in.
+1. **Run the free `counts` press** so the expected dates and counts are the live
+   data's. If the three bookings turn out to share one date, grouping is not
+   discriminated by them and the three-row fixture is back on the table — but we
+   will know that instead of guessing it.
+2. **Spend**: approve a run bounded only by the 149-credit balance. **One request
+   has no enforced 40-credit cap** — I checked, and there is no server-side
+   per-request limit anywhere; the balance is the only thing that binds.
+   Precedent for this shape is 12–13 credits, and precedent is not a cap.
+3. **Merge and deploy** the candidate so I can compute `expect_deploy` and hand
+   you both gates.
 
-**Nothing dispatched. No demo cleanup. No fixture row inserted yet.**
+**Nothing dispatched. No demo cleanup. No fixture row inserted. No previous
+authorization treated as approval for this run.**

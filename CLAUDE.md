@@ -5561,6 +5561,83 @@ one it misses is the one that leaks. **The HOST is deliberately kept** — the
 owner asked for the database identities reported, and the credential is the half
 that must go.
 
+### A READ-ONLY AGGREGATE ON THE REPAIR WORKFLOW (2026-09-16)
+
+Owner: *"check whether the existing credentialed verification workflow can run a
+narrowly scoped, read-only aggregate on repairbench-1: count bookings grouped by
+drop_off_day, ordered by count descending. Return dates and counts only, no
+customer details. That could establish the expected result independently without
+changing the data."*
+
+**IT CAN, AND `--counts` IS THAT MODE.** It exists because an expected result
+bought inside the run under test is not a baseline, and the only other way to get
+one was to insert rows — which changes the thing being measured.
+
+**IT CANNOT RETURN A NAME, AND THAT IS A PROPERTY RATHER THAN A PROMISE.** Two
+walls and neither is a new check written for this. (1) The mode is on **neither**
+`WRITES_REFERENCE` nor `WRITES_META`, and both gates are `includes` over a frozen
+list, so a mode they have never heard of writes nothing. (2) The grouping column
+must be a **DATE OR TIME type asked of the catalog** — a positive, type-derived
+rule, never a deny-list of column names (the recorded *"a negative list is the
+wrong wall when the input is caller-supplied"*). So `customer_name` is refused by
+the TOOL and not by the caller's discipline, and the answer is a date and a count
+with nowhere for anything else to sit.
+
+- **TWO CHECKS THAT ARE NOT REDUNDANT.** Catalog membership answers *is there
+  such a column*; `PLAIN_NAME` answers *is its name safe to interpolate*.
+  Postgres allows a quoted identifier to hold characters this interpolates, so
+  they are two questions — driven over `b"; DROP TABLE x; --`.
+- **`GROUP BY 1 ORDER BY 2 DESC, 1`, BY ORDINAL.** Each identifier is named
+  exactly once and the tie-break is deterministic, which is what makes "busiest
+  first" a reproducible reading rather than a lucky one.
+- **`MODES` IS THE ONE LIST** and `parseArgs` derives its flags from it. The
+  census compares it with the form's own `options:` **both ways**: a mode that
+  exists and is not offered is unreachable by the only person who can press it,
+  and a mode offered and not implemented is a button that answers `preview`.
+  That guard pinned the option list as a LITERAL and went red on the first honest
+  addition — *assert the property, not the spelling*, in the guard written for
+  the write boundary. Re-anchored, not appeased.
+- **THE EXIT RULE IS THE `--verify` DEFECT'S, ONE MODE OVER**: a refusal or a
+  failed read exits nonzero, so a run that asked for a number and got none cannot
+  read as a successful read of nothing. **And the "nothing to do" sentence NAMES
+  THE MODE THAT ASKED**, derived from `args.mode` — a counts run must not report
+  itself as a failed verification, and a verification must not lose its own word
+  to a mode added beside it.
+
+**THE FIXTURE WAS THE LESS-CAPABLE FAKE, in the one field the feature turns on.**
+`test/fixtures/repair-process.mjs` answered `ty: "text"` for **every** column,
+free while nothing read the type and fatal the moment something did: it made the
+positive arm unreachable and **reported the working mode as broken**. A column
+carries its type now — a bare name still defaults to `text`, so every scenario
+written before this is byte-identical.
+
+**Guards**: `backend-repair` **52 → 55**, `repair-commands` **14 → 16** (both as
+real PROCESSES — a good aggregate read busiest-first with every statement
+asserted non-writing, and the text column refused with **a DATE column beside it
+as the control** that proves the observer alive in the other direction),
+`repair-workflows` **7 → 8** (the step's own `run:` executed under the shell it
+declares, with a stub that records its argv, so a form field taken and never
+forwarded is a red run). **Sweep: 26 mutants, 26 killed, 0 survived, 0 never
+applied, 2 comment-only controls survived.** Pass 1 killed 20 with six survivors
+and **every one was a guard gap in the process-level cases, not the product's** —
+all six live in `main`, which no module guard runs: identity not proven before
+the read, a refused plan uncounted, a refusal not stopping the read, a run that
+read nothing exiting 0, the mode leaving the "nothing to do" gate, and the
+failure sentence hardcoded to the verification's word.
+
+**WHAT IT DOES NOT SETTLE, and the reason is a permission rather than a
+judgement.** A session has no `actions: write`, so **the grouping still comes
+from the owner's press** — `backend repair`, mode `counts`, slug `repairbench-1`,
+table `bookings`, column `drop_off_day`. Free, read-only, writes nothing.
+**What IS established here, free and re-read 2026-09-16**: the total is **3**
+(`count_booked_repairs` and `count_existing_bookings` both answer 3 at both
+addresses, and the raw `SELECT COUNT(*) FROM bookings` read 3 at 17:52:40Z on
+2026-09-15), and `bookings` carries `id`, `created_at`, `customer_name`, `bike`,
+`drop_off_day` — by the write-free PostgREST probe, with `nope_not_a_column`
+answering `42703` as the control. **The per-date split is unknown from here**:
+`bookings` is `collect`, so no client SELECT of values exists, and reading it any
+other way means a live Neon credential in a session transcript.
+
 
 ## Data, auth, payments, mail
 
@@ -5900,8 +5977,32 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,642** (2026-09-16, local, ON THE TREE WITH `main` MERGED
-  IN — `6642 / 6642 / 0 fail / 0 skipped`). **The arithmetic closes three ways and
+  **AND RUN 1154 READ IT A THIRTEENTH TIME (2026-09-16 04:56:20→05:18:10Z on
+  `7c2a9ff4`, the column inventory's tree, ALL TWENTY STEPS GREEN):
+  `site-build.mjs` `382 passed, 0 failed`**, with kit-typecheck 4, contrast-cases
+  16, theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it
+  — every count bounded to its own `##[group]`, and read rather than carried over
+  from 1152. **AND IT COVERS THE MERGED CANDIDATE BY THE IMAGE ID, not by a
+  `paths` list**: `7c2a9ff4` and the merge of `origin/main` `c20226e6` into it
+  both hash to **`62c2700fa8c843c2`** (183 inputs), so nothing an image is built
+  from moved across the merge — main's two commits are `public/chat.js`, one
+  guard and three documents. (`origin/main` itself hashes to
+  `c2aba7a7bd276c36`; the branch differs because the `search_path` pin touches
+  `site-rls.mjs` and `site-schema.mjs`, which are in the worker's module graph.)
+  The unit suite is **6,649** (2026-09-16, local, ON THE MERGED CANDIDATE —
+  `6649 / 6649 / 0 fail / 0 skipped`). **The arithmetic closes exactly**: the
+  branch tip `7c2a9ff4` measured **6,642** — re-measured in a detached worktree
+  at that commit rather than derived — plus `backend-repair`'s **3**,
+  `repair-commands`' **2** and `repair-workflows`' **1** for the aggregate, plus
+  `main`'s one new `agent-binding` case (42 → 43). **6,642 + 3 + 2 + 1 + 1 =
+  6,649.** The six sweep-survivor closers are assertions inside cases that
+  already existed and add none. **A worktree run reads one FAIL and two SKIPs
+  that a repo-root run does not** — `render-sandbox`'s privilege-drop case is
+  about writing outside the repo root, so it is the environment, not the
+  product; the TOTAL is what carries across, which is why the total is the
+  number stamped.
+  Before it, the suite was **6,642** (2026-09-16, local, ON THE TREE WITH `main`
+  MERGED IN — `6642 / 6642 / 0 fail / 0 skipped`). **That arithmetic closes three ways and
   that is what makes it a measurement**: `main` carried 6,505 → 6,628 (its agent
   chain) → 6,630 (the send-box fix, `agent-binding` 42 → 44) and this branch
   carried 6,505 → 6,516 (`site-searchpath`'s 9, then its 2 baseline cases), so the

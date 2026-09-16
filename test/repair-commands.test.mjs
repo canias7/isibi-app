@@ -134,6 +134,18 @@ test("backend-repair --verify fails when the named site has no reachable databas
   const r = run("backend-repair.mjs", ["--verify", "--slug", "washhouse-1"], f);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /VERIFY FAILED/);
+
+  // THE SENTENCE NAMES THE MODE THAT ASKED (2026-09-16), so the same gate can
+  // serve `counts` without a verification's word being put on a run that asked
+  // for a number. Both halves are asserted here rather than only the one this
+  // case is named for, because they are one line.
+  const c = run("backend-repair.mjs", ["--counts", "--slug", "washhouse-1", "--table", "bookings", "--column", "drop_off_day"], f);
+  assert.equal(c.code, 1, "a counts run that reached no database exited " + c.code + ":\n" + c.out);
+  assert.match(c.out, /COUNTS FAILED/, "the aggregate left the gate, or wears the verification's word:\n" + c.out);
+  assert.doesNotMatch(c.out, /VERIFY FAILED/, "a counts run reported itself as a failed verification");
+  // AND THE TALLY IS THE OTHER HALF OF THE EXIT RULE: nothing failed and
+  // nothing was read, so it is `!verified` that has to make this nonzero.
+  assert.match(c.out, /0 read, 0 not read/, c.out);
 });
 
 test("the repair is scoped to five sites by name, and a sixth is refused before anything is read", () => {
@@ -471,6 +483,14 @@ test("counts refuses a text column, and refusing exits NONZERO", () => {
   assert.equal(text.code, 1, "grouping by a text column exited 0:\n" + text.out);
   assert.match(text.out, /REFUSED \(not-a-date-column\)/, text.out);
   assert.ok(!text.statements.some((s) => /GROUP BY/i.test(s.q)), "a refused aggregate still ran a query");
+  // A REFUSAL IS COUNTED, and the tally is where that shows: the exit code
+  // alone cannot say so, because a run that refused has also read nothing and
+  // `!verified` would make it nonzero either way.
+  assert.match(text.out, /0 read, 1 not read/, "a refused plan is not counted as a failure:\n" + text.out);
+  // AND THE REFUSAL IS THE LAST WORD. Without the `continue` the run goes on to
+  // announce a read it cannot make — "REFUSED" followed by "reading:" is a
+  // report that contradicts itself one line later.
+  assert.doesNotMatch(text.out, /reading:/, "a refused aggregate went on to announce a read:\n" + text.out);
 
   // THE CONTROL: the same table, the same run, the date column — accepted.
   const dated = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"], f);
@@ -491,4 +511,24 @@ test("counts refuses a text column, and refusing exits NONZERO", () => {
   const off = run("backend-repair.mjs", ["--counts", "--slug", "not-a-repair-site", "--table", "bookings", "--column", "drop_off_day"], f);
   assert.equal(off.code, 2, "an out-of-scope slug was not refused by the scope wall:\n" + off.out);
   assert.equal(off.statements.length, 0, "an out-of-scope aggregate still read something");
+
+  // ── AND IDENTITY IS PROVEN BEFORE A SINGLE ROW IS COUNTED ─────────────────
+  //
+  // A number read out of a database nobody proved belongs to this site is a
+  // number about somebody else's rows, which is worse than no number at all.
+  // The server answers a different database here, so link 3 of the chain
+  // refuses — and the assertion is that NOTHING WAS GROUPED after it, which is
+  // the half an exit code cannot carry (a refusal exits 1 either way).
+  const wrong = scenario({
+    sites: [{ slug: "repairbench-1", uid: "u1", neon_db: "site_repairbench_1" }],
+    projects: [{ slug: "repairbench-1", neon_conn: PROJ }],
+    serverDb: "somebody_elses_db",
+    tables: { bookings: { ...BOOKINGS, columns: ["id", "created_at", "who", "drop_off_day date"] } },
+    groups: { bookings: { "2026-10-01": 2 } },
+  });
+  const unproven = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"], wrong);
+  assert.equal(unproven.code, 1, "an unproven database still exited 0:\n" + unproven.out);
+  assert.match(unproven.out, /identity NOT PROVEN/, unproven.out);
+  assert.ok(!unproven.statements.some((s) => /GROUP BY/i.test(s.q || "")),
+    "the aggregate ran against a database it had not proved:\n" + JSON.stringify(unproven.statements));
 });
