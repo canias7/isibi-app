@@ -5216,6 +5216,10 @@ measured, and only then was main fast-forwarded to it.
   site republishes) this deploy is not the cause, and with no pre-push reading
   there is nothing here that can say whether the 119 bytes moved before it or
   across it. **Recorded as an open observation, not as a clean regression pass.**
+  **CLOSED 2026-09-16 by deploy 2128**, which did take a pre-push baseline:
+  58,404 on both sides, same version. So it moved before 2124 and outside this
+  session's window — *not caused by a deploy in this window*, which is what the
+  evidence supports and is weaker than an explanation.
 - **THE INTERACTIVE HALF, because a 200 is an availability check and never a
   health check**: `/status` **200** and its RPC `count_booked_repairs` **3**;
   `/booking-check` **200** and run 48's `count_existing_bookings` **3**. Both
@@ -5716,13 +5720,80 @@ arithmetic closes exactly. **CI HAS READ IT: `unit tests` run 2622 on
 against local `6652 / 6652 / 0 / 0`; the four are the recorded environment skips
 plus `site-searchpath`'s baseline-commit case.
 
-**AND NOTHING OF THIS REPAIR TOOLING IS ON MAIN YET, checked rather than
-assumed.** `origin/main` (`c20226e6`) has no `countsPlan` and no
-`columnInventory`, and its form offers `[preview, apply-reference, apply,
-verify]`. So the `counts` press, the column inventory on `--verify`, and this
-argument fix all reach the owner only through a merge — and by the recorded
-`workflow_dispatch` rule, **a button that is not on the default branch does not
-exist**. Plan the order as merge → deploy → press.
+**AND IT IS ALL ON MAIN NOW — deploy 2128, 2026-09-16 06:33:14→06:36:43Z, green
+in 3m29s**, on `main` `c20226e6` → `f88c9198` (fast-forward). Before the merge
+this paragraph read *"nothing of this repair tooling is on main yet"*, which was
+true when written and is what the merge was for; the order was the recorded one,
+**merge → deploy → press**, because a `workflow_dispatch` button does not exist
+until its file is on the default branch.
+
+- **THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED — the
+  fourth cross-check of that technique against reality.** `origin/main` →
+  `c2aba7a7bd276c36`, the branch tip → **`62c2700fa8c843c2`** (183 inputs each),
+  and the step's own line reads `IMAGE SiteBuildContainer: built
+  isibi-app-sitebuildcontainer:62c2700fa8c843c2 (registry answered 404; 183
+  inputs off ./Dockerfile)`. The ids differ because the `search_path` pin touches
+  `site-rls.mjs` and `site-schema.mjs`, which are in the worker's module graph.
+  **CONTAINER ROLLED at 06:36:34.8Z**: `EDIT isibi-app-sitebuildcontainer`,
+  `c2aba7a7bd276c36` → `62c2700fa8c843c2`, `SUCCESS Modified application`,
+  `Applied changes` — read out of the log's own diff, never inferred from the
+  step's duration. **So the 15–20 minute hold ran to ~06:52–06:57Z.** Image step
+  2m36s, Wrangler 16 s.
+- **THE HOLD IS ABOUT THE CONTAINER AND THESE TWO PRESSES DO NOT USE ONE.**
+  `backend repair` and `repairbench count fix` are Node scripts on a GitHub
+  runner talking to Supabase and Neon; no container, no compile, no credits. The
+  hold binds the PAID addon run and nothing else.
+- **WORKER**: `Uploaded isibi-app (3.23 sec)`, `Worker Startup Time: 29 ms`,
+  `Total Upload: 3484.55 KiB / gzip: 939.48 KiB`. **`No updated asset files to
+  upload`** — `public/` is untouched by this branch (main's own chat.js changes
+  went out on 2127), **so there is no file-hash check for this deploy and the
+  Worker's deploy sha cannot be read from a session at all**: both routes that
+  carry it are owner-gated. What stands in is the gate discriminator, measured
+  after: `/api/site/build-health` **401**, `/api/site/runtime` **401**,
+  `/api/site/job-probe` **401**, `/api/nope-not-a-route` **404**. The Worker half
+  is proved to Wrangler's own report and the gate, and no further — said rather
+  than glossed.
+- **REGRESSION: BYTE-IDENTICAL, and the baseline was taken 22 seconds after the
+  push and before the deploy could land** (the process miss of the previous
+  round, not repeated). Six sites 200 at the same sizes before and after —
+  repairbench-1 46,151 · fretwork-1 58,404 · ashgrove-1 31,120 · northgroup-5
+  1,641 · washhouse-1 52,404 · ben-crowe-guitar 52,060 — and the interactive
+  half, because a 200 is an availability check and never a health check:
+  `/status` **200/6,272** and `/booking-check` **200/6,290**, with
+  `count_booked_repairs` and `count_existing_bookings` both **200 answering 3**.
+- **AND `fretwork-1`'s 119 BYTES ARE SETTLED AS NOT-THIS.** The previous round
+  recorded 58,285 → 58,404 as an open observation with no pre-push baseline to
+  decide it. It is 58,404 on **both** sides of this deploy, on the same
+  days-old `x-site-version 01788755899622-6w90uf`, so whatever moved it happened
+  before deploy 2124 and outside this session's window. Recorded closed as *not
+  caused by a deploy in this window*, which is weaker than an explanation and is
+  what the evidence supports.
+- **The merge started exactly one workflow** — deploy 2128 and nothing else,
+  which is the merge-trigger census holding in the live.
+- **BOTH WORKFLOWS ARE REGISTERED ON MAIN WITH THE NEW MODE, asked BY NAME**:
+  `backend repair` id **358472078** and `repairbench count fix` id
+  **358472079**, both `state: active`, and main's own copy of the form carries
+  `options: [preview, apply-reference, apply, verify, counts]`, `shell: bash`
+  and the quoted array. Main's script carries `countsPlan`, `columnInventory`,
+  `VALUE_ARGS` and `COUNTS_TYPES`.
+- **THE DISPATCH IS STILL REFUSED, re-tested rather than asserted, and the
+  refusal has SHARPENED ITS WORDING.** A direct REST POST with the right
+  endpoint, headers and body answers **403 `Dispatching, enabling or disabling
+  workflows and deleting workflow runs, logs or artifacts are not permitted for
+  this session type`** — it names the session type where the old text said
+  `Resource not accessible by integration` — with the control that the SAME
+  token reads that workflow at **200**. A body with no `Content-Type` answers
+  **415** first, which is worth knowing before reading a 415 as the permission.
+  The press is the owner's, as recorded.
+
+**AND RUNNING A STEP'S REAL `run:` TEXT BY HAND DROPS ITS LOG IN THE REPOSITORY
+ROOT.** Both repair steps end in `| tee <name>.log`, so the end-to-end
+reproduction that found the injection defect committed a 37-byte
+`backend-repair.log` in that same commit. The driven guard never had this — it
+runs in a temp directory (`cwd: dir`) — so the guard was right and the hand-run
+was not. Both names are in `.gitignore` now with the reason; the workflows are
+unaffected, each writing its log in the runner's workspace and uploading it as
+an artifact.
 
 
 ## Data, auth, payments, mail

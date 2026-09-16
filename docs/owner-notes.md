@@ -155,6 +155,131 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-16 — Merged and deployed; your two read-only presses are ready
+
+The log is gone, the repair tooling is on main, and deploy **2128** is green.
+**Nothing was spent and no demo-site data was touched.**
+
+### The deploy, both halves
+
+**2128, 06:33:14→06:36:43Z, green in 3m29s**, `c20226e6` → `f88c9198`,
+fast-forward. The merge started exactly one workflow.
+
+- **The container is proved exactly.** I computed the image id from the git
+  objects BEFORE merging — `origin/main` `c2aba7a7bd276c36`, the tip
+  `62c2700fa8c843c2` — and the deploy's own log then read `built
+  isibi-app-sitebuildcontainer:62c2700fa8c843c2` and rolled
+  `c2aba7a7bd276c36` → `62c2700fa8c843c2`, `SUCCESS Modified application`, at
+  06:36:34.8Z. That is read out of the log's own before/after diff, not guessed
+  from how long the step took. **The 15–20 minute hold ran to ~06:52–06:57Z.**
+- **The Worker is proved less, and I would rather say so.** Nothing under
+  `public/` changed in this merge, so Wrangler answered `No updated asset files
+  to upload` and there is no served file to hash-compare. Both routes that carry
+  the deploy sha are owner-gated, so a session cannot read it. What I have is
+  Wrangler's own report (`Uploaded isibi-app`, startup 29 ms) and the gate
+  discriminator: build-health **401**, runtime **401**, job-probe **401**,
+  a nonsense route **404**.
+- **Regression: byte-identical, with the baseline taken 22 seconds after the
+  push and before the deploy could land** — the thing I skipped last time.
+  Six sites the same size before and after, `/status` and `/booking-check` both
+  200, and both counting functions still answering **3**.
+- **`fretwork-1`'s 119 bytes are settled.** Last round I flagged 58,285 → 58,404
+  as unexplained with no baseline to decide it. It is 58,404 on both sides of
+  this deploy on the same days-old version, so it moved before deploy 2124 and
+  outside this window. Not an explanation — just no longer hanging over a
+  deploy.
+
+### Your two presses — both free, both read-only, neither uses a container
+
+The 15–20 minute hold is about the container; these are Node scripts on a
+GitHub runner. You can press them now.
+
+**1. The authoritative schema inventory**
+
+> Actions → **backend repair** → Run workflow
+> **mode** `verify` · **slug** `repairbench-1` · **table** *(blank)* ·
+> **column** *(blank)* · **confirm** *(blank)*
+
+Five postconditions and then the live column list straight out of
+`information_schema`, per table, with each column's type. Exits nonzero if any
+postcondition fails. Writes nothing.
+
+**2. Bookings grouped by the drop-off date, busiest first**
+
+> Actions → **backend repair** → Run workflow
+> **mode** `counts` · **slug** `repairbench-1` · **table** `bookings` ·
+> **column** `drop_off_day` · **confirm** *(blank)*
+
+Prints the SQL it is about to run, then one line per date with its count,
+busiest first, then the group and row totals. It returns a date and a number and
+has nowhere to put anything else: the mode is on neither write list, and the
+grouping column must be a DATE or TIME type asked of the catalog — so
+`customer_name` is refused by the tool, not by my discipline.
+
+**Leave `confirm` blank for both.** Neither is an `apply`, and typing the word
+where it is not needed is how a habit forms.
+
+### What I can and cannot tell you before you press
+
+`bookings` is `collect` — anyone writes, nobody reads — so there is no client
+SELECT of its values, and the per-date split is genuinely unknown from here.
+What I do know free: the total is **3** (both counting functions, at both
+addresses; and the raw `SELECT COUNT(*)` read 3 on 2026-09-15), and the columns
+are `id`, `created_at`, `customer_name`, `bike`, `drop_off_day`.
+
+**Here is the rule I will apply when the numbers land, written down first so it
+is not fitted to the answer.** Three rows can fall four ways:
+
+| the split | grouping tested? | busiest-first tested? |
+|---|---|---|
+| 3 on one date | **yes** — three rows collapse to one group | **no** — one group has no order |
+| 1 + 1 + 1 | **no** — nothing collapses | **no** — equal counts, any order passes |
+| 2 + 1, busier date LATER | **yes** | **YES** — this is the only shape that separates them |
+| 2 + 1, busier date EARLIER | **yes** | **no** — ordering by date gives the same answer |
+
+So the ordering half needs a tie to break in a direction date-order would get
+wrong. If the data does not give us that, the options are: accept that the run
+proves grouping and not ordering and say so; or add a row or two first. I am
+**not** doing the second — that is demo-site data and you said no more repairs —
+but the door exists if you want it, since `bookings` accepts an anonymous
+insert.
+
+### The paid run is prepared and NOT authorized
+
+One addon request on `repairbench-1`, needing the existing date column without
+naming it:
+
+> **Add a page at /workshop-load that shows how many bikes are booked in for
+> each date we're expecting them, busiest first, and a function the page calls
+> to work it out. Don't show customer names.**
+
+Checked mechanically: the text contains **no** occurrence of `drop`, `off`,
+`day`, `dropoff`, `drop-off`, `bookings` or even `booking` — not as words and
+not as substrings. So the addon has to get the column and the table from the
+schema it is handed, which is the milestone.
+
+**When you authorize it**, the `lane sweep` form's pre-flight must be filled in
+so the press cannot test the wrong build:
+`expect_deploy` **`f88c91985dc9fa5e99958958949a07227d7c3de4`** ·
+`expect_image` **`62c2700fa8c843c2`**. It refuses before the browser, the
+balance or the first post, so a refusal there costs nothing.
+
+**Balance 149.** Run 47's comparable shape cost 13. There is no server-side
+per-request cap — the account balance is the only bound that binds, and the
+harness's `budget` field is read between cases, which a single-ask run never
+has two of. Saying that plainly because it means the only real bound is that
+this is one request.
+
+### Still true: I cannot press any of these
+
+Re-tested rather than recalled. A direct REST POST answers **403** — and the
+message has sharpened: *"Dispatching, enabling or disabling workflows and
+deleting workflow runs, logs or artifacts are not permitted for this session
+type."* The same token reads that workflow at 200, so it is the permission and
+not the credential.
+
+---
+
 ## 2026-09-15 — The fifth one: whose the old agents are, across a sign-out
 
 You were right, and the hole was exactly where you pointed. Signing out wiped
