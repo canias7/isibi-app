@@ -5769,7 +5769,15 @@ until its file is on the default branch.
   caused by a deploy in this window*, which is weaker than an explanation and is
   what the evidence supports.
 - **The merge started exactly one workflow** — deploy 2128 and nothing else,
-  which is the merge-trigger census holding in the live.
+  which is the merge-trigger census holding in the live. **And CI has read the
+  DEPLOYED SHA, not merely an ancestor of it: `unit tests` run 2624 on
+  `f88c9198`, green — `# tests 6652 / # pass 6648 / # fail 0 / # skipped 4`**,
+  against local `6652 / 6652 / 0 / 0`; the four are the three recorded
+  environment skips plus `site-searchpath`'s baseline-commit case, which needs
+  git objects `fetch-depth: 1` does not fetch. **The docs push that followed
+  started NO deploy** — `deploy.yml`'s `paths-ignore` covers `**.md` and
+  `docs/**`, and the API answers zero runs for that sha, which is the recorded
+  behaviour rather than a missing run.
 - **BOTH WORKFLOWS ARE REGISTERED ON MAIN WITH THE NEW MODE, asked BY NAME**:
   `backend repair` id **358472078** and `repairbench count fix` id
   **358472079**, both `state: active`, and main's own copy of the form carries
