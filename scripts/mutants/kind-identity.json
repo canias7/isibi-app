@@ -1,0 +1,220 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the one identity",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    // \u2500\u2500 ONE IDENTITY, AND IT IS `{kind, name}` (owner, 2026-09-15) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "to": "    // \u2500\u2500 ONE IDENTITY, AND IT IS `{kind, name}` (owner, 2026-09-15). \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+  },
+  {
+    "label": "CONTROL: a comment only, above the route's failed-item list",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // so a requirement that says what it depends on is judged on that.",
+    "to": "            // so a requirement naming what it depends on is judged on that."
+  },
+  {
+    "label": "KINDS: `edit` is nameable again, so a reference can name a thing no site holds",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "export const ITEM_KINDS = Object.freeze(COVERAGE_STEPS.filter((k) => k !== \"edit\"));",
+    "to": "export const ITEM_KINDS = Object.freeze(COVERAGE_STEPS.slice());"
+  },
+  {
+    "label": "KINDS: the two unobservable kinds are refused, so a designer cannot say what it made",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "export const ITEM_KINDS = Object.freeze(COVERAGE_STEPS.filter((k) => k !== \"edit\"));",
+    "to": "export const ITEM_KINDS = Object.freeze(COVERAGE_STEPS.filter((k) => k !== \"edit\" && !OPAQUE_KINDS.includes(k)));"
+  },
+  {
+    "label": "TOOL: the kind enum is widened past what the reader has lists for",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      enum: ITEM_KINDS,",
+    "to": "      enum: [...ITEM_KINDS, \"edit\"],"
+  },
+  {
+    "label": "CLEAN: the declared kind is dropped, so every covered reference goes ambiguous",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (ITEM_KINDS.includes(kind)) e.kind = kind;",
+    "to": "      if (false) e.kind = kind;"
+  },
+  {
+    "label": "CLEAN: a kind nothing recognises is kept, so the lookup runs in a list that does not exist",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (ITEM_KINDS.includes(kind)) e.kind = kind;",
+    "to": "      if (kind) e.kind = kind;"
+  },
+  {
+    "label": "REF: a covered reference takes its kind from the step that ANSWERED it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const kind = r.status === \"elsewhere\" ? String(r.step || \"\") : String(r.kind || \"\");",
+    "to": "  const kind = r.status === \"elsewhere\" ? String(r.step || \"\") : String(r.from || \"\");"
+  },
+  {
+    "label": "REF: a hand-off takes a declared kind instead of the step it was sent to",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const kind = r.status === \"elsewhere\" ? String(r.step || \"\") : String(r.kind || \"\");",
+    "to": "  const kind = String(r.kind || \"\") || String(r.step || \"\");"
+  },
+  {
+    "label": "REF: a kindless reference resolves anyway, with an empty kind standing in for one",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  return kind ? { kind, name } : null;",
+    "to": "  return { kind, name };"
+  },
+  {
+    "label": "REF: the name is compared as written, so BOOKINGS is not bookings",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const name = typeof r.item === \"string\" ? r.item.trim().toLowerCase() : \"\";",
+    "to": "  const name = typeof r.item === \"string\" ? r.item : \"\";"
+  },
+  {
+    "label": "SEARCH: the applied haystack is every kind again \u2014 the owner's first collision",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const hit = ofKind(made, ref.kind).find((m) => low(m) === ref.name);",
+    "to": "    const hit = (Array.isArray(made) ? made : []).find((m) => low(m) === ref.name);"
+  },
+  {
+    "label": "SEARCH: the site's own contents are searched by name across every kind",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const had = ex ? ofKind(ex.items, ref.kind).find((m) => low(m) === ref.name) : null;",
+    "to": "    const had = ex ? (Array.isArray(ex.items) ? ex.items : []).find((m) => low(m) === ref.name) : null;"
+  },
+  {
+    "label": "SEARCH: `ofKind` stops filtering at all, so every haystack is the whole list",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const ofKind = (list, k) => (Array.isArray(list) ? list : []).filter((m) => m && String(m.kind || \"\") === k);",
+    "to": "  const ofKind = (list, k) => (Array.isArray(list) ? list : []).filter((m) => m);"
+  },
+  {
+    "label": "SEARCH: an ambiguous reference is read as absent rather than unidentifiable",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (!ref) return { state: \"unknown\", by: \"ambiguous\", name: String(r.item).trim().toLowerCase(), kind: \"\" };",
+    "to": "    if (!ref) return { state: \"absent\", by: \"ambiguous\", name: String(r.item).trim().toLowerCase(), kind: \"\" };"
+  },
+  {
+    "label": "SEARCH: visibility is asked of the step rather than of the reference's own kind",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    return { state: seeable(ref.kind) ? \"absent\" : \"unknown\", by: \"item\", name: ref.name, kind: ref.kind };",
+    "to": "    return { state: seeable(kind) ? \"absent\" : \"unknown\", by: \"item\", name: ref.name, kind: ref.kind };"
+  },
+  {
+    "label": "SEARCH: an existing hit is recorded as this change's own work",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (had) return { state: \"found\", by: \"item\", where: \"existing\", name: String(had.name), kind: ref.kind };",
+    "to": "    if (had) return { state: \"found\", by: \"item\", where: \"applied\", name: String(had.name), kind: ref.kind };"
+  },
+  {
+    "label": "BROKEN: the failure index drops the kind \u2014 the owner's second collision",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const broken = new Set(items.map((f) => String(f.kind || \"\") + \"::\" + String(f.name || \"\").trim().toLowerCase()));",
+    "to": "  const broken = new Set(items.map((f) => String(f.name || \"\").trim().toLowerCase()));"
+  },
+  {
+    "label": "BROKEN: the lookup drops the kind while the index keeps it, so nothing ever blocks",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const depBroke = !!ref && broken.has(ref.kind + \"::\" + ref.name);",
+    "to": "    const depBroke = !!ref && broken.has(ref.name);"
+  },
+  {
+    "label": "BROKEN: a reference that cannot be identified is nonetheless matched against the failures",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const depBroke = !!ref && broken.has(ref.kind + \"::\" + ref.name);",
+    "to": "    const depBroke = !!ref && broken.has(ref.kind + \"::\" + ref.name) || (!ref && !!items.length);"
+  },
+  {
+    "label": "STATE: an unidentifiable reference falls through to whatever the prose match said",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if (unresolved) {",
+    "to": "    } else if (false) {"
+  },
+  {
+    "label": "STATE: ambiguity is asked before a known dependency failure, so a real break goes quiet",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const unresolved = !!impl && impl.by === \"ambiguous\";",
+    "to": "    const unresolved = (!!impl && impl.by === \"ambiguous\") || (!!impl && impl.by === \"kind\");"
+  },
+  {
+    "label": "STATE: the record cannot say the reference was unreadable",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      ...(unresolved ? { unresolved: \"no-kind\" } : {}),",
+    "to": "      ...(false ? { unresolved: \"no-kind\" } : {}),"
+  },
+  {
+    "label": "ROUTE: a refused function is recorded with no kind, so nothing it broke can be found",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              ...aFnErrors.map((e) => ({ kind: \"function\", name: (e && e.name) || \"\" })),",
+    "to": "              ...aFnErrors.map((e) => ({ kind: \"\", name: (e && e.name) || \"\" })),"
+  },
+  {
+    "label": "ROUTE: a missing page is recorded under the function kind",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              ...aMissing.map((r) => ({ kind: \"page\", name: r })),",
+    "to": "              ...aMissing.map((r) => ({ kind: \"function\", name: r })),"
+  },
+  {
+    "label": "ROUTE: the engine-dropped items lose their own kind",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                (Array.isArray(names) ? names : []).map((n) => ({ kind: k, name: String(n || \"\") }))),",
+    "to": "                (Array.isArray(names) ? names : []).map((n) => ({ kind: \"\", name: String(n || \"\") }))),"
+  },
+  {
+    "label": "CLEAN (THE PAIR): the kind assignment is hoisted out of the covered branch AND the belt dropped",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (status === \"covered\") {\n      const by = str(r.by, MAX_BY);\n      if (by) e.by = by;\n      // \u2026AND THE KIND THAT MAKES THE REFERENCE AN IDENTITY (owner, 2026-09-15:\n      // *\"Use the same explicit kind + item identity \u2026 Preserve that reference\n      // through cleaning\"*). Kept ONLY for `covered`: an `elsewhere` entry's\n      // kind IS its `step`, and a second field carrying the same fact is a\n      // two-field invariant that can disagree with itself.\n      //\n      // A KIND WE DO NOT KNOW IS DROPPED AND THE REFERENCE GOES AMBIGUOUS,\n      // never repaired to a plausible one: `unknown` is a sentence the customer\n      // can act on and a wrong kind is a lookup in the wrong list.\n      const kind = str(r.kind, 20).toLowerCase();\n      if (ITEM_KINDS.includes(kind)) e.kind = kind;\n    } else if (status === \"elsewhere\") {\n      const step = str(r.step, 20).toLowerCase();\n      // A STEP NOBODY RUNS IS NOT A HAND-OFF. Refused to `unsupported` rather\n      // than dropped, because the requirement is still real \u2014 what is wrong is\n      // only the claim about who owns it, and the customer should hear it.\n      if (COVERAGE_STEPS.includes(step)) e.step = step;\n      else { e.status = \"unsupported\"; e.why = \"named a step this change does not run\"; delete e.item; }\n    } else delete e.item;\n    // A REFERENCE BELONGS TO A STATUS THAT CAN USE ONE. `kind` is only ever\n    // written on the `covered` branch above, so this is the same rule `item`\n    // gets when a step refuses: an `unsupported` entry refers to nothing this\n    // change will run, and a reference left on it invites a later reconcile.\n    //\n    // **THIS LINE IS A DELIBERATE BELT AND IS INERT TODAY, MEASURED** (720\n    // probes \u2014 every status including junk and wrong-case, every kind including\n    // junk, empty and `undefined`, every step including junk and `undefined` \u2014\n    // byte-identical with it and without it). `e` is built fresh above and\n    // `e.kind` is assigned inside `if (status === \"covered\")` and nowhere else,\n    // and the one status rewrite in this function is on the `elsewhere` branch,\n    // which a `covered` entry never takes. So the structure is what really\n    // enforces the rule and this restates it.\n    //\n    // IT IS KEPT AND SAID OUT LOUD because a sweep cannot say it and the next\n    // session deletes what nothing appears to need: the PAIR is \"the assignment\n    // sits inside the covered branch\" and \"a non-covered entry cannot keep a\n    // kind\", and hoisting the assignment out is a one-line refactor that reads\n    // as tidying. `scripts/mutants/kind-identity.json` mutates the two\n    // together, which is the only way a redundancy can be sweep-tested at all.\n    if (e.status !== \"covered\") delete e.kind;",
+    "to": "      const kind = str(r.kind, 20).toLowerCase();\n      if (ITEM_KINDS.includes(kind)) e.kind = kind;\n    if (status === \"covered\") {\n      const by = str(r.by, MAX_BY);\n      if (by) e.by = by;\n      // \u2026AND THE KIND THAT MAKES THE REFERENCE AN IDENTITY (owner, 2026-09-15:\n      // *\"Use the same explicit kind + item identity \u2026 Preserve that reference\n      // through cleaning\"*). Kept ONLY for `covered`: an `elsewhere` entry's\n      // kind IS its `step`, and a second field carrying the same fact is a\n      // two-field invariant that can disagree with itself.\n      //\n      // A KIND WE DO NOT KNOW IS DROPPED AND THE REFERENCE GOES AMBIGUOUS,\n      // never repaired to a plausible one: `unknown` is a sentence the customer\n      // can act on and a wrong kind is a lookup in the wrong list.\n    } else if (status === \"elsewhere\") {\n      const step = str(r.step, 20).toLowerCase();\n      // A STEP NOBODY RUNS IS NOT A HAND-OFF. Refused to `unsupported` rather\n      // than dropped, because the requirement is still real \u2014 what is wrong is\n      // only the claim about who owns it, and the customer should hear it.\n      if (COVERAGE_STEPS.includes(step)) e.step = step;\n      else { e.status = \"unsupported\"; e.why = \"named a step this change does not run\"; delete e.item; }\n    } else delete e.item;\n    // A REFERENCE BELONGS TO A STATUS THAT CAN USE ONE. `kind` is only ever\n    // written on the `covered` branch above, so this is the same rule `item`\n    // gets when a step refuses: an `unsupported` entry refers to nothing this\n    // change will run, and a reference left on it invites a later reconcile.\n    //\n    // **THIS LINE IS A DELIBERATE BELT AND IS INERT TODAY, MEASURED** (720\n    // probes \u2014 every status including junk and wrong-case, every kind including\n    // junk, empty and `undefined`, every step including junk and `undefined` \u2014\n    // byte-identical with it and without it). `e` is built fresh above and\n    // `e.kind` is assigned inside `if (status === \"covered\")` and nowhere else,\n    // and the one status rewrite in this function is on the `elsewhere` branch,\n    // which a `covered` entry never takes. So the structure is what really\n    // enforces the rule and this restates it.\n    //\n    // IT IS KEPT AND SAID OUT LOUD because a sweep cannot say it and the next\n    // session deletes what nothing appears to need: the PAIR is \"the assignment\n    // sits inside the covered branch\" and \"a non-covered entry cannot keep a\n    // kind\", and hoisting the assignment out is a one-line refactor that reads\n    // as tidying. `scripts/mutants/kind-identity.json` mutates the two\n    // together, which is the only way a redundancy can be sweep-tested at all.\n"
+  }
+]

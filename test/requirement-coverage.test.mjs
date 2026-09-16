@@ -26,6 +26,7 @@ import fs from "node:fs";
 
 import {
   COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, REQUIREMENT_STATES, SITE_KINDS, OPAQUE_KINDS,
+  ITEM_KINDS, referenceOf,
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
   requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName, claimEvidence,
 } from "../builder/site-requirements.mjs";
@@ -735,6 +736,46 @@ test("the six states separate implementation from hand-off, and evidence is asym
   assert.deepEqual([...SITE_KINDS, ...OPAQUE_KINDS, "edit"].slice().sort(), COVERAGE_STEPS.slice().sort(),
     "the step groups and COVERAGE_STEPS disagree");
   for (const k of SITE_KINDS) assert.ok(!OPAQUE_KINDS.includes(k), k + " is both enumerable and unobservable");
+  // …AND `ITEM_KINDS` IS THE SAME LIST LESS `edit` ALONE (2026-09-15), censused
+  // both ways so neither end can drift. It is what a `covered` reference may
+  // name, and each exclusion and each inclusion is a decision:
+  //
+  //   * `edit` is OUT BY MEANING — it names no artifact a site holds, so
+  //     `{kind: "edit", item: "x"}` could never be looked up in anything.
+  //   * `component` and `photo` are deliberately IN, although they always
+  //     answer `unknown`: the designer can say what it made and this layer
+  //     says it cannot see one. Refusing the kind leaves them naming nothing.
+  assert.deepEqual(ITEM_KINDS.slice().sort(), COVERAGE_STEPS.filter((k) => k !== "edit").slice().sort(),
+    "ITEM_KINDS and COVERAGE_STEPS disagree about what a reference may name");
+  assert.ok(!ITEM_KINDS.includes("edit"), "edit names no artifact and cannot be a reference's kind");
+  for (const k of OPAQUE_KINDS) assert.ok(ITEM_KINDS.includes(k),
+    k + " must be nameable even though this layer can never see one");
+  // The tool offers exactly that set, so the model cannot name a kind the
+  // reader has no list for — and cannot be refused one the reader does.
+  assert.deepEqual(REQUIREMENT_ITEM.properties.kind.enum, [...ITEM_KINDS],
+    "the tool's kind enum and ITEM_KINDS disagree");
+  // ── `referenceOf` IS THE ONE PRODUCER OF THAT IDENTITY, driven here ──────
+  //
+  // Three lookups read it — applied, existing and failed — so where the kind
+  // comes from is asserted per status rather than left to whichever call site
+  // happens to be exercised. A `covered` entry's kind is DECLARED (`from` is
+  // which call answered, not where the thing lives); an `elsewhere` entry's IS
+  // its step, and carrying a second field there would be a two-field invariant
+  // that can disagree with itself.
+  assert.deepEqual(referenceOf({ status: "covered", item: "Count_OK", kind: "function", step: "table" }),
+    { kind: "function", name: "count_ok" }, "a covered reference did not take its DECLARED kind");
+  assert.deepEqual(referenceOf({ status: "elsewhere", item: " /Diary ", step: "page", kind: "function" }),
+    { kind: "page", name: "/diary" }, "a hand-off's kind is its step and nothing else");
+  // `null` IS UNIDENTIFIABLE, NOT ABSENT, and every caller reads it as
+  // `unknown`: a reference we cannot resolve is one we may not answer either
+  // way. Both halves of it — no name at all, and a name with no kind beside it.
+  assert.equal(referenceOf({ status: "covered", item: "count_ok" }), null,
+    "a covered name with no kind was resolved anyway");
+  assert.equal(referenceOf({ status: "elsewhere", item: "count_ok" }), null);
+  assert.equal(referenceOf({ status: "covered", kind: "function" }), null, "a kind with no name is not a reference");
+  assert.equal(referenceOf({ status: "covered", item: "   ", kind: "function" }), null);
+  assert.equal(referenceOf(null), null);
+  assert.equal(referenceOf("bookings"), null);
   const list = cleanRequirements([
     { need: "book a slot", status: "covered", by: "bookings.slot is unique" },
     { need: "only the owner sees a number", status: "covered", by: "a row-level guarantee" },
@@ -832,63 +873,115 @@ test("the six states separate implementation from hand-off, and evidence is asym
     { told: [], made: [{ kind: "page", name: "/diary", holds: [], fails: [], checked: [] }], reportable: ["page"], existing: noPages })[2];
   assert.equal(live.handoff, "undelivered");
   assert.equal(live.state, "unknown", "a page that was really built was reported as still to do");
-  // ── THE HAYSTACK IS THE ONE DIFFERENCE BETWEEN THE TWO STATUSES ──────────
+  // ── ONE IDENTITY, `{kind, name}`, FOR ALL THREE LOOKUPS ──────────────────
   //
-  // Both are reconciled against the same results (owner, 2026-09-15) — the
-  // same equality, the same two sources — and only WHICH items are searched
-  // differs, because the two references mean different things. `elsewhere`
-  // NAMES a step and its `item` is a request TO that step, so a thing of some
-  // other kind is not what was asked for. `covered` names no step: `from` is
-  // our own bookkeeping of which call answered, so its `item` is a claim that
-  // THE THING EXISTS and is looked for everywhere — the tool invites a table
-  // step to name the function that does the work in as many words.
+  // REWRITTEN 2026-09-15 onto the property that replaced this block's subject.
+  // It used to assert a cross-kind search BY NAME for `covered`, and the owner
+  // reproduced two collisions out of exactly that: an applied TABLE answering a
+  // claim about a FUNCTION of the same name, and a FAILED function blocking a
+  // claim about the applied table. `bookings` is the ordinary name for both.
   //
-  // DRIVEN THROUGH `requirementOutcomes`, and asserted BOTH WAYS ROUND: one
-  // direction alone passes with the haystack widened for everything, which
-  // would satisfy a hand-off with a thing nobody asked that step for.
+  // So the reference carries its KIND, declared for `covered` (`from` is which
+  // call answered, not where the thing lives) and taken from `step` for
+  // `elsewhere`. Asserted both ways round: matching the kind alone would let a
+  // hand-off be satisfied by something nobody asked that step for, and matching
+  // the name alone is the collision.
   const applied = [{ kind: "function", name: "count_ok", holds: [], fails: [], checked: [] }];
   const seenSite = { items: [{ kind: "function", name: "count_had" }], kinds: ["page", "function"] };
   const reach = { made: applied, reportable: ["page", "function"], existing: seenSite };
-  const asClaim = requirementOutcomes(
-    cleanRequirements([{ need: "the total is counted", status: "covered", by: "it is counted in the database", item: "count_ok" }], "page").list,
-    reach)[0];
-  assert.equal(asClaim.state, "unverified", "a covered claim naming a thing of another kind was not resolved");
+  const claim = (extra, opts = reach) => requirementOutcomes(
+    cleanRequirements([{ need: "the total is counted", status: "covered", by: "a counter", ...extra }], "page").list, opts)[0];
+  // A CLAIM MAY NAME A KIND ITS OWN STEP DOES NOT MAKE — the `page` step's
+  // claim resting on a FUNCTION — which is what the declared kind is for.
+  const asClaim = claim({ item: "count_ok", kind: "function" });
+  assert.equal(asClaim.state, "unverified", "a covered claim naming its kind explicitly was not resolved");
   assert.equal(asClaim.implementedBy, "count_ok");
+  // …AND THE SAME NAME UNDER THE WRONG KIND IS NOT IT. This is the owner's
+  // first collision in miniature: only the kind separates the two.
+  const wrongKind = claim({ item: "count_ok", kind: "page" });
+  assert.notEqual(wrongKind.implementation, "found",
+    "a claim about a page was answered by a function of the same name");
+  // …AND A REFERENCE WITH NO KIND IS AMBIGUOUS, never widened back into a
+  // search: the designer named a thing and not what it is.
+  const vagueRef = claim({ item: "count_ok" });
+  assert.equal(vagueRef.state, "unknown", "an unidentifiable reference was resolved anyway");
+  assert.equal(vagueRef.implementation, "unknown");
+  assert.equal(vagueRef.unresolved, "no-kind", "the record cannot tell an unreadable reference from nobody looking");
+  // …AND AMBIGUITY OUTRANKS THE PROSE MATCH BELOW IT, which is the whole of
+  // why that branch exists and is the only case where it changes an answer:
+  // with nothing in `by` the fall-through lands on `unknown` anyway. Here `by`
+  // NAMES an applied item, so `claimEvidence` would answer — and it matches on
+  // prose across every kind, which is the same collision one layer over. The
+  // designer did not say what kind of thing they meant; answering the question
+  // they did not ask with evidence about a thing they may not have meant, and
+  // saying *"I've set that up"* off it, is the reading this refuses.
+  const vagueButNamed = claim({ item: "count_ok", by: "count_ok returns the total" });
+  assert.equal(vagueButNamed.state, "unknown",
+    "an unidentifiable reference was rescued by a kind-blind name match in its own prose");
+  assert.equal(vagueButNamed.unresolved, "no-kind");
+  // THE CONTROL that makes that mean something: the SAME prose with the kind
+  // declared really does resolve, so the refusal above is about the missing
+  // kind and not about the evidence being unreadable.
+  assert.equal(claim({ item: "count_ok", kind: "function", by: "count_ok returns the total" }).state, "unverified");
+  // …AND A KIND NOTHING RECOGNISES IS DROPPED AT THE CLEANER, so the reference
+  // goes ambiguous rather than becoming a lookup in a list that does not exist.
+  // `unknown` would be the state either way; what differs is whether the record
+  // can say WHY — and a kind on the wire that no reader has a haystack for is a
+  // field that reads as answered.
+  const junk = cleanRequirements(
+    [{ need: "n", status: "covered", by: "b", item: "count_ok", kind: "nonsense" }], "page").list[0];
+  assert.equal(junk.kind, undefined, "a kind outside ITEM_KINDS was carried through cleaning");
+  assert.equal(claim({ item: "count_ok", kind: "nonsense" }).unresolved, "no-kind",
+    "a junk kind was read as an identity rather than as no identity at all");
+  // …AND AN `elsewhere` ENTRY CARRIES NO KIND AT ALL, even when the model wrote
+  // one. Its kind IS its step, and a second field holding the same fact is a
+  // two-field invariant that can disagree with itself.
+  const strayKind = cleanRequirements(
+    [{ need: "n", status: "elsewhere", step: "page", item: "/diary", kind: "function" }], "table").list[0];
+  assert.equal(strayKind.kind, undefined, "a hand-off kept a kind beside the step that already says it");
+  assert.equal(strayKind.step, "page");
+  // THE CONTROL FOR THE SAME RULE ON THE OTHER STATUS: a hand-off's kind IS its
+  // step, so a thing of another kind is not what that step was asked for.
   const asAsk = requirementOutcomes(
     [{ need: "the total is counted", status: "elsewhere", step: "page", item: "count_ok" }], reach)[0];
   assert.equal(asAsk.state, "missing", "a hand-off to the page step was satisfied by a function of the same name");
-  // …AND THE SITE'S OWN CONTENTS ARE SEARCHED THE SAME WAY, which is the other
-  // half of *"the same item-level results AND existing-site evidence"*: a claim
-  // may rest on something the site already had, and reading only the claiming
-  // step's kind loses every reuse across kinds.
-  const reused = requirementOutcomes(
-    cleanRequirements([{ need: "the total is counted", status: "covered", by: "the counter already there", item: "count_had" }], "page").list,
-    reach)[0];
+  // …AND THE SITE'S OWN CONTENTS ARE READ THROUGH THE SAME IDENTITY, which is
+  // the other half of *"the same … applied, existing, and failed items"*.
+  const reused = claim({ item: "count_had", kind: "function" });
   assert.equal(reused.state, "unverified", "a covered claim resting on something the site already has was not resolved");
   assert.equal(reused.foundIn, "existing", "the record does not say the site already had it");
   assert.equal(reused.implementedBy, "count_had");
-  // …AND A `covered` CLAIM WHOSE OWN THING IS NOWHERE NAMES IT. The sentence
-  // has to point at something, or "still to do" gives nobody anything to do.
-  const nowhere = requirementOutcomes(
-    cleanRequirements([{ need: "the total is counted", status: "covered", by: "a counter", item: "count_gone" }], "page").list,
-    reach)[0];
+  // …AND A CLAIM WHOSE OWN THING IS NOWHERE NAMES IT. The sentence has to point
+  // at something, or "still to do" gives nobody anything to do.
+  const nowhere = claim({ item: "count_gone", kind: "function" });
   assert.equal(nowhere.state, "missing");
   assert.match(nowhere.why, /count_gone/, "a covered claim whose own thing is not there does not name it");
-  // …AND IF THAT THING REALLY FAILED, IT IS BLOCKED RATHER THAN MISSING —
-  // whatever KIND it failed under, because the claim's reference carries no
-  // kind. The looser match can only move a requirement to `blocked`, whose
-  // sentence invites a look at the other part, which is the safe direction.
-  const crossFail = requirementOutcomes(
-    cleanRequirements([{ need: "the total is counted", status: "covered", by: "a counter", item: "count_gone" }], "page").list,
-    { ...reach, failedItems: [{ kind: "function", name: "count_gone" }] })[0];
-  assert.equal(crossFail.state, "blocked", "a covered claim naming a thing that failed under another kind read as work nobody did");
-  assert.match(crossFail.why, /count_gone/);
-  // THE CONTROL, and it is the same asymmetry: a hand-off's reference DOES
-  // carry a kind — it is a request to one named step — so a failure somewhere
-  // else is not this requirement's dependency failing.
+  // …AND "COULD WE HAVE SEEN ONE" IS ASKED OF THE REFERENCE'S KIND, NEVER OF
+  // THE STEP'S. The two are the same thing on a claim about the step's own
+  // work and part company on exactly the claim the declared kind exists for:
+  // the `page` step resting on a FUNCTION. Nothing enumerated functions here,
+  // so nobody looked — and the step's own kind WAS enumerated, which is what
+  // would turn "nobody looked" into "still to do" about somebody else's kind.
+  const pagesOnly = { made: [], reportable: ["page"], existing: { items: [], kinds: ["page"] } };
+  assert.equal(claim({ item: "count_gone", kind: "function" }, pagesOnly).state, "unknown",
+    "absence was declared for a function on the strength of having read the pages");
+  // THE CONTROL: with functions really enumerable the same claim IS missing, so
+  // the line above is about which haystack was read and not about the reader
+  // having gone quiet.
+  const bothRead = { made: [], reportable: ["page", "function"], existing: { items: [], kinds: ["page", "function"] } };
+  assert.equal(claim({ item: "count_gone", kind: "function" }, bothRead).state, "missing");
+  // …AND IF THAT THING REALLY FAILED IT IS BLOCKED — matched on the SAME
+  // identity, so the kind has to agree as well as the name.
+  const broke = { ...reach, failedItems: [{ kind: "function", name: "count_gone" }] };
+  const depFail = claim({ item: "count_gone", kind: "function" }, broke);
+  assert.equal(depFail.state, "blocked", "a covered claim naming a thing that failed was not tied to it");
+  assert.match(depFail.why, /count_gone/);
+  // THE OWNER'S SECOND COLLISION, AT THE MODULE: the same name failed under
+  // ANOTHER kind is not this claim's dependency failing.
+  const other = claim({ item: "count_gone", kind: "page" }, broke);
+  assert.notEqual(other.state, "blocked", "a claim about a page blocked on a FUNCTION of the same name");
   const crossAsk = requirementOutcomes(
-    [{ need: "the total is counted", status: "elsewhere", step: "page", item: "count_gone" }],
-    { ...reach, failedItems: [{ kind: "function", name: "count_gone" }] })[0];
+    [{ need: "the total is counted", status: "elsewhere", step: "page", item: "count_gone" }], broke)[0];
   assert.equal(crossAsk.state, "missing", "a hand-off to the page step blocked on a FUNCTION of the same name");
   // EVIDENCE IS WORD-BOUNDED. `bookings` must not be found inside
   // `bookings_old`, or a claim name-dropping a table we did NOT make reads as
@@ -996,13 +1089,28 @@ test("the developer record keeps everything the customer is not told", () => {
   // …AND THE CONTROL THAT KEEPS `unknown` FROM BEING A NEW DEFAULT: give the
   // same `covered` entry something real to reconcile against and it moves. A
   // record where every state collapses to one is not a reader, it is a stamp.
+  // RE-ANCHORED 2026-09-15: a `covered` reference is `{kind, item}`, so the
+  // control declares the kind. Without it the reference is ambiguous and the
+  // honest answer is `unknown` — which the line below asserts, because a
+  // control that no longer moves is not a control.
   const backed = requirementRecord({
-    list: cleanRequirements([{ need: "b", status: "covered", item: "bookings" }], "table").list,
+    list: cleanRequirements([{ need: "b", status: "covered", item: "bookings", kind: "table" }], "table").list,
     made: [{ kind: "table", name: "bookings", holds: [], fails: [], checked: [] }],
   });
   assert.deepEqual(backed.requirements.map((r) => r.state), ["unverified"],
     "an applied item named by the claim stopped establishing the implementation");
   assert.equal(backed.requirements[0].implementedBy, "bookings");
+  // …AND THE KIND IS WHAT MADE IT RESOLVABLE: the same claim without it is a
+  // reference nothing can identify, which is the owner's *"ambiguous references
+  // should remain unknown"* and is what the two collisions cost when it was a
+  // name search instead.
+  const vague = requirementRecord({
+    list: cleanRequirements([{ need: "b", status: "covered", item: "bookings" }], "table").list,
+    made: [{ kind: "table", name: "bookings", holds: [], fails: [], checked: [] }],
+  });
+  assert.deepEqual(vague.requirements.map((r) => r.state), ["unknown"],
+    "a reference with no kind was resolved against an applied item anyway");
+  assert.equal(vague.requirements[0].unresolved, "no-kind");
   // …AND THE HAND-OFF IS STILL REPORTED, which is the half that must not be
   // lost when it stops being said as work that is not there.
   assert.deepEqual(rec.handoffs, { delivered: 0, undelivered: 1 },

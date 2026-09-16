@@ -4484,6 +4484,111 @@ wait when something blocks on it.
 the last two. No paid call was made and no demo site was touched. **The
 `search_path` review stays queued.**
 
+### …AND A REFERENCE IS `{kind, name}`, BECAUSE A NAME COLLIDES (2026-09-16)
+
+Owner, on the round above: *"covered references now lose their kind.
+`implementationOf` searches all kinds by name, and `brokenAny` similarly ignores
+kind."* Two failures, reproduced at the module before anything was touched, both
+on the name every real site uses for both things:
+
+| reproduced | what the reader said |
+|---|---|
+| applied TABLE `bookings`, no function `bookings` | a `covered` claim about the FUNCTION → `implementation: found` and *"I've set that up"* |
+| applied TABLE `bookings`, FAILED function `bookings` | a `covered` claim about the TABLE → `blocked` |
+
+**ONE IDENTITY, `{kind, name}`, FOR ALL THREE LOOKUPS** — applied, existing and
+failed. `referenceOf(r)` is the single producer and `broken` is keyed the way it
+answers (`kind + "::" + name`), so the index and the lookup cannot drift apart.
+`brokenAny` and the cross-kind `anyKind` search are gone.
+
+**WHERE THE KIND COMES FROM IS THE ONLY PER-STATUS PART, and it is not a
+symmetry that could have been collapsed.** An `elsewhere` reference is a request
+TO a named step, so the STEP is the kind — a request to the function step is a
+request for a function, and a second field beside it would be a two-field
+invariant that can disagree with itself. A `covered` reference has no such
+field: **`from` is which CALL answered, never a claim about where the thing
+lives**, and the tool deliberately invites a table step to name the function that
+does the work. So the kind is DECLARED, which is the owner's own instruction —
+*"Allow covered requirements to name a different implementation kind explicitly;
+the authoring step alone cannot identify it."*
+
+- **`ITEM_KINDS` IS DERIVED** (`COVERAGE_STEPS` less `edit`) and censused both
+  ways against the tool's own enum. `edit` is out BY MEANING — it names no
+  artifact a site holds, so `{kind: "edit", item: "x"}` could never be looked up
+  in anything. `component` and `photo` are deliberately IN although they always
+  answer `unknown`: the designer can say what it made and this layer says it
+  cannot see one, where refusing the kind leaves them naming nothing.
+- **THE KIND IS PRESERVED THROUGH CLEANING for `covered` and dropped for
+  everything else**, and a kind outside `ITEM_KINDS` is DROPPED rather than
+  repaired to a plausible one — a wrong kind is a lookup in the wrong list, and
+  `unknown` is a sentence the customer can act on.
+- **AMBIGUOUS OUTRANKS EVERY WEAKER READING, and that is the whole reason the
+  branch exists.** With nothing in `by` the fall-through lands on `unknown`
+  anyway; it changes an answer only when `by` NAMES an applied item — and
+  `claimEvidence` matches on PROSE across every kind, which is the same
+  collision one layer over. So a reference with no kind reads `unknown` with
+  `unresolved: "no-kind"` on the record, never rescued by evidence about a thing
+  the designer may not have meant. It is asked AFTER the two failure branches,
+  so a known dependency failure and a failed owning step still win.
+- **"COULD WE HAVE SEEN ONE" IS ASKED OF THE REFERENCE'S KIND, NEVER THE
+  STEP'S.** The two agree on a claim about the step's own work and part company
+  on exactly the claim the declared kind exists for — the `page` step resting on
+  a FUNCTION. Reading the step's kind there would turn "nobody enumerated
+  functions" into "still to do" on the strength of having read the pages.
+- **A ROUTE-SIDE FAILURE CARRIES ITS OWN KIND**: the function errors, the job
+  errors, the missing pages and the engine-dropped items each name theirs, so
+  the second collision cannot come back from the producing end either.
+
+**THE ONE INERT LINE IS DECLARED RATHER THAN DELETED, and it was MEASURED
+inert, not reasoned about.** `if (e.status !== "covered") delete e.kind;` is a
+belt: `e` is built fresh and `e.kind` is assigned inside the `covered` branch and
+nowhere else, and the one status rewrite in `cleanRequirements` is on the
+`elsewhere` branch, which a `covered` entry never takes. **720 probes — every
+status including junk and wrong-case, every kind including junk, empty and
+`undefined`, every step including junk and `undefined` — byte-identical with the
+line and without it.** It stays because the PAIR is "the assignment sits inside
+the covered branch" and "a non-covered entry cannot keep a kind", and hoisting
+the assignment out is a one-line refactor that reads as tidying; the spec mutates
+**the two together**, which is the only way a redundancy can be sweep-tested at
+all, and the code says so because a sweep cannot.
+
+**Guards**: `test/addon-route.test.mjs` **62 → 64** — the owner's two collisions
+driven through `POST /api/site/<slug>/addon` and asserted on the stored coverage
+AND the customer's own sentence, both on a site whose stored schema declares
+neither name (`STORED_SCHEMA` already has `bookings`, which would have made the
+addition an EXTENSION and the case about something else). The three `covered`
+cases from the round above were re-anchored onto explicit kinds and kept, which
+is the owner's *"Retain the successful mixed-function and unknown-component
+cases."* `test/requirement-coverage.test.mjs` stays **22** and gained
+assertions inside existing cases: the `ITEM_KINDS` census both ways plus the
+tool's enum, `referenceOf` driven directly for both kind sources and both halves
+of its `null`, ambiguity outranking a prose match WITH its control, a junk kind
+dropped, a stray kind on a hand-off, and the visibility question asked of the
+reference's kind with the control that makes it about the haystack.
+
+**Five older guards were re-anchored, not appeased** — counted from this
+commit's own diff rather than recalled: three route fixtures that gained an
+explicit kind (`OK`/`BAD`, `GONE`/`KEPT`, `SECTION`/`BACKED`), case 15's
+haystack block rewritten onto the kinded identity, and case 17's `kind: "table"`
+control with its `vague` counterpart.
+
+**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 21 of 25 and **all four survivors were
+guard gaps, not the product's** — a junk kind kept, a stray kind on a hand-off,
+the visibility question asked of the wrong kind, and the ambiguity branch, whose
+only observable case needs `by` to name an applied item. One of the four was
+then measured INERT (above) and REPLACED with the pair mutant rather than
+hunted. **Every anchor was checked to occur exactly once before each run.**
+
+**Suite 6,496** — 6,494 + `addon-route`'s two collision cases, and the
+arithmetic closes exactly: everything in `requirement-coverage` is an assertion
+inside a case that already existed. CI has NOT read this number yet.
+
+**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
+the last three: *"Keep this correction bounded. No merge, deployment, paid
+rerun, or demo-site cleanup yet."* No paid call was made and no demo site was
+touched. **The `search_path` review stays queued.**
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -4903,7 +5008,26 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   step count this line means — checked rather than "corrected", because the
   phrasing was right and a number moved for the wrong reason is still a wrong
   number.
-  The unit suite is **6,494** (2026-09-15, local — the same evidence rules
+  **AND RUN 1148 READ IT A NINTH TIME (2026-09-15 23:26:02→23:52:28Z on
+  `23f6ae22`, the covered-evidence round, ALL TWENTY STEPS GREEN):
+  `site-build.mjs` `382 passed, 0 failed` in 19m14s**, with kit-typecheck 4,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47 beside it — every count bounded to its own `##[group]`, and
+  the count read rather than carried over from 1147. **Nine independent runs
+  over four days agreeing is what 382 rests on**; the two harness timings
+  either side of it, 17m11s and 19m14s on trees that differ by four files, are
+  the runner deciding again, exactly as the image-step band records.
+  The unit suite is **6,496** (2026-09-16, local — the kinded reference, whose
+  new cases are all `addon-route`'s **two** (62 → 64: the owner's two
+  collisions, an applied TABLE against a claim about a FUNCTION of the same
+  name and a FAILED function against a claim about the TABLE); **6,494 + 2
+  closes exactly**. `requirement-coverage` stays 22 and gained ASSERTIONS
+  inside existing cases and no new case — the `ITEM_KINDS` census both ways
+  with the tool's enum, `referenceOf` driven directly, ambiguity outranking a
+  prose match with its control, a junk kind dropped, a stray kind on a hand-off,
+  and the visibility question asked of the reference's kind. CI has NOT read
+  this number yet.
+  **6,494** before it (2026-09-15, local — the same evidence rules
   applied to `covered`, whose new cases are all `addon-route`'s **three**
   (59 → 62: a `covered` claim in a mixed-success function step, a `covered`
   claim about a section nobody can see with its control, and an item the ENGINE

@@ -9917,3 +9917,82 @@ failed dependency.
 - Nothing merged, nothing deployed, no paid call, no site touched.
 
 The `search_path` review is still queued.
+
+## A reference now says WHAT it is, not just what it is called
+
+Both collisions you reproduced are fixed, driven through the addon route, and
+nothing was merged, deployed, rerun or cleaned up.
+
+### What was wrong
+
+When the round before this taught `covered` claims to check their own
+implementation, it looked the thing up **by name across every kind**. That is
+fine right up until two things share a name — and on a real site they do. Your
+two cases, both reproduced here before I touched anything:
+
+| the site has | the claim is about | what it said |
+|---|---|---|
+| an applied table `bookings`, no function of that name | the **function** `bookings` | "found" — and *"I've set that up"* |
+| an applied table `bookings`, a **failed** function `bookings` | the **table** `bookings` | "blocked" |
+
+Both are the same mistake in opposite directions: the table answered for the
+function, and the function's failure was charged to the table.
+
+### The fix
+
+A reference is now **`{kind, name}`** everywhere — in what this change applied,
+in what the site already had, and in what failed. One reader produces it, and
+the failure index is keyed the same way, so the two cannot drift apart.
+
+The only part that differs by status is **where the kind comes from**, and it
+had to:
+
+- A **hand-off** names a step, so the step IS the kind. Asking the function step
+  for something is asking for a function.
+- A **claim** names no step — `from` is only our own note of which call answered
+  it, and the tool deliberately lets a table step credit the function that does
+  the work. So the kind is **declared**, which is what you asked for. The tool
+  now asks for it and the cleaner keeps it.
+
+**If it isn't declared, the answer is "I can't see whether that's there".** Not a
+guess at the kind, and — this is the part worth knowing — not rescued by the
+older prose check underneath either. That check matches names inside the
+sentence the model wrote, across every kind, which is the very same collision
+one layer down. So a reference with no kind stops there. It still loses to a
+dependency you can see really failed: a real breakage outranks an unclear one.
+
+One more that only shows up on exactly the claim the declared kind exists for:
+**"could anyone have seen one of these?" is now asked about the kind the claim
+names, not the kind of the step that made it.** A page step resting on a
+function, where nothing listed the functions, used to read as *"still to do"* on
+the strength of having listed the pages.
+
+### One line I kept although it does nothing
+
+There's a belt in the cleaner that strips a kind off anything that isn't a
+claim. **I measured it: 720 combinations, byte-identical with it and without
+it** — the code's structure already guarantees it. I kept it and wrote in the
+file *why*, because a sweep can't tell "belt" from "dead code" and the next
+session deletes what nothing appears to need. The mutation test now breaks the
+**pair** together, which is the only way to test a belt at all.
+
+### What was run
+
+- Both of your cases driven end to end through the real addon route, checked on
+  the stored record **and** on the sentence the customer reads. The three
+  `covered` cases from last round were kept, updated to name their kinds.
+- Guard files: `addon-route` 62 → 64. `requirement-coverage` stays at 22 and
+  gained assertions inside cases that already existed.
+- **Five** older guards re-anchored — counted from the commit's own diff, not
+  from memory.
+- **Mutation sweep: 25 mutants, 25 killed, 0 survived, 2 controls survived.**
+  First pass left four alive and **every one was a hole in my new tests, not in
+  the product** — one of which turned out to be the inert belt above, so I
+  replaced it rather than hunting it.
+- **Full suite 6,496 green** (6,494 + the two new cases). CI hasn't read it yet.
+- And `site build` run **1148** was green on the previous commit — `382 passed /
+  0 failed`, the ninth independent run to answer 382.
+
+Nothing merged, nothing deployed, no paid call, no site touched.
+
+The `search_path` review is still queued.

@@ -1795,8 +1795,12 @@ test("a COVERED claim in a mixed-success function step is judged on its OWN func
   // THREE CLAIMS, ONE STEP, THREE ANSWERS, and all three are needed: without
   // the second the fix could be "stop blocking", and without the third it could
   // be "stop reading the step's failure at all".
-  const OK = { need: "the page can count what is stored", status: "covered", by: "count_ok returns the number", item: "count_ok" };
-  const BAD = { need: "the owner gets a nightly summary", status: "covered", by: "count_bad totals the day", item: "count_bad" };
+  // RE-ANCHORED 2026-09-15: a `covered` reference is `{kind, item}` now, and
+  // the kind is DECLARED rather than taken from `from` or searched for by name
+  // — see the two collision cases below. Both of these name their own step's
+  // kind, which the tool asks for explicitly *including* in that case.
+  const OK = { need: "the page can count what is stored", status: "covered", by: "count_ok returns the number", item: "count_ok", kind: "function" };
+  const BAD = { need: "the owner gets a nightly summary", status: "covered", by: "count_bad totals the day", item: "count_bad", kind: "function" };
   const VAGUE = { need: "the numbers are right", status: "covered", by: "the counting is done in the database" };
   const r = await addon("fw-covered-mixed", "count what is stored and send me a summary", {
     kinds: ["function"],
@@ -1862,6 +1866,121 @@ test("a COVERED claim in a mixed-success function step is judged on its OWN func
     "the claim whose function applied is not said as built-and-unchecked: " + note);
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// THE NAME COLLISION, BOTH DIRECTIONS (owner, 2026-09-15)
+//
+// *"covered references now lose their kind. implementationOf searches all kinds
+// by name, and brokenAny similarly ignores kind."* Two failures, reproduced at
+// the module before either was fixed and driven through the route here:
+//
+//   1. applied table `bookings`, no function `bookings` — a covered requirement
+//      FOR THAT FUNCTION got `implementation: found` and *"I've set that up."*
+//   2. applied table `bookings`, FAILED function `bookings` — a covered
+//      requirement FOR THE TABLE got `blocked`.
+//
+// `bookings` is the ordinary name for both a table and the function that counts
+// it, so this is the shape a real change meets rather than a contrived one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The table both cases apply, and the function name that collides with it. */
+const CLASH = { name: "bookings", access: "user", columns: [{ name: "who", type: "text" }] };
+/** A site with no schema of its own, so `bookings` is a real ADDITION rather
+ *  than an extension of `STORED_SCHEMA`'s table of the same name — and so the
+ *  only `bookings` anywhere is the one this change applies. */
+const NO_SCHEMA = { tables: [], functions: [], apis: [], jobs: [] };
+
+test("COLLISION 1: an applied TABLE does not answer a claim about a FUNCTION of the same name", async () => {
+  // The claim names `bookings` and says it is a FUNCTION. The change applies a
+  // TABLE called `bookings` and no function at all.
+  const FN = {
+    need: "the page can count what is stored", status: "covered",
+    by: "the bookings function returns the number", item: "bookings", kind: "function",
+  };
+  // THE MIRROR, IN THE SAME RUN AND ON THE SAME NAME — without it this case
+  // could pass with the lookup broken in the other direction, and the whole
+  // point is that the KIND is what separates them.
+  const TBL = {
+    need: "bookings are stored", status: "covered",
+    by: "the bookings table holds them", item: "bookings", kind: "table",
+  };
+  const r = await addon("fw-clash-kind", "store bookings and count them", {
+    kinds: ["table"], publishes: true, stored: NO_SCHEMA,
+    answers: { table: { table: [{ table: CLASH }], requirements: [FN, TBL] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: the table really applied and no function did. Without the
+  // mix there is nothing for a name to collide with.
+  assert.deepEqual(r.body.tables, ["bookings"], "the table did not apply — this case tests nothing");
+  assert.deepEqual(r.body.functions || [], [], "a function applied — this case is about one that did NOT");
+  const cov = storedAnswer(r, "fw-clash-kind").coverage;
+  const at = (need) => cov.requirements.find((q) => q.need === need);
+  // THE FIX: the table is not the function, however the names read.
+  assert.notEqual(at(FN.need).implementation, "found",
+    "an applied table answered a claim about a function of the same name");
+  assert.equal(at(FN.need).implementedBy, undefined, "the claim was credited to a thing of another kind");
+  assert.notEqual(at(FN.need).state, "unverified",
+    "a claim about a function nothing made was read as there-and-unchecked");
+  // AND THE MIRROR RESOLVES, which is what proves the reader is alive rather
+  // than simply refusing everything.
+  assert.equal(at(TBL.need).implementation, "found", "the claim about the table it really applied was not resolved");
+  assert.equal(at(TBL.need).implementedBy, "bookings");
+  assert.equal(at(TBL.need).foundIn, "applied");
+  // ── AND THE CUSTOMER'S OWN SENTENCE, which is where the defect was visible ──
+  const note = r.body.coverNote || "";
+  assert.doesNotMatch(note, /I've set that up[^.]*can count what is stored/,
+    "the customer was told a function nothing made was set up: " + note);
+  assert.match(note, /can count what is stored/,
+    "the claim nothing backs is not reported to the customer at all: " + note);
+});
+
+test("COLLISION 2: a FAILED function does not block a claim about a TABLE of the same name", async () => {
+  // The database refuses a function called `bookings`; the table `bookings`
+  // applies. A claim about the TABLE must not go down with the function.
+  const TBL = {
+    need: "bookings are stored", status: "covered",
+    by: "the bookings table holds them", item: "bookings", kind: "table",
+  };
+  const FN = {
+    need: "the page can count what is stored", status: "covered",
+    by: "the bookings function returns the number", item: "bookings", kind: "function",
+  };
+  const r = await addon("fw-clash-fail", "store bookings and count them", {
+    kinds: ["table", "function"], publishes: true, fnFail: "bookings", stored: NO_SCHEMA,
+    answers: {
+      table: { table: [{ table: CLASH }] },
+      function: {
+        function: [{ name: "bookings", internal: true, returns: "bigint", body: "BEGIN RETURN 1; END;" }],
+        requirements: [TBL, FN],
+      },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITIONS, both asserted: the table applied and the function was
+  // really refused BY NAME. Either missing and the collision cannot arise.
+  assert.deepEqual(r.body.tables, ["bookings"], "the table did not apply — this case tests nothing");
+  assert.deepEqual((r.body.functionErrors || []).map((e) => e.name), ["bookings"],
+    "the database did not refuse the function — this case tests nothing");
+  const cov = storedAnswer(r, "fw-clash-fail").coverage;
+  const at = (need) => cov.requirements.find((q) => q.need === need);
+  // THE FIX: the failed dependency is matched on `{kind, name}`, so the table's
+  // claim is judged on the table.
+  assert.notEqual(at(TBL.need).state, "blocked",
+    "a claim about an applied table was blocked by a function of the same name");
+  assert.equal(at(TBL.need).implementation, "found");
+  assert.equal(at(TBL.need).implementedBy, "bookings");
+  // AND THE REAL DEPENDENCY FAILURE SURVIVES, which is the half a fix that
+  // simply stopped blocking would have thrown away.
+  assert.equal(at(FN.need).state, "blocked", "the claim whose own function was refused stopped being blocked");
+  assert.match(at(FN.need).why, /bookings/, "the blocked claim does not name the thing that failed");
+  assert.equal(cov.counts.blocked, 1, "the blocked count swept in the claim that was fine: " + JSON.stringify(cov.counts));
+  // ── THE CUSTOMER HEARS ONE AND NOT THE OTHER ─────────────────────────────
+  const note = r.body.coverNote || "";
+  assert.match(note, /waiting on another part of the same change that didn't work[^.]*can count what is stored/,
+    "the failed dependency is not pointed at: " + note);
+  assert.doesNotMatch(note, /waiting on another part[^.]*bookings are stored/,
+    "the table's claim was reported as waiting on the function's failure: " + note);
+});
+
 test("an item the ENGINE dropped whole is a named dependency, not a whole kind failing", async () => {
   // A SWEEP SURVIVOR, and the one writer of `aFailedKinds` that had nothing on
   // the failed-ITEM list. A function the database refuses is reported by name
@@ -1872,8 +1991,8 @@ test("an item the ENGINE dropped whole is a named dependency, not a whole kind f
   //
   // `returns: "setof nowhere"` is the engine's own drop: a return type naming a
   // table nobody declared, measured rather than contrived.
-  const GONE = { need: "the page can list what is stored", status: "covered", by: "list_things returns the rows", item: "list_things" };
-  const KEPT = { need: "the page can count what is stored", status: "covered", by: "count_ok returns the number", item: "count_ok" };
+  const GONE = { need: "the page can list what is stored", status: "covered", by: "list_things returns the rows", item: "list_things", kind: "function" };
+  const KEPT = { need: "the page can count what is stored", status: "covered", by: "count_ok returns the number", item: "count_ok", kind: "function" };
   const r = await addon("fw-unbuilt", "list and count what is stored", {
     kinds: ["function"],
     answers: {
@@ -1920,17 +2039,23 @@ test("a COVERED claim about a section nobody can see is UNKNOWN, never 'I've set
   // absence. The honest answers are `unknown` and the can't-SEE sentence.
   const SECTION = {
     need: "visitors can see where the total comes from", status: "covered",
-    by: "a card band under the booking total", item: "SourceNote",
+    by: "a card band under the booking total", item: "SourceNote", kind: "component",
   };
   // THE CONTROL, and the case is vacuous without it: the SAME step, the SAME
   // status, a claim naming something this change really applied. It must move —
   // otherwise "everything is unknown now" would pass, which is a stamp and not
-  // a reader. It is also the cross-kind search `covered` does on purpose: the
-  // component step's claim names a FUNCTION, which the tool invites in as many
-  // words, and scoping the lookup by `from` would lose it.
+  // a reader.
+  //
+  // RE-ANCHORED 2026-09-15, AND IT IS NOW THE FEATURE'S OWN DEMONSTRATION. The
+  // claim declares `kind: "function"` while `from` is `component`, which is the
+  // owner's *"Allow covered requirements to name a different implementation
+  // kind explicitly; the authoring step alone cannot identify it."* The lookup
+  // is neither the step nor a search by name across every kind — it is the
+  // declared identity, and the two collision cases below are what that buys.
   const BACKED = {
     need: "the number on the page is the stored total", status: "covered",
-    by: "count_existing_bookings reads the bookings table", item: "count_existing_bookings",
+    by: "count_existing_bookings reads the bookings table",
+    item: "count_existing_bookings", kind: "function",
   };
   const r = await addon("fw-covered-unseen", "add a note under the booking total", {
     kinds: ["function", "component"], publishes: true,
