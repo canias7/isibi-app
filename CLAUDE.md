@@ -6702,6 +6702,69 @@ later job naming the function this run creates, which is the recorded hop 2
 which keeps a job only when its function is in the same spec: right for a build,
 a silent drop here). Not part of this run and not bought with it.
 
+#### MERGED AND DEPLOYED, AND THE INPUTS ARE EXACT NOW (2026-09-16)
+
+**CI first**: `unit tests` run **2644** on `d9d8018d`, green — `# tests 6698 /
+# pass 6694 / # fail 0 / # skipped 4`, against local `6698 / 6698 / 0 / 0`. The
+four are the three recorded environment skips plus `site-searchpath`'s
+baseline-commit case; **the TOTAL is what matches**, which is why the total is
+the number stamped. No `site build` fired and none was due — the seven changed
+files are two documents, a script, a mutant spec, two guards and a workflow, and
+none is under `builder/**`, `worker.js` or any other glob in that `paths` list.
+
+**Deploy 2131, 2026-09-16 19:02:09→19:02:57Z, green in 48 seconds**, on `main`
+`6624ca40` → `d9d8018d` (fast-forward, 7 files). **NO PRODUCT CODE MOVED** —
+`scripts/`, `test/`, one workflow and two documents; no `worker.js`, no
+`builder/`, nothing under `public/`.
+
+- **THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED — the sixth
+  cross-check of that technique.** Both sides hashed to **`d927ff27fd186f30`**
+  (183 inputs), and the container answered **`no changes
+  isibi-app-sitebuildcontainer`** / `No changes to be made` — read out of the
+  log's own diff, never inferred from a duration. **THE CONTAINER DID NOT ROLL,
+  so no 15–20 minute hold applies.**
+- **It deployed at all because `.github/workflows/**` is not in `paths-ignore`**
+  — every other file in the push is under `scripts/`, `test/` or `**.md`, which
+  the filter covers. *A push that looks docs-only is not, if it touches a
+  workflow*, met for the second time.
+- **`No updated asset files to upload`**, so there is no file-hash check for
+  this deploy. The standby is the gate discriminator, measured after:
+  `/api/site/build-health` **401**, `/api/site/runtime` **401**,
+  `/api/site/job-probe` **401**, `/api/nope-not-a-route` **404**.
+  `Uploaded isibi-app (4.68 sec)`.
+- **The form on main really carries the box**, asked by name rather than off a
+  listing: `run_job` is there with its `IT REALLY RUNS` sentence intact.
+- **The two RPCs still answer 3**, which is the number the live test will be
+  judged against. **⚠ AND THE REGRESSION READING IS NOT A CLEAN PASS, because no
+  pre-push baseline was taken this round**: `repairbench-1` reads 46,358 B
+  against 46,151 recorded at deploy 2128, and `fretwork-1` 58,407 against
+  58,404. Stable across three consecutive reads, `x-site-version` unchanged at
+  `01789551373761-47doj7` (run 49's build, so the site has not republished), and
+  this deploy uploaded no asset and rolled no container — so it cannot be the
+  cause. **Not attributable to this deploy, and not explained either**; the gap
+  is the missing baseline, which is the recorded practice and was skipped.
+
+**THE EXACT LIVE-RUN INPUTS.** `lane sweep`, dispatch-only, **the owner's
+press**:
+
+| field | value |
+|---|---|
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `site` | `repairbench-1` |
+| `ask` | *Every night at 11, count how many bookings we have and record the total in the job's run result. Don't delete or change any bookings, don't email or text anyone, and don't add a page.* |
+| `picker` | `grok` |
+| `budget` | `40` |
+| `expect_deploy` | `d9d8018dd336b8f3558e708c81840565cab67cce` |
+| `expect_image` | `d927ff27fd186f30` |
+| `run_job` | `auto` |
+| `lanes` | *(leave as `all` — the `ask` replaces the case list entirely)* |
+
+`run_job: auto` is safe here for a stated reason rather than by luck: it fires
+only a job THIS run registered, and `repairbench-1` has **no mail or SMS key in
+Secrets**, so the runner cannot reach a sender even if the model returns
+messages instead of a note.
+
 **NOT AUTHORIZED, AND NOTHING HAS RUN.** No paid call, no demo-site change.
 
 

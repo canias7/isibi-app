@@ -729,6 +729,38 @@ proof that mail works.
 fires it (Run now forces the job, so a green press says nothing about that), and
 reusing this function from a *second* job later — that's its own follow-up.
 
+### It's merged, and here's the form to fill in
+
+CI green (6,698 tests), **deploy 2131 in 48 seconds**, and the container **did
+not roll** — I computed the image id before merging and the deploy agreed, so
+there's no waiting period. No product code moved: scripts, tests, one workflow,
+two documents.
+
+**`lane sweep` → Run workflow:**
+
+| field | value |
+|---|---|
+| confirm | `spend` |
+| harness | `addon` |
+| site | `repairbench-1` |
+| ask | *Every night at 11, count how many bookings we have and record the total in the job's run result. Don't delete or change any bookings, don't email or text anyone, and don't add a page.* |
+| picker | `grok` |
+| budget | `40` |
+| expect_deploy | `d9d8018dd336b8f3558e708c81840565cab67cce` |
+| expect_image | `d927ff27fd186f30` |
+| run_job | `auto` |
+| lanes | leave it — the ask replaces the case list |
+
+`run_job: auto` only fires a job *this run* created, and the site has no mail or
+SMS key, so nothing can be sent even if the model returns messages by mistake.
+
+**One thing I won't dress up.** I didn't take a size baseline before pushing this
+time, and two sites read a couple of hundred bytes different from a measurement
+hours old. They're stable across three reads, neither site has republished, and
+this deploy uploaded no files and rolled no container — so it isn't the cause.
+But "isn't the cause" is weaker than "explained", and the missing baseline is
+why I can't say more.
+
 **Nothing has run. No paid call, nothing touched on the site.**
 ---
 
