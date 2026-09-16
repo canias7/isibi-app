@@ -195,10 +195,33 @@ test("the store hands the ceiling to the transaction, and profiles every write",
       return { ok: true, status: 200, text: async () => JSON.stringify(rpc ? { ok: true, id: C1 } : []) };
     },
   });
+  // ⚠ **EVERY OPERATION, NOT THE FIRST FOUR.** This drove create/list/enable/remove and
+  // left `update`, `owns`, `run` and the HISTORY unread — and a sweep proved the gap
+  // real: dropping the tenant filter from the history read survived. It is a census
+  // now, asserted against the store's own key set, so an operation added next month
+  // fails by existing rather than by being forgotten.
   await store.createAutomation(T1, { agentId: A1, id: C1, name: "N", enabled: true, schedule: "manual", at: null, zone: null, steps: [] });
+  await store.updateAutomation(T1, { id: C1, name: "N", enabled: true, schedule: "manual", at: null, zone: null, steps: [] });
   await store.listAutomations(T1, A1);
+  await store.ownsAutomation(T1, C1);
   await store.setAutomationEnabled(T1, C1, false);
+  await store.runAutomation(T1, { automationId: C1, runId: R1 });
+  await store.executions(T1, C1);
   await store.removeAutomation(T1, C1);
+  const AUTOMATION_OPS = ["listAutomations", "ownsAutomation", "createAutomation", "updateAutomation",
+    "setAutomationEnabled", "removeAutomation", "runAutomation", "executions"];
+  for (const op of AUTOMATION_OPS) {
+    assert.equal(typeof store[op], "function", `the store has no ${op}`);
+  }
+  assert.equal(seen.length, AUTOMATION_OPS.length,
+    `${AUTOMATION_OPS.length} operations made ${seen.length} requests — one of them is unread`);
+  // THE HISTORY IS A READ AND IT IS SCOPED TWICE: the route asks `ownsAutomation` first,
+  // and the query filters on the tenant anyway. `service_role` bypasses row level
+  // security, so the filter is the wall and the ownership check is the belt.
+  const hist = seen.find((r) => r.url.includes("automation_history"));
+  assert.ok(hist, "the history was never read");
+  assert.match(hist.url, new RegExp(`tenant_id=eq\\.${T1}`), `the history is unscoped: ${hist.url}`);
+  assert.match(hist.url, new RegExp(`automation_id=eq\\.${C1}`));
   const made = seen.find((r) => r.url.includes("rpc/create_automation"));
   assert.equal(made.body.p_max, MAX_AUTOMATIONS, "the ceiling goes to the function that does the insert");
   assert.equal(made.body.p_tenant, T1);
@@ -213,6 +236,30 @@ test("the store hands the ceiling to the transaction, and profiles every write",
     // for a transaction. That is the wall: `service_role` bypasses row level security.
     assert.ok(r.url.includes(`tenant_id=eq.${T1}`) || r.body?.p_tenant === T1, `${r.method} ${r.url} is unscoped`);
   }
+});
+
+test("⚠ an answer that is not an object is a FAILURE, never a refusal", async () => {
+  // The two are opposite facts and the route says opposite things about them. A
+  // transaction that answers `{ok:false, error:"disabled"}` is the account saying "not
+  // now" — a 409. A transaction that answers an ARRAY, or `null`, or nothing at all, is
+  // this store not understanding what came back — and reading that as `{ok:false}`
+  // turns every wire fault into "that automation isn't here any more", which tells
+  // somebody their automation is gone when the database is merely unreachable.
+  const junkStore = (text) => makeAgentStore({
+    url: "https://db.example", key: "k",
+    fetch: async () => ({ ok: true, status: 200, text: async () => text }),
+  });
+  for (const text of ["[]", "null", '"done"', "7", ""]) {
+    await assert.rejects(() => junkStore(text).runAutomation(T1, { automationId: C1, runId: R1 }),
+      (e) => e instanceof Error, `an answer of ${JSON.stringify(text)} did not fail`);
+    await assert.rejects(() => junkStore(text).createAutomation(T1,
+      { agentId: A1, id: C1, name: "N", enabled: true, schedule: "manual", at: null, zone: null, steps: [] }),
+      (e) => e instanceof Error, `a create answering ${JSON.stringify(text)} did not fail`);
+  }
+  // THE CONTROL: a real object comes back as itself, refusals included — so the
+  // rejections above are about the SHAPE and not about the store refusing everything.
+  const good = junkStore(JSON.stringify({ ok: false, error: "disabled" }));
+  assert.deepEqual(await good.runAutomation(T1, { automationId: C1, runId: R1 }), { ok: false, error: "disabled" });
 });
 
 // ── what reaches the store ──────────────────────────────────────────────────

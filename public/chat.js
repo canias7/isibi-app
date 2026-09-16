@@ -1926,6 +1926,10 @@ function agentAutoFormRead() {
   // gate and the draft was overwritten with an EMPTY form. Cannot-tell must never read
   // as a value, and the value it read as was the one that always matches.
   const drawn = form.getAttribute ? form.getAttribute('data-gen') : null;
+  // A DECLARED REDUNDANCY, and it is mutated as a PAIR because on its own it is INERT:
+  // with `|| '0'` gone, `null !== String(gen)` already returns. It stays because the
+  // two say different things — that line is about the DEFAULT, this one about the
+  // STATE — and the one a later edit reaches for is the default.
   if (drawn === null) return;                           // nothing has drawn it yet
   if (drawn !== String(autoGen(agentAutoDraft))) return; // it is older than what we hold
   agentAutoDraft = { ...agentAutoValues(), gen: autoGen(agentAutoDraft) };

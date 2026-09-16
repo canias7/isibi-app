@@ -2005,6 +2005,25 @@ page scope; nothing is merged or deployed.
   schedule and steps** (card 553.6px, measured in a real browser), and the actions do
   NOT wrap below on that width. It is legible and it is tight; whether the actions
   should drop to their own line is the owner's.
+  **MEASURED**: site suite **6,720** (6,718 pass, 2 skipped, 0 fail); `agent-binding`
+  42 → **74**, `agent-automations` **19**, `agent-send` 42 → **43**. Site sweep
+  (`scripts/mutants/automations.json`, 11 test files — a narrow list can only produce a
+  false SURVIVOR, never a false kill): **51 mutants, 51 killed, 0 survived, 0 never
+  applied, 2 comment-only controls survived.**
+  **Pass 1 read 43/8 and not one survivor was the product's — but two of them were
+  CASES THAT ASSERTED NOTHING, which is the more useful finding.** `held()` hands back
+  `{p, release}` and two of my own cases asked for `gate.res`, which is `undefined`: the
+  save fell into its own catch and the list answer never landed, so both passed with the
+  wall deleted. Every other held-gate case in that file uses `gate.p`. Both now have a
+  CONTROL underneath — the same save landing on the form it was pressed from DOES become
+  an edit, the same answer landing on the screen that asked for it IS written — because
+  a negative assertion is only worth what its observer is worth.
+  Of the other six: the history read's tenant filter and `answerOf`'s junk-answer wall
+  were undriven (the store request census now walks **every** automation operation and
+  asserts its own count, so one added later fails by existing); the save-through-the-gate
+  and both watch properties had no case at all; and the generation belt was **INERT** —
+  with `|| '0'` already gone, `null !== String(gen)` returns anyway — so it is declared
+  in the code and mutated as a PAIR with the default it belts.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

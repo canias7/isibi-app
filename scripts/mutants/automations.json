@@ -419,12 +419,12 @@
   "control": false
  },
  {
-  "label": "a form that declares no generation is read back anyway, over an empty DOM",
+  "label": "the generation gate reads 'no attribute' as generation zero (the pair)",
   "files": [
    "public/chat.js"
   ],
-  "from": "  if (drawn === null) return;                           // nothing has drawn it yet\n",
-  "to": "",
+  "from": "  const drawn = form.getAttribute ? form.getAttribute('data-gen') : null;\n  // A DECLARED REDUNDANCY, and it is mutated as a PAIR because on its own it is INERT:\n  // with `|| '0'` gone, `null !== String(gen)` already returns. It stays because the\n  // two say different things — that line is about the DEFAULT, this one about the\n  // STATE — and the one a later edit reaches for is the default.\n  if (drawn === null) return;                           // nothing has drawn it yet\n",
+  "to": "  const drawn = (form.getAttribute && form.getAttribute('data-gen')) || '0';\n",
   "control": false
  }
 ]

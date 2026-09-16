@@ -11509,3 +11509,39 @@ exactly like one that does not exist.
   one design correction: the time zone belongs to the automation, not only to its
   schedule, or "only on Mondays" on a Run-now automation would quietly have meant
   Monday in UTC.
+
+### What was measured, and what was not
+
+Every number here is from a run on this machine, taken after the run.
+
+| check | result |
+|---|---|
+| the nine demonstrations, through the real dispatcher (`verify:auto`) | **68 checks, 0 failed** — `done=5 missed=1 paused=1 skipped=1` |
+| real PostgreSQL 16 (`test:pg`) | **417 → 495 checks, 0 failed** |
+| engine suite | **306**, 0 failed |
+| site suite | **6,720** (6,718 pass, 2 skipped, 0 fail) |
+| engine mutation sweep | **261 mutants, 261 killed, 0 survived, 6 controls survived** |
+| site mutation sweep | **51 mutants, 51 killed, 0 survived, 2 controls survived** |
+
+**The sweeps are what this round is really worth, and the honest version is that the
+first pass of each one found gaps in my own checks rather than in the product.** The
+engine sweep's eight survivors were four in the cron's automation half (nothing in that
+directory drove it), two guard gaps, one snapshot property and one that is invisible on
+a machine whose clock is already UTC. The site sweep's eight included **two cases that
+asserted nothing at all** — a held-response fixture asked for the wrong field, so a save
+fell into its own error path and a list answer never landed, and both cases passed with
+the wall deleted. They have controls under them now. The SQL sweep's two were both
+real: a racing twin could have created a second run for the same day, and the
+daylight-saving candidate could be read in UTC — neither reachable by the checks I had
+written, both reachable in production.
+
+**Nothing is deployed and nothing is applied.** The branch is pushed. When you want it
+live the order is fixed and one-way — **migration → engine → site** — for the reason the
+last milestone recorded: whichever side DECIDES a thing must not go out before the side
+that ACTS on it. The migration adds the `executor` column with the default `'agent'`,
+so applying it changes nothing on its own.
+
+**One design call for you.** At the real 560px column an automation's row gives
+**262.8px to its four buttons and 245.6px to its name, schedule and steps**, and the
+buttons do not drop to their own line. It reads fine and it is tight — say the word and
+they wrap; I have not touched it.

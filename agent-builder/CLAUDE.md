@@ -2951,7 +2951,7 @@ named them:
 
 - **`npm run verify:auto`: 68 checks, 0 failed**, with the final tally across the
   fixtures reading `done=5 missed=1 paused=1 skipped=1`.
-- **Real PostgreSQL 16 (`npm run test:pg`): 417 → 487 checks, 0 failed.** The 70 are
+- **Real PostgreSQL 16 (`npm run test:pg`): 417 → 495 checks, 0 failed.** The 78 are
   the automations section — the once-per-occurrence index with its control, the
   deferred FK proved by a COMMIT-time refusal, both refusals writing nothing, the
   snapshot, the fence, the DST pair, the catch-up and the advance, and the invoker
@@ -2965,3 +2965,8 @@ named them:
   store's unreadable `steps`), one was the snapshot's zone and occurrence, and one
   (`no zone guesses the runtime's own locality`) was INERT on this machine and was
   closed by moving `process.env.TZ` rather than by hunting it.
+- **Engine suite 306**, 0 failed (299 before this round; +5 `worker`, +2 `automations`).
+- **SQL mutation sweep over the migrations**: pass 1 read 123 mutants, 121 killed, 2
+  survived, 6 controls. **Both survivors were this file's own gaps and both were real**
+  — see the probe's own comments — and closing them took the real-Postgres check from
+  487 to **495**.

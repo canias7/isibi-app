@@ -1908,27 +1908,46 @@ test("⚠ a failed save keeps the whole configuration, not just the name", async
 });
 
 test("⚠ a save that lands after the screen moved on touches nothing", async () => {
-  const gate = held(okRes({ id: "AU9" }));
-  const w = loadScreen({
-    answer: (p, init) => {
-      if (p === "/api/agent/automation-create") return gate.res;
-      const a = autoAnswer({ automations: [] })(p, init);
-      return a.ok ? okRes(a.body) : badRes(a.body.error);
-    },
-  });
-  await w.ev("agentsLoad()");
-  await w.ev('agentAutomations("A")'); await settle();
-  await w.ev("agentAutoNew()");
-  hydrateAuto(w);
-  w.s.document.getElementById("agAutoName").value = "Morning";
-  const saving = w.ev("agentAutoSave()");
+  // ⚠ **`held()` HANDS BACK `{p, release}` AND THIS CASE ASKED FOR `gate.res`**, which
+  // is `undefined` — so `apiFetch` resolved to nothing, the save fell into its own
+  // catch, and the two assertions below were satisfied by a request that never
+  // succeeded. It passed with the wall deleted, and a sweep is what said so. Every
+  // other held-gate case in this file uses `gate.p`; this one is now one of them, and
+  // the CONTROL underneath is what makes the negative mean anything.
+  const open = async (release) => {
+    const gate = held(okRes({ id: "AU9" }));
+    const w = loadScreen({
+      answer: (p, init) => {
+        if (p === "/api/agent/automation-create") return gate.p;
+        const a = autoAnswer({ automations: [] })(p, init);
+        return a.ok ? okRes(a.body) : badRes(a.body.error);
+      },
+    });
+    await w.ev("agentsLoad()");
+    await w.ev('agentAutomations("A")'); await settle();
+    await w.ev("agentAutoNew()");
+    hydrateAuto(w);
+    w.s.document.getElementById("agAutoName").value = "Morning";
+    const saving = w.ev("agentAutoSave()");
+    await release(w);
+    gate.release();
+    await saving;
+    return w;
+  };
+
   // The form is closed while the save is in the air.
-  await w.ev("agentAutoCancel()");
-  gate.release();
-  await saving;
+  const moved = await open((w) => w.ev("agentAutoCancel()"));
   // A CREATE THAT LANDED ON A CLOSED FORM MUST NOT REOPEN IT as an edit of what it made.
-  assert.equal(w.val("agentAutoEditing"), null);
-  assert.equal(w.val("agentAutoSaved"), false);
+  assert.equal(moved.val("agentAutoEditing"), null, "a save reopened a form nobody had open");
+  assert.equal(moved.val("agentAutoSaved"), false, "it said Saved on a screen nobody was on");
+  assert.equal(moved.val("agentAutoActErr"), "", "it wrote an error into another screen");
+
+  // THE CONTROL: the same save, landing on the form it was pressed from, DOES become an
+  // edit of what it made and DOES say Saved. Without this, "touches nothing" is
+  // satisfied by a save that never works.
+  const stayed = await open(async () => {});
+  assert.equal(stayed.val("agentAutoEditing"), "AU9", "a create did not become an edit of what it made");
+  assert.equal(stayed.val("agentAutoSaved"), true);
 });
 
 test("a failed list read is NOT an empty agent", async () => {
@@ -1951,21 +1970,36 @@ test("a failed list read is NOT an empty agent", async () => {
 });
 
 test("a list answer for another agent is not written into this screen", async () => {
-  const gate = held(okRes({ agent: "A", automations: [ONE], steps: STEP_CATALOG, days: DAY_LIST, max: 20 }));
-  const w = loadScreen({
-    answer: (p, init) => {
-      if (p.startsWith("/api/agent/automations")) return gate.res;
-      const a = autoAnswer({})(p, init);
-      return a.ok ? okRes(a.body) : badRes(a.body.error);
-    },
-  });
-  await w.ev("agentsLoad()");
-  const opening = w.ev('agentAutomations("A")');
+  // Same two fixture faults as the case above, and the same sweep found them: the gate
+  // was asked for `gate.res` (undefined), and `agentAutomations` is a NAVIGATION
+  // function that starts a read without returning it — so `await opening` awaited
+  // `undefined` and the assertion ran before the answer could have landed either way.
+  const body = { agent: "A", automations: [ONE], steps: STEP_CATALOG, days: DAY_LIST, max: 20 };
+  const open = async (leave) => {
+    const gate = held(okRes(body));
+    const w = loadScreen({
+      answer: (p, init) => {
+        if (p.startsWith("/api/agent/automations")) return gate.p;
+        const a = autoAnswer({})(p, init);
+        return a.ok ? okRes(a.body) : badRes(a.body.error);
+      },
+    });
+    await w.ev("agentsLoad()");
+    w.ev('agentAutomations("A")');
+    await leave(w);
+    gate.release();
+    await settle();
+    return w;
+  };
+
   // Somebody leaves before the answer lands.
-  await w.ev("agentAutoBack()");
-  gate.release();
-  await opening;
-  assert.equal(w.val("agentAutoRows"), null, "an answer for a screen nobody is on was written in");
+  const left = await open((w) => w.ev("agentAutoBack()"));
+  assert.equal(left.val("agentAutoRows"), null, "an answer for a screen nobody is on was written in");
+
+  // THE CONTROL: the same answer, landing on the screen that asked for it, IS written.
+  const stayed = await open(async () => {});
+  assert.deepEqual(stayed.val("agentAutoRows").map((r) => r.id), ["AU1"],
+    "the answer never landed at all, so the refusal above proves nothing");
 });
 
 test("⚠ the toggle sends what the row says, and its own narrow body", async () => {
@@ -2087,4 +2121,74 @@ test("⚠ AN EXECUTION ROW THAT DOES NOT CARRY THE THREE OPTIONAL LINES DRAWS NO
   // that has simply stopped drawing the three lines.
   await w.ev('agentAutoRuns = ' + JSON.stringify([{ ...bare, result: "the note it saved" }]) + '; renderAgents();');
   assert.match(w.s.document.getElementById("viewAgents").innerHTML, /the note it saved/);
+});
+
+/** Capture the watch's own timer the way `catchPoll` captures the conversation poll. */
+function catchWatch(w) {
+  const every = w.ev("AUTO_WATCH_MS");
+  assert.ok(Number.isFinite(every) && every > 0, `the watch interval read as ${every}`);
+  let fn = null;
+  w.s.setTimeout = (f, ms) => { if (ms === every) fn = f; return 1; };
+  return { fire: () => { assert.ok(fn, "no watch was armed"); const f = fn; fn = null; return f(); },
+           get armed() { return !!fn; } };
+}
+
+test("⚠ SAVE PRESSED STRAIGHT AFTER ADDING A STEP SENDS THE STEP", async () => {
+  // The whole reason `agentAutoSave` goes through `agentAutoFormRead` + `agentAutoForm`
+  // rather than reading the DOM directly: between a structural change and the next
+  // hydration the screen holds a step the form elements have never carried, and a save
+  // that read the elements would drop it — silently, with the screen showing it.
+  const { w, posts } = await withAutomations({ automations: [ONE] });
+  await w.ev('agentAutoEdit("AU1")');
+  hydrateAuto(w);
+  assert.equal(w.val("agentAutoForm().steps").length, 2);
+  await w.ev('agentAutoStepAdd("note")');
+  // DELIBERATELY NOT RE-HYDRATED: the drawn form now has three steps and the elements
+  // this fixture holds still have two, which is exactly the gap the gate closes.
+  assert.equal(w.val("agentAutoDraft.steps").length, 3, "the step was never added to the draft");
+  await w.ev("agentAutoSave()");
+  const sent = posts.find((x) => x.path === "/api/agent/automation-update");
+  assert.ok(sent, "the save never went out");
+  assert.equal(sent.body.steps.length, 3,
+    `the save sent ${sent.body.steps.length} steps where the screen shows 3`);
+  assert.equal(sent.body.name, "Opening check", "and it lost what was already in the form");
+});
+
+test("⚠ THE WATCH DOES NOT POLL WHILE THE FORM IS OPEN", async () => {
+  // A redraw underneath somebody who is typing is the defect this screen has already
+  // paid for once, in the conversation poll. The watch asks WHEN THE TIMER FIRES, not
+  // when it was armed, because the form can be opened in between.
+  const { w } = await withAutomations({ automations: [ONE] });
+  // COUNTED OFF `calls`, NOT `posts`: the history is a GET, and the fixture's POST hook
+  // never sees one — which is how the control below first read as a dead watch.
+  const reads = () => w.calls.filter((x) => x.path.startsWith("/api/agent/automation-history")).length;
+  const watch = catchWatch(w);
+  await w.ev('agentAutoWatchSoon("AU1", 3)');
+  assert.ok(watch.armed, "nothing was armed, so this case proves nothing");
+  const before = reads();
+  await w.ev('agentAutoRunsFor = "AU1"; agentAutoEditing = "AU1";');   // the form is opened
+  await watch.fire();
+  assert.equal(reads(), before, "the watch read the history while the form was open");
+  assert.equal(watch.armed, false, "and it re-armed itself over an open form");
+
+  // THE CONTROL: with the form closed, the same timer DOES read — so the refusal above
+  // is about the form and not about the watch being dead.
+  await w.ev('agentAutoEditing = null;');
+  await w.ev('agentAutoWatchSoon("AU1", 3)');
+  await watch.fire();
+  assert.ok(reads() > before, "the watch never reads the history at all");
+});
+
+test("⚠ THE WATCH IS BOUNDED AND COUNTS DOWN", async () => {
+  // Without the count-down it is a redraw every couple of seconds for as long as the
+  // screen is open — a poll nobody asked for and nothing ever stops.
+  const { w } = await withAutomations({ automations: [ONE] });
+  const watch = catchWatch(w);
+  await w.ev('agentAutoRunsFor = "AU1"; agentAutoEditing = null;');
+  await w.ev('agentAutoWatchSoon("AU1", 2)');
+  await watch.fire();
+  assert.ok(watch.armed, "it gave up with tries left");
+  await watch.fire();
+  assert.equal(watch.armed, false, "the watch re-armed itself for ever");
+  assert.equal(w.val("agentAutoWatch"), null, "and it left a timer behind");
 });
