@@ -2527,7 +2527,8 @@ column resolves against them or resolves to nothing.
 
 ### The database half
 
-`supabase/migrations/20260916120000_agent_settings_status_and_tools.sql`.
+`supabase/migrations/20260916085453_agent_settings_status_and_tools.sql` — named for
+the REMOTE version the apply reported back, as this folder's README requires.
 
 - `agent.agents` gains `status` (`active | paused`, default `active` — **not a
   guess**: an agent written before this column is one its owner expects to answer)

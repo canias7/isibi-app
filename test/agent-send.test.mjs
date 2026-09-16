@@ -22,7 +22,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import {
   handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_BODY_MAX,
   runView, threadRow, cleanSendKey, RUN_STATES, STANDIN_MODEL, MAX_THREAD,
@@ -602,12 +602,36 @@ test("⚠ THE CATALOG AND THE ENGINE'S OWN TOOLS ARE THE SAME SET, BOTH WAYS", (
   }
 });
 
+/**
+ * The newest agent migration containing `needle`, read as text.
+ *
+ * BY CONTENT, BECAUSE A FILENAME IS A PLACEHOLDER UNTIL THE DAY IT IS APPLIED —
+ * this folder names a file for the REMOTE version the apply reports back, so any
+ * guard pinned to a name goes red on a rename that changed nothing. Sorted, and
+ * the LAST match wins: a later migration redefining a thing is the one in force.
+ */
+function latestMigration(needle) {
+  const dir = new URL("../agent-builder/supabase/migrations/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+  assert.ok(files.length > 0, "there are no migrations to read");
+  let found = null;
+  for (const f of files) {
+    const text = readFileSync(new URL(f, dir), "utf8");
+    if (text.includes(needle)) found = text;
+  }
+  assert.ok(found, `no migration contains ${needle}`);
+  return found;
+}
+
 test("THE CAP IS THE COLUMN'S OWN, read back out of the migration", () => {
   // The same rule the three text caps follow: a cap here looser than the column's
   // turns a refusal we could phrase into a Postgres error nobody can act on.
-  const sql = readFileSync(new URL(
-    "../agent-builder/supabase/migrations/20260916120000_agent_settings_status_and_tools.sql",
-    import.meta.url), "utf8");
+  // ⚠ FOUND BY WHAT IT DEFINES, NEVER BY ITS FILENAME. This read a hardcoded
+  // `20260916120000_…` — a placeholder name — and the file was RENAMED to its
+  // remote version (`20260916085453`) the moment the migration was applied, which
+  // the folder's own README requires. A name is not an identity: the newest
+  // migration that adds the constraint is the one in force, whatever it is called.
+  const sql = latestMigration("constraint agents_tools_shape check");
   const m = /array_length\(tools, 1\), 0\) <= (\d+)/.exec(sql);
   assert.ok(m, "the tools constraint is not in the migration");
   assert.equal(MAX_AGENT_TOOLS, Number(m[1]));
