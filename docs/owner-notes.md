@@ -10112,3 +10112,34 @@ resolved there, and measured before anything touched main.
   module graph and the image carries it. **Main's own changes are not image
   inputs**: the merge and my branch tip hash identically.
 - Nothing was in flight — no workflow run in progress when main was pushed.
+
+### It's merged and live — deploy 2124
+
+**`main` `989d32a0` → `0dc1d27c`, deploy 2124 green in 2m53s**, and the merge
+started exactly one workflow, which is the rule holding.
+
+- **The container rolled**, as expected: the image id moved
+  `6246eb17cd6595c4` → `c6980fe3efce66d3`, `SUCCESS Modified application` at
+  01:49:55Z, read from the deploy's own diff. **So the 15–20 minute hold ran to
+  about 02:10Z** — nothing container-side should have been fired before then,
+  and nothing was.
+- **I computed that id before merging and the deploy printed the same one.**
+  Third time that's been checked against reality rather than against itself.
+- **Both features the addon path built still answer after the roll**: `/status`
+  200 with its count reading **3**, `/booking-check` 200 with run 48's function
+  reading **3**. A 200 alone wouldn't have told you that.
+
+**One thing I should flag rather than bury.** I did not take a fresh
+before-the-push reading of the live sites this round — the recorded practice is
+a baseline before, compared after — so what I compared against is deploy 2121's
+numbers, which are nine hours and two other deploys old. Four of six sites are
+byte-for-byte identical to it. `repairbench-1` differs and is explained (run 48
+republished it). **`fretwork-1` is 119 bytes larger and I cannot explain it**:
+it's not per-request variance (five reads, same number, with another site as the
+control) and the site hasn't republished (its version is days old and unmoved),
+so by the standing rule this deploy isn't the cause — but with no
+before-reading I can't say whether it moved before the merge or across it. It's
+written down as an open observation, not as a clean pass.
+
+**No paid call, no demo-site cleanup.** "Merge" lifted the merge and the deploy
+it fires, and nothing else. The `search_path` review is still queued.

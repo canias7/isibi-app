@@ -4722,10 +4722,66 @@ once before each run.**
 **Suite 6,498** — 6,496 + `addon-route`'s two, and the arithmetic closes
 exactly.
 
-**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
-the last four: *"No merge, deployment, paid rerun, or demo cleanup yet."* No
-paid call was made and no demo site was touched. **The `search_path` review
-stays queued.**
+**MERGED AND LIVE — deploy 2124, 2026-09-16 01:47:09→01:50:02Z, green in 2m53s**,
+on `main` `989d32a0` → `0dc1d27c`. **NOT a fast-forward to begin with**: main had
+moved to another session's agent-builder work and some app chrome, so main was
+merged INTO the branch first (no conflicts, in either document), the merged tree
+measured, and only then was main fast-forwarded to it.
+
+- **THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED — the third
+  time that technique has been cross-checked against reality.** `origin/main` →
+  `6246eb17cd6595c4` (182 inputs), **which is the id the live container was on**;
+  the merged tree → `c6980fe3efce66d3` (182 inputs — the same COUNT, different
+  content, because `builder/site-requirements.mjs` is in the worker's module
+  graph and the image carries it). The step's own line: `IMAGE SiteBuildContainer:
+  built isibi-app-sitebuildcontainer:c6980fe3efce66d3 (registry answered 404; 182
+  inputs off ./Dockerfile)`.
+- **AND THE MERGE COMMIT HASHES IDENTICALLY TO THE BRANCH TIP**, which is the
+  exact answer to "is main's own work an image input": it is not. `agent-builder/`
+  and `public/` are outside the Dockerfile's COPY set, and the id not moving says
+  so more strongly than reading a `paths` list.
+- **CONTAINER ROLLED at 01:49:55.6Z**: `EDIT isibi-app-sitebuildcontainer`,
+  `6246eb17cd6595c4` → `c6980fe3efce66d3`, `SUCCESS Modified application`,
+  `Applied changes` — read out of the log's own diff rather than inferred from the
+  step's duration. **So the 15–20 minute hold ran to ~02:05–02:10Z.**
+- **WORKER**: `Uploaded isibi-app (3.85 sec)`, `Worker Startup Time: 32 ms`,
+  `Total Upload: 3463.86 KiB / gzip: 933.59 KiB`, 99 asset files read.
+- **`No updated asset files to upload` — AND THE REASON IS NOT THE USUAL ONE.**
+  The merge DOES carry `public/chat.js`, `index.html` and `styles.css` changes;
+  they are main's, and deploy 2123 already uploaded them, so 2124 saw them
+  unchanged. **The `/chat.js` comparison therefore proves the served bytes are
+  main's and CANNOT discriminate 2124 from 2123**: live 603,362 bytes, sha256
+  `b5572f382c733be0`, identical to the merged tree. Saying which of the two a
+  check can settle is the whole point of running it. The standby is the gate
+  discriminator, measured after: `/api/site/build-health` **401**,
+  `/api/site/runtime` **401**, `/api/site/job-probe` **401**,
+  `/api/nope-not-a-route` **404**.
+- **THE PRE-PUSH BASELINE WAS NOT TAKEN THIS ROUND, and that is a process miss
+  rather than a judgement.** The recorded practice is a baseline BEFORE the push
+  compared after; what stands in is deploy 2121's recorded numbers, which are
+  nine hours and two other-session deploys old. Four of six sites are
+  byte-identical to it — `ashgrove-1` 31,120 · `northgroup-5` 1,641 ·
+  `washhouse-1` 52,404 · `ben-crowe-guitar` 52,060. `repairbench-1` 45,928 →
+  **46,151** is explained and expected: run 48 republished it, and its
+  `x-site-version` moved to `01789500698949-dggs37` (build `mu32igiu-dao04n`).
+- **`fretwork-1` IS 58,285 → 58,404 AND THAT IS UNEXPLAINED FROM HERE.** It is
+  **not** per-request variance — five consecutive reads answer 58,404 exactly,
+  with `ashgrove-1` stable at 31,120 as the control — and the site has **not**
+  republished: `x-site-version 01788755899622-6w90uf`, days old and unmoved. So
+  by the standing rule (a Worker deploy changes nothing a visitor sees until a
+  site republishes) this deploy is not the cause, and with no pre-push reading
+  there is nothing here that can say whether the 119 bytes moved before it or
+  across it. **Recorded as an open observation, not as a clean regression pass.**
+- **THE INTERACTIVE HALF, because a 200 is an availability check and never a
+  health check**: `/status` **200** and its RPC `count_booked_repairs` **3**;
+  `/booking-check` **200** and run 48's `count_existing_bookings` **3**. Both
+  features built by the addon path still answer after the roll.
+- **The merge started exactly one workflow** — `Deploy to Cloudflare` run 2124
+  and nothing else, which is the merge-trigger census holding in the live.
+
+**NO PAID CALL WAS MADE AND NO DEMO SITE WAS TOUCHED** — the owner said
+*"Merge"*, which lifts the merge and the deploy it necessarily fires, and nothing
+else. **The `search_path` review stays queued.**
 
 ### The write grants are column-scoped (2026-09-13)
 
