@@ -5822,8 +5822,10 @@ the owner's press.
 
 **AND THE TYPE IS ITSELF SOMETHING THE ADDON HAS TO GET RIGHT.** A tie-break on
 a text date sorts lexicographically — chronological for `YYYY-MM-DD` and wrong
-for every other format — so a generated function that orders by the date rather
-than by the count is visible in its own output.
+for every other format. **THE SENTENCE THAT USED TO CLOSE THIS PARAGRAPH IS
+FALSIFIED AND IS CORRECTED BELOW**: it read *"so a generated function that
+orders by the date rather than by the count is visible in its own output"*, and
+on the data this site really holds it is not. See the baseline entry.
 
 ### …AND A FORM VALUE COULD SELECT THE MODE, PAST THE APPROVAL GATE (2026-09-16)
 
@@ -6175,6 +6177,78 @@ copy of the script.
   `calendarDate` and `errCode`.
 - The merge started **exactly one workflow** — deploy 2129 and nothing else,
   which is the merge-trigger census holding in the live.
+
+### THE BASELINE IS READ — and it is smaller than the claim made about it (2026-09-16)
+
+The owner's press, `backend repair` run 6 (**35076966863**, green in 21 s on
+`06f466eb`), mode `counts`, `repairbench-1` · `bookings` · `drop_off_day`:
+
+```
+NARROW EXCEPTION: repairbench-1 bookings.drop_off_day is text, read as dates by SHAPE. Every other text column is still refused.
+reading: SELECT CASE WHEN "drop_off_day" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN "drop_off_day" ELSE NULL END AS v, ("drop_off_day" IS NOT NULL AND "drop_off_day" !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') AS bad, COUNT(*)::bigint AS n FROM "bookings" GROUP BY 1, 2 ORDER BY 3 DESC, 1
+  2026-09-18  2
+  2026-09-19  1
+2 group(s), 3 grouped + 0 unusable = 3 row(s) in total
+
+1 read, 0 not read. (read-only: this mode writes nothing.)
+```
+
+**THE SPLIT IS `2026-09-18 → 2`, `2026-09-19 → 1`.** The arithmetic closes and
+is printed so it can be seen to: 3 grouped + 0 unusable = 3, which is the total
+two other readers already established independently (`SELECT COUNT(*) FROM
+bookings` at 17:52:40Z on 2026-09-15, and both RPCs answering 3 today). **Zero
+unusable and zero NULL**, so the shape projection and the calendar check both
+had nothing to reject — the wall held, and it held over a row set that never
+tested it.
+
+**AND THE TIE-BREAK CLAIM THIS FILE MADE IS FALSIFIED BY THIS DATA.** It said a
+generated function that orders by the DATE rather than by the COUNT would be
+*"visible in its own output"*. Measured over the real two rows:
+
+| ordering | answer |
+|---|---|
+| `count DESC, date ASC` (what the ask says) | `2026-09-18, 2026-09-19` |
+| `date ASC` | `2026-09-18, 2026-09-19` — **IDENTICAL** |
+| `count ASC` | `2026-09-19, 2026-09-18` — differs |
+| `date DESC` | `2026-09-19, 2026-09-18` — differs |
+
+The counts happen to fall in the same direction as the dates, so **"busiest
+first" and "oldest first" produce the same answer here and the confound cannot
+be separated**. A function that sorted by the wrong column would pass. The claim
+was written from the TYPE and never checked against the ROWS — *a property of
+the format is not a property of the data*, and only the read could say so.
+
+**WHAT THIS DATA CAN TEST, then, stated as what it discriminates:**
+
+- **That the schema was received** — `drop_off_day` lives on `bookings` and
+  **not** on `repairs` (the column inventory read it: `repairs` has `id`,
+  `customer_name`, `bike`, `issue`, `updated_at`, `created_at`). A function
+  reading `repairs` cannot group by date at all, so picking the right table is
+  observable — and it is exactly what run 47 got wrong.
+- **That grouping happened** — 3 rows collapse to 2 groups. A per-row listing,
+  a bare total or a `COUNT(DISTINCT)` all answer something other than two rows.
+- **That the counts are right** — `2` and `1`, and they sum to the independently
+  established 3.
+- **That it is not the quietest-first or newest-first ordering.**
+- **That no customer name reaches the page** — the ask says so and `bookings`
+  carries `customer_name`.
+
+**AND WHAT IT CANNOT TEST, because the rows are not there:**
+
+- **Busiest-first versus oldest-first** — the confound above.
+- **Tie handling** — there are no equal counts (2 against 1). The owner's own
+  note applies: the ask says only "busiest first", so no tie order is required
+  of the feature; what is true is that this data could not check one either way.
+- **An unusable or NULL date** — zero of each, so nothing exercises how a
+  generated function treats one.
+- **Many groups, cross-month or cross-year ordering** — two adjacent days in one
+  month is the whole range.
+- **Whether a `::date` cast would break** — both values are well-formed, so a
+  generated function that casts looks identical to one that does not.
+
+**Breaking the confound would mean inserting a row, which is forbidden** ("No
+data writes"), so it is recorded as a limit of the baseline rather than worked
+around.
 
 
 ## Data, auth, payments, mail

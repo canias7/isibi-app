@@ -331,22 +331,60 @@ naming it:
 > each date we're expecting them, busiest first, and a function the page calls
 > to work it out. Don't show customer names.**
 
-Checked mechanically: the text contains **no** occurrence of `drop`, `off`,
-`day`, `dropoff`, `drop-off`, `bookings` or even `booking` — not as words and
-not as substrings. So the addon has to get the column and the table from the
-schema it is handed, which is the milestone.
+Checked mechanically, and re-checked today: the text contains **no** occurrence
+of `drop`, `off`, `day`, `dropoff`, `drop-off`, `bookings`, `booking`, `repairs`
+or `status` — not as words and not as substrings. It does say "each date" once,
+which is the customer's own English and names no column; the addon still has to
+find that the date is `drop_off_day` and that it lives on `bookings` rather than
+`repairs`. That is the milestone.
 
-**When you authorize it**, the `lane sweep` form's pre-flight must be filled in
-so the press cannot test the wrong build:
-`expect_deploy` **`f88c91985dc9fa5e99958958949a07227d7c3de4`** ·
-`expect_image` **`62c2700fa8c843c2`**. It refuses before the browser, the
-balance or the first post, so a refusal there costs nothing.
+**The form, filled in.** `lane sweep`, and every field matters:
 
-**Balance 149.** Run 47's comparable shape cost 13. There is no server-side
-per-request cap — the account balance is the only bound that binds, and the
-harness's `budget` field is read between cases, which a single-ask run never
-has two of. Saying that plainly because it means the only real bound is that
-this is one request.
+| field | value |
+|---|---|
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `site` | `repairbench-1` |
+| `ask` | the request above, verbatim |
+| `picker` | `grok` |
+| `budget` | `40` |
+| `expect_deploy` | `ea44a70c90bfb44e769a1eee6bc9131622e5b224` |
+| `expect_image` | `62c2700fa8c843c2` |
+
+**The deploy sha moved and I have corrected it** — this said `f88c9198` (deploy
+2128) and the Worker is on deploy **2129**, `ea44a70c`. Re-derived rather than
+recalled: 2129 is the last deploy run there is, the commit after it is docs-only
+and GitHub confirms it started no deploy, and the image id recomputes to
+`62c2700fa8c843c2` off main's own tree. The pre-flight refuses before the
+browser, the balance or the first post, so a wrong value there costs nothing —
+but a missing one means the run never checks which build answered.
+
+**Spending estimate: 12–13 credits, against a balance of 149.** Run 47 was the
+same three-kind shape (`table · function · page`) and took 13; run 48 took 12.
+Both were sequenced reservations inside one request — 47 was −7 then −6, 48 was
+−5 then −7 — with nothing anywhere summing them.
+
+**Two honest caveats on that number.** `edit_reserve` only refuses above
+100,000, so **there is no server-side per-request cap**; the balance is the only
+bound that binds. And the harness's `budget` field is read *between* cases,
+which a single-ask run never has two of — so it is not a cap on this run either.
+The real bound is that this is one request.
+
+**What the run would establish, and what would still be owed.** I am not
+claiming any of it in advance:
+
+- **Schema receipt** comes from the pre-call `shownSteps` capture on the
+  developer record — what each designer was really handed, taken above the
+  await. Not from the feature working.
+- **Correctness** is three separate readings compared: the aggregate above
+  (2026-09-18 → 2, 2026-09-19 → 1), the site's own RPC, and a real browser on
+  `/workshop-load`. A 200 is an availability check and never a health check.
+- **Reporting accuracy** is the actual customer reply — what it says it made,
+  what it says it could not cover, and whether that matches the site.
+- **Still not testable from this data**, whatever the run says: busiest-first
+  versus oldest-first, ties, bad dates, and whether a cast would break.
+
+**Authorization is still separate and you have not given it.**
 
 ### You pressed both, and the second one failing is the tool working
 
@@ -387,9 +425,69 @@ read-only query being impossible, and I collapsed the two. The narrow exception 
 below — one triple, still read-only, still your press.
 
 **One thing the type tells us to watch**: a tie-break on a text date sorts
-alphabetically. That's chronological for `YYYY-MM-DD` and wrong for anything else,
-so if the generated function orders by the date instead of the count, its own
-output shows it.
+alphabetically. That's chronological for `YYYY-MM-DD` and wrong for anything else.
+**I then went on to say "so if the generated function orders by the date instead
+of the count, its own output shows it" — and the read below falsifies that.** On
+this site's actual rows it doesn't show it at all. I was reasoning from the type
+and never checked the data; see the next section.
+
+---
+
+### You pressed `counts`, and the baseline is read
+
+**Run 6, green in 21 s**, nothing written:
+
+```
+2026-09-18  2
+2026-09-19  1
+2 group(s), 3 grouped + 0 unusable = 3 row(s) in total
+```
+
+**Three bookings across two days: the 18th has two, the 19th has one.** The
+total matches what the RPCs and the raw row count already said, so two
+independent readers agree. No unusable values, no NULLs — the shape check and
+the calendar check both had nothing to reject.
+
+**And it immediately corrected me.** I said a function that sorted by date
+instead of by count would give itself away. On these two rows it wouldn't:
+
+| ordering | answer |
+|---|---|
+| busiest first (what the ask says) | 18th, 19th |
+| **oldest first** | **18th, 19th — the same** |
+| quietest first | 19th, 18th |
+| newest first | 19th, 18th |
+
+The busier day happens to be the earlier day, so those two orderings coincide.
+That's a property of the three rows, not of the type, and only reading them
+could say so. I've corrected it in both files rather than leaving it standing.
+
+**So here is precisely what this data can test.** It can tell us:
+
+- **that the addon read the schema** — `drop_off_day` is on `bookings` and not
+  on `repairs`, so choosing the right table is visible in the answer. This is
+  the exact thing run 47 got wrong;
+- **that it grouped** — 3 rows become 2 groups, so a per-row list or a bare
+  total both look different;
+- **that the counts are right** — 2 and 1, summing to the 3 we already knew;
+- **that it isn't sorted quietest-first or newest-first**;
+- **that no customer name reaches the page**.
+
+**And what it cannot test:**
+
+- **busiest-first versus oldest-first** — the confound above. A function that
+  sorted by the wrong column would pass this test;
+- **ties** — there are none (2 against 1). You're right that the ask only says
+  "busiest first" so no tie order is owed; what's true is this data couldn't
+  check one either way;
+- **a bad or missing date** — none present, so nothing exercises that path;
+- **many days, or ordering across a month or year boundary** — two adjacent days
+  is the whole range;
+- **whether a `::date` cast would break** — both values are well-formed, so a
+  function that casts looks identical to one that doesn't.
+
+Breaking the confound would mean inserting a row, which you've ruled out, so
+it stays a stated limit rather than something I work around.
 
 ---
 
