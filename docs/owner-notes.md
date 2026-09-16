@@ -10092,3 +10092,23 @@ breaks the pair together.
 
 Nothing merged, nothing deployed, no paid call, no site touched. The
 `search_path` review is still queued.
+
+### Merged (2026-09-16), and what the merge itself needed
+
+`main` had moved under me — another session's agent-builder work and some app
+chrome — so this was **not** a fast-forward. Merged main into the branch first,
+resolved there, and measured before anything touched main.
+
+- **No conflicts**, including in both documents: the two sessions had appended
+  to different regions.
+- **The suite number was wrong on both sides and neither was the merged one.**
+  This branch measured 6,498, main's own entry says 6,483, and the merged tree
+  is **6,505** — main's new agent-builder view guard is 7 cases, and
+  6,498 + 7 closes exactly. Measured by running that file on its own rather
+  than by subtracting. Corrected in the Live state stamp.
+- **The container WILL roll.** The image id computed before the merge:
+  `main` `6246eb17cd6595c4`, the merged tree `c6980fe3efce66d3` — same 182
+  inputs, different content, because the requirements module is in the worker's
+  module graph and the image carries it. **Main's own changes are not image
+  inputs**: the merge and my branch tip hash identically.
+- Nothing was in flight — no workflow run in progress when main was pushed.

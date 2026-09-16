@@ -5167,7 +5167,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,498** (2026-09-16, local — the evidence lookup's own
+  The unit suite is **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
+  sessions stamped a suite and neither number was the merged one**, which is
+  this file's own "a number stamped in two places drifts when only one is
+  corrected": this branch measured **6,498** and `main` brought
+  `test/agent-builder-view.test.mjs`, whose **7** cases are the whole
+  difference — **6,498 + 7 = 6,505, and the arithmetic closes exactly**,
+  measured by running that file alone rather than by subtracting. The
+  `agent-builder/test/*.test.mjs` files are NOT in this count: `npm test` runs
+  `node --test "test/*.test.mjs"` and that glob does not reach them.
+  **6,498** before the merge (2026-09-16, local — the evidence lookup's own
   bypass, whose new cases are all `addon-route`'s **two** (64 → 66: the
   component/table reproduction with its matching-item positive control in the
   same reply, and the `configuredBy` face with its own control); **6,496 + 2
