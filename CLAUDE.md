@@ -7078,6 +7078,19 @@ and `builder/site-requirements.mjs`). Pass 1 killed 14 with two survivors and
   does is the only one whose echoes mean anything** — the recorded *derive a
   fixture from its real producer*, in the one field the whole join runs on.
 
+**CI HAS READ BOTH, ON THE BRANCH TIP `51f61f40`.** `unit tests` run **2647**,
+green (2026-09-16 21:26:04→21:28:01Z) — `# tests 6707 / # pass 6703 / # fail 0 /
+# skipped 4`, against local `6707 / 6707 / 0 / 0`; the four are the three
+recorded environment skips plus `site-searchpath`'s baseline-commit case, and
+**the TOTAL is what matches**. And `site build` run **1160** (21:26:04→21:44:12Z)
+green, `site-build.mjs` **382 passed / 0 failed**, with kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47 beside it — every count read out of that job's own log, bounded to its own
+step file. **It fired because `site-jobs.mjs` is in that workflow's `paths`**,
+which is the point: this change moves product code the container carries.
+**1160 joins the `382` scan list** — derive the total with the scan, never by
+taking the next ordinal in a sentence.
+
 **NOT MERGED AND NOT DEPLOYED.** The cron observation is PAUSED at the owner's
 word. Automatic execution stays **explicitly unverified**: run 50's job has only
 ever been fired by hand.
