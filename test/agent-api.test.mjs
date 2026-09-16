@@ -182,10 +182,28 @@ test("no route reads an account off the body or the query — asserted over the 
   // The positive wall is the case above. This is the census that stops a NEW
   // route reintroducing it: the handler may read `b.` and `q.` for exactly the
   // fields below, and an account is not one of them.
-  const body = SRC.slice(SRC.indexOf("export async function handleAgentApi"));
-  assert.ok(body.length > 500, "the handler must have been found");
+  // ⚠ RE-ANCHORED FROM THE HANDLER ONTO THE WHOLE FILE, because a body read moved
+  // into a HELPER and the window could not see it. `readStatus` and `readTools` both
+  // take the body and both sit ABOVE `handleAgentApi`, so a window starting at the
+  // handler forbids nothing they do — this repository's own "a route family reached
+  // through a helper has no literal there", met in the census written to stop it.
+  // `readTools` was already outside it before today; my own change put `b.status`
+  // there too, which is what made a pre-existing blind spot load-bearing.
+  //
+  // SCANNING THE WHOLE FILE IS SAFE HERE AND WAS CHECKED, NOT ASSUMED: `b` names the
+  // request body and nothing else in this module — there is no `(a, b)` comparator,
+  // no `b` loop variable — so every `b.` really is a read of what somebody sent.
+  const body = SRC;
+  assert.ok(body.length > 500, "the source must have been found");
   const reads = [...body.matchAll(/\b[bq]\.(?:get\(")?([A-Za-z_]+)/g)].map((m) => m[1]);
   assert.ok(reads.length >= 8, `the scanner read nothing: ${reads.length}`);
+  // THE OBSERVER IS ALIVE WHERE IT WAS BLIND: both helpers' reads must be in the
+  // scan, or this is a wider window that still sees nothing new.
+  for (const seen of ["status", "tools"]) {
+    assert.ok(reads.includes(seen), `the scan missed the helper that reads b.${seen}`);
+  }
+  const fromHandler = SRC.slice(SRC.indexOf("export async function handleAgentApi"));
+  assert.ok(!fromHandler.includes("function readStatus"), "the helpers are meant to sit above the handler");
   // ⚠ RE-ANCHORED, and the list grew by two SETTINGS rather than by an exemption.
   // `status` and `tools` are the agent's own configuration: one is checked against
   // `AGENT_STATUSES` and the other is a positive intersection with the catalog, so

@@ -706,18 +706,39 @@ test("...AND A SETTING IT CANNOT READ IS A REFUSAL, with nothing written", async
   }
 });
 
-test("A CREATE MAY CHOOSE TOOLS AND MAY NOT CHOOSE A STATUS", async () => {
-  const made = await settings({ name: "n", instructions: "i", tools: [AGENT_TOOL_NAMES[0]] },
+test("⚠ A CREATE MAY CHOOSE BOTH SETTINGS, and a status it is given is carried", async () => {
+  // ⚠ THIS CASE USED TO REQUIRE THE DEFECT. It asserted `status === undefined` on a
+  // create, which was the route's rule and is not the product's: the settings form
+  // draws a pause control for a NEW agent, so dropping the field made that tick a
+  // control somebody sets and nothing reads. The agent came back active and the box
+  // that said otherwise was the only thing claiming it was paused.
+  const made = await settings(
+    { name: "n", instructions: "i", status: "paused", tools: [AGENT_TOOL_NAMES[0]] },
     { path: "/api/agent/create" });
   assert.equal(made.status, 200, JSON.stringify(made.body));
+  assert.equal(made.calls[0].args[1].status, "paused", "the create dropped the status it was given");
   assert.deepEqual(made.calls[0].args[1].tools, [AGENT_TOOL_NAMES[0]]);
-  // Nobody writes an agent in order to pause it, so the column's own default is the
-  // answer — and a `status` in the body is simply not read on this path.
-  assert.equal(made.calls[0].args[1].status, undefined);
-  // The same refusal as the update, because it is the same reader.
-  const bad = await settings({ name: "n", instructions: "i", tools: ["shell"] }, { path: "/api/agent/create" });
-  assert.equal(bad.status, 400);
-  assert.deepEqual(bad.calls, []);
+
+  // **AND SILENCE IS STILL SILENCE, which is what "default to active only when it is
+  // omitted" really asks for.** Not `"active"` written here — that would be a second
+  // copy of the column's default, in a second language, and the copy that drifts is
+  // the one a migration cannot move.
+  const quiet = await settings({ name: "n", instructions: "i" }, { path: "/api/agent/create" });
+  assert.equal(quiet.status, 200);
+  assert.equal(quiet.calls[0].args[1].status, undefined, "a silent create decided a status");
+
+  // The same refusals as the update, because they are the same two readers.
+  for (const [body, why] of [
+    [{ status: "retired" }, /active or paused/i],
+    [{ status: "" }, /active or paused/i],
+    [{ status: ["paused"] }, /active or paused/i],
+    [{ tools: ["shell"] }, /no tool called shell/i],
+  ]) {
+    const bad = await settings({ name: "n", instructions: "i", ...body }, { path: "/api/agent/create" });
+    assert.equal(bad.status, 400, `${JSON.stringify(body)} was accepted on a create`);
+    assert.match(bad.body.error, why);
+    assert.deepEqual(bad.calls, [], `${JSON.stringify(body)} reached the store anyway`);
+  }
 });
 
 test("THE LIST ANSWERS THE CATALOG, so the screen never invents one", async () => {
@@ -785,14 +806,18 @@ test("⚠ THE REQUEST THE STORE SENDS IS WHAT DECIDES, and it is read here", asy
   assert.match(read.url, /select=[^&]*\bstatus\b/);
   assert.match(read.url, /select=[^&]*\btools\b/);
 
-  // AND A CREATE CARRIES A SELECTION ONLY WHEN ONE WAS CHOSEN, and never a status.
+  // ⚠ AND A CREATE CARRIES EACH SETTING ONLY WHEN ONE WAS CHOSEN — a key ABSENT from
+  // the insert is what lets the column's default decide, which is the only place
+  // "active unless somebody said otherwise" is written down. This assertion used to
+  // demand that `status` was never on the wire at all; that is the defect, not the
+  // rule, and the case below is its replacement.
   await r.store.create(T1, { id: A1, name: "n", instructions: "i" });
   const bare = r.seen.filter((s) => s.method === "POST").pop();
   assert.deepEqual(Object.keys(bare.body[0]).sort(), ["id", "instructions", "name", "tenant_id"]);
-  await r.store.create(T1, { id: A1, name: "n", instructions: "i", tools: ["echo"] });
+  await r.store.create(T1, { id: A1, name: "n", instructions: "i", status: "paused", tools: ["echo"] });
   const picked = r.seen.filter((s) => s.method === "POST").pop();
   assert.deepEqual(picked.body[0].tools, ["echo"]);
-  assert.ok(!Object.hasOwn(picked.body[0], "status"), "a create decided a status on the wire");
+  assert.equal(picked.body[0].status, "paused", "a create dropped the status on the wire");
 });
 
 test("THE SELECTION'S ORDER IS THE CATALOG'S, whatever order it arrives in", () => {

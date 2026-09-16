@@ -2185,13 +2185,14 @@ async function agentSave() {
     const res = await apiFetch(editing ? '/api/agent/update' : '/api/agent/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      // ⚠ THE SAME FOUR FIELDS EITHER WAY, and a create used to send three. The form
+      // draws the pause control whether or not the agent exists yet, so leaving
+      // `status` out of the create body made that tick a control somebody sets and
+      // nothing reads — the agent came back active, and the checkbox that said
+      // otherwise was the only thing claiming it was paused.
       body: JSON.stringify(editing
         ? { id: editing, name, instructions, status, tools }
-        // A NEW AGENT IS ACTIVE AND SAYS SO BY NOT SAYING IT: `status` is the
-        // column's own default on a create, because nobody writes an agent in order
-        // to pause it. The ticks DO go up, so a tool chosen while writing it is
-        // stored with the writing rather than needing a second save.
-        : { name, instructions, tools }),
+        : { name, instructions, status, tools }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';

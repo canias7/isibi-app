@@ -2575,7 +2575,12 @@ column resolves against them or resolves to nothing.
   finishing; **a selected tool really executing** (the journal holds its `tool`
   entry and the answer says which tool ran) **with the setting taken away between
   the accept and the run**; and a made-up tool name refused by name.
-- **Suite 256 → 272**, `authored-run.test.mjs` 21 → 37.
+- **Suite 256 → 272**, `authored-run.test.mjs` 21 → 37. **⚠ THE COMMIT MESSAGE FOR
+  `d47aa10` SAYS 274 AND IS WRONG; 272 is the measured number and this line is the
+  one to trust.** Re-derived per file rather than recalled — 14 + 36 + 37 + 14 + 6 +
+  10 + 19 + 20 + 2 + 32 + 25 + 25 + 12 + 20 — and the likely slip is counting two of
+  `pg-schema.mjs`'s checks into it, which `test/*.test.mjs` does not match at all. A
+  commit message cannot be corrected once pushed, so the correction lives here.
 - **Sweep: 23 mutants, 23 killed, 0 survived, 0 never applied, 3 comment-only
   controls survived.** Nine survived the first pass and **every one was a gap in the
   new guards**; one more was measured INERT and replaced. Two things worth keeping:
@@ -2613,6 +2618,47 @@ column resolves against them or resolves to nothing.
   as KILLED. A false kill is worse than a false survivor: it says a property is
   guarded when nothing asked. **The tell was all three comment-only controls coming
   back killed at once.**
+
+### ⚠ …AND THE CREATE PATH DROPPED THE STATUS — the shim was the second half (2026-09-16)
+
+Owner: *"the form currently offers it, but creation ignores it and saves the agent as
+active."* The defect is the site builder's route and is recorded in the root
+`CLAUDE.md`; **what belongs here is the instrument.**
+
+**`scripts/local-rest.mjs` COULD NOT HAVE CAUGHT IT, because it wrote a FIXED COLUMN
+LIST.** Its agents POST named `(id, tenant_id, name, instructions, tools)` and nothing
+else, so a `status` the route really sent would have been dropped by the shim exactly
+as the route was dropping it — *a shim LESS capable than the thing it stands in for
+hides a defect precisely as well as one that is more*, and this is the second instance
+of that in this file after the `run_model` column the view did not have. Its comment
+even quoted the route's old rule back, which made the gap read as intentional.
+
+It now builds each VALUES row per column, with `default` where the caller named
+nothing — which is what PostgREST does and is the whole of *"active only when status
+is omitted"*: the DATABASE decides, never the shim and never JavaScript. A mixed batch
+stays one statement.
+
+**MEASURED, after the runs rather than before them: `npm run test:pg` 410 → 416 checks,
+0 failed, against a real PostgreSQL 16; `npm run verify:chat` 94 → 112 checks, 0
+failed.** The six are an INSERT that names `status` (the create's real shape) beside the
+one that names neither column — the pair is what separates "the default is active" from
+"the column takes an answer at creation" — the selection it was created with, the
+refusal of a junk status at INSERT with no row made, and the observer-alive line the
+re-anchor below needed. The eighteen are section 17: an agent CREATED paused, read back
+by an ordinary list call, refusing a send with nothing written, then accepting **the
+same press under the same key** once activated and really running; with the control that
+an agent created naming no status is active and takes work at once, and the junk status
+refused. Both arithmetics close exactly.
+
+**ONE OLDER CHECK WAS RE-ANCHORED, NOT APPEASED.** The overview's tenant check read
+`count(*) === "1"`, which is a claim about how many fixtures this file happens to have
+paused — adding one made it red for a reason that has nothing to do with tenancy. It
+names the ROWS now, against the set `t1` really owns, with its observer proved alive:
+strictly stronger than the number it replaced.
+
+**THE MIGRATION IS UNTOUCHED, so the deployment order below is unchanged.** The column,
+its default and its check constraint were right all along; nothing above the database
+was asking for them.
 
 ### The deployment order, and it is one-way
 

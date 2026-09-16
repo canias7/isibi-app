@@ -434,6 +434,81 @@ try {
   check("a tool the platform has not got is refused by name", madeUp.status === 400, JSON.stringify(madeUp.body));
   check("...and nothing was stored",
     q(`select coalesce(array_length(tools,1),0)::text from agent.agents where id = '${agentId}';`) === "0");
+
+  // ── 17. AN AGENT CREATED PAUSED IS PAUSED ─────────────────────────────────
+  //
+  // ⚠ EVERY CHECK ABOVE PAUSES AN AGENT THAT ALREADY EXISTS, which is the layer
+  // below the break: the form draws a Paused control for a NEW agent, and the create
+  // route used to drop what it answered. The agent came back active and the tick was
+  // the only thing claiming otherwise — a dead control that ANSWERS, wrongly.
+  console.log("\n── 17. an agent created paused stays paused, refuses, and accepts once active ──");
+  const bornPaused = await api("/api/agent/create",
+    { body: { name: "Asleep", instructions: "Rest until somebody wakes you.", status: "paused", tools: [tool] } });
+  check("a create that names a pause is accepted", bornPaused.status === 200, JSON.stringify(bornPaused.body).slice(0, 200));
+  const sleeper = bornPaused.body.agent && bornPaused.body.agent.id;
+  check("...and the answer says it is paused",
+    bornPaused.body.agent && bornPaused.body.agent.status === "paused", JSON.stringify(bornPaused.body.agent));
+  check("...and the DATABASE says so, which is the only thing a reload reads",
+    q(`select status from agent.agents where id = '${sleeper}';`) === "paused");
+  // A RELOAD IS AN ORDINARY LIST READ — the browser holds no state about a saved
+  // agent, so this is exactly what a fresh page does.
+  const afterReload = await api("/api/agent/list", { method: "GET" });
+  const sleeperRow = afterReload.body.agents.find((a) => a.id === sleeper);
+  check("⚠ a reload still finds it paused", sleeperRow && sleeperRow.status === "paused", JSON.stringify(sleeperRow));
+  check("...with the selection it was created with",
+    sleeperRow && JSON.stringify(sleeperRow.tools) === JSON.stringify([tool]), JSON.stringify(sleeperRow && sleeperRow.tools));
+
+  // IT REFUSES NEW WORK, AND THE REFUSAL WRITES NOTHING — which is what lets the
+  // browser keep the typed words AND the retry key, so the next press after a
+  // resume is the SAME press rather than a second message.
+  const sleeperRuns = q(`select count(*) from agent.runs where tenant_id = '${A}';`);
+  const knocked = await api("/api/agent/send",
+    { body: { id: sleeper, body: "typed while it was asleep", key: "press-born-paused" } });
+  check("it refuses new work", knocked.status === 409 && knocked.body.paused === true, JSON.stringify(knocked.body));
+  check("...having written no message",
+    q(`select count(*) from agent.agent_messages where agent_id = '${sleeper}';`) === "0");
+  check("...and accepted no run",
+    q(`select count(*) from agent.runs where tenant_id = '${A}';`) === sleeperRuns, sleeperRuns);
+
+  // ...AND ACCEPTS WORK ONCE IT IS ACTIVATED, under the SAME key the refusal kept —
+  // which is the whole point of writing nothing: the press that was refused is the
+  // press that now lands, rather than a duplicate beside it.
+  const woken = await api("/api/agent/update",
+    { body: { id: sleeper, name: "Asleep", instructions: "Rest until somebody wakes you.", status: "active" } });
+  check("it can be activated", woken.status === 200 && woken.body.agent.status === "active", JSON.stringify(woken.body.agent));
+  const accepted = await api("/api/agent/send",
+    { body: { id: sleeper, body: "typed while it was asleep", key: "press-born-paused" } });
+  check("⚠ and the SAME press now lands", accepted.status === 200, JSON.stringify(accepted.body).slice(0, 200));
+  check("...as one message, not two",
+    q(`select count(*) from agent.agent_messages where agent_id = '${sleeper}';`) === "1");
+  const ranAfter = await engine(makeStandIn()).deliver(accepted.body.runId);
+  check("...and the work really runs", ranAfter.ran === true, JSON.stringify(ranAfter));
+  const wokenThread = await api("/api/agent/messages", { query: { id: sleeper } });
+  const wokenRow = wokenThread.body.messages.find((m) => m.id === accepted.body.message.id);
+  check("...and is answered", wokenRow && wokenRow.run && wokenRow.run.state === "answered",
+    JSON.stringify(wokenRow && wokenRow.run));
+
+  // THE CONTROL, without which "created paused" proves nothing about the create: an
+  // agent created with NO status at all is ACTIVE, decided by the column's own
+  // default rather than by anything this route writes.
+  const bornActive = await api("/api/agent/create",
+    { body: { name: "Awake", instructions: "Answer straight away." } });
+  check("an agent created with no status is active",
+    bornActive.status === 200 && bornActive.body.agent.status === "active", JSON.stringify(bornActive.body.agent));
+  check("...in the database too",
+    q(`select status from agent.agents where id = '${bornActive.body.agent.id}';`) === "active");
+  const straightAway = await api("/api/agent/send",
+    { body: { id: bornActive.body.agent.id, body: "hello", key: "press-born-active" } });
+  check("...and it takes work immediately", straightAway.status === 200, JSON.stringify(straightAway.body).slice(0, 160));
+
+  // AND A STATUS IT CANNOT READ IS A REFUSAL ON A CREATE TOO, not a default — the
+  // same reader as the update, so the two cannot disagree about what may be stored.
+  const madeUpStatus = await api("/api/agent/create",
+    { body: { name: "Junk", instructions: "Whatever.", status: "asleep" } });
+  check("a status the platform cannot read is refused on a create",
+    madeUpStatus.status === 400 && /active or paused/i.test(madeUpStatus.body.error || ""), JSON.stringify(madeUpStatus.body));
+  check("...with no agent made",
+    q(`select count(*) from agent.agents where name = 'Junk' and tenant_id = '${A}';`) === "0");
 } finally {
   await rest.close();
   try { su(`psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`); } catch { /* best effort */ }

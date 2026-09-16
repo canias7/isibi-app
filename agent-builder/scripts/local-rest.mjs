@@ -223,16 +223,27 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
       // started. Narrow on purpose — the same reason the runs half is.
       if (p === "/rest/v1/agents" && req.method === "POST") {
         const rows = Array.isArray(body) ? body : [body];
-        // A CREATE MAY CHOOSE TOOLS AND MAY NOT CHOOSE A STATUS, which is the route's
-        // own rule — so `tools` is written when it arrives and `status` is the column's
-        // default, always. `arr` is what a text[] looks like on the way in.
+        // ⚠ A COLUMN THE CALLER DID NOT NAME MUST FALL TO THE DATABASE'S OWN DEFAULT,
+        // which is how PostgREST behaves and is the whole of "active only when status
+        // is omitted". This shim wrote a FIXED column list, so a status the route
+        // really sent was dropped here exactly as the route was dropping it — a shim
+        // LESS capable than the thing it stands in for hides a defect precisely as
+        // well as one that is more, and that is how this one stayed invisible.
+        //
+        // `default` PER COLUMN rather than per row, because `store.create` posts ONE
+        // row and what varies is which of its columns are absent. It is NOT a licence
+        // for a mixed batch: PostgREST refuses those outright (PGRST102, "all object
+        // keys must match"), so a shim that accepted one would be more capable than
+        // the real thing — the same trap from the other side.
         const vals = rows.map((r) =>
-          `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.name)}, ${lit(r.instructions)}, ${arr(r.tools)})`).join(", ");
+          `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.name)}, ${lit(r.instructions)}, ` +
+          `${r.status === undefined ? "default" : lit(r.status)}, ` +
+          `${r.tools === undefined ? "default" : arr(r.tools)})`).join(", ");
         // A CTE, NOT A SUBQUERY: Postgres does not allow a data-modifying statement
         // inside `from (...)`, which is a syntax error rather than a refusal — so the
         // shim answered 400 and the route reported a save that had never been tried.
         const r = await sql(`with ins as (
-            insert into agent.agents (id, tenant_id, name, instructions, tools) values ${vals}
+            insert into agent.agents (id, tenant_id, name, instructions, status, tools) values ${vals}
             returning id, name, instructions, created_at, updated_at, status, tools)
           select coalesce(json_agg(t), '[]')::text from ins t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }

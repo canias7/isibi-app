@@ -567,14 +567,18 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     /**
      * THE ID IS OURS, never the caller's: a client cannot choose a primary key.
      *
-     * `status` is deliberately NOT a field here. A brand new agent is `active` by the
-     * column's own default, because nobody writes an agent in order to pause it, and
-     * offering the choice at creation would be a control with one sensible setting.
+     * **A FIELD THE CALLER DID NOT NAME IS NOT SENT, and for `status` that is the
+     * whole of "default to active only when it is omitted".** The column's own
+     * default is `active`; writing `"active"` here when nobody asked would be a
+     * second copy of that default in a second language, and the copy that drifts is
+     * the one a migration cannot move. So `undefined` means the key stays off the
+     * wire and the database decides — exactly as `tools` already works.
      */
-    async create(tenant, { id, name, instructions, tools }) {
+    async create(tenant, { id, name, instructions, status, tools }) {
       // `fresh`, not `row`: the answer's own row is already called that eight lines
       // down, and a second `const row` in this scope is a module that does not load.
       const fresh = { id, tenant_id: tenant, name, instructions };
+      if (status !== undefined) fresh.status = status;
       if (tools !== undefined) fresh.tools = tools;
       const r = await req("POST", "agents", {
         prefer: "return=representation",
@@ -772,6 +776,28 @@ function broke(what, e, log) {
 }
 
 /**
+ * The status off a request body, or a named refusal.
+ *
+ * ONE READER FOR BOTH WRITING ROUTES, for the same reason `readTools` below is one:
+ * create and update ask the same question, and two copies of it would be two answers
+ * about what may be stored. The routes then differ only in what SILENCE means — on a
+ * create the column's default decides, on an update the stored value is left alone —
+ * and both spell that silence the same way, by not sending the key.
+ *
+ * **A STATUS THAT CANNOT BE READ IS A REFUSAL, NEVER A DEFAULT.** Reading a typo as
+ * `active` would silently un-pause an agent somebody paused on purpose, and reading
+ * it as `paused` would stop one nobody asked to stop. Absent is the only safe
+ * silence, and `Object.hasOwn` is how absent is told from wrong — never truthiness,
+ * because every object literal has a truthy `constructor`.
+ */
+function readStatus(b) {
+  if (!Object.hasOwn(b, "status") || b.status === undefined) return { status: undefined };
+  const picked = cleanStatus(b.status);
+  if (!picked) return { refusal: no(400, "an agent is either active or paused") };
+  return { status: picked };
+}
+
+/**
  * The tool selection off a request body, or a named refusal.
  *
  * ONE READER FOR BOTH WRITING ROUTES, because create and update ask the same
@@ -850,12 +876,23 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       const instructions = cleanText(b.instructions, AGENT_INSTRUCTIONS_MAX);
       if (!name) return no(400, "give it a name first");
       if (!instructions) return no(400, "say what it should do");
+      // ⚠ THE SETTINGS FORM DRAWS A PAUSE CONTROL FOR A NEW AGENT, SO THIS ROUTE HAS
+      // TO CARRY ONE. It used to drop `status` on the floor — the control answered,
+      // and what it answered was discarded, which is a dead control that ANSWERS
+      // rather than one that does nothing. **Absent is still the ordinary answer and
+      // still means active**, decided by the column's default rather than here.
+      const rest = readStatus(b);
+      if (rest.refusal) return rest.refusal;
       const picked = readTools(b);
       if (picked.refusal) return picked.refusal;
       if ((await store.count(who)) >= MAX_AGENTS) {
         return no(409, `that's as many agents as one account can hold (${MAX_AGENTS}) — delete one first`);
       }
-      return ok({ agent: await store.create(who, { id: mint(), name, instructions, tools: picked.names }) });
+      return ok({
+        agent: await store.create(who, {
+          id: mint(), name, instructions, status: rest.status, tools: picked.names,
+        }),
+      });
     }
 
     if (path === "/api/agent/update") {
@@ -867,16 +904,15 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       if (!instructions) return no(400, "say what it should do");
       // ── the settings, each only when the caller named it ─────────────────
       //
-      // **A STATUS THAT CANNOT BE READ IS A REFUSAL, NOT A DEFAULT.** Reading a typo
-      // as `active` would silently un-pause an agent somebody paused on purpose, and
-      // reading it as `paused` would stop one nobody asked to stop. Absent is the
-      // only safe silence, and `Object.hasOwn` is how absent is told from wrong —
-      // never truthiness, because every object literal has a truthy `constructor`.
-      let status;
-      if (Object.hasOwn(b, "status") && b.status !== undefined) {
-        status = cleanStatus(b.status);
-        if (!status) return no(400, "an agent is either active or paused");
-      }
+      // THE SAME TWO READERS THE CREATE USES. What differs is only what silence
+      // buys: here an absent field is the stored value left alone, which is what
+      // makes this a PATCH rather than a replace — a browser tab opened before
+      // today saves a name and an instruction and says nothing about either
+      // setting, and filling them in from a default would un-pause an agent from a
+      // screen that never showed a pause control.
+      const rest = readStatus(b);
+      if (rest.refusal) return rest.refusal;
+      const status = rest.status;
       const picked = readTools(b);
       if (picked.refusal) return picked.refusal;
       const agent = await store.update(who, id, { name, instructions, status, tools: picked.names });

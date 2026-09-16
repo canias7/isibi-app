@@ -174,10 +174,18 @@ nothing, changes nothing and sends nothing. Nothing is allowed unless you tick i
 and an agent with nothing ticked can call nothing at all. When there is nothing to
 offer, the form says so in a sentence rather than showing an empty box.
 
-Two things we deliberately did NOT do: a tool `wait` exists in the engine and is
+One thing we deliberately did NOT do: a tool `wait` exists in the engine and is
 not offered, because an agent's run budget cannot finish one (we measured it — it
-would stop halfway every time, which is a button that always fails); and a new
-agent cannot be created paused, because nobody writes an agent in order to stop it.
+would stop halfway every time, which is a button that always fails).
+
+**⚠ AND ONE THING I GOT WRONG, which you caught.** This paragraph used to say a new
+agent could not be created paused, "because nobody writes an agent in order to stop
+it" — but **the form showed the Paused switch on a new agent anyway**, and creating
+one threw the answer away. You ticked it, the agent came back active, and the tick
+was the only thing saying otherwise. That is worse than not offering it: a switch
+that does nothing is at least honest, and this one answered and was ignored. It
+carries through now, from the tick to the database. Leave it alone and the agent is
+active, which is what it always was.
 
 **Still simulated.** No model is connected. Every answer is a stand-in and says so
 in its own text as well as on the screen — and it now says which tool it used, so

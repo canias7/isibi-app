@@ -114,12 +114,12 @@
     "to": "      body.status = status ?? \"active\";"
   },
   {
-    "label": "a status the route cannot read is left alone rather than refused",
+    "label": "a status neither route can read is left alone rather than refused",
     "files": [
       "agent-store.mjs"
     ],
-    "from": "        if (!status) return no(400, \"an agent is either active or paused\");",
-    "to": "        if (false) return no(400, \"an agent is either active or paused\");"
+    "from": "  if (!picked) return { refusal: no(400, \"an agent is either active or paused\") };",
+    "to": "  if (false) return { refusal: no(400, \"an agent is either active or paused\") };"
   },
   {
     "label": "the row on the wire fails OPEN on a status it cannot read",
@@ -321,5 +321,53 @@
     ],
     "from": "/* ⚠ THE TRAILING COLUMNS ARE IMPLICIT, and they have to be.",
     "to": "/* ⚠ THE TRAILING COLUMNS ARE IMPLICIT, and they must be."
+  },
+  {
+    "label": "⚠ the create drops the status it was given, so the Paused tick answers nothing",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "          id: mint(), name, instructions, status: rest.status, tools: picked.names,",
+    "to": "          id: mint(), name, instructions, tools: picked.names,"
+  },
+  {
+    "label": "a junk status is accepted on a create where the update refuses it",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      const rest = readStatus(b);\n      if (rest.refusal) return rest.refusal;\n      const picked = readTools(b);\n      if (picked.refusal) return picked.refusal;\n      if ((await store.count(who)) >= MAX_AGENTS) {",
+    "to": "      const rest = readStatus(b);\n      const picked = readTools(b);\n      if (picked.refusal) return picked.refusal;\n      if ((await store.count(who)) >= MAX_AGENTS) {"
+  },
+  {
+    "label": "the insert row drops the status, so it never reaches the database",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      if (status !== undefined) fresh.status = status;",
+    "to": "      const unused = status;"
+  },
+  {
+    "label": "⚠ a silent create decides a status instead of letting the column default",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      const fresh = { id, tenant_id: tenant, name, instructions };\n      if (status !== undefined) fresh.status = status;",
+    "to": "      const fresh = { id, tenant_id: tenant, name, instructions };\n      fresh.status = status ?? \"active\";"
+  },
+  {
+    "label": "⚠ the browser's create body leaves the status out again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "        : { name, instructions, status, tools }),",
+    "to": "        : { name, instructions, tools }),"
+  },
+  {
+    "label": "the browser hardcodes the pause rather than reading the control",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "        ? { id: editing, name, instructions, status, tools }\n",
+    "to": "        ? { id: editing, name, instructions, status: 'paused', tools }\n"
   }
 ]

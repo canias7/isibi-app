@@ -1752,8 +1752,44 @@ page scope; nothing is merged or deployed.
   showed a pause control. `tools: []` is a real selection and `undefined` is silence.
   A status it cannot READ is a 400, never a default: reading a typo as `active`
   un-pauses on purpose and as `paused` stops what nobody asked to stop.
-  **A CREATE MAY CHOOSE TOOLS AND MAY NOT CHOOSE A STATUS** — nobody writes an agent
-  in order to pause it, so the column's default is the answer.
+  **⚠ AND A CREATE CARRIES BOTH SETTINGS — CORRECTED 2026-09-16, and this line used
+  to state the defect as the rule.** It read *"a create may choose tools and may not
+  choose a status — nobody writes an agent in order to pause it"*, which was an
+  argument about what people want and not about what the screen does: **the settings
+  form draws a Paused checkbox for a NEW agent**, so the route dropping the field
+  made that tick a control somebody sets and nothing reads. The agent came back
+  active and the box was the only thing claiming otherwise — **a dead control that
+  ANSWERS, wrongly**, which is this repository's own worst shape of that finding, one
+  milestone after it was written down.
+  **THE FIX IS FOUR LAYERS AND ABSENT STILL MEANS ACTIVE.** `agentSave`'s create body
+  carries `status`, the route reads it through `readStatus` — **one reader for both
+  writing routes now**, exactly as `readTools` already was, so the two cannot
+  disagree about what may be stored — `store.create` puts the key on the insert row
+  only when it was given, and the shim's INSERT lets an unnamed column fall to
+  `default`. **"Default to active only when status is omitted" is the COLUMN's
+  default and is never written in JavaScript**: `"active"` assigned here would be a
+  second copy of it in a second language, and the copy that drifts is the one a
+  migration cannot move. A junk value is the same 400 the update gives, where it used
+  to be accepted and ignored.
+  **Sweep: 43 mutants, 43 killed, 0 survived, 0 never applied, 3 comment-only
+  controls survived** (the spec 40 → 46), and **all six new ones died on the first
+  pass** — the create dropping the status, a junk status accepted there, the insert
+  row dropping it, a silent create DEFAULTING it, the browser's body leaving it out
+  again, and the browser hardcoding the pause instead of reading the control. One
+  older mutant was **re-anchored, not appeased**: the update's inline refusal became
+  `readStatus`'s, so its anchor was gone — caught by the pre-run census rather than
+  by reading NOT APPLIED afterwards.
+  **Guards**: `agent-send` 42 (one case REPLACED by its opposite, plus the
+  store-request assertion inverted), `agent-binding` 55 → 56, `agent-api` 42 with its
+  body-reads census **widened from the handler onto the whole file** — a body read
+  moved into a HELPER and the old window could not see it, which is this repository's
+  "a route family reached through a helper has no literal there" met in the census
+  written to stop it; `readTools` was already outside that window before today, so my
+  own change is what made a pre-existing blind spot load-bearing. **All four replaced
+  assertions were proved RED against the pre-change product** before being believed,
+  the `active` control included — without it a screen hardcoding `"paused"` satisfies
+  every other assertion. Real PostgreSQL 410 → **416** checks, the local end-to-end
+  94 → **112**, both 0 failed and both arithmetics closing exactly.
   **A PAUSE IS A 409 WITH ITS OWN FLAG, never the missing-agent 404.** The request
   was well formed, the agent exists and is theirs, and nothing is broken; `paused:
   true` rides beside the sentence so the screen offers the one thing that helps
@@ -5743,7 +5779,19 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,653** (2026-09-16, local — 6,651 pass, 2 skipped, 0 fail; the
+  The unit suite is **6,654** (2026-09-16, local — 6,652 pass, 2 skipped, 0 fail;
+  the create's own pause, whose ONE new case is `agent-binding`'s control that a new
+  agent nobody paused sends `active` — the two cases that required the defect were
+  REPLACED rather than added to, so the count moves by the control alone.
+  **6,653 + 1 closes exactly.** **CI HAS READ 6,653** on `d47aa10`: `unit tests` run
+  2628, green (07:49:38→07:51:42Z, the suite step 103 s) — `# tests 6653 / # pass
+  6650 / # fail 0 / # skipped 3`, against local `6653 / 6651 / 0 / 2`; the three are
+  the recorded environment skips, which is why the number to carry is the TOTAL. And
+  **`site build` run 1155 is green on that sha**, all twenty steps, `site-build.mjs`
+  **382 passed, 0 failed** — the twelfth independent run to answer 382 — with
+  kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29, site-routing
+  14, site-runtime 47 beside it, each bounded to its own `##[group]`.
+  Before it, **6,653** (2026-09-16, local — 6,651 pass, 2 skipped, 0 fail; the
   agent settings, whose **22** new cases are `agent-send`'s eleven (the cross-product
   catalog census, the caps read out of the migration, the two readers, the update's
   present-or-absent fields and its refusals, the create, the list's catalog, the
@@ -6143,6 +6191,17 @@ rule and the measurement.
 - **A KILLED SWEEP LEAVES A LIVE MUTANT** — it skips its `finally`. **Never commit
   while a sweep is running.** Put the restore on a trap and run it in the
   background.
+- **⚠ AND THAT TRAP MUST NOT FIRE ON A SUCCESSFUL EXIT — it discards YOUR OWN
+  uncommitted work (2026-09-16, cost one restore).** `trap 'git checkout -- <the
+  swept files>' EXIT INT TERM` reads as belt-and-braces and is not: the runner
+  already restores in its own `finally`, so on a clean run the trap is a second
+  restore of files that are already restored — and `git checkout` restores them to
+  **HEAD**, not to the uncommitted edits the sweep was measuring. Measured: a 43/43
+  green sweep ended with `git diff` EMPTY on all three swept files, the product fix
+  gone. **The trap is for INT and TERM only** — or commit before sweeping. The tell
+  is a clean tally beside an empty diff, and the recovery is the spec's own anchor
+  census: every `from` string is a line of the change, so `0` occurrences names
+  exactly what was lost.
 - **AND "IN THE BACKGROUND" IS NOT `nohup … &`** — the harness reaps the tracked
   wrapper the instant `&` returns and the runner becomes an orphan nobody owns.
   Run the sweep as the background call's own command. **`pgrep -f

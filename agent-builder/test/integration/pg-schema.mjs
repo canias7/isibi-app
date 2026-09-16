@@ -1644,6 +1644,8 @@ try {
   const SN  = "5a5a5a5a-0000-4000-8000-00000000a0a9";   // t1's agent that named neither column
   const SP  = "5a5a5a5a-0000-4000-8000-00000000a0aa";   // t1's paused agent
   const ST  = "5a5a5a5a-0000-4000-8000-00000000a0bb";   // t1's agent with a tool
+  const SBORN = "5a5a5a5a-0000-4000-8000-00000000a0cc"; // t1's agent CREATED paused
+  const SJ  = "5a5a5a5a-0000-4000-8000-00000000a0dd";   // the id a refused create would have used
   const MSG6 = "5a5a5a5a-0000-4000-8000-00000000ee06";
   const MSG7 = "5a5a5a5a-0000-4000-8000-00000000ee07";
   const MSG8 = "5a5a5a5a-0000-4000-8000-00000000ee08";
@@ -1669,6 +1671,27 @@ try {
     // Compared against the wrong one, this read as a NULL selection on a column that
     // cannot hold one.
     jget(`select (tools is not null)::text from agent.agents where id='${SN}';`) === "true");
+
+  // ⚠ AND AN INSERT THAT NAMES `status` IS THE OTHER HALF, which is what a create
+  // really sends now. The pair is the whole of "default to active only when status
+  // is omitted": the row above proves the DEFAULT, this one proves the column takes
+  // an answer at creation rather than only at an update. The route dropped the field
+  // for a day, so the only thing claiming an agent was paused was the checkbox.
+  allowed("an agent inserted AS paused",
+    `insert into agent.agents (id, tenant_id, name, instructions, status, tools)
+      values ('${SBORN}','t1','Asleep',${shq(INSTR)},'paused',array['echo']);`, asWriter);
+  check("...is paused from the moment it exists",
+    jget(`select status from agent.agents where id='${SBORN}';`) === "paused");
+  check("...with the selection it was created with",
+    jget(`select array_to_string(tools,',') from agent.agents where id='${SBORN}';`) === "echo");
+  // THE SAME CHECK GUARDS THE CREATE PATH, so a status the platform cannot read is
+  // refused by the DATABASE even if every layer above it were to stop looking.
+  refused("...and a status the schema does not know is refused at INSERT too",
+    `insert into agent.agents (id, tenant_id, name, instructions, status)
+      values ('${SJ}','t1','Junk',${shq(INSTR)},'asleep');`,
+    "agents_status_check", asWriter);
+  check("...with no row made",
+    jget(`select count(*) from agent.agents where id='${SJ}';`) === "0");
 
   // ── the shape constraint ─────────────────────────────────────────────────
   // What it enforces is a SHAPE. Whether a name is a real tool is decided by a
@@ -1819,8 +1842,19 @@ try {
     jget(`select status from agent.agent_overview where id='${SP}';`) === "paused");
   check("...and the selection",
     jget(`select tools::text from agent.agent_overview where id='${ST}';`) === "{}");
+  // ⚠ RE-ANCHORED FROM A COUNT ONTO THE ROWS THEMSELVES. It read `count(*) === "1"`,
+  // which is a claim about how many fixtures this file happens to have paused —
+  // adding one made it red for a reason that has nothing to do with tenancy. What it
+  // is about is WHICH rows a tenant sees, so it names them, and the claim is
+  // strictly stronger for it.
+  const minePaused = jget(`select coalesce(string_agg(id::text, ',' order by id), '') from agent.agents
+                             where tenant_id='t1' and status='paused';`);
+  check("the observer is alive: t1 really has paused agents to see", minePaused.length > 0, minePaused);
   check("...and a tenant reads its own rows through it and no others",
-    psql(`select count(*) from agent.agent_overview where status='paused';`, claimT1).out === "1");
+    psql(`select coalesce(string_agg(id::text, ',' order by id), '') from agent.agent_overview
+            where status='paused';`, claimT1).out === minePaused,
+    psql(`select coalesce(string_agg(id::text, ',' order by id), '') from agent.agent_overview
+            where status='paused';`, claimT1).out);
   check("...where the other tenant sees none of them",
     psql(`select count(*) from agent.agent_overview where status='paused';`,
          { role: "authenticated", claims: '{"tenant_id":"t2"}' }).out === "0");

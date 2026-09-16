@@ -235,7 +235,11 @@ function hydrate(w) {
     return box;
   });
   w.s.document.querySelectorAll = (sel) => (sel === "[data-tool]" ? boxes : []);
-  return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked };
+  // BOTH, and they answer different questions: `paused` is what the form was DRAWN
+  // with, `pauseBox` is the control somebody presses. A case that only had the
+  // boolean could assert the drawing and never tick the box — which is how a
+  // control that answers and is discarded stays invisible.
+  return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked, pauseBox: pausedEl };
 }
 
 /** What one `/api/agent/list` answer looks like, catalog and all. */
@@ -1474,28 +1478,56 @@ test("...and an unticked box sends an EMPTY selection, never silence", async () 
   assert.ok(Object.hasOwn(sent.body, "tools"), "an empty selection was sent as silence");
 });
 
-test("A NEW AGENT SENDS NO STATUS, and its ticks go up with its writing", async () => {
-  // Nobody writes an agent in order to pause it, so the column's own default is the
-  // answer and a control with one sensible setting is not offered.
+test("⚠ A NEW AGENT SENDS THE PAUSE IT WAS DRAWN WITH, and its ticks go with its writing", async () => {
+  // ⚠ THIS CASE USED TO REQUIRE THE DEFECT, and it read as a rule: "a new agent
+  // sends no status". The form draws a Paused control for a new agent, so the tick
+  // was a control somebody sets and nothing reads — the agent came back active and
+  // the box was the only thing claiming otherwise. **A dead control that ANSWERS,
+  // wrongly**, which is this repository's own worst shape of that finding.
+  //
+  // THE ANSWER'S ROW SAYS `paused` because that is what was asked for, and a fixture
+  // answering `active` would be the less-capable fake that hid this in the first
+  // place — the screen would draw an active agent and nothing here would notice.
   const w = await withCatalog({
     answer: (p) => okRes(p === "/api/agent/list"
       ? { agents: SETTINGS_ROWS, tools: CATALOG }
-      : { agent: { id: "NEW", name: "Fresh", instructions: "i", created: 2, updated: 2, preview: "", status: "active", tools: ["echo"] } }),
+      : { agent: { id: "NEW", name: "Fresh", instructions: "i", created: 2, updated: 2, preview: "", status: "paused", tools: ["echo"] } }),
   });
   w.ev("agentNew();");
   const f = hydrate(w);
   assert.deepEqual(f.boxes.map((b) => b.checked), [false], "a new agent started with something allowed");
+  assert.equal(f.paused, false, "a new agent was drawn paused");
   w.s.document.getElementById("agName").value = "Fresh";
   w.s.document.getElementById("agInstr").value = "i";
   f.boxes[0].checked = true;
+  f.pauseBox.checked = true;
   await w.ev("agentSave()");
   const sent = w.calls.find((c) => c.path === "/api/agent/create");
-  assert.deepEqual(sent.body, { name: "Fresh", instructions: "i", tools: ["echo"] });
-  assert.ok(!Object.hasOwn(sent.body, "status"), "a create decided a status");
+  assert.deepEqual(sent.body, { name: "Fresh", instructions: "i", status: "paused", tools: ["echo"] });
   // AND IT BECOMES AN EDIT OF WHAT IT MADE, so the next press adjusts the same
   // agent rather than making a second one.
   assert.equal(w.ev("agentEditing"), "NEW");
   assert.equal(w.ev("agentSaved"), true);
+});
+
+test("...AND A NEW AGENT NOBODY PAUSED SENDS `active`, which is the ordinary press", async () => {
+  // THE CONTROL FOR THE CASE ABOVE. Without it, a screen that sent `"paused"`
+  // whatever the box said would satisfy every assertion up there — the difference
+  // between reading the control and hardcoding its answer is only visible from the
+  // side that does NOT tick it.
+  const w = await withCatalog({
+    answer: (p) => okRes(p === "/api/agent/list"
+      ? { agents: SETTINGS_ROWS, tools: CATALOG }
+      : { agent: { id: "NEW", name: "Fresh", instructions: "i", created: 2, updated: 2, preview: "", status: "active", tools: [] } }),
+  });
+  w.ev("agentNew();");
+  const f = hydrate(w);
+  w.s.document.getElementById("agName").value = "Fresh";
+  w.s.document.getElementById("agInstr").value = "i";
+  assert.equal(f.paused, false, "a new agent was drawn paused");
+  await w.ev("agentSave()");
+  const sent = w.calls.find((c) => c.path === "/api/agent/create");
+  assert.equal(sent.body.status, "active");
 });
 
 test("SAVING SAYS SO, WHERE THE BUTTON WAS", async () => {
