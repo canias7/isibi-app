@@ -9989,7 +9989,8 @@ session deletes what nothing appears to need. The mutation test now breaks the
   First pass left four alive and **every one was a hole in my new tests, not in
   the product** — one of which turned out to be the inert belt above, so I
   replaced it rather than hunting it.
-- **Full suite 6,496 green** (6,494 + the two new cases). CI hasn't read it yet.
+- **Full suite 6,496 green** (6,494 + the two new cases), **and CI has read
+  it**: `unit tests` run 2599, green, 6,496 tests / 0 failures.
 - And `site build` run **1148** was green on the previous commit — `382 passed /
   0 failed`, the ninth independent run to answer 382.
 

@@ -4582,7 +4582,8 @@ hunted. **Every anchor was checked to occur exactly once before each run.**
 
 **Suite 6,496** — 6,494 + `addon-route`'s two collision cases, and the
 arithmetic closes exactly: everything in `requirement-coverage` is an assertion
-inside a case that already existed. CI has NOT read this number yet.
+inside a case that already existed. **CI has read it: `unit tests` run 2599 on
+`e032afad`, green — `# tests 6496 / # pass 6493 / # fail 0 / # skipped 3`.**
 
 **NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
 the last three: *"Keep this correction bounded. No merge, deployment, paid
@@ -5025,8 +5026,11 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   inside existing cases and no new case — the `ITEM_KINDS` census both ways
   with the tool's enum, `referenceOf` driven directly, ambiguity outranking a
   prose match with its control, a junk kind dropped, a stray kind on a hand-off,
-  and the visibility question asked of the reference's kind. CI has NOT read
-  this number yet.
+  and the visibility question asked of the reference's kind. **CI HAS READ IT:
+  `unit tests` run 2599 on `e032afad`, green (2026-09-16 00:08:50→00:10:47Z,
+  the suite step 104.3 s) — `# tests 6496 / # pass 6493 / # fail 0 /
+  # skipped 3`**, against local `6496 / 6496 / 0 / 0`; the three are the
+  recorded environment skips, which is why the number to carry is the TOTAL.
   **6,494** before it (2026-09-15, local — the same evidence rules
   applied to `covered`, whose new cases are all `addon-route`'s **three**
   (59 → 62: a `covered` claim in a mixed-success function step, a `covered`
