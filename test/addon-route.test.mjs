@@ -2115,3 +2115,147 @@ test("a COVERED claim about a section nobody can see is UNKNOWN, never 'I've set
   assert.match(note, /I've set that up, but I can't confirm from here that the number on the page/,
     "the control's claim is not said as there-and-unchecked: " + note);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE EVIDENCE LOOKUP'S OWN BYPASS (owner, 2026-09-16)
+//
+// *"The original two collisions are fixed. One bypass remains:
+// claimEvidence(r.by, made) still searches every applied kind … Carry the
+// explicit kind + name identity through the evidence lookup too. Evidence from
+// another item must not turn an unknown implementation into configured,
+// unverified, or delivered. Missing or ambiguous references must not regain
+// certainty through an unrestricted prose match."*
+//
+// The identity reached `implementationOf` and stopped there. `claimEvidence`
+// went on reading `by` against the WHOLE of `made`, so whenever the exact
+// question had no answer a prose match about a different thing supplied one:
+//
+//   1. an implementation nobody could see, rescued to `unverified` by an
+//      applied item of another kind that the sentence happens to name;
+//   2. an implementation that WAS found, whose recorded `configuredBy` came off
+//      a different item entirely.
+//
+// Both are driven below through `POST /api/site/<slug>/addon`, each with the
+// positive control that makes the reader alive rather than merely refusing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("BYPASS: an applied TABLE does not rescue a claim whose reference nobody can see", async () => {
+  // THE OWNER'S OWN REPRODUCTION. An applied table `bookings`; a covered claim
+  // whose reference is `{kind: "component", item: "bookings"}` — unseeable by
+  // construction (`OPAQUE_KINDS`) — and a `by` that names `bookings`. The
+  // implementation reads `unknown`, and the unscoped prose match then found the
+  // TABLE, answered `named`, and the customer heard *"I've set that up."*
+  const SECTION = {
+    need: "the total is shown on the page", status: "covered",
+    by: "bookings shows the total", item: "bookings", kind: "component",
+  };
+  // THE MATCHING-ITEM POSITIVE CONTROL, in the SAME reply and against the SAME
+  // applied table and the SAME name — so the only thing that differs is the
+  // reference's kind. Without it, "the haystack is always empty" would pass.
+  const TBL = {
+    need: "bookings are stored", status: "covered",
+    // DELIBERATELY NAMING NO GUARANTEE — the applied table's own settings are
+    // `user`/`own` and its one column is `who`, and a sentence brushing any of
+    // those would answer `configured` and make this control about the wrong
+    // half. What it has to prove is that the scoped haystack is NOT empty, and
+    // `unverified` off the name alone proves exactly that.
+    by: "bookings keeps every booking", item: "bookings", kind: "table",
+  };
+  const r = await addon("fw-ev-scope", "store bookings and show the total", {
+    kinds: ["table", "component"], publishes: true, stored: NO_SCHEMA,
+    answers: {
+      table: { table: [{ table: CLASH }] },
+      component: {
+        component: [{ page: "/", does: "a line with the booking total", components: ["card"] }],
+        requirements: [SECTION, TBL],
+      },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: the table really applied, under the name both claims use.
+  // Without it there is nothing for a prose match to reach and this case is
+  // asserting about an empty `made`.
+  assert.deepEqual(r.body.tables, ["bookings"], "the table did not apply — this case tests nothing");
+  const cov = storedAnswer(r, "fw-ev-scope").coverage;
+  const at = (need) => cov.requirements.find((q) => q.need === need);
+  // THE FIX: the claim is weighed against the thing it NAMED, which nothing
+  // here can see — so the answer stays `unknown` however the sentence reads.
+  assert.equal(at(SECTION.need).implementation, "unknown",
+    "an unobservable reference answered about its own presence");
+  assert.equal(at(SECTION.need).state, "unknown",
+    "an applied table rescued a claim about a component of the same name");
+  assert.equal(at(SECTION.need).implementedBy, undefined,
+    "the claim was credited to a thing of another kind");
+  assert.equal(at(SECTION.need).configuredBy, undefined,
+    "another item's configuration was recorded against this claim");
+  // THE CONTROL MOVED, on the same name and the same applied item: it is the
+  // REFERENCE that decides, not the prose and not a blanket refusal.
+  assert.equal(at(TBL.need).implementation, "found", "the claim naming the applied table was not resolved");
+  assert.equal(at(TBL.need).implementedBy, "bookings");
+  assert.equal(at(TBL.need).foundIn, "applied");
+  assert.equal(at(TBL.need).state, "unverified");
+  assert.deepEqual([cov.counts.unknown, cov.counts.unverified], [1, 1],
+    "the two claims were not told apart: " + JSON.stringify(cov.counts));
+  // ── AND THE CUSTOMER'S OWN SENTENCE, which is where the owner read it ────
+  const note = r.body.coverNote || "";
+  assert.doesNotMatch(note, /I've set that up[^.]*the total is shown on the page/,
+    "the customer was told a component nothing can see was set up: " + note);
+  assert.match(note, /can't see from here whether the total is shown on the page/,
+    "the unresolvable claim is not said as unresolvable: " + note);
+  assert.match(note, /I've set that up, but I can't confirm from here that bookings are stored/,
+    "the control's claim is not said as there-and-unchecked: " + note);
+});
+
+test("BYPASS: a claim's recorded configuration comes off the item it REFERENCES, never another", async () => {
+  // THE SECOND FACE OF THE SAME BYPASS, and the one that puts a wrong fact on
+  // the record rather than a wrong state: the reference resolves perfectly, and
+  // `configuredBy` is then read off whichever applied item the sentence happens
+  // to mention. Here the prose names both the table and the function, and only
+  // the FUNCTION carries a setting the words match (`internal`).
+  const BOTH = "bookings is kept, and count_rows is internal";
+  const TBL = { need: "bookings are stored", status: "covered", by: BOTH, item: "bookings", kind: "table" };
+  // THE CONTROL: the SAME sentence, referencing the function instead. The
+  // configuration is real and must still be recorded — the fix is about WHICH
+  // item answers, not about recording less.
+  const FN = { need: "no visitor can count them", status: "covered", by: BOTH, item: "count_rows", kind: "function" };
+  const r = await addon("fw-ev-item", "store bookings and count them privately", {
+    kinds: ["table", "function"], publishes: true, stored: NO_SCHEMA,
+    answers: {
+      table: { table: [{ table: CLASH }] },
+      function: {
+        function: [{ name: "count_rows", internal: true, returns: "bigint", body: "BEGIN RETURN 1; END;" }],
+        requirements: [TBL, FN],
+      },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITIONS: both really applied, or there is no "another item" for
+  // the evidence to come from and the case proves nothing.
+  assert.deepEqual(r.body.tables, ["bookings"], "the table did not apply — this case tests nothing");
+  assert.deepEqual(r.body.functions, ["count_rows"], "the function did not apply — this case tests nothing");
+  const cov = storedAnswer(r, "fw-ev-item").coverage;
+  const at = (need) => cov.requirements.find((q) => q.need === need);
+  // BOTH references resolve — this case is NOT about an unfound implementation.
+  assert.equal(at(TBL.need).implementedBy, "bookings");
+  assert.equal(at(FN.need).implementedBy, "count_rows");
+  // THE FIX: the table's claim is weighed against the table alone, which
+  // carries no setting these words name, so it is there-and-unchecked with
+  // nothing borrowed from the function beside it.
+  assert.equal(at(TBL.need).configuredBy, undefined,
+    "the function's setting was recorded against the table's claim: " + JSON.stringify(at(TBL.need)));
+  assert.equal(at(TBL.need).state, "unverified",
+    "another item's configuration promoted a claim about the table");
+  // THE CONTROL: the same sentence, referencing the function, still records the
+  // setting that really holds of it.
+  assert.equal(at(FN.need).configuredBy, "count_rows: internal",
+    "the referenced item's own configuration stopped being recorded");
+  assert.equal(at(FN.need).state, "configured");
+  assert.equal(cov.counts.configured, 1,
+    "the configured count swept in the claim that borrowed it: " + JSON.stringify(cov.counts));
+  // AND THE CUSTOMER HEARS THE SAME SENTENCE FOR BOTH, deliberately: the
+  // difference is on the record, where it is actionable, and `configured` and
+  // `unverified` are one thing to say to a person.
+  const note = r.body.coverNote || "";
+  assert.match(note, /can't confirm from here that/, "neither claim reached the customer: " + note);
+  for (const n of [TBL.need, FN.need]) assert.ok(note.includes(n), "the customer was not told about: " + n);
+});

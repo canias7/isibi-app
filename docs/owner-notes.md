@@ -9998,3 +9998,93 @@ session deletes what nothing appears to need. The mutation test now breaks the
 Nothing merged, nothing deployed, no paid call, no site touched.
 
 The `search_path` review is still queued.
+
+---
+
+## The last way evidence could come from the wrong thing
+
+You found it: the kind+name identity reached the *implementation* check and
+stopped there. Underneath it sits an older check that reads the sentence the
+model wrote (`by`) and looks for the names of things we applied — and that one
+was still searching **everything**. So whenever the exact question had no
+answer, the loose one supplied one anyway.
+
+Your reproduction, driven here before I touched anything:
+
+| the site has | the claim is about | what it said |
+|---|---|---|
+| an applied table `bookings` | a **component** `bookings` | "I've set that up" |
+
+The component can't be seen by anything here — a section folded into a page
+leaves no trace we can list — so the honest answer is *"I can't see whether
+that's there"*. It said the other thing because the sentence happened to contain
+the word `bookings`, and a table of that name really had been made.
+
+### The fix
+
+**The sentence is now weighed against the same shortlist the implementation
+check used, and never a longer one.** Three cases, and each is a different
+statement about what may count as proof:
+
+- **The claim names a thing** (`{kind, name}`) — that thing and nothing else. A
+  miss means an empty shortlist, which is right whether the thing is absent or
+  simply not visible from here.
+- **The claim names nothing** — the output of the step responsible. Restricted,
+  not unrestricted.
+- **The claim names something but not what kind it is** — nothing at all. An
+  unclear reference can't buy itself certainty from the prose.
+
+There was a second, quieter face of the same bug and it's now covered too: even
+when the reference resolved perfectly, the *"here's the setting I checked"* note
+on the record could be read off a completely different item the sentence
+mentioned in passing. A claim about the bookings table was being annotated with
+a fact about a function.
+
+### The one judgement call, and I measured it rather than guessed
+
+For a claim that names nothing, I could have gone stricter still and allowed no
+prose match at all. **I tried it: it breaks nine guards instead of four, and
+five of those are real findings lost** — including three of your own earlier
+demonstrations (public versus internal functions, the stored connection, the
+configuration-is-not-behaviour case). A claim resting on a guarantee its own
+step's work really carries would have been reported as *"nothing I can check
+says either way"*, which is false when something can be checked and it holds.
+So it's the step's own output, and I've written down where the line is.
+
+### Test fixtures that had quietly drifted
+
+Four guard fixtures were hand-typed applied items with **no kind on them** —
+which cost nothing while the search was kind-blind and is impossible in the real
+product, where every applied item is stamped. They read as the scoping being
+broken. I re-anchored them onto the shape the real producer makes, and derived
+one of them from that producer outright rather than typing a second copy.
+
+### One line I kept although it now does nothing
+
+The branch that stops an unclear reference being rescued is now redundant — the
+shortlist is already empty in that case. **27,216 combinations, byte-identical
+with it and without it.** Kept, with the reason written in the file, because the
+two say different things: one is about *order*, the other about *scope*, and
+widening the scope by a line would make it load-bearing again. The mutation test
+breaks the pair together.
+
+### What was run
+
+- Your case driven end to end through the real addon route, checked on the
+  stored record **and** on the sentence the customer reads, with a
+  matching-item positive control in the same reply — same name, same applied
+  table, only the reference's kind differs. Plus the second face of the bug with
+  its own control. **Both proved red against the pre-change code first.**
+- The function-inventory case is driven at the module rather than the route, and
+  I've said why in the test: on the route the stored schema is always read, so
+  functions are always listable there. A route case would have had to fake it.
+- Guard files: `addon-route` 64 → 66. `requirement-coverage` stays at 22 and
+  gained assertions inside a case that already existed.
+- **Four** older guards re-anchored — counted from the commit's own diff.
+- **Mutation sweep: 14 mutants, 14 killed, 0 survived, 2 controls survived.**
+  First pass left five alive and **every one was a hole in my new tests, not in
+  the product**.
+- **Full suite 6,498 green** (6,496 + the two new cases).
+
+Nothing merged, nothing deployed, no paid call, no site touched. The
+`search_path` review is still queued.

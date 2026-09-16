@@ -827,6 +827,14 @@ test("configuration is recorded and never promoted, and only a checked behaviour
     "a configured claim stopped being said to the customer as unconfirmed");
   // AND THE DOOR IS REAL: a producer that really exercised a behaviour says so,
   // and that — and only that — answers delivered.
-  const checked = [{ name: "send_reminder", holds: [], fails: [], checked: ["ownership"] }];
+  // RE-ANCHORED 2026-09-16, and DERIVED rather than re-typed. The evidence
+  // lookup is scoped by `{kind, name}` since the bypass fix, so this hand-typed
+  // item — the door's only driver — was in no haystack and the door read shut.
+  // It is built from the real producer's own answer now, with nothing but
+  // `checked` filled in: a second hand-written copy of `appliedFacts`' shape is
+  // exactly the drift that hid the gap, and the recorded rule is to derive a
+  // fixture from its producer.
+  const checked = made.map((m) => ({ ...m, holds: [], fails: [], checked: ["ownership"] }));
+  assert.equal(checked[0].kind, "function", "the producer's own kind did not survive into the door's fixture");
   assert.equal(ask("send_reminder ownership was exercised", checked).state, "delivered");
 });

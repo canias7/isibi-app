@@ -4590,6 +4590,113 @@ the last three: *"Keep this correction bounded. No merge, deployment, paid
 rerun, or demo-site cleanup yet."* No paid call was made and no demo site was
 touched. **The `search_path` review stays queued.**
 
+### …AND THE EVIDENCE LOOKUP HAD THE SAME BYPASS UNDER IT (2026-09-16)
+
+Owner, on the round above: *"The original two collisions are fixed. One bypass
+remains: `claimEvidence(r.by, made)` still searches every applied kind …
+Evidence from another item must not turn an unknown implementation into
+configured, unverified, or delivered. Missing or ambiguous references must not
+regain certainty through an unrestricted prose match."*
+
+**THE IDENTITY REACHED `implementationOf` AND STOPPED THERE.** Underneath it
+sits an older, kind-blind reader — `claimEvidence` matches the applied items'
+names inside the sentence the model wrote — and it was handed `made` WHOLE. So
+whenever the exact question had no answer, the loose one supplied one.
+Reproduced at the module before anything was touched:
+
+| applied | the reference | what it said |
+|---|---|---|
+| TABLE `bookings` | `{kind: "component", item: "bookings"}` | `implementation: unknown`, state `unverified`, *"I've set that up"* |
+| TABLE `bookings` | `{kind: "table", item: "bookings"}` + prose naming an applied FUNCTION | `configuredBy` read off the FUNCTION |
+
+The second is the quieter face and it puts a wrong FACT on the record rather
+than a wrong state: the reference resolves perfectly and the *"here is the
+setting I checked"* note comes off a different item the sentence mentions in
+passing.
+
+**`evidenceItems(made, impl)` IS THE ONE SCOPE, DERIVED FROM `impl` RATHER THAN
+RE-RESOLVED**, so the two readers cannot come apart. Three answers, each a
+different claim about what may count as proof:
+
+| `impl.by` | haystack |
+|---|---|
+| `item` | that `{kind, name}` and nothing else. A miss is EMPTY, which is right for `absent` (not there) and for `unknown` (nobody could look) alike |
+| `kind` | the responsible STEP's own output — which is the question `implementationOf`'s no-name branch already asks in as many words. One haystack, two readers |
+| no kind | nothing. Ambiguous, or not reconciled at all |
+
+- **THE `kind` TEST IS WHAT MAKES THE LAST CASE SAFE.** An ambiguous reference
+  carries `kind: ""`, and filtering for that matches every applied item whose
+  OWN kind is missing rather than none of them — the empty-needle shape, in the
+  branch whose whole job is to answer nothing.
+- **AN ITEM REFERENCE IS NEVER NARROWED BY `from`.** That is which CALL
+  answered, never a claim about where the thing lives; it is the no-reference
+  haystack's scope only because there the question really is about a step's
+  output.
+- **THE LINE FOR A REFERENCE-LESS CLAIM WAS MEASURED, NOT ARGUED.** The
+  stricter reading — no prose match at all — was driven: **9 guards red against
+  4, and the five extra are real findings lost**, three of them the owner's own
+  earlier demonstrations (public versus internal functions, the stored
+  connection, configuration-is-not-behaviour). A claim resting on a guarantee
+  its own step's applied item really carries would read *"nothing I can check
+  says either way"*, which is FALSE when something can be checked and it holds.
+
+**THE `unresolved` BRANCH IS NOW A DECLARED REDUNDANCY, MEASURED INERT:
+27,216 probes over every status, kind, item, `from`, claim, failed kind and
+failed item — byte-identical with it and with it cut.** Kept because the two say
+different things: the branch is the ORDER (ambiguity outranks every weaker
+reading, and is asked AFTER the two failure branches), the haystack is the
+SCOPE. Widen the scope by one line — an ambiguous reference falling back to the
+step's kind is the plausible version — and it is the only wall again. The sweep
+mutates the PAIR.
+
+**FOUR GUARD FIXTURES HAD DRIFTED FROM THEIR PRODUCER, AND THAT IS WHAT THE
+FIRST RUN REPORTED.** Each was a hand-typed applied item with **no `kind`** (one
+also called `cleanRequirements` with no `from`) — free while the search was
+kind-blind, and impossible in the product: `appliedFacts` stamps a kind on every
+item and the route always hands the kind that answered. They read as the scoping
+being broken. Re-anchored onto the producer's shape, and `addon-steps`' `checked`
+fixture is now DERIVED from `appliedFacts` outright — the recorded "derive a
+fixture from its real producer", in the one fixture that drove the `delivered`
+door.
+
+**Guards**: `test/addon-route.test.mjs` **64 → 66** — the owner's reproduction
+driven through `POST /api/site/<slug>/addon` with its matching-item positive
+control IN THE SAME REPLY (same name, same applied table, only the reference's
+kind differs), and the `configuredBy` face with its own control; **both proved
+RED against the pre-change module** before being believed.
+`test/requirement-coverage.test.mjs` stays **22** and gained assertions inside a
+case that already existed: the three arms driven directly, both halves of the
+item identity, a kindless item in no haystack, the folded name comparison, the
+fail-closed unknown `by`, a non-array `made`, the scope driven end to end
+through `requirementOutcomes`, and a hand-off's prose ignored.
+**THE FUNCTION-INVENTORY CASE IS AT THE MODULE, DELIBERATELY, AND THE TEST SAYS
+WHY**: on the route `aSpec` is always read (`specForAddon` recovers or stops), so
+`existingFacts` always speaks for `function` and that state is unreachable there
+— saying so beats a route case that fakes it.
+
+**Four older guards were re-anchored, not appeased** — counted from this
+commit's own diff: `requirementNote says only what is still outstanding`, `the
+six states separate implementation from hand-off`, `ACCEPTANCE: the reproduced
+omitted requirement`, and `addon-steps`' `configuration is recorded and never
+promoted`.
+
+**Sweep: 14 mutants, 14 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 killed 9 with five survivors, and **every one was a
+gap in the new guards, not the product's** — three of them about shapes the
+route cannot produce, which is what a module guard is for: a hand-off reading a
+`by` the cleaner drops, an unrecognised `by` falling through to everything, a
+non-array `made`, a kindless applied item admitted everywhere, and a name
+comparison folded on one side only. **Every anchor was checked to occur exactly
+once before each run.**
+
+**Suite 6,498** — 6,496 + `addon-route`'s two, and the arithmetic closes
+exactly.
+
+**NOT MERGED AND NOT DEPLOYED** — the owner's instruction for this round, as for
+the last four: *"No merge, deployment, paid rerun, or demo cleanup yet."* No
+paid call was made and no demo site was touched. **The `search_path` review
+stays queued.**
+
 ### The write grants are column-scoped (2026-09-13)
 
 Owner: *"fix the managed-column permission gap, covering INSERT and UPDATE while
@@ -5024,7 +5131,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,496** (2026-09-16, local — the kinded reference, whose
+  The unit suite is **6,498** (2026-09-16, local — the evidence lookup's own
+  bypass, whose new cases are all `addon-route`'s **two** (64 → 66: the
+  component/table reproduction with its matching-item positive control in the
+  same reply, and the `configuredBy` face with its own control); **6,496 + 2
+  closes exactly**. `requirement-coverage` stays 22 and gained ASSERTIONS inside
+  a case that already existed — `evidenceItems` driven arm by arm, both halves
+  of the item identity, the kindless item, the folded name, the fail-closed
+  unknown `by`, a non-array `made`, the scope end to end, and a hand-off's prose
+  ignored. **CI has NOT read this number yet.**
+  **6,496** before it (2026-09-16, local — the kinded reference, whose
   new cases are all `addon-route`'s **two** (62 → 64: the owner's two
   collisions, an applied TABLE against a claim about a FUNCTION of the same
   name and a FAILED function against a claim about the TABLE); **6,494 + 2

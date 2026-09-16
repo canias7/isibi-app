@@ -26,7 +26,7 @@ import fs from "node:fs";
 
 import {
   COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, REQUIREMENT_STATES, SITE_KINDS, OPAQUE_KINDS,
-  ITEM_KINDS, referenceOf,
+  ITEM_KINDS, referenceOf, evidenceItems,
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
   requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName, claimEvidence,
 } from "../builder/site-requirements.mjs";
@@ -603,7 +603,7 @@ test("requirementNote says only what is still outstanding, in the customer's ter
     { need: "a visitor can book a slot", status: "covered", by: "bookings.slot" },
     { need: "the page shows their bookings", status: "elsewhere", step: "page" },
     { need: "the owner sees what changed on a repair", status: "unsupported", why: "row history is not something I can switch on" },
-  ]).list;
+  ], "table").list;
   // RE-ANCHORED 2026-09-14, TWICE. First (owner: "Something existing does not
   // prove the requirement works") a requirement whose step merely RAN stopped
   // reading as covered. Then (owner: "'Delivered' still means a name matched …
@@ -619,7 +619,15 @@ test("requirementNote says only what is still outstanding, in the customer's ter
   // no longer settles a behavioural need; only a `checked` token does, and
   // nothing produces those. So the covered claim below joins the unverified
   // clause instead of disappearing from the sentence.
-  const made = [{ name: "bookings", holds: ["slot", "unique", "own"], fails: ["anyone", "public", "members"], checked: [] }];
+  // RE-ANCHORED 2026-09-16, a FIXTURE that had drifted from its producer rather
+  // than an expectation that moved. `appliedFacts` stamps a `kind` on every item
+  // it makes and the route always hands `cleanRequirements` the kind that
+  // answered; this fixture predates both and carried neither, which was free
+  // while the evidence lookup searched `made` whole. It is scoped now
+  // (`evidenceItems`), so an item with no kind is in no haystack and a claim
+  // with no `from` has no haystack — and a fixture in a shape the product
+  // cannot produce would have reported that scoping as broken.
+  const made = [{ kind: "table", name: "bookings", holds: ["slot", "unique", "own"], fails: ["anyone", "public", "members"], checked: [] }];
   const done = requirementNote(list, { told: ["page"], made });
   assert.match(done, /owner sees what changed/);
   assert.match(done, /row history is not something I can switch on/);
@@ -685,15 +693,15 @@ test("requirementNote says only what is still outstanding, in the customer's ter
   // A CHECKED BEHAVIOUR — the only thing that answers `delivered` — is what
   // buys silence now. The configuration version of the same claim is the line
   // below it, and it speaks.
-  const exercised = [{ name: "bookings", holds: [], fails: [], checked: ["own"] }];
-  assert.equal(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, one row per owner (own)" }]).list,
+  const exercised = [{ kind: "table", name: "bookings", holds: [], fails: [], checked: ["own"] }];
+  assert.equal(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, one row per owner (own)" }], "table").list,
     { told: [], made: exercised }), "");
-  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, one row per owner (own)" }]).list,
+  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, one row per owner (own)" }], "table").list,
     { told: [], made }), /can't confirm from here/,
     "a configuration fact bought silence about a behaviour nobody checked");
   // …AND EXISTENCE ALONE IS NOT SILENCE: a claim that names the table and
   // nothing checkable about it is exactly the shape the owner corrected.
-  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings holds them" }]).list, { told: [], made }),
+  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings holds them" }], "table").list, { told: [], made }),
     /can't confirm from here/, "a bare name match passed as delivered");
   // …and a claim that CONTRADICTS what was applied is not evidence either. It
   // stays in the can't-confirm clause deliberately: the claim NAMED a table
@@ -701,7 +709,7 @@ test("requirementNote says only what is still outstanding, in the customer's ter
   // the guarantee is denied — and the other clause's *"nothing I can check says
   // either way"* would be false, since something can be checked and it says the
   // opposite.
-  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, readable by anyone" }]).list, { told: [], made }),
+  assert.match(requirementNote(cleanRequirements([{ need: "a", status: "covered", by: "bookings, readable by anyone" }], "table").list, { told: [], made }),
     /can't confirm from here/, "a claim disagreeing with the applied permissions passed as delivered");
   // RE-ANCHORED 2026-09-15 (owner: *"covered + no implementation evidence still
   // produces 'I've set that up.'"*). A `covered` label with no `by`, no `item`
@@ -709,7 +717,7 @@ test("requirementNote says only what is still outstanding, in the customer's ter
   // the model's word and may not stand in for evidence — so it earns the
   // can't-SEE clause. The property is unchanged and stronger: it is not
   // delivered, and now it does not claim to have been set up either.
-  const bare = requirementNote(cleanRequirements([{ need: "a", status: "covered" }]).list, { told: [], made });
+  const bare = requirementNote(cleanRequirements([{ need: "a", status: "covered" }], "table").list, { told: [], made });
   assert.match(bare, /can't see from here whether a/, "a claim with nothing to check against passed as delivered");
   assert.doesNotMatch(bare, /I've set that up/, "a covered label with no evidence behind it claimed the work was set up");
   assert.equal(requirementNote([], {}), "");
@@ -783,7 +791,11 @@ test("the six states separate implementation from hand-off, and evidence is asym
     { need: "text a reminder", status: "elsewhere", step: "job" },
     { need: "take crypto", status: "unsupported", why: "cards only" },
   ], "table").list;
-  const made = [{ name: "bookings", holds: ["slot", "unique", "own"], fails: ["anyone", "public", "members"], checked: [] }];
+  // RE-ANCHORED 2026-09-16 onto the producer's own shape: `appliedFacts`
+  // stamps `kind`, and the evidence lookup is scoped by it since the bypass
+  // fix. A kindless item is in no haystack, which is right and is not this
+  // case's subject.
+  const made = [{ kind: "table", name: "bookings", holds: ["slot", "unique", "own"], fails: ["anyone", "public", "members"], checked: [] }];
   const got = requirementOutcomes(list, { told: ["page"], failed: ["job"], made });
   // RE-ANCHORED 2026-09-14 (owner: "Matching configuration words must not mark
   // an entire business requirement delivered"). `holds` is CONFIGURATION, so
@@ -823,7 +835,7 @@ test("the six states separate implementation from hand-off, and evidence is asym
   // …AND A BEHAVIOUR SOMETHING REALLY EXERCISED IS STILL DELIVERED. The door
   // is real and nothing on this path fills it, which is the honest state and
   // is said in as many words in `appliedFacts`.
-  const exercised = [{ name: "bookings", holds: [], fails: [], checked: ["unique"] }];
+  const exercised = [{ kind: "table", name: "bookings", holds: [], fails: [], checked: ["unique"] }];
   assert.equal(requirementOutcomes(list, { told: ["page"], failed: ["job"], made: exercised })[0].state, "delivered");
   assert.match(got[3].why, /job step could not do its part/);
   // THE OWNING STEP OF A `covered` ENTRY IS THE ONE THAT ANSWERED IT, stamped
@@ -1044,6 +1056,114 @@ test("the six states separate implementation from hand-off, and evidence is asym
   assert.equal(claimEvidence("bookings.slot is unique", []), null, "the observer answered with nothing applied");
   assert.equal(claimEvidence("", made), null);
   assert.equal(claimEvidence(["bookings.slot"], made), null, "String(['x']) is 'x' — a non-string was coerced");
+  // ── AND WHAT IT IS ASKED ABOUT IS SCOPED ABOVE IT (owner, 2026-09-16) ─────
+  //
+  // *"claimEvidence(r.by, made) still searches every applied kind."* This
+  // function is kind-blind by design — it weighs a sentence against a list —
+  // so the identity has to reach it in the LIST. `evidenceItems` is that one
+  // scope, derived from what `implementationOf` already resolved rather than
+  // re-resolved, and the three answers are asserted here with the haystack in
+  // hand because every one of them is a different claim about what may count.
+  const KINDED = [
+    { kind: "table", name: "bookings", holds: ["user"], fails: ["collect"], checked: [] },
+    { kind: "function", name: "bookings", holds: ["internal"], fails: ["public"], checked: [] },
+    { kind: "function", name: "count_rows", holds: ["internal"], fails: ["public"], checked: [] },
+  ];
+  const seen = (impl) => evidenceItems(KINDED, impl).map((m) => m.kind + "::" + m.name);
+  // AN ITEM REFERENCE IS THAT ITEM AND NOTHING ELSE — `{kind, name}`, both
+  // halves, which is the whole of the owner's correction. The same NAME under
+  // another kind is a different thing, and the same KIND under another name is
+  // a different thing; both are driven, because a scope that kept either would
+  // read as working from one side.
+  assert.deepEqual(seen({ state: "found", by: "item", kind: "table", name: "bookings" }), ["table::bookings"]);
+  assert.deepEqual(seen({ state: "found", by: "item", kind: "function", name: "bookings" }), ["function::bookings"]);
+  assert.deepEqual(seen({ state: "found", by: "item", kind: "function", name: "count_rows" }), ["function::count_rows"]);
+  // A MISS IS AN EMPTY HAYSTACK, whichever way the implementation read it —
+  // `unknown` (nobody could look) as much as `absent` (it is not there). This
+  // is the owner's reproduction at the module: a reference of an unseeable kind
+  // against an applied item of another kind that the sentence names.
+  assert.deepEqual(seen({ state: "unknown", by: "item", kind: "component", name: "bookings" }), []);
+  assert.deepEqual(seen({ state: "absent", by: "item", kind: "job", name: "bookings" }), []);
+  // …AND THE SAME SHAPE FOR A FUNCTION WHOSE INVENTORY IS UNAVAILABLE, which is
+  // the owner's second reproduction. It is asserted HERE rather than through
+  // the route deliberately: on the route `aSpec` is always read (`specForAddon`
+  // recovers or stops), so `existingFacts` always speaks for `function` and
+  // that state is not reachable there — saying so beats a route case that fakes
+  // it.
+  assert.deepEqual(seen({ state: "unknown", by: "item", kind: "function", name: "count_missing" }), []);
+  // NO REFERENCE AT ALL IS THE RESPONSIBLE STEP'S OWN OUTPUT — restricted, and
+  // the same haystack `implementationOf`'s no-name branch already asks about.
+  // MEASURED before it was chosen: emptying this arm instead moves nine cases
+  // rather than four, and the five extra are real findings — a claim resting on
+  // a guarantee its own step's applied item really carries would be reported as
+  // *"nothing I can check says either way"*, which is false when something can
+  // be checked and it holds.
+  assert.deepEqual(seen({ state: "unknown", by: "kind", kind: "function", name: "" }),
+    ["function::bookings", "function::count_rows"]);
+  assert.deepEqual(seen({ state: "absent", by: "kind", kind: "api", name: "" }), []);
+  // AN AMBIGUOUS REFERENCE SCOPES TO NOTHING, and so does an unreconciled one:
+  // *"Missing or ambiguous references must not regain certainty through an
+  // unrestricted prose match."* Both carry `kind: ""`, and THAT is the test —
+  // filtering for the empty kind would match every item whose own kind is
+  // missing rather than none of them, which is the empty-needle shape in the
+  // one branch whose whole job is to answer nothing.
+  assert.deepEqual(seen({ state: "unknown", by: "ambiguous", kind: "", name: "bookings" }), []);
+  assert.deepEqual(seen({ state: "unknown", by: "", kind: "", name: "" }), []);
+  assert.deepEqual(evidenceItems(KINDED, null), [], "a requirement nothing reconciled was weighed against everything");
+  assert.deepEqual(evidenceItems([{ name: "bookings", holds: ["user"] }], { state: "unknown", by: "kind", kind: "", name: "" }), [],
+    "an item with no kind was matched by a reference with no kind");
+  assert.deepEqual(evidenceItems(null, { state: "found", by: "item", kind: "table", name: "bookings" }), []);
+  // AN APPLIED ITEM WITH NO KIND IS IN NO HAYSTACK, which is the other side of
+  // the same coin and needs a NON-empty reference kind to be visible at all.
+  // Every real item carries one (`appliedFacts` stamps it), so admitting a
+  // kindless one everywhere is invisible in the product and is exactly the
+  // pre-`kind` fixture shape leaking back in — the drift that hid this gap.
+  assert.deepEqual(evidenceItems([{ name: "bookings", holds: ["user"] }], { state: "found", by: "item", kind: "table", name: "bookings" }), [],
+    "an item with no kind was admitted to a table's haystack");
+  assert.deepEqual(evidenceItems([{ name: "bookings" }], { state: "unknown", by: "kind", kind: "table", name: "" }), [],
+    "an item with no kind was admitted to the step's haystack");
+  // THE NAME IS COMPARED FOLDED, because `referenceOf` folds its half and a
+  // real applied name need not be lowercase — a route is `/Status` as readily
+  // as `/status`. Folding only one side is a lookup that misses by case.
+  assert.deepEqual(
+    evidenceItems([{ kind: "page", name: "/Status" }], { state: "found", by: "item", kind: "page", name: "/status" }).map((m) => m.name),
+    ["/Status"], "the reference was folded and the applied name was not");
+  // AN UNKNOWN `by` IS FAIL-CLOSED. `implementationOf` answers only the four
+  // above, so this is the default nothing reaches today — and a default that
+  // fell through to the whole of `made` would restore the bypass for whatever
+  // fifth answer that reader grows next.
+  assert.deepEqual(evidenceItems(KINDED, { state: "unknown", by: "sideways", kind: "table", name: "bookings" }), [],
+    "an unrecognised reconciliation was weighed against everything of its kind");
+  // A NON-ARRAY `made` ANSWERS NOTHING RATHER THAN THROWING — the same
+  // tolerance `claimEvidence` has one line down, and this reader is exported.
+  assert.deepEqual(evidenceItems("bookings", { state: "found", by: "item", kind: "table", name: "bookings" }), []);
+  assert.deepEqual(evidenceItems({ 0: KINDED[0] }, { state: "unknown", by: "kind", kind: "table", name: "" }), []);
+  // ── AND THE SCOPE IS REALLY THE ONE THE LOOKUP USES, driven end to end ───
+  //
+  // The two above are pure functions; this is the hop between them, which is
+  // the layer the bypass lived in and the one a module test of either alone
+  // cannot see. Same claim, same applied items, three references.
+  const scoped = (kind) => requirementOutcomes(
+    cleanRequirements([{ need: "n", status: "covered", by: "bookings is kept and count_rows is internal", item: kind === "table" ? "bookings" : "count_rows", kind }], "table").list,
+    { made: KINDED, reportable: ["table", "function", "page", "api", "job"], existing: { items: [], kinds: ["table", "function"] } })[0];
+  assert.equal(scoped("function").configuredBy, "count_rows: internal",
+    "the referenced item's own configuration stopped being recorded");
+  assert.equal(scoped("table").configuredBy, undefined,
+    "the function's setting was recorded against a claim about the table");
+  assert.equal(scoped("table").state, "unverified", "another item's configuration promoted a claim about the table");
+  assert.equal(scoped("component").state, "unknown",
+    "an applied item of another kind rescued a claim nobody can see");
+  // …AND A HAND-OFF'S `by` IS NEVER READ, whatever it says. `cleanRequirements`
+  // drops `by` for `elsewhere` — a requirement asking another step for
+  // something has made no claim of its own — so this is the SECOND wall, and it
+  // is the one that holds for a caller handing an uncleaned list, which
+  // `requirementOutcomes` accepts. The two are asserted apart: the raw entry
+  // keeps its `by`, and the outcome must ignore it.
+  const handoff = { need: "n", status: "elsewhere", step: "function", by: "count_rows is internal" };
+  const [hoff] = requirementOutcomes([handoff], { told: ["function"], made: KINDED, reportable: ["table", "function"], existing: { items: [], kinds: ["table", "function"] } });
+  assert.equal(handoff.by, "count_rows is internal", "the fixture lost the claim this case is about");
+  assert.equal(hoff.configuredBy, undefined, "a hand-off's prose was read as a claim it never made");
+  assert.equal(hoff.state, "unknown", "a hand-off that named nothing was settled by its own prose");
 });
 
 test("an invalid property is said as a lost guarantee, never by its name", () => {
@@ -1432,7 +1552,11 @@ test("ACCEPTANCE: the reproduced omitted requirement is now named rather than dr
   // the first requirement's claim from an assertion into evidence: the designer
   // named `repairs` AND named its access level, and the applied table really
   // has that level. A claim naming the table alone would not be enough.
-  const made = [{ name: "repairs", holds: ["user", "own", "bike", "status"], fails: ["anyone", "public", "members", "none"], checked: [] }];
+  // RE-ANCHORED 2026-09-16 onto the producer's own shape — see the note in
+  // "requirementNote says only what is still outstanding". `ran.requirements`
+  // already carry `from: "table"` (they come off the real `runAdd`), so the
+  // kind on the applied item is the half this fixture was missing.
+  const made = [{ kind: "table", name: "repairs", holds: ["user", "own", "bike", "status"], fails: ["anyone", "public", "members", "none"], checked: [] }];
   const note = requirementNote(ran.requirements, { told: ["page"], made });
   assert.match(note, /history of what changed/, "the omitted requirement is still omitted");
   assert.match(note, /not a record of every change/, "the reason did not survive");
@@ -1478,7 +1602,7 @@ test("ACCEPTANCE: the reproduced omitted requirement is now named rather than dr
   // fact was matched. Asserting the sentence alone here would be vacuous, which
   // is this repository's own "a fixture too shallow to separate the two
   // readings" met in the guard rather than in the product.
-  const wrong = [{ name: "repairs", holds: ["anyone", "bike"], fails: ["user", "own", "members", "none"], checked: [] }];
+  const wrong = [{ kind: "table", name: "repairs", holds: ["anyone", "bike"], fails: ["user", "own", "members", "none"], checked: [] }];
   assert.match(requirementNote(ran.requirements, { told: ["page"], made: wrong }),
     /can't confirm from here that a customer can book a repair/,
     "a claim naming permissions the applied table does not have was read as delivered");
@@ -1488,7 +1612,7 @@ test("ACCEPTANCE: the reproduced omitted requirement is now named rather than dr
   // three rather than a demotion of one. `checked` is the behaviour really
   // exercised; NOTHING on the addon path fills it today (declared in
   // `appliedFacts`), so the demonstration is the module's.
-  const proven = [{ name: "repairs", holds: ["user", "own"], fails: ["anyone"], checked: ["repairs"] }];
+  const proven = [{ kind: "table", name: "repairs", holds: ["user", "own"], fails: ["anyone"], checked: ["repairs"] }];
   const provenNote = requirementNote(ran.requirements, { told: ["page"], made: proven });
   assert.doesNotMatch(provenNote, /can book a repair/, "a requirement with exercised behaviour behind it is still not delivered");
   assert.equal(requirementRecord({ list: ran.requirements, ran: ["table", "page"], told: ["page"], made: proven }).counts.delivered, 1);

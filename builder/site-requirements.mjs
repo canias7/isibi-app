@@ -557,6 +557,60 @@ function wordIn(text, needle) {
  * direction that costs a sentence inviting the customer to check. A false
  * "I can't confirm" costs a look; a false "done" costs them the guarantee.
  */
+/**
+ * THE ITEMS A CLAIM MAY BE WEIGHED AGAINST — the same haystack the
+ * IMPLEMENTATION reading used, and never a wider one.
+ *
+ * Owner, 2026-09-16: *"claimEvidence(r.by, made) still searches every applied
+ * kind … Carry the explicit kind + name identity through the evidence lookup
+ * too. Evidence from another item must not turn an unknown implementation into
+ * configured, unverified, or delivered. Missing or ambiguous references must
+ * not regain certainty through an unrestricted prose match."*
+ *
+ * THE BYPASS THIS CLOSES, reproduced before it was written. An applied TABLE
+ * `bookings`, a `covered` requirement whose reference is `{kind: "component",
+ * item: "bookings"}`, and `by: "bookings shows the total"`. The reference reads
+ * `implementation: "unknown"` — `component` is opaque, nothing can enumerate one
+ * — and the claim was then matched against EVERY applied item, found the table,
+ * and answered `named` → `unverified` → *"I've set that up."* The same shape
+ * rescues a `function` reference whenever function inventory is unavailable:
+ * the exact question has no answer and a prose match about a different thing
+ * supplies one anyway.
+ *
+ * SO THE HAYSTACK IS THE IDENTITY, AND THERE ARE EXACTLY THREE ANSWERS, keyed
+ * off what `implementationOf` already resolved rather than re-deriving it:
+ *
+ *   `by: "item"`   the reference is `{kind, name}` — that item and nothing else.
+ *                  A miss is an EMPTY haystack, which is right whichever way the
+ *                  implementation read: absent (the thing is not there), or
+ *                  unknown (nobody could look). Neither may be talked over by a
+ *                  sentence that happens to name something else.
+ *   `by: "kind"`   no reference at all. The claim is weighed against the output
+ *                  of THE STEP RESPONSIBLE, which is the question the no-name
+ *                  branch of `implementationOf` already asks in as many words —
+ *                  one haystack, two readers. Restricted, not unrestricted.
+ *   no kind        ambiguous (a name with no kind), or not reconciled at all.
+ *                  Nothing to scope by, so nothing to weigh against.
+ *
+ * **AND THE `kind` TEST IS WHAT MAKES THE LAST CASE SAFE.** An ambiguous
+ * reference carries `kind: ""`, and a filter for that would match every applied
+ * item whose own kind is missing rather than none of them — the empty-needle
+ * shape, in the branch whose whole job is to answer nothing.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO: narrow an item reference by `from`. That
+ * is which CALL answered, never a claim about where the thing lives — the
+ * distinction `referenceOf` is built on — and it is only the no-reference
+ * haystack's scope because there the question really is about a step's output.
+ */
+export function evidenceItems(made, impl) {
+  if (!impl || !impl.kind) return [];
+  const all = (Array.isArray(made) ? made : []).filter((m) => m && typeof m === "object");
+  const ofKind = all.filter((m) => String(m.kind || "") === impl.kind);
+  if (impl.by === "kind") return ofKind;
+  if (impl.by === "item") return ofKind.filter((m) => String(m.name || "").trim().toLowerCase() === impl.name);
+  return [];
+}
+
 export function claimEvidence(claim, made) {
   const text = typeof claim === "string" ? claim.toLowerCase() : "";
   if (!text) return null;
@@ -879,7 +933,14 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
     // THE CLAIM, READ ONLY FOR `covered` — `elsewhere` carries no `by`, the
     // cleaner never keeps one for it, and a requirement that asks another step
     // for something has made no claim of its own to weigh.
-    const ev = r.status === "covered" ? claimEvidence(r.by, made) : null;
+    //
+    // …AND READ AGAINST THE SAME IDENTITY THE IMPLEMENTATION WAS (owner,
+    // 2026-09-16). `made` used to go in whole, so a prose match against ANY
+    // applied item could turn an implementation nobody could find into
+    // `unverified`, `configured` or `delivered`. `evidenceItems` is the one
+    // scope, derived from `impl` rather than re-resolved, so the two readers
+    // cannot come apart.
+    const ev = r.status === "covered" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;
     let state = "unverified", why = r.why || "", configuredBy = "", contradictedBy = "";
     if (r.status === "unsupported") {
       // The step said so itself, in its own words.
@@ -922,6 +983,21 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
       // So nothing weaker may rescue it. Falling through to `claimEvidence`
       // would answer the question the designer did not ask with evidence about
       // a thing they may not have meant, and say *"I've set that up"* off it.
+      //
+      // **A DECLARED REDUNDANCY SINCE 2026-09-16, AND MEASURED INERT rather
+      // than assumed.** `evidenceItems` now scopes an ambiguous reference to
+      // nothing (it carries no kind), so `ev` is already `null` here and the
+      // fall-through lands on `unknown` anyway: **27,216 probes over every
+      // status, kind, item, `from`, claim, failed kind and failed item —
+      // byte-identical with this branch and with it cut.** It is KEPT because
+      // the two say different things and only one of them is about scope: this
+      // branch is the ORDER (ambiguity outranks every weaker reading, and in
+      // particular is asked AFTER the two failure branches), and the haystack
+      // is the SCOPE. Widen the scope by one line — an ambiguous reference
+      // falling back to the step's kind is the plausible version — and this
+      // becomes the only wall again. The sweep mutates the PAIR, because a
+      // sweep cannot say this and the next session deletes what nothing
+      // appears to need.
       state = "unknown";
     } else if (impl && impl.state === "absent") {
       // THE NAMED THING IS NOT THERE, and the explicit reference outranks the
