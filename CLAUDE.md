@@ -6765,7 +6765,107 @@ only a job THIS run registered, and `repairbench-1` has **no mail or SMS key in
 Secrets**, so the runner cannot reach a sender even if the model returns
 messages instead of a note.
 
-**NOT AUTHORIZED, AND NOTHING HAS RUN.** No paid call, no demo-site change.
+#### RUN 50: IT RAN, IT COUNTED 3, AND THE REPORT UNDER-SOLD IT (2026-09-16)
+
+The owner's press. `lane sweep` run **50** (**35140360136**), green in 5m21s,
+the addon job **173 s**, **cost 3 — balance 137 → 134**. Routed
+`["function","job"]`. **THE PRE-FLIGHT CLEARED BOTH HALVES BEFORE A CREDIT WENT**:
+`worker deploy: d9d8018d…`, `container image (cold start): d927ff27fd186f30`,
+the runtime route agreeing, then *"the code under test is the code answering"*.
+
+**THE FIRST MEASURED PAGELESS COST IS 3 CREDITS.** The shape argument said
+"smaller than a page build" and refused to name a number; the number is 3,
+against run 49's 12 and run 47's 13. **`build UNMOVED`** (`mu3wolgr-eqt2r5` →
+the same), verified from outside afterwards: `x-site-version` is still
+`01789551373761-47doj7`, run 49's build, and all four pages answer 200 at their
+previous sizes. No page, no compile, no publish — pageless proven live rather
+than driven.
+
+**THE FOUR CHECKS, each answered:**
+
+1. **DESIGNER INPUTS — hop 1 proven in the capture itself.** Both steps read
+   `hasDatabase: true` with both tables and their columns. The `function` step
+   was shown `functions: ["count_booked_repairs","count_existing_bookings",
+   "workshop_load"]`; the `job` step was shown those **plus
+   `nightly_booking_count`** — the function declared one call earlier, in the
+   job designer's own input, which is the hop `aSite.jobFns` exists for.
+2. **PERSISTED SCHEDULE AND EXPLICIT TIMEZONE**: `nightly_booking_count: at
+   23:00 Europe/London every 1440m`, the zone spelled out rather than
+   `(NO ZONE)`. **⚠ BUT THE FUNCTION REFERENCE IS NOT IN THAT ROUTE'S ANSWER** —
+   `GET /api/site/<slug>/jobs` returns `name · everyMinutes · at · tz · enabled
+   · lastRun · lastResult` and **no `fn`**, so the reference cannot be READ
+   back. It is proven FUNCTIONALLY instead: `runJob` reads `spec.fn` and calls
+   it, and the press returned the count, which a missing or wrong reference
+   answers `"no function"` for. A real reader gap, named rather than papered
+   over — and here the job and the function share a name, so the line is
+   ambiguous even to a careful eye.
+3. **RUN NOW RETURNED 3, AND THE PERSISTED RESULT AGREES.**
+   `ran nightly_booking_count now: 200 sent 0 — "Done — counted 3 bookings."`
+   then `persisted: lastRun 2026-09-16T19:29:36.345+00:00 lastResult "Done —
+   counted 3 bookings."` and **`the route's answer and the persisted result
+   AGREE`**. The 3 matches the total established three independent ways before
+   this test existed.
+4. **THE CUSTOMER REPLY — nothing `missing`, nothing `failed`**, and the record
+   reads `{total: 8, covered: 5, elsewhere: 3, delivered: 0, configured: 3,
+   unverified: 4, unknown: 1, missing: 0, blocked: 0, failed: 0}`. **But see the
+   finding below: it is accurate about what it can check and under-sells what it
+   configured.**
+
+**THE FUNCTION IS INTERNAL, PROVEN FROM OUTSIDE.** An anonymous RPC call answers
+**`42501 permission denied for function nightly_booking_count`** while the
+control `count_existing_bookings` answers **200 with `3`** — the observer alive
+in both directions. Its body is a single `SELECT json_build_object('did', …)
+FROM bookings`: no write, no delete, no recipient.
+
+**AND THAT FALSIFIES SOMETHING I SAID EARLIER IN THIS SESSION.** Deciding the
+test's shape I wrote that the PostgREST probe *"cannot reliably distinguish
+'internal function exists' from 'no function'"* and planned around it. It can:
+an internal function answers **`42501`**, an absent one **`PGRST202`**. That was
+reasoned about rather than measured, and the measurement is the opposite. **The
+same discrimination the tables already had** (`42501` = exists, `PGRST205` =
+does not), one object kind over.
+
+**⚠ THE CONCRETE FINDING: ONE NEED, TWO ENTRIES, TWO VERDICTS — AND THE
+CUSTOMER HEARS THE WEAKER ONE.** *"That count runs every night at 11"* appears
+**twice** in the coverage, because two designers both spoke to it:
+
+| written by | entry | verdict |
+|---|---|---|
+| the `function` step | `elsewhere → job`, **no `item`** | **`unknown`** |
+| the `job` step | `covered`, `item: nightly_booking_count` | one of the **`configured: 3`** |
+
+Both are the recorded rules applied correctly — a populated kind with no `item`
+must answer `unknown`, or any job would satisfy any request for one. **The
+EFFECT is that one reply says a thing is both configured and unseeable**, and
+the sentence the customer gets carries the pessimistic half: *"I can't see from
+here whether That count runs every night at 11 — nothing I can check says
+either way"*, about a job registered at 23:00 Europe/London that the same run
+then fired successfully. The hand-off itself was DELIVERED (`handedTo` names
+it); it is the implementation verdict that is unknown, and the implementation
+verdict is what reaches the prose.
+
+**Not fixed, and deliberately not**: the owner's standing instruction is no
+reporting redesign unless a test exposes a concrete defect. This is the
+concrete defect it exposed, recorded with its evidence, and what to do about it
+is the owner's call. The obvious shapes — resolve duplicate needs to their
+strongest verdict, or let a named entry settle an unnamed one for the same need
+— are both changes to how a reply is composed and neither is being made here.
+
+**STILL OWED READS WORSE THAN THE STATES, AGAIN** — it prints the raw
+`requirements` list, so all three `elsewhere` entries appear outstanding while
+the states are `configured`/`unverified`/`unknown` and none is `missing` or
+`failed`. Recorded before run 49 and unchanged; it is a harness label, not a
+verdict.
+
+**WHAT IS STILL NOT PROVEN, unchanged by this run**: automatic cron execution —
+Run now passes `force: true` and drops the dueness clause, so a real tick at
+23:00 Europe/London is the only thing that settles it. And reuse of this stored
+internal function by a LATER job (hop 2) is its own follow-up, not bought here.
+
+**And the run pushed its own results file to main** (`37736708`), existing
+`lane-sweep.yml` behaviour; it started no deploy.
+
+
 
 
 ## Data, auth, payments, mail

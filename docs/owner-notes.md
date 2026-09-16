@@ -761,7 +761,51 @@ this deploy uploaded no files and rolled no container — so it isn't the cause.
 But "isn't the cause" is weaker than "explained", and the missing baseline is
 why I can't say more.
 
-**Nothing has run. No paid call, nothing touched on the site.**
+### You ran it — it counted 3, for 3 credits
+
+**Run 50, green in 5m21s, 3 credits (137 → 134).** The pre-flight cleared both
+halves before anything was spent. It routed to a function and a job, exactly as
+planned, and **made no page** — the site is untouched, same version, all four
+pages the same size as before.
+
+**3 credits is the first real price for this shape** — against 12 for run 49 and
+13 for run 47. I'd refused to name a number; now there is one.
+
+**All four of your checks:**
+
+| | |
+|---|---|
+| designer inputs | both steps saw the real database — and the **job** step's list included the function the **function** step had just written, which is the hand-off that has to work |
+| schedule + timezone | `at 23:00 Europe/London every 1440m` — the zone spelled out |
+| Run now | **returned 3**, and the saved result **agrees**: *"Done — counted 3 bookings."* on both sides |
+| the reply | nothing failed, nothing missing — but see below |
+
+**The function is genuinely private**, checked from outside: a visitor calling it
+gets "permission denied", while the public one still answers 3. Its body is a
+single count — no write, no delete, nobody contacted.
+
+**One thing it got wrong, and it's worth your call.** The same requirement —
+*"that count runs every night at 11"* — got written down twice, once by each
+designer. The job step's version is recorded as configured. The function step's
+version had no name attached, so it landed as "can't tell" — **and that's the one
+the customer sentence uses**:
+
+> *"I can't see from here whether That count runs every night at 11 — nothing I
+> can check says either way"*
+
+...about a job that is registered at 23:00 and that the same run just fired
+successfully. Both halves are following the rules correctly; the effect is that
+one reply calls the same thing configured *and* unseeable, and the customer hears
+the gloomier one. **I haven't touched it** — you said no reporting changes unless
+a test turned up something real. This is the something real.
+
+**Two things still open**: whether a real 11pm tick fires it (Run now forces the
+job, so it can't answer that), and reusing this function from a second job later.
+
+**And one correction to myself.** Planning this I said I couldn't tell from
+outside whether an internal function existed. I can — it says "permission
+denied", where a missing one says "no such function". I reasoned instead of
+measuring, and the measurement says the opposite.
 ---
 
 ### Still true: I cannot press any of these
