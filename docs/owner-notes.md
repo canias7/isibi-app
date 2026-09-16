@@ -667,15 +667,32 @@ ranges reserved for exactly this.
 Run now can't prove the third: it forces the job regardless of whether it's due.
 Worth knowing before reading a green Run now as "the schedule works."
 
-**The smallest live test, with what it actually depends on:**
+**The live request is yours, and it's better than mine** — simpler, and it says
+both prohibitions out loud:
 
-> *"Every night at 11, count how many bookings are more than a year old and just
-> make a note of the number — don't delete anything, and don't email anyone."*
+> *"Every night at 11, count how many bookings we have and record the total in
+> the job's run result. Don't delete or change any bookings, don't email or text
+> anyone, and don't add a page."*
 
-It reads `bookings`, returns a note rather than messages, and needs **no
-recipient, no new column, no page, and no writes** — so nothing is added to or
+It reads `bookings`, records a note rather than sending messages, and needs **no
+recipient, no new column, no page and no writes** — nothing is added to or
 deleted from your data. That makes it the one shape that's genuinely just a
 function and a job on this site.
+
+**And we already know the answer: 3.** Three readers agree and all three predate
+this, so there's no baseline to buy — the raw row count on the 15th, your
+`counts` press (2 on the 18th + 1 on the 19th), and both RPCs today. A plain
+count gives the run a number it can be *wrong* against, which the date-arithmetic
+version wouldn't have.
+
+**The four things I'll check:**
+
+1. what the function and job designers were actually handed
+2. the saved function name, the schedule, and the timezone spelled out
+3. **Run now returning 3, and the saved result agreeing** — the harness now
+   compares those two and says so, instead of printing two numbers and leaving
+   you to spot a mismatch. "Nothing saved yet" is a third answer, not a pass.
+4. whether the reply describes what it really set up
 
 **Three ways the model could still miss, and all three are visible** rather than
 silent: it marks the function public (the job gets refused, by name), it returns
@@ -700,6 +717,17 @@ There's a test for it that fails if the fallback comes back.
 **Dependency failures stay where they are**, as you said — in the route tests.
 They can't be caused by typing a sentence; the database has to actually refuse
 something.
+
+**One thing I'm scoping tighter, on your note.** The new delivery tests hand the
+function's answer *in* — so they prove what the runner does with it, not that a
+model writes SQL returning that shape, and not that anything is actually
+delivered. Both of those are still open. The test file says so at the top,
+because a file called "job delivery" is exactly the one somebody later quotes as
+proof that mail works.
+
+**Two things deliberately left out of this run**: whether a real nightly tick
+fires it (Run now forces the job, so a green press says nothing about that), and
+reusing this function from a *second* job later — that's its own follow-up.
 
 **Nothing has run. No paid call, nothing touched on the site.**
 ---

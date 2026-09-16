@@ -11,6 +11,27 @@
 // run stops short of — and the refusal is its own case at the end, so the two
 // are demonstrated apart rather than one standing in for the other.
 //
+// ⚠ WHAT THESE CASES PROVE, AND WHAT THEY DO NOT (owner, 2026-09-16: "the new
+// cases prove runner behavior with supplied function output, not generated SQL
+// or provider delivery"). The function's answer is HANDED IN by the test, so
+// everything below is a claim about what `runJob` does WITH that answer:
+//
+//   PROVEN     the runner's own handling — which message is handed over, to
+//              whom, with what body; what is dropped and counted; which channel
+//              resolves which key; what is held versus failed; the claim
+//              ordering; the cap; and which rows a tick selects on a fixed clock.
+//   NOT PROVEN that a MODEL-WRITTEN SQL function returns this shape. Nothing
+//              here runs generated SQL, and the shapes below are ones a correct
+//              function would produce — which is an assumption about the
+//              designer, not a measurement of it.
+//   NOT PROVEN that anything is DELIVERED. The last hop visible here is the
+//              payload the provider WOULD have been handed: no provider accepts
+//              it, no handset receives it, and no real key is exercised.
+//
+// Both gaps are live questions and neither is closed by a green run of this
+// file. Saying so here is the point — a test file whose name reads "delivery"
+// is exactly the one somebody later quotes as proof that mail works.
+//
 // EVERY RECIPIENT HERE IS SYNTHETIC. `example.com` and the UK 07700 900xxx
 // range are both reserved for exactly this; no address or number in this file
 // can reach a person, and none is copied from a customer's row.

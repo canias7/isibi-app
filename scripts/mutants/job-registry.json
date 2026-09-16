@@ -192,5 +192,29 @@
     ],
     "from": "jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob, extra.jobsVerify)",
     "to": "jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob)"
+  },
+  {
+    "label": "a disagreement between the route and the row is reported as agreement",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  else if (row.lastResult === said) out.push(`     the route's answer and the persisted result AGREE`);\n  else out.push(`     the route's answer and the persisted result DISAGREE — route ${JSON.stringify(said)} vs row ${JSON.stringify(row.lastResult)}`);",
+    "to": "  else out.push(`     the route's answer and the persisted result AGREE`);"
+  },
+  {
+    "label": "a row with nothing recorded yet is called agreement",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (row.lastResult === null) out.push(`     the route's answer and the persisted result CANNOT BE COMPARED — nothing is recorded on the row yet`);",
+    "to": "  if (row.lastResult === null) out.push(`     the route's answer and the persisted result AGREE`);"
+  },
+  {
+    "label": "the disagreement names neither value, so the line says there is a problem and not what it is",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "DISAGREE — route ${JSON.stringify(said)} vs row ${JSON.stringify(row.lastResult)}",
+    "to": "DISAGREE"
   }
 ]

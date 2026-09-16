@@ -437,6 +437,15 @@ export function jobLines(before, after, ran, verify) {
   const row = verify[ran.name];
   if (!row) { out.push(`     the persisted outcome COULD NOT BE VERIFIED — ${JSON.stringify(ran.name)} is not in the re-read`); return out; }
   out.push(`     persisted: lastRun ${row.lastRun || "STILL never"}  lastResult ${row.lastResult === null ? "(none)" : JSON.stringify(row.lastResult)}`);
+  // AND THE TWO ARE COMPARED, not merely printed near each other. "the route
+  // said X and the row says X" is the check; two lines a reader has to hold in
+  // their head is how a disagreement gets skimmed past. A row with no result
+  // yet is neither agreement nor disagreement and says so — the write can lag
+  // or fail on its own, which is the whole reason these are two claims.
+  const said = String(ran.result == null ? "" : ran.result);
+  if (row.lastResult === null) out.push(`     the route's answer and the persisted result CANNOT BE COMPARED — nothing is recorded on the row yet`);
+  else if (row.lastResult === said) out.push(`     the route's answer and the persisted result AGREE`);
+  else out.push(`     the route's answer and the persisted result DISAGREE — route ${JSON.stringify(said)} vs row ${JSON.stringify(row.lastResult)}`);
   return out;
 }
 

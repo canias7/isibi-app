@@ -6562,9 +6562,19 @@ person, and nothing is copied from a customer's row). What it demonstrates:
   the other is not. Anything less leaves "the zone is read at all" unproven,
   which is what the first draft of that case got wrong.
 
-**AND THE LAST HOP IT SEES IS WHAT WAS HANDED OVER.** It cannot prove a provider
-accepts the payload, that a handset receives it, or that a real key works. **No
-real message has been sent and none may be** until the owner names a recipient.
+**⚠ WHAT IT PROVES IS SCOPED, AND THE SCOPE IS THE OWNER'S WORDING** (*"the new
+cases prove runner behavior with supplied function output, not generated SQL or
+provider delivery"*). The function's answer is HANDED IN by the test, so every
+case is a claim about what `runJob` does WITH that answer. **NOT proven: that a
+model-written SQL function returns this shape** — nothing here runs generated
+SQL, and the shapes used are ones a correct function WOULD produce, which is an
+assumption about the designer rather than a measurement of it. **NOT proven:
+that anything is DELIVERED** — the last hop visible is the payload the provider
+would have been handed; no provider accepts it, no handset receives it, no real
+key is exercised. Both gaps are live questions and a green run of that file
+closes neither. **The file's own header says so**, because a test named
+`job-delivery` is exactly the one somebody later quotes as proof that mail
+works. **No real message has been sent and none may be.**
 
 #### THE LIVE SCENARIO WAS WRONG, AND THE RECIPIENT SOURCE IS THE REASON
 
@@ -6585,17 +6595,26 @@ column, which is a **table** kind — and `pageless` is FALSE the moment a table
 is in the answers, so the whole cost argument went with it. The draft's ask is
 withdrawn.
 
-**THE SMALLEST LIVE TEST, with its dependencies named rather than assumed:**
+**THE SMALLEST LIVE TEST IS THE OWNER'S OWN WORDING**, which is simpler than
+the draft's and says the two prohibitions out loud:
 
-> *"Every night at 11, count how many bookings are more than a year old and just
-> make a note of the number — don't delete anything, and don't email anyone."*
+> *"Every night at 11, count how many bookings we have and record the total in
+> the job's run result. Don't delete or change any bookings, don't email or text
+> anyone, and don't add a page."*
 
 | it needs | it does not need |
 |---|---|
-| read `bookings` (a count over a date column) | any recipient — **the site has none** |
-| an INTERNAL function returning `{"did": …}` | a contact column, so no table kind |
+| read `bookings` — a plain `COUNT(*)`, no date arithmetic | any recipient — **the site has none** |
+| an INTERNAL function returning `{"did": …}` — which is what *"record the total in the job's run result"* names without naming it | a contact column, so no table kind |
 | a `job` at `23:00`, `everyMinutes` 1440, with the browser's `tz` | a page, so no compile and no publish |
-| | any write, so no customer data is added or deleted |
+| | any write, so no booking is added, changed or deleted |
+
+**AND THE EXPECTED ANSWER IS ALREADY ESTABLISHED INDEPENDENTLY: 3.** No new
+baseline tooling is needed, which is the point of the simpler count — three
+readers already agree and all three predate this test: the raw
+`SELECT COUNT(*) FROM bookings` at 17:52:40Z on 2026-09-15, the `counts` press's
+per-date split (2 + 1), and both public RPCs answering 3 today. **So the run has
+a number to be wrong against**, which a date-arithmetic ask would not have had.
 
 `pageless([{kind:"function",value:[{internal:true}]},{kind:"job",…}])` is
 **true**, driven. **But that is conditional on the model's own answer and the
@@ -6605,6 +6624,22 @@ function returning messages instead of `{"did"}` drops them all for want of an
 address (`dropped: N`); and a table in the answer is visible in `kinds`. None of
 those is a wrong answer wearing a right one's face, which is why the ask is
 worth running rather than rewriting until it cannot fail.
+
+**THE FOUR CHECKS, as the owner set them:**
+
+1. **the function and job designers' actual inputs** — `shownSteps`, the
+   per-kind pre-call capture, printed by `askLines`. For the `job` step the line
+   that matters is `siteNote`'s *"The functions a scheduled job may run are: …"*.
+2. **the persisted function reference, schedule and EXPLICIT timezone** —
+   `GET /api/site/<slug>/jobs`: the row's `fn`, `everyMinutes` 1440, `at`
+   `23:00`, and `tz` present rather than `(NO ZONE)`.
+3. **Run now returning 3, and the fresh persisted result AGREEING** — the press
+   answers `result`, the re-read answers `lastResult`, and the harness now
+   **compares them and says AGREE / DISAGREE / CANNOT BE COMPARED** rather than
+   printing two numbers near each other. A row with nothing recorded is the
+   third state, not a pass: `recordJobOutcome`'s write can fail on its own.
+4. **the customer reply accurately describing what was configured** — the
+   pageless reply's own sentence plus the stored coverage.
 
 **WHAT THE LIVE RUN ADDS over the stub**: the designer inputs (`shownSteps` for
 the `function` and `job` steps), the Worker→Supabase registration hop, the live
@@ -6654,6 +6689,18 @@ both survivors were the SAME recorded shape one hop apart — the lines computed
 under `if (false)`, and then the fourth argument dropped at the call site, which
 makes `verify` `undefined` and reports "could not be verified" over a re-read
 that worked. Suite **6,697** — 6,685 + 11 + 1, closing exactly.
+
+**AUTOMATIC CRON EXECUTION STAYS UNVERIFIED** until a real scheduled tick is
+observed, and a green Run now does not move it: `force: true` drops the dueness
+clause, so the press proves the runner and says nothing about selection. What is
+proven about selection is `dueJobs` on a fixed clock, and that is a different
+layer from a tick really firing.
+
+**REUSE OF THIS STORED INTERNAL FUNCTION IS A SEPARATE FOLLOW-UP TEST** — a
+later job naming the function this run creates, which is the recorded hop 2
+(*"a job on a STORED internal function is re-attached after `normalizeSchema`"*,
+which keeps a job only when its function is in the same spec: right for a build,
+a silent drop here). Not part of this run and not bought with it.
 
 **NOT AUTHORIZED, AND NOTHING HAS RUN.** No paid call, no demo-site change.
 

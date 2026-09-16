@@ -1085,6 +1085,33 @@ test("a re-read that failed after the press says the outcome could not be verifi
   const stampless = jobLines(before, after, ran, { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } }).join("\n");
   assert.match(stampless, /persisted: lastRun STILL never/, "a press whose stamp never landed must be visible as such, not as an unreadable answer");
   assert.doesNotMatch(stampless, /COULD NOT BE VERIFIED/);
+  assert.match(stampless, /CANNOT BE COMPARED/, "a row with nothing recorded is neither agreement nor disagreement");
+});
+
+test("the route's answer and the persisted result are COMPARED, not just printed", async () => {
+  const { jobLines } = await import("../scripts/addon-sweep.mjs");
+  // THE CHECK THE LIVE RUN IS BOUGHT FOR: "Run now returning 3 AND the fresh
+  // persisted result agreeing". Two lines a reader has to hold in their head is
+  // how a disagreement gets skimmed past -- and a disagreement is a real state,
+  // because `recordJobOutcome` writes the row and that write can fail on its own.
+  const before = {};
+  const after = { count_bookings: { everyMinutes: 1440, at: "23:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } };
+  const row = (lastResult) => ({ count_bookings: { everyMinutes: 1440, at: "23:00", tz: "Europe/London", enabled: true, lastRun: "2026-09-17T22:00:00Z", lastResult } });
+  const ran = (result) => ({ run: true, name: "count_bookings", status: 200, sent: 0, result });
+
+  const agree = jobLines(before, after, ran("3 bookings in total."), row("3 bookings in total.")).join("\n");
+  assert.match(agree, /AGREE/);
+  assert.doesNotMatch(agree, /DISAGREE/, "`AGREE` must not be matched out of the word DISAGREE");
+
+  const differ = jobLines(before, after, ran("3 bookings in total."), row("2 bookings in total.")).join("\n");
+  assert.match(differ, /DISAGREE/);
+  // BOTH VALUES ARE NAMED, or the line says there is a problem and not what it is.
+  assert.match(differ, /route "3 bookings in total\." vs row "2 bookings in total\."/);
+
+  // AND A PRESS THAT DID NOT HAPPEN COMPARES NOTHING -- there is no route answer
+  // to compare against, so claiming agreement would be inventing one.
+  const none = jobLines(before, after, { run: false, why: "not asked for" }, row("3 bookings in total.")).join("\n");
+  assert.doesNotMatch(none, /AGREE|DISAGREE|CANNOT BE COMPARED/);
 });
 
 test("the harness reads the registry before the post, and the press is its own switch", async () => {
