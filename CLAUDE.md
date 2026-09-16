@@ -6933,6 +6933,155 @@ found. Suite **6,703** — 6,698 + 5, closing exactly.
 **NOT YET DEPLOYED.** This changes `worker.js` and `builder/`, so the merge will
 roll the container and the 15–20 minute hold will apply — unlike the last one.
 
+### …AND TWO DEFECTS IN IT, BOTH REPRODUCED BEFORE AND AFTER (2026-09-16)
+
+Owner: *"1. …The elapsed-interval gate makes Run now postpone and shift the
+nightly schedule. Correct the manual-run/calendar interaction so a manual
+execution does not move the requested nightly occurrence… 2. `reconcileHandoffs`
+overwrites a blocked requirement when an answering entry names a different
+successfully applied job. Preserve known dependency failures… an echoed ID alone
+cannot override contradictory application evidence."* Plus: ***"These are
+targeted fixes, not a reporting redesign. Show the focused reproductions before
+and after."***
+
+#### 1. A MANUAL RUN MOVED THE NIGHTLY OCCURRENCE
+
+**REPRODUCED against the deployed `dueJobs`, on run 50's own row** —
+`last_run 2026-09-16T19:29:36.345Z` (the stamp "Run now" left), `everyMinutes
+1440`, `at "23:00"`, `tz "Europe/London"`:
+
+```
+BEFORE   2026-09-16T22:00:00Z  not due     ← the occurrence the customer asked for
+         2026-09-16T22:02:00Z  not due
+         2026-09-17T19:30:00Z  DUE         ← half past seven, the time of the press
+AFTER    2026-09-16T22:00:00Z  DUE
+         2026-09-16T22:02:00Z  DUE
+         …fires at 22:00:05 → not due at 22:02, 23:59 or next-day 19:30
+         2026-09-17T22:00:00Z  DUE
+```
+
+**THE ELAPSED TEST MEASURED 24 HOURS FROM WHENEVER THE JOB LAST RAN**, so one
+press slid the whole schedule to the hour of the press — and slid it again on
+every press after that. The customer asked for eleven at night and would have
+got half past seven in the evening, for ever.
+
+**FOR A DAILY-OR-FASTER CLOCK-TIME JOB THE OCCURRENCE GATE IS THE WHOLE RULE,
+AND IT ALREADY CARRIES THE DUPLICATE PROTECTION.** `anchor >= due` refuses a job
+that has run since the latest occurrence, **whatever ran it** — a cron tick, a
+press, a resumed consumer. At `mins <= 1440` there is exactly one occurrence a
+day, so *has this occurrence been served* is a complete question and elapsed time
+adds nothing but the drift.
+
+**SLOWER THAN DAILY KEEPS THE ELAPSED TEST, UNCHANGED AND DELIBERATELY** — a
+weekly 09:00 has to skip six occurrences and the interval is what does that.
+**Measuring it to the OCCURRENCE instead of to `now` was tried and is WORSE**: a
+run that landed late (09:05 on a busy tick) then fails its own next occurrence by
+five minutes and slips a whole day, where measuring to `now` slips it by minutes
+within the same day. That alternative is one of the sweep's mutants.
+
+**WHAT THIS DOES NOT FIX, STATED IN THE CODE**: a manual run still perturbs a job
+**slower than daily** — it becomes the anchor and the next occurrence can fall
+short of the interval. Fixing that needs the last SCHEDULED occurrence stored
+apart from `last_run`, which is a migration; this change leaves that case byte
+for byte as it was.
+
+**AND AN OLDER GUARD ASSERTED THE DEFECT AS CORRECT — RE-ANCHORED, NOT
+APPEASED.** `test/site-jobs.test.mjs` read
+`assert.equal(due(row({last_run: day2 08:02Z}), day3 08:01Z), false, "ran a
+minute early — the interval is not kept")`: a run that landed two minutes LATE
+pushing the next morning's firing two minutes back, pinned as the property. It
+asserts the calendar property now (that same row IS due at day 3 08:01Z), with
+the *before its own time* half added beside it (day 3 07:59Z, still false) so
+nothing early slips through. **Proved red against the pre-fix gate and green
+after.**
+
+#### 2. AN ECHOED ID OVERWROTE A KNOWN DEPENDENCY FAILURE
+
+**REPRODUCED**: a hand-off naming a job the database REFUSED (`blocked`,
+`the broken_job it needs could not be created`) and an answering `covered` entry
+naming a DIFFERENT job that applied, echoing the id.
+
+```
+BEFORE   hand-off state `configured`, reconciled by job#0 → good_job
+         the customer heard "Scheduled as you asked: The nightly reminder goes out."
+AFTER    hand-off state `blocked`
+         the customer hears only "waiting on another part of the same change
+         that didn't work… the broken_job it needs could not be created"
+         run 50's unnamed hand-off still reconciles — `configured`, said once
+```
+
+**THE ID SAYS WHICH REQUEST IS BEING ANSWERED; IT SAYS NOTHING ABOUT WHETHER THE
+ANSWER IS TRUE.** Three walls keep those apart, and each is its own question:
+
+1. **A KNOWN PROBLEM IS NEVER OVERWRITTEN.** `blocked`, `failed` and `missing`
+   each rest on evidence about the APPLICATION — a dependency the database
+   refused, a step that failed, a thing this layer looked for and did not find.
+   Reconciliation may resolve an UNCERTAINTY; it may not resolve a finding.
+2. **THE ANSWER MUST COME FROM THE STEP THE REQUEST WAS ADDRESSED TO.** An
+   `elsewhere` entry names its step; an echo from any other step is a different
+   call answering a question it was never asked.
+3. **AND IF THE REQUEST NAMED ITS OWN THING, THE ANSWER MUST BE THAT THING** —
+   `kind` AND name, which is the `{kind, name}` identity this file already
+   records, met one function later. `referenceOf` answers `null` when the
+   hand-off named nothing, **which is run 50's legitimate case and stays
+   reconcilable**: the customer named a behaviour and neither designer named an
+   artifact for it.
+
+**REFUSING TO RECONCILE IS ONLY HALF THE FIX, and the other half is what the
+reproduction found.** The answering entry was still `configured`, still carried
+the same need in its own words, and still reached the prose — so one need came
+back as *"waiting on another part that didn't work: the nightly reminder goes
+out"* **and** *"Scheduled as you asked: the nightly reminder goes out"*, two
+opposite sentences, **and the worse reading is the reassuring one**. An answer
+whose request carries a finding is silent in the note now. **KEYED BY THE ECHOED
+ID, never by the need text** — matching prose here would be the thing the
+reconciliation itself is forbidden to do, arriving through the back door.
+**ONLY OVER A PROBLEM STATE**: a mismatch with no finding behind it (the wrong
+step, or a reference naming something else) leaves both entries speaking, which
+is exactly what they did before any of this existed. **Both entries stay in the
+RECORD** with `overruledBy` / `overruledAs`.
+
+**Guards**: `test/job-delivery.test.mjs` **11 → 13** (the owner's exact sequence
+end to end, and the control that a job slower than daily keeps its interval
+unchanged); `test/requirement-coverage.test.mjs` **26 → 28** (the blocked
+overwrite with its `overruledBy` mark, an ISOLATING case for the state guard — a
+hand-off naming nothing, to a step that failed, where `referenceOf` is `null` and
+the reference check cannot stand in — and the wrong-step / wrong-item refusals
+with run 50's unnamed control, plus the KIND COLLISION and the arming pair the
+sweep asked for); `test/site-jobs.test.mjs` **46**, re-anchored in place.
+**Suite 6,707** — 6,703 + 2 + 2, and the arithmetic closes exactly, measured per
+file on both trees rather than derived.
+
+**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/job-calendar.json`, over `site-jobs.mjs`
+and `builder/site-requirements.mjs`). Pass 1 killed 14 with two survivors and
+**both were gaps in my own new guards, not the product's**:
+
+- **THE REFERENCE MATCHED BY NAME ALONE.** No case drove a kind collision, which
+  is this file's own `{kind, name}` finding one function later — and `bookings`
+  is the commonest name on this platform to be a table AND the thing a job is
+  named after. Closed with a pair whose applied lists are IDENTICAL and where
+  only the answer's own `kind` moves, so the control is about the kind and not
+  about which items exist.
+- **THE OVERRULE ARMED BY A BLOCKED HAND-OFF NOBODY ANSWERED.** The silencing
+  exists for an answer that WOULD have reconciled and was refused over a finding;
+  an entry that could never have reconciled is an independent `missing` finding
+  about its OWN item, and losing it costs the customer a "Still to do" they can
+  act on. `answering` is what tells those apart, so the arming reads it — **and
+  that mutant's first LABEL was wrong** (it claimed to key the overrule on the
+  need's prose and actually changed the precondition), corrected by reading what
+  the replacement really does rather than what it was meant to do.
+- **AND THAT SECOND GUARD'S FIRST FIXTURE MINTED BOTH HAND-OFF IDS AS
+  `function#0`**, because the id is `<owner>#<position in THIS list>` and the
+  fixture called `cleanRequirements` once per entry. Every echo was a stray one
+  and the case proved nothing. **A fixture that mints its ids the way the product
+  does is the only one whose echoes mean anything** — the recorded *derive a
+  fixture from its real producer*, in the one field the whole join runs on.
+
+**NOT MERGED AND NOT DEPLOYED.** The cron observation is PAUSED at the owner's
+word. Automatic execution stays **explicitly unverified**: run 50's job has only
+ever been fired by hand.
+
 
 ## Data, auth, payments, mail
 

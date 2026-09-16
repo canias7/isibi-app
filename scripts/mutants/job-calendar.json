@@ -1,0 +1,148 @@
+[
+  {
+    "label": "CONTROL: a comment only, inside the manual-run rule",
+    "control": true,
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "      // the next occurrence can fall short of the interval. Fixing that needs",
+    "to": "      // the next occurrence can fall short of the interval (control). Fixing that needs"
+  },
+  {
+    "label": "CONTROL: a comment only, above the overrule",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  // ONLY OVER A PROBLEM STATE. A mismatch with no finding behind it (the step",
+    "to": "  // ONLY OVER A PROBLEM STATE (control). A mismatch with no finding behind it (the step"
+  },
+  {
+    "label": "the elapsed gate is restored for every clock-time job — the reported defect itself",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "      if (mins <= 1440) return true;\n      return (t - anchor) >= (mins * 60000 - 30000);",
+    "to": "      return (t - anchor) >= (mins * 60000 - 30000);"
+  },
+  {
+    "label": "the elapsed gate is dropped for EVERY clock-time job, so a weekly 09:00 fires daily",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "      if (mins <= 1440) return true;\n      return (t - anchor) >= (mins * 60000 - 30000);",
+    "to": "      return true;"
+  },
+  {
+    "label": "the daily boundary is exclusive, so a job at exactly 1440 keeps the drift",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "      if (mins <= 1440) return true;",
+    "to": "      if (mins < 1440) return true;"
+  },
+  {
+    "label": "the occurrence gate goes, so a daily job runs on every tick all day",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "      if (anchor >= due) return false;               // already ran this occurrence, or added after it",
+    "to": "      if (false) return false;                       // already ran this occurrence, or added after it"
+  },
+  {
+    "label": "a slower-than-daily job measures its interval to the occurrence, the worse alternative",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "      return (t - anchor) >= (mins * 60000 - 30000);",
+    "to": "      return (due - anchor) >= (mins * 60000 - 30000);"
+  },
+  {
+    "label": "a known dependency failure is overwritten by an echoed id — the reported defect itself",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (r.state === \"blocked\" || r.state === \"failed\" || r.state === \"missing\") return r;",
+    "to": "    if (r.state === \"failed\" || r.state === \"missing\") return r;"
+  },
+  {
+    "label": "every finding is overwritable, so an echo clears a failed step too",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (r.state === \"blocked\" || r.state === \"failed\" || r.state === \"missing\") return r;",
+    "to": "    if (false) return r;"
+  },
+  {
+    "label": "any step may answer any request, so a call nobody asked settles the hand-off",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (a.from !== r.step) return r;",
+    "to": "    if (false) return r;"
+  },
+  {
+    "label": "a named request accepts an answer about something else",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (want && !(a.kind === want.kind && String(a.implementedBy || \"\").trim().toLowerCase() === want.name)) return r;",
+    "to": "    if (false) return r;"
+  },
+  {
+    "label": "the reference is matched by name alone, so a table named like the job answers for it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (want && !(a.kind === want.kind && String(a.implementedBy || \"\").trim().toLowerCase() === want.name)) return r;",
+    "to": "    if (want && !(String(a.implementedBy || \"\").trim().toLowerCase() === want.name)) return r;"
+  },
+  {
+    "label": "the reference is matched by kind alone, so any job answers for the one that was named",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (want && !(a.kind === want.kind && String(a.implementedBy || \"\").trim().toLowerCase() === want.name)) return r;",
+    "to": "    if (want && !(a.kind === want.kind)) return r;"
+  },
+  {
+    "label": "a hand-off that named nothing is refused, so run 50's own case stops reconciling",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (want && !(a.kind === want.kind && String(a.implementedBy || \"\").trim().toLowerCase() === want.name)) return r;",
+    "to": "    if (!want || !(a.kind === want.kind && String(a.implementedBy || \"\").trim().toLowerCase() === want.name)) return r;"
+  },
+  {
+    "label": "the overrule is built with no state filter, so an ordinary mismatch silences the answer",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (r.state === \"blocked\" || r.state === \"failed\" || r.state === \"missing\") overruled.set(r.id, r.state);",
+    "to": "    overruled.set(r.id, r.state);"
+  },
+  {
+    "label": "the overrule never fires, so one need keeps two opposite sentences",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      return { ...r, overruledBy: r.answers, overruledAs: overruled.get(r.answers) };",
+    "to": "      return r;"
+  },
+  {
+    "label": "the overruled answer is marked and still speaks",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const spoken = (r) => !(r && ((r.status === \"elsewhere\" && r.reconciledBy) || r.overruledBy));",
+    "to": "  const spoken = (r) => !(r && (r.status === \"elsewhere\" && r.reconciledBy));"
+  },
+  {
+    "label": "the overrule is armed by a blocked hand-off nobody answered, silencing an unrelated finding",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (!answering.has(r.id)) continue;",
+    "to": "    if (!r.need) continue;"
+  }
+]

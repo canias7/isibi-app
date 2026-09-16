@@ -703,9 +703,19 @@ test("a clock-time job waits for its time since it was added, runs once per occu
   assert.equal(due(row({ updated_at: iso(T(14)) }), T(8, 1, 4)), true, "did not fire the morning after it was added");
   // No registration stamp at all: run rather than strand.
   assert.equal(due(row({}), T(14, 30)), true);
-  // Once per occurrence, and the interval on top.
+  // ONCE PER OCCURRENCE, AND THE OCCURRENCE IS THE CALENDAR'S — RE-ANCHORED
+  // 2026-09-16, not appeased. The middle line used to read `false` with the
+  // message "ran a minute early — the interval is not kept", which asserted the
+  // elapsed-interval drift as correct: a run that landed two minutes LATE
+  // (08:02Z against an 08:00Z occurrence) pushed the next morning's firing two
+  // minutes back, and a "Run now" press at any hour pushed it to that hour for
+  // ever. The property that replaces it is the one the owner asked for — a run
+  // does not move the requested occurrence — and the duplicate protection is
+  // unchanged and is the line above: having run since the latest occurrence is
+  // what refuses a second firing, whatever did the running.
   assert.equal(due(row({ last_run: iso(T(8, 2)) }), T(10)), false, "ran twice in one day");
-  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 1)), false, "ran a minute early — the interval is not kept");
+  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(7, 59)), false, "fired before its own time");
+  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 1)), true, "a run two minutes late moved the next morning's occurrence");
   assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 2)), true, "did not run the next morning");
   assert.equal(due(row({ schedule_minutes: 10080, last_run: iso(Date.UTC(2026, 7, 28, 8, 2)) }), T(8, 5)), false, "a weekly 09:00 ran after six days");
   assert.equal(due(row({ schedule_minutes: 10080, last_run: iso(Date.UTC(2026, 7, 27, 8, 2)) }), T(8, 5)), true, "a weekly 09:00 did not run after seven");

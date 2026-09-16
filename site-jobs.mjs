@@ -160,6 +160,36 @@ export function dueJobs(rows, now) {
       if (!Number.isFinite(anchor)) return true;     // no stamp and no registration time: run, do not strand
       if (anchor >= due) return false;               // already ran this occurrence, or added after it
       if (!r.last_run) return true;                  // never run, and its time has come since it was added
+      // ── A MANUAL RUN MUST NOT MOVE THE NIGHTLY OCCURRENCE ─────────────────
+      //
+      // (owner, 2026-09-16, reproduced.) A daily 23:00 Europe/London job with
+      // `last_run` 19:29:36Z — the timestamp "Run now" left — was NOT selected
+      // at 22:00Z or 22:02Z that evening, and WAS selected at 19:30Z the next
+      // day: the elapsed-interval test below measures 24 hours from whenever
+      // the job last ran, so one press slides the whole schedule to the time of
+      // the press. The customer asked for eleven at night and would have got
+      // half past seven in the evening, for ever, drifting again on every press.
+      //
+      // FOR A DAILY-OR-FASTER CLOCK-TIME JOB THE OCCURRENCE GATE IS THE WHOLE
+      // RULE, and it already carries the duplicate protection: `anchor >= due`
+      // three lines up refuses a job that has run since the latest occurrence,
+      // whatever ran it. There is exactly one occurrence per day at `mins <=
+      // 1440`, so "has this occurrence been served" is a complete question and
+      // elapsed time adds nothing but the drift.
+      //
+      // SLOWER THAN DAILY KEEPS THE ELAPSED TEST, UNCHANGED AND DELIBERATELY.
+      // A weekly 09:00 needs to skip six occurrences, and the interval is what
+      // does that. Measuring it to the OCCURRENCE instead of to `now` was tried
+      // and is WORSE: a run that landed late (09:05 on a busy tick) then fails
+      // its own next occurrence by five minutes and slips a whole day, where
+      // measuring to `now` slips it by minutes within the same day.
+      //
+      // WHAT THIS DOES NOT FIX, STATED: a manual run still perturbs a job
+      // slower than daily, exactly as it does today — it becomes the anchor and
+      // the next occurrence can fall short of the interval. Fixing that needs
+      // the last SCHEDULED occurrence stored apart from `last_run`, which is a
+      // migration; this change leaves that case byte for byte as it was.
+      if (mins <= 1440) return true;
       return (t - anchor) >= (mins * 60000 - 30000);
     }
     if (!r.last_run) return true;                    // never run — due immediately

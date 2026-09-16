@@ -316,3 +316,65 @@ test("a due job and a not-due job are told apart in one tick, stalest first", as
   assert.deepEqual(picked.map((r) => r.name), ["never_run", "ran_a_day_ago", "ran_two_hours_ago"],
     "the not-due job must be left out, and the rest ordered by how long each has waited");
 });
+
+// ── A MANUAL RUN MUST NOT MOVE THE NIGHTLY OCCURRENCE ────────────────────────
+//
+// The owner's exact reproduction (2026-09-16), driven as the sequence it really
+// was: run 50 pressed Run now at 19:29:36Z, which stamped `last_run`, and the
+// elapsed-interval gate then measured 24 hours from THAT — so the 23:00
+// Europe/London job was not selected at 22:00Z or 22:02Z that evening and WAS
+// selected at 19:30Z the next day. The customer asked for eleven at night and
+// would have got half past seven in the evening, drifting again on every press.
+test("a Run now stamp does not shift a nightly job's occurrence", async () => {
+  const row = (last) => ({
+    name: "nightly_booking_count", enabled: true, schedule_minutes: 1440,
+    spec: { fn: "nightly_booking_count", at: "23:00", tz: "Europe/London" },
+    last_run: last, updated_at: "2026-09-16T19:27:00Z",
+  });
+  const due = (r, t) => dueJobs([r], Date.parse(t)).length === 1;
+  const PRESSED = row("2026-09-16T19:29:36.345Z");   // exactly what Run now left
+
+  // THE EVENING IT WAS ASKED FOR. Both ticks inside the window must select it.
+  assert.equal(due(PRESSED, "2026-09-16T22:00:00Z"), true, "23:00 London is 22:00Z — the job must be due at its own time");
+  assert.equal(due(PRESSED, "2026-09-16T22:02:00Z"), true, "and at the next two-minute tick, which is when a real run may land");
+  // AND THE SHIFTED TIME IS NOT WHAT SELECTS IT. This is the defect's own
+  // signature: before the fix this was the FIRST moment it came due.
+  assert.equal(due(PRESSED, "2026-09-17T19:30:00Z"), true,
+    "still overdue here, because nothing has served the 16th's occurrence — the point is that 22:00Z already did");
+
+  // DUPLICATE-EXECUTION PROTECTION, PRESERVED. Once it fires, the occurrence
+  // gate refuses every later tick until the NEXT occurrence — which is the same
+  // wall that used to be the interval's, and is why dropping the interval for a
+  // daily job costs nothing.
+  const RAN = row("2026-09-16T22:00:05.000Z");
+  for (const t of ["2026-09-16T22:02:00Z", "2026-09-16T22:30:00Z", "2026-09-16T23:59:00Z", "2026-09-17T19:30:00Z", "2026-09-17T21:59:00Z"]) {
+    assert.equal(due(RAN, t), false, `it ran at 22:00:05 and must not run again at ${t}`);
+  }
+  assert.equal(due(RAN, "2026-09-17T22:00:00Z"), true, "and it must come round again at the NEXT night's 23:00 London");
+
+  // A SECOND PRESS MID-DAY STILL DOES NOT MOVE THE NIGHT. The whole point: the
+  // schedule is the calendar's, not the last press's.
+  const PRESSED_AGAIN = row("2026-09-17T11:04:00.000Z");
+  assert.equal(due(PRESSED_AGAIN, "2026-09-17T22:00:00Z"), true, "a press at lunchtime must not push that night's run");
+  assert.equal(due(PRESSED_AGAIN, "2026-09-17T21:58:00Z"), false, "…and must not bring it forward either");
+});
+
+test("a job slower than daily keeps the elapsed interval, unchanged", async () => {
+  // THE REASON THE FIX IS SCOPED TO `mins <= 1440`. A weekly 09:00 has to skip
+  // six occurrences and the interval is what does that; the occurrence gate
+  // alone would fire it every morning.
+  const weekly = (last) => ({
+    name: "digest", enabled: true, schedule_minutes: 10080,
+    spec: { fn: "digest", at: "09:00", tz: "UTC" }, last_run: last, updated_at: "2026-08-01T00:00:00Z",
+  });
+  const due = (r, t) => dueJobs([r], Date.parse(t)).length === 1;
+  assert.equal(due(weekly("2026-09-07T09:00:02Z"), "2026-09-14T09:00:30Z"), true, "a week later it is due");
+  assert.equal(due(weekly("2026-09-07T09:00:02Z"), "2026-09-08T09:00:30Z"), false, "the next morning it is not");
+  assert.equal(due(weekly("2026-09-07T09:00:02Z"), "2026-09-12T09:00:30Z"), false, "nor five days on");
+  // AND A RUN THAT LANDED LATE SLIPS BY MINUTES, NOT BY A DAY — which is why
+  // the interval is still measured to NOW and not to the occurrence. Measuring
+  // to the occurrence was tried and makes this case a day late.
+  const late = weekly("2026-09-07T09:05:00Z");
+  assert.equal(due(late, "2026-09-14T09:00:30Z"), false, "four and a half minutes short of the week");
+  assert.equal(due(late, "2026-09-14T09:06:00Z"), true, "…and due on the same morning once the week is up");
+});

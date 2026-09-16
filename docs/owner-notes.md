@@ -840,6 +840,79 @@ would really be called — and a job that has lost its reference says
 **This one will roll the container** when merged, unlike the last change — so
 the 15–20 minute wait applies before anything paid.
 
+### You found two more, and both were exactly as you described
+
+Cron observation paused, as you said. Both reproduced first, fixed, then
+reproduced again — the before and after are below, not a summary of them.
+
+**1. "Run now" was moving your 11pm job.** On run 50's own row, with the
+timestamp the press left:
+
+```
+BEFORE   16 Sep 23:00 London  not due     ← the time you actually asked for
+         16 Sep 23:02 London  not due
+         17 Sep 20:30 London  DUE         ← half past eight, because of the press
+AFTER    16 Sep 23:00 London  DUE
+         then it fires, and is not due again until 17 Sep 23:00
+```
+
+It was counting twenty-four hours **from whenever the job last ran**, so one
+press slid the whole schedule to the hour of the press — and would have slid it
+again on every press after that. For a job that runs once a day or oftener, the
+only question that matters is *has tonight's run happened yet*, and that question
+was already being asked three lines earlier. It is the whole rule now, and it
+still refuses a second run the same night **whoever** did the first one — a
+press, a tick, or a recovered job.
+
+**Weekly and slower keep the old behaviour deliberately**: a weekly 9am has to
+skip six mornings and the interval is what does that. I tried the tidier version
+(measure the week to the occurrence rather than to now) and it is worse — a run
+that lands five minutes late then misses its own next occurrence and slips a
+whole day.
+
+**One thing it does NOT fix, and I'd rather say it than have you find it**: a
+press still nudges a job slower than daily. Fixing that properly means storing
+the last *scheduled* time separately from the last *actual* run, which is a
+database change; this change leaves that case exactly as it was.
+
+**And one of my own tests was asserting the bug as correct** — it demanded that a
+run landing two minutes late push the next morning two minutes back. I rewrote
+what it asserts rather than adjusting the number, and checked it fails against
+the old code.
+
+**2. An echoed id could overwrite a real failure.** Your reproduction, verbatim
+in behaviour:
+
+```
+BEFORE   the customer heard "Scheduled as you asked: The nightly reminder goes out."
+         …about a job the database had refused to create
+AFTER    the customer hears only "waiting on another part of the same change that
+         didn't work — the broken_job it needs could not be created"
+         and run 50's legitimate case still reads as one configured outcome
+```
+
+The id says **which request is being answered**. It says nothing about whether
+the answer is true, and three separate things now check that: a known failure is
+never overwritten; the answer has to come from the step the request was addressed
+to; and where the request named its own thing, the answer has to be that thing —
+both its kind and its name.
+
+**Refusing to reconcile turned out to be only half of it.** The answering entry
+was still sitting there saying "scheduled as you asked" in its own words, so one
+sentence came back twice with opposite verdicts — and the reassuring one is the
+worse half to leave standing. An answer whose request carries a known failure is
+now silent in the customer note. **Both entries stay in the record**, so you can
+still see what each designer said.
+
+**Checks**: full suite **6,707**, nothing failing. The mutation sweep found two
+holes in my own new tests — a name collision (`bookings` is both a table and what
+a job gets named after, and only the name was being compared) and a case where
+silencing could have eaten an unrelated "still to do". Closed both, re-ran:
+**16 of 16 caught, none survived.**
+
+**Not merged, not deployed, nothing paid.** Automatic 11pm running is still
+**unverified** — run 50's job has only ever been fired by hand.
+
 ---
 
 ### Still true: I cannot press any of these
