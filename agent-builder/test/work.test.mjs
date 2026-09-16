@@ -217,3 +217,39 @@ test("AN APPEND ANSWER THE VOCABULARY DOES NOT COVER IS RAISED, never read as a 
   assert.deepEqual(await c.work.append({ runId: "r1", seq: 3, body: startedEntry, worker: "w1", token: "tok" }),
     { answer: "lease-expired", seq: null });
 });
+
+/**
+ * ⚠ **WHICH EXECUTOR WANTS THE ROW HAS TO SURVIVE THIS FUNCTION, and it did not.**
+ *
+ * `claim_run` has answered `executor` since the automations migration and this module
+ * builds its answer FIELD BY FIELD — so the field simply did not exist to the runner,
+ * every automation delivery came back `no-agent`, and the routing branch that was correct
+ * all along was dead. The runner's own guard drives a FAKE `work` whose claim answers
+ * `executor` directly, which proved the branch and not the hop: *a fixture more capable
+ * than the real producer hides a defect exactly as well as one that is less.*
+ *
+ * **THE REAL DISPATCHER IS WHAT FOUND IT** (`npm run verify:auto`), which is the honest
+ * reading of why this case exists — it is the guard the sweep and 298 unit cases could
+ * not be.
+ */
+test("⚠ the claim's `executor` reaches the caller, and cannot-tell means the old one", async () => {
+  const claimed = (extra) => answering({
+    body: { claimed: true, run_id: "r1", tenant_id: "t1", kind: "start", attempts: 1, claim_token: "tok", ...extra },
+  }).work.claim({ runId: "r1", worker: "w1", ttlS: 90 });
+
+  assert.equal((await claimed({ executor: "automation" })).executor, "automation",
+    "an automation row must reach the runner as one");
+  assert.equal((await claimed({ executor: "agent" })).executor, "agent");
+
+  // A DATABASE THAT PREDATES THE COLUMN ANSWERS NO SUCH FIELD, and the only safe reading
+  // of "this row does not say" is the executor every row had before there was a choice.
+  // Reading it as `automation` would route an agent run into the workflow.
+  for (const odd of [undefined, null, "", "   ", 7, ["automation"], {}]) {
+    assert.equal((await claimed({ executor: odd })).executor, "agent", JSON.stringify(odd) + " must fail closed");
+  }
+
+  // AND THE WHOLE ANSWER IS STILL THE ANSWER: adding a field must not have dropped one.
+  const c = await claimed({ executor: "automation" });
+  assert.deepEqual(Object.keys(c).sort(),
+    ["attempts", "claimed", "executor", "kind", "runId", "tenant", "token"]);
+});

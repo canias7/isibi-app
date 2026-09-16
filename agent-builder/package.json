@@ -11,6 +11,7 @@
     "serve": "node scripts/serve.mjs",
     "demo:long": "node scripts/demo-long-run.mjs",
     "verify:local": "node scripts/verify-local.mjs",
-    "verify:chat": "node scripts/verify-agent-chat.mjs"
+    "verify:chat": "node scripts/verify-agent-chat.mjs",
+    "verify:auto": "node scripts/verify-automations.mjs"
   }
 }

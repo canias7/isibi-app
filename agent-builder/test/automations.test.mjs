@@ -213,6 +213,9 @@ test("⚠ the stored config is read AGAIN at run time, because it came from a da
 test("a step that throws becomes that step's outcome, and runWorkflow never throws", async () => {
   const boom = defineStep({
     type: "boom", kind: "action", label: "Boom", does: "throws",
+    // `fields` IS COMPELLED — this case went red when it arrived, which is the
+    // declaration doing its job at author time rather than at run time.
+    fields: [{ name: "text", kind: "text" }],
     read: () => ({ config: {} }), run: () => { throw new Error("it broke"); },
   });
   const r = await runWorkflow({
