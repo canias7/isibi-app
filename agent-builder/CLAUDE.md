@@ -2362,17 +2362,76 @@ re-applied VERBATIM and now match by md5 AND by length (`send_to_agent` 6,358 ·
 `authored_run` 900 · `history_turns` 11). No second file — that would be a second copy
 of the same DDL.
 
+### PROVEN LIVE, in a real browser, and it found two defects (2026-09-16)
+
+**16 checks, 0 failed**, driven with Chromium against `gofarther.dev` as a signed-in
+throwaway account, after the migration, the engine deploy and the site deploy were all
+in place. The account and every row it made were deleted afterwards (14 runs, 6 agents,
+1 user).
+
+| what was asked of the live screen | answer |
+|---|---|
+| a message appears in the conversation | **824 ms** |
+| the agent's answer arrives | **7.9 s** from pressing send |
+| the answer is `[simulated]` in its own text AND in the chrome | both |
+| the answer quotes the instructions it was started with | yes |
+| a half-typed next message survives the 2.5 s poll | the words, the caret AND the focus |
+| a lost response is reported and the words kept | yes |
+| an edited retry lands as its own message | yes |
+| the box is cleared only because the edit really was saved | yes |
+
+**THE DATABASE SIDE OF THE SAME RUNS**: 14 messages, **14 runs, all 14 answered, all 14
+on `stand-in`**, 14 of 14 messages LINKED to their run, 14 of 14 `started` entries
+carrying the instructions snapshot, 0 left queued, and **`attempts` never above 1** —
+which is this product's own cleanest evidence that nothing executed twice.
+
+**AND THE DOORBELL IS WHAT MADE IT SECONDS.** `sweep_run_work` runs on a one-minute
+cron, so an 7.9-second send-to-answered cannot have come from the sweep. Before the
+ring, the same press would have waited up to a minute.
+
+**⚠ TWO DEFECTS THE LIVE SCREEN FOUND AND EVERY UNIT CASE MISSED, both in the composer
+work added the same day, and both the same root cause: the fake `#agMsg` carried no
+`data-agent`, so the composer read answered "no conversation" and wrote nothing.** *A
+fixture less capable than the render it stands in for hides a defect exactly as well as
+one that is more* — and this is the most expensive recorded instance of it here, because
+the code being hidden was written to fix a different defect in the same function.
+
+1. **A SUCCESSFUL SEND LEFT ITS MESSAGE IN THE BOX.** The draft is dropped on success,
+   and the next render READ the box before redrawing it and wrote those words straight
+   back into the draft it had just cleared. The next press would have sent the same
+   message again. Fixed by emptying the textarea beside the draft; with that removed,
+   THREE cases now go red (the new one plus two that had been passing vacuously).
+2. **AND THEN THE CLEAR ATE A MESSAGE IT HAD NOT SENT.** The answer lands about a second
+   after the press, so anybody typing their next message inside that second lost its
+   first characters mid-word — measured live as twelve of them, leaving
+   `"ake card payments"`. The clear is conditional on the box still holding exactly what
+   was sent; anything else is somebody's new message.
+
+**AND ONE READING THAT WAS THE TEST'S FAULT, kept here because it is a real property.**
+A third run showed the box holding `sent + typed`: the product's own rule is that the box
+is NOT cleared until the server has the message, so for about a second it still holds
+what was sent and typing appends to it — and the clear then correctly refuses to remove
+text it did not send. Two correct behaviours meeting, not a defect. The check types once
+the send has confirmed, which is what a person does; *a test that fails for a reason the
+product is right about is a test that has to change.*
+
 ### Not proven live, and the list is short
 
-**THE DEPLOYED ENGINE DOES NOT YET CARRY THE `authored` AGENT — read, not assumed.**
-`/health` on `agent-builder-api.aniascapital.workers.dev` answers version
-`c0334f7c-9cc1-4ad6-a641-496edd095e81` with `agents: ["support","slow","guarded"]`, so a
-run accepted for a customer's agent would come back `no-agent` today. **That fixes the
-deployment order: migration → THIS engine → the site builder**, and it is why the order
-is not a preference.
+**EVERYTHING IS DEPLOYED, AND THE ORDER WAS NOT A PREFERENCE.** Before the engine went
+out, `/health` answered `agents: ["support","slow","guarded"]` — no `authored` — so a run
+accepted for a customer's agent would have come back `no-agent`. Read rather than
+assumed, which is what fixed the order: **migration → this engine → the site builder**.
+The engine now serves version `147fd716-a091-4c26-8e28-731d103971af` with
+`agents: ["support","slow","guarded","authored"]`.
 
 **No real model has been called and none can be**: the registry gives this agent the
-stand-in and no tools.
+stand-in and no tools. Everything a customer sees is labelled `[simulated]`, twice, and
+both labels read the model recorded in that run's own log.
+
+**WHAT REMAINS UNPROVEN** is a REAL PROVIDER (one `MODELS` entry plus a `send`), a run
+longer than one consumer invocation against a real ceiling (the longest driven end to end
+is 65.6 s), and `force row level security`, which is unverifiable where the harness owner
+is a superuser.
 
 ## Where things stand
 
