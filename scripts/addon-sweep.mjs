@@ -348,6 +348,9 @@ export function jobRows(answer) {
   for (const j of answer.jobs) {
     if (!j || typeof j !== "object" || !j.name) continue;
     out[String(j.name)] = {
+      // THE REFERENCE, not the job's own name. An identical count is not proof
+      // of which function was called, and on run 50 the two shared a name.
+      fn: typeof j.fn === "string" ? j.fn : "",
       everyMinutes: Number(j.everyMinutes) || 0,
       at: typeof j.at === "string" ? j.at : null,
       tz: typeof j.tz === "string" ? j.tz : null,
@@ -424,7 +427,10 @@ export function jobLines(before, after, ran, verify) {
     // is not a time until something says whose nine o'clock, and the zone is the
     // BROWSER's — the one field on this row that no model chose.
     const when = j.at ? `at ${j.at} ${j.tz || "(NO ZONE)"} every ${j.everyMinutes}m` : `every ${j.everyMinutes}m`;
-    out.push(`     · ${n}: ${when}${j.enabled ? "" : "  DISABLED"}  lastRun ${j.lastRun || "never"}  lastResult ${j.lastResult === null ? "(none)" : JSON.stringify(j.lastResult)}`);
+    // THE FUNCTION IS NAMED EVEN WHEN IT MATCHES THE JOB'S OWN NAME — that is
+    // the case the omission hid on run 50 — and an absent one is said out loud,
+    // because a job with no reference is a job that can never run.
+    out.push(`     · ${n}: runs ${j.fn ? j.fn + "()" : "(NO FUNCTION)"} ${when}${j.enabled ? "" : "  DISABLED"}  lastRun ${j.lastRun || "never"}  lastResult ${j.lastResult === null ? "(none)" : JSON.stringify(j.lastResult)}`);
   }
   if (!ran) return out;
   if (!ran.run) { out.push(`   did not run any job now: ${ran.why}`); return out; }

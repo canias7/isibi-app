@@ -252,6 +252,25 @@ export const REQUIREMENT_ITEM = {
         "inventing one: a guessed name is worse than none, because it reads as something that was asked for " +
         "and never built.",
     },
+    // ── THE HAND-OFF'S OWN IDENTITY, ECHOED BACK ────────────────────────
+    //
+    // Set ONLY when this entry answers a requirement another step handed you.
+    // The brief you were given prints each one with its id in square brackets;
+    // copy that id here, exactly, on the entry that covers it.
+    //
+    // IT IS AN ID AND NOT A SENTENCE. Two steps describing one need in their
+    // own words is the ordinary case, and matching those descriptions is how a
+    // reconciliation quietly joins two DIFFERENT needs that happen to read
+    // alike. Leave it out rather than guessing: an entry with no id is simply
+    // judged on its own, which is what happens today.
+    answers: {
+      type: "string",
+      description: "Only when this entry answers a requirement handed to you: the id it was listed under in "
+        + "\"What this addition still has to do\", copied exactly (it looks like `function#0`). It is how we "
+        + "tie what you built to what you were asked for, so the customer is told once rather than twice. "
+        + "LEAVE IT OUT unless you are answering one of those — never invent one, and never use it for a "
+        + "requirement you are raising yourself.",
+    },
     why: {
       type: "string",
       description:
@@ -296,7 +315,14 @@ export function cleanRequirements(raw, from = "") {
     // statuses are values, not keys, so `"constructor"` is simply not one.
     const status = str(r.status, 20).toLowerCase();
     if (!COVERAGE.includes(status)) { skipped.push({ need, why: "bad-status" }); continue; }
-    const e = { need, status, ...(owner ? { from: owner } : {}) };
+    // ── A STABLE IDENTITY, OURS AND NOT THE MODEL'S ─────────────────────
+    //
+    // `<step>#<position>` over the entries this step KEPT — deterministic, so
+    // the same answer cleans to the same ids twice, and unique across steps
+    // because the step owns the prefix. It is stamped only when we know which
+    // step wrote it: with no owner there is nothing to make an id out of and
+    // nothing downstream that could use one.
+    const e = { need, status, ...(owner ? { from: owner, id: owner + "#" + list.length } : {}) };
     // THE EXPLICIT REFERENCE SURVIVES CLEANING FOR BOTH STATUSES (owner,
     // 2026-09-15: *"Support explicit item references for covered requirements,
     // preserve them through cleaning"*). It sat inside the `elsewhere` branch,
@@ -353,6 +379,15 @@ export function cleanRequirements(raw, from = "") {
     // as tidying. `scripts/mutants/kind-identity.json` mutates the two
     // together, which is the only way a redundancy can be sweep-tested at all.
     if (e.status !== "covered") delete e.kind;
+    // ── WHICH HAND-OFF THIS ENTRY ANSWERS, KEPT FOR `covered` ONLY ─────────
+    //
+    // An `elsewhere` entry is a request TO another step; it cannot also be the
+    // answer to one. And an `unsupported` entry answers nothing by definition —
+    // it is the step saying it could not. Keeping the id on either would let a
+    // refusal reconcile a hand-off, which is the one reading that would turn
+    // "nobody did this" into "it is configured".
+    const ans = str(r.answers, 80);
+    if (e.status === "covered" && ans) e.answers = ans;
     if (e.status === "unsupported" && !e.why) {
       const why = str(r.why, MAX_WHY);
       e.why = why || "no reason was given";
@@ -380,6 +415,24 @@ export function requirementsByStep(list) {
   for (const r of unresolvedRequirements(list)) {
     if (r.status !== "elsewhere" || !r.step) continue;
     (out[r.step] = out[r.step] || []).push(r.need);
+  }
+  return out;
+}
+
+/**
+ * THE SAME GROUPING, AS ENTRIES RATHER THAN SENTENCES.
+ *
+ * `requirementsByStep` answers NEEDS because that is what the developer record
+ * wants under `handedTo`. The brief wants the ENTRY, because it has to print
+ * each one's id — and changing the older reader's shape would quietly rewrite
+ * a field two other things read. Two functions over one filter, which is the
+ * cheaper of the two mistakes available here.
+ */
+export function handoffsByStep(list) {
+  const out = {};
+  for (const r of unresolvedRequirements(list)) {
+    if (r.status !== "elsewhere" || !r.step) continue;
+    (out[r.step] = out[r.step] || []).push(r);
   }
   return out;
 }
@@ -419,14 +472,27 @@ export function requirementCounts(list, skipped) {
  * something possible "on this page". Generic where the kind is unknown.
  */
 export function requirementBrief(list, step) {
-  const mine = (requirementsByStep(list)[step] || []).slice(0, MAX_REQUIREMENTS);
+  const mine = (handoffsByStep(list)[step] || []).slice(0, MAX_REQUIREMENTS);
   if (!mine.length) return "";
   const where = step === "page" || step === "component" ? "this page has to make possible"
     : "the part you are designing has to make possible";
+  // ── EACH ONE WITH ITS ID, AND THE INSTRUCTION TO ECHO IT ────────────────
+  //
+  // The id is what lets the entry you write be tied back to the request you
+  // were given, so the customer hears one outcome instead of two descriptions
+  // of one need. It is printed rather than derived because the receiving
+  // designer has no other way to know it, and matching on the WORDS is what
+  // this replaces — two steps describing one need differently is the ordinary
+  // case, and two different needs reading alike is the failure it invites.
+  //
+  // A brief with no ids (an older caller, or a list cleaned without an owner)
+  // simply prints the needs, and nothing downstream reconciles. Additive, and
+  // it fails closed to exactly today's behaviour.
   return "## What this addition still has to do\n" +
     "Another step in this same change handed these to you. Each is something the customer asked for that " +
     where + ". Cover what you can and change nothing else.\n" +
-    mine.map((n) => "- " + n).join("\n");
+    "Where you cover one of these, put its id in `answers` on that entry, copied exactly.\n" +
+    mine.map((r) => "- " + (r && r.id ? "[" + r.id + "] " + r.need : (r && r.need) || r)).join("\n");
 }
 
 /**
@@ -1068,7 +1134,75 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
       ...(why ? { why } : {}),
     });
   }
-  return out;
+  return reconcileHandoffs(out);
+}
+
+/**
+ * ── ONE NEED, ONE OUTCOME (owner, 2026-09-16, after run 50) ─────────────────
+ *
+ * Run 50 wrote the same need TWICE, because both designers spoke to it: the
+ * function step handed *"that count runs every night at 11"* to the job step
+ * with no item, and the job step covered it naming `nightly_booking_count`.
+ * Judged apart, the first read `unknown` and the second `configured` — and the
+ * customer heard the first: *"I can't see from here whether that count runs
+ * every night at 11"*, about a job registered at 23:00 Europe/London that the
+ * same run then fired successfully. One reply calling one thing configured AND
+ * unseeable.
+ *
+ * THE JOIN IS AN ID AND NEVER PROSE. The receiving designer echoes the id it
+ * was given back in `answers`; two steps describing one need in their own
+ * words is the ordinary case, so matching descriptions is how a reconciliation
+ * silently joins two DIFFERENT needs that happen to read alike — which is the
+ * control the guard drives.
+ *
+ * FOUR CONDITIONS, AND EACH IS ONE OF THE OWNER'S:
+ *   · the answering entry must NAME this hand-off (`answers === id`) — never
+ *     "this step ran", which would clear every requirement the step owns;
+ *   · it must be `covered` — a step SAYING it could not (`unsupported`) must
+ *     not settle what it was asked for;
+ *   · its own implementation must have been FOUND — otherwise an unknown
+ *     launders into a configured through a claim nobody could check;
+ *   · and the result is CAPPED at `configured`. Configuration must never imply
+ *     delivered behaviour, so even an answering entry that reached `delivered`
+ *     hands this one `configured` — the hand-off is evidence about what was
+ *     SET UP, and behaviour is the answering entry's own claim to make.
+ *
+ * THE ORIGINAL ENTRIES ARE UNTOUCHED apart from the added fields: both keep
+ * their own state for diagnosis, and it is the CUSTOMER note that collapses
+ * them. A reconciliation that rewrote the record would destroy the evidence
+ * that the hand-off was ever ambiguous.
+ *
+ * ADDITIVE AND FAIL-CLOSED. No id, no echo, an echo naming nothing, or an
+ * older caller whose entries carry no ids at all: nothing reconciles and every
+ * outcome is exactly what it is today.
+ */
+const RECONCILABLE = ["delivered", "configured", "unverified"];
+export function reconcileHandoffs(outcomes) {
+  const list = Array.isArray(outcomes) ? outcomes : [];
+  const answering = new Map();
+  for (const r of list) {
+    if (!r || r.status !== "covered" || typeof r.answers !== "string" || !r.answers) continue;
+    if (r.implementation !== "found") continue;
+    if (!RECONCILABLE.includes(r.state)) continue;
+    // FIRST ANSWER WINS, and a second one for the same id is left alone rather
+    // than overwriting: two entries claiming one hand-off is itself a finding,
+    // and picking the later would make the outcome depend on list order.
+    if (!answering.has(r.answers)) answering.set(r.answers, r);
+  }
+  if (!answering.size) return list;
+  return list.map((r) => {
+    if (!r || r.status !== "elsewhere" || typeof r.id !== "string" || !r.id) return r;
+    const a = answering.get(r.id);
+    if (!a) return r;
+    // CAPPED, never inherited whole — see the fourth condition above.
+    const state = a.state === "delivered" ? "configured" : a.state;
+    return {
+      ...r, state,
+      reconciledBy: a.id || a.answers,
+      ...(a.implementedBy ? { reconciledItem: a.implementedBy } : {}),
+      ...(a.kind ? { reconciledKind: a.kind } : {}),
+    };
+  });
 }
 
 export function requirementNote(list, { told = [], invalid = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unexpressed = [] } = {}) {
@@ -1083,12 +1217,20 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // both mean "it is there and nothing here checked what it does", which is one
   // sentence to a person. The two are separate in the RECORD, where the
   // difference is actionable.
-  const unsure = outcomes.filter((r) => r.state === "unverified" || r.state === "configured");
+  // ── A RECONCILED HAND-OFF IS SPOKEN FOR, AND MUST NOT BE SAID TWICE ──────
+  //
+  // After `reconcileHandoffs` both entries carry the same state, so listing
+  // both would put one need in the sentence twice in the customer's own words
+  // — which is the duplicate-reporting half of run 50's finding, surviving the
+  // fix that was supposed to remove it. The RECORD keeps both; the prose says
+  // it once, through the entry that names what really does the work.
+  const spoken = (r) => !(r && r.status === "elsewhere" && r.reconciledBy);
+  const unsure = outcomes.filter(spoken).filter((r) => r.state === "unverified" || r.state === "configured");
   // …AND `unknown` IS NOT ONE OF THEM (owner, 2026-09-15): *"'I've set that up'
   // is inappropriate when implementation is unknown."* The clause below opens
   // with exactly that, so a need whose implementation nobody could find gets
   // its own sentence rather than a claim about work that may not exist.
-  const unseen = outcomes.filter((r) => r.state === "unknown");
+  const unseen = outcomes.filter(spoken).filter((r) => r.state === "unknown");
   if (!unsupported.length && !broke.length && !blocked.length && !gone.length && !unsure.length
     && !unseen.length && !bad.length && !lost.length) return "";
   const parts = [];
@@ -1119,9 +1261,30 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // is built; what nothing here can confirm is said as exactly that, rather
   // than left to the reply's "Done" to claim. It is deliberately an invitation
   // to check rather than a warning: the ordinary case is that it works.
-  if (unsure.length) {
-    parts.push("I've set that up, but I can't confirm from here that " + unsure.slice(0, 2)
+  // ── A SCHEDULED THING HAS ITS OWN UNVERIFIED HALF, AND IT IS NAMEABLE ────
+  //
+  // (owner, 2026-09-16: the intended meaning is *"Scheduled nightly at 23:00
+  // Europe/London. Automatic execution has not yet been verified."*) For every
+  // other kind, "I can't confirm" is a general limit — nothing on this path
+  // exercises behaviour. For a JOB it is one specific thing: the schedule is
+  // written down and readable, and what nobody has watched is it firing on its
+  // own. Saying that is more useful than the general sentence and is true of
+  // every job this platform has ever registered.
+  //
+  // THE ZONE IS NOT QUOTED, because this function cannot see it: a job's
+  // applied facts carry `everyMinutes` and `at` and no timezone. The reply's
+  // own `jobs` list names the schedule; inventing it here is how a clause comes
+  // to state a fact nothing checked.
+  const jobKind = (r) => r.reconciledKind === "job" || (r.status === "covered" && r.kind === "job");
+  const scheduled = unsure.filter(jobKind);
+  const rest = unsure.filter((r) => !jobKind(r));
+  if (rest.length) {
+    parts.push("I've set that up, but I can't confirm from here that " + rest.slice(0, 2)
       .map((r) => r.need).join("; or that ") + " — have a look and tell me if it isn't right.");
+  }
+  if (scheduled.length) {
+    parts.push("Scheduled as you asked: " + scheduled.slice(0, 2).map((r) => r.need).join("; ")
+      + ". Automatic running hasn't been verified from here yet, so have a look after the first one is due.");
   }
   // ── AND A DIFFERENT SENTENCE FOR A DIFFERENT SILENCE ─────────────────────
   //

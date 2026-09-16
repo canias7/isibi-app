@@ -969,13 +969,18 @@ test("the jobs read tells unreadable from none, and keys by name", async () => {
   }
   assert.deepEqual(jobRows({ jobs: [] }), {}, "a site with no jobs is an empty map, not null");
   const rows = jobRows({ jobs: [
-    { name: "remind_tomorrow", everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null },
+    { name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null },
     { name: "tidy", everyMinutes: 60, at: null, tz: null, enabled: false, lastRun: "2026-09-16T09:00:00Z", lastResult: "cleared 3" },
     { name: "", everyMinutes: 15 },
   ] });
   assert.deepEqual(Object.keys(rows).sort(), ["remind_tomorrow", "tidy"], "a nameless row has no identity and must be dropped");
   assert.equal(rows.remind_tomorrow.at, "09:00");
   assert.equal(rows.remind_tomorrow.tz, "Europe/London", "the zone is the one field on the row no model chose — losing it loses the whole clock-time claim");
+  // WHICH FUNCTION IT RUNS (owner, 2026-09-16: "an identical count is not proof
+  // of which function was called"). On run 50 the job and its function shared a
+  // name, which is what made the omission invisible.
+  assert.equal(rows.remind_tomorrow.fn, "bookings_due_tomorrow");
+  assert.equal(rows.tidy.fn, "", "a row whose reference is gone must read empty, not absent — that job can never run");
   assert.equal(rows.tidy.enabled, false);
   assert.equal(rows.tidy.lastResult, "cleared 3");
   // NULL RATHER THAN A CHEERFUL DEFAULT, the route's own rule carried through:
@@ -1034,6 +1039,9 @@ test("the job lines say the zone, and say so even when there is nothing to say",
   const after = { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } };
   const one = jobLines(before, after, null).join("\n");
   assert.match(one, /this run added \["remind_tomorrow"\]/);
+  assert.match(one, /runs \(NO FUNCTION\)/, "a job with no reference must say so — it can never run");
+  assert.match(jobLines(before, { j: { fn: "count_it", everyMinutes: 60, at: null, tz: null, enabled: true } }, null).join("\n"),
+    /· j: runs count_it\(\)/, "the function it runs must be printed even when it differs from the job's name");
   assert.match(one, /at 09:00 Europe\/London every 1440m/, "the clock time must be printed with its zone");
   assert.match(one, /lastRun never/);
   // A TIME WITH NO ZONE IS THE DEFECT THIS LINE EXISTS TO SHOW, so it is named
@@ -1168,4 +1176,19 @@ test("the harness reads the registry before the post, and the press is its own s
   const blk = WF.slice(WF.indexOf("      run_job:"), WF.indexOf("\npermissions:"));
   assert.match(blk, /BLANK = do not press/, "the input does not say that blank presses nothing");
   assert.match(blk, /IT REALLY RUNS/, "the input does not say the press really runs the job");
+});
+
+test("the owner's jobs route answers which function each job runs", async () => {
+  // THE ROUTE'S HALF OF THE SAME FIX. Reading it off the SPEC is the property:
+  // `runJob` does `spec.fn`, so a second copy stored elsewhere could disagree
+  // with what the runner would really call.
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("jobs: jrows.map((j) => ({");
+  assert.ok(at > 0, "the jobs listing moved — this window is reading something else");
+  const block = w.slice(at, w.indexOf("\n            });", at));
+  assert.match(block, /fn: j\.spec && typeof j\.spec === "object" && typeof j\.spec\.fn === "string" \? j\.spec\.fn : ""/,
+    "the jobs route does not answer the persisted function reference, off the spec the runner reads");
+  // AND IT IS EMPTY RATHER THAN ABSENT for a row that lost it — a job with no
+  // reference can never run, and a missing key reads as "not asked about".
+  assert.doesNotMatch(block, /fn: [^\n]*\?\s*j\.spec\.fn\s*:\s*undefined/, "an absent reference must read as empty, not undefined");
 });

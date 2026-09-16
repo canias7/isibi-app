@@ -806,6 +806,40 @@ job, so it can't answer that), and reusing this function from a second job later
 outside whether an internal function existed. I can — it says "permission
 denied", where a missing one says "no such function". I reasoned instead of
 measuring, and the measurement says the opposite.
+
+### Both fixes are in
+
+**One need, one answer.** The job step now attaches what it built to the request
+it received, using an **id** the brief hands it and it copies back — not by
+matching the words, which is how two different needs that happen to read alike
+get silently joined. Run 50's duplicate now reads as configured once, linked to
+`nightly_booking_count`. Both entries stay in the record so you can still see
+what each designer said; it's the customer sentence that stops saying it twice.
+
+Four things it refuses to do, each one you named: settle a request just because
+the step ran; let a step that said it *couldn't* settle what it was asked for;
+reconcile through a claim nothing could verify; or let "configured" turn into
+"delivered". And with no id echoed back, nothing reconciles — it reads exactly
+as it does today.
+
+**The sentence a customer gets for a scheduled job is now your wording:**
+
+> *"Scheduled as you asked: … Automatic running hasn't been verified from here
+> yet, so have a look after the first one is due."*
+
+I deliberately don't quote the timezone in it — the job's applied facts carry
+the interval and the clock time and no zone, so naming one would be stating
+something that function can't actually see.
+
+**And the jobs list now says which function each job runs.** It didn't before,
+which on run 50 was invisible because the job and the function shared a name.
+It reads it from the same place the runner does, so it's the reference that
+would really be called — and a job that has lost its reference says
+`(NO FUNCTION)` rather than looking fine.
+
+**This one will roll the container** when merged, unlike the last change — so
+the 15–20 minute wait applies before anything paid.
+
 ---
 
 ### Still true: I cannot press any of these

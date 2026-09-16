@@ -6868,6 +6868,72 @@ internal function by a LATER job (hop 2) is its own follow-up, not bought here.
 
 
 
+### THE HAND-OFF AND ITS ANSWER ARE ONE OUTCOME NOW (2026-09-16)
+
+Owner, after run 50: *"Reconcile the original handoff with the receiving
+designer's response using an explicit requirement identity… Do not match prose,
+clear every requirement owned by that step, or let configuration imply delivered
+behavior."*
+
+**THE IDENTITY IS OURS AND THE ECHO IS THE MODEL'S.** `cleanRequirements`
+stamps `<step>#<position>` on every entry it keeps — deterministic, unique by
+the step owning its prefix, and stamped only when the owner is known.
+`requirementBrief` prints each handed need as `[function#0] …` and says to copy
+the id back; `REQUIREMENT_ITEM` gains **`answers`**, kept for `covered` only.
+`reconcileHandoffs` joins on that id and on nothing else.
+
+**FOUR CONDITIONS, EACH ONE OF THE OWNER'S:** the answering entry must NAME the
+hand-off (never "this step ran", which would clear every requirement the step
+owns); it must be `covered` (a step SAYING it could not must not settle what it
+was asked for — and the cleaner drops `answers` from an `unsupported` entry as
+the belt); its own implementation must have been **found** (or an unknown
+launders into a configured through a claim nobody could check); and the result
+is **CAPPED at `configured`** — even a `delivered` answer hands the hand-off
+`configured`, because a hand-off is evidence about what was SET UP.
+
+**BOTH ENTRIES SURVIVE FOR DIAGNOSIS** and carry `reconciledBy`,
+`reconciledItem`, `reconciledKind`; it is the CUSTOMER NOTE that collapses them,
+so one need is said once. **ADDITIVE AND FAIL-CLOSED**: no id, no echo, a stray
+echo, or an older caller reconciles nothing and reads exactly as it did before.
+
+**RUN 50'S CASE, DRIVEN**: the hand-off goes `unknown` → `configured`, linked to
+`job#0` → `nightly_booking_count`, and the need appears **once** in the customer
+sentence. **THE CONTROL**: two distinct needs handed to one step with only the
+first answered — the second stays `unknown` and is still said.
+
+**AND THE JOB CLAUSE CARRIES THE OWNER'S OWN MEANING** (*"Scheduled nightly at
+23:00 Europe/London. Automatic execution has not yet been verified."*). For
+every other kind "I can't confirm" is a general limit; for a job it is one
+specific thing, true of every job this platform has registered. **The zone is
+NOT quoted** — a job's applied facts carry `everyMinutes` and `at` and no
+timezone, and a clause quoting one would state a fact this function cannot see.
+
+### WHICH FUNCTION THE JOB RUNS IS READABLE (2026-09-16)
+
+Owner: *"An identical count is not proof of which function was called."*
+`GET /api/site/<slug>/jobs` answered the schedule and never the reference, so
+the one thing a job IS — a function on a timer — could not be read back. **Run
+50's job and its function shared a name**, which is what made the omission
+invisible: the line looked complete and was ambiguous. The route answers `fn`
+**off the SPEC, where `runJob` reads it**, so it reports the reference the
+runner would really call rather than a second copy; empty for a row that lost
+it, because that is a job which can never run. The harness prints
+`runs <fn>()` — or **`(NO FUNCTION)`** — on every row.
+
+**Guards**: `requirement-coverage` **22 → 26**, `addon-sweep` **39 → 40**. Every
+new assertion proved RED against the defect it forbids. **Two of those probes
+survived first and both were gaps in my own cases**: the no-echo control took
+`reconcileHandoffs`'s early return, so a prose fallback inside the join was
+never reached (a second, echoing pair arms it now); and the unverified-answer
+fixture was `state: "unknown"` AND `implementation: "absent"`, two reasons to
+skip, so cutting the implementation test changed nothing — one reason at a time,
+with a control proving the same entry DOES reconcile when its implementation is
+found. Suite **6,703** — 6,698 + 5, closing exactly.
+
+**NOT YET DEPLOYED.** This changes `worker.js` and `builder/`, so the merge will
+roll the container and the 15–20 minute hold will apply — unlike the last one.
+
+
 ## Data, auth, payments, mail
 
 - **Neon per site.** `site-schema.mjs` is the engine: `isibi.schema.json` in,

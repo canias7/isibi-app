@@ -25461,6 +25461,21 @@ async function handleRequest(request, env, ctx) {
             return Response.json({
               jobs: jrows.map((j) => ({
                 name: String(j.name || ""),
+                // ── WHICH FUNCTION IT RUNS (owner, 2026-09-16) ────────────
+                //
+                // *"An identical count is not proof of which function was
+                // called."* This route answered the schedule and never the
+                // reference, so the one thing a job IS — a function on a timer
+                // — could not be read back at all. Run 50's job and its
+                // function happened to share a name, which made the omission
+                // invisible: the line looked complete and was ambiguous.
+                //
+                // Off the SPEC, where `runJob` reads it (`spec.fn`), so this
+                // reports the reference the runner would really call rather
+                // than a second copy of it. Empty for a row whose spec lost it
+                // — which is a job that can never run, and saying nothing
+                // would hide exactly that.
+                fn: j.spec && typeof j.spec === "object" && typeof j.spec.fn === "string" ? j.spec.fn : "",
                 everyMinutes: Number(j.schedule_minutes) || 0,
                 // The clock time and its zone, off the spec (2026-09-03);
                 // null for a job on a plain interval.
