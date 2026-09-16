@@ -1,0 +1,378 @@
+# THE AGENT BUILDER'S OWN DEPLOY. It is not the merge thing, and it never will be.
+#
+# This is the ONE file this product has outside `agent-builder/`, added with the
+# owner's explicit permission (2026-09-15) because there is no other way in:
+#
+#   - `workflow_dispatch` cannot bootstrap it. A dispatch-only workflow is only
+#     startable once the file is on the DEFAULT branch, and main is to stay
+#     untouched — and `POST /actions/workflows/<file>/dispatches` answers **403
+#     Resource not accessible by integration** from a session anyway, which
+#     `answer-read.yml` already records so nobody re-tries it.
+#   - so the trigger is a push, restricted to the exact agent branch.
+#
+# **IT DOES NOT FIRE ON A MERGE, and a census enforces that rather than trusting
+# it.** `test/merge-triggers.test.mjs` walks this directory and requires exactly
+# one workflow on a push to main — `deploy.yml`, which is untouched. A new file
+# with a copied `branches: [main]` fails by existing.
+#
+# ⚠ THE BRANCH FILTER MUST STAY INLINE. That census reads `branches: [a, b]` with
+# a regex and has no YAML parser; written as a block list it reads as NO filter,
+# which means "every branch, main included" — so a correct-looking reformat would
+# both fail the census and, if it ever passed, put this on the merge.
+#
+# ── WHAT RUNS WHEN ──────────────────────────────────────────────────────────
+#
+# Every push to the agent branch runs the agent's own checks. **Nothing deploys
+# unless the tip commit's message opts in**, because a deploy rolls a real Worker
+# and pushes are how work gets saved. The marker is spelled once, below, and
+# deliberately nowhere else in the repository: this product's own notes record
+# the sister trap twice over — a commit whose message EXPLAINS a marker arms it,
+# because the gate reads the message with no idea it is being quoted.
+name: agent deploy
+
+on:
+  push:
+    branches: [claude/chat-session-0nndv1]
+
+permissions:
+  contents: read
+
+# One at a time. Two deploys racing would roll the same Worker from two shas and
+# leave nobody able to say which one is serving.
+concurrency:
+  group: agent-deploy
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    name: check, and deploy when asked
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # ── the checks, on EVERY push to this branch ──────────────────────────
+      #
+      # Run through the package's own script rather than `node --test` directly,
+      # which is also why no install precedes it: `agent-builder` declares no
+      # dependencies at all — a property its own suite asserts — so there is
+      # nothing to install, and a root `npm ci` here would be a minute spent on
+      # modules none of this imports.
+      - name: agent checks
+        run: npm --prefix agent-builder test
+
+      # ── the opt-in ────────────────────────────────────────────────────────
+      #
+      # THE MESSAGE GOES THROUGH `env`, NEVER INTO THE SCRIPT BODY. A commit
+      # message is attacker-controlled text; interpolated straight into `run:` it
+      # is a shell injection with a runner's credentials behind it.
+      - name: is this push asking for a deploy?
+        id: gate
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if printf '%s' "$MSG" | grep -qF '[agent deploy]'; then
+            echo "armed=true" >> "$GITHUB_OUTPUT"
+            echo "ARMED — this commit asked for a deploy."
+          else
+            echo "armed=false" >> "$GITHUB_OUTPUT"
+            echo "Not armed. The checks above are all this push does."
+            echo "To deploy, push a commit whose message carries the opt-in marker"
+            echo "documented in agent-builder/docs/deploy.md."
+          fi
+
+      # ── the credentials, CONFIRMED rather than assumed ─────────────────────
+      #
+      # Presence by LENGTH and never by value — and then `whoami`, because a
+      # secret that exists and is expired looks exactly like one that works right
+      # up to the deploy. The owner asked for a failure here rather than a
+      # surprise later.
+      - name: confirm the credentials exist and work
+        if: steps.gate.outputs.armed == 'true'
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SVC: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          missing=""
+          for n in CF_TOKEN CF_ACCOUNT SVC; do
+            v="${!n}"
+            if [ -z "$v" ]; then
+              echo "MISSING: $n"
+              missing="$missing $n"
+            else
+              echo "$n present (${#v} chars)"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo
+            echo "Not configured. Add the repository secret(s) for:$missing"
+            echo "  CF_TOKEN   -> CLOUDFLARE_API_TOKEN"
+            echo "  CF_ACCOUNT -> CLOUDFLARE_ACCOUNT_ID"
+            echo "  SVC        -> SUPABASE_SERVICE_KEY"
+            exit 1
+          fi
+          export CLOUDFLARE_API_TOKEN="$CF_TOKEN" CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT"
+          if ! npx --yes wrangler@4.107.0 whoami; then
+            echo
+            echo "CLOUDFLARE_API_TOKEN did not authenticate. The likeliest causes are an"
+            echo "expired token or one scoped to a different account than CLOUDFLARE_ACCOUNT_ID."
+            exit 1
+          fi
+
+      # ── the queue ─────────────────────────────────────────────────────────
+      #
+      # **THE VERDICT DECIDES, AND A NON-VERDICT FAILS.** `queues create` errors
+      # when the queue already exists, which is the ordinary steady state, so the
+      # call needs `|| true` — and a token WITHOUT the Queues edit permission
+      # fails in a way that looks identical from a silent `|| true`. The root
+      # product prints and carries on; here it stops, because the Worker requires
+      # this binding and would answer 503 on every request without it.
+      # **THE VERDICT ASKS FOR THE QUEUE BY NAME; IT DOES NOT READ THE CREATE'S
+      # WORDING.** The first version matched "created queue|already exists" and
+      # FAILED THE SECOND DEPLOY, because Cloudflare says "Queue name 'agent-runs'
+      # is already taken" (code 11009) — a guessed string, guessed wrong, and a
+      # defect that could only ever show once the queue existed. So `create` is
+      # best-effort and the answer comes from `queues info`'s EXIT STATUS, which is
+      # wording-independent. `queues list` is the fallback for a wrangler that has
+      # no `info`; it is a name lookup rather than a phrase match either way.
+      #
+      # THE STEP STILL FAILS THE RUN when it cannot confirm, because a token without
+      # the Queues edit permission fails exactly like a queue that is missing, and
+      # the Worker answers 503 on every request with no RUN_QUEUE binding.
+      - name: ensure the agent-runs queue exists
+        if: steps.gate.outputs.armed == 'true'
+        # **`shell: bash` IS LOAD-BEARING HERE, AND WITHOUT IT THIS STEP'S WHOLE POINT
+        # WAS DEFEATED.** GitHub's unspecified Linux shell is `bash -e {0}` — `set -e`
+        # with NO `pipefail` — and a pipeline reports its LAST command's status, so
+        # `queues info … | tee` reports TEE's, which is 0 whatever wrangler did. The
+        # verdict below reads an exit status on purpose (the previous version matched
+        # wrangler's wording and failed a deploy on a guessed string), and the pipe
+        # handed it a constant. The declared shell is `bash --noprofile --norc -eo
+        # pipefail`, so the condition is wrangler's answer again.
+        # Found by the OTHER product's `test/repair-workflows.test.mjs` the moment the
+        # two trees were merged — a guard written for its own repair workflows, reading
+        # a file that did not exist when it was written.
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "--- create (best effort; an existing queue is refused and that is fine) ---"
+          npx --yes wrangler@4.107.0 queues create agent-runs 2>&1 || true
+
+          echo "--- confirm, by asking for it by name ---"
+          confirmed=""
+          if npx --yes wrangler@4.107.0 queues info agent-runs 2>&1 | tee /tmp/qinfo.txt; then
+            confirmed="info"
+          elif npx --yes wrangler@4.107.0 queues list 2>&1 | tee /tmp/qlist.txt | grep -qw "agent-runs"; then
+            confirmed="list"
+          fi
+
+          if [ -n "$confirmed" ]; then
+            echo "QUEUE OK — agent-runs exists (confirmed by: $confirmed)"
+          else
+            echo
+            echo "QUEUE NOT CONFIRMED. Stopping: the agent Worker requires the RUN_QUEUE"
+            echo "binding and answers 503 on every request without it."
+            echo "The likeliest cause is CLOUDFLARE_API_TOKEN lacking the Queues edit"
+            echo "permission (Cloudflare > My Profile > API Tokens). Queues also needs a"
+            echo "paid Workers plan."
+            exit 1
+          fi
+
+      # ── the deploy ────────────────────────────────────────────────────────
+      #
+      # **ONLY `agent-builder/wrangler.jsonc`, named on every call.** The root
+      # config belongs to the other product; a wrangler invocation that found it
+      # by accident would deploy that Worker or, worse, put this secret on it.
+      - name: deploy the agent Worker
+        id: deploy
+        if: steps.gate.outputs.armed == 'true'
+        working-directory: agent-builder
+        # DECLARED, for the reason spelled out on the queue step. The `set -o pipefail`
+        # in the body stays as a DELIBERATE SECOND WALL — said out loud because a sweep
+        # cannot say it and the next reader deletes what nothing appears to need: the
+        # shell line protects the step even if the body's line is dropped, and the
+        # body's line protects it even if the shell line is.
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          out=$(npx --yes wrangler@4.107.0 deploy --config wrangler.jsonc 2>&1 | tee /dev/stderr)
+          # **`|| true` ON AN EXTRACTION, BECAUSE THE REFUSAL BELOW IS THE POINT.**
+          # Under `-eo pipefail` a `grep` that matches nothing fails the pipeline and
+          # the assignment, and `set -e` then kills the step — so the `if [ -z … ]`
+          # message that names what went wrong would never be reached, and a deploy
+          # with no readable URL or version would die with no explanation at all.
+          url=$(printf '%s' "$out" | grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' | head -1 || true)
+          ver=$(printf '%s' "$out" | grep -oiE 'version id:?[[:space:]]*[0-9a-f-]{8,}' | head -1 | grep -oE '[0-9a-f-]{8,}$' || true)
+          if [ -z "$url" ]; then
+            echo
+            echo 'The deploy produced no workers.dev URL. workers_dev is true in the'
+            echo "config, so the likeliest cause is that this account has workers.dev"
+            echo "disabled. Nothing can be verified without an address."
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "version=${ver:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "endpoint: $url"
+          echo "version:  ${ver:-unknown}"
+
+      # ── the one runtime secret, and only it ───────────────────────────────
+      #
+      # `SUPABASE_SERVICE_KEY` is the single credential this Worker needs that
+      # cannot be committed. The URL and the publishable key are plain vars in the
+      # config, because a project URL is public and a publishable key is the one
+      # handed to browsers.
+      #
+      # AFTER the deploy, because the Worker has to exist to hold a secret — and
+      # with a re-deploy-and-retry, because this repository records that a
+      # standalone `secret put` after a deploy can meet Cloudflare's
+      # versioned-deployments guard ("the latest version of your Worker isn't
+      # currently deployed") on this account.
+      - name: upload the one agent runtime secret
+        if: steps.gate.outputs.armed == 'true'
+        working-directory: agent-builder
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          put() {
+            printf '%s' "$SUPABASE_SERVICE_KEY" \
+              | npx --yes wrangler@4.107.0 secret put SUPABASE_SERVICE_KEY --config wrangler.jsonc
+          }
+          if ! put; then
+            echo "the first upload failed; re-deploying and trying once more"
+            npx --yes wrangler@4.107.0 deploy --config wrangler.jsonc
+            put
+          fi
+          echo "SUPABASE_SERVICE_KEY uploaded to the agent Worker."
+
+      # ── the version this run may be held to ───────────────────────────────
+      #
+      # **`secret put` MINTS A VERSION OF ITS OWN AND PRINTS NO ID**, so the id the
+      # deploy step printed is never the one serving once a secret has been uploaded
+      # after it. MEASURED on run 34938312961: the deploy printed
+      # `e3bdf22e…` at 06:45:07.785Z, the secret landed at 06:45:09.242Z, and the
+      # Worker has served `64ac3bb4…`, stamped **06:45:09.382489Z**, ever since — the
+      # secret step's version, 140 ms after its own first line, with no id in the log.
+      #
+      # So the run had no id it could hold the Worker to, and the verification
+      # reported whatever `/health` answered as "the deployed version" — which on that
+      # run was a version TWO deploys old, because it asked once, two seconds in.
+      #
+      # **A DEPLOY IS MADE THE LAST THING THAT CHANGES THE WORKER.** It re-uploads the
+      # same code (secrets survive a deploy — they are settings, not code), so its only
+      # effect is that this run ends holding ONE version id, printed by the step that
+      # created it. Everything downstream is then an assertion instead of an echo.
+      - name: re-deploy, so the code and the secret are one version
+        id: serving
+        if: steps.gate.outputs.armed == 'true'
+        working-directory: agent-builder
+        # DECLARED, for the reason spelled out on the queue step. The `set -o pipefail`
+        # in the body stays as a DELIBERATE SECOND WALL — said out loud because a sweep
+        # cannot say it and the next reader deletes what nothing appears to need: the
+        # shell line protects the step even if the body's line is dropped, and the
+        # body's line protects it even if the shell line is.
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          out=$(npx --yes wrangler@4.107.0 deploy --config wrangler.jsonc 2>&1 | tee /dev/stderr)
+          # `|| true` for the reason given on the first deploy step: the named refusal
+          # below must outlive a grep that matches nothing.
+          ver=$(printf '%s' "$out" | grep -oiE 'version id:?[[:space:]]*[0-9a-f-]{8,}' | head -1 | grep -oE '[0-9a-f-]{8,}$' || true)
+          if [ -z "$ver" ]; then
+            echo
+            echo 'The deploy printed no version id, so nothing downstream can be held to'
+            echo "one. Stopping rather than verifying an unknown version: the wording of"
+            echo "wrangler's own output is the only place this id comes from, and a guessed"
+            echo "string guessed wrong is what this step exists to stop."
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "the version that must be serving: $ver"
+
+      # ── is it actually serving? ───────────────────────────────────────────
+      #
+      # **ONE READ PROVES NOTHING.** A version reaches Cloudflare's edges over some
+      # seconds, so an edge asked immediately can honestly answer with the version it
+      # is still running — and believing that answer is how a run reports the wrong
+      # version while every other check passes. So this asks until the expected id
+      # comes back, and FAILS when it never does; `ok:true` alone is not enough,
+      # because the previous deployment answers `ok:true` too.
+      - name: wait for THIS version to answer
+        if: steps.gate.outputs.armed == 'true'
+        env:
+          AGENT_URL: ${{ steps.deploy.outputs.url }}
+          EXPECT_VERSION: ${{ steps.serving.outputs.version }}
+        run: |
+          echo "waiting for version $EXPECT_VERSION at $AGENT_URL/health"
+          for i in $(seq 1 30); do
+            body=$(curl -sS --max-time 15 -H 'cache-control: no-cache' "$AGENT_URL/health" || true)
+            got=$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version??""))}catch{process.stdout.write("")}})' || true)
+            ok=$(printf '%s' "$body" | grep -c '"ok":true' || true)
+            echo "  attempt $i: version=${got:-(unreadable)} ok=${ok}"
+            if [ "$got" = "$EXPECT_VERSION" ] && [ "$ok" != "0" ]; then
+              echo "serving $EXPECT_VERSION, and configured."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo
+          echo "$body"
+          echo
+          echo "/health never reported $EXPECT_VERSION with ok:true inside five minutes."
+          echo "Either the deployment is not propagating, or it is answering with a"
+          echo "different version — and its missing list above names anything it is"
+          echo "waiting for, by NAME and never as a value. Not verifying: a check against"
+          echo "an unknown version is evidence about the wrong deployment."
+          exit 1
+
+      # ── the live verification ─────────────────────────────────────────────
+      #
+      # The project settings come out of the committed config rather than being
+      # typed again here, because two copies of a URL is how a verification ends
+      # up pointed at a different project from the Worker it is verifying.
+      - name: verify the deployment
+        if: steps.gate.outputs.armed == 'true'
+        working-directory: agent-builder
+        env:
+          AGENT_URL: ${{ steps.deploy.outputs.url }}
+          EXPECT_VERSION: ${{ steps.serving.outputs.version }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          read_var() {
+            node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync("wrangler.jsonc","utf8").replace(/^\s*\/\/.*$/gm,""));process.stdout.write(String(c.vars[process.argv[1]]??""))' "$1"
+          }
+          export SUPABASE_URL="$(read_var SUPABASE_URL)"
+          export SUPABASE_PUBLISHABLE_KEY="$(read_var SUPABASE_PUBLISHABLE_KEY)"
+          echo "verifying $AGENT_URL against $SUPABASE_URL"
+          node scripts/verify-live.mjs
+
+      # ── the throwaway customer goes, whatever happened ────────────────────
+      #
+      # The verification creates a confirmed customer with the admin API so that
+      # "a real customer signs in" is a real sign-in — **no mail is sent**, which
+      # matters because an earlier round of this work spent one of the project's
+      # 200 daily sends signing up the ordinary way. It deletes its own on the way
+      # out; this runs even when it dies half way through, which is exactly when
+      # cleanup matters and exactly when it does not happen.
+      - name: remove any verification customer left behind
+        if: always() && steps.gate.outputs.armed == 'true'
+        working-directory: agent-builder
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          export SUPABASE_URL="$(node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync("wrangler.jsonc","utf8").replace(/^\s*\/\/.*$/gm,""));process.stdout.write(String(c.vars.SUPABASE_URL))')"
+          node scripts/verify-cleanup.mjs
