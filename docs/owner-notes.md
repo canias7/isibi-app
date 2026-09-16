@@ -10303,15 +10303,17 @@ been pressed and nothing has been spent.
 
 ### The request, word for word
 
-> **Add a page at /workshop-load that shows how many bikes are booked in on
-> each day we've got them coming, busiest day first, and a function the page
-> calls to work it out. Don't show customer names.**
+> **Add a page at /workshop-load that shows how many bikes are booked in for
+> each date we're expecting them, busiest first, and a function the page calls
+> to work it out. Don't show customer names.**
 
 **Why this one.** You asked for a request that needs an existing column whose
 database name is *not* in the request. This needs `drop_off_day` — the column
-the whole page is grouped by — and the words "drop", "off" and "day" never
-appear. It also needs no new table, so "it added nothing it shouldn't have" is a
-real thing to check rather than a formality.
+the whole page is grouped by — and none of "drop", "off" or "day" appears
+anywhere in the sentence. (My first draft said "on each day we've got them
+coming", which put "day" in it; I reworded it so the claim is exactly true
+rather than nearly true.) It also needs no new table, so "it added nothing it
+shouldn't have" is a real thing to check rather than a formality.
 
 **And the column choice is load-bearing, not incidental.** The site has two
 tables. `repairs` has `bike` and `customer_name` but **no drop-off day at all**
@@ -10347,6 +10349,9 @@ before-inventory, and I'll take the same one after.
    saying `database: YES` and listing `bookings` with `drop_off_day` in it.
 2. **The page and function exist and answer.** `/workshop-load` goes 404 → 200,
    and the function the page calls answers over the site's public address.
+   The run also prints each designer's own reply, so I can read the SQL it
+   wrote and see it name the table and the column — a second, independent leg
+   beside point 1.
 3. **The numbers add up to 3.** Whatever days come back, their counts must total
    3 — which is the independent expected result, established before the run from
    two readers that have nothing to do with this change. A run that invents a
@@ -10354,7 +10359,11 @@ before-inventory, and I'll take the same one after.
 4. **A real browser shows it.** I'll open the page in Chromium, record the call
    it makes, read the numbers off the rendered page, and check the loading and
    error states by intercepting that call — the same way as last time, with an
-   untouched control run. Free, no dispatch.
+   untouched control run. Free, no dispatch. **I've already checked the browser
+   works on this machine rather than assuming it**: it opens `/status` and
+   `/booking-check`, records each one calling its counting function, reports no
+   page errors, and gets a plain "Not found" on `/workshop-load`. So the
+   instrument is ready now, not something to discover at the moment it matters.
 5. **No new tables, no new columns.** The same probes as above, run again. For a
    properly authoritative list rather than name-by-name, the free
    `backend repair --verify --slug repairbench-1` press reads the real table
@@ -10372,10 +10381,13 @@ I'll write the outcome down **before** correcting anything, however it comes out
 spending a credit** if either doesn't match — the Worker and the container roll
 separately, so they're two separate checks and "can't tell" refuses too.
 
-- **`expect_image`** is computable before the merge, and I've done it: the
-  merged tree's container image will be the id I'll state once this is
-  committed. As a cross-check, today's `main` computes to `c6980fe3efce66d3`,
-  which is exactly the image the live container is on.
+- **`expect_image`** is computable before the merge, and I've done it:
+  **`b5c638bdfb04f3c4`**, assuming this merges as a fast-forward with nothing
+  else landing on main in between. As a cross-check, today's `main` computes to
+  `c6980fe3efce66d3`, which is exactly the image the live container is on — so
+  the arithmetic is checked against reality, not only against itself. If
+  anything else lands on main first I'll recompute before handing you the
+  number.
 - **`expect_deploy`** is the merge commit's own sha and can't exist until the
   merge. I'll fill it in from the deploy and hand you both values.
 

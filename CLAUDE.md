@@ -5466,7 +5466,15 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   length. **LOCAL IS `6516 / 6516 / 0 / 0` AND CI WILL READ 4 SKIPPED, NOT 3**:
   case 11 needs the baseline commit's git objects and `actions/checkout@v4` is
   `fetch-depth: 1`, so it skips there — visibly, rather than passing and
-  claiming to have checked. CI has NOT read this number yet.
+  claiming to have checked. **CI HAS READ IT AND THE PREDICTION MATCHED:
+  `unit tests` run 2614 on `04b6f335`, green (2026-09-16 04:32:35→04:34:40Z) —
+  `# tests 6516 / # pass 6512 / # fail 0 / # skipped 4`**, against local
+  `6516 / 6516 / 0 / 0`. The prediction of 4 was written into the commit message
+  before the run, which is the only way a skip count is evidence rather than an
+  observation. **`site build` run 1152's green still covers this tip, and by the
+  IMAGE ID rather than by a `paths` list**: `71c2c4b8`, `546550b7` and
+  `04b6f335` all hash to `b5c638bdfb04f3c4` (182 inputs), so nothing an image is
+  built from moved and no run fired or was due.
   **6,514** before it (2026-09-16, local — the `search_path` review
   after its scope correction, whose new case file is
   `test/site-searchpath.test.mjs`'s **9**: the census over the real emitted DDL,
