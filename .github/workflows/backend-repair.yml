@@ -125,6 +125,23 @@ jobs:
       # Driven in `test/repair-workflows.test.mjs` — the command and its shell
       # setting together, because either alone proves nothing.
       #
+      # THE ARGUMENTS ARE A BASH ARRAY AND THE EXPANSION IS QUOTED, and that is
+      # a WALL rather than a style. This built one string and expanded it
+      # UNQUOTED, so a value word-split into more arguments: with mode `counts`
+      # and column `drop_off_day --apply` the script was handed
+      # `--counts … --column drop_off_day --apply` and ran a full APPLY — while
+      # the confirm gate above, which reads `inputs.mode`, had seen `counts` and
+      # demanded no word. A value became a mode, and the approval gate was asked
+      # about a different run from the one that executed. Reproduced end to end.
+      #
+      # `args+=(--slug "$SLUG")` keeps each value ONE argument whatever it
+      # contains, and `"${args[@]}"` hands them over unsplit.
+      #
+      # THE SCRIPT'S OWN PARSER IS THE SECOND WALL and both are kept: this stops
+      # the split, and `parseArgs` refuses anything that did split (two modes, a
+      # repeated flag, a value shaped like a flag, an argument it does not know).
+      # Either alone leaves the other's failure open.
+      #
       # ONE LINE, because test/ci-browser-order.test.mjs reads the first line of
       # a `run:` block and must see the script name there.
       - name: backend repair
@@ -136,7 +153,7 @@ jobs:
           TABLE: ${{ github.event.inputs.table }}
           COLUMN: ${{ github.event.inputs.column }}
         run: |
-          S=""; if [ -n "$SLUG" ]; then S="--slug $SLUG"; fi; if [ -n "$TABLE" ]; then S="$S --table $TABLE"; fi; if [ -n "$COLUMN" ]; then S="$S --column $COLUMN"; fi; node scripts/backend-repair.mjs --"${MODE:-preview}" $S 2>&1 | tee backend-repair.log
+          args=(--"${MODE:-preview}"); if [ -n "$SLUG" ]; then args+=(--slug "$SLUG"); fi; if [ -n "$TABLE" ]; then args+=(--table "$TABLE"); fi; if [ -n "$COLUMN" ]; then args+=(--column "$COLUMN"); fi; node scripts/backend-repair.mjs "${args[@]}" 2>&1 | tee backend-repair.log
       # THE LOG LANDS WHETHER OR NOT THE RUN PASSED. A verify that failed is
       # exactly the run whose output is worth keeping, and a failed apply names
       # which site it got to.

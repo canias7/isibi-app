@@ -210,15 +210,79 @@ export async function countsOf(sql, plan) {
  */
 export const MODES = Object.freeze(["preview", "apply-reference", "apply", "verify", "counts"]);
 
+/** The three arguments that take a value. Named once, so the loop below and
+ *  the repeat check cannot disagree about which they are. */
+const VALUE_ARGS = Object.freeze(["slug", "table", "column"]);
+
+/**
+ * READ THE ARGUMENTS, OR REFUSE — and the refusal is the point of this
+ * function, not a nicety on top of it.
+ *
+ * **WHAT THIS IS FOR (2026-09-16, owner).** The workflow expanded its argument
+ * string UNQUOTED, so a value could word-split into more arguments: with
+ * `mode: counts` and `column: "drop_off_day --apply"` the shell handed this
+ * `--counts … --column drop_off_day --apply`, the old loop let the LAST mode
+ * flag win, and the run became a full **apply** — while the workflow's confirm
+ * gate, which reads `inputs.mode`, had seen `counts` and demanded no word.
+ * **A value became a mode, and the approval gate was asked about a different
+ * run from the one that executed.** Reproduced end to end before the fix.
+ *
+ * The workflow builds a bash ARRAY now, so a value stays one argument whatever
+ * it contains. **That fix and this one are independent walls and both are
+ * kept**: the array stops the split, and this stops anything that did split
+ * from meaning something. Either alone would leave the other's failure open —
+ * an edit that reverts the quoting, or a caller that builds argv by hand.
+ *
+ * **THE PROPERTY: a VALUE can never become a MODE, and never add an option.**
+ * Four refusals, each fail-closed:
+ *   - two DIFFERENT mode flags — there is no rule for which wins that is not a
+ *     guess about the caller, and the guess that shipped chose the widest;
+ *   - the SAME flag twice, mode or value — a repeat means somebody's argv was
+ *     assembled twice, and picking one is the same guess;
+ *   - a value that is missing, or that looks like a flag (`-…`) — the exact
+ *     shape a word-split leaves behind;
+ *   - an argument this does not recognise — the other shape it leaves behind.
+ * An unknown `--flag` is NOT silently ignored: ignoring is how an argument that
+ * was meant to do something reads as having done it.
+ *
+ * It answers rather than throwing, so `main` can refuse with an exit code and
+ * a sentence; `error` is `""` on every good parse, which is what every existing
+ * caller reads past.
+ */
 export function parseArgs(argv) {
-  const out = { mode: "preview", slug: "", table: "", column: "" };
+  const out = { mode: "preview", slug: "", table: "", column: "", error: "" };
+  // A REFUSAL PUTS THE MODE BACK TO THE ONE THAT WRITES NOTHING. `main` exits
+  // before reading it, so this is for a caller that reads past `error` — and
+  // without it a refusal keeps whatever flag was accepted BEFORE the one that
+  // refused, so `--apply --counts` answers `apply` while claiming to have been
+  // refused. Cannot-tell must never read as the widest answer available.
+  const refuse = (why) => { out.error = why; out.mode = "preview"; return out; };
+  const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
+    const a = String(argv[i]);
     const named = a.startsWith("--") && MODES.includes(a.slice(2)) ? a.slice(2) : "";
-    if (named) out.mode = named;
-    else if (a === "--slug") out.slug = String(argv[++i] || "");
-    else if (a === "--table") out.table = String(argv[++i] || "");
-    else if (a === "--column") out.column = String(argv[++i] || "");
+    if (named) {
+      // THE MODE IS DECIDED ONCE. A second one is a refusal whether or not it
+      // agrees with the first — see the header.
+      if (seen.has("mode")) {
+        return refuse(out.mode === named
+          ? `--${named} was given twice`
+          : `two modes were named: --${out.mode} and --${named}`);
+      }
+      seen.add("mode"); out.mode = named; continue;
+    }
+    const key = a.startsWith("--") ? a.slice(2) : "";
+    if (VALUE_ARGS.includes(key)) {
+      if (seen.has(key)) return refuse(`--${key} was given twice`);
+      if (i + 1 >= argv.length) return refuse(`--${key} was given no value`);
+      const v = String(argv[++i]);
+      // A VALUE THAT LOOKS LIKE A FLAG IS THE WORD-SPLIT'S OWN SHAPE. No real
+      // slug, table or column starts with a dash, so refusing costs nothing
+      // and reading one as a value is how `--apply` becomes a column name.
+      if (v.startsWith("-")) return refuse(`--${key} was given a value that looks like a flag: ${v}`);
+      seen.add(key); out[key] = v; continue;
+    }
+    return refuse(`unrecognised argument: ${a}`);
   }
   return out;
 }
@@ -565,6 +629,15 @@ const fmt = (r) => JSON.stringify(r);
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  // AN ARGV THIS CANNOT READ IS REFUSED BEFORE ANYTHING ELSE — above the
+  // credential check, because this one is about what the caller typed and is
+  // the thing they can fix. It never prints `mode:`, since naming a mode for a
+  // refused parse is the confusion the refusal exists to stop.
+  if (args.error) {
+    console.error(`cannot read the arguments: ${args.error}`);
+    console.error("refusing — nothing was read or written");
+    process.exit(2);
+  }
   const key = process.env.SUPABASE_SERVICE_KEY;
   if (!key) { console.error("SUPABASE_SERVICE_KEY is not set"); process.exit(2); }
   console.log(`mode: ${args.mode}${args.slug ? "  slug: " + args.slug : ""}`);

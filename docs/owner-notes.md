@@ -10777,6 +10777,47 @@ wrong table cannot answer this.
 
 The initial outcome gets written down before anything is corrected by hand.
 
+### ⚠ 6. YOU FOUND A REAL HOLE, AND IT WAS EXACTLY AS YOU DESCRIBED
+
+You spotted that a value typed into the form could change what the run does. It
+could. I reproduced it before touching anything:
+
+> **mode `counts`, column `drop_off_day --apply`, confirm empty** → the script
+> was handed `--apply` and would have run a **full apply**, writing to the
+> database. The confirmation box never asked for the word, because it looks at
+> the *mode* dropdown — which still said `counts`.
+
+**The cause is two small things that only matter together.** The step glued the
+arguments into one line of text and let the shell pull it apart again, so a
+space in your typed value became a new argument. And the script took the LAST
+mode it saw. So the approval gate and the thing that actually ran were answering
+two different questions.
+
+**Both are fixed, and each would have been enough on its own — which is why I
+kept both.**
+
+1. **The step builds a proper list now**, so whatever you type stays one value.
+   `drop_off_day --apply` arrives as a column name, and gets refused for being a
+   column the table has not got, which is the true reason.
+2. **The script refuses anything it cannot read cleanly** — two different modes,
+   the same flag twice, a value that looks like a flag, a missing value, or a
+   word it does not recognise. It stops with a sentence saying which, reads
+   nothing, writes nothing, and exits red. It will not guess, because the guess
+   that shipped chose the widest thing it could do.
+
+**The test is the one you asked for**: the step's real command runs, and whatever
+it hands over goes through the real parser. Five modes × three fields × eight
+nasty values — 120 combinations — and every one must either pick exactly the mode
+you chose on the form, or refuse outright. Ordinary `counts` and a properly
+confirmed `apply` both still work, and that is checked too, so "it refuses
+everything" cannot pass.
+
+**The mutation sweep found four gaps in my own first test** and one of them was a
+real second bug: a refused parse still remembered the mode it had got to, so
+`--apply --counts` answered *apply* while saying it had refused. Fixed.
+
+---
+
 ### The three decisions left
 
 1. **Run the free `counts` press** so the expected dates and counts are the live

@@ -148,6 +148,47 @@ test("backend-repair --verify fails when the named site has no reachable databas
   assert.match(c.out, /0 read, 0 not read/, c.out);
 });
 
+test("an argv the parser cannot read exits NONZERO and reads nothing", () => {
+  // THE EXIT CODE IS THE OBSERVABLE HALF and `main` is not exported, so only a
+  // spawned process can say this. The refusal sits ABOVE the credential check,
+  // which is why this case supplies no key and still gets the argument's own
+  // sentence rather than "SUPABASE_SERVICE_KEY is not set".
+  const f = scenario({
+    sites: [{ slug: "repairbench-1", uid: "u1", neon_db: "site_repairbench_1" }],
+    projects: [{ slug: "repairbench-1", neon_conn: PROJ }],
+    tables: { bookings: { ...BOOKINGS, columns: ["id", "created_at", "who", "drop_off_day date"] } },
+  });
+
+  // The owner's reproduction as the pre-fix shell really produced it.
+  const split = run("backend-repair.mjs",
+    ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day", "--apply"], f);
+  assert.equal(split.code, 2, "a split argv did not exit 2:\n" + split.out);
+  assert.match(split.out, /cannot read the arguments: two modes were named/, split.out);
+  assert.match(split.out, /nothing was read or written/, split.out);
+  assert.equal(split.statements.length, 0, "a refused argv still read something: " + JSON.stringify(split.statements));
+  // AND IT NEVER ANNOUNCES A MODE — naming one for a parse it refused is the
+  // confusion the refusal exists to stop.
+  assert.doesNotMatch(split.out, /^mode:/m, "a refused run still printed a mode:\n" + split.out);
+
+  for (const [argv, why] of [
+    [["--counts", "--wat"], /unrecognised argument/],
+    [["--counts", "--column"], /no value/],
+    [["--apply", "--apply"], /was given twice/],
+  ]) {
+    const r = run("backend-repair.mjs", argv, f);
+    assert.equal(r.code, 2, `${JSON.stringify(argv)} exited ${r.code}:\n${r.out}`);
+    assert.match(r.out, why, r.out);
+    assert.equal(r.statements.length, 0, `${JSON.stringify(argv)} read something`);
+  }
+
+  // THE CONTROL: the same scenario, a well-formed argv — it runs and reads.
+  const ok = run("backend-repair.mjs",
+    ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"], f);
+  assert.notEqual(ok.code, 2, "a good argv was refused as malformed:\n" + ok.out);
+  assert.match(ok.out, /^mode: counts/m, ok.out);
+  assert.ok(ok.statements.length > 0, "the control read nothing, so the refusals above prove nothing");
+});
+
 test("the repair is scoped to five sites by name, and a sixth is refused before anything is read", () => {
   // THE SCOPE IS A WALL IN THE SCRIPT, NOT A PROMISE IN THE WORKFLOW FORM.
   // Driven as a process, because that is the only place the exit code and the

@@ -616,6 +616,81 @@ test("the script previews by default and writes only under --apply", () => {
   assert.ok(!/\bDELETE\s+FROM\b/i.test(src), "the repair script deletes rows");
 });
 
+test("an argv it cannot read is refused, and a value can never become a mode", () => {
+  // ── WHY THIS IS HERE AND NOT ONLY IN `repair-workflows` ───────────────────
+  //
+  // The workflow builds a bash ARRAY now, so through THAT door a value never
+  // splits and this parser's refusals change no observable result — the
+  // recorded "two redundant defences cannot be killed one at a time", measured:
+  // with the array in place and this hardening reverted, every case in
+  // `repair-workflows.test.mjs` still passes.
+  //
+  // So the two walls are asserted where each is the ONLY one. This is the
+  // parser's own door: argv built by hand, by a script, or by a workflow whose
+  // quoting a later edit reverts — and that last is not hypothetical, it is
+  // precisely the state this whole round is fixing.
+  //
+  // THE DEFECT, as a single row: the old loop let the LAST mode flag win, so
+  // `--counts … --column drop_off_day --apply` ran a full apply while the
+  // workflow's confirm gate had been asked about `counts`.
+  const refused = (argv, why) => {
+    const r = parseArgs(argv);
+    assert.ok(r.error, `expected a refusal for ${JSON.stringify(argv)}, got ${JSON.stringify(r)}`);
+    assert.match(r.error, why, `the refusal for ${JSON.stringify(argv)} does not say why: ${r.error}`);
+    // A REFUSED PARSE NEVER ANSWERS A MODE THAT WRITES. `main` exits before
+    // reading it, but a caller that read past `error` must not find a writer —
+    // and a SWEEP found the first version of this line vacuous: it excused the
+    // one value (`apply`) it most needed to forbid.
+    assert.equal(writesReference(r.mode), false, `a refused parse answered a writing mode: ${r.mode}`);
+    assert.equal(writesMeta(r.mode), false, `a refused parse answered a _meta writer: ${r.mode}`);
+  };
+
+  refused(["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day", "--apply"],
+    /two modes were named/);
+  refused(["--apply", "--counts"], /two modes were named/);
+  refused(["--counts", "--apply"], /two modes were named/);
+  refused(["--apply", "--apply"], /--apply was given twice/);
+  refused(["--counts", "--column", "--apply"], /looks like a flag/);
+  refused(["--counts", "--slug", "-x"], /looks like a flag/);
+  refused(["--counts", "--column"], /no value/);
+  refused(["--counts", "--slug", "a", "--slug", "b"], /--slug was given twice/);
+  refused(["--counts", "--wat"], /unrecognised argument: --wat/);
+  refused(["--counts", "oops"], /unrecognised argument: oops/);
+  refused(["--"], /unrecognised argument/);
+
+  // ── AND EVERY ORDINARY ARGV STILL READS, or the refusals above are satisfied
+  // ── by a parser that refuses everything.
+  for (const m of MODES) {
+    const r = parseArgs(["--" + m, "--slug", "repairbench-1"]);
+    assert.equal(r.error, "", `--${m} was refused: ${r.error}`);
+    assert.equal(r.mode, m);
+    assert.equal(r.slug, "repairbench-1");
+  }
+  assert.deepEqual(parseArgs(["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"]),
+    { mode: "counts", slug: "repairbench-1", table: "bookings", column: "drop_off_day", error: "" });
+  assert.deepEqual(parseArgs([]), { mode: "preview", slug: "", table: "", column: "", error: "" });
+
+  // A VALUE HOLDING A SPACE IS ONE VALUE, which is what the array delivers and
+  // what this must not undo — it is refused LATER, by `countsPlan`, for being a
+  // column the catalog has not got, which is a sentence naming the real reason.
+  const spaced = parseArgs(["--counts", "--column", "drop_off_day --apply"]);
+  assert.equal(spaced.error, "");
+  assert.equal(spaced.mode, "counts", "a spaced value still chose a mode");
+  assert.equal(spaced.column, "drop_off_day --apply");
+  assert.equal(countsPlan({ bookings: ["drop_off_day date"] }, "bookings", spaced.column).ok, false);
+
+  // THE REFUSAL REACHES THE PROCESS. `main` is not exported and the exit code
+  // is the observable half, so the census here is that `main` reads `error`
+  // ABOVE the credential check — the process-level drive is in
+  // `test/repair-commands.test.mjs`.
+  const script = fs.readFileSync(new URL("../scripts/backend-repair.mjs", import.meta.url), "utf8");
+  const at = script.indexOf("const args = parseArgs(process.argv.slice(2));");
+  const key = script.indexOf("SUPABASE_SERVICE_KEY is not set", at);
+  const err = script.indexOf("if (args.error) {", at);
+  assert.ok(at > 0 && key > at && err > at, "main no longer parses then checks");
+  assert.ok(err < key, "the argument refusal moved below the credential check");
+});
+
 test("the apply gate is DRIVEN, not read: a preview writes nothing and an apply writes the reference", async () => {
   // RE-ANCHORED 2026-09-15, and the anchor is GONE rather than moved. This was
   // `indexOf('if (args.mode !== "apply")')` in `main` with the two writes

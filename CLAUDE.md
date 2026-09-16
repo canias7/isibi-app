@@ -5638,6 +5638,81 @@ answering `42703` as the control. **The per-date split is unknown from here**:
 `bookings` is `collect`, so no client SELECT of values exists, and reading it any
 other way means a live Neon credential in a session transcript.
 
+### …AND A FORM VALUE COULD SELECT THE MODE, PAST THE APPROVAL GATE (2026-09-16)
+
+Owner, before this merged: *"The backend-repair workflow expands `$S` unquoted.
+With mode=counts, column=\"drop_off_day --apply\", and confirm empty, the actual
+parser selects apply. The confirmation gate checked counts, so it never required
+approval for the resulting write mode."*
+
+**EXACTLY RIGHT, AND REPRODUCED END TO END BEFORE ANYTHING WAS TOUCHED** — the
+step's own `run:` text executed under the shell it declares, with a stub
+recording the argv:
+
+```
+MODE=counts COLUMN='drop_off_day --apply'
+  →  scripts/backend-repair.mjs --counts --slug repairbench-1 --table bookings
+     --column drop_off_day --apply
+  →  parseArgs → {mode:"apply"}   writesReference: true   writesMeta: true
+```
+
+**THE TWO HALVES THAT MADE IT A HOLE RATHER THAN A TYPO.** The step built ONE
+string and expanded it unquoted, so a value word-split into more arguments; and
+the old loop let the **LAST** mode flag win. The confirm gate asks
+`startsWith(github.event.inputs.mode, 'apply')` and had seen `counts`, so it
+demanded no word. **The gate and the parser were answering about different
+runs** — the widest mode the script has, reached with no approval, through a
+mode whose whole selling point is that it writes nothing.
+
+**TWO WALLS, AND THEY ARE NOT THE "cannot be killed one at a time" SHAPE —
+MEASURED BOTH WAYS.** With the array in place, reverting the parser leaves every
+case in `repair-workflows` green (that census can only see the workflow);
+reverting the workflow leaves the parser's own cases green. But each has its OWN
+door — the parser revert turns **2** cases red in `backend-repair` +
+`repair-commands`, the workflow revert **1** in `repair-workflows` — so they are
+swept separately rather than as a pair, and the measurement is in the spec.
+
+1. **A BASH ARRAY, QUOTED.** `args+=(--slug "$SLUG")` … `"${args[@]}"`. A value
+   stays one argument whatever it holds, so `drop_off_day --apply` arrives as
+   one column name and is refused LATER by `countsPlan`, for the real reason.
+2. **`parseArgs` REFUSES RATHER THAN GUESSING.** Four fail-closed refusals: two
+   DIFFERENT mode flags (there is no rule for which wins that is not a guess
+   about the caller, and the guess that shipped chose the widest), the same flag
+   twice, a value missing or shaped like a flag (`-…`, the word-split's own
+   residue), and an argument it does not recognise — **never silently ignored**,
+   because ignoring is how an argument meant to do something reads as having
+   done it. It answers `{…, error}` rather than throwing, and `main` refuses
+   with **exit 2 ABOVE the credential check**: the argv is what the caller can
+   fix, and a bad argv must not read as a missing key. **It never prints a
+   mode** for a parse it refused, and **a refusal puts the mode back to
+   `preview`** — without that, `--apply --counts` answers `apply` while claiming
+   to have been refused.
+
+**Guards**: `repair-workflows` **8 → 9** — the census the owner asked for, driven
+**shell → argv → parser**, because that is exactly where the two came apart.
+Five modes × three fields × eight split shapes (the reproduction, a bare
+`--apply`, `--apply-reference`, a second slug, `;`, `$( )`, backticks, another
+option's name): each must select EXACTLY the form's own mode or be refused, with
+the write boundary asserted for every read-only mode. `backend-repair` **55 →
+56** (the parser's own door: eleven refusals each by reason, every ordinary argv
+still reading, and `main`'s order read out of the file); `repair-commands` **16 →
+17** (the exit code, which only a spawned process can say: the split argv exits
+**2**, prints its reason, reads **nothing**, and never announces a mode — with
+the control that a good argv runs and reads).
+
+**Sweep: 18 mutants, 18 killed, 0 survived, 0 never applied, 3 comment-only
+controls survived.** Pass 1 killed 14 with **four survivors, every one a guard
+gap**: three reverted the workflow's quoting and survived because the census
+allowed *"or it was refused"* everywhere — the right SAFETY property and a
+useless REGRESSION one, since the parser catches every split. Closed with a
+second list that must arrive **WHOLE** (`"a b c"`, `"two words"`, a trailing
+space): only the array delivers those, and a refusal cannot satisfy it. The
+fourth was my own vacuous assertion — it excused `apply`, the one value it most
+needed to forbid — and closing it found the real product gap in (2) above.
+
+**Suite 6,652** — 6,649 + one case in each of the three guards, and the
+arithmetic closes exactly.
+
 
 ## Data, auth, payments, mail
 
