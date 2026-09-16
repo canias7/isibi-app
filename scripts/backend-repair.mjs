@@ -127,15 +127,98 @@ export const writesReference = (mode) => WRITES_REFERENCE.includes(mode);
 /** May this mode create or update `_meta`? `apply-reference` MUST NOT. */
 export const writesMeta = (mode) => WRITES_META.includes(mode);
 
+/**
+ * A READ-ONLY AGGREGATE, SO AN EXPECTED RESULT CAN BE ESTABLISHED WITHOUT
+ * TOUCHING THE DATA (2026-09-16, owner: *"check whether the existing
+ * credentialed verification workflow can run a narrowly scoped, read-only
+ * aggregate… Return dates and counts only, no customer details."*).
+ *
+ * WHY IT LIVES HERE RATHER THAN IN A NEW SCRIPT: this tool already holds the
+ * credential, the scope wall (`REPAIR_SITES`) and the identity chain, and all
+ * three are proven. A second script would be a second copy of each.
+ *
+ * **IT WRITES NOTHING BY CONSTRUCTION, not by care.** `counts` is on NEITHER
+ * `WRITES_REFERENCE` nor `WRITES_META`, and both gates are `includes` over a
+ * frozen list, so a mode they have never heard of writes nothing without any
+ * new check being added. The census asserts that, because it is the property
+ * that makes this mode safe to add at all.
+ *
+ * **AND IT CANNOT RETURN A NAME, WHICH IS A PROPERTY RATHER THAN A PROMISE.**
+ * The one column it may group by has to be a DATE OR TIME type, asked of the
+ * catalog — a positive, type-derived rule, never a deny-list of column names
+ * (this repository's recorded "a negative list is the wrong wall"). So
+ * `customer_name` is refused by the tool and not by the caller's discipline,
+ * and the answer is a date and a count with nowhere for anything else to sit.
+ */
+export const COUNTS_TYPES = Object.freeze(["date", "timestamp", "time"]);
+/** A bare, unquoted-safe SQL identifier. */
+const PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * May this aggregate run, and over what? PURE, so every refusal is drivable
+ * with no database at all — which is the half that decides whether a
+ * credentialed run is worth pressing.
+ *
+ * `inventory` is `columnInventory`'s answer: `{table: ["name type", …]}`. The
+ * TWO checks are not redundant — catalog membership answers "is there such a
+ * column", and `PLAIN_NAME` answers "is its name safe to interpolate" — and a
+ * real Postgres identifier may legally contain characters that make the second
+ * question a different one from the first.
+ */
+export function countsPlan(inventory, table, column) {
+  const inv = inventory && typeof inventory === "object" ? inventory : {};
+  const t = typeof table === "string" ? table : "";
+  const c = typeof column === "string" ? column : "";
+  if (!t || !c) return { ok: false, why: "need-table-and-column" };
+  if (!Object.prototype.hasOwnProperty.call(inv, t)) {
+    return { ok: false, why: "no-such-table", detail: t, tables: Object.keys(inv).sort() };
+  }
+  const hit = (inv[t] || []).find((e) => String(e).split(" ")[0] === c);
+  if (!hit) return { ok: false, why: "no-such-column", detail: `${t}.${c}`, columns: (inv[t] || []).map((e) => String(e).split(" ")[0]) };
+  const ty = String(hit).slice(c.length + 1).trim().toLowerCase();
+  if (!COUNTS_TYPES.some((p) => ty.startsWith(p))) {
+    return { ok: false, why: "not-a-date-column", detail: `${t}.${c} is ${ty || "(untyped)"}`, allowed: [...COUNTS_TYPES] };
+  }
+  if (!PLAIN_NAME.test(t) || !PLAIN_NAME.test(c)) return { ok: false, why: "name-not-plain", detail: `${t}.${c}` };
+  // GROUP BY 1 / ORDER BY 2 DESC, 1 — the ordinals, so the emitted text names
+  // each identifier exactly once and the tie-break is deterministic, which is
+  // what makes "busiest first" a reproducible reading rather than a lucky one.
+  return { ok: true, table: t, column: c, type: ty,
+    sql: `SELECT "${c}" AS v, COUNT(*)::bigint AS n FROM "${t}" GROUP BY 1 ORDER BY 2 DESC, 1` };
+}
+
+/** Run the planned aggregate. No parameters, because the plan has already
+ *  established both identifiers against the catalog and nothing else varies. */
+export async function countsOf(sql, plan) {
+  if (!plan || plan.ok !== true) return { ok: false, why: (plan && plan.why) || "no-plan" };
+  const rows = (await sql(plan.sql, [])) || [];
+  const out = rows.map((r) => ({ value: r && r.v === null ? null : String(r && r.v), count: Number(r && r.n) || 0 }));
+  return { ok: true, rows: out, total: out.reduce((a, r) => a + r.count, 0), groups: out.length };
+}
+
+/**
+ * EVERY MODE THIS SCRIPT HAS, IN ONE PLACE — and `parseArgs` DERIVES its flags
+ * from it rather than listing them a second time.
+ *
+ * The census in `test/backend-repair.test.mjs` compares this list with the
+ * workflow form's own `options:` BOTH WAYS, so a mode that exists and is not
+ * offered (unreachable by the only person who can press it) and a mode offered
+ * and not implemented (a button that answers `preview`) are each a red run.
+ * That guard used to pin the option list as a LITERAL and went red on the first
+ * honest addition — this repository's own "assert the property, not the
+ * spelling", met in the guard written for the write boundary.
+ */
+export const MODES = Object.freeze(["preview", "apply-reference", "apply", "verify", "counts"]);
+
 export function parseArgs(argv) {
-  const out = { mode: "preview", slug: "" };
+  const out = { mode: "preview", slug: "", table: "", column: "" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--apply") out.mode = "apply";
-    else if (a === "--apply-reference") out.mode = "apply-reference";
-    else if (a === "--preview") out.mode = "preview";
-    else if (a === "--verify") out.mode = "verify";
+    const named = a.startsWith("--") && MODES.includes(a.slice(2)) ? a.slice(2) : "";
+    if (named) out.mode = named;
     else if (a === "--slug") out.slug = String(argv[++i] || "");
+    else if (a === "--table") out.table = String(argv[++i] || "");
+    else if (a === "--column") out.column = String(argv[++i] || "");
   }
   return out;
 }
@@ -506,8 +589,16 @@ async function main() {
   // `!verified` there is load-bearing instead of a second belt.
   if (!reachable.length) {
     console.log("nothing to do.");
-    if (args.mode !== "verify") return;
-    console.log(args.slug ? `VERIFY FAILED: ${args.slug} has no reachable database.` : "VERIFY FAILED: nothing was verified.");
+    // `counts` joins `verify` here for the same reason: a run asked for a
+    // number that reached no database must not exit 0 with a blank where the
+    // number goes.
+    if (args.mode !== "verify" && args.mode !== "counts") return;
+    // THE SENTENCE NAMES THE MODE THAT ASKED, derived from `args.mode` rather
+    // than written per branch: a `counts` run that reached nothing must not
+    // report itself as a failed verification, and a verification must not lose
+    // its own word to a mode added beside it.
+    console.log(`${args.mode.toUpperCase()} FAILED: ` +
+      (args.slug ? `${args.slug} has no reachable database.` : "nothing was read."));
   }
 
   const write = (slug, uid, db, proof) => writeRef(key, slug, uid, db, proof);
@@ -532,6 +623,37 @@ async function main() {
         for (const t of names) console.log(`      ${t}: ${JSON.stringify(v.inventory[t])}`);
       }
       if (v.ok) verified++; else failed++;
+      continue;
+    }
+
+    if (args.mode === "counts") {
+      // IDENTITY FIRST, exactly as the verify does. An aggregate read out of a
+      // database nobody proved belongs to this site is a number about somebody
+      // else's rows, which is worse than no number at all.
+      let id;
+      try { id = await proveIdentity({ slug: site.slug, expectDb: site.db, conn: site.conn, projectSlug: site.projectSlug, sql }); }
+      catch (e) { id = { proven: false, why: "database-did-not-answer", detail: safeErr(e) }; }
+      console.log(`${site.slug}: identity ${id.proven ? "PROVEN" : "NOT PROVEN"} (${id.why}${id.detail ? " — " + id.detail : ""})`);
+      if (!id.proven) { failed++; continue; }
+
+      const st = await describeContents(sql);
+      const plan = countsPlan(columnInventory(st.columns), args.table, args.column);
+      if (!plan.ok) {
+        // A REFUSAL IS A SENTENCE AND A NONZERO EXIT. "Nothing came back"
+        // and "we refused to ask" are two readings a blank collapses.
+        console.log(`    REFUSED (${plan.why})${plan.detail ? " — " + plan.detail : ""}`);
+        if (plan.tables) console.log(`    tables here: ${JSON.stringify(plan.tables)}`);
+        if (plan.columns) console.log(`    columns there: ${JSON.stringify(plan.columns)}`);
+        if (plan.allowed) console.log(`    only a date or time column may be grouped: ${JSON.stringify(plan.allowed)}`);
+        failed++; continue;
+      }
+      console.log(`    reading: ${plan.sql}`);
+      let agg;
+      try { agg = await countsOf(sql, plan); }
+      catch (e) { console.log(`    FAILED — ${safeErr(e)}`); failed++; continue; }
+      for (const r of agg.rows) console.log(`      ${r.value === null ? "(no date)" : r.value}  ${r.count}`);
+      console.log(`    ${agg.groups} group(s), ${agg.total} row(s) in total`);
+      verified++;
       continue;
     }
 
@@ -570,6 +692,14 @@ async function main() {
   // verification.
   if (args.mode === "verify") {
     console.log(`\n${verified} verified, ${failed} not verified.`);
+    if (failed || !verified) process.exitCode = 1;
+    return;
+  }
+  // THE AGGREGATE EXITS THE SAME WAY, and for the reason the `--verify` defect
+  // taught: a read that refused or could not run must not be readable as a
+  // successful read of nothing.
+  if (args.mode === "counts") {
+    console.log(`\n${verified} read, ${failed} not read. (read-only: this mode writes nothing.)`);
     if (failed || !verified) process.exitCode = 1;
     return;
   }

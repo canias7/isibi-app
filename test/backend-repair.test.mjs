@@ -24,7 +24,7 @@ import { READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
 import { connForDatabase, dbNameForSite } from "../site-db.mjs";
 import { META_TABLE_SQL } from "../site-schema.mjs";
 import { parseArgs, safeErr, proveIdentity, recoverSchema, survey, workList, writeRef, repairSite, verifySite, EMIT,
-  WRITES_REFERENCE, WRITES_META, writesReference, writesMeta, columnInventory } from "../scripts/backend-repair.mjs";
+  WRITES_REFERENCE, WRITES_META, writesReference, writesMeta, columnInventory, countsPlan, countsOf, COUNTS_TYPES, MODES } from "../scripts/backend-repair.mjs";
 
 /** The real emitters, as the product hands them in. Nothing here verifies against a copy. */
 const REAL = { policiesFor, grantsFor };
@@ -1477,12 +1477,142 @@ test("the reference-only bound is one list, and `apply` is the only mode that ma
   // The flag reaches the mode, and the workflow offers it.
   assert.equal(parseArgs(["--apply-reference"]).mode, "apply-reference");
   assert.equal(parseArgs(["--apply"]).mode, "apply");
+  // RE-ANCHORED 2026-09-16 OFF THE LITERAL OPTION LIST. This pinned
+  // `options: [preview, apply-reference, apply, verify]` exactly, so the first
+  // honest addition reported the reference-only bound as broken — this
+  // repository's recorded "assert the property, not the spelling", in the guard
+  // written for the write boundary. The property is a CENSUS BOTH WAYS between
+  // `MODES` and the form: a mode nobody can press is unreachable (only the
+  // owner has the button), and a mode offered but not implemented is a button
+  // that silently answers `preview`.
   const wf = fs.readFileSync(new URL("../.github/workflows/backend-repair.yml", import.meta.url), "utf8");
-  assert.match(wf, /options: \[preview, apply-reference, apply, verify\]/, "the form does not offer reference-only");
+  const offered = (/^\s*options: \[([^\]]*)\]/m.exec(wf) || [, ""])[1].split(",").map((x) => x.trim()).filter(Boolean);
+  assert.ok(offered.length >= 4, "the form's option list could not be read at all: " + JSON.stringify(offered));
+  assert.deepEqual([...offered].sort(), [...MODES].sort(),
+    "the form and MODES disagree — offered " + JSON.stringify(offered) + " against " + JSON.stringify([...MODES]));
+  // AND EVERY WRITING MODE IS STILL OFFERED AND STILL BEHIND THE TYPED WORD.
+  for (const m of WRITES_REFERENCE) {
+    assert.ok(offered.includes(m), `the form does not offer the writing mode ${m}`);
+    assert.ok(m.startsWith("apply"), `${m} writes and does not start with "apply", so the confirm gate misses it`);
+  }
+  // …and each flag really reaches its own mode, driven rather than read.
+  for (const m of MODES) assert.equal(parseArgs(["--" + m]).mode, m, `--${m} does not select ${m}`);
   // AND EVERY WRITING MODE STILL DEMANDS THE TYPED WORD. A list of names here
   // would be a second copy of WRITES_REFERENCE; the prefix test errs toward
   // demanding confirmation, which is the safe direction.
   assert.match(wf, /if: \$\{\{ startsWith\(github\.event\.inputs\.mode, 'apply'\) \}\}/,
     "the confirm gate no longer covers every apply mode");
   for (const m of WRITES_REFERENCE) assert.ok(m.startsWith("apply"), `${m} writes but escapes the confirm gate`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE READ-ONLY AGGREGATE (2026-09-16)
+//
+// Owner: *"check whether the existing credentialed verification workflow can
+// run a narrowly scoped, read-only aggregate on repairbench-1: count bookings
+// grouped by drop_off_day, ordered by count descending. Return dates and counts
+// only, no customer details."*
+//
+// It can, and the two things that make it safe are properties rather than
+// promises: the mode is on NEITHER write list, and the grouping column must be
+// a DATE OR TIME type asked of the catalog.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("the counts mode writes nothing BY CONSTRUCTION, and the write lists are unchanged", () => {
+  // THE WHOLE SAFETY ARGUMENT FOR ADDING A MODE AT ALL. Both gates are
+  // `includes` over a frozen list, so a mode they have never heard of writes
+  // nothing without one new check being written — and this asserts that the
+  // lists really did not grow, because a mode quietly joining one of them is
+  // the only way this could become a writer.
+  assert.deepEqual([...WRITES_REFERENCE], ["apply", "apply-reference"]);
+  assert.deepEqual([...WRITES_META], ["apply"]);
+  assert.equal(writesReference("counts"), false, "counts may write the reference");
+  assert.equal(writesMeta("counts"), false, "counts may write _meta");
+  // AND THE CONFIRM GATE STILL ONLY COVERS THE WRITERS — a read-only mode must
+  // not demand the word, or the word stops meaning "this writes".
+  assert.equal("counts".startsWith("apply"), false);
+  assert.equal(parseArgs(["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"]).mode, "counts");
+  assert.deepEqual(
+    (({ mode, slug, table, column }) => ({ mode, slug, table, column }))(
+      parseArgs(["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"])),
+    { mode: "counts", slug: "repairbench-1", table: "bookings", column: "drop_off_day" });
+});
+
+test("the aggregate can only group a DATE column, so it cannot return a name", () => {
+  // THE INVENTORY IS THE CATALOG'S OWN, derived from `columnInventory` rather
+  // than typed, so a shape change cannot be papered over here.
+  const inv = columnInventory([
+    { t: "bookings", c: "id", ty: "uuid" },
+    { t: "bookings", c: "customer_name", ty: "text" },
+    { t: "bookings", c: "bike", ty: "text" },
+    { t: "bookings", c: "drop_off_day", ty: "date" },
+    { t: "bookings", c: "created_at", ty: "timestamp with time zone" },
+  ]);
+
+  const ok = countsPlan(inv, "bookings", "drop_off_day");
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  // THE EMITTED TEXT, asserted whole: one table, one column, a count, grouped
+  // and ordered by ORDINALS so each identifier is named exactly once and the
+  // tie-break is deterministic. "busiest first" is only reproducible with it.
+  assert.equal(ok.sql,
+    'SELECT "drop_off_day" AS v, COUNT(*)::bigint AS n FROM "bookings" GROUP BY 1 ORDER BY 2 DESC, 1');
+  // A timestamp is a date for this purpose; the type test is a PREFIX over the
+  // catalog's own `data_type` spelling, which carries the qualifiers.
+  assert.equal(countsPlan(inv, "bookings", "created_at").ok, true);
+
+  // ── THE REFUSALS, each a named reason rather than a silent empty answer ────
+  assert.equal(countsPlan(inv, "bookings", "customer_name").why, "not-a-date-column",
+    "a TEXT column may be grouped, so the aggregate can return customer details");
+  assert.equal(countsPlan(inv, "bookings", "id").why, "not-a-date-column", "a uuid is not a date");
+  assert.equal(countsPlan(inv, "repairs", "drop_off_day").why, "no-such-table");
+  assert.equal(countsPlan(inv, "bookings", "nope").why, "no-such-column");
+  assert.equal(countsPlan(inv, "", "drop_off_day").why, "need-table-and-column");
+  assert.equal(countsPlan(inv, "bookings", "").why, "need-table-and-column");
+  for (const junk of [null, undefined, 7, {}, []]) {
+    assert.equal(countsPlan(inv, junk, "drop_off_day").ok, false);
+    assert.equal(countsPlan(inv, "bookings", junk).ok, false);
+    assert.equal(countsPlan(junk, "bookings", "drop_off_day").ok, false);
+  }
+  // A REFUSAL CARRIES WHAT WOULD HAVE HELPED — the tables that are there, the
+  // columns that are there, the types that are allowed. A bare `false` sends
+  // somebody back to the form with nothing to change.
+  assert.deepEqual(countsPlan(inv, "repairs", "x").tables, ["bookings"]);
+  assert.ok(countsPlan(inv, "bookings", "nope").columns.includes("drop_off_day"));
+  assert.deepEqual(countsPlan(inv, "bookings", "customer_name").allowed, ["date", "timestamp", "time"]);
+
+  // AND A HOSTILE IDENTIFIER IS REFUSED EVEN WHEN THE CATALOG HAS IT. Postgres
+  // allows a quoted identifier to contain characters this interpolates, so
+  // "is there such a column" and "is its name safe to interpolate" are two
+  // different questions and both are asked.
+  const nasty = columnInventory([{ t: 'b"; DROP TABLE x; --', c: "d", ty: "date" }, { t: "ok_t", c: 'd"x', ty: "date" }]);
+  assert.equal(countsPlan(nasty, 'b"; DROP TABLE x; --', "d").why, "name-not-plain");
+  assert.equal(countsPlan(nasty, "ok_t", 'd"x').why, "name-not-plain");
+});
+
+test("the aggregate reads, sums and orders — and a plan it refused runs nothing", async () => {
+  const plan = countsPlan(columnInventory([{ t: "bookings", c: "drop_off_day", ty: "date" }]), "bookings", "drop_off_day");
+  const sent = [];
+  const sql = async (q) => { sent.push(q); return [{ v: "2026-10-01", n: "2" }, { v: "2026-10-03", n: "1" }]; };
+
+  const agg = await countsOf(sql, plan);
+  assert.deepEqual(agg.rows, [{ value: "2026-10-01", count: 2 }, { value: "2026-10-03", count: 1 }]);
+  assert.equal(agg.total, 3, "the total is the sum of the groups, which is what a before/after reading compares");
+  assert.equal(agg.groups, 2);
+  assert.equal(sent.length, 1, "one statement, so there is nowhere for a second read to hide");
+  assert.equal(sent[0], plan.sql, "the statement run is not the statement planned");
+
+  // A NULL DATE IS ITS OWN GROUP AND KEEPS ITS NULLNESS — rendering it as the
+  // string "null" would put a row under a date nobody booked.
+  const withNull = await countsOf(async () => [{ v: null, n: "1" }], plan);
+  assert.deepEqual(withNull.rows, [{ value: null, count: 1 }]);
+
+  // A REFUSED PLAN NEVER OPENS THE SOCKET. "We refused to ask" and "nothing
+  // came back" are two readings a zero collapses.
+  let asked = false;
+  const never = await countsOf(async () => { asked = true; return []; }, { ok: false, why: "not-a-date-column" });
+  assert.equal(never.ok, false);
+  assert.equal(never.why, "not-a-date-column");
+  assert.equal(asked, false, "a refused plan still ran a query");
+  assert.equal((await countsOf(async () => { asked = true; return []; }, null)).why, "no-plan");
+  assert.equal(asked, false);
 });

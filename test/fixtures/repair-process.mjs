@@ -70,8 +70,27 @@ const state = {
   counts: scenario.counts || {},
 };
 
+// A COLUMN CARRIES ITS TYPE, AND THE DEFAULT IS `text`.
+//
+// This answered `ty: "text"` for every column until 2026-09-16, which was free
+// while nothing read the type — and the read-only aggregate is decided ENTIRELY
+// by it (a date or time column may be grouped, a text one is refused). A
+// fixture that can only ever say `text` makes the positive arm unreachable and
+// reports the working mode as broken: the recorded "a fixture in a different
+// shape from reality" trap, in the one field the feature turns on.
+//
+// Three spellings, and the bare name is first so every scenario written before
+// this is byte-identical: `"who"` is text, `"drop_off_day date"` is the
+// rendering `columnInventory` itself produces, and `{name, type}` is the shape
+// a catalog row really has.
+const columnOf = (c) => {
+  if (c && typeof c === "object") return { c: String(c.name || ""), ty: String(c.type || "text") };
+  const s = String(c || "");
+  const sp = s.indexOf(" ");
+  return sp < 0 ? { c: s, ty: "text" } : { c: s.slice(0, sp), ty: s.slice(sp + 1).trim() || "text" };
+};
 const catalogColumns = () => Object.entries(state.tables)
-  .flatMap(([t, d]) => (d.columns || []).map((c) => ({ t, c, ty: "text" })));
+  .flatMap(([t, d]) => (d.columns || []).map((c) => ({ t, ...columnOf(c) })));
 const catalogGrants = () => Object.entries(state.tables).flatMap(([t, d]) => (d.grants || []).map((g) => ({ ...g, t })));
 const catalogPolicies = () => Object.entries(state.tables).flatMap(([t, d]) => (d.policies || []).map((p) => ({ ...p, t })));
 
@@ -147,6 +166,18 @@ globalThis.fetch = async (input, init) => {
     const m = /FROM\s+(\w+)/i.exec(q);
     if (m) state.countsFrom = m[1];
     return done("CREATE");
+  }
+  // THE READ-ONLY AGGREGATE. Answered from `scenario.groups[table][value]`, so
+  // the expected grouping is the fixture's own and the assertion is about what
+  // the script did with it rather than about a number this file invented.
+  const grp = /SELECT "(\w+)" AS v, COUNT\(\*\)::bigint AS n FROM "(\w+)" GROUP BY 1 ORDER BY 2 DESC, 1/i.exec(q);
+  if (grp) {
+    const g = (scenario.groups || {})[grp[2]] || {};
+    const out = Object.keys(g).map((v) => ({ v: v === "null" ? null : v, n: String(g[v]) }));
+    // Postgres does the ordering; this fixture must too, or a guard asserting
+    // "busiest first" would be asserting the script re-sorts, which it does not.
+    out.sort((a, b) => Number(b.n) - Number(a.n) || String(a.v).localeCompare(String(b.v)));
+    return rows(out, ["v", "n"]);
   }
   const cnt = /SELECT COUNT\(\*\)::int AS n FROM "(\w+)"/i.exec(q);
   if (cnt) return rows([{ n: state.counts[cnt[1]] === undefined ? 0 : state.counts[cnt[1]] }], ["n"]);

@@ -115,13 +115,19 @@ function stepOf(file, name) {
  * `shell` decides the argv, so the caller can ask what the workflow declares OR
  * what GitHub would use with nothing declared.
  */
-function runStep({ run, shell, code, log }) {
+function runStep({ run, shell, code, log, env }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "repair-step-"));
   try {
     const shim = path.join(dir, "node");
+    // THE STUB RECORDS ITS OWN ARGV, so a case can ask what the workflow really
+    // handed the script. That is the only way to see a forwarded input: a form
+    // field that is taken and never passed on is this repository's own wiring
+    // defect, and from outside "the owner left it blank" and "we dropped it"
+    // are the same missing flag.
     fs.writeFileSync(
       shim,
-      `#!/bin/sh\necho "backend repair: five sites"\necho "identity not proven for repairbench-1" >&2\nexit ${code}\n`,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "${path.join(dir, "argv.txt")}"\n` +
+        `echo "backend repair: five sites"\necho "identity not proven for repairbench-1" >&2\nexit ${code}\n`,
     );
     fs.chmodSync(shim, 0o755);
     const script = path.join(dir, "step.sh");
@@ -131,13 +137,15 @@ function runStep({ run, shell, code, log }) {
     assert.ok(argv, `no argv recorded for shell ${JSON.stringify(shell)}`);
     const r = spawnSync("bash", [...argv, script], {
       cwd: dir,
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MODE: "verify", SLUG: "" },
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MODE: "verify", SLUG: "", ...(env || {}) },
       encoding: "utf8",
     });
     const logPath = path.join(dir, log);
+    const argvPath = path.join(dir, "argv.txt");
     return {
       status: r.status,
       logged: fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : null,
+      argv: fs.existsSync(argvPath) ? fs.readFileSync(argvPath, "utf8").split("\n").filter(Boolean) : null,
     };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -179,6 +187,43 @@ for (const s of STEPS) {
     assert.ok(bad.logged, `${s.file}: the log is written either way`);
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVERY FORM FIELD REALLY REACHES THE SCRIPT (2026-09-16)
+//
+// The read-only aggregate takes a table and a column off the dispatch form, and
+// a field that is TAKEN and never PASSED ON is this repository's most repeated
+// defect: the form looks right, the script looks right, and from outside "the
+// owner left it blank" and "the step dropped it" are the same missing flag —
+// which here would mean an aggregate over a table nobody asked about, or a
+// `counts` run silently answering as a `preview`.
+//
+// Driven, not grepped: the step's real `run:` text is executed under the shell
+// it declares, with `node` replaced by a stub that records its argv.
+// ─────────────────────────────────────────────────────────────────────────────
+test("backend-repair.yml: the mode, slug, table and column all reach the script", () => {
+  const { shell, run } = stepOf("backend-repair.yml", "backend repair");
+  const r = runStep({
+    run, shell, code: 0, log: "backend-repair.log",
+    env: { MODE: "counts", SLUG: "repairbench-1", TABLE: "bookings", COLUMN: "drop_off_day" },
+  });
+  assert.ok(r.argv, "the stub was never reached — the step did not run node at all");
+  assert.deepEqual(r.argv, [
+    "scripts/backend-repair.mjs", "--counts",
+    "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day",
+  ], "the step handed the script: " + JSON.stringify(r.argv));
+
+  // THE CONTROL, and it is the reason the case above is about forwarding rather
+  // than about the flags happening to be there: with the two fields blank, the
+  // script is handed NEITHER — so an unconditional `--table ''` would be caught
+  // here, and a dropped forwarding would be caught above.
+  const bare = runStep({
+    run, shell, code: 0, log: "backend-repair.log",
+    env: { MODE: "preview", SLUG: "", TABLE: "", COLUMN: "" },
+  });
+  assert.deepEqual(bare.argv, ["scripts/backend-repair.mjs", "--preview"],
+    "a blank form still handed the script: " + JSON.stringify(bare.argv));
+});
 
 // A CENSUS, not a list of two. A third repair workflow, or a second piped step
 // in one of these, is covered by existing rather than by being remembered.

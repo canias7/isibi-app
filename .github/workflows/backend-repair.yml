@@ -42,6 +42,16 @@
 # VERIFY EXITS NONZERO WHEN A POSTCONDITION FAILS, so a red run here means the
 # repair did not land — it is not a report that always passes.
 #
+# `counts` IS A READ-ONLY AGGREGATE AND IT CANNOT RETURN A NAME. It groups one
+# table by one DATE OR TIME column and prints the date and the count, so an
+# expected result can be established from the live data without changing it.
+# Two things make that a property rather than a promise: the mode is on NEITHER
+# write list, so both gates refuse it without any new check; and the grouping
+# column must be a date/time type asked of the catalog, which is a positive,
+# type-derived rule rather than a deny-list of column names. `customer_name` is
+# refused by the tool. It exits nonzero when it refused or could not read, for
+# the reason `--verify` was given an explicit exit rule.
+#
 # DISPATCH ONLY. No push trigger: `test/merge-triggers.test.mjs` is a census over
 # this directory and requires `deploy.yml` to be the only workflow a push to main
 # starts.
@@ -51,13 +61,21 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'preview (reads only) | apply-reference (WRITES the neon_db reference ONLY) | apply (WRITES reference AND _meta) | verify (reads only, exits nonzero on failure)'
+        description: 'preview (reads only) | apply-reference (WRITES the neon_db reference ONLY) | apply (WRITES reference AND _meta) | verify (reads only, exits nonzero on failure) | counts (reads only: one table grouped by one DATE column, busiest first)'
         required: true
         default: 'preview'
         type: choice
-        options: [preview, apply-reference, apply, verify]
+        options: [preview, apply-reference, apply, verify, counts]
       slug:
         description: 'One of the five, e.g. repairbench-1. Blank = all five. Anything else is refused.'
+        required: false
+        default: ''
+      table:
+        description: 'counts ONLY: the table to group, e.g. bookings'
+        required: false
+        default: ''
+      column:
+        description: 'counts ONLY: the DATE column to group by, e.g. drop_off_day. A text column is refused.'
         required: false
         default: ''
       confirm:
@@ -115,8 +133,10 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           MODE: ${{ github.event.inputs.mode }}
           SLUG: ${{ github.event.inputs.slug }}
+          TABLE: ${{ github.event.inputs.table }}
+          COLUMN: ${{ github.event.inputs.column }}
         run: |
-          S=""; if [ -n "$SLUG" ]; then S="--slug $SLUG"; fi; node scripts/backend-repair.mjs --"${MODE:-preview}" $S 2>&1 | tee backend-repair.log
+          S=""; if [ -n "$SLUG" ]; then S="--slug $SLUG"; fi; if [ -n "$TABLE" ]; then S="$S --table $TABLE"; fi; if [ -n "$COLUMN" ]; then S="$S --column $COLUMN"; fi; node scripts/backend-repair.mjs --"${MODE:-preview}" $S 2>&1 | tee backend-repair.log
       # THE LOG LANDS WHETHER OR NOT THE RUN PASSED. A verify that failed is
       # exactly the run whose output is worth keeping, and a failed apply names
       # which site it got to.

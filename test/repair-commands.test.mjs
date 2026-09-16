@@ -412,3 +412,83 @@ test("the count correction never leaves repairbench-1, and never touches an appl
     assert.ok(!/INSERT INTO |CREATE TABLE/i.test(q), "the correction wrote a row or a table: " + q);
   }
 });
+
+// ── the read-only aggregate, as a real process ──────────────────────────────
+
+test("counts groups by a date column, busiest first, and writes nothing", () => {
+  // Owner, 2026-09-16: establish the expected result from the live data
+  // WITHOUT changing it. The claim this case makes is that the mode is
+  // read-only when actually RUN — which only a spawned process can say,
+  // because the exit rule and every statement live in `main`.
+  const f = scenario({
+    sites: [{ slug: "repairbench-1", uid: "u1", neon_db: "site_repairbench_1" }],
+    projects: [{ slug: "repairbench-1", neon_conn: PROJ }],
+    meta: JSON.stringify({ tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] }] }),
+    // THE TYPES ARE THE FIXTURE'S SUBJECT HERE, not decoration: this mode is
+    // decided by the catalog's own `data_type`, so a column list with no types
+    // could only ever exercise the refusal.
+    tables: { bookings: { ...BOOKINGS, columns: ["id", "created_at", "who", "drop_off_day date"] } },
+    groups: { bookings: { "2026-10-03": 1, "2026-10-01": 2 } },
+  });
+  const r = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"], f);
+
+  assert.equal(r.code, 0, "a good aggregate exited " + r.code + ":\n" + r.out);
+  assert.match(r.out, /identity PROVEN/, "the aggregate ran without proving whose database it is:\n" + r.out);
+  // BUSIEST FIRST, read off the printed order rather than from a set.
+  const rows = r.out.split("\n").map((l) => /^\s+(\S+)\s+(\d+)\s*$/.exec(l.replace(/ /g, " "))).filter(Boolean);
+  assert.deepEqual(rows.map((m) => [m[1], Number(m[2])]), [["2026-10-01", 2], ["2026-10-03", 1]],
+    "the printed groups are not date-then-count, busiest first:\n" + r.out);
+  assert.match(r.out, /2 group\(s\), 3 row\(s\) in total/, "the total is not printed:\n" + r.out);
+
+  // ── READ-ONLY, ASSERTED OVER EVERY STATEMENT THE PROCESS REALLY SENT ──────
+  // The negative is the half an "it worked" reading cannot establish.
+  for (const s of r.statements) {
+    assert.doesNotMatch(s.q, /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE)\b/i,
+      "the aggregate issued a writing statement: " + s.q);
+  }
+  // …and it really reached the SITE's database, not the project's default.
+  assert.ok(r.statements.some((s) => s.db === "site_repairbench_1"), "never reached the site's own database");
+  assert.ok(r.statements.some((s) => /GROUP BY 1 ORDER BY 2 DESC/.test(s.q)), "the aggregate statement was never sent");
+});
+
+test("counts refuses a text column, and refusing exits NONZERO", () => {
+  const f = scenario({
+    sites: [{ slug: "repairbench-1", uid: "u1", neon_db: "site_repairbench_1" }],
+    projects: [{ slug: "repairbench-1", neon_conn: PROJ }],
+    meta: JSON.stringify({ tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] }] }),
+    // A DATE COLUMN SITS BESIDE THE TEXT ONE DELIBERATELY. With every column
+    // text, "the text column was refused" is satisfied by a mode that refuses
+    // everything — the observer has to be alive in the other direction, and the
+    // control below is what says so.
+    tables: { bookings: { ...BOOKINGS, columns: ["id", "created_at", "who", "drop_off_day date"] } },
+    groups: { bookings: { "2026-10-01": 2 } },
+  });
+
+  // THE PRIVACY WALL, DRIVEN. `who` is a text column; grouping by it would
+  // return customer details, and the refusal is the tool's rather than the
+  // caller's discipline.
+  const text = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "who"], f);
+  assert.equal(text.code, 1, "grouping by a text column exited 0:\n" + text.out);
+  assert.match(text.out, /REFUSED \(not-a-date-column\)/, text.out);
+  assert.ok(!text.statements.some((s) => /GROUP BY/i.test(s.q)), "a refused aggregate still ran a query");
+
+  // THE CONTROL: the same table, the same run, the date column — accepted.
+  const dated = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day"], f);
+  assert.equal(dated.code, 0, "the control run refused a date column too — the refusal above proves nothing:\n" + dated.out);
+
+  // A column that is not there is refused too, and says which are.
+  const gone = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1", "--table", "bookings", "--column", "nope"], f);
+  assert.equal(gone.code, 1);
+  assert.match(gone.out, /REFUSED \(no-such-column\)/);
+  assert.match(gone.out, /drop_off_day/, "the refusal does not say which columns are there");
+
+  // And a run that names no column at all cannot read as "no rows".
+  const bare = run("backend-repair.mjs", ["--counts", "--slug", "repairbench-1"], f);
+  assert.equal(bare.code, 1, "an aggregate with no table or column exited 0:\n" + bare.out);
+  assert.match(bare.out, /REFUSED \(need-table-and-column\)/);
+
+  // THE SCOPE WALL STILL APPLIES — the aggregate is not a way around it.
+  const off = run("backend-repair.mjs", ["--counts", "--slug", "not-a-repair-site", "--table", "bookings", "--column", "drop_off_day"], f);
+  assert.equal(off.code, 2, "an out-of-scope slug was not refused by the scope wall:\n" + off.out);
+  assert.equal(off.statements.length, 0, "an out-of-scope aggregate still read something");
+});
