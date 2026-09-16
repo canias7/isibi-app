@@ -10085,9 +10085,10 @@ breaks the pair together.
   First pass left five alive and **every one was a hole in my new tests, not in
   the product**.
 - **Full suite 6,498 green** (6,496 + the two new cases), **and CI has read
-  it**: `unit tests` run 2602, green, 6,498 tests / 0 failures. The container
-  harness (`site build` run 1150) is still running on this commit and I have
-  deliberately not written down a number for it yet.
+  it**: `unit tests` run 2602, green, 6,498 tests / 0 failures.
+- And the container harness is green on this commit too — `site build` run
+  **1150**, all twenty steps, **382 passed / 0 failed**. That's the eleventh
+  independent run to answer 382.
 
 Nothing merged, nothing deployed, no paid call, no site touched. The
 `search_path` review is still queued.

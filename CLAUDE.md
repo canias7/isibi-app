@@ -5127,8 +5127,14 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `382 passed, 0 failed` in 14m06s**, with kit-typecheck 4, contrast-cases 16,
   theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it —
   every count bounded to its own `##[group]`, and read rather than carried over
-  from 1148. **Ten independent runs over four days agreeing is what 382 rests
-  on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
+  from 1148.
+  **AND RUN 1150 READ IT AN ELEVENTH TIME (2026-09-16 01:07:50→01:32:50Z on
+  `561db453`, the evidence scope, ALL TWENTY STEPS GREEN): `site-build.mjs`
+  `382 passed, 0 failed` in 18m11s**, with kit-typecheck 4, contrast-cases 16,
+  theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it —
+  every count bounded to its own `##[group]` by parsing the job's own log, and
+  read rather than carried over from 1149. **Eleven independent runs over four
+  days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
   The unit suite is **6,498** (2026-09-16, local — the evidence lookup's own
@@ -5143,9 +5149,8 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   (2026-09-16 01:07:50→01:09:40Z, the suite step 97.9 s) — `# tests 6498 /
   # pass 6495 / # fail 0 / # skipped 3`**, against local `6498 / 6498 / 0 / 0`;
   the three are the recorded environment skips, which is why the number to
-  carry is the TOTAL. **`site build` run 1150 fired on this sha** (the change
-  is under `builder/**`) and its result is deliberately UNSTAMPED rather than
-  carried over from 1149.
+  carry is the TOTAL. **AND `site build` run 1150 IS GREEN ON THIS SHA** — all
+  twenty steps, `site-build.mjs` 382/0, stamped above.
   **6,496** before it (2026-09-16, local — the kinded reference, whose
   new cases are all `addon-route`'s **two** (62 → 64: the owner's two
   collisions, an applied TABLE against a claim about a FUNCTION of the same
