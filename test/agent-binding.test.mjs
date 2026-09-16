@@ -35,16 +35,37 @@ const PAGE_SCRIPTS = [...fs.readFileSync(new URL("../public/index.html", import.
 assert.ok(PAGE_SCRIPTS.length >= 5, `the page's script list read as ${PAGE_SCRIPTS.length} — re-read index.html`);
 assert.ok(PAGE_SCRIPTS.includes("chat.js"), "the script census did not find chat.js");
 
-/** Just enough of an element for the agent screen's own reads and writes. */
-function el(id) {
+/**
+ * Just enough of an element for the agent screen's own reads and writes.
+ *
+ * **ATTRIBUTES, A SELECTION AND FOCUS ARE REAL HERE, and they were not.**
+ * `getAttribute` answered `null` for everything and `focus()` did nothing, which
+ * made every one of the composer's own reads unobservable: the code that keeps
+ * somebody's half-typed message across a poll asks the element which conversation
+ * it belongs to and where the cursor is, so a fake that cannot answer either would
+ * have reported the fix as working with the fix deleted. A fake LESS capable than
+ * the thing it stands in for hides a defect exactly as well as one that is more.
+ */
+function el(id, doc) {
+  const attrs = {};
   return {
     id, value: "", textContent: "", innerHTML: "", scrollTop: 0, scrollHeight: 0,
     style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    focus() {}, blur() {}, click() {}, selectionStart: 0, selectionEnd: 0, dataset: {},
+    blur() {}, click() {}, selectionStart: 0, selectionEnd: 0, dataset: {},
+    // Counted rather than recorded as a boolean: "it was focused" and "it was
+    // focused again on every one of eight polls" are different facts.
+    focusCount: 0,
+    focus() { this.focusCount++; if (doc) doc.activeElement = this; },
+    // The RANGE the page asked for, kept apart from `selectionStart` — which a case
+    // sets itself, so reading it back would be the test observing its own write.
+    rangeSet: null,
+    setSelectionRange(a, b) { this.rangeSet = [a, b]; this.selectionStart = a; this.selectionEnd = b; },
     appendChild() {}, removeChild() {}, remove() {}, insertBefore() {},
     querySelector: () => null, querySelectorAll: () => [],
     addEventListener() {}, removeEventListener() {},
-    setAttribute() {}, removeAttribute() {}, getAttribute: () => null,
+    setAttribute(k, v) { attrs[k] = String(v); },
+    removeAttribute(k) { delete attrs[k]; },
+    getAttribute: (k) => (Object.hasOwn(attrs, k) ? attrs[k] : null),
     getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 }),
     scrollIntoView() {}, closest: () => null, checked: false, disabled: false, children: [],
   };
@@ -65,11 +86,14 @@ function loadScreen({ store = {}, uid = "acct-A", answer, refuse: refuseAt = nul
   let refuse = refuseAt;
   const els = new Map();
   const doc = {
-    getElementById: (id) => (els.has(id) ? els.get(id) : (els.set(id, el(id)), els.get(id))),
+    getElementById: (id) => (els.has(id) ? els.get(id) : (els.set(id, el(id, doc)), els.get(id))),
     querySelector: () => el("shell"),
     querySelectorAll: () => [],
     addEventListener() {}, createElement: () => el("x"), body: el("body"),
     documentElement: el("html"), head: el("head"), title: "",
+    // WHAT HAS FOCUS. Absent, `document.activeElement === el` is false for every
+    // element, so "the box had focus and got it back" could not be asked at all.
+    activeElement: null,
   };
   let currentUid = uid;
   const calls = [];
@@ -249,11 +273,23 @@ test("⚠ a FAILURE for A cannot put an error on B's screen", async () => {
 });
 
 test("the draft belongs to the conversation, so two threads keep their own", () => {
-  const w = loadScreen({ answer: () => okRes({ agents: [] }) });
-  w.ev('agentMsgDrafts = { A: "about A", B: "about B" };');
+  const w = loadScreen({ uid: "acct-A", answer: () => okRes({ agents: [] }) });
+  // RE-ANCHORED, NOT APPEASED: the property is unchanged and the KEY moved. A draft
+  // is now the account's as well as the conversation's, so the fixture is written
+  // through the page's own setter rather than by naming the map's keys — which is
+  // also what stops this case going stale the next time that key gains a part.
+  w.ev('agentDraftSet("A", "about A"); agentDraftSet("B", "about B");');
   assert.equal(w.ev('agentDraftOf("A")'), "about A");
   assert.equal(w.ev('agentDraftOf("B")'), "about B");
   assert.equal(w.ev('agentDraftOf("C")'), "", "an untouched conversation has a draft");
+  // ⚠ AND THE NEXT ACCOUNT SEES NEITHER. Unsent words are the one thing on this
+  // screen that never went to the server, so nothing else can filter them.
+  w.signIn("acct-B");
+  assert.equal(w.ev('agentDraftOf("A")'), "", "the next account read the last one's unsent message");
+  assert.equal(w.ev('agentDraftOf("B")'), "");
+  w.ev('agentDraftSet("A", "B typing in the same conversation");');
+  w.signIn("acct-A");
+  assert.equal(w.ev('agentDraftOf("A")'), "about A", "B's draft overwrote A's in the same conversation");
   // `Object.hasOwn`, never truthiness: an agent whose id happens to be a
   // prototype key must not read a function back as its draft.
   assert.equal(w.ev('agentDraftOf("constructor")'), "");
@@ -1077,4 +1113,147 @@ test("WHAT EACH RUN STATE DRAWS, and what a message with no run draws", (t) => {
   const nasty = draw(run("answered", { text: '<img src=x onerror="alert(1)">' }));
   assert.ok(!nasty.includes("<img"), "a model's answer reached the page as markup");
   assert.match(nasty, /&lt;img/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE POLL AND THE MESSAGE BOX (2026-09-16)
+//
+// A code review found three things wrong with this screen once a run is really
+// going, and two of them are here. They are the shape this whole file exists for:
+// the code reads correctly, every earlier case passes, and the defect only exists
+// while time passes and somebody is typing.
+// ════════════════════════════════════════════════════════════════════════════
+
+test("⚠ TYPING WHILE IT ANSWERS SURVIVES THE POLL — the words, the cursor and the focus", async (t) => {
+  // THE DEFECT: `renderAgents` writes `innerHTML`, the poll calls it every 2.5 s, and
+  // the draft it redraws from was only ever written on Send. So a sentence typed while
+  // waiting for an answer was destroyed at the next tick — eight times a minute — with
+  // the caret and the focus going with it.
+  const b = sending(t);
+  b.serve([msg("m1", "hello", run("working", { id: "run-1", step: 2 }))]);
+  const poll = catchPoll(b.w);
+  await b.w.ev('agentThreadLoad("A", true)');
+  assert.ok(poll.armed, "a working run armed no poll, so this case proves nothing");
+
+  // THE RENDER'S OWN HALF: the box it draws says which conversation it belongs to and
+  // asks to be saved as it is typed. Asserted on the drawn markup, because nothing in
+  // this harness parses HTML — the other half is driven below through the element.
+  const drawn = () => b.w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(drawn(), /id="agMsg"[^>]*data-agent="A"/, "the box does not say which conversation it is");
+  assert.match(drawn(), /data-input="agent-msg"/, "the box does not save what is typed into it");
+
+  const box = b.w.s.document.getElementById("agMsg");
+  box.setAttribute("data-agent", "A");
+  box.value = "half a sentence";
+  box.selectionStart = 4; box.selectionEnd = 4;
+  box.focus();
+  const focusedBefore = box.focusCount;
+
+  await poll.fire();                       // the real poll callback: a quiet read, then a redraw
+
+  assert.equal(b.w.ev('agentDraftOf("A")'), "half a sentence",
+    "the poll did not take what was in the box, so the next redraw loses it");
+  assert.match(drawn(), />half a sentence<\/textarea>/,
+    "the redrawn box does not carry the half-typed message");
+  assert.deepEqual(box.rangeSet, [4, 4], "the cursor was not put back where it was");
+  assert.ok(box.focusCount > focusedBefore, "the box lost focus to the poll");
+  // AND THE THREAD REALLY WAS REDRAWN, so this is not passing because nothing happened.
+  assert.match(drawn(), /hello/);
+});
+
+test("...and the box is only restored into the conversation it came from", () => {
+  // THE OPPOSITE MISTAKE, which is worse than the one above: forcing focus and a
+  // cursor into whatever box is on screen now would move somebody's caret in a
+  // conversation they had just opened.
+  const w = loadScreen({ uid: "acct-A", answer: () => okRes({ agents: [] }) });
+  const box = w.s.document.getElementById("agMsg");
+  box.setAttribute("data-agent", "A");
+  box.value = "typed in A";
+  box.focus();
+  const held = w.ev("agentComposerRead()");
+  assert.equal(w.ev('agentDraftOf("A")'), "typed in A", "reading the box did not save it");
+  box.setAttribute("data-agent", "B");     // a different conversation is drawn now
+  box.rangeSet = null;
+  const focused = box.focusCount;
+  w.ev(`agentComposerRestore(${JSON.stringify(held)})`);
+  assert.equal(box.rangeSet, null, "a cursor was put into another conversation's box");
+  assert.equal(box.focusCount, focused, "focus was forced into another conversation's box");
+});
+
+test("...and a box that names no conversation is read and restored by nobody", () => {
+  // The control for the two cases above: the ATTRIBUTE is what makes either work, so
+  // without it neither may do anything at all — never a fall back to whatever is open.
+  const w = loadScreen({ uid: "acct-A", answer: () => okRes({ agents: [] }) });
+  w.ev('agentThread = "A";');
+  const box = w.s.document.getElementById("agMsg");
+  box.value = "unattributed";
+  const held = w.ev("agentComposerRead()");
+  assert.equal(w.ev('agentDraftOf("A")'), "", "a box with no conversation wrote into one anyway");
+  w.ev(`agentComposerRestore(${JSON.stringify(held)})`);
+  assert.equal(box.rangeSet, null);
+});
+
+test("what is typed is the draft immediately, without waiting for Send", async (t) => {
+  // The input hook, driven through the page's own table. Without it the only writer is
+  // the render, and a browser that gave us no input event would lose the last keystroke.
+  const b = sending(t);
+  b.w.ev(`INPUT_ACTIONS['agent-msg']({}, { getAttribute: () => "A", value: "as I type" })`);
+  assert.equal(b.w.ev('agentDraftOf("A")'), "as I type");
+  // AND IT DRAWS NOTHING. A re-render per keystroke is the twitch the wrapper exists
+  // to remove, so the hook must not be the thing that calls it.
+  const before = b.w.s.document.getElementById("viewAgents").innerHTML;
+  b.w.ev(`INPUT_ACTIONS['agent-msg']({}, { getAttribute: () => "A", value: "as I type more" })`);
+  assert.equal(b.w.s.document.getElementById("viewAgents").innerHTML, before,
+    "typing redrew the panel, which is the twitch this is meant to avoid");
+});
+
+test("⚠ AN EDITED RETRY AFTER A LOST RESPONSE IS A NEW PRESS, not a silent no-op", async (t) => {
+  // THE DEFECT: the first send COMMITTED and its response was lost. The words are still
+  // in the box, so the person edits them and presses again — and with the key held per
+  // conversation, that retry carried the FIRST message's key. The server absorbed it,
+  // answered the original body, the browser read `ok` and cleared the box: the edit
+  // gone, silently, with the conversation keeping text nobody wanted to send.
+  let lose = true;
+  const b = sending(t, { sendAnswer: (body) => (lose ? badRes("couldn’t reach the server") : okRes({
+    id: body.id, repeat: false, queued: true, message: msg("m2", body.body), runId: "run-2" })) });
+  const box = b.w.s.document.getElementById("agMsg");
+  box.value = "can you come tuesday";
+  await b.w.ev("agentSend()");
+  const first = b.sends[0].key;
+  assert.equal(b.w.ev('agentDraftOf("A")'), "can you come tuesday", "the lost send lost the words");
+
+  // The SAME words retried are the same press: one message, one run.
+  lose = true;
+  await b.w.ev("agentSend()");
+  assert.equal(b.sends[1].key, first, "an unedited retry minted a new key, so the server sees two messages");
+
+  // NOW THE EDIT. Different words are a different message and must carry their own key.
+  lose = false;
+  box.value = "can you come wednesday instead";
+  b.w.ev(`agentDraftSet("A", "can you come wednesday instead");`);
+  await b.w.ev("agentSend()");
+  assert.equal(b.sends[2].body, "can you come wednesday instead");
+  assert.notEqual(b.sends[2].key, first,
+    "the edit carried the first message's key, so the server absorbed it and the edit was lost");
+  assert.equal(b.w.ev('agentDraftOf("A")'), "", "a send that really landed left its words as unsent");
+});
+
+test("...and an absorbed press whose words differ keeps the edit rather than clearing it", async (t) => {
+  // THE SERVER'S HALF, which cannot be reached from this browser any more (the key is
+  // bound to the body) and is answered anyway: another tab, an older cached script or a
+  // hand request can all produce it, and the one outcome that must never happen is the
+  // person's edited words disappearing behind an `ok`.
+  const b = sending(t, { sendAnswer: (body) => okRes({
+    id: body.id, repeat: true, mismatch: true, queued: false,
+    message: msg("m1", "what was really stored"), runId: "run-1" }) });
+  b.w.s.document.getElementById("agMsg").value = "my edited words";
+  await b.w.ev("agentSend()");
+  assert.equal(b.w.ev('agentDraftOf("A")'), "my edited words",
+    "an absorbed press with different words cleared the box");
+  assert.match(b.w.ev("agentActErr"), /already sent/i, "nothing told the person what happened");
+  // THE MESSAGE IS NOT APPENDED AS IF IT WERE THIS ONE, and the key is dropped so the
+  // next press is a NEW message rather than a third attempt to absorb.
+  assert.deepEqual(b.w.val("agentMsgs.map((m) => m.text)"), [], "the stored message was drawn as this send's");
+  await b.w.ev("agentSend()");
+  assert.notEqual(b.sends[1].key, b.sends[0].key, "the next press reused the absorbed key");
 });

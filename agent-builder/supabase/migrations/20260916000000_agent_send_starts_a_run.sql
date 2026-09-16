@@ -340,6 +340,13 @@ begin
       -- honest answer is what the conversation really holds, not what was asked
       -- for and absorbed.
       'body', v_msg.body,
+      -- ⚠ AND IT SAYS WHEN THE TWO DISAGREE. A caller that reuses a key under EDITED
+      -- text would otherwise read `ok` and be handed the original message, which from
+      -- a browser is indistinguishable from its edit having been saved — so the edit
+      -- is thrown away silently. This is the one fact that tells the two apart, and it
+      -- is answered rather than raised: the earlier message really is stored, nothing
+      -- is wrong with it, and refusing would strand a retry that is behaving correctly.
+      'mismatch', (v_msg.body is distinct from p_body),
       'seq', v_msg.seq, 'created_at', v_msg.created_at,
       'state', case when v_msg.run_id is null then 'no-run' else 'accepted' end
     );

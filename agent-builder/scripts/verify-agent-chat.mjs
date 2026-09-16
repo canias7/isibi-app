@@ -90,9 +90,9 @@ try {
   // ── THE SITE BUILDER'S SIDE: the real route over the real store ────────────
   const appStore = () => makeAgentStore({ fetch: (u, o) => fetch(u, o), url: rest.url, key: "local-service-role" });
   let minted = 0;
-  const api = (path, { tenant = A, body = {}, query = {}, method } = {}) => handleAgentApi({
+  const api = (path, { tenant = A, body = {}, query = {}, method, ring } = {}) => handleAgentApi({
     path, method: method ?? (Object.keys(query).length ? "GET" : "POST"),
-    tenant, body, query: new URLSearchParams(query), store: appStore(),
+    tenant, body, query: new URLSearchParams(query), store: appStore(), ring,
     newId: () => `00000000-0000-4000-8000-${String(++minted).padStart(12, "0")}`,
     log: (...a) => console.log("      [log]", ...a),
   });
@@ -263,6 +263,51 @@ try {
   check("a redelivery of a finished run does nothing", again.why === "already-finished" || again.why === "not-claimable", again.why);
   check("...and its log did not grow",
     q(`select count(*) from agent.run_entries where run_id = '${runId}' and kind = 'model';`) === "1");
+  // ── 13. THE DOORBELL ───────────────────────────────────────────────────────
+  //
+  // Everything above delivered runs BY HAND, which proves the engine and says nothing
+  // about how soon a real conversation starts. Until this shipped, nothing told the
+  // engine at all: the run sat committed until that product's own minute-by-minute
+  // sweep noticed it. Here the RING is the only trigger — no sweep, no cron, no
+  // hand-written deliver — so what is measured is the chain a customer waits on.
+  console.log("\n\u2500\u2500 13. the doorbell: the engine is told the moment the send commits \u2500\u2500");
+  const rung = [];
+  const ran = [];
+  const bell = async (id) => { rung.push(id); ran.push(await engine(makeStandIn()).deliver(id)); };
+  const t0 = Date.now();
+  const rangSend = await api("/api/agent/send",
+    { body: { id: agentId, body: "are you open on sunday?", key: "press-ring" }, ring: bell });
+  const startMs = Date.now() - t0;
+  check("the send is accepted and says the engine was told",
+    rangSend.status === 200 && rangSend.body.ok === true && rangSend.body.notified === true,
+    JSON.stringify(rangSend.body).slice(0, 200));
+  check("...and the run it rang is the run it named",
+    rung.length === 1 && rung[0] === rangSend.body.runId, JSON.stringify(rung));
+  check("...and that one delivery ran it", ran.length === 1 && ran[0] && ran[0].ran === true,
+    JSON.stringify(ran[0]));
+  const rangThread = await api("/api/agent/messages", { query: { id: agentId } });
+  const rangRow = rangThread.body.messages.find((m) => m.id === rangSend.body.message.id);
+  check("...so the conversation is answered with nothing having swept",
+    rangRow && rangRow.run && rangRow.run.state === "answered", JSON.stringify(rangRow && rangRow.run));
+  check("...and the answer is still labelled as a simulation",
+    rangRow && rangRow.run.simulated === true && /\[simulated\]/.test(rangRow.run.text || ""),
+    String(rangRow && rangRow.run.text).slice(0, 80));
+  console.log(`      send \u2192 started \u2192 answered in ${startMs} ms, locally, with no sweep involved`);
+
+  // AND A DOORBELL THAT FAILS LEAVES THE WORK EXACTLY WHERE IT WAS. This is the
+  // recovery path: the row is committed, `notified` says nobody was told, and the run
+  // is still there for the engine's own sweep to find — late, never lost.
+  const deaf = await api("/api/agent/send",
+    { body: { id: agentId, body: "and on bank holidays?", key: "press-deaf" },
+      ring: async () => { throw new Error("queue unavailable"); } });
+  check("a send whose doorbell fails still succeeds", deaf.status === 200 && deaf.body.ok === true,
+    JSON.stringify(deaf.body).slice(0, 160));
+  check("...and says so rather than claiming the engine was told", deaf.body.notified === false,
+    String(deaf.body.notified));
+  check("...and the work is still on the queue for the sweep to find",
+    q(`select count(*) from agent.run_work where run_id = '${deaf.body.runId}' and done_at is null;`) === "1");
+  const swept = await engine(makeStandIn()).deliver(deaf.body.runId);
+  check("...and it runs when something finally picks it up", swept.ran === true, JSON.stringify(swept));
 } finally {
   await rest.close();
   try { su(`psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`); } catch { /* best effort */ }

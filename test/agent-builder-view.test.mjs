@@ -247,8 +247,15 @@ test("a failed send keeps the message in the box — and in the RIGHT box", () =
   // (a failed send keeps what was typed) is asserted below it, unchanged.
   const send = js.slice(js.indexOf("async function agentSend()"));
   const body = send.slice(0, send.indexOf("\n}\n"));
-  assert.ok(body.indexOf("agentMsgDrafts[target] = text") > 0, "the typed message is not kept");
-  assert.ok(body.indexOf("agentMsgDrafts[target] = text") < body.indexOf("apiFetch("),
+  // RE-ANCHORED A SECOND TIME, ONTO THE PROPERTY. The write became a SETTER
+  // (`agentDraftSet`) when a draft gained its account, so the old spelling reported a
+  // working screen as broken. What matters is unchanged: the words are stored, under
+  // this conversation and this account, BEFORE the request can fail.
+  const kept = body.split("\n").find((l) => /agentDraftSet\(target, text/.test(l));
+  assert.ok(kept, "the typed message is not kept");
+  assert.match(kept, /bound\.uid/,
+    "the draft is stored for whoever is signed in when it is written, not for the account that typed it");
+  assert.ok(body.indexOf(kept) < body.indexOf("apiFetch("),
     "the message is kept only after the request, so a network failure loses it");
   // Cleared ONLY on success, and keyed on the conversation it was typed in —
   // never on "the box", which may be showing another agent by then.
@@ -256,16 +263,21 @@ test("a failed send keeps the message in the box — and in the RIGHT box", () =
   // delete — the SEND KEY goes with the draft — and pinning the old spelling
   // reported a working screen as broken. What matters is that the clear is inside a
   // `!failed` test and names the conversation.
-  const clear = body.split("\n").find((l) => /if \(!failed\)/.test(l) && /agentMsgDrafts\[target\]/.test(l));
+  const clear = body.split("\n").find((l) => /if \(!failed/.test(l) && /agentDraftDrop\(target/.test(l));
   assert.ok(clear, "the draft is cleared without asking whether the send succeeded");
   // ⚠ AND THE KEY IS CLEARED IN THE SAME BREATH. Clearing it after a FAILURE makes
   // the next press a different press, so a message the server already holds gains a
   // second copy and a second run — the lost-response case turned into the duplicate
   // the key exists to prevent. It has to be the SAME condition, not a second one.
-  assert.match(clear, /agentSendKeys\[target\]/,
+  assert.match(clear, /agentKeyDrop\(target/,
     "the send key outlives a failed send, so a retry becomes a new message");
-  assert.ok(body.indexOf("delete agentMsgDrafts[target]") > body.indexOf("await apiFetch("),
+  assert.ok(body.indexOf(clear) > body.indexOf("await apiFetch("),
     "the box is cleared before the server has the message");
+  // ⚠ AND A MISMATCH IS NOT A SUCCESS FOR THE BOX. An absorbed press whose words
+  // differ answers `ok`, so clearing on `!failed` alone throws away an edit the server
+  // never stored — the words have to survive that answer too.
+  assert.match(clear, /!mismatched/,
+    "an absorbed press with different words clears the box, losing the edit");
   assert.match(js, /placeholder="Message ' \+ esc\(a\.name\) \+ '">' \+ esc\(agentDraftOf\(a\.id\)\)/,
     "the box is not drawn from that conversation's own draft");
   // AND THE ANSWER IS BOUND: it may only write where it was sent from.

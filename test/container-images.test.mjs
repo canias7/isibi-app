@@ -400,7 +400,11 @@ test("an input git does not have fails by name BEFORE the registry is asked or a
 /* ─────────────────────────────── the wiring ─────────────────────────────── */
 
 test("the deploy runs the step between the queue check and the Wrangler deploy, with the same Wrangler version", () => {
-  const queue = WORKFLOW.indexOf("- name: ensure the build queue exists");
+  // RE-ANCHORED ONTO WHAT THE STEP DOES, not what it is called: it was renamed when
+  // the agent engine's queue joined it ("ensure the queues exist"), and a title is not
+  // the property — the ordering is about the step that creates queues running before
+  // the image step, whatever anybody calls it.
+  const queue = WORKFLOW.lastIndexOf("- name:", WORKFLOW.indexOf("queues create"));
   const images = WORKFLOW.indexOf("- name: container images (built only when their inputs changed)");
   const deploy = WORKFLOW.indexOf("- name: Deploy with Wrangler");
   assert.ok(queue > 0 && images > queue && deploy > images, "the image step is not between the queue check and the deploy");

@@ -429,3 +429,134 @@ test("⚠ THE ROUTE READS EVERY `ok: false` AS NOT-FOUND, and the census is what
   assert.ok([...body.matchAll(/'ok',\s*true/g)].length >= 2,
     "the reader cannot see the function's answers at all");
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE DOORBELL, AND THE ABSORBED PRESS THAT DOES NOT MATCH (2026-09-16)
+//
+// Two of the three things a code review found. Both are about what happens AFTER
+// the transaction commits: one decides how soon a conversation starts, the other
+// decides whether somebody's edited words survive being absorbed.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** A ring that records, and can be made to fail the way a queue really can. */
+function bell({ fail = false } = {}) {
+  const rung = [];
+  return {
+    rung,
+    ring: async (runId) => {
+      rung.push(runId);
+      if (fail) throw new Error("queue unavailable");
+      return true;
+    },
+  };
+}
+
+test("⚠ THE QUEUE IS RUNG AFTER THE COMMIT, so a conversation does not wait for the sweep", async () => {
+  // THE DEFECT: nothing told the engine. The run, its first entry and its queue row
+  // were committed and then everybody waited for the engine's own minute-by-minute
+  // sweep to notice — correct, durable, and up to a minute of somebody watching a
+  // screen that says nothing.
+  const b = bell();
+  const r = await send({ id: A1, body: "when do you open?", key: "press-1" }, { ring: b.ring });
+  assert.equal(r.status, 200);
+  assert.deepEqual(b.rung, [RID], "the run was committed and nobody was told");
+  assert.equal(r.body.notified, true, "the reply does not say whether the engine was told");
+});
+
+test("...and a ring that fails is SAID, never raised", async () => {
+  // The work is durable before this line runs, so a failed doorbell costs latency and
+  // never work. Answering an error here would tell the customer their message failed
+  // when it is committed and will run within the minute.
+  const b = bell({ fail: true });
+  const r = await send({ id: A1, body: "hello", key: "press-1" }, { ring: b.ring, log: () => {} });
+  assert.equal(r.status, 200, "a failed doorbell failed the send");
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.notified, false, "a failed ring was reported as a ring");
+  assert.deepEqual(r.body.message, { id: MID, text: "when do you open?", at: Date.parse(SENT) });
+});
+
+test("...and it is logged, because a queue nobody can ring is worth knowing about", async () => {
+  const said = [];
+  await send({ id: A1, body: "hello", key: "press-1" },
+    { ring: bell({ fail: true }).ring, log: (...a) => said.push(a.join(" ")) });
+  assert.equal(said.length, 1, "a failed doorbell said nothing anywhere");
+  assert.match(said[0], /queue/i);
+});
+
+test("...and with no binding at all, the send still works and says it was not rung", async () => {
+  // Every local driver and every deployment made before the binding existed is this
+  // shape. A run left for the engine's own sweep is late, not lost.
+  const r = await send({ id: A1, body: "hello", key: "press-1" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.notified, false);
+});
+
+test("⚠ AN ABSORBED PRESS IS RUNG TOO, because the first one's ring may have failed", async () => {
+  // A repeat is exactly when to say it again: the first press committed a row and may
+  // have told nobody about it. A duplicate delivery is harmless by construction —
+  // `claim_run` is the one gate, and a run already claimed or finished answers
+  // `not-claimable` / `already-finished` and does nothing.
+  const b = bell();
+  const r = await send({ id: A1, body: "when do you open?", key: "press-1" },
+    { bench: bench({ answer: sent({ repeat: true, state: "accepted" }) }), ring: b.ring });
+  assert.equal(r.body.repeat, true);
+  assert.equal(r.body.queued, false, "an absorbed press claimed to have queued work");
+  assert.deepEqual(b.rung, [RID], "an absorbed press told nobody, so a lost ring stays lost");
+});
+
+test("...and a send that made no run rings nothing", async () => {
+  // `no-run` is a message stored against an agent with no run behind it — an imported
+  // conversation. There is nothing to ring, and ringing `null` would be a message the
+  // engine cannot read.
+  const b = bell();
+  await send({ id: A1, body: "hello", key: "press-1" },
+    { bench: bench({ answer: sent({ run_id: null, state: "no-run" }) }), ring: b.ring });
+  assert.deepEqual(b.rung, [], "a message with no run rang the queue anyway");
+});
+
+test("⚠ THE MESSAGE IS A RUN ID AND NOTHING ELSE, and the engine's own reader is the authority", () => {
+  // TWO COPIES OF ONE THING, so they are compared rather than trusted: this Worker
+  // sends `{ runId }` and the engine reads `m.body?.runId`. A message carrying a tenant
+  // would let a stale or replayed delivery make a consumer act as somebody — the
+  // engine's `claim_run` answers the tenant instead, which is why it is not on the wire.
+  const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = worker.indexOf("function agentQueueRing(");
+  assert.ok(at > 0, "the ring is not in worker.js any more");
+  const ring = worker.slice(at, worker.indexOf("\n}", at));
+  const payload = /q\.send\(\{\s*([A-Za-z0-9_]+)\s*\}\)/.exec(ring);
+  assert.ok(payload, `the ring's payload could not be read: ${ring}`);
+  assert.equal(payload[1], "runId");
+  const engine = readFileSync(new URL("../agent-builder/src/worker.mjs", import.meta.url), "utf8");
+  assert.ok(engine.includes("m.body?.runId"),
+    "the engine no longer reads runId off the message, so this sender names the wrong key");
+  // AND THE BINDING NAMES THE ENGINE'S OWN QUEUE, read from each config rather than
+  // written out here: a producer pointed at a queue nobody consumes is a doorbell
+  // wired to nothing, and it would look exactly like a working one from this process.
+  const dejson = (t) => JSON.parse(t.replace(/^\s*\/\/.*$/gm, ""));
+  const mine = dejson(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
+  const theirs = dejson(readFileSync(new URL("../agent-builder/wrangler.jsonc", import.meta.url), "utf8"));
+  const bindingName = /const AGENT_QUEUE_BINDING = "([^"]+)"/.exec(worker)[1];
+  const producer = mine.queues.producers.find((p) => p.binding === bindingName);
+  assert.ok(producer, `the config has no producer bound as ${bindingName}`);
+  assert.equal(producer.queue, theirs.queues.producers[0].queue,
+    "this Worker produces to a different queue than the engine consumes");
+  assert.ok(theirs.queues.consumers.some((c) => c.queue === producer.queue),
+    "nothing consumes the queue this Worker rings");
+  // PRODUCER ONLY. A consumer here would be a second executor of somebody else's runs.
+  assert.ok(!(mine.queues.consumers || []).some((c) => c.queue === producer.queue),
+    "the site builder consumes the engine's queue, which would execute other people's runs");
+});
+
+test("⚠ AN ABSORBED PRESS WHOSE WORDS DIFFER IS SAID ON THE WIRE", async () => {
+  // The transaction answers `mismatch` when the key it absorbed holds different text;
+  // the route carries it, because a caller reading a repeat as a plain success clears a
+  // box holding an edit nobody saved. The browser's half is in
+  // `test/agent-binding.test.mjs`.
+  const r = await send({ id: A1, body: "my edited words", key: "press-1" },
+    { bench: bench({ answer: sent({ repeat: true, mismatch: true, state: "accepted" }) }) });
+  assert.equal(r.body.mismatch, true);
+  assert.equal(r.body.message.text, "when do you open?", "the answer was not the stored message");
+  const clean = await send({ id: A1, body: "when do you open?", key: "press-1" },
+    { bench: bench({ answer: sent({ repeat: true, mismatch: false, state: "accepted" }) }) });
+  assert.equal(clean.body.mismatch, false, "an ordinary retry was reported as a mismatch");
+});

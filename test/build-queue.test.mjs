@@ -35,9 +35,28 @@ test("the producer and the consumer name the SAME queue", () => {
   // THE FAILURE THIS CATCHES IS A TYPO. Cloudflare does not refuse a producer
   // pointed at a queue with no consumer — the messages are simply never
   // delivered, and every build vanishes with no error anywhere.
+  // RE-ANCHORED, NOT APPEASED, and the hazard above is exactly why. A producer may
+  // now legitimately name ANOTHER Worker's queue — `/api/agent/send` rings the agent
+  // engine's `agent-runs`, which that product's own deployment consumes — so the rule
+  // is not "consumed here" but "consumed SOMEWHERE, proved from the config that does
+  // it". An unconsumed queue is still silent data loss; what changed is where the
+  // consumer may live, and a wrong name still fails this.
+  const ENGINE = JSON.parse(fs.readFileSync(new URL("../agent-builder/wrangler.jsonc", import.meta.url), "utf8")
+    .replace(/^\s*\/\/.*$/gm, ""));
+  const elsewhere = (ENGINE.queues?.consumers || []).map((c) => c.queue);
+  assert.ok(elsewhere.length, "the engine's config declares no consumer, so the check below is vacuous");
   for (const name of produced) {
-    assert.ok(consumed.includes(name),
-      `nothing consumes "${name}" — every build written to it is lost with no error`);
+    assert.ok(consumed.includes(name) || elsewhere.includes(name),
+      `nothing consumes "${name}" — every message written to it is lost with no error`);
+  }
+  // AND THIS WORKER MUST NOT CONSUME THE ENGINE'S QUEUE. A consumer here would be a
+  // second executor of other people's runs, which is the one way this binding could
+  // do harm rather than merely be late.
+  for (const name of elsewhere) {
+    if (produced.includes(name)) {
+      assert.ok(!consumed.includes(name),
+        `this Worker consumes "${name}", which belongs to the agent engine`);
+    }
   }
 });
 
@@ -90,11 +109,23 @@ test("the queue is CREATED by the deploy, before anything binds to it", () => {
   assert.ok(deployStep > 0, "could not find the deploy step — this check would be vacuous");
   assert.ok(create < deployStep,
     "the queue is created AFTER the deploy that binds to it, so the first deploy fails");
-  // Every queue the config names must be the one the deploy creates, or the
-  // create succeeds against a name nothing uses and the binding still fails.
+  // Every queue the config produces to must be one the deploy creates, or the create
+  // succeeds against a name nothing uses and the binding still fails the deploy.
+  //
+  // RE-ANCHORED ONTO THE NAMES THE STEP REALLY CREATES, not onto one literal per
+  // queue: the step became a loop when the agent engine's queue joined it, and a
+  // per-queue `includes("queues create <name>")` reported a deploy that creates BOTH
+  // as creating neither. The names are read out of the step itself, so a queue added
+  // to the config and not to the step still fails here.
+  const step = DEPLOY.slice(DEPLOY.lastIndexOf("- name:", create), deployStep);
+  const loop = /for\s+q\s+in\s+([^\n;]+);?\s*do/.exec(step);
+  const created = loop
+    ? loop[1].trim().split(/\s+/)
+    : [...step.matchAll(/queues create ([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
+  assert.ok(created.length, `no queue names could be read out of the create step: ${step.slice(0, 200)}`);
   for (const p of CONFIG.queues.producers || []) {
-    assert.ok(DEPLOY.includes(`queues create ${p.queue}`),
-      `the deploy does not create "${p.queue}"`);
+    assert.ok(created.includes(p.queue),
+      `the deploy does not create "${p.queue}" — it creates ${created.join(", ")}`);
   }
 });
 

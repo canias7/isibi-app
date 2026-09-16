@@ -1324,6 +1324,15 @@ try {
                         "5a5a5a5a-0000-4000-8000-00000000fade");
   check("...and a retry with different words is answered with what is really stored",
     /"body"\s*:\s*"when do you open\?"/.test(reworded), reworded);
+  // ⚠ AND THE ANSWER SAYS THE TWO DISAGREE. Without this a caller reads `ok` and is
+  // handed the original message, which from a browser is indistinguishable from its
+  // EDIT having been saved — so an edited retry after a lost response is thrown away
+  // silently. It is a fact about the two bodies, not a refusal: the earlier message is
+  // real and nothing is wrong with it.
+  check("...and says the words it absorbed are not the words that were sent",
+    /"mismatch"\s*:\s*true/.test(reworded), reworded);
+  check("...while an identical retry says they are the same",
+    /"mismatch"\s*:\s*false/.test(again), again);
   check("...which did not overwrite the message either",
     jget(`select body from agent.agent_messages where id='${MSG1}';`) === "when do you open?");
   check("...so there is still one message for that key",
@@ -1380,6 +1389,88 @@ try {
   check("...in the order it was said",
     jget(`select (body -> 'history' -> 0 ->> 'user') || '|' || (body -> 'history' -> 1 ->> 'user')
            from agent.run_entries where run_id='${R3}' and seq=0;`) === "when do you open?|again");
+
+  // ── the history read: three properties a sweep proved unguarded ───────
+  //
+  // THREE MUTANTS SURVIVED EVERY CHECK ABOVE AND NONE OF THEM WAS INERT: the newest
+  // turns taken oldest-first, a turn whose run is gone dropped by an inner join, and
+  // an unfinished run's text handed over as though it were an answer. They survived
+  // because the conversation above is three turns long and every one of those turns
+  // has a run — so the coverage could not reach the cases at all. That is the sweep
+  // doing the one thing hand-written coverage cannot: reading the checks adversarially.
+  //
+  // EACH ON ITS OWN AGENT, so no count above moves. The prior conversation is
+  // INSERTED rather than sent: what is under test here is the history READ, and every
+  // check above already drives the writer.
+  const SLONG  = "5a5a5a5a-0000-4000-8000-00000000a0ff";
+  const LMSG   = "5a5a5a5a-0000-4000-8000-00000000ef01";
+  const LRUN   = "5a5a5a5a-0000-4000-8000-00000000fb01";
+  const TURNS  = Number(jget(`select agent.history_turns();`));
+  check("the history bound is a number these checks can exceed",
+    Number.isInteger(TURNS) && TURNS > 0, String(TURNS));
+  allowed("an agent with a longer conversation than the window",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+      values ('${SLONG}','t1','Long','Be brief.');`, asWriter);
+  // TURNS + 3, so the window cannot reach the first turn however it is ordered.
+  allowed("...and the turns behind it",
+    `insert into agent.agent_messages (id, agent_id, body)
+       select gen_random_uuid(), '${SLONG}', 'turn ' || g from generate_series(1, ${TURNS + 3}) g;`, asWriter);
+  check("...all of them stored",
+    jget(`select count(*) from agent.agent_messages where agent_id='${SLONG}';`) === String(TURNS + 3));
+  const onLong = send(SLONG, LMSG, "and now?", "key-long", LRUN);
+  check("a send on top of a long conversation is accepted", /"ok"\s*:\s*true/.test(onLong), onLong);
+  check(`...and the history handed over is capped at the window (${TURNS})`,
+    jget(`select jsonb_array_length(body -> 'history') from agent.run_entries
+           where run_id='${LRUN}' and seq=0;`) === String(TURNS));
+  // ⚠ THE NEWEST TURNS, AND THEN IN THE ORDER THEY WERE SAID. Ordered ascending
+  // inside the window instead, a customer's long conversation is pinned to the first
+  // screen it ever had and the model never sees what was just said to it.
+  check("...and they are the NEWEST turns, oldest of them first",
+    jget(`select (body -> 'history' -> 0 ->> 'user') || '|' || (body -> 'history' -> -1 ->> 'user')
+           from agent.run_entries where run_id='${LRUN}' and seq=0;`)
+      === `turn 4|turn ${TURNS + 3}`);
+  check("...so the first turn of all is not in it",
+    jget(`select count(*) from agent.run_entries e,
+            jsonb_array_elements(e.body -> 'history') t
+           where e.run_id='${LRUN}' and e.seq=0 and t ->> 'user' = 'turn 1';`) === "0");
+  // ⚠ A TURN WHOSE RUN IS GONE IS STILL THE CONVERSATION THAT HAPPENED. Every turn
+  // above is run-less — which is what an imported conversation looks like, and what a
+  // retained-away run leaves behind — so an inner join answers an EMPTY history and
+  // sends the model a conversation it never had, the customer's own questions missing.
+  check("...and a turn with no run at all is handed over, with a null answer",
+    jget(`select count(*) from agent.run_entries e,
+            jsonb_array_elements(e.body -> 'history') t
+           where e.run_id='${LRUN}' and e.seq=0 and t -> 'agent' = 'null'::jsonb;`) === String(TURNS));
+
+  // ⚠ AND A STOP THAT IS NOT AN ANSWER CONTRIBUTES NO TEXT. `case when reason =
+  // 'answered'` is the same rule `run.mjs` and `api.mjs` apply, in a third place and
+  // deliberately: a run stopped by a bound may carry partial text, and passing that on
+  // as the agent's answer puts words in its mouth it never finished saying. No stop the
+  // engine writes today carries `text` unless it answered — so the fixture writes the
+  // one that could, which is the whole reason the wall is there.
+  const SSTOP = "5a5a5a5a-0000-4000-8000-00000000a0fe";
+  const SM1   = "5a5a5a5a-0000-4000-8000-00000000ef02";
+  const SR1   = "5a5a5a5a-0000-4000-8000-00000000fb02";
+  const SM2   = "5a5a5a5a-0000-4000-8000-00000000ef03";
+  const SR2   = "5a5a5a5a-0000-4000-8000-00000000fb03";
+  allowed("an agent whose first run stopped without answering",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+      values ('${SSTOP}','t1','Stopper','Be brief.');`, asWriter);
+  check("its first send is accepted", /"ok"\s*:\s*true/.test(send(SSTOP, SM1, "are you there?", "key-s1", SR1)));
+  psql(`insert into agent.run_entries (run_id, seq, body) values ('${SR1}', 1,
+        ${shq('{"kind":"stopped","at":1700000000003,"stop":{"reason":"spent","bound":"steps","text":"half of an answ"}}')}::jsonb);`);
+  check("...and its stop is projected as something other than an answer",
+    jget(`select stop ->> 'reason' from agent.runs where id='${SR1}';`) === "spent");
+  check("...carrying text all the same, which is what makes this checkable",
+    jget(`select stop ->> 'text' from agent.runs where id='${SR1}';`) === "half of an answ");
+  const afterStop = send(SSTOP, SM2, "still there?", "key-s2", SR2);
+  check("the next send is accepted", /"ok"\s*:\s*true/.test(afterStop), afterStop);
+  check("...and it is given that turn's QUESTION",
+    jget(`select body -> 'history' -> 0 ->> 'user' from agent.run_entries
+           where run_id='${SR2}' and seq=0;`) === "are you there?");
+  check("...with NO answer, because that run never answered",
+    jget(`select (body -> 'history' -> 0 -> 'agent' = 'null'::jsonb)::text
+           from agent.run_entries where run_id='${SR2}' and seq=0;`) === "true");
 
   // ── the thread the screen draws ──────────────────────────────────────────
   //
@@ -1483,8 +1574,28 @@ try {
 
   check("no claims at all reads nothing through the thread",
     psql(`select count(*) from agent.agent_thread;`, { role: "authenticated", claims: "" }).out === "0");
-  refused("anon cannot reach the thread view at all",
-    `select count(*) from agent.agent_thread;`, "permission denied", { role: "anon" });
+  // ⚠ TWO DIFFERENT WALLS, AND A REFUSAL CAN ONLY ASK ONE OF THEM. `anon` holds no
+  // USAGE on the schema, so every read as anon answers "permission denied for schema
+  // agent" whatever table grants exist — which is exactly why GRANTING anon SELECT on
+  // this view SURVIVED this file. MEASURED, by the SQL sweep. So the gate is NAMED, and
+  // the grant is asked DIRECTLY: `has_table_privilege` reads the table privilege alone
+  // and is the only reader here that can see that mutant at all.
+  check("anon holds no select on the thread view",
+    jget(`select has_table_privilege('anon','agent.agent_thread','select')::text;`) === "false");
+  // ⚠ NOT `information_schema.role_table_grants` — it shows only grants whose grantee
+  // or grantor is a CURRENTLY ENABLED role, and this runs as `postgres`, so it answered
+  // 0 for `anon` AND 0 for `authenticated`: a negative assertion with a dead observer,
+  // which is the trap this file's own rules name. The observer check is what caught it.
+  // `pg_class.relacl` is the grant itself and does not care who is asking.
+  const grantsTo = (role) => jget(`select count(*) from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join lateral aclexplode(c.relacl) a
+     where n.nspname = 'agent' and a.grantee = '${role}'::regrole;`);
+  check("...nor anything else on any relation in the schema", grantsTo("anon") === "0");
+  check("...with the same census reading the signed-in role's real grants, so it is alive",
+    Number(grantsTo("authenticated")) > 0, grantsTo("authenticated"));
+  refused("...and anon cannot reach the schema it lives in either",
+    `select count(*) from agent.agent_thread;`, "permission denied for schema agent", { role: "anon" });
 
   // ── the role constraint, still one value ─────────────────────────────────
   refused("nothing can be stored as having come from the agent",

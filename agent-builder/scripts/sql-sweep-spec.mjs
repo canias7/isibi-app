@@ -337,9 +337,21 @@ const spec = [
   mSend("SQL/send: THE KEY IS NOT REQUIRED, so an unkeyed send inserts every time",
     "  if v_key is null then\n    raise exception 'send_to_agent: a send needs its own key, or a retry cannot be told from a new message';\n  end if;",
     "  -- an unkeyed send is fine"),
-  mSend("SQL/send: the duplicate is not absorbed, so a second press makes a second message",
-    "  on conflict (agent_id, send_key) where send_key is not null\n  do nothing",
-    "  on conflict do nothing"),
+  // ⚠ NOT `on conflict do nothing` (bare) — MEASURED INERT, on two throwaway
+  // databases built from these same migrations. A bare clause still absorbs the
+  // send-key conflict, so a duplicate press answers `repeat: true` with one
+  // message and one run either way; the ONLY observable difference is which
+  // refusal a REUSED MESSAGE ID gets (`agent_messages_pkey` as written, the
+  // function's own "conflicted with a row that is not there" bare) and both
+  // refuse having written nothing. So the clause is DELETED instead, which
+  // attacks the guarantee itself: a retry then RAISES where it must answer.
+  //
+  // (That "row that is not there" branch is reachable rather than paranoid —
+  // under READ COMMITTED a racing press can have its insert skipped by a row
+  // that is not committed yet and is therefore invisible to the select below.)
+  mSend("SQL/send: the duplicate is not absorbed, so a retry is refused instead of answered",
+    "  on conflict (agent_id, send_key) where send_key is not null\n  do nothing\n  returning * into v_msg;",
+    "  returning * into v_msg;"),
   mSend("SQL/send: AN ABSORBED PRESS STARTS A SECOND RUN ANYWAY",
     "    return jsonb_build_object(\n      'ok', true, 'repeat', true,",
     "    v_msg.id := v_msg.id; return jsonb_build_object(\n      'ok', true, 'repeat', false,"),
@@ -360,16 +372,33 @@ const spec = [
   mSend("SQL/send: an unfinished run's text is handed over as though it were an answer",
     "             case when r.stop ->> 'reason' = 'answered' then r.stop ->> 'text' end as answer",
     "             r.stop ->> 'text' as answer"),
+  // The two lines the 2026-09-16 review added, each attacked where it decides something.
+  mSend("SQL/send: AN ABSORBED PRESS NEVER SAYS ITS WORDS DIFFER, so an edited retry is lost silently",
+    "      'mismatch', (v_msg.body is distinct from p_body),",
+    "      'mismatch', false,"),
+  mSend("SQL/send: the mismatch is answered for every retry, so an ordinary one reads as an edit",
+    "      'mismatch', (v_msg.body is distinct from p_body),",
+    "      'mismatch', true,"),
   mSend("SQL/send: the message is not linked to the run it started",
     "  update agent.agent_messages set run_id = p_run_id where id = v_msg.id;", "  -- no link"),
-  mSend("SQL/send: the message goes in AFTER the run, so a second press leaves an orphan the queue runs",
-    "  v_accept := agent.accept_run(p_run_id, p_tenant, v_entry, 'start');",
-    "  v_accept := agent.accept_run(p_run_id, p_tenant, v_entry, 'start');\n  perform 1;"),
+  // ⚠ THIS WAS A NO-OP STATEMENT APPENDED AFTER THE ACCEPT — a mutant whose
+  // label named a reorder and whose text added `perform 1;`, which changes
+  // nothing and SURVIVED the sweep saying exactly that. The property is what the
+  // absorb branch buys: skip it and a duplicate press runs straight past, mints a
+  // second run under the new id and links it to nothing — the orphan the queue
+  // would then execute. Expressible as one line, and observable.
+  mSend("SQL/send: THE ABSORB BRANCH IS SKIPPED, so a duplicate press mints a second run linked to nothing",
+    "  if v_msg.id is null then\n    -- THIS SEND ALREADY LANDED",
+    "  if false then\n    -- THIS SEND ALREADY LANDED"),
   mSend("SQL/send: it is granted to signed-in customers, who could then start work as anybody",
     "grant execute on function agent.send_to_agent(text, uuid, uuid, text, text, uuid) to service_role;",
     "grant execute on function agent.send_to_agent(text, uuid, uuid, text, text, uuid) to service_role, authenticated;"),
+  // RE-ANCHORED, NOT APPEASED. This spanned the next line to be unambiguous, and the
+  // `mismatch` line landed between them — caught by the generator's census before the
+  // run, which is the whole reason that census exists. It reaches BACKWARD now, to the
+  // comment above the field, so a line added below it cannot break it again.
   mSend("SQL/send: the answer echoes what was sent rather than what is stored",
-    "      'body', v_msg.body,\n      'seq', v_msg.seq", "      'body', p_body,\n      'seq', v_msg.seq"),
+    "      -- for and absorbed.\n      'body', v_msg.body,", "      -- for and absorbed.\n      'body', p_body,"),
   mAuthored("SQL/send: the run's bounds are widened",
     "      'steps', 2,\n      'toolCalls', 1,", "      'steps', 16,\n      'toolCalls', 64,"),
   mAuthored("SQL/send: THE TOOL BUDGET IS ZERO, which stops every authored run before its first call",

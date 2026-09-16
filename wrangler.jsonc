@@ -236,7 +236,18 @@
   // how three merges shipped nothing on 2026-08-07. `site-builds` was created
   // and confirmed by its own deploy step before this block was added.
   "queues": {
-    "producers": [{ "queue": "site-builds", "binding": "BUILD_QUEUE" }],
+    "producers": [
+      { "queue": "site-builds", "binding": "BUILD_QUEUE" },
+      // THE AGENT ENGINE'S QUEUE, and the one runtime thread between the two
+      // products in this repository. `/api/agent/send` commits the run and then
+      // rings this, so a customer's conversation starts in a second rather than
+      // waiting up to a minute for the engine's own sweep to find the row.
+      //
+      // PRODUCER ONLY. This Worker never consumes `agent-runs` — the engine's own
+      // deployment does, with its own consumer config — and a consumer here would
+      // be a second executor of somebody else's runs.
+      { "queue": "agent-runs", "binding": "AGENT_RUN_QUEUE" }
+    ],
     "consumers": [
       {
         "queue": "site-builds",

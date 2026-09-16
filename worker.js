@@ -100,6 +100,30 @@ import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, red
 import { readJsonBody } from "./request-limits.mjs";
 import { handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_POST_ROUTES, agentBodyMax } from "./agent-store.mjs";
 import { listSecrets, addSecret, deleteSecret, readSecret } from "./site-secrets.mjs";
+
+/**
+ * THE DOORBELL ON THE AGENT ENGINE'S QUEUE.
+ *
+ * The engine is a SEPARATE WORKER with its own deploy, so this is the one thread
+ * between the two products at runtime: a Queues producer binding on the same
+ * account's `agent-runs` queue, whose consumer is `agent-builder/src/worker.mjs`.
+ *
+ * **THE MESSAGE IS A RUN ID AND NOTHING ELSE**, because that is what the engine
+ * reads (`m.body?.runId`) and because a message carrying a tenant would let a
+ * stale or replayed delivery make a consumer act as somebody — the engine's own
+ * `claim_run` answers the tenant instead. A census in `test/agent-send.test.mjs`
+ * reads the engine's reader and this sender and requires the one key.
+ *
+ * **AN ABSENT BINDING IS `null`, NOT A THROW.** Every local driver and every
+ * deployment made before the binding existed is that shape, and a run left for the
+ * engine's own sweep is late rather than lost.
+ */
+const AGENT_QUEUE_BINDING = "AGENT_RUN_QUEUE";
+function agentQueueRing(env) {
+  const q = env && env[AGENT_QUEUE_BINDING];
+  if (!q || typeof q.send !== "function") return null;
+  return (runId) => q.send({ runId });
+}
 import { cleanHeadDescription, pickableImages, headAnswer } from "./site-head-edit.mjs";
 import { normalizePayment, parseCart, priceCart, checkoutSessionArgs, formEncode, paidFromEvent } from "./site-payments.mjs";
 import { rescopeCookie } from "./site-cookie.mjs";
@@ -17836,6 +17860,11 @@ async function handleRequest(request, env, ctx) {
         body,
         tenant: user.id,
         store: makeAgentStore({ fetch: (u, o) => fetch(u, o), url: SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY }),
+        // THE DOORBELL ON THE ENGINE'S QUEUE, and `null` where there is no binding.
+        // Injected rather than reached for, so `agent-store.mjs` stays a module that
+        // knows nothing about Cloudflare — and so a deployment without the binding
+        // answers `notified: false` instead of throwing at a customer.
+        ring: agentQueueRing(env),
         log: (...a) => console.error(...a),
       });
       // `null` is a path this module does not handle, and the membership test

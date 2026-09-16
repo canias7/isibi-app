@@ -617,7 +617,7 @@ function broke(what, e, log) {
  * account from `body` or `query`, and a tenant this cannot read refuses the
  * whole call rather than falling back to anything.
  */
-export async function handleAgentApi({ path, method, query, body, tenant, store, newId, now, log } = {}) {
+export async function handleAgentApi({ path, method, query, body, tenant, store, ring, newId, now, log } = {}) {
   if (!Object.hasOwn(AGENT_ROUTES, path)) return null;
   if (AGENT_ROUTES[path] !== method) return no(405, "wrong method for that");
 
@@ -711,9 +711,46 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // NOT FOUND, NEVER FORBIDDEN — the same answer a nonexistent agent gets, so
       // this cannot confirm that somebody else's agent exists.
       if (a.error === "no-agent" || a.ok === false) return NO_AGENT();
+
+      // ── RING THE ENGINE, AFTER THE TRANSACTION AND NEVER BEFORE IT ────────────
+      //
+      // The run, its first entry and its queue row are committed by now, so this is
+      // a DOORBELL and not the work: it decides how soon a conversation starts, and
+      // nothing about whether it starts at all. Without it the engine's own
+      // minute-by-minute sweep finds the row — correct, and up to a minute of
+      // somebody watching a screen that says nothing.
+      //
+      // **A FAILED RING IS LOGGED AND SAID, NEVER RAISED.** Answering an error here
+      // would tell the customer their message failed when it is committed and will
+      // run; `notified` is on the wire because "it is on the queue" and "something
+      // will find it within the minute" are different promises.
+      //
+      // **A DUPLICATE RING IS HARMLESS BY CONSTRUCTION, and that is the queue's
+      // property rather than this line's care.** `claim_run` is the one gate: a
+      // second delivery for a run already claimed or finished answers
+      // `not-claimable` / `already-finished` and does nothing. So a repeat is rung
+      // TOO — a first press whose ring failed leaves a row nobody has told anyone
+      // about, and the retry is exactly when to say it again.
+      const runId = cleanId(a.run_id);
+      let notified = false;
+      if (runId && typeof ring === "function") {
+        try {
+          await ring(runId);
+          notified = true;
+        } catch (e) {
+          if (typeof log === "function") log("agent send: the queue was not rung", String(e?.message ?? e));
+        }
+      }
       return ok({
         id,
         repeat: !!a.repeat,
+        // WHETHER THE SEND WAS ABSORBED UNDER THIS KEY WITH DIFFERENT WORDS. The
+        // transaction answers it; this carries it, because a caller that reads a
+        // repeat as a plain success clears a box holding an edit nobody saved.
+        mismatch: !!a.mismatch,
+        // WHETHER THE ENGINE WAS TOLD. `false` is not a failure — the work is
+        // durable either way — it means the start waits for the sweep.
+        notified,
         // WHETHER THE WORK REALLY REACHED THE QUEUE, said rather than assumed. A
         // repeat put nothing on it and says so; anything but `queued` from the
         // accepting function means the run was not newly enqueued, which a caller
@@ -725,7 +762,7 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         // The run's id only. ITS STATE HAS EXACTLY ONE READER and it is the thread —
         // describing it here too would be a second composer of the same fact, and
         // the two would disagree the moment one of them was updated.
-        runId: cleanId(a.run_id),
+        runId,
       });
     }
 

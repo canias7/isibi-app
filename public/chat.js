@@ -1082,7 +1082,82 @@ let agentDraftFor = null;
  * ever touch A's entry.
  */
 let agentMsgDrafts = {};
-const agentDraftOf = (id) => (id && Object.hasOwn(agentMsgDrafts, id) ? agentMsgDrafts[id] : '');
+/**
+ * AND KEYED BY ACCOUNT TOO, which the first version was not.
+ *
+ * These maps live in memory and `doSignOut` ends in `location.reload()`, so today a
+ * switch discards them with the page — which made the account half look unnecessary.
+ * It is not a wall that should rest on a reload three hundred lines away: this
+ * repository has the expiry of exactly that kind of reasoning recorded four times.
+ * The key carries the uid, so an unsent message is unreadable to anybody else even
+ * if the page survives.
+ */
+/**
+ * ⚠ AND THE ACCOUNT IS THE **BOUND** ONE WHEREVER ONE IS HELD, never whoever is
+ * signed in when the answer arrives — which is the same rule as every other write
+ * on this screen, and an existing guard is what found it missing.
+ *
+ * A send that succeeds clears its draft. Computing the key from `agentUid()` at that
+ * moment means a session that expired mid-request deletes a key belonging to NOBODY
+ * and leaves the real draft behind for ever, carrying words the person who typed them
+ * cannot see any more. So the uid travels with the request, exactly as the
+ * conversation does; `undefined` (not falsy) is what means "whoever is here now",
+ * because a signed-out `''` is a real answer and must not silently become the
+ * current account.
+ */
+const agentDraftKey = (id, uid) => (uid === undefined ? agentUid() : uid) + '|' + String(id || '');
+const agentDraftOf = (id, uid) => {
+  const k = agentDraftKey(id, uid);
+  return (id && Object.hasOwn(agentMsgDrafts, k)) ? agentMsgDrafts[k] : '';
+};
+const agentDraftSet = (id, text, uid) => { if (id) agentMsgDrafts[agentDraftKey(id, uid)] = text; };
+const agentDraftDrop = (id, uid) => { if (id) delete agentMsgDrafts[agentDraftKey(id, uid)]; };
+const agentKeyDrop = (id, uid) => { if (id) delete agentSendKeys[agentDraftKey(id, uid)]; };
+
+/**
+ * WHAT IS IN THE BOX RIGHT NOW, AND WHERE THE CURSOR IS — read before every
+ * re-render and put back after it.
+ *
+ * **THE POLL REBUILDS THIS PANEL EVERY 2.5 SECONDS.** `renderAgents` writes
+ * `innerHTML`, so while a run is going the textarea was DESTROYED and recreated
+ * eight times a minute, redrawn from a draft that was only written on Send — so
+ * anything typed while waiting for an answer was lost at the next tick, along with
+ * the focus and the cursor. A quiet reload already kept the thread on screen; it
+ * did not keep the person's half-typed reply.
+ *
+ * **THE BOX SAYS WHICH CONVERSATION IT BELONGS TO** (`data-agent`), so a render that
+ * CHANGES conversations cannot write one person's words into another's draft — the
+ * id is read off the element being replaced, never from whatever is open now.
+ */
+function agentComposerRead() {
+  if (typeof document === 'undefined') return null;
+  const el = document.getElementById('agMsg');
+  if (!el) return null;
+  const id = (el.getAttribute && el.getAttribute('data-agent')) || '';
+  if (id) agentDraftSet(id, el.value);
+  return {
+    id,
+    start: typeof el.selectionStart === 'number' ? el.selectionStart : null,
+    end: typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
+    focused: document.activeElement === el,
+  };
+}
+function agentComposerRestore(prev) {
+  if (!prev || !prev.id || typeof document === 'undefined') return;
+  const el = document.getElementById('agMsg');
+  // A DIFFERENT CONVERSATION IS DRAWN NOW, so there is nothing of this one's to put
+  // back — and forcing focus into somebody else's box would be a worse bug than the
+  // one this fixes.
+  if (!el || ((el.getAttribute && el.getAttribute('data-agent')) || '') !== prev.id) return;
+  if (prev.focused && typeof el.focus === 'function') {
+    try { el.focus({ preventScroll: true }); } catch { try { el.focus(); } catch { /* no focus here */ } }
+  }
+  // ONLY INTO THE SAME TEXT. A send that succeeded has emptied the box, and putting
+  // a cursor from the old value into the new one is how a caret lands mid-word.
+  if (prev.start !== null && el.value === agentDraftOf(prev.id) && typeof el.setSelectionRange === 'function') {
+    try { el.setSelectionRange(prev.start, prev.end); } catch { /* not a text field */ }
+  }
+}
 
 /**
  * ONE KEY PER PRESS, NOT PER REQUEST — and that distinction is the whole of retry
@@ -1101,17 +1176,39 @@ const agentDraftOf = (id) => (id && Object.hasOwn(agentMsgDrafts, id) ? agentMsg
  * press said twice.
  */
 let agentSendKeys = {};
-function agentKeyFor(id) {
+/**
+ * ⚠ AND IT IS BOUND TO THE PAYLOAD IT WAS MINTED FOR, which the first version was
+ * not — a defect in exactly the case the key exists for.
+ *
+ * A send commits and its response is lost. The words are still in the box, so the
+ * person EDITS them and presses again. With the key held per conversation alone,
+ * that retry carried the FIRST message's key: the server absorbed it, answered
+ * `repeat` with the original body, the browser read `ok` and cleared the box — so
+ * the edit was silently discarded and the conversation kept the text nobody wanted.
+ *
+ * So the key travels WITH its body. The same text retried is the same press (one
+ * message, one run, absorbed as before); changed text is a different press and gets
+ * a fresh key, which is a new message rather than a silent no-op. Retry safety is
+ * unchanged — it was never about the conversation, it was always about the payload.
+ */
+function agentKeyFor(id, body, uid) {
   if (!id) return '';
-  if (!Object.hasOwn(agentSendKeys, id) || !agentSendKeys[id]) {
+  const k = agentDraftKey(id, uid);
+  const held = Object.hasOwn(agentSendKeys, k) ? agentSendKeys[k] : null;
+  if (held && held.key && held.body === body) return held.key;
+  return agentMintKey(k, body);
+}
+function agentMintKey(k, body) {
+  {
     // `crypto.randomUUID` is absent on older browsers and over plain HTTP, and the
     // server accepts this fallback deliberately: turning retry safety off for the
     // browsers least likely to have a reliable connection is the wrong trade.
-    agentSendKeys[id] = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    const key = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? crypto.randomUUID()
       : String(Date.now()) + Math.random().toString(16).slice(2);
+    agentSendKeys[k] = { key, body };
   }
-  return agentSendKeys[id];
+  return agentSendKeys[k].key;
 }
 
 /**
@@ -1521,7 +1618,23 @@ const AGENT_THREAD_MAX = 200;
 /** The agent the open thread belongs to, out of the list the server sent. */
 const agentOpenRow = () => (agentRows || []).find((a) => a.id === agentThread) || null;
 
+/**
+ * DRAW IT — keeping whatever is in the message box across the redraw.
+ *
+ * The wrapper is what makes the poll safe: `renderAgentsNow` replaces `innerHTML`,
+ * so the textarea it drew a moment ago is gone. Reading it first and putting the
+ * cursor back after is the difference between a conversation you can type into
+ * while it answers and one that eats a sentence every 2.5 seconds.
+ *
+ * ONE DOOR, so no caller has to remember: every `renderAgents()` in this file goes
+ * through it, and the inner function is never called from anywhere else.
+ */
 function renderAgents() {
+  const held = agentComposerRead();
+  renderAgentsNow();
+  agentComposerRestore(held);
+}
+function renderAgentsNow() {
   const view = document.getElementById('viewAgents');
   if (!view) return;
 
@@ -1574,6 +1687,7 @@ function renderAgents() {
         // draft living in one global would be wiped by another conversation.
         '<div class="ag-send">' +
           '<textarea class="ag-send-in" id="agMsg" rows="1" maxlength="' + AGENT_MAX + '" ' +
+            'data-agent="' + esc(a.id) + '" data-input="agent-msg" ' +
             'data-keydown="agent-send-key" placeholder="Message ' + esc(a.name) + '">' + esc(agentDraftOf(a.id)) + '</textarea>' +
           '<button class="ag-send-btn" data-act="agent-send" aria-label="Send" title="Send"' + (agentBusy ? ' disabled' : '') + '>' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>' +
@@ -1755,8 +1869,9 @@ async function agentDelete(id) {
       agentThread = null;
     }
   }
-  // The conversation went with it, so its unsent words are not worth keeping.
-  if (!failed) delete agentMsgDrafts[target];
+  // The conversation went with it, so its unsent words are not worth keeping — and
+  // neither is the key, which names a message in a conversation that no longer exists.
+  if (!failed) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); }
   await agentsLoad(true);
 }
 
@@ -1764,11 +1879,11 @@ async function agentDelete(id) {
  * Send. An empty message is refused rather than stored.
  *
  * **THE BOX IS NOT CLEARED UNTIL THE SERVER HAS IT**, and the box it means is
- * THIS conversation's. `agentMsgDrafts[id]` holds what was typed across the
- * re-render, so a failed send leaves the words where they were typed with a
- * sentence under them — rather than a message that looked sent and is nowhere,
- * or a clear that lands in whatever conversation is open when the answer
- * arrives.
+ * THIS conversation's. The draft (keyed by account and conversation) holds what
+ * was typed across the re-render, so a failed send leaves the words where they
+ * were typed with a sentence under them — rather than a message that looked sent
+ * and is nowhere, or a clear that lands in whatever conversation is open when
+ * the answer arrives.
  */
 async function agentSend() {
   const el = document.getElementById('agMsg');
@@ -1780,14 +1895,15 @@ async function agentSend() {
   // whatever happens to be open when the answer arrives.
   const bound = agentBind();
   const target = bound.thread;
-  agentMsgDrafts[target] = text;
+  agentDraftSet(target, text, bound.uid);
   // TAKEN BEFORE THE REQUEST AND NOT MINTED INSIDE IT. Two presses landing before
   // the button is disabled carry the SAME key, so the server absorbs the second
   // into the first — one message, one run. See `agentKeyFor`.
-  const key = agentKeyFor(target);
+  const key = agentKeyFor(target, text, bound.uid);
   agentBusy = true; agentActErr = ''; renderAgents();
   let failed = '';
   let saved = null;
+  let mismatched = false;
   try {
     const res = await apiFetch('/api/agent/send', {
       method: 'POST',
@@ -1796,18 +1912,31 @@ async function agentSend() {
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn\u2019t send that.';
+    // ⚠ ABSORBED UNDER THIS KEY, BUT NOT THIS TEXT. The server answers `ok` with the
+    // message it really holds, so reading it as a plain success would clear the box and
+    // throw the edit away — the defect this whole pairing closes, met from the server's
+    // side. It cannot happen from THIS browser, because the key is bound to the body;
+    // it is answered anyway, because another tab, an older cached script or a hand
+    // request can all produce it, and the one thing that must never happen is the
+    // person's edited words disappearing quietly.
+    else if (j.repeat && j.mismatch) mismatched = true;
     else saved = j.message || null;
   } catch { failed = 'Couldn\u2019t reach the server.'; }
 
   // THE DRAFT IS THIS CONVERSATION'S WHEREVER THE SCREEN IS NOW. Clearing it on
-  // success and leaving it on failure are both writes to `agentMsgDrafts[target]`
+  // success and leaving it on failure are both writes to THIS conversation's draft
   // — never to "the box", which may be showing another agent entirely.
   //
   // THE KEY GOES WITH THE DRAFT, AND ONLY ON SUCCESS. Clearing it after a FAILURE
   // would make the next press a different press, and a message the server may
   // already hold would be joined by a second copy with a second run — the lost
   // response case turned into the duplicate the key exists to prevent.
-  if (!failed) { delete agentMsgDrafts[target]; delete agentSendKeys[target]; }
+  if (!failed && !mismatched) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); }
+  // A MISMATCH KEEPS THE WORDS AND DROPS THE KEY, which is the opposite of a failure
+  // and deliberately so: the old message is safe on the server, so the next press must
+  // be a NEW press — the edited text as its own message — rather than a third attempt
+  // to absorb into a body nobody is trying to send any more.
+  if (mismatched) agentKeyDrop(target, bound.uid);
 
   if (!agentSame(bound)) {
     // ANOTHER CONVERSATION — OR ANOTHER ACCOUNT — IS ON SCREEN. Nothing here is
@@ -1822,6 +1951,12 @@ async function agentSend() {
 
   agentBusy = false;
   if (failed) { agentActErr = failed; renderAgents(); return; }
+  if (mismatched) {
+    agentActErr = 'Your first message was already sent. Press send again to add this edited one.';
+    renderAgents();
+    await agentThreadLoad(target, true);
+    return;
+  }
   // **APPENDED, THEN RE-READ, AND BOTH HALVES ARE LOAD-BEARING.**
   //
   // The append is what makes the message appear the instant it is saved: the answer
@@ -10632,7 +10767,14 @@ const CLICK_ACTIONS = {
 // chrome does not go through this table at all — it wires its handlers as it
 // renders — which is why so little is left here.
 const CHANGE_ACTIONS = {};
-const INPUT_ACTIONS = {};
+const INPUT_ACTIONS = {
+  // TYPED WORDS ARE THE DRAFT, IMMEDIATELY — not on Send. A poll re-render reads the
+  // box too (`agentComposerRead`), and the redundancy is deliberate: this covers the
+  // instant an answer lands from anywhere else, that covers a browser which gave us
+  // no input event. NO RE-RENDER HERE — redrawing the panel on every keystroke would
+  // be the twitch this whole wrapper exists to remove.
+  'agent-msg': (e, el) => { agentDraftSet((el.getAttribute && el.getAttribute('data-agent')) || '', el.value); },
+};
 const KEYDOWN_ACTIONS = {
   'agent-send-key': (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); agentSend(); }
