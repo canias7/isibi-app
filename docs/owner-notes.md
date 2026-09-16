@@ -633,6 +633,77 @@ browser check was me, from outside. That's the design's limit, not a bug in it.
 
 ---
 
+### The scheduled-job test — corrected, and smaller than I said
+
+You were right on all five. What follows is the corrected version.
+
+**The big one: `bookings` has no email field, so my reminder ask was wrong.**
+Checked properly this time — `email`, `phone`, `mobile`, `contact`,
+`customer_email` and `tel` all come back "no such column", while `drop_off_day`
+comes back "permission denied", which only a column that exists can say. **No
+table on your site holds a contact of any kind.** So a reminder-the-customer job
+would need a new column on `bookings`, which is a *table* change — and that
+kills the "no page, no compile" argument I built the cost on. Ask withdrawn.
+
+**Actual stubbed delivery now exists, and it isn't a live run with no key.** I
+had called "run it on a site with no mail key" stubbed delivery. It isn't: with
+no key the runner stops *before* the sender, so it proves the refusal and
+nothing else. There's a real test now that drives the runner with a fake clock
+and a sender that records what it was handed — two due customers, and it checks
+the right address, the right date in the message, the body arriving word for
+word, a bad address being dropped and counted, a text getting the number in the
+form the provider wants, and the missing-key case on its own. Eleven cases.
+**Nothing in it can reach a real person** — every address and number is from the
+ranges reserved for exactly this.
+
+**Three things I'd been treating as one.** Passing one proves neither other:
+
+| | how it gets proven |
+|---|---|
+| the schedule and timezone were really saved | only live |
+| the runner actually runs | only live (the Run now button) |
+| a nightly tick would *pick* the job | **done** — tested on a fixed clock |
+
+Run now can't prove the third: it forces the job regardless of whether it's due.
+Worth knowing before reading a green Run now as "the schedule works."
+
+**The smallest live test, with what it actually depends on:**
+
+> *"Every night at 11, count how many bookings are more than a year old and just
+> make a note of the number — don't delete anything, and don't email anyone."*
+
+It reads `bookings`, returns a note rather than messages, and needs **no
+recipient, no new column, no page, and no writes** — so nothing is added to or
+deleted from your data. That makes it the one shape that's genuinely just a
+function and a job on this site.
+
+**Three ways the model could still miss, and all three are visible** rather than
+silent: it marks the function public (the job gets refused, by name), it returns
+messages instead of a note (they all drop for want of an address, counted), or
+it designs a table (it's in the reply). None of them is a wrong answer wearing a
+right one's face — which is why it's worth running as written.
+
+**I can't price it, and I shouldn't have implied a ceiling.** "Below 12" wasn't
+enforced by anything. Nothing caps a single addon request — the server only
+refuses above 100,000 credits, and the harness's budget is checked between
+cases, which a one-ask run never has. **Your balance is the only real bound.**
+What I can say is the shape: no page generation, no compile, no publish, and a
+design call about a fifth the size of a page build's. That's an argument, not a
+number.
+
+**And I put my own worst habit into the new code.** The re-read after Run now
+fell back to the *before* value when it failed — so an unreadable check would
+have printed "last run: never" and read as a press that did nothing. It says
+"the persisted outcome could not be verified" now, and prints no stamp at all.
+There's a test for it that fails if the fallback comes back.
+
+**Dependency failures stay where they are**, as you said — in the route tests.
+They can't be caused by typing a sentence; the database has to actually refuse
+something.
+
+**Nothing has run. No paid call, nothing touched on the site.**
+---
+
 ### Still true: I cannot press any of these
 
 Re-tested rather than recalled. A direct REST POST answers **403** — and the

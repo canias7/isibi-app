@@ -1049,6 +1049,44 @@ test("the job lines say the zone, and say so even when there is nothing to say",
   assert.match(jobLines(before, after, { run: false, why: "not asked for" }).join("\n"), /did not run any job now: not asked for/);
 });
 
+test("a re-read that failed after the press says the outcome could not be verified", async () => {
+  const { jobLines } = await import("../scripts/addon-sweep.mjs");
+  // THE REGRESSION THIS CASE EXISTS FOR. The first draft folded the post-press
+  // re-read back into the pre-press map with `|| extra.jobsAfter`, so a re-read
+  // that FAILED printed the pre-press stamp -- `lastRun never` -- which reads as
+  // a press that did nothing at all. Cannot-tell arriving as a value, in the
+  // instrumentation written to stop exactly that.
+  const before = {};
+  const after = { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } };
+  const ran = { run: true, name: "remind_tomorrow", status: 200, sent: 2, result: "Sent 2." };
+
+  const unreadable = jobLines(before, after, ran, null).join("\n");
+  assert.match(unreadable, /COULD NOT BE VERIFIED/, "a failed re-read must say the persisted outcome is unknown");
+  assert.doesNotMatch(unreadable, /persisted: lastRun/, "a failed re-read must print no stamp at all");
+  assert.doesNotMatch(unreadable, /STILL never/, "and must not present the PRE-press stamp as the outcome");
+  // The route's own answer is still reported -- that claim is sound, and it is a
+  // different claim from what was written to the row.
+  assert.match(unreadable, /ran remind_tomorrow now: 200 sent 2/);
+
+  // A RE-READ THAT SUCCEEDED BUT LOST THE JOB is the same unknown, not a pass:
+  // the row it was asked about is not in the answer, so nothing can be said.
+  const gone = jobLines(before, after, ran, { something_else: {} }).join("\n");
+  assert.match(gone, /COULD NOT BE VERIFIED/);
+  assert.match(gone, /"remind_tomorrow" is not in the re-read/);
+
+  // AND THE CONTROL, without which the two above pass over a function that
+  // never reports a stamp at all: a good re-read prints the persisted values.
+  const ok = jobLines(before, after, ran, { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: "2026-09-17T08:00:00Z", lastResult: "Sent 2." } }).join("\n");
+  assert.match(ok, /persisted: lastRun 2026-09-17T08:00:00Z {2}lastResult "Sent 2\."/);
+  assert.doesNotMatch(ok, /COULD NOT BE VERIFIED/);
+
+  // A RUN THAT RECORDED NOTHING is its own reading: the re-read worked and the
+  // stamp is still absent, which is a real defect and not an unreadable answer.
+  const stampless = jobLines(before, after, ran, { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } }).join("\n");
+  assert.match(stampless, /persisted: lastRun STILL never/, "a press whose stamp never landed must be visible as such, not as an unreadable answer");
+  assert.doesNotMatch(stampless, /COULD NOT BE VERIFIED/);
+});
+
 test("the harness reads the registry before the post, and the press is its own switch", async () => {
   const src = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8");
   // BEFORE THE POST, or "this run added it" is a claim nobody can make: the site
@@ -1067,6 +1105,13 @@ test("the harness reads the registry before the post, and the press is its own s
   const pressAt = src.indexOf("body: { name: pick.name, run: true }");
   assert.ok(pressAt > 0, "the Run now press is gone");
   assert.ok(src.indexOf("jobRows(", pressAt) > pressAt, "nothing re-reads the registry after the press, so lastResult can never be seen");
+  // AND IT LANDS IN ITS OWN FIELD WITH NO FALLBACK. `|| extra.jobsAfter` here is
+  // the stale-value defect: an unreadable verification would print the pre-press
+  // stamp and read as a press that did nothing.
+  const verifyAt = src.indexOf("extra.jobsVerify = jobRows(", pressAt);
+  assert.ok(verifyAt > pressAt, "the post-press read does not land in its own field");
+  const verifyLine = src.slice(verifyAt, src.indexOf("\n", verifyAt));
+  assert.doesNotMatch(verifyLine, /\|\|/, "the post-press read falls back to a stale value instead of reporting that it failed");
   // AND THE LINES ARE PRINTED, asserted by the branch's OWN CONDITION rather
   // than by the call's position. `if (false) for (… of jobLines(…))` leaves
   // `jobLines(` exactly where a search looks for it — this repository's
@@ -1078,6 +1123,15 @@ test("the harness reads the registry before the post, and the press is its own s
   const cond = src.slice(src.lastIndexOf("\n", printAt) + 1, printAt);
   assert.match(cond, /if \(c\.freeText\)/, "the job lines are printed under some other condition than a free-text ask");
   assert.doesNotMatch(cond, /false/, "the job lines are computed and never printed");
+  // AND ALL FOUR MAPS REACH IT. Dropping the fourth argument makes `verify`
+  // `undefined`, which is falsy — so every press would report "could not be
+  // verified" over a re-read that worked perfectly. The map computed and never
+  // forwarded, one hop along from the branch above; a sweep survivor is why
+  // this line exists rather than the call's mere presence being the assertion.
+  const args = src.slice(printAt, src.indexOf("\n", printAt));
+  for (const a of ["extra.jobsBefore", "extra.jobsAfter", "extra.ranJob", "extra.jobsVerify"]) {
+    assert.ok(args.includes(a), `the job lines are composed without ${a}`);
+  }
   // THE WORKFLOW OFFERS THE BOX AND FORWARDS IT — a dispatch input that is not
   // forwarded is a control that answers, wrongly.
   assert.match(WF, /^ {6}run_job:$/m, "the workflow has no run_job input");

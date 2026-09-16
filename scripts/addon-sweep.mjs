@@ -402,8 +402,17 @@ export function jobToRun(want, added, have) {
  * SAID EVEN WHEN EMPTY, the rule the coverage lines already follow: "the site
  * scheduled nothing" and "nobody looked" are different readings and a missing
  * line collapses them.
+ *
+ * FOUR ARGUMENTS BECAUSE THE PRESS HAS TWO SIDES, AND THEY MUST NOT BE FOLDED.
+ * `after` is the read taken BEFORE the press — what the change persisted, which
+ * is the schedule and the zone. `verify` is the read taken AFTER it — what the
+ * run recorded, which is `lastRun` and `lastResult`. The first draft used ONE
+ * map and fell back to the pre-press value when the re-read failed, so an
+ * unreadable verification printed `lastRun never` and read as a press that did
+ * nothing at all: cannot-tell arriving as a value, in the function written to
+ * stop exactly that. A failed re-read says so now, and prints no stamp.
  */
-export function jobLines(before, after, ran) {
+export function jobLines(before, after, ran, verify) {
   const out = [];
   if (!after) { out.push(`   scheduled jobs: COULD NOT BE READ`); return out; }
   const added = newJobs(before, after);
@@ -417,11 +426,17 @@ export function jobLines(before, after, ran) {
     const when = j.at ? `at ${j.at} ${j.tz || "(NO ZONE)"} every ${j.everyMinutes}m` : `every ${j.everyMinutes}m`;
     out.push(`     · ${n}: ${when}${j.enabled ? "" : "  DISABLED"}  lastRun ${j.lastRun || "never"}  lastResult ${j.lastResult === null ? "(none)" : JSON.stringify(j.lastResult)}`);
   }
-  if (ran) {
-    out.push(ran.run
-      ? `   ran ${ran.name} now: ${ran.status} sent ${ran.sent} — ${JSON.stringify(ran.result || "")}`
-      : `   did not run any job now: ${ran.why}`);
-  }
+  if (!ran) return out;
+  if (!ran.run) { out.push(`   did not run any job now: ${ran.why}`); return out; }
+  out.push(`   ran ${ran.name} now: ${ran.status} sent ${ran.sent} — ${JSON.stringify(ran.result || "")}`);
+  // THE ROUTE'S ANSWER AND THE PERSISTED OUTCOME ARE TWO CLAIMS. The answer is
+  // what `runJob` returned; `last_result` is what `recordJobOutcome` wrote, and
+  // the write can fail on its own. Reporting the first as though it settled the
+  // second is how "it ran" comes to mean "the panel will show it".
+  if (!verify) { out.push(`     the persisted outcome COULD NOT BE VERIFIED — the re-read after the press failed`); return out; }
+  const row = verify[ran.name];
+  if (!row) { out.push(`     the persisted outcome COULD NOT BE VERIFIED — ${JSON.stringify(ran.name)} is not in the re-read`); return out; }
+  out.push(`     persisted: lastRun ${row.lastRun || "STILL never"}  lastResult ${row.lastResult === null ? "(none)" : JSON.stringify(row.lastResult)}`);
   return out;
 }
 
@@ -1152,7 +1167,11 @@ async function main() {
       const rr = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN, body: { name: pick.name, run: true } });
       const rb = (rr.json && typeof rr.json === "object") ? rr.json : {};
       extra.ranJob = { run: true, name: pick.name, status: rr.status, sent: Number(rb.sent) || 0, result: rb.result || rb.error || "" };
-      extra.jobsAfter = jobRows((await call("GET", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json) || extra.jobsAfter;
+      // ITS OWN MAP, AND NO FALLBACK. Folding this back into `jobsAfter` when
+      // the re-read fails prints the PRE-press stamp — `lastRun never` — which
+      // reads as a press that did nothing. `null` here is reported as "could
+      // not be verified", which is the true statement.
+      extra.jobsVerify = jobRows((await call("GET", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json);
     } else extra.ranJob = pick;
     let verdict, note;
     if (p.status === 0) { verdict = "NO ANSWER"; note = `the request died: ${p.why || "?"}`; }
@@ -1196,7 +1215,7 @@ async function main() {
       // THE REGISTRY BESIDE THE RECORD. The record says what the designers
       // ANSWERED; these lines say what the site really carries, and a job the
       // reply names with no row behind it is exactly the gap between them.
-      if (c.freeText) for (const line of jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob)) console.log(line);
+      if (c.freeText) for (const line of jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob, extra.jobsVerify)) console.log(line);
       const replies = Array.isArray(ans.replies) ? ans.replies : [];
       for (const r of replies) {
         const said = (Array.isArray(r.content) ? r.content : []).map((b) => b && b.type === "text" ? String(b.text || "") : b && b.type === "tool_use" ? "tool_use " + JSON.stringify(b.input) : "").filter(Boolean).join(" | ");

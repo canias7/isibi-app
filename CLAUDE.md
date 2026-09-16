@@ -6497,6 +6497,167 @@ asked for` reads **skipped**, the confirm gate correctly standing down for a
 read-only mode.
 
 
+### THE SCHEDULED-JOB TIER: STUBBED DELIVERY PROVEN, THE LIVE TEST NARROWED (2026-09-16)
+
+Owner: *"prepare one focused addon test for a scheduled job using an existing
+function. Check the designer inputs, persisted schedule and timezone, actual
+runner execution, dependency failures, and customer report. Start with stubbed
+delivery."* Then five corrections to the first draft, **every one of which was
+right**; what follows is the corrected state, not the draft.
+
+**THE JOB TIER IS THE ONE WHOSE WORK DOES NOT HAPPEN IN THE REQUEST.** Every
+other kind is done when the reply arrives; a job REGISTERS a row and a later
+cron tick runs it. **26 jobs were registered with zero sends ever** before the
+2026-09-03 fix, which is that gap exactly, and that fix is still recorded **not
+proven live**.
+
+#### THREE CLAIMS, AND PASSING ONE PROVES NEITHER OTHER
+
+Owner: *"Separate persisted schedule/timezone, Run now execution, and automatic
+cron selection."* They were folded together in the draft. They are three:
+
+| claim | proved by | state |
+|---|---|---|
+| **the schedule and zone were PERSISTED** | `GET /api/site/<slug>/jobs` — `everyMinutes`, `at`, **`tz`** off the row | live only; nothing else reads that hop |
+| **the RUNNER executes** | `POST {name, run: true}` | live only |
+| **a TICK would pick the job** | `dueJobs(rows, now)` on a fixed clock | **PROVEN in `test/job-delivery.test.mjs`** |
+
+**RUN NOW CANNOT PROVE THE THIRD, and that is structural rather than a
+shortfall**: it passes `force: true`, which drops the dueness clause from the
+claim's WHERE entirely. It proves the runner works and says nothing whatever
+about selection. Automatic firing on a real tick is proven by neither and would
+need waiting one out.
+
+#### STUBBED DELIVERY IS A DRIVEN TEST NOW, NOT A LIVE RUN WITH NO KEY
+
+**The draft called "a live run on a site with no provider key" stubbed delivery.
+It is not.** With no key `runJob` returns BEFORE the sender is reached, so
+nothing about the recipient, the date, the body or the stamp is exercised at
+all; the only thing that run proves is the refusal. `test/job-delivery.test.mjs`
+(**11**) drives the real `runJob` with everything injected — a fixed clock, a
+stub sender that RECORDS its payload, and synthetic recipients (`example.com`
+and the reserved UK `07700 900xxx` range; nothing in the file can reach a
+person, and nothing is copied from a customer's row). What it demonstrates:
+
+- **recipient, date and body**, read off the payload the provider WOULD have
+  been handed — the `to` is the row's and never the credential's `from`, the
+  date the reminder is ABOUT survives in the body, and the body arrives byte for
+  byte. Two due rows, so a loop that runs once does not satisfy it.
+- **drops, counted**: no address, no subject, no body, and `a@x, evil@y` — which
+  is header injection whoever wrote it.
+- **SMS**: the number parsed to `+447700900123`, and **no `subject`**, which on
+  some providers would ride out as part of the body.
+- **the missing key, DEMONSTRATED SEPARATELY** (the owner's instruction) in both
+  shapes: no key at all → the sender is never called, `ok: true`, reason naming
+  the channel; and one key of two → the emails go, the texts are `unsent` and
+  never `failed`, because a half-configured site must not read as broken.
+- **a refused send is a `failed`, a held one is `unsent`** — one needs looking
+  at, the other needs a key.
+- **housekeeping** (`{"did"}`), **an empty list** (the ordinary morning, and it
+  must read as success), **a lost claim** (the double-send wall: no function
+  call, no send), and **the hundred-and-first message reported** rather than
+  silently capped.
+- **`dueJobs` on a fixed clock**, with the zone isolated by a case where London
+  and UTC DISAGREE — registered between the two occurrences, so one is due and
+  the other is not. Anything less leaves "the zone is read at all" unproven,
+  which is what the first draft of that case got wrong.
+
+**AND THE LAST HOP IT SEES IS WHAT WAS HANDED OVER.** It cannot prove a provider
+accepts the payload, that a handset receives it, or that a real key works. **No
+real message has been sent and none may be** until the owner names a recipient.
+
+#### THE LIVE SCENARIO WAS WRONG, AND THE RECIPIENT SOURCE IS THE REASON
+
+Owner: *"`bookings` has no email field, so the proposed customer-reminder request
+is not established as function + job only."* **Correct, and measured.** The
+authoritative inventory (`backend repair --verify`, run 7) reads `bookings` as
+`id · customer_name · bike · drop_off_day · updated_at · created_at` and
+`repairs` as `id · customer_name · bike · issue · updated_at · created_at`.
+Probed per name with the observer proved alive in both directions:
+`email`, `phone`, `mobile`, `contact`, `customer_email` and `tel` all answer
+**`42703 column does not exist`**, while the control `drop_off_day` answers
+**`42501 permission denied for table`** — which only a column that RESOLVED can
+produce. **No table on the site holds a recipient of any kind.**
+
+**So a customer-reminder job cannot be function + job.** Its function would have
+no address to return; the change would have to extend `bookings` with a contact
+column, which is a **table** kind — and `pageless` is FALSE the moment a table
+is in the answers, so the whole cost argument went with it. The draft's ask is
+withdrawn.
+
+**THE SMALLEST LIVE TEST, with its dependencies named rather than assumed:**
+
+> *"Every night at 11, count how many bookings are more than a year old and just
+> make a note of the number — don't delete anything, and don't email anyone."*
+
+| it needs | it does not need |
+|---|---|
+| read `bookings` (a count over a date column) | any recipient — **the site has none** |
+| an INTERNAL function returning `{"did": …}` | a contact column, so no table kind |
+| a `job` at `23:00`, `everyMinutes` 1440, with the browser's `tz` | a page, so no compile and no publish |
+| | any write, so no customer data is added or deleted |
+
+`pageless([{kind:"function",value:[{internal:true}]},{kind:"job",…}])` is
+**true**, driven. **But that is conditional on the model's own answer and the
+three ways it can miss are all OBSERVABLE, not silent**: a function marked
+public makes the job refuse `no-job-fn` AND makes the change not pageless; a
+function returning messages instead of `{"did"}` drops them all for want of an
+address (`dropped: N`); and a table in the answer is visible in `kinds`. None of
+those is a wrong answer wearing a right one's face, which is why the ask is
+worth running rather than rewriting until it cannot fail.
+
+**WHAT THE LIVE RUN ADDS over the stub**: the designer inputs (`shownSteps` for
+the `function` and `job` steps), the Worker→Supabase registration hop, the live
+`jobDeps` built from a real row against real Neon and the real `_secrets`, and
+the customer report for a job-only change. Nothing else.
+
+**THE PRICE IS UNMEASURED. FULL STOP** (owner: *"'below 12' is not an enforced or
+demonstrated bound"*). No pageless run's cost is recorded anywhere, nothing
+enforces a ceiling — `edit_reserve` only refuses above 100,000 and the harness's
+`budget` is read BETWEEN cases, which a single-ask run never has two of — so the
+account balance is the only bound that binds. The design half is smaller than a
+page build's (`job` **6,617** and `function` **8,130** on the wire against
+`page` **38,688**) and the page call and compile do not run; **that is an
+argument about shape and not a number, and it is not a bound.**
+
+#### THE INSTRUMENTATION, AND THE TRAP IT CONTAINED
+
+`GET /api/site/<slug>/jobs` is the only reader of what was PERSISTED and carries
+the one field no model chose — `tz`, which the browser sends. Read BEFORE the
+post and after, so *"this run added it"* is a claim somebody can make. The press
+is its own switch, **defaults to pressing nothing**, and `auto` fires only a job
+THIS run registered.
+
+**⚠ AND THE FIRST DRAFT PUT THIS FILE'S OWN MOST-RECORDED TRAP IN THE FUNCTION
+WRITTEN TO STOP IT.** The re-read after the press was
+`jobRows(…) || extra.jobsAfter` — so a re-read that FAILED printed the PRE-press
+stamp, `lastRun never`, which reads as a press that did nothing at all.
+Cannot-tell arriving as a value, one line below a comment about cannot-tell
+arriving as a value. The two reads are separate maps now: `jobsAfter` is what
+the change persisted, `jobsVerify` is what the run recorded, and a failed
+re-read says **`the persisted outcome COULD NOT BE VERIFIED`** and prints no
+stamp. **The route's answer and the persisted outcome are two claims** — the
+first is `runJob`'s return, the second is what `recordJobOutcome` wrote, and the
+write can fail on its own.
+
+**DEPENDENCY FAILURE STAYS WHERE IT IS.** The wall is per job, by the name of
+the function it runs, and fires only when the database really refuses one —
+which no customer sentence can reliably cause. Kept in
+`test/addon-route.test.mjs` (the mixed-success function step, with the control
+that one surviving function keeps its job), as the owner asked.
+
+**Guards**: `test/job-delivery.test.mjs` (**11**, new), `addon-sweep` **32 →
+38**, every new assertion proved RED against the defect it forbids — including
+the stale fallback, driven in both its shapes. **Sweep: 22 mutants, 22 killed,
+0 survived, 0 never applied, 2 comment-only controls survived.** Two passes;
+both survivors were the SAME recorded shape one hop apart — the lines computed
+under `if (false)`, and then the fourth argument dropped at the call site, which
+makes `verify` `undefined` and reports "could not be verified" over a re-read
+that worked. Suite **6,697** — 6,685 + 11 + 1, closing exactly.
+
+**NOT AUTHORIZED, AND NOTHING HAS RUN.** No paid call, no demo-site change.
+
+
 ## Data, auth, payments, mail
 
 - **Neon per site.** `site-schema.mjs` is the engine: `isibi.schema.json` in,

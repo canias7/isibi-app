@@ -2,124 +2,195 @@
   {
     "label": "CONTROL: a comment only, above the jobs reader",
     "control": true,
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": " * ── WHAT THE SITE HAS SCHEDULED, AS ROWS ──────────────────────────────────────",
     "to": " * ── WHAT THE SITE HAS SCHEDULED, AS ROWS (control) ────────────────────────────"
   },
   {
     "label": "CONTROL: a comment only, above the press switch",
     "control": true,
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "// ── FIRING A SCHEDULED JOB, AND WHY IT IS ITS OWN SWITCH ──────────────────────",
     "to": "// ── FIRING A SCHEDULED JOB, AND WHY IT HAS ITS OWN SWITCH ────────────────────"
   },
-
   {
     "label": "an unreadable jobs answer reads as a site with no jobs",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "  if (!answer || typeof answer !== \"object\" || !Array.isArray(answer.jobs)) return null;",
     "to": "  if (!answer || typeof answer !== \"object\" || !Array.isArray(answer.jobs)) return {};"
   },
   {
     "label": "a nameless row is kept, so a row with no identity gets one",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "    if (!j || typeof j !== \"object\" || !j.name) continue;",
     "to": "    if (!j || typeof j !== \"object\") continue;"
   },
   {
     "label": "the zone is dropped from the row, so a clock time has no owner",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "      tz: typeof j.tz === \"string\" ? j.tz : null,",
     "to": "      tz: null,"
   },
   {
     "label": "a job that has never run reports an empty last result rather than none",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "      lastResult: typeof j.lastResult === \"string\" ? j.lastResult : null,",
     "to": "      lastResult: typeof j.lastResult === \"string\" ? j.lastResult : \"\","
   },
   {
     "label": "an unreadable before-read makes every job on the site look new",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "  if (!before || !after) return [];",
     "to": "  if (!after) return [];\n  if (!before) return Object.keys(after).sort();"
   },
   {
     "label": "`auto` falls through to a job that was already on the site",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "    return { run: false, why: added.length ? `this run added ${added.length} jobs (${added.join(\", \")}) — name one` : \"this run added no job\" };",
     "to": "    return { run: true, name: added[0] || Object.keys(have)[0] };"
   },
   {
     "label": "a blank switch presses anyway, so every free-text run fires a job",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "  if (!w) return { run: false, why: \"not asked for\" };",
     "to": "  if (!w) return { run: true, name: Object.keys(have || {})[0] };"
   },
   {
     "label": "a name nobody has is pressed regardless of what the site holds",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "  return hit ? { run: true, name: hit } : { run: false, why: `the site has no scheduled job called ${JSON.stringify(w)}` };",
     "to": "  return { run: true, name: hit || w };"
   },
   {
     "label": "an unreadable jobs list is pressed against blind",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "  if (!have) return { run: false, why: \"the jobs list could not be read\" };",
     "to": "  if (!have) have = {};"
   },
   {
     "label": "a clock time whose zone was lost prints blank instead of saying so",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "${j.tz || \"(NO ZONE)\"}",
     "to": "${j.tz || \"\"}"
   },
   {
     "label": "an unreadable jobs read prints nothing rather than saying nobody could look",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "  if (!after) { out.push(`   scheduled jobs: COULD NOT BE READ`); return out; }",
     "to": "  if (!after) return out;"
   },
   {
     "label": "a press that did not happen is silent, so it reads as one that found nothing",
-    "files": ["scripts/addon-sweep.mjs"],
-    "from": "      : `   did not run any job now: ${ran.why}`);",
-    "to": "      : ``);"
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!ran.run) { out.push(`   did not run any job now: ${ran.why}`); return out; }",
+    "to": "  if (!ran.run) return out;"
   },
   {
     "label": "the registry is read after the change, so nothing can say which job is new",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "    const jobsBefore = jobRows((await call(\"GET\", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json);\n    let p = await call(\"POST\", `/api/site/${encodeURIComponent(SLUG)}/addon`",
     "to": "    let p = await call(\"POST\", `/api/site/${encodeURIComponent(SLUG)}/addon`"
   },
   {
     "label": "nothing re-reads the registry after the press, so lastResult can never be seen",
-    "files": ["scripts/addon-sweep.mjs"],
-    "from": "      extra.jobsAfter = jobRows((await call(\"GET\", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json) || extra.jobsAfter;",
-    "to": "      // (left as it was)"
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      extra.jobsVerify = jobRows((await call(\"GET\", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json);\n    } else extra.ranJob = pick;",
+    "to": "    } else extra.ranJob = pick;"
   },
   {
     "label": "the press switch defaults to auto rather than to pressing nothing",
-    "files": ["scripts/addon-sweep.mjs"],
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
     "from": "const RUN_JOB = String(process.env.SWEEP_RUN_JOB || \"\").trim().toLowerCase();",
     "to": "const RUN_JOB = String(process.env.SWEEP_RUN_JOB || \"auto\").trim().toLowerCase();"
   },
   {
     "label": "the job lines are computed and never printed",
-    "files": ["scripts/addon-sweep.mjs"],
-    "from": "      if (c.freeText) for (const line of jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob)) console.log(line);",
-    "to": "      if (false) for (const line of jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob)) console.log(line);"
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      if (c.freeText) for (const line of jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob, extra.jobsVerify)) console.log(line);",
+    "to": "      if (false) for (const line of jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob, extra.jobsVerify)) console.log(line);"
   },
   {
     "label": "the workflow stops forwarding the press switch, so the box answers nothing",
-    "files": [".github/workflows/lane-sweep.yml"],
+    "files": [
+      ".github/workflows/lane-sweep.yml"
+    ],
     "from": "          SWEEP_RUN_JOB: ${{ github.event.inputs.run_job }}",
     "to": "          SWEEP_RUN_JOB: ''"
   },
   {
     "label": "the input stops saying the press really runs the job",
-    "files": [".github/workflows/lane-sweep.yml"],
+    "files": [
+      ".github/workflows/lane-sweep.yml"
+    ],
     "from": "IT REALLY RUNS: on a site whose owner has pasted a provider key in Secrets it really sends, so leave it blank unless that is what you want.",
     "to": "Leave it blank unless that is what you want."
+  },
+  {
+    "label": "a failed re-read falls back to the pre-press map, printing a stale stamp",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!verify) { out.push(`     the persisted outcome COULD NOT BE VERIFIED — the re-read after the press failed`); return out; }",
+    "to": "  if (!verify) { verify = after; }"
+  },
+  {
+    "label": "a re-read that lost the job is silent rather than unknown",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!row) { out.push(`     the persisted outcome COULD NOT BE VERIFIED — ${JSON.stringify(ran.name)} is not in the re-read`); return out; }",
+    "to": "  if (!row) return out;"
+  },
+  {
+    "label": "a stamp that never landed is reported as a blank rather than as STILL never",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "row.lastRun || \"STILL never\"",
+    "to": "row.lastRun || \"\""
+  },
+  {
+    "label": "the verify map never reaches the lines, so the press is never verified",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob, extra.jobsVerify)",
+    "to": "jobLines(extra.jobsBefore, extra.jobsAfter, extra.ranJob)"
   }
 ]
