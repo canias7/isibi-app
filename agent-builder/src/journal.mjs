@@ -48,6 +48,18 @@ export const startedEntry = (o) => Object.freeze({
   // conversation identical to the one the run would have had.
   ...(o.instructions === undefined ? {} : { instructions: o.instructions }),
   ...(o.history === undefined ? {} : { history: o.history }),
+  // ⚠ WHICH TOOLS THIS RUN WAS ALLOWED, recorded at the moment the work was
+  // accepted. It is the RUN CONFIGURATION half of the snapshot and it exists for
+  // exactly one reason: a customer who changes their agent's tools while a run is
+  // going must change what the NEXT run may do and never what this one may do.
+  // Reading the column at execution time instead would make an in-flight run's own
+  // permissions editable from the outside.
+  //
+  // PRESENT OR ABSENT, and here the two are further apart than anywhere else in this
+  // entry: absent means "this is not an authored run, use the agent's own list", and
+  // `[]` means "an authored run that may call nothing". A stored null would be a
+  // third thing nobody decided.
+  ...(o.tools === undefined ? {} : { tools: o.tools }),
   // WHICH authored agent, and WHICH message asked. Written here as well as in
   // `agent.send_to_agent`'s merge for one reason: that merge adds them to the
   // entry AFTER this built it, so without these two lines the SQL path and the
@@ -141,6 +153,8 @@ export function replay(entries) {
   const messages = [];
   const used = { steps: 0, toolCalls: 0, tokens: 0, costMicros: 0, wallMs: 0 };
   const pending = [];
+  // `null` until an entry names a tool list, so absent and empty stay two answers.
+  let snapTools = null;
 
   if (started) {
     // ── the conversation this run was given, before its own prompt ──────────
@@ -178,6 +192,30 @@ export function replay(entries) {
           if (typeof turn.agent !== "string") { problems.push(`history ${i}: the answer is not text`); continue; }
           if (turn.agent !== "") messages.push(assistantMessage(turn.agent));
         }
+      }
+    }
+    // ── which tools this run was allowed ────────────────────────────────────
+    //
+    // **THE SAME THREE STATES the history has, and they mean different things.**
+    // Absent is "no tool snapshot", which the runner reads as the agent's own list
+    // for a code agent and as NOTHING for an authored one. A list is the selection.
+    // A `tools` that is present and cannot be read is a run whose PERMISSIONS are
+    // unknown, and that is a problem rather than an empty selection: `problems`
+    // stops the run being resumed at all, which is the only safe answer to "we
+    // cannot tell what this run was allowed to do".
+    const listed = started.tools;
+    if (listed !== undefined) {
+      if (!Array.isArray(listed)) {
+        problems.push('the "started" entry\'s tools is not a list, so what the run may call is unknown');
+      } else {
+        const names = [];
+        for (let i = 0; i < listed.length; i++) {
+          // REFUSED, NEVER COERCED. `String(["echo"])` is `"echo"`, so a coercing
+          // reader turns a nested list into a tool name and nothing complains.
+          if (typeof listed[i] !== "string" || listed[i] === "") { problems.push(`tools ${i}: not a tool name`); continue; }
+          names.push(listed[i]);
+        }
+        snapTools = Object.freeze(names);
       }
     }
     messages.push(userMessage(started.prompt));
@@ -234,6 +272,16 @@ export function replay(entries) {
     // The snapshot, read back for the runner. `null` here means this run has no
     // snapshot and the registered agent's own instructions are the ones to use.
     instructions: typeof started?.instructions === "string" && started.instructions !== "" ? started.instructions : null,
+    // The tool snapshot, read back for the runner. `null` means this entry named no
+    // tool list at all, which for an authored run the runner reads as NONE — the
+    // fail-closed direction, and the behaviour of every run accepted before the
+    // selection existed.
+    //
+    // ⚠ NAMED APART FROM `tools`, WHICH IN THIS SCOPE IS THE MAP OF TOOL RESULTS.
+    // Returning the bare name handed every caller that Map under a field whose whole
+    // job is to say which tools a run may CALL — the recorded "a re-anchor lands in a
+    // scope it did not write", caught by reading the scope rather than by a test.
+    tools: snapTools,
     // Which customer-authored agent and which message started this, for a reader
     // tracing one back to the other. Never used to decide anything.
     authoredAgent: typeof started?.authoredAgent === "string" ? started.authoredAgent : null,

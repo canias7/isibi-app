@@ -73,7 +73,7 @@ export const SIMULATED_QUOTE = 120;
  * produces visibly different text rather than a plausible one nobody can check.
  * So this doubles as the verification's own instrument.
  */
-export function simulatedAnswer({ system, messages }) {
+export function simulatedAnswer({ system, messages, tool = null }) {
   const said = [...(messages ?? [])].reverse().find((m) => m.role === "user")?.content ?? "";
   const turns = (messages ?? []).filter((m) => m.role === "user").length - 1;
   const brief = String(system ?? "").trim().slice(0, SIMULATED_QUOTE);
@@ -84,7 +84,17 @@ export function simulatedAnswer({ system, messages }) {
     `\nYou said: "${String(said).slice(0, SIMULATED_QUOTE)}".`,
     turns > 0 ? `\nIt was given ${turns} earlier ${turns === 1 ? "turn" : "turns"} of this conversation.`
               : "\nThis is the first message in the conversation.",
-  ].join(" ").replace(/ +\n/g, "\n");
+    // ⚠ WHICH TOOL REALLY RAN, SAID IN THE ANSWER — the same reasoning as the
+    // instruction quote above it. Whether a selected tool was offered, chosen and
+    // executed is otherwise only visible in the journal, and "the selection reached
+    // the run" is exactly what a tool permission has to be checkable on. A run that
+    // called nothing says nothing, so the sentence's presence is the evidence.
+    tool
+      ? (tool.failed
+          ? `\nIt tried the ${tool.name} tool and could not use it: ${String(tool.said ?? "").slice(0, SIMULATED_QUOTE)}.`
+          : `\nIt used the ${tool.name} tool, which answered: "${String(tool.said ?? "").slice(0, SIMULATED_QUOTE)}".`)
+      : "",
+  ].join(" ").replace(/ +\n/g, "\n").trimEnd();
 }
 
 export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } = {}) {
@@ -99,9 +109,10 @@ export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } 
     // step and a tool slot discovering that a tool it was never shown does not
     // exist. That is a correct refusal and a wrong conversation.
     //
-    // It is also the shape a CUSTOMER-AUTHORED agent runs in: the registered
-    // agent it executes under offers no tools, so a customer's instructions can
-    // never reach one in this milestone.
+    // It is also the shape a CUSTOMER-AUTHORED agent runs in WHENEVER ITS OWNER HAS
+    // TICKED NOTHING — which is every such agent until somebody chooses a tool, and
+    // the default. The registered agent it executes under declares a CATALOG, and
+    // `narrowTools` hands this loop only what that run's own journal recorded.
     if (!offered.length) {
       return {
         text: simulatedAnswer({ system, messages }),
@@ -129,7 +140,10 @@ export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } 
         .flatMap((m) => m.content ?? [])
         .reduce((sum, c) => sum + (Number(c?.result?.waited) || 0), 0);
       return {
-        text: `worked through ${n} stages over ${waited} ms`,
+        // LABELLED LIKE EVERY OTHER TERMINAL ANSWER. This shape is reached only by the
+        // verification agents, and that is exactly why it was the one left unlabelled
+        // — a text nobody customer-facing reads until the day somebody offers `wait`.
+        text: `${SIMULATED} worked through ${n} stages over ${waited} ms`,
         toolCalls: [], usage: { inputTokens: 18, outputTokens: 9 }, costMicros: 50,
       };
     }
@@ -147,10 +161,30 @@ export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } 
         costMicros: 40,
       };
     }
-    const tool = [...messages].reverse().find((m) => m.role === "tool");
-    const echoed = tool?.content?.[0]?.result?.echoed ?? "";
+    // ⚠ THE SAME ANSWER THE NO-TOOL SHAPE GIVES, PLUS WHAT THE TOOL SAID — and until
+    // a customer could hold a tool this branch answered `stand-in answer. you said: …`
+    // with **no `[simulated]` in it at all**. That was invisible while the only agents
+    // reaching it were verification agents, and became a customer-facing unlabelled
+    // answer the moment a selection could put `echo` on an authored run. The chrome's
+    // chip would still have said "Simulated" and the TEXT would not, which is the half
+    // that survives being copied into an email.
+    const last = [...messages].reverse().find((m) => m.role === "tool");
+    const result = last?.content?.[0]?.result ?? null;
+    const name = last?.content?.[0]?.name ?? toolName;
+    // The tool's own answer, whatever shape it has. `echoed` is `echo`'s field; a
+    // different tool's result is stringified rather than read for a field it has not
+    // got, so this cannot report an empty answer for a tool that answered.
+    const said = result && typeof result === "object"
+      ? (typeof result.echoed === "string" ? result.echoed : JSON.stringify(result))
+      : String(result ?? "");
+    // ⚠ A TOOL THAT FAILED IS NOT A TOOL THAT ANSWERED. `toolResultFor` puts the
+    // error string in the same `result` field, so reading it without `ok` would
+    // present a refusal — "not permitted for this tenant", "no such tool" — as the
+    // tool's own reply, which is the one reading that makes a blocked tool look like
+    // a working one.
+    const failed = last?.content?.[0]?.ok === false;
     return {
-      text: `stand-in answer. you said: ${echoed}`,
+      text: simulatedAnswer({ system, messages, tool: { name, said, failed } }),
       toolCalls: [],
       usage: { inputTokens: 20, outputTokens: 11 },
       costMicros: 60,

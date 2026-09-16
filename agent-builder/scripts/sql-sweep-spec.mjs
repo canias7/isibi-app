@@ -76,6 +76,12 @@ const mRelease = mFn("release_run");
 const mAccept = mFn("accept_run");
 const mAppend = mFn("append_entry");
 const mSend = mFn("send_to_agent");
+/**
+ * The migration that adds the settings — the status, the selection and the shape
+ * constraint. Found by a thing only IT defines, so it cannot be named by position.
+ */
+const SETTINGS = lastDefining("add column if not exists status text");
+const mSettings = (label, from, to, control = false) => ({ label, files: [SETTINGS], from, to, control });
 const mAuthored = mFn("authored_run");
 const mThread = (label, from, to, control = false) =>
   ({ label, files: [lastDefining("create or replace view agent.agent_thread")], from, to, control });
@@ -350,8 +356,8 @@ const spec = [
   // under READ COMMITTED a racing press can have its insert skipped by a row
   // that is not committed yet and is therefore invisible to the select below.)
   mSend("SQL/send: the duplicate is not absorbed, so a retry is refused instead of answered",
-    "  on conflict (agent_id, send_key) where send_key is not null\n  do nothing\n  returning * into v_msg;",
-    "  returning * into v_msg;"),
+    "    on conflict (agent_id, send_key) where send_key is not null\n    do nothing\n    returning * into v_msg;",
+    "    returning * into v_msg;"),
   mSend("SQL/send: AN ABSORBED PRESS STARTS A SECOND RUN ANYWAY",
     "    return jsonb_build_object(\n      'ok', true, 'repeat', true,",
     "    v_msg.id := v_msg.id; return jsonb_build_object(\n      'ok', true, 'repeat', false,"),
@@ -387,9 +393,10 @@ const spec = [
   // absorb branch buys: skip it and a duplicate press runs straight past, mints a
   // second run under the new id and links it to nothing — the orphan the queue
   // would then execute. Expressible as one line, and observable.
+  // RE-ANCHORED: the absorbed answer has ONE producer now, reached by `not v_new`,
+  // so the branch to skip is that one rather than a second copy of it.
   mSend("SQL/send: THE ABSORB BRANCH IS SKIPPED, so a duplicate press mints a second run linked to nothing",
-    "  if v_msg.id is null then\n    -- THIS SEND ALREADY LANDED",
-    "  if false then\n    -- THIS SEND ALREADY LANDED"),
+    "  if not v_new then\n    return jsonb_build_object(", "  if false then\n    return jsonb_build_object("),
   mSend("SQL/send: it is granted to signed-in customers, who could then start work as anybody",
     "grant execute on function agent.send_to_agent(text, uuid, uuid, text, text, uuid) to service_role;",
     "grant execute on function agent.send_to_agent(text, uuid, uuid, text, text, uuid) to service_role, authenticated;"),
@@ -399,10 +406,12 @@ const spec = [
   // comment above the field, so a line added below it cannot break it again.
   mSend("SQL/send: the answer echoes what was sent rather than what is stored",
     "      -- for and absorbed.\n      'body', v_msg.body,", "      -- for and absorbed.\n      'body', p_body,"),
+  // RE-ANCHORED ONTO THE BOUNDS AS THEY ARE: `toolCalls` moved from 1 to 2 the day a
+  // tool became reachable, measured — a budget of one is one already spent.
   mAuthored("SQL/send: the run's bounds are widened",
-    "      'steps', 2,\n      'toolCalls', 1,", "      'steps', 16,\n      'toolCalls', 64,"),
+    "      'steps', 3,\n      'toolCalls', 2,", "      'steps', 16,\n      'toolCalls', 64,"),
   mAuthored("SQL/send: THE TOOL BUDGET IS ZERO, which stops every authored run before its first call",
-    "      'toolCalls', 1,\n      'parallelTools', 8,", "      'toolCalls', 0,\n      'parallelTools', 8,"),
+    "      'toolCalls', 2,\n      'parallelTools', 8,", "      'toolCalls', 0,\n      'parallelTools', 8,"),
   mThread("SQL/thread: the view is NOT security_invoker, so it is a hole through RLS on three tables",
     "create or replace view agent.agent_thread\n  with (security_invoker = true) as",
     "create or replace view agent.agent_thread as"),
@@ -420,8 +429,50 @@ const spec = [
   mThread("SQL/link: the send key is unique per TENANT rather than per conversation",
     "create unique index if not exists messages_one_send_per_agent\n  on agent.agent_messages (agent_id, send_key)\n  where send_key is not null;",
     "create unique index if not exists messages_one_send_per_agent\n  on agent.agent_messages (send_key)\n  where send_key is not null;"),
-  mSend("SQL/send/CONTROL (comment only)", "-- SENDING A MESSAGE TO AN AUTHORED AGENT STARTS A RUN",
-    "-- Sending a message to an authored agent starts a run", true),
+  // RE-ANCHORED: `send_to_agent` now lives in the settings migration, whose header is
+  // its own. A control has to be a comment in the file the mutants really target.
+  mSend("SQL/send/CONTROL (comment only)",
+    "-- ── the one transaction, now with a status and a selection ───────────────────",
+    "-- ── the one transaction, with a status and a selection ──────────────────────", true),
+
+
+  // ── the settings: a status, a selection, and what a run may call ──────────
+  //
+  // The two columns are the first thing on this side a PERSON configures, and the
+  // pause is the first refusal that is not about ownership. Every mutant here is an
+  // edit somebody could really make: a default flipped, a check widened, a gate
+  // moved, a key dropped out of the entry.
+  mSettings("SQL/settings: a new agent defaults to PAUSED, stopping every conversation there is",
+    "add column if not exists status text not null default 'active'",
+    "add column if not exists status text not null default 'paused'"),
+  mSettings("SQL/settings: the status column admits anything at all",
+    "check (status in ('active', 'paused'));", "check (status is not null);"),
+  mSettings("SQL/settings: the cap on a stored selection is lifted",
+    "coalesce(array_length(tools, 1), 0) <= 32", "coalesce(array_length(tools, 1), 0) <= 3200"),
+  mSettings("SQL/settings: a name outside the provider's grammar can be stored",
+    "and array_to_string(tools, ',') ~ '^([a-zA-Z0-9_-]{1,64}(,[a-zA-Z0-9_-]{1,64})*)?$'",
+    "and array_to_string(tools, ',') ~ '^(.{1,64}(,.{1,64})*)?$'"),
+  mSettings("SQL/settings: a NULL among the tool names is stored rather than refused",
+    "and array_position(tools, null) is null", "and true"),
+  mSettings("SQL/settings: the list screen stops reading the status",
+    "  last.body as last_message,\n  a.status,\n  a.tools",
+    "  last.body as last_message,\n  null::text as status,\n  a.tools"),
+  mSettings("⚠ SQL/send: a paused agent starts work anyway",
+    "    if v_agent.status <> 'active' then", "    if false then"),
+  mSettings("⚠ SQL/send: the pause is asked BEFORE the key, so a lost answer cannot be retried",
+    "  select * into v_msg from agent.agent_messages\n   where agent_id = p_agent_id and send_key = v_key;\n\n  if v_msg.id is null then",
+    "  select * into v_msg from agent.agent_messages\n   where agent_id = p_agent_id and send_key = v_key;\n\n  if true then"),
+  mSettings("⚠ SQL/send: a racing twin's press is treated as a new message",
+    "    v_new := v_msg.id is not null;", "    v_new := true;"),
+  mSettings("SQL/send: the run is started with no selection whatever the agent holds",
+    "    'tools',        to_jsonb(v_agent.tools),", "    'tools',        '[]'::jsonb,"),
+  mSettings("SQL/send: the selection never reaches the run's own record",
+    "    'tools',        to_jsonb(v_agent.tools),\n", ""),
+  mSettings("SQL/settings: the tool budget goes back to one, which lets a run start and not finish",
+    "      'steps', 3,\n      'toolCalls', 2,", "      'steps', 3,\n      'toolCalls', 1,"),
+  mSettings("SQL/settings/CONTROL (comment only)",
+    "-- AGENT SETTINGS: A STATUS, AND A SELECTION OF TOOLS.",
+    "-- Agent settings: a status, and a selection of tools.", true),
 
   // ── THE CONTROL: comment-only, and it MUST survive ────────────────────────
   m("SQL/CONTROL (comment only)", "-- ============================================================================\n-- AGENT RUNS:",

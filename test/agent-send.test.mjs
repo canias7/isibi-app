@@ -26,7 +26,13 @@ import { readFileSync } from "node:fs";
 import {
   handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_BODY_MAX,
   runView, threadRow, cleanSendKey, RUN_STATES, STANDIN_MODEL, MAX_THREAD,
+  AGENT_TOOLS, AGENT_TOOL_NAMES, MAX_AGENT_TOOLS, AGENT_STATUSES, cleanStatus, cleanTools,
 } from "../agent-store.mjs";
+// ⚠ THE ENGINE'S OWN REGISTRY, IMPORTED HERE AND NOWHERE ELSE. `agent-store.mjs`
+// may not import it — the two are separate products in separate Workers — so the
+// copy each of them holds is kept honest by a census in a test, which is the one
+// place that may read both.
+import { OFFERED, OFFERED_NAMES } from "../agent-builder/src/agents.mjs";
 
 const KEY = "service-key";
 const T1 = "11111111-1111-4111-8111-111111111111";
@@ -559,4 +565,250 @@ test("⚠ AN ABSORBED PRESS WHOSE WORDS DIFFER IS SAID ON THE WIRE", async () =>
   const clean = await send({ id: A1, body: "when do you open?", key: "press-1" },
     { bench: bench({ answer: sent({ repeat: true, mismatch: false, state: "accepted" }) }) });
   assert.equal(clean.body.mismatch, false, "an ordinary retry was reported as a mismatch");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE SETTINGS: THE CATALOG, THE SELECTION AND THE PAUSE
+//
+// The catalog is the server's and the browser draws it; the selection is a list of
+// NAMES intersected with it; the pause is enforced in the one transaction and comes
+// back here as a sentence. What these cases own is the wire — the database's own
+// half is proved in `agent-builder/test/integration/pg-schema.mjs`.
+// ════════════════════════════════════════════════════════════════════════════
+
+test("⚠ THE CATALOG AND THE ENGINE'S OWN TOOLS ARE THE SAME SET, BOTH WAYS", () => {
+  // Two products, two Workers, and no import between them — so one of them holds a
+  // copy and this is the census that keeps it honest. A tool added to the engine and
+  // not described for customers is a red run; a tool described here that the engine
+  // cannot run is a red run too.
+  assert.deepEqual([...AGENT_TOOL_NAMES].sort(), [...OFFERED_NAMES].sort(),
+    "the catalog the screen draws is not the catalog the engine can run");
+  assert.ok(AGENT_TOOL_NAMES.length > 0, "an empty catalog makes every case below vacuous");
+  // EVERY ENTRY IS REALLY IMPLEMENTED — the engine's own array holds `defineTool`
+  // results with code behind them, which is what "only show tools actually
+  // implemented" has to mean.
+  for (const t of OFFERED) {
+    assert.equal(t.kind, "tool");
+    assert.equal(typeof t.run, "function");
+  }
+  // AND EVERY ENTRY HAS WORDS FOR A PERSON. The engine's `description` is written
+  // for a MODEL deciding whether to call the thing; these are for somebody deciding
+  // whether to allow it, which is why they live here and not there.
+  for (const t of AGENT_TOOLS) {
+    assert.ok(t.label && t.label.length > 1, `${t.name} has no label`);
+    assert.ok(t.does && t.does.length > 20, `${t.name} has no sentence saying what it does`);
+    const engine = OFFERED.find((o) => o.name === t.name);
+    assert.notEqual(t.does, engine.description, `${t.name}'s customer words are the model's prompt`);
+  }
+});
+
+test("THE CAP IS THE COLUMN'S OWN, read back out of the migration", () => {
+  // The same rule the three text caps follow: a cap here looser than the column's
+  // turns a refusal we could phrase into a Postgres error nobody can act on.
+  const sql = readFileSync(new URL(
+    "../agent-builder/supabase/migrations/20260916120000_agent_settings_status_and_tools.sql",
+    import.meta.url), "utf8");
+  const m = /array_length\(tools, 1\), 0\) <= (\d+)/.exec(sql);
+  assert.ok(m, "the tools constraint is not in the migration");
+  assert.equal(MAX_AGENT_TOOLS, Number(m[1]));
+  // AND THE TWO STATUSES ARE THE COLUMN'S TOO, both ways.
+  const st = /status in \(([^)]+)\)/.exec(sql);
+  assert.ok(st, "the status constraint is not in the migration");
+  assert.deepEqual([...st[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]).sort(),
+    [...AGENT_STATUSES].sort());
+  // THE NAME GRAMMAR IS THE PROVIDER'S, mirrored in the column so a name that could
+  // never be sent to a model cannot be stored either.
+  assert.ok(/\[a-zA-Z0-9_-\]\{1,64\}/.test(sql), "the column does not bound a tool name's shape");
+  for (const n of AGENT_TOOL_NAMES) assert.match(n, /^[a-zA-Z0-9_-]{1,64}$/);
+});
+
+test("A STATUS IS REFUSED RATHER THAN DEFAULTED", () => {
+  assert.equal(cleanStatus("active"), "active");
+  assert.equal(cleanStatus(" paused "), "paused");
+  // Reading a typo as `active` would silently un-pause an agent somebody paused on
+  // purpose; reading it as `paused` would stop one nobody asked to stop.
+  for (const bad of ["", "retired", "Active", "PAUSED", 1, null, undefined, ["active"], { status: "active" }]) {
+    assert.equal(cleanStatus(bad), null, `${JSON.stringify(bad)} was accepted as a status`);
+  }
+});
+
+test("A SELECTION IS A POSITIVE INTERSECTION WITH THE CATALOG", () => {
+  const first = AGENT_TOOL_NAMES[0];
+  assert.deepEqual(cleanTools([first]).names, [first]);
+  assert.deepEqual(cleanTools([]).names, [], "an empty selection is a real answer");
+  // ORDER IS THE CATALOG'S AND DUPLICATES COLLAPSE, so two saves of one selection
+  // are byte-identical rather than merely equivalent.
+  assert.deepEqual(cleanTools([first, first]).names, [first]);
+  // A NAME THE PLATFORM HAS NOT GOT COMES BACK BY NAME. A filter is a silent drop;
+  // a check is a sentence, and the route refuses on it.
+  assert.deepEqual(cleanTools(["shell"]).names, []);
+  assert.deepEqual(cleanTools(["shell"]).unknown, ["shell"]);
+  // `constructor` is a name on every object and must not match a catalog entry.
+  assert.deepEqual(cleanTools(["constructor", "__proto__"]).names, []);
+  assert.deepEqual(cleanTools(["constructor", "__proto__"]).unknown.sort(), ["__proto__", "constructor"]);
+  // REFUSED RATHER THAN COERCED: a string is not a list of one.
+  assert.equal(cleanTools(first).names, null);
+  assert.equal(cleanTools(null).names, null);
+  assert.equal(cleanTools({ 0: first }).names, null);
+  // A non-name among them is reported as unreadable rather than as an unknown tool:
+  // two different caller bugs, two different sentences.
+  assert.equal(cleanTools([first, 7]).unreadable, true);
+  assert.equal(cleanTools([first]).unreadable, false);
+  assert.equal(cleanTools(Array.from({ length: MAX_AGENT_TOOLS + 1 }, (_, i) => `t${i}`)).tooMany, true);
+});
+
+const settings = (body, over = {}) => {
+  const calls = [];
+  const store = {
+    update: async (...a) => { calls.push({ name: "update", args: a }); return { id: A1, ...(over.row || {}) }; },
+    create: async (...a) => { calls.push({ name: "create", args: a }); return { id: A1 }; },
+    count: async () => 0,
+    list: async () => [],
+    ...(over.store || {}),
+  };
+  return handleAgentApi({
+    path: over.path || "/api/agent/update", method: "POST", tenant: T1, store,
+    newId: () => A1, body, ...over,
+  }).then((r) => ({ ...r, calls }));
+};
+
+test("THE UPDATE CARRIES A SETTING ONLY WHEN THE CALLER NAMED IT", async () => {
+  // **ABSENT AND EMPTY ARE TWO DIFFERENT THINGS AND ONLY THE CALLER KNOWS WHICH.**
+  // A browser tab opened before today saves a name and an instruction and says
+  // nothing about either setting — filling them in from a default would un-pause an
+  // agent from a screen that never showed a pause control.
+  const quiet = await settings({ id: A1, name: "n", instructions: "i" });
+  assert.equal(quiet.status, 200);
+  const args = quiet.calls[0].args[2];
+  assert.equal(args.status, undefined, "a silent save decided a status");
+  assert.equal(args.tools, undefined, "a silent save decided a selection");
+
+  const said = await settings({ id: A1, name: "n", instructions: "i", status: "paused", tools: [] });
+  assert.equal(said.status, 200);
+  assert.equal(said.calls[0].args[2].status, "paused");
+  assert.deepEqual(said.calls[0].args[2].tools, [], "an explicit empty selection was read as silence");
+});
+
+test("...AND A SETTING IT CANNOT READ IS A REFUSAL, with nothing written", async () => {
+  for (const [body, why] of [
+    [{ status: "retired" }, /active or paused/i],
+    [{ status: "" }, /active or paused/i],
+    [{ status: ["paused"] }, /active or paused/i],
+    [{ tools: "echo" }, /list/i],
+    [{ tools: ["shell"] }, /no tool called shell/i],
+    [{ tools: [AGENT_TOOL_NAMES[0], 7] }, /didn't arrive as a name/i],
+    [{ tools: Array.from({ length: MAX_AGENT_TOOLS + 1 }, (_, i) => `t${i}`) }, /more tools/i],
+  ]) {
+    const r = await settings({ id: A1, name: "n", instructions: "i", ...body });
+    assert.equal(r.status, 400, `${JSON.stringify(body)} was accepted`);
+    assert.match(r.body.error, why);
+    assert.deepEqual(r.calls, [], `${JSON.stringify(body)} reached the store anyway`);
+  }
+});
+
+test("A CREATE MAY CHOOSE TOOLS AND MAY NOT CHOOSE A STATUS", async () => {
+  const made = await settings({ name: "n", instructions: "i", tools: [AGENT_TOOL_NAMES[0]] },
+    { path: "/api/agent/create" });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  assert.deepEqual(made.calls[0].args[1].tools, [AGENT_TOOL_NAMES[0]]);
+  // Nobody writes an agent in order to pause it, so the column's own default is the
+  // answer — and a `status` in the body is simply not read on this path.
+  assert.equal(made.calls[0].args[1].status, undefined);
+  // The same refusal as the update, because it is the same reader.
+  const bad = await settings({ name: "n", instructions: "i", tools: ["shell"] }, { path: "/api/agent/create" });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.calls, []);
+});
+
+test("THE LIST ANSWERS THE CATALOG, so the screen never invents one", async () => {
+  const r = await handleAgentApi({
+    path: "/api/agent/list", method: "GET", tenant: T1,
+    store: { list: async () => [] },
+  });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.tools, AGENT_TOOLS);
+  // WHAT IT IS NOT: the engine's own tool objects. A `run` function or an input
+  // schema on the wire would be the platform's code going to a browser.
+  for (const t of r.body.tools) {
+    assert.deepEqual(Object.keys(t).sort(), ["does", "label", "name"]);
+  }
+});
+
+test("⚠ A PAUSED AGENT REFUSES THE SEND, AS ITS OWN ANSWER", async () => {
+  const r = await send({ id: A1, body: "are you there?", key: "press-1" },
+    { bench: bench({ answer: { ok: false, error: "paused", status: "paused" } }) });
+  // 409, NOT 404 AND NOT 500: the request was well formed, the agent exists and is
+  // theirs, and nothing is broken — it is a conflict with the agent's own state.
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.paused, true, "the screen has to parse our prose to know what happened");
+  assert.match(r.body.error, /paused/i);
+  assert.match(r.body.error, /settings/i, "it does not say what would help");
+  // AND IT IS NOT THE MISSING-AGENT ANSWER. Those need different things done about
+  // them, so collapsing them is the one way this can mislead rather than go quiet.
+  const gone = await send({ id: A1, body: "x", key: "press-1" },
+    { bench: bench({ answer: { ok: false, error: "no-agent" } }) });
+  assert.equal(gone.status, 404);
+  assert.ok(!gone.body.paused);
+  // A REFUSAL THIS CANNOT READ IS STILL THE MISSING-AGENT ANSWER — fail closed, and
+  // never a 200 that reads as a message having been sent.
+  const odd = await send({ id: A1, body: "x", key: "press-1" },
+    { bench: bench({ answer: { ok: false, error: "something-new" } }) });
+  assert.equal(odd.status, 404);
+});
+
+test("⚠ THE REQUEST THE STORE SENDS IS WHAT DECIDES, and it is read here", async () => {
+  // **THE CASES ABOVE ASSERT THE ROUTE'S ARGUMENTS, WHICH IS THE LAYER BELOW THE
+  // BREAK.** `store.update` composes the PATCH body, and four sweep mutants lived
+  // there: a silent save filling in a status, a selection sent whether or not the
+  // caller named it, and the list read dropping the two columns. From outside the
+  // route all four look identical to correct code.
+  const r = recorder({ agents: { status: 200, body: [{ id: A1, name: "n", instructions: "i", status: "paused", tools: ["echo"] }] } });
+
+  // A SILENT SAVE NAMES NEITHER. Filling either in is how a browser tab opened
+  // before today un-pauses an agent from a screen that never showed a pause control.
+  await r.store.update(T1, A1, { name: "n", instructions: "i" });
+  const quiet = r.seen.find((s) => s.method === "PATCH");
+  assert.deepEqual(Object.keys(quiet.body).sort(), ["instructions", "name"]);
+
+  // ...and a save that DOES name them sends exactly those.
+  await r.store.update(T1, A1, { name: "n", instructions: "i", status: "paused", tools: [] });
+  const said = r.seen.filter((s) => s.method === "PATCH")[1];
+  assert.deepEqual(Object.keys(said.body).sort(), ["instructions", "name", "status", "tools"]);
+  assert.equal(said.body.status, "paused");
+  assert.deepEqual(said.body.tools, []);
+
+  // THE LIST READ ASKS FOR BOTH COLUMNS, or the screen draws a status the database
+  // has and the wire never carried — which `agentRow` then fails closed on, so every
+  // agent on the platform reads as paused.
+  await r.store.list(T1);
+  const read = r.seen.find((s) => s.method === undefined || s.method === "GET");
+  assert.match(read.url, /select=[^&]*\bstatus\b/);
+  assert.match(read.url, /select=[^&]*\btools\b/);
+
+  // AND A CREATE CARRIES A SELECTION ONLY WHEN ONE WAS CHOSEN, and never a status.
+  await r.store.create(T1, { id: A1, name: "n", instructions: "i" });
+  const bare = r.seen.filter((s) => s.method === "POST").pop();
+  assert.deepEqual(Object.keys(bare.body[0]).sort(), ["id", "instructions", "name", "tenant_id"]);
+  await r.store.create(T1, { id: A1, name: "n", instructions: "i", tools: ["echo"] });
+  const picked = r.seen.filter((s) => s.method === "POST").pop();
+  assert.deepEqual(picked.body[0].tools, ["echo"]);
+  assert.ok(!Object.hasOwn(picked.body[0], "status"), "a create decided a status on the wire");
+});
+
+test("THE SELECTION'S ORDER IS THE CATALOG'S, whatever order it arrives in", () => {
+  // ⚠ **A ONE-TOOL CATALOG CANNOT SEE THIS AT ALL** — both orders are the same list,
+  // so a mutant taking the caller's order survived every case here. The catalog is
+  // INJECTED for exactly that reason: a wall nobody can drive is a wall nobody is
+  // guarding, and this one becomes real the day a second tool ships rather than the
+  // day somebody remembers to write a case for it.
+  const two = ["alpha", "beta"];
+  assert.deepEqual(cleanTools(["beta", "alpha"], two).names, ["alpha", "beta"]);
+  assert.deepEqual(cleanTools(["alpha", "beta"], two).names, ["alpha", "beta"]);
+  assert.deepEqual(cleanTools(["beta"], two).names, ["beta"]);
+  assert.deepEqual(cleanTools(["beta", "beta", "alpha"], two).names, ["alpha", "beta"]);
+  // ...and the intersection is still positive against the catalog it was given.
+  assert.deepEqual(cleanTools(["alpha", "gamma"], two).names, ["alpha"]);
+  assert.deepEqual(cleanTools(["alpha", "gamma"], two).unknown, ["gamma"]);
+  // THE DEFAULT IS THE REAL CATALOG, which is what every caller uses.
+  assert.deepEqual(cleanTools([...AGENT_TOOL_NAMES]).names, [...AGENT_TOOL_NAMES]);
 });

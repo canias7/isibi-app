@@ -96,6 +96,126 @@ export const MAX_IMPORT_MESSAGES = 200;
  */
 export const MAX_IMPORT_BODY = 2 * 1024 * 1024;
 
+// ── what an agent may be configured to do ───────────────────────────────────
+
+/**
+ * THE TWO STATUSES, AND `active` IS THE ONE A ROW GETS BY DEFAULT.
+ *
+ * A paused agent keeps its conversation, answers every run already accepted, and
+ * refuses to start another. It is NOT a cancellation and nothing here or in the
+ * database touches a run in flight — stopping work somebody already asked for
+ * would be cancellation wearing a pause's clothes.
+ */
+export const AGENT_STATUSES = Object.freeze(["active", "paused"]);
+
+/**
+ * ⚠ THE TOOL CATALOG — every tool an agent may be given, as the browser is shown
+ * them.
+ *
+ * **IT IS SERVER-CONTROLLED AND A SELECTION IS A LIST OF NAMES.** The browser
+ * draws what this says and can never add to it: a name that is not in here is
+ * refused at the route, is not stored, and — if it somehow were — resolves to no
+ * tool at execution, because the engine looks a name up in its own `OFFERED` array
+ * of real `defineTool` results. Three walls, each a positive list.
+ *
+ * **IT IS A COPY OF THAT ARRAY'S NAMES, DECLARED AS ONE, WITH A CENSUS BOTH WAYS**
+ * (`test/agent-send.test.mjs`, which imports `agent-builder/src/agents.mjs` and
+ * compares the two name sets). The engine is a separate product that runs in its
+ * own Worker; this file may not import it, and there is no arrangement in which one
+ * of the two does not hold a copy. A copy with a census both ways is this
+ * repository's standard remedy — so a tool added to the engine and not described
+ * for customers is a red run, and a tool described here that the engine cannot run
+ * is a red run too.
+ *
+ * **WHAT LIVES HERE AND NOT THERE IS THE WORDS.** The engine's `description` is
+ * written for a MODEL to decide whether to call the thing; `label` and `does` are
+ * written for a person deciding whether to allow it. They are different jobs and
+ * one string cannot do both, so the customer-facing half lives with the
+ * customer-facing product.
+ *
+ * **TODAY IT HOLDS ONE TOOL, AND THAT IS THE HONEST STATE OF IT.** `echo` is
+ * implemented, pure, and completes inside an authored run's bounds. `wait` and
+ * `commit` are implemented and are deliberately not offered — measured, they cannot
+ * finish under those bounds, and a control that always fails is worse than no
+ * control. Real integrations are a later milestone.
+ */
+export const AGENT_TOOLS = Object.freeze([
+  Object.freeze({
+    name: "echo",
+    label: "Echo",
+    does: "Repeats a short piece of text back. It is here so you can see that tools work at all — it reads nothing, changes nothing and sends nothing.",
+  }),
+]);
+
+/** The catalog's names, DERIVED, so nothing holds a second copy of the list. */
+export const AGENT_TOOL_NAMES = Object.freeze(AGENT_TOOLS.map((t) => t.name));
+
+/**
+ * How many tools one agent may be given.
+ *
+ * It is the COLUMN'S OWN CHECK CONSTRAINT (`agents_tools_shape`), which the guard
+ * reads back out of the migration — the same rule the three text caps above follow.
+ * A cap here that is looser than the column's turns a refusal we could phrase into
+ * a Postgres error nobody can act on.
+ *
+ * It is deliberately NOT `AGENT_TOOLS.length`. The catalog is what may be chosen
+ * FROM; this is what a stored row may hold, and a row written against last month's
+ * larger catalog must not become unsaveable because we retired something.
+ */
+export const MAX_AGENT_TOOLS = 32;
+
+/**
+ * A status, or `null`.
+ *
+ * REFUSED RATHER THAN DEFAULTED. An unreadable status is a caller bug, and reading
+ * it as `active` would mean a typo silently un-pausing an agent somebody paused on
+ * purpose. `null` is what every caller below turns into a named refusal.
+ */
+export function cleanStatus(v) {
+  return typeof v === "string" && AGENT_STATUSES.includes(v.trim()) ? v.trim() : null;
+}
+
+/**
+ * A tool selection, as `{names, unknown}`.
+ *
+ * **A POSITIVE INTERSECTION WITH THE CATALOG, never a filter against a deny-list.**
+ * The input is caller-supplied, so a deny-list would be a claim about the producer
+ * rather than about the input.
+ *
+ * `unknown` COMES BACK BY NAME, because a filter is a silent drop and a check is a
+ * sentence: the route refuses on it rather than quietly storing less than was
+ * asked for, which is the one way a tool permission could appear to be granted and
+ * not be.
+ *
+ * ORDER IS THE CATALOG'S, and duplicates collapse. So what is stored is a set in a
+ * stable order however the browser sent it — which is what makes two saves of the
+ * same selection byte-identical rather than merely equivalent.
+ *
+ * REFUSED RATHER THAN COERCED on the way in: a non-array is `null` for `names`,
+ * which the route turns into a refusal, because `["echo"]` and `"echo"` are a list
+ * and a string and guessing between them is how a selection of one becomes a
+ * selection of five letters.
+ */
+export function cleanTools(v, catalog = AGENT_TOOL_NAMES) {
+  if (!Array.isArray(v)) return { names: null, unknown: [] };
+  if (v.length > MAX_AGENT_TOOLS) return { names: null, unknown: [], tooMany: true };
+  // Strings only. A caller-supplied array can hold anything, and `["constructor"]`
+  // or a number must not match a catalog entry.
+  const want = new Set(v.filter((n) => typeof n === "string").map((n) => n.trim()));
+  // ⚠ THE CATALOG IS A PARAMETER SO THE ORDER RULE CAN BE DRIVEN AT ALL. With one
+  // tool on the platform, taking the caller's order and taking the catalog's produce
+  // the same list — measured, by a sweep mutant that survived every case here. A wall
+  // nobody can drive is a wall nobody is guarding, and this one starts mattering the
+  // day a second tool ships rather than the day somebody writes a case for it. Every
+  // caller uses the default.
+  const names = catalog.filter((n) => want.has(n));
+  const unknown = [...want].filter((n) => !catalog.includes(n));
+  // A non-string among them cannot be quoted back by name, so it is reported as
+  // unreadable rather than as an unknown tool — and it still refuses, which is what
+  // matters. Two different sentences for two different caller bugs.
+  return { names, unknown, unreadable: v.some((n) => typeof n !== "string") };
+}
+
 /** The schema PostgREST is told to use, per request, on every call. */
 export const AGENT_SCHEMA = "agent";
 
@@ -229,6 +349,19 @@ export function agentRow(r) {
     created: ms(r && r.created_at),
     updated: ms(r && r.updated_at),
     preview: typeof (r && r.last_message) === "string" ? r.last_message : "",
+    // ── the settings half ────────────────────────────────────────────────
+    //
+    // **FAILS CLOSED, BOTH OF THEM, and neither default is arbitrary.** A status
+    // this cannot read is `paused`: the cost of being wrong that way is somebody
+    // pressing Resume, and the cost of the other way is an agent taking work its
+    // owner stopped. A selection it cannot read is EMPTY, for the same reason the
+    // engine reads an absent tool snapshot as none.
+    //
+    // It is not defensiveness for its own sake: this row comes back from
+    // PostgREST, so an older Worker, a view missing a column or a migration not
+    // yet applied all arrive here as `undefined`.
+    status: cleanStatus(r && r.status) === "active" ? "active" : "paused",
+    tools: Array.isArray(r && r.tools) ? r.tools.filter((t) => typeof t === "string") : [],
   };
 }
 
@@ -401,7 +534,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     async list(tenant) {
       const r = await req("GET",
         `agent_overview?tenant_id=eq.${t(tenant)}` +
-        `&select=id,name,instructions,created_at,updated_at,last_message` +
+        `&select=id,name,instructions,created_at,updated_at,last_message,status,tools` +
         `&order=updated_at.desc&limit=${MAX_AGENTS}`);
       if (!r.ok) throw storeFail("list agents", r);
       return rows(r).map(agentRow);
@@ -431,11 +564,21 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return rows(r).length === 1;
     },
 
-    /** THE ID IS OURS, never the caller's: a client cannot choose a primary key. */
-    async create(tenant, { id, name, instructions }) {
+    /**
+     * THE ID IS OURS, never the caller's: a client cannot choose a primary key.
+     *
+     * `status` is deliberately NOT a field here. A brand new agent is `active` by the
+     * column's own default, because nobody writes an agent in order to pause it, and
+     * offering the choice at creation would be a control with one sensible setting.
+     */
+    async create(tenant, { id, name, instructions, tools }) {
+      // `fresh`, not `row`: the answer's own row is already called that eight lines
+      // down, and a second `const row` in this scope is a module that does not load.
+      const fresh = { id, tenant_id: tenant, name, instructions };
+      if (tools !== undefined) fresh.tools = tools;
       const r = await req("POST", "agents", {
         prefer: "return=representation",
-        body: [{ id, tenant_id: tenant, name, instructions }],
+        body: [fresh],
       });
       if (!r.ok) throw storeFail("create agent", r);
       const row = rows(r)[0];
@@ -443,11 +586,32 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return agentRow(row);
     },
 
-    /** Zero rows back means "not this account's", and the caller answers 404. */
-    async update(tenant, id, { name, instructions }) {
+    /**
+     * Zero rows back means "not this account's", and the caller answers 404.
+     *
+     * **A FIELD THE CALLER DID NOT SEND IS LEFT AS IT IS, which is what makes this a
+     * PATCH rather than a replace.** `status` and `tools` arrived after this route
+     * did, so a browser tab opened before today saves a name and an instruction and
+     * says nothing about either — and filling them in from a default would
+     * un-pause an agent somebody paused, from a screen that never showed a pause
+     * control. Absent and empty are two different things and only the caller knows
+     * which it meant: `tools: []` is a real selection, `undefined` is silence.
+     */
+    async update(tenant, id, { name, instructions, status, tools }) {
+      const body = { name, instructions };
+      // ⚠ THE GUARDS ARE NOT WHAT KEEPS AN UNNAMED FIELD OFF THE WIRE, and saying so
+      // is the point: `JSON.stringify` OMITS a key whose value is `undefined`, so
+      // assigning unconditionally sends exactly the same bytes. MEASURED, after a sweep
+      // mutant that dropped the `tools` guard survived every case here.
+      // What the guards really buy is that the body says what it means in THIS process
+      // — a logged or inspected body has the key only when the caller named it — and
+      // what matters on the wire is that neither field is ever DEFAULTED here. That is
+      // the observable property and it is what the mutants aim at now.
+      if (status !== undefined) body.status = status;
+      if (tools !== undefined) body.tools = tools;
       const r = await req("PATCH", `agents?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
         prefer: "return=representation",
-        body: { name, instructions },
+        body,
       });
       if (!r.ok) throw storeFail("update agent", r);
       return rows(r).length === 1 ? agentRow(rows(r)[0]) : null;
@@ -608,6 +772,35 @@ function broke(what, e, log) {
 }
 
 /**
+ * The tool selection off a request body, or a named refusal.
+ *
+ * ONE READER FOR BOTH WRITING ROUTES, because create and update ask the same
+ * question and two copies of it would be two answers about what may be stored.
+ * `undefined` for `names` means the caller said nothing, which both routes leave
+ * alone; a `refusal` means the caller said something this cannot store.
+ *
+ * **IT REFUSES RATHER THAN STORING LESS THAN WAS ASKED FOR.** A selection quietly
+ * shortened is a permission that appears granted and is not — the one failure here
+ * that nobody can see from either side.
+ */
+function readTools(b) {
+  if (!Object.hasOwn(b, "tools") || b.tools === undefined) return { names: undefined };
+  const picked = cleanTools(b.tools);
+  if (picked.tooMany) {
+    return { refusal: no(400, `that's more tools than one agent can hold (${MAX_AGENT_TOOLS})`) };
+  }
+  if (picked.names === null) return { refusal: no(400, "the tools to allow have to arrive as a list") };
+  if (picked.unreadable) return { refusal: no(400, "one of the tools didn't arrive as a name") };
+  if (picked.unknown.length) {
+    // NAMED, because a tool the platform does not have is the one thing a caller
+    // can actually act on here — and because silently dropping it is how a screen
+    // comes to show a tool as allowed that nothing will ever run.
+    return { refusal: no(400, `this platform has no tool called ${picked.unknown.slice(0, 3).join(", ")}`) };
+  }
+  return { names: picked.names };
+}
+
+/**
  * Handle one call.
  *
  * Answers `{status, body}`, or `null` for a path that is not ours — so the
@@ -634,7 +827,15 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
 
   try {
     if (path === "/api/agent/list") {
-      return ok({ agents: await store.list(who) });
+      // **THE CATALOG RIDES WITH THE LIST, and it is the server's answer to "what
+      // may I configure".** One read for the screen rather than a second route: the
+      // settings form is only reachable from this screen, so a catalog that arrived
+      // separately would be a second thing to fail and a second state to draw.
+      //
+      // A BROWSER THAT GETS NO `tools` KEY — an older Worker — reads it as an empty
+      // catalog and says so honestly. That is what makes the empty state a real
+      // branch rather than a decorative one.
+      return ok({ agents: await store.list(who), tools: AGENT_TOOLS });
     }
 
     if (path === "/api/agent/messages") {
@@ -649,10 +850,12 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       const instructions = cleanText(b.instructions, AGENT_INSTRUCTIONS_MAX);
       if (!name) return no(400, "give it a name first");
       if (!instructions) return no(400, "say what it should do");
+      const picked = readTools(b);
+      if (picked.refusal) return picked.refusal;
       if ((await store.count(who)) >= MAX_AGENTS) {
         return no(409, `that's as many agents as one account can hold (${MAX_AGENTS}) — delete one first`);
       }
-      return ok({ agent: await store.create(who, { id: mint(), name, instructions }) });
+      return ok({ agent: await store.create(who, { id: mint(), name, instructions, tools: picked.names }) });
     }
 
     if (path === "/api/agent/update") {
@@ -662,7 +865,21 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       if (!id) return no(400, "which agent?");
       if (!name) return no(400, "give it a name first");
       if (!instructions) return no(400, "say what it should do");
-      const agent = await store.update(who, id, { name, instructions });
+      // ── the settings, each only when the caller named it ─────────────────
+      //
+      // **A STATUS THAT CANNOT BE READ IS A REFUSAL, NOT A DEFAULT.** Reading a typo
+      // as `active` would silently un-pause an agent somebody paused on purpose, and
+      // reading it as `paused` would stop one nobody asked to stop. Absent is the
+      // only safe silence, and `Object.hasOwn` is how absent is told from wrong —
+      // never truthiness, because every object literal has a truthy `constructor`.
+      let status;
+      if (Object.hasOwn(b, "status") && b.status !== undefined) {
+        status = cleanStatus(b.status);
+        if (!status) return no(400, "an agent is either active or paused");
+      }
+      const picked = readTools(b);
+      if (picked.refusal) return picked.refusal;
+      const agent = await store.update(who, id, { name, instructions, status, tools: picked.names });
       return agent ? ok({ agent }) : NO_AGENT();
     }
 
@@ -710,7 +927,20 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       });
       // NOT FOUND, NEVER FORBIDDEN — the same answer a nonexistent agent gets, so
       // this cannot confirm that somebody else's agent exists.
-      if (a.error === "no-agent" || a.ok === false) return NO_AGENT();
+      if (a.error === "no-agent") return NO_AGENT();
+      // ⚠ A PAUSE IS A SENTENCE OF ITS OWN, AND IT IS NOT A FAILURE. The transaction
+      // wrote nothing at all — no message, no run — so the words are still the
+      // customer's to send once they resume it, and the browser keeps them in the box
+      // AND keeps its retry key, because the next press really is the same press.
+      //
+      // **409, NOT 404 AND NOT 500.** It is a conflict with the agent's own state: the
+      // request was well formed, the agent exists and is theirs, and nothing is
+      // broken. `paused` rides beside the sentence so the screen can offer the one
+      // thing that helps rather than parsing our prose for it.
+      if (a.error === "paused") {
+        return no(409, "this agent is paused, so it isn't starting anything new — resume it in its settings and send again", { paused: true });
+      }
+      if (a.ok === false) return NO_AGENT();
 
       // ── RING THE ENGINE, AFTER THE TRANSACTION AND NEVER BEFORE IT ────────────
       //

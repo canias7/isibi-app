@@ -28,6 +28,17 @@ const run = promisify(execFile);
 
 /** A SQL string literal. Doubling the quote is the whole of it. */
 const lit = (v) => `'${String(v).replaceAll("'", "''")}'`;
+/**
+ * A `text[]` literal, built from its elements rather than from a joined string.
+ *
+ * `array[...]` with each element quoted, so a name carrying a quote or a comma
+ * cannot become two elements — the shape `'{a,b}'::text[]` gets wrong. An absent or
+ * unreadable list is an EMPTY array, never a null: the column is `not null` and the
+ * product's own reader treats a selection it cannot read as none.
+ */
+const arr = (v) => (Array.isArray(v) && v.length
+  ? `array[${v.map((x) => lit(x)).join(", ")}]::text[]`
+  : `'{}'::text[]`);
 /** A SQL string literal for a shell argument, since psql is reached through `su`. */
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
@@ -71,7 +82,8 @@ const RPCS = {
  * A SEPARATE SET FROM THE RUNS', because they are a separate half of the schema and
  * reading one must never be able to name a column of the other.
  */
-const AGENT_COLUMNS = new Set(["id", "tenant_id", "name", "instructions", "created_at", "updated_at", "last_message"]);
+const AGENT_COLUMNS = new Set(["id", "tenant_id", "name", "instructions", "created_at", "updated_at",
+  "last_message", "status", "tools"]);
 const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "run_id",
   "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at"]);
 
@@ -211,13 +223,17 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
       // started. Narrow on purpose — the same reason the runs half is.
       if (p === "/rest/v1/agents" && req.method === "POST") {
         const rows = Array.isArray(body) ? body : [body];
-        const vals = rows.map((r) => `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.name)}, ${lit(r.instructions)})`).join(", ");
+        // A CREATE MAY CHOOSE TOOLS AND MAY NOT CHOOSE A STATUS, which is the route's
+        // own rule — so `tools` is written when it arrives and `status` is the column's
+        // default, always. `arr` is what a text[] looks like on the way in.
+        const vals = rows.map((r) =>
+          `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.name)}, ${lit(r.instructions)}, ${arr(r.tools)})`).join(", ");
         // A CTE, NOT A SUBQUERY: Postgres does not allow a data-modifying statement
         // inside `from (...)`, which is a syntax error rather than a refusal — so the
         // shim answered 400 and the route reported a save that had never been tried.
         const r = await sql(`with ins as (
-            insert into agent.agents (id, tenant_id, name, instructions) values ${vals}
-            returning id, name, instructions, created_at, updated_at)
+            insert into agent.agents (id, tenant_id, name, instructions, tools) values ${vals}
+            returning id, name, instructions, created_at, updated_at, status, tools)
           select coalesce(json_agg(t), '[]')::text from ins t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(201, JSON.parse(r.out || "[]"));
@@ -230,15 +246,21 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
         return send(200, JSON.parse(r.out || "[]"));
       }
       if (p === "/rest/v1/agents" && req.method === "PATCH") {
-        const sets = ["name", "instructions"].filter((k) => typeof body?.[k] === "string");
+        // ⚠ `tools` IS AN ARRAY AND IS WRITTEN AS ONE. Passed through `lit` it would
+        // become the string `echo` and Postgres would refuse the whole update — which
+        // reads from the route as a save that failed rather than as a shim that
+        // cannot write the column.
+        const sets = ["name", "instructions", "status"].filter((k) => typeof body?.[k] === "string")
+          .map((k) => `"${k}" = ${lit(body[k])}`);
+        if (Array.isArray(body?.tools)) sets.push(`"tools" = ${arr(body.tools)}`);
         if (!sets.length) return send(400, { message: "nothing writable was asked for" });
         const where = whereOf(url.searchParams, AGENT_COLUMNS);
         // NEVER AN UNFILTERED UPDATE — the same rule the queue's PATCH follows, and for
         // the harder reason: without a filter this would rewrite every account's agents.
         if (!where) return send(400, { message: "a PATCH must name which rows" });
         const r = await sql(`with upd as (
-            update agent.agents set ${sets.map((k) => `"${k}" = ${lit(body[k])}`).join(", ")} ${where}
-            returning id, name, instructions, created_at, updated_at)
+            update agent.agents set ${sets.join(", ")} ${where}
+            returning id, name, instructions, created_at, updated_at, status, tools)
           select coalesce(json_agg(t), '[]')::text from upd t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(200, JSON.parse(r.out || "[]"));

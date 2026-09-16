@@ -155,6 +155,43 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-16 — Agent settings: pause it, and choose what it may use
+
+**What you can do now.** Open an agent's settings (the pencil in a conversation)
+and you get four things instead of two: its name, its instructions, a list of the
+tools it may use, and a Paused switch. Save says **Saved** where the button is,
+rather than dropping you back on the list and leaving you to guess.
+
+**Paused means it stops taking new messages — nothing else.** Everything it has
+ever been told is still there, and anything already running finishes and answers.
+A paused agent shows a "Paused" tag on the list and a line above its message box
+with a way straight into its settings, and its Send button is off so you are told
+before you type rather than after.
+
+**The tools list is honest about what exists.** Today there is exactly one —
+`Echo`, which repeats text back so you can see that tools work at all. It reads
+nothing, changes nothing and sends nothing. Nothing is allowed unless you tick it,
+and an agent with nothing ticked can call nothing at all. When there is nothing to
+offer, the form says so in a sentence rather than showing an empty box.
+
+Two things we deliberately did NOT do: a tool `wait` exists in the engine and is
+not offered, because an agent's run budget cannot finish one (we measured it — it
+would stop halfway every time, which is a button that always fails); and a new
+agent cannot be created paused, because nobody writes an agent in order to stop it.
+
+**Still simulated.** No model is connected. Every answer is a stand-in and says so
+in its own text as well as on the screen — and it now says which tool it used, so
+you can see a permission working rather than take our word for it.
+
+**What is proved and what is not.** All of it is proved locally against a real
+PostgreSQL and through the real routes: settings saved and re-read; the account
+next door seeing neither the agent nor its settings; a paused agent refusing while
+its conversation stays whole; a run accepted before a pause finishing anyway; a
+ticked tool really running and an unticked one being unable to. **None of it is
+live** — the migration has not been applied and the Worker has not been deployed.
+
+---
+
 ## 2026-09-15 — The fifth one: whose the old agents are, across a sign-out
 
 You were right, and the hole was exactly where you pointed. Signing out wiped

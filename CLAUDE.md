@@ -1724,6 +1724,83 @@ page scope; nothing is merged or deployed.
   queue — it became a loop), the image step's ordering (anchored on what the step DOES
   rather than on its title), and two draft anchors in the view guard.
 
+- **AN AGENT HAS SETTINGS NOW: A STATUS, AND WHICH TOOLS IT MAY USE (2026-09-16).**
+  Owner: *"persist and edit its name, instructions, and active/paused status…
+  establish a server-controlled catalog of supported tools and an agent-specific
+  selection of allowed tools. Only show tools actually implemented."* **The engine
+  half — the catalog, the narrowing, the snapshot and the measured bounds — is in
+  `agent-builder/CLAUDE.md`**; what belongs here is the site builder's.
+  **THE CATALOG IS THE SERVER'S AND THE BROWSER ONLY DRAWS IT.** `AGENT_TOOLS` rides
+  on `/api/agent/list`'s answer — one read for the screen, because the settings form
+  is only reachable from it. It is a COPY of the engine's `OFFERED` names, declared
+  as one, **censused both ways** in `test/agent-send.test.mjs`, which is the only
+  place that may import both products. **What lives here and not there is the
+  WORDS**: the engine's `description` is written for a MODEL deciding whether to
+  call a thing, and `label`/`does` for a person deciding whether to allow it.
+  **A SELECTION IS A POSITIVE INTERSECTION AND A REFUSED NAME IS NAMED.**
+  `cleanTools` intersects with the catalog, collapses duplicates and takes the
+  CATALOG'S order, so two saves of one selection are byte-identical; `readTools`
+  refuses an unknown name rather than storing less than was asked for — a selection
+  quietly shortened is a permission that appears granted and is not. **The catalog
+  is a PARAMETER** (`cleanTools(v, catalog)`), because with one tool on the platform
+  the order rule is undrivable and a sweep mutant taking the caller's order survived
+  everything: *a wall nobody can drive is a wall nobody is guarding.*
+  **ABSENT AND EMPTY ARE TWO DIFFERENT THINGS ON A SAVE.** `/api/agent/update` is a
+  PATCH: a field the caller did not name is left alone, because a browser tab opened
+  before today saves a name and an instruction and says nothing about either setting
+  — filling them in from a default would un-pause an agent from a screen that never
+  showed a pause control. `tools: []` is a real selection and `undefined` is silence.
+  A status it cannot READ is a 400, never a default: reading a typo as `active`
+  un-pauses on purpose and as `paused` stops what nobody asked to stop.
+  **A CREATE MAY CHOOSE TOOLS AND MAY NOT CHOOSE A STATUS** — nobody writes an agent
+  in order to pause it, so the column's default is the answer.
+  **A PAUSE IS A 409 WITH ITS OWN FLAG, never the missing-agent 404.** The request
+  was well formed, the agent exists and is theirs, and nothing is broken; `paused:
+  true` rides beside the sentence so the screen offers the one thing that helps
+  rather than parsing our prose for it. **Nothing at all is written on that path**,
+  so the browser keeps the words AND the retry key — the next press against a
+  resumed agent is the SAME press, and clearing the key is how a lost message
+  becomes two.
+  **`/api/agent/message` IS DELIBERATELY UNCHANGED, and it is worth saying why.**
+  It saves a message and starts no run, so a pause has nothing there to refuse —
+  "refuse new runs" is about work, and writing is not work. It also has **no caller
+  in the browser** any more (the screen sends through `/api/agent/send`), so the
+  question is about a route only a script reaches. Left as it is rather than
+  hardened for a case nobody can produce.
+  **`agentRow` FAILS CLOSED ON BOTH SETTINGS.** A status it cannot read is `paused`
+  (being wrong that way costs a press of Resume; the other way is an agent taking
+  work its owner stopped) and a selection it cannot read is empty.
+  **THE SCREEN**: tool checkboxes drawn from the catalog with the stored ticks, a
+  Paused checkbox, and **an honest sentence when the catalog is empty** — a real
+  branch, because a Worker that predates the catalog answers no `tools` key.
+  **The controls keep their own DOM state**, so ticking one re-renders nothing and
+  the two text boxes above keep what is typed in them; `agentSave` reads the ticks
+  off the boxes, and the draft carries all four fields so a failed save redraws the
+  ticks and the pause that failed rather than the stored ones. **The form stays open
+  and says "Saved"** where the button is, and a create becomes an edit of what it
+  just made. A paused agent shows a chip on its row, a line above its message box
+  with a way into its settings, and a dead Send button — **the textarea stays
+  enabled**, because disabling it is how a draft gets lost.
+  **Sweep: 37 mutants, 37 killed, 0 survived, 0 never applied, 3 comment-only
+  controls survived** (`scripts/mutants/agent-settings.json`, over `agent-store.mjs`,
+  `public/chat.js` and the sheet). Six survived the first pass; **five were gaps in
+  the new guards and one was INERT and is declared in the code**: `JSON.stringify`
+  OMITS a key whose value is `undefined`, so guarding the two settings assignments
+  changes nothing on the wire — measured, and replaced by the observable direction
+  (a silent save DEFAULTING the field). The other five were the four that live in
+  `store.update`'s own body, which the route's arguments cannot see, and a catalog
+  read as whatever the answer carried.
+  **Guards**: `agent-send` 31 → 42 (the census both ways, the caps read out of the
+  migration, the two readers, the routes, the paused 409, and **the REQUEST the
+  store really sends** — four sweep mutants lived in `store.update`'s body and the
+  route's own arguments cannot see any of them), `agent-binding` 45 → 55 (the form
+  hydrated from the markup it really drew, so a case that unticks a box unticks a
+  real control), `agent-api` 42 with two re-anchored. **Four older guards
+  re-anchored, not appeased**: the body-reads census gained two SETTINGS rather than
+  an exemption; `agentRow`'s key set; the failed-save draft shape (a strictly
+  stronger claim); and the `agentDraft = {…}` source scan, which was pinned to the
+  literal and now reads the FIELD LIST.
+
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose
@@ -5666,7 +5743,19 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,631** (2026-09-16, local — 6,629 pass, 2 skipped, 0 fail; the
+  The unit suite is **6,653** (2026-09-16, local — 6,651 pass, 2 skipped, 0 fail; the
+  agent settings, whose **22** new cases are `agent-send`'s eleven (the cross-product
+  catalog census, the caps read out of the migration, the two readers, the update's
+  present-or-absent fields and its refusals, the create, the list's catalog, the
+  paused 409, and the two that read the REQUEST the store really sends),
+  `agent-binding`'s ten (the form hydrated from the markup it drew, the empty state
+  and its non-list shapes, the save's four fields, an empty selection against
+  silence, a create becoming an edit, the Saved line, the failed save's ticks, the
+  paused banner and chip, and the pause-refused send keeping its key) and
+  `agent-builder-view`'s one (a list row that can gain a badge without wrapping).
+  **6,631 + 22 = 6,653 and the arithmetic closes exactly**, measured per file.
+  **CI has NOT read this number yet.**
+  Before it, **6,631** (2026-09-16, local — 6,629 pass, 2 skipped, 0 fail; the
   three since 6,628 are the two live-found composer defects and their control). The agent-run branch measured **6,606** and `main`
   carried **22** cases the branch had not seen (the addon reporting work), so
   **6,606 + 22 = 6,628 and the arithmetic closes exactly**. The branch's own chain:

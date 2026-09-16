@@ -24,6 +24,9 @@ const S = at("store.mjs");
 const A = at("auth.mjs");
 const H = at("api.mjs");
 const W = at("worker.mjs");
+const A2 = at("agents.mjs");
+const RN = at("runner.mjs");
+const ST = at("model-standin.mjs");
 /**
  * THE TWO FILES OUTSIDE `src/` THAT DECIDE WHETHER A DEPLOYMENT CAN BE IDENTIFIED —
  * the workflow that mints the version id and the script that holds the Worker to it.
@@ -608,8 +611,14 @@ const spec = [
   m("runner: THE CONSUMER THROWS, so the platform retries a run blindly", at("runner.mjs"),
     "    } catch (e) {\n      onError({ at: \"deliver\", runId, error: String(e?.message ?? e) });",
     "    } catch (e) {\n      throw e;"),
+  // ⚠ RE-ANCHORED FROM `if (!agent)`, WHICH HAD NOT EXISTED FOR SOME TIME. The
+  // runner renamed that local to `registered` when the authored snapshot landed, and
+  // this spec kept the old spelling — so the mutant was NOT FOUND and the property
+  // was unswept, silently, because the generator's own pre-check only runs when
+  // somebody runs a sweep. The case below (`the sweep spec's anchors are all still
+  // there`) is what makes that a red run instead of a quiet gap.
   m("runner: a run whose agent is gone is retried for ever", at("runner.mjs"),
-    'if (!agent) return await finish(true, "no-agent"', 'if (!agent) return await finish(false, "no-agent"'),
+    'if (!registered) return await finish(true, "no-agent"', 'if (!registered) return await finish(false, "no-agent"'),
   m("runner: two deliveries in one isolate share a worker name", at("runner.mjs"),
     "    : () => `w-${crypto.randomUUID()}`;", "    : () => \"w\";"),
 
@@ -660,9 +669,95 @@ const spec = [
   m("verify: nothing checks that /health is uncacheable", V,
     'check("/health forbids caching", /no-store/i.test(cacheControl),', 'check("/health forbids caching", true,'),
 
+
+  // ── the tool catalog and the second narrow door ───────────────────────────
+  //
+  // A customer's SELECTION is the one new thing a request can influence, so every
+  // mutant here asks the same question from a different side: can a name decide
+  // more than which of the catalog's own tools a run holds?
+  m("narrowTools ignores the selection, so every authored run holds the whole catalog", D,
+    "const tools = agent.tools.filter((t) => want.has(t.name));",
+    "const tools = [...agent.tools];"),
+  m("narrowTools takes the selection's order, so a stored list decides how the model sees its tools", D,
+    "const tools = agent.tools.filter((t) => want.has(t.name));",
+    "const tools = [...want].map((n) => agent.tools.find((t) => t.name === n)).filter(Boolean);"),
+  m("narrowTools stops filtering the names to strings", D,
+    'const want = new Set(names.filter((n) => typeof n === "string"));',
+    "const want = new Set(names);"),
+  m("narrowTools drops a retired tool in silence", D,
+    "const unknown = Object.freeze([...want].filter((n) => !have.has(n)));",
+    "const unknown = Object.freeze([]);"),
+  m("narrowTools stops refusing a selection that is not a list", D,
+    'if (!Array.isArray(names)) throw new TypeError("narrowTools: names must be an array");',
+    "names = Array.isArray(names) ? names : [];"),
+  // ⚠ REPLACED, BECAUSE THE OBVIOUS MUTANT ON THIS LINE IS INERT AND WAS MEASURED SO.
+  // `!!spec.authored` and `spec.authored === true` are IDENTICAL over every input that
+  // can reach them — the refusal above admits only an absent key or a real boolean, and
+  // `[undefined, true, false]` maps to `[false, true, false]` either way. The refusal is
+  // the wall and the comparison is the belt; the pair cannot be killed one at a time and
+  // is declared in the code. What IS observable on this line is the DEFAULT flipping:
+  // `!== false` makes an absent key mean AUTHORED, so every code agent in the registry
+  // is narrowed against its own list and loses its tools.
+  m("defineAgent's `authored` default flips, so every code agent is narrowed to nothing", D,
+    "authored: spec.authored === true,", "authored: spec.authored !== false,"),
+  m("defineAgent stops refusing a non-boolean `authored`", D,
+    'if (Object.hasOwn(spec, "authored") && typeof spec.authored !== "boolean") {',
+    "if (false) {"),
+
+  // ── the registry ─────────────────────────────────────────────────────────
+  m("the authored agent stops declaring itself authored, so nothing narrows it", A2,
+    "    authored: true,\n    tools: OFFERED,", "    authored: false,\n    tools: OFFERED,"),
+  m("the authored agent's catalog is emptied, so no selection can reach a tool", A2,
+    "    tools: OFFERED,", "    tools: [],"),
+  m("the tool budget goes back to one, which lets a run start and not finish", A2,
+    "limits: { steps: 3, toolCalls: 2, wallMs: 60_000, callMs: 30_000 },",
+    "limits: { steps: 3, toolCalls: 1, wallMs: 60_000, callMs: 30_000 },"),
+  m("the catalog's NAMES gain one the catalog has no tool for", A2,
+    "export const OFFERED_NAMES = Object.freeze(OFFERED.map((t) => t.name));",
+    'export const OFFERED_NAMES = Object.freeze([...OFFERED.map((t) => t.name), "wait"]);'),
+
+  // ── the snapshot ─────────────────────────────────────────────────────────
+  m("the started entry stops carrying the selection", J,
+    "  ...(o.tools === undefined ? {} : { tools: o.tools }),", "  ...({}),"),
+  m("an absent selection becomes a stored null, so two different facts read alike", J,
+    "  ...(o.tools === undefined ? {} : { tools: o.tools }),", "  ...({ tools: o.tools ?? null }),"),
+  m("replay hands back the map of tool RESULTS under the name of the selection", J,
+    "    tools: snapTools,", "    tools,"),
+  m("a selection replay cannot read becomes an empty one rather than a problem", J,
+    "      if (!Array.isArray(listed)) {", "      if (false) {"),
+  m("replay accepts a name that is not text", J,
+    '          if (typeof listed[i] !== "string" || listed[i] === "") { problems.push(`tools ${i}: not a tool name`); continue; }',
+    "          if (false) { continue; }"),
+
+  // ── the runner ───────────────────────────────────────────────────────────
+  m("⚠ the narrowing is decided by the LOG, so a run with no snapshot gets the catalog", RN,
+    "      if (registered.authored) {", "      if (open.state.authoredAgent) {"),
+  m("⚠ an entry with no selection is left holding the whole catalog", RN,
+    "      if (registered.authored) {", "      if (registered.authored && open.state.tools) {"),
+  m("the runner stops narrowing at all", RN,
+    "      if (registered.authored) {", "      if (false) {"),
+  m("a retired tool disappears with nothing said", RN,
+    "        if (narrowed.unknown.length) {", "        if (false) {"),
+
+  // ── what the stand-in says about itself ──────────────────────────────────
+  m("a tool-using answer loses its label, so a simulation reads as an AI's", ST,
+    "      text: simulatedAnswer({ system, messages, tool: { name, said, failed } }),",
+    "      text: `stand-in answer. you said: ${said}`,"),
+  m("the slow shape's answer loses its label", ST,
+    "        text: `${SIMULATED} worked through ${n} stages over ${waited} ms`,",
+    "        text: `worked through ${n} stages over ${waited} ms`,"),
+  m("a refused tool call is reported as the tool's own answer", ST,
+    "    const failed = last?.content?.[0]?.ok === false;", "    const failed = false;"),
+
   // ── the controls: comment-only, and they MUST survive ──────────────────────
   m("CONTROL (comment only, limits.mjs)", L, "* THE BOUNDS ON ONE AGENT RUN", "* THE BOUNDS ON ONE AGENT RUN (control)", true),
   m("CONTROL (comment only, run.mjs)", R, "* THE AGENT LOOP.", "* THE AGENT LOOP (control).", true),
+  m("CONTROL (comment only, agents.mjs)", A2,
+    " * ⚠ THE CATALOG — every tool a CUSTOMER-AUTHORED agent may be given",
+    " * ⚠ THE CATALOG (control) — every tool a CUSTOMER-AUTHORED agent may be given", true),
+  m("CONTROL (comment only, model-standin.mjs)", ST,
+    " * THE MODEL STAND-IN — no provider, no network, no spend.",
+    " * THE MODEL STAND-IN (control) — no provider, no network, no spend.", true),
   m("CONTROL (comment only, runner.mjs)", at("runner.mjs"),
     "* THE CONSUMER — claim a delivery", "* THE CONSUMER (control) — claim a delivery", true),
   // The workflow gets its own control, because the guard that reads it splits on a

@@ -22,6 +22,9 @@ import { AGENT_ROUTES } from "../agent-store.mjs";
 
 const html = fs.readFileSync("public/index.html", "utf8");
 const js = fs.readFileSync("public/chat.js", "utf8");
+// THE SHEET, because one of the properties below is a LAYOUT one and lives there:
+// a row whose column count is pinned cannot take the badge the markup now draws.
+const css = fs.readFileSync("public/styles.css", "utf8");
 
 test("the profile menu opens the agent builder, and the view it names exists", () => {
   // The row, with the SAME act the other rows use — a view button that names a
@@ -210,6 +213,27 @@ test("a nameless agent is refused rather than given a name of ours", () => {
     "an agent with no instructions is sent anyway");
 });
 
+test("⚠ A LIST ROW CAN GAIN A BADGE WITHOUT WRAPPING", () => {
+  // **CAUGHT BY RENDERING IT, WHICH IS THE ONLY INSTRUMENT THAT COULD.** `.ag-row`
+  // pinned `grid-template-columns` to exactly four — avatar, meta, time, chevron —
+  // so the day the markup gained a fifth child (the Paused chip) that child wrapped
+  // onto a second grid row and took the chevron with it: one row in the list a head
+  // taller than its neighbours, with every assertion about the markup still green.
+  //
+  // THE VALUE IS READ, NOT THE PROPERTY'S PRESENCE. A rule that names
+  // `grid-template-columns` and nothing else is the defect; what makes the row
+  // tolerant is the trailing columns being IMPLICIT.
+  const rule = /\.ag-row \{([^}]*)\}/.exec(css);
+  assert.ok(rule, ".ag-row is gone — re-read the sheet");
+  assert.match(rule[1], /grid-auto-flow:\s*column/,
+    "the row pins its columns, so a fifth child wraps onto a second line");
+  // AND THE RELATIONSHIP IS REAL: the chip really is a direct child of the row, so
+  // the rule above is about the markup rather than about nothing.
+  const row = /'<button class="ag-row"[\s\S]*?'<\/button>'/.exec(js);
+  assert.ok(row, "the list row's markup is gone — re-read it");
+  assert.match(row[0], /class="ag-chip"/, "the chip is not drawn on the row it is about");
+});
+
 test("⚠ A FAILED SAVE KEEPS WHAT WAS TYPED", () => {
   // The panel is rebuilt from `innerHTML` on every state change, so a draft that
   // lived only in the DOM would be wiped by the very re-render that shows the
@@ -218,8 +242,17 @@ test("⚠ A FAILED SAVE KEEPS WHAT WAS TYPED", () => {
   // local refusals, and the composer reads it back.
   const save = js.slice(js.indexOf("function agentSave()"));
   const body = save.slice(0, save.indexOf("\n}\n"));
-  assert.ok(body.indexOf("agentDraft = { name, instructions }") > 0, "nothing keeps the draft");
-  assert.ok(body.indexOf("agentDraft = { name, instructions }") < body.indexOf("if (!name)"),
+  // ⚠ RE-ANCHORED OFF THE SPELLING AND ONTO THE PROPERTY — this was pinned to the
+  // literal `agentDraft = { name, instructions }` and went red the day the draft
+  // honestly gained two more fields. What matters is that the draft is written, that
+  // it carries EVERY field the form can lose, and that it is written above the first
+  // thing that can fail.
+  const kept = /agentDraft = \{([^}]*)\}/.exec(body);
+  assert.ok(kept, "nothing keeps the draft");
+  const fields = kept[1].split(",").map((f) => f.trim().split(":")[0].trim()).filter(Boolean);
+  assert.deepEqual([...fields].sort(), ["instructions", "name", "status", "tools"],
+    "the draft does not carry every setting the form can lose");
+  assert.ok(body.indexOf(kept[0]) < body.indexOf("if (!name)"),
     "the draft is kept after the first thing that can fail, so a refusal loses it");
   // RE-ANCHORED: `agentSave` no longer decides inside the response branch. It
   // records the failure, asks whether the composer is still the one it left, and

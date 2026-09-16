@@ -35,6 +35,38 @@ const support = Object.freeze({
 });
 
 /**
+ * ⚠ THE CATALOG — every tool a CUSTOMER-AUTHORED agent may be given, and nothing
+ * else in this file is offerable.
+ *
+ * **IT IS A POSITIVE LIST IN CODE, which is the whole wall.** A customer's
+ * selection is a list of NAMES, stored in `agent.agents.tools` and recorded in each
+ * run's own first journal entry; `narrowTools` looks those names up IN HERE. So a
+ * name nobody put in this array resolves to no tool, whatever a request body, a
+ * database column or an instruction sheet says. A deny-list would be a claim about
+ * the producer rather than about the input, and the one tool somebody forgets to
+ * deny is the one that matters.
+ *
+ * **ONLY WHAT IS REALLY IMPLEMENTED AND REALLY COMPLETABLE GOES IN, and today that
+ * is `echo` alone.** `wait` and `commit` are implemented and are deliberately NOT
+ * offered: they exist to demonstrate duration and the no-repeat refusal, and the
+ * stand-in answers them with the SLOW shape — `SLOW_ROUNDS` (8) tool calls —
+ * against an authored budget of two. **MEASURED, not reasoned about: an authored
+ * agent given `wait` stops `{reason: "spent", bound: "toolCalls"}` after one round
+ * and never answers.** Offering it would be offering a control that always fails,
+ * which is this repository's recorded dead-control finding in its worst form.
+ *
+ * **EVERY CATALOG TOOL MUST BE `PUBLIC`-SCOPED**, and a guard censuses it. The
+ * tenancy wall (`toolsFor`) runs after this one and withholds anything the tenant
+ * has no grant for; a scoped tool in the catalog would be a tool the settings screen
+ * offers, a customer selects, and the run then withholds — a promise the layer below
+ * refuses, with nobody able to see why.
+ */
+export const OFFERED = Object.freeze([echo]);
+
+/** The catalog's names, DERIVED, so nothing can hold a second copy of the list. */
+export const OFFERED_NAMES = Object.freeze(OFFERED.map((t) => t.name));
+
+/**
  * A TOOL THAT TAKES TIME AND NOTHING ELSE.
  *
  * It exists to demonstrate the thing that is hardest to believe without seeing it:
@@ -110,45 +142,48 @@ export const SLOW = Object.freeze({
 /**
  * ⚠ THE AGENT EVERY CUSTOMER-AUTHORED AGENT RUNS UNDER.
  *
- * **THE DIVISION IS THE WHOLE POINT: the customer owns the INSTRUCTIONS and this
- * file owns everything else.** A person writes a name and an instruction in the
- * browser; they are data, stored in `agent.agents`, and a run is started with a
- * snapshot of them in its first journal entry. The tools, the bounds and the model
- * come from HERE, are code, and cannot be reached from a request at all — which is
- * what keeps "an agent is named, never described" true while still letting the
- * described half be somebody's own writing.
+ * **THE DIVISION IS THE WHOLE POINT: the customer owns the INSTRUCTIONS AND THE
+ * SELECTION, and this file owns everything else.** A person writes a name and an
+ * instruction in the browser and ticks the tools they want; all of that is data,
+ * stored in `agent.agents`, and a run is started with a snapshot of it in its first
+ * journal entry. The CATALOG those ticks choose from, the bounds and the model come
+ * from HERE, are code, and cannot be reached from a request at all — which is what
+ * keeps "an agent is named, never described" true while still letting the described
+ * half be somebody's own writing.
  *
- * **NO TOOLS, AND THAT IS A STATEMENT RATHER THAN AN OVERSIGHT.** A customer's
- * instructions can ask for anything; with an empty tool list there is nothing for
- * them to reach. `toolsFor` is a positive list and fails closed, and dispatch
- * fails closed too, so a name the model invents comes back as a readable "no such
- * tool" result and nothing runs.
+ * **`tools` IS THE CATALOG, NOT THE PERMISSIONS — and `authored: true` is what says
+ * so.** For an ordinary agent this list is what its runs get. For this one it is the
+ * most any run may have, and each run gets the subset its own journal entry recorded:
+ * `narrowTools(agent, entry.tools)`, which may only ever reduce. A run whose entry
+ * lists no tools gets NONE, which is both the old behaviour and the safe default.
  *
- * **⚠ AND THE OBVIOUS SECOND WALL IS A BRICK WALL — MEASURED, by a guard, before
- * this shipped.** This agent was first written with `toolCalls: 0`, meaning "and
- * no budget to call one either". `toolCalls` is a RUN TOTAL, and `stoppedBy` asks
- * `used >= limit`: at the very start that is `0 >= 0`, so the run stops with
- * `{reason: "spent", bound: "toolCalls", limit: 0, used: 0}` **before its first
- * model call**. Every customer-authored agent would have answered nothing at all,
- * and the failure would have read as a limit doing its job.
+ * **THE FLAG IS READ FROM CODE AND NEVER FROM THE LOG, and that closes the one door
+ * that would otherwise widen.** `POST /runs` can name any registered agent with no
+ * snapshot at all; deciding "narrow this one" off a log field the caller may omit
+ * would hand such a run the whole catalog. `registered.authored` cannot be omitted by
+ * anybody.
  *
- * So the bound below is ONE, and it is **not a second wall — it is the smallest
- * number that lets the run start**, which is worth saying because a number with
- * no stated author is how the next reader talks themselves into changing it. The
- * tool list is the only wall here, and it is sufficient: with `tools: []` there is
- * nothing to dispatch TO, so the bound could be sixty-four and no tool would run.
- * *Saying a thing twice is not available when one of the two ways is a brick.*
+ * **⚠ THE BOUNDS ARE MEASURED, AND `toolCalls` HAD TO MOVE THE DAY A TOOL BECAME
+ * REACHABLE.** It was ONE, chosen as "the smallest number that lets the run start"
+ * when the tool list was empty and nothing could be called. `toolCalls` is a RUN
+ * TOTAL and `stoppedBy` asks `used >= limit`, so a budget of one is a budget already
+ * spent the instant one call is made: **measured, an authored agent holding `echo`
+ * stopped `{reason: "spent", bound: "toolCalls", limit: 1, used: 1}` after its tool
+ * call and never reached the step that answers.** A tool selection under that bound
+ * would have been a control that always fails.
+ *
+ * So the budget must EXCEED the spend rather than equal it: **`toolCalls: 2` for one
+ * call, measured green** (answer at step 2, `used {steps: 2, toolCalls: 1}`). And
+ * `steps` is **3** by this file's own older rule — the one-tool shape really takes
+ * two steps, call then answer, and a bound that is exactly the happy path cannot tell
+ * the ordinary path from something having changed. Zero let the run not start, one let
+ * it not finish; both were found by driving it rather than by reading it.
  *
  * **ITS OWN `instructions` ARE A PLACEHOLDER AND SHOULD NEVER BE USED.**
  * `defineAgent` compels them, and every run of this agent substitutes the
  * customer's snapshot through `withInstructions`. A run reaching the model with
  * THIS text is a run whose snapshot did not arrive, and the stand-in quotes its
  * instructions back so that says so out loud rather than reading as an answer.
- *
- * **THE BOUNDS ARE DELIBERATELY WIDER THAN THE SHAPE NEEDS.** The stand-in answers
- * in one step, so `steps: 2` means a stop on `steps` is something having changed
- * rather than the ordinary path — a bound that is exactly the happy path cannot
- * tell the two apart.
  */
 export const AUTHORED_AGENT = "authored";
 
@@ -159,8 +194,9 @@ export const AUTHORED = Object.freeze({
     instructions:
       "This text is a placeholder and is replaced per run by the instructions the " +
       "customer wrote. Seeing it means the run's snapshot did not arrive.",
-    tools: [],
-    limits: { steps: 2, toolCalls: 1, wallMs: 60_000, callMs: 30_000 },
+    authored: true,
+    tools: OFFERED,
+    limits: { steps: 3, toolCalls: 2, wallMs: 60_000, callMs: 30_000 },
   }),
 });
 

@@ -65,6 +65,14 @@ const runTests = () => new Promise((resolve) => {
   // that dies by hand.
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
+  // ⚠ AND THE CHILD IS TOLD THE TREE IS MUTATED. A guard whose subject is "the
+  // COMMITTED tree is self-consistent" cannot be asked under a sweep: while a mutant
+  // is applied the tree deliberately is not, so such a guard fails for every mutant
+  // and reports every one as KILLED — a false kill for each, which is worse than a
+  // false survivor because it says a property is guarded when nothing asked.
+  // MEASURED: the engine's spec-anchor census did exactly that, and the tell was all
+  // three comment-only CONTROLS coming back killed at once.
+  env.MUTATION_SWEEP = "1";
   const p = spawn("node", ["--test", ...testFiles], { stdio: ["ignore", "pipe", "pipe"], env });
   let read = 0;
   p.stdout.on("data", (b) => { read += b.length; });

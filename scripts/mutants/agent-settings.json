@@ -1,0 +1,325 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the catalog",
+    "control": true,
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": " * ⚠ THE TOOL CATALOG — every tool an agent may be given, as the browser is shown",
+    "to": " * ⚠ THE TOOL CATALOG (control) — every tool an agent may be given, as the browser is shown"
+  },
+  {
+    "label": "CONTROL: a comment only, above the settings form",
+    "control": true,
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "          // ── the tools it may use ────────────────────────────────────────",
+    "to": "          // ── the tools it is allowed to use ─────────────────────────────"
+  },
+  {
+    "label": "the catalog's names become a second list rather than the catalog's own",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "export const AGENT_TOOL_NAMES = Object.freeze(AGENT_TOOLS.map((t) => t.name));",
+    "to": "export const AGENT_TOOL_NAMES = Object.freeze([\"echo\", \"wait\"]);"
+  },
+  {
+    "label": "a status the server cannot read defaults to active instead of refusing",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  return typeof v === \"string\" && AGENT_STATUSES.includes(v.trim()) ? v.trim() : null;",
+    "to": "  return typeof v === \"string\" && AGENT_STATUSES.includes(v.trim()) ? v.trim() : \"active\";"
+  },
+  {
+    "label": "the selection stops being intersected with the catalog, so any name is stored",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  const names = catalog.filter((n) => want.has(n));",
+    "to": "  const names = [...want];"
+  },
+  {
+    "label": "the selection takes the caller's order, so two saves of one selection differ",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  const names = catalog.filter((n) => want.has(n));",
+    "to": "  const names = [...want].filter((n) => catalog.includes(n));"
+  },
+  {
+    "label": "a tool the platform has not got is dropped in silence rather than named",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  const unknown = [...want].filter((n) => !catalog.includes(n));",
+    "to": "  const unknown = [];"
+  },
+  {
+    "label": "a non-name among the tools is not noticed at all",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  return { names, unknown, unreadable: v.some((n) => typeof n !== \"string\") };",
+    "to": "  return { names, unknown, unreadable: false };"
+  },
+  {
+    "label": "cleanTools accepts a string as a selection of one",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  if (!Array.isArray(v)) return { names: null, unknown: [] };",
+    "to": "  if (v === null || v === undefined) return { names: null, unknown: [] };"
+  },
+  {
+    "label": "the cap on a stored selection is lifted",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  if (v.length > MAX_AGENT_TOOLS) return { names: null, unknown: [], tooMany: true };",
+    "to": "  if (false) return { names: null, unknown: [], tooMany: true };"
+  },
+  {
+    "label": "⚠ a made-up tool name is stored rather than refused",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  if (picked.unknown.length) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "a selection that is not a list reaches the store as null",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  if (picked.names === null) return { refusal: no(400, \"the tools to allow have to arrive as a list\") };",
+    "to": "  if (false) return { refusal: no(400, \"the tools to allow have to arrive as a list\") };"
+  },
+  {
+    "label": "⚠ a save that says nothing about tools wipes the selection",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  if (!Object.hasOwn(b, \"tools\") || b.tools === undefined) return { names: undefined };",
+    "to": "  if (!Object.hasOwn(b, \"tools\") || b.tools === undefined) return { names: [] };"
+  },
+  {
+    "label": "⚠ a save that says nothing about the status un-pauses the agent",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      if (status !== undefined) body.status = status;",
+    "to": "      body.status = status ?? \"active\";"
+  },
+  {
+    "label": "a status the route cannot read is left alone rather than refused",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "        if (!status) return no(400, \"an agent is either active or paused\");",
+    "to": "        if (false) return no(400, \"an agent is either active or paused\");"
+  },
+  {
+    "label": "the row on the wire fails OPEN on a status it cannot read",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "    status: cleanStatus(r && r.status) === \"active\" ? \"active\" : \"paused\",",
+    "to": "    status: cleanStatus(r && r.status) === \"paused\" ? \"paused\" : \"active\","
+  },
+  {
+    "label": "the row carries a selection it cannot read, names and non-names alike",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "    tools: Array.isArray(r && r.tools) ? r.tools.filter((t) => typeof t === \"string\") : [],",
+    "to": "    tools: Array.isArray(r && r.tools) ? r.tools : [],"
+  },
+  {
+    "label": "⚠ the paused refusal becomes the missing-agent answer",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      if (a.error === \"paused\") {",
+    "to": "      if (false) {"
+  },
+  {
+    "label": "the paused answer stops saying which thing is wrong",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "resume it in its settings and send again\", { paused: true });",
+    "to": "resume it in its settings and send again\");"
+  },
+  {
+    "label": "the list stops answering the catalog, so the screen has none to draw",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      return ok({ agents: await store.list(who), tools: AGENT_TOOLS });",
+    "to": "      return ok({ agents: await store.list(who) });"
+  },
+  {
+    "label": "⚠ the store turns a save that named no tools into one that allows none",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      if (tools !== undefined) body.tools = tools;",
+    "to": "      body.tools = tools ?? [];"
+  },
+  {
+    "label": "the list read stops asking for the settings columns",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "        `&select=id,name,instructions,created_at,updated_at,last_message,status,tools` +",
+    "to": "        `&select=id,name,instructions,created_at,updated_at,last_message` +"
+  },
+  {
+    "label": "⚠ the form reads the ticks from the draft rather than from the boxes",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    tools: boxes.filter((el) => el.checked)",
+    "to": "    tools: boxes.filter(() => false)"
+  },
+  {
+    "label": "a save reads every box as ticked",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    tools: boxes.filter((el) => el.checked)",
+    "to": "    tools: boxes.filter(() => true)"
+  },
+  {
+    "label": "the pause the form shows is never read back",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    status: (pausedEl && pausedEl.checked) ? 'paused' : 'active',",
+    "to": "    status: 'active',"
+  },
+  {
+    "label": "⚠ a failed save keeps the words and loses the settings",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  agentDraft = { name, instructions, status, tools };",
+    "to": "  agentDraft = { name, instructions };"
+  },
+  {
+    "label": "the form closes on a save instead of confirming it",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  agentSaved = true;\n  // An id we cannot read leaves the composer",
+    "to": "  agentSaved = false;\n  agentEditing = null;\n  // An id we cannot read leaves the composer"
+  },
+  {
+    "label": "a create does not become an edit of what it made",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!editing) agentEditing = made;",
+    "to": "  if (!editing) agentEditing = null;"
+  },
+  {
+    "label": "⚠ a send refused for a pause clears the words and the retry key",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!failed && !mismatched && !resting) { agentDraftDrop(target, bound.uid);",
+    "to": "  if (!failed && !mismatched) { agentDraftDrop(target, bound.uid);"
+  },
+  {
+    "label": "the browser stops noticing that the refusal was a pause",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (j && j.paused) resting = true;",
+    "to": "    if (false) resting = true;"
+  },
+  {
+    "label": "the thread never says the agent is resting",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    const rest = a.status === 'paused';",
+    "to": "    const rest = false;"
+  },
+  {
+    "label": "the send button stays live on a paused agent",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "'\"' + ((agentBusy || rest) ? ' disabled' : '') + '>' +",
+    "to": "'\"' + (agentBusy ? ' disabled' : '') + '>' +"
+  },
+  {
+    "label": "the message box is locked away on a paused agent, losing the draft",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "'data-keydown=\"agent-send-key\" placeholder=\"Message ' + esc(a.name) + '\">'",
+    "to": "'data-keydown=\"agent-send-key\"' + (rest ? ' disabled' : '') + ' placeholder=\"Message ' + esc(a.name) + '\">'"
+  },
+  {
+    "label": "⚠ an empty catalog draws an empty box instead of saying there is nothing",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "          (catalog.length\n            ? '<div class=\"ag-hint\">Only what this platform really has.",
+    "to": "          (true\n            ? '<div class=\"ag-hint\">Only what this platform really has."
+  },
+  {
+    "label": "the catalog is read as whatever the answer carried, list or not",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      agentTools = Array.isArray(j.tools) ? j.tools.filter((t) => t && typeof t.name === 'string') : [];",
+    "to": "      agentTools = j.tools || [];"
+  },
+  {
+    "label": "the list stops marking a paused agent",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "                  (a.status === 'paused' ? '<span class=\"ag-chip\">Paused</span>' : '') +",
+    "to": "                  '' +"
+  },
+  {
+    "label": "the stored selection is never drawn, so every box starts empty",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "                    (picked.indexOf(t.name) >= 0 ? ' checked' : '') + '>' +",
+    "to": "                    '' + '>' +"
+  },
+  {
+    "label": "the form draws the stored settings over the draft that just failed",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    const paused = draft ? draft.status === 'paused' : !!(cur && cur.status === 'paused');",
+    "to": "    const paused = !!(cur && cur.status === 'paused');"
+  },
+  {
+    "label": "⚠ the list row pins its columns again, so a badge wraps onto a second line",
+    "files": [
+      "public/styles.css"
+    ],
+    "from": "  grid-auto-flow: column; grid-auto-columns: auto; align-items: center;",
+    "to": "  align-items: center;"
+  },
+  {
+    "label": "CONTROL: a comment only, in the sheet",
+    "control": true,
+    "files": [
+      "public/styles.css"
+    ],
+    "from": "/* ⚠ THE TRAILING COLUMNS ARE IMPLICIT, and they have to be.",
+    "to": "/* ⚠ THE TRAILING COLUMNS ARE IMPLICIT, and they must be."
+  }
+]

@@ -4948,8 +4948,19 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .ag-new svg, .ag-back svg { width: 18px; height: 18px; }
 
 .ag-list { border: 1px solid var(--line-2); border-radius: 12px; overflow: hidden; background: var(--panel); }
+/* ⚠ THE TRAILING COLUMNS ARE IMPLICIT, and they have to be. This was
+   `grid-template-columns: auto 1fr auto auto` — exactly four, for the avatar, the
+   meta, the time and the chevron — so the day a row gained a fifth child (the
+   Paused chip) that child wrapped onto a SECOND ROW and took the chevron with it:
+   one row in the list a head taller than its neighbours. Caught by rendering it,
+   which is the only instrument that can see it.
+   `grid-auto-flow: column` puts every child after the second into its own auto
+   column, so three children or five both lay out on one line — and unlike padding
+   the template with a fifth `auto`, an absent chip leaves no phantom `gap` shifting
+   the time column on every other row. */
 .ag-row {
-  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center;
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  grid-auto-flow: column; grid-auto-columns: auto; align-items: center;
   gap: .8rem; width: 100%; padding: .8rem .9rem; border: 0; border-top: 1px solid var(--line-2);
   background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
@@ -5100,3 +5111,48 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 
 /* A disabled write control says so rather than looking pressable. */
 .ag-save:disabled, .ag-send-btn:disabled { opacity: .55; cursor: default; }
+
+/* ── the agent's settings: a status, and which tools it may use ─────────────
+   Two native controls and a list. A checkbox keeps its own state, so pausing and
+   ticking a tool need no handler and no re-render — which is what keeps typed
+   text in the two boxes above them while somebody changes their mind. */
+.ag-check { display: flex; align-items: flex-start; gap: .55rem; margin: 0 .2rem 1.1rem; }  /* the same gap every other field leaves above the buttons */
+.ag-check input { margin: .2rem 0 0; width: 15px; height: 15px; accent-color: var(--text); }
+.ag-check-t { font-weight: 600; font-size: .95rem; }
+
+/* The tools. One row each: what it is, and what it does in a sentence somebody
+   deciding whether to allow it can read. */
+.ag-tools {
+  border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel);
+  margin-bottom: 1.2rem; overflow: hidden;
+}
+.ag-tool { display: flex; align-items: flex-start; gap: .6rem; padding: .7rem .8rem; border-top: 1px solid var(--line-2); }
+.ag-tool:first-child { border-top: 0; }
+.ag-tool input { margin: .25rem 0 0; width: 15px; height: 15px; accent-color: var(--text); }
+.ag-tool-m { min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+.ag-tool-n { font-weight: 600; font-size: .92rem; }
+.ag-tool-d { color: var(--muted); font-size: .84rem; line-height: 1.45; }
+
+/* No tools at all. A real branch, not a decoration: a Worker that predates the
+   catalog answers no list, and this is what it says rather than an empty box. */
+.ag-nothing {
+  border: 1px dashed var(--line-2); border-radius: 10px; padding: .9rem 1rem;
+  color: var(--muted); font-size: .85rem; line-height: 1.5; margin-bottom: 1.2rem;
+}
+
+/* Save feedback, where the person is looking when they press Save. */
+.ag-saved { color: var(--muted); font-size: .85rem; margin: .6rem .2rem 0; }
+
+/* A paused agent, said in the two places it matters: on its row in the list, and
+   above the box you would otherwise type into. */
+.ag-chip {
+  font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  border: 1px solid var(--line); border-radius: 999px; padding: .1rem .42rem;
+  color: var(--muted); white-space: nowrap; align-self: center;
+}
+.ag-paused {
+  border: 1px solid var(--line-2); border-left: 3px solid var(--muted);
+  border-radius: 10px; background: var(--panel); padding: .7rem .85rem; margin: .4rem 0 0;
+  display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+}
+.ag-paused-t { color: var(--muted); font-size: .85rem; line-height: 1.45; min-width: 0; flex: 1 1 14rem; }

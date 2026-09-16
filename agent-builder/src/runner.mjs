@@ -62,7 +62,7 @@
 
 import { runAgent } from "./run.mjs";
 import { stoppedEntry } from "./journal.mjs";
-import { withInstructions } from "./define.mjs";
+import { withInstructions, narrowTools } from "./define.mjs";
 
 /**
  * How long a claim is good for without a beat. **A LIVENESS CHECK, NOT A DURATION
@@ -311,9 +311,39 @@ export function makeRunner(opts = {}) {
        * instructions mutable from the outside, which is the defect this whole
        * arrangement exists to prevent.
        */
-      const agent = open.state.instructions
+      let agent = open.state.instructions
         ? withInstructions(registered, open.state.instructions)
         : registered;
+
+      /**
+       * **AND WHICH TOOLS IT MAY CALL COMES FROM THE LOG TOO, narrowed against the
+       * catalog in code.** `registered.authored` says this agent's own tool list is a
+       * CATALOG rather than a permission set, so a run gets exactly the subset its
+       * first entry recorded — `[]` when it recorded none, which is every run
+       * accepted before the selection existed and is the fail-closed answer.
+       *
+       * **THE DECISION IS `registered.authored` AND NEVER A FIELD ON THE ENTRY**, and
+       * that is the wall rather than a style. `POST /runs` can name any registered
+       * agent with no snapshot at all; reading "is this authored" off the log would
+       * hand such a run the whole catalog, which is the one way this could widen.
+       *
+       * **READ AGAIN ON EVERY DELIVERY, exactly as the instructions are.** A customer
+       * who unticks a tool while a run is going changes what the NEXT run may call and
+       * never what this one may call — and a customer who TICKS one cannot reach a run
+       * already accepted. Reading `agent.agents.tools` here instead would make an
+       * in-flight run's own permissions editable from the outside.
+       */
+      if (registered.authored) {
+        const narrowed = narrowTools(agent, open.state.tools ?? []);
+        agent = narrowed.agent;
+        // A SELECTION NAMING A TOOL THIS DEPLOYMENT NO LONGER OFFERS IS SAID, never
+        // silently dropped. It does not stop the run — the tools that remain are still
+        // the customer's — but a capability that quietly stops working with nothing
+        // written down anywhere is how a retired tool becomes a mystery.
+        if (narrowed.unknown.length) {
+          onEvent({ at: "tools-gone", runId, agent: registered.name, unknown: narrowed.unknown });
+        }
+      }
 
       const record = await runAgent({
         agent,

@@ -2461,3 +2461,172 @@ Scaffolded 2026-09-14. No source yet — the decisions below came first.
 - **`force row level security` is still an untested claim** (see the correction
   above). Adding `agent.run_work` did not change that: it is only observable to a
   table owner who is not a superuser, and the harness's owner is one.
+
+---
+
+## Agent settings: a status, and which tools an agent may use (2026-09-16)
+
+Owner: *"Agent settings: persist and edit its name, instructions, and active/paused
+status… establish a server-controlled catalog of supported tools and an
+agent-specific selection of allowed tools. Only show tools actually implemented…
+the backend must enforce the agent's status and allowed tools. Instructions or
+request bodies cannot grant capabilities… when a run starts, record the effective
+instructions and allowed tools."*
+
+**THE DIVISION THAT ALREADY EXISTED IS THE ONE THIS EXTENDS.** A customer owned the
+INSTRUCTIONS; they now own the SELECTION too, and both are data, snapshotted into
+the run's first journal entry. What they still cannot own is the CATALOG, the
+bounds or the model — those are code in `src/agents.mjs`, and a name in a database
+column resolves against them or resolves to nothing.
+
+- **`OFFERED` IS THE CATALOG AND IT IS A POSITIVE LIST IN CODE.** `narrowTools`
+  looks a selection's names up in the agent's OWN tools, so a name nobody put in
+  that array is not a tool, whatever a request body, a column or an instruction
+  sheet says. **It may only ever REDUCE** — the rule `narrowLimits` follows one
+  module over.
+- **`AUTHORED.tools` IS THE CATALOG, NOT THE PERMISSIONS, and `authored: true` is
+  what says so.** For every other agent a tool list is what its runs get; for this
+  one it is the most any run may have. **The flag is read from CODE and never from
+  the log**, because `POST /runs` can name any registered agent with no snapshot at
+  all and such a run must get NOTHING rather than everything.
+- **TODAY THE CATALOG HOLDS `echo` ALONE, and that is the honest state of it.**
+  `wait` and `commit` are implemented and are deliberately not offered: the
+  stand-in answers them with the slow shape — `SLOW_ROUNDS` (8) tool calls —
+  against an authored budget of two, so **measured, such a run stops
+  `{reason: "spent", bound: "toolCalls"}` after one round and never answers.**
+  Offering one would be offering a control that always fails.
+- **⚠ AND THE BOUND HAD TO MOVE THE DAY A TOOL BECAME REACHABLE — MEASURED, not
+  reasoned about.** `toolCalls` was ONE, chosen as "the smallest number that lets
+  the run start" when the tool list was empty. It is a RUN TOTAL and `stoppedBy`
+  asks `used >= limit`, so one is a budget already spent the instant one call is
+  made: **an authored agent holding `echo` stopped
+  `{reason: "spent", bound: "toolCalls", limit: 1, used: 1}` after its tool call
+  and never reached the step that answers.** Zero let the run not start; one let it
+  not finish. It is **2**, and `steps` is **3** by this file's own older rule — the
+  one-tool shape really takes two steps, and a bound that is exactly the happy path
+  cannot tell the ordinary path from something having changed.
+- **THE SNAPSHOT IS READ AGAIN ON EVERY DELIVERY, exactly as the instructions
+  are.** A customer who unticks a tool while a run is going changes what the NEXT
+  run may call and never what this one may call. `startedEntry` carries `tools`
+  **present or absent, never null-as-a-value**: absent means "not an authored run",
+  `[]` means "an authored run allowed nothing", and `replay` reads a `tools` it
+  cannot parse as a PROBLEM — a run whose permissions are unknown is not resumed at
+  all.
+- **A RETIRED TOOL IS NAMED, NEVER DROPPED IN SILENCE.** `narrowTools` answers
+  `{agent, unknown}` and the runner logs `tools-gone`. A filter is a silent drop; a
+  check is a sentence.
+- **⚠ AND THE STAND-IN'S TOOL-USING ANSWER WAS UNLABELLED.** It answered
+  `stand-in answer. you said: …` with no `[simulated]` in it at all — invisible
+  while only verification agents reached that branch, and a customer-facing
+  unlabelled answer the moment a selection could put `echo` on an authored run. The
+  chrome's chip would still have said Simulated and the TEXT would not, and the text
+  is the half that survives being copied into an email. All three terminal answers
+  carry it now, and **a failed tool call is reported as a refusal rather than as the
+  tool's own reply** — `toolResultFor` puts the error in the same `result` field, so
+  a reader that ignores `ok` makes a blocked tool read exactly like a working one.
+
+### The database half
+
+`supabase/migrations/20260916120000_agent_settings_status_and_tools.sql`.
+
+- `agent.agents` gains `status` (`active | paused`, default `active` — **not a
+  guess**: an agent written before this column is one its owner expects to answer)
+  and `tools text[]` default `{}`.
+- **THE CONSTRAINT BOUNDS THE SHAPE AND THE CATALOG DECIDES THE MEANING.** At most
+  32 names, no NULL among them, each matching the provider's own grammar
+  (`[a-zA-Z0-9_-]{1,64}`, mirrored from `TOOL_NAME`). It deliberately does NOT
+  enforce that a name is a real tool (a CHECK cannot read code) or that the names
+  are distinct (a CHECK cannot hold a subquery, and a duplicate is harmless because
+  every reader builds a Set). **One stated limit**: the charset is checked over the
+  names JOINED BY COMMAS, so an element containing a comma reads as two and passes
+  — which is not a hole, because such a name matches no catalog tool.
+- **`agent_overview` gains both AT THE END, and Postgres requires it rather than
+  preferring it**: `create or replace view` may only APPEND columns. Tidying that
+  order is a broken deploy.
+- **THE ORDER IN `send_to_agent` IS THE WHOLE OF THE PAUSE'S CORRECTNESS.** The key
+  is asked as a READ first, so a retry of a press that already landed is absorbed
+  **however the agent is configured now**; only then is the status asked, and a
+  paused agent is refused with **nothing written at all** — no message, no run — so
+  the words stay in the box and the browser's retry key is still this press's key.
+  The probe decides only whether to refuse; the `on conflict` clause is still what
+  decides whether a message is written, because a read cannot see a twin in another
+  transaction.
+- **ONE COPY OF THE ABSORBED ANSWER, and it was two.** The probe and the race reach
+  the same fact and answering it twice meant two objects that could disagree — and
+  it made two of this repository's own SQL mutants ambiguous, which is the same
+  defect wearing a sweep's clothes.
+- `agent.authored_run()` carries the new bounds, **still censused both ways**
+  against the registry. That census is what turned the bound change from a number
+  somebody might have forgotten into a red run.
+
+### What was measured
+
+- **Real PostgreSQL 16 (`npm run test:pg`): 365 → 410 checks, 0 failed.** The
+  defaults on an insert that names neither column; every refusal the shape
+  constraint makes, each read for ITS OWN gate, with four controls; the selection
+  reaching the run's entry and surviving an edit afterwards; the paused refusal
+  writing nothing; the retry absorbed while paused; the run accepted before the
+  pause still on the queue with its log intact.
+- **`npm run verify:chat`: 67 → 94 checks, 0 failed** — the whole flow against a
+  real database through the real routes. Settings saved, re-read by a fresh list
+  call, and held in the database; the account next door seeing neither the agent nor
+  its settings and getting the same 404 a missing agent gets; a paused agent
+  refusing while its conversation stays whole; a run accepted before a pause
+  finishing; **a selected tool really executing** (the journal holds its `tool`
+  entry and the answer says which tool ran) **with the setting taken away between
+  the accept and the run**; and a made-up tool name refused by name.
+- **Suite 256 → 272**, `authored-run.test.mjs` 21 → 37.
+- **Sweep: 23 mutants, 23 killed, 0 survived, 0 never applied, 3 comment-only
+  controls survived.** Nine survived the first pass and **every one was a gap in the
+  new guards**; one more was measured INERT and replaced. Two things worth keeping:
+  - **`narrowTools` taking the SELECTION'S order was inert given today's catalog**
+    — one tool, so both orders are the same list. Closed with a two-tool agent built
+    by hand, because the property is about the list the provider is shown.
+  - **`defineAgent`'s `=== true` and the refusal above it are a DECLARED PAIR.**
+    Measured: with the refusal in place the only inputs reaching that line are an
+    absent key or a real boolean, and `!!` answers identically for all three. The
+    mutant on that line is the DIRECTION instead: `!== false` makes an absent key
+    mean authored, which narrows every code agent against its own tool list.
+- **SQL sweep (`scripts/sql-sweep-spec.mjs`, 92 → 105 mutants): the twelve new ones
+  run against a real PostgreSQL — 12 mutants, 12 killed, 0 survived, 0 never
+  applied, 5 comment-only controls survived.** One survived the first pass and it
+  was the racing-twin branch, which **the probe makes reachable only under real
+  concurrency**: a second press in the same call finds the row on the READ and
+  returns before the insert. Closed with a real second session — a twin that inserts
+  and holds its transaction open, so the probe sees nothing, the insert blocks on the
+  unique index, and `on conflict do nothing` is the only thing between one message
+  and two. **Its fixture collided with an id three hundred lines up** (`…ee0b` was
+  already `SBMSG`), so its first run read somebody else's row and reported a correct
+  product as broken; the ids are its own now and the case asserts they are unused
+  before it starts.
+  **FIVE OF THAT SPEC'S OWN ANCHORS WENT STALE IN THIS CHANGE** — `send_to_agent`
+  was restructured and `authored_run`'s bounds moved to a later migration — and
+  every one was re-anchored onto what moved.
+- **⚠ AND THE SWEEP SPEC ITSELF HAD A STALE ANCHOR NOBODY COULD SEE.**
+  `runner: a run whose agent is gone is retried for ever` was anchored on
+  `if (!agent)`, which the runner renamed to `registered` some time ago — so that
+  mutant was NOT FOUND and the property unswept, silently, because **the
+  generator's own pre-check only runs when somebody runs a sweep**. There is a case
+  for it now (`THE SWEEP SPEC'S ANCHORS ARE ALL STILL THERE`), and it **skips under
+  `MUTATION_SWEEP`** — measured, because while a mutant is applied its own anchor is
+  gone by construction, so the check failed for every mutant and reported every one
+  as KILLED. A false kill is worse than a false survivor: it says a property is
+  guarded when nothing asked. **The tell was all three comment-only controls coming
+  back killed at once.**
+
+### The deployment order, and it is one-way
+
+**THE MIGRATION GOES FIRST, and this one really is order-critical.** The site
+builder's list read asks for `status,tools` by name, so against a view that has not
+got them PostgREST answers 400 and every account's agent list fails — not
+degraded, refused. Apply the migration, then deploy.
+
+**THE TWO WORKERS ARE ORDER-FREE, checked rather than assumed.** If the site
+builder deploys first it starts writing `tools` into new entries and an old engine
+ignores the key, handing those runs `AUTHORED.tools` — which in the old engine is
+`[]`, so they get nothing, which is what they would have got anyway. If the engine
+deploys first it narrows against entries that carry no `tools`, which is `[]` by
+the fail-closed default. Neither order widens anything.
+
+**NOT PROVEN LIVE.** The migration has not been applied to any project and nothing
+here has run against the deployed Worker.

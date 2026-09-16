@@ -1073,6 +1073,22 @@ let agentMsgsErr = '';
 let agentDraft = null;
 let agentDraftFor = null;
 /**
+ * THE TOOL CATALOG, AS THE SERVER SENT IT — and `null` until it has.
+ *
+ * **THE BROWSER NEVER INVENTS AN ENTRY.** A selection is a list of names chosen
+ * from this list; the route refuses a name that is not in it, and the engine
+ * resolves a name it does not have to no tool at all. So what this holds is a
+ * DRAWING of the server's answer, never a source of truth about what exists.
+ *
+ * `null` (not asked yet) and `[]` (this platform offers none) are two answers, the
+ * same way `agentRows` separates loading from empty — and the empty one is a real
+ * branch rather than a decoration: a Worker that predates the catalog answers no
+ * `tools` key at all, which lands here as `[]` and draws a sentence saying so.
+ */
+let agentTools = null;
+/** Whether the settings just saved, for the one line that says so. */
+let agentSaved = false;
+/**
  * What is typed in each conversation's message box, KEYED BY AGENT.
  *
  * **IT WAS ONE STRING FOR THE WHOLE SCREEN**, which is a defect the moment a
@@ -1457,6 +1473,14 @@ async function agentsLoad(quiet) {
       agentErr = (j && j.error) || 'Couldn’t load your agents.';
     } else {
       agentRows = Array.isArray(j.agents) ? j.agents : [];
+      // THE CATALOG RIDES WITH THE LIST. Anything but a list is an empty catalog —
+      // an older Worker, a shape we cannot read — and the form says so honestly
+      // rather than drawing an empty box that reads as a rendering fault.
+      // ANYTHING BUT A LIST OF NAMED ENTRIES IS AN EMPTY CATALOG. `j.tools || []`
+      // would be right for an ABSENT key and wrong for a string or an object, which
+      // the form then tries to map over — a screen that throws where it should say
+      // there is nothing to allow.
+      agentTools = Array.isArray(j.tools) ? j.tools.filter((t) => t && typeof t.name === 'string') : [];
       agentState = 'ready';
       agentErr = '';
     }
@@ -1671,6 +1695,10 @@ function renderAgentsNow() {
     // thread: that would be a screen pretending the conversation still exists.
     if (!a) { agentThread = null; renderAgents(); return; }
     const msgs = Array.isArray(agentMsgs) ? agentMsgs : [];
+    // WHETHER THIS AGENT IS RESTING, off the row the server sent. The screen never
+    // decides it — `agentRow` fails closed on a status it cannot read, so a row from
+    // an older Worker draws the banner rather than a Send button that will refuse.
+    const rest = a.status === 'paused';
     const body = agentMsgsErr
       ? '<div class="ag-thread-empty">' +
           '<div class="ag-empty-t">Couldn’t load this conversation</div>' +
@@ -1715,10 +1743,28 @@ function renderAgentsNow() {
           '<textarea class="ag-send-in" id="agMsg" rows="1" maxlength="' + AGENT_MAX + '" ' +
             'data-agent="' + esc(a.id) + '" data-input="agent-msg" ' +
             'data-keydown="agent-send-key" placeholder="Message ' + esc(a.name) + '">' + esc(agentDraftOf(a.id)) + '</textarea>' +
-          '<button class="ag-send-btn" data-act="agent-send" aria-label="Send" title="Send"' + (agentBusy ? ' disabled' : '') + '>' +
+          '<button class="ag-send-btn" data-act="agent-send" aria-label="Send" ' +
+            'title="' + (rest ? 'This agent is paused' : 'Send') + '"' + ((agentBusy || rest) ? ' disabled' : '') + '>' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>' +
           '</button>' +
         '</div>' +
+        // ⚠ A PAUSE IS SAID BESIDE THE BOX — under it, where the failed-send line and
+        // the note about simulated answers already live, so every sentence about
+        // sending is in one place. What tells somebody BEFORE they type is the dead
+        // Send button; this says what a pause is NOT. The BOX STAYS ENABLED on purpose — whatever is half-written
+        // is still theirs, and disabling a textarea is how a draft gets lost — while
+        // the button is off, because the server will refuse the send and discovering
+        // that after typing is worse than being told before.
+        //
+        // **THE SERVER IS STILL THE ENFORCEMENT.** This is a courtesy: a screen that
+        // has not reloaded since somebody paused the agent elsewhere will still offer
+        // Send, and `agentSend` handles that refusal by keeping the words and the key.
+        (rest
+          ? '<div class="ag-paused">' +
+              '<div class="ag-paused-t">Paused, so it isn’t starting anything new. Everything you’ve said to it is still here, and anything already running will finish.</div>' +
+              '<button class="ag-retry" data-act="agent-edit" data-id="' + esc(a.id) + '">Open settings</button>' +
+            '</div>'
+          : '') +
         (agentActErr ? '<div class="ag-err ag-err-send">' + esc(agentActErr) + '</div>' : '') +
         // **SAID BEFORE YOU SEND, NOT AFTER**, and it is a different sentence now
         // that something does answer. What it must not do is let a stand-in read
@@ -1749,6 +1795,13 @@ function renderAgentsNow() {
     const draft = (agentDraft && agentDraftFor === agentEditing) ? agentDraft : null;
     const nameVal = draft ? draft.name : (cur ? cur.name : '');
     const instrVal = draft ? draft.instructions : (cur ? cur.instructions : '');
+    // ⚠ THE SETTINGS COME OFF THE DRAFT FIRST TOO, and that matters more here than
+    // for the text: a failed save that redrew an unticked box as ticked would tell
+    // somebody a permission was stored when it was refused. A NEW agent has no
+    // stored row, so its defaults are the honest ones — active, and nothing allowed.
+    const paused = draft ? draft.status === 'paused' : !!(cur && cur.status === 'paused');
+    const picked = draft ? draft.tools : ((cur && Array.isArray(cur.tools)) ? cur.tools : []);
+    const catalog = Array.isArray(agentTools) ? agentTools : [];
     view.innerHTML =
       '<div class="ag-page">' +
         '<div class="ag-head">' +
@@ -1761,15 +1814,50 @@ function renderAgentsNow() {
           '<label class="ag-lbl" for="agName">Name</label>' +
           '<input class="ag-in" id="agName" maxlength="' + AGENT_NAME_MAX + '" placeholder="Booking assistant" value="' + esc(nameVal) + '">' +
           '<label class="ag-lbl" for="agInstr">Instructions</label>' +
-          '<div class="ag-hint">What it does, how it should answer, and anything it must never do.</div>' +
+          '<div class="ag-hint">What it does, how it should answer, and anything it must never do. Its personality and tone belong in here too.</div>' +
           '<textarea class="ag-ta" id="agInstr" maxlength="' + AGENT_MAX + '" rows="10" ' +
             'placeholder="You answer questions about opening hours and take bookings. Ask for a date and a name before confirming anything. Never promise a time you have not checked.">' +
             esc(instrVal) + '</textarea>' +
+          // ── the tools it may use ────────────────────────────────────────
+          //
+          // **A CHECKBOX KEEPS ITS OWN STATE, so nothing here needs a handler and
+          // nothing re-renders while somebody makes up their mind** — which is what
+          // keeps the two boxes above from losing what is typed in them. `agentSave`
+          // reads the ticks out of the DOM.
+          '<label class="ag-lbl">Tools it may use</label>' +
+          (catalog.length
+            ? '<div class="ag-hint">Only what this platform really has. Nothing is allowed unless you tick it.</div>' +
+              '<div class="ag-tools">' + catalog.map((t) =>
+                '<label class="ag-tool">' +
+                  '<input type="checkbox" data-tool="' + esc(t.name) + '"' +
+                    (picked.indexOf(t.name) >= 0 ? ' checked' : '') + '>' +
+                  '<span class="ag-tool-m">' +
+                    '<span class="ag-tool-n">' + esc(t.label || t.name) + '</span>' +
+                    '<span class="ag-tool-d">' + esc(t.does || '') + '</span>' +
+                  '</span>' +
+                '</label>').join('') + '</div>'
+            // THE HONEST EMPTY STATE. It says what is true — there is nothing to
+            // allow yet — rather than drawing an empty list, which reads as a
+            // rendering fault, or a promise about when there will be.
+            : '<div class="ag-nothing">There are no tools to give an agent yet. When there are, they’ll be listed here and nothing will be allowed until you tick it.</div>') +
+          // ── whether it is taking work ───────────────────────────────────
+          '<label class="ag-lbl">Status</label>' +
+          '<label class="ag-check">' +
+            '<input type="checkbox" id="agPaused"' + (paused ? ' checked' : '') + '>' +
+            '<span class="ag-tool-m">' +
+              '<span class="ag-check-t">Paused</span>' +
+              '<span class="ag-tool-d">It keeps every conversation it has and finishes anything already running. It just won’t start anything new until you turn this off.</span>' +
+            '</span>' +
+          '</label>' +
           '<div class="ag-actions">' +
             '<button class="ag-save" data-act="agent-save"' + (agentBusy ? ' disabled' : '') + '>' + (agentBusy ? 'Saving…' : 'Save') + '</button>' +
-            '<button class="ag-cancel" data-act="agent-cancel">Cancel</button>' +
+            '<button class="ag-cancel" data-act="agent-cancel">' + (cur ? 'Back' : 'Cancel') + '</button>' +
             (cur ? '<button class="ag-del" data-act="agent-delete" data-id="' + esc(cur.id) + '">Delete</button>' : '') +
           '</div>' +
+          // SAVE FEEDBACK WHERE THE PERSON IS LOOKING. The form stays open, so
+          // "Saved" sits under the button they just pressed rather than on a screen
+          // they have been moved to.
+          (agentSaved && !agentActErr ? '<div class="ag-saved">Saved. These settings are on your account, so they’re the same wherever you sign in.</div>' : '') +
           '<div class="ag-err" id="agErr">' + esc(agentActErr) + '</div>' +
         '</div>' +
       '</div>';
@@ -1826,6 +1914,10 @@ function renderAgentsNow() {
                     '<span class="ag-name">' + esc(a.name || 'Untitled agent') + '</span>' +
                     '<span class="ag-line">' + esc(agentPreview(a)) + '</span>' +
                   '</span>' +
+                  // SAID ON THE ROW, because the list is where somebody wonders why an
+                  // agent has gone quiet. A word rather than a colour: ink is a
+                  // hierarchy and never a label.
+                  (a.status === 'paused' ? '<span class="ag-chip">Paused</span>' : '') +
                   '<span class="ag-when">' + esc(agentWhen(a.updated)) + '</span>' +
                   '<span class="ag-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>' +
                 '</button>').join('') + '</div>'
@@ -1930,6 +2022,11 @@ async function agentSend() {
   let failed = '';
   let saved = null;
   let mismatched = false;
+  // ⚠ A PAUSE IS ITS OWN OUTCOME AND IS NOT A FAILURE. The server wrote nothing at
+  // all — no message, no run — so the words are still this person's to send and the
+  // key is still this press's key. Reading it as a failure would be nearly right;
+  // what makes it worth its own flag is the SENTENCE, which has somewhere to go.
+  let resting = false;
   try {
     const res = await apiFetch('/api/agent/send', {
       method: 'POST',
@@ -1937,7 +2034,8 @@ async function agentSend() {
       body: JSON.stringify({ id: target, body: text, key }),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn\u2019t send that.';
+    if (j && j.paused) resting = true;
+    else if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn\u2019t send that.';
     // ⚠ ABSORBED UNDER THIS KEY, BUT NOT THIS TEXT. The server answers `ok` with the
     // message it really holds, so reading it as a plain success would clear the box and
     // throw the edit away — the defect this whole pairing closes, met from the server's
@@ -1957,7 +2055,11 @@ async function agentSend() {
   // would make the next press a different press, and a message the server may
   // already hold would be joined by a second copy with a second run — the lost
   // response case turned into the duplicate the key exists to prevent.
-  if (!failed && !mismatched) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); agentBoxClear(target, text); }
+  //
+  // A PAUSE CLEARS NEITHER, and that is the whole reason it is not folded into
+  // `failed`: nothing was committed, so the same press against a resumed agent must
+  // be the SAME press — same key, same words, one message.
+  if (!failed && !mismatched && !resting) { agentDraftDrop(target, bound.uid); agentKeyDrop(target, bound.uid); agentBoxClear(target, text); }
   // A MISMATCH KEEPS THE WORDS AND DROPS THE KEY, which is the opposite of a failure
   // and deliberately so: the old message is safe on the server, so the next press must
   // be a NEW press — the edited text as its own message — rather than a third attempt
@@ -1976,6 +2078,17 @@ async function agentSend() {
   }
 
   agentBusy = false;
+  // ⚠ SAID, AND THE LIST IS RE-READ RATHER THAN THE ROW BEING PATCHED HERE. The
+  // screen thought this agent was active, so it is out of date about more than this
+  // one field — and a status composed in this function would be a second writer of a
+  // fact the list already owns. The re-read is what draws the banner and takes the
+  // Send button away.
+  if (resting) {
+    agentActErr = 'This agent is paused, so it didn\u2019t start anything. Your message is still here — resume it in its settings and send again.';
+    renderAgents();
+    await agentsLoad(true);
+    return;
+  }
   if (failed) { agentActErr = failed; renderAgents(); return; }
   if (mismatched) {
     agentActErr = 'Your first message was already sent. Press send again to add this edited one.';
@@ -2014,17 +2127,48 @@ async function agentSend() {
  * wall (a request can be made without this screen), these are what make the
  * message immediate.
  */
-async function agentSave() {
+/**
+ * WHAT THE SETTINGS FORM CURRENTLY HOLDS, read out of the DOM.
+ *
+ * ⚠ THE TICKS ARE READ FROM THE CHECKBOXES AND NOT FROM THE DRAFT, and that is the
+ * whole reason the controls can be handler-free: a checkbox owns its own state, so
+ * the DOM is where somebody's latest answer is. Reading the draft instead would
+ * save whatever the form was DRAWN with and silently discard every tick since.
+ *
+ * `status` is two values and the control is one checkbox, so an absent element
+ * reads as `active` — which is the value a form that could not be read should not
+ * be able to invent a pause out of.
+ */
+function agentFormValues() {
   const nameEl = document.getElementById('agName');
   const instrEl = document.getElementById('agInstr');
-  const name = (nameEl ? nameEl.value : '').trim().slice(0, AGENT_NAME_MAX);
-  const instructions = (instrEl ? instrEl.value : '').trim().slice(0, AGENT_MAX);
+  const pausedEl = document.getElementById('agPaused');
+  const boxes = typeof document.querySelectorAll === 'function'
+    ? [...document.querySelectorAll('[data-tool]')] : [];
+  return {
+    name: (nameEl ? nameEl.value : '').trim().slice(0, AGENT_NAME_MAX),
+    instructions: (instrEl ? instrEl.value : '').trim().slice(0, AGENT_MAX),
+    status: (pausedEl && pausedEl.checked) ? 'paused' : 'active',
+    // ONLY WHAT IS TICKED, and each name off the box's own attribute rather than a
+    // label or a position — a name read out of the drawing is a name that changes
+    // when somebody rewords it.
+    tools: boxes.filter((el) => el.checked)
+                .map((el) => (el.getAttribute ? el.getAttribute('data-tool') : '') || '')
+                .filter(Boolean),
+  };
+}
+
+async function agentSave() {
+  const { name, instructions, status, tools } = agentFormValues();
   const say = (m) => { agentActErr = m; renderAgents(); };
   // KEPT BEFORE ANYTHING CAN FAIL, including the refusals below: `renderAgents`
   // rewrites the panel, so without this the words would be gone by the time the
-  // sentence appeared.
-  agentDraft = { name, instructions };
+  // sentence appeared. **ALL FOUR FIELDS, not just the two text ones** — a failed
+  // save that redrew an unticked box as ticked would say a permission was stored
+  // when it was refused.
+  agentDraft = { name, instructions, status, tools };
   agentDraftFor = agentEditing;
+  agentSaved = false;
   if (!name) { say('Give it a name first.'); return; }
   if (!instructions) { say('Say what it should do.'); return; }
 
@@ -2032,14 +2176,26 @@ async function agentSave() {
   const editing = bound.editing;
   agentBusy = true; agentActErr = ''; renderAgents();
   let failed = '';
+  // ⚠ DECLARED OUT HERE BECAUSE IT IS READ OUT HERE. `j` is `const` inside the try,
+  // so reading the created agent's id below the block is a `ReferenceError` that
+  // `node --check` cannot see — this repository's own temporal-dead-zone trap, met
+  // by putting the value where its reader is rather than reaching into a block.
+  let made = null;
   try {
     const res = await apiFetch(editing ? '/api/agent/update' : '/api/agent/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editing ? { id: editing, name, instructions } : { name, instructions }),
+      body: JSON.stringify(editing
+        ? { id: editing, name, instructions, status, tools }
+        // A NEW AGENT IS ACTIVE AND SAYS SO BY NOT SAYING IT: `status` is the
+        // column's own default on a create, because nobody writes an agent in order
+        // to pause it. The ticks DO go up, so a tool chosen while writing it is
+        // stored with the writing rather than needing a second save.
+        : { name, instructions, tools }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';
+    else if (j.agent && typeof j.agent.id === 'string') made = j.agent.id;
   } catch { failed = 'Couldn’t reach the server.'; }
 
   // THE COMPOSER MAY HAVE MOVED ON, or another account may be signed in. Closing
@@ -2055,9 +2211,16 @@ async function agentSave() {
     say(failed);
     return;
   }
+  // ⚠ THE FORM STAYS OPEN AND SAYS SO. It used to close onto the list, which is
+  // feedback of a sort and not one anybody reads as confirmation — "save feedback"
+  // has to be where the button was. A CREATE becomes an EDIT of what it just made,
+  // so the next press adjusts the same agent rather than making a second one.
   agentDraft = null;
   agentDraftFor = null;
-  agentEditing = null;
+  agentSaved = true;
+  // An id we cannot read leaves the composer rather than pretending: closing onto
+  // the list is the honest answer when we do not know what was made.
+  if (!editing) agentEditing = made;
   await agentsLoad(true);
 }
 

@@ -16,14 +16,20 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { defineAgent, defineTool, withInstructions, toolsFor, PUBLIC } from "../src/define.mjs";
+import { defineAgent, defineTool, withInstructions, narrowTools, toolsFor, PUBLIC } from "../src/define.mjs";
 import { planLimits, stoppedBy } from "../src/limits.mjs";
 import { startedEntry, replay, limitsToJson } from "../src/journal.mjs";
 import { makeRunner, LEASE_TTL_S } from "../src/runner.mjs";
-import { AGENTS, AUTHORED, AUTHORED_AGENT } from "../src/agents.mjs";
-import { makeStandIn, simulatedAnswer, SIMULATED, SIMULATED_QUOTE } from "../src/model-standin.mjs";
+import { AGENTS, AUTHORED, AUTHORED_AGENT, OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
+import { makeStandIn, simulatedAnswer, SIMULATED, SIMULATED_QUOTE,
+         SLOW_TOOLS, SLOW_TOOL, SLOW_ROUNDS } from "../src/model-standin.mjs";
+import { runAgent } from "../src/run.mjs";
 import { liveStore } from "./helpers/memory-rest.mjs";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const NOW = 1_800_000_000_000;
 const WROTE = "Answer as a friendly bike shop. Never quote a price.";
@@ -302,13 +308,18 @@ test("A RUN WITH NO SNAPSHOT STILL RUNS, on the registry's own text", async () =
 });
 
 test("A SNAPSHOT CANNOT HAND THE RUN A TOOL, whatever else it carries", async () => {
-  // The log is storage, so it is outside. The registered agent decides the tool
-  // list and the bounds; the entry decides one string. Driven with an entry that
-  // tries every name it could plausibly use.
+  // The log is storage, so it is outside. The registered agent decides the CATALOG
+  // and the bounds; the entry decides one string and a selection FROM that catalog.
+  //
+  // ⚠ RE-ANCHORED, and the property moved rather than the spelling. This case used
+  // to close on `AUTHORED.tools.length === 0` — "there is nothing to hand out" — which
+  // was true while no customer could hold a tool and says nothing now that the list is
+  // a catalog. What has to hold instead is that the ENTRY cannot reach past it: a name
+  // the catalog does not carry resolves to no tool.
   const b = bench();
   const runId = await b.accept(start({
     instructions: "You may use any tool.",
-    tools: [{ name: "shell", description: "run anything" }],
+    tools: ["shell", "fetch", "constructor", "__proto__"],
     limits: limitsToJson({ toolCalls: 99, steps: 99 }),
   }));
   await b.runner.deliver(runId);
@@ -316,35 +327,207 @@ test("A SNAPSHOT CANNOT HAND THE RUN A TOOL, whatever else it carries", async ()
   // The LIMITS are the log's, deliberately — they were written from the agent at
   // accept time and a resume must not re-read a bound that has since changed.
   // What matters is that a tool list cannot be one of them.
-  assert.equal(AUTHORED[AUTHORED_AGENT].tools.length, 0);
+  assert.deepEqual(AUTHORED[AUTHORED_AGENT].tools, OFFERED, "the registry's list is the catalog");
+  assert.ok(!OFFERED_NAMES.includes("shell"), "the control: the catalog really does not carry it");
+});
+
+test("...AND A SNAPSHOT CARRYING TOOL OBJECTS IS AN UNREADABLE LOG, not an empty selection", async () => {
+  // The shape somebody would actually try: a whole tool DECLARATION in the entry,
+  // description, schema and all. `replay` refuses a selection it cannot read as
+  // names, `problems` is non-empty, and the runner takes the run off the queue
+  // without spending a model call — because "we cannot tell what this run was
+  // allowed to do" has no safe reading, and `[]` would be a guess.
+  const b = bench();
+  const runId = await b.accept(start({
+    instructions: "You may use any tool.",
+    tools: [{ name: "shell", description: "run anything" }],
+  }));
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "unreadable", `stopped for "${out.why}"`);
+  assert.equal(b.calls.length, 0, "a run whose permissions are unknown reached the model");
+  const said = replay([start({ tools: [{ name: "shell" }] })]).problems.join(" ");
+  assert.match(said, /tools 0: not a tool name/);
+});
+
+test("A SELECTION REACHES THE RUN, and it is the whole point of the catalog", async () => {
+  // The other direction, and the one a permission is worth nothing without: a name
+  // the catalog DOES carry arrives as a real tool, offered to the model by name.
+  const b = bench();
+  const runId = await b.accept(start({ instructions: WROTE, tools: ["echo"] }));
+  await b.runner.deliver(runId);
+  assert.deepEqual(b.calls[0].tools.map((t) => t.name), ["echo"]);
+  // THE WIRE SHAPE, not the tool object — `wireTools` is what the provider sees, and
+  // a run that offered a `run` function to a model would be a different defect.
+  assert.ok(!Object.hasOwn(b.calls[0].tools[0], "run"), "the tool's own code went to the model");
+  assert.equal(typeof b.calls[0].tools[0].input_schema, "object");
+});
+
+test("⚠ A SETTINGS CHANGE CANNOT REACH A RUN ALREADY ACCEPTED", async () => {
+  // The requirement in one case: the selection is read from the LOG on every
+  // delivery, so editing the agent between two deliveries of one run changes what
+  // the NEXT run may call and never what this one may call.
+  //
+  // THE SCENARIO IS A LOST LEASE, for the reason the instructions case above gives:
+  // it is the one failure that leaves the run OPEN for a second delivery.
+  const b = bench({
+    answers: [async () => { b.advance(LEASE_TTL_S * 1000 + 1); await b.timer.fire(); return { text: "nobody may record this", toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 }; }],
+  });
+  const runId = await b.accept(start({ instructions: WROTE, tools: ["echo"] }));
+  assert.equal((await b.runner.deliver(runId)).why, "lease-lost");
+  assert.deepEqual(b.calls[0].tools.map((t) => t.name), ["echo"]);
+
+  // The customer unticks it. The only thing that could carry that to the run is a
+  // read of `agent.agents`, and there isn't one: the second delivery re-reads the
+  // entry, which nothing can edit.
+  await b.runner.deliver(runId);
+  assert.equal(b.calls.length, 2);
+  assert.deepEqual(b.calls[1].tools.map((t) => t.name), ["echo"],
+    "the second delivery did not re-read the run's own selection");
+});
+
+test("A RUN THAT NAMES A RETIRED TOOL SAYS SO AND STILL RUNS", async () => {
+  // A selection stored last month against a catalog that has since lost a tool. It
+  // is not a refusal — the tools that remain are still the customer's — but a
+  // capability that quietly stops working with nothing written down is how a
+  // retired tool becomes a mystery. A filter is a silent drop; a check is a sentence.
+  const events = [];
+  const b = bench();
+  const runner = makeRunner({
+    work: b.work, store: b.store, agents: AGENTS, timer: b.timer,
+    send: async (req) => { b.calls.push(req); return { text: "done", toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 }; },
+    now: () => NOW, nameWorker: () => "w", onError: () => {},
+    onEvent: (e) => events.push(e),
+  });
+  const runId = await b.accept(start({ instructions: WROTE, tools: ["echo", "retired-last-month"] }));
+  const out = await runner.deliver(runId);
+  assert.equal(out.why, "ran", out.error);
+  assert.deepEqual(b.calls[0].tools.map((t) => t.name), ["echo"], "the surviving tool was dropped too");
+  const said = events.find((e) => e.at === "tools-gone");
+  assert.ok(said, `nothing was said: ${events.map((e) => e.at).join(", ")}`);
+  assert.deepEqual(said.unknown, ["retired-last-month"]);
 });
 
 // ════════════════════════════════════════════════════════════════════════════
 // THE REGISTERED AGENT EVERY AUTHORED RUN EXECUTES UNDER
 // ════════════════════════════════════════════════════════════════════════════
 
-test("THE AUTHORED AGENT OFFERS NOTHING AND IS ALLOWED NOTHING", () => {
+test("THE AUTHORED AGENT'S TOOL LIST IS A CATALOG, and a run gets only what it was given", () => {
   const a = AUTHORED[AUTHORED_AGENT];
   assert.equal(AGENTS[AUTHORED_AGENT], a, "the registry does not carry it, so no request can name it");
-  assert.deepEqual(a.tools, []);
   assert.equal(a.model, "stand-in");
-  // ⚠ AND THE BOUND MUST NOT BE ZERO, which is the opposite of how it was first
-  // written. `toolCalls` is a RUN TOTAL and `stoppedBy` asks `used >= limit`, so a
-  // zero budget is a total already spent: the run would stop before its first
-  // model call with `{reason:"spent", bound:"toolCalls"}` and every authored agent
-  // would answer nothing. Asserted as the MEASUREMENT rather than as the number,
-  // so this says why rather than pinning a spelling.
-  assert.equal(stoppedBy(planLimits(a.limits), { steps: 0, toolCalls: 0, wallMs: 0, tokens: 0, costMicros: 0 }), null,
-    "the authored agent's own bounds stop it before it starts");
-  assert.deepEqual(
-    stoppedBy(planLimits({ ...a.limits, toolCalls: 0 }), { steps: 0, toolCalls: 0, wallMs: 0, tokens: 0, costMicros: 0 }),
-    { bound: "toolCalls", reason: "spent", limit: 0, used: 0 },
-    "the control: a zero total really is what bricks it");
-  // The tool LIST is the wall, and it is the only one. `toolsFor` is a positive
-  // list, so a name that is not in it can never be offered or dispatched.
-  const offered = toolsFor(a, ["every", "grant", "there", "is"]);
-  assert.deepEqual(offered.allowed, []);
-  assert.deepEqual(offered.withheld, [], "nothing is withheld because there was nothing to withhold");
+  // ⚠ RE-ANCHORED FROM `deepEqual(a.tools, [])`. That assertion was the wall while
+  // nothing could be selected; the wall now is `authored` plus the narrowing, and
+  // pinning the empty list would forbid the feature rather than guard it.
+  assert.equal(a.authored, true, "without this the runner would not narrow it at all");
+  assert.deepEqual(a.tools, OFFERED, "its list is the catalog");
+  // WHAT A RUN WITH NO SELECTION GETS — the old property, in the place it now lives.
+  assert.deepEqual(narrowTools(a, []).agent.tools, []);
+  // ...and every code agent is untouched by any of this.
+  for (const [name, agent] of Object.entries(AGENTS)) {
+    if (name === AUTHORED_AGENT) continue;
+    assert.equal(agent.authored, false, `${name} would be narrowed against its own list`);
+  }
+});
+
+test("EVERY CATALOG TOOL IS REALLY IMPLEMENTED AND REALLY PUBLIC", () => {
+  assert.ok(OFFERED.length > 0, "the catalog is empty, so every case below is vacuous");
+  assert.deepEqual(OFFERED_NAMES, OFFERED.map((t) => t.name), "the names are a second list rather than derived");
+  for (const t of OFFERED) {
+    // IMPLEMENTED means it came from `defineTool` and has code behind it — not a
+    // name in a list somewhere. "Only show tools actually implemented."
+    assert.equal(t.kind, "tool", `${t.name} did not come from defineTool`);
+    assert.equal(typeof t.run, "function", `${t.name} has no implementation`);
+    // ⚠ AND PUBLIC. The tenancy wall runs AFTER the narrowing and withholds anything
+    // the tenant has no grant for, so a scoped tool in the catalog would be one the
+    // settings screen offers, a customer ticks, and the run then silently withholds.
+    assert.equal(t.scope, PUBLIC, `${t.name} needs a grant, so the screen would promise what the run refuses`);
+  }
+  // Driven rather than argued: the tenancy wall allows the whole catalog for a
+  // tenant with NO grants at all, which is every tenant today.
+  const allowed = toolsFor(AUTHORED[AUTHORED_AGENT], undefined);
+  assert.deepEqual(allowed.allowed.map((t) => t.name), [...OFFERED_NAMES]);
+  assert.deepEqual(allowed.withheld, []);
+});
+
+test("⚠ THE SLOW TOOLS ARE OUT OF THE CATALOG, AND THE REASON IS MEASURED", async () => {
+  // They are implemented, they work, and an authored agent cannot complete one: the
+  // stand-in answers them with the SLOW shape — `SLOW_ROUNDS` tool calls — against an
+  // authored budget of `toolCalls`. Offering one would be offering a control that
+  // always fails, which is this repository's recorded dead-control finding.
+  for (const name of SLOW_TOOLS) {
+    assert.ok(!OFFERED_NAMES.includes(name), `${name} is offered to customers`);
+  }
+  assert.ok(SLOW_ROUNDS > AUTHORED[AUTHORED_AGENT].limits.toolCalls,
+    "the slow shape now fits the authored budget, so the exclusion needs re-deciding rather than keeping");
+  // THE MEASUREMENT, not the arithmetic: a slow tool really does stop such a run.
+  const slow = defineTool({
+    name: SLOW_TOOL, description: "d", scope: PUBLIC, repeatable: true,
+    input: { type: "object", properties: { ms: { type: "number" } }, required: ["ms"] },
+    run: async () => ({ waited: 1 }),
+  });
+  const agent = defineAgent({
+    name: AUTHORED_AGENT, model: "stand-in", instructions: WROTE, authored: true,
+    tools: [slow], limits: AUTHORED[AUTHORED_AGENT].limits,
+  });
+  const r = await runAgent({ agent, prompt: "go", tenant: { id: "t1" }, send: makeStandIn({ waitMs: 1 }) });
+  assert.equal(r.ok, false, "the slow shape finished inside the authored bounds");
+  assert.equal(r.stop.reason, "spent");
+  assert.equal(r.stop.bound, "toolCalls");
+});
+
+test("⚠ THE `toolCalls` BUDGET MUST EXCEED THE SPEND, and one is not enough for one call", async () => {
+  // The bound moved from 1 to 2 the day a tool became reachable, and this is why.
+  // `toolCalls` is a RUN TOTAL and `stoppedBy` asks `used >= limit`, so a budget of
+  // one is a budget already spent the instant one call is made — the run stops
+  // BEFORE the step that answers. Zero let it not start; one let it not finish.
+  // Both were found by driving it.
+  const agent = (toolCalls) => defineAgent({
+    name: AUTHORED_AGENT, model: "stand-in", instructions: WROTE, authored: true,
+    tools: [...OFFERED], limits: { ...AUTHORED[AUTHORED_AGENT].limits, toolCalls },
+  });
+  const run = (toolCalls) => runAgent({ agent: agent(toolCalls), prompt: "when do you open?", tenant: { id: "t1" }, send: makeStandIn() });
+
+  const one = await run(1);
+  assert.equal(one.ok, false, "a budget of one completed a run that makes one call");
+  assert.deepEqual(one.stop, { reason: "spent", bound: "toolCalls", limit: 1, used: 1 });
+
+  // The agent as it is really declared, answering.
+  const real = await runAgent({
+    agent: defineAgent({ name: AUTHORED_AGENT, model: "stand-in", instructions: WROTE, authored: true,
+                         tools: [...OFFERED], limits: AUTHORED[AUTHORED_AGENT].limits }),
+    prompt: "when do you open?", tenant: { id: "t1" }, send: makeStandIn(),
+  });
+  assert.equal(real.ok, true, real.stop && JSON.stringify(real.stop));
+  assert.equal(real.used.toolCalls, 1, "the shape under test is not one tool call");
+  assert.ok(AUTHORED[AUTHORED_AGENT].limits.toolCalls > real.used.toolCalls,
+    "the declared budget equals the spend, so the next tool-using run stops instead of answering");
+  // AND THE ANSWER SAYS WHICH TOOL RAN, which is how a selection is checkable from
+  // outside the journal.
+  assert.match(real.text, /It used the echo tool, which answered: "when do you open\?"/);
+  assert.ok(real.text.startsWith(SIMULATED), real.text);
+});
+
+test("A TOOL-USING ANSWER IS LABELLED TOO — the branch that was not", () => {
+  // Until a customer could hold a tool this shape answered `stand-in answer. you
+  // said: …` with no `[simulated]` in it at all: invisible while only verification
+  // agents reached it, and a customer-facing unlabelled answer the moment a
+  // selection could put `echo` on an authored run. The chrome's chip would still
+  // have said Simulated and the TEXT would not — and the text is the half that
+  // survives being copied into an email.
+  const withTool = simulatedAnswer({
+    system: WROTE, messages: [{ role: "user", content: "hi" }],
+    tool: { name: "echo", said: "hi" },
+  });
+  assert.ok(withTool.startsWith(SIMULATED), withTool);
+  // A FAILED CALL IS NOT AN ANSWER. `toolResultFor` puts the error in the same
+  // field, so reading it without `ok` presents "not permitted for this tenant" as
+  // the tool's own reply — a blocked tool reading like a working one.
+  const refused = simulatedAnswer({
+    system: WROTE, messages: [{ role: "user", content: "hi" }],
+    tool: { name: "echo", said: "echo: no such tool", failed: true },
+  });
+  assert.match(refused, /tried the echo tool and could not use it/);
+  assert.ok(!/which answered/.test(refused), "a refusal was reported as an answer");
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -421,15 +604,44 @@ test("IT REPORTS USAGE AND COST, so the meters and the budget are exercised rath
 // them equal, in BOTH directions, because a copy without a census is how a bound
 // gets tightened in one place for a year.
 
-const SQL = readFileSync(new URL("../supabase/migrations/20260916031604_agent_send_starts_a_run.sql", import.meta.url), "utf8");
+/**
+ * THE MIGRATION THAT LAST DEFINED A THING, found rather than named.
+ *
+ * ⚠ THIS WAS A HARDCODED FILENAME and it had to stop being one. An applied
+ * migration is immutable history: the day a later one redefines
+ * `agent.authored_run()`, a census pinned to the earlier file goes on comparing the
+ * registry against a body the database no longer runs — passing while the two have
+ * drifted, which is the one direction a census must never fail in. So the newest
+ * file that CREATES the thing is the one that decides, which is also how Postgres
+ * decides.
+ *
+ * `readdirSync().sort()` is the order, because these names are timestamp-prefixed
+ * and therefore sort chronologically by construction — the same property the
+ * migration runner relies on.
+ */
+function latestSql(needle) {
+  const dir = new URL("../supabase/migrations/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+  assert.ok(files.length > 0, "there are no migrations to read");
+  let found = null;
+  for (const f of files) {
+    const text = readFileSync(new URL(f, dir), "utf8");
+    if (text.includes(needle)) found = { file: f, text };
+  }
+  assert.ok(found, `no migration contains ${needle}`);
+  return found.text;
+}
+
+const SQL = latestSql("create or replace function agent.send_to_agent(");
+const RUN_SQL = latestSql("create or replace function agent.authored_run()");
 
 /** What `agent.authored_run()` answers, read out of the migration's own body. */
 function authoredRunSql() {
-  const at = SQL.indexOf("create or replace function agent.authored_run()");
+  const at = RUN_SQL.indexOf("create or replace function agent.authored_run()");
   assert.ok(at > 0, "agent.authored_run() is not in the migration");
-  const end = SQL.indexOf("$$;", at);
+  const end = RUN_SQL.indexOf("$$;", at);
   assert.ok(end > at, "the function body does not close");
-  const body = SQL.slice(at, end);
+  const body = RUN_SQL.slice(at, end);
   const str = (k) => {
     const m = body.match(new RegExp(`'${k}',\\s*'([^']+)'`));
     assert.ok(m, `${k} is not in agent.authored_run()`);
@@ -525,9 +737,192 @@ test("THE SQL BUILDS THE SAME ENTRY SHAPE `startedEntry` DOES", () => {
   const js = new Set(Object.keys(startedEntry({
     at: NOW, tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in", prompt: "p",
     limits: limitsToJson(AUTHORED[AUTHORED_AGENT].limits),
-    instructions: WROTE, history: [], authoredAgent: "a-1", message: "m-1",
+    instructions: WROTE, history: [], tools: [], authoredAgent: "a-1", message: "m-1",
   })));
 
   assert.deepEqual([...named].sort(), [...js].sort(),
     "the two producers of a started entry do not agree about its fields");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// `narrowTools` DRIVEN DIRECTLY — every survivor of the first sweep pass
+// ════════════════════════════════════════════════════════════════════════════
+
+const two = (names) => defineAgent({
+  name: "authored", model: "stand-in", instructions: "placeholder", authored: true,
+  tools: names.map((n) => defineTool({
+    name: n, description: "d", scope: PUBLIC, repeatable: true,
+    input: { type: "object", properties: {}, required: [] }, run: async () => ({}),
+  })),
+  limits: { steps: 2, toolCalls: 2, wallMs: 60_000 },
+});
+
+test("narrowTools TAKES THE AGENT'S ORDER, NEVER THE SELECTION'S", () => {
+  // ⚠ A TWO-TOOL AGENT IS WHAT MAKES THIS OBSERVABLE AT ALL. The registry's catalog
+  // holds one tool today, so the two orders are the same list and a mutant that took
+  // the caller's order SURVIVED every case here — inert given the catalog, and not
+  // inert given the next one. The tool list goes to the provider in this order, so
+  // taking it from a stored column would let a selection decide how the model sees
+  // its tools, which is not a thing anybody meant to make configurable.
+  const a = two(["alpha", "beta"]);
+  assert.deepEqual(narrowTools(a, ["beta", "alpha"]).agent.tools.map((t) => t.name), ["alpha", "beta"]);
+  assert.deepEqual(narrowTools(a, ["alpha", "beta"]).agent.tools.map((t) => t.name), ["alpha", "beta"]);
+  // And a subset is still the agent's own order.
+  assert.deepEqual(narrowTools(a, ["beta"]).agent.tools.map((t) => t.name), ["beta"]);
+});
+
+test("narrowTools REFUSES A SELECTION THAT IS NOT A LIST, rather than reading it as none", () => {
+  // The module's own law: refuse rather than repair. A caller with nothing to apply
+  // passes `[]` and means it; a caller that lost its snapshot must be told, because
+  // reading that as "no tools" would be right by luck and as "every tool" would be a
+  // widening — neither is a guess this function should make.
+  const a = two(["alpha"]);
+  for (const bad of ["alpha", null, undefined, 7, { 0: "alpha" }, new Set(["alpha"])]) {
+    assert.throws(() => narrowTools(a, bad), /names must be an array/,
+      `${JSON.stringify(bad)} was read as a selection`);
+  }
+  assert.throws(() => narrowTools({ kind: "agent" }, []), /must come from defineAgent/);
+  // THE CONTROL: an empty list is a real answer and is not refused.
+  assert.deepEqual(narrowTools(a, []).agent.tools, []);
+});
+
+test("...and a name that is not text is never reported as a retired tool", () => {
+  // `unknown` becomes a sentence somebody reads — "this agent names a tool this
+  // deployment no longer has" — so a number or an object in it is a wrong sentence
+  // about a caller bug of a different kind. It cannot match a tool either way, which
+  // is why nothing above catches it.
+  const got = narrowTools(two(["alpha"]), ["alpha", 7, null, {}, ["alpha"]]);
+  assert.deepEqual(got.agent.tools.map((t) => t.name), ["alpha"]);
+  assert.deepEqual(got.unknown, [], "a non-name was named as a missing tool");
+  // ...and a real missing name still is.
+  assert.deepEqual(narrowTools(two(["alpha"]), ["gone"]).unknown, ["gone"]);
+});
+
+test("`authored` IS REFUSED RATHER THAN COERCED, and the two walls are one property", () => {
+  // **A TRUTHY STRING IS THE CASE THAT MATTERS AND IT FAILS THE DANGEROUS WAY.** With
+  // the refusal gone, `spec.authored === true` reads `"true"` as FALSE — so an agent
+  // meant to be authored is not narrowed at all and every run of it holds the whole
+  // catalog. With the refusal in place, the `=== true` and a `!!` are identical for
+  // every input that can reach them, which is why the coercion mutant is inert and
+  // declared so beside it: the refusal is the wall and the comparison is the belt.
+  for (const bad of ["true", "false", 1, 0, "", null, {}, []]) {
+    assert.throws(() => defineAgent({
+      name: "x", model: "m", instructions: "i", authored: bad,
+    }), /authored must be true or false/, `${JSON.stringify(bad)} was accepted`);
+  }
+  // THE CONTROLS: both real answers, and absence is the ordinary one.
+  assert.equal(defineAgent({ name: "x", model: "m", instructions: "i", authored: true }).authored, true);
+  assert.equal(defineAgent({ name: "x", model: "m", instructions: "i", authored: false }).authored, false);
+  assert.equal(defineAgent({ name: "x", model: "m", instructions: "i" }).authored, false);
+});
+
+test("A SELECTION THE LOG CANNOT BE READ FOR IS A PROBLEM, never an empty one", () => {
+  // ⚠ AND A STRING IS THE SHAPE THAT PROVES IT, because a string has a `length` and
+  // indexes into single characters: read as a list, `"echo"` becomes the four tool
+  // names `e`, `c`, `h`, `o` — not an empty selection, and not a refusal either.
+  const junk = replay([start({ tools: "echo" })]);
+  assert.equal(junk.tools, null);
+  assert.match(junk.problems.join(" "), /tools is not a list/);
+  for (const bad of [7, {}, true]) {
+    assert.ok(replay([start({ tools: bad })]).problems.length, `${JSON.stringify(bad)} was read as a selection`);
+  }
+  // THE CONTROL: a real list is no problem at all.
+  assert.deepEqual(replay([start({ tools: ["echo"] })]).problems, []);
+});
+
+test("⚠ AN AUTHORED RUN WHOSE ENTRY NAMES NO TOOLS MAY CALL NOTHING", async () => {
+  // Every run accepted before the selection existed is this shape, and it is the one
+  // place a widening could arrive by omission rather than by intent: the registered
+  // agent's list is the CATALOG, so skipping the narrowing when there is nothing to
+  // narrow hands such a run every tool there is. It gets none.
+  const b = bench();
+  const runId = await b.accept(start({ instructions: WROTE }));   // no `tools` key at all
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "ran", out.error);
+  assert.deepEqual(b.calls[0].tools, [], "a run with no tool snapshot was handed the catalog");
+  // THE CONTROL that makes it evidence: the same run WITH a selection gets it.
+  const c = bench();
+  const withOne = await c.accept(start({ instructions: WROTE, tools: [...OFFERED_NAMES] }));
+  await c.runner.deliver(withOne);
+  assert.deepEqual(c.calls[0].tools.map((t) => t.name), [...OFFERED_NAMES]);
+});
+
+test("EVERY TERMINAL ANSWER THE STAND-IN CAN GIVE IS LABELLED, all three of them", async () => {
+  // Driven through `makeStandIn` rather than through `simulatedAnswer`, because the
+  // label's job is to be in what a CUSTOMER reads and the three branches compose
+  // their text separately. The slow shape is reached only by the verification agents
+  // today, which is exactly why it was the one left unlabelled.
+  const send = makeStandIn({ rounds: 1, waitMs: 1 });
+  const askAt = (step, tools, messages) => send({ step, tools, system: WROTE, messages });
+
+  const none = await askAt(1, [], [{ role: "user", content: "hi" }]);
+  assert.ok(none.text.startsWith(SIMULATED), none.text);
+
+  const slow = await askAt(2, [{ name: SLOW_TOOL }], [
+    { role: "user", content: "hi" },
+    { role: "tool", content: [{ id: "c1", name: SLOW_TOOL, ok: true, result: { waited: 5 } }] },
+  ]);
+  assert.ok(slow.text.startsWith(SIMULATED), slow.text);
+  assert.match(slow.text, /worked through 1 stages over 5 ms/);
+
+  const used = await askAt(2, [{ name: "echo" }], [
+    { role: "user", content: "hi" },
+    { role: "tool", content: [{ id: "c1", name: "echo", ok: true, result: { echoed: "hi" } }] },
+  ]);
+  assert.ok(used.text.startsWith(SIMULATED), used.text);
+  assert.match(used.text, /It used the echo tool, which answered: "hi"/);
+
+  // ⚠ AND A REFUSED CALL IS NOT AN ANSWER. `toolResultFor` puts the error in the same
+  // `result` field, so a reader that ignores `ok` presents "not permitted for this
+  // tenant" as the tool's own reply — a blocked tool reading exactly like a working
+  // one, which is the one way this can mislead rather than go quiet.
+  const refused = await askAt(2, [{ name: "echo" }], [
+    { role: "user", content: "hi" },
+    { role: "tool", content: [{ id: "c1", name: "echo", ok: false, result: "echo: not permitted for this tenant" }] },
+  ]);
+  assert.match(refused.text, /tried the echo tool and could not use it: echo: not permitted/);
+  assert.ok(!/which answered/.test(refused.text), "a refusal was reported as an answer");
+  assert.ok(refused.text.startsWith(SIMULATED), refused.text);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE SWEEP'S OWN SPEC
+// ════════════════════════════════════════════════════════════════════════════
+
+test("⚠ THE SWEEP SPEC'S ANCHORS ARE ALL STILL THERE", (t) => {
+  // **THE THING THAT RUNS YOUR GUARDS IS NOT ITSELF GUARDED UNLESS SOMEBODY WRITES
+  // IT DOWN**, and this is that, for the mutation spec. Every mutant is anchored on
+  // a literal line of source; a rename moves the line and the mutant becomes NOT
+  // FOUND — an unswept property, in silence, because the generator's own pre-check
+  // only runs when somebody runs a sweep.
+  //
+  // MEASURED: `runner: a run whose agent is gone is retried for ever` had been
+  // anchored on `if (!agent)` since before that local was renamed to `registered`.
+  // The property was unswept and nothing said so, because no sweep had been run
+  // since. Running the generator is the whole check — it refuses to emit a spec
+  // whose anchors are missing, ambiguous, or equal to their replacement.
+  // ⚠ NOT UNDER A SWEEP. While a mutant is applied its own anchor is gone by
+  // construction, so this check fails for every mutant and reports every one as
+  // KILLED — the whole sweep green and meaningless. The subject here is the
+  // COMMITTED tree, which a sweep deliberately is not. MEASURED: all three
+  // comment-only controls came back killed at once, which is the tell.
+  if (process.env.MUTATION_SWEEP) { t.skip("the tree is deliberately mutated"); return; }
+  // BOTH GENERATORS, because both hold anchors and both went stale: the SQL spec had
+  // FIVE missing anchors after `send_to_agent` was restructured and `authored_run`'s
+  // bounds moved to a later migration, and nothing said so until a sweep was run.
+  const gen = (script) => {
+    const out = spawnSync(process.execPath,
+      [fileURLToPath(new URL(`../scripts/${script}`, import.meta.url)),
+       join(mkdtempSync(join(tmpdir(), "spec-")), "spec.json")],
+      { encoding: "utf8" });
+    assert.equal(out.status, 0, `${script}: ${out.stdout}${out.stderr}`);
+    // AND THE OBSERVER IS PROVED ALIVE: a generator that emitted nothing would exit 0
+    // just as happily.
+    const n = /(\d+) (?:SQL )?mutants \((\d+) controls?\)/.exec(out.stdout);
+    assert.ok(n, `${script} said nothing about what it wrote: ${out.stdout}`);
+    assert.ok(Number(n[1]) > 50, `${script} is ${n[1]} mutants, so it is not the whole spec`);
+    assert.ok(Number(n[2]) >= 2, `${script}: a sweep with fewer than two controls cannot check its own honesty`);
+  };
+  gen("sweep-spec.mjs");
+  gen("sql-sweep-spec.mjs");
 });

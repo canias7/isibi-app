@@ -1298,6 +1298,16 @@ try {
   // model call and an authored agent would answer nothing at all.
   check("...with a tool budget the engine can actually start on",
     jget(`select (agent.authored_run() -> 'limits' ->> 'toolCalls')::int > 0;`) === "t");
+  // ⚠ AND IT MUST EXCEED ONE CALL, NOT MERELY BE ABOVE ZERO. `stoppedBy` asks
+  // `used >= limit`, so a budget of one is a budget already spent the instant one
+  // call is made: MEASURED in the engine's own suite, an authored agent holding a
+  // tool stopped `{reason:"spent", bound:"toolCalls", limit:1, used:1}` after its
+  // call and never reached the step that answers. Zero let the run not start; one
+  // let it not finish.
+  check("...and enough of one that a run which calls a tool can still answer",
+    jget(`select (agent.authored_run() -> 'limits' ->> 'toolCalls')::int > 1;`) === "t",
+    jget(`select agent.authored_run() -> 'limits' ->> 'toolCalls';`));
+
 
   const forged = send(SA, MSG2, "again", "key-2", R2);
   check("a second send starts a second run", /"ok"\s*:\s*true/.test(forged), forged);
@@ -1624,6 +1634,196 @@ try {
   check("...and the thread still draws it, with the answer gone rather than the message",
     jget(`select body || '|' || coalesce(run_status,'<null>') || '|' || coalesce(run_stop ->> 'text','<null>')
            from agent.agent_thread where id='${MSG1}';`) === "when do you open?|<null>|<null>");
+
+  // ── the agent's settings, and what a run is allowed ──────────────────────
+  //
+  // Two columns and a refusal. What is proved here cannot be proved anywhere else:
+  // a CHECK constraint, a default applied to rows that already existed, and a
+  // function's behaviour when it must refuse without writing anything.
+  console.log("\n── settings: a status and a selection of tools ──");
+  const SN  = "5a5a5a5a-0000-4000-8000-00000000a0a9";   // t1's agent that named neither column
+  const SP  = "5a5a5a5a-0000-4000-8000-00000000a0aa";   // t1's paused agent
+  const ST  = "5a5a5a5a-0000-4000-8000-00000000a0bb";   // t1's agent with a tool
+  const MSG6 = "5a5a5a5a-0000-4000-8000-00000000ee06";
+  const MSG7 = "5a5a5a5a-0000-4000-8000-00000000ee07";
+  const MSG8 = "5a5a5a5a-0000-4000-8000-00000000ee08";
+  const R6  = "5a5a5a5a-0000-4000-8000-00000000fa06";
+  const R7  = "5a5a5a5a-0000-4000-8000-00000000fa07";
+  const R8  = "5a5a5a5a-0000-4000-8000-00000000fa08";
+
+  // AN INSERT THAT NAMES NEITHER COLUMN IS THE CASE THE DEFAULTS ARE FOR, and it is
+  // every agent on the platform: the writer that creates one does not know about
+  // these columns. **`active` IS NOT A GUESS** — an agent somebody wrote before this
+  // migration is one they expect to answer, and defaulting to `paused` would have
+  // stopped every conversation there is.
+  allowed("an agent inserted without naming either column",
+    `insert into agent.agents (id, tenant_id, name, instructions)
+      values ('${SN}','t1','Older',${shq(INSTR)});`, asWriter);
+  check("...is active",
+    jget(`select status from agent.agents where id='${SN}';`) === "active");
+  check("...and one that named no tools may call nothing",
+    jget(`select coalesce(array_length(tools,1),0)::text from agent.agents where id='${SN}';`) === "0");
+  check("...with an empty selection rather than a null one, so there is no unknown state",
+    // `::text` ON A BOOLEAN IS `true`, NOT `t` — psql's own `-t -A` rendering of an
+    // uncast boolean is the single letter, and the cast asks Postgres for the word.
+    // Compared against the wrong one, this read as a NULL selection on a column that
+    // cannot hold one.
+    jget(`select (tools is not null)::text from agent.agents where id='${SN}';`) === "true");
+
+  // ── the shape constraint ─────────────────────────────────────────────────
+  // What it enforces is a SHAPE. Whether a name is a real tool is decided by a
+  // positive lookup in code, so these refusals are about what could never be sent
+  // to a model at all.
+  refused("a status the schema does not know is refused",
+    `update agent.agents set status='retired' where id='${SN}';`,
+    "agents_status_check", asWriter);
+  refused("...and so is an empty one",
+    `update agent.agents set status='' where id='${SN}';`,
+    "agents_status_check", asWriter);
+  refused("a tool name outside the provider's own grammar is refused",
+    `update agent.agents set tools=array['echo','has a space'] where id='${SN}';`,
+    "agents_tools_shape", asWriter);
+  refused("...and a NULL among the names is refused rather than stored",
+    `update agent.agents set tools=array['echo',null]::text[] where id='${SN}';`,
+    "agents_tools_shape", asWriter);
+  refused("...and a name longer than a provider accepts",
+    `update agent.agents set tools=array[repeat('e',65)] where id='${SN}';`,
+    "agents_tools_shape", asWriter);
+  refused("...and more names than one agent may hold",
+    `update agent.agents set tools=(select array_agg('t' || g) from generate_series(1,33) g) where id='${SN}';`,
+    "agents_tools_shape", asWriter);
+  // THE CONTROLS, without which a table that refused every update would pass all six.
+  allowed("the control: a real selection is stored", `update agent.agents set tools=array['echo'] where id='${SN}';`, asWriter);
+  allowed("...and pausing is allowed", `update agent.agents set status='paused' where id='${SN}';`, asWriter);
+  allowed("...and so is resuming", `update agent.agents set status='active', tools='{}'::text[] where id='${SN}';`, asWriter);
+  // AND THE LIMIT IS THE STATED ONE, at its boundary rather than one either side.
+  allowed("...and exactly the ceiling is allowed",
+    `update agent.agents set tools=(select array_agg('t' || g) from generate_series(1,32) g) where id='${SN}';`, asWriter);
+  psql(`update agent.agents set tools='{}'::text[] where id='${SN}';`, asWriter);
+
+  // ── the selection reaches the run's own log ──────────────────────────────
+  allowed("an agent with a tool selected",
+    `insert into agent.agents (id, tenant_id, name, instructions, tools)
+      values ('${ST}','t1','Tooled',${shq(INSTR)},array['echo']);`, asWriter);
+  const tooled = send(ST, MSG6, "check the pipe", "key-tools", R6);
+  check("its send is accepted", /"ok"\s*:\s*true/.test(tooled), tooled);
+  check("⚠ and the run's first entry records the selection, so a later edit cannot reach it",
+    jget(`select (body -> 'tools')::text from agent.run_entries where run_id='${R6}' and seq=0;`) === '["echo"]');
+  // THE CONTROL that makes that line evidence: an agent with nothing ticked records
+  // an EMPTY list, not an absent key — "allowed nothing" and "not an authored run"
+  // are different facts and the engine reads them differently.
+  const bare = send(SN, MSG7, "and this one", "key-bare", R7);
+  check("...and an agent with nothing ticked records an empty list rather than no key",
+    jget(`select (body -> 'tools')::text || '|' || (body ? 'tools')::text
+           from agent.run_entries where run_id='${R7}' and seq=0;`) === "[]|true", bare);
+  // AND THE EDIT REALLY CANNOT REACH IT. The column moves; the log does not.
+  psql(`update agent.agents set tools='{}'::text[] where id='${ST}';`, asWriter);
+  check("...and unticking it afterwards leaves the accepted run's own record alone",
+    jget(`select (body -> 'tools')::text from agent.run_entries where run_id='${R6}' and seq=0;`) === '["echo"]');
+  check("...while the agent itself now says what it says now",
+    jget(`select coalesce(array_length(tools,1),0)::text from agent.agents where id='${ST}';`) === "0");
+
+  // ── a paused agent refuses new work and cancels none ─────────────────────
+  allowed("a paused agent",
+    `insert into agent.agents (id, tenant_id, name, instructions, status)
+      values ('${SP}','t1','Resting',${shq(INSTR)},'paused');`, asWriter);
+  const paused = send(SP, MSG8, "are you there?", "key-paused", R8);
+  check("the send is refused, and the refusal names itself",
+    /"ok"\s*:\s*false/.test(paused) && /"error"\s*:\s*"paused"/.test(paused), paused);
+  // ⚠ AND NOTHING AT ALL WAS WRITTEN. Saving the words would put a question in the
+  // conversation that nothing will ever answer, and would spend the browser's own
+  // retry key on it — so the typed text stays in the box instead.
+  check("...and no message was stored",
+    jget(`select count(*) from agent.agent_messages where id='${MSG8}';`) === "0");
+  check("...and no run was accepted",
+    jget(`select count(*) from agent.runs where id='${R8}';`) === "0");
+  check("...and nothing reached the queue",
+    jget(`select count(*) from agent.run_work where run_id='${R8}';`) === "0");
+  // THE CONTROL: resuming it makes the same send work, so the refusal was the
+  // status and not something else about this agent.
+  psql(`update agent.agents set status='active' where id='${SP}';`, asWriter);
+  const resumed = send(SP, MSG8, "are you there?", "key-paused", R8);
+  check("the control: resuming it lets the same press through",
+    /"ok"\s*:\s*true/.test(resumed) && /"repeat"\s*:\s*false/.test(resumed), resumed);
+
+  // ⚠ A RETRY OF A PRESS THAT ALREADY LANDED IS STILL ABSORBED WHILE PAUSED — and
+  // this is the order the whole pause rests on. The key is asked as a READ before
+  // the status is asked, so a press whose answer was lost is answered with what it
+  // produced however the agent is configured now. Refusing it would tell somebody
+  // their message failed while it was being worked on, and would leave the
+  // conversation showing it twice.
+  psql(`update agent.agents set status='paused' where id='${SP}';`, asWriter);
+  const pausedRetry = send(SP, "5a5a5a5a-0000-4000-8000-00000000ee09", "are you there?", "key-paused",
+                     "5a5a5a5a-0000-4000-8000-00000000fa09");
+  check("a retry of a press that landed is absorbed even though the agent is paused",
+    /"ok"\s*:\s*true/.test(pausedRetry) && /"repeat"\s*:\s*true/.test(pausedRetry), pausedRetry);
+  check("...answering the message it really made",
+    new RegExp(`"message_id"\\s*:\\s*"${MSG8}"`).test(pausedRetry), pausedRetry);
+  check("...and the run it really started",
+    new RegExp(`"run_id"\\s*:\\s*"${R8}"`).test(pausedRetry), pausedRetry);
+  check("...while minting nothing new",
+    jget(`select count(*) from agent.runs where id='5a5a5a5a-0000-4000-8000-00000000fa09';`) === "0");
+  // AND A PAUSE CANCELS NOTHING. The run accepted before the pause is untouched:
+  // still on the queue, still with its log, because a pause blocks new work and
+  // stopping work already asked for would be cancellation wearing a pause's clothes.
+  check("⚠ and the run accepted before the pause is still there to be run",
+    jget(`select count(*) from agent.run_work where run_id='${R8}' and done_at is null;`) === "1");
+  check("...with its log intact",
+    jget(`select count(*) from agent.run_entries where run_id='${R8}';`) === "1");
+  check("...and its message still in the conversation",
+    jget(`select body from agent.agent_messages where id='${MSG8}';`) === "are you there?");
+
+  // ── two presses racing, in two transactions ──────────────────────────────
+  //
+  // ⚠ **THE PROBE MAKES THIS BRANCH REACHABLE ONLY UNDER REAL CONCURRENCY, which is
+  // why it needed a real second session.** A second press in the SAME call finds the
+  // row on the read and returns before the insert; what is left is the twin that has
+  // inserted and NOT yet committed, where the probe sees nothing, the insert blocks
+  // on the unique index, and `on conflict do nothing` is the only thing standing
+  // between one message and two. A mutant that assumed the insert always won
+  // SURVIVED every check above.
+  // ⚠ IDS NOBODY ELSE IN THIS FILE USES, and asserted so rather than assumed:
+  // `…ee0b` was already `SBMSG` three hundred lines up, so "the id this call would
+  // have used was never written" was reading somebody else's row and reported a
+  // correct product as broken. A fixture that collides is a fixture about the wrong
+  // thing.
+  const RACE = "5a5a5a5a-0000-4000-8000-00000000cc01";   // the twin's message
+  const MINE = "5a5a5a5a-0000-4000-8000-00000000cc02";   // the id this call would mint
+  const RRUN = "5a5a5a5a-0000-4000-8000-00000000cc03";
+  check("the race fixture's ids are unused before it starts",
+    jget(`select count(*) from agent.agent_messages where id in ('${RACE}','${MINE}');`) === "0"
+    && jget(`select count(*) from agent.runs where id='${RRUN}';`) === "0");
+  const twin = spawn("su", ["postgres", "-c",
+    `psql -X -q -d ${DB} -c ${shq(`set role service_role; begin; ` +
+      `insert into agent.agent_messages (id, agent_id, body, send_key) ` +
+      `values ('${RACE}','${SN}','racing','key-race'); select pg_sleep(3); commit;`)}`],
+    { stdio: "ignore", detached: true });
+  // Long enough for the twin's INSERT to be in flight and short enough to be inside
+  // its three-second hold — the window this branch lives in.
+  try { execFileSync("sleep", ["1"], { stdio: "ignore" }); } catch { /* best effort */ }
+  const raced = send(SN, MINE, "racing", "key-race", RRUN);
+  check("a press that lost the race is absorbed rather than duplicated",
+    /"ok"\s*:\s*true/.test(raced) && /"repeat"\s*:\s*true/.test(raced), raced);
+  check("...answering the TWIN's message, not the one this call minted",
+    new RegExp(`"message_id"\\s*:\\s*"${RACE}"`).test(raced), raced);
+  check("...and the id this call would have used was never written",
+    jget(`select count(*) from agent.agent_messages where id='${MINE}';`) === "0");
+  check("...and there is exactly one message under that key",
+    jget(`select count(*) from agent.agent_messages where agent_id='${SN}' and send_key='key-race';`) === "1");
+  check("...and the loser started no run",
+    jget(`select count(*) from agent.runs where id='${RRUN}';`) === "0");
+  try { process.kill(-twin.pid, "SIGKILL"); } catch { try { twin.kill("SIGKILL"); } catch { /* gone */ } }
+
+  // ── the list screen reads both, through the view ─────────────────────────
+  check("the overview carries the status",
+    jget(`select status from agent.agent_overview where id='${SP}';`) === "paused");
+  check("...and the selection",
+    jget(`select tools::text from agent.agent_overview where id='${ST}';`) === "{}");
+  check("...and a tenant reads its own rows through it and no others",
+    psql(`select count(*) from agent.agent_overview where status='paused';`, claimT1).out === "1");
+  check("...where the other tenant sees none of them",
+    psql(`select count(*) from agent.agent_overview where status='paused';`,
+         { role: "authenticated", claims: '{"tenant_id":"t2"}' }).out === "0");
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

@@ -199,6 +199,48 @@ const browserOf = (who, rows) => ({ zephyr_owner_v1: who, zephyr_agents_v1: JSON
 
 const okRes = (body) => ({ ok: true, status: 200, json: async () => ({ ok: true, ...body }) });
 const badRes = (error, status = 502) => ({ ok: false, status, json: async () => ({ error }) });
+/**
+ * TURN WHAT THE FORM REALLY DREW INTO A DOM THE FORM CAN READ BACK.
+ *
+ * **THE FIXTURE IS DERIVED FROM ITS OWN PRODUCER, which is the only way these
+ * cases mean anything.** `renderAgentsNow` writes a STRING into `innerHTML`, and
+ * `agentSave` reads elements — so without this the two halves never meet and a
+ * case would be asserting that a fixture it typed itself round-trips. Here the
+ * checkboxes that exist are exactly the ones the product drew, ticked exactly as
+ * the product drew them, so a case that unticks one is unticking a real control.
+ *
+ * It is deliberately a PARSE of the markup rather than a list this file keeps: a
+ * tool the form stops drawing disappears from the fixture too, which is what makes
+ * "the form draws the catalog" and "a save sends what is ticked" one property
+ * instead of two that can drift.
+ */
+function hydrate(w) {
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  const val = (id) => {
+    const m = new RegExp(`id="${id}"[^>]*value="([^"]*)"`).exec(html);
+    return m ? m[1] : null;
+  };
+  const name = w.s.document.getElementById("agName");
+  if (val("agName") !== null) name.value = val("agName");
+  const instr = w.s.document.getElementById("agInstr");
+  const ta = /<textarea[^>]*id="agInstr"[^>]*>([\s\S]*?)<\/textarea>/.exec(html);
+  if (ta) instr.value = ta[1].trim();
+  // The pause, as drawn: an `id="agPaused"` input carrying `checked` or not.
+  const pausedEl = w.s.document.getElementById("agPaused");
+  const drawnPause = /<input type="checkbox" id="agPaused"([^>]*)>/.exec(html);
+  pausedEl.checked = !!(drawnPause && / checked/.test(drawnPause[1]));
+  // One element per tool checkbox the form drew, in the order it drew them.
+  const boxes = [...html.matchAll(/<input type="checkbox" data-tool="([^"]+)"([^>]*)>/g)].map((m) => {
+    const box = { checked: / checked/.test(m[2]), getAttribute: (k) => (k === "data-tool" ? m[1] : null) };
+    return box;
+  });
+  w.s.document.querySelectorAll = (sel) => (sel === "[data-tool]" ? boxes : []);
+  return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked };
+}
+
+/** What one `/api/agent/list` answer looks like, catalog and all. */
+const CATALOG = [{ name: "echo", label: "Echo", does: "Repeats a short piece of text back." }];
+
 /** A response nobody has answered yet, plus the lever that answers it. */
 function held(res) {
   let release;
@@ -331,8 +373,13 @@ test("...and a save that lands where it started still reports its failure", asyn
   await saving;
   assert.equal(w.ev("agentEditing"), "A", "the composer closed on a failure");
   assert.match(w.ev("agentActErr"), /save/i, "a failure that stayed put said nothing");
-  assert.deepEqual(w.val("agentDraft"), { name: "A renamed", instructions: "new instructions for A" },
-    "the words that failed were not kept");
+  // ⚠ RE-ANCHORED, and it is a STRONGER claim than the one it replaces. The draft
+  // carries all four settings now, so a failed save has to keep the ticks and the
+  // pause as well as the words — a form redrawn with an unticked box ticked would
+  // say a permission was stored when it was refused.
+  assert.deepEqual(w.val("agentDraft"),
+    { name: "A renamed", instructions: "new instructions for A", status: "active", tools: [] },
+    "the settings that failed were not kept");
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1314,4 +1361,239 @@ test("⚠ ...and it only removes WHAT WAS SENT, so typing your next message is n
   assert.equal(box.value, "and do you take card", "the send's clear ate a message it never sent");
   assert.equal(b.w.ev('agentDraftOf("A")'), "and do you take card",
     "the words typed during the send were dropped from the draft");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// THE SETTINGS: A STATUS, AND WHICH TOOLS AN AGENT MAY USE
+//
+// Every case here drives the real `renderAgentsNow` and the real `agentSave`, and
+// the DOM between them is HYDRATED FROM WHAT THE FORM DREW. A case that typed its
+// own checkboxes would be asserting that a fixture round-trips.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A screen whose list read answers a catalog, loaded and rendered.
+ *
+ * `tools: null` is how a case asks for an answer with NO `tools` key at all — the
+ * older-Worker shape. A default parameter cannot express it: `undefined` is exactly
+ * what a default replaces, so passing it asked for the catalog back and the empty
+ * state read as green while never being drawn.
+ */
+async function withCatalog({ tools = CATALOG, rows = SETTINGS_ROWS, answer } = {}) {
+  const list = tools === null ? { agents: rows } : { agents: rows, tools };
+  const w = loadScreen({
+    answer: answer || ((p) => okRes(p === "/api/agent/list" ? list : {})),
+  });
+  await w.ev("agentsLoad()");
+  return w;
+}
+
+const SETTINGS_ROWS = [
+  { id: "A", name: "Agent A", instructions: "a", created: 1, updated: 1, preview: "",
+    status: "active", tools: [] },
+  { id: "P", name: "Resting", instructions: "p", created: 1, updated: 1, preview: "",
+    status: "paused", tools: ["echo"] },
+];
+
+test("THE CATALOG IS THE SERVER'S AND THE FORM DRAWS EXACTLY IT", async () => {
+  const w = await withCatalog();
+  assert.deepEqual(w.val("agentTools.map((t) => t.name)"), ["echo"]);
+  w.ev('agentEditing = "A"; renderAgents();');
+  const f = hydrate(w);
+  assert.deepEqual(f.boxes.map((b) => b.getAttribute("data-tool")), ["echo"]);
+  assert.ok(/Repeats a short piece of text back/.test(f.html), "a tool was offered with no description");
+  // NOTHING IS ALLOWED UNTIL IT IS TICKED. `A` has an empty selection, so its box
+  // is drawn unticked — the default a new agent gets too.
+  assert.deepEqual(f.boxes.map((b) => b.checked), [false]);
+  // ...and the stored selection is what decides, which is the control.
+  w.ev('agentEditing = "P"; renderAgents();');
+  assert.deepEqual(hydrate(w).boxes.map((b) => b.checked), [true], "a stored selection was not drawn");
+});
+
+test("⚠ NO TOOLS AT ALL IS AN HONEST SENTENCE, not an empty box", async () => {
+  // A REAL BRANCH RATHER THAN A DECORATION: a Worker that predates the catalog
+  // answers no `tools` key, which lands as an empty catalog. Drawing an empty
+  // container there would read as a rendering fault.
+  const w = await withCatalog({ tools: null });
+  assert.deepEqual(w.val("agentTools"), [], "an absent catalog was not read as an empty one");
+  w.ev('agentEditing = "A"; renderAgents();');
+  const f = hydrate(w);
+  assert.deepEqual(f.boxes, [], "a tool was drawn from nothing");
+  assert.match(f.html, /no tools to give an agent yet/i);
+  // AND THE FORM STILL WORKS. The empty state is a sentence in a form, not a
+  // screen that replaces it.
+  assert.ok(f.html.includes('id="agName"') && f.html.includes('id="agInstr"'));
+  assert.ok(f.drewPause, "the status control went with the tools");
+});
+
+test("...and a catalog that is not a list is an empty one, not a screen that throws", async () => {
+  // `j.tools || []` is right for an ABSENT key and wrong for everything else: a
+  // string or an object falls straight through it and the form maps over it. The
+  // absent case cannot see that at all, which is why it needed its own.
+  for (const junk of ["echo", { echo: true }, 7, true]) {
+    const w = await withCatalog({ tools: junk });
+    assert.deepEqual(w.val("agentTools"), [], `${JSON.stringify(junk)} was read as a catalog`);
+    w.ev('agentEditing = "A"; renderAgents();');
+    assert.match(hydrate(w).html, /no tools to give an agent yet/i);
+  }
+  // AND AN ENTRY WITH NO NAME IS NOT A TOOL. It cannot be ticked, sent or looked
+  // up, so drawing it would offer a permission nothing can grant.
+  const half = await withCatalog({ tools: [{ label: "Nameless", does: "x" }, ...CATALOG] });
+  assert.deepEqual(half.val("agentTools.map((t) => t.name)"), ["echo"]);
+});
+
+test("A SAVE SENDS THE TICKS, THE PAUSE AND THE WORDS — read out of the form", async () => {
+  const w = await withCatalog();
+  w.ev('agentEditing = "A"; renderAgents();');
+  const f = hydrate(w);
+  w.s.document.getElementById("agName").value = "Renamed";
+  w.s.document.getElementById("agInstr").value = "Do the thing.";
+  f.boxes[0].checked = true;
+  w.s.document.getElementById("agPaused").checked = true;
+  await w.ev("agentSave()");
+  const sent = w.calls.find((c) => c.path === "/api/agent/update");
+  assert.ok(sent, "nothing was saved");
+  assert.deepEqual(sent.body, { id: "A", name: "Renamed", instructions: "Do the thing.",
+                                status: "paused", tools: ["echo"] });
+});
+
+test("...and an unticked box sends an EMPTY selection, never silence", async () => {
+  // The two are different on the wire and mean different things: `[]` is "allow
+  // nothing" and an absent key is "I am not saying" — which the route leaves alone.
+  // A form that sent silence could never take a tool away again.
+  const w = await withCatalog();
+  w.ev('agentEditing = "P"; renderAgents();');
+  const f = hydrate(w);
+  assert.equal(f.boxes[0].checked, true, "the fixture is not the case it claims");
+  f.boxes[0].checked = false;
+  w.s.document.getElementById("agPaused").checked = false;
+  await w.ev("agentSave()");
+  const sent = w.calls.find((c) => c.path === "/api/agent/update");
+  assert.deepEqual(sent.body.tools, []);
+  assert.equal(sent.body.status, "active");
+  assert.ok(Object.hasOwn(sent.body, "tools"), "an empty selection was sent as silence");
+});
+
+test("A NEW AGENT SENDS NO STATUS, and its ticks go up with its writing", async () => {
+  // Nobody writes an agent in order to pause it, so the column's own default is the
+  // answer and a control with one sensible setting is not offered.
+  const w = await withCatalog({
+    answer: (p) => okRes(p === "/api/agent/list"
+      ? { agents: SETTINGS_ROWS, tools: CATALOG }
+      : { agent: { id: "NEW", name: "Fresh", instructions: "i", created: 2, updated: 2, preview: "", status: "active", tools: ["echo"] } }),
+  });
+  w.ev("agentNew();");
+  const f = hydrate(w);
+  assert.deepEqual(f.boxes.map((b) => b.checked), [false], "a new agent started with something allowed");
+  w.s.document.getElementById("agName").value = "Fresh";
+  w.s.document.getElementById("agInstr").value = "i";
+  f.boxes[0].checked = true;
+  await w.ev("agentSave()");
+  const sent = w.calls.find((c) => c.path === "/api/agent/create");
+  assert.deepEqual(sent.body, { name: "Fresh", instructions: "i", tools: ["echo"] });
+  assert.ok(!Object.hasOwn(sent.body, "status"), "a create decided a status");
+  // AND IT BECOMES AN EDIT OF WHAT IT MADE, so the next press adjusts the same
+  // agent rather than making a second one.
+  assert.equal(w.ev("agentEditing"), "NEW");
+  assert.equal(w.ev("agentSaved"), true);
+});
+
+test("SAVING SAYS SO, WHERE THE BUTTON WAS", async () => {
+  // It used to close onto the list, which is feedback of a sort and not one
+  // anybody reads as confirmation.
+  const w = await withCatalog();
+  w.ev('agentEditing = "A"; renderAgents();');
+  hydrate(w);
+  w.s.document.getElementById("agName").value = "A";
+  w.s.document.getElementById("agInstr").value = "a";
+  await w.ev("agentSave()");
+  assert.equal(w.ev("agentEditing"), "A", "the form closed instead of confirming");
+  assert.equal(w.ev("agentSaved"), true);
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /Saved\./);
+  // AND IT IS GONE THE MOMENT SOMETHING ELSE HAPPENS, so it can never be read as
+  // confirmation of a LATER change.
+  w.ev('agentEditing = "A"; agentSaved = false; renderAgents();');
+  assert.ok(!/Saved\./.test(w.s.document.getElementById("viewAgents").innerHTML));
+});
+
+test("⚠ A FAILED SAVE KEEPS THE TICKS AND THE PAUSE, not just the words", async () => {
+  // A form redrawn with an unticked box ticked would say a permission was stored
+  // when it was refused — the one failure here nobody can see from either side.
+  const w = await withCatalog({
+    answer: (p) => (p === "/api/agent/list"
+      ? okRes({ agents: SETTINGS_ROWS, tools: CATALOG })
+      : badRes("couldn’t save that")),
+  });
+  w.ev('agentEditing = "A"; renderAgents();');
+  const f = hydrate(w);
+  w.s.document.getElementById("agName").value = "A";
+  w.s.document.getElementById("agInstr").value = "a";
+  f.boxes[0].checked = true;
+  w.s.document.getElementById("agPaused").checked = true;
+  await w.ev("agentSave()");
+  assert.match(w.ev("agentActErr"), /save/i);
+  assert.deepEqual(w.val("agentDraft"), { name: "A", instructions: "a", status: "paused", tools: ["echo"] });
+  // AND THE REDRAW SHOWS THEM. The draft is only worth anything if the form reads
+  // it back — which is the half a state assertion alone cannot see.
+  const again = hydrate(w);
+  assert.deepEqual(again.boxes.map((b) => b.checked), [true], "the tick that failed was redrawn empty");
+  assert.equal(again.paused, true, "the pause that failed was redrawn as active");
+});
+
+test("A PAUSED AGENT SAYS SO WHERE SOMEBODY WOULD TYPE, and the list says so too", async () => {
+  const w = await withCatalog();
+  w.ev('agentThread = "P"; agentMsgs = []; agentMsgsFor = "P"; renderAgents();');
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /isn’t starting anything new/);
+  assert.match(html, /data-act="agent-edit" data-id="P"/, "the banner offers no way to resume it");
+  // THE BOX STAYS ENABLED AND THE BUTTON DOES NOT. Whatever is half-written is
+  // still theirs; the button is off because the server would refuse the send.
+  assert.match(html, /<button class="ag-send-btn"[^>]* disabled/);
+  assert.ok(!/<textarea class="ag-send-in"[^>]* disabled/.test(html), "the draft was locked away");
+  // The control: an active agent has neither.
+  w.ev('agentThread = "A"; agentMsgsFor = "A"; renderAgents();');
+  const active = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.ok(!/isn’t starting anything new/.test(active));
+  assert.ok(!/<button class="ag-send-btn"[^>]* disabled/.test(active));
+  // AND THE LIST SAYS IT TOO, because that is where somebody wonders why an agent
+  // has gone quiet.
+  w.ev("agentList(); renderAgents();");
+  const list = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(list, /<span class="ag-chip">Paused<\/span>/);
+  assert.equal(list.match(/ag-chip/g).length, 1, "every row was marked paused");
+});
+
+test("⚠ A SEND REFUSED FOR A PAUSE KEEPS THE WORDS AND THE KEY", async () => {
+  // Nothing was committed — no message, no run — so the same press against a
+  // resumed agent must be the SAME press: same key, same words, one message.
+  // Clearing the key here is how a lost message becomes two.
+  const w = await withCatalog({
+    answer: (p) => (p === "/api/agent/send"
+      ? { ok: false, status: 409, json: async () => ({ error: "this agent is paused", paused: true }) }
+      : okRes({ agents: SETTINGS_ROWS, tools: CATALOG })),
+  });
+  w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A"; renderAgents();');
+  const box = w.s.document.getElementById("agMsg");
+  box.setAttribute("data-agent", "A");
+  box.value = "are you there?";
+  await w.ev("agentSend()");
+  assert.equal(w.ev('agentDraftOf("A")'), "are you there?", "the words were thrown away");
+  assert.equal(box.value, "are you there?", "the box was cleared on a refusal");
+  assert.match(w.ev("agentActErr"), /paused/i);
+  assert.match(w.ev("agentActErr"), /still here/i, "it did not say the message survived");
+  const keyed = w.val('Object.keys(agentSendKeys)');
+  assert.equal(keyed.length, 1, "the retry key was dropped, so the next press is a different press");
+  // THE CONTROL: the same press against an agent that accepts it clears both.
+  const ok = await withCatalog({
+    answer: (p) => (p === "/api/agent/send"
+      ? okRes({ message: { id: "m1", text: "are you there?", at: 1 }, runId: "r1" })
+      : okRes({ agents: SETTINGS_ROWS, tools: CATALOG, messages: [] })),
+  });
+  ok.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A"; renderAgents();');
+  const b2 = ok.s.document.getElementById("agMsg");
+  b2.setAttribute("data-agent", "A");
+  b2.value = "are you there?";
+  await ok.ev("agentSend()");
+  assert.equal(ok.ev('agentDraftOf("A")'), "");
+  assert.deepEqual(ok.val('Object.keys(agentSendKeys)'), []);
 });

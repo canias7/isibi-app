@@ -130,6 +130,24 @@ export function defineAgent(spec) {
       throw new TypeError(`${where}: every tool must come from defineTool`);
     }
   }
+  // ⚠ `authored` SAYS THIS AGENT RUNS SOMEBODY ELSE'S WRITING, and it changes what
+  // its own declarations MEAN. An ordinary agent's tool list is what its runs get;
+  // an authored agent's list is the CATALOG a customer may choose from, and each run
+  // gets the subset its own journal recorded. Its instructions are a placeholder for
+  // the same reason.
+  //
+  // **IT IS DECLARED IN CODE BECAUSE THE DECISION MUST NOT BE READABLE OFF A LOG.**
+  // A run started through the engine's own `/runs` door carries no snapshot at all,
+  // and such a run must get NOTHING rather than everything — so "is this agent's tool
+  // list a catalog?" is answered by the registry and never by the entry a caller
+  // supplied.
+  //
+  // REFUSED IF IT IS NOT A BOOLEAN, never coerced, exactly as `repeatable` is:
+  // `Boolean("false")` is true, and a string must not be the thing that turns an
+  // agent's catalog into its permissions.
+  if (Object.hasOwn(spec, "authored") && typeof spec.authored !== "boolean") {
+    throw new TypeError(`${where}: authored must be true or false — Boolean("false") is true, so it is not coerced`);
+  }
   // TWO TOOLS WITH ONE NAME IS A SILENT SHADOW — the provider sees one name
   // twice and the loop can only ever dispatch to whichever we looked up first,
   // so the other is dead code that reads as live. Refused by name.
@@ -144,6 +162,14 @@ export function defineAgent(spec) {
     name: spec.name,
     model: spec.model,
     instructions: spec.instructions,
+    // `=== true` AND THE REFUSAL ABOVE ARE A DECLARED PAIR, and a sweep cannot see
+    // that on its own. MEASURED: with that refusal in place the only inputs reaching
+    // this line are an absent key or a real boolean, and `!!` answers identically for
+    // all three — so a mutant swapping them survives everything and is not a gap. The
+    // refusal is the wall; this is the belt. What is NOT interchangeable is the
+    // DIRECTION: `!== false` would make an absent key mean authored, which narrows
+    // every code agent in the registry against its own tool list.
+    authored: spec.authored === true,
     tools: Object.freeze([...tools]),
     // NO `byName` DISPATCH TABLE IS EXPOSED, deliberately. An earlier draft put
     // the `seen` Map on the agent as a convenience. Two things were wrong with
@@ -244,5 +270,65 @@ export function withInstructions(agent, instructions) {
     // Frozen again because the spread copies the references, not the freeze.
     tools: Object.freeze([...agent.tools]),
     limits: agent.limits,
+  });
+}
+
+/**
+ * THE SAME AGENT, HOLDING ONLY THE TOOLS ONE RUN WAS GIVEN.
+ *
+ * **IT MAY ONLY EVER REDUCE, and that is the whole security argument** — the same
+ * rule `narrowLimits` follows one module over, for the same reason. `names` is a
+ * POSITIVE list looked up IN THE AGENT'S OWN TOOLS: a name the agent does not
+ * declare is not a tool, so there is nothing for it to resolve to and nothing to
+ * add. A customer chooses FROM a catalog; they can never extend it, whatever they
+ * write into their instructions and whatever a request body says.
+ *
+ * WHY IT EXISTS BESIDE `withInstructions` RATHER THAN INSIDE IT. They answer two
+ * different questions and one of them has a safe default: an agent with no
+ * instruction snapshot runs on the text it was declared with, which is correct.
+ * An agent with no TOOL snapshot must run with NOTHING — the opposite default —
+ * so folding the two together would give one function two defaults and hide the
+ * dangerous one behind the harmless one.
+ *
+ * `unknown` COMES BACK BY NAME, because a filter is a silent drop and a check is
+ * a sentence. Its caller does not refuse on it: a stored selection naming a tool
+ * this deployment has retired should still run the tools that remain, rather than
+ * failing a customer's agent because we removed something. But it must be
+ * SAYABLE, or a retired tool is a capability that quietly stops working.
+ *
+ * REFUSED RATHER THAN COERCED, on both arguments. A caller with no selection to
+ * apply passes `[]` and means it; `undefined` would be a caller that lost its
+ * snapshot, and reading that as "no tools" would be right by luck and as "every
+ * tool" would be a widening. Neither is a guess this function should make.
+ */
+export function narrowTools(agent, names) {
+  if (!isPlainObject(agent) || agent.kind !== "agent"
+      || !Array.isArray(agent.tools) || !isPlainObject(agent.limits)) {
+    throw new TypeError("narrowTools: agent must come from defineAgent");
+  }
+  if (!Array.isArray(names)) throw new TypeError("narrowTools: names must be an array");
+  // A Set of STRINGS ONLY. This list has come out of a database column and a JSON
+  // log, so it can hold anything: `["constructor"]`, a number, an object. The same
+  // rule `toolsFor` follows about grants, for the same reason.
+  const want = new Set(names.filter((n) => typeof n === "string"));
+  // ORDER IS THE AGENT'S, NOT THE SELECTION'S. The tool list goes to the provider
+  // in this order, so taking it from the caller would let a stored selection decide
+  // how the model sees its tools — a thing nobody meant to make configurable.
+  const tools = agent.tools.filter((t) => want.has(t.name));
+  const have = new Set(tools.map((t) => t.name));
+  const unknown = Object.freeze([...want].filter((n) => !have.has(n)));
+  // TWO ANSWERS, A PAIR RATHER THAN A FIELD ON THE AGENT — the shape `toolsFor`
+  // already uses for the same division. An agent carrying its own diagnostics would
+  // travel through `withInstructions`' spread into every later copy, where nothing
+  // reads it and nobody can tell whether it is still true.
+  return Object.freeze({
+    agent: Object.freeze({
+      ...agent,
+      // Frozen again because the spread copies the reference, not the freeze — and
+      // `filter` has already made a new array, so this is a fresh list either way.
+      tools: Object.freeze(tools),
+      limits: agent.limits,
+    }),
+    unknown,
   });
 }

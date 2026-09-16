@@ -37,7 +37,7 @@ import { makeRunStore } from "../src/store.mjs";
 import { makeWork } from "../src/work.mjs";
 import { makeRunner } from "../src/runner.mjs";
 import { makeStandIn, SIMULATED } from "../src/model-standin.mjs";
-import { AGENTS, AUTHORED_AGENT } from "../src/agents.mjs";
+import { AGENTS, AUTHORED_AGENT, OFFERED_NAMES } from "../src/agents.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIR = path.resolve(HERE, "..");
@@ -308,6 +308,132 @@ try {
     q(`select count(*) from agent.run_work where run_id = '${deaf.body.runId}' and done_at is null;`) === "1");
   const swept = await engine(makeStandIn()).deliver(deaf.body.runId);
   check("...and it runs when something finally picks it up", swept.ran === true, JSON.stringify(swept));
+
+  // ── 14. THE SETTINGS SURVIVE A RELOAD, AND ARE ONE ACCOUNT'S ───────────────
+  //
+  // Everything above is about a message. This is about what a person CONFIGURES,
+  // and it is checked the way somebody would: save it, read it back the way a fresh
+  // page does, and ask the other account what it can see.
+  console.log("\n── 14. the settings are stored, re-read and one account's ──");
+  const kit = await api("/api/agent/list", { method: "GET" });
+  check("the list answers a catalog of tools the platform really has",
+    Array.isArray(kit.body.tools) && kit.body.tools.length === OFFERED_NAMES.length
+      && kit.body.tools.every((t) => OFFERED_NAMES.includes(t.name)),
+    JSON.stringify(kit.body.tools));
+  const tool = kit.body.tools[0].name;
+
+  const saved = await api("/api/agent/update", {
+    body: { id: agentId, name: "Bike shop", instructions: "Completely different now.",
+            status: "paused", tools: [tool] },
+  });
+  check("the settings save", saved.status === 200 && saved.body.ok === true, JSON.stringify(saved.body).slice(0, 200));
+  check("...and the answer carries them back", saved.body.agent.status === "paused"
+    && JSON.stringify(saved.body.agent.tools) === JSON.stringify([tool]), JSON.stringify(saved.body.agent));
+  // A RELOAD IS AN ORDINARY LIST READ — the browser holds no state about a saved
+  // agent, so this is exactly what a fresh page does.
+  const reread = await api("/api/agent/list", { method: "GET" });
+  const myRow = reread.body.agents.find((a) => a.id === agentId);
+  check("a reload reads the pause back", myRow && myRow.status === "paused", JSON.stringify(myRow));
+  check("...and the selection with it", myRow && JSON.stringify(myRow.tools) === JSON.stringify([tool]),
+    JSON.stringify(myRow && myRow.tools));
+  check("...and the database holds what the wire said",
+    q(`select status || '|' || array_to_string(tools, ',') from agent.agents where id = '${agentId}';`)
+      === `paused|${tool}`);
+
+  // THE OTHER ACCOUNT CANNOT SEE IT OR CHANGE IT, and the two answers are the SAME
+  // 404 — so a stranger cannot even confirm the agent exists.
+  const peek = await api("/api/agent/list", { tenant: B, method: "GET" });
+  check("the account next door does not see it",
+    !peek.body.agents.some((a) => a.id === agentId), JSON.stringify(peek.body.agents.map((a) => a.id)));
+  const theirs = await api("/api/agent/update", {
+    tenant: B, body: { id: agentId, name: "Mine now", instructions: "Do as I say.", status: "active", tools: [] },
+  });
+  check("...and cannot change its settings", theirs.status === 404, JSON.stringify(theirs.body));
+  check("...with nothing altered by the attempt",
+    q(`select status || '|' || name from agent.agents where id = '${agentId}';`) === "paused|Bike shop");
+
+  // ── 15. A PAUSED AGENT REFUSES NEW WORK AND CANCELS NOTHING ────────────────
+  console.log("\n── 15. paused: no new work, and nothing already asked for is cancelled ──");
+  const before = q(`select count(*) from agent.agent_messages where agent_id = '${agentId}';`);
+  // COUNTED BEFORE AND AFTER, never "nothing in the last two seconds" — every run
+  // this file has already made was seconds ago, so a time window answers the wrong
+  // question and fails on a correct refusal.
+  const runsBefore = q(`select count(*) from agent.runs where tenant_id = '${A}';`);
+  const refusedSend = await api("/api/agent/send",
+    { body: { id: agentId, body: "are you there?", key: "press-paused" } });
+  check("the send is refused", refusedSend.status === 409, JSON.stringify(refusedSend.body));
+  check("...and says which thing is wrong", refusedSend.body.paused === true, JSON.stringify(refusedSend.body));
+  check("...with no message stored",
+    q(`select count(*) from agent.agent_messages where agent_id = '${agentId}';`) === before);
+  check("...and no run accepted",
+    q(`select count(*) from agent.runs where tenant_id = '${A}';`) === runsBefore, runsBefore);
+  // THE CONVERSATION IS PRESERVED — a pause is not a delete and not a clear.
+  const stillThere = await api("/api/agent/messages", { query: { id: agentId } });
+  check("the conversation is all still there",
+    stillThere.status === 200 && String(stillThere.body.messages.length) === before,
+    `${stillThere.body.messages.length} of ${before}`);
+  check("...with its answers intact",
+    stillThere.body.messages.some((m) => m.run && m.run.state === "answered"));
+
+  // AND A RUN ACCEPTED BEFORE THE PAUSE STILL RUNS. Pausing blocks new work; it is
+  // not a cancellation, so work somebody already asked for finishes.
+  await api("/api/agent/update", { body: { id: agentId, name: "Bike shop", instructions: "Completely different now.", status: "active", tools: [] } });
+  const inflight = await api("/api/agent/send", { body: { id: agentId, body: "one last thing?", key: "press-inflight" } });
+  check("a send while active is accepted", inflight.status === 200, JSON.stringify(inflight.body).slice(0, 160));
+  await api("/api/agent/update", { body: { id: agentId, name: "Bike shop", instructions: "Completely different now.", status: "paused", tools: [] } });
+  const finished = await engine(makeStandIn()).deliver(inflight.body.runId);
+  check("⚠ and pausing while it is queued does not stop it running", finished.ran === true, JSON.stringify(finished));
+  const afterPause = await api("/api/agent/messages", { query: { id: agentId } });
+  const lastRow = afterPause.body.messages.find((m) => m.id === inflight.body.message.id);
+  check("...so it is answered rather than cancelled",
+    lastRow && lastRow.run && lastRow.run.state === "answered", JSON.stringify(lastRow && lastRow.run));
+
+  // ── 16. A TOOL RUNS ONLY IF IT WAS SELECTED ───────────────────────────────
+  //
+  // The whole point of the permission, end to end: the stand-in chooses what to do
+  // from the tools it is OFFERED, so which tools reach it is visible in the answer
+  // it gives — no reading of the journal required.
+  console.log("\n── 16. an unselected tool cannot run, and a selected one does ──");
+  await api("/api/agent/update", { body: { id: agentId, name: "Bike shop", instructions: "Completely different now.", status: "active", tools: [] } });
+  const without = await api("/api/agent/send", { body: { id: agentId, body: "nothing ticked", key: "press-notool" } });
+  check("the run records an EMPTY selection rather than no selection",
+    q(`select body -> 'tools' from agent.run_entries where run_id = '${without.body.runId}' and seq = 0;`) === "[]");
+  await engine(makeStandIn()).deliver(without.body.runId);
+  const noToolThread = await api("/api/agent/messages", { query: { id: agentId } });
+  const noToolRow = noToolThread.body.messages.find((m) => m.id === without.body.message.id);
+  check("...and the answer used no tool at all",
+    noToolRow && noToolRow.run.state === "answered" && !/It used the/.test(noToolRow.run.text || ""),
+    String(noToolRow && noToolRow.run.text).slice(0, 120));
+
+  await api("/api/agent/update", { body: { id: agentId, name: "Bike shop", instructions: "Completely different now.", status: "active", tools: [tool] } });
+  const withTool = await api("/api/agent/send", { body: { id: agentId, body: "ticked one", key: "press-tool" } });
+  check("a selection reaches the run's own record",
+    q(`select body -> 'tools' from agent.run_entries where run_id = '${withTool.body.runId}' and seq = 0;`)
+      === JSON.stringify([tool]));
+  // ⚠ AND THE EDIT AFTERWARDS CANNOT REACH IT. The selection is taken off the LOG on
+  // every delivery, so unticking it between the accept and the run changes what the
+  // NEXT run may call and never what this one may call.
+  await api("/api/agent/update", { body: { id: agentId, name: "Bike shop", instructions: "Completely different now.", status: "active", tools: [] } });
+  const usedIt = await engine(makeStandIn()).deliver(withTool.body.runId);
+  check("the run with a tool runs", usedIt.ran === true, JSON.stringify(usedIt));
+  const toolThread = await api("/api/agent/messages", { query: { id: agentId } });
+  const toolRow = toolThread.body.messages.find((m) => m.id === withTool.body.message.id);
+  check("⚠ ...and it really called the tool, though the setting was taken away first",
+    toolRow && toolRow.run.state === "answered" && new RegExp(`It used the ${tool} tool`).test(toolRow.run.text || ""),
+    String(toolRow && toolRow.run.text).slice(0, 200));
+  check("...and its answer is still labelled a simulation",
+    toolRow && toolRow.run.simulated === true && /\[simulated\]/.test(toolRow.run.text || ""),
+    String(toolRow && toolRow.run.text).slice(0, 60));
+  check("...and the tool really ran, which the journal is the only witness to",
+    q(`select count(*) from agent.run_entries where run_id = '${withTool.body.runId}' and body ->> 'kind' = 'tool' and body ->> 'name' = '${tool}';`) === "1");
+
+  // THE REFUSAL, from the other direction: a name the platform has no tool for is
+  // turned away at the route rather than stored and silently ignored.
+  const madeUp = await api("/api/agent/update",
+    { body: { id: agentId, name: "Bike shop", instructions: "Completely different now.", tools: ["shell"] } });
+  check("a tool the platform has not got is refused by name", madeUp.status === 400, JSON.stringify(madeUp.body));
+  check("...and nothing was stored",
+    q(`select coalesce(array_length(tools,1),0)::text from agent.agents where id = '${agentId}';`) === "0");
 } finally {
   await rest.close();
   try { su(`psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`); } catch { /* best effort */ }

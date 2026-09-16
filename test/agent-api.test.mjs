@@ -186,7 +186,15 @@ test("no route reads an account off the body or the query — asserted over the 
   assert.ok(body.length > 500, "the handler must have been found");
   const reads = [...body.matchAll(/\b[bq]\.(?:get\(")?([A-Za-z_]+)/g)].map((m) => m[1]);
   assert.ok(reads.length >= 8, `the scanner read nothing: ${reads.length}`);
-  const allowed = new Set(["id", "name", "instructions", "body", "at", "messages", "text", "key"]);
+  // ⚠ RE-ANCHORED, and the list grew by two SETTINGS rather than by an exemption.
+  // `status` and `tools` are the agent's own configuration: one is checked against
+  // `AGENT_STATUSES` and the other is a positive intersection with the catalog, so
+  // neither can name an account and neither can name a capability the platform has
+  // not got. What this census forbids is unchanged — a route reading who is asking
+  // out of what they sent — and the shape of the allow-list is why adding a field
+  // has to be a deliberate edit here.
+  const allowed = new Set(["id", "name", "instructions", "body", "at", "messages", "text", "key",
+                           "status", "tools"]);
   const strays = [...new Set(reads)].filter((k) => !allowed.has(k));
   assert.deepEqual(strays, [], `the handler reads ${strays.join(", ")} off the request`);
 });
@@ -500,7 +508,8 @@ test("an agent arrives in the shape the list already draws", () => {
     created_at: "2026-09-15T10:00:00Z", updated_at: "2026-09-15T11:00:00Z",
     last_message: "what needs reordering?",
   });
-  assert.deepEqual(Object.keys(row).sort(), ["created", "id", "instructions", "name", "preview", "updated"]);
+  assert.deepEqual(Object.keys(row).sort(),
+    ["created", "id", "instructions", "name", "preview", "status", "tools", "updated"]);
   assert.equal(row.created, Date.parse("2026-09-15T10:00:00Z"));
   assert.equal(row.updated, Date.parse("2026-09-15T11:00:00Z"));
   assert.equal(row.preview, "what needs reordering?");
@@ -509,6 +518,25 @@ test("an agent arrives in the shape the list already draws", () => {
   assert.equal(agentRow({ id: A1, last_message: null }).preview, "");
   assert.equal(agentRow({}).updated, 0, "an unreadable time is 0, never NaN");
   assert.ok(Number.isFinite(agentRow({ updated_at: "nonsense" }).updated));
+
+  // ── the settings half, and BOTH DEFAULTS FAIL CLOSED ─────────────────────
+  //
+  // This row comes back from PostgREST, so an older Worker, a view missing a column
+  // or a migration not yet applied all arrive as `undefined`. A status this cannot
+  // read is `paused`: being wrong that way costs a press of Resume, and being wrong
+  // the other way is an agent taking work its owner stopped. A selection it cannot
+  // read is empty, for the same reason the engine reads an absent tool snapshot as
+  // none.
+  assert.equal(agentRow({ id: A1, status: "active", tools: ["echo"] }).status, "active");
+  assert.deepEqual(agentRow({ id: A1, status: "active", tools: ["echo"] }).tools, ["echo"]);
+  assert.equal(agentRow({ id: A1, status: "paused" }).status, "paused");
+  assert.equal(agentRow({ id: A1 }).status, "paused", "an unreadable status read as active");
+  assert.equal(agentRow({ id: A1, status: "nonsense" }).status, "paused");
+  assert.equal(agentRow({ id: A1, status: ["active"] }).status, "paused", "an array became a status");
+  assert.deepEqual(agentRow({ id: A1 }).tools, []);
+  assert.deepEqual(agentRow({ id: A1, tools: "echo" }).tools, [], "a string became a selection");
+  assert.deepEqual(agentRow({ id: A1, tools: ["echo", 7, null] }).tools, ["echo"],
+    "a non-name was carried through as one");
 });
 
 test("a message arrives as text and a time, and carries no speaker", () => {
