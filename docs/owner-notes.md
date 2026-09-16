@@ -10259,5 +10259,138 @@ the latest commit, so the moment I committed the fix, the control *became* the
 fix and the whole probe reported the pin as broken. It points at `main` now and
 refuses to run if that already has the pin.
 
+---
+
+## …and you were right that `main` is the same bug a week later (16 Sep)
+
+You said: *"use an immutable known pre-fix commit instead of `origin/main`…
+otherwise the documented test command stops working immediately after merge."*
+That's exactly right and I'd only moved the problem one step along. `main`
+carries the pin the moment this merges, and then the "before" side of my own
+test is the fix again — same failure, just deferred to merge day, which is the
+day somebody would actually rerun it.
+
+It's pinned to a fixed commit now (`0fff5317`, the one immediately before the
+fix). I checked that commit really is unpinned before trusting it, rather than
+assuming: nothing in it pins a model function or a trigger function.
+
+**The refusal stays.** A fixed commit makes the *default* reproducible; it says
+nothing about someone passing a different one on the command line, or about a
+later edit moving the default to some other commit. So the test still checks the
+"before" side is genuinely unpinned and stops if it isn't — those are two
+different guards and both are needed.
+
+**And there's a test that stops it drifting back.** It fails if the default is a
+branch name or `HEAD` rather than a fixed commit, and separately checks — by
+asking git — that the commit really is pre-fix. I proved both go red the right
+way round: pointing it back at `main` fails the first; pointing it at a commit
+that *is* immutable but already has the fix passes the first and fails the
+second.
+
+**Nothing else changed.** Live permissions are still unverified (no database
+credential this session), upgrading the functions already out there is still its
+own untouched backlog item, and no demo-site backfill has been run.
+
 **CI is finished on the candidate**: unit tests green, and the container harness
 green at 382/382. Nothing merged, nothing deployed, no paid test.
+
+---
+
+## The next live addon test — for your approval, NOT dispatched (16 Sep)
+
+This is item 2 of your list. Everything below is ready to press; nothing has
+been pressed and nothing has been spent.
+
+### The request, word for word
+
+> **Add a page at /workshop-load that shows how many bikes are booked in on
+> each day we've got them coming, busiest day first, and a function the page
+> calls to work it out. Don't show customer names.**
+
+**Why this one.** You asked for a request that needs an existing column whose
+database name is *not* in the request. This needs `drop_off_day` — the column
+the whole page is grouped by — and the words "drop", "off" and "day" never
+appear. It also needs no new table, so "it added nothing it shouldn't have" is a
+real thing to check rather than a formality.
+
+**And the column choice is load-bearing, not incidental.** The site has two
+tables. `repairs` has `bike` and `customer_name` but **no drop-off day at all**
+— I checked, from outside, without touching anything. So a design that reaches
+for the wrong table cannot answer this question. The only way to get it right is
+to have actually read `bookings` and seen that column.
+
+### What I already know, checked today and before anything is spent
+
+All of this was read from outside with no credential and no writes:
+
+| | reading |
+|---|---|
+| `/workshop-load` | **404** — the name is free |
+| `bookings` has | `id`, `customer_name`, `bike`, `drop_off_day`, `created_at`, `updated_at` |
+| `repairs` has | `id`, `customer_name`, `bike`, `created_at`, `updated_at` — **no drop-off day** |
+| rows in `bookings` | **3** (both existing counting functions answer 3, and a real row count agreed at the count fix) |
+| tables that exist | `bookings`, `repairs`, and nothing else I probed |
+| the live pages | `/` 46,151 B · `/status` 6,272 B · `/booking-check` 6,290 B, all on version `01789500698949-dggs37` |
+
+**How I can check columns without a credential**: asking for a column that
+exists gets "permission denied for the table" (the table is set to collect-only,
+so nobody may read it); asking for one that doesn't gets "column does not
+exist". Two different answers, no row written, no key needed. That's the
+before-inventory, and I'll take the same one after.
+
+### What the run must produce, and how each is checked
+
+1. **The function designer was shown the column.** The record now stores what
+   each designer was handed, per step — and I found the harness was never
+   printing it, so a run bought to prove this would have come back without the
+   proof. It prints it now. What I need to see: the `function` step's entry
+   saying `database: YES` and listing `bookings` with `drop_off_day` in it.
+2. **The page and function exist and answer.** `/workshop-load` goes 404 → 200,
+   and the function the page calls answers over the site's public address.
+3. **The numbers add up to 3.** Whatever days come back, their counts must total
+   3 — which is the independent expected result, established before the run from
+   two readers that have nothing to do with this change. A run that invents a
+   fresh empty table gives 0. That's the discriminator.
+4. **A real browser shows it.** I'll open the page in Chromium, record the call
+   it makes, read the numbers off the rendered page, and check the loading and
+   error states by intercepting that call — the same way as last time, with an
+   untouched control run. Free, no dispatch.
+5. **No new tables, no new columns.** The same probes as above, run again. For a
+   properly authoritative list rather than name-by-name, the free
+   `backend repair --verify --slug repairbench-1` press reads the real table
+   list and writes nothing.
+6. **The exact sentence you're told.** Recorded verbatim, with the coverage
+   counts beside it.
+7. **The count is untouched.** The existing function still answers 3, so the run
+   neither added nor removed rows.
+
+I'll write the outcome down **before** correcting anything, however it comes out.
+
+### The gates
+
+`expect_deploy` and `expect_image` go on the form and the run **refuses before
+spending a credit** if either doesn't match — the Worker and the container roll
+separately, so they're two separate checks and "can't tell" refuses too.
+
+- **`expect_image`** is computable before the merge, and I've done it: the
+  merged tree's container image will be the id I'll state once this is
+  committed. As a cross-check, today's `main` computes to `c6980fe3efce66d3`,
+  which is exactly the image the live container is on.
+- **`expect_deploy`** is the merge commit's own sha and can't exist until the
+  merge. I'll fill it in from the deploy and hand you both values.
+
+**Order**: merge → deploy → wait out the container roll (15–20 min) → confirm
+both halves → you press. Not before.
+
+### The spending cap
+
+**40 credits on the form; balance is 161.** The honest caveat, because you asked
+for a cap: **no harness setting can bound a single addon run.** The credits are
+spent inside one request and nothing outside it can stop it mid-flight. What
+actually bounds it is the ledger refusing a bill over the balance, the request
+asking for no new table, and the measured precedent — the bigger
+`table · function · page` shape cost **13**, and the most expensive run ever
+seen on this account was **31**. This is one paid request; there are no
+automatic retries on this path.
+
+**Ready when you are. Nothing dispatched.**

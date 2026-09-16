@@ -237,12 +237,21 @@ END $$;`);
 makeDb(DB_NEW);
 makeDb(DB_OLD);
 
-// `origin/main` AND NOT `HEAD`, because once this change is committed HEAD IS
-// the fix — and then every BEFORE case silently inverts and the probe reports
-// the pin as broken. That happened, on the first run after the commit: **a
-// control that has stopped being a control is worse than no control**, so the
-// ref is the unpinned tree and the assertion below refuses the run if it is not.
-const OLD_REF = process.env.OLD_REF || "origin/main";
+// AN IMMUTABLE SHA, AND NEITHER `HEAD` NOR A BRANCH NAME. Both moving forms
+// have been tried and both stop being a control the moment the pin lands:
+// `HEAD` inverted every BEFORE case on the first run after the commit (the
+// probe then reports the FIX as broken), and `origin/main` does exactly the
+// same thing one merge later — so the command written in CLAUDE.md would stop
+// working the day this ships, which is the day somebody reruns it.
+// `0fff5317` is `71c2c4b8^` (the commit before the pin), is an ancestor of
+// `origin/main`, and was measured pre-fix: its `site-rls.mjs` has no
+// `FN_SEARCH_PATH` at all and its `site-schema.mjs` no `search_path` anywhere,
+// so both the model functions and the trigger functions are unpinned there.
+// A CONTROL THAT HAS STOPPED BEING A CONTROL IS WORSE THAN NO CONTROL, so the
+// refusal below is KEPT rather than retired by the sha: an immutable ref makes
+// the default reproducible and says nothing about an `OLD_REF=` somebody
+// passes, which is the whole reason the override exists.
+const OLD_REF = process.env.OLD_REF || "0fff5317";
 const oldEngine = await loadOldEngine(OLD_REF);
 
 const stmtsNew = await capture(applySiteSchema, structuredClone(SPEC));

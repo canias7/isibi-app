@@ -152,5 +152,37 @@
     ],
     "from": "export const FN_SEARCH_PATH = \"public, pg_temp\";",
     "to": "export const FN_SEARCH_PATH = \"public, extensions, pg_temp\";"
+  },
+  {
+    "label": "BASELINE: the probe's default goes back to `origin/main` \u2014 a moving ref that carries the pin one merge later",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "const OLD_REF = process.env.OLD_REF || \"0fff5317\";",
+    "to": "const OLD_REF = process.env.OLD_REF || \"origin/main\";"
+  },
+  {
+    "label": "BASELINE: an IMMUTABLE sha that is post-fix \u2014 reproducible and not a control, which only the git read can see",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "const OLD_REF = process.env.OLD_REF || \"0fff5317\";",
+    "to": "const OLD_REF = process.env.OLD_REF || \"71c2c4b8\";"
+  },
+  {
+    "label": "BASELINE: the unpinned-baseline refusal stops asking, so a post-fix ref runs every BEFORE case anyway",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "if (!oldModelDdl || /search_path/.test(oldModelDdl)) {",
+    "to": "if (!oldModelDdl) {"
+  },
+  {
+    "label": "BASELINE: the refusal prints and carries on \u2014 the `--verify` defect one layer over, in the probe",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "  console.error(\"Pass OLD_REF=<a ref before the pin>. Saw: \" + (oldModelDdl.slice(0, 120) || \"<no such function>\"));\n  process.exit(2);",
+    "to": "  console.error(\"Pass OLD_REF=<a ref before the pin>. Saw: \" + (oldModelDdl.slice(0, 120) || \"<no such function>\"));"
   }
 ]

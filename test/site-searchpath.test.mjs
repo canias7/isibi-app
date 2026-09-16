@@ -25,6 +25,8 @@
 // undone.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { functionSql, FN_SEARCH_PATH, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK, APP_TEAM_FN } from "../site-rls.mjs";
 import { applySiteSchema, normalizeSchema } from "../site-schema.mjs";
 
@@ -304,4 +306,86 @@ test("9. the pin TRUSTS public, so `public` unwritable stays a requirement", () 
   const parts = FN_SEARCH_PATH.split(",").map((s) => s.trim());
   assert.deepEqual(parts, ["public", "pg_temp"],
     "the trusted set is exactly `public` — anything else added here is a new trust assumption");
+});
+
+// ── The probe's own baseline ─────────────────────────────────────────────────
+//
+// `local-pg-searchpath.mjs` proves the mechanism by replaying the PRE-FIX
+// engine beside the fixed one, so its `OLD_REF` default IS the control. Two
+// moving forms have already been tried and both stopped being a control the
+// moment the pin landed — `HEAD` on the first run after the commit, and
+// `origin/main` one merge later. The command in CLAUDE.md has to keep working
+// after this ships, which is when somebody reruns it.
+const PROBE = readFileSync(new URL("./integration/local-pg-searchpath.mjs", import.meta.url), "utf8");
+
+/** The literal the probe falls back to when nobody passes `OLD_REF=`. */
+function probeDefaultRef(src) {
+  const m = /const OLD_REF\s*=\s*process\.env\.OLD_REF\s*\|\|\s*"([^"]*)"/.exec(src);
+  return m ? m[1] : null;
+}
+
+test("10. the probe's default baseline is an immutable sha, and the unpinned check is kept", () => {
+  const ref = probeDefaultRef(PROBE);
+  assert.ok(ref, "local-pg-searchpath.mjs no longer falls back to a default OLD_REF at all");
+
+  // THE SHAPE IS THE PROPERTY, not the particular sha: what makes the run
+  // reproducible is that the ref cannot move, and every moving form this could
+  // drift back to is a NAME. A hex object id is the only thing git will not
+  // re-point. (`0fff5317` is `71c2c4b8^`; case 11 asks git whether it is really
+  // pre-fix, which is a question only a full clone can answer.)
+  assert.match(ref, /^[0-9a-f]{7,40}$/,
+    `OLD_REF's default is \`${ref}\`, which is a NAME and therefore moves. ` +
+    "A branch, a tag or HEAD carries the pin the day this merges and the probe " +
+    "then reports the FIX as broken. Use an immutable sha before the pin.");
+
+  // …AND THE REFUSAL IS RETAINED. An immutable sha makes the default
+  // reproducible; it says nothing about an `OLD_REF=` somebody passes, and
+  // nothing about a later edit moving the default to a different sha that
+  // happens to be post-fix. The run-time check is what covers both, so a
+  // mutant that drops it must be red. Asserted as the CONDITION and the exit,
+  // never as the block's prose: this file records that spelling guards go red
+  // on honest edits, and both landmarks are proved present first.
+  const at = PROBE.indexOf("const oldModelDdl");
+  const end = PROBE.indexOf("console.log(\"\\n─ replaying both trees ─\")", at);
+  assert.ok(at > 0 && end > at, "the baseline refusal's landmarks moved — re-anchor rather than delete");
+  const block = PROBE.slice(at, end);
+  assert.match(block, /\/search_path\/\.test\(oldModelDdl\)/,
+    "the refusal no longer asks whether the baseline's MODEL function already pins");
+  assert.match(block, /process\.exit\(2\)/,
+    "the refusal no longer exits nonzero, so a bad baseline runs every BEFORE case anyway");
+});
+
+// The object is only present in a FULL clone. `actions/checkout@v4` defaults to
+// `fetch-depth: 1`, so CI holds one commit and cannot answer this; it SKIPS
+// there, visibly, rather than passing and claiming to have checked. Case 10 is
+// the half that runs everywhere.
+const HAVE_BASELINE = (() => {
+  const ref = probeDefaultRef(PROBE);
+  if (!ref) return false;
+  const r = spawnSync("git", ["cat-file", "-e", ref + "^{commit}"], { cwd: new URL("../", import.meta.url) });
+  return r.status === 0;
+})();
+
+test("11. …and that sha's tree really is pre-fix — asked of git, not of this file", {
+  skip: !HAVE_BASELINE && "the baseline commit is not in this clone (a shallow checkout holds one commit)",
+}, () => {
+  const ref = probeDefaultRef(PROBE);
+  const root = new URL("../", import.meta.url);
+  const show = (path) => {
+    const r = spawnSync("git", ["show", `${ref}:${path}`], { cwd: root, encoding: "utf8", maxBuffer: 64e6 });
+    assert.equal(r.status, 0, `git could not read ${path} at ${ref}`);
+    return r.stdout;
+  };
+
+  // ASK GIT, NOT THE FILESYSTEM — this repository's own recorded rule, and the
+  // question is exactly "what did the repository hold before the pin".
+  assert.ok(!show("site-rls.mjs").includes("FN_SEARCH_PATH"),
+    `${ref} already has the pin: it is not a control, and every BEFORE arm of the probe would invert`);
+  assert.ok(!/search_path/.test(show("site-schema.mjs")),
+    `${ref}'s trigger functions already pin, so the trigger arm of the probe has no control`);
+
+  // And it has to be REACHABLE from what main holds, or "an immutable sha"
+  // becomes a sha only this branch can resolve.
+  const anc = spawnSync("git", ["merge-base", "--is-ancestor", ref, "HEAD"], { cwd: root });
+  assert.equal(anc.status, 0, `${ref} is not an ancestor of HEAD — a baseline nobody else can resolve`);
 });

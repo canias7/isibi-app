@@ -4949,16 +4949,73 @@ Every new case was proved RED against the pre-change modules first (case 8
 shows **5 of 5 re-issued functions unpinned** on the old tree); case 6 is green
 by design, being the control that privilege must NOT move.
 
-**AND THE PROBE'S OWN CONTROL HAD STOPPED BEING ONE.** `OLD_REF` defaulted to
-`HEAD`, so the moment the fix was committed HEAD *was* the fix: every BEFORE
-case inverted and the probe reported the PIN as broken. It defaults to
-`origin/main` now **and refuses to run at all** if that ref already pins — the
-recorded "a sweep whose control never applied is a sweep with no control", met
-in the probe written for this change.
+**AND THE PROBE'S OWN CONTROL HAD STOPPED BEING ONE — TWICE, and the second
+time was a MOVING REF rather than the wrong ref (owner, 2026-09-16: *"use an
+immutable known pre-fix commit instead of `origin/main`… Otherwise the
+documented test command stops working immediately after merge."*).** `OLD_REF`
+defaulted to `HEAD`, so the moment the fix was committed HEAD *was* the fix:
+every BEFORE case inverted and the probe reported the PIN as broken. The first
+correction moved it to `origin/main`, **which is the same defect deferred to
+merge day** — and merge day is exactly when somebody re-runs the command
+CLAUDE.md documents. **THE PROPERTY IS IMMUTABILITY, NOT THE PARTICULAR SHA**:
+every moving form this can drift back to is a NAME, and a hex object id is the
+only thing git will not re-point. It defaults to **`0fff5317`** now
+(`71c2c4b8^`, an ancestor of `origin/main`, measured pre-fix: no
+`FN_SEARCH_PATH` in its `site-rls.mjs` and no `search_path` at all in its
+`site-schema.mjs`, so the model functions AND the trigger functions are both
+unpinned there).
+
+**AND THE RUN-TIME REFUSAL IS KEPT RATHER THAN RETIRED BY THE SHA**, because the
+two answer different questions: the sha makes the DEFAULT reproducible and says
+nothing about an `OLD_REF=` somebody passes, nor about a later edit moving the
+default to a different sha that happens to be post-fix. **The two guards are
+split the same way and the division is proved in both directions** — case 10
+asks the SHAPE (and that the refusal is still present and still keyed on the
+baseline's model-function DDL), case 11 asks GIT whether that sha's tree is
+really pre-fix. Driven: `origin/main` fails 10; `HEAD` fails both; cutting the
+refusal's condition or its `process.exit(2)` fails 10; **an immutable but
+POST-fix sha passes 10 and fails 11**, which is the one case that says case 11
+is load-bearing rather than decorative. **Case 11 SKIPS where the object is
+absent** — `actions/checkout@v4` is `fetch-depth: 1`, so CI holds one commit —
+and skips VISIBLY rather than passing, which is why the CI skip count is 4 and
+the local one is 0.
 
 **THE DEPLOY WILL ROLL THE CONTAINER**: `site-rls.mjs` and `site-schema.mjs` are
 in the worker's module graph, so the image id moves and the 15–20 minute hold
 applies.
+
+**AND THE PER-STEP INPUT CAPTURE WAS RECORDED AND NEVER READ.** `shownSteps` has
+been on the developer record since it shipped (run 48's own instrumentation) and
+`askLines` — the harness's one reader of that record — never printed it. So the
+next paid run, bought to prove a designer was shown a column, would have come
+back **without the receipt**: this repository's own wiring defect, in the
+instrument built to settle it. Two lines per step now, a HEADLINE carrying
+`hasDatabase` and the tables (`hasDatabase: false` beside real tables is run
+47's whole defect, so `NO` must read as loudly as `YES` rather than as an
+absence) and the entry WHOLE as JSON under it, so nothing is lost to formatting.
+**An empty capture is a SENTENCE**, not a blank — "no step was recorded" and "no
+step saw anything" are two readings a blank collapses. The fixture is DERIVED
+from `shownSchema` rather than typed, because a hand-typed entry is a second
+copy of its producer and this one is the whole evidence for schema receipt.
+**One older guard was re-anchored, not appeased**: `askLines({coverage:{counts:{}}})`
+was pinned to a LENGTH of 2, which was the property "a counts line and nothing
+else" only while this block did not exist; it asserts the counts line, the
+absence of any requirement line, and that an empty record still reads differently
+from a missing one — which is what the length was ever about.
+
+**A WRITE-FREE, CREDENTIAL-FREE COLUMN INVENTORY EXISTS, and it is the
+before/after instrument the next live test needs.** PostgREST resolves a
+`select=` column against Postgres, so on a `collect` table (no read grant) the
+two answers separate exactly: **`42501 permission denied for table <t>`** means
+the column EXISTS (it resolved, then the table privilege refused) and **`42703
+column <t>.<c> does not exist`** means it does not. No row is written, no key is
+needed, and it is per-NAME rather than an enumeration — the authoritative list is
+still `backend repair --verify`, which is free and reads `information_schema`.
+Measured on `repairbench-1` (2026-09-16): `bookings` has `id`, `customer_name`,
+`bike`, `drop_off_day`, `created_at`, `updated_at` and **not** `owner_id`
+(correct — `collect` needs none); `repairs` has `id`, `customer_name`, `bike`,
+`created_at`, `updated_at` and **no `drop_off_day` at all**, which is what makes
+a drop-off-day question answerable only from `bookings`.
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -5400,7 +5457,17 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,514** (2026-09-16, local — the `search_path` review
+  The unit suite is **6,516** (2026-09-16, local — the probe's immutable
+  baseline, whose new cases are `site-searchpath`'s **two** (9 → 11: the
+  default asserted an immutable sha with the refusal kept, and the sha proved
+  pre-fix by asking GIT); **6,514 + 2 closes exactly**, and `addon-sweep` stays
+  **32** — the shown-steps reader is assertions inside the case that already
+  reads the coverage record, with one older expectation re-anchored off a
+  length. **LOCAL IS `6516 / 6516 / 0 / 0` AND CI WILL READ 4 SKIPPED, NOT 3**:
+  case 11 needs the baseline commit's git objects and `actions/checkout@v4` is
+  `fetch-depth: 1`, so it skips there — visibly, rather than passing and
+  claiming to have checked. CI has NOT read this number yet.
+  **6,514** before it (2026-09-16, local — the `search_path` review
   after its scope correction, whose new case file is
   `test/site-searchpath.test.mjs`'s **9**: the census over the real emitted DDL,
   the two emitters counted apart, the ORDER, the invoker form, the placement
