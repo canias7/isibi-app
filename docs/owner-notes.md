@@ -10350,32 +10350,59 @@ reads the conversation, and if something is still going it keeps watching.
 ### What I checked, and where it stops
 
 The whole flow runs end to end on a real PostgreSQL here — your route, the database,
-the queue, the engine, the reply read back — **58 checks, nothing failed.** On top of
-that: 344 database checks, 6,592 tests on the site builder, 256 on the engine, and a
+the queue, the engine, the reply read back — **67 checks, nothing failed.** On top of
+that: 365 database checks, 6,628 tests on the site builder, 256 on the engine, and a
 mutation sweep of 65 deliberate breakages in the code, all caught.
 
-**One check is unfinished and I would rather say so than round it up.** There is a
-second sweep that breaks the DATABASE ninety ways and requires the checks to notice. It
-got 26 of the way through — 26 breakages, 26 caught — and I stopped it to commit, because
-running it leaves the files half-broken while it works and committing mid-run would
-commit a break. The migrations are proved back to normal. **What is missing is not just
-the other 64**: that sweep's own honesty checks sit at the end, so a quarter-run has
-nothing proving it would have let a harmless change through, and the 22 breakages aimed
-at THIS change are among the ones it never reached. It is one command and about an hour
-whenever you want it.
+**That last check is finished now, and it was worth finishing.** The second sweep breaks
+the DATABASE ninety-two ways and requires the checks to notice. Run to the end it came
+back **88 breakages, 88 caught, none missed**, with all four of its own honesty
+checks — harmless changes that must NOT be caught — passing. The migrations are proved
+back to normal two ways.
 
-**That run found a real bug nothing else could see.** The screen asks the database
-which model answered, and the database view I wrote did not have that column — so every
-answer would have quietly come back unlabelled, with every single test still green,
-because the test fixture answered a column the real database did not have. It is fixed,
-and there is now a check that names every column the screen asks for.
+**⚠ AND THE FIRST FULL RUN FOUND SEVEN REAL GAPS, every one in the part written for
+this change.** That is the sweep doing the one thing hand-written checks cannot: reading
+them adversarially. Two of the seven mattered on their own — a long conversation would
+have been handed to the agent from its OLDEST end (so a customer with twenty messages
+would have had the agent answering the first screen for ever), and a turn whose run had
+been cleaned away would have taken the customer's own question out of the history with
+it. One was a privacy check that passed for the wrong reason: signing out is walled at
+the schema, so granting a stranger read access to conversations changed nothing the
+check could see. Two more were my own mistakes in the sweep rather than in the product.
+All seven are closed and the second pass is clean.
 
-**Nothing is live.** The migration has never been applied to any database, nothing is
-deployed, and no real model has been called. Everything above happened on a throwaway
-database on this machine. Say the word and I will put it live.
+**Three things you found are fixed, and each one I reproduced first.**
 
-**One thing worth knowing about the speed.** When a message starts a job, nothing
-rings the engine's doorbell yet — the two live in separate Workers. The engine sweeps
-for waiting work once a minute, so the first reply can take up to a minute to start.
-Nothing is lost by it; it is just slower than it needs to be, and the doorbell is a
-small, separate piece of work whenever you want it.
+1. **Typing while it answers.** The conversation redraws itself every 2.5 seconds while
+   a run is going, and the box was being rebuilt from a draft that was only saved when
+   you pressed Send — so anything typed while waiting was destroyed at the next tick,
+   eight times a minute, with the cursor and the focus going too. The box now saves as
+   you type and the redraw puts the words, the caret and the focus back. It only ever
+   restores into the conversation the box came from: forcing your cursor into a
+   conversation you had just opened would be a worse bug than the one being fixed. And
+   unsent words are kept per ACCOUNT as well as per conversation.
+2. **Editing after a lost response.** If a send committed and its answer never came
+   back, editing the words and pressing again reused the first press's key — the server
+   correctly recognised the retry, answered the ORIGINAL message, and the screen read
+   that as success and cleared your edit. The key now travels with the words: the same
+   text is the same press (one message, one run, as before), changed text is a new
+   press. The database also says out loud when a key arrives with different words, so no
+   other browser can lose an edit that way either.
+3. **The wait before it starts.** The site now rings the engine the moment the message
+   is committed, instead of leaving it for the engine's once-a-minute sweep. Measured
+   here: **send to answered in 288 milliseconds** with no sweep involved. A ring that
+   fails costs nothing — the work is already durable, the screen is told, and the sweep
+   still picks it up.
+
+**The database change IS live now.** It is applied to the real project (recorded as
+version 20260916031604) and I read every part of it back rather than trusting the
+"success" flag: six arguments, the conversation view locked to the reader's own account,
+the duplicate-press index, the run limits, and the rest of your project untouched — its
+32 tables all still there, and nothing in the agents tables had any rows either before
+or after.
+
+**What is NOT live yet, in order.** The engine itself still has to be deployed — I
+checked what is running and it does not yet know about customer-written agents, so a
+message sent today would come back "no such agent" — and then the website has to be
+merged and deployed. That order is not a preference; it is why I did the database
+first.

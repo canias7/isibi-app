@@ -2207,15 +2207,21 @@ column the store asks for, by name.
 
 - **Unit suite: 256 tests, 0 failures** (254 after `test/authored-run.test.mjs`'s 19
   landed, plus the two census cases). 235 before this round.
-- **Schema check: 344 checks, 0 failed** against a real PostgreSQL 16.13 — 262 before
-  this round, so **82 are this change's**: the send and its refusals, the snapshot, the
+- **Schema check: 365 checks, 0 failed** against a real PostgreSQL 16.13 — 262 before
+  this round, so **103 are this change's**: the send and its refusals, the snapshot, the
   duplicate absorbed, the cross-account refusal, the history projection, the edit
   afterwards, the role constraint still refusing `'agent'`, the privileges, retention
   leaving the writing, the thread view's four states, its `security_invoker` across
-  three relations, the foreign-run NULL, and the column census.
-- **End to end: 58 checks, 0 failed** (`npm run verify:chat`).
-- **The site builder's suite: 6,592 tests, 0 failures, 2 skipped** — its own number,
-  run from its own directory, and the one place a cross-product guard can fire.
+  three relations, the foreign-run NULL, and the column census — **and the 21 the SQL
+  sweep asked for**: a conversation longer than the window handing over its NEWEST turns,
+  a turn with no run surviving the join, a stop that is not an answer contributing no
+  text, `anon` asked as a PRIVILEGE rather than as a refusal, the grant census with its
+  observer proved alive, and the absorbed press that says its words differ.
+- **End to end: 67 checks, 0 failed** (`npm run verify:chat`) — 58 plus section 13's
+  nine, which drive the doorbell and its failure by the ring ALONE.
+- **The site builder's suite: 6,628 tests, 0 failures, 2 skipped** on the MERGED tree —
+  its own number, run from its own directory, and the one place a cross-product guard can
+  fire. 6,606 before main was merged in, plus main's 22, and the arithmetic closes.
 - **Code sweep: 65 mutants, 65 killed, 0 survived, 0 never applied, 4 comment-only
   controls survived** — 26 here (`withInstructions`, the snapshot in the journal, the
   runner's per-delivery read, the stand-in's label and the registry entry) and 39 in the
@@ -2232,42 +2238,144 @@ column the store asks for, by name.
   a third argument that can only reach `name`, `model` and `kind`, because the spread
   sits before the explicit fields. **`model` is the one worth asserting** and was the
   survivor that made it get asserted.
-- **⚠ SQL SWEEP: NOT COMPLETE, and the number is deliberately not stamped.** The spec
-  holds **90 mutants (4 control)**, 22 of them this change's — the send's key, the
-  absorbed duplicate, the ownership check, the snapshot, the history's order and its
-  left join, the link, the grant, the view's `security_invoker`, the progress column and
-  the `on delete set null`. The run was stopped at **26 of 90 — 26 killed, 0
-  survived** — to commit, and **every migration is proved restored against git**
-  (`git diff` on that directory is empty) plus the spec generator's own anchor census,
-  which is the check that catches a tree a killed sweep corrupted.
-  **⚠ AND NOT ONE OF THE FOUR CONTROLS HAD RUN, which is why this is a partial READING
-  rather than a partial result.** They sit at the END of the spec, so a run stopped a
-  quarter of the way through has no check on its own honesty at all — *a sweep whose
-  control never applied is a sweep with no control*, and one whose control has not been
-  reached yet is in exactly the same position. The 26 kills are real; what is missing is
-  the evidence that a comment-only change would have SURVIVED, without which "26 killed"
-  cannot be told from a harness that fails on everything. **And the 22 mutants this
-  change added are NOT among those 26**: the spec runs in file order and the send's
-  migration is the newest, so its own guarantees are the ones still unswept.
-  *A count nobody re-measured is a claim ahead of its evidence*, so what is recorded is
-  the partial run and the reason, not a total. **`npm run sweep:sql` from a green tree
-  is the one command that finishes it, and it wants about ninety minutes.**
+- **SQL sweep: 88 mutants, 88 killed, 0 survived, 0 never applied, 4 comment-only
+  controls survived** (`npm run sweep:sql`, 92 spec entries being those 88 plus the four
+  controls). **TWO PASSES, and the first one is the more useful.** The earlier partial
+  reading — 26 of 92, stopped to commit — had reached none of the controls, which is why
+  it was recorded as a partial READING rather than a partial result; *a sweep whose
+  control has not been reached is a sweep with no control.* Run to the end it came back
+  **81 killed, 7 SURVIVED**, and **every one of the seven was in this change's own
+  mutants**, because the spec runs in file order and the send's migration is the newest.
+  **AND THE SWEEP WAS RIGHT ABOUT ALL SEVEN.** Five were coverage gaps in the database
+  check, one was the SWEEP'S OWN blind spot, and two mutants were badly written:
+  - **A LONG CONVERSATION AND A RUN-LESS TURN WERE UNREACHABLE.** `order by m.seq desc`
+    → `asc` and `left join` → `join` both survived because the checked conversation is
+    three turns long and every turn has a run. A reversed window pins a customer's long
+    conversation to its first screen for ever; an inner join sends the model a history
+    with the customer's own questions missing. Closed with a fixture of
+    `history_turns() + 3` run-less messages on its own agent — INSERTED rather than sent,
+    because what is under test is the history READ and every check above already drives
+    the writer.
+  - **A STOP THAT IS NOT AN ANSWER COULD HAND OVER ITS TEXT.** `case when reason =
+    'answered'` survived because no stop the engine writes today carries `text` unless it
+    answered. It is the same rule `run.mjs:129` and `api.mjs:77` apply, in a third place
+    and deliberately: a bound-stopped run may carry partial text, and passing that on
+    puts words in the agent's mouth it never finished saying. The fixture writes the one
+    stop shape that could, which is exactly what the wall is for.
+  - **⚠ `anon` READING THE WHOLE CONVERSATION SURVIVED A CHECK WRITTEN FOR IT, and this
+    is the recorded "a refusal from the wrong gate looks exactly like the wall
+    working".** `anon` holds no USAGE on the schema, so every read as anon answers
+    `permission denied for schema agent` whatever table grants exist — and the check
+    asked only for `permission denied`. So GRANTING anon SELECT on `agent_thread` changed
+    nothing it could see. The gate is NAMED now, and the grant is asked DIRECTLY through
+    `has_table_privilege`, which is the only reader here that can see that mutant at all.
+    **A census beside it caught a defect in my own new check**:
+    `information_schema.role_table_grants` shows only grants whose grantee or grantor is
+    a CURRENTLY ENABLED role, and this runs as `postgres` — so it answered 0 for `anon`
+    AND 0 for `authenticated`, a negative assertion with a dead observer. The
+    observer-alive line is what found it; it reads `pg_class.relacl` through
+    `aclexplode` now, which does not care who is asking.
+  - **THE BOUNDS MUTANT WAS THE SWEEP'S OWN BLIND SPOT, not the schema's.** Widening
+    `authored_run()` (`steps` 2 → 16, `toolCalls` 1 → 64) survived while the tree was
+    guarded all along: `authored-run.test.mjs` parses that function out of the migration
+    and compares it with the engine's registry BOTH WAYS. The database check could not
+    see it because the authority for those numbers is the registry, which only that
+    census reads. **`sweep:sql` runs every check that guards these migrations now**, not
+    just the database one — *a sweep is only as good as the checks it runs*, and reading
+    that off one file made it weaker than the tree it was measuring.
+  - **TWO MUTANTS WERE BADLY WRITTEN AND WERE REPLACED AFTER BEING MEASURED.** A bare
+    `on conflict do nothing` is **MEASURED INERT** on two throwaway databases built from
+    these migrations: it still absorbs the send-key conflict, so a duplicate press
+    answers `repeat: true` with one message and one run either way, and the ONLY
+    observable difference is which refusal a reused message id gets
+    (`agent_messages_pkey` as written, the function's own "conflicted with a row that is
+    not there" bare) — both refusing having written nothing. The clause is DELETED
+    instead, which attacks the guarantee itself. And `perform 1;` appended after the
+    accept was a no-op whose LABEL claimed a reorder; the property is what the absorb
+    branch buys, so the replacement skips that branch (`if false`) and a duplicate press
+    mints a second run linked to nothing — the orphan the queue would execute.
+  - **(That "row that is not there" branch is reachable rather than paranoid**: under
+    READ COMMITTED a racing press can have its insert skipped by a row that is not
+    committed yet and is therefore invisible to the select below it.)
+  **THE SECOND PASS IS THE TALLY, taken after the run**: 88/88, and the tree is proved
+  restored TWO WAYS — `git status` clean with zero migration files differing from git,
+  and the spec generator's own anchor census green over all five files, which it cannot
+  be while a mutant is applied. **Measured mid-run, which is worth writing down**: the
+  generator refuses with `ANCHOR NOT FOUND` for whichever mutant is live, so it is a
+  reader of the tree and only means anything once the runner has exited.
+  **AND THE RUNNER IS NOT REAPED BY THE HARNESS**: it ran 4,700+ seconds in one
+  backgrounded call, well past the ten-minute tool ceiling, so the earlier truncation was
+  my own SIGTERM and not a timeout.
+
+### The doorbell, and the three review findings (2026-09-16)
+
+A code review found three things wrong once a run is really going. All three are the
+shape this product's own notes describe: the code reads correctly, every earlier check
+passes, and the defect only exists while time passes.
+
+- **THE DOORBELL IS THE ONE THAT BELONGS HERE.** Nothing told this engine when the site
+  builder accepted a run, so a committed run waited for the cron — `sweep_run_work`
+  offers a row with `claimed_by is null` **with no grace at all**, so the bound was one
+  tick, up to a minute of somebody watching a screen that says nothing. The site builder
+  now holds a Queues PRODUCER binding on `agent-runs` and rings `{ runId }` AFTER the
+  transaction commits. **THE MESSAGE IS A RUN ID AND NOTHING ELSE**, which is this
+  product's own rule (`claim_run` answers the tenant, so a stale or replayed delivery can
+  never make a consumer act as somebody) — and a census in the site builder's
+  `test/agent-send.test.mjs` reads THIS product's reader (`m.body?.runId`) and that
+  sender's payload, plus both wrangler configs, so a doorbell wired to a queue nobody
+  consumes fails a test rather than a customer.
+  **A DUPLICATE RING IS HARMLESS BY CONSTRUCTION AND THAT IS `claim_run`'S PROPERTY, not
+  the ringer's care**: a second delivery for a run already claimed or finished answers
+  `not-claimable` / `already-finished` and does nothing. So an absorbed press is rung too
+  — a first press whose ring failed left a row nobody had been told about.
+  **A FAILED RING IS SAID, NEVER RAISED** (`notified: false`): the work is durable before
+  that line runs, so answering an error would tell a customer their message failed when it
+  is committed and will run. **The sweep is unchanged and is the recovery**, which is
+  driven: a send whose doorbell throws leaves the work row claimable and the next pickup
+  runs it.
+  **MEASURED end to end: send → started → answered in 288 ms with no sweep involved**,
+  driven by the ring ALONE (no cron, no hand-written deliver) in `verify:chat`'s section
+  13. Locally, against a real PostgreSQL with these migrations.
+- **The other two are the site builder's** (a poll that destroyed what was being typed,
+  and a retry key that was not bound to its payload) and are recorded in the root
+  `CLAUDE.md`. What touches this product is the transaction's new `mismatch` field: an
+  absorbed press whose words differ from the stored ones SAYS SO, because a caller that
+  reads a repeat as a plain success clears a box holding an edit nobody saved.
+
+### Applied live, and verified by reading it back (2026-09-16)
+
+**APPLIED to `ujrqdmmtcptvimazlhom`, recorded as remote version `20260916031604`**, and
+the file is named for that. **VERIFIED BY READING IT BACK, not by the success flag**:
+`send_to_agent` with **6 arguments** and `security definer` with `search_path=""`, the
+thread view with **`security_invoker=true`** and 12 columns, the partial unique index,
+`authored_run()` answering all eight bounds with `steps: 2` and `toolCalls: 1`,
+`history_turns()` 20, EXECUTE for `service_role` and **not** for `authenticated`, `anon`
+holding no SELECT on the view, and `public` still holding its 32 tables so nothing else
+moved. `agent_messages` was empty before and after.
+
+**⚠ AND A SECOND REMOTE RECORD EXISTS FOR ONE FILE (`20260916031852`), which is a
+correction rather than a change.** The apply went through a tool that takes SQL as an
+argument and the text handed over had comments trimmed — so the live bodies were correct
+and did NOT match this tree byte for byte, which is the property this product verifies
+deployments with. Closed rather than documented: the three function definitions were
+re-applied VERBATIM and now match by md5 AND by length (`send_to_agent` 6,358 ·
+`authored_run` 900 · `history_turns` 11). No second file — that would be a second copy
+of the same DDL.
 
 ### Not proven live, and the list is short
 
-**The migration has never been applied to any project.** Nothing here has run against
-the hosted database, the deployed engine Worker or the deployed site-builder Worker. No
-real model has been called and none can be: the registry gives this agent the stand-in
-and no tools.
+**THE DEPLOYED ENGINE DOES NOT YET CARRY THE `authored` AGENT — read, not assumed.**
+`/health` on `agent-builder-api.aniascapital.workers.dev` answers version
+`c0334f7c-9cc1-4ad6-a641-496edd095e81` with `agents: ["support","slow","guarded"]`, so a
+run accepted for a customer's agent would come back `no-agent` today. **That fixes the
+deployment order: migration → THIS engine → the site builder**, and it is why the order
+is not a preference.
 
-**And a queued run waits for the cron.** Nothing rings the engine's queue when the site
-builder accepts a run — the two are separate Workers and the app holds no binding to the
-engine's queue — so the sweeper picks it up on its own minute-by-minute tick.
-`sweep_run_work` offers a row with `claimed_by is null` **with no grace at all**, so the
-bound is one cron tick and not a lease. That is correct and slow; a doorbell is the
-obvious next step and is not in this change.
+**No real model has been called and none can be**: the registry gives this agent the
+stand-in and no tools.
 
 ## Where things stand
+
 
 Scaffolded 2026-09-14. No source yet — the decisions below came first.
 

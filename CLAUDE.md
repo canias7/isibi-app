@@ -1642,8 +1642,73 @@ page scope; nothing is merged or deployed.
   which nothing drove directly: a chrome label written unconditionally (which would
   keep saying "simulated" over a real provider's answer) and a message with no run
   drawn as a failure.
-  **NOT PROVEN LIVE.** The migration has never been applied to any project and nothing
-  here has run against the deployed Worker.
+  **THE MIGRATION IS LIVE (2026-09-16, remote version `20260916031604`)** and was verified
+  by reading it back rather than by a success flag — see the engine's own notes. What is
+  not yet live is this Worker and the engine's.
+
+- **⚠ THREE DEFECTS IN THAT SCREEN, FOUND BY REVIEW AND EACH REPRODUCED FIRST
+  (2026-09-16).** All three are the recorded shape: the code reads correctly, every guard
+  passes, and the defect exists only while time passes and somebody is typing.
+  **THE POLL DESTROYED WHAT WAS BEING TYPED.** `renderAgents` writes `innerHTML` and the
+  poll calls it every `AGENT_POLL_MS` (2,500), while the draft it redraws from was written
+  only on Send — so a sentence typed while waiting for an answer was destroyed at the next
+  tick, EIGHT TIMES A MINUTE, with the caret and the focus going with it. A quiet reload
+  already kept the thread on screen; it did not keep the person's half-typed reply.
+  `renderAgents` is a WRAPPER now (`agentComposerRead` → `renderAgentsNow` →
+  `agentComposerRestore`), so no caller has to remember, and the box carries
+  `data-input="agent-msg"` so what is typed is the draft immediately rather than at Send.
+  **THE BOX'S OWN ATTRIBUTE (`data-agent`) DECIDES WHOSE WORDS THEY ARE**, read off the
+  element being replaced and never from whatever conversation is open now: restoring into
+  one somebody has since opened would move their caret, which is a worse bug than the one
+  being fixed. The input hook deliberately DRAWS NOTHING — a re-render per keystroke is
+  the twitch the wrapper exists to remove.
+  **A RETRY KEY MUST BE BOUND TO ITS PAYLOAD.** The key was held per conversation, so a
+  send that committed with its response lost, then EDITED and pressed again, carried the
+  first message's key: the server absorbed it, answered the original body, the browser read
+  `ok` and cleared the box — the edit discarded silently, the conversation keeping words
+  nobody wanted. `agentSendKeys` stores `{key, body}`: the same text is the same press (one
+  message, one run, absorbed exactly as before), changed text is a new press with its own
+  key. *Retry safety was never about the conversation; it was always about the payload.*
+  **AND THE TRANSACTION ANSWERS `mismatch`**, which THIS browser can no longer provoke and
+  which is handled anyway — another tab or an older cached script can, and the one outcome
+  that must never happen is an edit vanishing behind an `ok`. On a mismatch the words stay,
+  the key is dropped (so the next press is a NEW message) and a sentence says so.
+  **DRAFTS ARE KEYED BY ACCOUNT AND CONVERSATION, AND THE KEY IS BOUND WITH THE REQUEST —
+  an existing guard found that half.** Computing it from `agentUid()` when the answer
+  arrives means a session that expired mid-send deletes a key belonging to nobody and
+  leaves the real draft behind for ever. `undefined` (never falsy) is what means "whoever
+  is here now", because a signed-out `''` is a real answer. The account half does not rest
+  on `doSignOut`'s `location.reload()` three hundred lines away — this repository has the
+  expiry of exactly that kind of reasoning recorded four times.
+  **THE ENGINE IS RUNG AFTER THE COMMIT, AND THE RING IS A DOORBELL AND NEVER THE WORK.**
+  `AGENT_RUN_QUEUE` is a Queues PRODUCER binding on the engine's own `agent-runs`; the
+  route sends `{ runId }` once the transaction has committed. A failed ring is logged and
+  said (`notified: false`) and never raised — the work is durable either way, and answering
+  an error would tell a customer their message failed when it is committed and will run.
+  **AN ABSORBED PRESS IS RUNG TOO**, because a first press whose ring failed left a row
+  nobody had been told about, and a duplicate ring is harmless BY CONSTRUCTION (that is
+  `claim_run`'s property, not this line's care). **PRODUCER ONLY**: a consumer here would
+  be a second executor of other people's runs, and the queue census forbids it.
+  **THE DEPLOY ENSURES BOTH QUEUES NOW**, because a binding naming a queue the account
+  does not hold fails the WHOLE deploy and `agent-runs` is created by a different
+  deployment — without it the ORDER of two products' first deploys would decide whether
+  this one works. Idempotent; both may create it.
+  **Guards**: `test/agent-binding.test.mjs` **36 → 42** (typing through a real poll with
+  the cursor and focus asserted, the restore refusing another conversation, the control
+  that a box naming no conversation is read by nobody, the input hook drawing nothing, an
+  edited retry taking a new key, and an absorbed mismatch keeping the edit);
+  `test/agent-send.test.mjs` **23 → 31** (the ring and its failure, no binding, an absorbed
+  press rung, a runless send ringing nothing, `mismatch` on the wire, and the census that
+  reads the ENGINE's own `m.body?.runId` plus both wrangler configs). **THE FAKE ELEMENT
+  HAD TO GAIN REAL ATTRIBUTES, A SELECTION AND FOCUS** — it answered `null` to every
+  `getAttribute` and did nothing on `focus()`, so the whole fix would have read as working
+  with it deleted: *a fake LESS capable than the thing it stands in for hides a defect
+  exactly as well as one that is more.*
+  **Five older guards re-anchored, not appeased**: the queue census (a producer may name
+  another Worker's queue, proved from THAT Worker's config, and must not be consumed here),
+  the deploy's create step (read as the names it really creates, not one literal per
+  queue — it became a loop), the image step's ordering (anchored on what the step DOES
+  rather than on its title), and two draft anchors in the view guard.
 
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
@@ -5587,7 +5652,16 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
+  The unit suite is **6,628** (2026-09-16, local, ON THE TREE WITH `main` MERGED IN —
+  6,626 pass, 2 skipped, 0 fail). The agent-run branch measured **6,606** and `main`
+  carried **22** cases the branch had not seen (the addon reporting work), so
+  **6,606 + 22 = 6,628 and the arithmetic closes exactly**. The branch's own chain:
+  6,592 for the send, then **6,606** for the three review fixes — six browser cases
+  (typing through a real poll, the restore's two refusals, the input hook, an edited
+  retry, an absorbed mismatch) and eight route cases (the ring, its failure, no binding,
+  an absorbed press rung, a runless send, `mismatch`, and the cross-product census).
+  **CI has NOT read 6,628 yet.**
+  Before it, **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
   sessions stamped a suite and neither number was the merged one**, which is
   this file's own "a number stamped in two places drifts when only one is
   corrected": this branch measured **6,498** and `main` brought
