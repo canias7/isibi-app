@@ -1,25 +1,22 @@
 {
-  "at": "2026-09-16T09:40:59.897Z",
+  "at": "2026-09-16T19:29:37.785Z",
   "site": "repairbench-1",
-  "start": 149,
-  "end": 137,
+  "start": 137,
+  "end": 134,
   "results": [
     {
       "name": "ask",
       "kinds": [
         "function",
-        "page"
+        "job"
       ],
       "verdict": "reported",
-      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"function\",\"page\"]\n      database: functions [\"workshop_load\"]\n      pages: [\"/workshop-load\",\"/\"]; build moved\n      home text 5206→5234 chars\n      coverage 5/7 covered, 2 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"A page at /workshop-load shows how many bikes are booked in for each drop-off date\" (elsewhere → page); \"A function the page calls to work out how many bikes are booked per drop-off date\" (elsewhere → function)\n      the customer was told: \"I've set that up, but I can't confirm from here that A page at /workshop-load shows how many bikes are booked in for each drop-off date; or that A function the page calls works out booked bikes per date from the bookings — have a look and tell me if it isn't right.\"; repair clean",
-      "cost": 12,
-      "wall": 429,
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"function\",\"job\"]\n      database: functions [\"nightly_booking_count\"]; jobs [\"nightly_booking_count\"]\n      pages: []; build UNMOVED\n      home text 5239→5239 chars\n      coverage 5/8 covered, 3 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"That count runs every night at 11\" (elsewhere → job); \"Count how many bookings we have and record the total in the job's run result\" (elsewhere → function); \"Do not delete or change any bookings\" (elsewhere → function)\n      the customer was told: \"I've set that up, but I can't confirm from here that Count how many bookings there are and record that total in the job run result; or that Bookings are not deleted or changed — have a look and tell me if it isn't right. I can't see from here whether That count runs every night at 11 — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.\"",
+      "cost": 3,
+      "wall": 173,
       "build": "mu3wolgr-eqt2r5",
       "pickedRight": true,
-      "shots": [
-        "docs/edits/addon-01-ask.png",
-        "docs/edits/addon-01-ask-page.png"
-      ]
+      "shots": []
     }
   ]
 }
