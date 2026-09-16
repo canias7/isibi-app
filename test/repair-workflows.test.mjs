@@ -36,6 +36,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+// THE REAL PARSER, because the question is what the script MAKES of the argv
+// the step builds, and a second model of it here would be two copies of one
+// thing — the class that let the shell and the confirm gate disagree.
+import { parseArgs, writesReference, writesMeta } from "../scripts/backend-repair.mjs";
 
 const DIR = ".github/workflows";
 
@@ -115,13 +119,19 @@ function stepOf(file, name) {
  * `shell` decides the argv, so the caller can ask what the workflow declares OR
  * what GitHub would use with nothing declared.
  */
-function runStep({ run, shell, code, log }) {
+function runStep({ run, shell, code, log, env }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "repair-step-"));
   try {
     const shim = path.join(dir, "node");
+    // THE STUB RECORDS ITS OWN ARGV, so a case can ask what the workflow really
+    // handed the script. That is the only way to see a forwarded input: a form
+    // field that is taken and never passed on is this repository's own wiring
+    // defect, and from outside "the owner left it blank" and "we dropped it"
+    // are the same missing flag.
     fs.writeFileSync(
       shim,
-      `#!/bin/sh\necho "backend repair: five sites"\necho "identity not proven for repairbench-1" >&2\nexit ${code}\n`,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "${path.join(dir, "argv.txt")}"\n` +
+        `echo "backend repair: five sites"\necho "identity not proven for repairbench-1" >&2\nexit ${code}\n`,
     );
     fs.chmodSync(shim, 0o755);
     const script = path.join(dir, "step.sh");
@@ -131,13 +141,15 @@ function runStep({ run, shell, code, log }) {
     assert.ok(argv, `no argv recorded for shell ${JSON.stringify(shell)}`);
     const r = spawnSync("bash", [...argv, script], {
       cwd: dir,
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MODE: "verify", SLUG: "" },
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, MODE: "verify", SLUG: "", ...(env || {}) },
       encoding: "utf8",
     });
     const logPath = path.join(dir, log);
+    const argvPath = path.join(dir, "argv.txt");
     return {
       status: r.status,
       logged: fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : null,
+      argv: fs.existsSync(argvPath) ? fs.readFileSync(argvPath, "utf8").split("\n").filter(Boolean) : null,
     };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -179,6 +191,175 @@ for (const s of STEPS) {
     assert.ok(bad.logged, `${s.file}: the log is written either way`);
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVERY FORM FIELD REALLY REACHES THE SCRIPT (2026-09-16)
+//
+// The read-only aggregate takes a table and a column off the dispatch form, and
+// a field that is TAKEN and never PASSED ON is this repository's most repeated
+// defect: the form looks right, the script looks right, and from outside "the
+// owner left it blank" and "the step dropped it" are the same missing flag —
+// which here would mean an aggregate over a table nobody asked about, or a
+// `counts` run silently answering as a `preview`.
+//
+// Driven, not grepped: the step's real `run:` text is executed under the shell
+// it declares, with `node` replaced by a stub that records its argv.
+// ─────────────────────────────────────────────────────────────────────────────
+test("backend-repair.yml: the mode, slug, table and column all reach the script", () => {
+  const { shell, run } = stepOf("backend-repair.yml", "backend repair");
+  const r = runStep({
+    run, shell, code: 0, log: "backend-repair.log",
+    env: { MODE: "counts", SLUG: "repairbench-1", TABLE: "bookings", COLUMN: "drop_off_day" },
+  });
+  assert.ok(r.argv, "the stub was never reached — the step did not run node at all");
+  assert.deepEqual(r.argv, [
+    "scripts/backend-repair.mjs", "--counts",
+    "--slug", "repairbench-1", "--table", "bookings", "--column", "drop_off_day",
+  ], "the step handed the script: " + JSON.stringify(r.argv));
+
+  // THE CONTROL, and it is the reason the case above is about forwarding rather
+  // than about the flags happening to be there: with the two fields blank, the
+  // script is handed NEITHER — so an unconditional `--table ''` would be caught
+  // here, and a dropped forwarding would be caught above.
+  const bare = runStep({
+    run, shell, code: 0, log: "backend-repair.log",
+    env: { MODE: "preview", SLUG: "", TABLE: "", COLUMN: "" },
+  });
+  assert.deepEqual(bare.argv, ["scripts/backend-repair.mjs", "--preview"],
+    "a blank form still handed the script: " + JSON.stringify(bare.argv));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A FORM VALUE CANNOT CHANGE THE MODE (2026-09-16, owner)
+//
+// THE DEFECT, REPRODUCED BEFORE IT WAS FIXED. The step built one string and
+// expanded it UNQUOTED. With `mode: counts`, `column: "drop_off_day --apply"`
+// and `confirm` empty, the shell word-split that value and the script was
+// handed `--counts … --column drop_off_day --apply`; the old parser let the
+// LAST mode flag win, so the run was a full **apply** — and the confirm gate,
+// which asks `startsWith(inputs.mode, 'apply')` and had seen `counts`, demanded
+// no word. **A value became a mode, and the approval gate was asked about a
+// different run from the one that executed.**
+//
+// THE PROPERTY, and it is the one that makes the gate mean anything: for every
+// value a person can type into the form, either the parser selects EXACTLY the
+// mode the gate was asked about, or it refuses outright. There is no third
+// answer, and "it refused" is a safe one — nothing is read or written.
+//
+// DRIVEN SHELL → ARGV → PARSER, because that is where the two came apart. The
+// step's own `run:` text executes under the shell it declares, a stub records
+// the argv, and the REAL `parseArgs` reads it. Neither half alone sees this:
+// the shell test cannot say what the script makes of the words, and a parser
+// test cannot say what the shell hands it.
+// ─────────────────────────────────────────────────────────────────────────────
+test("backend-repair.yml: a slug, table or column can never change the mode or add an option", () => {
+  const { shell, run } = stepOf("backend-repair.yml", "backend repair");
+
+  // Every shape a word-split leaves behind, plus the mode names themselves as
+  // bare values. Each is tried in ALL THREE value fields, because the three are
+  // separate `if` blocks and a fix applied to one is not a fix.
+  const NASTY = [
+    "drop_off_day --apply",          // the owner's own reproduction
+    "--apply",                       // the whole value is a flag
+    "x --apply-reference",           // the narrower writing mode
+    "x --verify --slug other-site",  // a second slug as well as a second mode
+    "; node -e 1",                   // a command separator
+    "$(echo --apply)",               // a substitution
+    "`echo --apply`",                // the older substitution spelling
+    "--table bookings",              // a value naming another option
+  ];
+  // ── AND A SEPARATE LIST THAT MUST ARRIVE WHOLE, which is what makes the
+  // ── quoting a wall rather than a coincidence.
+  //
+  // A SWEEP FOUND THIS GAP. Allowing "or it was refused" everywhere is the
+  // right SAFETY property and a useless REGRESSION one: with the quotes gone
+  // the parser catches every split, so three mutants that reverted the array
+  // SURVIVED a census that only ever asked for safety. A value with a space is
+  // a thing a person can legitimately type, and only the array delivers it —
+  // unquoted, `a b c` splits and the parser refuses `b`. So these must parse,
+  // and parse to the value the form was given.
+  const PLAIN = ["a b c", "two words", "trailing space "];
+
+  let asserted = 0;
+  for (const mode of ["preview", "counts", "verify", "apply", "apply-reference"]) {
+    for (const field of ["SLUG", "TABLE", "COLUMN"]) {
+      for (const nasty of NASTY) {
+        const env = { MODE: mode, SLUG: "repairbench-1", TABLE: "bookings", COLUMN: "drop_off_day" };
+        env[field] = nasty;
+        const r = runStep({ run, shell, code: 0, log: "backend-repair.log", env });
+        assert.ok(r.argv, `the step never reached node for ${field}=${JSON.stringify(nasty)}`);
+
+        const got = parseArgs(r.argv.slice(1));
+        const where = `${mode} / ${field}=${JSON.stringify(nasty)} -> ${JSON.stringify(r.argv)}`;
+        if (got.error) { asserted++; continue; }     // refused is a safe answer
+
+        // THE MODE IS THE FORM'S, EXACTLY. This is the assertion the defect
+        // broke, and the one the confirm gate's correctness rests on.
+        assert.equal(got.mode, mode, `a ${field} value selected a different mode — ${where}`);
+        // …AND THE WRITE BOUNDARY FOLLOWS FROM IT: a read-only mode that came
+        // out of the form still writes nothing, whatever was typed.
+        if (!mode.startsWith("apply")) {
+          assert.equal(writesReference(got.mode), false, `a ${field} value opened the reference write — ${where}`);
+          assert.equal(writesMeta(got.mode), false, `a ${field} value opened the _meta write — ${where}`);
+        }
+        // NO OPTION WAS ADDED: the two fields the caller did not touch keep the
+        // values the form gave them.
+        for (const [k, e] of [["slug", "SLUG"], ["table", "TABLE"], ["column", "COLUMN"]]) {
+          if (e !== field) assert.equal(got[k], env[e], `a ${field} value changed ${k} — ${where}`);
+        }
+        asserted++;
+      }
+    }
+  }
+  // A PLAIN MULTI-WORD VALUE SURVIVES AS ONE VALUE — the array's own property,
+  // and the one a refusal cannot satisfy.
+  let whole = 0;
+  for (const field of ["SLUG", "TABLE", "COLUMN"]) {
+    for (const plain of PLAIN) {
+      const env = { MODE: "counts", SLUG: "repairbench-1", TABLE: "bookings", COLUMN: "drop_off_day" };
+      env[field] = plain;
+      const r = runStep({ run, shell, code: 0, log: "backend-repair.log", env });
+      const got = parseArgs(r.argv.slice(1));
+      const where = `${field}=${JSON.stringify(plain)} -> ${JSON.stringify(r.argv)}`;
+      assert.equal(got.error, "", `a plain value was split and refused — ${where}`);
+      assert.equal(got.mode, "counts", `a plain value changed the mode — ${where}`);
+      assert.equal(got[field.toLowerCase()], plain, `a plain value did not arrive whole — ${where}`);
+      whole++;
+    }
+  }
+
+  // THE OBSERVER, PROVED ALIVE. A loop that ran zero times passes every
+  // assertion in it.
+  assert.equal(asserted, 5 * 3 * NASTY.length, "the census did not run every combination");
+  assert.equal(whole, 3 * PLAIN.length, "the whole-value census did not run every combination");
+
+  // ── AND THE ORDINARY PRESSES STILL WORK, which is what stops the walls above
+  // ── from being satisfied by a step that refuses everything.
+  const counts = runStep({
+    run, shell, code: 0, log: "backend-repair.log",
+    env: { MODE: "counts", SLUG: "repairbench-1", TABLE: "bookings", COLUMN: "drop_off_day" },
+  });
+  assert.deepEqual(parseArgs(counts.argv.slice(1)),
+    { mode: "counts", slug: "repairbench-1", table: "bookings", column: "drop_off_day", error: "" },
+    "an ordinary counts press no longer parses: " + JSON.stringify(counts.argv));
+
+  const apply = runStep({
+    run, shell, code: 0, log: "backend-repair.log",
+    env: { MODE: "apply", SLUG: "repairbench-1", TABLE: "", COLUMN: "" },
+  });
+  assert.deepEqual(parseArgs(apply.argv.slice(1)),
+    { mode: "apply", slug: "repairbench-1", table: "", column: "", error: "" },
+    "an explicitly confirmed apply no longer parses: " + JSON.stringify(apply.argv));
+  assert.equal(writesMeta("apply"), true, "the confirmed apply stopped being a write");
+
+  // AND THE GATE COVERS EXACTLY THE MODES THAT WRITE — read out of the file
+  // rather than recalled, because the whole defect was the gate and the parser
+  // answering about different things.
+  const wf = fs.readFileSync(path.join(DIR, "backend-repair.yml"), "utf8");
+  assert.match(wf, /if: \$\{\{ startsWith\(github\.event\.inputs\.mode, 'apply'\) \}\}/);
+  assert.match(wf, /"\$\{args\[@\]\}"/, "the arguments are no longer passed as a quoted array");
+  assert.doesNotMatch(wf, /node scripts\/backend-repair\.mjs .*\$S\b/, "the unquoted string expansion is back");
+});
 
 // A CENSUS, not a list of two. A third repair workflow, or a second piped step
 // in one of these, is covered by existing rather than by being remembered.

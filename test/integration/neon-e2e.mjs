@@ -650,47 +650,63 @@ try {
   ok("but may NOT select the table it reads from", canRead[0].sel === false, JSON.stringify(canRead[0]));
   ok("and may still submit the form", canRead[0].ins === true, JSON.stringify(canRead[0]));
 
-  // ── IS THE UNPINNED search_path ON MODEL FUNCTIONS REACHABLE? ─────────────
+  // ── search_path ON MODEL FUNCTIONS: PINNED SINCE 2026-09-16 ───────────────
   //
-  // `app_user_id()` and `app_team_id()` are declared `SET search_path =
-  // pg_catalog` with every name qualified, and the comment in site-rls.mjs says
-  // why: "a role able to create a schema ahead of it can hijack an unqualified
-  // call". `functionSql` pins NOTHING on the functions the MODEL writes, and
-  // those are SECURITY DEFINER — they run as the database owner and bypass RLS.
+  // RE-ANCHORED, NOT APPEASED, AND THE PREMISE IS WHAT MOVED. This block used to
+  // assert the opposite — "a model function does NOT [pin] — recorded, and safe
+  // only while the four checks above hold" — resting on the claim that the
+  // escalation "needs BOTH halves … a caller can put a schema of their own ahead
+  // of `public`, and they can create an object in it", with four `CREATE`
+  // privileges measured to say nobody can.
   //
-  // The escalation needs BOTH halves, and only Postgres can answer either:
-  //   1. a caller can put a schema of their own ahead of `public`, and
-  //   2. they can create an object in it to shadow the real table.
-  // Reasoning says no on both (PG15+ revoked CREATE on `public` from PUBLIC, and
-  // we never grant CREATE anywhere) — but that is exactly the sort of "probably"
-  // that this file exists to replace with a measurement, and the two functions
-  // above were pinned on the strength of the same argument in reverse.
+  // **THE FOUR CHECKS WERE TRUE AND THE PREMISE WAS INCOMPLETE.** There is a
+  // third kind of conflicting object that needs no `CREATE` at all: a TEMPORARY
+  // relation. `TEMP` on the database is granted to PUBLIC by Postgres's own
+  // default, and an unlisted `pg_temp` is searched FIRST for relations, so the
+  // caller never touches its own `search_path` either. Measured on a real
+  // PostgreSQL 16 by `test/integration/local-pg-searchpath.mjs`: a role refused
+  // `SELECT` on the table outright creates `pg_temp.<table>` and the definer
+  // function that counts the owner's rows answers the ATTACKER's count.
   //
-  // MEASURED RATHER THAN ASSUMED, and it is REPORTED both ways: if a role can
-  // create, the finding is real and the fix is to pin `search_path` on every
-  // model function; if it cannot, this records that the gap is unreachable and
-  // nobody has to re-derive it.
+  // So the four checks stay — they are still the two halves of the SCHEMA route
+  // and they are still worth measuring on a live project — and the TEMP question
+  // that was never asked is asked beside them. What changed is that none of them
+  // is load-bearing any more: the pin is.
   const creates = await sqlQuery(db,
     "SELECT has_database_privilege('anonymous', current_database(), 'CREATE') AS anon_db, " +
     "has_database_privilege('authenticated', current_database(), 'CREATE') AS auth_db, " +
     "has_schema_privilege('anonymous', 'public', 'CREATE') AS anon_public, " +
-    "has_schema_privilege('authenticated', 'public', 'CREATE') AS auth_public");
+    "has_schema_privilege('authenticated', 'public', 'CREATE') AS auth_public, " +
+    "has_database_privilege('anonymous', current_database(), 'TEMP') AS anon_temp, " +
+    "has_database_privilege('authenticated', current_database(), 'TEMP') AS auth_temp");
   const c = creates[0] || {};
   ok("anonymous cannot create a schema to hide in", c.anon_db === false, JSON.stringify(c));
   ok("authenticated cannot create a schema to hide in", c.auth_db === false, JSON.stringify(c));
   ok("anonymous cannot create an object in public", c.anon_public === false, JSON.stringify(c));
   ok("authenticated cannot create an object in public", c.auth_public === false, JSON.stringify(c));
-  // The premise of the whole question, stated separately so a future reader can
-  // see WHICH half held. If model functions are ever pinned, this check becomes
-  // belt-and-braces rather than the only thing standing there.
+  // REPORTED, NOT ASSERTED EITHER WAY. Postgres grants TEMP to PUBLIC by default,
+  // so `true` is the expected answer and is not a finding — `false` would mean
+  // Neon revokes it, which is worth knowing and is not something to depend on.
+  // The line exists so the answer is on the record instead of being re-derived.
+  console.log("  note TEMP on this database: anonymous=" + c.anon_temp + " authenticated=" + c.auth_temp +
+    " — PUBLIC holds TEMP by Postgres's default, which is why the pin and not these four is the wall");
+  // THE WALL ITSELF, now that it exists. Both the model's function and the
+  // engine's helper, because one of them passing says nothing about the other.
   const pinned = await sqlQuery(db,
     "SELECT proname, proconfig FROM pg_proc WHERE proname IN ('enquiry_by_claim','app_user_id') ORDER BY proname");
   const byName = Object.fromEntries((pinned || []).map((r) => [r.proname, r.proconfig]));
-  ok("the engine's own helper pins search_path", Array.isArray(byName.app_user_id)
-    && byName.app_user_id.some((s) => /^search_path=/.test(s)), JSON.stringify(byName));
-  ok("a model function does NOT — recorded, and safe only while the four checks above hold",
-    !byName.enquiry_by_claim || !byName.enquiry_by_claim.some((s) => /^search_path=/.test(s)),
+  const pathOf = (n) => (Array.isArray(byName[n]) ? byName[n] : []).find((s) => /^search_path=/.test(s)) || "";
+  ok("the engine's own helper pins search_path", /^search_path=/.test(pathOf("app_user_id")), JSON.stringify(byName));
+  ok("and so does the model's function, since 2026-09-16", /^search_path=/.test(pathOf("enquiry_by_claim")),
     JSON.stringify(byName));
+  // THE ORDER IS THE FIX, not the presence — `pg_temp, public` pins, parses, and
+  // leaves the hole exactly where it was.
+  ok("with pg_temp LAST, which is the whole of it",
+    /,\s*pg_temp$/.test(pathOf("enquiry_by_claim")), pathOf("enquiry_by_claim"));
+  // A SITE THAT HAS NOT RE-APPLIED ITS SCHEMA SINCE THE FIX STILL CARRIES THE OLD
+  // FUNCTION, because `CREATE OR REPLACE` only runs on the next schema change.
+  // This probe builds its own project, so it can assert; a check against a live
+  // customer site would have to report rather than assert.
 
   // ── `internal: true` withholds the grant ─────────────────────────────────
   //

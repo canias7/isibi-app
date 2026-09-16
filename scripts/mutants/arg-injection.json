@@ -1,0 +1,173 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the value-argument list",
+    "control": true,
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "/** The three arguments that take a value. Named once, so the loop below and",
+    "to": "/** The three arguments that carry a value. Named once, so the loop below and"
+  },
+  {
+    "label": "CONTROL: a comment only, beside the workflow's array",
+    "control": true,
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "      # `args+=(--slug \"$SLUG\")` keeps each value ONE argument whatever it",
+    "to": "      # `args+=(--slug \"$SLUG\")` holds each value as ONE argument whatever it"
+  },
+  {
+    "label": "THE DEFECT ITSELF: the workflow expands one unquoted string again, so a value word-splits",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "          args=(--\"${MODE:-preview}\"); if [ -n \"$SLUG\" ]; then args+=(--slug \"$SLUG\"); fi; if [ -n \"$TABLE\" ]; then args+=(--table \"$TABLE\"); fi; if [ -n \"$COLUMN\" ]; then args+=(--column \"$COLUMN\"); fi; node scripts/backend-repair.mjs \"${args[@]}\" 2>&1 | tee backend-repair.log",
+    "to": "          S=\"\"; if [ -n \"$SLUG\" ]; then S=\"--slug $SLUG\"; fi; if [ -n \"$TABLE\" ]; then S=\"$S --table $TABLE\"; fi; if [ -n \"$COLUMN\" ]; then S=\"$S --column $COLUMN\"; fi; node scripts/backend-repair.mjs --\"${MODE:-preview}\" $S 2>&1 | tee backend-repair.log"
+  },
+  {
+    "label": "THE ARRAY IS EXPANDED UNQUOTED, which splits every value all over again",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "node scripts/backend-repair.mjs \"${args[@]}\" 2>&1",
+    "to": "node scripts/backend-repair.mjs ${args[@]} 2>&1"
+  },
+  {
+    "label": "THE ARRAY IS EXPANDED AS ONE WORD (`*` not `@`), so every argument arrives joined",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "node scripts/backend-repair.mjs \"${args[@]}\" 2>&1",
+    "to": "node scripts/backend-repair.mjs \"${args[*]}\" 2>&1"
+  },
+  {
+    "label": "ONE FIELD LOSES ITS QUOTES \u2014 the column, which is the owner's own reproduction",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "args+=(--column \"$COLUMN\")",
+    "to": "args+=(--column $COLUMN)"
+  },
+  {
+    "label": "ONE FIELD LOSES ITS QUOTES \u2014 the slug",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "then args+=(--slug \"$SLUG\"); fi",
+    "to": "then args+=(--slug $SLUG); fi"
+  },
+  {
+    "label": "NOTE: the two walls are NOT the 'cannot be killed one at a time' shape \u2014 MEASURED. With the array in place, reverting the parser leaves every case in repair-workflows green (that census can only see the workflow), and reverting the workflow leaves the parser's own cases green. But each has its OWN door: the parser revert turns 2 cases red in backend-repair + repair-commands, and the workflow revert turns 1 red in repair-workflows. So they are mutated separately below rather than as a pair.",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "const VALUE_ARGS = Object.freeze([\"slug\", \"table\", \"column\"]);",
+    "to": "const VALUE_ARGS = Object.freeze([\"column\", \"table\", \"slug\"]);",
+    "control": true
+  },
+  {
+    "label": "A SECOND MODE IS ACCEPTED AND THE LAST ONE WINS \u2014 the parser half of the defect",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (seen.has(\"mode\")) {\n        return refuse(out.mode === named\n          ? `--${named} was given twice`\n          : `two modes were named: --${out.mode} and --${named}`);\n      }",
+    "to": ""
+  },
+  {
+    "label": "A SECOND MODE IS ACCEPTED WHEN IT DIFFERS \u2014 only a repeat is refused, which is the wrong half",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (seen.has(\"mode\")) {",
+    "to": "      if (seen.has(\"mode\") && out.mode === named) {"
+  },
+  {
+    "label": "A VALUE SHAPED LIKE A FLAG IS TAKEN AS A VALUE",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (v.startsWith(\"-\")) return refuse(`--${key} was given a value that looks like a flag: ${v}`);",
+    "to": "      /* taken as a value */;"
+  },
+  {
+    "label": "A MISSING VALUE READS AS AN EMPTY ONE",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (i + 1 >= argv.length) return refuse(`--${key} was given no value`);",
+    "to": "      if (false) return refuse(`--${key} was given no value`);"
+  },
+  {
+    "label": "A REPEATED VALUE FLAG OVERWRITES INSTEAD OF REFUSING",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (seen.has(key)) return refuse(`--${key} was given twice`);",
+    "to": "      /* the later one wins */;"
+  },
+  {
+    "label": "AN UNRECOGNISED ARGUMENT IS SILENTLY IGNORED \u2014 how a word-split leaves no trace",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    return refuse(`unrecognised argument: ${a}`);",
+    "to": "    continue;"
+  },
+  {
+    "label": "THE REFUSAL NEVER REACHES main, so a malformed argv runs as whatever it parsed to",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (args.error) {\n    console.error(`cannot read the arguments: ${args.error}`);\n    console.error(\"refusing \u2014 nothing was read or written\");\n    process.exit(2);\n  }",
+    "to": ""
+  },
+  {
+    "label": "THE REFUSAL IS PRINTED AND THE PROCESS CARRIES ON \u2014 the recorded 'prints its failure, reports success'",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    console.error(\"refusing \u2014 nothing was read or written\");\n    process.exit(2);",
+    "to": "    console.error(\"refusing \u2014 nothing was read or written\");"
+  },
+  {
+    "label": "THE REFUSAL MOVES BELOW THE CREDENTIAL CHECK, so a bad argv reads as a missing key",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (args.error) {\n    console.error(`cannot read the arguments: ${args.error}`);\n    console.error(\"refusing \u2014 nothing was read or written\");\n    process.exit(2);\n  }\n  const key = process.env.SUPABASE_SERVICE_KEY;\n  if (!key) { console.error(\"SUPABASE_SERVICE_KEY is not set\"); process.exit(2); }",
+    "to": "  const key = process.env.SUPABASE_SERVICE_KEY;\n  if (!key) { console.error(\"SUPABASE_SERVICE_KEY is not set\"); process.exit(2); }\n  if (args.error) {\n    console.error(`cannot read the arguments: ${args.error}`);\n    console.error(\"refusing \u2014 nothing was read or written\");\n    process.exit(2);\n  }"
+  },
+  {
+    "label": "THE REFUSAL SAYS NOTHING ABOUT WHY",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    console.error(`cannot read the arguments: ${args.error}`);",
+    "to": "    console.error(`cannot read the arguments`);"
+  },
+  {
+    "label": "A REFUSED PARSE KEEPS THE MODE IT HAD REACHED, so `--apply --counts` answers apply while claiming refusal",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  const refuse = (why) => { out.error = why; out.mode = \"preview\"; return out; };",
+    "to": "  const refuse = (why) => { out.error = why; return out; };"
+  },
+  {
+    "label": "THE VALUE ARGUMENTS ARE NOT THE THREE THE WORKFLOW SENDS",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "const VALUE_ARGS = Object.freeze([\"slug\", \"table\", \"column\"]);",
+    "to": "const VALUE_ARGS = Object.freeze([\"slug\", \"table\"]);"
+  },
+  {
+    "label": "THE CONFIRM GATE NARROWS SO A WRITING MODE ESCAPES IT",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "        if: ${{ startsWith(github.event.inputs.mode, 'apply') }}",
+    "to": "        if: ${{ github.event.inputs.mode == 'apply' }}"
+  }
+]

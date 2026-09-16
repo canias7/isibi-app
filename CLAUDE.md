@@ -3318,11 +3318,10 @@ credential-guidance field**, so a required secret reaches the owner as a bare
 name (`WEATHER_KEY`) with nothing saying where to get one; and `params` is a
 **name allow-list with no types and no required flag**, so a connection cannot
 say which parameter a page must supply. Both are capability work.
-**`search_path` STAYS EXPLICITLY UNRESOLVED** — every model function is
-`SECURITY DEFINER` with no `SET search_path`, and whether that is exploitable
-here depends on the role's real permissions and on which execution paths are
-reachable, neither of which has been checked. `scripts/grants-backfill.mjs
---preview` is the pattern for asking where the credentials already live.
+**`search_path` was UNRESOLVED here and is RESOLVED as of 2026-09-16** — the
+review section above has the measurement, the correction and what it does not
+settle. Left standing as it was written because the entry is dated; the fact
+that is true today is in that section.
 
 **NOT PROVEN LIVE.** Every measurement is from driving the real route against
 stubbed seams. The `repairbench-1` addon rerun is still the cheapest live proof
@@ -3521,12 +3520,14 @@ the sender correctly. It does not prove real delivery."*
 3. **NATIVE ONE-TIME SCHEDULING IS ABSENT.** `JOB_ITEM` carries `everyMinutes`
    and an optional `at` and no run-once field. **A missing field, not a missing
    capability** — the wording correction above is exactly this distinction.
-4. **`search_path` STAYS EXPLICITLY UNRESOLVED.** Every model function is
-   `SECURITY DEFINER` with no `SET search_path`; whether that is exploitable
-   here depends on the role's real permissions and on which execution paths are
-   reachable, and **neither has been checked**. Not "safe" and not "a hole" —
-   unmeasured, and saying so is the point. `scripts/grants-backfill.mjs
-   --preview` is the pattern for asking where the credentials already live.
+4. **`search_path` — MEASURED AND ANSWERED 2026-09-16**, and this item said
+   "neither has been checked", which was the honest state then and is not the
+   state now. Both halves were checked: the mechanism is real (a role with **no
+   `CREATE` anywhere** redirects an unpinned definer function through `pg_temp`,
+   measured on a real PostgreSQL 16) and the reachability turns on Neon's Data
+   API exposing no DDL, which is a layer we do not own. The correction is one
+   clause and is written, guarded and swept. **See the `search_path` review
+   section above; NOT merged and NOT deployed** — the press is the owner's.
 
 **THERE IS NO ISOLATED PLACE TO PROVE IT — A LIVE CHECK IS A PRODUCTION DEPLOY
 (2026-09-14).** **The platform has ONE Worker** — `isibi-app` in
@@ -5328,6 +5329,10 @@ measured, and only then was main fast-forwarded to it.
   site republishes) this deploy is not the cause, and with no pre-push reading
   there is nothing here that can say whether the 119 bytes moved before it or
   across it. **Recorded as an open observation, not as a clean regression pass.**
+  **CLOSED 2026-09-16 by deploy 2128**, which did take a pre-push baseline:
+  58,404 on both sides, same version. So it moved before 2124 and outside this
+  session's window — *not caused by a deploy in this window*, which is what the
+  evidence supports and is weaker than an explanation.
 - **THE INTERACTIVE HALF, because a 200 is an availability check and never a
   health check**: `/status` **200** and its RPC `count_booked_repairs` **3**;
   `/booking-check` **200** and run 48's `count_existing_bookings` **3**. Both
@@ -5338,6 +5343,239 @@ measured, and only then was main fast-forwarded to it.
 **NO PAID CALL WAS MADE AND NO DEMO SITE WAS TOUCHED** — the owner said
 *"Merge"*, which lifts the merge and the deploy it necessarily fires, and nothing
 else. **The `search_path` review stays queued.**
+
+### THE `search_path` REVIEW — the premise was wrong, and the fix is one clause (2026-09-16)
+
+Owner: *"Trace every generated SECURITY DEFINER function and its creation path.
+Check actual permissions where authorized access exists… Keep missing hardening
+separate from demonstrated exploitability… Use real PostgreSQL tests… Return the
+findings and concrete proposed change before deployment."*
+
+**NOT MERGED AND NOT DEPLOYED.** The change is written, guarded and proven; the
+press is the owner's.
+
+**THE PREMISE THAT KEPT IT OPEN WAS FALSE, AND `neon-e2e` HAD WRITTEN IT DOWN.**
+That probe said the escalation "needs BOTH halves … a caller can put a schema of
+their own ahead of `public`, and they can create an object in it", and measured
+four `CREATE` privileges to say nobody can. **The four checks are true and the
+premise is incomplete**: there is a third kind of conflicting object that needs
+no `CREATE` anywhere. `TEMP` on the database is granted to **PUBLIC by
+Postgres's own default**, and an unlisted `pg_temp` is searched **FIRST** for
+relations — so the caller never touches its own `search_path` either.
+
+**MEASURED ON A REAL POSTGRESQL 16** (`test/integration/local-pg-searchpath.mjs`,
+**61 checks**, real DDL out of `applySiteSchema` through the `fetch` seam, the
+pre-fix side loaded out of git so the negative control is the code that shipped):
+a role refused `SELECT` on the table outright (`permission denied for table
+bookings`) creates `pg_temp.bookings` and the definer function that counts the
+owner's three rows answers **1**. Same for the `plpgsql` form, and **same through
+an INVOKER callee** — a SECURITY INVOKER function called from inside a definer
+one runs with the DEFINER's rights, so pinning only the definer leaves the hole
+one hop along.
+
+**NAMING `pg_temp` IS THE FIX. NAMING `public` IS NOT, AND THE TWO LOOK ALIKE.**
+Measured: `SET search_path = pg_catalog, public` with an unqualified body is
+redirected **exactly as an unpinned function is**. A pin that does not name
+`pg_temp` pins nothing that matters. That is the shape a later edit reaches for,
+so the guard asserts the ORDER and the sweep mutates it.
+
+**THE CORRECTION IS ONE CLAUSE, in three places.** `FN_SEARCH_PATH = "public,
+pg_temp"` on every model function (definer AND invoker); the same on every
+trigger function `pgTrigger` writes (separable — those are the ENGINE's bodies
+and are invoker, so nothing is ESCALATED; what is redirected is a GUARANTEE,
+and `enforceRefs`' "missing parent" wall is measured passing over a temp
+parent); and `pg_catalog, pg_temp` on the three identity helpers. Those three
+were `pg_catalog` alone and were SAFE — measured — but **safe only because every
+relation in their bodies is schema-qualified**, which is an argument about the
+bodies that expires the first time one is edited. One token each makes the rule
+uniform: **every function the engine creates ends its path with `pg_temp`**, and
+no reader has to check a body.
+
+**14 OF THE 15 FUNCTIONS THE ENGINE CREATES PINNED NOTHING.** Measured by
+driving the pre-change engine over a wide spec; the one exception was
+`app_team_id`, which has had its pin since it was written. **The platform's own
+Supabase side is clean**: 69 functions across the applied migrations, **0**
+unpinned definer functions — the one grep hit was the phrase inside a COMMENT,
+this repository's own "prose contains the thing it forbids", met in my own scan.
+
+**WHAT IS DEMONSTRATED AND WHAT IS NOT, kept apart because they are different
+claims:**
+
+- **DEMONSTRATED — the mechanism**, both directions, on real DDL, with the
+  privilege surface asserted byte-identical (every function's ACL, every
+  table/column grant, every policy) so a pin that quietly moved a privilege
+  would be red.
+- **CORRECTED — the upgrade path, which I claimed and got WRONG** (owner:
+  *"Arm 9 resends the full original function definitions, so it does not
+  demonstrate 'the site's next schema change upgrades existing functions.'"*).
+  The first arm 9 stood a site up on the pre-fix DDL and then replayed the
+  statements captured from the ORIGINAL spec — **full function bodies and all**
+  — and read the resulting pin as an upgrade. A real next change is composed
+  from what `_meta.schema` PERSISTED, which is a different thing, and the
+  correction is below. **The claim was the probe's fixture, not the product.**
+- **REACHABLE IN PRINCIPLE, NOT DEMONSTRATED — an in-product DDL door.**
+  `normalizeSchema`'s `execute` ban stops DYNAMIC SQL, and a `plpgsql` body may
+  contain a STATIC `CREATE TEMP TABLE`. Measured: such a body is **KEPT**. So a
+  site whose model wrote a function that creates a temp table, granted to
+  `anonymous`, gives a visitor the door — needing that specific function to
+  exist AND a pooled PostgREST session reused across two calls. **The pin closes
+  it without a new deny-list**, which is the right answer here: a deny-list is a
+  claim about the producer, and this repository has that trap recorded.
+- **NOT DEMONSTRATED — any door through Neon's Data API itself.** PostgREST
+  exposes tables, views and RPC, and `proxySiteService` forwards only
+  `content-type, authorization, accept, prefer, cookie`; there is no raw-SQL
+  route anywhere in the tree. **That blocker is a property of a layer we do not
+  own and do not test** — the recorded "a rule true because of a layer below it
+  expires when that layer moves", which is exactly the shape that has cost this
+  repository four times.
+
+**THE CORRECTED SCOPE — which functions a next schema change really re-pins.**
+Measured twice, at the module (`test/site-searchpath.test.mjs` case 8, no
+database) and on a real server (arm 9), by composing the next change the way an
+addon composes one: **from what `_meta.schema` PERSISTED**, not from the spec
+the first build was handed.
+
+| family | on a site's next schema change |
+|---|---|
+| `app_user_id()`, `app_team_id()` | **RE-PINNED** — created unconditionally at the head of every apply |
+| every trigger function (`pgTrigger`) | **RE-PINNED** — the merged spec re-declares every table, so each is re-emitted |
+| **every model-written function** | **NOT TOUCHED. Not now, not ever, without separate work** |
+
+**AND THAT LAST ROW IS THE HIGH-VALUE HALF**, because the model's functions are
+the `SECURITY DEFINER` ones GRANTed to `anonymous`. The mechanism:
+`applySiteSchema` persists a function as `{name, args, returns, internal}` with
+**no body**, and `normalizeSchema` drops a bodiless function — correctly, since
+a body is what makes one. Measured end to end: the next change emitted
+`app_user_id`, `app_team_id` and three `trg_bookings_aud_*_fn`, **all pinned**,
+and **no `CREATE OR REPLACE` and no `ALTER FUNCTION` naming the model's
+function at all** — which arm 9 then confirms by redirecting it again through
+`pg_temp`, in the same database, after the change.
+
+**THE ONE PATH THAT DOES REACH IT** is an addon that RE-DECLARES the function
+with a body: `CREATE OR REPLACE` carries the pin, the grants survive, the
+redirect closes. Driven in both places. **Upgrading the rest is separate work
+and is NOT proposed here** — see the backlog entry; no backfill is written and
+none is run.
+
+**THE REACH IS LAZY AND PER-SITE, and there is no backfill.** `applySiteSchema`
+has three callers and all three are customer-driven; nothing in `scripts/` calls
+it, `site_rebuild` republishes without it, and `site-schema-recover.mjs` has no
+function reader at all. **No customer database is touched by this review.** And
+`_meta.functions` carries no body and no config, so **a stored spec can never
+say whether a site's live functions are pinned** — `pg_proc.proconfig` is the
+only reader.
+
+**THE PIN TRUSTS `public`, SO "public is not writable by untrusted roles" IS A
+REQUIREMENT THIS KEEPS — not a premise it retired** (owner: *"Pinning public,
+pg_temp does not remove that requirement"*). `SET search_path = public, pg_temp`
+closes the `pg_temp` vector and says nothing whatever about a `public` an
+untrusted role can write to. Case 9 pins the trusted set to exactly
+`["public", "pg_temp"]`, so widening it is a deliberate edit rather than a quiet
+one. **Whether a writable `public` is exploitable UNDER this pin is
+UNMEASURED** — a first draft tried to demonstrate it and could not (within one
+schema there is nothing to shadow, and a low-privilege role cannot drop an
+object it does not own), and it is recorded as unmeasured rather than claimed
+either way.
+
+**THE THREE CLASSES OF EVIDENCE, KEPT APART** (owner's instruction):
+
+| class | what it covers | status |
+|---|---|---|
+| **local tests** | everything above: the mechanism, the pin, the scope, the compatibility and privilege surfaces | run here — probe **61/61**, guards **9/9** |
+| **older probe results** | `neon-e2e`'s four `CREATE` privilege checks against a real Neon project | assertions that EXIST in that file; **no run of them is recorded in this repository**, so they are not being quoted as a live reading |
+| **current live permission evidence** | what `anonymous`/`authenticated` really hold on a real site today | **NONE. This session has no Neon credential.** `neon-e2e` is the only reader, and running it is the owner's |
+
+**Guards**: `test/site-searchpath.test.mjs` (**9**) — and the shape is the point.
+When the pin was added the WHOLE suite stayed green, because the existing
+`functionSql` guard asserts `create.includes(" SECURITY DEFINER ")` and a new
+trailing clause does not disturb it. **A change nothing could see is a change
+nothing will notice being undone.** Case 1 is a **CENSUS over the DDL the engine
+really sends** (through the same `fetch` seam, no database), so a function added
+next month fails by existing; it asserts the ORDER and not the presence, which a
+sweep survivor is why. `neon-e2e` was **re-anchored, not appeased**: its
+assertion that a model function does NOT pin is inverted, the TEMP privilege it
+never asked about is now reported beside the four `CREATE` checks, and the order
+is asserted.
+
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** An earlier pass killed 15 of 16 with one survivor — a
+trigger pinned `pg_temp, public`, which the census could not see because it
+asked whether a pin was PRESENT while case 3 asked about the constant that
+mutant no longer used. Closed by reading the path out of each STATEMENT rather
+than out of `FN_SEARCH_PATH`. The seventeenth mutant appends a third schema to
+the pinned path with `pg_temp` still last, so **only** the trust-set census
+sees it — which is what makes case 9 load-bearing rather than decorative.
+Every new case was proved RED against the pre-change modules first (case 8
+shows **5 of 5 re-issued functions unpinned** on the old tree); case 6 is green
+by design, being the control that privilege must NOT move.
+
+**AND THE PROBE'S OWN CONTROL HAD STOPPED BEING ONE — TWICE, and the second
+time was a MOVING REF rather than the wrong ref (owner, 2026-09-16: *"use an
+immutable known pre-fix commit instead of `origin/main`… Otherwise the
+documented test command stops working immediately after merge."*).** `OLD_REF`
+defaulted to `HEAD`, so the moment the fix was committed HEAD *was* the fix:
+every BEFORE case inverted and the probe reported the PIN as broken. The first
+correction moved it to `origin/main`, **which is the same defect deferred to
+merge day** — and merge day is exactly when somebody re-runs the command
+CLAUDE.md documents. **THE PROPERTY IS IMMUTABILITY, NOT THE PARTICULAR SHA**:
+every moving form this can drift back to is a NAME, and a hex object id is the
+only thing git will not re-point. It defaults to **`0fff5317`** now
+(`71c2c4b8^`, an ancestor of `origin/main`, measured pre-fix: no
+`FN_SEARCH_PATH` in its `site-rls.mjs` and no `search_path` at all in its
+`site-schema.mjs`, so the model functions AND the trigger functions are both
+unpinned there).
+
+**AND THE RUN-TIME REFUSAL IS KEPT RATHER THAN RETIRED BY THE SHA**, because the
+two answer different questions: the sha makes the DEFAULT reproducible and says
+nothing about an `OLD_REF=` somebody passes, nor about a later edit moving the
+default to a different sha that happens to be post-fix. **The two guards are
+split the same way and the division is proved in both directions** — case 10
+asks the SHAPE (and that the refusal is still present and still keyed on the
+baseline's model-function DDL), case 11 asks GIT whether that sha's tree is
+really pre-fix. Driven: `origin/main` fails 10; `HEAD` fails both; cutting the
+refusal's condition or its `process.exit(2)` fails 10; **an immutable but
+POST-fix sha passes 10 and fails 11**, which is the one case that says case 11
+is load-bearing rather than decorative. **Case 11 SKIPS where the object is
+absent** — `actions/checkout@v4` is `fetch-depth: 1`, so CI holds one commit —
+and skips VISIBLY rather than passing, which is why the CI skip count is 4 and
+the local one is 0.
+
+**THE DEPLOY WILL ROLL THE CONTAINER**: `site-rls.mjs` and `site-schema.mjs` are
+in the worker's module graph, so the image id moves and the 15–20 minute hold
+applies.
+
+**AND THE PER-STEP INPUT CAPTURE WAS RECORDED AND NEVER READ.** `shownSteps` has
+been on the developer record since it shipped (run 48's own instrumentation) and
+`askLines` — the harness's one reader of that record — never printed it. So the
+next paid run, bought to prove a designer was shown a column, would have come
+back **without the receipt**: this repository's own wiring defect, in the
+instrument built to settle it. Two lines per step now, a HEADLINE carrying
+`hasDatabase` and the tables (`hasDatabase: false` beside real tables is run
+47's whole defect, so `NO` must read as loudly as `YES` rather than as an
+absence) and the entry WHOLE as JSON under it, so nothing is lost to formatting.
+**An empty capture is a SENTENCE**, not a blank — "no step was recorded" and "no
+step saw anything" are two readings a blank collapses. The fixture is DERIVED
+from `shownSchema` rather than typed, because a hand-typed entry is a second
+copy of its producer and this one is the whole evidence for schema receipt.
+**One older guard was re-anchored, not appeased**: `askLines({coverage:{counts:{}}})`
+was pinned to a LENGTH of 2, which was the property "a counts line and nothing
+else" only while this block did not exist; it asserts the counts line, the
+absence of any requirement line, and that an empty record still reads differently
+from a missing one — which is what the length was ever about.
+
+**A WRITE-FREE, CREDENTIAL-FREE COLUMN INVENTORY EXISTS, and it is the
+before/after instrument the next live test needs.** PostgREST resolves a
+`select=` column against Postgres, so on a `collect` table (no read grant) the
+two answers separate exactly: **`42501 permission denied for table <t>`** means
+the column EXISTS (it resolved, then the table privilege refused) and **`42703
+column <t>.<c> does not exist`** means it does not. No row is written, no key is
+needed, and it is per-NAME rather than an enumeration — the authoritative list is
+still `backend repair --verify`, which is free and reads `information_schema`.
+Measured on `repairbench-1` (2026-09-16): `bookings` has `id`, `customer_name`,
+`bike`, `drop_off_day`, `created_at`, `updated_at` and **not** `owner_id`
+(correct — `collect` needs none); `repairs` has `id`, `customer_name`, `bike`,
+`created_at`, `updated_at` and **no `drop_off_day` at all**, which is what makes
+a drop-off-day question answerable only from `bookings`.
 
 ### The write grants are column-scoped (2026-09-13)
 
@@ -5439,6 +5677,504 @@ rule is the URL's own grammar rather than a list of secrets**: any
 one it misses is the one that leaks. **The HOST is deliberately kept** — the
 owner asked for the database identities reported, and the credential is the half
 that must go.
+
+### A READ-ONLY AGGREGATE ON THE REPAIR WORKFLOW (2026-09-16)
+
+Owner: *"check whether the existing credentialed verification workflow can run a
+narrowly scoped, read-only aggregate on repairbench-1: count bookings grouped by
+drop_off_day, ordered by count descending. Return dates and counts only, no
+customer details. That could establish the expected result independently without
+changing the data."*
+
+**IT CAN, AND `--counts` IS THAT MODE.** It exists because an expected result
+bought inside the run under test is not a baseline, and the only other way to get
+one was to insert rows — which changes the thing being measured.
+
+**IT CANNOT RETURN A NAME, AND THAT IS A PROPERTY RATHER THAN A PROMISE.** Two
+walls and neither is a new check written for this. (1) The mode is on **neither**
+`WRITES_REFERENCE` nor `WRITES_META`, and both gates are `includes` over a frozen
+list, so a mode they have never heard of writes nothing. (2) The grouping column
+must be a **DATE OR TIME type asked of the catalog** — a positive, type-derived
+rule, never a deny-list of column names (the recorded *"a negative list is the
+wrong wall when the input is caller-supplied"*). So `customer_name` is refused by
+the TOOL and not by the caller's discipline, and the answer is a date and a count
+with nowhere for anything else to sit.
+
+- **TWO CHECKS THAT ARE NOT REDUNDANT.** Catalog membership answers *is there
+  such a column*; `PLAIN_NAME` answers *is its name safe to interpolate*.
+  Postgres allows a quoted identifier to hold characters this interpolates, so
+  they are two questions — driven over `b"; DROP TABLE x; --`.
+- **`GROUP BY 1 ORDER BY 2 DESC, 1`, BY ORDINAL.** Each identifier is named
+  exactly once and the tie-break is deterministic, which is what makes "busiest
+  first" a reproducible reading rather than a lucky one.
+- **`MODES` IS THE ONE LIST** and `parseArgs` derives its flags from it. The
+  census compares it with the form's own `options:` **both ways**: a mode that
+  exists and is not offered is unreachable by the only person who can press it,
+  and a mode offered and not implemented is a button that answers `preview`.
+  That guard pinned the option list as a LITERAL and went red on the first honest
+  addition — *assert the property, not the spelling*, in the guard written for
+  the write boundary. Re-anchored, not appeased.
+- **THE EXIT RULE IS THE `--verify` DEFECT'S, ONE MODE OVER**: a refusal or a
+  failed read exits nonzero, so a run that asked for a number and got none cannot
+  read as a successful read of nothing. **And the "nothing to do" sentence NAMES
+  THE MODE THAT ASKED**, derived from `args.mode` — a counts run must not report
+  itself as a failed verification, and a verification must not lose its own word
+  to a mode added beside it.
+
+**THE FIXTURE WAS THE LESS-CAPABLE FAKE, in the one field the feature turns on.**
+`test/fixtures/repair-process.mjs` answered `ty: "text"` for **every** column,
+free while nothing read the type and fatal the moment something did: it made the
+positive arm unreachable and **reported the working mode as broken**. A column
+carries its type now — a bare name still defaults to `text`, so every scenario
+written before this is byte-identical.
+
+**Guards**: `backend-repair` **52 → 55**, `repair-commands` **14 → 16** (both as
+real PROCESSES — a good aggregate read busiest-first with every statement
+asserted non-writing, and the text column refused with **a DATE column beside it
+as the control** that proves the observer alive in the other direction),
+`repair-workflows` **7 → 8** (the step's own `run:` executed under the shell it
+declares, with a stub that records its argv, so a form field taken and never
+forwarded is a red run). **Sweep: 26 mutants, 26 killed, 0 survived, 0 never
+applied, 2 comment-only controls survived.** Pass 1 killed 20 with six survivors
+and **every one was a guard gap in the process-level cases, not the product's** —
+all six live in `main`, which no module guard runs: identity not proven before
+the read, a refused plan uncounted, a refusal not stopping the read, a run that
+read nothing exiting 0, the mode leaving the "nothing to do" gate, and the
+failure sentence hardcoded to the verification's word.
+
+**WHAT IT DOES NOT SETTLE, and the reason is a permission rather than a
+judgement.** A session has no `actions: write`, so **the grouping still comes
+from the owner's press** — `backend repair`, mode `counts`, slug `repairbench-1`,
+table `bookings`, column `drop_off_day`. Free, read-only, writes nothing.
+**What IS established here, free and re-read 2026-09-16**: the total is **3**
+(`count_booked_repairs` and `count_existing_bookings` both answer 3 at both
+addresses, and the raw `SELECT COUNT(*) FROM bookings` read 3 at 17:52:40Z on
+2026-09-15), and `bookings` carries `id`, `created_at`, `customer_name`, `bike`,
+`drop_off_day` — by the write-free PostgREST probe, with `nope_not_a_column`
+answering `42703` as the control. **The per-date split is unknown from here**:
+`bookings` is `collect`, so no client SELECT of values exists, and reading it any
+other way means a live Neon credential in a session transcript.
+
+### AND BOTH PRESSES RAN — the inventory landed and the aggregate REFUSED (2026-09-16)
+
+The owner's two presses on `backend repair`, both on main `4de589cc`.
+**Run 4 `verify` green in 51 s** (35065641461) and **run 5 `counts` RED in 17 s**
+(35067011145) — and the red one is the tool being right.
+
+**THE AUTHORITATIVE BEFORE-STATE, out of `information_schema` rather than out of
+per-name probes.** Five postconditions ok, `ready 1`, `every live table declared
+— 2 table(s), all declared`, then the inventory:
+
+```
+_errors    id integer · at text · message text · stack text · route text · source text
+_meta      k text · v text
+_metrics   day text · reqs integer · errs integer
+_secrets   name text · cipher text · hint text · created_at text
+bookings   id integer · customer_name text · bike text · drop_off_day text · updated_at text · created_at text
+repairs    id integer · customer_name text · bike text · issue text · updated_at text · created_at text
+```
+
+- **SIX TABLES AGAINST "2 DECLARED" IS NOT A CONTRADICTION.** The four
+  `_`-prefixed ones are `INTERNAL_TABLES`, excluded from `st.tables` and present
+  in the catalog read, which walks every column in `public`.
+- **AND IT FOUND A COLUMN THE PROBE NEVER ASKED ABOUT — `repairs.issue`.** The
+  PostgREST probe is exact per NAME and is not an enumeration, so it can only
+  report on names somebody guessed; this is that recorded limit met live, and it
+  is the whole reason the owner required an authoritative inventory before a
+  before/after claim.
+
+**`drop_off_day` IS `text`, AND THAT IS WHY `counts` REFUSED IT.** `COUNTS_TYPES`
+is `["date","timestamp","time"]` asked of the catalog, so the run answered
+`REFUSED (not-a-date-column) — bookings.drop_off_day is text`, named the allowed
+set, and exited **1**. **Three properties held live, in order:**
+
+1. **IDENTITY IS PROVEN BEFORE THE PLAN** — `identity PROVEN` precedes the
+   refusal, so a run that cannot establish whose database it is never reaches the
+   question of what to group.
+2. **THE REFUSAL STOPPED THE READ** — MEASURED: the log carries **zero**
+   `reading:` lines, so no aggregate statement was ever issued.
+3. **THE NONZERO EXIT REACHED THE STEP** (`##[error]Process completed with exit
+   code 1`), under the step's own
+   `bash --noprofile --norc -e -o pipefail {0}`. **THIS IS THE PIPEFAIL FIX'S
+   FIRST LIVE PROOF IN THE FAILING DIRECTION**: measured, run 5 is the **first
+   failing run of either repair workflow** — 8 runs, the 7 before it all green —
+   so until now that wall had only ever been driven with a stub. Under the
+   default `bash -e` this exact run reads GREEN.
+
+**WIDENING `COUNTS_TYPES` TO TEXT IS THE WRONG FIX AND IS NOT BEING MADE.** The
+type rule is the entire reason `customer_name` cannot be grouped, and
+`customer_name` is `text` too — so admitting text trades the one property that
+makes the mode safe for one number. **A cast is worse**: `"drop_off_day"::date`
+fails at runtime with Postgres's own message, which quotes the offending
+**value**, so a single bad row leaks a customer name out of a mode built to
+return dates and counts only.
+
+**THE PER-DATE SPLIT CANNOT BE READ BY THIS SESSION, AND THAT IS A LIMIT OF THE
+FREE READERS, NOT OF WHAT A READ-ONLY QUERY CAN DO.** This paragraph read *"the
+per-date split cannot be read for free"* and the owner corrected it: *"The
+current helper cannot read it; that does not make a credentialed read-only query
+impossible."* Both halves of the correction are right. What is true of the free
+readers stays true — `bookings` is `collect` (no client SELECT of values),
+`count_booked_repairs` gives only the total, and the catalog holds no row values.
+What was wrong is the inference from that to the query. **The narrow exception
+below is that query**, and it is still read-only, still credentialed, and still
+the owner's press.
+
+**AND THE TYPE IS ITSELF SOMETHING THE ADDON HAS TO GET RIGHT.** A tie-break on
+a text date sorts lexicographically — chronological for `YYYY-MM-DD` and wrong
+for every other format — so a generated function that orders by the date rather
+than by the count is visible in its own output.
+
+### …AND A FORM VALUE COULD SELECT THE MODE, PAST THE APPROVAL GATE (2026-09-16)
+
+Owner, before this merged: *"The backend-repair workflow expands `$S` unquoted.
+With mode=counts, column=\"drop_off_day --apply\", and confirm empty, the actual
+parser selects apply. The confirmation gate checked counts, so it never required
+approval for the resulting write mode."*
+
+**EXACTLY RIGHT, AND REPRODUCED END TO END BEFORE ANYTHING WAS TOUCHED** — the
+step's own `run:` text executed under the shell it declares, with a stub
+recording the argv:
+
+```
+MODE=counts COLUMN='drop_off_day --apply'
+  →  scripts/backend-repair.mjs --counts --slug repairbench-1 --table bookings
+     --column drop_off_day --apply
+  →  parseArgs → {mode:"apply"}   writesReference: true   writesMeta: true
+```
+
+**THE TWO HALVES THAT MADE IT A HOLE RATHER THAN A TYPO.** The step built ONE
+string and expanded it unquoted, so a value word-split into more arguments; and
+the old loop let the **LAST** mode flag win. The confirm gate asks
+`startsWith(github.event.inputs.mode, 'apply')` and had seen `counts`, so it
+demanded no word. **The gate and the parser were answering about different
+runs** — the widest mode the script has, reached with no approval, through a
+mode whose whole selling point is that it writes nothing.
+
+**TWO WALLS, AND THEY ARE NOT THE "cannot be killed one at a time" SHAPE —
+MEASURED BOTH WAYS.** With the array in place, reverting the parser leaves every
+case in `repair-workflows` green (that census can only see the workflow);
+reverting the workflow leaves the parser's own cases green. But each has its OWN
+door — the parser revert turns **2** cases red in `backend-repair` +
+`repair-commands`, the workflow revert **1** in `repair-workflows` — so they are
+swept separately rather than as a pair, and the measurement is in the spec.
+
+1. **A BASH ARRAY, QUOTED.** `args+=(--slug "$SLUG")` … `"${args[@]}"`. A value
+   stays one argument whatever it holds, so `drop_off_day --apply` arrives as
+   one column name and is refused LATER by `countsPlan`, for the real reason.
+2. **`parseArgs` REFUSES RATHER THAN GUESSING.** Four fail-closed refusals: two
+   DIFFERENT mode flags (there is no rule for which wins that is not a guess
+   about the caller, and the guess that shipped chose the widest), the same flag
+   twice, a value missing or shaped like a flag (`-…`, the word-split's own
+   residue), and an argument it does not recognise — **never silently ignored**,
+   because ignoring is how an argument meant to do something reads as having
+   done it. It answers `{…, error}` rather than throwing, and `main` refuses
+   with **exit 2 ABOVE the credential check**: the argv is what the caller can
+   fix, and a bad argv must not read as a missing key. **It never prints a
+   mode** for a parse it refused, and **a refusal puts the mode back to
+   `preview`** — without that, `--apply --counts` answers `apply` while claiming
+   to have been refused.
+
+**Guards**: `repair-workflows` **8 → 9** — the census the owner asked for, driven
+**shell → argv → parser**, because that is exactly where the two came apart.
+Five modes × three fields × eight split shapes (the reproduction, a bare
+`--apply`, `--apply-reference`, a second slug, `;`, `$( )`, backticks, another
+option's name): each must select EXACTLY the form's own mode or be refused, with
+the write boundary asserted for every read-only mode. `backend-repair` **55 →
+56** (the parser's own door: eleven refusals each by reason, every ordinary argv
+still reading, and `main`'s order read out of the file); `repair-commands` **16 →
+17** (the exit code, which only a spawned process can say: the split argv exits
+**2**, prints its reason, reads **nothing**, and never announces a mode — with
+the control that a good argv runs and reads).
+
+**Sweep: 18 mutants, 18 killed, 0 survived, 0 never applied, 3 comment-only
+controls survived.** Pass 1 killed 14 with **four survivors, every one a guard
+gap**: three reverted the workflow's quoting and survived because the census
+allowed *"or it was refused"* everywhere — the right SAFETY property and a
+useless REGRESSION one, since the parser catches every split. Closed with a
+second list that must arrive **WHOLE** (`"a b c"`, `"two words"`, a trailing
+space): only the array delivers those, and a refusal cannot satisfy it. The
+fourth was my own vacuous assertion — it excused `apply`, the one value it most
+needed to forbid — and closing it found the real product gap in (2) above.
+
+**Suite 6,652** — 6,649 + one case in each of the three guards, and the
+arithmetic closes exactly. **CI HAS READ IT: `unit tests` run 2622 on
+`91fc2a8b`, green — `# tests 6652 / # pass 6648 / # fail 0 / # skipped 4`**,
+against local `6652 / 6652 / 0 / 0`; the four are the recorded environment skips
+plus `site-searchpath`'s baseline-commit case.
+
+**AND IT IS ALL ON MAIN NOW — deploy 2128, 2026-09-16 06:33:14→06:36:43Z, green
+in 3m29s**, on `main` `c20226e6` → `f88c9198` (fast-forward). Before the merge
+this paragraph read *"nothing of this repair tooling is on main yet"*, which was
+true when written and is what the merge was for; the order was the recorded one,
+**merge → deploy → press**, because a `workflow_dispatch` button does not exist
+until its file is on the default branch.
+
+- **THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED — the
+  fourth cross-check of that technique against reality.** `origin/main` →
+  `c2aba7a7bd276c36`, the branch tip → **`62c2700fa8c843c2`** (183 inputs each),
+  and the step's own line reads `IMAGE SiteBuildContainer: built
+  isibi-app-sitebuildcontainer:62c2700fa8c843c2 (registry answered 404; 183
+  inputs off ./Dockerfile)`. The ids differ because the `search_path` pin touches
+  `site-rls.mjs` and `site-schema.mjs`, which are in the worker's module graph.
+  **CONTAINER ROLLED at 06:36:34.8Z**: `EDIT isibi-app-sitebuildcontainer`,
+  `c2aba7a7bd276c36` → `62c2700fa8c843c2`, `SUCCESS Modified application`,
+  `Applied changes` — read out of the log's own diff, never inferred from the
+  step's duration. **So the 15–20 minute hold ran to ~06:52–06:57Z.** Image step
+  2m36s, Wrangler 16 s.
+- **THE HOLD IS ABOUT THE CONTAINER AND THESE TWO PRESSES DO NOT USE ONE.**
+  `backend repair` and `repairbench count fix` are Node scripts on a GitHub
+  runner talking to Supabase and Neon; no container, no compile, no credits. The
+  hold binds the PAID addon run and nothing else.
+- **WORKER**: `Uploaded isibi-app (3.23 sec)`, `Worker Startup Time: 29 ms`,
+  `Total Upload: 3484.55 KiB / gzip: 939.48 KiB`. **`No updated asset files to
+  upload`** — `public/` is untouched by this branch (main's own chat.js changes
+  went out on 2127), **so there is no file-hash check for this deploy and the
+  Worker's deploy sha cannot be read from a session at all**: both routes that
+  carry it are owner-gated. What stands in is the gate discriminator, measured
+  after: `/api/site/build-health` **401**, `/api/site/runtime` **401**,
+  `/api/site/job-probe` **401**, `/api/nope-not-a-route` **404**. The Worker half
+  is proved to Wrangler's own report and the gate, and no further — said rather
+  than glossed.
+- **REGRESSION: BYTE-IDENTICAL, and the baseline was taken 22 seconds after the
+  push and before the deploy could land** (the process miss of the previous
+  round, not repeated). Six sites 200 at the same sizes before and after —
+  repairbench-1 46,151 · fretwork-1 58,404 · ashgrove-1 31,120 · northgroup-5
+  1,641 · washhouse-1 52,404 · ben-crowe-guitar 52,060 — and the interactive
+  half, because a 200 is an availability check and never a health check:
+  `/status` **200/6,272** and `/booking-check` **200/6,290**, with
+  `count_booked_repairs` and `count_existing_bookings` both **200 answering 3**.
+- **AND `fretwork-1`'s 119 BYTES ARE SETTLED AS NOT-THIS.** The previous round
+  recorded 58,285 → 58,404 as an open observation with no pre-push baseline to
+  decide it. It is 58,404 on **both** sides of this deploy, on the same
+  days-old `x-site-version 01788755899622-6w90uf`, so whatever moved it happened
+  before deploy 2124 and outside this session's window. Recorded closed as *not
+  caused by a deploy in this window*, which is weaker than an explanation and is
+  what the evidence supports.
+- **The merge started exactly one workflow** — deploy 2128 and nothing else,
+  which is the merge-trigger census holding in the live. **And CI has read the
+  DEPLOYED SHA, not merely an ancestor of it: `unit tests` run 2624 on
+  `f88c9198`, green — `# tests 6652 / # pass 6648 / # fail 0 / # skipped 4`**,
+  against local `6652 / 6652 / 0 / 0`; the four are the three recorded
+  environment skips plus `site-searchpath`'s baseline-commit case, which needs
+  git objects `fetch-depth: 1` does not fetch. **The docs push that followed
+  started NO deploy** — `deploy.yml`'s `paths-ignore` covers `**.md` and
+  `docs/**`, and the API answers zero runs for that sha, which is the recorded
+  behaviour rather than a missing run.
+- **BOTH WORKFLOWS ARE REGISTERED ON MAIN WITH THE NEW MODE, asked BY NAME**:
+  `backend repair` id **358472078** and `repairbench count fix` id
+  **358472079**, both `state: active`, and main's own copy of the form carries
+  `options: [preview, apply-reference, apply, verify, counts]`, `shell: bash`
+  and the quoted array. Main's script carries `countsPlan`, `columnInventory`,
+  `VALUE_ARGS` and `COUNTS_TYPES`.
+- **THE DISPATCH IS STILL REFUSED, re-tested rather than asserted, and the
+  refusal has SHARPENED ITS WORDING.** A direct REST POST with the right
+  endpoint, headers and body answers **403 `Dispatching, enabling or disabling
+  workflows and deleting workflow runs, logs or artifacts are not permitted for
+  this session type`** — it names the session type where the old text said
+  `Resource not accessible by integration` — with the control that the SAME
+  token reads that workflow at **200**. A body with no `Content-Type` answers
+  **415** first, which is worth knowing before reading a 415 as the permission.
+  The press is the owner's, as recorded.
+
+**AND RUNNING A STEP'S REAL `run:` TEXT BY HAND DROPS ITS LOG IN THE REPOSITORY
+ROOT.** Both repair steps end in `| tee <name>.log`, so the end-to-end
+reproduction that found the injection defect committed a 37-byte
+`backend-repair.log` in that same commit. The driven guard never had this — it
+runs in a temp directory (`cwd: dir`) — so the guard was right and the hand-run
+was not. Both names are in `.gitignore` now with the reason; the workflows are
+unaffected, each writing its log in the runner's workspace and uploading it as
+an artifact.
+
+
+### THE PER-DATE SPLIT IS READABLE AFTER ALL — one triple, read-only (2026-09-16)
+
+Owner, on the entry above: *"Keep them recorded, but correct 'the per-date split
+cannot be read for free.' The current helper cannot read it; that does not make a
+credentialed read-only query impossible. Finish the baseline with a narrowly
+scoped exception for exactly repairbench-1 → bookings → drop_off_day. Keep the
+general refusal of text columns. No data writes, no schema changes, no other
+sites, and no arbitrary SQL input. Return only date-shaped values and aggregate
+counts. If values cannot safely be treated as dates, report the number of invalid
+rows without printing those values or raw database errors. Do not silently
+discard invalid rows."*
+
+**THE CORRECTION IS THE SMALLER HALF AND IT IS MADE ABOVE.** What is true of the
+FREE readers stays true; what was wrong was inferring from it that no read-only
+query could answer. Two different claims, and the first does not carry the
+second.
+
+**`COUNTS_TEXT_DATE` IS AN EXACT TRIPLE, ASKED ONLY AFTER THE GENERAL RULE HAS
+REFUSED.** One frozen entry — `repairbench-1` · `bookings` · `drop_off_day` —
+and all three must match. Widening `COUNTS_TYPES` to admit text was the fix NOT
+made: the type rule is the entire reason `customer_name` (also `text`) cannot be
+grouped, and the general refusal is left untouched and is its own guard case.
+Every other text column, on every site, **including every other text column on
+that same table**, is refused exactly as before.
+
+- **THE SLUG IS THE SITE REALLY BEING READ, never the form's input** — `site.slug`,
+  which came through `REPAIR_SITES` and the identity chain. `countsPlan` takes it
+  as a fourth argument and **an omitted slug means no exception**, which is the
+  fail-closed direction: a caller that cannot say which site it is asking about
+  gets the general rule.
+- **THE TYPE MUST STILL BE A CHARACTER TYPE** (`COUNTS_TEXT_TYPES`, exact —
+  `information_schema.columns.data_type` spells these whole). The triple says
+  WHICH column, not "whatever that column happens to be": `~` is not defined on
+  every type, and a triple matching a `json` or `bytea` column would reach
+  Postgres as an operator error instead of a refusal.
+- **`!typed` IS A DECLARED REDUNDANCY, MEASURED INERT AND MUTATED AS A PAIR.**
+  The two lists are disjoint, so `COUNTS_TEXT_TYPES.includes(ty)` already
+  excludes every typed column. It is kept because it states the ORDER — the
+  general rule is asked first — which is the whole design and is not otherwise
+  written down in code.
+
+**THE PROJECTION IS THE WALL, NOT THE READER.**
+
+```sql
+SELECT CASE WHEN "drop_off_day" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN "drop_off_day" ELSE NULL END AS v,
+       ("drop_off_day" IS NOT NULL AND "drop_off_day" !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') AS bad,
+       COUNT(*)::bigint AS n
+FROM "bookings" GROUP BY 1, 2 ORDER BY 3 DESC, 1
+```
+
+`v` is the value only where it matches and NULL otherwise, so **an unusable value
+never leaves Postgres** and only its COUNT comes back. `bad` separates "not
+date-shaped" from a genuine NULL, so neither is folded into the other. `[0-9]`
+rather than `\d`: no backslash, so the literal means the same thing whatever
+`standard_conforming_strings` is set to.
+
+**NOTHING CASTS, AND THAT IS THE WHOLE REASON FOR THE SHAPE REGEX.**
+`"drop_off_day"::date` fails at runtime with Postgres's own message, **which
+quotes the offending value** — a single bad row leaks a customer name out of the
+one mode built never to return one. **MEASURED on a real PostgreSQL 16**:
+`ERROR: invalid input syntax for type date: "Alice Bloom, 07700 900123"`.
+
+**A FAILED READ IS REPORTED BY SQLSTATE AND NEVER BY MESSAGE.** `errCode` answers
+five alphanumerics or `""`, so it can carry nothing; a message that is not a code
+answers `""` rather than falling back to the text. This is the one read in the
+mode where a row could ride out on an error.
+
+**NOTHING IS SILENTLY DISCARDED, AND THE ARITHMETIC IS PRINTED SO IT CAN BE SEEN
+TO CLOSE.** Every row lands in exactly one of `rows` and `invalid`, `total` is
+every row the table holds, and the run prints
+`N group(s), G grouped + U unusable = T row(s) in total`. A bare total cannot be
+checked; this can.
+
+**THE CALENDAR CHECK IS OURS AND RUNS ONLY WHERE WE ARE THE VALIDATOR.**
+`DATE_SHAPE` admits `2026-13-45`, so `calendarDate` asks — pure arithmetic, no
+`Date` (`Date.UTC(1, 0, 1)` silently means 1901, so a round-trip reports a
+well-formed early year as invalid), and it cannot throw. On a TYPED column
+Postgres is the validator and the check is skipped: a timestamp renders a shape
+this check does not know, so running it there would report every row of a working
+column as invalid.
+
+**PROVEN ON A REAL POSTGRESQL 16 — `test/integration/local-pg-counts.mjs`, 48
+checks, 0 failed**, over a `text` date column holding real dates at different
+frequencies, a genuine NULL, an empty string, a customer's name and phone number,
+`2026-13-45` and `2026-02-29`. The statement comes out of the real `countsPlan`
+and the reading out of the real `countsOf`; nothing is typed. **The leak
+assertion is made against the RAW psql output**, because a reader that drops a
+value is a weaker claim than a value that never arrived: no customer name, no
+phone number, and every value on the wire date-shaped or NULL. Arm 5 asserts the
+negative — no statement carries a write verb, the row count is unchanged, the
+schema is unchanged.
+**AND THE PROBE'S OWN CONTROL WAS WRONG FIRST**: it asserted the cast's message
+quotes THE NAME, and Postgres stops at the FIRST value it cannot cast, which on
+that fixture is the empty string. The property is *"the message quotes the value
+it choked on"*; the name is then demonstrated by a second cast restricted to that
+row. *Assert the property, not the spelling* — in a probe's own control.
+
+**⚠ AND THE FIXTURE WAS THE LESS-CAPABLE FAKE AGAIN, IN THE ONE FIELD THE FEATURE
+TURNS ON.** `test/fixtures/repair-process.mjs` hardcoded `dataTypeID: 25` (text)
+for every column, so a JS `true` for `bad` came back through the real driver as
+the STRING `"true"`; `r.bad === true` was false, every unusable row read as a
+genuine NULL, and **the working feature reported itself broken**. MEASURED both
+ways: OID 16 with `"t"`/`"f"` parses to a real boolean, which is what a real Neon
+answer does and what the probe reads out of psql. The fixture encodes per-column
+OIDs now, and `bigint` is deliberately left a STRING because pg-types does.
+
+**Guards**: `test/backend-repair.test.mjs` **56 → 59** (the triple both ways with
+every junk argument, the emitted statement whole, the character-type family in and
+the other types out, the typed control, the three-answer reading with the
+arithmetic closing, the calendar check, and `errCode`); `test/repair-commands.test.mjs`
+**17 → 18** — **the wiring hop, which only a PROCESS can see**: `countsPlan` takes
+the slug as a fourth argument, and a module that never receives it is
+indistinguishable from one that ignores it, so the same table and the same text
+column on ANOTHER site is driven as a real run and refused.
+`test/integration/local-pg-counts.mjs` is new.
+
+**One older guard was re-anchored, not appeased**: `2 group(s), 3 row(s) in
+total` became the arithmetic that closes — the property it was ever about.
+
+**THE WRITE BOUNDARY IS UNMOVED.** `counts` is still on neither `WRITES_REFERENCE`
+nor `WRITES_META`, both gates are `includes` over a frozen list, and a mutant
+adding it to either is a red run.
+
+**Sweep: 40 mutants, 40 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — three passes, and the two middle ones are the record worth
+keeping. **Pass 1: 39 mutants, 33 killed, 6 survived**, and NOT ONE was the
+product's: three were guard gaps (the wiring hop, an array coerced by
+`calendarDate`, and the failing-read catch), two were redundancies MEASURED inert
+and replaced by PAIR mutants, and one was a test-side mutant measured inert
+against the product. **Pass 2: 40 mutants, 39 killed, 1 survived — and the pair
+mutant found a REAL gap**: `2026-13-45` is refused by its DAY, so no case
+anywhere drove a month past 12 whose day would otherwise pass. **Pass 3: 40/40/0**
+is the tally above. *A pair mutant is not a formality; this one bought a case.*
+
+**AND ONE AD-HOC MEASUREMENT MEASURED NOTHING BEFORE IT WAS MADE TO REFUSE.** The
+first probe of the test-side survivor compared two empty objects, because it
+built its plan with the wrong table name and `countsOf` answered `{ok: false}` —
+"an ad-hoc check that failed to apply its own mutation", this repository's own
+recorded trap. It refuses now when the plan under test is not the plan it asked
+for, and the answer was then the honest one: the product reads both row sets
+identically, because the calendar check catches everything the SQL regex would.
+
+**Suite 6,657** — 6,652 + 3 (`backend-repair`) + 2 (`repair-commands`), and the
+arithmetic closes exactly.
+
+**NOT RUN LIVE.** Every measurement is from driving the modules, the real process
+and a local PostgreSQL. The press is the owner's: `backend repair`, mode
+`counts`, slug `repairbench-1`, table `bookings`, column `drop_off_day`, confirm
+blank. Free, read-only, writes nothing.
+
+**MERGED AND DEPLOYED — deploy 2129, 2026-09-16 08:24:17→08:25:00Z, green in 42
+seconds**, on `main` `f88c9198` → `ea44a70c` (fast-forward). **It had to be
+merged**: the workflow checks out `ref: main`, so the button always runs main's
+copy of the script.
+
+- **IT DEPLOYED AT ALL BECAUSE `.github/workflows/**` IS NOT IN `paths-ignore`,
+  and that was checked rather than predicted.** Every other file in this push is
+  under `scripts/`, `test/` or `**.md`, all of which the filter covers — the
+  workflow file is what fired it. *A push that looks docs-only is not, if it
+  touches a workflow.*
+- **THE IMAGE ID WAS COMPUTED BEFORE THE PUSH AND THE DEPLOY AGREED — the fifth
+  cross-check of that technique.** `origin/main` and the candidate BOTH hashed
+  to **`62c2700fa8c843c2`** (183 inputs each), so nothing an image is built from
+  moved; the deploy's own line names that same reference and the container
+  answered **`no changes isibi-app-sitebuildcontainer`** / `No changes to be
+  made` — **read out of the log's own diff, never inferred from the step's 1
+  second. THE CONTAINER DID NOT ROLL, so no 15–20 minute hold applies.**
+- **WORKER**: `Uploaded isibi-app (3.35 sec)`, `Total Upload: 3484.55 KiB / gzip:
+  939.48 KiB`, 99 asset files read, `Current Version ID:
+  629b5db5-ead4-49a9-b03d-…`. The gate was left to expire on success.
+- **`No updated asset files to upload`** — `public/` is untouched, so **there is
+  no file-hash check for this deploy**. The standby is the gate discriminator,
+  measured after: `/api/site/build-health` **401**, `/api/site/runtime` **401**,
+  `/api/site/job-probe` **401**, `/api/nope-not-a-route` **404**.
+- **REGRESSION: BYTE-IDENTICAL to deploy 2128's recorded numbers** — repairbench-1
+  46,151 · fretwork-1 58,404 · ashgrove-1 31,120 · northgroup-5 1,641 ·
+  washhouse-1 52,404 · ben-crowe-guitar 52,060 — and the interactive half, because
+  a 200 is an availability check and never a health check: `/status` **200/6,272**
+  and `/booking-check` **200/6,290**, with `count_booked_repairs` and
+  `count_existing_bookings` both **200 answering 3**.
+- **THE FORM ON MAIN REALLY CARRIES THE NEW WORDING, asked BY NAME** rather than
+  off a listing: main's copy reads *"A text column is refused, except
+  repairbench-1 bookings.drop_off_day, which is read as dates by shape"*, keeps
+  `options: [preview, apply-reference, apply, verify, counts]` and keeps
+  `shell: bash`. Main's script carries `COUNTS_TEXT_DATE`, `DATE_SHAPE`,
+  `calendarDate` and `errCode`.
+- The merge started **exactly one workflow** — deploy 2129 and nothing else,
+  which is the merge-trigger census holding in the live.
 
 
 ## Data, auth, payments, mail
@@ -5779,7 +6515,25 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   days agreeing is what 382 rests on**; the three harness timings in a row, 17m11s · 19m14s · 14m06s on trees
   that differ by a handful of files, are the runner deciding again, exactly as
   the image-step band records.
-  The unit suite is **6,654** (2026-09-16, local — 6,652 pass, 2 skipped, 0 fail;
+  **AND RUN 1154 READ IT A THIRTEENTH TIME (2026-09-16 04:56:20→05:18:10Z on
+  `7c2a9ff4`, the column inventory's tree, ALL TWENTY STEPS GREEN):
+  `site-build.mjs` `382 passed, 0 failed`**, with kit-typecheck 4, contrast-cases
+  16, theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it
+  — every count bounded to its own `##[group]`, and read rather than carried over
+  from 1152. **AND IT COVERS THE MERGED CANDIDATE BY THE IMAGE ID, not by a
+  `paths` list**: `7c2a9ff4` and the merge of `origin/main` `c20226e6` into it
+  both hash to **`62c2700fa8c843c2`** (183 inputs), so nothing an image is built
+  from moved across the merge — main's two commits are `public/chat.js`, one
+  guard and three documents. (`origin/main` itself hashes to
+  `c2aba7a7bd276c36`; the branch differs because the `search_path` pin touches
+  `site-rls.mjs` and `site-schema.mjs`, which are in the worker's module graph.)
+  **THE MERGED TREE IS __MERGED__** (2026-09-16, local) — and **the two numbers below
+  it are two BRANCHES rather than a sequence**, which is why neither is the head and
+  why saying so beats letting a reader take the larger for the latest. Main's chain
+  ran to **6,657** and this one to **6,654** over a shared **6,631**; the merge is
+  both, and the arithmetic is stated where it is measured rather than predicted from
+  either side.
+  Before it, **6,654** (2026-09-16, local — 6,652 pass, 2 skipped, 0 fail;
   the create's own pause, whose ONE new case is `agent-binding`'s control that a new
   agent nobody paused sends `active` — the two cases that required the defect were
   REPLACED rather than added to, so the count moves by the control alone.
@@ -5803,7 +6557,82 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `agent-builder-view`'s one (a list row that can gain a badge without wrapping).
   **6,631 + 22 = 6,653 and the arithmetic closes exactly**, measured per file.
   **CI has NOT read this number yet.**
-  Before it, **6,631** (2026-09-16, local — 6,629 pass, 2 skipped, 0 fail; the
+  Before it, **6,657** (2026-09-16, local — the narrow text-date
+  exception: `6657 / 6657 / 0 fail / 0 skipped`). **The arithmetic closes
+  exactly**: 6,652 + 3 (`backend-repair` 56 → 59) + 2 (`repair-commands`
+  17 → 19). `test/integration/local-pg-counts.mjs` is new and is a PROBE, not in
+  the suite; it reads **48 checks, 0 failed** on a real PostgreSQL 16. CI has
+  NOT read this number yet.
+  Before it, **6,649** (2026-09-16, local, ON THE MERGED CANDIDATE —
+  `6649 / 6649 / 0 fail / 0 skipped`). **The arithmetic closes exactly**: the
+  branch tip `7c2a9ff4` measured **6,642** — re-measured in a detached worktree
+  at that commit rather than derived — plus `backend-repair`'s **3**,
+  `repair-commands`' **2** and `repair-workflows`' **1** for the aggregate, plus
+  `main`'s one new `agent-binding` case (42 → 43). **6,642 + 3 + 2 + 1 + 1 =
+  6,649.** The six sweep-survivor closers are assertions inside cases that
+  already existed and add none. **A worktree run reads one FAIL and two SKIPs
+  that a repo-root run does not** — `render-sandbox`'s privilege-drop case is
+  about writing outside the repo root, so it is the environment, not the
+  product; the TOTAL is what carries across, which is why the total is the
+  number stamped. **CI HAS READ IT: `unit tests` run 2620 on `28969cb1`, green
+  (2026-09-16 05:34:15→05:36:13Z, the suite step 103.4 s) — `# tests 6649 /
+  # pass 6645 / # fail 0 / # skipped 4`.** The four are the three recorded
+  environment skips plus `site-searchpath`'s baseline-commit case, which needs
+  git objects `actions/checkout@v4`'s `fetch-depth: 1` does not fetch — the
+  prediction of 4 was written down before the run, which is the only way a skip
+  count is evidence rather than an observation. **AND 1154's GREEN STILL COVERS
+  THE PUSHED TIP**: `28969cb1` hashes to `62c2700fa8c843c2` too, and the twelve
+  files between the two are documents, scripts, a mutant spec, guards, a
+  workflow and `public/chat.js` — none under `builder/**`, `worker.js` or the
+  Dockerfile's context, so no `site build` fired and none was due.
+  Before it, the suite was **6,642** (2026-09-16, local, ON THE TREE WITH `main`
+  MERGED IN — `6642 / 6642 / 0 fail / 0 skipped`). **That arithmetic closes three ways and
+  that is what makes it a measurement**: `main` carried 6,505 → 6,628 (its agent
+  chain) → 6,630 (the send-box fix, `agent-binding` 42 → 44) and this branch
+  carried 6,505 → 6,516 (`site-searchpath`'s 9, then its 2 baseline cases), so the
+  merge is 6,630 + 11 = **6,641**, plus **one** for the column-inventory module
+  case = 6,642. **AND THE MERGE CAUGHT A REAL RED**: `container-images`' input walk
+  failed mid-merge on `agent-store.mjs` — `main`'s new root module, staged and not
+  yet committed, and the walk asks GIT AT HEAD. Committing the merge fixed it. That
+  is the recorded *"staging is not enough"* guard being exactly right, met for the
+  first time during a merge rather than during a Dockerfile edit. CI has NOT read
+  this number yet.
+  **AND THE COLUMN INVENTORY IS AUTHORITATIVE NOW** (owner: *"Make authoritative
+  schema inventories part of the before/after checks if claiming no new tables or
+  columns. Otherwise narrow the claim to the names actually probed."*).
+  `readSchemaState` has read `information_schema.columns` since it was written —
+  `appTables` is DERIVED from those rows — and `describeContents` dropped them one
+  hop later, so `--verify` could enumerate TABLES and nothing else. It carries
+  `columns` now and `verifySite` attaches `columnInventory(st.columns)`,
+  `{table: ["name type", …]}`. **A REPORT AND NEVER A CHECK**: there is no
+  expectation to compare it against, so it must not touch `out.ok` — a verify that
+  failed because a column list differs from a remembered one would be asserting
+  something nobody declared — and it PRINTS ON A FAILING RUN, which is when it is
+  most wanted. Absent means the catalog was never reached (identity refused), which
+  is a different answer from a site with no tables. **The write-free PostgREST
+  probe stays what it is: exact per NAME and not an enumeration**, so a
+  "no new columns" claim now rests on the catalog and the probe is the cheap
+  cross-check. **Sweep: 8 mutants, 8 killed, 0 survived, 0 never applied, 2
+  comment-only controls survived** — the columns dropped again, the inventory never
+  attached, the stored SPEC standing in for the catalog, the inventory made a
+  CHECK, a junk catalog row rendered as a value, the type dropped, a non-array
+  argument thrown on, and **the print gated on `v.ok`**. That last one SURVIVED
+  pass 1 and was the recorded *"a wall nobody can drive is a wall nobody is
+  guarding"*: the print lives in `main`, which no module guard runs, so it is
+  closed in `test/repair-commands.test.mjs`, which spawns the script as a real
+  PROCESS. Guards: `backend-repair` **51 → 52**, `repair-commands` **14** (the
+  failing-verify case gained the print assertions). Every new assertion was proved
+  RED four ways first.
+  **AND THE BALANCE IS 149, NOT 161** (read off `public.credits` 2026-09-16; its
+  row last moved 19:31:38Z on 2026-09-15). Run 48 took 161 → 149. **The ledger also
+  answers a question the SQL alone could not: ONE addon request makes SEVERAL
+  sequenced reservations** — run 46 `#1 −3`/`#4 −5` = 8, run 47 `#1 −7`/`#4 −6` =
+  13, run 48 `#1 −5`/`#4 −7` = **12** — each checked against the balance at that
+  moment and **nothing anywhere summing them**. `edit_reserve` raises `bad cost`
+  only above **100,000**, which no balance reaches, so **no server-side per-request
+  cap exists**; the account balance is the only bound that binds, and the harness's
+  `budget` is read BETWEEN cases, which an `ask` run never has two of.
+  The unit suite was **6,631** (2026-09-16, local — 6,629 pass, 2 skipped, 0 fail; the
   three since 6,628 are the two live-found composer defects and their control). The agent-run branch measured **6,606** and `main`
   carried **22** cases the branch had not seen (the addon reporting work), so
   **6,606 + 22 = 6,628 and the arithmetic closes exactly**. The branch's own chain:
@@ -5812,6 +6641,46 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   retry, an absorbed mismatch) and eight route cases (the ring, its failure, no binding,
   an absorbed press rung, a runless send, `mismatch`, and the cross-product census).
   **CI has NOT read 6,628 yet.**
+  The unit suite is **6,516** (2026-09-16, local — the probe's immutable
+  baseline, whose new cases are `site-searchpath`'s **two** (9 → 11: the
+  default asserted an immutable sha with the refusal kept, and the sha proved
+  pre-fix by asking GIT); **6,514 + 2 closes exactly**, and `addon-sweep` stays
+  **32** — the shown-steps reader is assertions inside the case that already
+  reads the coverage record, with one older expectation re-anchored off a
+  length. **LOCAL IS `6516 / 6516 / 0 / 0` AND CI WILL READ 4 SKIPPED, NOT 3**:
+  case 11 needs the baseline commit's git objects and `actions/checkout@v4` is
+  `fetch-depth: 1`, so it skips there — visibly, rather than passing and
+  claiming to have checked. **CI HAS READ IT AND THE PREDICTION MATCHED:
+  `unit tests` run 2614 on `04b6f335`, green (2026-09-16 04:32:35→04:34:40Z) —
+  `# tests 6516 / # pass 6512 / # fail 0 / # skipped 4`**, against local
+  `6516 / 6516 / 0 / 0`. The prediction of 4 was written into the commit message
+  before the run, which is the only way a skip count is evidence rather than an
+  observation. **`site build` run 1152's green still covers this tip, and by the
+  IMAGE ID rather than by a `paths` list**: `71c2c4b8`, `546550b7` and
+  `04b6f335` all hash to `b5c638bdfb04f3c4` (182 inputs), so nothing an image is
+  built from moved and no run fired or was due.
+  **6,514** before it (2026-09-16, local — the `search_path` review
+  after its scope correction, whose new case file is
+  `test/site-searchpath.test.mjs`'s **9**: the census over the real emitted DDL,
+  the two emitters counted apart, the ORDER, the invoker form, the placement
+  before `AS`, the privilege control, the three identity helpers, **the SCOPE
+  (what a next schema change re-pins and what it does not)** and **the trusted
+  set pinned to exactly `public, pg_temp`**. **6,505 + 9 closes exactly**; the
+  re-anchor in `neon-e2e` is an integration probe and is not in the suite.
+  **CI HAS READ IT: `unit tests` run 2612 on `748ae587`, green — `# tests 6514 /
+  # pass 6511 / # fail 0 / # skipped 3`**, against local `6514 / 6514 / 0 / 0`;
+  the three are the recorded environment skips, which is why the number to carry
+  is the TOTAL. **`site build` run 1152 is GREEN on the PARENT `71c2c4b8`**, and
+  it covers this tip by the recorded ancestor rule — the five files between the
+  two are `CLAUDE.md`, `docs/owner-notes.md`, a mutant spec and two test files,
+  and not one is under `builder/**`, `worker.js` or any other glob in that
+  workflow's `paths`, so no run fired for the tip and none was due. That run (2026-09-16,
+  all twenty steps, `site-build.mjs` **382 passed / 0 failed**, with
+  kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47 beside it — the TWELFTH independent run to
+  answer 382. **The per-step `##[group]` bounding did not attach on this log
+  format**, so the seven counts are read in step order and match the recorded
+  six; that is weaker attribution than bounded and is said rather than glossed).
   Before it, **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
   sessions stamped a suite and neither number was the merged one**, which is
   this file's own "a number stamped in two places drifts when only one is
@@ -6661,6 +7530,25 @@ rule and the measurement.
   our rule about which tables are seeded — and it can never fire for a table
   nobody asked to seed, because the engine only records a skip against the
   design's own seed keys.
+- **EXISTING MODEL FUNCTIONS ARE NEVER RE-PINNED (open, 2026-09-16, kept
+  SEPARATE at the owner's instruction: *"If upgrading existing functions is
+  needed, propose that separately"*).** The `search_path` pin reaches a function
+  the engine RE-DECLARES, and `_meta.functions` stores no body, so
+  `normalizeSchema` drops every stored function and no schema change ever
+  re-emits one. Measured both at the module and on a real PostgreSQL 16: after a
+  next change, the identity helpers and every trigger function are pinned and
+  the model's function is still unpinned and still redirected through `pg_temp`.
+  **So every model-written function on every site built before the pin stays
+  exposed to the mechanism**, and those are exactly the `SECURITY DEFINER` ones
+  granted to `anonymous`.
+  **NOT PROPOSED, NOT WRITTEN, AND NO BACKFILL RUN.** The shapes worth weighing
+  when it is: (a) persist the body in `_meta` so a next change re-declares
+  naturally — the largest change, and it puts model-written SQL into the stored
+  spec; (b) an `ALTER FUNCTION … SET search_path` sweep over `pg_proc` per site,
+  which touches nothing but the setting and needs a credential and the same
+  preview/apply/verify discipline as `backend-repair`; (c) leave it, on the
+  reachability argument, and record that the argument rests on a layer we do not
+  own. **Which of the three is the owner's call**, and nothing here presumes it.
 - **`three` is done** (2026-08-30) — the entry above records what it cost.
 - **The availability calendar's own legend (open, live on `fretwork-1` since
   run 16).** `availability-calendar.tsx` prints "Each square is the night

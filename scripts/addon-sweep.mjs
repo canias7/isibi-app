@@ -326,6 +326,37 @@ export function askLines(record, kinds) {
   for (const u of arr(cv.unreadable)) out.push(`     · UNREADABLE (${u.why}): ${JSON.stringify(u.need)}`);
   if (arr(cv.invalidProps).length) out.push(`     · properties the tool does not offer: ${JSON.stringify(cv.invalidProps)}`);
   if (cv.handedTo && Object.keys(cv.handedTo).length) out.push(`     · handed to: ${JSON.stringify(cv.handedTo)}`);
+
+  // ── WHAT EACH DESIGNER WAS SHOWN (2026-09-16) ──────────────────────────────
+  //
+  // `shownSteps` is the route's per-kind input capture, written ABOVE each call
+  // from the object really handed to it. It is the ONLY thing in the record
+  // that can answer "did the function step see `bookings.drop_off_day`?" as a
+  // stored fact rather than an inference — run 48's whole first demonstration
+  // rested on inference because this did not exist, and run 47's defect IS
+  // `hasDatabase: false` on a site that has one.
+  //
+  // IT WAS WRITTEN AND NOT READ. The route has recorded it since it shipped and
+  // nothing printed it, so a run bought to prove schema receipt would have come
+  // back without the receipt — this repository's own wiring defect, in the
+  // instrument built to settle it. Two lines per step: a HEADLINE carrying the
+  // two facts a person reads (`hasDatabase`, and which tables), and the entry
+  // WHOLE as JSON underneath, so nothing is lost to formatting.
+  //
+  // AN EMPTY LIST IS A SENTENCE. "No step was recorded" and "no step saw
+  // anything" are two readings a blank collapses into one — the same rule the
+  // missing-record line above follows.
+  const shown = arr(cv.shownSteps).filter((s) => s && typeof s === "object");
+  out.push(`   what each designer was SHOWN about the database (per step, in run order):`);
+  if (!shown.length) {
+    out.push(`     (none recorded — an answer stored before the capture shipped, or no designer ran)`);
+    return out;
+  }
+  for (const s of shown) {
+    const tables = arr(s.tables);
+    out.push(`     · ${s.kind || "?"} — database: ${s.hasDatabase ? "YES" : "NO"} — ${tables.length} table(s): ${JSON.stringify(tables)}`);
+    out.push(`       ${JSON.stringify(s)}`);
+  }
   return out;
 }
 

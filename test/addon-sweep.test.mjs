@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
 import { healthImage } from "../builder/build-lane.mjs";
-import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer, MAX_MESSAGE } from "../builder/site-add.mjs";
+import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer, MAX_MESSAGE, shownSchema } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 // The served page's bands, one copy shared with test/copy-design.test.mjs.
@@ -696,6 +696,14 @@ test("the coverage record reaches the developer, line by line", () => {
       unreadable: [{ need: 17, why: "not a string" }],
       invalidProps: ["encryptAtRest"],
       handedTo: { page: 1 },
+      // THE PER-STEP INPUT CAPTURE, DERIVED FROM ITS REAL PRODUCER. A
+      // hand-typed entry here is a second copy of `shownSchema`, and this
+      // fixture is the whole evidence for schema receipt — if the shape drifts
+      // the harness prints a headline about fields the record does not carry.
+      shownSteps: [
+        { kind: "function", ...shownSchema({ tables: ["bookings"], columns: { bookings: ["bike text", "drop_off_day date"] }, hasDatabase: true }) },
+        { kind: "page", ...shownSchema({ tables: ["bookings"], columns: { bookings: ["bike text", "drop_off_day date"] }, functions: ["count_by_day"], hasDatabase: true }) },
+      ],
     },
   }, kinds);
   const all = full.join("\n");
@@ -709,6 +717,31 @@ test("the coverage record reaches the developer, line by line", () => {
   assert.match(all, /properties the tool does not offer: \["encryptAtRest"\]/,
     "a model-authored property the engine drops is never named");
   assert.match(all, /handed to: \{"page":1\}/, "the hand-off map is not printed");
+
+  // ── SCHEMA RECEIPT, WHICH IS WHAT THE NEXT RUN IS BOUGHT FOR ───────────────
+  //
+  // `shownSteps` had been RECORDED AND NEVER READ: the route has written it
+  // since it shipped and nothing printed it, so a run bought to prove the
+  // function designer saw a column would have come back without the receipt.
+  // This repository's own wiring defect, in the instrument built to settle it.
+  assert.match(all, /what each designer was SHOWN about the database/,
+    "the per-step input capture is not printed at all");
+  assert.match(all, /· function — database: YES — 1 table\(s\): \["bookings"\]/,
+    "a step's headline does not carry hasDatabase and the tables it was shown");
+  assert.match(all, /"columns":\{"bookings":\["bike text","drop_off_day date"\]\}/,
+    "the columns a designer was shown are not printed, which is the whole claim");
+  assert.match(all, /· page — database: YES/, "only the first step is printed");
+  // `hasDatabase: false` beside real tables is run 47's defect, so NO must read
+  // as loudly as YES rather than as an absence.
+  const off = askLines({ coverage: { counts: {}, shownSteps: [{ kind: "function", tables: [], columns: {}, hasDatabase: false }] } }, ["function"]);
+  assert.match(off.join("\n"), /· function — database: NO — 0 table\(s\): \[\]/,
+    "a designer told the site has NO database — run 47's defect — does not read as such");
+  // AND AN EMPTY CAPTURE IS A SENTENCE, not a blank: "no step was recorded" and
+  // "no step saw anything" are two readings a blank collapses into one.
+  const noneShown = askLines({ coverage: { counts: { covered: 1 } } }, ["qr"]).join("\n");
+  assert.match(noneShown, /what each designer was SHOWN about the database/);
+  assert.match(noneShown, /\(none recorded/, "a record with no capture reads as a designer that was shown nothing");
+
   // ABSENCE IS A SENTENCE. "Nothing was recorded" and "nothing was
   // outstanding" are two readings a blank collapses into one.
   const none = askLines({}, []);
@@ -717,9 +750,18 @@ test("the coverage record reaches the developer, line by line", () => {
   assert.deepEqual(askLines({ coverage: null }, []), none);
   assert.deepEqual(askLines(null, null), none, "a missing record is not said");
   // An empty record still says it IS a record — the counts line separates it.
+  // RE-ANCHORED, NOT APPEASED (2026-09-16): this asserted a LENGTH of 2, which
+  // was the property "there is a counts line and nothing else" only while the
+  // shown-steps block did not exist. An empty record now also says its capture
+  // is empty, which is more said and not less — so the assertion is the two
+  // lines by their content, and the absence of any REQUIREMENT line, which is
+  // what "empty" was ever about.
   const bare = askLines({ coverage: { counts: {} } }, ["qr"]);
-  assert.equal(bare.length, 2);
   assert.match(bare[1], /coverage record: \{\}/, "an empty coverage record reads as no record at all");
+  assert.equal(bare.filter((l) => /^ {5}· (covered|elsewhere|unsupported):/.test(l)).length, 0,
+    "an empty record printed a requirement line");
+  assert.notEqual(bare.join("\n"), none.join("\n"),
+    "an empty record and a missing one read the same, which is the reading the counts line exists to separate");
   // And nothing in it may throw on a hostile shape: this is a model's answer,
   // read back off R2, not something the harness wrote.
   for (const junk of [{ coverage: { requirements: "no", unreadable: 3, invalidProps: {} } },

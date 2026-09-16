@@ -11,3 +11,11 @@ shots/
 
 # Scratch log written by scripts/build-as-owner.mjs on a local run
 build-as-owner-log.md
+
+# The two repair workflows end their command in `| tee <name>.log`, so running a
+# step's real `run:` text by hand — which is how the argument-injection defect
+# was reproduced — drops the log in the repository root. One was committed that
+# way. The workflow itself is unaffected: it writes this file in the runner's
+# workspace and uploads it as an artifact; it never commits.
+backend-repair.log
+repairbench-count-fix.log

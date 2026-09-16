@@ -1,0 +1,188 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the pin",
+    "control": true,
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": " * THE PIN, AND `pg_temp` LAST IS THE WHOLE OF IT.",
+    "to": " * THE PIN, AND `pg_temp` LAST IS THE ENTIRETY OF IT."
+  },
+  {
+    "label": "CONTROL: a comment only, beside the trigger pin",
+    "control": true,
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "  // PINNED FOR THE SAME REASON A MODEL FUNCTION IS, and it is a SEPARABLE part",
+    "to": "  // PINNED FOR THE SAME REASON A MODEL FUNCTION DOES, and it is a SEPARABLE part"
+  },
+  {
+    "label": "THE DEFECT ITSELF: the model's functions pin nothing again",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    (f.definer === false ? \"\" : \" SECURITY DEFINER\") +\n    \" SET search_path = \" + FN_SEARCH_PATH +\n    \" AS $isibi$ \"",
+    "to": "    (f.definer === false ? \"\" : \" SECURITY DEFINER\") +\n    \" AS $isibi$ \""
+  },
+  {
+    "label": "ORDER: pg_temp FIRST \u2014 pins, parses, reads like a wall, and is the default it replaced",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "export const FN_SEARCH_PATH = \"public, pg_temp\";",
+    "to": "export const FN_SEARCH_PATH = \"pg_temp, public\";"
+  },
+  {
+    "label": "ORDER: pg_temp not named at all \u2014 an unlisted pg_temp is searched FIRST, so this is the hole with a pin on top",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "export const FN_SEARCH_PATH = \"public, pg_temp\";",
+    "to": "export const FN_SEARCH_PATH = \"public\";"
+  },
+  {
+    "label": "COMPATIBILITY: public dropped, so every unqualified model body stops resolving",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "export const FN_SEARCH_PATH = \"public, pg_temp\";",
+    "to": "export const FN_SEARCH_PATH = \"pg_temp\";"
+  },
+  {
+    "label": "THE INVOKER HOP: pinned only on the definer form, so a definer's invoker callee is redirected",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    (f.definer === false ? \"\" : \" SECURITY DEFINER\") +\n    \" SET search_path = \" + FN_SEARCH_PATH +\n    \" AS $isibi$ \"",
+    "to": "    (f.definer === false ? \"\" : \" SECURITY DEFINER SET search_path = \" + FN_SEARCH_PATH) +\n    \" AS $isibi$ \""
+  },
+  {
+    "label": "LANGUAGE: pinned only on sql bodies, so a plpgsql one is redirected",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    (f.definer === false ? \"\" : \" SECURITY DEFINER\") +\n    \" SET search_path = \" + FN_SEARCH_PATH +\n    \" AS $isibi$ \"",
+    "to": "    (f.definer === false ? \"\" : \" SECURITY DEFINER\") +\n    (f.language === \"plpgsql\" ? \"\" : \" SET search_path = \" + FN_SEARCH_PATH) +\n    \" AS $isibi$ \""
+  },
+  {
+    "label": "TRIGGERS: the engine's own trigger functions pin nothing, so enforceRefs' wall is redirectable",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "\"; END; $trg$ LANGUAGE plpgsql\" +\n    \" SET search_path = \" + FN_SEARCH_PATH);",
+    "to": "\"; END; $trg$ LANGUAGE plpgsql\");"
+  },
+  {
+    "label": "TRIGGERS: pinned with pg_temp first, which is the shadow it is supposed to stop",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "\"; END; $trg$ LANGUAGE plpgsql\" +\n    \" SET search_path = \" + FN_SEARCH_PATH);",
+    "to": "\"; END; $trg$ LANGUAGE plpgsql\" +\n    \" SET search_path = pg_temp, public\");"
+  },
+  {
+    "label": "IDENTITY: the fallback app_user_id() goes back to unpinned \u2014 every RLS policy calls it",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "LANGUAGE sql STABLE SET search_path = pg_catalog, pg_temp AS $$\n  SELECT NULLIF(pg_catalog.current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid",
+    "to": "LANGUAGE sql STABLE AS $$\n  SELECT NULLIF(pg_catalog.current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid"
+  },
+  {
+    "label": "IDENTITY: the fallback's own call is unqualified again",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  SELECT NULLIF(pg_catalog.current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid",
+    "to": "  SELECT NULLIF(current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid"
+  },
+  {
+    "label": "IDENTITY: the fallback's pin widened to include public \u2014 undoing it for no gain",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "LANGUAGE sql STABLE SET search_path = pg_catalog, pg_temp AS $$\n  SELECT NULLIF(pg_catalog.current_setting",
+    "to": "LANGUAGE sql STABLE SET search_path = pg_catalog, public, pg_temp AS $$\n  SELECT NULLIF(pg_catalog.current_setting"
+  },
+  {
+    "label": "IDENTITY: the NATIVE app_user_id() loses the pin it has always had",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$\n  SELECT NULLIF(auth.user_id(), '')::uuid",
+    "to": "LANGUAGE sql STABLE SECURITY DEFINER AS $$\n  SELECT NULLIF(auth.user_id(), '')::uuid"
+  },
+  {
+    "label": "IDENTITY: app_team_id() loses the pin it has always had",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$\n  SELECT m.\"organizationId\"::text",
+    "to": "LANGUAGE sql STABLE SECURITY DEFINER AS $$\n  SELECT m.\"organizationId\"::text"
+  },
+  {
+    "label": "PRIVILEGE: the pin is made to move a privilege too \u2014 the REVOKE goes",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  out.push(\"REVOKE ALL ON FUNCTION \" + q(f.name) + \"(\" + argTypes + \") FROM PUBLIC\");",
+    "to": "  if (!f.internal) out.push(\"REVOKE ALL ON FUNCTION \" + q(f.name) + \"(\" + argTypes + \") FROM PUBLIC\");"
+  },
+  {
+    "label": "PRIVILEGE: an internal function gains the two grants under cover of the pin",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "  if (!f.internal) {\n    for (const role of [DATA_API_ROLES.anon, DATA_API_ROLES.user]) {",
+    "to": "  if (!f.internal || true) {\n    for (const role of [DATA_API_ROLES.anon, DATA_API_ROLES.user]) {"
+  },
+  {
+    "label": "PLACEMENT: the pin lands after the body, where the SET clause is no longer part of the header",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "    (f.definer === false ? \"\" : \" SECURITY DEFINER\") +\n    \" SET search_path = \" + FN_SEARCH_PATH +\n    \" AS $isibi$ \" + f.body + \" $isibi$\",",
+    "to": "    (f.definer === false ? \"\" : \" SECURITY DEFINER\") +\n    \" AS $isibi$ \" + f.body + \" $isibi$\" +\n    \" SET search_path = \" + FN_SEARCH_PATH,"
+  },
+  {
+    "label": "TRUST: a third schema joins the pinned path \u2014 pg_temp still last, so only the trust-set census sees it",
+    "files": [
+      "site-rls.mjs"
+    ],
+    "from": "export const FN_SEARCH_PATH = \"public, pg_temp\";",
+    "to": "export const FN_SEARCH_PATH = \"public, extensions, pg_temp\";"
+  },
+  {
+    "label": "BASELINE: the probe's default goes back to `origin/main` \u2014 a moving ref that carries the pin one merge later",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "const OLD_REF = process.env.OLD_REF || \"0fff5317\";",
+    "to": "const OLD_REF = process.env.OLD_REF || \"origin/main\";"
+  },
+  {
+    "label": "BASELINE: an IMMUTABLE sha that is post-fix \u2014 reproducible and not a control, which only the git read can see",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "const OLD_REF = process.env.OLD_REF || \"0fff5317\";",
+    "to": "const OLD_REF = process.env.OLD_REF || \"71c2c4b8\";"
+  },
+  {
+    "label": "BASELINE: the unpinned-baseline refusal stops asking, so a post-fix ref runs every BEFORE case anyway",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "if (!oldModelDdl || /search_path/.test(oldModelDdl)) {",
+    "to": "if (!oldModelDdl) {"
+  },
+  {
+    "label": "BASELINE: the refusal prints and carries on \u2014 the `--verify` defect one layer over, in the probe",
+    "files": [
+      "test/integration/local-pg-searchpath.mjs"
+    ],
+    "from": "  console.error(\"Pass OLD_REF=<a ref before the pin>. Saw: \" + (oldModelDdl.slice(0, 120) || \"<no such function>\"));\n  process.exit(2);",
+    "to": "  console.error(\"Pass OLD_REF=<a ref before the pin>. Saw: \" + (oldModelDdl.slice(0, 120) || \"<no such function>\"));"
+  }
+]

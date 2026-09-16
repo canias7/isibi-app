@@ -1,0 +1,228 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the type list",
+    "control": true,
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "/** A bare, unquoted-safe SQL identifier. */",
+    "to": "/** A bare, unquoted-safe SQL identifier (no quoting needed). */"
+  },
+  {
+    "label": "CONTROL: a comment only, inside the counts branch",
+    "control": true,
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      // IDENTITY FIRST, exactly as the verify does. An aggregate read out of a",
+    "to": "      // IDENTITY FIRST, exactly as the verify already does. An aggregate read from a"
+  },
+  {
+    "label": "THE PRIVACY WALL IS GONE: a text column may be grouped, so the aggregate can return a customer's name",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "export const COUNTS_TYPES = Object.freeze([\"date\", \"timestamp\", \"time\"]);",
+    "to": "export const COUNTS_TYPES = Object.freeze([\"date\", \"timestamp\", \"time\", \"text\"]);"
+  },
+  {
+    "label": "THE TYPE TEST IS INVERTED — dates refused, everything else admitted",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (!COUNTS_TYPES.some((p) => ty.startsWith(p))) {",
+    "to": "  if (COUNTS_TYPES.some((p) => ty.startsWith(p))) {"
+  },
+  {
+    "label": "THE TYPE MUST MATCH WHOLE, so `timestamp without time zone` — Postgres's own spelling — is refused",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (!COUNTS_TYPES.some((p) => ty.startsWith(p))) {",
+    "to": "  if (!COUNTS_TYPES.some((p) => ty === p)) {"
+  },
+  {
+    "label": "THE IDENTIFIER WALL IS WIDENED to anything at all, so a crafted name reaches the emitted SQL",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "const PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;",
+    "to": "const PLAIN_NAME = /^.*$/;"
+  },
+  {
+    "label": "THE CATALOG IS NOT ASKED WHETHER THE COLUMN EXISTS — a name nobody has is planned anyway",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (!hit) return { ok: false, why: \"no-such-column\", detail: `${t}.${c}`, columns: (inv[t] || []).map((e) => String(e).split(\" \")[0]) };",
+    "to": "  if (false) return { ok: false, why: \"no-such-column\" };"
+  },
+  {
+    "label": "THE TABLE IS NOT ASKED FOR EITHER",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (!Object.prototype.hasOwnProperty.call(inv, t)) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "BOTH ARGUMENTS MAY BE BLANK — an aggregate over nothing reads as a plan",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (!t || !c) return { ok: false, why: \"need-table-and-column\" };",
+    "to": "  if (false) return { ok: false, why: \"need-table-and-column\" };"
+  },
+  {
+    "label": "NOT BUSIEST FIRST — the order becomes the date's, so \"descending count\" is unreadable",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "GROUP BY 1 ORDER BY 2 DESC, 1`",
+    "to": "GROUP BY 1 ORDER BY 1`"
+  },
+  {
+    "label": "THE TIE-BREAK IS DROPPED, so two dates with the same count come back in whatever order Postgres likes",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "GROUP BY 1 ORDER BY 2 DESC, 1`",
+    "to": "GROUP BY 1 ORDER BY 2 DESC`"
+  },
+  {
+    "label": "countsOf RUNS A REFUSED PLAN — the wall is computed and then ignored",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  if (!plan || plan.ok !== true) return { ok: false, why: (plan && plan.why) || \"no-plan\" };",
+    "to": "  if (!plan) return { ok: false, why: \"no-plan\" };"
+  },
+  {
+    "label": "A NULL DATE IS RENDERED AS THE STRING \"null\" — cannot-tell read as a value",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  const out = rows.map((r) => ({ value: r && r.v === null ? null : String(r && r.v), count: Number(r && r.n) || 0 }));",
+    "to": "  const out = rows.map((r) => ({ value: String(r && r.v), count: Number(r && r.n) || 0 }));"
+  },
+  {
+    "label": "THE TOTAL IS THE NUMBER OF GROUPS, not the number of rows",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "  return { ok: true, rows: out, total: out.reduce((a, r) => a + r.count, 0), groups: out.length };",
+    "to": "  return { ok: true, rows: out, total: out.length, groups: out.length };"
+  },
+  {
+    "label": "THE MODE IS NOT A MODE — `--counts` stops parsing and silently runs a preview",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "export const MODES = Object.freeze([\"preview\", \"apply-reference\", \"apply\", \"verify\", \"counts\"]);",
+    "to": "export const MODES = Object.freeze([\"preview\", \"apply-reference\", \"apply\", \"verify\"]);"
+  },
+  {
+    "label": "THE READ-ONLY MODE JOINS THE REFERENCE WRITERS",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "export const WRITES_REFERENCE = Object.freeze([\"apply\", \"apply-reference\"]);",
+    "to": "export const WRITES_REFERENCE = Object.freeze([\"apply\", \"apply-reference\", \"counts\"]);"
+  },
+  {
+    "label": "THE READ-ONLY MODE JOINS THE _meta WRITERS",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "export const WRITES_META = Object.freeze([\"apply\"]);",
+    "to": "export const WRITES_META = Object.freeze([\"apply\", \"counts\"]);"
+  },
+  {
+    "label": "THE AGGREGATE READS WITHOUT PROVING WHOSE DATABASE IT IS",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "      if (!id.proven) { failed++; continue; }\n\n      const st = await describeContents(sql);",
+    "to": "      if (!id.proven) { failed++; }\n\n      const st = await describeContents(sql);"
+  },
+  {
+    "label": "A REFUSED PLAN IS NOT COUNTED — the tally says nothing failed and the exit rule reads it",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "        failed++; continue;\n      }\n      console.log(`    reading: ${plan.sql}`);",
+    "to": "        continue;\n      }\n      console.log(`    reading: ${plan.sql}`);"
+  },
+  {
+    "label": "A REFUSAL DOES NOT STOP THE READ — the query runs anyway",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "        failed++; continue;\n      }\n      console.log(`    reading: ${plan.sql}`);",
+    "to": "        failed++;\n      }\n      console.log(`    reading: ${plan.sql}`);"
+  },
+  {
+    "label": "THE REFUSAL SAYS NOTHING ABOUT WHY — the reason is off the line",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "        console.log(`    REFUSED (${plan.why})${plan.detail ? \" — \" + plan.detail : \"\"}`);",
+    "to": "        console.log(`    REFUSED`);"
+  },
+  {
+    "label": "A REFUSED AGGREGATE EXITS 0 — the `--verify` defect, one mode over",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    console.log(`\\n${verified} read, ${failed} not read. (read-only: this mode writes nothing.)`);\n    if (failed || !verified) process.exitCode = 1;",
+    "to": "    console.log(`\\n${verified} read, ${failed} not read. (read-only: this mode writes nothing.)`);"
+  },
+  {
+    "label": "A RUN THAT READ NOTHING AT ALL EXITS 0 — a blank where the number goes",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    console.log(`\\n${verified} read, ${failed} not read. (read-only: this mode writes nothing.)`);\n    if (failed || !verified) process.exitCode = 1;",
+    "to": "    console.log(`\\n${verified} read, ${failed} not read. (read-only: this mode writes nothing.)`);\n    if (failed) process.exitCode = 1;"
+  },
+  {
+    "label": "THE AGGREGATE LEAVES THE \"nothing to do\" GATE, so a run that reached no database exits 0",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    if (args.mode !== \"verify\" && args.mode !== \"counts\") return;",
+    "to": "    if (args.mode !== \"verify\") return;"
+  },
+  {
+    "label": "THE FAILURE SENTENCE IS HARDCODED, so a counts run reports itself as a failed verification",
+    "files": [
+      "scripts/backend-repair.mjs"
+    ],
+    "from": "    console.log(`${args.mode.toUpperCase()} FAILED: ` +",
+    "to": "    console.log(`VERIFY FAILED: ` +"
+  },
+  {
+    "label": "THE FORM NO LONGER OFFERS THE MODE — a tool nobody who can press it can reach",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "        options: [preview, apply-reference, apply, verify, counts]",
+    "to": "        options: [preview, apply-reference, apply, verify]"
+  },
+  {
+    "label": "THE TABLE AND COLUMN ARE NEVER FORWARDED — the form takes them and the script never sees them",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "if [ -n \"$TABLE\" ]; then S=\"$S --table $TABLE\"; fi; if [ -n \"$COLUMN\" ]; then S=\"$S --column $COLUMN\"; fi; ",
+    "to": ""
+  },
+  {
+    "label": "THE COLUMN ALONE IS FORWARDED, so a run groups the wrong table with no word said",
+    "files": [
+      ".github/workflows/backend-repair.yml"
+    ],
+    "from": "if [ -n \"$TABLE\" ]; then S=\"$S --table $TABLE\"; fi; ",
+    "to": ""
+  }
+]

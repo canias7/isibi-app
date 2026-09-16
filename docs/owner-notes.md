@@ -195,8 +195,188 @@ you can see a permission working rather than take our word for it.
 PostgreSQL and through the real routes: settings saved and re-read; the account
 next door seeing neither the agent nor its settings; a paused agent refusing while
 its conversation stays whole; a run accepted before a pause finishing anyway; a
-ticked tool really running and an unticked one being unable to. **None of it is
-live** — the migration has not been applied and the Worker has not been deployed.
+ticked tool really running and an unticked one being unable to.
+
+**The database half IS live now** (2026-09-16) — the two new columns, the widened
+list and the corrected bounds — and it had to go first: the website asks for those
+columns by name, so putting the website out first would have made every agent list
+fail outright rather than look a bit old. It went in while there were no agents at
+all, and the website that is live right now asks for less, so neither half was
+broken for a moment. **The website half goes out below.**
+
+---
+
+## 2026-09-16 — Merged and deployed; your two read-only presses are ready
+
+The log is gone, the repair tooling is on main, and deploy **2128** is green.
+**Nothing was spent and no demo-site data was touched.**
+
+### The deploy, both halves
+
+**2128, 06:33:14→06:36:43Z, green in 3m29s**, `c20226e6` → `f88c9198`,
+fast-forward. The merge started exactly one workflow.
+
+- **The container is proved exactly.** I computed the image id from the git
+  objects BEFORE merging — `origin/main` `c2aba7a7bd276c36`, the tip
+  `62c2700fa8c843c2` — and the deploy's own log then read `built
+  isibi-app-sitebuildcontainer:62c2700fa8c843c2` and rolled
+  `c2aba7a7bd276c36` → `62c2700fa8c843c2`, `SUCCESS Modified application`, at
+  06:36:34.8Z. That is read out of the log's own before/after diff, not guessed
+  from how long the step took. **The 15–20 minute hold ran to ~06:52–06:57Z.**
+- **The Worker is proved less, and I would rather say so.** Nothing under
+  `public/` changed in this merge, so Wrangler answered `No updated asset files
+  to upload` and there is no served file to hash-compare. Both routes that carry
+  the deploy sha are owner-gated, so a session cannot read it. What I have is
+  Wrangler's own report (`Uploaded isibi-app`, startup 29 ms) and the gate
+  discriminator: build-health **401**, runtime **401**, job-probe **401**,
+  a nonsense route **404**.
+- **Regression: byte-identical, with the baseline taken 22 seconds after the
+  push and before the deploy could land** — the thing I skipped last time.
+  Six sites the same size before and after, `/status` and `/booking-check` both
+  200, and both counting functions still answering **3**.
+- **`fretwork-1`'s 119 bytes are settled.** Last round I flagged 58,285 → 58,404
+  as unexplained with no baseline to decide it. It is 58,404 on both sides of
+  this deploy on the same days-old version, so it moved before deploy 2124 and
+  outside this window. Not an explanation — just no longer hanging over a
+  deploy.
+
+### Your two presses — both free, both read-only, neither uses a container
+
+The 15–20 minute hold is about the container; these are Node scripts on a
+GitHub runner. You can press them now.
+
+**1. The authoritative schema inventory**
+
+> Actions → **backend repair** → Run workflow
+> **mode** `verify` · **slug** `repairbench-1` · **table** *(blank)* ·
+> **column** *(blank)* · **confirm** *(blank)*
+
+Five postconditions and then the live column list straight out of
+`information_schema`, per table, with each column's type. Exits nonzero if any
+postcondition fails. Writes nothing.
+
+**2. Bookings grouped by the drop-off date, busiest first**
+
+> Actions → **backend repair** → Run workflow
+> **mode** `counts` · **slug** `repairbench-1` · **table** `bookings` ·
+> **column** `drop_off_day` · **confirm** *(blank)*
+
+Prints the SQL it is about to run, then one line per date with its count,
+busiest first, then the group and row totals. It returns a date and a number and
+has nowhere to put anything else: the mode is on neither write list, and the
+grouping column must be a DATE or TIME type asked of the catalog — so
+`customer_name` is refused by the tool, not by my discipline.
+
+**Leave `confirm` blank for both.** Neither is an `apply`, and typing the word
+where it is not needed is how a habit forms.
+
+### What I can and cannot tell you before you press
+
+`bookings` is `collect` — anyone writes, nobody reads — so there is no client
+SELECT of its values, and the per-date split is unknown to the free readers.
+(Written before the presses, and left as it stands: what it says about the free
+readers is true. Where I went wrong was the sentence further down that turned it
+into "unreadable" full stop — the correction and the narrow exception are at the
+end of this file.)
+What I do know free: the total is **3** (both counting functions, at both
+addresses; and the raw `SELECT COUNT(*)` read 3 on 2026-09-15), and the columns
+are `id`, `created_at`, `customer_name`, `bike`, `drop_off_day`.
+
+**Here is the rule I will apply when the numbers land, written down first so it
+is not fitted to the answer.** Three rows can fall four ways:
+
+| the split | grouping tested? | busiest-first tested? |
+|---|---|---|
+| 3 on one date | **yes** — three rows collapse to one group | **no** — one group has no order |
+| 1 + 1 + 1 | **no** — nothing collapses | **no** — equal counts, any order passes |
+| 2 + 1, busier date LATER | **yes** | **YES** — this is the only shape that separates them |
+| 2 + 1, busier date EARLIER | **yes** | **no** — ordering by date gives the same answer |
+
+So the ordering half needs a tie to break in a direction date-order would get
+wrong. If the data does not give us that, the options are: accept that the run
+proves grouping and not ordering and say so; or add a row or two first. I am
+**not** doing the second — that is demo-site data and you said no more repairs —
+but the door exists if you want it, since `bookings` accepts an anonymous
+insert.
+
+### The paid run is prepared and NOT authorized
+
+One addon request on `repairbench-1`, needing the existing date column without
+naming it:
+
+> **Add a page at /workshop-load that shows how many bikes are booked in for
+> each date we're expecting them, busiest first, and a function the page calls
+> to work it out. Don't show customer names.**
+
+Checked mechanically: the text contains **no** occurrence of `drop`, `off`,
+`day`, `dropoff`, `drop-off`, `bookings` or even `booking` — not as words and
+not as substrings. So the addon has to get the column and the table from the
+schema it is handed, which is the milestone.
+
+**When you authorize it**, the `lane sweep` form's pre-flight must be filled in
+so the press cannot test the wrong build:
+`expect_deploy` **`f88c91985dc9fa5e99958958949a07227d7c3de4`** ·
+`expect_image` **`62c2700fa8c843c2`**. It refuses before the browser, the
+balance or the first post, so a refusal there costs nothing.
+
+**Balance 149.** Run 47's comparable shape cost 13. There is no server-side
+per-request cap — the account balance is the only bound that binds, and the
+harness's `budget` field is read between cases, which a single-ask run never
+has two of. Saying that plainly because it means the only real bound is that
+this is one request.
+
+### You pressed both, and the second one failing is the tool working
+
+**`verify` green in 51 s** (run 4), **`counts` red in 17 s** (run 5). I told you
+before the second press that it would refuse; it did, for exactly the stated
+reason, and it bought something the first four runs could not.
+
+**The inventory — the authoritative before-state for the paid test.** Six tables
+from `information_schema`; the four `_`-prefixed ones are platform-internal,
+which is why the checks say "2 declared" and the list says six.
+
+```
+bookings   id integer · customer_name text · bike text · drop_off_day text · updated_at text · created_at text
+repairs    id integer · customer_name text · bike text · issue text · updated_at text · created_at text
+```
+
+**It found `repairs.issue`, which my earlier probe missed** — that probe asks one
+name at a time and can only report names somebody guessed. You were right to
+require the authoritative read; the cheap probe would have under-reported the
+before-state and any "no new columns" claim after the run would have rested on it.
+
+**`drop_off_day` is `text`, so the aggregate refused it** — `not-a-date-column`,
+the allowed set named, exit 1, and no query issued. Three things held in order:
+identity proved before the plan, the refusal stopped the read (zero statements),
+and **the nonzero exit reached the step**. That last one had never happened live:
+run 5 is the first failing run of either repair workflow, 7 green before it. Under
+GitHub's default shell this same run would have shown GREEN — the pipefail fix you
+asked for is what made it red.
+
+**I am not widening the tool to accept text.** The type rule is the only reason
+`customer_name` can't be grouped, and it's text as well. Casting is worse: it
+fails with Postgres's own message, which quotes the value — a bad row would leak a
+customer name out of the one mode built never to return one.
+
+**I wrote "so the per-date split stays unreadable for free" and you corrected it,
+rightly.** The free readers can't get it; that was never the same as a credentialed
+read-only query being impossible, and I collapsed the two. The narrow exception is
+below — one triple, still read-only, still your press.
+
+**One thing the type tells us to watch**: a tie-break on a text date sorts
+alphabetically. That's chronological for `YYYY-MM-DD` and wrong for anything else,
+so if the generated function orders by the date instead of the count, its own
+output shows it.
+
+---
+
+### Still true: I cannot press any of these
+
+Re-tested rather than recalled. A direct REST POST answers **403** — and the
+message has sharpened: *"Dispatching, enabling or disabling workflows and
+deleting workflow runs, logs or artifacts are not permitted for this session
+type."* The same token reads that workflow at 200, so it is the permission and
+not the credential.
 
 ---
 
@@ -10485,3 +10665,520 @@ without opening the real thing.
 after you press send the box still holds what you sent — deliberately, because the words
 are kept until the server confirms them — so typing in that second appends to them. That
 is two correct behaviours meeting, not a bug.
+
+---
+
+### The `search_path` review — the reason we left it open was wrong
+
+You asked me to finish this one first, with real Postgres behind it and the
+missing hardening kept separate from anything actually exploitable. Here's what
+I found and what I've written. **Nothing is merged or deployed** — that's yours.
+
+**The short version.** Every function the model writes runs as the database
+owner, and none of them said which schemas to look in. We'd left that open on
+the grounds that hijacking it needs a permission nobody has. That reasoning is
+in the repo in as many words, and **it's wrong** — there's a third way in that
+needs no permission at all, because Postgres hands *everyone* the right to make
+temporary tables, and it looks in the temporary space **first**.
+
+**Proved it on a real PostgreSQL 16, not on paper.** A visitor who is flatly
+refused any read of the bookings table makes a temporary table with the same
+name, and the owner-level function that counts the real bookings answers **1**
+instead of **3** — it counted theirs. It never had to touch any setting. Same
+result through a plpgsql function, and same through a second function called by
+the first.
+
+**What that would buy an attacker, in plain terms**: not usually *reading* your
+data — it's making an owner-level check look at a table *they* control. Anything
+that validates before it acts (a price lookup, a "does this parent record
+exist?" check) can be made to say yes.
+
+**The fix is one clause**, and the sharp part is that a plausible version of it
+does nothing: naming the normal schema isn't the fix, naming the temporary one
+**last** is. I measured both — the plausible version is hijacked exactly like no
+fix at all.
+
+**What I'm confident about, and what I'm not** — worth keeping apart:
+
+- **Confident**: the mechanism, both directions, and that the fix changes *only*
+  which names resolve. Every permission on every function, table, column and
+  policy is byte-for-byte identical before and after.
+- **Confident**: the upgrade. Our sites already exist with the old functions, so
+  I stood one up that way, confirmed it *is* hijackable, then ran what a normal
+  edit would send. It gets fixed, every permission survives, the rows are
+  untouched.
+- **Not proved**: that anyone can reach it on a live site today. The only public
+  door is Neon's data API, which has no way to send that kind of command. **But
+  that's a lock on somebody else's door, not ours** — and there's one path
+  *inside* our own product I did find: a plpgsql function is allowed to create a
+  temporary table, and if the model ever writes one, a visitor has the door. The
+  fix closes that too, which is a better answer than adding another ban-list.
+
+**Two things I checked that came back clean**: our own Supabase functions (69 of
+them, all already pinned), and the reach — nothing anywhere re-applies a schema
+in the background, so **no customer database is touched by any of this**. Each
+site gets fixed on its own next edit.
+
+**One number worth knowing**: 14 of the 15 functions the engine creates pinned
+nothing. The one exception had it from the day it was written.
+
+**The honest wrinkle.** When I added the fix, the entire test suite stayed
+green — nothing we had could see the change. That's its own problem, so the new
+guard is a *census* over the real commands the engine sends: a function added
+next month fails the test by existing.
+
+**Next decision is yours**: read the findings and say whether to merge. If you
+do, the container rolls, so the usual 15–20 minute hold applies.
+
+### You were right about the upgrade claim — corrected, and it shrinks the fix
+
+I said a site's next edit would fix its existing functions. It doesn't. I
+reproduced it exactly as you described before changing anything.
+
+**What I'd actually done**: my test stood up an old site and then replayed the
+*original* setup commands over it — which of course include every function's
+full text. A real next edit isn't built from that. It's built from what we
+saved, and **what we save about a function doesn't include the function's
+body**. Without a body the engine correctly ignores it, so nothing re-issues it
+and nothing re-pins it.
+
+**The corrected scope, measured twice** (once with no database at all, once on a
+real PostgreSQL):
+
+| | on a site's next edit |
+|---|---|
+| the two identity helpers | **fixed** — rebuilt on every change |
+| every trigger function | **fixed** — rebuilt with its table |
+| **every function the model wrote** | **untouched, and still hijackable** |
+
+That last row is the one that matters most, because those are precisely the
+ones that run as the owner and are callable by any visitor. After the next edit
+I re-ran the attack in the same database and it still worked.
+
+**So the honest headline is smaller than I gave you**: this fixes every function
+we create *from now on*, plus anything an edit re-declares. It does not repair
+what's already out there. **The one thing that does reach an old function is an
+edit that re-declares that same function** — I measured that too, and the pin
+takes, the permissions survive, the hijack closes.
+
+**Upgrading the rest is now its own backlog item and I have not started it** —
+three possible shapes written down, no code, no backfill, nothing run. Your
+call.
+
+**On the other thing you flagged**: you're right that pinning to `public,
+pg_temp` still trusts `public`. That requirement stays, and there's now a test
+that pins the trusted list to exactly those two so widening it has to be
+deliberate. Whether a writable `public` could actually be exploited *under* the
+pin — I tried to demonstrate it and couldn't, so it's written down as
+unmeasured rather than claimed either way.
+
+**And I separated the evidence**, since you asked: everything above is local
+tests on this machine. The live permission checks live in the Neon end-to-end
+probe, **and I can't find a record of that probe ever having been run** — so I'm
+not quoting it as live evidence. Current live permission evidence: none, this
+session has no database credential.
+
+**One more thing I broke and fixed**: my own test's "before" side was pointed at
+the latest commit, so the moment I committed the fix, the control *became* the
+fix and the whole probe reported the pin as broken. It points at `main` now and
+refuses to run if that already has the pin.
+
+---
+
+## …and you were right that `main` is the same bug a week later (16 Sep)
+
+You said: *"use an immutable known pre-fix commit instead of `origin/main`…
+otherwise the documented test command stops working immediately after merge."*
+That's exactly right and I'd only moved the problem one step along. `main`
+carries the pin the moment this merges, and then the "before" side of my own
+test is the fix again — same failure, just deferred to merge day, which is the
+day somebody would actually rerun it.
+
+It's pinned to a fixed commit now (`0fff5317`, the one immediately before the
+fix). I checked that commit really is unpinned before trusting it, rather than
+assuming: nothing in it pins a model function or a trigger function.
+
+**The refusal stays.** A fixed commit makes the *default* reproducible; it says
+nothing about someone passing a different one on the command line, or about a
+later edit moving the default to some other commit. So the test still checks the
+"before" side is genuinely unpinned and stops if it isn't — those are two
+different guards and both are needed.
+
+**And there's a test that stops it drifting back.** It fails if the default is a
+branch name or `HEAD` rather than a fixed commit, and separately checks — by
+asking git — that the commit really is pre-fix. I proved both go red the right
+way round: pointing it back at `main` fails the first; pointing it at a commit
+that *is* immutable but already has the fix passes the first and fails the
+second.
+
+**Nothing else changed.** Live permissions are still unverified (no database
+credential this session), upgrading the functions already out there is still its
+own untouched backlog item, and no demo-site backfill has been run.
+
+**CI is finished on the candidate**: unit tests green, and the container harness
+green at 382/382. Nothing merged, nothing deployed, no paid test.
+
+---
+
+## The next live addon test — REVISED, for your approval, NOT dispatched (16 Sep)
+
+You were right on all four counts. The previous draft is replaced, not patched.
+
+### 1. The expected grouping — and the fixture cannot discriminate it today
+
+**I cannot establish the date→count breakdown independently, and that is a fact
+about the site rather than an oversight.** `bookings` is collect-only: nobody may
+read it. The only readers of its rows are two counting functions that return a
+bare total. So with the fixture as it stands I can check that the counts sum to
+3 and that the list is in descending order — **but not that it grouped by the
+right column at all.** A function grouping by bike, or by customer, would also
+sum to 3.
+
+**The smallest fixture adjustment that fixes this — and it is free.** Insert
+**three rows with dates I choose**, through the public write grant the table
+already publishes (no credits, no model call, no deploy; run 48's control
+already did a 201 insert into this table):
+
+| rows | drop-off date | bike | customer |
+|---|---|---|---|
+| 2 | one date I pick | the same value on all three | the same value on all three |
+| 1 | a second date I pick | " | " |
+
+That single change discriminates everything at once:
+
+- **grouped by drop-off date** → my two dates appear with counts 2 and 1 ✓
+- **grouped by bike or by customer** → one group of 3, immediately wrong ✗
+- **descending order** → my 2 must come before my 1 ✓
+- **the rest** → the remaining groups must sum to 3, the three rows I can't read
+
+A collision (an existing row landing on one of my dates) shows up as a count
+higher than what I inserted, so it is **detectable rather than assumed away** —
+and I'd report it rather than let it pass.
+
+**What it costs**: the total goes 3 → 6, so `/status` will read 6 instead of 3.
+That is a visible change to the demo site's data, confined to `repairbench-1`,
+and it is its own decision — that's why it's here and not folded into the run.
+
+**If you'd rather not touch the data**: I keep the request as written and narrow
+the claim to sum-3 plus descending order, and say plainly that "it grouped by
+the drop-off day" then rests on reading the SQL the designer wrote rather than
+on the data. That is weaker and I'd rather not, but it costs nothing.
+
+### 2. Authoritative inventories — tables were already; columns now are
+
+**Tables**: `backend repair --verify --slug repairbench-1` reads
+`information_schema` and prints the real table list. Free, writes nothing, and
+it is a genuine enumeration. Before and after.
+
+**Columns**: the same command *read* every column and then threw them away one
+line later, so a "no new columns" claim had nothing authoritative behind it.
+**Fixed in this commit** — the verify now prints a live column inventory per
+table, from the catalog. It is a REPORT and never a check: there is no
+expectation to compare it against, so it must not decide the exit code, and it
+prints on a failing run too, which is exactly when you'd want it.
+
+**And the count claim is narrowed, because you're right about it.** The existing
+counting function answers **cardinality**, not identity: three rows deleted and
+three inserted reads the same. So "unchanged count" is all I'll claim from it —
+not "unchanged rows".
+
+### 3. The spending language was wrong, and here is the measured answer
+
+I said the harness `budget` couldn't cap the request. That was right but for a
+half-stated reason, and the rest of the sentence implied historical costs were a
+bound. They are not. **No server-side mechanism enforces a per-request limit.**
+Measured, from the ledger rather than from the code:
+
+| run | reserves inside ONE request | total |
+|---|---|---|
+| 46 | −3 then −5 | 8 |
+| 47 | −7 then −6 | 13 |
+| 48 | −5 then −7 | **12** |
+
+**A single addon request takes several separate reservations at different points
+in its own run.** Each is checked against the balance at that moment; nothing
+anywhere adds them up or stops the request when the total passes a number. The
+only ceiling in the database is a `bad cost` refusal above 100,000 credits,
+which is far past any balance and so never binds. `SWEEP_BUDGET` is read between
+harness cases, and an `ask` run has exactly one case, so it is never consulted.
+
+**So this is an explicit approval decision, not a cap.** Approving the run
+approves a request whose only hard bound is the account balance: **149 credits**
+(read off the ledger just now; it was 161 before run 48 took 12). If you want a
+real cap, the honest answer is that one does not exist and building one is its
+own piece of work — I am not starting that here.
+
+### 4. The candidate is finished, and here are the numbers
+
+`site build` — the 25-minute harness that compiles and renders a real site in a
+real container — **finished green**: run 1154, twenty steps, **382 passed, 0
+failed**. That is the thirteenth independent run to answer 382.
+
+I then merged main again (it had moved twice more) and re-verified everything.
+
+| | reading |
+|---|---|
+| candidate suite | **6,649 green**, 0 fail, 0 skipped |
+| the site-build harness | **run 1154, all twenty steps, 382/0** |
+| does that green still count after the merge? | **yes, and by arithmetic rather than by hope** — the tree the harness ran on and the merged tree hash to the *same container image id*, so nothing the container is built from moved |
+| `expect_image` | **`62c2700fa8c843c2`** — main's own tip is `c2aba7a7bd276c36`, so this really does roll the container |
+| `expect_deploy` | **cannot exist until the merge lands.** I compute it from the merge commit and hand it to you then |
+| balance | **149** (unchanged; the ledger row last moved 2026-09-15 19:31Z) |
+
+**The merge caught a real thing, twice over.** One guard went red mid-merge —
+the one that checks the container image carries every module it imports, reading
+git at `HEAD` while the merge was staged and not yet committed. Committing it
+fixed it. That is the guard being exactly right about "staged is not shipped".
+
+---
+
+### 5. YOUR IDEA WORKED — the expected result can come from the live data
+
+You asked whether the verification workflow could run a narrow, read-only count
+instead of us adding rows. **It can, and I have built it.** It is one more
+choice on the same dropdown you already used three times: mode **`counts`**.
+
+What it does: groups one table by one date column and prints **the date and the
+count, busiest first**. Nothing else. It writes nothing.
+
+**And it cannot return a name — that is built in, not promised.** Two walls:
+
+- The mode is on **neither** of the two lists that permit a write. Both gates ask
+  those lists and nothing else, so a mode they have never heard of writes
+  nothing without one new line being added anywhere.
+- The column you group by **must be a date**, and it asks the database what type
+  it really is. `customer_name` is refused **by the tool**, with a sentence
+  saying why. That is a rule about what is *allowed*, not a list of words to
+  avoid — which is the version that stays correct when a column is renamed.
+
+It is free, it reads only, and it exits red rather than printing a blank if it
+refuses or cannot reach the database.
+
+**To run it**: *backend repair* → mode **`counts`** → slug `repairbench-1` →
+table `bookings` → column `drop_off_day`. Leave `confirm` empty; this one does
+not take the word, because it does not write.
+
+**What I already know, free, re-read today:**
+
+| | |
+|---|---|
+| total bookings | **3** — two different functions, at two different addresses, all four answering 3 |
+| the columns `bookings` really has | `id`, `created_at`, `customer_name`, `bike`, `drop_off_day` |
+| the split per date | **unknown from here** — the table is write-only to the outside world, so there is no way to read the values without a database password, and I am not putting one of those in a transcript |
+
+**So the expected result is one free press away, and it is yours.** Once you run
+it I will have the exact dates and counts, and the test becomes: does the page
+show *these* dates in *this* order?
+
+---
+
+### The request, unchanged
+
+> **Add a page at /workshop-load that shows how many bikes are booked in for
+> each date we're expecting them, busiest first, and a function the page calls
+> to work it out. Don't show customer names.**
+
+`drop_off_day` is required and none of "drop", "off" or "day" appears. The other
+table, `repairs`, has **no drop-off day at all**, so a design reaching for the
+wrong table cannot answer this.
+
+### What I check, and with what
+
+1. **Schema receipt** — the developer record now carries what each designer was
+   *shown* about the database, and the harness prints it. The `function` step's
+   entry must say `database: YES` and list `bookings` with `drop_off_day`.
+2. **The function's own SQL**, read from the designer's stored reply — a second,
+   independent leg beside 1.
+3. **The page and the RPC** — `/workshop-load` 404 → 200, the function answers
+   over the site's public address.
+4. **The numbers** — each date and each count, in order, against whatever the
+   `counts` run tells us.
+5. **A real browser** — Chromium opens the page, records the call it makes,
+   reads the rendered figures, and I check loading and error states by
+   intercepting that call, with an untouched control. Free.
+6. **Tables and columns** — `--verify` before and after, both authoritative now.
+7. **Cardinality** — the existing counting function, claimed as cardinality only.
+8. **The exact completion sentence**, verbatim, with the coverage counts.
+
+The initial outcome gets written down before anything is corrected by hand.
+
+### ⚠ 6. YOU FOUND A REAL HOLE, AND IT WAS EXACTLY AS YOU DESCRIBED
+
+You spotted that a value typed into the form could change what the run does. It
+could. I reproduced it before touching anything:
+
+> **mode `counts`, column `drop_off_day --apply`, confirm empty** → the script
+> was handed `--apply` and would have run a **full apply**, writing to the
+> database. The confirmation box never asked for the word, because it looks at
+> the *mode* dropdown — which still said `counts`.
+
+**The cause is two small things that only matter together.** The step glued the
+arguments into one line of text and let the shell pull it apart again, so a
+space in your typed value became a new argument. And the script took the LAST
+mode it saw. So the approval gate and the thing that actually ran were answering
+two different questions.
+
+**Both are fixed, and each would have been enough on its own — which is why I
+kept both.**
+
+1. **The step builds a proper list now**, so whatever you type stays one value.
+   `drop_off_day --apply` arrives as a column name, and gets refused for being a
+   column the table has not got, which is the true reason.
+2. **The script refuses anything it cannot read cleanly** — two different modes,
+   the same flag twice, a value that looks like a flag, a missing value, or a
+   word it does not recognise. It stops with a sentence saying which, reads
+   nothing, writes nothing, and exits red. It will not guess, because the guess
+   that shipped chose the widest thing it could do.
+
+**The test is the one you asked for**: the step's real command runs, and whatever
+it hands over goes through the real parser. Five modes × three fields × eight
+nasty values — 120 combinations — and every one must either pick exactly the mode
+you chose on the form, or refuse outright. Ordinary `counts` and a properly
+confirmed `apply` both still work, and that is checked too, so "it refuses
+everything" cannot pass.
+
+**The mutation sweep found four gaps in my own first test** and one of them was a
+real second bug: a refused parse still remembered the mode it had got to, so
+`--apply --counts` answered *apply* while saying it had refused. Fixed.
+
+---
+
+### Where the addon test stands, and what it waits on
+
+**Everything you asked for in step 3 is written and ready.** The request, with
+the column's real name (`drop_off_day`) nowhere in it — checked word by word,
+none of "drop", "off" or "day" appears:
+
+> **Add a page at /workshop-load that shows how many bikes are booked in for
+> each date we're expecting them, busiest first, and a function the page calls
+> to work it out. Don't show customer names.**
+
+The other table, `repairs`, has **no drop-off date column at all**, so a design
+that reaches for the wrong table cannot answer this — that is what makes it a
+test of whether the designer really saw the existing schema.
+
+**Steps 1, 2 and 4 all wait on the merge, and I checked rather than assumed
+why.** `main` today has no `counts` mode and no column inventory — its form
+still offers only `preview / apply-reference / apply / verify`. A dispatch-only
+button does not exist until its file is on `main`, and the tool it runs is
+always `main`'s copy. So:
+
+| what | needs |
+|---|---|
+| the dates and counts | the `counts` press — **which needs the merge first** |
+| the authoritative column inventory | `--verify`, whose inventory is also only on the branch |
+| whether those rows can test grouping | the counts result |
+| the addon run itself | your approval, separately |
+
+**So the order is: merge → deploy → your free `counts` press → I report the
+expected dates and counts → then, separately, you decide on the paid run.**
+Nothing here presumes the merge; say the word and I will do it and hand you both
+version gates.
+
+### The three decisions left
+
+1. **Run the free `counts` press** so the expected dates and counts are the live
+   data's. If the three bookings turn out to share one date, grouping is not
+   discriminated by them and the three-row fixture is back on the table — but we
+   will know that instead of guessing it.
+2. **Spend**: approve a run bounded only by the 149-credit balance. **One request
+   has no enforced 40-credit cap** — I checked, and there is no server-side
+   per-request limit anywhere; the balance is the only thing that binds.
+   Precedent for this shape is 12–13 credits, and precedent is not a cap.
+3. **Merge and deploy** the candidate so I can compute `expect_deploy` and hand
+   you both gates.
+
+**Nothing dispatched. No demo cleanup. No fixture row inserted. No previous
+authorization treated as approval for this run.**
+
+---
+
+## The per-date split is readable — one triple, still read-only (2026-09-16)
+
+You were right and I was wrong. I wrote "the per-date split cannot be read for
+free"; what was true is that the *free readers* cannot get it, and I turned that
+into a claim about queries in general. Those are two different things and only the
+first was measured.
+
+**What I built, exactly as scoped.** One frozen entry — `repairbench-1` ·
+`bookings` · `drop_off_day` — and all three have to match. It is asked **only
+after** the general type rule has already refused, so the text refusal is
+untouched: `customer_name` is still refused, `bike` is still refused, and so is
+`drop_off_day` on any other site or any other table. Widening the tool to accept
+text is the fix I did **not** make, for the reason I gave you before.
+
+**No writes, no schema change, no other site, no SQL you type.** The mode is on
+neither write list, both gates are `includes` over a frozen list, and the table
+and column names are checked against the live catalog *and* against a safe-
+identifier pattern before anything is built. The slug it keys on is the site the
+run is really reading, not the value in the form.
+
+**Only date-shaped values come back, and that is the statement's doing, not the
+reader's.** The query returns the value *only* where it matches `NNNN-NN-NN` and
+NULL otherwise, so anything else — a name typed into the date box, an empty cell
+— never leaves the database at all. What comes back about those rows is a count.
+
+**Nothing is silently dropped, and the run prints the arithmetic so you can see
+it close**: `4 group(s), 7 grouped + 3 unusable = 10 row(s) in total`. A bare
+total can't be checked; that can. Rows that are date-*shaped* but not real dates
+(`2026-13-45`, `2026-02-29` in a non-leap year) are caught too, counted with the
+rest, and never printed.
+
+**If the read itself fails you get the SQLSTATE and not the message.** A Postgres
+error quotes the row that caused it — I measured it on a real PostgreSQL:
+`invalid input syntax for type date: "Alice Bloom, 07700 900123"`. That is exactly
+the leak, and it is why there is no cast anywhere in this and why the error text
+is withheld.
+
+**Proven on a real PostgreSQL 16 before I asked you to press anything** — 48
+checks, 0 failed, over a text date column holding real dates, a blank, an empty
+string, a customer's name and phone number, and two impossible dates. The leak
+check is made against the raw output of `psql`, because "my reader dropped it" is
+a weaker claim than "it never arrived".
+
+### The press
+
+`backend repair` → **mode `counts`** · **slug `repairbench-1`** · **table
+`bookings`** · **column `drop_off_day`** · **confirm blank**.
+
+Free. Read-only. It writes nothing.
+
+**Order, because the workflow always runs `main`'s copy of the script:** I push
+this to `main` first (it touches only `scripts/`, `test/` and the two documents,
+all of which the deploy ignores — **so no deploy fires and none is needed**), and
+then the button runs the new code.
+
+**After you press I will tell you precisely what those three rows can and cannot
+test** — and per your correction, equal-count dates need no particular tie order,
+because the request only asks for busiest first. Then, separately, the paid-run
+inputs and the spend estimate. Your approval for that run is still its own
+decision and I am not treating anything here as it.
+
+### It is on `main` and the button runs the new code
+
+**Deploy 2129, green in 42 seconds.** I computed the container image id before
+pushing and it did not move — both sides `62c2700fa8c843c2` — so the deploy said
+**"no changes"** on the container and nothing rolled. No 15–20 minute wait; the
+button is live now.
+
+One thing I got wrong in my own head first and checked before claiming it: I
+expected this push to fire **no** deploy at all, because everything in it is under
+`scripts/`, `test/` or a `.md`. It fired one, because the workflow file itself is
+**not** in the deploy's ignore list. Harmless here — nothing a visitor sees
+changed — but worth saying rather than being surprised by.
+
+**Regression, byte-for-byte against the last deploy's numbers**: all six sites
+identical, `/status` and `/booking-check` both still answering **3**.
+
+### What happens after you press
+
+I read the dates and counts, then tell you **precisely** what those rows can and
+cannot test — including the case where they cannot discriminate ordering at all,
+which is a real possible answer and not a failure. Per your correction, dates
+sharing a count need no particular tie order; the ask is only "busiest first".
+
+Then, separately, the paid-run inputs and the spend estimate. **I will not
+describe that run as proving anything in advance.** Schema receipt will come from
+the actual `shownSteps` capture taken before the call, correctness from the
+independent aggregate against the RPC and the browser, and reporting accuracy from
+the reply you actually get. Your approval for it is still its own decision.

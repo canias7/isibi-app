@@ -127,15 +127,298 @@ export const writesReference = (mode) => WRITES_REFERENCE.includes(mode);
 /** May this mode create or update `_meta`? `apply-reference` MUST NOT. */
 export const writesMeta = (mode) => WRITES_META.includes(mode);
 
+/**
+ * A READ-ONLY AGGREGATE, SO AN EXPECTED RESULT CAN BE ESTABLISHED WITHOUT
+ * TOUCHING THE DATA (2026-09-16, owner: *"check whether the existing
+ * credentialed verification workflow can run a narrowly scoped, read-only
+ * aggregate… Return dates and counts only, no customer details."*).
+ *
+ * WHY IT LIVES HERE RATHER THAN IN A NEW SCRIPT: this tool already holds the
+ * credential, the scope wall (`REPAIR_SITES`) and the identity chain, and all
+ * three are proven. A second script would be a second copy of each.
+ *
+ * **IT WRITES NOTHING BY CONSTRUCTION, not by care.** `counts` is on NEITHER
+ * `WRITES_REFERENCE` nor `WRITES_META`, and both gates are `includes` over a
+ * frozen list, so a mode they have never heard of writes nothing without any
+ * new check being added. The census asserts that, because it is the property
+ * that makes this mode safe to add at all.
+ *
+ * **AND IT CANNOT RETURN A NAME, WHICH IS A PROPERTY RATHER THAN A PROMISE.**
+ * The one column it may group by has to be a DATE OR TIME type, asked of the
+ * catalog — a positive, type-derived rule, never a deny-list of column names
+ * (this repository's recorded "a negative list is the wrong wall"). So
+ * `customer_name` is refused by the tool and not by the caller's discipline,
+ * and the answer is a date and a count with nowhere for anything else to sit.
+ */
+export const COUNTS_TYPES = Object.freeze(["date", "timestamp", "time"]);
+/** A bare, unquoted-safe SQL identifier. */
+const PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * THE ONE NARROW EXCEPTION, AND IT IS A TRIPLE RATHER THAN A RULE (2026-09-16).
+ *
+ * Owner: *"Finish the baseline with a narrowly scoped exception for exactly
+ * repairbench-1 → bookings → drop_off_day. Keep the general refusal of text
+ * columns."* `bookings.drop_off_day` is `text` in the live catalog, so the
+ * type-derived rule above refuses it — correctly, and that refusal is what
+ * keeps `customer_name` (also `text`) out of reach.
+ *
+ * **WIDENING `COUNTS_TYPES` WOULD HAVE BEEN THE WRONG FIX AND IS NOT MADE.**
+ * Admitting text as a class trades the single property that makes this mode
+ * safe for one number. So does a cast: `"c"::date` fails at runtime with
+ * Postgres's own message, which QUOTES THE OFFENDING VALUE — a leak of a row
+ * out of a mode built to return dates and counts only.
+ *
+ * **AN EXACT TRIPLE CANNOT GENERALISE.** Site AND table AND column must all
+ * match, it is consulted ONLY after the general type check has refused, and it
+ * is keyed on the site really being read (`site.slug`, resolved through
+ * `REPAIR_SITES` and the identity chain) rather than on the form's input. A
+ * second site, a second table or a second column is a source edit and a red
+ * census, never a form value.
+ */
+export const COUNTS_TEXT_DATE = Object.freeze([
+  Object.freeze({ slug: "repairbench-1", table: "bookings", column: "drop_off_day" }),
+]);
+/** The character types the exception may read. Exact, not a prefix:
+ *  `information_schema.columns.data_type` spells these whole and keeps a
+ *  varchar's length in a different column. `~` is defined on all of them, so a
+ *  type outside this list falls back to the ordinary refusal rather than
+ *  reaching Postgres as an operator error. */
+const COUNTS_TEXT_TYPES = Object.freeze(["text", "character varying", "character"]);
+/** Does the exception cover exactly this site, table and column? */
+export const countsTextDateAllowed = (slug, table, column) =>
+  COUNTS_TEXT_DATE.some((e) => e.slug === slug && e.table === table && e.column === column);
+
+/**
+ * THE SHAPE A VALUE MUST HAVE TO LEAVE THE DATABASE AT ALL. Anchored at both
+ * ends and digits-and-dashes only, so the projection below can return either a
+ * ten-character `NNNN-NN-NN` string or NULL and has nowhere to put anything
+ * else. `[0-9]` rather than `\d` deliberately: no backslash, so the literal
+ * means the same thing whatever `standard_conforming_strings` is set to.
+ */
+const DATE_SHAPE = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
+const DAYS_IN_MONTH = Object.freeze([31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]);
+
+/**
+ * IS THIS DATE-SHAPED STRING A REAL DATE? `DATE_SHAPE` admits `2026-13-45`, so
+ * something has to ask, and on the text path that something is us — a typed
+ * column cannot produce an impossible date, which is why this runs on the
+ * exception's path alone.
+ *
+ * PURE ARITHMETIC, NO `Date`: `Date.UTC(1, 0, 1)` silently means 1901, so a
+ * round-trip through `Date` reports a perfectly well-formed early year as
+ * invalid. It also cannot throw, which is the property that matters in the one
+ * function standing between a row and a printed line.
+ */
+export function calendarDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(typeof s === "string" ? s : "");
+  if (!m) return false;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  // `mo > 12` IS A DECLARED REDUNDANCY, MEASURED INERT — `DAYS_IN_MONTH[12]` is
+  // `undefined` and `d <= undefined` is false, so every month past 12 already
+  // answers false (60,000 probes over every two-digit month, day and six years:
+  // 0 differences). It is KEPT because answering by an out-of-range array index
+  // is an accident of JavaScript rather than a rule, and the rule is the thing
+  // a reader needs. The sweep mutates the PAIR.
+  if (mo < 1 || mo > 12) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const max = mo === 2 && leap ? 29 : DAYS_IN_MONTH[mo - 1];
+  return d >= 1 && d <= max;
+}
+
+/**
+ * May this aggregate run, and over what? PURE, so every refusal is drivable
+ * with no database at all — which is the half that decides whether a
+ * credentialed run is worth pressing.
+ *
+ * `inventory` is `columnInventory`'s answer: `{table: ["name type", …]}`. The
+ * TWO checks are not redundant — catalog membership answers "is there such a
+ * column", and `PLAIN_NAME` answers "is its name safe to interpolate" — and a
+ * real Postgres identifier may legally contain characters that make the second
+ * question a different one from the first.
+ *
+ * `slug` is the site being read. OMITTED MEANS NO EXCEPTION, which is the
+ * fail-closed direction: a caller that cannot say which site it is asking about
+ * gets the general rule.
+ */
+export function countsPlan(inventory, table, column, slug) {
+  const inv = inventory && typeof inventory === "object" ? inventory : {};
+  const t = typeof table === "string" ? table : "";
+  const c = typeof column === "string" ? column : "";
+  const s = typeof slug === "string" ? slug : "";
+  if (!t || !c) return { ok: false, why: "need-table-and-column" };
+  if (!Object.prototype.hasOwnProperty.call(inv, t)) {
+    return { ok: false, why: "no-such-table", detail: t, tables: Object.keys(inv).sort() };
+  }
+  const hit = (inv[t] || []).find((e) => String(e).split(" ")[0] === c);
+  if (!hit) return { ok: false, why: "no-such-column", detail: `${t}.${c}`, columns: (inv[t] || []).map((e) => String(e).split(" ")[0]) };
+  const ty = String(hit).slice(c.length + 1).trim().toLowerCase();
+  // THE GENERAL RULE IS ASKED FIRST AND IS UNTOUCHED. The exception is only
+  // ever reached by a column this has already refused, so removing the triple
+  // restores the old behaviour exactly and no widening can hide inside it.
+  //
+  // `!typed` IS A DECLARED REDUNDANCY, MEASURED INERT — the two lists are
+  // disjoint over every `data_type` spelling `information_schema` produces (27
+  // probed, 0 differences), so `COUNTS_TEXT_TYPES.includes(ty)` already
+  // excludes every typed column. It is KEPT because it states the ORDER, which
+  // is the whole design and is otherwise written down nowhere in code; the
+  // sweep mutates the PAIR, because a sweep cannot say this and the next
+  // session deletes what nothing appears to need.
+  const typed = COUNTS_TYPES.some((p) => ty.startsWith(p));
+  const textDate = !typed && COUNTS_TEXT_TYPES.includes(ty) && countsTextDateAllowed(s, t, c);
+  if (!typed && !textDate) {
+    return { ok: false, why: "not-a-date-column", detail: `${t}.${c} is ${ty || "(untyped)"}`, allowed: [...COUNTS_TYPES] };
+  }
+  if (!PLAIN_NAME.test(t) || !PLAIN_NAME.test(c)) return { ok: false, why: "name-not-plain", detail: `${t}.${c}` };
+  // THE ORDINALS, so the emitted text names each identifier exactly once and
+  // the tie-break is deterministic — what makes "busiest first" a reproducible
+  // reading rather than a lucky one.
+  if (textDate) {
+    // THE PROJECTION IS THE WALL. `v` is the value only where it matches
+    // `DATE_SHAPE` and NULL otherwise, so an unusable value never leaves
+    // Postgres; `bad` separates "not date-shaped" from a genuine NULL, so
+    // neither is silently folded into the other; `COUNT(*)` is all that comes
+    // back about the unusable rows. Nothing here casts, so no database error
+    // can quote a row.
+    return { ok: true, table: t, column: c, type: ty, slug: s, textDate: true,
+      sql: `SELECT CASE WHEN "${c}" ~ '${DATE_SHAPE}' THEN "${c}" ELSE NULL END AS v, ` +
+        `("${c}" IS NOT NULL AND "${c}" !~ '${DATE_SHAPE}') AS bad, ` +
+        `COUNT(*)::bigint AS n FROM "${t}" GROUP BY 1, 2 ORDER BY 3 DESC, 1` };
+  }
+  return { ok: true, table: t, column: c, type: ty, slug: s,
+    sql: `SELECT "${c}" AS v, COUNT(*)::bigint AS n FROM "${t}" GROUP BY 1 ORDER BY 2 DESC, 1` };
+}
+
+/**
+ * Run the planned aggregate. No parameters, because the plan has already
+ * established both identifiers against the catalog and nothing else varies.
+ *
+ * **NOTHING IS SILENTLY DISCARDED**: every row is counted into exactly one of
+ * `rows` and `invalid`, and `total` is every row the table holds — so
+ * `sum(rows) + invalid === total` is an arithmetic that closes and is asserted.
+ */
+export async function countsOf(sql, plan) {
+  if (!plan || plan.ok !== true) return { ok: false, why: (plan && plan.why) || "no-plan" };
+  const raw = (await sql(plan.sql, [])) || [];
+  const rows = [];
+  let invalid = 0, total = 0;
+  for (const r of raw) {
+    const count = Number(r && r.n) || 0;
+    total += count;
+    // THE DATABASE'S OWN VERDICT FIRST — `bad` is the statement's answer and
+    // the value that earned it is already NULL by the time it reaches here.
+    if (r && r.bad === true) { invalid += count; continue; }
+    const value = r && r.v === null ? null : String(r && r.v);
+    // AND OURS SECOND, ONLY WHERE WE ARE THE VALIDATOR. A typed column is
+    // guaranteed by Postgres and renders shapes this check does not know (a
+    // timestamp carries a time), so running it there would report every row of
+    // a working column as invalid.
+    if (plan.textDate && value !== null && !calendarDate(value)) { invalid += count; continue; }
+    rows.push({ value, count });
+  }
+  return { ok: true, rows, invalid, total, groups: rows.length };
+}
+
+/**
+ * A FAILED AGGREGATE READ IS REPORTED BY CODE, NEVER BY MESSAGE (owner,
+ * 2026-09-16: *"report the number of invalid rows without printing those values
+ * or raw database errors"*). A Postgres error message can quote the row that
+ * caused it, so the one place a message could carry a customer's data out of
+ * this mode is exactly here. A SQLSTATE is five alphanumerics and can carry
+ * nothing; anything else answers `""` rather than falling back to the text.
+ */
+export const errCode = (e) => {
+  const c = e && typeof e.code === "string" ? e.code : "";
+  return /^[0-9A-Za-z]{5}$/.test(c) ? c : "";
+};
+
+/**
+ * EVERY MODE THIS SCRIPT HAS, IN ONE PLACE — and `parseArgs` DERIVES its flags
+ * from it rather than listing them a second time.
+ *
+ * The census in `test/backend-repair.test.mjs` compares this list with the
+ * workflow form's own `options:` BOTH WAYS, so a mode that exists and is not
+ * offered (unreachable by the only person who can press it) and a mode offered
+ * and not implemented (a button that answers `preview`) are each a red run.
+ * That guard used to pin the option list as a LITERAL and went red on the first
+ * honest addition — this repository's own "assert the property, not the
+ * spelling", met in the guard written for the write boundary.
+ */
+export const MODES = Object.freeze(["preview", "apply-reference", "apply", "verify", "counts"]);
+
+/** The three arguments that take a value. Named once, so the loop below and
+ *  the repeat check cannot disagree about which they are. */
+const VALUE_ARGS = Object.freeze(["slug", "table", "column"]);
+
+/**
+ * READ THE ARGUMENTS, OR REFUSE — and the refusal is the point of this
+ * function, not a nicety on top of it.
+ *
+ * **WHAT THIS IS FOR (2026-09-16, owner).** The workflow expanded its argument
+ * string UNQUOTED, so a value could word-split into more arguments: with
+ * `mode: counts` and `column: "drop_off_day --apply"` the shell handed this
+ * `--counts … --column drop_off_day --apply`, the old loop let the LAST mode
+ * flag win, and the run became a full **apply** — while the workflow's confirm
+ * gate, which reads `inputs.mode`, had seen `counts` and demanded no word.
+ * **A value became a mode, and the approval gate was asked about a different
+ * run from the one that executed.** Reproduced end to end before the fix.
+ *
+ * The workflow builds a bash ARRAY now, so a value stays one argument whatever
+ * it contains. **That fix and this one are independent walls and both are
+ * kept**: the array stops the split, and this stops anything that did split
+ * from meaning something. Either alone would leave the other's failure open —
+ * an edit that reverts the quoting, or a caller that builds argv by hand.
+ *
+ * **THE PROPERTY: a VALUE can never become a MODE, and never add an option.**
+ * Four refusals, each fail-closed:
+ *   - two DIFFERENT mode flags — there is no rule for which wins that is not a
+ *     guess about the caller, and the guess that shipped chose the widest;
+ *   - the SAME flag twice, mode or value — a repeat means somebody's argv was
+ *     assembled twice, and picking one is the same guess;
+ *   - a value that is missing, or that looks like a flag (`-…`) — the exact
+ *     shape a word-split leaves behind;
+ *   - an argument this does not recognise — the other shape it leaves behind.
+ * An unknown `--flag` is NOT silently ignored: ignoring is how an argument that
+ * was meant to do something reads as having done it.
+ *
+ * It answers rather than throwing, so `main` can refuse with an exit code and
+ * a sentence; `error` is `""` on every good parse, which is what every existing
+ * caller reads past.
+ */
 export function parseArgs(argv) {
-  const out = { mode: "preview", slug: "" };
+  const out = { mode: "preview", slug: "", table: "", column: "", error: "" };
+  // A REFUSAL PUTS THE MODE BACK TO THE ONE THAT WRITES NOTHING. `main` exits
+  // before reading it, so this is for a caller that reads past `error` — and
+  // without it a refusal keeps whatever flag was accepted BEFORE the one that
+  // refused, so `--apply --counts` answers `apply` while claiming to have been
+  // refused. Cannot-tell must never read as the widest answer available.
+  const refuse = (why) => { out.error = why; out.mode = "preview"; return out; };
+  const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--apply") out.mode = "apply";
-    else if (a === "--apply-reference") out.mode = "apply-reference";
-    else if (a === "--preview") out.mode = "preview";
-    else if (a === "--verify") out.mode = "verify";
-    else if (a === "--slug") out.slug = String(argv[++i] || "");
+    const a = String(argv[i]);
+    const named = a.startsWith("--") && MODES.includes(a.slice(2)) ? a.slice(2) : "";
+    if (named) {
+      // THE MODE IS DECIDED ONCE. A second one is a refusal whether or not it
+      // agrees with the first — see the header.
+      if (seen.has("mode")) {
+        return refuse(out.mode === named
+          ? `--${named} was given twice`
+          : `two modes were named: --${out.mode} and --${named}`);
+      }
+      seen.add("mode"); out.mode = named; continue;
+    }
+    const key = a.startsWith("--") ? a.slice(2) : "";
+    if (VALUE_ARGS.includes(key)) {
+      if (seen.has(key)) return refuse(`--${key} was given twice`);
+      if (i + 1 >= argv.length) return refuse(`--${key} was given no value`);
+      const v = String(argv[++i]);
+      // A VALUE THAT LOOKS LIKE A FLAG IS THE WORD-SPLIT'S OWN SHAPE. No real
+      // slug, table or column starts with a dash, so refusing costs nothing
+      // and reading one as a value is how `--apply` becomes a column name.
+      if (v.startsWith("-")) return refuse(`--${key} was given a value that looks like a flag: ${v}`);
+      seen.add(key); out[key] = v; continue;
+    }
+    return refuse(`unrecognised argument: ${a}`);
   }
   return out;
 }
@@ -291,10 +574,36 @@ export async function describeContents(sql) {
   return {
     state: st.state,
     tables: st.tables,
+    // THE COLUMNS WERE ALWAYS READ AND NEVER CARRIED OUT (2026-09-16).
+    // `RECOVER_QUERIES.columns` is `information_schema.columns` joined to the
+    // base tables, so this reader has held every column of every application
+    // table since it was written — and dropped them one hop later, which left
+    // "no new columns" with nothing authoritative behind it. A per-NAME probe
+    // from outside is exact per name and is NOT an enumeration; this is.
+    columns: Array.isArray(st.columns) ? st.columns : [],
     declared: st.spec && Array.isArray(st.spec.tables) ? st.spec.tables.map((t) => t && t.name).filter(Boolean) : [],
     missing: st.missing,
     why: st.why,
   };
+}
+
+/**
+ * The live column inventory, `{ table: ["name type", …] }`, from the catalog.
+ *
+ * A REPORT AND NEVER A CHECK. There is no expectation to compare it against —
+ * the whole point is that a person holds a BEFORE and an AFTER beside each
+ * other — so it must not touch `out.ok`, or a verification would start failing
+ * on a site whose schema is perfectly fine and merely different from last week.
+ */
+export function columnInventory(rows) {
+  const out = {};
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const t = r && typeof r.t === "string" ? r.t : "";
+    const c = r && typeof r.c === "string" ? r.c : "";
+    if (!t || !c) continue;
+    (out[t] = out[t] || []).push(r.ty ? `${c} ${r.ty}` : c);
+  }
+  return out;
 }
 
 /**
@@ -442,6 +751,11 @@ export async function verifySite({ site, sql } = {}) {
     add("stored schema readable", st.state !== "unreadable", st.state + " (" + st.why + ")");
     add("every live table declared", st.missing.length === 0,
       st.missing.length ? "missing: " + JSON.stringify(st.missing) : `${st.tables.length} table(s), all declared`);
+    // THE INVENTORY RIDES BESIDE THE CHECKS AND IS NOT ONE OF THEM. A verify
+    // that FAILED because a column list differs from some remembered one would
+    // be asserting a thing nobody declared; what this is for is a person
+    // holding a before and an after beside each other and reading the diff.
+    out.inventory = columnInventory(st.columns);
   }
   out.ok = out.checks.every((c) => c.ok);
   return out;
@@ -451,6 +765,15 @@ const fmt = (r) => JSON.stringify(r);
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  // AN ARGV THIS CANNOT READ IS REFUSED BEFORE ANYTHING ELSE — above the
+  // credential check, because this one is about what the caller typed and is
+  // the thing they can fix. It never prints `mode:`, since naming a mode for a
+  // refused parse is the confusion the refusal exists to stop.
+  if (args.error) {
+    console.error(`cannot read the arguments: ${args.error}`);
+    console.error("refusing — nothing was read or written");
+    process.exit(2);
+  }
   const key = process.env.SUPABASE_SERVICE_KEY;
   if (!key) { console.error("SUPABASE_SERVICE_KEY is not set"); process.exit(2); }
   console.log(`mode: ${args.mode}${args.slug ? "  slug: " + args.slug : ""}`);
@@ -475,8 +798,16 @@ async function main() {
   // `!verified` there is load-bearing instead of a second belt.
   if (!reachable.length) {
     console.log("nothing to do.");
-    if (args.mode !== "verify") return;
-    console.log(args.slug ? `VERIFY FAILED: ${args.slug} has no reachable database.` : "VERIFY FAILED: nothing was verified.");
+    // `counts` joins `verify` here for the same reason: a run asked for a
+    // number that reached no database must not exit 0 with a blank where the
+    // number goes.
+    if (args.mode !== "verify" && args.mode !== "counts") return;
+    // THE SENTENCE NAMES THE MODE THAT ASKED, derived from `args.mode` rather
+    // than written per branch: a `counts` run that reached nothing must not
+    // report itself as a failed verification, and a verification must not lose
+    // its own word to a mode added beside it.
+    console.log(`${args.mode.toUpperCase()} FAILED: ` +
+      (args.slug ? `${args.slug} has no reachable database.` : "nothing was read."));
   }
 
   const write = (slug, uid, db, proof) => writeRef(key, slug, uid, db, proof);
@@ -491,7 +822,72 @@ async function main() {
       const v = await verifySite({ site, sql });
       console.log(`${site.slug}: ${v.ok ? "VERIFIED" : "NOT VERIFIED"}`);
       for (const c of v.checks) console.log(`    ${c.ok ? "ok  " : "FAIL"} ${c.name} — ${c.detail}`);
+      // PRINTED WHENEVER IT WAS READ, pass or fail — a NOT VERIFIED run is
+      // exactly when somebody wants to see what is really there. Absent means
+      // the catalog was never reached (identity refused), which is a different
+      // thing from a site with no tables and is why this is not a blank line.
+      if (v.inventory) {
+        const names = Object.keys(v.inventory).sort();
+        console.log(`    live columns (${names.length} table(s), from information_schema):`);
+        for (const t of names) console.log(`      ${t}: ${JSON.stringify(v.inventory[t])}`);
+      }
       if (v.ok) verified++; else failed++;
+      continue;
+    }
+
+    if (args.mode === "counts") {
+      // IDENTITY FIRST, exactly as the verify does. An aggregate read out of a
+      // database nobody proved belongs to this site is a number about somebody
+      // else's rows, which is worse than no number at all.
+      let id;
+      try { id = await proveIdentity({ slug: site.slug, expectDb: site.db, conn: site.conn, projectSlug: site.projectSlug, sql }); }
+      catch (e) { id = { proven: false, why: "database-did-not-answer", detail: safeErr(e) }; }
+      console.log(`${site.slug}: identity ${id.proven ? "PROVEN" : "NOT PROVEN"} (${id.why}${id.detail ? " — " + id.detail : ""})`);
+      if (!id.proven) { failed++; continue; }
+
+      const st = await describeContents(sql);
+      // THE SITE REALLY BEING READ, never `args.slug`. The exception is keyed
+      // on the slug that came through `REPAIR_SITES` and the identity chain,
+      // so a form value cannot name its way into it.
+      const plan = countsPlan(columnInventory(st.columns), args.table, args.column, site.slug);
+      if (!plan.ok) {
+        // A REFUSAL IS A SENTENCE AND A NONZERO EXIT. "Nothing came back"
+        // and "we refused to ask" are two readings a blank collapses.
+        console.log(`    REFUSED (${plan.why})${plan.detail ? " — " + plan.detail : ""}`);
+        if (plan.tables) console.log(`    tables here: ${JSON.stringify(plan.tables)}`);
+        if (plan.columns) console.log(`    columns there: ${JSON.stringify(plan.columns)}`);
+        if (plan.allowed) console.log(`    only a date or time column may be grouped: ${JSON.stringify(plan.allowed)}`);
+        failed++; continue;
+      }
+      if (plan.textDate) {
+        console.log(`    NARROW EXCEPTION: ${plan.slug} ${plan.table}.${plan.column} is ${plan.type}, ` +
+          `read as dates by SHAPE. Every other text column is still refused.`);
+      }
+      console.log(`    reading: ${plan.sql}`);
+      let agg;
+      // THE MESSAGE IS WITHHELD ON PURPOSE. A database error can quote the row
+      // that caused it, and this is the one read in this mode where a row could
+      // ride out on an error. The SQLSTATE says what went wrong and can carry
+      // nothing; see `errCode`.
+      try { agg = await countsOf(sql, plan); }
+      catch (e) {
+        console.log(`    FAILED — the read did not complete${errCode(e) ? ` (SQLSTATE ${errCode(e)})` : ""}. ` +
+          `The message is withheld: a database error can quote a row's value.`);
+        failed++; continue;
+      }
+      for (const r of agg.rows) console.log(`      ${r.value === null ? "(no date)" : r.value}  ${r.count}`);
+      // COUNTED, NEVER PRINTED, NEVER DISCARDED. A value that is not a usable
+      // date is reported as a number and its own text never left Postgres.
+      if (agg.invalid) {
+        console.log(`      (not a usable date)  ${agg.invalid}   ` +
+          `— counted, and the values themselves are deliberately not read back`);
+      }
+      // THE ARITHMETIC IS PRINTED SO IT CAN BE SEEN TO CLOSE: every row in the
+      // table is in exactly one of these numbers, which is what "nothing was
+      // silently discarded" means and is the only way a reader can check it.
+      const shown = agg.rows.reduce((a, r) => a + r.count, 0);
+      console.log(`    ${agg.groups} group(s), ${shown} grouped + ${agg.invalid} unusable = ${agg.total} row(s) in total`);
+      verified++;
       continue;
     }
 
@@ -530,6 +926,14 @@ async function main() {
   // verification.
   if (args.mode === "verify") {
     console.log(`\n${verified} verified, ${failed} not verified.`);
+    if (failed || !verified) process.exitCode = 1;
+    return;
+  }
+  // THE AGGREGATE EXITS THE SAME WAY, and for the reason the `--verify` defect
+  // taught: a read that refused or could not run must not be readable as a
+  // successful read of nothing.
+  if (args.mode === "counts") {
+    console.log(`\n${verified} read, ${failed} not read. (read-only: this mode writes nothing.)`);
     if (failed || !verified) process.exitCode = 1;
     return;
   }

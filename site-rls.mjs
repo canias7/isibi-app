@@ -79,14 +79,33 @@ export const SESSION_JWT_EXT = "CREATE EXTENSION IF NOT EXISTS pg_session_jwt;";
 // may read, so definer rights would be privilege bought for nothing.
 export const APP_USER_FN_NATIVE = `
 CREATE OR REPLACE FUNCTION app_user_id() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT NULLIF(auth.user_id(), '')::uuid
 $$;`;
 
+// PINNED AND QUALIFIED LIKE THE NATIVE FORM ABOVE, and the asymmetry it removes
+// is the interesting part. The comment on the native form says the fallback is
+// "deliberately left as SECURITY INVOKER: it reads a GUC anyone may read, so
+// definer rights would be privilege bought for nothing" — which is true and is
+// about the WRONG axis. Invoker settles whose PRIVILEGES run; it settles nothing
+// about whose NAMES resolve.
+//
+// EVERY RLS POLICY ON THE PLATFORM CALLS THIS FUNCTION. `current_setting` is a
+// function, so `pg_temp` can never shadow it (measured: a `pg_temp.helper()`
+// does not take, PostgreSQL's own documented rule) — the reachable shape is a
+// role that can create a schema ahead of `public`, which the live probe in
+// `neon-e2e` says is nobody today. So this is hardening, not a live hole; it
+// costs one clause and the function it mirrors has carried the same one since it
+// was written. A redirected `app_user_id()` answers an attacker-chosen uuid,
+// which is every member's rows on every `user`, `feed` and `admin` table.
+//
+// `pg_catalog` alone is enough and `public` is deliberately NOT on it: the body
+// names nothing outside the catalog, so widening the path would be undoing the
+// pin for no gain.
 export const APP_USER_FN_FALLBACK = `
 CREATE OR REPLACE FUNCTION app_user_id() RETURNS uuid
-LANGUAGE sql STABLE AS $$
-  SELECT NULLIF(current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid
+LANGUAGE sql STABLE SET search_path = pg_catalog, pg_temp AS $$
+  SELECT NULLIF(pg_catalog.current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid
 $$;`;
 
 /** Kept as the default export name so callers do not have to know which won. */
@@ -149,7 +168,7 @@ export const SESSION_JWT_GRANTS = [
  */
 export const APP_TEAM_FN = `
 CREATE OR REPLACE FUNCTION app_team_id() RETURNS text
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
   SELECT m."organizationId"::text FROM neon_auth.member m
   WHERE m."userId" = public.app_user_id()
   ORDER BY m."createdAt" ASC NULLS LAST LIMIT 1
@@ -818,6 +837,65 @@ export function publicViewSql(t, columns, tableNames) {
 // A `plpgsql` body could of course EXECUTE DDL when somebody calls it — but
 // nothing calls a declared function at build time, so a constraint written that
 // way is never created.
+
+/**
+ * THE PIN, AND `pg_temp` LAST IS THE WHOLE OF IT.
+ *
+ * Every model function is SECURITY DEFINER (it is the point of the feature — a
+ * `collect` table has no read policy, so only a function running as the owner
+ * can hand a row back), and until now none of them pinned `search_path`. The
+ * engine's own two helpers have been pinned since they were written, on the
+ * argument spelled out above them: *a SECURITY DEFINER function that resolves
+ * names through the caller's `search_path` is the classic escalation*.
+ *
+ * THE ARGUMENT FOR LEAVING MODEL FUNCTIONS UNPINNED WAS THAT THE ESCALATION
+ * NEEDED A `CREATE` PRIVILEGE NOBODY HAS — and that is FALSE, measured on a
+ * real PostgreSQL 16 by `test/integration/local-pg-searchpath.mjs`. A role with
+ * **no CREATE anywhere** redirects an unpinned definer function, because
+ * `TEMP` on the database is granted to PUBLIC by Postgres's own default and an
+ * unlisted `pg_temp` is searched FIRST for relations. Measured: a role refused
+ * `SELECT` on `bookings` outright (`permission denied for table bookings`)
+ * creates `pg_temp.bookings`, and the definer function that counts the real
+ * table answers **1** instead of **3**. It did not have to touch its own
+ * `search_path` — the default `"$user", public` is enough.
+ *
+ * `public, pg_temp` rather than `''`: a model writes these bodies and writes
+ * them UNQUALIFIED, so an empty path would refuse every function the platform
+ * has ever built. Naming `pg_temp` LAST is Postgres's own documented remedy and
+ * is the only part that does the work; `pg_catalog` stays implicitly first
+ * because it is not listed.
+ *
+ * **NAMING `pg_temp` IS THE FIX. NAMING `public` IS NOT, AND THE TWO LOOK
+ * ALIKE.** Measured in the same probe: a definer function pinned
+ * `SET search_path = pg_catalog, public` with an unqualified body is redirected
+ * to the attacker's temp table **exactly as an unpinned one is** — an unlisted
+ * `pg_temp` is searched first, so a pin that does not name it pins nothing that
+ * matters. This is the shape a later edit is most likely to reach for, which is
+ * why the guard asserts the ORDER and the sweep mutates it.
+ *
+ * THE SAME ORDER IS ON THE THREE IDENTITY HELPERS, which pin `pg_catalog,
+ * pg_temp`. They were `pg_catalog` alone and were SAFE — measured — but safe
+ * only because every relation in their bodies is schema-qualified. That is an
+ * argument about the bodies, and it expires the first time somebody adds an
+ * unqualified reference to one. One token per constant makes the rule
+ * uniform: **every function the engine creates ends its path with `pg_temp`**,
+ * and no reader has to check a body to know it holds.
+ *
+ * PINNED ON THE INVOKER FORM TOO, and that is not tidiness. A SECURITY INVOKER
+ * function CALLED FROM INSIDE a definer one runs with the DEFINER's rights —
+ * so an unpinned `definer: false` callee is the same hole one hop along, and a
+ * model may declare both and call one from the other. Measured in the same
+ * probe: with only the definer pinned, `owner_via_invoker()` still answers the
+ * attacker's row.
+ *
+ * WHAT IT DOES NOT DO, said here so nobody reads it as more: it changes name
+ * RESOLUTION and nothing else. It is not what stops a body naming `_secrets`
+ * (that is `INTERNAL_TABLE_RE`), nor what stops dynamic SQL (that is the
+ * `execute`/`dblink` refusal in `normalizeSchema`), and it does not narrow any
+ * privilege — `proacl` is byte-identical across the change.
+ */
+export const FN_SEARCH_PATH = "public, pg_temp";
+
 export function functionSql(f) {
   const args = (f.args || []).map((a) => q(a.name) + " " + a.type).join(", ");
   const argTypes = (f.args || []).map((a) => a.type).join(", ");
@@ -828,6 +906,7 @@ export function functionSql(f) {
     "CREATE OR REPLACE FUNCTION " + q(f.name) + "(" + args + ") RETURNS " + ret +
     " LANGUAGE " + (f.language === "plpgsql" ? "plpgsql" : "sql") +
     (f.definer === false ? "" : " SECURITY DEFINER") +
+    " SET search_path = " + FN_SEARCH_PATH +
     " AS $isibi$ " + f.body + " $isibi$",
   ];
   // POSTGRES GRANTS EXECUTE ON A NEW FUNCTION TO `PUBLIC` BY DEFAULT, so the

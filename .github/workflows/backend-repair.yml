@@ -42,6 +42,31 @@
 # VERIFY EXITS NONZERO WHEN A POSTCONDITION FAILS, so a red run here means the
 # repair did not land — it is not a report that always passes.
 #
+# `counts` IS A READ-ONLY AGGREGATE AND IT CANNOT RETURN A NAME. It groups one
+# table by one DATE OR TIME column and prints the date and the count, so an
+# expected result can be established from the live data without changing it.
+# Two things make that a property rather than a promise: the mode is on NEITHER
+# write list, so both gates refuse it without any new check; and the grouping
+# column must be a date/time type asked of the catalog, which is a positive,
+# type-derived rule rather than a deny-list of column names. `customer_name` is
+# refused by the tool. It exits nonzero when it refused or could not read, for
+# the reason `--verify` was given an explicit exit rule.
+#
+# THE ONE EXCEPTION IS A TRIPLE, NOT A WIDENING (2026-09-16). `repairbench-1`'s
+# `bookings.drop_off_day` is `text` in the live catalog, so the rule above
+# refuses it — and widening the rule to admit text would trade the one property
+# that keeps `customer_name` out of reach for one number. `COUNTS_TEXT_DATE`
+# names that site, that table and that column, all three, and is asked ONLY
+# after the type rule has already refused; every other text column on every
+# site, including every other text column on that same table, is refused
+# exactly as before. On that path the statement buckets values by SHAPE in the
+# projection — `v` is the value only where it matches `^NNNN-NN-NN$` and NULL
+# otherwise — so an unusable value never leaves Postgres and only its COUNT
+# comes back, reported on its own line. Nothing casts: `::date` fails with a
+# message that QUOTES the offending value, which is measured in
+# `test/integration/local-pg-counts.mjs` against a real PostgreSQL. A read that
+# throws is reported by SQLSTATE and never by message, for the same reason.
+#
 # DISPATCH ONLY. No push trigger: `test/merge-triggers.test.mjs` is a census over
 # this directory and requires `deploy.yml` to be the only workflow a push to main
 # starts.
@@ -51,13 +76,21 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'preview (reads only) | apply-reference (WRITES the neon_db reference ONLY) | apply (WRITES reference AND _meta) | verify (reads only, exits nonzero on failure)'
+        description: 'preview (reads only) | apply-reference (WRITES the neon_db reference ONLY) | apply (WRITES reference AND _meta) | verify (reads only, exits nonzero on failure) | counts (reads only: one table grouped by one DATE column, busiest first)'
         required: true
         default: 'preview'
         type: choice
-        options: [preview, apply-reference, apply, verify]
+        options: [preview, apply-reference, apply, verify, counts]
       slug:
         description: 'One of the five, e.g. repairbench-1. Blank = all five. Anything else is refused.'
+        required: false
+        default: ''
+      table:
+        description: 'counts ONLY: the table to group, e.g. bookings'
+        required: false
+        default: ''
+      column:
+        description: 'counts ONLY: the DATE column to group by. A text column is refused, except repairbench-1 bookings.drop_off_day, which is read as dates by shape.'
         required: false
         default: ''
       confirm:
@@ -107,6 +140,23 @@ jobs:
       # Driven in `test/repair-workflows.test.mjs` — the command and its shell
       # setting together, because either alone proves nothing.
       #
+      # THE ARGUMENTS ARE A BASH ARRAY AND THE EXPANSION IS QUOTED, and that is
+      # a WALL rather than a style. This built one string and expanded it
+      # UNQUOTED, so a value word-split into more arguments: with mode `counts`
+      # and column `drop_off_day --apply` the script was handed
+      # `--counts … --column drop_off_day --apply` and ran a full APPLY — while
+      # the confirm gate above, which reads `inputs.mode`, had seen `counts` and
+      # demanded no word. A value became a mode, and the approval gate was asked
+      # about a different run from the one that executed. Reproduced end to end.
+      #
+      # `args+=(--slug "$SLUG")` keeps each value ONE argument whatever it
+      # contains, and `"${args[@]}"` hands them over unsplit.
+      #
+      # THE SCRIPT'S OWN PARSER IS THE SECOND WALL and both are kept: this stops
+      # the split, and `parseArgs` refuses anything that did split (two modes, a
+      # repeated flag, a value shaped like a flag, an argument it does not know).
+      # Either alone leaves the other's failure open.
+      #
       # ONE LINE, because test/ci-browser-order.test.mjs reads the first line of
       # a `run:` block and must see the script name there.
       - name: backend repair
@@ -115,8 +165,10 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           MODE: ${{ github.event.inputs.mode }}
           SLUG: ${{ github.event.inputs.slug }}
+          TABLE: ${{ github.event.inputs.table }}
+          COLUMN: ${{ github.event.inputs.column }}
         run: |
-          S=""; if [ -n "$SLUG" ]; then S="--slug $SLUG"; fi; node scripts/backend-repair.mjs --"${MODE:-preview}" $S 2>&1 | tee backend-repair.log
+          args=(--"${MODE:-preview}"); if [ -n "$SLUG" ]; then args+=(--slug "$SLUG"); fi; if [ -n "$TABLE" ]; then args+=(--table "$TABLE"); fi; if [ -n "$COLUMN" ]; then args+=(--column "$COLUMN"); fi; node scripts/backend-repair.mjs "${args[@]}" 2>&1 | tee backend-repair.log
       # THE LOG LANDS WHETHER OR NOT THE RUN PASSED. A verify that failed is
       # exactly the run whose output is worth keeping, and a failed apply names
       # which site it got to.

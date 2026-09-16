@@ -27,16 +27,35 @@ const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 /**
- * Neon's own wire shape: rows are ARRAYS and `fields` names the columns. Its
- * driver does `c.map` over `fields`, so an object row makes it throw — the
- * recorded "a fixture in a different shape from reality", already paid for once
- * in the addon fixture.
+ * A result set in NEON'S OWN WIRE SHAPE, encoded the way Postgres puts one on
+ * the wire. Rows are ARRAYS and `fields` names the columns; the driver does
+ * `c.map` over `fields`, so an object row makes it throw — the recorded "a
+ * fixture in a different shape from reality", already paid for once in the
+ * addon fixture.
+ *
+ * `types` names the non-text columns by OID. It exists because the text-date
+ * aggregate returns a BOOLEAN, and a boolean handed over as a JS `true` under
+ * OID 25 comes back through the real driver as the STRING "true" — so
+ * `r.bad === true` was false, every unusable row read as a genuine NULL, and
+ * the feature reported itself broken while the production path was correct.
+ * MEASURED both ways: OID 16 with "t"/"f" parses to a real boolean, which is
+ * what a real Neon answer does and what `test/integration/local-pg-counts.mjs`
+ * reads out of psql. The recorded "a fake less capable than the thing it
+ * stands in for hides a defect exactly as well as one that is more", in the
+ * one field this feature turns on.
+ *
+ * `bigint` (OID 20) is deliberately left as a STRING, because pg-types does:
+ * it is not safely representable as a JS number.
  */
-const rows = (list, cols) => json({
+const rows = (list, cols, types = {}) => json({
   command: "SELECT",
   rowCount: list.length,
-  rows: list.map((r) => cols.map((c) => (r[c] === undefined ? null : r[c]))),
-  fields: cols.map((c) => ({ name: c, dataTypeID: 25 })),
+  rows: list.map((r) => cols.map((c) => {
+    const v = r[c];
+    if (v === undefined) return null;
+    return types[c] === 16 ? (v ? "t" : "f") : v;
+  })),
+  fields: cols.map((c) => ({ name: c, dataTypeID: types[c] || 25 })),
 });
 const pgError = (message) => json({ message }, 400);
 const done = (command) => json({ command, rowCount: 1, rows: [], fields: [] });
@@ -70,8 +89,27 @@ const state = {
   counts: scenario.counts || {},
 };
 
+// A COLUMN CARRIES ITS TYPE, AND THE DEFAULT IS `text`.
+//
+// This answered `ty: "text"` for every column until 2026-09-16, which was free
+// while nothing read the type — and the read-only aggregate is decided ENTIRELY
+// by it (a date or time column may be grouped, a text one is refused). A
+// fixture that can only ever say `text` makes the positive arm unreachable and
+// reports the working mode as broken: the recorded "a fixture in a different
+// shape from reality" trap, in the one field the feature turns on.
+//
+// Three spellings, and the bare name is first so every scenario written before
+// this is byte-identical: `"who"` is text, `"drop_off_day date"` is the
+// rendering `columnInventory` itself produces, and `{name, type}` is the shape
+// a catalog row really has.
+const columnOf = (c) => {
+  if (c && typeof c === "object") return { c: String(c.name || ""), ty: String(c.type || "text") };
+  const s = String(c || "");
+  const sp = s.indexOf(" ");
+  return sp < 0 ? { c: s, ty: "text" } : { c: s.slice(0, sp), ty: s.slice(sp + 1).trim() || "text" };
+};
 const catalogColumns = () => Object.entries(state.tables)
-  .flatMap(([t, d]) => (d.columns || []).map((c) => ({ t, c, ty: "text" })));
+  .flatMap(([t, d]) => (d.columns || []).map((c) => ({ t, ...columnOf(c) })));
 const catalogGrants = () => Object.entries(state.tables).flatMap(([t, d]) => (d.grants || []).map((g) => ({ ...g, t })));
 const catalogPolicies = () => Object.entries(state.tables).flatMap(([t, d]) => (d.policies || []).map((p) => ({ ...p, t })));
 
@@ -147,6 +185,50 @@ globalThis.fetch = async (input, init) => {
     const m = /FROM\s+(\w+)/i.exec(q);
     if (m) state.countsFrom = m[1];
     return done("CREATE");
+  }
+  // THE READ-ONLY AGGREGATE. Answered from `scenario.groups[table][value]`, so
+  // the expected grouping is the fixture's own and the assertion is about what
+  // the script did with it rather than about a number this file invented.
+  const grp = /SELECT "(\w+)" AS v, COUNT\(\*\)::bigint AS n FROM "(\w+)" GROUP BY 1 ORDER BY 2 DESC, 1/i.exec(q);
+  if (grp) {
+    const g = (scenario.groups || {})[grp[2]] || {};
+    const out = Object.keys(g).map((v) => ({ v: v === "null" ? null : v, n: String(g[v]) }));
+    // Postgres does the ordering; this fixture must too, or a guard asserting
+    // "busiest first" would be asserting the script re-sorts, which it does not.
+    out.sort((a, b) => Number(b.n) - Number(a.n) || String(a.v).localeCompare(String(b.v)));
+    return rows(out, ["v", "n"]);
+  }
+  // THE NARROW TEXT-DATE EXCEPTION'S statement. This fixture does what POSTGRES
+  // does with it rather than handing back a prepared answer: it takes the shape
+  // pattern OUT OF THE STATEMENT ITSELF and buckets the scenario's raw values
+  // by it, so the case under test is the script's reading of a real grouping.
+  // A prepared answer would make the CASE the wall and the projection
+  // decorative, which is the shape of a fake less capable than the thing it
+  // stands in for.
+  const txt = /SELECT CASE WHEN "(\w+)" ~ '([^']+)' THEN "\1" ELSE NULL END AS v, \("\1" IS NOT NULL AND "\1" !~ '\2'\) AS bad, COUNT\(\*\)::bigint AS n FROM "(\w+)" GROUP BY 1, 2 ORDER BY 3 DESC, 1/i.exec(q);
+  if (txt) {
+    // A READ THAT FAILS, so the catch in `main` can be DRIVEN. It lives in
+    // `main` and no module guard runs it — "a wall nobody can drive is a wall
+    // nobody is guarding", in the branch that decides whether a database error
+    // (which can QUOTE a row's value) reaches the log.
+    if (scenario.countsError) return json(scenario.countsError, 400);
+    const shape = new RegExp(txt[2]);
+    const g = (scenario.groups || {})[txt[3]] || {};
+    // Three buckets, exactly as `GROUP BY 1, 2` gives: one per date-shaped
+    // value, ONE for everything unshaped (the value replaced by NULL, so they
+    // all collapse together) and one for a genuine NULL.
+    const buckets = new Map();
+    for (const k of Object.keys(g)) {
+      const v = k === "null" ? null : k;
+      const bad = v !== null && !shape.test(v);
+      const key = bad ? "#bad" : v === null ? "#null" : "v:" + v;
+      const cur = buckets.get(key) || { v: bad ? null : v, bad, n: 0 };
+      cur.n += Number(g[k]) || 0;
+      buckets.set(key, cur);
+    }
+    const out = [...buckets.values()].map((b) => ({ v: b.v, bad: b.bad, n: String(b.n) }));
+    out.sort((a, b) => Number(b.n) - Number(a.n) || String(a.v).localeCompare(String(b.v)));
+    return rows(out, ["v", "bad", "n"], { bad: 16 });
   }
   const cnt = /SELECT COUNT\(\*\)::int AS n FROM "(\w+)"/i.exec(q);
   if (cnt) return rows([{ n: state.counts[cnt[1]] === undefined ? 0 : state.counts[cnt[1]] }], ["n"]);
