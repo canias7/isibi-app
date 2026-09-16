@@ -436,7 +436,10 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   const chunks = code.split("apiFetch(").slice(1).map((c) => c.slice(0, 300));
   const viaApiFetch = new Set();
   for (const c of chunks) {
-    for (const m of c.matchAll(/'(\/api\/agent\/[a-z]+)/g)) viaApiFetch.add(m[1]);
+    // `[a-z-]+`, NOT `[a-z]+`: the automation routes carry a hyphen, and a charset
+    // that stops at one matched the shorter prefix and reported every one of them as
+    // never called from the screen.
+    for (const m of c.matchAll(/'(\/api\/agent\/[a-z-]+)/g)) viaApiFetch.add(m[1]);
   }
   // **DERIVED FROM `AGENT_ROUTES`, NOT LISTED.** It was a hand-typed list of seven
   // and went red the day an eighth route arrived — the recorded "a check that
@@ -469,10 +472,17 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
     assert.ok(called(path), `the client never calls ${path}`);
     assert.ok(viaApiFetch.has(path), `${path} is not inside an apiFetch call, so it carries no token`);
   }
-  // Every path the client names is one of the seven — a typo would be a 404 the
-  // customer reads as "couldn't save".
-  const named = new Set([...code.matchAll(/'(\/api\/agent\/[a-z]+)/g)].map((m) => m[1]));
-  assert.deepEqual([...named].sort(), [...paths].sort(), "the client calls an agent route that is not one of the seven");
+  // Every path the client names is one this module really handles — a typo would be a
+  // 404 the customer reads as "couldn't save".
+  //
+  // ⚠ `[a-z-]+`, NOT `[a-z]+`, AND THIS IS THE SECOND COPY OF THAT NEEDLE IN ONE TEST.
+  // The charset stops at a hyphen, so every `automation-*` path matched as the shorter
+  // prefix `/api/agent/automation` and the census reported seven routes the screen
+  // really does call as ones it names and does not handle. Fixing the first occurrence
+  // left this one wrong and the test still red — *a needle written twice is wrong twice*,
+  // which is why the message below no longer counts them either.
+  const named = new Set([...code.matchAll(/'(\/api\/agent\/[a-z-]+)/g)].map((m) => m[1]));
+  assert.deepEqual([...named].sort(), [...paths].sort(), "the client calls an agent route this module does not handle");
 
   // And nothing in the agent screen reaches for a bare fetch at all.
   const block = code.slice(code.indexOf("const AGENTS_KEY"), code.indexOf("function renderSettings"));

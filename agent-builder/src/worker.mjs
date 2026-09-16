@@ -31,6 +31,7 @@
 
 import { makeVerifier } from "./auth.mjs";
 import { makeRunStore } from "./store.mjs";
+import { makeAutomationStore } from "./automation-store.mjs";
 import { makeWork } from "./work.mjs";
 import { makeApi } from "./api.mjs";
 import { makeRunner } from "./runner.mjs";
@@ -91,6 +92,36 @@ export const SCHEMA = "agent";
 export const SWEEP_GRACE_S = 30;
 export const SWEEP_LIMIT = 50;
 
+/**
+ * HOW LATE A SCHEDULED OCCURRENCE MAY BE AND STILL BE RUN — one hour.
+ *
+ * **THIS IS THE "WHAT HAPPENS TO MISSED OCCURRENCES" DECISION, and it is a decision
+ * rather than a default.** A deploy, a platform blip or a short outage is minutes, so an
+ * hour of slack means ordinary interruptions catch up silently and nobody notices. Past
+ * that, an occurrence is no longer "today's nine o'clock": running it would fire
+ * somebody's automation at a time they did not choose, hours later, with no warning. So
+ * a stale occurrence is RECORDED as missed — with a count of how many went by — and the
+ * schedule jumps to its next future occurrence.
+ *
+ * **THE TRADE, STATED: an outage of an hour and a half loses that day's run**, and the
+ * history says so in as many words. The alternative loses the guarantee that an
+ * automation only ever runs near the time it was set for.
+ */
+export const AUTOMATION_CATCHUP_S = 3600;
+
+/**
+ * HOW MANY AUTOMATIONS ONE TICK MAY FILE — the third thing standing between downtime
+ * and a burst, and the weakest of them.
+ *
+ * The other two are in the database and are the real ones: the occurrence key makes a
+ * day's run once-only however many times it is filed, and the advance moves a stale
+ * automation straight to its next FUTURE occurrence rather than walking the ones it
+ * missed. This is only a ceiling on one invocation's work — a large backlog drains over
+ * several minutes rather than arriving at once — and at 25 a minute it is 1,500 an hour,
+ * which is past anything this platform holds.
+ */
+export const AUTOMATION_TICK_LIMIT = 25;
+
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -147,7 +178,11 @@ function parts(env, { notify, fetchImpl } = {}) {
   // as a tenant.
   const ring = notify ?? (async ({ runId }) => { await env[QUEUE_BINDING].send({ runId }); });
 
-  return { store, work, send: make(), ring, doFetch, modelName };
+  // THE SECOND EXECUTOR'S OWN READS AND WRITES. Same wire, same key, same schema; the
+  // queue's RPCs are `work`'s and are shared, because an automation execution IS a run.
+  const automations = makeAutomationStore(wire);
+
+  return { store, work, automations, send: make(), ring, doFetch, modelName };
 }
 
 /**
@@ -186,9 +221,9 @@ export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryM
   // that sends a message is the sweeper, and that is a different handler.
   const missing = missingFor(env, "consume");
   if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
-  const { store, work, send } = parts(env, { notify, fetchImpl });
+  const { store, work, automations, send } = parts(env, { notify, fetchImpl });
   return makeRunner({
-    work, store, send, agents: AGENTS, now,
+    work, store, automations, send, agents: AGENTS, now,
     // Passed through for a LOCAL driver only. The deployed Worker hands in neither,
     // so both fall back to `runner.mjs`'s own constants — and a test asserts that
     // this file never names a number of its own for them.
@@ -197,6 +232,19 @@ export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryM
     onError: (e) => console.error("agent-runner", JSON.stringify(e)),
     onEvent: (e) => console.log("agent-runner", JSON.stringify(e)),
   });
+}
+
+/**
+ * The automation store on its own, for the scheduler.
+ *
+ * It asks for the CONSUMER's configuration — the project and nothing else — because
+ * reading the schedule and writing an execution need no queue. The `scheduled` handler
+ * rings the doorbell itself and asks for the full deployment before it gets here.
+ */
+export function buildAutomations(env, { fetchImpl } = {}) {
+  const missing = missingFor(env, "consume");
+  if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
+  return parts(env, { fetchImpl }).automations;
 }
 
 const configGap = (e) => new Response(JSON.stringify({ error: String(e?.message ?? e) }), {
@@ -337,6 +385,7 @@ export default {
     let runner;
     try { runner = buildRunner(env); }
     catch (e) { console.error("agent-sweep", String(e?.message ?? e)); return; }
+    // ── job one: offer dropped work again ─────────────────────────────────
     try {
       const dropped = await runner.reclaimable({ graceS: SWEEP_GRACE_S, limit: SWEEP_LIMIT });
       for (const row of dropped) {
@@ -345,6 +394,55 @@ export default {
       console.log("agent-sweep", JSON.stringify({ offered: dropped.length }));
     } catch (e) {
       console.error("agent-sweep", String(e?.message ?? e));
+    }
+
+    /**
+     * ── job two: file what the schedule says is due ────────────────────────
+     *
+     * ⚠ **ITS OWN `try`, AND THAT IS THE POINT OF PUTTING IT HERE AT ALL.** The sweeper
+     * above is the recovery for every dropped run in the deployment, and a scheduler
+     * that threw would take it down with it — a broken schedule stopping the thing that
+     * fixes everything else. Two jobs, two blocks, and neither can silence the other.
+     *
+     * **IT RE-USES THIS CRON RATHER THAN ADDING ONE.** The tick already runs every
+     * minute because the lease is 90 seconds; a daily schedule needs nothing finer than
+     * a minute, so a second trigger would be a second thing to configure for no gain.
+     *
+     * **THE FUNCTION FILES AND THIS RINGS.** The work is committed by the time a run id
+     * comes back, so a ring that fails costs latency and never work: the row is
+     * claimable and the next sweep offers it. That is the same argument the HTTP door
+     * makes about its own doorbell.
+     */
+    let automations;
+    try { automations = buildAutomations(env); }
+    catch (e) { console.error("agent-schedule", String(e?.message ?? e)); return; }
+    try {
+      const filed = await automations.tick({
+        catchupS: AUTOMATION_CATCHUP_S, limit: AUTOMATION_TICK_LIMIT,
+      });
+      const tally = {};
+      const errors = [];
+      let rung = 0;
+      for (const row of filed) {
+        const action = typeof row?.action === "string" ? row.action : "?";
+        tally[action] = (tally[action] ?? 0) + 1;
+        if (action === "error") errors.push(String(row?.error ?? "").slice(0, 200));
+        const runId = row?.run_id;
+        // ONLY A FILED EXECUTION HAS SOMETHING TO DELIVER. A missed or refused
+        // occurrence is already finished and has no work row at all, so ringing for one
+        // would be a doorbell for a run nothing will ever claim.
+        if (action === "filed" && isText(runId)) {
+          try { await env[QUEUE_BINDING].send({ runId }); rung += 1; }
+          catch (e) { console.error("agent-schedule", JSON.stringify({ runId, ring: String(e?.message ?? e) })); }
+        }
+      }
+      // COUNTS, AND THE ERRORS THEMSELVES. A tally says the scheduler ran; an error
+      // string is the only thing that can say WHICH automation cannot be scheduled, and
+      // a zone the time zone database no longer carries is exactly that shape.
+      console.log("agent-schedule", JSON.stringify({ touched: filed.length, rung, ...tally }));
+      for (const e of errors.slice(0, 5)) console.error("agent-schedule", e);
+    } catch (e) {
+      console.error("agent-schedule", String(e?.message ?? e));
     }
   },
 };

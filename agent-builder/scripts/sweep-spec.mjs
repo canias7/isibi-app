@@ -570,9 +570,17 @@ const spec = [
   m("runner: A CONFLICT IS READ AS A LOST CLAIM, so the log is never re-read", at("runner.mjs"),
     "      if (refusal === \"conflict\") {\n        return await finish(false, \"conflict\", \"another writer's entry is in this run's log\");\n      }",
     "      void 0;"),
+  // ⚠ RE-ANCHORED, NOT APPEASED, AND THE REASON IS THE RECORDED INDENTATION TRAP. The
+  // automation executor answers a conflict with the same sentence — it is the same fact,
+  // one executor over — and it sits two spaces deeper, so the eight-space needle is a
+  // SUBSTRING of the ten-space line and the generator refused it as AMBIGUOUS. A leading
+  // newline pins the indent, which is what the fence migration's own anchors do.
   m("runner: a conflict takes the run OFF the queue, so nobody ever reads the real log", at("runner.mjs"),
-    "        return await finish(false, \"conflict\", \"another writer's entry is in this run's log\");",
-    "        return await finish(true, \"conflict\", \"another writer's entry is in this run's log\");"),
+    "\n        return await finish(false, \"conflict\", \"another writer's entry is in this run's log\");",
+    "\n        return await finish(true, \"conflict\", \"another writer's entry is in this run's log\");"),
+  m("runner: an automation's conflict takes ITS run off the queue too", at("runner.mjs"),
+    "\n          return await finish(false, \"conflict\", \"another writer's entry is in this run's log\");",
+    "\n          return await finish(true, \"conflict\", \"another writer's entry is in this run's log\");"),
   m("runner: the reason a claim was refused is thrown away", at("runner.mjs"),
     "      if (!held) return await finish(false, lostBecause ?? \"lease-lost\", refusal, null);",
     "      if (!held) return await finish(false, lostBecause ?? \"lease-lost\", null, null);"),

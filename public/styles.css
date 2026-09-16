@@ -5156,3 +5156,105 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
 }
 .ag-paused-t { color: var(--muted); font-size: .85rem; line-height: 1.45; min-width: 0; flex: 1 1 14rem; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AUTOMATIONS — a trigger, a condition, an action, a saved result.
+
+   Its own screen for one agent, reached from the conversation. Nothing here is
+   new chrome: it borrows the agent screen's page, head, form and field styles,
+   and adds only what a list of automations and a history of runs need.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.ag-autos { padding: .2rem .2rem 1.4rem; display: flex; flex-direction: column; gap: .7rem; overflow-y: auto; }
+
+.ag-auto {
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel);
+  padding: .85rem .95rem;
+}
+/* AN AUTOMATION THAT IS OFF READS AS OFF, and the chip says it in words as well —
+   colour alone is not a label. */
+.ag-auto-off { opacity: .62; }
+
+.ag-auto-top { display: flex; align-items: flex-start; gap: .8rem; flex-wrap: wrap; }
+.ag-auto-m { min-width: 0; flex: 1 1 15rem; }
+.ag-auto-n { font-weight: 600; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.ag-auto-s { color: var(--muted); font-size: .85rem; margin-top: .15rem; }
+
+/* The steps, as a sentence each, so a row says what the automation DOES without
+   anybody having to open it. */
+.ag-auto-steps { display: flex; flex-direction: column; gap: .12rem; margin-top: .45rem; }
+.ag-auto-step { color: var(--muted); font-size: .82rem; line-height: 1.45; }
+.ag-auto-none { color: var(--muted); font-size: .85rem; }
+
+.ag-auto-acts { display: flex; gap: .4rem; flex-wrap: wrap; align-items: flex-start; }
+.ag-auto-btn {
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  border-radius: 8px; padding: .32rem .6rem; font-size: .8rem; cursor: pointer;
+}
+.ag-auto-btn:hover:not(:disabled) { background: var(--panel); }
+.ag-auto-btn:disabled { opacity: .45; cursor: default; }
+
+/* ── the history ─────────────────────────────────────────────────────────── */
+
+.ag-auto-runs {
+  margin-top: .8rem; padding-top: .8rem; border-top: 1px solid var(--line-2);
+  display: flex; flex-direction: column; gap: .6rem;
+}
+.ag-run { border: 1px solid var(--line-2); border-radius: 10px; padding: .6rem .7rem; }
+.ag-run-top { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
+.ag-run-when, .ag-run-how { color: var(--muted); font-size: .8rem; }
+.ag-run-out { margin-top: .4rem; font-size: .88rem; line-height: 1.5; }
+.ag-run-why { margin-top: .4rem; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+.ag-run-err { margin-top: .4rem; color: #b3261e; font-size: .84rem; line-height: 1.5; }
+
+/* EVERY STEP GETS A LINE, including the ones that never ran — a list that stopped
+   short would show a workflow ending for no stated reason. */
+.ag-run-steps { margin-top: .5rem; display: flex; flex-direction: column; gap: .2rem; }
+.ag-run-step { display: flex; align-items: baseline; gap: .5rem; font-size: .8rem; }
+.ag-step-n {
+  flex: 0 0 auto; min-width: 1.2rem; height: 1.2rem; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted);
+  font-size: .68rem; display: inline-flex; align-items: center; justify-content: center;
+}
+.ag-step-w { font-weight: 600; }
+.ag-step-o { color: var(--muted); text-transform: uppercase; font-size: .66rem; letter-spacing: .07em; }
+.ag-step-d { color: var(--muted); min-width: 0; }
+/* THE OUTCOME IS IN INK AS WELL AS IN WORDS, and the word is what carries it: a
+   reader who cannot tell the two greens apart still reads "skipped". */
+.ag-step-ran .ag-step-o { color: #1b7f4b; }
+.ag-step-skipped .ag-step-o { color: var(--muted); }
+.ag-step-failed .ag-step-o { color: #b3261e; }
+
+.ag-chip-off { color: var(--muted); }
+.ag-chip-queued { color: var(--muted); }
+.ag-chip-done { color: #1b7f4b; border-color: #1b7f4b; }
+.ag-chip-skipped { color: var(--muted); }
+.ag-chip-failed { color: #b3261e; border-color: #b3261e; }
+.ag-chip-missed { color: #9a6700; border-color: #9a6700; }
+.ag-chip-paused { color: var(--muted); }
+
+/* ── the form ────────────────────────────────────────────────────────────── */
+
+/* The time and the zone belong to a daily schedule and are hidden without one —
+   a control that answers nothing is worse than no control. */
+.ag-auto-when { margin: 0 0 1.1rem; }
+.ag-auto-when-off { display: none; }
+.ag-in-time { max-width: 10rem; }
+
+.ag-steps { display: flex; flex-direction: column; gap: .55rem; margin-bottom: .7rem; }
+.ag-step {
+  border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel);
+  padding: .6rem .7rem;
+}
+.ag-step-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.ag-step-k { color: var(--muted); text-transform: uppercase; font-size: .64rem; letter-spacing: .08em; }
+/* THE ORDER IS THE WORKFLOW, so the controls that change it sit on every step. */
+.ag-step-move { margin-left: auto; display: flex; gap: .25rem; }
+.ag-step-in { margin-top: .5rem; }
+.ag-step-days { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .55rem; }
+.ag-day {
+  display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem;
+  border: 1px solid var(--line); border-radius: 8px; padding: .22rem .45rem; cursor: pointer;
+}
+.ag-day input { width: 14px; height: 14px; margin: 0; accent-color: var(--text); }
+.ag-step-add { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
