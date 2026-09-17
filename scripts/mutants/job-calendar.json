@@ -58,6 +58,87 @@
     "to": "      return (due - anchor) >= (mins * 60000 - 30000);"
   },
   {
+    "label": "CONTROL: a comment only, inside the occurrence resolution",
+    "control": true,
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": " * THE TWO POLICIES, STATED, because the clock changes twice a year and both",
+    "to": " * THE TWO POLICIES, STATED (control), because the clock changes twice a year and both"
+  },
+  {
+    "label": "the offset is read at `now` again, so a zone change moves the occurrence — the reported defect itself",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  const midnight = Date.UTC(here.year, here.month - 1, here.day);\n  let best = null;\n  for (let back = 0; back <= 1; back++) {\n    const day = new Date(midnight - back * DAY_MS);\n    const x = occurrenceOn(zone, day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), hh, mi);\n    if (x != null && x <= t && (best == null || x > best)) best = x;\n  }\n  return best;",
+    "to": "  const offset = Date.UTC(here.year, here.month - 1, here.day, here.hour, here.minute) - Math.floor(t / 60000) * 60000;\n  const todayAt = Date.UTC(here.year, here.month - 1, here.day, hh, mi) - offset;\n  return todayAt <= t ? todayAt : todayAt - DAY_MS;"
+  },
+  {
+    "label": "a repeated local hour takes the LATER reading, so the job runs twice that day",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  return real.length ? Math.min(...real) : Math.max(...cand);",
+    "to": "  return real.length ? Math.max(...real) : Math.max(...cand);"
+  },
+  {
+    "label": "a nonexistent local hour takes the EARLIER candidate, so the job runs before the time asked for",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  return real.length ? Math.min(...real) : Math.max(...cand);",
+    "to": "  return real.length ? Math.min(...real) : Math.min(...cand);"
+  },
+  {
+    "label": "a nonexistent local hour is SKIPPED, so a daily job silently misses a day once a year",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  return real.length ? Math.min(...real) : Math.max(...cand);",
+    "to": "  return real.length ? Math.min(...real) : null;"
+  },
+  {
+    "label": "the candidate is never read back, so a clock reading the zone skips counts as real",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "    return !!p && p.year === y && p.month === mo && p.day === d && p.hour === hh && p.minute === mi;",
+    "to": "    return !!p;"
+  },
+  {
+    "label": "only the offset BEFORE the target is tried, so a time after the change resolves under the old one",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  const cand = before === after ? [wall - before] : [wall - before, wall - after];",
+    "to": "  const cand = [wall - before];"
+  },
+  {
+    "label": "the offset is probed at the target itself rather than a day either side, so a transition inside the day is invisible",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  const before = zoneOffsetAt(zone, wall - DAY_MS);\n  const after = zoneOffsetAt(zone, wall + DAY_MS);",
+    "to": "  const before = zoneOffsetAt(zone, wall);\n  const after = zoneOffsetAt(zone, wall);"
+  },
+  {
+    "label": "only today's local date is asked, so a time still ahead answers nothing instead of yesterday's",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  for (let back = 0; back <= 1; back++) {",
+    "to": "  for (let back = 0; back <= 0; back++) {"
+  },
+  {
+    "label": "an occurrence still ahead of now is accepted, so a job fires before its time",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "    if (x != null && x <= t && (best == null || x > best)) best = x;",
+    "to": "    if (x != null && (best == null || x > best)) best = x;"
+  },
+  {
     "label": "a known dependency failure is overwritten by an echoed id — the reported defect itself",
     "files": [
       "builder/site-requirements.mjs"

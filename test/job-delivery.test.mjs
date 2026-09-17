@@ -359,6 +359,54 @@ test("a Run now stamp does not shift a nightly job's occurrence", async () => {
   assert.equal(due(PRESSED_AGAIN, "2026-09-17T21:58:00Z"), false, "…and must not bring it forward either");
 });
 
+// ── AND THE CLOCKS CHANGING MUST NOT BRING IT ROUND AGAIN ────────────────────
+//
+// The owner's second reproduction (2026-09-16), and it is the case above's own
+// cost: the occurrence gate became the WHOLE rule for a daily job, so an
+// occurrence that moves is an extra run, where the elapsed test used to hide it.
+// `lastDueAt` read the zone's offset at NOW, so on the morning London goes back
+// it computed "today's 00:30" an hour later than the 00:30 already served, and
+// the job came due again — from 01:00Z, and for the rest of that day.
+test("a daily job is not selected twice on the day the clocks go back", async () => {
+  // Europe/London goes back at 2026-10-25T01:00:00Z — 02:00 BST becomes 01:00
+  // GMT. `last_run` is 00:30:05 BST, five seconds after the 25th's occurrence:
+  // the job has served that day.
+  const row = (last) => ({
+    name: "nightly", enabled: true, schedule_minutes: 1440,
+    spec: { fn: "nightly", at: "00:30", tz: "Europe/London" },
+    last_run: last, updated_at: "2026-10-01T00:00:00Z",
+  });
+  const due = (r, t) => dueJobs([r], Date.parse(t)).length === 1;
+  const SERVED = row("2026-10-24T23:30:05Z");
+
+  // THE OCCURRENCE ITSELF, spelled out — 00:30 BST on the 25th is 23:30Z on the
+  // 24th, and it must read the same on both sides of the transition. A verdict
+  // alone would not say WHICH of the two an hour apart is being claimed.
+  for (const t of ["2026-10-25T00:58:00Z", "2026-10-25T01:00:00Z", "2026-10-25T23:00:00Z"]) {
+    assert.equal(new Date(lastDueAt("00:30", "Europe/London", Date.parse(t))).toISOString(), "2026-10-24T23:30:00.000Z",
+      `the latest 00:30 London at ${t} is the one already served`);
+  }
+  assert.equal(due(SERVED, "2026-10-25T00:58:00Z"), false, "two minutes before the change it was correctly not due");
+  assert.equal(due(SERVED, "2026-10-25T01:00:00Z"), false, "and the clocks going back must not bring it round again");
+  // THE REST OF THAT DAY, which the two readings above only sample: the defect
+  // held from 01:00Z until the next day's occurrence, so every tick in between
+  // would have run it.
+  assert.equal(due(SERVED, "2026-10-25T23:00:00Z"), false, "nor at any tick for the rest of the day");
+
+  // THE FOLLOWING DAY STILL RUNS, and at the right minute. 00:30 on the 26th is
+  // GMT, so 00:30:00Z — twenty-five hours after the 25th's, because that
+  // calendar day had an extra hour in it.
+  assert.equal(due(SERVED, "2026-10-26T00:29:00Z"), false, "a minute before the 26th's occurrence");
+  assert.equal(due(SERVED, "2026-10-26T00:30:00Z"), true, "and due at it — the fix must not strand the job either");
+
+  // THE MIRROR FAILURE, on a job whose time falls INSIDE the repeated hour:
+  // reading the offset at `now` put the occurrence a whole DAY back at 01:00Z,
+  // which strands a run rather than duplicating one. Both directions come from
+  // the same line and both are fixed by the same one.
+  assert.equal(new Date(lastDueAt("01:30", "Europe/London", Date.parse("2026-10-25T01:00:00Z"))).toISOString(),
+    "2026-10-25T00:30:00.000Z", "01:30 London happened half an hour ago, not yesterday");
+});
+
 test("a job slower than daily keeps the elapsed interval, unchanged", async () => {
   // THE REASON THE FIX IS SCOPED TO `mins <= 1440`. A weekly 09:00 has to skip
   // six occurrences and the interval is what does that; the occurrence gate
