@@ -45,6 +45,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const know = new Map();                  // id -> the agent_knowledge row
   const mem = new Map();                   // id -> the agent_memory row
   const approvals = new Map();             // id -> the tool_approvals row
+  const revocations = new Set();           // `<agent>\u0000<tool>` — one tool_revocations row each
   let tokens = 0;                          // claim tokens, minted per claim
   /** Canonical JSON: what `jsonb` equality amounts to here — key order normalised. */
   const canon = (v) => JSON.stringify(v, (_k, x) =>
@@ -614,6 +615,58 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         ok: true, id: row.id, tool: row.tool, verdict: row.verdict, note: row.note,
         args_hash: row.args_hash, matches: row.args_hash === hash, requested_at: row.requested_at,
       });
+    }
+
+    /** `agent.revoked_tools` — which tools have been taken away from one agent.
+     *
+     * ⚠ A SET-RETURNING FUNCTION, SO THE ANSWER IS A BARE LIST OF STRINGS, which is the shape
+     * `revokedTools` refuses anything else in favour of. Answering `[]` for an agent this
+     * account does not own is the real function's own behaviour (the row is keyed on both), and
+     * it is the fail-closed direction here: a revocation can only ever subtract.
+     */
+    if (p.endsWith("/rpc/revoked_tools") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent_id: agentId } = body;
+      const a = agents.get(agentId);
+      if (!a || a.tenant_id !== tenant) return res(200, []);
+      return res(200, [...revocations]
+        .filter((k) => k.split("\u0000")[0] === agentId)
+        .map((k) => k.split("\u0000")[1]).sort());
+    }
+
+    /** `agent.revoke_agent_tool` — take one tool away now, and withdraw what waits for it.
+     *
+     * ⚠ THE SECOND HALF IS NOT OPTIONAL AND IS MIRRORED HERE: leaving a request pending would
+     * let somebody approve a call the permission for which has just been withdrawn, which is
+     * the approval and the permission disagreeing with the approval winning.
+     */
+    if (p.endsWith("/rpc/revoke_agent_tool") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent_id: agentId, p_tool: tool, p_by: by, p_note: note } = body;
+      if (!by || !String(by).trim()) return res(200, { ok: false, error: "no-decider" });
+      if (typeof tool !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(tool)) {
+        return res(200, { ok: false, error: "bad-tool" });
+      }
+      const a = agents.get(agentId);
+      if (!a || a.tenant_id !== tenant) return res(200, { ok: false, error: "no-agent" });
+      revocations.add(`${agentId}\u0000${tool}`);
+      let withdrew = 0;
+      for (const row of approvals.values()) {
+        if (row.tenant_id === tenant && row.agent_id === agentId && row.tool === tool && row.verdict === null) {
+          row.verdict = "revoked";
+          row.decided_by = by;
+          row.note = note ?? "the permission for this tool was withdrawn";
+          withdrew++;
+        }
+      }
+      return res(200, { ok: true, tool, withdrew });
+    }
+
+    /** `agent.restore_agent_tool` — lift a revocation. It does NOT re-open what it withdrew. */
+    if (p.endsWith("/rpc/restore_agent_tool") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent_id: agentId, p_tool: tool } = body;
+      const a = agents.get(agentId);
+      if (!a || a.tenant_id !== tenant) return res(200, { ok: false, error: "no-agent" });
+      const had = revocations.delete(`${agentId}\u0000${tool}`);
+      return res(200, { ok: true, tool, lifted: had });
     }
 
     /** `agent.list_memory` — one agent's remembered facts, by name.

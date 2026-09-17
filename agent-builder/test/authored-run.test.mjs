@@ -221,7 +221,7 @@ test("THE CONVERSATION A RUN WAS GIVEN COSTS IT NOTHING", () => {
  * run executes under is the one a deployment would use, placeholder instructions
  * and all.
  */
-function bench({ answers = [], agents = AGENTS, gate, verdict = () => ({ state: "approved", id: "ap-1" }) } = {}) {
+function bench({ answers = [], agents = AGENTS, gate, revoked = [], verdict = () => ({ state: "approved", id: "ap-1" }) } = {}) {
   const asked = [];
   let clock = NOW;
   const { rest, store, work } = liveStore({ now: () => clock });
@@ -255,8 +255,24 @@ function bench({ answers = [], agents = AGENTS, gate, verdict = () => ({ state: 
   // point: it is bound to the RUN as well as the account, and it needs NO authored agent
   // — every run can have a call that has to be put to a person.
   const gatings = [];
+  /**
+   * ⚠ AND IT ANSWERS `revokedTools` TOO, BECAUSE THE REAL STORE DOES.
+   *
+   * The first version of this fake had `forRun` alone, and the runner's revocation read went
+   * straight through it into a `TypeError` — eight cases red for the fixture's shape rather
+   * than the product's behaviour. *A fake less capable than the thing it stands in for hides
+   * a defect exactly as well as one that is more*, and here it would have hidden the whole
+   * of the revocation wiring: with the read deleted, every case would have gone green again.
+   *
+   * ⚠ AND THE ASK IS RECORDED PER DELIVERY, which is what makes "read live, not from the
+   * snapshot" drivable at all: a case can revoke a tool BETWEEN two deliveries of one run
+   * and watch the second delivery see it.
+   */
+  const revokeAsks = [];
+  let revokedNow = [...revoked];
   const approvals = {
     forTenant: (tenant) => ({
+      revokedTools: async (agentId) => { revokeAsks.push({ tenant, agentId }); return [...revokedNow]; },
       forRun: ({ runId, agentId }) => {
         gatings.push({ tenant, runId, agentId });
         return { ask: async (q) => { asked.push({ runId, ...q }); return { ...verdict(q), tool: q.tool }; } };
@@ -276,6 +292,7 @@ function bench({ answers = [], agents = AGENTS, gate, verdict = () => ({ state: 
     return runId;
   };
   return { rest, store, work, runner, calls, accept, timer, scopings, gatings, asked,
+           revokeAsks, revoke: (...names) => { revokedNow = [...revokedNow, ...names]; },
            advance: (ms) => { clock += ms; },
            kinds: (runId) => [...rest.entries.get(runId).values()].map((e) => e.kind) };
 }
@@ -1132,7 +1149,7 @@ test("⚠ A GATE THAT CANNOT BE REACHED IS RETRYABLE — the run is not closed o
     name: "plain", model: "stand-in", instructions: "do it", tools: [act], limits: { steps: 2 } }) };
   const b = bench({
     agents: registry, answers: [asksFor("act")],
-    gate: { forTenant: () => ({ forRun: () => ({ ask: async () => { throw new Error("HTTP 503"); } }) }) },
+    gate: { forTenant: () => ({ revokedTools: async () => [], forRun: () => ({ ask: async () => { throw new Error("HTTP 503"); } }) }) },
   });
   const runId = await b.accept(start({ agent: "plain", model: "stand-in" }));
   const out = await b.runner.deliver(runId);

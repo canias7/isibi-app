@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeApprovals, canonicalJson, argsHash, storedForm, approvalRefusal, APPROVAL_STATES, splitOperation } from "../src/approvals.mjs";
+import { makeApprovals, canonicalJson, argsHash, storedForm, approvalRefusal, toolRevoked, APPROVAL_STATES, splitOperation } from "../src/approvals.mjs";
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { CAPABILITIES, CAPABILITY_RPC } from "../src/capabilities.mjs";
 import { OFFERED } from "../src/agents.mjs";
@@ -666,4 +666,301 @@ test("⚠ AN OPERATION'S IDENTITY COMES APART INTO A POSITION AND A HASH, and th
   assert.equal(split.key, `${RUN}:4:2`);
   assert.equal(split.hash, await argsHash({ id: "a", n: 1 }));
   assert.equal(`${split.key}:${split.hash}`, real, "the split does not put back together");
+});
+
+// ── expiry, revocation and cancellation ──────────────────────────────────────
+
+test("⚠ THREE REFUSALS, THREE SENTENCES — and only `pending` may hold a run", async () => {
+  // A window that closed, a permission withdrawn and a person saying no are three different
+  // facts, and a model told the wrong one tells a customer the wrong one. `expired` in
+  // particular is a fact about TIME rather than about anybody's wishes, so it invites asking
+  // again where a rejection does not.
+  const seen = new Map();
+  for (const state of ["rejected", "revoked", "expired", "stale", "unavailable"]) {
+    const act = spy("act", { approval: true });
+    const r = await runAgent({
+      agent: agentWith([act]), prompt: "go",
+      approvals: gateOf({ state, id: "ap-1" }),
+      send: scripted([wants("act"), says("all right")]),
+    });
+    // ⚠ NONE OF THE FIVE HOLDS THE RUN. Only `pending` does, and the control below is what
+    // says so — without it "the run finished" would be satisfied by a gate nobody consults.
+    assert.equal(r.ok, true, `${state} stopped the run: ${JSON.stringify(r.stop)}`);
+    assert.equal(r.stop.reason, "answered", state);
+    assert.deepEqual(act.calls, [], `${state} let the call run`);
+    // A TOOL RESULT THE MODEL CAN READ, in the `no-backend` idiom: the tool did not fail.
+    const value = r.steps[0].results[0].value;
+    assert.equal(r.steps[0].results[0].ok, true, state);
+    assert.equal(value.ok, false, state);
+    assert.ok(typeof value.say === "string" && value.say.length > 0, state);
+    seen.set(state, { error: value.error, say: value.say });
+  }
+  // EVERY ONE NAMES ITSELF DIFFERENTLY, or two causes wearing one word is two fixes nobody
+  // can choose between.
+  assert.equal(new Set([...seen.values()].map((v) => v.error)).size, seen.size,
+    `two states share an error: ${JSON.stringify([...seen])}`);
+  assert.equal(new Set([...seen.values()].map((v) => v.say)).size, seen.size,
+    `two states share a sentence: ${JSON.stringify([...seen])}`);
+  assert.equal(seen.get("expired").error, "expired");
+  assert.equal(seen.get("revoked").error, "revoked");
+  // ⚠ AND THE EXPIRED SENTENCE SAYS IT MAY BE ASKED AGAIN, which is the one thing that
+  // distinguishes a closed window from a refusal in the only place a model reads.
+  assert.match(seen.get("expired").say, /asked again/);
+  assert.ok(!/declined/.test(seen.get("expired").say), "a closed window reads as a rejection");
+  assert.ok(!/declined/.test(seen.get("revoked").say), "a withdrawal reads as a rejection");
+
+  // ⚠ THE CONTROL: `pending` really does hold, so the five above are about the STATE and not
+  // about a gate that never stops anything.
+  const act = spy("act", { approval: true });
+  const held = await runAgent({
+    agent: agentWith([act]), prompt: "go", approvals: gateOf({ state: "pending", id: "ap-1" }),
+    send: scripted([wants("act")]),
+  });
+  assert.equal(held.stop.reason, "awaiting-approval");
+  assert.deepEqual(act.calls, []);
+});
+
+test("⚠ `APPROVAL_STATES` NAMES EVERY STATE `approvalRefusal` CAN BE HANDED, both ways", () => {
+  // A state the list forgets is one no screen knows to draw; a state the refusal has no arm
+  // for falls to `no-approver`, which says "there is nowhere to ask" about a decision that
+  // was made. Censused rather than listed.
+  assert.deepEqual([...APPROVAL_STATES].sort(),
+    ["approved", "expired", "pending", "rejected", "revoked", "stale"].sort());
+  const errors = new Map();
+  for (const state of APPROVAL_STATES) {
+    if (state === "approved" || state === "pending") continue;
+    const out = approvalRefusal({ state });
+    assert.equal(out.ok, false, state);
+    assert.notEqual(out.error, "no-approver", `${state} fell through to the no-approver arm`);
+    errors.set(state, out.error);
+  }
+  assert.equal(new Set(errors.values()).size, errors.size, JSON.stringify([...errors]));
+  // AND THE FALL-THROUGH IS STILL THERE for the one state that is not a decision at all.
+  assert.equal(approvalRefusal({ state: "unavailable" }).error, "no-approver");
+  assert.equal(approvalRefusal(undefined).error, "no-approver");
+  // A DECIDER'S OWN WORDS RIDE ON THE TWO STATES SOMEBODY REALLY SAID SOMETHING IN.
+  assert.match(approvalRefusal({ state: "rejected", note: "not today" }).say, /not today/);
+  assert.match(approvalRefusal({ state: "revoked", note: "wrong agent" }).say, /wrong agent/);
+});
+
+test("⚠ A REVOKED TOOL IS NOT OFFERED TO THE MODEL, AND CANNOT BE DISPATCHED", async () => {
+  const act = spy("act");
+  const read = spy("read");
+  const send = scripted([wants("act"), says("all right")]);
+  const r = await runAgent({
+    agent: agentWith([act, read]), prompt: "go", send, revoked: ["act"],
+  });
+  // IT IS NOT DESCRIBED. A model asked to plan with a tool it may not use spends tokens on a
+  // plan that cannot run.
+  assert.deepEqual(send.calls[0].tools.map((t) => t.name), ["read"]);
+  // AND IF IT NAMES IT ANYWAY, the refusal is a readable tool RESULT naming the withdrawal —
+  // never "no such tool", which is false about a tool that exists and says nothing about the
+  // reason.
+  assert.equal(r.ok, true, JSON.stringify(r.stop));
+  const value = r.steps[0].results[0].value;
+  assert.equal(r.steps[0].results[0].ok, true);
+  assert.equal(value.error, "tool-revoked");
+  assert.match(value.say, /permission to use act was withdrawn/);
+  assert.deepEqual(act.calls, [], "a revoked tool ran");
+  // ⚠ AND THE RECORD SAYS SO, BESIDE `withheld` RATHER THAN INSIDE IT: "never granted" and
+  // "taken away" are different facts with different remedies.
+  assert.deepEqual(r.revoked, ["act"]);
+  assert.deepEqual(r.withheld, []);
+});
+
+test("...AND A REVOCATION NAMING A TOOL THIS AGENT HAS NOT GOT REMOVES NOTHING", async () => {
+  // The observer-alive half. A record saying a run was narrowed when it was not is a record
+  // somebody will read as an explanation for something else.
+  const read = spy("read");
+  const send = scripted([wants("read"), says("done")]);
+  const r = await runAgent({ agent: agentWith([read]), prompt: "go", send, revoked: ["nothing-like-it"] });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.revoked, []);
+  assert.deepEqual(send.calls[0].tools.map((t) => t.name), ["read"]);
+  assert.deepEqual(read.calls, [{ n: "read" }], "the call did not run");
+});
+
+test("⚠ `revoked` IS REFUSED, NEVER COERCED — a failed read must not read as 'nothing'", async () => {
+  // A caller with nothing revoked passes `[]` or omits it. `null`, a string or a number is a
+  // caller whose READ FAILED, and reading that as "nothing is revoked" is the one direction
+  // that lets a withdrawn tool run.
+  for (const bad of [null, "act", 7, { act: true }]) {
+    await assert.rejects(() => runAgent({
+      agent: agentWith([spy("read")]), prompt: "go", send: scripted([says("hi")]), revoked: bad,
+    }), /revoked must be an array/, JSON.stringify(bad));
+  }
+  // ABSENT AND `undefined` ARE BOTH "nothing revoked", which is what an ordinary run passes.
+  for (const ok of [undefined, []]) {
+    const r = await runAgent({ agent: agentWith([spy("read")]), prompt: "go",
+                               send: scripted([says("hi")]), ...(ok === undefined ? {} : { revoked: ok }) });
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.revoked, []);
+  }
+  // A LIST HOLDING RUBBISH BESIDE A REAL NAME still revokes the real name and nothing else —
+  // the same rule `narrowTools` follows, because this list came out of a database column.
+  const act = spy("act");
+  const send = scripted([wants("act"), says("fine")]);
+  const r = await runAgent({ agent: agentWith([act]), prompt: "go", send,
+                             revoked: ["act", null, 7, "constructor", {}] });
+  assert.deepEqual(r.revoked, ["act"]);
+  assert.deepEqual(act.calls, []);
+});
+
+test("⚠ A PENDING CALL OF A REVOKED TOOL IS ANSWERED, NEVER RE-RUN", async () => {
+  // THE HALF `callable` ALONE CANNOT CARRY. A `repeatable` non-gated write — which `remember`
+  // and `forget` both are — would simply be dispatched again under a permission somebody has
+  // taken away. Re-running it IS a subsequent action.
+  const write = spy("write", { repeatable: true, writes: true });
+  const plain = spy("plain", { repeatable: true });
+  const agent = agentWith([write, plain]);
+  // A JOURNAL THAT KEEPS THE MODEL ANSWER AND REFUSES BOTH TOOL RESULTS — the process died
+  // after the batch was dispatched, which is exactly what a resume is for. (The same fixture
+  // the resume cases in `run.test.mjs` use, rather than a checkpoint: a checkpoint that
+  // throws escapes before the batch, so there would be nothing pending to be about.)
+  const log = [];
+  const j = { log, append: async (e) => { if (e.kind === "tool") throw new Error("store died"); log.push(e); } };
+  await runAgent({ agent, prompt: "go", journal: j,
+                   send: scripted([{ text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+                                     toolCalls: [{ id: "c0", name: "write", args: {} },
+                                                 { id: "c1", name: "plain", args: {} }] }]) });
+  write.calls.length = 0;
+  plain.calls.length = 0;
+  const state = replay(log);
+  assert.deepEqual(state.pending.map((p) => p.name), ["write", "plain"]);
+
+  // The resume gets its OWN journal, which accepts everything: the answers it writes for the
+  // two refused calls are what this case is about, and the log above cannot hold them.
+  const after = [];
+  const r = await runAgent({ agent, from: log, journal: { append: async (e) => { after.push(e); } },
+                             send: scripted([says("understood")]), revoked: ["write", "plain"] });
+  assert.equal(r.ok, true, JSON.stringify(r.stop));
+  assert.deepEqual(write.calls, [], "a revoked write was re-run on the resume");
+  assert.deepEqual(plain.calls, [], "a revoked tool was re-run on the resume");
+  // ⚠ AND THE SENTENCE DIFFERS BY WHETHER THE TOOL WRITES. A pending call's result was never
+  // recorded, so for a WRITE the earlier attempt may already have landed — and a revocation
+  // does not reach back and undo it. *Don't claim completed effects were undone.*
+  // ⚠ READ OFF WHAT THE RESUME REALLY WROTE. A refused pending call is answered by filling
+  // its gap in the LOG and re-replaying — that is what keeps one composer of the conversation
+  // — so the answers are journal entries rather than a live step's results.
+  const byName = new Map(after.filter((e) => e.kind === "tool").map((e) => [e.name, e.value]));
+  assert.deepEqual([...byName.keys()], ["write", "plain"], JSON.stringify(after.map((e) => e.kind)));
+  assert.match(byName.get("write").say, /whether the earlier attempt took effect is not known/);
+  assert.ok(!/is not known/.test(byName.get("plain").say),
+    `a non-writing tool claims an unknown: "${byName.get("plain").say}"`);
+  assert.equal(byName.get("write").error, "tool-revoked");
+  assert.equal(byName.get("plain").error, "tool-revoked");
+
+  // ⚠ THE CONTROL, and it is the one that matters: WITHOUT the revocation both calls really
+  // are re-run, because both are `repeatable`. So the case above is about the revocation and
+  // not about a resume that refuses everything.
+  const ran = await runAgent({ agent, from: log, send: scripted([says("understood")]) });
+  assert.equal(ran.ok, true, JSON.stringify(ran.stop));
+  assert.deepEqual(write.calls, [{}], "the control did not re-run a repeatable write");
+  assert.deepEqual(plain.calls, [{}]);
+});
+
+test("⚠ …AND IT IS NOT REPORTED AS A RESUME HAZARD, which would strand the run", async () => {
+  // A non-repeatable pending call normally refuses the resume and names it. A REVOKED one is
+  // not a hazard: we are not going to run it, so `repeatable` has nothing left to ask — and
+  // answering `cannot-resume` about it would strand the run for ever, because every later
+  // delivery would refuse the same way.
+  const once = spy("once", { writes: true, repeatable: true });
+  const never = spy("never");
+  const agent = agentWith([once, never]);
+  const log = [];
+  const j = { log, append: async (e) => { if (e.kind === "tool") throw new Error("store died"); log.push(e); } };
+  await runAgent({ agent, prompt: "go", journal: j,
+                   send: scripted([{ text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+                                     toolCalls: [{ id: "c0", name: "never", args: {} }] }]) });
+  never.calls.length = 0;
+  // WITHOUT the revocation this is the recorded refusal — `never` is not repeatable.
+  const stuck = await runAgent({ agent, from: log, send: scripted([says("x")]) });
+  assert.equal(stuck.stop.reason, "cannot-resume");
+  assert.deepEqual(stuck.stop.pending.map((p) => p.name), ["never"]);
+  // WITH it the run finishes, having answered the call rather than run it.
+  const freed = await runAgent({ agent, from: log, send: scripted([says("understood")]), revoked: ["never"] });
+  assert.equal(freed.stop.reason, "answered", JSON.stringify(freed.stop));
+  assert.deepEqual(never.calls, [], "a revoked tool ran on the resume");
+});
+
+test("⚠ A REVOKED TOOL IS NOT ASKED ABOUT, so nobody is put a question that cannot be answered", async () => {
+  const act = spy("act", { approval: true });
+  const gate = gateOf({ state: "pending", id: "ap-1" });
+  const r = await runAgent({
+    agent: agentWith([act]), prompt: "go", approvals: gate, revoked: ["act"],
+    send: scripted([wants("act"), says("all right")]),
+  });
+  // NOT ONE ASK. A request for a call the permission for which has been withdrawn is a
+  // question whose only honest answer is already known, and asking it would put a row on
+  // somebody's screen that approving cannot make run.
+  assert.deepEqual(gate.asks, []);
+  assert.equal(r.ok, true, JSON.stringify(r.stop));
+  assert.equal(r.steps[0].results[0].value.error, "tool-revoked");
+  // THE CONTROL: without the revocation the same call IS asked about, and holds.
+  const gate2 = gateOf({ state: "pending", id: "ap-1" });
+  const held = await runAgent({ agent: agentWith([act]), prompt: "go", approvals: gate2,
+                                send: scripted([wants("act")]) });
+  assert.equal(gate2.asks.length, 1);
+  assert.equal(held.stop.reason, "awaiting-approval");
+});
+
+test("⚠ `toolRevoked` NAMES THE TOOL, and refuses a name it cannot read", () => {
+  assert.match(toolRevoked("act").say, /use act was withdrawn/);
+  // REFUSED, NEVER COERCED: `String(["act"])` is `"act"`, so a list must not name a tool.
+  for (const bad of [undefined, null, 7, ["act"], {}, "  "]) {
+    const out = toolRevoked(bad);
+    assert.equal(out.error, "tool-revoked", JSON.stringify(bad));
+    assert.match(out.say, /that tool/, JSON.stringify(bad));
+  }
+  // AND `mayHaveRun` IS ONLY TRUE FOR `true` — a truthy value must not make the engine claim
+  // an uncertainty it has not established.
+  for (const notTrue of [undefined, false, "yes", 1, null]) {
+    assert.ok(!/is not known/.test(toolRevoked("act", { mayHaveRun: notTrue }).say), String(notTrue));
+  }
+  assert.match(toolRevoked("act", { mayHaveRun: true }).say, /is not known/);
+});
+
+test("⚠ THE REVOCATION AND CANCELLATION OPERATIONS: what each really sends", async () => {
+  // A CENSUS over the whole surface `forTenant` answers, because these five are the only
+  // things that can take a permission away or stop a run — and each is a POST whose profile
+  // header follows from the METHOD, never from what the function does.
+  const { can, sent } = backend(() => ({ ok: true }));
+  const scoped = can.forTenant(T);
+  const AP = "77777777-7777-4777-8777-777777777777";
+  await scoped.revokedTools(AG);
+  await scoped.revokeTool({ agentId: AG, tool: "act", by: "person-1", note: "wrong agent" });
+  await scoped.restoreTool({ agentId: AG, tool: "act" });
+  await scoped.revokeApproval({ id: AP, by: "person-1" });
+  await scoped.cancelRun({ runId: RUN, by: "person-1", reason: "changed my mind" });
+  assert.deepEqual(sent.map((x) => x.rpc),
+    ["revoked_tools", "revoke_agent_tool", "restore_agent_tool", "revoke_tool_approval", "cancel_run"]);
+  // ⚠ THE TENANT IS THE CLOSURE'S IN EVERY ONE, and there is no argument for it anywhere —
+  // so no model-written value can reach it even by accident.
+  for (const x of sent) {
+    assert.equal(x.body.p_tenant, T, x.rpc);
+    assert.equal(x.headers["content-profile"], "agent", x.rpc);
+    assert.equal(x.headers["accept-profile"], undefined, x.rpc);
+  }
+  assert.deepEqual(sent[1].body, { p_tenant: T, p_agent_id: AG, p_tool: "act", p_by: "person-1", p_note: "wrong agent" });
+  assert.deepEqual(sent[3].body, { p_tenant: T, p_id: AP, p_by: "person-1", p_note: null });
+  assert.deepEqual(sent[4].body, { p_tenant: T, p_run_id: RUN, p_by: "person-1", p_reason: "changed my mind" });
+});
+
+test("⚠ A REVOCATION LIST THAT IS NOT A LIST OF NAMES IS NOT READ AS ONE", async () => {
+  // `revoked_tools` is a set-returning function, so the answer is a bare list of strings.
+  // Anything else is refused rather than coerced — `String(["act"])` is `"act"`, and a
+  // malformed answer read as one tool name would revoke the wrong thing.
+  for (const answer of [{ ok: true }, "act", 7, null, [1, null, { tool: "act" }]]) {
+    const { can } = backend(() => answer);
+    assert.deepEqual(await can.forTenant(T).revokedTools(AG), [], JSON.stringify(answer));
+  }
+  const { can } = backend(() => ["act", 7, "read", null]);
+  assert.deepEqual(await can.forTenant(T).revokedTools(AG), ["act", "read"]);
+  // AN AGENT NOBODY NAMED IS NOT ASKED ABOUT AT ALL — a run with no authored agent has no
+  // row to key on, and `[]` is the only honest answer as well as the fail-closed one.
+  const { can: can2, sent } = backend(() => ["act"]);
+  for (const none of [undefined, null, "", "  ", 7]) {
+    assert.deepEqual(await can2.forTenant(T).revokedTools(none), [], JSON.stringify(none));
+  }
+  assert.deepEqual(sent, [], "an unnamed agent was asked about anyway");
 });

@@ -112,8 +112,11 @@ const spec = [
   m("run: tool dispatch FAILS OPEN — a withheld tool really runs", R,
     "const tool = typeof call?.name === \"string\" ? callable.get(call.name) : undefined;",
     "const tool = typeof call?.name === \"string\" ? agent.tools.find((t) => t.name === call.name) : undefined;"),
-  m("run: a tool this tenant cannot use is described to the model anyway", R,
-    "tools: wireTools(allowed), callMs", "tools: wireTools(agent.tools), callMs"),
+  // RE-ANCHORED, NOT APPEASED: the list handed to the provider is `offered` now — `allowed`
+  // less what has been revoked — so this one mutant breaks BOTH narrowings at once, which is
+  // a strictly stronger claim than the one it replaced.
+  m("run: a tool this tenant cannot use, or one taken away, is described to the model anyway", R,
+    "tools: wireTools(offered), callMs", "tools: wireTools(agent.tools), callMs"),
   m("run: the per-call ceiling ignores what the run has left", R,
     "const callMs = capMs(limits.callMs, leftOf(limits.wallMs, used.wallMs));",
     "const callMs = capMs(limits.callMs, Infinity);"),
@@ -1271,8 +1274,12 @@ const spec = [
     'if (answer.ok !== true) throw new Error(`request_tool_approval: ${answer.error ?? "refused"}`);', ""),
   m("approvals: the arguments go out unhashed, so nothing is bound to them", AP,
     "                p_hash: hash,", '                p_hash: "",'),
-  m("approvals: a rejection is read as a pause, so the model is never told", AP,
-    'if (answer.verdict === "rejected") {', "if (false) {"),
+  // RE-ANCHORED, NOT APPEASED. The single `rejected` branch became a loop over the three
+  // states the DATABASE names, so the property is the same and wider: empty the list and every
+  // refusal — a rejection, a withdrawal and a closed window alike — reads as still pending, and
+  // the run waits for ever on a question that has already been answered.
+  m("approvals: every refusal is read as a pause, so the model is never told", AP,
+    'for (const state of ["rejected", "revoked", "expired"]) {', "for (const state of []) {"),
   m("approvals: the person's own words are dropped", AP,
     "                         note: isText(answer.note) ? answer.note : null };",
     "                         note: null };"),
@@ -1339,11 +1346,15 @@ const spec = [
   m("run: a resumed run stops waiting and runs the call instead", R,
     '    const stillWaiting = [...decided.entries()].filter(([, d]) => d.state === "pending");',
     "    const stillWaiting = [];"),
+  // RE-ANCHORED, NOT APPEASED (twice): both lines gained the revoked slots, so the property
+  // each asserts is unchanged and each mutant now breaks it for a refusal AND for a
+  // withdrawal. Emptying the set strands the run on calls it is never going to make;
+  // collapsing the refusal runs them.
   m("run: a REFUSED pending call is read as a resume hazard, stranding the run", R,
-    '    const refusedHere = new Set([...decided.entries()]\n      .filter(([, d]) => d.state !== "approved").map(([i]) => i));',
+    '    const refusedHere = new Set([...revokedSlots, ...[...decided.entries()]\n      .filter(([, d]) => d.state !== "approved").map(([i]) => i)]);',
     "    const refusedHere = new Set();"),
   m("run: a refused pending call is RUN on the resume rather than answered", R,
-    '      if (verdict && verdict.state !== "approved") {\n        const said = toolEntry(',
+    "      if (refusal) {\n        const said = toolEntry(",
     "      if (false) {\n        const said = toolEntry("),
   m("run: an unreachable gate closes the run instead of leaving it to retry", R,
     '      return record(ended("approval-failed", { step: stepNo, error: String(e?.message ?? e) }));',

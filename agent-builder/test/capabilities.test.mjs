@@ -18,6 +18,7 @@ import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
 import { PUBLIC, defineTool } from "../src/define.mjs";
 import { profileHeader } from "../src/rest-profile.mjs";
 import { splitOperation } from "../src/approvals.mjs";
+import { AUTOMATION_STEPS, MAX_WORKFLOW_STEPS, readWorkflow } from "../src/automations.mjs";
 
 const T = "tenant-one";
 const AG = "11111111-1111-4111-8111-111111111111";
@@ -328,14 +329,45 @@ test("every capability tool is in the catalog, and every one is PUBLIC", () => {
   assert.equal(OFFERED.length, CAPABILITY_TOOLS.length + 1, "the catalog holds something else as well");
 });
 
+/**
+ * ⚠ THE TWO TOOLS THAT ARE ABOUT THE PLATFORM RATHER THAN ABOUT ONE ACCOUNT, declared here
+ * rather than inferred from a name — a rule built on the word "list" would break in silence
+ * the day a tool is renamed.
+ */
+const NEEDS_NO_BACKEND = Object.freeze(["list_actions", "check_workflow"]);
+
 test("⚠ A TOOL WITH NO BACKEND REFUSES BY NAME — it does not answer as though it worked", async () => {
+  // RE-ANCHORED, NOT APPEASED. This once ran over every capability tool, which was the
+  // property while all twelve read an account's rows. `list_actions` and `check_workflow`
+  // answer out of this repository's own code, and refusing them for want of a store is a
+  // control failing for a reason that has nothing to do with the request — so the census is
+  // now "every tool that NEEDS one refuses by name", with the two exceptions DECLARED and
+  // proved to be real tools, or a typo would exempt one that does not exist and excuse one
+  // that does.
+  for (const name of NEEDS_NO_BACKEND) {
+    assert.ok(CAPABILITY_TOOLS.some((t) => t.name === name), `${name} is not a tool`);
+  }
+  let asked = 0;
   for (const t of CAPABILITY_TOOLS) {
+    if (NEEDS_NO_BACKEND.includes(t.name)) continue;
+    asked++;
     for (const ctx of [undefined, {}, { capabilities: null }, { capabilities: "nope" }]) {
       const out = await t.run({ query: "x", id: AG, name: "n", value: "v", automation: AG, enabled: true }, ctx);
       assert.equal(out.ok, false, `${t.name} answered ok with no backend`);
       assert.equal(out.error, "no-backend", `${t.name}: ${JSON.stringify(out)}`);
       assert.match(out.say, /no store behind it/);
     }
+  }
+  assert.equal(asked, CAPABILITY_TOOLS.length - NEEDS_NO_BACKEND.length);
+  assert.ok(asked > 0, "the census asked about nothing");
+  // ⚠ AND THE OTHER HALF, which is what makes the exemption a property rather than a hole:
+  // the two really DO work with no backend, so a `pureTool` that quietly went back through
+  // `withBackend` is a red run rather than a silently refused catalog.
+  for (const name of NEEDS_NO_BACKEND) {
+    const t = CAPABILITY_TOOLS.find((x) => x.name === name);
+    const out = await t.run({ steps: [{ type: "note", text: "x" }] }, undefined);
+    assert.equal(out.ok, true, `${name} with no backend: ${JSON.stringify(out)}`);
+    assert.notEqual(out.error, "no-backend", name);
   }
 });
 
@@ -661,5 +693,136 @@ test("⚠ AN ABSORBED WRITE SAYS SO, AND ITS SENTENCE IS ABOUT THE PAST", async 
     assert.equal(fresh.ok, true, `${name} control: ${JSON.stringify(fresh)}`);
     assert.notEqual(fresh.repeat, true, `${name} reports every call as a repeat`);
     assert.ok(!says.test(fresh.say ?? ""), `${name} says the repeat sentence on a first call: "${fresh.say}"`);
+  }
+});
+
+// ── the authoring four, at the module ────────────────────────────────────────
+//
+// ⚠ **SIX SWEEP MUTANTS SURVIVED OVER THESE TOOLS, AND THE REASON IS RECORDED RATHER THAN
+// THE FIXES ALONE.** Every property below is proved end to end by `npm run verify:tools`,
+// which `npm run sweep` does not run — *a property proven only by an instrument the sweep
+// cannot run is a property no mutant can be caught by*, which this directory has now
+// recorded four times. What closes it is a case in this file, where a mutant can be seen.
+
+const stepsOf = (tool, args, answer) => {
+  const { can, sent } = recorder(answer);
+  return tool.run(args, { capabilities: can.forTenant(T).forAgent(AG), operation: OP() })
+    .then((out) => ({ out, sent }));
+};
+
+test("⚠ WHAT REACHES THE DATABASE IS THE READER'S OWN STEPS, NEVER THE MODEL'S LIST", async () => {
+  // Passing the raw list on would put an unvalidated step into the row with a validation
+  // having happened BESIDE it, which is the shape of every "it was checked" defect here.
+  const raw = [{ type: "note", text: "one" }, { type: "note", text: "two" }];
+  const make = CAPABILITY_TOOLS.find((t) => t.name === "make_automation");
+  const { out, sent } = await stepsOf(make, { name: "n", steps: raw }, () => ({ ok: true, id: AUTO }));
+  assert.equal(out.ok, true, JSON.stringify(out));
+  // ⚠ THE RPC IS `create_automation_once` — every write goes through its operation record
+  // (M7), so a needle pinned to the bare name finds nothing and reads as "nothing was
+  // written". Matched at the start, so the wrapper and the plain function both count.
+  const wrote = sent.find((x) => /^create_automation/.test(x.rpc));
+  assert.ok(wrote, `nothing was created: ${JSON.stringify(sent.map((x) => x.rpc))}`);
+  // ⚠ DERIVED FROM THE REAL PRODUCER, never transcribed: the id counter is 1-based and an
+  // expectation copied from a guess about a producer is a guess. (It was `s0` on the first
+  // draft of the demonstration, and measured `s1`.)
+  assert.deepEqual(wrote.body.p_steps, readWorkflow(raw).steps);
+  // …and the ids really are the reader's, so the assertion above is not vacuous over a
+  // list that happens to equal what was sent.
+  assert.deepEqual(wrote.body.p_steps.map((x) => x.id), readWorkflow(raw).steps.map((x) => x.id));
+  assert.notDeepEqual(wrote.body.p_steps, raw, "the model's own list went to the database");
+});
+
+test("⚠ A WORKFLOW THAT DOES NOT READ IS NOT SAVED — refused whole, with nothing written", async () => {
+  const bad = {
+    // A reference nothing produces, by name AND by position.
+    "a reference nothing produces": [{ type: "note", text: "hello {{nowhere}}" }],
+    // A branch that does not balance — refused while it is still somebody's form.
+    "a branch with no end": [{ type: "if", left: "a", op: "is", right: "a" }, { type: "note", text: "x" }],
+    // A type this deployment has never had.
+    "an invented action": [{ type: "teleport" }],
+  };
+  for (const [why, steps] of Object.entries(bad)) {
+    for (const name of ["make_automation", "change_automation"]) {
+      const tool = CAPABILITY_TOOLS.find((t) => t.name === name);
+      const { out, sent } = await stepsOf(tool, { id: AUTO, name: "n", steps },
+        (fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true, id: AUTO }));
+      assert.equal(out.ok, false, `${name} accepted ${why}: ${JSON.stringify(out)}`);
+      assert.equal(out.error, "bad-workflow", `${name} on ${why}: ${JSON.stringify(out)}`);
+      // THE READER'S OWN SENTENCE, not one of ours — so a customer is told what a save
+      // would have told them.
+      assert.ok(typeof out.say === "string" && out.say.length > 0, `${name} said nothing about ${why}`);
+      // NOTHING WAS WRITTEN. The negative assertion, with its observer alive below.
+      assert.deepEqual(sent.filter((x) => /^(create|update)_automation/.test(x.rpc)), [],
+        `${name} wrote something for ${why}`);
+    }
+  }
+  // ⚠ THE CONTROL, without which "nothing was written" is satisfied by a tool that never
+  // writes at all.
+  const ok = await stepsOf(CAPABILITY_TOOLS.find((t) => t.name === "make_automation"),
+    { name: "n", steps: [{ type: "note", text: "fine" }] }, () => ({ ok: true, id: AUTO }));
+  assert.equal(ok.out.ok, true, JSON.stringify(ok.out));
+  assert.ok(ok.sent.some((x) => /^create_automation/.test(x.rpc)), "the control wrote nothing either");
+});
+
+test("⚠ A SIBLING AGENT'S AUTOMATION IS NOT THIS AGENT'S TO REWRITE", async () => {
+  // The account filter is the database's. THIS is the wall no tenant filter can see: both
+  // agents share an owner, and a person is entitled to their whole account where an agent
+  // is entitled to its own.
+  const change = CAPABILITY_TOOLS.find((t) => t.name === "change_automation");
+  const { out, sent } = await stepsOf(change, { id: AUTO, name: "n", steps: [{ type: "note", text: "x" }] },
+    (fn) => (fn === "read_automation" ? { id: AUTO, agent: OTHER } : { ok: true, id: AUTO }));
+  assert.equal(out.ok, false, JSON.stringify(out));
+  assert.equal(out.error, "no-automation");
+  assert.deepEqual(sent.filter((x) => /^update_automation/.test(x.rpc)), [], "a sibling's automation was rewritten");
+  // AND THE CONTROL: the same call for THIS agent's own row goes through, so the refusal is
+  // about whose it is rather than about the call.
+  const mine = await stepsOf(change, { id: AUTO, name: "n", steps: [{ type: "note", text: "x" }] },
+    (fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true, id: AUTO }));
+  assert.equal(mine.out.ok, true, JSON.stringify(mine.out));
+  assert.ok(mine.sent.some((x) => /^update_automation/.test(x.rpc)));
+});
+
+test("⚠ A CREATED AUTOMATION'S ID IS DERIVED FROM THE CALL, so a redelivery is one automation", async () => {
+  const make = CAPABILITY_TOOLS.find((t) => t.name === "make_automation");
+  const args = { name: "n", steps: [{ type: "note", text: "x" }] };
+  const op = OP();
+  const first = await stepsOf(make, args, () => ({ ok: true, id: AUTO }));
+  const { can, sent } = recorder(() => ({ ok: true, id: AUTO }));
+  await make.run(args, { capabilities: can.forTenant(T).forAgent(AG), operation: op });
+  const again = { sent };
+  // The first call above minted its own `OP()`, so drive the SAME identity twice to make the
+  // claim about the identity rather than about randomness.
+  const { can: can2, sent: sent2 } = recorder(() => ({ ok: true, id: AUTO }));
+  await make.run(args, { capabilities: can2.forTenant(T).forAgent(AG), operation: op });
+  const idOf = (xs) => xs.find((x) => /^create_automation/.test(x.rpc)).body.p_id;
+  assert.equal(idOf(again.sent), idOf(sent2), "the same call minted two different automations");
+  // …AND A DIFFERENT CALL IS A DIFFERENT AUTOMATION, which is what says the id is not a
+  // constant. Without this, "the same twice" is satisfied by a hardcoded value.
+  assert.notEqual(idOf(first.sent), idOf(sent2), "every create takes the same id");
+  // It is a uuid, because the column is one.
+  assert.match(idOf(sent2), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+});
+
+test("⚠ THE CATALOG A MODEL READS IS THE WHOLE REGISTRY, AND THE CEILING IS THE PLATFORM'S", async () => {
+  const list = CAPABILITY_TOOLS.find((t) => t.name === "list_actions");
+  // NO BACKEND AT ALL, deliberately: it describes what the platform can do, not what one
+  // account holds — so it is the one capability tool that does not go through `withBackend`.
+  const out = await list.run({}, {});
+  assert.equal(out.ok, true, JSON.stringify(out));
+  // A CENSUS BOTH WAYS. A model told about fewer actions than exist cannot use them; told
+  // about more, it writes a workflow that is refused at the save.
+  assert.deepEqual(out.actions.map((a) => a.type).sort(), AUTOMATION_STEPS.map((d) => d.type).sort());
+  assert.equal(out.actions.length, AUTOMATION_STEPS.length);
+  // THE CEILING IS THE MODULE'S OWN, so a model is not told to guess it and cannot be told
+  // a bigger one than the reader will accept.
+  assert.equal(out.max, MAX_WORKFLOW_STEPS);
+  assert.ok(Number.isInteger(out.max) && out.max > 0, `the ceiling reads ${out.max}`);
+  // Every action says what it is and what it takes, or the form a model fills is a guess.
+  for (const a of out.actions) {
+    const d = AUTOMATION_STEPS.find((x) => x.type === a.type);
+    assert.equal(a.kind, d.stepKind, a.type);
+    assert.equal(a.label, d.label, a.type);
+    assert.equal(a.does, d.does, a.type);
+    assert.deepEqual(a.fields.map((f) => f.name), d.configless ? [] : d.fields.map((f) => f.name), a.type);
   }
 });

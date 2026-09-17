@@ -28,7 +28,7 @@
 import { planLimits, narrowLimits, stoppedBy, leftOf, capMs } from "./limits.mjs";
 import { toolsFor, wireTools } from "./define.mjs";
 import { runFanout } from "./fanout.mjs";
-import { approvalRefusal, argsHash } from "./approvals.mjs";
+import { approvalRefusal, toolRevoked, argsHash } from "./approvals.mjs";
 import { addMeter, usageTokens } from "./meters.mjs";
 import {
   replay, startedEntry, modelEntry, toolEntry, stoppedEntry,
@@ -147,7 +147,40 @@ export async function runAgent(opts = {}) {
   // The tenancy wall, asked ONCE and before any call. Its `withheld` half rides
   // on the record so the caller can say why the agent could not do a thing.
   const { allowed, withheld } = toolsFor(agent, tenant?.grants);
-  const callable = new Map(allowed.map((t) => [t.name, t]));
+
+  /**
+   * ── AN EXPLICIT REVOCATION, ENFORCED BEFORE THE NEXT ACTION ────────────────
+   *
+   * **IT SUBTRACTS, AND SUBTRACTING IS THE WHOLE MECHANISM** — the same rule
+   * `narrowTools` and `narrowLimits` follow: everything that narrows what a run may
+   * do may only ever reduce. A revoked tool is not offered to the model (so it is
+   * not asked to make a plan that cannot run and no tokens are spent describing it)
+   * and it is not in `callable` (so it cannot be dispatched however it is named).
+   *
+   * ⚠ **IT IS READ LIVE, NOT FROM THE SNAPSHOT, AND THAT IS DELIBERATELY UNLIKE
+   * EVERY OTHER PERMISSION HERE.** The tool SELECTION is snapshotted into the run's
+   * first journal entry precisely so a customer editing their settings cannot change
+   * what a run already under way may call. A revocation is the opposite act: it
+   * exists to stop a run already under way, so it has to be asked again on every
+   * delivery. Two acts, two readers — see `approvals.mjs`' `revokedTools`.
+   *
+   * REFUSED, NOT COERCED. A caller with nothing revoked passes `[]` or omits it;
+   * `null` or a string would be a caller whose read failed, and reading that as
+   * "nothing is revoked" is the one direction that lets a withdrawn tool run.
+   */
+  if (Object.hasOwn(opts, "revoked") && opts.revoked !== undefined && !Array.isArray(opts.revoked)) {
+    throw new TypeError("runAgent: revoked must be an array of tool names");
+  }
+  // STRINGS ONLY, for `narrowTools`' own reason: this list came out of a database
+  // column, so it can hold anything, and a Set of arbitrary values is a Set that can
+  // be asked about `"constructor"`.
+  const revoked = new Set((Array.isArray(opts.revoked) ? opts.revoked : []).filter((n) => typeof n === "string"));
+  // WHAT WAS REALLY TAKEN AWAY, which is not the same as what was asked for: a
+  // revocation naming a tool this agent has not got removes nothing, and reporting it
+  // as removed would be a record saying a run was narrowed when it was not.
+  const revokedHere = Object.freeze(allowed.filter((t) => revoked.has(t.name)).map((t) => t.name));
+  const offered = revokedHere.length ? allowed.filter((t) => !revoked.has(t.name)) : allowed;
+  const callable = new Map(offered.map((t) => [t.name, t]));
 
   // ── the approval gate ──────────────────────────────────────────────────────
   //
@@ -209,6 +242,10 @@ export async function runAgent(opts = {}) {
     steps: Object.freeze(steps),
     used: Object.freeze({ ...used, wallMs: priorMs + (now() - startedAt) }),
     withheld,
+    // ⚠ BESIDE `withheld` AND NEVER FOLDED INTO IT. "this tenant was never granted
+    // it" and "somebody took it away" are different facts with different remedies,
+    // and one list holding both cannot say which happened.
+    revoked: revokedHere,
     tenant: tenant?.id ?? null,
     messages: Object.freeze(messages),
     resumed: !!prior,
@@ -258,6 +295,23 @@ export async function runAgent(opts = {}) {
         return record(ended("approval-failed", { error: String(e?.message ?? e) }));
       }
     }
+    /**
+     * ⚠ A PENDING CALL OF A TOOL THAT HAS SINCE BEEN REVOKED IS NOT RE-RUN.
+     *
+     * This is the half of a revocation that `callable` alone cannot carry. The gate above
+     * skipped it (a revoked tool is not in `callable`, so it has no `approval`) and the
+     * `repeatable` question below would otherwise ask nothing about it — a `repeatable`
+     * non-gated write, which `remember` and `forget` both are, would simply be DISPATCHED
+     * AGAIN under a permission somebody has taken away. Re-running it IS a subsequent
+     * action, which is exactly what a revocation has to stop.
+     *
+     * A GATED call is usually covered already, because `agent.revoke_agent_tool` withdraws
+     * every request still waiting for that tool — but that is the DATABASE's care and this
+     * is the engine's, and a revocation recorded while no request was pending leaves nothing
+     * for it to withdraw.
+     */
+    const revokedSlots = new Set([...prior.pending.entries()]
+      .filter(([, p]) => revoked.has(p.name)).map(([i]) => i));
     const stillWaiting = [...decided.entries()].filter(([, d]) => d.state === "pending");
     if (stillWaiting.length) {
       // NOTHING RAN AND NOTHING WAS SPENT. Recorded rather than finished, so the log
@@ -272,8 +326,13 @@ export async function runAgent(opts = {}) {
 
     // A call a person REFUSED, or one nobody could be asked about, never ran — so it is
     // not a resume hazard and is left out of the question below.
-    const refusedHere = new Set([...decided.entries()]
-      .filter(([, d]) => d.state !== "approved").map(([i]) => i));
+    // ⚠ AND A REVOKED SLOT JOINS THEM, FOR A DIFFERENT REASON WORTH WRITING DOWN. The
+    // members above never ran — the gate sits in front of the dispatch — whereas a revoked
+    // call MAY have run and we simply will not run it again. Both end in the same place
+    // (`repeatable` has nothing left to ask), and the sentence the model gets is what keeps
+    // the two honest: this one does not claim nothing happened.
+    const refusedHere = new Set([...revokedSlots, ...[...decided.entries()]
+      .filter(([, d]) => d.state !== "approved").map(([i]) => i)]);
     const unsafe = prior.pending.filter((p, i) => !refusedHere.has(i) && !callable.get(p.name)?.repeatable);
     if (unsafe.length) {
       // FAILS CLOSED, and names every tool that blocked it. Refusing strands the
@@ -302,9 +361,15 @@ export async function runAgent(opts = {}) {
       // can read and act on — `ok: true` because the tool did not fail, with the refusal
       // INSIDE the value, which is the shape every other wall in this product uses.
       const verdict = decided.get(i);
-      if (verdict && verdict.state !== "approved") {
+      // ⚠ THE REVOCATION IS ASKED FIRST, and its sentence is the one that has to be right:
+      // a withdrawn permission is not somebody declining a call, and for a WRITING tool the
+      // earlier attempt may already have landed. `toolRevoked` says both.
+      const refusal = revokedSlots.has(i)
+        ? toolRevoked(p.name, { mayHaveRun: agent.tools.some((t) => t.name === p.name && t.writes === true) })
+        : (verdict && verdict.state !== "approved" ? approvalRefusal(verdict) : null);
+      if (refusal) {
         const said = toolEntry({ at: now(), step: p.step, index: p.index, name: p.name,
-                                 ms: 0, ok: true, value: approvalRefusal(verdict) });
+                                 ms: 0, ok: true, value: refusal });
         entries.push(said);
         if (!(await write(said))) return record(ended("journal-failed", { error: journalError, step: p.step }));
         continue;
@@ -388,7 +453,7 @@ export async function runAgent(opts = {}) {
     try {
       answer = await send({
         model: agent.model, system: agent.instructions,
-        messages: [...messages], tools: wireTools(allowed), callMs, step: stepNo,
+        messages: [...messages], tools: wireTools(offered), callMs, step: stepNo,
       });
     } catch (error) {
       // NO AUTO-RETRY, and that is the owner's money rule rather than a technical
@@ -475,6 +540,11 @@ export async function runAgent(opts = {}) {
 
     const results = await runFanout(asked, async (call, i) => {
       const tool = typeof call?.name === "string" ? callable.get(call.name) : undefined;
+      // ⚠ A TOOL WHOSE PERMISSION WAS WITHDRAWN IS ANSWERED, NOT REPORTED MISSING. It is
+      // already out of `callable`, so it would otherwise fall into the branch below and read
+      // as "no such tool" — which is false about a tool that exists, and tells a customer
+      // nothing about the withdrawal that is the real reason. Asked FIRST for that reason.
+      if (typeof call?.name === "string" && revoked.has(call.name)) return toolRevoked(call.name);
       // FAILS CLOSED, and it is not redundant with `toolsFor`: a model can name a
       // tool that was never offered — a withheld one, or one it invented — and
       // that must come back as a readable tool RESULT so the model can correct

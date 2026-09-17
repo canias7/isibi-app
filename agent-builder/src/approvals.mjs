@@ -197,7 +197,26 @@ const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  *   `pending`   — nobody has answered. Stop the run and wait; nothing has been spent.
  *   `stale`     — there is a request at this position for DIFFERENT arguments. Fail closed.
  */
-export const APPROVAL_STATES = Object.freeze(["approved", "rejected", "pending", "stale"]);
+/**
+ * ⚠ SIX STATES, AND EVERY ONE IS A DIFFERENT THING TO DO ABOUT IT.
+ *
+ *   `approved`  — a person said yes to THESE arguments. Run it.
+ *   `rejected`  — a person said no. Do not run it; tell the model, with their words.
+ *   `revoked`   — somebody withdrew the request or the permission. Nobody refused the CALL,
+ *                 which is why it is not a rejection: the answer is about the authority
+ *                 being taken back rather than about the work being unwanted.
+ *   `expired`   — nobody answered inside the window. Nothing was decided by anybody, which
+ *                 is why it is not a verdict at all and is derived from the clock.
+ *   `pending`   — nobody has answered yet. Stop the run and wait; nothing has been spent.
+ *   `stale`     — there is a request at this position for DIFFERENT arguments. Fail closed.
+ *
+ * **`revoked`, `expired` AND `rejected` ARE THREE REFUSALS AND NOT ONE.** A model told "a
+ * person declined this" about a request nobody ever saw would report the wrong thing to a
+ * customer, and one told "it timed out" about a real refusal would ask again.
+ */
+export const APPROVAL_STATES = Object.freeze([
+  "approved", "rejected", "revoked", "expired", "pending", "stale",
+]);
 
 /**
  * WHAT THE MODEL IS TOLD when a call does not happen. One copy, because the run loop says
@@ -216,6 +235,22 @@ export const approvalRefusal = (decision) => {
                ? `a person declined this, and said: ${decision.note}`
                : "a person declined this" };
   }
+  if (decision?.state === "revoked") {
+    // ⚠ NOT A REJECTION. Either the request was withdrawn before anybody answered, or the
+    // permission for the tool was taken away — in both cases nobody said the work was
+    // unwanted, and a model told "a person declined this" would say so to a customer.
+    return { ok: false, error: "revoked",
+             say: decision.note
+               ? `the authority for this was withdrawn: ${decision.note}`
+               : "the authority for this was withdrawn, so nothing was done" };
+  }
+  if (decision?.state === "expired") {
+    // ⚠ NOBODY DECIDED ANYTHING. The window closed, which is a fact about time rather than
+    // about anyone's wishes — so the model is told that, and may reasonably ask again at a
+    // later step rather than treating it as a refusal of the work.
+    return { ok: false, error: "expired",
+             say: "nobody answered this in time, so nothing was done — it can be asked again" };
+  }
   if (decision?.state === "stale") {
     return { ok: false, error: "arguments-changed",
              say: "the decision on record is about different arguments, so nothing was done — " +
@@ -225,6 +260,32 @@ export const approvalRefusal = (decision) => {
   // because "somebody said no" and "nobody could be asked" want opposite things done.
   return { ok: false, error: "no-approver",
            say: "this needs a person's approval and there is nowhere to ask, so nothing was done" };
+};
+
+/**
+ * WHAT THE MODEL IS TOLD WHEN THE PERMISSION ITSELF WAS TAKEN AWAY — which is a different
+ * fact from every state above, and the sentences have to differ or it reads as a rejection.
+ *
+ * **A REVOCATION IS NOT A DECISION ABOUT A CALL; IT IS A DECISION ABOUT A TOOL.** Nobody
+ * looked at these arguments and said no: somebody withdrew the agent's permission to use
+ * the tool at all, so every call of it — this one and any later one — is refused for the
+ * same reason. `approvalRefusal` cannot say that, because its whole subject is one row
+ * somebody was shown.
+ *
+ * ⚠ **AND ON A RESUME IT MUST NOT CLAIM NOTHING HAPPENED.** A pending call is one whose
+ * result was never written, so for a WRITING tool the first attempt may already have
+ * landed — and a revocation does not reach back and undo it. *Don't claim completed
+ * effects were undone*: the sentence says what is true (we will not run it again) and
+ * stops short of what is not (that it never ran).
+ */
+export const toolRevoked = (name, opts = {}) => {
+  const tool = isText(name) ? name : "that tool";
+  const may = opts?.mayHaveRun === true;
+  return { ok: false, error: "tool-revoked",
+           say: may
+             ? `the permission to use ${tool} was withdrawn, so it was not run again — ` +
+               "whether the earlier attempt took effect is not known from here"
+             : `the permission to use ${tool} was withdrawn, so nothing was done` };
 };
 
 export function makeApprovals(opts = {}) {
@@ -271,6 +332,73 @@ export function makeApprovals(opts = {}) {
       if (!isText(tenant)) throw new TypeError("forTenant: tenant must be a non-empty string, from the claim");
       return {
         /**
+         * WHICH TOOLS THIS AGENT MAY NO LONGER USE, read LIVE and never from the snapshot.
+         *
+         * ⚠ **THIS IS THE ONE THING ABOUT AN IN-FLIGHT RUN THAT IS DELIBERATELY NOT
+         * SNAPSHOTTED, and the asymmetry is the whole design.** A customer un-ticking a
+         * tool is a statement about what the agent may do FROM NOW ON, so it reaches the
+         * next run and not this one — which is why `agent.agents.tools` is copied into the
+         * run's first journal entry and read from there. A REVOCATION is a statement about
+         * what must stop, so it has to reach a run already going. Two different acts, two
+         * different readers; collapsing them would mean either that an ordinary settings
+         * edit silently re-permissions a live run, or that a withdrawal cannot stop one.
+         *
+         * A run with no authored agent has no revocations to read (there is no row to key
+         * on), which is `[]` — the same answer as an agent nobody has revoked anything for.
+         * The two are indistinguishable and do not need distinguishing: neither subtracts.
+         */
+        async revokedTools(agentId) {
+          if (!isText(agentId)) return [];
+          const rows = await call("revoked_tools", { p_tenant: tenant, p_agent_id: agentId });
+          // A SET-RETURNING FUNCTION ANSWERS A LIST OF STRINGS. Anything else is refused
+          // rather than coerced — `String(["a"])` is `"a"`, and a malformed answer read as
+          // one tool name would revoke the wrong thing.
+          return Array.isArray(rows) ? rows.filter((r) => typeof r === "string") : [];
+        },
+
+        /**
+         * Take one tool away from one agent, now.
+         *
+         * `by` is the person, from a VERIFIED session at the caller — the database refuses
+         * a blank one, for the reason `decide_tool_approval` does: a withdrawal nobody can
+         * be tied to is one nobody can be asked about afterwards.
+         */
+        async revokeTool({ agentId, tool, by, note = null } = {}) {
+          return call("revoke_agent_tool", {
+            p_tenant: tenant, p_agent_id: agentId, p_tool: tool, p_by: by, p_note: note,
+          });
+        },
+
+        /** Lift a revocation. It does NOT re-open the requests the revocation withdrew. */
+        async restoreTool({ agentId, tool } = {}) {
+          return call("restore_agent_tool", { p_tenant: tenant, p_agent_id: agentId, p_tool: tool });
+        },
+
+        /**
+         * Withdraw ONE waiting request, without deciding it.
+         *
+         * Separate from `decide_tool_approval` because it is not a verdict: nobody looked at
+         * the call and said no, so a model told "a person declined this" would be told a
+         * thing that did not happen.
+         */
+        async revokeApproval({ id, by, note = null } = {}) {
+          return call("revoke_tool_approval", {
+            p_tenant: tenant, p_id: id, p_by: by, p_note: note,
+          });
+        },
+
+        /**
+         * Stop one run: release its work, clear any wait, withdraw anything waiting for a
+         * person, and record how far it got. **Nothing already done is undone**, and the
+         * answer says so rather than leaving a caller to infer it.
+         */
+        async cancelRun({ runId, by, reason = null } = {}) {
+          return call("cancel_run", {
+            p_tenant: tenant, p_run_id: runId, p_by: by, p_reason: reason,
+          });
+        },
+
+        /**
          * One run's gate. `agentId` is the AUTHORED agent, so a screen can show what is
          * waiting without joining through the journal; a run started through `POST /runs`
          * has none and the column is nullable.
@@ -303,9 +431,15 @@ export function makeApprovals(opts = {}) {
               // travelled, and the row it has to agree with is the one a person was shown.
               if (answer.matches !== true) return { state: "stale", id: answer.id ?? null, tool };
               if (answer.verdict === "approved") return { state: "approved", id: answer.id ?? null, tool };
-              if (answer.verdict === "rejected") {
-                return { state: "rejected", id: answer.id ?? null, tool,
-                         note: isText(answer.note) ? answer.note : null };
+              // ⚠ **THE DATABASE NAMES THE STATE AND THIS DOES NOT RE-DERIVE IT.** `expired`
+              // is the clock's answer and `revoked` is somebody's act; comparing a timestamp
+              // here would be a second copy of the window's rule over a value that travelled,
+              // and the two copies would disagree the moment either clock drifted.
+              for (const state of ["rejected", "revoked", "expired"]) {
+                if (answer.verdict === state) {
+                  return { state, id: answer.id ?? null, tool,
+                           note: isText(answer.note) ? answer.note : null };
+                }
               }
               return { state: "pending", id: answer.id ?? null, tool };
             },

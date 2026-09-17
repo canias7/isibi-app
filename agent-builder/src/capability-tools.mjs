@@ -101,6 +101,30 @@ const text = (v) => (typeof v === "string" ? v.trim() : "");
 
 const tool = (spec) => defineTool({ ...spec, scope: PUBLIC, run: withBackend(spec.run) });
 
+/**
+ * A TOOL THAT NEEDS NO BACKEND AT ALL — and the distinction is real rather than tidy.
+ *
+ * Ten of these tools are about what ONE ACCOUNT holds, so without a store there is nothing
+ * for them to answer and `withBackend`'s refusal is the honest reply. Two are about what THE
+ * PLATFORM can do: the catalog of actions, and whether a step list reads. Both are answered
+ * out of this repository's own code, so refusing them for want of a store would be a control
+ * failing for a reason that has nothing to do with the request — and worse, it would tell a
+ * model there is no store when what it asked for never needed one.
+ *
+ * ⚠ **AND THE COMMENT ON `list_actions` ALREADY CLAIMED THIS BEFORE THE CODE DID.** It said
+ * in as many words that the tool "does not go through `withBackend`", while `tool()` wrapped
+ * it like every other — so on a deployment with no backend the catalog answered `no-backend`
+ * and a model could not read the actions it needs to compose a workflow. Found by a case
+ * written to census the catalog. *A claim in a comment is not a property of the code.*
+ *
+ * The arguments are normalised the same way, because that is about the MODEL's output and not
+ * about the store.
+ */
+const pureTool = (spec) => defineTool({
+  ...spec, scope: PUBLIC,
+  run: async (args, ctx) => spec.run(args && typeof args === "object" ? args : {}, null, ctx),
+});
+
 // ── reference material ──────────────────────────────────────────────────────
 
 const searchReference = tool({
@@ -475,7 +499,7 @@ const SCHEDULE_FIELDS = Object.freeze({
   atLocal: { type: "string", description: 'For a daily one, the local time as "HH:MM".' },
 });
 
-const listActions = tool({
+const listActions = pureTool({
   name: "list_actions",
   description:
     "The actions a workflow can be built from: each one's type, what it does, and the " +
@@ -485,8 +509,8 @@ const listActions = tool({
   // ⚠ THE CATALOG IS THE SERVER'S AND THE MODEL ONLY READS IT. It comes from
   // `AUTOMATION_STEPS` — code in this repository — so a step a model invents is not a step,
   // and neither an instruction sheet nor a saved document can add one. **No backend is
-  // needed for it**, which is why this tool does not go through `withBackend`: it describes
-  // what the platform can do, not what one account holds.
+  // needed for it**, which is why it is a `pureTool`: it describes what the platform can do,
+  // not what one account holds.
   run: async () => ({
     ok: true,
     max: MAX_WORKFLOW_STEPS,
@@ -503,7 +527,7 @@ const listActions = tool({
   }),
 });
 
-const checkWorkflow = tool({
+const checkWorkflow = pureTool({
   name: "check_workflow",
   description:
     "Check a workflow without saving it: whether every action is real, every field readable, " +

@@ -633,6 +633,36 @@ export function makeRunner(opts = {}) {
         ? approvals.forTenant(claim.tenant).forRun({ runId, agentId: authoredAgent })
         : null;
 
+      /**
+       * ⚠ WHICH TOOLS HAVE BEEN TAKEN AWAY — READ LIVE, ON EVERY DELIVERY, AND NEVER FROM
+       * THE SNAPSHOT.
+       *
+       * **THE ASYMMETRY WITH THE LINES ABOVE IS THE DESIGN, not an inconsistency.** The tool
+       * SELECTION is read from `open.state.tools` — the run's own first journal entry —
+       * precisely so a customer editing their settings cannot change what a run already
+       * under way may call: that edit is a statement about what the agent may do from now
+       * on. A REVOCATION is a statement about what must stop, so it has to reach a run
+       * already going, which means asking the database again here.
+       *
+       * IT COSTS ONE READ PER DELIVERY and it is not optional: a revocation nobody asks
+       * about is a revocation that does not revoke anything. **A read that FAILS raises**,
+       * through the same path every other store failure takes — answering `[]` would be an
+       * outage silently restoring every withdrawn permission, which is the one direction
+       * that lets a revoked tool run.
+       *
+       * A run with no authored agent has nothing to revoke against and answers `[]`; so
+       * does an agent nobody has revoked anything for. The two do not need distinguishing,
+       * because neither subtracts anything.
+       */
+      const revoked = approvals && authoredAgent
+        ? await approvals.forTenant(claim.tenant).revokedTools(authoredAgent)
+        : [];
+      // SAID, never silently applied. A withdrawal is somebody's deliberate act and the one
+      // place an operator can see it took effect on a run already going is this log line.
+      if (revoked.length) {
+        onEvent({ at: "tools-revoked", runId, agent: registered.name, tools: revoked });
+      }
+
       const record = await runAgent({
         agent,
         tenant: { id: claim.tenant },
@@ -643,6 +673,11 @@ export function makeRunner(opts = {}) {
         // and a redelivery of this run asks the database for the same row.
         operationSeed: runId,
         newId,
+        // ⚠ SUBTRACTED INSIDE THE LOOP rather than applied to `agent` here, because the loop
+        // needs the NAMES: a revoked tool a model asks for anyway has to be answered with the
+        // real reason, and a pending call of one has to be answered rather than re-run. An
+        // agent narrowed here would leave both of those reading as "no such tool".
+        revoked,
         from: open.entries,
         // **OWNERSHIP BEFORE ANY NEW WORK, ASKED OF THE DATABASE.** Before each model
         // call and before each tool batch — so a claim lost during the previous step
