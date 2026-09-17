@@ -113,6 +113,13 @@ function wallParts(zone, t) {
  * The zone's offset AT THE INSTANT `t` — milliseconds to add to UTC to get the
  * wall clock — read as "the wall clock taken as if it were UTC, minus the real
  * instant". Minute precision, which is every offset the tz database holds.
+ *
+ * THE FLOOR IS A DECLARED BELT, measured inert rather than reasoned about: every
+ * caller passes an instant `Date.UTC` built at minute precision, so flooring it
+ * changes nothing today and a sweep mutant on that line would survive. It stays
+ * because the contract above is "the offset at an instant", and a sub-minute
+ * error inside a scheduler is the kind nobody ever sees. Said here because a
+ * sweep cannot say it, and the next session deletes what nothing appears to need.
  */
 function zoneOffsetAt(zone, t) {
   const p = wallParts(zone, t);
