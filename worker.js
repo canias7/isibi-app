@@ -135,7 +135,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -206,7 +206,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, orderingMoved } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -23174,11 +23174,39 @@ async function handleRequest(request, env, ctx) {
             // The names THIS message added, per list, so the note can mark them
             // as being built rather than presenting them as already there.
             const aNewNames = { tables: [], functions: [], jobFns: [], apis: [], jobs: [] };
+            // ── AND THE FRONTEND HALF OF THE SAME FACT (2026-09-17) ───────
+            //
+            // Owner: *"Pass newly planned frontend items to subsequent
+            // designers, as we already do for backend declarations."* The
+            // backend tiers have crossed between kinds since 2026-09-14; a
+            // page decided by the `page` designer reached nobody, and the
+            // `component`, `qr` and `three` designers all run AFTER it. The
+            // two reproductions are in `cleanAdd`'s own comment.
+            //
+            // `{path, name}` rather than a bare route, because the note names
+            // each planned page the way it names a live one — a designer that
+            // cannot tell which new page is "the gallery" cannot place a
+            // section on it any better than one that never heard of it.
+            const aNewPages = [];
+            // THE COMPONENTS THE SITE REALLY HAS A FILE FOR — `look.tsx` is
+            // the cumulative DECLARATION list and says nothing about whether
+            // anything was ever written. Read once, here, because the note
+            // and the page call both need it and a second read could answer
+            // differently. A read that fails is `null`, which `siteNote`
+            // reads as "not asked" and leaves the old sentence: cannot-tell
+            // must not read as "this site has no components of its own".
+            const aStoredParts = await loadSiteParts(env, ownerSlug);
             const siteFacts = (spec) => ({
               name: aLook.brand || ownerSlug,
               url: aUrl,
               kind: aLook.kind === "tool" ? "tool" : "shopfront",
               pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+              // THE PAGES THIS SAME CHANGE IS ADDING, KEPT APART FROM THEM.
+              // `pages` is read off the site's real source and is the current
+              // implementation; this is the plan, one call old. Folding the
+              // two would make a section land on a page with no source and
+              // tell the designer to go and copy it.
+              planned: aNewPages.map((p) => ({ ...p })),
               // WHAT EACH PAGE CALLS ITSELF (run 28): its headline out of the
               // stored source, or its plan name — so "the booking page" is
               // findable among routes that never say the word.
@@ -23219,11 +23247,29 @@ async function handleRequest(request, env, ctx) {
               qr: qrList(aLook.qr),
               three: aHas.three ? (typeof aLook.three === "string" && aLook.three ? aLook.three : "one on the page") : null,
               tsx: Array.isArray(aLook.tsx) ? aLook.tsx : [],
+              // THE COMPONENTS THE SITE REALLY HAS, beside the declarations
+              // above. `tsx` is `look.tsx` — cumulative, a plan, and true of
+              // a component nobody ever wrote; `parts` is what has a file.
+              // `null` when the read failed, which `siteNote` prints as the
+              // old sentence rather than as "it has none".
+              parts: aStoredParts ? aStoredParts.map((p) => ({ name: p && p.name })) : null,
+              // AND THE LOOK IT IS WEARING (owner, 2026-09-17). Every add
+              // rule tells the designer to keep the site's design system;
+              // until today nothing in its inputs said what that system is.
+              // Names only — the stylesheet's BYTES go to the page writer,
+              // which is the step that emits markup it has to match.
+              theme: typeof aLook.theme === "string" ? aLook.theme : "",
+              css: !!(aCss && aCss.trim()),
               // WHICH OF THE NAMES ABOVE THIS MESSAGE IS STILL BUILDING.
               // `siteNote` marks each one, so a designer can rely on it and
               // still know it is not there yet.
               proposed: { ...aNewNames },
             });
+            // WHAT `cleanAdd` AND `siteNote` ARE HANDED IS ONE OBJECT, so the
+            // destination a designer was offered and the destination the
+            // cleaner will accept are the same list by construction. A second
+            // reader assembling its own view of the planned pages is the
+            // two-copies drift this repository has a name for.
             let aSite = siteFacts(aBaseline);
             // OUR MODEL CALL DIED — one answer for the picker and every add,
             // the edit route's `modelDown` shape: a billing refusal is on us
@@ -23788,6 +23834,26 @@ async function handleRequest(request, env, ctx) {
                 }
                 aSite = siteFacts(aProposed);
               }
+              // ── AND THE FRONTEND HALF (2026-09-17) ──────────────────────
+              //
+              // The same hand-off, for the one frontend kind that creates
+              // something a later kind can point at. `page` runs before
+              // `component`, `qr` and `three` in `ADD_KINDS`, so a message
+              // asking for a gallery page and a code that opens it had the
+              // page decided and the code refused in the same reply.
+              //
+              // `SPEC_OF_KIND` HAS NO `page` ENTRY AND MUST NOT GAIN ONE —
+              // it names the four SCHEMA tiers and `proposedSpec` writes
+              // into a spec list, which a page is not. This is its own
+              // branch for that reason rather than by omission.
+              if (k === "page") {
+                for (const item of Array.isArray(clean.value) ? clean.value : []) {
+                  if (!item || typeof item.path !== "string" || !item.path) continue;
+                  if (aNewPages.some((p) => p.path === item.path)) continue;
+                  aNewPages.push({ path: item.path, name: typeof item.name === "string" ? item.name : "" });
+                }
+                aSite = siteFacts(aProposed);
+              }
               // A CLOCK TIME IS READ IN THE OWNER'S ZONE (2026-09-03): the
               // browser sends its zone with the addon, and a job with a time
               // of day is stamped with it here — the model never answers a
@@ -24337,6 +24403,28 @@ async function handleRequest(request, env, ctx) {
             // call took on this model, per page it wrote, is the measure of
             // what a fix of one of those pages will take (run 36, 2026-09-04).
             let aPagesMs = 0, aPagesWrote = 0;
+            // WHAT THE PAGE WRITER IS SHOWN, DECIDED ONCE, ABOVE THE CALL AND
+            // ABOVE THE WALL THAT READS IT (2026-09-17).
+            //
+            // `aSentParts` is `partsSent`'s answer over the site's own stored
+            // components: which sources fit in this request, which were too
+            // large, and every name the site has a file for. `briefWithLayout`
+            // is handed the SAME array and calls the same pure function, so
+            // the block the writer reads and the wall below cannot disagree
+            // about what it was shown — and the wall is the reason this is a
+            // `const` here rather than a value computed inside the call.
+            const aSentParts = partsSent(aStoredParts);
+            // THE KIT SIGNATURES THIS REQUEST NEEDS: what the addition
+            // declares, plus what the pages being edited already import.
+            // `modules`, NEVER `kit` — the first is `seat-map` and the second
+            // is `SeatMap`, and `siteComponentApi`'s catalog is keyed on the
+            // first. Measured: handing it the export names answers "" for
+            // every one, which from outside reads as the site importing
+            // nothing at all.
+            const aPlanComponents = [...aFold.components];
+            for (const b of Object.values(pageComponents(aSrc))) {
+              for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);
+            }
             const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
             try {
@@ -24356,11 +24444,35 @@ async function handleRequest(request, env, ctx) {
               // goes through `plan.components` so the page call is shown their
               // exact props — the one thing the old designer's answer never
               // reached this call as.
+              // AND THE SIGNATURES OF WHAT THE SITE'S PAGES ALREADY IMPORT
+              // (2026-09-17). `plan.components` was the union of what THIS
+              // change declares, so a writer editing a page built from
+              // `<Accordion>` got `Accordion`'s props only if the addition
+              // happened to name it too. It is editing that page — every kit
+              // component on it is a component it may have to call correctly.
+              // A UNION, in the addition's order first: `siteComponentApi`
+              // drops what is already in the cached core, so the only cost is
+              // the signatures of what this site really uses.
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
-                plan: aFold.components.length ? { components: aFold.components } : null,
+                plan: aPlanComponents.length ? { components: aPlanComponents } : null,
                 images: 0,
-                tsx: aMerged.tsx, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
+                // THE SITE'S OWN COMPONENTS, WITH THEIR REAL SOURCE. Until
+                // today the writer was shown `tsx` — the DECLARATIONS — under
+                // a heading telling it to write them, so a page importing a
+                // component this platform wrote months ago was edited by a
+                // model that had never seen it, and any part it returned
+                // replaced the real file by name. `aSentParts` is computed
+                // ONCE and read twice: here, and by the wall below that
+                // decides whether a returned part may replace a stored one.
+                tsx: aMerged.tsx, parts: aStoredParts, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
+                // AND THE LOOK IT IS WEARING. The stylesheet is sent as
+                // ALREADY APPLIED, never as something to reproduce: it is
+                // appended last at build time so it wins on source order, and
+                // a model shown one with no such sentence restates its rules
+                // inline, where editing the stylesheet can no longer reach
+                // them.
+                theme: aMerged.theme || aLook.theme, css: aNextCss,
               // THE JOB'S CLOCK RIDES THE PAGE CALL TOO — the one call on this
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget);
@@ -24549,8 +24661,39 @@ async function handleRequest(request, env, ctx) {
             }
             // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
             // stored list by name — the page rung's own fix, one rung up.
-            const aParts = (aValid.parts && aValid.parts.length)
-              ? mergeParts(await loadSiteParts(env, ownerSlug), aValid.parts)
+            //
+            // ── AND NOTHING REPLACES WHAT THE WRITER WAS NEVER SHOWN ────────
+            //
+            // Owner, 2026-09-17: *"prevent replacement of an existing
+            // component whose source the writer was never shown."*
+            // `mergeParts` replaces by name and has no wall of its own, so a
+            // returned `TideChart` overwrote the real `TideChart` whatever the
+            // model had in front of it. The ordinary case is now that every
+            // stored component's source IS in the prompt, and then this
+            // refuses nothing at all — it is the honest answer to the bound in
+            // `partsSent`, which withholds a component too large to carry.
+            //
+            // BY THE SAME `aSentParts` THE PROMPT WAS BUILT FROM, so "was this
+            // shown?" has exactly one answer. Refused rather than merged: the
+            // stored file keeps working and the page that imports it still
+            // compiles, where accepting a rewrite composed from a one-line
+            // description is a silent loss of the real implementation.
+            //
+            // NAMED, NEVER DROPPED IN SILENCE — `aKeptParts` rides the reply
+            // and the trace, because a component the customer asked to change
+            // and did not get changed is the one thing they must hear.
+            const aShownParts = new Set(aSentParts.shown.map((p) => p.name.toLowerCase()));
+            const aKeptParts = [];
+            const aFreshParts = (Array.isArray(aValid.parts) ? aValid.parts : []).filter((p) => {
+              const n = String((p && p.name) || "").toLowerCase();
+              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;
+              if (aShownParts.has(n)) return true;
+              aKeptParts.push(p.name);
+              return false;
+            });
+            if (aKeptParts.length) aMark("parts", "kept", { kept: aKeptParts.length, shown: aSentParts.shown.length, withheld: aSentParts.withheld.length });
+            const aParts = aFreshParts.length
+              ? mergeParts(await loadSiteParts(env, ownerSlug), aFreshParts)
               : null;
             // ── THE ADD STEP'S OWN REPAIR ROUND, handed to the spine's seam ──
             //
@@ -24822,6 +24965,18 @@ async function handleRequest(request, env, ctx) {
               seedSkipped: (aSeeded && aSeeded.skipped && aSeeded.skipped.length) ? aSeeded.skipped.slice(0, 6) : undefined,
               seedTopUp: aSeedTopUp || undefined,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
+              // A COMPONENT THE SITE ALREADY HAD AND THE WRITER WAS NOT SHOWN
+              // (2026-09-17). It returned a rewrite of one and we kept the
+              // real file: the page still compiles and still works, and the
+              // change the customer may have asked for did not land. Named
+              // rather than dropped in silence, and absent when nothing was
+              // refused, so an ordinary addon's response is byte-identical.
+              keptParts: aKeptParts.length ? aKeptParts.slice(0, 6) : undefined,
+              // …AND THE SENTENCE, composed here and printed VERBATIM by the
+              // browser — `coverNote`'s rule, for `coverNote`'s reason: the
+              // decision is entirely the server's, since it is the only thing
+              // that knows which sources fitted in the request.
+              keptPartsNote: keptPartsNote(aKeptParts) || undefined,
               problems: aProblems.slice(0, 4),
               // THE RENDER SENTENCE IS THE FINAL BUILD'S — the repaired one
               // when the round held — and the round's own sentence rides

@@ -598,9 +598,18 @@ test("cleanAdd: a list keeps every usable entry, names the rest, and refuses onl
 });
 
 test("cleanAdd: a component lands on the one page a one-page site has, is refused on a many-page site it cannot name, and IS a component", () => {
-  const one = cleanAdd("component", { page: "/testimonials", does: "quotes", components: ["testimonial"], where: "after the hero" }, SITE);
+  // RE-ANCHORED 2026-09-17, and this expectation MOVED rather than broke — it
+  // asserted the defect as correct. The answer NAMED `/testimonials`, a route
+  // this site does not have, and the one-page shortcut swallowed it and
+  // answered `/`. The shortcut's own justification is about an answer that
+  // names NOTHING ("there is exactly one place this can go"); a named route
+  // the site has not got is the silent substitution the owner ruled out, one
+  // branch over from the 2026-09-14 fix for the multi-page case.
+  const one = cleanAdd("component", { does: "quotes", components: ["testimonial"], where: "after the hero" }, SITE);
   assert.equal(one.ok, true); assert.equal(one.value[0].page, "/"); assert.equal(one.value[0].where, "after the hero");
   assert.deepEqual(one.value[0].components, ["testimonial"]);
+  assert.equal(cleanAdd("component", { page: "/testimonials", does: "quotes", components: ["testimonial"] }, SITE).why, "no-page",
+    "a named route the ONE-page site does not have silently became its home page");
   assert.equal(cleanAdd("component", { page: "/nope", does: "quotes", components: ["testimonial"] }, MULTI).why, "no-page");
   assert.equal(cleanAdd("component", { page: "about", does: "quotes", components: ["testimonial"] }, MULTI).value[0].page, "/about");
   // RE-ANCHORED 2026-09-14, and the expectation MOVED rather than broke (owner:
@@ -643,8 +652,14 @@ test("cleanAdd: a table needs a name and columns unless it gives an existing tab
 });
 
 test("cleanAdd: a code needs both halves and a name the site does not use; a scene needs a description; each lands on a page", () => {
-  const qr = cleanAdd("qr", { points: " tel:0114 ", label: "Ring", page: "/x", where: "contact" }, SITE);
+  // RE-ANCHORED 2026-09-17, the same expectation move as the component case:
+  // `page: "/x"` NAMES a route this one-page site has not got, and the one-page
+  // shortcut answered `/`. The shortcut is for an answer that names nothing,
+  // which this line now is; a named route the site lacks is asserted beside it.
+  const qr = cleanAdd("qr", { points: " tel:0114 ", label: "Ring", where: "contact" }, SITE);
   assert.deepEqual(qr, { ok: true, value: { name: "ring", points: "tel:0114", label: "Ring", page: "/", where: "contact" } });
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/x" }, SITE).value.page, "",
+    "a named route the ONE-page site does not have silently became its home page");
   assert.equal(cleanAdd("qr", { label: "Ring" }, SITE).why, "no-destination");
   assert.equal(cleanAdd("qr", { points: "tel:0114" }, SITE).why, "no-destination");
   assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/nope" }, MULTI).value.page, "", "a page it cannot name is left for the page call to decide");
@@ -1111,7 +1126,18 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   const gen = at(b, "aGen = await generateSitePages(env, briefWithLayout({", "page call");
   const call = b.slice(gen, b.indexOf("}), aSpec", gen));
   assert.match(call, /brief: aInstruction \+ \(aFold\.directive \? "\\n\\n" \+ aFold\.directive : ""\)/, "the directive does not ride the brief");
-  assert.match(call, /plan: aFold\.components\.length \? \{ components: aFold\.components \} : null/, "the kit parts are not handed to the page call");
+  // RE-ANCHORED 2026-09-17, and the expectation is WIDER rather than moved
+  // (owner: *"required kit signatures"*). This was pinned to `aFold.components`
+  // — the union of what THIS change declares — so a writer editing a page
+  // built from `<Accordion>` got that component's props only when the addition
+  // happened to name it too. `aPlanComponents` is that union PLUS the kit
+  // components the site's existing pages import, and the property is that both
+  // sources reach the plan; the spelling of the variable is not the property.
+  const plan = call.match(/plan: ([A-Za-z]+)\.length \? \{ components: \1 \} : null/);
+  assert.ok(plan, "the kit parts are not handed to the page call: " + call);
+  const planBuild = b.slice(b.indexOf("const " + plan[1] + " = "), gen);
+  assert.match(planBuild, /aFold\.components/, "the addition's own components do not reach the page call's plan");
+  assert.match(planBuild, /pageComponents\(aSrc\)/, "the kit components the site's pages already import do not reach the page call's plan");
   // The reply says what kinds were added and what was set aside — and which
   // entries of a list were left out, with the server's own sentence.
   assert.match(b, /kinds: aAnswers\.map\(\(a\) => a\.kind\), skipped: aSkipped,/, "the reply does not say what was added");

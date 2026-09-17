@@ -82,7 +82,7 @@ function neonRows(rows, cols) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function bucket(slug, stored, look) {
+function bucket(slug, stored, look, parts, css) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
@@ -94,8 +94,19 @@ function bucket(slug, stored, look) {
     // able to say the site already has one. MERGED over the default rather
     // than replacing it: `brand` and `pages` are what every other case relies
     // on, and a case adding a QR code is not saying the site has no name.
-    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Fretwork", pages: [], ...(look || {}) }, css: "" })],
+    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Fretwork", pages: [], ...(look || {}) }, css: typeof css === "string" ? css : "" })],
   ]);
+  // ── THE SITE'S OWN COMPONENTS (2026-09-17) ───────────────────────────────
+  //
+  // `source/<slug>/parts.json` — what the site really HAS a file for, as
+  // against `look.tsx`, which is the cumulative declaration list. The two are
+  // different facts and a case about either has to be able to set them apart,
+  // so this is its own seam.
+  //
+  // WRITTEN ONLY WHEN A CASE ASKS FOR ONE. `loadSiteParts` answers `null` for
+  // a missing key, which is what every site in every earlier case here is, so
+  // those read exactly as they did.
+  if (Array.isArray(parts) && parts.length) store.set("source/" + slug + "/parts.json", JSON.stringify(parts));
   return {
     store,
     async get(k) { const v = store.get(k); return v === undefined ? null : { text: async () => v, json: async () => JSON.parse(v) }; },
@@ -140,7 +151,7 @@ function bucket(slug, stored, look) {
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null }) {
+function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -351,8 +362,13 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
       // rewritten; `written` lets a case answer with the pages it wants —
       // which is the only way to drive "asked for two, got one", the shape the
       // missing-page report exists for.
+      // `writtenParts` IS HOW A CASE DRIVES THE PARTS WALL (2026-09-17): the
+      // page writer returning a file in `parts` is what `mergeParts` acts on,
+      // and "may this replace a component the writer never saw?" cannot be
+      // asked of a writer that returns none. Omitted by default, so every
+      // earlier case sends a `write_pages` answer with no `parts` key at all.
       const inputObj = asked === "pick_adds" ? { kinds }
-        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes: "" }
+        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes: "", ...(writtenParts ? { parts: writtenParts } : {}) }
         : (answers[kind] || {});
       const body = anthropic
         ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }
@@ -399,7 +415,14 @@ export async function addon(slug, instruction, opts) {
   const c = (opts && opts.publishes) ? installCompiler() : null;
   try {
     const worker = await loadWorker();
-    const store = bucket(slug, opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null, opts && opts.look);
+    // `sitePages` NAMES ROUTES AND `storedPages` CARRIES WHOLE FILES, and the
+    // second is not a convenience: what a page IMPORTS is a fact about the site
+    // that only its real source can state, and `writtenPage` writes a page that
+    // imports nothing. A case about the kit signatures the writer is shown has
+    // to be able to say "this page calls <Accordion>".
+    const store = bucket(slug,
+      (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null),
+      opts && opts.look, opts && opts.parts, opts && opts.css);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },
@@ -418,6 +441,16 @@ export async function addon(slug, instruction, opts) {
 
 /** The request the named kind's designer really received, or `undefined`. */
 export const promptFor = (r, kind) => r.prompts.find((p) => p.kind === kind);
+
+/**
+ * The request the PAGE WRITER received, or `undefined`.
+ *
+ * BY TOOL NAME, never by the property key `promptFor` matches on. The writer's
+ * tool answers `pages` and the add step's page DESIGNER answers `page`, which
+ * differ by one character in a file where every other lookup is by kind — so
+ * the discriminator is the tool, which cannot be confused with anything.
+ */
+export const pagePrompt = (r) => r.prompts.find((p) => p.tool === "write_pages");
 
 /** The stored developer record, as `saveAddonAnswer` left it. */
 export function storedAnswer(r, slug) {

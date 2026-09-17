@@ -25,7 +25,11 @@
 // `fixtures/addon-route.mjs`.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addon, promptFor, storedAnswer, writtenPage, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+// THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
+// a case that hardcoded "12001 characters is too big" would be a second copy of
+// `MAX_PART_CHARS` and would pass silently the day the real one moved.
+import { MAX_PART_CHARS } from "../builder/page-gen.mjs";
 import { existingFacts } from "../builder/site-add.mjs";
 import { SITE_KINDS, OPAQUE_KINDS } from "../builder/site-requirements.mjs";
 // THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
@@ -1417,8 +1421,14 @@ test("a kind this layer cannot see is UNKNOWN, never missing and never 'set up' 
     need: "The page carries a note saying where the total comes from",
     status: "elsewhere", step: "component", item: "SourceNote",
   };
+  // RE-ANCHORED 2026-09-17: the fixture placed the section on `/status`, a
+  // route this site did not have, and the one-page shortcut swallowed the
+  // name and built it on `/`. The case is about `component` being OPAQUE, not
+  // about where it lands, so the site is given the page it names rather than
+  // the destination being quietly changed — an appeasement that keeps a check
+  // green while saying something other than what it meant.
   const r = await addon("fw-unseeable", "add a note under the booking total", {
-    kinds: ["function", "component"], publishes: true,
+    kinds: ["function", "component"], publishes: true, sitePages: ["/", "/status"],
     answers: {
       function: { function: [{ ...COUNT_FN, internal: true, body: "BEGIN RETURN 1; END;" }], requirements: [NEEDS_SECTION] },
       component: { component: [{ page: "/status", does: "a line saying where the total comes from", components: ["card"] }] },
@@ -2258,4 +2268,272 @@ test("BYPASS: a claim's recorded configuration comes off the item it REFERENCES,
   const note = r.body.coverNote || "";
   assert.match(note, /can't confirm from here that/, "neither claim reached the customer: " + note);
   for (const n of [TBL.need, FN.need]) assert.ok(note.includes(n), "the customer was not told about: " + n);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MILESTONE 1: FRONTEND CONTEXT AND HAND-OFFS (owner, 2026-09-17)
+//
+// *"Give addon designers and the page writer the relevant current-site
+// information … Distinguish existing custom components from new components to
+// build … Pass newly planned frontend items to subsequent designers, as we
+// already do for backend declarations."*
+//
+// And the instruction that shaped every case below: ***"Demonstrate those
+// through the real addon route with mocked external dependencies, checking
+// designer inputs, generated directives, stored results, and the response."***
+// So each of these reads the REQUEST the designer really received
+// (`promptFor`), the REQUEST the page writer really received (`pagePrompt`),
+// the stored developer record, and the reply the customer is told — never a
+// module's return value and never the source.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A page addition, in the shape `cleanAdd("page")` accepts. */
+const GALLERY = { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid of photographs"], components: ["card"] };
+
+test("a component placed on a page THIS change is adding lands on that page, and is not moved to the home page", async () => {
+  // ── REPRODUCTION A, the owner's own (2026-09-17) ────────────────────────
+  //
+  // *"New /gallery + component targeting /gallery becomes a directive placing
+  // it on the home page."* Measured at the cleaner before the fix, on the
+  // one-page site every site on this platform starts as:
+  //
+  //     component { page: "/gallery" }  ->  ACCEPTED, page "/"
+  //
+  // The section was built on the FRONT page and the customer was told it had
+  // been added. `page` runs before `component` in `ADD_KINDS` and nothing
+  // crossed between them, so the second designer had never heard of the page
+  // the first had just decided on.
+  const r = await addon("fw-plan-comp", "add a gallery page with a grid of photographs, and a caption block on it", {
+    kinds: ["page", "component"], publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
+    answers: {
+      page: { page: [GALLERY] },
+      component: { component: [{ page: "/gallery", does: "a caption under the grid", components: ["card"], where: "below the grid" }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. THE DESIGNER'S INPUT. The component designer is told the page exists
+  //    and told it is not there YET — both halves, because a designer that
+  //    reads it as live goes looking for source to copy.
+  const seen = promptFor(r, "component");
+  assert.ok(seen, "the component designer never ran");
+  assert.match(seen.text, /ALSO adding/, "the component designer was not told about the planned page: " + seen.text.slice(0, 900));
+  assert.match(seen.text, /\/gallery/, "the planned route never reached the component designer");
+  assert.match(seen.text, /do not exist yet/, "the planned page was presented as one the site already has");
+
+  // 2. THE GENERATED DIRECTIVE. The page call's brief is where the placement
+  //    becomes an instruction, and it is the exact thing that said "/" before.
+  const page = pagePrompt(r);
+  assert.ok(page, "the page writer never ran");
+  assert.ok(page.text.includes("On /gallery"), "the directive does not place the section on the planned page: "
+    + page.text.slice(page.text.indexOf("The component you are adding"), page.text.indexOf("The component you are adding") + 400));
+
+  // 3. THE STORED RESULT and 4. THE RESPONSE: the page really shipped, and
+  //    nothing was refused for want of a destination.
+  assert.ok((r.body.added || []).some((f) => String(f).includes("gallery")), "the gallery page was not added: " + JSON.stringify(r.body.added));
+  assert.equal(r.body.notAdded, undefined, "something was left out: " + JSON.stringify(r.body.notAdded));
+  assert.ok(!(storedAnswer(r, "fw-plan-comp").coverage.requirements || []).some((q) => q.state === "missing"));
+});
+
+test("a component placed on a route NOBODY is adding is refused by name, on a one-page site and a many-page one alike", async () => {
+  // THE CONTROL FOR THE CASE ABOVE, and it is what makes the hand-off a
+  // hand-off rather than a widening: a destination that is neither a page the
+  // site has nor a page this change is adding is still `no-page`. Without it,
+  // "the component landed on /gallery" is satisfied by a cleaner that accepts
+  // any route at all.
+  const r = await addon("fw-plan-nope", "add a gallery page, and a caption block on the prices page", {
+    kinds: ["page", "component"],
+    answers: {
+      page: { page: [GALLERY] },
+      component: { component: [{ page: "/prices", does: "a caption", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.reason, "no-page", JSON.stringify(r.body));
+  assert.match(r.body.msg, /which page/, "the customer was not told what was wrong: " + r.body.msg);
+});
+
+test("a QR code pointing at a page THIS change is adding is drawn, not refused as a page the site does not have", async () => {
+  // ── REPRODUCTION B, the owner's own (2026-09-17) ────────────────────────
+  //
+  // *"New /gallery + QR pointing to /gallery fails with no-such-page."* One
+  // message, one addition, the obvious thing to ask for — and the code was
+  // refused about a page the same reply was building. The ONE publish is what
+  // makes the destination real rather than hoped for: the page and the code go
+  // out together or neither does.
+  const r = await addon("fw-plan-qr", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
+    answers: {
+      page: { page: [GALLERY] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. THE DESIGNER'S INPUT: the QR designer was told the route and the
+  //    address, which is the pair its never-invent rule needs.
+  const seen = promptFor(r, "qr");
+  assert.ok(seen, "the QR designer never ran");
+  assert.match(seen.text, /ALSO adding/, "the QR designer was not told about the planned page");
+  assert.match(seen.text, /\/gallery/, "the planned route never reached the QR designer");
+
+  // 2. THE RESPONSE: the code is on the site's look, resolved against the
+  //    site's own address rather than left as a bare route.
+  assert.ok((r.body.moved || []).includes("qr"), "the code was not stored on the look: " + JSON.stringify(r.body.moved));
+  assert.equal(r.body.notAdded, undefined, "the code was refused: " + JSON.stringify(r.body.notAdded));
+
+  // 3. THE GENERATED DIRECTIVE: the page call is told the binding exists, so
+  //    a page can actually show the code.
+  const page = pagePrompt(r);
+  assert.match(page.text, /SITE_QRS/, "the page writer was not told the code exists: " + page.text.slice(0, 1200));
+});
+
+test("a QR code pointing at a route NOBODY is adding is still refused by name", async () => {
+  // THE CONTROL for the case above — the same shape, one route different.
+  const r = await addon("fw-plan-qr-nope", "add a gallery page and a QR code for the prices page", {
+    kinds: ["page", "qr"],
+    answers: {
+      page: { page: [GALLERY] },
+      qr: { qr: { name: "prices", points: "/prices", label: "Our prices" } },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.reason, "no-such-page", JSON.stringify(r.body));
+});
+
+test("the page writer is shown this site's OWN components with their source, and is not told to write them again", async () => {
+  // Owner: *"Give … the page writer … imported custom component
+  // implementations"* and *"Distinguish existing custom components from new
+  // components to build."*
+  //
+  // MEASURED BEFORE THE FIX: `look.tsx` is the cumulative DECLARATION list, so
+  // a component written months ago and sitting in `source/<slug>/parts.json`
+  // was listed under "## Components to build — the kit does not have these and
+  // this site needs them, so you write them", with a one-line `does` and
+  // nothing else. The writer had never seen `TideChart` and was asked to
+  // produce it.
+  const SOURCE = "export default function TideChart({ rows }: { rows: number[] }) { return <svg data-slot=\"tide\">{rows.length}</svg> }";
+  const r = await addon("fw-parts-shown", "add a note under the tide chart", {
+    kinds: ["component"], publishes: true,
+    parts: [{ name: "tide-chart", source: SOURCE }],
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }, { name: "catch-log", does: "lists the day's catch", props: "entries" }] },
+    answers: { component: { component: [{ page: "/", does: "a note under the chart", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const page = pagePrompt(r);
+  assert.ok(page, "the page writer never ran");
+
+  // THE COMPONENT THAT EXISTS: its real source, under a heading that says so.
+  assert.match(page.text, /Components this site already has/, "the writer was not shown the site's own components: " + page.text.slice(0, 1500));
+  assert.ok(page.text.includes(JSON.stringify(SOURCE).slice(1, -1)), "the component's real source did not reach the writer");
+  // AND THE ONE NOBODY HAS WRITTEN: still under "to build", because it is not
+  // in the store. Both halves, or the split is a filter rather than a
+  // distinction.
+  assert.match(page.text, /Components to build/, "the undeclared component lost its block");
+  const build = page.text.slice(page.text.indexOf("Components to build"));
+  assert.ok(build.includes("catch-log"), "a declared component with no file was not offered to be built");
+  assert.ok(!build.includes("tide-chart"), "a component the site already has was offered to be written again: " + build.slice(0, 700));
+
+  // AND THE DESIGNER IS TOLD THE SAME DISTINCTION, in names rather than bytes.
+  const seen = promptFor(r, "component");
+  assert.match(seen.text, /already written: tide-chart/, "the designer was not told which components really exist: " + seen.text.slice(0, 900));
+  assert.match(seen.text, /nothing has written yet: catch-log/, "the designer was not told which are only declared");
+});
+
+test("a returned component may replace one the writer WAS shown, and may not replace one it was not", async () => {
+  // Owner: *"Preserve unrelated components and prevent replacement of an
+  // existing component whose source the writer was never shown."*
+  //
+  // `mergeParts` replaces by name and has no wall of its own, so a returned
+  // `TideChart` overwrote the real file whatever the model had in front of it.
+  // The ordinary case is that every stored component IS in the prompt; this is
+  // the honest answer to `partsSent`'s bound, which withholds one too large to
+  // carry.
+  const BIG = "// " + "x".repeat(MAX_PART_CHARS + 10);
+  const SMALL = "export default function Small(){ return <p>small</p> }";
+  const r = await addon("fw-parts-wall", "change the chart's caption", {
+    kinds: ["component"], publishes: true,
+    parts: [{ name: "huge-thing", source: BIG }, { name: "small-thing", source: SMALL }],
+    writtenParts: [
+      { name: "huge-thing", source: "export default function Huge(){ return <p>rewritten from a description</p> }" },
+      { name: "small-thing", source: "export default function Small(){ return <p>edited</p> }" },
+    ],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE PRECONDITION, asserted rather than assumed: the writer really was
+  // shown one and really was not shown the other. Without this the wall could
+  // be refusing everything and every assertion below would still pass.
+  const page = pagePrompt(r);
+  assert.ok(page.text.includes("small</p>"), "the small component's source was not shown — this case tests nothing");
+  assert.ok(!page.text.includes("x".repeat(200)), "the huge component's source WAS shown — this case tests nothing");
+  assert.match(page.text, /too long to include here: huge-thing/, "a withheld component was not named to the writer");
+
+  // THE WALL: the one it could not see is kept, the one it could see is taken.
+  assert.deepEqual(r.body.keptParts, ["huge-thing"], "the wall did not hold: " + JSON.stringify(r.body.keptParts));
+  const stored = JSON.parse(r.store.store.get("source/fw-parts-wall/parts.json"));
+  const by = Object.fromEntries(stored.map((p) => [p.name, p.source]));
+  assert.equal(by["huge-thing"], BIG, "a component the writer never saw was replaced from its own description");
+  assert.match(by["small-thing"], /edited/, "a component the writer WAS shown could not be changed");
+
+  // AND THE CUSTOMER IS TOLD, in the server's own sentence — composed here for
+  // `coverNote`'s reason and printed verbatim by the browser, so this IS what
+  // the person reads rather than a second composer's idea of it.
+  assert.match(r.body.keptPartsNote || "", /^I left huge-thing exactly as it is/, "the customer was not told: " + r.body.keptPartsNote);
+  assert.match(r.body.keptPartsNote, /Ask me to change it on its own/, "the sentence does not say what to do about it");
+});
+
+test("the page writer is shown the theme, the site's own stylesheet and the kit signatures its pages already use", async () => {
+  // Owner: *"theme/CSS context"* and *"required kit signatures"*. The addon
+  // rules tell every designer to keep the site's design system, and nothing in
+  // its inputs said what that system IS; `plan.components` was the union of
+  // what THIS change declares, so a writer editing a page built from
+  // `<Accordion>` got that component's props only by luck.
+  const SHEET = ".fretwork-rule { border-top: 1px solid var(--border) }";
+  // A REAL STORED PAGE that imports a kit component, because "the signatures
+  // its pages already use" is a claim about what the source IMPORTS and
+  // nothing shorter can state it.
+  //
+  // `seat-map` AND `open-now` ARE BOTH COMPONENTS THAT REALLY CARRY A
+  // SIGNATURE, which is the whole of what makes this case worth anything. The
+  // first draft used `accordion` and `card`, and BOTH are among the 72 standard
+  // shadcn primitives whose props the signature scan cannot read — so
+  // `siteComponentApi` answers "" for each, the words appear in the cached
+  // system block anyway, and every assertion passed with the fix reverted. A
+  // vacuous assertion, caught by running the case against the pre-change
+  // product rather than by reading it.
+  const HOME = {
+    path: "src/routes/index.tsx",
+    source: "import { createFileRoute } from '@tanstack/react-router'\n"
+      + "import { SeatMap } from '@/components/ui/seat-map'\n"
+      + "export const Route = createFileRoute('/')({ component: Home })\n"
+      + "function Home(){ return <main><SeatMap seats={[]} onSelect={() => {}} /></main> }\n",
+  };
+  const r = await addon("fw-look", "add a note under the hero", {
+    kinds: ["component"], publishes: true, storedPages: [HOME],
+    look: { theme: "harbour-slate" }, css: SHEET,
+    answers: { component: { component: [{ page: "/", does: "a note saying when we are open", components: ["open-now"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const page = pagePrompt(r);
+  assert.match(page.text, /theme is \*\*harbour-slate\*\*/, "the writer was not told the theme: " + page.text.slice(0, 1500));
+  assert.ok(page.text.includes("fretwork-rule"), "the writer was not shown the site's own stylesheet");
+  assert.match(page.text, /ALREADY APPLIED/, "the stylesheet was offered without saying it is already in force");
+
+  // THE KIT SIGNATURES: `card` because THIS change named it, and `accordion`
+  // because the page being edited already imports it. The second is the one
+  // that was missing — asserted with the first beside it, so a plan that
+  // carried neither could not pass either.
+  const sig = page.text.slice(page.text.indexOf("THE COMPONENTS THIS SITE NEEDS"));
+  assert.ok(sig, "the signature block is absent: " + page.text.slice(0, 600));
+  assert.ok(sig.includes("SeatMap("), "the writer was not shown the props of a component the page it is editing imports: " + sig.slice(0, 900));
+  assert.ok(sig.includes("OpenNow("), "the addition's own component lost its signature: " + sig.slice(0, 900));
+
+  // AND THE DESIGNER, in names: the theme it must keep, and that a sheet exists.
+  const seen = promptFor(r, "component");
+  assert.match(seen.text, /theme is harbour-slate/, "the designer was not told the theme: " + seen.text.slice(0, 900));
+  assert.match(seen.text, /stylesheet written for it/, "the designer was not told the site carries its own stylesheet");
 });

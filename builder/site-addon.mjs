@@ -407,6 +407,35 @@ export function keptReply(kept) {
   return out;
 }
 
+/**
+ * A COMPONENT THE SITE ALREADY HAD AND THE PAGE WRITER WAS NOT SHOWN.
+ *
+ * Owner, 2026-09-17: *"prevent replacement of an existing component whose
+ * source the writer was never shown."* The writer returned a rewrite of one of
+ * this site's own components composed from a one-line description, because its
+ * real source is too long to carry in one request, and the real file was kept.
+ * The page still compiles and still works; a change the customer may have
+ * asked for did not land, and that is the half only they can judge.
+ *
+ * COMPOSED HERE AND PRINTED VERBATIM by the browser, the rule `coverNote`
+ * already follows: the decision is entirely the server's (it is the only thing
+ * that knows which sources fitted), so a second composer in `chat.js` would be
+ * two sentences about one fact and only one of them would have the facts.
+ *
+ * `""` FOR AN EMPTY LIST, so a reply with nothing to say adds nothing — which
+ * is every addon that has ever run until this shipped.
+ */
+export function keptPartsNote(names) {
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "I left " + list.join(", ") + " exactly as " + (one ? "it is" : "they are") +
+    " — " + (one ? "that component is" : "those components are") +
+    " too long for me to read in one go, so I won't rewrite " + (one ? "it" : "them") +
+    " from a description. Ask me to change " + (one ? "it" : "them") + " on its own and I'll work on " +
+    (one ? "it" : "them") + " directly.";
+}
+
 export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));

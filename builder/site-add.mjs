@@ -1207,7 +1207,7 @@ export function pageComponents(sources) {
     if (!p || typeof p !== "object" || typeof p.source !== "string") continue;
     const r = routeOf(p.path);
     if (!r) continue;
-    const kit = [], parts = [];
+    const kit = [], parts = [], modules = [];
     let m;
     IMPORT.lastIndex = 0;
     while ((m = IMPORT.exec(p.source))) {
@@ -1216,8 +1216,26 @@ export function pageComponents(sources) {
         const list = m[2].startsWith("routes/-parts/") ? parts : kit;
         if (!list.includes(n)) list.push(n);
       }
+      // ── AND THE KIT MODULE NAMES, WHICH ARE A DIFFERENT VOCABULARY ────────
+      //
+      // `kit` is the EXPORT names — `SeatMap` — because that is what a
+      // designer reading the note has to write in a page. `siteComponentApi`
+      // is keyed on the MODULE name — `seat-map` — because that is what the
+      // signature catalog is keyed on, and the two differ by more than case
+      // (`faq` exports `Faq`, `footnote` exports `FootnoteRef` AND
+      // `FootnoteList`).
+      //
+      // MEASURED, and it is why this exists: handing `siteComponentApi` the
+      // export names answers `""` for every one of them — a value computed
+      // and never forwarded, which from outside is indistinguishable from the
+      // site importing nothing. ONE walk answers both, so a second parser of
+      // import lines cannot drift from this one.
+      if (!m[2].startsWith("routes/-parts/")) {
+        const mod = m[2].split("/").pop();
+        if (mod && !modules.includes(mod)) modules.push(mod);
+      }
     }
-    if (kit.length || parts.length) out[r] = { kit: kit.slice(0, 40), parts: parts.slice(0, 20) };
+    if (kit.length || parts.length) out[r] = { kit: kit.slice(0, 40), parts: parts.slice(0, 20), modules: modules.slice(0, 40) };
   }
   return out;
 }
@@ -1239,6 +1257,16 @@ export function siteNote(site) {
   lines.push(s.kind === "tool"
     ? "It is a WORKING TOOL the business uses, not a shopfront: every page is a working screen, and there are no marketing bands and no photographs."
     : "It is a shopfront: a site that persuades a visitor.");
+  // ── WHAT IS THERE AND WHAT IS BEING BUILT ARE DIFFERENT FACTS ───────────
+  //
+  // DECLARED HERE, ABOVE ITS FIRST USE, and that placement is load-bearing
+  // rather than tidy: this block used to sit below the table list and the
+  // pages line now needs it too. A `const` called above its own line parses,
+  // passes every text guard and throws at runtime — this repository's own
+  // recorded trap, met once already inside this very function.
+  const proposed = s.proposed && typeof s.proposed === "object" && !Array.isArray(s.proposed) ? s.proposed : {};
+  const isNew = (k, n) => (Array.isArray(proposed[k]) ? proposed[k] : []).some((x) => typeof x === "string" && x.toLowerCase() === String(n).toLowerCase());
+  const mark = (k) => (n) => (isNew(k, n) ? n + " (being added by this same change)" : n);
   const pages = (Array.isArray(s.pages) ? s.pages : []).filter((p) => typeof p === "string" && p.trim()).slice(0, 24);
   // EACH PAGE WITH WHAT IT CALLS ITSELF (run 28, 2026-09-03), so "the booking
   // page" can be found among routes that never say the word: the page whose
@@ -1249,6 +1277,24 @@ export function siteNote(site) {
     return l ? p + " (\"" + l.replace(/"/g, "'") + "\")" : p;
   });
   lines.push(pages.length ? "Its pages are: " + named.join(", ") + "." : "It has no pages yet.");
+  // ── AND THE PAGES THIS SAME CHANGE IS ADDING (2026-09-17) ───────────────
+  //
+  // A SEPARATE LINE, NEVER FOLDED INTO THE ONE ABOVE. Owner: *"Clearly
+  // separate current implementation from the original design plan"*, and
+  // these are the two halves of exactly that — `pages` is read from the
+  // site's real page source and this is read from what the `page` designer
+  // decided a call ago. The `qr` and `component` designers need it (a code
+  // may open it, a section may sit on it) and must not be told it is there
+  // today, or a designer asked to copy a like section's design goes looking
+  // for source that does not exist yet.
+  const coming = (Array.isArray(s.planned) ? s.planned : [])
+    .map((p) => (p && typeof p === "object" ? { path: str(p.path, 120), name: str(p.name, 80) } : { path: str(p, 120), name: "" }))
+    .filter((p) => p.path && !pages.includes(p.path)).slice(0, 24);
+  if (coming.length) {
+    lines.push("This same change is ALSO adding " + (coming.length === 1 ? "a page" : coming.length + " pages") + ", which do not exist yet: " +
+      coming.map((p) => p.path + (p.name ? " (\"" + p.name.replace(/"/g, "'") + "\")" : "")).join(", ") +
+      ". A code may open one and a section may sit on one — they go live with this change. There is no source to read for them.");
+  }
   // WHAT EACH PAGE IS BUILT FROM (owner, 2026-09-04: a second one copies the
   // first's design), so a component designer can name the component a like
   // section already uses instead of another that shows the same kind of thing.
@@ -1284,16 +1330,8 @@ export function siteNote(site) {
   // FACTS, and telling a designer only the second is how it designs around a
   // table that does not exist yet — or, worse, designs a second one. `proposed`
   // is the names this same message has already decided on, per list; every one
-  // is marked so the designer can rely on it AND know it is new.
-  //
-  // DECLARED HERE, ABOVE ITS FIRST USE. The first draft put this beside
-  // `namesOf` and the table list twelve lines up already called `isNew` — a
-  // `const` called above its own line, which parses, passes every text guard
-  // and throws at runtime. This repository's own recorded trap, met writing the
-  // entry about it.
-  const proposed = s.proposed && typeof s.proposed === "object" && !Array.isArray(s.proposed) ? s.proposed : {};
-  const isNew = (k, n) => (Array.isArray(proposed[k]) ? proposed[k] : []).some((x) => typeof x === "string" && x.toLowerCase() === String(n).toLowerCase());
-  const mark = (k) => (n) => (isNew(k, n) ? n + " (being added by this same change)" : n);
+  // is marked so the designer can rely on it AND know it is new. Declared at
+  // the head of this function now, because the pages line needs it too.
   // ── AND ITS RELATIONSHIPS, PERMISSIONS AND CONSTRAINTS (owner, 2026-09-13) ─
   //
   // "Give the picker and Tables designer relevant existing-site context,
@@ -1386,9 +1424,47 @@ export function siteNote(site) {
       codes.map((c) => "`" + c.name + "` (\"" + str(c.label, 80) + "\", scanning it: " + str(c.points, 80) + ")").join(", "));
   }
   if (s.three) has.push("a 3D scene");
-  const parts = (Array.isArray(s.tsx) ? s.tsx : []).map((t) => (t && typeof t === "object" ? str(t.name, 60) : "")).filter(Boolean);
-  if (parts.length) has.push("parts written for it: " + parts.join(", "));
+  // ── A COMPONENT THAT EXISTS AND ONE THAT WAS ONLY EVER DECLARED ─────────
+  //
+  // This read `s.tsx` — the stored `look.tsx` DECLARATIONS — and printed them
+  // as "parts written for it". That list is cumulative and is a plan: a name,
+  // a sentence and a props line, which a build may have declared and never
+  // written, and which survives on the look for ever either way. `s.parts` is
+  // the names the site really has a FILE for, off `source/<slug>/parts.json`,
+  // and the two are said apart (owner, 2026-09-17: *"Distinguish existing
+  // custom components from new components to build"*). A designer told to
+  // copy a like section's component has to be able to tell a component it can
+  // point at from a description of one nobody wrote.
+  //
+  // A CALLER THAT PASSES NO `parts` GETS THE OLD SENTENCE, byte for byte —
+  // the declarations, under the old words — so every existing caller and
+  // every guard written against one reads exactly as it did.
+  const declared = (Array.isArray(s.tsx) ? s.tsx : []).map((t) => (t && typeof t === "object" ? str(t.name, 60) : "")).filter(Boolean);
+  const written = Array.isArray(s.parts)
+    ? s.parts.map((p) => str(p && typeof p === "object" ? p.name : p, 60)).filter(Boolean)
+    : null;
+  if (written === null) {
+    if (declared.length) has.push("parts written for it: " + declared.join(", "));
+  } else {
+    if (written.length) has.push("components of its own, already written: " + written.join(", "));
+    const lower = written.map((n) => n.toLowerCase());
+    const onlyPlanned = declared.filter((n) => !lower.includes(n.toLowerCase()));
+    if (onlyPlanned.length) has.push("components its design declares and nothing has written yet: " + onlyPlanned.join(", "));
+  }
   if (has.length) lines.push("It already carries " + has.join("; ") + ".");
+  // ── THE LOOK IT IS WEARING (owner, 2026-09-17) ──────────────────────────
+  //
+  // The add rules tell every designer to keep the site's design system and
+  // nothing in its inputs said what that system IS. NAMES, NOT BYTES, which
+  // is this note's own standing rule: the theme is what a designer can name
+  // and honour, and the stylesheet itself is the PAGE WRITER's to read —
+  // `styleDirective` carries that, because the writer is the one emitting
+  // markup that has to match it.
+  const theme = str(s.theme, 80);
+  const look = [];
+  if (theme) look.push("Its theme is " + theme + " — every colour, radius and font comes from that theme's tokens, never a colour of your own");
+  if (s.css) look.push("it also carries a stylesheet written for it, which is applied on top of the theme");
+  if (look.length) lines.push(look.join("; ") + ".");
   return lines.join("\n");
 }
 
@@ -1705,6 +1781,38 @@ export function fileOfRoute(r) {
 export function cleanAdd(kind, value, site) {
   const s = site && typeof site === "object" ? site : {};
   const have = (Array.isArray(s.pages) ? s.pages : []).map(route).filter(Boolean);
+  // ── A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION (2026-09-17) ──
+  //
+  // Owner: *"Pass newly planned frontend items to subsequent designers, as we
+  // already do for backend declarations."* The kinds run in `ADD_KINDS` order
+  // — `page` before `component`, `qr` and `three` — and until today nothing
+  // crossed between them, so a message asking for a gallery page AND a code
+  // that opens it met two different failures with one cause. MEASURED at this
+  // cleaner before it was fixed:
+  //
+  //   component placed on a new `/gallery`, one-page site   -> page "/"
+  //   component placed on a new `/gallery`, 3-page site     -> refused no-page
+  //   QR pointing at a new `/gallery`, either               -> refused no-such-page
+  //
+  // The first is the worse one: the section was built on the FRONT page and
+  // the customer was told it had been added, which is the silent substitution
+  // the owner named. The backend tiers have had this since 2026-09-14 (a job
+  // may name a function designed one call earlier); this is the same fact for
+  // the frontend, carried on `site.planned` and marked as not-there-yet
+  // everywhere it is shown.
+  //
+  // KEPT APART FROM `have` RATHER THAN FOLDED INTO IT. What the site HAS and
+  // what this change is ADDING are different facts and the caller is entitled
+  // to both — a page that exists may not be added again, and a page that is
+  // planned may not be added twice either, but only one of them is somewhere
+  // a visitor can go today.
+  const planned = (Array.isArray(s.planned) ? s.planned : [])
+    .map((p) => route(p && typeof p === "object" ? p.path : p))
+    .filter((p) => p && !have.includes(p));
+  // EVERY ROUTE THE SITE WILL HAVE ONCE THIS CHANGE LANDS. The one list both
+  // "where may this go" and "where may a code point" are answered from, so
+  // they cannot come apart.
+  const going = have.concat(planned);
   if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind) || ADDS[kind].elsewhere) return { ok: false, why: "no-kind" };
   // WHICH PAGE, for the kinds that land on one. Refused on a multi-page site
   // when the route is not one of its own; resolved to the one page otherwise.
@@ -1723,10 +1831,25 @@ export function cleanAdd(kind, value, site) {
   // page has exactly one place a component can go, so resolving to it is
   // reading the site rather than picking for the model. Everything else
   // answers "" and the caller refuses by name.
+  //
+  // ── AND THE SHORTCUT READS THE POST-CHANGE SITE (2026-09-17) ────────────
+  //
+  // It read `have`, the routes the site has TODAY, and its whole
+  // justification is "there is exactly one place this can go". The moment
+  // this same change adds a page there are two, so on a one-page site adding
+  // `/gallery` an unplaced component still landed on `/` — a rule true
+  // because of a layer below it, expiring the instant that layer moved. Both
+  // halves read `going` now, so the shortcut fires only when the site really
+  // will have one page and nowhere else to put it.
+  //
+  // A NAMED ROUTE RESOLVES TO THAT ROUTE OR TO NOTHING. It used to fall
+  // through to the shortcut, so a component the designer deliberately placed
+  // on a page the site does not have was moved to the home page rather than
+  // refused — the same substitution one branch over.
   const onPage = (named) => {
     const r = route(named);
-    if (r && have.includes(r)) return r;
-    if (have.length === 1) return have[0];
+    if (r) return going.includes(r) ? r : "";
+    if (going.length === 1) return going[0];
     return "";
   };
   // ── A KIT NAME IS CHECKED AGAINST THE KIT (owner, 2026-09-14) ───────────
@@ -1763,8 +1886,11 @@ export function cleanAdd(kind, value, site) {
       case "page": {
         const path = route(v.path);
         if (!path || path === "/") return { ok: false, why: "no-path" };
-        // A PAGE THE SITE HAS, OR ONE THIS SAME ANSWER ALREADY ADDED.
-        if (have.includes(path) || ctx.paths.includes(path)) return { ok: false, why: "page-exists" };
+        // A PAGE THE SITE HAS, OR ONE THIS SAME CHANGE IS ALREADY ADDING —
+        // `ctx.paths` is this answer's own siblings and `planned` is a page
+        // decided by an earlier call of the same message. Both are the same
+        // refusal, because a route can only be made once.
+        if (going.includes(path) || ctx.paths.includes(path)) return { ok: false, why: "page-exists" };
         const name = str(v.name, 60);
         const purpose = str(v.purpose, 300);
         if (!name || !purpose) return { ok: false, why: "no-plan" };
@@ -1917,9 +2043,16 @@ export function cleanAdd(kind, value, site) {
         // refused by name, because a QR on a live site pointing at a 404 is
         // exactly the failure the never-invent rule exists for; and a site
         // whose address could not be read refuses rather than guessing one.
+        // A PAGE THIS SAME CHANGE IS ADDING COUNTS (2026-09-17). This asked
+        // `have`, so "add a gallery page and a QR code that opens it" — one
+        // message, one addition, the obvious thing to ask for — refused the
+        // code with `no-such-page` about a page the same reply was building.
+        // The route is real by the time either is published, and the ONE
+        // publish is what makes that true rather than a hope: the page and the
+        // code go out together or neither does.
         if (points.startsWith("/")) {
           const own = route(points);
-          if (!own || !have.includes(own)) return { ok: false, why: "no-such-page" };
+          if (!own || !going.includes(own)) return { ok: false, why: "no-such-page" };
           const base = siteAddress(s.url);
           if (!base) return { ok: false, why: "no-address" };
           points = new URL(own, base).href;

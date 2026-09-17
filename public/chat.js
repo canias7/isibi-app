@@ -9666,6 +9666,16 @@ function addonReplyText(a) {
       ' — nothing there needed to change for this. Ask me directly if you did want ' +
       (back.length === 1 ? 'it' : 'them') + ' edited.';
   }
+  // A COMPONENT WE KEPT RATHER THAN REPLACE (2026-09-17). The writer returned
+  // a rewrite of one of this site's own components and had not been shown what
+  // it was rewriting — its source is too long to carry in one request — so the
+  // real file stayed. The page still works; a change they may have asked for
+  // did not land, and that is the half only they can judge.
+  //
+  // PRINTED VERBATIM, `coverNote`'s rule: the server composes it because the
+  // server is the only thing that knows which component sources fitted in the
+  // request, and a second composer here would be two sentences about one fact.
+  if (typeof a.keptPartsNote === 'string' && a.keptPartsNote) out += ' ' + a.keptPartsNote;
   const un = Array.isArray(a.unlinked) ? a.unlinked : [];
   if (un.length) out += ' Nothing links to ' + un.join(', ') + ' yet — say where you want the link and I’ll add it.';
   return out + problemNote(a.problems);

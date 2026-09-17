@@ -2112,7 +2112,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, gif, qr, three } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, theme, css, gif, qr, three } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2130,8 +2130,12 @@ export function briefWithLayout({ brief, plan, images, tsx, gif, qr, three } = {
   // field until 2026-08-20 and is now gone from the platform entirely; nothing
   // ever read `family` again.
   const directive = directiveFromPlan(plan);
-  const parts = [String(brief ?? "")];
-  if (directive) parts.push(directive);
+  // `out`, NOT `parts` — this accumulator was called `parts` until 2026-09-17,
+  // when the site's own COMPONENTS became a parameter of that name. Two
+  // different things wearing one word in one scope is how a shadowed local
+  // reads as a live argument.
+  const out = [String(brief ?? "")];
+  if (directive) out.push(directive);
   // THIS SITE'S OWN COMPONENT SIGNATURES, for the reason the layout directive
   // and the photograph allowance are here: it varies per site, and the ~45,000
   // token system block is cached on its exact bytes. A component list that
@@ -2143,25 +2147,46 @@ export function briefWithLayout({ brief, plan, images, tsx, gif, qr, three } = {
   // the cached core), so a caller with neither sends exactly the request it sent
   // before this existed.
   const api = siteComponentApi(plan && plan.components);
-  if (api) parts.push(api);
+  if (api) out.push(api);
   // AND THE COMPONENTS THE KIT HAD NOT GOT, directly after the kit's own
   // signatures — the two blocks answer one question ("what may I build from"),
   // so they are read together or the second reads as unrelated.
-  const built = tsxDirective(tsx);
-  if (built) parts.push(built);
+  //
+  // WHAT IS THERE ALREADY COMES FIRST AND WHAT IS NOT YET COMES SECOND
+  // (2026-09-17), and the division is `partsSent`'s: `built` is filtered by
+  // every name the site already has a file for, so no component is ever in
+  // both blocks and none is missing from both.
+  //
+  // `parts` IS THE SITE'S STORED COMPONENTS — `[{name, source}]`, off
+  // `source/<slug>/parts.json` — and a caller that passes none sends exactly
+  // the request it sent before this existed: `partsSent([])` answers three
+  // empty lists, `partsDirective` answers "", and the filter has nothing in
+  // it. There is deliberately no second shape to pass here: the addon route
+  // calls `partsSent` on the SAME array for its own wall, and one pure
+  // function over one input cannot disagree with itself.
+  const sent = partsSent(parts);
+  const already = partsDirective(sent);
+  if (already) out.push(already);
+  const built = tsxDirective(tsx, sent.names);
+  if (built) out.push(built);
+  // AND THE LOOK IT IS ALREADY WEARING — the theme and the site's own
+  // stylesheet, which the addon designers are told to preserve and no caller
+  // could read until today.
+  const style = styleDirective({ theme, css });
+  if (style) out.push(style);
   // AND THE TWO GENERATED MARKS. Without this block the container writes
   // `public/animated.svg` and `public/qr.svg` on every build and no page ever
   // references them — a file served to nobody, which from outside is
   // indistinguishable from the design step never having answered.
   const marks = marksDirective({ gif, qr });
-  if (marks) parts.push(marks);
+  if (marks) out.push(marks);
   // AND THE SCENE. Without this the hard rule above — "write one ONLY where the
   // design step asked for it in as many words" — is a gate on a signal that
   // never arrives, so the answer is always no.
   const scene = sceneDirective(three);
-  if (scene) parts.push(scene);
-  if (images != null) parts.push(imageDirective(images));
-  return parts.join("\n\n");
+  if (scene) out.push(scene);
+  if (images != null) out.push(imageDirective(images));
+  return out.join("\n\n");
 }
 
 /**
@@ -2262,12 +2287,32 @@ export function marksDirective({ gif, qr } = {}) {
  * exactly the request it sent before this existed. That is the overwhelming
  * majority of builds.
  */
-export function tsxDirective(tsx) {
+export function tsxDirective(tsx, known) {
   const list = Array.isArray(tsx) ? tsx : [];
+  // ── A COMPONENT THE SITE ALREADY HAS IS NOT ONE TO BUILD (2026-09-17) ────
+  //
+  // Owner: *"Distinguish existing custom components from new components to
+  // build."* `look.tsx` is the DECLARATION list and it is cumulative — every
+  // part this site has ever had a declaration for stays on it — so this block
+  // said "the kit does not have these and this site needs them, so you write
+  // them" about components that were written months ago and are sitting in
+  // `source/<slug>/parts.json`. The writer then wrote each one again from a
+  // one-line `does`, and `mergeParts` replaced the real implementation by
+  // name: a rewrite of working code from its own summary, with nothing
+  // anywhere saying it had happened.
+  //
+  // `known` is EVERY name the site already has a file for — not only the ones
+  // whose source fits in the prompt. A part withheld for size is still a part
+  // that exists, and listing it here would ask for exactly the rewrite this
+  // change exists to stop; `partsDirective` names those separately and says
+  // so. The two blocks partition the site's components between them: what is
+  // there already, and what is not there yet.
+  const seen = new Set((Array.isArray(known) ? known : [])
+    .map((n) => String((n && typeof n === "object" ? n.name : n) || "").trim().toLowerCase()).filter(Boolean));
   const rows = list
     .filter((t) => t && typeof t === "object" && !Array.isArray(t))
     .map((t) => [String(t.name || "").trim(), String(t.does || "").trim(), String(t.props || "").trim()])
-    .filter(([name, does]) => name && does);
+    .filter(([name, does]) => name && does && !seen.has(name.toLowerCase()));
   if (!rows.length) return "";
   return [
     "## Components to build",
@@ -2282,6 +2327,143 @@ export function tsxDirective(tsx) {
     "uses so it belongs to the theme, import nothing that is not already a dependency, and export it as the",
     "default. A component you list here and never import from a page is one nobody will ever see.",
   ].join("\n");
+}
+
+/**
+ * HOW MUCH OF THE SITE'S OWN COMPONENT SOURCE ONE REQUEST MAY CARRY.
+ *
+ * `MAX_PART_CHARS` bounds ONE part and `MAX_PARTS_CHARS` the whole block, and
+ * they are two numbers rather than one because they answer different questions:
+ * a single enormous component must not crowd out four small ones, and forty
+ * small ones must not add up to a request nothing else fits in. Sized against
+ * `MAX_PRIOR_CHARS` (90,000, the site's own PAGE source) so the two together
+ * stay well inside a request — the page source is the thing the writer is
+ * editing and keeps the larger share.
+ */
+export const MAX_PART_CHARS = 12000;
+export const MAX_PARTS_CHARS = 36000;
+
+/**
+ * WHICH OF THE SITE'S OWN COMPONENTS THIS REQUEST CAN CARRY THE SOURCE OF.
+ *
+ * `{ shown, withheld, names }` — `shown` is `[{name, source}]`, `withheld` is
+ * the names too large to send, `names` is every one the site has a file for.
+ *
+ * ONE DECISION, READ TWICE. The page call needs this to compose its prompt and
+ * the ADDON ROUTE needs the same answer to decide whether a returned component
+ * may replace a stored one — "was this writer shown what it is replacing?" —
+ * and those two must never be able to disagree. A second copy of the bound in
+ * the route is exactly the drift this repository has a name for, so the caller
+ * takes ONE object and hands `shown` to the prompt and keeps it for the wall.
+ *
+ * IN STORED ORDER AND NEVER SORTED BY SIZE. A greedy fill by size would make
+ * which component is shown depend on the others, so a customer's unrelated
+ * addition could silently withdraw a component from the next request.
+ */
+export function partsSent(parts) {
+  const list = (Array.isArray(parts) ? parts : [])
+    .filter((p) => p && typeof p === "object" && typeof p.name === "string" && typeof p.source === "string" && p.name.trim() && p.source);
+  const shown = [], withheld = [], names = [];
+  let total = 0;
+  for (const p of list) {
+    const name = p.name.trim();
+    if (names.includes(name)) continue;
+    names.push(name);
+    if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { withheld.push(name); continue; }
+    total += p.source.length;
+    shown.push({ name, source: p.source });
+  }
+  return { shown, withheld, names };
+}
+
+/**
+ * THE COMPONENTS THIS SITE ALREADY HAS, WITH THEIR REAL SOURCE.
+ *
+ * Owner, 2026-09-17: *"Give addon designers and the page writer … imported
+ * custom component implementations."*
+ *
+ * WHAT WENT WRONG WITHOUT IT. A site's own components live in
+ * `source/<slug>/parts.json` and the spine re-sends them to the compiler on
+ * every publish, so they compile — but the page WRITER never saw one. It was
+ * handed `look.tsx`, which is the DECLARATION (a name, a sentence, a props
+ * line), under a heading telling it to write them. So a page importing
+ * `<TideChart>` was edited by a model that had never seen `TideChart`, and any
+ * part it returned replaced the real file by name.
+ *
+ * TWO LISTS, AND THE SECOND IS THE HONEST HALF OF THE BOUND. A component whose
+ * source fits is shown and may be read; one too large to carry is NAMED and
+ * explicitly ruled out, because the alternative — saying nothing — is
+ * indistinguishable from the component not existing, which is what makes a
+ * model write it again. Nothing is dropped silently.
+ *
+ * EMPTY STRING WHEN THE SITE HAS NONE, which is most sites, so a request that
+ * would not have carried this block is byte-identical to what it always sent.
+ */
+export function partsDirective(sent) {
+  const s = sent && typeof sent === "object" ? sent : {};
+  const shown = (Array.isArray(s.shown) ? s.shown : [])
+    .filter((p) => p && typeof p.name === "string" && typeof p.source === "string" && p.name && p.source);
+  const withheld = (Array.isArray(s.withheld) ? s.withheld : []).filter((n) => typeof n === "string" && n.trim());
+  if (!shown.length && !withheld.length) return "";
+  const out = [
+    "## Components this site already has",
+    "",
+    "These are written and live in this project. Import one as `@/routes/-parts/<name>` and CALL it — do not",
+    "write it again. Returning a file in `parts` with one of these names REPLACES the real implementation, so",
+    "return one only when the change you were asked for is a change to that component itself.",
+  ];
+  for (const p of shown) {
+    out.push("", "### " + p.name + " — `src/routes/-parts/" + p.name + ".tsx`", "", "```tsx", p.source, "```");
+  }
+  if (withheld.length) {
+    out.push("",
+      "And " + (withheld.length === 1 ? "one more component is" : withheld.length + " more components are") +
+      " on this site whose source is too long to include here: " + withheld.join(", ") + ".",
+      "They exist and they work. Import and call them exactly as above, and do NOT return a file in `parts` for",
+      "any of them — you have not been shown what you would be replacing.");
+  }
+  return out.join("\n");
+}
+
+/**
+ * THE LOOK THIS SITE IS ALREADY WEARING — its theme, and its own stylesheet.
+ *
+ * Owner, 2026-09-17: the addon's inputs omitted the stored theme and
+ * stylesheet, so a designer told to *"keep the design system"* was given no
+ * way to read what the design system IS. The compiler preserves the CSS either
+ * way; what was missing is anything that lets a page match its conventions.
+ *
+ * THE STYLESHEET IS SENT AS ALREADY APPLIED, not as something to reproduce. It
+ * is appended LAST at build time so it wins on source order, and a model shown
+ * a stylesheet with no such sentence restates its rules inline — which then
+ * cannot be changed by editing the stylesheet, quietly undoing the one thing
+ * the layer is for.
+ *
+ * BOUNDED AND SAID. `MAX_CSS` is 60,000 characters and a page request cannot
+ * carry that beside the site's own source, so a long sheet is cut and the cut
+ * is announced — a truncated stylesheet presented whole would have the model
+ * conclude a selector does not exist.
+ */
+export const MAX_STYLE_CHARS = 16000;
+
+export function styleDirective({ theme, css } = {}) {
+  const name = typeof theme === "string" ? theme.trim().slice(0, 80) : "";
+  const sheet = typeof css === "string" ? css.trim() : "";
+  if (!name && !sheet) return "";
+  const out = ["## The look this site is already wearing", ""];
+  if (name) {
+    out.push("- Its theme is **" + name + "**. Every colour, radius and font on the page comes from the kit's own",
+      "  tokens under that theme. Write no colour of your own: a literal hex is a thing that stops matching the",
+      "  site the moment the theme changes.");
+  }
+  if (sheet) {
+    const cut = sheet.length > MAX_STYLE_CHARS;
+    out.push("- It also carries a stylesheet of its own, appended after the theme so it wins. It is ALREADY APPLIED —",
+      "  do not restate any of it inline; use the classes and custom properties it defines and it will take",
+      "  effect." + (cut ? " The first " + MAX_STYLE_CHARS + " characters of it, of " + sheet.length + ":" : ""),
+      "", "```css", cut ? sheet.slice(0, MAX_STYLE_CHARS) : sheet, "```");
+  }
+  return out.join("\n");
 }
 
 /* THE PER-TRADE EXEMPLAR IS GONE (owner's call, 2026-08-20).

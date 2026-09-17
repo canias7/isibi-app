@@ -149,7 +149,17 @@ test("the addon merges the designed look, tells the page call the bindings, stor
   assert.match(b.slice(b.lastIndexOf("if (", revert), revert), /^if \(aStored\) \{/, "the revert is not gated on the look having been stored");
   // PARTS RIDE THE PUBLISH, and the reply says what was added.
   assert.match(b.slice(publish, b.indexOf("});", publish)), /parts: aParts \|\| undefined/, "the addon's parts are not handed to the spine");
-  assert.match(b, /mergeParts\(await loadSiteParts\(env, ownerSlug\), aValid\.parts\)/, "the addon's parts are not merged over the stored ones");
+  // RE-ANCHORED 2026-09-17: the merge is still over the stored list and the
+  // list it merges is no longer `aValid.parts` raw — a returned component that
+  // would replace a stored one the writer was never shown is filtered out
+  // first. The property is "merged over what is stored", so the second
+  // argument is read as a name rather than pinned to one spelling, and the
+  // filter it comes from is asserted separately.
+  const mp = b.match(/mergeParts\(await loadSiteParts\(env, ownerSlug\), ([A-Za-z]+)\)/);
+  assert.ok(mp, "the addon's parts are not merged over the stored ones");
+  assert.match(b, new RegExp("const " + mp[1] + " = \\(Array\\.isArray\\(aValid\\.parts\\)"),
+    "the merged list is not derived from what the page call returned");
+  assert.match(b, /aSentParts\.withheld\.some/, "a returned component is merged without asking whether the writer was shown the one it replaces");
   assert.match(b, /moved: aLookMoved,/, "the reply does not say which design fields the addon gave the site");
 });
 
