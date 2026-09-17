@@ -564,10 +564,41 @@ test("neither lane can publish an unbought image token", async () => {
     // *"PHOTOGRAPHS: none on this site"*, false on every site that has any.
     // The budget did not move and must not; the spelling did. This guard's own
     // note already records being re-anchored twice for exactly this reason.
-    assert.match(call, /\bimages: (0\b|\{ ?buy: 0\b)/, name + " does not tell the model there is nothing to buy");
+    // ── RE-ANCHORED 2026-09-17: THE ADDON BUYS NOW, AND THE PROPERTY STANDS ──
+    //
+    // The property was never "neither lane buys"; it is that an UNBOUGHT token
+    // never publishes. The page rung still buys nothing and states the bare
+    // zero. The addon states the zero on every run that buys nothing and hands
+    // over the SHOT LIST when it does — so what has to be true of its call is
+    // that it is one or the other and never silence, which is what makes a
+    // model write tokens of its own.
+    if (name === "addon") {
+      assert.match(call, /\bimages: \w+\.length\s*\?\s*\w+\s*:\s*\{/,
+        "the addon neither states a zero nor hands over a chosen list");
+      assert.match(call, /\bbuy: 0\b/, "the addon's zero budget is gone from the object form");
+    } else {
+      assert.match(call, /\bimages: 0\b/, name + " does not tell the model there is nothing to buy");
+    }
     assert.match(b, /applyImages\(\w+\.pages, \{\}\)/,
       name + " does not sweep an unbought token before publishing");
   }
+
+  // ── AND THE ADDON'S SWEEP IS TWO SWEEPS, NEITHER OF WHICH MAY GO ─────────
+  //
+  // The belt above runs only when nothing is being bought (`if (!aShots.length)`),
+  // because it was stripping the very tokens the purchase is for — measured
+  // through the real route, `plan.shots` came back 0 on a run whose writer had
+  // written the token exactly as asked. On the buying branch the sweep is
+  // `buySitePhotos`, which ALWAYS sweeps including every path where it buys
+  // nothing. Both are asserted, because a change that dropped either would
+  // publish a literal `@@IMG:…@@` for one half of the cases and pass on the
+  // other.
+  const ad = block("\n          if (ad) {", "\n          if (tx) {");
+  assert.match(ad, /if \(!aShots\.length\) \{\s*\n\s*aValid\.pages = applyImages\(aValid\.pages, \{\}\);/,
+    "the addon's belt no longer waits for the branch that buys, or no longer runs on the branch that does not");
+  assert.match(ad, /aPhotos = await buySitePhotos\(env, \{/, "the addon's buying branch does not reach the one function that sweeps");
+  assert.match(ad, /aMerge = \{ \.\.\.aMerge, pages: aPhotos\.pages \}/,
+    "the addon buys and publishes the UNSWEPT pages, so a token it could not buy ships as text");
 
   // AND THE DIRECTIVE REALLY FORBIDS THE TOKEN IN BOTH SPELLINGS, driven
   // rather than read: a source match on `images: { buy: 0` proves a shape was
@@ -946,6 +977,33 @@ test("the addon reply is DRIVEN, not grepped", () => {
   for (const [what, out] of [["on its own", section], ["beside an addition", pair]]) {
     assert.doesNotMatch(out, /linked/, "the browser claims a link " + what + ": " + out);
   }
+  // ── THE PHOTOGRAPH THIS CHANGE BOUGHT, AND THE FRAME IT LEFT (2026-09-17) ──
+  //
+  // TWO DIFFERENT FACTS AND THEY BOTH GET SAID, in that order: what was made
+  // comes before what is still empty, because the first is what the customer
+  // asked for. `pictureNote` is composed on the SERVER by `imageNote` — four
+  // outcomes render the same blank frame and only one of them is a bug — so
+  // this prints it verbatim rather than keeping a second copy of those five
+  // sentences in the browser.
+  const made = reply({ added: ["src/routes/g.tsx"], changed: [], pictures: 1, photos: 0,
+    pictureNote: "Made 1 photograph for the site." });
+  assert.match(made, /Made 1 photograph for the site\./, "the browser drops the picture sentence the server composed");
+  assert.doesNotMatch(made, /space for a photo/, "a frame that was FILLED was reported as an empty space");
+  const both = reply({ added: ["src/routes/g.tsx"], changed: [], pictures: 1, photos: 1,
+    pictureNote: "Made 1 photograph for the site; the other 1 picture is a placeholder." });
+  assert.ok(both.indexOf("Made 1 photograph") < both.indexOf("space for a photo"),
+    "what is still empty is said before what was made: " + both);
+  // AND THE HAND-OFF SENTENCE IS THE SERVER'S DECISION, NOT THE BROWSER'S.
+  // `addLayerIn` is the one reader of whether a photograph rode this change;
+  // this line only prints what `skipped` was told.
+  assert.match(reply({ added: [], changed: [], skipped: ["photo"] }), /The photograph is a separate step/);
+  assert.doesNotMatch(reply({ added: [], changed: [], skipped: [], pictures: 1,
+    pictureNote: "Made 1 photograph for the site." }), /separate step/,
+    "a photograph this change really bought was also announced as a separate step");
+  // A REPLY THAT SAYS NOTHING ABOUT PICTURES IS BYTE-IDENTICAL TO BEFORE — the
+  // control that makes every assertion above about the fields rather than about
+  // the sentence appearing on every addon there is.
+  assert.doesNotMatch(plain, /photograph|space for a photo/, "an addon with no pictures talks about pictures: " + plain);
 });
 
 test("a removed page leaves the picker", () => {

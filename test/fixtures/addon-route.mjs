@@ -235,7 +235,7 @@ function bucket(slug, stored, look, parts, css, partsFail) {
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null }) {
+function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -338,6 +338,45 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
         return new Response("", { status: 201 });
       }
       return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // ── THE BALANCE, AND THE IMAGE PROVIDER, BOTH STUBBED (2026-09-17) ──────
+    //
+    // A combined page + photograph request asks `get_credits` before the page
+    // call and spends at `fal.run` after the merge, so BOTH have to answer or
+    // the case proves the refusal rather than the feature: with no balance
+    // `imagesAffordable` cuts every shot and the writer is never even shown a
+    // token. `credits: null` leaves the route's own `.catch(() => 0)` to
+    // answer 0, which is every case written before today — so an addon that
+    // buys nothing is byte-identical.
+    if (credits !== null && url.includes("/rpc/get_credits")) {
+      return new Response(String(credits), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // THE PROVIDER, IN ITS OWN TWO HOPS: `genSitePhoto` POSTs to fal and then
+    // FETCHES the url fal answers with, so a stub that only answers the first
+    // proves half a chain. Every prompt is RECORDED — `shots` is the list of
+    // what was really paid for, which is the one thing a case about buying
+    // photographs has to be able to assert. `shotFail: true` makes the
+    // provider refuse, which is the arm where the money is not spent and the
+    // token has to sweep back to a placeholder.
+    if (url.includes("fal.run/")) {
+      let prompt = ""; try { prompt = String(JSON.parse(String((init && init.body) || "{}")).prompt || ""); } catch { prompt = ""; }
+      if (shots) shots.push(prompt);
+      if (shotFail) return new Response(JSON.stringify({ detail: "no credit" }), { status: 402, headers: { "content-type": "application/json" } });
+      // ONE URL PER PROMPT, so two different pictures cannot collapse into one
+      // stored file — `makeSitePhoto` hashes the BYTES, so identical bytes for
+      // two prompts would store one name and the case could not tell a second
+      // purchase from a reused one.
+      const n = shots ? shots.length : 1;
+      return new Response(JSON.stringify({ images: [{ url: "https://cdn.test/shot-" + n + ".jpg" }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // REAL JPEG MAGIC, because `sniffImage` reads the bytes and refuses
+    // anything it does not recognise — the same sniff the upload route runs, on
+    // bytes nobody here chose. The tail is the shot number, so each picture
+    // hashes to its own name.
+    if (url.startsWith("https://cdn.test/shot-")) {
+      const tag = url.slice("https://cdn.test/shot-".length).replace(/\.jpg$/, "");
+      const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, ...Array.from(tag, (c) => c.charCodeAt(0) & 0xff), 0xff, 0xd9]);
+      return new Response(bytes, { status: 200, headers: { "content-type": "image/jpeg" } });
     }
     // A HEALTHY LEDGER, answering what it was asked for: a dead one stops the
     // route a gate short of everything under test.
@@ -479,6 +518,11 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
  */
 export async function addon(slug, instruction, opts) {
   const sql = [], prompts = [], registered = [], patched = [], neonCalls = [];
+  // EVERY PROMPT THE IMAGE PROVIDER WAS REALLY PAID FOR. Collected here rather
+  // than inside the stub so it comes back on the result — a case about buying
+  // photographs is about WHICH pictures were bought, and the reply's count
+  // alone cannot say that. Empty on every case that buys none.
+  const shots = [];
   // THE STORED SCHEMA IS PER CALL, not a shared module object: `meta.value`
   // moves when the apply writes, and a case that read another case's leftovers
   // would be the shared-slug trap one field over.
@@ -488,7 +532,7 @@ export async function addon(slug, instruction, opts) {
   // apart needs a site that already has something. `stored` replaces the whole
   // schema rather than merging, so a case says exactly what the site is.
   const meta = { value: JSON.stringify((opts && opts.stored) || STORED_SCHEMA) };
-  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls });
+  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots });
   // ── A COMPILER ONLY WHEN THE CASE NEEDS ONE ──────────────────────────────
   //
   // `getContainer` throws by default and that default is what keeps a pageless
@@ -519,7 +563,7 @@ export async function addon(slug, instruction, opts) {
     const env = { SITES_BUCKET: store, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", SUPABASE_SERVICE_KEY: "svc-test", ...(c ? dispatchEnv() : {}) };
     const res = await worker.fetch(req, env, makeCtx());
     const body = await res.json().catch(() => null);
-    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
+    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, shots, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
   } finally { restore(); if (c) c.uninstall(); }
 }
 

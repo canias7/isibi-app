@@ -176,7 +176,11 @@ test("the addon's hook IS the add step's own round: its module, its scope, the p
   // path's sum (`+ aLangCharged`). The property is that the round's usage is
   // on the collect and the round's charge is on the job's sum — whatever else
   // rides beside them.
-  assert.match(route, /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, \.\.\.\w+)*\)\);/);
+  assert.match(route, // RE-ANCHORED 2026-09-17: the photographs joined this collect as a single
+  // `{images: n}` term rather than a spread, so the tail is open. The property
+  // is ONE `pageCredits` and ONE rounding, with the repair round's usage in it
+  // — which is what this case is about — over everything the route spent.
+  /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, (?:\.\.\.)?\w+)*\)\);/);
   assert.match(route, /else aCost \+= \(?Number\(aRepairRound && aRepairRound\.charged\) \|\| 0\)?(?: \+ \w+)*;/);
   assert.match(route, /renderNote: \[aPub\.renderNote, addRepairNote\(aRepairRound\)\]\.filter\(Boolean\)\.join\(" "\) \|\| undefined,/,
     "the customer is not told about a fix that was tried and did not hold, or one there was no time for");

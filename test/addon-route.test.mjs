@@ -3869,12 +3869,198 @@ const photoAsk = (slug, opts) => addon(slug, "add a gallery page showing photos 
   ...opts,
 });
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAGE + PHOTOGRAPH IN ONE REQUEST (2026-09-17)
+
+   Owner: *"proceed to completing page + photo in one request. Placeholders and
+   asking the customer to repeat the photo request do not complete that
+   capability. Start with stubbed-provider verification."*
+
+   MEASURED THROUGH THE ROUTE BEFORE ANY OF THIS EXISTED, on the ask below:
+   `kinds: ["page"] / skipped: ["photo"]`, a gallery page whose every picture
+   was `<SafeImage src="">`, nothing bought, and the customer told to ask for
+   the photograph again.
+
+   THE PROVIDER IS STUBBED IN ITS OWN TWO HOPS — `genSitePhoto` POSTs to fal
+   and then FETCHES the url fal answers with — and every prompt it is paid for
+   is recorded, because a case about buying photographs is about WHICH pictures
+   were bought and the reply's count alone cannot say that.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** The gallery page as a writer that OBEYED the directive really returns it. */
+const galleryToken = (describe) => galleryWith(
+  '<SafeImage src="@@IMG:' + describe + '@@" alt="the workshop bench" />');
+
+/** The same ask, with a designed picture and a balance that can pay for it. */
+const boughtAsk = (slug, shots, opts) => photoAsk(slug, {
+  kinds: ["page", "photo"], credits: 400,
+  written: [galleryToken(shots[0].describe)],
+  answers: {
+    page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+    photo: { photo: shots },
+  },
+  ...opts,
+});
+
+const BENCH = "the workshop bench under the window, warm afternoon light";
+
+test("THE COMBINED REQUEST: one ask buys the photograph and puts it on the page it added", async () => {
+  const r = await boughtAsk("fw-both", [{ page: "/gallery", describe: BENCH }]);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. NOTHING IS HANDED OFF. This is the whole of what the owner asked for:
+  //    the photograph rode the same request as the page.
+  assert.deepEqual(r.body.kinds, ["page", "photo"], "the photograph was not designed in this change");
+  assert.deepEqual(r.body.skipped, [], "the photograph was set aside — the hand-off is back");
+
+  // 2. THE WRITER WAS GIVEN THE EXACT TOKEN, page by page — `imageDirective`'s
+  //    list form, which is the build path's own reader rather than a second
+  //    shape beside it. The words inside a token are the prompt an image model
+  //    is PAID to draw, so this is asserted verbatim.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 1 real photograph, and they are ALREADY CHOSEN/,
+    "the writer was told there is nothing to buy on a change that buys one");
+  assert.ok(flat.includes('/gallery — <SafeImage src="@@IMG:' + BENCH + '@@"'),
+    "the writer was not given the exact token to write, on the page it belongs to");
+
+  // 3. THE PROVIDER WAS PAID FOR THAT PICTURE AND NO OTHER — read off what the
+  //    stub really received, not off a count on the reply.
+  assert.equal(r.shots.length, 1, "the provider was paid " + r.shots.length + " times for one picture");
+  assert.ok(r.shots[0].startsWith(BENCH), "a different picture was bought from the one designed");
+
+  // 4. THE PUBLISHED PAGE CARRIES THE PHOTOGRAPH. Read off the CONTAINER
+  //    PAYLOAD — what the route HANDED the thing that builds the site — because
+  //    a reply field is a claim and this is the artifact.
+  const g = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.ok(g, "no gallery page reached the compiler");
+  assert.doesNotMatch(g.source, /@@IMG:/, "the token shipped as text — a broken image with its alt showing");
+  assert.match(g.source, /src="\/u\/fw-both\/[0-9a-f]{32}\.jpg"/,
+    "the published page has no real photograph in it: " + g.source);
+
+  // 5. AND THE CUSTOMER IS TOLD, in `imageNote`'s own words. `photos` is the
+  //    EMPTY-FRAME count and is zero, because the frame was filled — two
+  //    numbers under one name is the wrong number wearing a right one's.
+  assert.equal(r.body.pictures, 1, "the reply does not say a picture was made");
+  assert.equal(r.body.photos, 0, "a frame this change FILLED was reported as an empty space");
+  assert.match(String(r.body.pictureNote), /Made 1 photograph/, "the customer was not told the picture was made");
+  assert.doesNotMatch(String(r.body.pictureNote), /placeholder/, "the customer was told the picture is a placeholder");
+
+  // 6. AND IT IS BILLED. A photograph is $0.15 of real spend — `IMAGE_USD` —
+  //    against the few tokens that placed it, so the picture is nearly all of
+  //    this bill and a run that forgot to charge for it would be ~1.
+  assert.ok(r.body.cost >= 18, "the photograph was not billed: cost " + r.body.cost);
+});
+
+test("a photograph ALONE is still the picture rung's, and buys nothing here", async () => {
+  // THE PROPERTY THAT MUST NOT REGRESS. That rung fills a slot that EXISTS,
+  // prices one against the real balance and refuses honestly; this step is only
+  // right when it is the one MAKING the slot. A change that designed a picture
+  // for every `photo` ask would take that rung's work and its refusals with it.
+  const r = await addon("fw-photo-alone", "put a photo of the workshop on the home page", {
+    kinds: ["photo"], credits: 400,
+  });
+  assert.equal(r.body.ok, false);
+  assert.equal(r.body.escalate, true, JSON.stringify(r.body));
+  assert.equal(r.body.reason, "layer", "a photograph on its own no longer hops sideways");
+  assert.equal(r.body.layer, "picture", "a photograph on its own stopped naming the rung that places one");
+  assert.equal(r.body.kind, "photo");
+  assert.deepEqual(r.shots, [], "a photograph was bought on a request this step does not own");
+  assert.equal(r.compiles.length, 0, "a hand-off compiled a site");
+});
+
+test("a photograph beside a kind that writes no page is still set aside", async () => {
+  // `MAKES_PAGES` IS THE LINE AND THIS IS ITS OTHER SIDE. A table reaches the
+  // page call too, and it is no reason to put a PHOTOGRAPH on a page — so the
+  // hand-off survives for every kind that is not making the place for one.
+  const r = await addon("fw-photo-table", "add a bookings table and a photo of the workshop", {
+    kinds: ["table", "photo"], credits: 400, publishes: true,
+    answers: { table: { table: [{ table: { name: "bookings", columns: [{ name: "who", type: "text" }] } }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.skipped, ["photo"], "a photograph beside a table was designed here");
+  assert.deepEqual(r.shots, [], "a photograph was bought beside a table");
+});
+
+test("a provider that refuses costs nothing, sweeps the token, and says so", async () => {
+  // THE ARM WHERE THE MONEY IS NOT SPENT. `makeSitePhoto` answers no url, so
+  // `applyImages` sweeps the token to the empty src `SafeImage` draws its
+  // placeholder from — the one outcome that must never be the literal
+  // `@@IMG:…@@`, which is a broken image AND a leak of how the site was made.
+  const r = await boughtAsk("fw-photo-down", [{ page: "/gallery", describe: BENCH }], { shotFail: true });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.shots.length, 1, "the provider was never tried, so this case is not about it refusing");
+  const g = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.doesNotMatch(g.source, /@@IMG:/, "a refused picture left its token in the published page");
+  assert.match(g.source, /src=""/, "the swept slot is not one the picture rung can fill");
+  assert.equal(r.body.pictures, undefined, "a picture that never arrived was counted as made");
+  assert.match(String(r.body.pictureNote), /Couldn't make the photographs/, "the customer was not told why the frame is empty");
+  // AND NOT BILLED. `made`, never `planned` — the build path's own rule and the
+  // picture rung's: the working balance moves on success and not on the attempt.
+  assert.ok(r.body.cost <= 2, "a photograph that did not arrive was billed: cost " + r.body.cost);
+  // …AND THE FRAME IT LEFT IS REPORTED, so the customer knows the space is
+  // theirs. This is the half `photoNote` has always had and it must survive.
+  assert.equal(r.body.photos, 1, "the empty frame a refused picture left was not counted");
+});
+
+test("a picture may land on a page this change is adding, and not on one nobody has", async () => {
+  // THE SAME DESTINATION READER EVERY PLACING KIND USES. `going` is what the
+  // site WILL have — its pages plus the ones this message is adding — so a
+  // picture on the new /gallery resolves and one on a page nobody has is
+  // refused BY NAME, never moved to the home page. A photograph is bought, so
+  // the silent substitution the owner corrected on the component tier is worse
+  // here: it spends money putting a picture where nobody asked for one.
+  const bad = await photoAsk("fw-photo-where", {
+    kinds: ["page", "photo"], credits: 400, written: [galleryToken(BENCH)],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid"], components: ["card"] }] },
+      photo: { photo: [{ page: "/prices", describe: BENCH }] },
+    },
+  });
+  assert.equal(bad.status, 422, JSON.stringify(bad.body));
+  assert.equal(bad.body.reason, "no-page", "a picture aimed at a page nobody has was placed somewhere");
+  assert.deepEqual(bad.shots, [], "a picture with no destination was paid for");
+  assert.equal(bad.body.cost, 0, "a refused addition was billed");
+
+  // THE CONTROL, one field apart: the page THIS CHANGE IS ADDING is a real
+  // destination, which is what makes the refusal above about the route rather
+  // than about pictures never being placeable.
+  const ok = await boughtAsk("fw-photo-planned", [{ page: "/gallery", describe: BENCH }]);
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  assert.equal(ok.shots.length, 1, "a picture on a page this same change adds was not bought");
+});
+
+test("the sweep belt still fires on a change that buys nothing", async () => {
+  // THE BELT THE PURCHASE MOVED, AND WHY IT COULD NOT SIMPLY GO. It used to run
+  // unconditionally and was stripping the tokens the purchase is for — measured
+  // through the route, `plan.shots` came back 0 on a run whose writer wrote the
+  // token exactly as asked. It waits for the buying branch now, so what has to
+  // be proved is that it still runs on the branch that does not: the directive
+  // forbids a token and a model can write one regardless.
+  const r = await photoAsk("fw-photo-belt", { kinds: ["page"], written: [galleryToken("a chair")] });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.shots, [], "a change with no photograph kind bought one");
+  const g = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.doesNotMatch(g.source, /@@IMG:/, "an unbought token shipped as text on a change that buys nothing");
+  assert.match(g.source, /src=""/, "the belt swept the token to something the picture rung cannot fill");
+});
+
 test("a page added to a site that has photographs is not told the site has none", async () => {
   const r = await photoAsk("fw-photo", {
     kinds: ["page", "photo"], storedPages: PHOTO_SITE, written: [galleryWith("")],
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  assert.deepEqual(r.body.skipped, ["photo"], "the photograph was not set aside, so this case is not about that hand-off");
+  // ── RE-ANCHORED 2026-09-17: THE SUBJECT IS THE INVENTORY, NOT THE HAND-OFF ─
+  //
+  // This asserted `skipped: ["photo"]` as the precondition, which was how a
+  // page + photograph ask behaved until this change: set aside, hand-off, ask
+  // again. That ask now DESIGNS the picture here, so the set-aside list is
+  // empty — and the sentence under test is about what the SITE already shows,
+  // which is stated on every run that buys nothing. The precondition is the
+  // real one: no purchase was made, so the object form was sent.
+  assert.deepEqual(r.body.skipped, [], "a photograph beside a page is set aside again — the hand-off is back");
+  assert.equal(r.body.pictures, undefined, "this case bought a photograph, so it is no longer about the zero budget");
   const flat = pagePrompt(r).text.replace(/\\n/g, " ");
   assert.doesNotMatch(flat, /PHOTOGRAPHS: none on this site/,
     "the writer was told this site has no photographs, on a site showing two — the reported defect");
@@ -3991,17 +4177,49 @@ test("an UNCHANGED component's own empty frame is not a frame this change added"
   assert.equal(grown.body.photos, 1, "a real new frame inside a component was not counted: " + grown.body.photos);
 });
 
-test("a photograph set aside leaves a slot the picture rung can actually fill", async () => {
-  const r = await photoAsk("fw-photo-slot", { kinds: ["page", "photo"], written: [galleryWith("")] });
+test("a photograph asked for and not bought still leaves a slot the picture rung can fill", async () => {
+  // ── RE-ANCHORED 2026-09-17, AND THE PROPERTY GOT WIDER RATHER THAN NARROWER ─
+  //
+  // The clause was written for the HAND-OFF: a photograph set aside beside
+  // another kind, where the next rung fills a slot by rewriting a `src` and an
+  // element with none is invisible to it. A page + photograph ask is no longer
+  // a hand-off — it buys — so the trigger is now the honest one: a picture was
+  // ASKED FOR on this change and is not being bought.
+  //
+  // THIS CASE IS THAT STATE AND IT IS THE ONE THAT NEARLY SHIPPED WRONG.
+  // `photoAsk` supplies no balance, so `imagesAffordable` cuts every shot and
+  // the object form goes out. Keyed on `aSkipped` alone — which is empty here —
+  // the page would have published with no slot at all while the customer was
+  // told the pictures are placeholders. An older guard going red is what found
+  // it.
+  //
+  // THE DESIGNER REALLY ANSWERS AND THE BALANCE REALLY REFUSES, which is the
+  // only shape that separates "could not afford it" from "nobody described
+  // one": a photograph is `SITE_PHOTO_USD` / `CREDIT_USD` ≈ 19 credits, and
+  // one credit cannot buy it.
+  const r = await photoAsk("fw-photo-slot", {
+    kinds: ["page", "photo"], written: [galleryWith("")], credits: 1,
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: "a refret on the bench under the window" }] } },
+  });
+  assert.deepEqual(r.body.skipped, [], "this case is the hand-off after all, not the unaffordable picture");
+  assert.deepEqual(r.shots, [], "a picture was PAID FOR on a balance that cannot afford one");
+  assert.equal(r.body.pictures, undefined, "a picture was bought, so this is not the no-purchase state");
   const flat = pagePrompt(r).text.replace(/\\n/g, " ");
   assert.match(flat, /an EMPTY src, never a missing one/,
-    "the writer was not asked for a fillable slot, so the hand-off promised cannot be kept in one hop");
+    "the writer was not asked for a fillable slot, so the picture rung has nowhere to put one");
   assert.match(flat, /the slot the picture step fills/, "the reason was dropped, which is the half a model reads past");
+  // AND THE CUSTOMER IS TOLD WHY, in the composer's own words rather than in a
+  // second copy of them here — silence would read as "no photograph was ever
+  // asked for", which is the one thing they know is false.
+  assert.match(String(r.body.pictureNote || ""), /Not enough credits/, "a picture nobody could afford was not explained");
 
   // THE CONTROL: an ask that names no photograph gets no slot instruction, so
-  // the clause above is about the hand-off rather than about every addon.
+  // the clause above is about the request rather than about every addon.
   const plain = await photoAsk("fw-photo-plain", { kinds: ["page"], written: [galleryWith("")] });
   assert.deepEqual(plain.body.skipped, [], "the control set a photograph aside after all");
+  assert.equal(plain.body.pictureNote, undefined, "a change nobody asked a photograph of said something about pictures");
   assert.doesNotMatch(pagePrompt(plain).text.replace(/\\n/g, " "), /an EMPTY src, never a missing one/,
     "a change nobody asked a photograph of was told to leave picture slots");
 });

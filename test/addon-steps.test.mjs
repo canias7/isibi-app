@@ -35,7 +35,7 @@ import {
   normalizeSchema, SPEC_TIERS, TIER_LIST, TOOL_FIELDS, MAX_FN_BODY,
 } from "../site-schema.mjs";
 import { MAX_API_BODY, normalizeApi } from "../site-apis.mjs";
-import { cleanAdd, addRefusal, proposedSpec, appliedFacts, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, addTool, auditFrontend, frontendItem, missingPages, missingPagesNote } from "../builder/site-add.mjs";
+import { cleanAdd, addRefusal, proposedSpec, appliedFacts, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, ADD_KINDS, addTool, auditFrontend, frontendItem, missingPages, missingPagesNote } from "../builder/site-add.mjs";
 import { claimEvidence, requirementOutcomes, requirementNote } from "../builder/site-requirements.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 import { siteHasTables, siteHasBackend, schemaDigest, pageRulesFor } from "../builder/page-gen.mjs";
@@ -346,10 +346,21 @@ test("all six designing kinds answer coverage, and the dispatched one cannot", (
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(addTool(k).input_schema.properties.requirements, k + " designs something and cannot say what it could not cover");
   }
-  // `photo` DISPATCHES to the picture rung and has no tool of its own to answer
-  // in; `qr` and `three` have tools and deliberately answer no coverage.
-  assert.throws(() => addTool("photo"), /does not act here/);
+  // ── RE-ANCHORED 2026-09-17: `photo` HAS A TOOL NOW AND STILL NO COVERAGE ──
+  //
+  // This asserted that asking for its tool THROWS, which was true while it
+  // dispatched always. It is designed here when this change writes the page it
+  // lands on, so the tool exists — and the property under test never was "it
+  // has no tool", it is that a kind answering no coverage does not carry the
+  // list. `qr`, `three` and `photo` all have tools and deliberately answer
+  // none, and the census above is what keeps the six that do.
+  for (const k of ADD_KINDS.filter((x) => !REQUIREMENT_ADDS.includes(x))) {
+    let tool = null;
+    try { tool = addTool(k); } catch { tool = null; }
+    if (tool) assert.equal(tool.input_schema.properties.requirements, undefined, k + " answers coverage and is not on the list");
+  }
   assert.equal(addTool("qr").input_schema.properties.requirements, undefined);
+  assert.equal(addTool("photo").input_schema.properties.requirements, undefined);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

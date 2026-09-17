@@ -159,7 +159,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -244,7 +244,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -23360,15 +23360,29 @@ async function handleRequest(request, env, ctx) {
             // addition at all; that is the one answer the rung above is for.
             if (!aPicked.kinds.length) return aEscalate("no-add");
             const aKinds = aPicked.kinds;
-            // A PHOTOGRAPH IS THE PICTURE RUNG'S, one step sideways: it places
-            // one and prices it against the real balance, and this step never
-            // buys a photograph. Named with that layer so the browser hops
-            // there with the same sentence rather than falling to the revise.
-            // Beside another kind it is set aside and said so, because the
-            // hop carries one sentence to one rung.
-            const aHop = aKinds.find((k) => addLayer(k));
-            if (aHop && aKinds.length === 1) return aEscalate("layer", { layer: addLayer(aHop), kind: aHop });
-            const aSkipped = aKinds.filter((k) => addLayer(k));
+            // A PHOTOGRAPH ALONE IS THE PICTURE RUNG'S, one step sideways: it
+            // fills a slot, prices it against the real balance and refuses
+            // honestly. Named with that layer so the browser hops there with
+            // the same sentence rather than falling to the revise.
+            //
+            // ── BESIDE A PAGE OR A COMPONENT IT IS OURS (2026-09-17) ───────
+            //
+            // Owner: *"Placeholders and asking the customer to repeat the photo
+            // request do not complete that capability."* It used to be set
+            // aside in every message, which on *"add a gallery page with a
+            // photograph of the workshop on it"* meant a published page of
+            // empty frames and a customer told to ask again — and the rung it
+            // was handed to fills a slot that EXISTS. This change is the one
+            // writing the page, so the slot is ours to make and fill.
+            //
+            // `addLayerIn` IS THE ONE READER and all three asks below go
+            // through it, because two of them disagreeing is a kind that is
+            // designed and then reported as skipped, or set aside and never
+            // designed. `addLayer` is still right for a caller asking about
+            // the KIND rather than about this message.
+            const aHop = aKinds.find((k) => addLayerIn(k, aKinds));
+            if (aHop && aKinds.length === 1) return aEscalate("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
+            const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));
             // THE SITE ALREADY HAS IT — the edit route's wall, mirrored, so the
             // two doors never bounce a customer between them: that door
             // refuses to CREATE a code or a scene the site lacks and sends the
@@ -23731,7 +23745,9 @@ async function handleRequest(request, env, ctx) {
               };
             };
             for (const k of aKinds) {
-              if (addLayer(k)) continue;
+              // THE SAME READER THE SET-ASIDE LIST USED, so a kind cannot be
+              // skipped there and designed here (or the reverse).
+              if (addLayerIn(k, aKinds)) continue;
               aMark("add:" + k, "start");
               // ── WHAT AN EARLIER STEP HANDED TO THIS ONE (2026-09-14) ──────
               //
@@ -24541,6 +24557,31 @@ async function handleRequest(request, env, ctx) {
             for (const b of Object.values(pageComponents(aSrc))) {
               for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);
             }
+            // ── THE PHOTOGRAPHS THIS CHANGE WILL BUY (2026-09-17) ───────────
+            //
+            // `aFold.photos` is the `photo` designer's own `{page, describe}`
+            // list — `imageDirective`'s list shape by construction, not a
+            // second one beside it — and this is where it meets the money.
+            //
+            // THE BALANCE CUTS THE LIST BEFORE THE PAGE WRITER SEES IT, which
+            // is the build path's own rule in as many words: *"printing all of
+            // them would invite a page writer to spend money the account has
+            // not got."* `imagesAffordable` is the same reader `buySitePhotos`
+            // asks later, so the writer is never shown a token the spend path
+            // will refuse — and a customer who can afford one of two gets one
+            // real photograph and one placeholder rather than two placeholders.
+            //
+            // READ ONCE, HERE, because the page call is the last thing between
+            // this point and the purchase: a balance read after generation is a
+            // balance read ten minutes later, and this is the number the writer
+            // was told about. `buySitePhotos` re-asks it at the moment of spend
+            // against the clock and the library, which is the real gate; this
+            // one only decides what to ASK for.
+            let aBalance = 0;
+            if (aFold.photos.length) {
+              aBalance = await (aJob ? readCreditsFor(env, aJob.uid) : readCredits(aAuth)).catch(() => 0);
+            }
+            const aShots = aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD }));
             // ── WHICH PAGES TO SHOW FIRST ON A SITE TOO LARGE TO SHOW WHOLE ──
             //
             // `priorPagesSent` fits what it can and NAMES the rest; `keep` is
@@ -24690,7 +24731,29 @@ async function handleRequest(request, env, ctx) {
                 // answers `null` when the component store could not be read,
                 // so an incomplete inventory claims nothing either way rather
                 // than becoming "every picture on it is a placeholder".
-                images: { buy: 0, shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug), place: aSkipped.includes("photo") },
+                // ⚠ AND THE LIST FORM WHEN THIS CHANGE IS BUYING (2026-09-17).
+                // `aShots` is `{page, describe}` — `imageDirective`'s own list
+                // shape — so the writer is handed the exact `@@IMG:@@` tokens
+                // to place, page by page, and `buySitePhotos` finds them in
+                // what comes back. The object form below is unchanged and is
+                // still every other addon's: a budget of OURS, said as ours,
+                // beside what the site already shows.
+                // ⚠ AND `place` IS "A PICTURE WAS ASKED FOR AND IS NOT BEING
+                // BOUGHT", which is wider than the hand-off it used to be.
+                // `aSkipped` is the set-aside list, and with a photograph
+                // designed here that list is empty on exactly the asks this
+                // clause was written for — so a picture the BALANCE refused, or
+                // one its designer could not describe, would have published a
+                // page with no slot at all while the customer was told the
+                // pictures are placeholders. Found by an existing guard going
+                // red, which is that guard being right.
+                images: aShots.length
+                  ? aShots
+                  : {
+                    buy: 0,
+                    shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug),
+                    place: aSkipped.includes("photo") || aKinds.includes("photo"),
+                  },
                 // THE SITE'S OWN COMPONENTS, WITH THEIR REAL SOURCE. Until
                 // today the writer was shown `tsx` — the DECLARATIONS — under
                 // a heading telling it to write them, so a page importing a
@@ -24753,8 +24816,30 @@ async function handleRequest(request, env, ctx) {
             // the one file an addon most often writes was the one file nothing
             // swept. A token stored there publishes as a literal
             // `src="@@IMG:…@@"` and the page draws its alt text.
-            aValid.pages = applyImages(aValid.pages, {});
-            aValid.parts = applyImages(aValid.parts, {});
+            //
+            // ⚠ AND IT WAITS WHEN THIS CHANGE IS BUYING (2026-09-17). This ran
+            // unconditionally, which was right for every addon before today —
+            // the step bought no photographs, so a token could only ever be a
+            // model writing one against the instruction not to. The LAYER BELOW
+            // MOVED: a picture asked for beside a page is bought here now, and
+            // this belt was stripping the very tokens the purchase is for, one
+            // hop before `buySitePhotos` went looking for them. MEASURED
+            // through the route: `plan.shots` came back 0 on a run whose
+            // directive named the picture and whose writer wrote the token
+            // exactly as asked. *A rule true because of a layer below it
+            // expires when that layer moves*, and here we are the layer.
+            //
+            // THE PROPERTY IS UNCHANGED — no `@@IMG:@@` token reaches a
+            // customer's site — and on this branch it is `buySitePhotos` that
+            // keeps it: that function ALWAYS sweeps, including every path where
+            // it buys nothing, and its own comment records the live broken
+            // image that bought that guarantee. Nothing between here and it
+            // publishes: every exit in between is a 422 or a 503 that leaves
+            // the site exactly as it was, and the buy's own catch sweeps too.
+            if (!aShots.length) {
+              aValid.pages = applyImages(aValid.pages, {});
+              aValid.parts = applyImages(aValid.parts, {});
+            }
             // AND LINTED. `validatePages` checks the SHAPE — a path, a Route
             // export, no duplicates. `lintPages` is the one that catches the
             // class of page that typechecks, bundles and then 403s or renders
@@ -25163,9 +25248,87 @@ async function handleRequest(request, env, ctx) {
             // built from, and while `ok` is false nothing is written at all:
             // `null` leaves the spine to re-send the store's own copy, which
             // is exactly what an addon that touched no component does.
-            const aParts = (aFreshParts.length && aPartsRead.ok)
+            // A `let` BECAUSE THE PHOTOGRAPHS ARE SWEPT INTO IT BELOW — a
+            // token in a component this change wrote is a real `src` after
+            // `buySitePhotos`, and the list the publish sends has to be the
+            // swept one. `null` still means "this change touched no component,
+            // so the spine re-sends the store's own copy" and that stays true:
+            // nothing below assigns over a `null`.
+            let aParts = (aFreshParts.length && aPartsRead.ok)
               ? mergeParts(aPartsRead.parts, aFreshParts)
               : null;
+            // ── THE PHOTOGRAPHS ARE BOUGHT AND PLACED, IN THIS SAME REQUEST ──
+            //
+            // (2026-09-17, owner: *"completing page + photo in one request"*.)
+            //
+            // AFTER THE MERGE AND THE PARTS WALL, so what is swept is what will
+            // really be published: a page the QR dependency withheld, one the
+            // merge boundary refused and a component the writer was never shown
+            // are all already gone by this line, and buying a photograph for a
+            // file nobody will be served is money spent on nothing.
+            //
+            // BEFORE `newEmptySlots`, which is what makes the customer's
+            // sentence honest: a slot this change FILLED is not an empty frame
+            // to warn them about, and a token the balance could not buy is
+            // swept to `src=""` and counted — which is exactly what they see.
+            //
+            // `buySitePhotos` IS THE BUILD PATH'S OWN, unchanged: it re-asks
+            // the balance, the owner's upload library and the clock, plans from
+            // the tokens really in the source, buys what all three allow, and
+            // ALWAYS sweeps — so a run that can afford nothing leaves
+            // placeholders rather than the broken images an unswept token
+            // renders as. `reserve: 0` because the publish that follows is this
+            // route's own and its clock is the job's, which `clock` carries.
+            //
+            // `aParts || []` FOR THE READ, NEVER `aPartsRead.parts`: a stored
+            // component has already been through `applyImages` on its own
+            // publish and holds no token, and handing the stored list in would
+            // let a sweep write back over a file this change never touched.
+            let aPhotos = null;
+            let aPhotoCharged = 0;
+            if (aShots.length) {
+              try {
+                aPhotos = await buySitePhotos(env, {
+                  slug: ownerSlug, pages: aMerge.pages, parts: aParts || [],
+                  budget: aShots.length, balance: aBalance, reserve: 0, clock: aJob && aJob.budget,
+                });
+                aMerge = { ...aMerge, pages: aPhotos.pages };
+                if (aParts) aParts = aPhotos.parts;
+                aMark("photos", "ok", { made: aPhotos.made || 0, planned: aShots.length });
+              } catch (e) {
+                // NAMED, NEVER FATAL — the site is the product and the pictures
+                // are the decoration, which is the build path's own rule. The
+                // tokens are then still in the source, so the ones this catch
+                // leaves behind would render as broken images; `applyImages`
+                // with an empty map is the sweep `buySitePhotos` would have
+                // done, and it is what turns them back into placeholders.
+                aPhotos = { made: 0, planned: aShots.length, budget: 0, overflow: 0, error: String((e && e.message) || e).slice(0, 200) };
+                aMerge = { ...aMerge, pages: applyImages(aMerge.pages, new Map()) };
+                if (aParts) aParts = applyImages(aParts, new Map());
+                aMark("photos", "fail", { planned: aShots.length });
+              }
+              // ── AND THE PICTURES ARE BILLED ────────────────────────────────
+              //
+              // `made`, NEVER `planned`: a photograph that did not arrive costs
+              // the customer nothing, which is the build path's own rule and the
+              // picture rung's (*"the working balance moves on success and not on
+              // the attempt"*). `pageCost` prices an image at `IMAGE_USD` flat —
+              // one table, not a second copy of the rate here.
+              //
+              // UNDER A JOB IT IS RESERVED HERE, before the spine's publish gate,
+              // because that is this route's rule for everything it spends: what
+              // is charged is charged before the commit point. Its own sequence,
+              // beside the design (#1), the repair round (#2), the translations
+              // (#3) and the page call (#4) — the RPC is idempotent per sequence
+              // and asks no order of them.
+              //
+              // SYNCHRONOUSLY IT JOINS THE ONE COLLECT AFTER THE PUBLISH, so a
+              // route with no job still bills once and rounds once, which is the
+              // whole reason that line is a single `pageCredits(...)`.
+              if (aJob && aPhotos && aPhotos.made) {
+                aPhotoCharged = Number(await aCharge(pageCredits({ images: aPhotos.made }), 5)) || 0;
+              }
+            }
             // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
             //
             // `countImageSlots` counts `@@IMG:` TOKENS, and this step's own
@@ -25452,8 +25615,14 @@ async function handleRequest(request, env, ctx) {
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding
             // synchronously, the spine's own reserve (#3) under a job.
-            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage));
-            else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged;
+            // THE PHOTOGRAPHS JOIN THE SYNCHRONOUS BILL AND RIDE THEIR OWN
+            // RESERVE UNDER A JOB (2026-09-17) — `pageCost` prices `images` at
+            // the flat `IMAGE_USD`, so a picture and the tokens that placed it
+            // round together exactly once here, and the job's own reserve was
+            // placed before the publish gate.
+            const aPhotoBill = aPhotos && aPhotos.made ? { images: aPhotos.made } : null;
+            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill));
+            else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
             return Response.json({
               ok: true,
               // What was added, by kind, and what was set aside for another
@@ -25472,6 +25641,30 @@ async function handleRequest(request, env, ctx) {
               // a page" from "added a code to a page".
               moved: aLookMoved,
               photos: aSlots,
+              // ── THE PICTURES THIS CHANGE REALLY BOUGHT (2026-09-17) ────────
+              //
+              // `pictures`, NOT `photos`: that field has meant "empty frames
+              // left over" since it was written and the browser's `photoNote`
+              // reads it as one — two numbers under one name is the wrong
+              // number wearing a right one's name, which this repository has
+              // paid for before. Absent when this change bought none, so every
+              // addon that existed before today answers byte-identically.
+              pictures: aPhotos && aPhotos.made ? aPhotos.made : undefined,
+              // …AND THE SENTENCE, composed HERE and printed verbatim, exactly
+              // as `keptPartsNote` and `coverNote` are. `imageNote` is the
+              // BUILD PATH'S OWN composer — four outcomes render the same blank
+              // frame and only one of them is a bug, and it is the one thing
+              // that can tell them apart — so the addon says it in the same
+              // words rather than in a second copy of that reasoning.
+              //
+              // AND A LIST THE BALANCE CUT TO NOTHING STILL SPEAKS. When
+              // `imagesAffordable` refuses every shot there is no purchase at
+              // all, so `aPhotos` is null and silence would read as "no
+              // photograph was ever asked for" — which is the one thing the
+              // customer knows is false. `{planned, made: 0, budget: 0}` is
+              // that state written down, and `imageNote` answers it with the
+              // credits sentence.
+              pictureNote: imageNote(aPhotos || (aFold.photos.length ? { planned: aFold.photos.length, made: 0, budget: 0 } : null)) || undefined,
               tables: aTables, altered: aAltered,
               // THE OTHER THREE TIERS (2026-09-03), what the engine really
               // made of each, a function that could not be created by name,

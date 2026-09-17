@@ -260,7 +260,13 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // collect too (`...aLangUsage`), so the line lists one more spread. The
   // property is the reserve's usages plus the repair round's, plus whatever
   // else the publish spent — one `pageCredits`, one rounding.
-  assert.match(collectLine, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, \.\.\.\w+)*\)/,
+  // RE-ANCHORED 2026-09-17: the photographs joined it, as a single
+  // `{images: n}` term rather than a spread — `pageCredits` is variadic and a
+  // picture is priced at the flat `IMAGE_USD`. The property is unchanged: one
+  // `pageCredits`, one rounding, over the reserve's usages plus everything else
+  // the route spent, so a trailing non-spread term is admitted and the four
+  // named ones are still required.
+  assert.match(collectLine, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, (?:\.\.\.)?\w+)*\)/,
     "the synchronous collect does not bill the same usages as the reserve, plus the repair round's");
   assert.ok(bill < reserveCall && reserveCall < pub, "the reserve does not sit between the bill and the publish — the gate would read the job as unbilled and exempt it");
   assert.ok(pub < collectCall, "the synchronous charge precedes the publish, so a failed compile would cost");

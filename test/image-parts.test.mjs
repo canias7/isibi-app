@@ -254,11 +254,20 @@ test("the census: every image-pipeline call in worker.js reads the parts too", (
   // THE OBSERVER IS ALIVE. A scan that found nothing passes every check below.
   assert.ok(sites.length >= 5, "the image-call scan found " + sites.length + " call sites, which is fewer than the product has");
 
+  // ⚠ THE NEEDLE IS CASE-INSENSITIVE, RE-ANCHORED 2026-09-17. It was
+  // `/\bparts\b/`, which cannot match `aParts` — the addon route's own merged
+  // component list — so a sweep of the parts written in that variable read as a
+  // sweep of PAGES and the pairing check below reported the product unpaired
+  // over correct code. The property is that the ARGUMENT is a parts list; its
+  // spelling is the caller's, and every page-side argument here (`pages`,
+  // `aValid.pages`, `aMerge.pages`, `pValid.pages`) contains no `parts` in any
+  // case, so the wider needle cannot read a page sweep as a part sweep.
+  const namesParts = (args) => /parts/i.test(args);
   for (const s of sites) {
     // Each call either names parts itself, or is the deliberate ONE-LIST form:
     // `applyImages` writes each file back into the list it came from, so it is
     // called once per list — never over a union sliced apart by length.
-    const parts = /\bparts\b/.test(s.args);
+    const parts = namesParts(s.args);
     const perList = s.fn === "applyImages";
     assert.ok(parts || perList,
       s.fn + " is called without the parts, so a photograph written into a band is invisible to it: " + s.fn + "(" + s.args + ")");
@@ -269,7 +278,7 @@ test("the census: every image-pipeline call in worker.js reads the parts too", (
   // rather than positioned, because `if (false) applyImages(parts, …)` leaves
   // the call exactly where a position check looks for it.
   const applied = sites.filter((s) => s.fn === "applyImages");
-  const onParts = applied.filter((s) => /\bparts\b/.test(s.args)).length;
+  const onParts = applied.filter((s) => namesParts(s.args)).length;
   assert.equal(applied.length - onParts, onParts,
     "the sweeps do not pair up: " + applied.length + " applyImages calls, " + onParts + " of them over parts — " +
     "a list swept on one side and not the other ships the token it was written to remove");

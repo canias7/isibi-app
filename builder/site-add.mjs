@@ -131,6 +131,13 @@ import { qrList, qrName, qrUnplaced, readQrText, MAX_QRS } from "./site-qr-list.
 // constant `partNameOf` reads, whose own guard records the `my-parts/x.tsx`
 // trap a bare substring test falls into.
 import { PART_DIR } from "./site-files.mjs";
+// THE PLATFORM'S OWN BOUNDS ON A PHOTOGRAPH, never a second copy of either.
+// `IMAGE_CAP` is how many one change may buy and `MAX_PROMPT_CHARS` is how much
+// of a description reaches the image model — both are what `planImages` and
+// `buySitePhotos` really enforce, so a constant typed here would be a ceiling
+// this tool promises and the spend path does not keep. `site-images.mjs`
+// imports one budget constant and nothing else, so this costs no dependency.
+import { IMAGE_CAP, MAX_PROMPT_CHARS } from "./site-images.mjs";
 // THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
@@ -279,7 +286,7 @@ export const MAX_SECTIONS = 12;
 export const MAX_ADD_SEED_ROWS = 12;
 
 /** The kinds whose answer is a LIST of additions rather than one. */
-export const LIST_ADDS = ["table", "function", "api", "job", "page", "component"];
+export const LIST_ADDS = ["table", "function", "api", "job", "page", "component", "photo"];
 
 /** The kinds that live in the site's DATABASE — the ones whose first addition makes one. */
 export const BACKEND_ADDS = ["table", "function", "api", "job"];
@@ -851,21 +858,108 @@ const ADDS = {
         "around it are the site's own and come back untouched.",
     },
   },
-  /* ---- the one that acts on another rung ---- */
+  /* ---- the one whose home depends on who is making the place for it ---- */
+  //
+  // ── THE PICTURE RUNG FILLS A SLOT; THIS STEP MAKES ONE (2026-09-17) ───────
+  //
+  // Owner: *"Placeholders and asking the customer to repeat the photo request
+  // do not complete that capability."*
+  //
+  // `photo` dispatched ALWAYS, and beside another kind that was the one answer
+  // it could not honour. MEASURED through the real route before this changed:
+  // *"add a gallery page with a photograph of the workshop on it"* routed
+  // `kinds: ["page"] / skipped: ["photo"]`, published a gallery page whose
+  // every picture is `<SafeImage src="">`, bought nothing, and told the
+  // customer to ask for the photograph again.
+  //
+  // THE LINE IS WHO MAKES THE SLOT, and it is the same line `runPictureEdit`
+  // already draws with `needs-place`: that rung fills a `<SafeImage>` that
+  // EXISTS, and escalates when there is none. A photograph asked for beside a
+  // page or a component is a slot THIS change is writing, so this is the only
+  // step that can create it and fill it in one request — and `photo` ALONE is
+  // still the picture rung's, which prices one against the real balance and
+  // refuses honestly. `PLACING_ADDS` and `addLayerIn` below are that rule.
+  //
+  // IT ANSWERS WHAT `imageDirective` ALREADY TAKES — `{page, describe}` — so
+  // the shot list crosses to the page writer through the build path's own
+  // reader rather than a second shape beside it.
   photo: {
     hint: "A PHOTOGRAPH on a page that has none, or one more where there are some — adding a picture. Swapping or reframing one the site has is an edit, not this.",
     elsewhere: "picture",
+    shape: {
+      type: "array",
+      maxItems: IMAGE_CAP,
+      items: {
+        type: "object",
+        properties: {
+          page: {
+            type: "string",
+            description: "The page it goes on, as its route — \"/\" for the home page. One of the pages this site will " +
+              "have once this change lands, including a page this same change is adding.",
+          },
+          describe: {
+            type: "string",
+            description:
+              "WHAT THE PICTURE SHOWS, in a sentence — the subject, the light, the framing, as if briefing a " +
+              "photographer. These exact words are the prompt an image model is PAID to draw, so write the " +
+              "picture rather than the intention: \"a luthier's bench under a window, half-finished guitar " +
+              "bodies clamped along it, warm afternoon light\", not \"a nice workshop photo\". " +
+              "No words on the image, no logos, no text of any kind — it is a photograph.",
+          },
+        },
+        required: ["page", "describe"],
+      },
+    },
+    add: {
+      is: "The photographs this change buys and puts on the pages — one entry per picture: which page it goes on, and what it shows.",
+      yours:
+        "THE PICTURES THEMSELVES. Each one is really generated and really placed in this same change, on the " +
+        "page you name — including a page this change is adding, which does not exist yet and will by the " +
+        "time the picture lands.",
+      wide:
+        "AS MANY PHOTOGRAPHS AS THEY ASKED FOR, AND NOT ONE MORE. \"A photo of the workshop\" is ONE picture " +
+        "on ONE page — not a set, not one per section, and not a hero for every page while you are there. " +
+        "Each one costs the owner real money. If they said how many, that is the number; if they said \"a " +
+        "photo\", it is one. Nothing decorative, and no picture on a page they did not mention.",
+      keep:
+        "EVERY PICTURE THE SITE ALREADY HAS stays exactly as it is — this adds, it never swaps, reframes or " +
+        "removes one, and it never re-describes one that is already there. Changing a picture the site has " +
+        "is an edit and belongs on another rung; answer nothing for it here.",
+    },
   },
 };
 
 /** Every kind, in one order, and it is the order they RUN in — see `readAdds`. */
 export const ADD_KINDS = Object.keys(ADDS);
 
-/** The kinds this module designs itself. Derived, so a kind cannot be acting-but-unreachable. */
+/** The kinds this module designs itself, always. Derived, so a kind cannot be acting-but-unreachable. */
 export const OWN_ADDS = ADD_KINDS.filter((k) => !ADDS[k].elsewhere);
 
-/** The kinds whose work lives on an edit rung. */
-export const DISPATCHED_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere);
+/**
+ * The kinds this module designs ONLY when this same change is making the place
+ * for them — and dispatches otherwise (2026-09-17).
+ *
+ * DERIVED FROM THE TABLE, never typed: a kind is here when it names a layer AND
+ * carries a tool of its own, which is exactly "it can be answered here and it
+ * has somewhere else to go". `photo` alone today.
+ */
+export const PLACING_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && ADDS[k].shape);
+
+/** The kinds whose work lives on an edit rung and NOWHERE here — no tool, nothing to clean. */
+export const DISPATCHED_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && !ADDS[k].shape);
+
+/**
+ * THE KINDS WHOSE ANSWERS WRITE PAGE SOURCE — which is the same thing as "the
+ * kinds that make a place a photograph can go".
+ *
+ * A `page` writes a new file and a `component` rewrites one; a table, a
+ * function, a connection, a job, a QR code and a 3D scene all reach the page
+ * call too, but none of them is a reason to put a PHOTOGRAPH on a page. Listed
+ * rather than derived because there is no flag on the table that says it: what
+ * these two share is the customer's own framing — they are the two asks that
+ * change what a visitor LOOKS at.
+ */
+export const MAKES_PAGES = ["page", "component"];
 
 /**
  * The kinds whose tool carries the coverage list (owner, 2026-09-13).
@@ -892,17 +986,48 @@ export function addLayer(kind) {
   return key ? ADD_LAYER[key] || null : null;
 }
 
-// THE TWO GROUPS ARE A TOTAL PARTITION, checked at load: a kind in neither
+/**
+ * WHERE THIS KIND'S WORK REALLY HAPPENS FOR *THIS* MESSAGE — the one reader
+ * (2026-09-17).
+ *
+ * `addLayer` answers what a kind IS; this answers what it is HERE, which for a
+ * `PLACING_ADDS` kind depends on the company it keeps. Beside a kind that
+ * writes page source the answer is `""` — this step designs it — and alone it
+ * is the layer, unchanged.
+ *
+ * ONE FUNCTION AND NOT THREE CONDITIONS AT THREE CALL SITES, because the route
+ * asks this question in three places (the escalate, the set-aside list, and the
+ * loop's own gate) and two of them disagreeing is a kind that is designed and
+ * then reported as skipped, or set aside and then never designed. `addLayer`
+ * stays for every caller that is asking about the KIND rather than the message.
+ *
+ * FAIL-CLOSED ON A MALFORMED LIST: anything that is not an array of strings
+ * carries no page-writing kind, so the answer is the dispatch — which is what
+ * the platform did before this existed.
+ */
+export function addLayerIn(kind, kinds) {
+  const layer = addLayer(kind);
+  if (!layer || !PLACING_ADDS.includes(kind)) return layer;
+  const all = Array.isArray(kinds) ? kinds : [];
+  return all.some((k) => MAKES_PAGES.includes(k)) ? null : layer;
+}
+
+// THE THREE GROUPS ARE A TOTAL PARTITION, checked at load: a kind in none
 // answers nothing and dispatches nowhere, which is a request that vanishes.
 for (const k of ADD_KINDS) {
   if (ADDS[k].elsewhere && !addLayer(k)) throw new Error("site-add: `" + k + "` dispatches nowhere");
   if (!ADDS[k].elsewhere && (!ADDS[k].shape || !ADDS[k].add)) throw new Error("site-add: `" + k + "` neither acts here nor dispatches");
+  // A PLACING KIND NEEDS BOTH HALVES: a layer to go to when it is alone, and a
+  // whole tool — shape AND rule — for the messages it is designed in. One
+  // without the other is a kind that is silently dropped in exactly one of its
+  // two cases, which is the shape this group was created to fix.
+  if (PLACING_ADDS.includes(k) && !ADDS[k].add) throw new Error("site-add: `" + k + "` has a tool and no rule");
   if (!ADDS[k].hint) throw new Error("site-add: `" + k + "` has no hint for the picker");
   // A DISPATCHED KIND HAS NO TOOL OF ITS OWN, so it has nowhere to answer a
   // coverage list and `addTool` would throw before it could. Caught at LOAD,
   // where the name is still in hand, rather than on the first customer who
   // asks for that kind.
-  if (ADDS[k].elsewhere && ADDS[k].requirements) throw new Error("site-add: `" + k + "` dispatches and cannot answer requirements");
+  if (DISPATCHED_ADDS.includes(k) && ADDS[k].requirements) throw new Error("site-add: `" + k + "` dispatches and cannot answer requirements");
 }
 
 /* --------------------------------------------------------------- the picker */
@@ -1061,7 +1186,13 @@ export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "",
 export function addTool(kind) {
   if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind)) throw new Error("addTool: no add for kind: " + kind);
   const add = ADDS[kind];
-  if (add.elsewhere) throw new Error("addTool: `" + kind + "` does not act here — it runs on the " + addLayer(kind) + " layer");
+  // WHAT MAKES A TOOL IMPOSSIBLE IS HAVING NO SHAPE, not naming a layer
+  // (2026-09-17). A `PLACING_ADDS` kind does both: it runs on the picture rung
+  // when it is alone and is designed here when this change writes the page it
+  // lands on, so `elsewhere` refused the tool the route had just decided to
+  // ask for. The route decides WHICH question it is asking (`addLayerIn`); this
+  // only refuses a kind with nothing to be asked.
+  if (!add.shape) throw new Error("addTool: `" + kind + "` does not act here — it runs on the " + addLayer(kind) + " layer");
   const properties = { [kind]: { ...add.shape, description: addRule(kind) } };
   // THE COVERAGE LIST IS A SIBLING OF THE KIND, NOT A FIELD INSIDE IT, and both
   // halves of that are load-bearing. Inside the kind's own shape it would be
@@ -1819,7 +1950,12 @@ export function cleanAdd(kind, value, site) {
   // "where may this go" and "where may a code point" are answered from, so
   // they cannot come apart.
   const going = have.concat(planned);
-  if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind) || ADDS[kind].elsewhere) return { ok: false, why: "no-kind" };
+  // A KIND WITH NO TOOL HAS NOTHING TO CLEAN, and that is the honest test —
+  // not `elsewhere` (2026-09-17). A `PLACING_ADDS` kind names a layer AND
+  // carries a tool, so asking `elsewhere` here refused the very answer this
+  // step had just designed; what makes an answer uncleanable is having no
+  // shape to have been answered in.
+  if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind) || !ADDS[kind].shape) return { ok: false, why: "no-kind" };
   // WHICH PAGE, for the kinds that land on one. Refused on a multi-page site
   // when the route is not one of its own; resolved to the one page otherwise.
   // ── A MISSING DESTINATION IS NOT THE HOME PAGE (owner, 2026-09-14) ──────
@@ -1919,6 +2055,28 @@ export function cleanAdd(kind, value, site) {
         // corrected. Refused by name.
         if (!components.length && !tsx.length) return { ok: false, why: "no-component" };
         return { ok: true, value: { page, where: str(v.where, 200), does, components, tsx } };
+      }
+      // ── A PHOTOGRAPH, WHEN THIS CHANGE IS MAKING THE PLACE FOR IT ─────────
+      //
+      // `onPage` is the SAME destination reader every other placing kind uses,
+      // so a picture on a page this change is adding resolves through `going`
+      // and a picture on a page nobody has is refused by name — never moved to
+      // the home page, which is the substitution the owner corrected on the
+      // component tier and is worse here, because a photograph is bought.
+      //
+      // `describe` IS SLICED AT `MAX_PROMPT_CHARS` AND NOT REFUSED FOR LENGTH,
+      // because that is exactly what `imagePrompt` does to it one hop later:
+      // refusing here would turn a long, usable brief into no picture at all,
+      // where the spend path's own rule is to send the first 240 characters.
+      // An EMPTY one is refused — `planImages` deliberately never sends a token
+      // with nothing inside it, so an undescribed picture is a slot nothing
+      // fills and a customer told a photograph was added.
+      case "photo": {
+        const page = onPage(v.page);
+        if (!page) return { ok: false, why: "no-page" };
+        const describe = str(v.describe, MAX_PROMPT_CHARS);
+        if (!describe) return { ok: false, why: "no-photo" };
+        return { ok: true, value: { page, describe } };
       }
       case "table": {
         const t = v.table && typeof v.table === "object" && !Array.isArray(v.table) ? v.table : null;
@@ -2100,6 +2258,10 @@ export function cleanAdd(kind, value, site) {
   if (LIST_ADDS.includes(kind)) {
     const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES
       : kind === "function" ? MAX_ADD_FUNCTIONS : kind === "api" ? MAX_ADD_APIS : kind === "job" ? MAX_ADD_JOBS
+      // THE PLATFORM'S OWN PHOTOGRAPH CEILING, not a constant of this file's:
+      // `planImages` and the design step both slice at `IMAGE_CAP`, so a wider
+      // cap here would clean an entry nothing downstream will ever buy.
+      : kind === "photo" ? IMAGE_CAP
       : MAX_ADD_COMPONENTS;
     const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
     const usable = raw.filter(isObj);
@@ -2182,6 +2344,10 @@ export function addRefusal(why, kind) {
     case "same-code": return "This site already has a QR code pointing there — ask me to change where it sits or what it says instead.";
     case "too-many": return "This site already carries as many QR codes as it can — ask me to change one of them instead.";
     case "no-scene": return "I couldn't tell what the 3D scene should show — say what it is and where it goes.";
+    // A PICTURE NOBODY DESCRIBED IS A SLOT NOTHING FILLS. The words are the
+    // prompt an image model is paid to draw, so an empty one is refused rather
+    // than sent — and the sentence asks for the one thing that unblocks it.
+    case "no-photo": return "I couldn't tell what the photograph should show — say what's in it, like \"the workshop bench under the window\", and I'll make it.";
     // THE TWO THE ENGINES USED TO DO SILENTLY. A cut body and a dropped entry
     // both used to ship as a success; they are sentences the customer can act
     // on, which is the whole point of refusing rather than slicing.
@@ -2311,6 +2477,15 @@ export function addDirective(kind, value, site) {
       out.push("- On " + at(v.page) + " — the 3D block above says what it shows and how it is built. Return that one page; nothing else on it moves.");
       break;
     }
+    // A PHOTOGRAPH HAS NO BLOCK HERE, DELIBERATELY (2026-09-17). `imageDirective`
+    // already names the page and hands over the exact token to write, VERBATIM,
+    // and it is the build path's own reader rather than a second copy of it — a
+    // block here saying the same thing in other words is how one picture becomes
+    // two, and the words inside a token are the prompt an image model is paid to
+    // draw. Explicit rather than a fall-through to `default`, so it reads as a
+    // decision somebody made.
+    case "photo":
+      break;
     default:
       return "";
   }
@@ -2350,6 +2525,18 @@ export function foldAdds(answers, priorLook, site) {
   const tables = [];
   const seed = {};
   const functions = [], apis = [], jobs = [];
+  // ── THE SHOT LIST, OUT ON ITS OWN AND NOT ON `designed` (2026-09-17) ──────
+  //
+  // `designed` is what `mergeLook` folds into the site's STORED look, and a
+  // photograph is not a stored design decision: it is bought once, lands in the
+  // page's `src` as a real URL, and the site carries the picture rather than
+  // the instruction. Putting it there would re-buy the same photographs on the
+  // next unrelated edit, which is precisely the rule `budgetFor` exists for.
+  //
+  // `{page, describe}` IS `imageDirective`'s OWN LIST SHAPE, so the route hands
+  // this straight to the page call through the build path's reader rather than
+  // a second shape beside it.
+  const photos = [];
   // THE UNIVERSAL RULE HEADS THE DIRECTIVE, once, before any addition — the
   // second of its two hops (the first is `ADD_SYSTEM`, to the designers).
   // Only when something is being added: an empty fold is an empty directive.
@@ -2369,6 +2556,15 @@ export function foldAdds(answers, priorLook, site) {
       if (i < 0) tsx.push({ ...p }); else tsx[i] = { ...tsx[i], ...p };
     }
     if (a.kind === "page" && v.file) files.push(v.file);
+    // THE CLEANER HAS ALREADY RESOLVED THE PAGE AND BOUNDED THE WORDS, so this
+    // only collects. Deduped on the PAIR: the same picture asked for twice is
+    // one purchase, and `planImages` reuses one token's url wherever it appears
+    // — but two different pictures on one page are two, so the page alone is
+    // not the key.
+    if (a.kind === "photo" && v.page && v.describe &&
+        !photos.some((p) => p.page === v.page && p.describe === v.describe)) {
+      photos.push({ page: v.page, describe: v.describe });
+    }
     if (a.kind === "table" && v.table) {
       tables.push(v.table);
       if (Array.isArray(v.seed) && v.seed.length) seed[v.table.name] = v.seed;
@@ -2413,7 +2609,7 @@ export function foldAdds(answers, priorLook, site) {
   // what it is building before it reads what the change still owes.
   const pageBrief = requirementBrief(requirements, "page");
   if (pageBrief) blocks.push(pageBrief);
-  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements };
+  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements, photos };
 }
 
 /**

@@ -9621,10 +9621,24 @@ function addonReplyText(a) {
   if (Array.isArray(a.needsSecrets) && a.needsSecrets.length) {
     out += ' To switch it on, add ' + a.needsSecrets.join(', ') + ' under Cloud → Secrets.';
   }
+  // WHAT THIS CHANGE BOUGHT, IN THE SERVER'S OWN WORDS, BEFORE the sentence
+  // about what is still empty — they are two different facts and the one the
+  // customer asked for comes first. Printed VERBATIM: `imageNote` is the build
+  // path's own composer and a second copy of its five sentences here is how the
+  // browser starts claiming pictures that were never made.
+  if (a.pictureNote) out += ' ' + a.pictureNote;
   out += photoNote(a.photos);
-  // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for beside a
-  // page is the picture rung's job and did not ride this addition, so the
-  // customer is told to ask for it on its own rather than left looking for it.
+  // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for on its own is
+  // the picture rung's job and did not ride this addition, so the customer is
+  // told to ask for it there rather than left looking for it.
+  //
+  // ⚠ AND IT NO LONGER FIRES ON A PAGE OR COMPONENT REQUEST (2026-09-17). The
+  // route only puts `photo` in `skipped` when this change writes no page — so
+  // "add a gallery page with a photograph on it" now buys the picture and says
+  // so above, where it used to publish an empty frame and print this. The
+  // sentence stays for the case it is still true of, and the SERVER decides
+  // which case that is: `addLayerIn` is the one reader, and this line only
+  // prints what it was told.
   if (Array.isArray(a.skipped) && a.skipped.indexOf('photo') >= 0) {
     out += ' The photograph is a separate step — ask for it on its own and I’ll place it.';
   }
@@ -9952,12 +9966,18 @@ function editReply(e) {
 }
 // A PICTURE SLOT NOBODY CAN FILL, said out loud.
 //
-// Neither the edit nor the addon lane buys photographs — deliberate, because a
-// revise re-buying pictures the owner already had was a ~94-credit bug — so a
-// NEW page that wants one publishes with an empty frame. Four outcomes render
-// that same blank box and only one is a bug, which is why the build path has
-// `imageNote`; these two lanes had nothing, so the customer was left looking at
-// a gap with no way to know it was theirs to fill.
+// A FRAME NOBODY FILLED, on a page this change added.
+//
+// The EDIT lane still buys no photographs — deliberate, because a revise
+// re-buying pictures the owner already had was a ~94-credit bug — so a new
+// frame it leaves is one for the owner to fill. THE ADDON LANE BUYS THEM NOW
+// (2026-09-17) when a picture was asked for beside a page or a component, and
+// this sentence is still right for what is LEFT: a frame the change did not
+// fill, because nobody described it, because the balance would not stretch, or
+// because the page simply has more places for a picture than were asked for.
+// What was BOUGHT is `pictureNote`, composed on the server by `imageNote` —
+// four outcomes render the same blank box and only one of them is a bug, and
+// that composer is the only thing that can tell them apart.
 function photoNote(n) {
   const c = Number(n) || 0;
   if (!c) return '';
