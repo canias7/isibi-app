@@ -649,15 +649,59 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       if (!a || a.tenant_id !== tenant) return res(200, { ok: false, error: "no-agent" });
       revocations.add(`${agentId}\u0000${tool}`);
       let withdrew = 0;
+      const put = [];
       for (const row of approvals.values()) {
         if (row.tenant_id === tenant && row.agent_id === agentId && row.tool === tool && row.verdict === null) {
           row.verdict = "revoked";
           row.decided_by = by;
           row.note = note ?? "the permission for this tool was withdrawn";
           withdrew++;
+          // ⚠ AND THE RUN IS PUT BACK, mirrored rather than skipped: the revocation has just
+          // answered that request instead of a person, and a run whose work row stays done is
+          // a run stranded for ever. A fake that withdrew the request and left the row is the
+          // exact defect the real function had until it was driven.
+          const w = work.get(row.run_id);
+          if (w && !(w.claimed_by && Date.parse(w.lease_expires_at ?? 0) > Date.now())) {
+            w.kind = "resume"; w.done_at = null; w.attempts = 0; w.last_error = null;
+            put.push(row.run_id);
+          }
         }
       }
-      return res(200, { ok: true, tool, withdrew });
+      return res(200, { ok: true, tool, withdrew, runs: put });
+    }
+
+    /** `agent.requeue_expired_approvals` — put back every run nobody answered in time.
+     *
+     * ⚠ THE ONE SWEEP HERE THAT IS NOT TENANT-SCOPED, and the CONDITION is mirrored rather than
+     * simplified: a run is offered only when it has already ENDED nothing and when NOTHING it is
+     * waiting for may still be answered. A fake that offered a run holding one live request
+     * would wake it every tick for ever, which is the defect the real condition exists to stop.
+     */
+    if (p.endsWith("/rpc/requeue_expired_approvals") && init.method === "POST") {
+      const lim = Math.min(Math.max(body?.p_limit ?? 25, 1), 100);
+      const now = Date.now();
+      const open = (r) => r.verdict === null;
+      const past = (r) => r.expires_at !== null && r.expires_at !== undefined && Date.parse(r.expires_at) <= now;
+      const out = [];
+      const seen = new Set();
+      for (const row of approvals.values()) {
+        if (!open(row) || !past(row) || seen.has(row.run_id)) continue;
+        // ⚠ THE MAP'S VALUES ARE THE BODIES THEMSELVES here, not `{seq, body}` rows — the shape
+        // this fake keeps internally. A `.body?.kind` read answers `undefined` for every entry
+        // and would make "has it ended" always false.
+        const ended = [...(entries.get(row.run_id)?.values() ?? [])].some((e) => e?.kind === "stopped");
+        const stillAnswerable = [...approvals.values()].some((b) =>
+          b.run_id === row.run_id && open(b) && !past(b));
+        if (ended || stillAnswerable) continue;
+        const w = work.get(row.run_id);
+        if (!w) continue;
+        seen.add(row.run_id);
+        if (w.claimed_by && Date.parse(w.lease_expires_at ?? 0) > now) continue;
+        w.kind = "resume"; w.done_at = null; w.attempts = 0; w.last_error = null;
+        out.push({ run: row.run_id, tenant: row.tenant_id, action: "requeued" });
+        if (out.length >= lim) break;
+      }
+      return res(200, out);
     }
 
     /** `agent.restore_agent_tool` — lift a revocation. It does NOT re-open what it withdrew. */

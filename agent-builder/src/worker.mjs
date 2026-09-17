@@ -135,6 +135,16 @@ export const AUTOMATION_TICK_LIMIT = 25;
  */
 export const AUTOMATION_RESUME_LIMIT = 50;
 
+/**
+ * How many runs nobody answered in time one tick may put back.
+ *
+ * ITS OWN NUMBER for `AUTOMATION_RESUME_LIMIT`'s own reason: it bounds a third population.
+ * Every gated tool call anybody has ever ignored is one of these, so on a platform where
+ * people stop answering it is the largest of the three — and sharing a number with the
+ * scheduler would make a backlog of one starve the other.
+ */
+export const APPROVAL_SWEEP_LIMIT = 50;
+
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -269,6 +279,21 @@ export function buildAutomations(env, { fetchImpl } = {}) {
   const missing = missingFor(env, "consume");
   if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
   return parts(env, { fetchImpl }).automations;
+}
+
+/**
+ * The approvals store, for the ONE thing that is not tenant-scoped.
+ *
+ * ⚠ ITS OWN BUILDER rather than a field on `buildAutomations`' return, because the two are
+ * different stores and folding them together is how one of them quietly stops being built.
+ * `consume` is the right configuration demand: this reads and re-queues rows and produces
+ * nothing itself — the RINGING is the caller's, which is `scheduled`, and that asks for the
+ * whole deployment already.
+ */
+export function buildApprovals(env, { fetchImpl } = {}) {
+  const missing = missingFor(env, "consume");
+  if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
+  return parts(env, { fetchImpl }).approvals;
 }
 
 const configGap = (e) => new Response(JSON.stringify({ error: String(e?.message ?? e) }), {
@@ -505,6 +530,38 @@ export default {
       console.log("agent-resume", JSON.stringify({ due: due.length, woke, ...kinds }));
     } catch (e) {
       console.error("agent-resume", String(e?.message ?? e));
+    }
+
+    /**
+     * ── job four: put back every run nobody answered in time ────────────────
+     *
+     * ⚠ **ITS OWN `try`, FOR THE REASON THE THREE ABOVE HAVE ONE**: four jobs, four blocks,
+     * and none may silence another. This is the newest and least load-bearing of them, so
+     * it is last — a throw here must not cost the deployment its sweeper.
+     *
+     * **AND IT IS THE ONLY THING THAT ENDS A RUN NOBODY ANSWERED.** A run waiting for a
+     * person has its work row marked done, and `agent.decide_tool_approval` is what puts it
+     * back. Nobody deciding means nothing putting it back: measured, a redelivery answered
+     * `not-claimable` and the run sat reading as `running` with a correct refusal nothing
+     * could reach. The function only offers a run whose windows have ALL closed, so this
+     * cannot wake something a person can still answer.
+     *
+     * **ONLY A ROW IT REALLY RE-QUEUED IS RUNG**, exactly as above: a run somebody is
+     * holding answers `running`, and a doorbell for that is a delivery `claim_run` refuses.
+     */
+    try {
+      const stale = await buildApprovals(env).expiredApprovals({ limit: APPROVAL_SWEEP_LIMIT });
+      let rung = 0;
+      for (const row of stale) {
+        const runId = row?.run;
+        if (row?.action === "requeued" && isText(runId)) {
+          try { await env[QUEUE_BINDING].send({ runId }); rung += 1; }
+          catch (e) { console.error("agent-expired", JSON.stringify({ runId, ring: String(e?.message ?? e) })); }
+        }
+      }
+      console.log("agent-expired", JSON.stringify({ closed: stale.length, rung }));
+    } catch (e) {
+      console.error("agent-expired", String(e?.message ?? e));
     }
   },
 };

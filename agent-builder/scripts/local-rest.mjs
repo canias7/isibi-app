@@ -108,6 +108,18 @@ const RPCS = {
   decide_tool_approval: { args: ["p_tenant", "p_id::uuid", "p_verdict", "p_note", "p_by"], shape: "value" },
   pending_approvals: { args: ["p_tenant", "p_agent_id::uuid", "p_limit::integer"], shape: "set" },
   run_approvals: { args: ["p_tenant", "p_run_id::uuid"], shape: "set" },
+  // ── expiry, revocation and cancellation ───────────────────────────────────
+  // A permission taken away, an approval withdrawn, and a run stopped: three verbs the
+  // SITE reaches (from a route behind a verified session) plus one the ENGINE reads on
+  // every delivery. `revoked_tools` is set-returning and answers a bare list of strings.
+  revoke_agent_tool: { args: ["p_tenant", "p_agent_id::uuid", "p_tool", "p_by", "p_note"], shape: "value" },
+  restore_agent_tool: { args: ["p_tenant", "p_agent_id::uuid", "p_tool"], shape: "value" },
+  revoked_tools: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },
+  revoke_tool_approval: { args: ["p_tenant", "p_id::uuid", "p_by", "p_note"], shape: "value" },
+  cancel_run: { args: ["p_tenant", "p_run_id::uuid", "p_by", "p_reason"], shape: "value" },
+  // ⚠ THE ONE SWEEP THAT IS NOT TENANT-SCOPED — see `approvals.mjs`. It is reached only
+  // from `worker.scheduled`, and it is what ends a run nobody answered in time.
+  requeue_expired_approvals: { args: ["p_limit::integer"], shape: "set" },
   list_knowledge: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },
   read_knowledge: { args: ["p_tenant", "p_source_id::uuid"], shape: "value" },
   list_memory: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },

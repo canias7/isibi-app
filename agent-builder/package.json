@@ -2,7 +2,7 @@
   "name": "agent-builder",
   "private": true,
   "type": "module",
-  "description": "An AI agent framework. A DIFFERENT PRODUCT from the website builder at the repository root \u2014 see ./CLAUDE.md. Dependency-free on purpose: it runs in a Cloudflare Worker, where there is no node_modules, so every outside thing is injected.",
+  "description": "An AI agent framework. A DIFFERENT PRODUCT from the website builder at the repository root — see ./CLAUDE.md. Dependency-free on purpose: it runs in a Cloudflare Worker, where there is no node_modules, so every outside thing is injected.",
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
     "sweep": "node scripts/sweep.mjs",
@@ -15,6 +15,7 @@
     "verify:auto": "node scripts/verify-automations.mjs",
     "verify:wf": "node scripts/verify-workflows.mjs",
     "verify:tools": "node scripts/verify-tools.mjs",
-    "verify:ops": "node scripts/verify-operations.mjs"
+    "verify:ops": "node scripts/verify-operations.mjs",
+    "verify:controls": "node scripts/verify-controls.mjs"
   }
 }

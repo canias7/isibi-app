@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import worker, {
   SETTINGS, OPTIONAL, SENSITIVE, MODELS, SCHEMA, QUEUE_BINDING, SWEEP_GRACE_S, SWEEP_LIMIT,
   AUTOMATION_CATCHUP_S, AUTOMATION_TICK_LIMIT,
-  AUTOMATION_RESUME_LIMIT,
-  missingSettings, buildApi, buildRunner,
+  AUTOMATION_RESUME_LIMIT, APPROVAL_SWEEP_LIMIT,
+  missingSettings, buildApi, buildRunner, buildApprovals,
 } from "../src/worker.mjs";
 import { AGENTS } from "../src/agents.mjs";
 import { makeStandIn } from "../src/model-standin.mjs";
@@ -1011,4 +1011,89 @@ test("...AND A SECOND DELIVERY FINDS THE FIRST REQUEST rather than making anothe
     // The model was asked once and only once: the second delivery resumed from the log.
     assert.equal([...rest.entries.get(runId).values()].filter((e) => e.kind === "model").length, 1);
   });
+});
+
+test("⚠ THE EXPIRY TICK PUTS BACK EVERY RUN NOBODY ANSWERED, AND ONLY THOSE", async () => {
+  // ⚠ **WHY THIS JOB EXISTS AT ALL, measured rather than reasoned about.** A run waiting for a
+  // person has its work row marked DONE — there is nothing to redeliver until somebody answers
+  // — and `agent.decide_tool_approval` is what puts it back. So when NOBODY answers, nothing
+  // does: a redelivery answers `not-claimable` and the run sits for ever reading as `running`
+  // with a refusal that is correct and unreachable. The cron is the only thing that runs
+  // without anybody pressing anything, so this is its fourth job.
+  assert.ok(Number.isInteger(APPROVAL_SWEEP_LIMIT));
+  assert.ok(APPROVAL_SWEEP_LIMIT > 0 && APPROVAL_SWEEP_LIMIT <= 500, `the batch is ${APPROVAL_SWEEP_LIMIT}`);
+
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    let n = 0;
+    /** One run holding one request, with its work row done as a held run's is. */
+    const holding = (id, expiresAt, { alsoLive = false, ended = false } = {}) => {
+      rest.runs.set(id, { id, tenant_id: TENANT, status: "running", stop: null });
+      rest.agents.set(AGENT, { id: AGENT, tenant_id: TENANT, name: "A", instructions: "x", status: "active", tools: [] });
+      rest.work.set(id, {
+        run_id: id, tenant_id: TENANT, kind: "start", executor: "agent", attempts: 0,
+        claimed_by: null, claim_token: null, lease_expires_at: null,
+        done_at: Date.now(), enqueued_at: Date.now(), last_error: null,
+      });
+      const add = (at) => rest.approvals.set(`ap-${++n}`, {
+        id: `ap-${n}`, tenant_id: TENANT, run_id: id, agent_id: AGENT, step: 1, idx: n,
+        tool: "remember", args: {}, args_hash: `h${n}`, verdict: null, note: null,
+        decided_by: null, requested_at: new Date().toISOString(), expires_at: new Date(at).toISOString(),
+      });
+      add(expiresAt);
+      if (alsoLive) add(Date.now() + 3_600_000);
+      if (ended) rest.entries.set(id, new Map([[0, { kind: "stopped", at: 1, stop: { reason: "answered" } }]]));
+    };
+    holding("gone-cold", Date.now() - 60_000);
+    // ⚠ A RUN HOLDING ONE EXPIRED AND ONE LIVE REQUEST IS LEFT ALONE, and that is not a nicety:
+    // requeued, it would hold again on the live one and be requeued every minute for ever.
+    holding("half-open", Date.now() - 60_000, { alsoLive: true });
+    holding("still-open", Date.now() + 3_600_000);
+    holding("already-ended", Date.now() - 60_000, { ended: true });
+
+    await worker.scheduled({}, env, ctx);
+    const rung = env[QUEUE_BINDING].sent.map((m) => m.runId);
+    assert.deepEqual(rung, ["gone-cold"], `the tick rang ${JSON.stringify(rung)}`);
+    assert.equal(rest.work.get("gone-cold").done_at, null, "the stranded run was not put back");
+    assert.equal(rest.work.get("gone-cold").kind, "resume");
+    // AND THE THREE THAT MUST NOT MOVE.
+    for (const id of ["half-open", "still-open", "already-ended"]) {
+      assert.notEqual(rest.work.get(id).done_at, null, `${id} was put back and should not have been`);
+    }
+  });
+});
+
+test("the expiry tick's failure cannot take the other three down", async () => {
+  // FOUR JOBS, FOUR BLOCKS: the sweeper is the recovery for every dropped run in the
+  // deployment, and this is the newest and least load-bearing of the four — a throw here must
+  // not cost the deployment its sweeper or its schedule.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest);
+    const real = rest.fetch;
+    let broke = 0;
+    const patched = async (url, init) => {
+      if (String(url).includes("requeue_expired_approvals")) { broke += 1; throw new Error("the expiry sweep went"); }
+      return real(url, init);
+    };
+    patched.calls = real.calls;
+    globalThis.fetch = patched;
+    await assert.doesNotReject(() => worker.scheduled({}, env, ctx));
+    assert.equal(broke, 1, "the expiry sweep never ran, so this proves nothing");
+    assert.equal(env[QUEUE_BINDING].sent.length, 1, "a broken expiry sweep took the scheduler down with it");
+  });
+});
+
+test("the approvals store is built with the CONSUMER's configuration, and refuses without it", () => {
+  // ⚠ ITS OWN BUILDER rather than a field on another store's return: two stores folded into one
+  // builder is how one of them quietly stops being built. `consume` is the right demand — this
+  // reads and re-queues rows and produces nothing itself; the RINGING is `scheduled`'s, which
+  // asks for the whole deployment already.
+  assert.equal(typeof buildApprovals(good({ SUPABASE_JWT_SECRET: "s3cret" })).expiredApprovals, "function");
+  assert.throws(() => buildApprovals({}), /not configured/);
+  // AND IT IS NOT TENANT-SCOPED, which is the one place in this module that is deliberate: a
+  // platform sweep has no tenant to scope to, and this is reachable only from the cron.
+  assert.equal(typeof buildApprovals(good({ SUPABASE_JWT_SECRET: "s3cret" })).forTenant, "function");
 });

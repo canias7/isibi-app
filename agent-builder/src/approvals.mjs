@@ -325,6 +325,26 @@ export function makeApprovals(opts = {}) {
 
   return {
     /**
+     * ⚠ EVERY RUN WHOSE APPROVAL WINDOWS HAVE ALL CLOSED, PUT BACK ON THE QUEUE.
+     *
+     * **IT TAKES NO TENANT, AND THAT IS NOT A HOLE IN THE CLOSURE RULE.** The rule is that
+     * no OPERATION takes a tenant as an argument, so no model-written value can become
+     * authority; this is a PLATFORM SWEEP, exactly like `reclaimable` and the scheduler's
+     * tick, and there is no tenant to scope it to because it is about every account at
+     * once. It is reachable only from `worker.scheduled`, which no request touches.
+     *
+     * **WHY IT HAS TO EXIST AT ALL — measured, not reasoned about.** A run waiting for a
+     * person has its work row marked DONE, and `decide_tool_approval` is what puts it back.
+     * So when nobody answers, nothing does: a redelivery answers `not-claimable` and the
+     * run sits for ever reading as `running` with a refusal that is correct and
+     * unreachable. The cron is the only thing that runs without anybody pressing anything.
+     */
+    async expiredApprovals({ limit } = {}) {
+      const rows = await call("requeue_expired_approvals", { p_limit: limit ?? null });
+      return Array.isArray(rows) ? rows : [];
+    },
+
+    /**
      * The account, from the claim. **There is no argument for it anywhere below**, so no
      * model-written value can reach it.
      */

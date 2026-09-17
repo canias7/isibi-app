@@ -2884,6 +2884,363 @@ try {
       jget(`select count(*) from agent.operations where tenant_id='${OT}' and op_key='${OKEY.slice(0, -3)}:11:0';`) === "1");
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── EXPIRY, REVOCATION AND CANCELLATION ──");
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⚠ FOUR DIFFERENT FACTS, and collapsing any two loses a real distinction: nobody answered
+  // in time; somebody withdrew a decision; somebody took a TOOL away; somebody stopped the
+  // RUN. Every read of `agent.tool_approvals` below is `asOwner`, because `force row level
+  // security` filters `service_role` too and a filtered read is indistinguishable from a row
+  // that was never written.
+  {
+    const XT = "rv-tenant-1";
+    const XA = "cccccccc-1111-4111-8111-cccccccccccc";
+    const XA2 = "cccccccc-2222-4222-8222-cccccccccccc";
+    const R1 = "ff000000-0000-0000-0000-0000000000f1";
+    const R2 = "ff000000-0000-0000-0000-0000000000f2";
+    const R3 = "ff000000-0000-0000-0000-0000000000f3";
+    allowed("two agents of one account, and three runs to act on",
+      `insert into agent.agents (id, tenant_id, name, instructions) values
+         ('${XA}', '${XT}', 'Rv', 'x'), ('${XA2}', '${XT}', 'Sibling', 'x');
+       insert into agent.runs (id, tenant_id, status) values
+         ('${R1}','${XT}','running'), ('${R2}','${XT}','running'), ('${R3}','${XT}','running');`, asOwner);
+
+    // ── 1. THE WINDOW ─────────────────────────────────────────────────────
+    const asked = jget(`select agent.request_tool_approval('${XT}','${R1}','${XA}',1,0,
+      'run_automation','{"id":"a-1"}'::jsonb,'h1')::text;`);
+    check("a request is stamped with a window, and reads as neither decided nor expired",
+      /"expiresAt"\s*:\s*"/.test(asked) && /"verdict"\s*:\s*null/.test(asked)
+      && /"expired"\s*:\s*false/.test(asked), asked);
+    // ⚠ THE WINDOW IS THE SERVER'S FUNCTION, not a number written twice. A caller-chosen one
+    // is a window a model can widen, and this is the wall that closes an unanswered request.
+    check("⚠ the window is exactly `approval_window()` past the request, not a second copy of it",
+      jget(`select (expires_at = requested_at + agent.approval_window())::text
+              from agent.tool_approvals where run_id='${R1}' and step=1 and idx=0;`, asOwner) === "true");
+    const ap1 = jget(`select id::text from agent.tool_approvals where run_id='${R1}' and step=1 and idx=0;`, asOwner);
+
+    // ⚠ A ROW WRITTEN BEFORE THIS MIGRATION HAS NO WINDOW, AND THAT READS AS *NO WINDOW*
+    // rather than as expired. The only safe direction: the other reading refuses every
+    // request in flight the moment this ships.
+    allowed("a request from before the window existed", `update agent.tool_approvals set expires_at = null where id='${ap1}';`, asOwner);
+    check("⚠ a request with NO window is not expired — absent is not closed",
+      /"expired"\s*:\s*false/.test(jget(`select agent.request_tool_approval('${XT}','${R1}','${XA}',1,0,
+        'run_automation','{"id":"a-1"}'::jsonb,'h1')::text;`)));
+    allowed("...and it is given one back for the checks below",
+      `update agent.tool_approvals set expires_at = requested_at + agent.approval_window() where id='${ap1}';`, asOwner);
+
+    // ── 2. AN UNANSWERED REQUEST PAST ITS WINDOW ──────────────────────────
+    allowed("the window closes", `update agent.tool_approvals set expires_at = now() - interval '1 minute' where id='${ap1}';`, asOwner);
+    const late = jget(`select agent.request_tool_approval('${XT}','${R1}','${XA}',1,0,
+      'run_automation','{"id":"a-1"}'::jsonb,'h1')::text;`);
+    check("⚠ an unanswered request past its window reads `expired`",
+      /"verdict"\s*:\s*"expired"/.test(late) && /"expired"\s*:\s*true/.test(late), late);
+    // ⚠ AND NOTHING WENT ROUND STAMPING IT. Expiry is DERIVED from the clock, so the column
+    // still says nobody decided — which is true, and is why there is no second writer.
+    check("⚠ ...and the VERDICT COLUMN is still null, because expiry is derived and not written",
+      jget(`select coalesce(verdict, 'NULL') from agent.tool_approvals where id='${ap1}';`, asOwner) === "NULL");
+    check("⚠ an expired request CANNOT BE DECIDED — the window closed",
+      jget(`select agent.decide_tool_approval('${XT}','${ap1}','approved','ok','person-1')->>'error';`) === "expired");
+    check("...and nothing was written by that attempt",
+      jget(`select coalesce(verdict, 'NULL') || '/' || coalesce(decided_by, 'NULL')
+              from agent.tool_approvals where id='${ap1}';`, asOwner) === "NULL/NULL");
+    // ⚠ A DECISION ALREADY MADE STANDS, however long ago the window closed — it was made in
+    // time, and the repeat check is deliberately asked BEFORE the window for that reason.
+    allowed("a second request, decided and then left to go stale",
+      `select agent.request_tool_approval('${XT}','${R1}','${XA}',2,0,'pause_automation','{}'::jsonb,'h2');`, asOwner);
+    const ap2 = jget(`select id::text from agent.tool_approvals where run_id='${R1}' and step=2;`, asOwner);
+    check("a fresh request is decided inside its window",
+      jget(`select agent.decide_tool_approval('${XT}','${ap2}','approved','fine','person-1')->>'verdict';`) === "approved");
+    allowed("...and then the window closes", `update agent.tool_approvals set expires_at = now() - interval '1 day' where id='${ap2}';`, asOwner);
+    const stood = jget(`select agent.request_tool_approval('${XT}','${R1}','${XA}',2,0,'pause_automation','{}'::jsonb,'h2')::text;`);
+    check("⚠ a DECIDED request keeps its verdict past the window — it was answered in time",
+      /"verdict"\s*:\s*"approved"/.test(stood) && /"expired"\s*:\s*false/.test(stood), stood);
+    check("⚠ ...and deciding it again answers the FIRST decision rather than the window",
+      jget(`select agent.decide_tool_approval('${XT}','${ap2}','rejected','no','person-2')->>'verdict';`) === "approved");
+
+    // `revoked` IS NOT A VERDICT A DECISION MAY SET: withdrawing is its own verb, so a caller
+    // cannot reach it through the approve/reject door and skip that function's own rules.
+    check("⚠ a decision cannot set `revoked` — that is its own verb",
+      jget(`select agent.decide_tool_approval('${XT}','${ap1}','revoked','x','person-1')->>'error';`) === "bad-verdict");
+    // ⚠ A DECISION IS WHOLE OR ABSENT (`tool_approvals_decision_is_whole`), so a raw verdict
+    // has to carry its decider and its time — which is why these two set all three. Written
+    // after the first draft set only `verdict` and was refused by the wrong gate.
+    refused("...and the column itself refuses anything but the three",
+      `update agent.tool_approvals set verdict = 'maybe', decided_at = now(), decided_by = 'x' where id='${ap1}';`,
+      "tool_approvals_verdict_known", asOwner);
+    allowed("THE CONTROL: `revoked` really is one of the three the column admits",
+      `update agent.tool_approvals set verdict = 'revoked', decided_at = now(), decided_by = 'x' where id='${ap1}';
+       update agent.tool_approvals set verdict = null, decided_at = null, decided_by = null where id='${ap1}';`, asOwner);
+
+    // ── 3. WITHDRAWING ONE REQUEST ────────────────────────────────────────
+    allowed("a third request, pending", `select agent.request_tool_approval('${XT}','${R2}','${XA}',1,0,'run_automation','{}'::jsonb,'h3');`, asOwner);
+    const ap3 = jget(`select id::text from agent.tool_approvals where run_id='${R2}' and step=1;`, asOwner);
+    const withdrew = jget(`select agent.revoke_tool_approval('${XT}','${ap3}','person-1','asked by mistake')::text;`);
+    check("⚠ a pending request can be WITHDRAWN, which is not a rejection",
+      /"ok"\s*:\s*true/.test(withdrew) &&
+      jget(`select verdict || '/' || decided_by || '/' || note from agent.tool_approvals where id='${ap3}';`, asOwner)
+        === "revoked/person-1/asked by mistake", withdrew);
+    check("⚠ withdrawing puts the run back on the queue, so it is not left waiting for ever",
+      jget(`select (claimed_by is null and done_at is null)::text from agent.run_work where run_id='${R2}';`) === "true"
+      || jget(`select count(*) from agent.run_work where run_id='${R2}';`) === "0");
+    check("a withdrawal nobody can be tied to is refused",
+      jget(`select agent.revoke_tool_approval('${XT}','${ap3}','   ',null)->>'error';`) === "no-decider");
+    check("⚠ another account's request is `no-request`, never `forbidden`",
+      jget(`select agent.revoke_tool_approval('rv-tenant-2','${ap3}','person-1',null)->>'error';`) === "no-request");
+
+    // ── 4. TAKING A TOOL AWAY ─────────────────────────────────────────────
+    allowed("a pending request for the tool about to be taken away",
+      `select agent.request_tool_approval('${XT}','${R3}','${XA}',1,0,'run_automation','{}'::jsonb,'h4');`, asOwner);
+    const tookAway = jget(`select agent.revoke_agent_tool('${XT}','${XA}','run_automation','person-1','not this agent')::text;`);
+    check("⚠ a tool can be taken away from one agent",
+      /"ok"\s*:\s*true/.test(tookAway) &&
+      jget(`select count(*) from agent.tool_revocations where tenant_id='${XT}' and agent_id='${XA}' and tool='run_automation';`) === "1",
+      tookAway);
+    // ⚠ AND EVERY REQUEST STILL WAITING FOR IT GOES WITH IT. Leaving one pending would let
+    // somebody approve a call the permission for which has just been withdrawn — the approval
+    // and the permission disagreeing, with the approval winning.
+    check("⚠ ...and every request still waiting for that tool is withdrawn with it",
+      jget(`select verdict from agent.tool_approvals where run_id='${R3}' and step=1;`, asOwner) === "revoked");
+    check("⚠ a revoked permission is not REQUESTED at all — nobody is asked a settled question",
+      /"revokedPermission"\s*:\s*true/.test(jget(`select agent.request_tool_approval('${XT}','${R3}','${XA}',7,0,
+        'run_automation','{}'::jsonb,'h5')::text;`)) &&
+      jget(`select count(*) from agent.tool_approvals where run_id='${R3}' and step=7;`, asOwner) === "0");
+    check("the engine reads what is revoked for one agent",
+      jget(`select coalesce(string_agg(t, ','), 'NONE') from agent.revoked_tools('${XT}','${XA}') as t;`) === "run_automation");
+    // ⚠ SCOPED TO THE AGENT, WHICH IS THE WALL NO TENANT FILTER CAN SEE: both agents share an
+    // owner, so only the agent id tells them apart.
+    check("⚠ ...and the SIBLING agent of the same account is unaffected",
+      jget(`select coalesce(string_agg(t, ','), 'NONE') from agent.revoked_tools('${XT}','${XA2}') as t;`) === "NONE");
+    check("...and another account reads nothing at all",
+      jget(`select coalesce(string_agg(t, ','), 'NONE') from agent.revoked_tools('rv-tenant-2','${XA}') as t;`) === "NONE");
+    check("a revocation nobody can be tied to is refused, and writes nothing",
+      jget(`select agent.revoke_agent_tool('${XT}','${XA}','pause_automation','','x')->>'error';`) === "no-decider" &&
+      jget(`select count(*) from agent.tool_revocations where agent_id='${XA}';`) === "1");
+    check("a tool name that is not one is refused BY NAME, not stored",
+      jget(`select agent.revoke_agent_tool('${XT}','${XA}','not a tool name!','person-1',null)->>'error';`) === "bad-tool");
+    check("⚠ an agent of another account is `no-agent`, and nothing is written",
+      jget(`select agent.revoke_agent_tool('rv-tenant-2','${XA}','pause_automation','person-1',null)->>'error';`) === "no-agent" &&
+      jget(`select count(*) from agent.tool_revocations where agent_id='${XA}';`) === "1");
+    check("revoking the same tool twice is one revocation",
+      /"ok"\s*:\s*true/.test(jget(`select agent.revoke_agent_tool('${XT}','${XA}','run_automation','person-2',null)::text;`)) &&
+      jget(`select count(*) from agent.tool_revocations where agent_id='${XA}';`) === "1");
+
+    // ⚠ A REVOCATION THAT LANDS BETWEEN A REQUEST AND THE PRESS must not be approvable. A
+    // DECLARED second wall: `revoke_agent_tool` withdraws what is pending, so this covers the
+    // row it raced rather than the ordinary case.
+    allowed("a request made before the tool was taken away",
+      `insert into agent.tool_approvals (id, tenant_id, run_id, agent_id, step, idx, tool, args, args_hash, expires_at)
+       values (gen_random_uuid(), '${XT}','${R3}','${XA}',8,0,'run_automation','{}'::jsonb,'h6', now() + interval '1 day');`, asOwner);
+    const raced = jget(`select id::text from agent.tool_approvals where run_id='${R3}' and step=8;`, asOwner);
+    check("⚠ a request whose PERMISSION was withdrawn cannot be decided",
+      jget(`select agent.decide_tool_approval('${XT}','${raced}','approved','ok','person-1')->>'error';`) === "revoked-permission");
+
+    // ── 5. LIFTING A REVOCATION ───────────────────────────────────────────
+    const lifted = jget(`select agent.restore_agent_tool('${XT}','${XA}','run_automation')::text;`);
+    check("a revocation can be lifted", /"lifted"\s*:\s*true/.test(lifted) &&
+      jget(`select count(*) from agent.tool_revocations where agent_id='${XA}';`) === "0", lifted);
+    // ⚠ AND IT DOES NOT BRING BACK WHAT IT WITHDREW. Those were answered — by the revocation —
+    // and re-opening them would put a decision in front of somebody who has already made one.
+    check("⚠ ...and the requests it withdrew stay withdrawn — the agent asks again if it still wants the call",
+      jget(`select verdict from agent.tool_approvals where run_id='${R3}' and step=1;`, asOwner) === "revoked");
+    check("lifting one that is not there says so rather than pretending",
+      /"lifted"\s*:\s*false/.test(jget(`select agent.restore_agent_tool('${XT}','${XA}','run_automation')::text;`)));
+
+    // ── 6. THE PRIVILEGES ON THE NEW TABLE ────────────────────────────────
+    // ASKED AS PRIVILEGES rather than as refusals: `authenticated` holds no USAGE on the
+    // schema, so a refusal says nothing about the table grant.
+    check("⚠ no role may EDIT a revocation — added or lifted, never edited",
+      jget(`select has_table_privilege('service_role','agent.tool_revocations','UPDATE')::text || '/'
+                || has_table_privilege('authenticated','agent.tool_revocations','UPDATE')::text;`) === "false/false");
+    check("a customer may READ its own revocations and write none of them",
+      jget(`select has_table_privilege('authenticated','agent.tool_revocations','SELECT')::text || '/'
+                || has_table_privilege('authenticated','agent.tool_revocations','INSERT')::text || '/'
+                || has_table_privilege('authenticated','agent.tool_revocations','DELETE')::text;`) === "true/false/false");
+    check("row level security is on AND forced, so the owner is not quietly exempt",
+      jget(`select relrowsecurity::text || '/' || relforcerowsecurity::text
+              from pg_class where oid = 'agent.tool_revocations'::regclass;`) === "true/true");
+
+    // ── 7. CANCELLING A RUN ───────────────────────────────────────────────
+    const C1 = "ff000000-0000-0000-0000-0000000000c1";
+    allowed("a run part way through, with work claimed and a request waiting",
+      `insert into agent.runs (id, tenant_id, status) values ('${C1}','${XT}','running');
+       insert into agent.run_entries (run_id, seq, body) values
+         ('${C1}', 0, '{"kind":"started","at":1}'::jsonb),
+         ('${C1}', 1, '{"kind":"model","at":2,"step":1,"text":"","toolCalls":[{"id":"c0","name":"run_automation","args":{}}],"usage":{"inputTokens":1,"outputTokens":1}}'::jsonb),
+         ('${C1}', 2, '{"kind":"tool","at":3,"step":1,"index":0,"name":"run_automation","ms":1,"ok":true,"value":{}}'::jsonb);
+       insert into agent.run_work (run_id, tenant_id, claimed_by, claimed_at, lease_expires_at, claim_token)
+         values ('${C1}','${XT}','worker-1', now(), now() + interval '90 seconds', gen_random_uuid());
+       insert into agent.tool_approvals (id, tenant_id, run_id, agent_id, step, idx, tool, args, args_hash, expires_at)
+         values (gen_random_uuid(), '${XT}','${C1}','${XA}',2,0,'pause_automation','{}'::jsonb,'h7', now() + interval '1 day');`, asOwner);
+    const cancelled = jget(`select agent.cancel_run('${XT}','${C1}','person-1','changed my mind')::text;`);
+    check("⚠ a run can be stopped, and the answer says WHAT HAD ALREADY COMPLETED",
+      /"ok"\s*:\s*true/.test(cancelled) && /"completedSteps"\s*:\s*1/.test(cancelled)
+      && /"completedCalls"\s*:\s*1/.test(cancelled), cancelled);
+    // ⚠ AND IT DOES NOT CLAIM THEY WERE UNDONE, which is the requirement in as many words.
+    check("⚠ ...and it says so rather than implying a rollback",
+      /was not undone/.test(cancelled), cancelled);
+    // ⚠ THE STOP IS NESTED UNDER `stop`, WHICH IS `stoppedEntry`'S OWN SHAPE and is what
+    // `agent.project_entry` reads (`new.body -> 'stop'`). The first draft of `cancel_run` wrote
+    // these at the top level: `status` still went to `stopped` — that arm only looks at `kind`
+    // — and `agent.runs.stop` stayed NULL, so a cancelled run read as ended with nothing saying
+    // how. Asserted through the PROJECTION as well as the entry, because that is what a reader
+    // actually gets.
+    check("exactly ONE stop entry, naming the cancellation and who asked for it",
+      jget(`select count(*) from agent.run_entries where run_id='${C1}' and body->>'kind'='stopped';`, asOwner) === "1" &&
+      jget(`select (body->'stop'->>'reason') || '/' || (body->'stop'->>'cancelledBy') || '/' || (body->'stop'->>'note')
+              from agent.run_entries where run_id='${C1}' and body->>'kind'='stopped';`, asOwner)
+        === "cancelled/person-1/changed my mind");
+    check("⚠ ...and the RUN's own projection carries it, which is what any reader gets",
+      jget(`select (stop->>'reason') || '/' || (stop->>'cancelledBy') || '/' || (stop->>'completedSteps')
+              from agent.runs where id='${C1}';`, asOwner) === "cancelled/person-1/1");
+    check("⚠ the run reads as stopped, which is the LOG's own projection and not a column somebody set",
+      jget(`select status from agent.runs where id='${C1}';`, asOwner) === "stopped");
+    // PENDING WORK STOPS. The row is released and marked done, so nothing is delivered again
+    // and whoever holds it fails its next checkpoint — the fence doing the stopping.
+    check("⚠ the work is released and marked done, so nothing is delivered again",
+      jget(`select (claimed_by is null and claim_token is null and done_at is not null)::text
+              from agent.run_work where run_id='${C1}';`) === "true");
+    check("⚠ and anything waiting for a person is withdrawn, not left on somebody's screen",
+      jget(`select verdict from agent.tool_approvals where run_id='${C1}' and step=2;`, asOwner) === "revoked");
+    // A SECOND CANCELLATION IS NOT A SECOND STOP. Its stop is what it ended as, and
+    // overwriting it would lose that.
+    const again = jget(`select agent.cancel_run('${XT}','${C1}','person-2',null)::text;`);
+    check("⚠ cancelling twice answers what really happened and writes no second stop",
+      /"repeat"\s*:\s*true/.test(again) && /"alreadyStopped"\s*:\s*true/.test(again) &&
+      jget(`select count(*) from agent.run_entries where run_id='${C1}' and body->>'kind'='stopped';`, asOwner) === "1", again);
+    check("...and the first stop is untouched, so a cancelled run stays cancelled by whoever cancelled it",
+      jget(`select body->'stop'->>'cancelledBy' from agent.run_entries where run_id='${C1}' and body->>'kind'='stopped';`, asOwner) === "person-1");
+    check("a cancellation nobody can be tied to is refused",
+      jget(`select agent.cancel_run('${XT}','${C1}','  ',null)->>'error';`) === "no-decider");
+    check("⚠ another account's run is `no-run`, and nothing is written",
+      jget(`select agent.cancel_run('rv-tenant-2','${C1}','person-1',null)->>'error';`) === "no-run");
+
+    // ⚠ A SUSPENDED AUTOMATION HAS ITS WAIT RELEASED, or the resume tick would wake something
+    // that has been stopped.
+    const C2 = "ff000000-0000-0000-0000-0000000000c2";
+    allowed("a suspended automation execution", `
+      insert into agent.automations (id, tenant_id, agent_id, name, steps, zone)
+        values ('${C2}', '${XT}', '${XA}', 'w', '[{"id":"s1","type":"note","text":"x","out":null}]'::jsonb, 'UTC');
+      insert into agent.runs (id, tenant_id, status) values ('${C2}','${XT}','running');
+      insert into agent.run_entries (run_id, seq, body) values ('${C2}', 0, '{"kind":"started","at":1}'::jsonb);
+      insert into agent.automation_runs (id, automation_id, tenant_id, trigger, steps, zone, waiting, wait_until)
+        values ('${C2}', '${C2}', '${XT}', 'manual', '[{"id":"s1","type":"note","text":"x","out":null}]'::jsonb, 'UTC',
+                '{"step":"s1","kind":"wait"}'::jsonb, now() + interval '1 hour');`, asOwner);
+    const stoppedWait = jget(`select agent.cancel_run('${XT}','${C2}','person-1','no longer needed')::text;`);
+    check("⚠ a cancelled execution's WAIT is released, so nothing wakes it later",
+      /"releasedWait"\s*:\s*true/.test(stoppedWait) &&
+      jget(`select (waiting is null and wait_until is null and finished_at is not null)::text
+              from agent.automation_runs where id='${C2}';`) === "true", stoppedWait);
+
+    // ── 7b. A RUN NOBODY ANSWERED IS PUT BACK, OR IT IS STRANDED FOR EVER ──
+    // ⚠ BOTH OF THESE WERE FOUND BY DRIVING THE FEATURE AND NEITHER WAS OBVIOUS. A run waiting
+    // for a person has its work row marked DONE, and `decide_tool_approval` is what puts it
+    // back — so anything that answers a request INSTEAD of a person has to put it back too, or
+    // the run reads as `running` for ever with nothing on any screen and no row to claim.
+    const S1 = "ff000000-0000-0000-0000-0000000000s1".replace("s1", "a1");
+    const S2 = "ff000000-0000-0000-0000-0000000000s2".replace("s2", "a2");
+    allowed("two runs waiting for a person, with their work rows done as a held run's is", `
+      insert into agent.runs (id, tenant_id, status) values ('${S1}','${XT}','running'), ('${S2}','${XT}','running');
+      insert into agent.run_work (run_id, tenant_id, done_at) values ('${S1}','${XT}', now()), ('${S2}','${XT}', now());
+      insert into agent.tool_approvals (id, tenant_id, run_id, agent_id, step, idx, tool, args, args_hash, expires_at)
+        values (gen_random_uuid(),'${XT}','${S1}','${XA}',1,0,'remember','{}'::jsonb,'hA', now() - interval '1 minute'),
+               (gen_random_uuid(),'${XT}','${S2}','${XA}',1,0,'remember','{}'::jsonb,'hB', now() + interval '1 day');`, asOwner);
+    const swept = jget(`select coalesce(string_agg(t ->> 'run', ','), 'NONE') from agent.requeue_expired_approvals(25) as t;`);
+    check("⚠ a run whose window closed is put back on the queue", swept === S1, swept);
+    check("...and its work row really is claimable again",
+      jget(`select (done_at is null and attempts = 0 and kind = 'resume')::text from agent.run_work where run_id='${S1}';`) === "true");
+    // ⚠ AND A RUN SOMEBODY CAN STILL ANSWER IS LEFT ALONE, which is what stops this waking the
+    // same run every minute for ever: a run holding one expired and one live request would be
+    // requeued, hold again on the live one, and be requeued again.
+    check("⚠ ...and a run somebody can still answer is left for them to answer",
+      jget(`select (done_at is not null)::text from agent.run_work where run_id='${S2}';`) === "true");
+    // ⚠ AND A RUN THAT HAS ALREADY ENDED IS NOT OFFERED, which is what stops a finished run
+    // being delivered once a minute for the rest of time. **The first draft of this check was
+    // VACUOUS** — an `||` that was satisfied by `S1` having no stop entry, which it did not —
+    // so the run is really ended here first and the assertion is unconditional.
+    allowed("the requeued run then ends, as a delivery would end it",
+      `insert into agent.run_entries (run_id, seq, body) values
+         ('${S1}', 0, '{"kind":"started","at":1}'::jsonb),
+         ('${S1}', 1, '{"kind":"stopped","at":2,"stop":{"reason":"answered","text":"done"}}'::jsonb);`, asOwner);
+    check("⚠ ...and a run that has already ended is not offered again",
+      jget(`select count(*) from agent.requeue_expired_approvals(25) as t where t ->> 'run' = '${S1}';`) === "0");
+
+    // ...AND A REVOCATION ANSWERS A REQUEST TOO, so it has to put its runs back as well.
+    const S3 = "ff000000-0000-0000-0000-0000000000a3";
+    allowed("a third run waiting on a tool about to be taken away", `
+      insert into agent.runs (id, tenant_id, status) values ('${S3}','${XT}','running');
+      insert into agent.run_work (run_id, tenant_id, done_at) values ('${S3}','${XT}', now());
+      insert into agent.tool_approvals (id, tenant_id, run_id, agent_id, step, idx, tool, args, args_hash, expires_at)
+        values (gen_random_uuid(),'${XT}','${S3}','${XA2}',1,0,'forget','{}'::jsonb,'hC', now() + interval '1 day');`, asOwner);
+    const revokedBack = jget(`select agent.revoke_agent_tool('${XT}','${XA2}','forget','person-1',null)::text;`);
+    check("⚠ taking a tool away puts back every run it just answered, and says which",
+      /"withdrew"\s*:\s*1/.test(revokedBack) && revokedBack.includes(S3) &&
+      jget(`select (done_at is null and kind = 'resume')::text from agent.run_work where run_id='${S3}';`) === "true",
+      revokedBack);
+
+    // ── 8. THE FUNCTIONS THEMSELVES ───────────────────────────────────────
+    check("⚠ every new function is `security definer` with an EMPTY search_path",
+      jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'agent'
+               and p.proname in ('revoke_agent_tool','restore_agent_tool','revoked_tools',
+                                 'revoke_tool_approval','cancel_run','requeue_expired_approvals')
+               and p.prosecdef and 'search_path=""' = any(p.proconfig);`) === "6");
+    // `approval_window` is the one that is NOT definer, deliberately: it reads nothing.
+    check("...and the window function reads nothing, so it needs no privilege of its own",
+      // `provolatile` is of type "char", which has no `text || "char"` operator at all — so
+      // without the cast the statement RAISES and `jget` answers "", which reads as a wrong
+      // value rather than as a broken query.
+      jget(`select (not prosecdef)::text || '/' || provolatile::text from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname='agent' and p.proname='approval_window';`) === "true/i");
+    check("⚠ none of the five is callable by a customer — the backend alone, as with every operation here",
+      jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'agent'
+               and p.proname in ('revoke_agent_tool','restore_agent_tool','revoked_tools',
+                                 'revoke_tool_approval','cancel_run','requeue_expired_approvals')
+               and has_function_privilege('authenticated', p.oid, 'EXECUTE');`) === "0");
+    check("THE CONTROL: the backend really may call all five",
+      jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'agent'
+               and p.proname in ('revoke_agent_tool','restore_agent_tool','revoked_tools',
+                                 'revoke_tool_approval','cancel_run','requeue_expired_approvals')
+               and has_function_privilege('service_role', p.oid, 'EXECUTE');`) === "6");
+
+    // ── 9. WHAT THE TWO LIST VIEWS SAY ABOUT AN EXPIRED REQUEST ───────────
+    // ⚠ THEY ANSWER DIFFERENTLY ON PURPOSE. `pending_approvals` is what a screen draws as
+    // "waiting for you", and a closed window is not waiting for anybody. `run_approvals` is
+    // one run's whole story, where the expired row is exactly what explains the run.
+    // ⚠ BOTH ANSWER `setof jsonb`, so a row IS the object — `where id = …` would be asking
+    // about a column neither has, and the first draft did exactly that.
+    //
+    // ⚠ AND THIS SECTION MAKES ITS OWN EXPIRED ROW rather than reusing `ap1`. The first draft
+    // read `ap1`, which by now is `revoked` — section 4's `revoke_agent_tool` withdrew every
+    // pending request for that tool, which is the product being exactly right. So the
+    // "expired is not offered" check would have passed because the row was WITHDRAWN, and the
+    // projection check failed for the same reason. *A fixture that drifts under a later
+    // section's correct behaviour tests something other than what it says.*
+    allowed("an expired request of its own, for a tool nothing has revoked",
+      `select agent.request_tool_approval('${XT}','${R1}','${XA}',6,0,'pause_automation','{}'::jsonb,'h8');
+       update agent.tool_approvals set expires_at = now() - interval '1 minute'
+        where run_id='${R1}' and step=6;`, asOwner);
+    const apX = jget(`select id::text from agent.tool_approvals where run_id='${R1}' and step=6;`, asOwner);
+    check("⚠ an expired request is NOT offered as something to answer",
+      jget(`select count(*) from agent.pending_approvals('${XT}','${XA}',100) as t
+             where t ->> 'id' = '${apX}';`) === "0");
+    check("⚠ ...but a run's own list PROJECTS it as expired, because it is what explains the run",
+      jget(`select t ->> 'verdict' from agent.run_approvals('${XT}','${R1}') as t
+             where t ->> 'id' = '${apX}';`) === "expired");
+    allowed("a request inside its window, for the control",
+      `select agent.request_tool_approval('${XT}','${R1}','${XA}',5,0,'pause_automation','{}'::jsonb,'h9');`, asOwner);
+    check("THE CONTROL: a pending request inside its window IS offered",
+      jget(`select count(*) from agent.pending_approvals('${XT}','${XA}',100) as t
+             where (t ->> 'step')::int = 5;`) === "1");
+    check("...and a WITHDRAWN request is not offered either, for a different reason",
+      jget(`select count(*) from agent.pending_approvals('${XT}','${XA}',100) as t
+             where t ->> 'id' = '${ap1}';`) === "0" &&
+      jget(`select t ->> 'verdict' from agent.run_approvals('${XT}','${R1}') as t
+             where t ->> 'id' = '${ap1}';`) === "revoked");
+  }
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

@@ -153,6 +153,22 @@ function fakeStore(over = {}) {
       calls.push({ name: "decideToolApproval", args: a });
       return { ok: true, repeat: false, id: A1, verdict: "approved", note: null, decided_by: T1 };
     },
+    // ── expiry, revocation and cancellation ─────────────────────────────────
+    // GROWN AGAIN rather than exempted, for the same reason as every group above: a route
+    // the census drives with no fake behind it answers 502 and proves nothing about its
+    // scoping. The answer shapes are the real functions'.
+    revokeToolApproval: async (...a) => {
+      calls.push({ name: "revokeToolApproval", args: a });
+      return { ok: true, repeat: false, id: A1, run: A1 };
+    },
+    revokeAgentTool: async (...a) => { calls.push({ name: "revokeAgentTool", args: a }); return { ok: true, tool: "remember", withdrew: 0 }; },
+    restoreAgentTool: async (...a) => { calls.push({ name: "restoreAgentTool", args: a }); return { ok: true, tool: "remember", lifted: true }; },
+    listRevokedTools: async (...a) => { calls.push({ name: "listRevokedTools", args: a }); return []; },
+    cancelRun: async (...a) => {
+      calls.push({ name: "cancelRun", args: a });
+      return { ok: true, repeat: false, run: A1, completedSteps: 0, completedCalls: 0,
+               withdrewApprovals: 0, releasedWait: false, say: "stopped — it was not undone" };
+    },
   };
   void note;
   return { calls, store: { ...base, ...over } };
@@ -187,6 +203,10 @@ test("every operation is scoped by the tenant the handler was given", async () =
         // reason: each of those routes needs its own arguments, and a census that drove
         // them without would read the 400 they correctly give and prove nothing.
         run: A1, step: "s1", verdict: "approved", title: "Price list", value: "formal",
+        // ⚠ AND ONCE MORE for revocation and cancellation. `tool` has to be a REAL tool name,
+        // because the route checks it against the catalog rather than only against the
+        // grammar — a revocation of a name no tool has is a row that can never do anything.
+        tool: "remember", reason: "changed my mind",
       },
       newId: () => A1,
     });
@@ -303,7 +323,14 @@ test("no route reads an account off the body or the query — asserted over the 
   // `owner`, `account` — are still not in it, and the positive case above still drives every
   // route to prove the tenant reaches the store from the verified token alone.
                            "agent", "enabled", "schedule", "zone", "steps",
-                           "inputs", "input", "run", "step", "verdict", "note", "title", "format", "value", "source"]);
+                           "inputs", "input", "run", "step", "verdict", "note", "title", "format", "value", "source",
+  // ⚠ RE-ANCHORED A FOURTH TIME, by TWO fields and still not by an exemption. `tool` is WHICH
+  // TOOL of one agent a revocation is about, and it is checked against `AGENT_TOOLS` — the
+  // platform's own catalog, in code — so it cannot name an account and cannot name a capability
+  // the platform has not got. `reason` is a person's own words about why they stopped a run.
+  // The four spellings this census exists to forbid are still not in it, and the positive case
+  // above still drives every route to prove the tenant reaches the store from the token alone.
+                           "tool", "reason"]);
   const strays = [...new Set(reads)].filter((k) => !allowed.has(k));
   assert.deepEqual(strays, [], `the handler reads ${strays.join(", ")} off the request`);
 });

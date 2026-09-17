@@ -454,7 +454,26 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   // from outside and is the only operation that can add to a conversation without
   // spending work on it.
   const SERVER_ONLY = ["/api/agent/message"];
-  const paths = Object.keys(AGENT_ROUTES).filter((p) => !SERVER_ONLY.includes(p));
+  /**
+   * ⚠ ROUTES THAT EXIST AND HAVE NO SCREEN YET — a SEPARATE list from `SERVER_ONLY`, because
+   * they are separate facts and collapsing them would state something untrue.
+   *
+   * `SERVER_ONLY` means *the screen is never meant to call this*. These four are the opposite:
+   * a person is exactly who takes a tool away or stops a run, so each of them WILL be reached
+   * from a screen — the backend landed first, deliberately, on the standing instruction that
+   * the frontend is fine as it is. Putting them in `SERVER_ONLY` would record a design
+   * decision nobody made; leaving them out of both lists would force a screen to be invented
+   * to keep a test green.
+   *
+   * **AND THE LIST IS AUDITABLE, WHICH IS THE WHOLE POINT**: every name has to be a real
+   * route, so a typo cannot quietly exempt one that does exist, and the list SHRINKS as the
+   * screen arrives rather than being forgotten.
+   */
+  const NO_SCREEN_YET = ["/api/agent/tool-withdraw", "/api/agent/tool-revoke",
+                         "/api/agent/tool-restore", "/api/agent/revoked-tools",
+                         "/api/agent/run-cancel"];
+  const paths = Object.keys(AGENT_ROUTES)
+    .filter((p) => !SERVER_ONLY.includes(p) && !NO_SCREEN_YET.includes(p));
   assert.ok(paths.length >= 6, `the census is looking at only ${paths.length} routes`);
   // ⚠ MATCHED AT A PATH BOUNDARY, because `/api/agent/messages` CONTAINS
   // `/api/agent/message` — the recorded "a needle that can match a longer name
@@ -464,6 +483,14 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   for (const p of SERVER_ONLY) {
     assert.ok(Object.hasOwn(AGENT_ROUTES, p), `${p} is declared server-only and does not exist`);
     assert.ok(!called(p), `${p} is declared server-only and the screen calls it`);
+  }
+  // ⚠ EVERY DEFERRED NAME MUST BE A REAL ROUTE, or a typo exempts a route that exists while
+  // the list claims to account for it. And when the screen does arrive, the name comes OFF
+  // this list rather than the route quietly staying exempt — which is what the second
+  // assertion is for: a route on this list that the screen already calls is a stale entry.
+  for (const p of NO_SCREEN_YET) {
+    assert.ok(Object.hasOwn(AGENT_ROUTES, p), `${p} is deferred and does not exist`);
+    assert.ok(!called(p), `${p} is on the no-screen-yet list and the screen calls it — take it off`);
   }
   // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: the matcher finds a route the
   // screen really does call, and refuses one that only shares a prefix with it.

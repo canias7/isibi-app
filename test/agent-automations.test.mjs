@@ -485,6 +485,12 @@ test("no automation route reads an account off the body or the query", () => {
   const allowed = new Set([
     "id", "agent", "name", "enabled", "steps", "schedule", "at", "zone", "hasOwn",
     "inputs", "input", "run", "step", "verdict", "note", "title", "body", "format", "key", "value", "source",
+    // ⚠ GROWN AGAIN, BY TWO, and still not by an exemption. `tool` is WHICH TOOL of one agent
+    // a revocation is about, checked against `AGENT_TOOLS` — the platform's own catalog, in
+    // code — so it can name neither an account nor a capability the platform has not got.
+    // `reason` is a person's own words about why they stopped a run. The four spellings this
+    // census exists to forbid (`tenant`, `uid`, `owner`, `account`) are still not in it.
+    "tool", "reason",
   ]);
   for (const r of reads) assert.ok(allowed.has(r), `an automation route reads ${r} off what somebody sent`);
   // THE OBSERVER, PROVED ALIVE: it can see the reads the block really makes.

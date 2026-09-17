@@ -892,6 +892,79 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return answerOf(r, "decide tool approval");
     },
 
+    /**
+     * A person WITHDRAWS one waiting request, without deciding it.
+     *
+     * ⚠ **NOT A REJECTION, AND THE DIFFERENCE REACHES THE MODEL.** Nobody looked at the call
+     * and said no — the request is being taken back — so a model told "a person declined this"
+     * would be told something that did not happen. `decide_tool_approval` deliberately
+     * REFUSES `revoked` as a verdict, so there is no way to reach this through that door and
+     * skip this function's own rules.
+     */
+    async revokeToolApproval(tenant, { id, by, note }) {
+      const r = await req("POST", "rpc/revoke_tool_approval", {
+        body: { p_tenant: tenant, p_id: id, p_by: by, p_note: note ?? null },
+      });
+      if (!r.ok) throw storeFail("withdraw tool approval", r);
+      return answerOf(r, "withdraw tool approval");
+    },
+
+    /**
+     * A person takes ONE TOOL away from ONE AGENT, now.
+     *
+     * ⚠ **THIS IS NOT THE SETTINGS TICK, and conflating the two is the mistake this exists to
+     * avoid.** Unticking a tool changes what the agent's NEXT run is accepted with, and
+     * deliberately does not reach a run already going — a run that loses a tool half way
+     * through is a run whose plan no longer works. A revocation is the opposite act: it says
+     * *stop doing this now*, and the engine reads it again on every delivery. So a customer
+     * has both, and which one they want is a real choice rather than a duplicate.
+     */
+    async revokeAgentTool(tenant, { agentId, tool, by, note }) {
+      const r = await req("POST", "rpc/revoke_agent_tool", {
+        body: { p_tenant: tenant, p_agent_id: agentId, p_tool: tool, p_by: by, p_note: note ?? null },
+      });
+      if (!r.ok) throw storeFail("revoke tool", r);
+      return answerOf(r, "revoke tool");
+    },
+
+    /** ...and lifts it. It does NOT re-open the requests the revocation withdrew. */
+    async restoreAgentTool(tenant, { agentId, tool }) {
+      const r = await req("POST", "rpc/restore_agent_tool", {
+        body: { p_tenant: tenant, p_agent_id: agentId, p_tool: tool },
+      });
+      if (!r.ok) throw storeFail("restore tool", r);
+      return answerOf(r, "restore tool");
+    },
+
+    /** Which tools this agent may no longer use, so a screen can offer to lift one. */
+    async listRevokedTools(tenant, agentId) {
+      const r = await req("POST", "rpc/revoked_tools", {
+        body: { p_tenant: tenant, p_agent_id: agentId },
+      });
+      if (!r.ok) throw storeFail("list revoked tools", r);
+      // A SET-RETURNING FUNCTION ANSWERS A LIST OF STRINGS. Refused rather than coerced:
+      // `String(["act"])` is `"act"`, and a malformed answer read as one name would tell a
+      // customer a tool is revoked that is not.
+      const got = rows(r);
+      return got.filter((t) => typeof t === "string");
+    },
+
+    /**
+     * A person STOPS one run.
+     *
+     * ⚠ **AND NOTHING ALREADY DONE IS UNDONE.** The answer carries how far the run got, and
+     * the sentence says so, because *don't claim completed effects were undone* is the one
+     * thing a cancellation must not imply. Cancelling twice answers what really happened
+     * rather than writing a second ending.
+     */
+    async cancelRun(tenant, { runId, by, reason }) {
+      const r = await req("POST", "rpc/cancel_run", {
+        body: { p_tenant: tenant, p_run_id: runId, p_by: by, p_reason: reason ?? null },
+      });
+      if (!r.ok) throw storeFail("cancel run", r);
+      return answerOf(r, "cancel run");
+    },
+
     // ── reference material ──────────────────────────────────────────────────
     //
     // **PLAIN TABLE WRITES RATHER THAN FUNCTIONS, and the difference from the automation
@@ -1906,6 +1979,19 @@ export const AGENT_ROUTES = Object.freeze({
   // different things wearing one word is how a screen comes to send the wrong one.
   "/api/agent/tool-approvals": "GET",
   "/api/agent/tool-approve": "POST",
+  // ⚠ WITHDRAWING IS ITS OWN ROUTE AND NOT A THIRD VERDICT ON `tool-approve`. Taking a
+  // request back is not deciding it, and the model is told a different thing — so the two
+  // cannot share a door, or a screen sending the wrong field would turn a withdrawal into a
+  // rejection somebody never made.
+  "/api/agent/tool-withdraw": "POST",
+  // ── a permission taken away, and a run stopped ────────────────────────────
+  // NAMED FOR WHAT THEY ACT ON. `tool-revoke` is about ONE TOOL of one agent, for ever until
+  // it is restored; `run-cancel` is about ONE RUN. Neither is the settings form, which decides
+  // what the NEXT run is accepted with.
+  "/api/agent/tool-revoke": "POST",
+  "/api/agent/tool-restore": "POST",
+  "/api/agent/revoked-tools": "GET",
+  "/api/agent/run-cancel": "POST",
 });
 
 /** Approve, or reject. Nothing else, and never a default. */
@@ -2617,6 +2703,116 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         // decision and a loser, and the loser must be told whose answer stands rather
         // than being shown their own.
         repeat: d.repeat === true, decidedBy: d.decided_by ?? null,
+      });
+    }
+
+    if (path === "/api/agent/tool-withdraw") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which request?");
+      if (b.note !== undefined && b.note !== null && typeof b.note !== "string") {
+        return no(400, "that note didn't arrive as text");
+      }
+      const note = b.note === undefined || b.note === null ? null : cleanText(b.note, TOOL_NOTE_MAX);
+      // WHO WITHDREW IT COMES FROM THE VERIFIED SESSION, exactly as the verdict's does, and
+      // there is no `by` on this route's body either.
+      const d = await store.revokeToolApproval(who, { id, by: who, note });
+      if (d?.ok !== true) {
+        // ⚠ TWO REFUSALS THAT ARE NOT THE SAME THING. A call that has already RUN cannot be
+        // taken back — a database cannot recall a tool call — and saying "that isn't waiting
+        // any more" about it would imply it did not happen.
+        if (d?.error === "already-ran") {
+          return no(409, "that call has already run, so there is nothing left to take back");
+        }
+        return no(404, "that request isn't waiting any more");
+      }
+      // ⚠ RUNG FOR THE SAME REASON AN APPROVAL IS: the run has been put back on the queue
+      // inside the function's own transaction, and without the doorbell nothing visibly
+      // happens until the sweeper's next tick. A failed ring is said and never raised.
+      let notified = false;
+      const back = cleanId(d.run);
+      if (back && typeof ring === "function") {
+        try { await ring(back); notified = true; }
+        catch (e) { if (typeof log === "function") log("agent withdrawal: the queue was not rung", String(e?.message ?? e)); }
+      }
+      return ok({ notified, id: d.id, withdrawn: true, repeat: d.repeat === true });
+    }
+
+    if (path === "/api/agent/revoked-tools") {
+      const agentId = cleanId(q.get("agent"));
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      return ok({ agent: agentId, revoked: await store.listRevokedTools(who, agentId) });
+    }
+
+    if (path === "/api/agent/tool-revoke" || path === "/api/agent/tool-restore") {
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      // ⚠ THE TOOL NAME IS CHECKED AGAINST THE CATALOG, NOT ONLY AGAINST THE GRAMMAR. A
+      // revocation of a name no tool has is a row that can never do anything, and it would
+      // sit on a screen looking like a permission somebody took away.
+      const tool = typeof b.tool === "string" ? b.tool.trim() : "";
+      if (!tool) return no(400, "which tool?");
+      if (!AGENT_TOOLS.some((t) => t.name === tool)) {
+        return no(400, `there is no tool called "${tool}"`);
+      }
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      if (path === "/api/agent/tool-restore") {
+        const back = await store.restoreAgentTool(who, { agentId, tool });
+        if (back?.ok !== true) return NO_AGENT();
+        // ⚠ SAID PLAINLY, because it is the one thing about lifting a revocation somebody
+        // will get wrong: the requests it withdrew stay withdrawn, and the agent has to ask
+        // again if it still wants the call.
+        return ok({ agent: agentId, tool, lifted: back.lifted === true,
+                    say: "it can use that again from its next action — anything that was waiting for it stays withdrawn" });
+      }
+      if (b.note !== undefined && b.note !== null && typeof b.note !== "string") {
+        return no(400, "that note didn't arrive as text");
+      }
+      const note = b.note === undefined || b.note === null ? null : cleanText(b.note, TOOL_NOTE_MAX);
+      const gone = await store.revokeAgentTool(who, { agentId, tool, by: who, note });
+      if (gone?.ok !== true) return NO_AGENT();
+      // ⚠ **EVERY RUN IT ANSWERED IS RUNG, AND THAT IS NOT A NICETY.** A run waiting for a
+      // person has its work row marked done; the revocation has just answered that request
+      // INSTEAD of a person, and `revoke_agent_tool` put the run back inside its own
+      // transaction — but a SQL function cannot ring a Cloudflare queue, so without this the
+      // run sits reading as working until the next cron tick. A failed ring is said
+      // (`notified`) and never raised: the work is durable either way.
+      let notified = 0;
+      const back = Array.isArray(gone.runs) ? gone.runs : [];
+      for (const runId of back) {
+        if (!cleanId(runId) || typeof ring !== "function") continue;
+        try { await ring(runId); notified += 1; }
+        catch (e) { if (typeof log === "function") log("agent revoke: the queue was not rung", String(e?.message ?? e)); }
+      }
+      return ok({ agent: agentId, tool, withdrew: gone.withdrew ?? 0, notified,
+                  say: "it cannot use that again — and anything that was waiting for it has been taken back" });
+    }
+
+    if (path === "/api/agent/run-cancel") {
+      const runId = cleanId(b.run);
+      if (!runId) return no(400, "which run?");
+      if (b.reason !== undefined && b.reason !== null && typeof b.reason !== "string") {
+        return no(400, "that reason didn't arrive as text");
+      }
+      const reason = b.reason === undefined || b.reason === null ? null : cleanText(b.reason, TOOL_NOTE_MAX);
+      // ⚠ THE RUN IS NOT LOOKED UP HERE AND THAT IS DELIBERATE: `cancel_run` puts the tenant
+      // in its own locked lookup, so another account's run and one that does not exist are
+      // one answer — and a check here would be a second copy of that wall with a race
+      // between the two.
+      const stopped = await store.cancelRun(who, { runId, by: who, reason });
+      if (stopped?.ok !== true) return no(404, "there is no run of yours with that id");
+      return ok({
+        run: runId,
+        // ⚠ WHAT HAD ALREADY COMPLETED, and the sentence that says it was not undone. A
+        // cancellation is the work stopping, not the work coming back.
+        completedSteps: stopped.completedSteps ?? 0,
+        completedCalls: stopped.completedCalls ?? 0,
+        withdrewApprovals: stopped.withdrewApprovals ?? 0,
+        releasedWait: stopped.releasedWait === true,
+        alreadyStopped: stopped.alreadyStopped === true,
+        repeat: stopped.repeat === true,
+        say: typeof stopped.say === "string" ? stopped.say
+          : "stopped — what had already run has already run and was not undone",
       });
     }
 
