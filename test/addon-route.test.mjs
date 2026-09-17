@@ -2839,12 +2839,14 @@ test("a site too large for the window keeps the addon contract, shows what fits 
   const chars = stored.reduce((n, p) => n + p.source.length, 0);
   assert.ok(chars > MAX_PRIOR_CHARS, "the fixture is not over the window — " + chars + " against " + MAX_PRIOR_CHARS);
 
-  // THE HOME PAGE IS REAL HERE, so `keep` has something to bind to and the
-  // reply's list is decided by the SAME selection the prompt was built from.
-  // Without it every `keep` entry names a page the site has not got, the two
-  // selections agree by accident, and a mutant that recomputes the window with
-  // a different keep list survives — measured.
-  stored[0] = { ...stored[0], path: "src/routes/index.tsx" };
+  // ⚠ THE HOME PAGE IS REAL AND IS DELIBERATELY NOT FIRST. `keep` has to bind
+  // to something the site really has, or every entry names a page it has not
+  // got and the two selections agree by accident — and it has to name a page
+  // the BUDGET would not have taken anyway, or naming it changes nothing.
+  // MEASURED: with the home page at index 0 three mutants survived (the keep
+  // order dropped, the home page unkept, the route's own reader recomputed with
+  // a different keep list), because `stored[0]` fits first either way.
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "src/routes/index.tsx" };
   const r = await addon("fw-big", "add a page listing our opening hours", {
     kinds: ["page"], publishes: true, storedPages: stored,
     written: [writtenPage("/hours")],
@@ -2881,6 +2883,11 @@ test("a site too large for the window keeps the addon contract, shows what fits 
   // moves per request reads that order as meaning something.
   const inSite = stored.map((p) => p.path).filter((p) => shown.includes(p));
   assert.deepEqual(shown, inSite, "the shown pages are in the budget's order rather than the site's");
+  // AND THE ASSERTION ABOVE IS NOT VACUOUS, which it would be if `keep` named
+  // the page the site's order puts first: the home page is LAST here, so the
+  // budget's order and the site's really are different lists.
+  assert.notEqual(inSite[0], "src/routes/index.tsx", "the fixture cannot tell the two orders apart");
+  assert.ok(shown.includes("src/routes/index.tsx"), "the home page was not kept: " + JSON.stringify(shown));
 
   // AND IT IS RECORDED. `ok: true` with an empty `problems` and an empty
   // `coverNote` is exactly what this answered before, so the one fact that
@@ -2910,7 +2917,9 @@ test("the pages this change is about are the ones shown, whatever their stored o
   // aimed at the HOME page first, which establishes by measurement that the
   // target really is one the budget drops — and only then is it named.
   const stored = corpusPages(BIG);
-  stored[0] = { ...stored[0], path: "src/routes/index.tsx" };
+  // THE HOME PAGE IS LAST, deliberately: at index 0 it is shown whatever `keep`
+  // says, and the assertion below stops being about `keep` at all.
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "src/routes/index.tsx" };
 
   const run = (slug, route) => addon(slug, "add a note about parking to " + route, {
     kinds: ["component"], publishes: true, storedPages: stored,
@@ -2920,7 +2929,11 @@ test("the pages this change is about are the ones shown, whatever their stored o
 
   // THE CONTROL: nothing names the target, so it is shown only if the budget
   // reached it on its own.
-  const without = shownPaths(pagePrompt(await run("fw-keep-ctl", "/")).text);
+  // THE CONTROL NAMES THE FIRST STORED PAGE, which the budget takes anyway, so
+  // `keep` adds nothing and the answer is the budget's own. Naming "/" here
+  // would keep the HOME page and change the very selection being measured.
+  const firstRoute = "/" + stored[0].path.replace("src/routes/", "").replace(/\.tsx$/, "");
+  const without = shownPaths(pagePrompt(await run("fw-keep-ctl", firstRoute)).text);
   const dropped = stored.map((p) => p.path).filter((p) => !without.includes(p));
   assert.ok(dropped.length, "the fixture fitted whole, so this case is not about the window");
   const target = "/" + dropped[0].replace("src/routes/", "").replace(/\.tsx$/, "");
