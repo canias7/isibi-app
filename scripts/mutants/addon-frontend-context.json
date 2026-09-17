@@ -222,8 +222,8 @@
   "files": [
    "builder/page-gen.mjs"
   ],
-  "from": "      \"\", \"```css\", cut ? sheet.slice(0, MAX_STYLE_CHARS) : sheet, \"```\");",
-  "to": "      \"\", \"```css\", sheet.slice(0, MAX_STYLE_CHARS), \"```\");"
+  "from": "      \"  effect.\" + (cut ? \" The first \" + MAX_STYLE_CHARS + \" characters of it, of \" + sheet.length + \":\" : \"\"),",
+  "to": "      \"  effect.\","
  },
  {
   "label": "the designer is not told the theme it is being asked to keep",

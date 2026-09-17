@@ -2525,7 +2525,13 @@ test("the page writer is shown the theme, the site's own stylesheet and the kit 
   };
   const r = await addon("fw-look", "add a note under the hero", {
     kinds: ["component"], publishes: true, storedPages: [HOME],
-    look: { theme: "harbour-slate" }, css: SHEET,
+    // A DECLARATION AND NO STORED FILE, which is also this case's control for
+    // the three-state parts read: the site has NO `parts.json`, so
+    // `loadSiteParts` answers `null` — "not asked" — and the note must keep the
+    // sentence it has always had rather than announce that nothing was written.
+    // Cannot-tell must never read as a value, and here the value would be a
+    // claim about somebody's own components.
+    look: { theme: "harbour-slate", tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] }, css: SHEET,
     answers: { component: { component: [{ page: "/", does: "a note saying when we are open", components: ["open-now"] }] } },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -2547,4 +2553,8 @@ test("the page writer is shown the theme, the site's own stylesheet and the kit 
   const seen = promptFor(r, "component");
   assert.match(seen.text, /theme is harbour-slate/, "the designer was not told the theme: " + seen.text.slice(0, 900));
   assert.match(seen.text, /stylesheet written for it/, "the designer was not told the site carries its own stylesheet");
+  assert.match(seen.text, /parts written for it: tide-chart/,
+    "a site whose components could not be read was reported as one with none: " + seen.text.slice(0, 900));
+  assert.doesNotMatch(seen.text, /nothing has written yet/,
+    "an unreadable parts list was said to be an empty one");
 });

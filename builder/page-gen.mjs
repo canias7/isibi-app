@@ -2460,8 +2460,16 @@ export function styleDirective({ theme, css } = {}) {
     const cut = sheet.length > MAX_STYLE_CHARS;
     out.push("- It also carries a stylesheet of its own, appended after the theme so it wins. It is ALREADY APPLIED —",
       "  do not restate any of it inline; use the classes and custom properties it defines and it will take",
+      // `cut` DECIDES THE SENTENCE AND NOTHING ELSE. The obvious second
+      // ternary — `cut ? sheet.slice(0, N) : sheet` — is INERT, because
+      // `slice(0, N)` is already a no-op on a string of N or fewer characters:
+      // MEASURED over five shapes including both boundaries, zero bytes
+      // different. A sweep mutant cutting it survived everything, which is
+      // what said so; the slice is unconditional now and the one thing worth
+      // guarding is the announcement, because a truncated stylesheet presented
+      // whole has the model conclude a selector does not exist.
       "  effect." + (cut ? " The first " + MAX_STYLE_CHARS + " characters of it, of " + sheet.length + ":" : ""),
-      "", "```css", cut ? sheet.slice(0, MAX_STYLE_CHARS) : sheet, "```");
+      "", "```css", sheet.slice(0, MAX_STYLE_CHARS), "```");
   }
   return out.join("\n");
 }
