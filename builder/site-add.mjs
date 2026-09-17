@@ -2657,6 +2657,34 @@ export function rewroteMsg(lost) {
     (words.length ? " — it would have lost " + words.join(" and ") : "") + "." + tail;
 }
 
+/**
+ * The sentence for an addition that would have taken photographs OFF the site
+ * (owner, 2026-09-17: *"Preserve existing photographs when buying new ones."*).
+ *
+ * THE COUNT, NEVER THE URLS. `/u/fw/a1b2c3d4.jpg` is a storage key and tells the
+ * customer nothing they can act on; how many of their own pictures would have
+ * gone is the whole of what they need to decide what to ask for next. The urls
+ * ride the reply separately as `lostPhotos`, which is developer-facing — the
+ * same division `unknownComponents` and `changedProps` already make.
+ *
+ * MONEY, SAID AS MONEY. These are photographs this platform charged them for,
+ * and that is why the wall refuses rather than reports: a rewrite that drops one
+ * cannot be undone by asking again, because the picture is gone from the source
+ * the next edit reads.
+ *
+ * THE INVITATION IS THE OTHER HALF. A refusal with no way forward reads as the
+ * feature being broken, and the way forward here is real: the same ask, with the
+ * pictures left alone, is a change this step can make.
+ */
+export function lostPhotosMsg(lost) {
+  const n = Array.isArray(lost) ? lost.filter((u) => typeof u === "string" && u.trim()).length : 0;
+  const what = n === 1 ? "one of the photographs" : (n ? n + " of the photographs" : "photographs");
+  const it = n === 1 ? "it" : "them";
+  return "I couldn't add that without taking " + what + " already on your site off it. " +
+    "Nothing was published and nothing was charged — ask again and I'll add the new part and leave " +
+    it + " exactly where " + (n === 1 ? "it is" : "they are") + ".";
+}
+
 // ── THE ADD STEP'S OWN REPAIR (owner, 2026-09-04) ────────────────────────────
 //
 // "Try to fix it, if not fix, send as it is" — and, when the first cut reused

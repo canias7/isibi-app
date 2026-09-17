@@ -4371,3 +4371,351 @@ test("the empty frames a new page really has are counted and said", async () => 
   });
   assert.equal(tok.body.photos, 1, "a token written despite the ban was not counted as a space");
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUYING A PHOTOGRAPH MAY NOT LOSE THE ONES ALREADY THERE (2026-09-17)
+
+   Owner: *"Preserve existing photographs when buying new ones. The paid-photo
+   directive currently says every other picture should have no src. Correct
+   that instruction and prevent an addon from accepting removal or replacement
+   of existing image references in pages and custom components."*
+
+   REPRODUCED THROUGH THIS ROUTE BEFORE ANYTHING WAS TOUCHED, on the ask below.
+   The paid directive's tail read *"Do NOT invent an extra token: any other
+   picture stays a <SafeImage> with no src, which renders this theme's own
+   placeholder — that is the intended look for the rest of the site."* — true
+   of a first build and, on a site showing two bought photographs, an
+   instruction to strip them. The writer did: the compiler payload and
+   `source/<slug>/pages.json` each came back with ZERO `/u/` urls, the customer
+   was told *"Made 1 photograph for the site."*, and the two stripped pictures
+   were counted as `photos: 2` — empty frames this change had ADDED.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** A site whose home page already shows two photographs it paid for. */
+const photoHome = (slug) => ({
+  path: "index.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + "export const Route = createFileRoute('/')({ component: Home })\n"
+    + "function Home(){ return <main><h1>Fretwork</h1>\n"
+    + '  <SafeImage src="/u/' + slug + '/a1b2c3d4.jpg" alt="the workshop bench" />\n'
+    + '  <SafeImage src="/u/' + slug + '/e5f6a7b8.jpg" alt="a guitar being refretted" />\n'
+    + "</main> }\n",
+});
+/** The same ask on such a site, with the home page returned however the case says. */
+const keepAsk = (slug, home, opts) => photoAsk(slug, {
+  kinds: ["page", "photo"], credits: 400, storedPages: [photoHome(slug)],
+  written: [galleryToken(BENCH), home],
+  answers: {
+    page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+    photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+  },
+  ...opts,
+});
+/** The home page with a link to the new route, so the merge keeps the change. */
+const linkHome = (slug, body) => ({
+  path: "index.tsx",
+  source: photoHome(slug).source.replace("</main>",
+    '  <p>Also see the <a href="/gallery">gallery</a>.</p>\n</main>').replace(
+    '<SafeImage src="/u/' + slug + '/a1b2c3d4.jpg" alt="the workshop bench" />', body),
+});
+
+test("a change that buys a photograph may not take the ones already there off the site", async () => {
+  // ── THE REPRODUCTION ─────────────────────────────────────────────────────
+  //
+  // The writer does exactly what the old tail asked for: the new token on the
+  // new page, and every OTHER picture left with no src of its own.
+  const r = await keepAsk("fw-strip",
+    linkHome("fw-strip", '<SafeImage src="" alt="the workshop bench" />'));
+
+  // 1. THE DIRECTIVE NO LONGER INVITES IT, and says what the site has instead.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 1 real photograph/, "this case is not about a paid directive at all");
+  assert.doesNotMatch(flat, /any other picture stays a <SafeImage> with no src/,
+    "the paid directive still tells the writer every other picture has no src — the reported defect");
+  assert.match(flat, /already shows 2 real photographs, and they stay exactly as they are/,
+    "the paid directive does not say what the site already shows: " + (flat.match(/PHOTOGRAPHS:[^|]{0,600}/) || [""])[0]);
+  assert.match(flat, /A picture this change ADDS beyond those is a <SafeImage> with an EMPTY src/,
+    "the ban stopped being scoped to what this change adds, or went back to a missing src");
+
+  // 2. AND THE WALL REFUSES THE ANSWER ANYWAY. A prompt is what should stop it;
+  //    this is what stops it reaching the customer's site if it happens anyway.
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  // `ok` AND THE STATUS, because the browser reads the field and not the code:
+  // a 422 carrying `ok: true` is rendered as a successful change.
+  assert.equal(r.body.ok, false, "a refused change reported itself as done");
+  assert.equal(r.body.error, "lost-photos");
+  assert.equal(r.body.cost, 0, "a refused change was charged");
+  assert.deepEqual(r.body.lostPhotos, ["/u/fw-strip/a1b2c3d4.jpg"], "the lost photograph was not named for the developer");
+
+  // 3. NOTHING WAS PUBLISHED AND NOTHING WAS BOUGHT — the compiler payload is
+  //    the artifact, and the provider's own record is what says no money moved.
+  assert.deepEqual(compiledPages(r), [], "a refused change reached the compiler");
+  assert.deepEqual(r.shots, [], "a refused change bought its replacement photograph anyway");
+
+  // 4. AND THE SITE IS AS IT WAS, read off `source/<slug>/pages.json` — the file
+  //    the NEXT edit works from. A change that refused at the reply and still
+  //    wrote the store would lose the picture one request later.
+  assert.match(storedSource(r, "fw-strip", "index.tsx"), /\/u\/fw-strip\/a1b2c3d4\.jpg/,
+    "the stored home page lost the photograph on a request that was refused");
+
+  // 5. AND THE CUSTOMER IS TOLD, in a sentence they can act on: what it would
+  //    have cost them, that nothing happened, and what to ask for instead.
+  assert.match(String(r.body.msg), /without taking one of the photographs already on your site off it/);
+  assert.match(String(r.body.msg), /Nothing was published and nothing was charged/);
+  assert.match(String(r.body.msg), /ask again/);
+  assert.match(String(r.body.msg), /leave it exactly where it is/, "the singular reads as the plural");
+
+  // AND THE COUNT IS A COUNT. The same ask with BOTH pictures stripped — a
+  // sentence that says "one" whatever was lost tells the owner of a
+  // photograph-led site that one picture is at stake when it is all of them.
+  const two = await keepAsk("fw-strip-2", {
+    path: "index.tsx",
+    source: linkHome("fw-strip-2", '<SafeImage src="" alt="the workshop bench" />').source
+      .replace('<SafeImage src="/u/fw-strip-2/e5f6a7b8.jpg" alt="a guitar being refretted" />',
+        '<SafeImage src="" alt="a guitar being refretted" />'),
+  });
+  assert.equal(two.status, 422, JSON.stringify(two.body));
+  assert.equal(two.body.lostPhotos.length, 2, "the second stripped photograph was not seen: " + JSON.stringify(two.body.lostPhotos));
+  assert.match(String(two.body.msg), /taking 2 of the photographs already on your site off it/,
+    "two lost photographs were reported as one: " + two.body.msg);
+  assert.match(String(two.body.msg), /leave them exactly where they are/);
+});
+
+test("the same request that keeps them buys the photograph and publishes — the control", async () => {
+  // THE CONTROL, and it is what makes the case above about the LOSS rather than
+  // about the wall refusing every purchase on a photographed site: the same ask,
+  // the same site, the same designed picture, the same page added — with the two
+  // existing photographs left where they were.
+  const r = await keepAsk("fw-keep",
+    linkHome("fw-keep", '<SafeImage src="/u/fw-keep/a1b2c3d4.jpg" alt="the workshop bench" />'));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.lostPhotos, undefined, "a change that kept every photograph was reported as losing one");
+
+  // THE COMPILER PAYLOAD: both old pictures on the home page, the new one on the
+  // page this change added.
+  const home = compiledPages(r).find((p) => p.path.includes("index"));
+  const gal = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.deepEqual((home.source.match(/\/u\/fw-keep\/[a-z0-9]+\.jpg/g) || []),
+    ["/u/fw-keep/a1b2c3d4.jpg", "/u/fw-keep/e5f6a7b8.jpg"],
+    "the home page did not reach the compiler with both of its photographs: " + home.source);
+  assert.match(gal.source, /src="\/u\/fw-keep\/[0-9a-f]{32}\.jpg"/,
+    "the bought photograph never reached the page it was designed for: " + gal.source);
+
+  // THE STORED SOURCE — a third claim, and the one the next edit reads.
+  assert.match(storedSource(r, "fw-keep", "index.tsx"), /a1b2c3d4\.jpg[\s\S]*e5f6a7b8\.jpg/,
+    "the stored home page lost a photograph on a change that published");
+
+  // AND THE CUSTOMER HEARS ABOUT THE PURCHASE AND NOTHING ELSE.
+  assert.equal(r.shots.length, 1, "the picture was not bought, so this control proves nothing");
+  assert.equal(r.body.pictures, 1);
+  assert.match(String(r.body.pictureNote), /Made 1 photograph/);
+  assert.doesNotMatch(String(r.body.pictureNote), /credits/, "a change that could afford its picture was told about credits");
+});
+
+test("a photograph MOVED between components is kept, not refused", async () => {
+  // ⚠ THE PROPERTY THAT MAKES THIS WALL SITE-WIDE RATHER THAN PER FILE, and the
+  // one a `keptProse`-shaped copy would get wrong. The writer takes a picture
+  // out of one component and puts it in another it is adding: every photograph
+  // the site shows is still shown, and the customer has lost nothing. A
+  // per-file check sees `gallery-strip` losing one and refuses a legitimate
+  // reorganisation.
+  //
+  // ⚠ IT IS COMPONENT-TO-COMPONENT, AND MEASURING WHY IS ITSELF A FINDING. The
+  // obvious shape — a `<SafeImage>` moved off the home page into a new
+  // component — is already refused one wall earlier, by `keptProse`: an `alt`
+  // is WORDS, so the page that gave the picture up lost *"a guitar being
+  // refretted"* and the change comes back `error: "rewrote"`. Driven, before
+  // this case was rewritten. `keptProse` loops `aMerge.changed` PAGES and never
+  // the parts, so a move between two components is the shape where the two
+  // readings of this wall really differ.
+  const strip = (body) => ({
+    name: "gallery-strip",
+    source: 'import { SafeImage } from "@/components/ui/safe-image"\n'
+      + "export function GalleryStrip(){ return <div>" + body + "</div> }",
+  });
+  const HAD = '<SafeImage src="/u/fw-move/e5f6a7b8.jpg" alt="a guitar being refretted" />';
+  const r = await addon("fw-move", "add a photo wall beside the gallery strip", {
+    kinds: ["component", "photo"], credits: 400, publishes: true, sitePages: ["/"],
+    parts: [strip('<SafeImage src="/u/fw-move/a1b2c3d4.jpg" alt="the bench" />' + HAD)],
+    look: { tsx: [{ name: "gallery-strip", does: "the strip", props: "rows" }] },
+    written: [addedTo("/", "<PhotoWall />")],
+    writtenParts: [
+      // The first component gives one up…
+      strip('<SafeImage src="/u/fw-move/a1b2c3d4.jpg" alt="the bench" />'),
+      // …and the one this change adds takes it, beside the picture being bought.
+      {
+        name: "photo-wall",
+        source: 'import { SafeImage } from "@/components/ui/safe-image"\n'
+          + "export function PhotoWall(){ return <div>" + HAD
+          + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" /></div> }',
+      },
+    ],
+    answers: {
+      component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
+      photo: { photo: [{ page: "/", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.lostPhotos, undefined, "a photograph moved between files was reported as lost");
+
+  // MEASURED, so the case cannot pass by the move never happening: the first
+  // component really gave it up and the second really has it.
+  const after = storedParts(r, "fw-move");
+  assert.doesNotMatch(after["gallery-strip"], /e5f6a7b8/,
+    "the writer did not move the picture — this case tests nothing: " + after["gallery-strip"]);
+  assert.match(String(after["photo-wall"]), /\/u\/fw-move\/e5f6a7b8\.jpg/,
+    "the moved photograph is in neither file: " + String(after["photo-wall"]));
+  assert.equal(r.shots.length, 1, "the picture beside the move was not bought");
+});
+
+test("a CUSTOM COMPONENT that loses a photograph is refused too", async () => {
+  // ⚠ THE OTHER HALF OF THE OWNER'S SENTENCE — *"in pages and custom
+  // components"*. Since the band split a section IS a component, so a site whose
+  // photograph lives in `-parts/gallery-strip.tsx` is the ordinary case rather
+  // than an exotic one, and a wall that read only the pages would let exactly
+  // that site be stripped while reporting success.
+  const part = (body) => ({
+    name: "gallery-strip",
+    source: 'import { SafeImage } from "@/components/ui/safe-image"\n'
+      + "export function GalleryStrip(){ return <div>" + body + "</div> }",
+  });
+  const ask = (slug, back) => addon(slug, "add a photo of the workshop to the gallery strip", {
+    kinds: ["component", "photo"], credits: 400, publishes: true, sitePages: ["/"],
+    parts: [part('<SafeImage src="/u/' + slug + '/a1b2c3d4.jpg" alt="the bench" />')],
+    look: { tsx: [{ name: "gallery-strip", does: "the strip", props: "rows" }] },
+    written: [addedTo("/", "<GalleryStrip />")],
+    writtenParts: [part(back)],
+    answers: {
+      component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
+      photo: { photo: [{ page: "/", describe: BENCH }] },
+    },
+  });
+
+  // The rewrite drops the site's own photograph and puts the new token in its place.
+  const lost = await ask("fw-part-strip", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />');
+  assert.equal(lost.status, 422, JSON.stringify(lost.body));
+  assert.equal(lost.body.ok, false, "a refused change reported itself as done");
+  assert.equal(lost.body.error, "lost-photos");
+  assert.deepEqual(lost.body.lostPhotos, ["/u/fw-part-strip/a1b2c3d4.jpg"]);
+  assert.deepEqual(lost.shots, [], "a refused change bought its replacement anyway");
+  // THE BYTES, which is the assertion that matters: the component on disk is
+  // exactly as it was.
+  assert.match(storedParts(lost, "fw-part-strip")["gallery-strip"], /\/u\/fw-part-strip\/a1b2c3d4\.jpg/,
+    "the stored component lost its photograph on a request that was refused");
+
+  // THE CONTROL: the same component keeping what it had and gaining the new one.
+  const kept = await ask("fw-part-keep",
+    '<SafeImage src="/u/fw-part-keep/a1b2c3d4.jpg" alt="the bench" />'
+    + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />');
+  assert.equal(kept.body.ok, true, JSON.stringify(kept.body));
+  assert.equal(kept.shots.length, 1, "the control bought nothing, so it proves nothing");
+  const after = storedParts(kept, "fw-part-keep")["gallery-strip"];
+  assert.match(after, /\/u\/fw-part-keep\/a1b2c3d4\.jpg/, "the control lost the old photograph: " + after);
+  assert.match(after, /\/u\/fw-part-keep\/[0-9a-f]{32}\.jpg/, "the control never got the new photograph: " + after);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE FULL REQUEST AND THE AFFORDABLE ONE ARE TWO LISTS (2026-09-17)
+
+   Owner: *"Carry the full requested photo list separately from the affordable
+   purchase list. A two-photo request with credits for one must explain that
+   one was omitted because of the balance. Do not imply a placeholder exists
+   unless one actually survived publication."*
+
+   REPRODUCED: two pictures designed, a balance covering one, one bought — and
+   the customer heard *"Made 1 photograph for the site."* with `photos: 0`
+   beside it. Nothing said the second had been asked for, nothing said why it
+   was not there, and nothing they could act on. A photograph is 18.75 credits
+   (`IMAGE_USD / CREDIT_USD`), so 30 buys exactly one of two.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const LATHE = "the lathe with its belt guard open, shavings on the floor";
+/** Two pictures asked for, with the balance the case chooses. */
+const twoAsk = (slug, credits) => photoAsk(slug, {
+  kinds: ["page", "photo"], credits,
+  written: [galleryToken(BENCH)],
+  answers: {
+    page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+    photo: { photo: [{ page: "/gallery", describe: BENCH }, { page: "/gallery", describe: LATHE }] },
+  },
+});
+
+test("two photographs asked for and credits for one: the omission is explained, with its reason", async () => {
+  const r = await twoAsk("fw-half", 30);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE PRECONDITION, MEASURED: the balance really did cut the list, so this
+  // case is about a shortfall and not about a designer that asked for one.
+  assert.equal(r.shots.length, 1, "the balance did not cut the list — this case tests nothing");
+  assert.ok(r.shots[0].startsWith(BENCH), "the wrong picture was bought");
+
+  // AND THE WRITER WAS ONLY EVER SHOWN THE ONE IT COULD PAY FOR, which is the
+  // build path's own rule and the reason there is no frame for the second.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 1 real photograph/, "the writer was shown a token the purchase would refuse");
+  assert.ok(!flat.includes(LATHE), "the unaffordable picture's prompt was handed to the page writer");
+
+  // 1. THE CUSTOMER IS TOLD THERE WAS A SECOND, AND WHY IT IS NOT THERE.
+  const note = String(r.body.pictureNote);
+  assert.match(note, /Made 1 photograph for the site\./, "the picture that WAS made stopped being reported");
+  assert.match(note, /weren't enough credits for the other one/,
+    "the second picture was omitted in silence, or without its reason: " + note);
+  assert.match(note, /top up and ask for it/, "the customer was told what happened and not what to do about it");
+
+  // 2. AND IT DOES NOT CLAIM A PLACEHOLDER, because none survived: the second
+  //    picture was cut off the list BEFORE the writer saw it, so there is no
+  //    token, no frame and no space — which `photos` says independently.
+  assert.doesNotMatch(note, /placeholder/,
+    "the customer was told a placeholder is standing in for a picture that has no frame: " + note);
+  assert.equal(r.body.photos, 0, "a frame that does not exist was counted");
+  assert.equal(r.body.pictures, 1, "the reply's count moved off what was really made");
+});
+
+test("two photographs asked for and credits for both: no omission is invented — the control", async () => {
+  // THE CONTROL, and it is what makes the clause above about the BALANCE rather
+  // than about every two-picture request gaining a sentence.
+  const r = await twoAsk("fw-both-ok", 400);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // ONE TOKEN IN THE ANSWER, TWO SHOTS OFFERED: the writer was given both and
+  // wrote one, so one is bought — which is the honest half of this control.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 2 real photographs/, "the balance cut a list it could afford");
+  assert.ok(flat.includes(LATHE), "the second picture was withheld from the writer on a balance that covers it");
+  const note = String(r.body.pictureNote);
+  assert.doesNotMatch(note, /enough credits/, "a request the balance covered was told about credits: " + note);
+});
+
+test("nothing affordable at all: the placeholder is claimed only where one survived", async () => {
+  // THE ZERO-BUDGET BRANCH, which is the one sentence a page with no token can
+  // reach. With nothing affordable the writer is asked for `<SafeImage src="">`
+  // — a real, fillable space — so the placeholder claim is TRUE when it writes
+  // one and false when it does not, and only the run itself can say which.
+  const broke = (slug, written) => photoAsk(slug, {
+    kinds: ["page", "photo"], credits: 2, written,
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    },
+  });
+
+  // A writer that DID leave the space: the sentence may say so.
+  const space = await broke("fw-broke-space", [galleryWith('<SafeImage src="" alt="a space for a picture" />')]);
+  assert.equal(space.body.ok, true, JSON.stringify(space.body));
+  assert.deepEqual(space.shots, [], "a balance of 2 credits bought a photograph");
+  assert.equal(space.body.photos, 1, "the space the writer left was not counted — this case tests nothing");
+  assert.match(String(space.body.pictureNote), /Not enough credits left over for photographs, so the pictures are placeholders/,
+    "the credits sentence stopped being said where a placeholder really is standing in");
+
+  // A writer that left NONE: the same cause, and the claim must not be made.
+  const none = await broke("fw-broke-none", [galleryWith("")]);
+  assert.equal(none.body.photos, 0, "the writer left a frame after all — this half tests nothing");
+  const note = String(none.body.pictureNote);
+  assert.match(note, /Not enough credits left over for photographs/, "the reason stopped being said");
+  assert.doesNotMatch(note, /placeholder/,
+    "a placeholder was promised on a page that has no frame at all: " + note);
+  assert.match(note, /there's no picture there/, "the honest answer was not given: " + note);
+});

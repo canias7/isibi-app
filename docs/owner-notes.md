@@ -12861,3 +12861,76 @@ Suite 6,816, all green — 6,813 for the photograph work and three for the tool.
 
 **Nothing merged, nothing deployed, nothing paid. No real photograph has been
 generated — the first live one is your press.**
+
+---
+
+## Buying a photograph was taking the old ones off the site (2026-09-17)
+
+You asked for two more fixes and both of them turned out to be real, so I
+reproduced each one first — actually ran it and watched it go wrong — before
+touching anything.
+
+**The first one you spotted is worse than it sounds.** The instruction we send
+the page writer when we're buying a photograph ends by telling it that *every
+other picture on the site should have no image*. That's true on a brand new site
+where nothing is real yet. On a site that already has photographs you've paid
+for, it's an instruction to take them off. I set up a site showing two bought
+pictures, asked for a gallery page with a new photo on it, and the writer did
+exactly what it was told: both old pictures stripped, the page published, and
+you'd have been told "Made 1 photograph for the site." The two you lost were
+even counted as *new empty spaces this change had added*.
+
+Two things now. The instruction is corrected — it only bans a picture the change
+*adds*, and it tells the writer how many real photographs the site already has
+and that they stay. And there's a wall behind the instruction: if a change would
+leave the site showing fewer photographs than it started with, it's refused
+before anything is published and before a penny is spent. You get a sentence
+saying how many of your own pictures were at stake, that nothing was published
+and nothing charged, and to ask again.
+
+The wall looks at the whole site rather than file by file, on purpose. If the
+writer moves a picture out of one section and into another, nothing has been
+lost and it should go through — a file-by-file check would refuse a perfectly
+good reorganisation. It covers your own hand-written sections too, not just
+pages, which matters because that's where a lot of pictures actually live.
+
+**The second one: asking for two photographs with credits for one.** We bought
+the one we could afford and said "Made 1 photograph for the site." Nothing about
+the second, and nothing you could do about it. It now says: *"Made 1 photograph
+for the site. There weren't enough credits for the other one, so it isn't on the
+site — top up and ask for it and I'll add it."*
+
+And it's careful not to call the missing one a placeholder, because it isn't
+one. The second picture was cut from the list before the writer ever saw it, so
+there's no empty frame sitting there waiting — nothing at all. We already had a
+sentence for pictures that *are* placeholders, and lumping these in with it
+would have sent you looking for a space that doesn't exist. Same thinking one
+step further: when nothing is affordable at all we do ask for an empty frame, and
+the reply now only mentions a placeholder if one really made it onto the page.
+
+**What I got wrong along the way, since it's the useful part.** My first attempt
+at carrying "how many were asked for" added a number to the reply that nothing
+ever reads — which is the single most repeated mistake in this codebase, and I
+made it inside the fix that's about exactly that. The sweep caught it. I took it
+out rather than writing a paragraph defending it.
+
+Five other things the sweep found were gaps in my own new tests, not in the code.
+Two are worth repeating: a refusal has to say `ok: false` as well as returning
+the right code, because the browser reads the field and not the code — I'd
+checked the code and not the field. And a test of "junk input is ignored" has to
+include the *specific* junk that isn't ignored: in JavaScript a one-item list
+turns into that item when you treat it as text, so a list holding a picture's
+address reads as a page really showing it. That exact quirk has caused three real
+bugs here already.
+
+**The sweep then ran clean: thirty-seven deliberate breakages, thirty-seven
+caught, and both decoys survived as they should.** Suite 6,828, all green.
+
+Two more places the same wrong sentence still lives, both on the first-build
+path rather than this one, both written down and not touched: the shorter form
+of the same instruction, and the "this site has no photographs" line, which is
+false when you revise a site that *does* have some. Neither is in what you asked
+for and both change the first-build prompt, which wants its own testing.
+
+**Nothing merged, nothing deployed, nothing paid, and I haven't been near the
+edit path.**

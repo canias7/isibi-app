@@ -8868,6 +8868,185 @@ instruction. **NOT PROVEN LIVE**: every measurement here is from driving the rea
 route with the provider stubbed, and no real photograph has been generated. The
 first live proof is a paid addon run, which is the owner's press.
 
+### …AND BUYING ONE MAY NOT LOSE THE ONES ALREADY THERE (2026-09-17)
+
+Owner: *"Preserve existing photographs when buying new ones. The paid-photo
+directive currently says every other picture should have no src. Correct that
+instruction and prevent an addon from accepting removal or replacement of
+existing image references in pages and custom components."* And: *"Carry the
+full requested photo list separately from the affordable purchase list. A
+two-photo request with credits for one must explain that one was omitted because
+of the balance. Do not imply a placeholder exists unless one actually survived
+publication."*
+
+**BOTH REPRODUCED THROUGH `POST /api/site/<slug>/addon` BEFORE ANYTHING WAS
+TOUCHED**, which is what named the cause in each case rather than the symptom.
+
+**1. THE PAID DIRECTIVE WAS AN INSTRUCTION TO STRIP.** Its tail read *"Do NOT
+invent an extra token: any other picture stays a `<SafeImage>` with no src,
+which renders this theme's own placeholder — that is the intended look for the
+rest of the site."* True of a FIRST BUILD, where nothing else on the site is
+real; false of every addon that buys one for a site that has some. Measured on a
+site showing two bought photographs: the writer returned both stripped, the
+**compiler payload** and **`source/<slug>/pages.json`** each came back with ZERO
+`/u/` urls, the customer was told *"Made 1 photograph for the site."*, and the
+two stripped pictures were counted as **`photos: 2`** — empty frames this change
+had ADDED.
+
+- **THE BAN IS NARROWED TO WHAT THIS CHANGE ADDS, and the inventory is now in
+  the paid form too.** That needed one shape rather than two: the route sent the
+  bare LIST when buying — `imageDirective`'s build-path door, which carries no
+  inventory — so a correction could land on the zero form and miss the buying
+  one. It sends `{buy, shown, place}` always; `imageDirective`'s array door
+  delegates to the object (`imageDirective({buy: n})`), so there is ONE composer
+  and `keepClause` is one definition read by both forms.
+- **AND AN EMPTY SRC RATHER THAN NO SRC**, for the reason the zero form already
+  carried: the picture rung fills a slot by rewriting a `src`, so an element with
+  none is invisible to the one step that could later fill it.
+- **THE BUILD PATH SUPPLIES NO INVENTORY AND IS SILENT, correctly**, because
+  `budgetFor` answers 0 for a revise of a site that has photographs — so a paid
+  directive is only ever reached there on a site that has none. `keepClause`
+  answers `""` for an absent inventory and the ZERO form normalises absence to
+  `{known: false}` instead, because *this form's subject is what the site has*
+  and cannot-tell must never read as a value.
+
+**2. AND THE WALL BEHIND THE CORRECTION.** `keptImages(before, after, slug)` —
+every photograph the site showed is still shown, or the change is refused 422
+`lost-photos`, cost 0, before the purchase and before the gate. `keptProse`'s
+shape one field over, and for the same reason: these are money the owner already
+spent, and an addition may only ADD.
+
+- **SITE-WIDE, NEVER PER FILE, which is why it takes two LISTS.** A writer that
+  moves a `<SafeImage>` out of one component and into another has kept every
+  picture the site shows; a per-file wall refuses that reorganisation.
+  `imageSources` is the one definition of the files a photograph can be in, so
+  pages and components are one question — the owner's *"in pages and custom
+  components"* — and it is **the same pair `newEmptySlots` is handed**, not a
+  second idea of before-and-after.
+- **⚠ AND THE DEMONSTRATION HAD TO MOVE, WHICH IS ITSELF A FINDING.** The
+  obvious shape — a picture moved off a PAGE into a component — is already
+  refused one wall earlier by `keptProse`, because an `alt` is WORDS: driven,
+  the change comes back `error: "rewrote"` naming *"a guitar being refretted"*.
+  `keptProse` loops `aMerge.changed` PAGES and never the parts, so
+  component-to-component is the shape where the two readings really differ.
+- **`photoUrls` IS THE ONE READER** of "a photograph this site owns", shared with
+  `shownPhotos`, so the count a designer is told and the wall that refuses a
+  change cannot disagree. **The SLUG folds case and the URL does not**: a slug is
+  lowercased at every door, so `/u/FW/` is this site's — while the rest of the
+  path is an R2 KEY, where a re-cased hash is a different object and therefore a
+  broken image, so `/u/fw/A1.jpg` coming back as `/u/fw/a1.jpg` reads as LOST.
+  `/u/` itself is ours and is matched literally; the first draft of the guard
+  asserted a fold there that the reader does not do, and driving it is what said
+  so.
+- **REPLACEMENT IS REMOVAL** — a `src` swapped for a different `/u/` url loses
+  the first, which is what *"removal or replacement"* names as one thing — and an
+  ADDITION is invisible, because adding is the whole point of the step.
+- **`lostPhotosMsg` GIVES THE COUNT AND NEVER THE URLS.** `/u/fw/a1b2c3d4.jpg`
+  is a storage key and tells a customer nothing; how many of their own pictures
+  were at stake is what they can act on. The urls ride the reply as
+  `lostPhotos`, developer-facing, the division `unknownComponents` already makes.
+
+**3. THE FULL REQUEST AND THE AFFORDABLE ONE ARE TWO LISTS.** Reproduced: two
+pictures designed, a balance covering one (a photograph is `IMAGE_USD /
+CREDIT_USD` = **18.75 credits**, so 30 buys exactly one of two), one bought — and
+the customer heard *"Made 1 photograph for the site."* with `photos: 0` beside
+it. Nothing said a second had been asked for and nothing said why it was absent.
+
+- **`unaffordable` IS HOW THE FULL LIST TRAVELS, and the ROUTE names the reason**
+  because it is the only place holding both numbers: `imagesAffordable` against
+  the balance is the one thing that cuts `aFold.photos` down to `aShots`.
+  `imageNote` must not infer it from `planned - budget`, which inside the
+  purchase is a different clamp with a sentence of its own.
+- **⚠ IT IS NOT `overflow`, AND WIRING IT THERE WOULD HAVE BEEN THE LIE THE
+  OWNER'S THIRD SENTENCE NAMES.** `overflow` is tokens the writer WROTE beyond
+  the budget; `applyImages` sweeps each to `src=""`, so *"the other 2 pictures
+  are placeholders"* is TRUE there. These were cut off the list before the writer
+  saw them — no token, no frame, no space — so they get their own clause:
+  *"There weren't enough credits for the other one, so it isn't on the site —
+  top up and ask for it and I'll add it."* A second CLAUSE rather than a second
+  sentence, so every outcome keeps its exact words and a change that buys nothing
+  extra is byte-identical. **"weren't enough CREDITS" whatever the count**: the
+  verb agrees with the credits, and the first cut read *"There wasn't enough
+  credits for the other one."*
+- **AND `frames` IS THE OBSERVATION THAT KEEPS THE ZERO-BUDGET SENTENCE HONEST.**
+  With nothing affordable the writer is asked for `<SafeImage src="">` — a real,
+  fillable space — so *"the pictures are placeholders"* is true when it writes one
+  and false when it does not, and only the run itself can say which. Asked in
+  that ONE branch and nowhere else, because `full`, `slow`, `empty` and the error
+  sentence are each reachable only once a token was written and swept, so a frame
+  exists there by construction. A caller that passes nothing gets exactly the
+  sentence it got before, which is what leaves the build path untouched.
+- **⚠ AND `planned` IS DELIBERATELY NOT OVERRIDDEN AT THE REPLY.** A first cut
+  passed `aFold.photos.length` into it — the obvious other half of "carry them
+  separately" — and it is a value NOTHING ON THIS PATH READS: measured over 810
+  shapes, the one branch that reads `planned` is the silence guard, and
+  `unaffordable` is non-zero on every route shape that could reach it. A value
+  computed and forwarded to no reader is this repository's most-recorded defect,
+  and shipping one inside the round that is about exactly that would be the wrong
+  way round. **It was found as a sweep survivor and REMOVED rather than declared**;
+  the distinction is carried where it is read — `unaffordable` at the reply, and
+  `planned`/`offered` on the trace mark, which was also reporting the cut list as
+  the plan.
+
+**Guards**: `addon-route` **111 → 118** (the loss case with the corrected
+directive asserted verbatim, the successful-retention control, the
+component-to-component move, the component wall with its own control, the
+two-of-two omission, the credits-for-both control, and the survived-versus-not
+placeholder pair) — each driven through the real route and each asserting the
+**compiler payload**, the **stored source** and the **customer reply**, which are
+three different claims. `site-images` **73 → 78** (`photoUrls`, `keptImages`,
+the shared clause, `imageNote`'s two fields). **Every new case was proved RED
+against the pre-change product**, with the controls passing on BOTH trees —
+which is what makes them controls rather than second copies.
+
+**One older guard re-anchored, not appeased, and it is the THIRD time for that
+same reason** — `site-addon`'s *"neither lane can publish an unbought image
+token"* pinned `images: <x>.length ? <y> : { … buy: 0 }`, the shape of a call
+choosing between the bare list and an object. It asserts the two KEYS that carry
+the property now (`buy:` and `shown:`), which is strictly stronger: the old form
+allowed the buying branch to carry no inventory, and that was the defect.
+
+**Sweep: 37 mutants, 37 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-photo-preserve.json`, over
+`worker.js`, `builder/site-images.mjs` and `builder/site-add.mjs`, against seven
+test files — a narrow list can only produce a false SURVIVOR, never a false
+kill). **Pass 1 read 37/31/6 and NOT ONE SURVIVOR WAS THE PRODUCT'S**: five were
+gaps in this change's own guards and the sixth was the inert `planned` above.
+Two of the five are worth keeping as rules:
+
+- **A 422 SAYS `ok: false` AND THE BROWSER READS THE FIELD, NOT THE CODE.**
+  Both refusal cases asserted the status and the error and never `ok`, so a
+  mutant flipping it survived — and `chat.js` renders such a reply as a
+  successful change.
+- **`String(["…"]) === "…"` REACHED THE READER THAT DECIDES WHAT A SITE OWNS.**
+  Every junk shape the case drove (`null`, `["a"]`, `123`) answers empty either
+  way; a one-element array whose entry holds a quoted url does not. That
+  coercion has shipped as a real bug three times here, and in `photoUrls` it
+  would fire a wall over a file whose `source` is not a string at all.
+
+**Suite 6,828** — 6,816 + 7 (`addon-route`) + 5 (`site-images`), **and the
+arithmetic closes exactly against baselines measured in a detached worktree at
+`aec76dc6`** (`addon-route` 111, `site-images` 73, `site-addon` 89) rather than
+subtracted from a paragraph. `site-addon` stays 89: its change is a re-anchor
+inside a case that already existed.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK.**
+
+**KEPT RECORDED, NOT FIXED — two more places the same sentence is wrong, both on
+the BUILD path and both out of this round's scope:**
+
+1. **The bare-COUNT paid form still says *"Every OTHER image stays a
+   `<SafeImage>` with no src."*** — the same missing-src shape the list form just
+   lost. Only the build path reaches it (the addon always sends the object), so
+   correcting it is a change to the build path's prompt with its own guards and
+   its own live-proof economics.
+2. **`imageDirective(0)` says *"PHOTOGRAPHS: none on this site"*, which is FALSE
+   on a revise of a photographed site** — `budgetFor` answers 0 there precisely
+   because the site HAS photographs. It is the reported defect, on the build
+   path, reached whenever an owner revises a site with pictures. Fixing it needs
+   the inventory threaded into the build path's call, which is where the object
+   form already knows how to say it.
+
 
 ## Data, auth, payments, mail
 
@@ -9948,7 +10127,15 @@ rule and the measurement.
   so a watch said LIVE about a rule the change never touched. **Count the pattern
   in the source first.**
 - **`pgrep -f` / `pkill -f` MATCH YOUR OWN SHELL.** Ten-plus instances. Kill by
-  PID; watch a log's tail.
+  PID; watch a log's tail. **AND A WAITER IS THE QUIET HALF OF IT (2026-09-17):**
+  `while pgrep -f "node scripts/mutate.mjs"; do sleep 20; done` never exits,
+  because the waiter's own `/bin/bash -c … eval '…'` command line contains that
+  string — so it waits on itself for ever and the notification never comes.
+  **A waiter that will never fire is indistinguishable from a job that never
+  finishes**, which is worse than killing the wrong process: nothing is harmed
+  and nothing is learned. **Wait on the PID** — `while kill -0 <pid>; do sleep
+  15; done` has no pattern to match — and `pgrep -af` prints the command lines,
+  which is what shows the waiter standing in its own list.
 
 ### Loading, parsing, scope
 

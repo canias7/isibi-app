@@ -159,7 +159,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -244,7 +244,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -24747,13 +24747,25 @@ async function handleRequest(request, env, ctx) {
                 // page with no slot at all while the customer was told the
                 // pictures are placeholders. Found by an existing guard going
                 // red, which is that guard being right.
-                images: aShots.length
-                  ? aShots
-                  : {
-                    buy: 0,
-                    shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug),
-                    place: aSkipped.includes("photo") || aKinds.includes("photo"),
-                  },
+                // ⚠ AND ONE SHAPE NOW, CARRYING THE INVENTORY WHETHER OR NOT
+                // THIS CHANGE BUYS (2026-09-17). It used to send the bare list
+                // when buying — `imageDirective`'s build-path door, which has
+                // no inventory to state — so the paid directive told the writer
+                // *"any other picture stays a <SafeImage> with no src"* on a
+                // site showing two bought photographs, and the writer stripped
+                // them. `{buy, shown, place}` is one object with one composer
+                // behind it, so the protection clause reaches both forms and
+                // cannot be corrected on one and missed on the other.
+                images: {
+                  buy: aShots.length ? aShots : null,
+                  shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug),
+                  // `place` IS UNREAD WHEN BUYING, and the two cannot both be
+                  // true: a kind that is set aside designs nothing, so
+                  // `aFold.photos` — and with it `aShots` — is empty on exactly
+                  // the asks that fill this. When a picture IS bought, the
+                  // token is the slot.
+                  place: aSkipped.includes("photo") || aKinds.includes("photo"),
+                },
                 // THE SITE'S OWN COMPONENTS, WITH THEIR REAL SOURCE. Until
                 // today the writer was shown `tsx` — the DECLARATIONS — under
                 // a heading telling it to write them, so a page importing a
@@ -25257,6 +25269,50 @@ async function handleRequest(request, env, ctx) {
             let aParts = (aFreshParts.length && aPartsRead.ok)
               ? mergeParts(aPartsRead.parts, aFreshParts)
               : null;
+            // ── AND EVERY PHOTOGRAPH THE SITE SHOWED IS STILL SHOWN ─────────
+            //
+            // (2026-09-17, owner: *"Preserve existing photographs when buying
+            // new ones… prevent an addon from accepting removal or replacement
+            // of existing image references in pages and custom components."*)
+            //
+            // THE DIRECTIVE INVITED IT AND IS CORRECTED; THIS IS THE WALL.
+            // `imageDirective`'s paid tail read *"any other picture stays a
+            // <SafeImage> with no src… that is the intended look for the rest
+            // of the site"* — true of a first build and an instruction to strip
+            // on an addon. REPRODUCED through this route on a site showing two
+            // bought photographs: both came back with empty `src`, the compiler
+            // payload and `source/<slug>/pages.json` each ended with ZERO `/u/`
+            // urls, the customer was told *"Made 1 photograph for the site."*,
+            // and the two stripped pictures were counted as empty frames this
+            // change had ADDED.
+            //
+            // `keptProse` ONE FIELD OVER, and the same refusal: nothing
+            // published, nothing charged, `cost: 0` honest for the reason its
+            // sibling above states. The photographs are money the owner already
+            // spent, and an addition may only ADD.
+            //
+            // SITE-WIDE AND ACROSS BOTH LISTS, which is what makes it different
+            // in shape from `keptProse`'s per-page loop: a writer that moves a
+            // `<SafeImage>` off the home page into a new component has kept
+            // every picture the site shows, and a per-file wall would refuse
+            // that. `imageSources` is the one definition of the files a
+            // photograph can be in, and this is the SAME PAIR `newEmptySlots`
+            // is handed below — one idea of before-and-after, not two.
+            //
+            // BEFORE THE PURCHASE, so a change that would lose one does not
+            // first spend $0.15 on the replacement.
+            const aKeptPics = keptImages(
+              imageSources(aSrc, aPartsRead.parts),
+              imageSources(aMerge.pages, aParts || aPartsRead.parts),
+              ownerSlug,
+            );
+            aMark("pics", aKeptPics.ok ? "ok" : "fail", { lost: aKeptPics.lost.length });
+            if (!aKeptPics.ok) {
+              return Response.json({
+                ok: false, error: "lost-photos", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),
+                msg: lostPhotosMsg(aKeptPics.lost),
+              }, { status: 422 });
+            }
             // ── THE PHOTOGRAPHS ARE BOUGHT AND PLACED, IN THIS SAME REQUEST ──
             //
             // (2026-09-17, owner: *"completing page + photo in one request"*.)
@@ -25302,7 +25358,11 @@ async function handleRequest(request, env, ctx) {
                 });
                 aMerge = { ...aMerge, pages: aPhotos.pages };
                 if (aParts) aParts = aPhotos.parts;
-                aMark("photos", "ok", { made: aPhotos.made || 0, planned: aShots.length });
+                // `planned` IS THE FULL REQUEST AND `offered` IS WHAT THE
+                // BALANCE LEFT, because a trace that records the cut list as
+                // the plan cannot tell a customer who asked for one from one
+                // who asked for three and could pay for one.
+                aMark("photos", "ok", { made: aPhotos.made || 0, planned: aFold.photos.length, offered: aShots.length });
               } catch (e) {
                 // NAMED, NEVER FATAL — the site is the product and the pictures
                 // are the decoration, which is the build path's own rule. The
@@ -25313,7 +25373,7 @@ async function handleRequest(request, env, ctx) {
                 aPhotos = { made: 0, planned: aShots.length, budget: 0, overflow: 0, error: String((e && e.message) || e).slice(0, 200) };
                 aMerge = { ...aMerge, pages: applyImages(aMerge.pages, new Map()) };
                 if (aParts) aParts = applyImages(aParts, new Map());
-                aMark("photos", "fail", { planned: aShots.length });
+                aMark("photos", "fail", { planned: aFold.photos.length, offered: aShots.length });
               }
               // ── AND THE PICTURES ARE BILLED ────────────────────────────────
               //
@@ -25674,7 +25734,53 @@ async function handleRequest(request, env, ctx) {
               // customer knows is false. `{planned, made: 0, budget: 0}` is
               // that state written down, and `imageNote` answers it with the
               // credits sentence.
-              pictureNote: imageNote(aPhotos || (aFold.photos.length ? { planned: aFold.photos.length, made: 0, budget: 0 } : null)) || undefined,
+              // ⚠ AND THE FULL REQUEST TRAVELS SEPARATELY FROM WHAT WAS
+              // AFFORDABLE (2026-09-17, owner: *"Carry the full requested photo
+              // list separately from the affordable purchase list. A two-photo
+              // request with credits for one must explain that one was omitted
+              // because of the balance."*).
+              //
+              // REPRODUCED: two designed, credits for one, one bought — and the
+              // customer heard *"Made 1 photograph for the site."* with nothing
+              // about the second and no reason. `buySitePhotos` is TOLD WHAT TO
+              // BUY, so its own `planned` is the cut list by construction and
+              // cannot be the full one; this route is the only place holding
+              // both numbers, so it is the place that says so.
+              //
+              // `unaffordable` IS HOW THE FULL LIST TRAVELS, and it NAMES THE
+              // REASON because this line is what knows it: the one thing that
+              // cuts `aFold.photos` down to `aShots` is `imagesAffordable`
+              // against the balance read above, and no other clamp touches that
+              // slice. `imageNote` must not infer it from `planned - budget`,
+              // which inside the purchase is a different clamp with a sentence
+              // of its own.
+              //
+              // ⚠ AND `planned` IS DELIBERATELY NOT OVERRIDDEN HERE. A first
+              // cut passed `aFold.photos.length` into it, which reads as the
+              // obvious other half of "carry them separately" and is a value
+              // NOTHING ON THIS PATH READS — measured over 810 shapes, the one
+              // branch that reads `planned` is the silence guard, and
+              // `unaffordable` is non-zero on every route shape that could
+              // reach it. A value computed and forwarded to no reader is this
+              // repository's own most-recorded defect, and shipping one inside
+              // the round that is about exactly that would be the wrong way
+              // round. The distinction is carried where it is read — by
+              // `unaffordable` here and by the trace mark's `planned`/`offered`
+              // above.
+              //
+              // `frames` IS THE OBSERVATION, not a claim: the empty picture
+              // frames this change really left, after the merge, the withheld
+              // pages and the sweep. It is what keeps the zero-budget sentence
+              // from promising a placeholder that no writer wrote — *"Do not
+              // imply a placeholder exists unless one actually survived
+              // publication."*
+              pictureNote: imageNote(aFold.photos.length
+                ? {
+                  ...(aPhotos || { made: 0, budget: 0 }),
+                  unaffordable: Math.max(0, aFold.photos.length - aShots.length),
+                  frames: aSlots,
+                }
+                : null) || undefined,
               tables: aTables, altered: aAltered,
               // THE OTHER THREE TIERS (2026-09-03), what the engine really
               // made of each, a function that could not be created by name,

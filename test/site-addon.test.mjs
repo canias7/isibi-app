@@ -576,10 +576,30 @@ test("neither lane can publish an unbought image token", async () => {
     // over the SHOT LIST when it does — so what has to be true of its call is
     // that it is one or the other and never silence, which is what makes a
     // model write tokens of its own.
+    //
+    // ── RE-ANCHORED AGAIN 2026-09-17 (the third time, and the last two were
+    //    for this same reason) — THE PROPERTY, NOT THE SPELLING ──────────────
+    //
+    // It pinned `images: <x>.length ? <y> : { … buy: 0 }`, which was the shape
+    // of a call that chose between the bare LIST (the build path's door, which
+    // carries no inventory) and an object. The addon sends ONE object now, so
+    // that ternary is gone and the guard went red on a correction it is not
+    // about: the paid form's own tail told the writer *"any other picture stays
+    // a <SafeImage> with no src"* on sites that already had photographs, and
+    // fixing that meant the inventory had to ride the buying call too.
+    //
+    // WHAT MUST BE TRUE IS WHAT IT ALWAYS MEANT: the addon says something about
+    // photographs on every run — a list to buy or a declared zero — because
+    // SILENCE is what makes a model write tokens of its own, and a token
+    // nothing bought publishes as its own alt text. Asserted as the two keys
+    // that carry it rather than as an expression shape, so the next honest
+    // restructuring of this call does not report the property as gone.
     if (name === "addon") {
-      assert.match(call, /\bimages: \w+\.length\s*\?\s*\w+\s*:\s*\{/,
-        "the addon neither states a zero nor hands over a chosen list");
-      assert.match(call, /\bbuy: 0\b/, "the addon's zero budget is gone from the object form");
+      const at = call.indexOf("images: {");
+      assert.ok(at > 0, "the addon no longer states anything about photographs in its page call");
+      const images = call.slice(at, call.indexOf("},", at));
+      assert.match(images, /\bbuy: /, "the addon's page call does not say what it is buying");
+      assert.match(images, /\bshown: /, "the addon's page call does not say what the site already shows");
     } else {
       assert.match(call, /\bimages: 0\b/, name + " does not tell the model there is nothing to buy");
     }
