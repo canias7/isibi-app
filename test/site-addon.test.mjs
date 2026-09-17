@@ -808,7 +808,34 @@ test("the route reads `remove` and hands it to the merge", () => {
   // argument nobody passes is the whole feature, silently absent.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /Array\.isArray\(aGen\.input\.remove\)/, "the route never reads what the model returned");
-  assert.match(w, /mergeAddonPages\(aSrc, aValid\.pages, aRemove\)/, "the merge is called without the removals");
+  // ⚠ RE-ANCHORED 2026-09-17, NOT APPEASED. This was pinned to the literal
+  // `mergeAddonPages(aSrc, aValid.pages, aRemove)` and went red on an honest
+  // FOURTH argument — this repository's own "assert the property, not the
+  // spelling", in the guard written for the wiring layer it is about.
+  //
+  // THE PROPERTY IS THE ARGUMENT LIST, read depth-aware so a nested call inside
+  // one of them cannot end it early — the recorded flat-scan trap. Every call
+  // must carry the removals AND the named destinations, and the count is pinned
+  // so a fifth argument added next month is a decision somebody makes rather
+  // than one that slips in.
+  const calls = [];
+  for (let at = w.indexOf("mergeAddonPages(aSrc"); at >= 0; at = w.indexOf("mergeAddonPages(aSrc", at + 1)) {
+    let i = w.indexOf("(", at), depth = 0, end = i;
+    for (; end < w.length; end++) {
+      if (w[end] === "(") depth++;
+      else if (w[end] === ")" && --depth === 0) break;
+    }
+    calls.push(w.slice(i + 1, end).split(",").map((s) => s.trim()));
+  }
+  assert.equal(calls.length, 2, "the route's merge call sites moved: " + calls.length);
+  for (const args of calls) {
+    assert.equal(args.length, 4, "a merge call carries " + args.length + " arguments: " + JSON.stringify(args));
+    assert.equal(args[2], "aRemove", "the merge is called without the removals: " + JSON.stringify(args));
+    // AND THE SAME LIST ON BOTH, because the second call is the RE-MERGE after a
+    // QR dependency is withheld: a different permission set there would revert
+    // on the second pass exactly what the first pass kept.
+    assert.equal(args[3], "aAskedPages", "the merge is called without the named destinations: " + JSON.stringify(args));
+  }
   // And the answer carries both halves back, or the client cannot tell the
   // owner what went and what was refused.
   assert.match(w, /removed: aMerge\.removed/);
@@ -941,11 +968,15 @@ test("the route hands a considered refusal to the customer, not to the build lan
   // refusal routed through it rebuilds the site for ~25 credits in answer to
   // "remove the home page". The branch must sit BEFORE the escalation.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // RE-ANCHORED 2026-09-17: `const` became `let`, because a dead QR code can
-  // withhold a page and the route then RE-MERGES what survives rather than
-  // hand-editing the answer. The property is the merge that the refusals below
-  // are scoped to, not which keyword declares it.
-  const at = w.indexOf("aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove)");
+  // RE-ANCHORED 2026-09-17, TWICE, AND THE SECOND TIME IS THE LESSON. First
+  // `const` became `let` (a dead QR code withholds a page and the route
+  // RE-MERGES what survives); then the merge gained an honest fourth argument
+  // and this went red again on a change it is not about. THE LANDMARK IS THE
+  // ASSIGNMENT — `aMerge = mergeAddonPages(` — because what this case needs is
+  // a place to START A WINDOW, and an argument list is not part of that claim.
+  // Pinning one is the recorded "assert the property, not the spelling", and it
+  // has now cost this file three red cases across two rounds.
+  const at = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge call moved");
   // TO A LANDMARK, NOT A BYTE COUNT. This read `at + 1400` and went red on a
   // correct change the moment a documented branch was added between the two
@@ -1032,6 +1063,83 @@ test("reverting can never turn a real addon into a refusal", () => {
   assert.equal(alone.ok, true);
   assert.deepEqual(alone.changed, ["src/routes/book.tsx"]);
   assert.deepEqual(alone.reverted, []);
+});
+
+test("a page the designers NAMED is kept without a link, and only that page", () => {
+  // ⚠ THE OWNER'S REPRODUCTION AT THE MODULE (2026-09-17). *"Add a gallery page
+  // and add a parking note to the homepage"*: the component designer targets
+  // `/`, the writer returns exactly that page, and the reachability rule
+  // reverted it — because the note carries no link to `/gallery`. The route case
+  // has the end-to-end measurement; this is the argument on its own.
+  //
+  // `asked` IS THE DESTINATIONS THE CLEANED ANSWERS NAMED, as ROUTE identities,
+  // and both reasons are kept: reachability for the link nobody asked for in as
+  // many words, `asked` for the page somebody did.
+  const gallery = page("gallery.tsx", "export default function G(){return <p>Work</p>;}");
+  // The home page gains the note and NO link — the shape that makes this about
+  // `asked` rather than about reachability.
+  const note = { path: SITE[0].path, source: SITE[0].source + "\n// free parking behind the shop" };
+  const meddled = { path: SITE[1].path, source: 'export default function Book(){return <p>Different words</p>;}' };
+
+  const without = mergeAddonPages(SITE, [gallery, note, meddled]);
+  assert.deepEqual(without.reverted.sort(), ["src/routes/book.tsx", "src/routes/index.tsx"],
+    "the control: with nothing named, BOTH rewrites lose — which is what the fix has to change for one of them");
+
+  const r = mergeAddonPages(SITE, [gallery, note, meddled], undefined, ["/"]);
+  assert.deepEqual(r.changed, ["src/routes/index.tsx"], "the named page was reverted: " + JSON.stringify(r.reverted));
+  assert.deepEqual(r.reverted, ["src/routes/book.tsx"],
+    "naming one page removed the protection from another: " + JSON.stringify(r.reverted));
+  assert.match(r.pages.find((p) => p.path === SITE[0].path).source, /free parking/,
+    "the named page's own change did not survive");
+  assert.equal(r.pages.find((p) => p.path === SITE[1].path).source, SITE[1].source,
+    "an unnamed page's rewrite shipped");
+
+  // ── THE IDENTITY, AND WHY IT IS A CONTRACT ───────────────────────────────
+  // `asked` arrives as ROUTES because `page-gen.mjs` imports `routeOf` from
+  // this module — importing its `pageId` back would be a cycle — so the route
+  // normalises with `pageId` and this side maps its stored paths through
+  // `routeOf`. Measured equal on every real shape; driven here on the spellings
+  // that matter.
+  const keeps = (asked) => mergeAddonPages(SITE, [gallery, note], undefined, asked).reverted.length === 0;
+  assert.equal(keeps(["/"]), true, "the route spelling `pageId` produces is not recognised");
+  assert.equal(keeps(["/ "]), true, "a stray space defeated the match");
+  assert.equal(keeps(["/gallery"]), false, "naming the NEW page exempted a different one");
+  assert.equal(keeps([]), false, "an empty list exempted something");
+  assert.equal(keeps(undefined), false, "an older caller with no list changed behaviour");
+  assert.equal(keeps(["index.tsx"]), false,
+    "a FILE path matched, so the contract is looser than it says and two normalisers could drift apart unnoticed");
+  // BOTH SIDES ARE FOLDED, not one. `pageId` lower-cases at the producer, so
+  // through the route this can never fire — and the module is exported and
+  // takes what it is handed, which is the difference between a wall and a wall
+  // nobody can drive.
+  assert.equal(keeps(["/"]), true, "the ordinary spelling stopped working");
+  assert.equal(keeps(["/ABOUT"]), false, "an unrelated route matched once folded");
+  // …AND A NON-STRING IS REFUSED RATHER THAN COERCED — `String(["/"]) === "/"`,
+  // the trap this repo has shipped three times, and without the filter the
+  // `.trim()` below it throws on the array instead.
+  assert.doesNotThrow(() => mergeAddonPages(SITE, [gallery, note], undefined, [["/"], null, 7]),
+    "a non-string entry threw instead of being refused");
+  assert.equal(keeps([["/"]]), false, 'String(["/"]) === "/" exempted the home page');
+
+  // …AND THE COMPARISON IS CASE-INSENSITIVE, which is load-bearing rather than
+  // thorough: `SAFE_PATH` in `page-gen.mjs` carries `/i`, so `About.tsx` really
+  // is stored with its capital and `routeOf` answers `/About` where `pageId`
+  // answers `/about`. MEASURED through `validatePages`, not assumed.
+  const CASED = [{ path: "About.tsx", source: 'export default function A(){return <p>About us</p>;}' }, ...SITE];
+  const cased = { path: "About.tsx", source: 'export default function A(){return <p>About us, now with parking</p>;}' };
+  const up = mergeAddonPages(CASED, [gallery, cased], undefined, ["/about"]);
+  assert.deepEqual(up.reverted, [], "a mixed-case stored path defeated the match: " + JSON.stringify(up.reverted));
+
+  // …AND THE MIRROR, which is the half that makes it BOTH sides rather than one.
+  // A lowercase stored path with a MIXED-CASE entry: through the route `pageId`
+  // folds at the producer so this cannot arrive, and the module is exported and
+  // takes what it is handed — a reader should not have to know which side was
+  // folded. Without the mirror a sweep mutant cutting the asked-side fold
+  // survives every case above, because none of them needs it to MATCH.
+  const LOW = [{ path: "about.tsx", source: 'export default function A(){return <p>About us</p>;}' }, ...SITE];
+  const low = { path: "about.tsx", source: 'export default function A(){return <p>About us, now with parking</p>;}' };
+  const down = mergeAddonPages(LOW, [gallery, low], undefined, ["/About"]);
+  assert.deepEqual(down.reverted, [], "a mixed-case ASKED entry defeated the match: " + JSON.stringify(down.reverted));
 });
 
 test("a revert is reported all the way to the customer", () => {
@@ -1476,8 +1584,9 @@ test("the addon reports the model's own note instead of escalating", () => {
   // it covered our merge's refusals and not the model's, which is the commonest
   // case of it by far.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // RE-ANCHORED 2026-09-17: `const` → `let`, the withholding re-merge.
-  const at = w.indexOf("aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove)");
+  // RE-ANCHORED 2026-09-17: the landmark is the ASSIGNMENT, not the argument
+  // list — this is a window opener and the arguments are not its claim.
+  const at = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
 
@@ -1500,8 +1609,9 @@ test("NOTHING SAID WHY STILL ESCALATES, which is what keeps the recovery", () =>
   // note is what separates the two, so a branch that fired without one would
   // turn every generator failure into a dead end.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // RE-ANCHORED 2026-09-17: `const` → `let`, the withholding re-merge.
-  const at = w.indexOf("aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove)");
+  // RE-ANCHORED 2026-09-17: the landmark is the ASSIGNMENT, not the argument
+  // list — this is a window opener and the arguments are not its claim.
+  const at = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
   assert.match(win, /if \(!aMerge\.ok\) return aEscalate\(aMerge\.reason/,

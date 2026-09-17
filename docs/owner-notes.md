@@ -12700,3 +12700,62 @@ rather than adding one to the last number. I tried the search and it
 over-counts — it picks up a different workflow's run numbers, and two older runs
 that answered something else. So the count stays dropped and each entry names
 its own run instead. Not worth a fix; worth not publishing a wrong number.
+
+---
+
+## 2026-09-17 — "add a gallery page AND a parking note" lost the parking note
+
+**You gave the exact sentence and it reproduced first time.** The note was meant
+for the home page, the component designer said so, the writer wrote it — and the
+merge put the home page back the way it was, because the note contains no link
+to the new gallery page. Nobody asked it to. The note reached neither the
+builder nor the stored copy, and the reply said *"I left / as it was — nothing
+there needed to change for this"* about half of what you'd asked for. Ask for the
+note **on its own** and it works, which is what made it a hole rather than a
+policy.
+
+**The rule was right; it only knew one reason.** It protects pages an addon
+wasn't asked about — bought the hard way, by a run that rewrote four of four
+pages for 28 credits — and the one exception it knew was "this page carries the
+link to the new page". That's a guess about a page nobody mentioned, and a good
+one. What was missing is the case where somebody DID mention it. Now there are
+two reasons and they're separate: the link, and **being named by the designer**.
+
+**Named means named.** The list comes from what the design steps actually
+answered, not from your wording — a rule read out of prose is a rule a model can
+paraphrase around. And it deliberately does NOT include the home page as a
+freebie: the home page is on a different list, for a different job (deciding
+which pages we can afford to show the writer), and lending that list to this
+decision would have unprotected the one page every site has. Two lists, one
+pass, so they can't drift apart.
+
+**Three checks, exactly as you asked**: the note on its own; the note beside a
+new page with no link between them; and a rewrite of a page nobody mentioned,
+which is still refused. Each one checks three separate things — what went to the
+builder, what the site is left holding, and what you're told — and the "nothing
+needed to change" sentence is checked **present** on the refused one, so the fix
+can't quietly become "stop saying it".
+
+**Checks**: 6,802 tests green, up 4. All three new checks were run against the
+old code first: only the broken one failed, and both controls passed on both —
+which is what makes them controls rather than three copies of the same test.
+
+**Sabotage run: 15 out of 15 caught.** Three got through the first pass and none
+was a hole in the fix — two were checks I'd written that needed the case where
+the match has to SUCCEED rather than fail, and one was a line I proved does
+nothing today and kept anyway, with the reason written beside it.
+
+**Five older checks had to be re-pointed, and four are the same mistake.** They
+used the merge as a bookmark and pinned its whole argument list, so adding an
+honest argument broke them on a change they're not about. Three of those four had
+already been re-pointed yesterday for the same reason. They bookmark the line
+itself now.
+
+**And one mistake of mine worth recording**: my first version of a test passed
+the new list in the wrong slot, and it read as the fix not working. It was caught
+because that test asserts something POSITIVE — one that only checked "nothing bad
+happened" would have sailed through.
+
+**Combined page + photo is still the next incomplete thing.**
+
+**Nothing merged, nothing deployed, nothing paid, and no edit-path work.**

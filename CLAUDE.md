@@ -8514,6 +8514,100 @@ build` numbers only and subtract those two by hand.
 still skips photo and publishes a placeholder, and the same request does not yet
 place the picture.
 
+### THE PRESERVATION POLICY HAD ONE REASON AND NEEDED TWO (2026-09-17)
+
+Owner: *"Add a gallery page and add a parking note to the homepage."* The
+component designer explicitly targets `/`, the writer returns the correct
+homepage addition, and `mergeAddonPages` nevertheless REVERTS `index.tsx`
+because it contains no link to the newly added route. ***The identical
+component-only request succeeds.***
+
+**REPRODUCED THROUGH THE ROUTE BEFORE ANYTHING WAS TOUCHED**: `reverted
+["index.tsx"]`, `changed []`, the note in **neither** the container payload nor
+the stored source, and the customer told *"I left / as it was — nothing there
+needed to change for this"* about the half of their own sentence that named that
+page. The component-only control: `changed ["index.tsx"]`, note published.
+
+**THE RULE WAS RIGHT AND ITS JUSTIFICATION WAS INCOMPLETE.** Reachability is a
+guess about a page NOBODY mentioned — the nav link a new page needs — and it is
+a good guess, bought by a live run where *"add a gallery page"* rewrote four of
+four pages for 28 credits. `asked` is not a guess: it is the destination a
+CLEANED designer answer NAMED. Both reasons are kept and they are independent;
+what the fix must not do is infer permission from the customer's prose, or
+exempt a page nobody named.
+
+**`aAskedPages` AND `aKeepPages` ARE TWO LISTS OUT OF ONE WALK, AND THE
+DIFFERENCE IS THE `/`.** The route has collected the cleaned answers'
+`page`/`path` fields since the large-site window shipped — and it appends the
+home page unconditionally, because that is the nav anchor almost every addon
+touches. **That is a BUDGET decision, not a claim that anybody asked**, so
+handing the window's list to the merge would exempt `/` from the preservation
+rule on every addon — *removing protection from unrelated pages*, the one thing
+forbidden. One walk, two lists derived from it, so they cannot drift; the
+`keepOnly` flag is what separates them and a mutant collapsing it is a red run.
+
+**THE IDENTITY IS A CONTRACT, NOT A PREFERENCE.** `asked` arrives as ROUTE
+identities because **`page-gen.mjs` imports `routeOf` from `site-addon.mjs`** —
+importing its `pageId` back would be a cycle. The route normalises with `pageId`
+(which delegates to that very `routeOf` for a file) and the merge maps its own
+stored paths through `routeOf`, so the two normalisers are one definition with
+the file case shared; measured equal on every real shape. **The comparison is
+case-insensitive ON BOTH SIDES and that is load-bearing**: `SAFE_PATH` in
+`page-gen.mjs` carries `/i`, so `About.tsx` really is stored with its capital
+and `routeOf` answers `/About` where `pageId` answers `/about` — measured
+through `validatePages`, not assumed.
+
+**Guards**: `addon-route` **98 → 101**, the three the owner named — the
+component-only control, the page + requested homepage component with no link
+between them, and an unrelated existing-page rewrite that must still be
+rejected. Each asserts the **compiler inputs**, the **stored source**
+(`storedSource`, reading `source/<slug>/pages.json` — a third claim, not a
+second: a change that reached the compiler and not the store leaves the next
+edit working from the old file) and the **customer wording**, composed by the
+real `addonReply` over the real reply. The false sentence is asserted ABSENT on
+the two legitimate changes and **PRESENT on the unrelated rewrite**, which is
+what stops the fix from being "delete the sentence". `site-addon` **190 → 191**
+for the contract itself. All three route cases were run against the pre-change
+product: **only the reproduction goes red, and both controls pass on both
+trees** — which is what makes them controls rather than second copies.
+
+**⚠ FIVE OLDER GUARDS RE-ANCHORED, NOT APPEASED, AND FOUR ARE ONE CLASS.** They
+used the merge call as a **window OPENER** and pinned its whole argument list,
+so an honest fourth argument turned them red on a change they are not about —
+this repository's own *assert the property, not the spelling*, four times in one
+file, **and three of the four had already been re-anchored yesterday** when
+`const` became `let`. The landmark is the ASSIGNMENT (`aMerge =
+mergeAddonPages(`) now; an argument list was never part of a window's claim. The
+fifth is the wiring census, which really IS about the arguments — it reads them
+**depth-aware** (a nested call inside one cannot end the list early) and asserts
+the count, the removals and the named destinations **on both call sites**,
+because the second is the re-merge after a withheld QR and a different
+permission set there would revert on the second pass exactly what the first kept.
+
+**Sweep: 15 mutants, 15 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-asked-pages.json`, three passes).
+**Not one survivor at any point was the product's.** Pass 1 read 16/13/3 and
+pass 2 15/14/1; the three were a non-string entry, and the fold on each side —
+each closed by the case that needs it to MATCH rather than to miss, which is the
+half that was absent. The fourth was **measured inert and kept with its reason
+rather than hunted**: `v.path` is read into both lists and only the `page` kind
+carries `path`, and `cleanAdd` answers `page-exists` for a path the site already
+has — so a cleaned `path` always names a page that is in neither `changed` nor
+`aSrc`. **That deadness rests on a NEIGHBOUR'S rule**, which is guarded four
+ways where it lives, so the line stays, says so, and carries the destination the
+day a kind extends an existing page.
+
+**⚠ AND MY OWN FIRST CASE PASSED THE LIST IN THE `remove` SLOT.**
+`mergeAddonPages(SITE, [...], ["/"])` is the third argument, not the fourth, and
+it read as the fix not working — caught because the case asserted a POSITIVE
+outcome and driving the module directly disagreed with it. A case that only
+asserted the negative would have "passed".
+
+**Suite 6,802** — 6,798 + 3 + 1, and the arithmetic closes exactly.
+
+**COMBINED PAGE + PHOTO REMAINS THE NEXT INCOMPLETE CAPABILITY**, in the owner's
+words: the same request does not yet place the photo.
+
 
 ## Data, auth, payments, mail
 

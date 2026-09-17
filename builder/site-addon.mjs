@@ -156,7 +156,7 @@ export function mergeAddonSchema(prior, designed) {
  * `src/routes` and writes what it is given, so handing it the subset would
  * publish a site consisting of the new page alone.
  */
-export function mergeAddonPages(prior, returned, remove) {
+export function mergeAddonPages(prior, returned, remove, asked) {
   const base = (Array.isArray(prior) ? prior : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string");
   const got = (Array.isArray(returned) ? returned : [])
@@ -240,6 +240,40 @@ export function mergeAddonPages(prior, returned, remove) {
   // home page" is an addon whose whole content is a changed page, and the prompt
   // tells the model to do exactly that; there is no route to point at, and
   // reverting there would throw away the entire request.
+  //
+  // ⚠ AND REACHABILITY IS NOT THE ONLY REASON A CHANGED PAGE IS LEGITIMATE —
+  // `asked` IS THE OTHER ONE (owner, 2026-09-17). REPRODUCED through the route:
+  // *"Add a gallery page and add a parking note to the homepage"* had the
+  // component designer target `/`, the writer return exactly that home page, and
+  // this rule REVERT it — because the note carries no link to `/gallery`. The
+  // note reached neither the compiler nor the store, and the customer was told
+  // *"I left / as it was — nothing there needed to change for this"* about the
+  // half of their sentence that named it. **The identical component-only request
+  // succeeds**, which is what makes it a rule with a hole rather than a rule.
+  //
+  // `asked` IS THE CLEANED DESIGNERS' OWN DESTINATIONS and nothing else — the
+  // `page`/`path` fields of the answers that survived `cleanAdd`, carried in by
+  // the route. Never the customer's prose, which would make a wall out of
+  // something a model paraphrases; never a blanket exemption, so a page NOBODY
+  // named is protected exactly as it was. The two reasons are independent and
+  // both are kept: reachability covers the nav link nobody asked for in as many
+  // words, `asked` covers the page somebody did.
+  //
+  // IT ARRIVES AS ROUTE IDENTITIES, not file paths, and that is a contract
+  // rather than a preference: `page-gen.mjs` imports `routeOf` FROM HERE, so
+  // importing its `pageId` back would be a cycle. The route produces the list
+  // with `pageId` — which delegates to this very `routeOf` for a file — and this
+  // side maps its own stored paths through `routeOf`, so the two normalisers are
+  // one definition with the file case shared. MEASURED equal on every real
+  // shape.
+  //
+  // THE COMPARISON IS CASE-INSENSITIVE AND THAT IS LOAD-BEARING: `SAFE_PATH` in
+  // `page-gen.mjs` carries `/i`, so `About.tsx` is stored with its capital and
+  // `routeOf` answers `/About` while `pageId` answers `/about`. Measured through
+  // `validatePages`, not assumed.
+  const named = new Set((Array.isArray(asked) ? asked : [])
+    .filter((r) => typeof r === "string" && r.trim())
+    .map((r) => r.trim().toLowerCase()));
   const reverted = [];
   if (added.length || gone.length) {
     const routes = [...added, ...gone].map(routeOf).filter(Boolean);
@@ -247,6 +281,11 @@ export function mergeAddonPages(prior, returned, remove) {
       const src = (byPath.get(path) || {}).source || "";
       const was = base.find((p) => p.path === path);
       if (!was) continue;
+      // SOMEBODY NAMED THIS PAGE, so the change to it is the request rather than
+      // a rewrite nobody asked for. Asked FIRST because it is the stronger claim
+      // — a destination out of a cleaned answer — and the reachability test below
+      // is the one that has to guess.
+      if (named.has(String(routeOf(path) || "").toLowerCase())) continue;
       // BOTH SIDES, AND THE SECOND ONE IS LOAD-BEARING RATHER THAN THOROUGH.
       // On a REMOVAL the model's new source is the one with the link taken OUT,
       // so it mentions nothing; the stored source is the one that still points

@@ -24577,18 +24577,41 @@ async function handleRequest(request, env, ctx) {
             // MAP, and it is guarded there — `test/page-gen.test.mjs`, "any
             // spelling". Do not read a surviving mutant of this line as a gap;
             // read the module's.
+            //
+            // ⚠ TWO LISTS OUT OF ONE WALK, AND THE DIFFERENCE IS THE `/`.
+            // `aAskedPages` is the destinations the CLEANED designers really
+            // named; `aKeepPages` is that plus the home page, which is a BUDGET
+            // decision (the nav anchor almost every addon touches) and not a
+            // claim that anybody asked for it. `mergeAddonPages` takes the first
+            // as its permission list, so handing it the second would exempt `/`
+            // from the preservation rule on EVERY addon — "remove protection
+            // from unrelated pages", which is the thing the fix must not do.
+            // One walk, two lists derived from it, so they cannot drift.
+            const aAskedPages = [];
             const aKeepPages = [];
-            const aWantPage = (r) => {
+            const aWantPage = (r, keepOnly) => {
               const f = pageId(r);
-              if (f && !aKeepPages.includes(f)) aKeepPages.push(f);
+              if (!f) return;
+              if (!keepOnly && !aAskedPages.includes(f)) aAskedPages.push(f);
+              if (!aKeepPages.includes(f)) aKeepPages.push(f);
             };
             for (const ans of aAnswers) {
               for (const v of (Array.isArray(ans.value) ? ans.value : [ans.value])) {
                 if (v && typeof v === "object" && typeof v.page === "string") aWantPage(v.page);
+                // ⚠ `v.path` IS MEASURED INERT ON BOTH LISTS TODAY AND IS KEPT,
+                // because what makes it inert is a NEIGHBOUR'S rule rather than
+                // this expression: only the `page` kind carries `path`, and
+                // `cleanAdd` answers `page-exists` for a path the site already
+                // has (measured; guarded four ways in `test/site-add.test.mjs`).
+                // So a cleaned `path` always names a page the site has NOT got —
+                // which can never be in `changed` (the revert loop's input) and
+                // never in `aSrc` (the window's). The day a kind extends an
+                // existing page, this line is what carries its destination, and
+                // a sweep survivor here is this note rather than a gap.
                 if (v && typeof v === "object" && typeof v.path === "string") aWantPage(v.path);
               }
             }
-            aWantPage("/");
+            aWantPage("/", true);
             // AND WHAT THE WINDOW COULD NOT CARRY IS RECORDED. `ok: true` with
             // nothing in `problems` and nothing in `coverNote` is exactly what
             // a 17-page site answered before this, so the one fact that would
@@ -24792,7 +24815,7 @@ async function handleRequest(request, env, ctx) {
               aMark("pages", "unseen-rewrite", { refused: aRewrote.length, withheld: aPagesSent.withheld.length });
             }
 
-            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);
+            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove, aAskedPages);
             // …AND A CHANGE THAT WAS ONLY THAT REWRITE IS A REFUSAL, NEVER A
             // CLIMB. Falling through would escalate `nothing-returned` to the
             // ~25-credit revise — rewriting a customer's whole site because we
@@ -25017,7 +25040,7 @@ async function handleRequest(request, env, ctx) {
                 knownRoutes: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
               });
               for (const q of aRepaired.problems) if (!aProblems.includes(q)) aProblems.push(q);
-              const aHeld = mergeAddonPages(aSrc, aRepaired.pages, aRemove);
+              const aHeld = mergeAddonPages(aSrc, aRepaired.pages, aRemove, aAskedPages);
               // NOTHING LEFT TO PUBLISH IS A REFUSAL, NOT AN EMPTY PUBLISH. A
               // compile and a version for a site byte-identical to itself costs
               // the customer a build and moves nothing — and `mergeAddonPages`

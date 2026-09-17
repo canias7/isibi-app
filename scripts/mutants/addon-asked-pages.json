@@ -1,0 +1,140 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the asked test",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "      // SOMEBODY NAMED THIS PAGE, so the change to it is the request rather than",
+    "to": "      // SOMEBODY NAMED THIS PAGE (control), so the change to it is the request rather than",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment only, above the route's two lists",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // ⚠ TWO LISTS OUT OF ONE WALK, AND THE DIFFERENCE IS THE `/`.",
+    "to": "            // ⚠ TWO LISTS OUT OF ONE WALK (control), AND THE DIFFERENCE IS THE `/`.",
+    "control": true
+  },
+  {
+    "label": "the reported defect: a page the designers named is reverted for want of a link",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "      if (named.has(String(routeOf(path) || \"\").toLowerCase())) continue;",
+    "to": "      if (false) continue;"
+  },
+  {
+    "label": "every changed page is exempt, so an unasked rewrite ships",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "      if (named.has(String(routeOf(path) || \"\").toLowerCase())) continue;",
+    "to": "      if (true) continue;"
+  },
+  {
+    "label": "reachability stops counting, so a page carrying the new link is reverted",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "      if (routes.some((r) => src.includes('\"' + r + '\"') || was.source.includes('\"' + r + '\"'))) continue;",
+    "to": "      if (false) continue;"
+  },
+  {
+    "label": "the comparison is case-sensitive, so a mixed-case stored path never matches",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "      if (named.has(String(routeOf(path) || \"\").toLowerCase())) continue;",
+    "to": "      if (named.has(String(routeOf(path) || \"\"))) continue;"
+  },
+  {
+    "label": "the merge compares the FILE path, so no route identity can ever match",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "      if (named.has(String(routeOf(path) || \"\").toLowerCase())) continue;",
+    "to": "      if (named.has(String(path || \"\").toLowerCase())) continue;"
+  },
+  {
+    "label": "the asked list is not trimmed, so a stray space defeats the match",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "    .map((r) => r.trim().toLowerCase()));",
+    "to": "    .map((r) => r.toLowerCase()));"
+  },
+  {
+    "label": "the asked list is not lower-cased, so its own side is case-sensitive",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "    .map((r) => r.trim().toLowerCase()));",
+    "to": "    .map((r) => r.trim()));"
+  },
+  {
+    "label": "a non-string entry is admitted, so String([\"/\"]) exempts the home page",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "    .filter((r) => typeof r === \"string\" && r.trim())",
+    "to": "    .filter((r) => r)"
+  },
+  {
+    "label": "the route hands the WINDOW's keep list, so `/` is exempt on every addon",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove, aAskedPages);",
+    "to": "            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove, aKeepPages);"
+  },
+  {
+    "label": "the route hands nothing, so the fix is unreachable from the product",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove, aAskedPages);",
+    "to": "            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);"
+  },
+  {
+    "label": "the RE-MERGE after a withheld QR drops the list, so the second pass reverts what the first kept",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const aHeld = mergeAddonPages(aSrc, aRepaired.pages, aRemove, aAskedPages);",
+    "to": "              const aHeld = mergeAddonPages(aSrc, aRepaired.pages, aRemove);"
+  },
+  {
+    "label": "the home page joins the asked list, which is the budget decision leaking into the permission list",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            aWantPage(\"/\", true);",
+    "to": "            aWantPage(\"/\");"
+  },
+  {
+    "label": "the keepOnly flag decides nothing, so every keep entry is also a permission",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (!keepOnly && !aAskedPages.includes(f)) aAskedPages.push(f);",
+    "to": "              if (!aAskedPages.includes(f)) aAskedPages.push(f);"
+  },
+  {
+    "label": "nothing is ever asked for, so the list is always empty",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (!keepOnly && !aAskedPages.includes(f)) aAskedPages.push(f);",
+    "to": "              if (false) aAskedPages.push(f);"
+  },
+  {
+    "label": "a component's destination is not read, so `page: \"/\"` names nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (v && typeof v === \"object\" && typeof v.page === \"string\") aWantPage(v.page);",
+    "to": "                if (false) aWantPage(v.page);"
+  }
+]

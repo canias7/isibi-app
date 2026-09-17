@@ -32,7 +32,7 @@ import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, storedPage, ad
 import { MAX_PART_CHARS, MAX_PRIOR_CHARS, validatePages } from "../builder/page-gen.mjs";
 // `routeOf` IS THE PRODUCT'S OWN, so a case naming a page's route derives it
 // the way every reader does rather than spelling it beside the file name.
-import { routeOf } from "../builder/site-addon.mjs";
+import { routeOf, addonReply } from "../builder/site-addon.mjs";
 // REAL GENERATED PAGES, so "a site too large to show whole" is real source
 // rather than padding — the same corpus a dozen false-alarm checks measure
 // against, and the one place these files are reached from.
@@ -2608,6 +2608,26 @@ const storedLook = (r, slug) => {
   const raw = r.store.store.get("config/" + slug + ".json");
   try { return JSON.parse(raw).look; } catch { return null; }
 };
+/**
+ * ONE PAGE'S SOURCE AS THE SITE NOW HOLDS IT — `source/<slug>/pages.json`, the
+ * key `saveSiteSource` writes and the next revise reads.
+ *
+ * A THIRD CLAIM, not a second: `changed` is what the route SAYS it published,
+ * `compiledPages` is what it HANDED the builder, and this is what the site is
+ * left with. A change that reached the compiler and not the store is a site
+ * that serves the new page and offers the old one to the next edit.
+ *
+ * ABSENT ANSWERS `""` RATHER THAN THROWING, so a case asserting a string is
+ * NOT in it cannot pass by the file being missing — the observer has to be
+ * alive for the negative to mean anything.
+ */
+const storedSource = (r, slug, path) => {
+  const raw = r.store.store.get("source/" + String(slug).toLowerCase() + "/pages.json");
+  try {
+    const hit = JSON.parse(raw || "[]").find((p) => p && p.path === path);
+    return hit ? String(hit.source) : "";
+  } catch { return ""; }
+};
 
 test("a component store that could not be read replaces nothing, and the next request recovers", async () => {
   // ── THE REPRODUCTION ─────────────────────────────────────────────────────
@@ -3242,6 +3262,129 @@ test("a component that imports the withheld component goes with it, however deep
   assert.match(r.body.coverNote, /I haven't written the qr-card, panel sections/, r.body.coverNote);
   assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
   assert.match(r.body.coverNote, /I've left \/ as it was/, r.body.coverNote);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE PRESERVATION POLICY KNOWS TWO REASONS A CHANGED PAGE IS LEGITIMATE
+// (2026-09-17)
+//
+// Owner: *"Add a gallery page and add a parking note to the homepage."* The
+// component designer explicitly targets `/`, the writer returns the correct
+// homepage addition, and `mergeAddonPages` REVERTS it because the home page
+// contains no link to the newly added route. **The identical component-only
+// request succeeds.**
+//
+// MEASURED through this route before the fix: `reverted ["index.tsx"]`,
+// `changed []`, the note in NEITHER the container payload NOR the stored
+// source, and the customer told *"I left / as it was — nothing there needed to
+// change for this"* about the half of their own sentence that named that page.
+//
+// THE RULE HAD ONE REASON AND NEEDED TWO. Reachability is a guess about a page
+// nobody mentioned — the nav link a new page needs — and it is right. `asked`
+// is not a guess: it is the destination a cleaned designer answer NAMED. Both
+// are kept and they are independent; what is forbidden is inferring permission
+// from the customer's prose, or exempting a page nobody named.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PARK = "<p>There is free parking behind the shop.</p>";
+const parkNote = () => addedTo("/", PARK);
+/** The customer's own sentence, composed by the real producer from the real reply. */
+const said = (r) => addonReply(r.body || {});
+
+test("a component-only request changes the page it was asked about — the control", async () => {
+  // THE CONTROL THE OWNER NAMED, and it is what makes the case below about the
+  // ADDED PAGE rather than about components. Same site, same designer answer,
+  // same returned home page — with no new route in the change, the revert rule
+  // does not run at all and this has always worked.
+  const r = await addon("fw-park-only", "add a parking note to the homepage", {
+    kinds: ["component"], publishes: true, sitePages: ["/"],
+    written: [parkNote()],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.changed, ["index.tsx"], JSON.stringify(r.body.changed));
+  assert.deepEqual(r.body.reverted, [], "the control reverted, so it is not a control: " + JSON.stringify(r.body.reverted));
+  const home = compiledPages(r).find((p) => p.path === "index.tsx");
+  assert.match(home.source, /free parking/, "the note never reached the compiler");
+  assert.match(storedSource(r, "fw-park-only", "index.tsx"), /free parking/, "the note never reached the store");
+  assert.doesNotMatch(said(r), /nothing there needed to change/, said(r));
+});
+
+test("a new page beside a requested homepage addition keeps both, with no link between them", async () => {
+  // ⚠ THE OWNER'S REPRODUCTION. The only difference from the control above is
+  // that a page is added in the same breath — and the home page carries no link
+  // to it, because nobody asked for one. Before the fix that alone reverted the
+  // half of the request that named `/`.
+  const r = await addon("fw-park", "add a gallery page and add a parking note to the homepage", {
+    kinds: ["page", "component"], publishes: true, sitePages: ["/"],
+    written: [parkNote(), writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE PRECONDITION, ASSERTED RATHER THAN ASSUMED: a page really was added, so
+  // the revert rule really did run. Without this the case passes with the fix
+  // deleted, on a change that never reached the branch.
+  assert.deepEqual(r.body.added, ["gallery.tsx"], "no page was added, so the revert rule never ran");
+  // …AND THE HOME PAGE REALLY CARRIES NO LINK TO IT, which is the whole shape.
+  // A returned home page that happened to link `/gallery` would satisfy the old
+  // rule and prove nothing about the new one.
+  const home = compiledPages(r).find((p) => p.path === "index.tsx");
+  assert.doesNotMatch(home.source, /\/gallery/, "the home page links the new route, so reachability alone would have kept it");
+
+  assert.deepEqual(r.body.reverted, [], "the requested homepage addition was reverted: " + JSON.stringify(r.body.reverted));
+  assert.deepEqual(r.body.changed, ["index.tsx"], JSON.stringify(r.body.changed));
+
+  // ── COMPILER INPUTS, STORED SOURCE, CUSTOMER WORDING ─────────────────────
+  // Three claims and they are three: what was HANDED to the thing that builds
+  // the site, what the site now HOLDS, and what the customer is TOLD.
+  assert.match(home.source, /free parking/, "the compiler never saw the requested addition");
+  assert.match(storedSource(r, "fw-park", "index.tsx"), /free parking/, "the store never saw the requested addition");
+  assert.doesNotMatch(said(r), /nothing there needed to change/,
+    "the reply says nothing needed changing about a page the request named: " + said(r));
+  assert.match(said(r), /linked it from \//, said(r));
+});
+
+test("a rewrite of a page nobody named is still reverted, and still said", async () => {
+  // THE PROTECTION THE FIX MUST NOT REMOVE. Same site, same added page — and a
+  // rewritten `/about` that no designer answer mentions. `asked` holds
+  // `/gallery` and nothing else, so `/about` meets the reachability rule alone
+  // and loses, exactly as before.
+  //
+  // MEASURED LIVE, first run of `edit smoke`: "add a gallery page" came back
+  // having rewritten four of the site's four pages for 28 credits. That is the
+  // defect this rule exists for, and widening the exemption to the home page —
+  // which the window's `keep` list carries as a BUDGET decision — would have
+  // reopened it for the one page every site has.
+  const about = storedPage("/about");
+  const rewrite = {
+    ...about,
+    path: "src/routes/about.tsx",
+    source: about.source.replace("<h1>about</h1>", "<h1>A COMPLETELY NEW ABOUT PAGE</h1>"),
+  };
+  const r = await addon("fw-unrel", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/", "/about"],
+    written: [writtenPage("/gallery"), addedTo("/", '<Link to="/gallery">Gallery</Link>'), rewrite],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.reverted, ["about.tsx"], "an unasked rewrite shipped: " + JSON.stringify(r.body.reverted));
+  // …AND THE HOME PAGE, WHICH NOBODY NAMED EITHER, IS KEPT FOR THE OTHER
+  // REASON — it carries the link. Both reasons in one reply is what says they
+  // are independent rather than one wearing two names.
+  assert.deepEqual(r.body.changed, ["index.tsx"], JSON.stringify(r.body.changed));
+
+  const out = compiledPages(r).find((p) => p.path === "about.tsx");
+  assert.match(out.source, /<h1>about<\/h1>/, "the compiler was handed the unasked rewrite");
+  assert.doesNotMatch(out.source, /COMPLETELY NEW/, "the unasked rewrite reached the compiler: " + out.source.slice(0, 200));
+  assert.doesNotMatch(storedSource(r, "fw-unrel", "about.tsx"), /COMPLETELY NEW/, "the unasked rewrite reached the store");
+  // AND HERE THE SENTENCE IS TRUE, so it is asserted PRESENT — which is what
+  // stops the fix from being "delete the sentence".
+  assert.match(said(r), /I left \/about as it was/, said(r));
+  assert.match(said(r), /nothing there needed to change/, said(r));
 });
 
 test("the same nested chain with its page present ships whole — the control", async () => {
