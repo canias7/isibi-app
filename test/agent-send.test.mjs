@@ -45,6 +45,9 @@ import {
   MAX_LOOP_ITERATIONS as ENGINE_MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH as ENGINE_MAX_LOOP_DEPTH,
   ERROR_PATHS as ENGINE_ERROR_PATHS, FAILABLE_KINDS as ENGINE_FAILABLE_KINDS,
   MAX_STEP_RETRIES as ENGINE_MAX_STEP_RETRIES,
+  STEP_KINDS as ENGINE_STEP_KINDS, FIELD_KINDS as ENGINE_FIELD_KINDS,
+  MAX_SUBWORKFLOW_DEPTH as ENGINE_MAX_SUB_DEPTH, MAX_FLAT_STEPS as ENGINE_MAX_FLAT,
+  expandWorkflow as engineExpandWorkflow,
 } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
@@ -56,6 +59,8 @@ import {
   MAX_LOOP_ITERATIONS as SITE_MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH as SITE_MAX_LOOP_DEPTH,
   AUTOMATION_ERROR_PATHS as SITE_ERROR_PATHS, AUTOMATION_FAILABLE_KINDS as SITE_FAILABLE_KINDS,
   MAX_STEP_RETRIES as SITE_MAX_STEP_RETRIES,
+  AUTOMATION_STEP_KINDS as SITE_STEP_KINDS, AUTOMATION_FIELD_KINDS as SITE_FIELD_KINDS,
+  MAX_SUBWORKFLOW_DEPTH as SITE_MAX_SUB_DEPTH, MAX_FLAT_STEPS as SITE_MAX_FLAT,
 } from "../agent-store.mjs";
 
 /**
@@ -1078,6 +1083,36 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
   assert.ok(ENGINE_STEPS.some((s) => s.failable !== true), "everything can fail, so the other half is vacuous");
 });
 
+test("⚠ THE KINDS OF STEP AND FIELD ARE TWO TABLES IN TWO LANGUAGES, censused both ways", async () => {
+  // ⚠ **A KIND ONE SIDE HAS AND THE OTHER DOES NOT IS A STEP ONE DOOR CAN SAVE AND THE OTHER
+  // CANNOT RUN.** Both lists were inline literals in guards until a subworkflow needed a
+  // sixth step kind and a seventh field kind — a list frozen by its contents, which is this
+  // repository's own recorded trap, and it went red on the first honest addition.
+  assert.deepEqual([...SITE_STEP_KINDS], [...ENGINE_STEP_KINDS], "the step kinds drifted");
+  assert.deepEqual([...SITE_FIELD_KINDS], [...ENGINE_FIELD_KINDS], "the field kinds drifted");
+  // AND EVERY CATALOG ENTRY ON BOTH SIDES USES ONLY WHAT IS DECLARED, which is what makes the
+  // lists a wall rather than two matching pieces of prose.
+  for (const [side, list] of [["engine", ENGINE_STEPS], ["site", SITE_STEPS]]) {
+    for (const st of list) {
+      assert.ok(ENGINE_STEP_KINDS.includes(st.stepKind ?? st.kind), `${side}: ${st.type} has a kind nobody declared`);
+      for (const f of st.fields) assert.ok(ENGINE_FIELD_KINDS.includes(f.kind), `${side}: ${st.type}.${f.name} has a field kind nobody declared`);
+    }
+  }
+  // ⚠ THE OBSERVER: the two newest kinds really are in use, or the lists are longer than the
+  // catalogs and the loop above proves less than it looks.
+  assert.ok(ENGINE_STEPS.some((st) => (st.stepKind ?? st.kind) === "call"), "no step is a call");
+  assert.ok(ENGINE_STEPS.some((st) => st.fields.some((f) => f.kind === "id")), "no field is an id");
+  // AND THE SUBWORKFLOW BOUNDS, which decide what saves on one side and what runs on the other.
+  assert.equal(SITE_MAX_SUB_DEPTH, ENGINE_MAX_SUB_DEPTH, "how deep automations may run one another drifted");
+  assert.equal(SITE_MAX_FLAT, ENGINE_MAX_FLAT, "how long a flattened workflow may be drifted");
+  // ⚠ **THE EXPANSION IS THE ENGINE'S ALONE, AND THAT IS DELIBERATE RATHER THAN MISSING.**
+  // Nothing on the site runs a workflow, so a second flattener here would be a copy of
+  // something subtle with no caller. Asserted so a reader does not go looking for it.
+  assert.equal(typeof engineExpandWorkflow, "function");
+  const siteAll = await import("../agent-store.mjs");
+  assert.equal(siteAll.expandWorkflow, undefined, "the site has a flattener of its own, which is a second copy of something subtle");
+});
+
 test("⚠ WHAT HAPPENS WHEN A STEP FAILS IS ONE TABLE IN TWO LANGUAGES, censused both ways", () => {
   // ⚠ **A DRIFT HERE IS A CUSTOMER'S ANSWER MEANING TWO THINGS.** The paths decide whether a
   // failure ends the workflow; the failable kinds decide which steps are even offered the
@@ -1257,6 +1292,22 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
       { type: "endrepeat" }], []],
     ["a bad list AND a stray error path", [{ type: "repeat", mode: "each", each: "", on_error: "continue" },
       { type: "endrepeat" }], []],
+  );
+  // ── SUBWORKFLOWS ──────────────────────────────────────────────────────────────
+  // Only the SHAPE is checked at save time, on both sides: whether the automation named
+  // exists, whose it is, how deep the chain goes and whether it runs itself are questions
+  // only a lookup can answer, and the lookup is the engine's expansion.
+  const SUB = "aaaaaaaa-0000-4000-8000-000000000001";
+  shapes.push(
+    ["running another automation", [{ type: "workflow", runs: SUB }], []],
+    ["running one with no id at all", [{ type: "workflow" }], []],
+    ["running one named by something that is not an id", [{ type: "workflow", runs: "greet" }], []],
+    ["running one named by a list", [{ type: "workflow", runs: [SUB] }], []],
+    ["an id in capitals, which is the same id", [{ type: "workflow", runs: SUB.toUpperCase() }], []],
+    ["an error path on a call, which is not a failure of its own",
+      [{ type: "workflow", runs: SUB, on_error: "continue" }], []],
+    ["a call inside a branch", [IF, { type: "workflow", runs: SUB }, { type: "otherwise" }, N("b"), { type: "end" }], []],
+    ["a call inside a loop", [RPT(), { type: "workflow", runs: SUB }, { type: "endrepeat" }], NAMES],
   );
 
   for (const [what, steps, inputs] of shapes) {

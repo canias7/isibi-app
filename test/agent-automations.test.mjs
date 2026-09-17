@@ -15,6 +15,7 @@ import path from "node:path";
 import {
   handleAgentApi, AGENT_ROUTES,
   AUTOMATION_STEPS, AUTOMATION_STEP_TYPES, AUTOMATION_DAYS, AUTOMATION_SCHEDULES,
+  AUTOMATION_STEP_KINDS, AUTOMATION_FIELD_KINDS,
   AUTOMATION_STATES, MAX_AUTOMATIONS, MAX_AUTOMATION_STEPS, MAX_STEP_NOTE, MAX_EXECUTIONS,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
   // ── the workflow half: references, branches and what a run is asked for ────
@@ -455,7 +456,14 @@ test("the catalog is a positive list, and its names are derived from it", () => 
     // red on the first honest addition. And `fields.length` was required of every step,
     // which is false for a marker: `Otherwise` and `End` have nothing to configure, and the
     // honest rule is that an EMPTY list must be DECLARED rather than merely allowed.
-    assert.ok(["condition", "action", "lookup", "branch", "pause"].includes(s.kind), `${s.type} has a real kind`);
+    // ⚠ RE-ANCHORED A THIRD TIME, onto the declared list rather than a literal here — which
+    // is what the note above asks for and what the first two re-anchors stopped short of.
+    // The list is now a copy of the engine's and is censused against it, so an addition has
+    // to reach both catalogs or fail a census instead of one inline array.
+    assert.ok(AUTOMATION_STEP_KINDS.includes(s.kind), `${s.type} has a real kind`);
+    for (const f of s.fields) {
+      assert.ok(AUTOMATION_FIELD_KINDS.includes(f.kind), `${s.type}.${f.name} has a real field kind`);
+    }
     assert.ok(Array.isArray(s.fields), `${s.type} says what it is configured with`);
     assert.equal(s.fields.length === 0, s.configless === true,
       `${s.type}: an empty field list has to be deliberate, and a declared one has to be empty`);

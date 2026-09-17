@@ -2073,6 +2073,13 @@ function agentAutoValues() {
         if (n !== null && Number.isFinite(n)) st[name] = Math.trunc(n);
         continue;
       }
+      // ⚠ **AN OPTIONAL CHOICE'S BLANK OPTION MEANS THE DEFAULT, AND SENDS NOTHING.**
+      // A `<select>` always has a value, so without this every step would carry the first
+      // option explicitly — which for an error path means every workflow the form saves
+      // stores `on_error: "stop"`, bytes no workflow saved before it had, and the server's
+      // "absent means the default" stops being reachable from the one door that matters.
+      // Sending `""` instead would be a second way to say nothing on the wire.
+      if (kind === 'choice' && f.value === '') continue;
       st[name] = f.value;
     }
     const days = typeof row.querySelectorAll === 'function' ? [...row.querySelectorAll('[data-day]')] : [];
@@ -2453,7 +2460,11 @@ function agentAutoStepAdd(type) {
     const def = ((agentAutoCat && agentAutoCat.steps) || []).find((d) => d.type === st.type);
     for (const fd of (def && def.fields) || []) {
       if (fd.kind === 'days') st[fd.name] = ['mon'];
-      else if (fd.kind === 'choice') st[fd.name] = (fd.options || [])[0];
+      // ⚠ A REQUIRED CHOICE STARTS ON ITS FIRST OPTION, because the control draws one
+      // either way and nothing selected would save whichever happened to be first. An
+      // OPTIONAL one starts on NOTHING, because there absent is a real answer the server
+      // owns — and seeding it would make a new step store a default nobody chose.
+      else if (fd.kind === 'choice') { if (fd.required === true) st[fd.name] = (fd.options || [])[0]; }
       else if (fd.kind === 'number') st[fd.name] = fd.min === undefined ? 1 : fd.min;
       else if (fd.kind === 'time') st[fd.name] = '09:00';
       else if (fd.kind === 'name') st[fd.name] = '';
@@ -3133,6 +3144,8 @@ const AUTO_CHOICE_WORDS = {
   'is empty': 'is empty', 'is not empty': 'is not empty',
   for: 'for a while', until: 'until a time of day',
   approve: 'carry on anyway', reject: 'stop, as though it were rejected', fail: 'stop as a failure',
+  each: 'each thing in a list', times: 'a fixed number of times',
+  stop: 'stop the whole automation', continue: 'carry on with the next step', retry: 'try it again',
 };
 const autoWords = (n) => AUTO_FIELD_WORDS[n] || n;
 
@@ -3200,12 +3213,23 @@ function automationStepHtml(st, i, total, cat, days, depth) {
         }
         if (fd.kind === 'choice') {
           const picked = st[fd.name];
-          // ⚠ NO BLANK OPTION AND NO SILENT DEFAULT: a choice with nothing selected would
-          // save whichever value happened to be first, so the first option is selected when
-          // the step has no answer yet and the control says what it will do.
+          const must = fd.required === true;
+          // ⚠ A REQUIRED CHOICE HAS NO BLANK OPTION AND NO SILENT DEFAULT: one with nothing
+          // selected would save whichever value happened to be first, so the first option is
+          // selected when the step has no answer yet and the control says what it will do.
+          //
+          // ⚠ AN OPTIONAL ONE OFFERS A BLANK, and that is the opposite rule for the opposite
+          // reason: there the server owns what absent means, so a control with no way to say
+          // "leave it alone" would make every step carry a default nobody chose. The blank
+          // NAMES the default rather than being empty, so the row still says what will happen.
+          const dflt = (fd.options || [])[0];
+          const blank = must ? '' :
+            '<option value=""' + (picked === undefined || picked === null || picked === '' ? ' selected' : '') + '>' +
+            esc(dflt ? (AUTO_CHOICE_WORDS[dflt] || dflt) + ' — the default' : 'the default') + '</option>';
           return lbl + '<select class="ag-in ag-step-in" data-field="' + esc(fd.name) + '" data-kind="choice" data-change="agent-auto-step-field">' +
+            blank +
             (fd.options || []).map((o, n) =>
-              '<option value="' + esc(o) + '"' + (picked === o || (picked === undefined && n === 0) ? ' selected' : '') + '>' +
+              '<option value="' + esc(o) + '"' + (picked === o || (must && picked === undefined && n === 0) ? ' selected' : '') + '>' +
               esc(AUTO_CHOICE_WORDS[o] || o) + '</option>').join('') + '</select>' + hint;
         }
         if (fd.kind === 'number') {

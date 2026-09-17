@@ -50,7 +50,7 @@
  */
 
 /** The only kinds of step there are, and a step declares which it is. */
-export const STEP_KINDS = Object.freeze(["condition", "action", "lookup", "branch", "pause"]);
+export const STEP_KINDS = Object.freeze(["condition", "action", "lookup", "branch", "pause", "call"]);
 
 /**
  * WHAT A STEP IS CONFIGURED WITH, DECLARED RATHER THAN IMPLIED.
@@ -62,7 +62,7 @@ export const STEP_KINDS = Object.freeze(["condition", "action", "lookup", "branc
  * A `read` that quietly started accepting a sixth key would otherwise be invisible to
  * both.
  */
-export const FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name"]);
+export const FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name", "id"]);
 
 /**
  * WHAT A NAMED VALUE IS, and it is a different question from what a FIELD is.
@@ -205,6 +205,19 @@ export const MAX_LOOP_DEPTH = 2;
  * an execution cannot spend it again by being restarted.
  */
 export const MAX_STEP_RUNS = 200;
+
+/**
+ * ⚠ **HOW DEEP ONE AUTOMATION MAY CALL ANOTHER, AND HOW LONG THE FLATTENED LIST MAY BE.**
+ *
+ * `MAX_SUBWORKFLOW_DEPTH` bounds the CHAIN — a parent calling a child calling a
+ * grandchild is depth 2 — and it is what makes a cycle terminate even before the cycle
+ * check below sees it. **`MAX_FLAT_STEPS` IS DERIVED FROM `MAX_STEP_RUNS` and equals it**:
+ * a list longer than the number of step runs one execution may make cannot finish however
+ * it is written, so a longer one is refused while it is still somebody's form rather than
+ * failing half way through with work already done.
+ */
+export const MAX_SUBWORKFLOW_DEPTH = 2;
+export const MAX_FLAT_STEPS = MAX_STEP_RUNS;
 
 /**
  * ⚠ **WHAT HAPPENS WHEN A STEP DOES NOT WORK, AND `stop` IS THE DEFAULT BECAUSE IT IS
@@ -520,6 +533,13 @@ function readTime(raw, { name }) {
  * person reading it on a nine-step workflow has to guess which one — and the first draft
  * of this shared reader said exactly that, losing a message the single-purpose one had.
  */
+/**
+ * WHAT AN AUTOMATION'S ID LOOKS LIKE, pinned as the DATABASE's grammar rather than ours:
+ * `agent.automations.id` is a uuid, so anything else can only be a caller's mistake and is
+ * refused rather than handed to a lookup that cannot find it.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 function readTextField(raw, { what, max }) {
   const text = typeof raw === "string" ? raw.trim() : "";
   if (!text) return { empty: true };
@@ -1009,9 +1029,48 @@ const memory = defineStep({
  * **THE ORDER IS THE ORDER THE FORM OFFERS THEM IN**, which is why the two branch
  * markers sit beside the `if` they belong to rather than at the end.
  */
+/**
+ * RUN ANOTHER OF THIS AGENT'S AUTOMATIONS HERE.
+ *
+ * ⚠ **IT IS EXPANDED, NOT CALLED, AND THAT IS THE WHOLE DESIGN.** `expandWorkflow` replaces
+ * the step with the child's own steps before the execution starts, so the executor never
+ * sees one — which means a subworkflow needs no new wait kind, no parent-child link, no
+ * second journal, and no way for a child to be stranded while its parent waits. **The
+ * budget is then shared BY CONSTRUCTION rather than by a check**: one flattened list, one
+ * `MAX_STEP_RUNS`, one set of outcomes, and one position a restart re-enters.
+ *
+ * **ITS `run` EXISTS TO REFUSE.** A `workflow` step reaching the executor means the
+ * expansion did not happen, which is a row that does not match what somebody saved — so it
+ * fails by name rather than being skipped, exactly as a step type this deployment no longer
+ * has does.
+ */
+const subworkflow = defineStep({
+  type: "workflow",
+  kind: "call",
+  label: "Run another automation",
+  does: "Run the steps of another of this agent's automations here, as part of this one. Its steps are copied in as they are when this execution starts, so editing it afterwards does not change a run already going.",
+  fields: [{ name: "runs", kind: "id", required: true, says: "which automation to run",
+    empty: "say which automation to run" }],
+  // ⚠ **REFUSED, NEVER COERCED — and the first draft of this reader coerced.** It read a
+  // non-string as `""` and answered "say which automation to run", where the site's generic
+  // reader says it did not arrive as an automation: `String(["x"])` territory, and a
+  // divergence the cross-product census caught the hour it was written. Absent and
+  // wrong-kind are two refusals because they need different things done about them.
+  read: (raw) => {
+    const given = raw?.runs;
+    if (given === undefined || given === null || given === "") return { error: "say which automation to run" };
+    if (typeof given !== "string") return { error: "which automation to run didn't arrive as an automation" };
+    const id = given.trim().toLowerCase();
+    if (!id) return { error: "say which automation to run" };
+    if (!UUID.test(id)) return { error: "which automation to run didn't arrive as an automation" };
+    return { config: { runs: id } };
+  },
+  run: () => ({ failed: "this automation was supposed to be copied in before the run started, and was not" }),
+});
+
 export const AUTOMATION_STEPS = Object.freeze([
   weekday, branchIf, branchOtherwise, branchEnd, repeat, repeatEnd,
-  wait, approval, knowledge, memory, note,
+  wait, approval, knowledge, memory, note, subworkflow,
 ]);
 
 /** The catalog's type names, DERIVED, so nothing holds a second copy of the list. */
@@ -1380,7 +1439,22 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
       }
     }
 
-    steps.push(Object.freeze({ id: `s${at}`, type: def.type, ...config }));
+    // ⚠ **THE EXPANSION'S OWN STAMP SURVIVES VALIDATION, and it did not until a case caught
+    // it.** `readWorkflow` rebuilds each step from its READ config, which is right — it is
+    // what keeps a stored row from carrying a field nothing validated — and it therefore
+    // dropped the `from`/`ver` a flattened subworkflow's steps carry. So the snapshot was
+    // written by `expandWorkflow` and thrown away by the validator that runs next, which is
+    // this repository's own wiring layer one function along.
+    //
+    // **CHECKED RATHER THAN TRUSTED.** They are provenance and nothing decides anything from
+    // them, so a forged pair is a wrong label in a history rather than a hole — and a wrong
+    // label is still worth refusing, so a `from` that is not an id and a `ver` that is not a
+    // whole number are dropped rather than stored.
+    // **BOTH OR NEITHER**: a `from` with no `ver` claims to have come from an automation
+    // without saying which version, which is a snapshot that cannot say what it snapshotted.
+    const stamped = isText(one.from) && UUID.test(one.from) && Number.isInteger(one.ver);
+    const stamp = stamped ? { from: one.from, ver: one.ver } : {};
+    steps.push(Object.freeze({ id: `s${at}`, type: def.type, ...config, ...stamp }));
   }
   const struct = branchMap(steps);
   if (struct.error) return { error: struct.error };
@@ -1389,6 +1463,76 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
   // so changing its shape would change a contract for a fact that fits beside it. `types`
   // is the same scope read the other way, for a caller that needs it.
   return { steps, produces: [...outer.keys()], types: Object.fromEntries(outer) };
+}
+
+/**
+ * ⚠ **FLATTEN A WORKFLOW'S SUBWORKFLOW CALLS INTO ONE LIST, AND TAKE THE SNAPSHOT WHILE
+ * DOING IT.**
+ *
+ * `lookup(id)` answers `{steps, version, name, inputs} | null` for one of this agent's own
+ * automations, and it is INJECTED — this function knows nothing about a database, a tenant
+ * or an agent, so the wall that stops a parent reaching a sibling account's automation is
+ * the lookup's and is enforced where the query is. What comes back here is data.
+ *
+ * **THE ANSWER CARRIES `uses`**: every child id with the VERSION that was copied in. That is
+ * the version snapshot — the record of what really ran, written where a history can read it,
+ * rather than something to infer from timestamps.
+ *
+ * **EVERY SPLICED STEP IS STAMPED `from` AND `ver`** so an outcome can say which automation
+ * it came from, and **the ids are re-minted by flattened position**, because the executor
+ * keys its outcomes on position and two children both numbering their steps `s1` would
+ * collide. The child's own numbering is recoverable from the order and is not a field.
+ *
+ * ⚠ **A CYCLE IS REFUSED BY NAME AND WITH ITS CHAIN, not merely bounded.** The depth limit
+ * would terminate one on its own, and the customer would read "too deep" about a workflow
+ * that is not deep — it calls itself, which is a different mistake needing a different fix.
+ *
+ * ⚠ **A CHILD THAT DECLARES ITS OWN INPUTS IS REFUSED, because nothing supplies them.** A
+ * subworkflow shares the parent's values; there is no argument list on the call step yet, so
+ * a child asking for an input would have every reference to it resolve to nothing at run
+ * time — a workflow that saves and then fails. Passing values in is the next increment and
+ * is deliberately not built.
+ */
+export function expandWorkflow({ steps, lookup, depth = 0, seen = [], uses = [] } = {}) {
+  const list = Array.isArray(steps) ? steps : [];
+  if (typeof lookup !== "function") return { error: "there is no way to look up another automation here" };
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const one = list[i];
+    const type = one && typeof one === "object" && !Array.isArray(one) ? one.type : null;
+    if (type !== "workflow") { out.push(one); continue; }
+    const id = typeof one.runs === "string" ? one.runs : "";
+    if (seen.includes(id)) {
+      return { error: `this automation runs itself: ${[...seen, id].join(" → ")}` };
+    }
+    if (depth >= MAX_SUBWORKFLOW_DEPTH) {
+      return { error: `that is more automations running one another than one run may have (${MAX_SUBWORKFLOW_DEPTH})` };
+    }
+    const child = lookup(id);
+    // NOT FOUND AND NOT THIS AGENT'S ARE ONE ANSWER, which is the lookup's own rule and is
+    // why this reads it as one: naming the difference would tell a caller that another
+    // account's automation exists.
+    if (!child) return { error: "one of the automations this runs is not one of this agent's" };
+    if (Array.isArray(child.inputs) && child.inputs.length) {
+      return { error: `"${child.name ?? id}" asks for its own inputs, so it cannot be run as part of another automation` };
+    }
+    const ver = Number.isInteger(child.version) ? child.version : 1;
+    const inner = expandWorkflow({ steps: child.steps, lookup, depth: depth + 1, seen: [...seen, id], uses });
+    if (inner.error) return { error: inner.error };
+    for (const st of inner.steps) {
+      // THE INNERMOST ORIGIN WINS: a grandchild's steps keep the grandchild's stamp, because
+      // that is the automation whose words they are.
+      out.push(st && typeof st === "object" && Object.hasOwn(st, "from") ? st : { ...st, from: id, ver });
+    }
+    if (!uses.some((u) => u.id === id && u.version === ver)) uses.push({ id, version: ver });
+  }
+  if (depth > 0) return { steps: out, uses };
+  if (out.length > MAX_FLAT_STEPS) {
+    return { error: `once the automations it runs are copied in, that is ${out.length} steps, which is more than one run may hold (${MAX_FLAT_STEPS})` };
+  }
+  // ⚠ **THE IDS ARE RE-MINTED ONLY AT THE TOP**, so the recursion hands back the child's
+  // steps unnumbered and exactly one pass decides what every position is called.
+  return { steps: out.map((st, at) => ({ ...st, id: `s${at + 1}` })), uses };
 }
 
 // ── running one ─────────────────────────────────────────────────────────────
@@ -1648,6 +1792,14 @@ export async function runWorkflow(opts = {}) {
   const failStep = (at, id, error, path, retries) => {
     const key = keyAt(at, trail());
     const already = tried.get(key) ?? 0;
+    // ⚠ **`path === "retry"` IS A DECLARED SECOND WALL, MEASURED INERT AND KEPT.** Over 252
+    // shapes of stored row, `readErrorPath` never answers a positive `retries` beside any
+    // other path — it is stored on the retry branch alone — and the executor derives
+    // `retries` from that config and nowhere else, so `already < retries` is 0 for every
+    // other path and decides the same thing on its own. It stays because the two say
+    // different things: that one is arithmetic about a budget, this is the customer's own
+    // choice, and a later reader taking the count from somewhere less careful would find no
+    // wall at all. The sweep mutates the PAIR.
     const wantsRetry = path === "retry" && already < retries;
     // ⚠ **THE BUDGET IS ASKED BEFORE ARMING A RETRY, NEVER AFTER.** A retry that cannot
     // be afforded is SAID rather than quietly skipped: a customer who asked for three
@@ -1737,6 +1889,22 @@ export async function runWorkflow(opts = {}) {
     // saved, and the whole list after it as though nothing were wrong.
     if (!def) {
       const error = `there is no step called ${type || "(nothing)"} on this deployment`;
+      put(i, { outcome: "failed", error });
+      stopped = { kind: "failed", at: id, error };
+      break;
+    }
+
+    // ⚠ **A CALL THAT WAS NEVER EXPANDED IS A ROW THAT DOES NOT MATCH WHAT SOMEBODY
+    // SAVED.** `expandWorkflow` replaces every `workflow` step before the execution starts,
+    // so one arriving here means the expansion did not run — and it must not fall through to
+    // the action tail below, which would read a call as a step that did something.
+    //
+    // **DECLARED PAIR**: the step's own `run` refuses too, so a caller dispatching it
+    // directly gets a sentence rather than an answer. Neither can be killed on its own and
+    // the sweep mutates them together; this one is kept because it names the real cause and
+    // that one because it is the step's own contract.
+    if (def.stepKind === "call") {
+      const error = `${def.label} was supposed to be copied in before the run started, and was not`;
       put(i, { outcome: "failed", error });
       stopped = { kind: "failed", at: id, error };
       break;

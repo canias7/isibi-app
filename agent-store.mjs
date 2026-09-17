@@ -1380,6 +1380,31 @@ export const MAX_LOOP_DEPTH = 2;
 export const AUTOMATION_DAYS = Object.freeze(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
 
 /**
+ * ⚠ **WHAT KINDS OF STEP AND OF FIELD EXIST, DECLARED HERE RATHER THAN AS A LITERAL IN A
+ * GUARD.** Both are DECLARED COPIES of the engine's `STEP_KINDS` and `FIELD_KINDS`, censused
+ * both ways in `test/agent-send.test.mjs` — the one file that may load both products. A guard
+ * that listed them inline was a list frozen by its contents, which is this repository's own
+ * recorded trap and went red on the first honest addition; now the addition has to reach both
+ * catalogs or fail a census.
+ *
+ * `call` is the kind a subworkflow is: it neither acts, decides, looks anything up, branches
+ * nor pauses — it names another automation, whose steps are copied in before the run starts.
+ */
+export const AUTOMATION_STEP_KINDS = Object.freeze(["condition", "action", "lookup", "branch", "pause", "call"]);
+export const AUTOMATION_FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name", "id"]);
+
+/**
+ * ⚠ **HOW DEEP ONE AUTOMATION MAY RUN ANOTHER, AND HOW LONG THE FLATTENED LIST MAY BE.**
+ * Copies of the engine's `MAX_SUBWORKFLOW_DEPTH` and `MAX_FLAT_STEPS`; the expansion itself
+ * is the ENGINE's and has no counterpart here, because nothing on this side runs a workflow.
+ */
+export const MAX_SUBWORKFLOW_DEPTH = 2;
+export const MAX_FLAT_STEPS = 200;
+
+/** What an automation's id looks like — the database's own grammar, so a caller's typo is refused. */
+const AUTOMATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
  * ⚠ THE STEP CATALOG — every kind of step a workflow may hold, as the browser is
  * shown them.
  *
@@ -1568,6 +1593,16 @@ export const AUTOMATION_STEPS = Object.freeze([
       F({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE, refs: true,
           empty: "say what the note should say" }),
       OUT,
+    ]),
+  }),
+  F({
+    type: "workflow",
+    kind: "call",
+    label: "Run another automation",
+    does: "Run the steps of another of this agent's automations here, as part of this one. Its steps are copied in as they are when this execution starts, so editing it afterwards does not change a run already going.",
+    fields: Object.freeze([
+      F({ name: "runs", kind: "id", required: true, says: "which automation to run",
+          empty: "say which automation to run" }),
     ]),
   }),
 ].map(withErrorPath));
@@ -2053,6 +2088,20 @@ function readStepField(raw, f) {
     const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw.trim());
     if (!m) return { error: `${said} has to be a time like 09:00, on the 24-hour clock` };
     return { value: `${m[1]}:${m[2]}` };
+  }
+  if (f.kind === "id") {
+    // ⚠ **AN IDENTIFIER, NOT A NAME.** A name is something a person typed and can be
+    // lower-cased into shape; an id is the database's own and is refused rather than
+    // repaired, because a repaired id names a different row or none. Folded to lower case
+    // only, which is what a uuid already is.
+    if (raw === undefined || raw === null || raw === "") {
+      return f.required ? { error: blank } : { value: undefined };
+    }
+    if (typeof raw !== "string") return { error: `${said} didn't arrive as an automation` };
+    const id = raw.trim().toLowerCase();
+    if (!id) return f.required ? { error: blank } : { value: undefined };
+    if (!AUTOMATION_ID.test(id)) return { error: `${said} didn't arrive as an automation` };
+    return { value: id };
   }
   if (f.kind === "name") {
     if (raw === undefined || raw === null || raw === "") {

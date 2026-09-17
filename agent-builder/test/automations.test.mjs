@@ -17,6 +17,7 @@ import {
   localDate, weekdayOf, executionDay, branchMap,
   VALUE_TYPES, TYPE_ACCEPTS, BLOCK_SHAPES, MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH, MAX_STEP_RUNS,
   ERROR_PATHS, FAILABLE_KINDS, MAX_STEP_RETRIES, readErrorPath,
+  expandWorkflow, MAX_SUBWORKFLOW_DEPTH, MAX_FLAT_STEPS, FIELD_KINDS,
 } from "../src/automations.mjs";
 import { refsIn, fillRefs, valueText } from "../src/workflow-refs.mjs";
 import { makeRunner, OUTCOMES } from "../src/runner.mjs";
@@ -1923,6 +1924,22 @@ test("⚠ A RETRY IS BOUNDED, AND THE BOUND SURVIVES A RESTART", async () => {
   f.calls.n = 0;
   await resume({});
   assert.equal(f.calls.n, 3, "the count dropped is indistinguishable from keeping it");
+
+  // ⚠ **AND THE COUNT COMES BACK ON THE ANSWER AS WELL AS ON THE CHECKPOINT, which a sweep
+  // survivor is why.** The checkpoint is what a delivery writes mid-run; the ANSWER is what
+  // the caller stores when the execution ends or pauses, and a caller handed `{}` there has
+  // nothing to persist — so a run that paused inside a retry would come back with a fresh
+  // budget. Two readers of one fact, and nothing had asserted the second.
+  f.calls.n = 0;
+  const ended = await runWorkflow({ steps, retrieve: f.retrieve });
+  // **IT COUNTS THE RETRIES CONSUMED, NOT THE ATTEMPTS MADE**, and the two differ by one on
+  // purpose: the last failure arms nothing, so three attempts leave two retries spent. That
+  // is what `runsSpent` adds to the outcome rows to get the real number of runs, and it is
+  // why the ROW says `tries: 3` (the attempt number) while the state says 2.
+  assert.deepEqual(ended.tries, { 0: 2 }, "the attempt count never reaches the caller");
+  assert.equal(ended.outcomes[0].tries, 3, "the row and the state disagree about the same run");
+  const none = await runWorkflow({ steps: readWorkflow([{ type: "note", text: "x" }]).steps });
+  assert.deepEqual(none.tries, {}, "a run where nothing failed reports attempts it did not make");
 });
 
 test("⚠ CARRYING ON PAST A FAILURE LEAVES IT RECORDED AS A FAILURE", async () => {
@@ -2051,4 +2068,243 @@ test("⚠ RESTARTING MID-RETRY RESUMES MID-RETRY, at every boundary there is", a
     if (f.seen.n !== 3) diverged += 1;
   }
   assert.ok(diverged >= 1, "dropping the attempt count changed nothing, so the matrix proves nothing");
+});
+
+// ── subworkflows ────────────────────────────────────────────────────────────
+
+/** A shelf of this agent's automations, and the lookup `expandWorkflow` is given. */
+function shelf(entries) {
+  const by = new Map(Object.entries(entries));
+  const asked = [];
+  return {
+    asked,
+    lookup: (id) => { asked.push(id); return by.get(id) ?? null; },
+  };
+}
+const AID = (n) => `${String(n).repeat(8)}-0000-4000-8000-00000000000${n}`;
+
+test("⚠ A SUBWORKFLOW IS COPIED IN, AND WHAT WAS COPIED IS RECORDED", () => {
+  const sh = shelf({
+    [AID(1)]: { name: "greet", version: 4, steps: [{ type: "note", text: "hello" }] },
+  });
+  const r = expandWorkflow({
+    steps: [{ type: "note", text: "top" }, { type: "workflow", runs: AID(1) }, { type: "note", text: "end" }],
+    lookup: sh.lookup,
+  });
+  assert.equal(r.error, undefined);
+  assert.deepEqual(r.steps.map((st) => st.id), ["s1", "s2", "s3"], "the ids are re-minted by flattened position");
+  assert.deepEqual(r.steps.map((st) => st.type), ["note", "note", "note"], "no call survives the expansion");
+  // ⚠ **EVERY SPLICED STEP IS STAMPED, and the parent's own are not** — which is what lets an
+  // outcome say which automation its step came from without a second list beside the record.
+  assert.equal(r.steps[1].from, AID(1));
+  assert.equal(r.steps[1].ver, 4);
+  assert.equal(Object.hasOwn(r.steps[0], "from"), false, "a parent's own step is stamped as somebody else's");
+  // AND THE SNAPSHOT: the child and the VERSION that was copied.
+  assert.deepEqual(r.uses, [{ id: AID(1), version: 4 }]);
+
+  // A WORKFLOW WITH NO CALLS IN IT IS UNTOUCHED BUT FOR ITS IDS, and it asks no lookup at
+  // all — so a workflow that uses no subworkflow cannot be broken by one that is missing.
+  const none = shelf({});
+  const plain = expandWorkflow({ steps: [{ type: "note", text: "x" }], lookup: none.lookup });
+  assert.deepEqual(plain.steps, [{ type: "note", text: "x", id: "s1" }]);
+  assert.deepEqual(plain.uses, []);
+  assert.deepEqual(none.asked, [], "a workflow with no calls asked about an automation");
+});
+
+test("⚠ A GRANDCHILD KEEPS ITS OWN STAMP, and the chain is bounded and cycle-refused", () => {
+  const chain = {};
+  for (let k = 1; k <= 4; k++) {
+    chain[AID(k)] = { name: `l${k}`, version: k,
+      steps: k < 4 ? [{ type: "workflow", runs: AID(k + 1) }] : [{ type: "note", text: "bottom" }] };
+  }
+  const sh = shelf(chain);
+  // DEPTH IS THE LENGTH OF THE CHAIN, so `MAX_SUBWORKFLOW_DEPTH` allows exactly that many
+  // calls one inside another — driven at the boundary in both directions.
+  const from = (k) => expandWorkflow({ steps: [{ type: "workflow", runs: AID(k) }], lookup: sh.lookup });
+  assert.equal(from(4).error, undefined, "a single call is refused");
+  assert.equal(from(5 - MAX_SUBWORKFLOW_DEPTH).error, undefined, `${MAX_SUBWORKFLOW_DEPTH} deep is refused`);
+  assert.match(String(from(4 - MAX_SUBWORKFLOW_DEPTH).error), new RegExp(`running one another.*\\(${MAX_SUBWORKFLOW_DEPTH}\\)`));
+  // ⚠ THE INNERMOST ORIGIN WINS: the bottom note's words are l4's, not l3's.
+  const deep = from(5 - MAX_SUBWORKFLOW_DEPTH);
+  assert.equal(deep.steps[0].from, AID(4));
+  assert.equal(deep.steps[0].ver, 4);
+  assert.equal(deep.uses.length, MAX_SUBWORKFLOW_DEPTH, "the snapshot names every child, not only the first");
+
+  // ⚠ **A CYCLE IS NAMED WITH ITS CHAIN, not reported as depth.** The bound would terminate
+  // it either way, and "too deep" about a workflow that calls itself sends somebody looking
+  // for nesting that is not there.
+  const loopy = shelf({ [AID(1)]: { name: "a", version: 1, steps: [{ type: "workflow", runs: AID(2) }] },
+                        [AID(2)]: { name: "b", version: 1, steps: [{ type: "workflow", runs: AID(1) }] } });
+  const cyc = expandWorkflow({ steps: [{ type: "workflow", runs: AID(1) }], lookup: loopy.lookup });
+  assert.match(String(cyc.error), /runs itself/);
+  assert.match(String(cyc.error), new RegExp(AID(1)), "the chain does not name the automation it came back to");
+});
+
+test("⚠ THE FLATTENED LIST IS BOUNDED BY THE STEP RUNS ONE EXECUTION MAY MAKE", () => {
+  // DERIVED, not chosen: a list longer than `MAX_STEP_RUNS` cannot finish however it is
+  // written, so it is refused while it is still somebody's form.
+  assert.equal(MAX_FLAT_STEPS, MAX_STEP_RUNS);
+  const big = { name: "big", version: 1,
+    steps: Array.from({ length: MAX_FLAT_STEPS - 1 }, () => ({ type: "note", text: "x" })) };
+  const sh = shelf({ [AID(1)]: big });
+  const one = expandWorkflow({ steps: [{ type: "workflow", runs: AID(1) }], lookup: sh.lookup });
+  assert.equal(one.error, undefined, "one copy is already too many");
+  assert.equal(one.steps.length, MAX_FLAT_STEPS - 1);
+  const two = expandWorkflow({
+    steps: [{ type: "workflow", runs: AID(1) }, { type: "workflow", runs: AID(1) }], lookup: sh.lookup });
+  assert.match(String(two.error), new RegExp(`${(MAX_FLAT_STEPS - 1) * 2} steps`));
+  assert.match(String(two.error), new RegExp(`\\(${MAX_FLAT_STEPS}\\)`));
+});
+
+test("⚠ AN AUTOMATION THAT IS NOT THIS AGENT'S, AND ONE THAT ASKS FOR INPUTS", () => {
+  // NOT FOUND AND NOT THIS AGENT'S ARE ONE ANSWER, because the difference is information: a
+  // sentence naming which would tell a caller that another account's automation exists.
+  const sh = shelf({});
+  assert.match(String(expandWorkflow({ steps: [{ type: "workflow", runs: AID(1) }], lookup: sh.lookup }).error),
+    /not one of this agent's/);
+  // ⚠ **A CHILD THAT DECLARES ITS OWN INPUTS IS REFUSED**, because nothing supplies them: a
+  // subworkflow shares the parent's values and there is no argument list on the call step, so
+  // every reference to such an input would resolve to nothing at run time.
+  const asks = shelf({ [AID(1)]: { name: "greeter", version: 1, inputs: [{ name: "who", type: "text" }],
+    steps: [{ type: "note", text: "hi {{who}}" }] } });
+  const r = expandWorkflow({ steps: [{ type: "workflow", runs: AID(1) }], lookup: asks.lookup });
+  assert.match(String(r.error), /"greeter" asks for its own inputs/);
+  // THE CONTROL: the same child with an EMPTY input list is fine, so the refusal is about
+  // what it asks for rather than about the key being present.
+  const empty = shelf({ [AID(1)]: { name: "greeter", version: 1, inputs: [], steps: [{ type: "note", text: "hi" }] } });
+  assert.equal(expandWorkflow({ steps: [{ type: "workflow", runs: AID(1) }], lookup: empty.lookup }).error, undefined);
+  // AND NO LOOKUP AT ALL IS A REFUSAL RATHER THAN AN EMPTY SHELF, because a caller that
+  // cannot look anything up must not silently expand a workflow into nothing.
+  assert.match(String(expandWorkflow({ steps: [{ type: "workflow", runs: AID(1) }] }).error), /no way to look up/);
+});
+
+test("⚠ A FLATTENED WORKFLOW IS VALIDATED AS ONE WORKFLOW, across the boundary", async () => {
+  // ⚠ **A SUBWORKFLOW SHARES THE PARENT'S VALUES**, so a child may name what the parent
+  // produced above the call — and a name nothing produces is refused by the ordinary reader,
+  // which is what "one workflow" means in practice rather than as a slogan.
+  const sh = shelf({
+    [AID(1)]: { name: "uses", version: 1, steps: [{ type: "note", text: "the draft says {{draft}}" }] },
+    [AID(2)]: { name: "typo", version: 1, steps: [{ type: "note", text: "{{drafft}}" }] },
+    [AID(3)]: { name: "halfbranch", version: 1, steps: [{ type: "if", left: "a", op: "is empty" }] },
+  });
+  const flat = (steps) => {
+    const e = expandWorkflow({ steps, lookup: sh.lookup });
+    return e.error ? { error: e.error } : readWorkflow(e.steps);
+  };
+  assert.equal(flat([{ type: "note", text: "x", out: "draft" }, { type: "workflow", runs: AID(1) }]).error, undefined);
+  // A CHILD NAMING SOMETHING NOTHING PRODUCES IS REFUSED, at its flattened position.
+  assert.match(String(flat([{ type: "workflow", runs: AID(2) }]).error), /nothing here produces a value called "drafft"/);
+  // A CHILD USING A NAME THE PARENT HAS NOT PRODUCED YET IS A FORWARD REFERENCE, refused for
+  // the same reason a typo is.
+  assert.match(String(flat([{ type: "workflow", runs: AID(1) }, { type: "note", text: "x", out: "draft" }]).error),
+    /nothing here produces a value called "draft"/);
+  // AND A BRANCH THAT DOES NOT BALANCE ACROSS THE BOUNDARY IS REFUSED WHOLE.
+  assert.match(String(flat([{ type: "workflow", runs: AID(3) }]).error), /has no "End of the if" below it/);
+  // ⚠ BUT A BRANCH THAT BALANCES ACROSS IT IS FINE — the child opens and the parent closes,
+  // which is what a flat list means and is the control for the refusal above.
+  const ok = flat([{ type: "workflow", runs: AID(3) }, { type: "note", text: "inside" }, { type: "end" }]);
+  assert.equal(ok.error, undefined);
+  const run = await runWorkflow({ steps: ok.steps });
+  assert.equal(run.stop.reason, "done");
+});
+
+test("⚠ A CALL THAT REACHED THE EXECUTOR IS A ROW THAT WAS NEVER EXPANDED", async () => {
+  const { steps } = readWorkflow([{ type: "workflow", runs: AID(1) }, { type: "note", text: "never" }]);
+  const r = await runWorkflow({ steps });
+  assert.equal(r.stop.reason, "failed");
+  assert.match(r.stop.error, /copied in before the run started/);
+  assert.equal(r.outcomes[1].outcome, "skipped", "the steps below a call that never ran went ahead");
+  // AND IT IS NOT READ AS AN ACTION, which is what the tail of the loop would do with it:
+  // an action's outcome is `ran` with a result.
+  assert.equal(r.outcomes[0].outcome, "failed");
+  // THE DECLARED PAIR: the step's own `run` refuses too, so a caller dispatching it directly
+  // gets a sentence rather than an answer.
+  assert.match(String(stepRegistry().get("workflow").run({}, {}).failed), /copied in before the run started/);
+  // AND A CALL IS NOT A FAILABLE KIND, so it cannot carry an error path that would let a
+  // workflow carry on past an expansion that did not happen.
+  assert.equal(FAILABLE_KINDS.includes("call"), false);
+  assert.equal(stepRegistry().get("workflow").failable, false);
+  assert.ok(STEP_KINDS.includes("call"));
+  assert.ok(FIELD_KINDS.includes("id"));
+});
+
+test("⚠ THE EXPANSION'S STAMP SURVIVES VALIDATION, and is checked rather than trusted", () => {
+  // ⚠ IT DID NOT UNTIL A CASE CAUGHT IT: `readWorkflow` rebuilds each step from its READ
+  // config, which is right and which therefore dropped the `from`/`ver` a flattened
+  // subworkflow's steps carry — the snapshot written by one function and thrown away by the
+  // one that runs next, which is this repository's wiring layer one function along.
+  const A = "aaaaaaaa-0000-4000-8000-000000000001";
+  const at = (steps) => readWorkflow(steps).steps.map((st) => [st.from ?? null, st.ver ?? null]);
+  // **BOTH OR NEITHER**: a `from` with no readable `ver` claims to have come from an
+  // automation without saying which version — a snapshot that cannot say what it captured.
+  assert.deepEqual(at([{ type: "note", text: "a", from: A, ver: 2 }]), [[A, 2]]);
+  assert.deepEqual(at([{ type: "note", text: "a", from: A }]), [[null, null]]);
+  assert.deepEqual(at([{ type: "note", text: "a", from: A, ver: "2" }]), [[null, null]]);
+  assert.deepEqual(at([{ type: "note", text: "a", from: "greet", ver: 2 }]), [[null, null]]);
+  assert.deepEqual(at([{ type: "note", text: "a", from: [A], ver: 2 }]), [[null, null]]);
+  assert.deepEqual(at([{ type: "note", text: "a" }]), [[null, null]]);
+});
+
+test("⚠ RESTARTING INSIDE A SUBWORKFLOW RESUMES INSIDE IT — nothing runs twice", async () => {
+  // **THE MILESTONE'S THIRD ACCEPTANCE TEST**, and the reason it is short is the design: a
+  // subworkflow is EXPANDED into the parent's own list before the run starts, so a restart
+  // inside one is a restart in a flat list — the position, the loop state and the attempt
+  // counts already cover it, and there is no parent-child resume to get wrong. What this
+  // case proves is that the expansion really does leave a list with that property, rather
+  // than that assertion being an argument about the design.
+  const sh = shelf({
+    [AID(1)]: { name: "greet each", version: 3, steps: [
+      { type: "repeat", mode: "each", each: "{{names}}", as: "who" },
+      { type: "note", text: "hello {{who}}" },
+      { type: "endrepeat" },
+    ] },
+  });
+  const e = expandWorkflow({
+    steps: [{ type: "note", text: "starting" }, { type: "workflow", runs: AID(1) }, { type: "note", text: "all done" }],
+    lookup: sh.lookup,
+  });
+  assert.equal(e.error, undefined);
+  const { steps, error } = readWorkflow(e.steps, { inputs: [{ name: "names", type: "list" }] });
+  assert.equal(error, undefined, "a loop that lives inside a subworkflow does not validate");
+  // THE CHILD'S STEPS ARE STILL MARKED AS ITS OWN once flattened, which is what lets a
+  // history say a note came from the subworkflow rather than from the parent.
+  assert.deepEqual(steps.filter((st) => st.from === AID(1)).map((st) => st.type),
+    ["repeat", "note", "endrepeat"]);
+
+  const values = { names: ["ann", "bo", "cy"] };
+  const clean = watchNotes();
+  const whole = await deliverLoop({ steps, values, registry: clean.registry });
+  assert.equal(whole.stop.reason, "done");
+  assert.deepEqual(clean.fired, ["starting", "hello ann", "hello bo", "hello cy", "all done"]);
+  assert.ok(whole.checkpoints >= 6, `only ${whole.checkpoints} boundaries`);
+
+  for (let cut = 1; cut <= whole.checkpoints; cut++) {
+    const w = watchNotes();
+    const r = await deliverLoop({ steps, values, cut, registry: w.registry });
+    assert.equal(r.stop?.reason, "done", `cut ${cut} ended ${r.stop?.reason}: ${r.stop?.error ?? ""}`);
+    assert.deepEqual(w.fired, clean.fired, `cut ${cut} ran ${w.fired.length} notes: ${w.fired.join(" | ")}`);
+  }
+
+  // ⚠ THE OBSERVER, PROVED ALIVE the way the loop matrix proves its own: with the loop state
+  // thrown away between deliveries, a cut inside the subworkflow's body repeats rounds.
+  let diverged = 0;
+  for (let cut = 2; cut <= whole.checkpoints; cut++) {
+    const w = watchNotes();
+    let state = { position: 0, outcomes: [], values: { ...values } };
+    let n = 0;
+    for (let d = 0; d < 40; d++) {
+      const out = await runWorkflow({
+        steps, registry: w.registry, now: () => 1_800_000_000_000,
+        position: state.position, outcomes: state.outcomes, values: state.values, loops: {},
+        record: async (st) => {
+          n += 1;
+          state = { position: st.position, outcomes: st.outcomes, values: st.values };
+          return n === cut ? { ok: false, why: "the lease went" } : { ok: true };
+        },
+      });
+      if (out.stop || (out.halted === null && !out.waiting)) break;
+    }
+    if (w.fired.join("|") !== clean.fired.join("|")) diverged += 1;
+  }
+  assert.ok(diverged >= 1, "throwing the loop state away changed nothing, so the matrix proves nothing");
 });
