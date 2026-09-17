@@ -175,8 +175,21 @@ try {
   check("it ran, and the note is the result", done === `stopped|done|${NOTE}|2`, done);
   check("the work row is finished and its token cleared",
     q(`select (done_at is not null)::text || '|' || coalesce(claim_token::text,'-') from agent.run_work where run_id='${runId}';`) === "true|-");
-  check("the journal holds exactly the started and stopped pair",
-    q(`select string_agg(body->>'kind', ',' order by seq) from agent.run_entries where run_id='${runId}';`) === "started,stopped");
+  // ⚠ RE-ANCHORED, NOT APPEASED. This asserted `started,stopped` — true while the whole
+  // execution was ONE transaction, and false by design now that every completed step is
+  // checkpointed through the fence before the next one starts. The PROPERTY is the one that
+  // matters either way: the log opens once, closes once, and everything between it is a
+  // step whose position never goes backwards.
+  const kinds = q(`select string_agg(body->>'kind', ',' order by seq) from agent.run_entries where run_id='${runId}';`).split(",");
+  check("the journal opens once and closes once", kinds[0] === "started" && kinds.at(-1) === "stopped" &&
+    kinds.filter((k) => k === "started").length === 1 && kinds.filter((k) => k === "stopped").length === 1, kinds.join(","));
+  check("and everything between them is a workflow step",
+    kinds.slice(1, -1).every((k) => k === "step") && kinds.length === 4, kinds.join(","));
+  // PROGRESS ONLY EVER MOVED FORWARD, read off the entries rather than off the row: the row
+  // holds one number and the log holds every number it passed through.
+  const marks = q(`select string_agg((body->>'step') || ':' || (body->>'mark'), ',' order by seq)
+                   from agent.run_entries where run_id='${runId}' and body->>'kind'='step';`);
+  check("each step's own progress is recorded, in order", marks === "1:progress,2:progress", marks);
   // NO MODEL WAS CALLED, and the log is where that is visible: an automation run has no
   // `model` entry at all, and its own run records the model as `none`.
   check("⚠ no model was called — no model entry, and the run says so",

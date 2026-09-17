@@ -78,11 +78,20 @@ const RPCS = {
   // THE SAME TRANSLATION AND THE SAME GUARANTEES: these are the product's own
   // functions, called as they are called in production, so what is local here is the
   // HTTP hop and nothing else. `tick_automations` answers a SET, like the sweeper.
-  create_automation: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_max::integer"], shape: "value" },
-  update_automation: { args: ["p_tenant", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb"], shape: "value" },
-  accept_automation_run: { args: ["p_tenant", "p_automation_id::uuid", "p_run_id::uuid", "p_trigger", "p_occurrence::date"], shape: "value" },
-  finish_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_outcomes::jsonb", "p_stop::jsonb"], shape: "value" },
+  create_automation: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_max::integer", "p_inputs::jsonb"], shape: "value" },
+  update_automation: { args: ["p_tenant", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_inputs::jsonb"], shape: "value" },
+  accept_automation_run: { args: ["p_tenant", "p_automation_id::uuid", "p_run_id::uuid", "p_trigger", "p_occurrence::date", "p_input::jsonb"], shape: "value" },
+  finish_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_outcomes::jsonb", "p_stop::jsonb", "p_position::integer", "p_vars::jsonb"], shape: "value" },
   tick_automations: { args: ["p_catchup_s::integer", "p_limit::integer"], shape: "set" },
+  // ── richer workflows, reference material and memory ───────────────────────
+  // THE SAME TRANSLATION AGAIN. `advance_automation_run` is the one worth naming: it
+  // reaches `append_entry` inside its own transaction, so driving it through this shim
+  // exercises the real fence rather than a stand-in for it.
+  advance_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_entry::jsonb", "p_position::integer", "p_vars::jsonb", "p_outcomes::jsonb", "p_waiting::jsonb"], shape: "value" },
+  decide_automation_approval: { args: ["p_tenant", "p_run_id::uuid", "p_step", "p_verdict", "p_note", "p_by"], shape: "value" },
+  resume_due_automations: { args: ["p_limit::integer"], shape: "set" },
+  search_knowledge: { args: ["p_tenant", "p_agent_id::uuid", "p_query", "p_limit::integer"], shape: "set" },
+  agent_memory_snapshot: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
 };
 
 /**
@@ -98,10 +107,20 @@ const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "
 
 /** The automations' own columns, and their executions'. A third set, for a third half. */
 const AUTOMATION_COLUMNS = new Set(["id", "agent_id", "tenant_id", "name", "enabled", "schedule",
-  "at_local", "zone", "steps", "next_run_at", "created_at", "updated_at"]);
-const EXECUTION_COLUMNS = new Set(["id", "automation_id", "tenant_id", "trigger", "occurrence",
+  "at_local", "zone", "steps", "inputs", "next_run_at", "created_at", "updated_at"]);
+const EXECUTION_COLUMNS = new Set(["id", "automation_id", "agent_id", "tenant_id", "trigger", "occurrence",
   "steps", "zone", "outcomes", "missed", "created_at", "finished_at",
-  "run_status", "run_stop", "run_started_at", "run_stopped_at"]);
+  "run_status", "run_stop", "run_started_at", "run_stopped_at",
+  "position", "vars", "input", "memory", "waiting", "wait_until", "decisions"]);
+
+/**
+ * Reference material and memory — a fourth and fifth set, for the same reason as the
+ * third: reading one must never be able to name a column of another.
+ */
+const KNOWLEDGE_COLUMNS = new Set(["id", "tenant_id", "agent_id", "title", "body", "format",
+  "version", "created_at", "updated_at"]);
+const MEMORY_COLUMNS = new Set(["id", "tenant_id", "agent_id", "key", "value", "source",
+  "version", "created_at", "updated_at"]);
 
 export function startLocalRest({ db, port = 0, quiet = true } = {}) {
   if (!db) throw new TypeError("startLocalRest: db is required");
@@ -300,6 +319,98 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(200, JSON.parse(r.out || "[]"));
       }
+      /**
+       * ── reference material and memory ──────────────────────────────────────
+       *
+       * TWO TABLES, ONE SHAPE OF HANDLER, and it is deliberately written out twice rather
+       * than abstracted over a table name: the column SETS are what stop a `select=` naming
+       * a column of another half, and a shared helper taking the table AND the set as
+       * arguments would be one call site away from being handed the wrong pair.
+       *
+       * **A COLUMN THE CALLER DID NOT NAME FALLS TO THE DATABASE'S OWN DEFAULT** — the
+       * recorded lesson from `agents`, applied here before it could cost anything: the
+       * version and the source belong to the column, and a shim writing a fixed list would
+       * be writing a second copy of them in JavaScript.
+       */
+      if (p === "/rest/v1/agent_knowledge" && req.method === "POST") {
+        const rows = Array.isArray(body) ? body : [body];
+        const vals = rows.map((r) =>
+          `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.agent_id)}::uuid, ${lit(r.title)}, ${lit(r.body)}, ` +
+          `${r.format === undefined ? "default" : lit(r.format)})`).join(", ");
+        const r = await sql(`with ins as (
+            insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body, format) values ${vals}
+            returning id, title, format, version, created_at, updated_at)
+          select coalesce(json_agg(t), '[]')::text from ins t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(201, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agent_knowledge" && req.method === "GET") {
+        const cols = selectOf(url.searchParams, KNOWLEDGE_COLUMNS, ["id"]);
+        const order = url.searchParams.get("order") === "updated_at.desc" ? "order by updated_at desc" : "order by lower(title) asc";
+        const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.agent_knowledge ${whereOf(url.searchParams, KNOWLEDGE_COLUMNS)} ${order} ${limit}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agent_knowledge" && req.method === "PATCH") {
+        const sets = ["title", "body", "format"].filter((k) => typeof body?.[k] === "string")
+          .map((k) => `"${k}" = ${lit(body[k])}`);
+        if (!sets.length) return send(400, { message: "nothing writable was asked for" });
+        const where = whereOf(url.searchParams, KNOWLEDGE_COLUMNS);
+        if (!where) return send(400, { message: "a PATCH must name which rows" });
+        const r = await sql(`with upd as (
+            update agent.agent_knowledge set ${sets.join(", ")} ${where}
+            returning id, title, format, version, created_at, updated_at)
+          select coalesce(json_agg(t), '[]')::text from upd t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agent_knowledge" && req.method === "DELETE") {
+        const where = whereOf(url.searchParams, KNOWLEDGE_COLUMNS);
+        if (!where) return send(400, { message: "a DELETE must name which rows" });
+        const r = await sql(`with del as (delete from agent.agent_knowledge ${where} returning id, title)
+          select coalesce(json_agg(t), '[]')::text from del t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+
+      if (p === "/rest/v1/agent_memory" && req.method === "POST") {
+        const rows = Array.isArray(body) ? body : [body];
+        const vals = rows.map((r) =>
+          `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.agent_id)}::uuid, ${lit(r.key)}, ${lit(r.value)}, ` +
+          `${r.source === undefined ? "default" : lit(r.source)})`).join(", ");
+        // ⚠ `Prefer: resolution=merge-duplicates` IS AN UPSERT, and this shim honours it
+        // because the route depends on it: saving a memory is "set this name to this
+        // value", and a caller that had to know whether the name existed would be doing
+        // the unique index's job in JavaScript.
+        const prefer = String(req.headers["prefer"] ?? "");
+        const onConflict = prefer.includes("merge-duplicates")
+          ? `on conflict (tenant_id, agent_id, key) do update set value = excluded.value, source = excluded.source`
+          : "";
+        const r = await sql(`with ins as (
+            insert into agent.agent_memory (id, tenant_id, agent_id, key, value, source) values ${vals}
+            ${onConflict}
+            returning id, key, value, source, version, created_at, updated_at)
+          select coalesce(json_agg(t), '[]')::text from ins t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(201, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agent_memory" && req.method === "GET") {
+        const cols = selectOf(url.searchParams, MEMORY_COLUMNS, ["id"]);
+        const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.agent_memory ${whereOf(url.searchParams, MEMORY_COLUMNS)} order by key asc ${limit}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/agent_memory" && req.method === "DELETE") {
+        const where = whereOf(url.searchParams, MEMORY_COLUMNS);
+        if (!where) return send(400, { message: "a DELETE must name which rows" });
+        const r = await sql(`with del as (delete from agent.agent_memory ${where} returning id, key)
+          select coalesce(json_agg(t), '[]')::text from del t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+
       // ── automations ───────────────────────────────────────────────────────
       if (p === "/rest/v1/automations" && req.method === "GET") {
         const cols = selectOf(url.searchParams, AUTOMATION_COLUMNS, ["id"]);

@@ -34,14 +34,53 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const agents = new Map();                // id -> { id, tenant_id, status }
   const autos = new Map();                 // id -> the automations row
   const execs = new Map();                 // run id -> the automation_runs row
+  // ── reference material and memory ─────────────────────────────────────────
+  // **AND HERE IT IS DELIBERATELY LESS CAPABLE TOO, NAMED RATHER THAN DISCOVERED: the
+  // SEARCH is a substring match, not `to_tsvector`/`ts_headline`.** Stemming, ranking and
+  // the matched-passage excerpt are PostgreSQL's, proved on a real PostgreSQL 16; a
+  // JavaScript re-implementation of them would be a second search engine that disagrees
+  // with the one that ships. What IS here is the PROTOCOL the engine depends on — that a
+  // hit carries a title and a version, that nothing found is an empty list, and that the
+  // tenant and the agent are both in the filter.
+  const know = new Map();                  // id -> the agent_knowledge row
+  const mem = new Map();                   // id -> the agent_memory row
   let tokens = 0;                          // claim tokens, minted per claim
   /** Canonical JSON: what `jsonb` equality amounts to here — key order normalised. */
   const canon = (v) => JSON.stringify(v, (_k, x) =>
     (x && typeof x === "object" && !Array.isArray(x))
       ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]]))
       : x);
+  /**
+   * A local time as an instant — the fake's stand-in for `agent.automation_next_at`.
+   *
+   * **DELIBERATELY NOT THE REAL ARITHMETIC, and this is the same declaration the maps
+   * above carry**: it treats the zone as UTC, so a `wait until` here lands on today's or
+   * tomorrow's UTC instant. The two daylight-saving cases are measured on a real
+   * PostgreSQL; re-implementing them here would be a second copy of the one thing this
+   * repository proved on the engine.
+   */
+  const untilLocal = (at, _zone) => {
+    const m = /^(\d{2}):(\d{2})$/.exec(String(at ?? ""));
+    const base = new Date(now());
+    const cand = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(),
+      m ? Number(m[1]) : 0, m ? Number(m[2]) : 0, 0, 0);
+    return new Date(cand > now() ? cand : cand + 86400e3).toISOString();
+  };
+
+  /**
+   * The logical slot an entry occupies, mirroring the four partial unique indexes.
+   *
+   * ⚠ **A `step` ENTRY'S SLOT INCLUDES ITS `mark` AND ITS `at`, because there is
+   * deliberately NO unique index for it.** A pause writes one entry for a step and the
+   * resume writes another for the same step, so "one entry per position" is not the rule
+   * here — what is the rule is that a RETRY inside one delivery replays a byte-identical
+   * body, which this slot reproduces exactly: same delivery, same clock, same mark, same
+   * slot, and `already` comes back.
+   */
   const logicalKey = (b) => b.kind === "started" || b.kind === "stopped" ? b.kind
-    : b.kind === "model" ? `model:${b.step}` : `tool:${b.step}:${b.index}`;
+    : b.kind === "model" ? `model:${b.step}`
+    : b.kind === "step" ? `step:${b.step}:${b.mark}:${b.at}`
+    : `tool:${b.step}:${b.index}`;
   const res = (status, body) => ({
     ok: status < 300, status,
     text: async () => (body === undefined ? "" : JSON.stringify(body)),
@@ -239,10 +278,10 @@ export function memoryRest({ now = () => Date.now() } = {}) {
 
       // The table's own refusals, which the function does not absorb: a malformed
       // entry raises rather than becoming one of the nine answers.
-      if (!["started", "model", "tool", "stopped"].includes(entry.kind)) {
+      if (!["started", "model", "tool", "stopped", "step"].includes(entry.kind)) {
         return res(400, { code: "23514", message: 'new row violates check constraint "entry_kind_known"' });
       }
-      const wantsStep = entry.kind === "model" || entry.kind === "tool";
+      const wantsStep = entry.kind === "model" || entry.kind === "tool" || entry.kind === "step";
       const hasStep = entry.step !== undefined && entry.step !== null;
       const hasIdx = entry.index !== undefined && entry.index !== null;
       if (wantsStep !== hasStep || (entry.kind === "tool") !== hasIdx) {
@@ -282,7 +321,8 @@ export function memoryRest({ now = () => Date.now() } = {}) {
      * would find work nobody asked for waiting in the queue.
      */
     if (p.endsWith("/rpc/accept_automation_run") && init.method === "POST") {
-      const { p_tenant: tenant, p_automation_id: autoId, p_run_id: runId, p_trigger: trigger, p_occurrence: occ = null } = body;
+      const { p_tenant: tenant, p_automation_id: autoId, p_run_id: runId, p_trigger: trigger,
+              p_occurrence: occ = null, p_input: given = {} } = body;
       if (typeof tenant !== "string" || tenant.trim() === "") return res(400, { message: "accept_automation_run: tenant must be a non-empty string" });
       if (!isText(runId)) return res(400, { message: "accept_automation_run: the execution needs a run id" });
       if (!["manual", "schedule"].includes(trigger)) return res(400, { message: "accept_automation_run: a run is triggered manually or by a schedule" });
@@ -295,11 +335,35 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       if (!exec) {
         if (!a.enabled) return res(200, { ok: false, error: "disabled" });
         if ((g?.status ?? null) !== "active") return res(200, { ok: false, error: "paused", status: g?.status ?? null });
+
+        // THE INPUT, AGAINST WHAT THIS AUTOMATION SAYS IT ASKS FOR — the function's own
+        // three refusals, in its own order, each writing nothing.
+        const decl = Array.isArray(a.inputs) ? a.inputs : [];
+        for (const k of Object.keys(given ?? {})) {
+          if (!decl.some((d) => d?.name === k)) return res(200, { ok: false, error: "unknown-input", name: k });
+          if (typeof given[k] !== "string") return res(200, { ok: false, error: "bad-input", name: k });
+        }
+        const vars = {};
+        for (const d of decl) {
+          if (!d || typeof d !== "object" || typeof d.name !== "string") return res(200, { ok: false, error: "bad-inputs" });
+          const v = Object.hasOwn(given ?? {}, d.name) ? given[d.name] : (d.default ?? "");
+          if (d.required === true && String(v).trim() === "") return res(200, { ok: false, error: "missing-input", name: d.name });
+          vars[d.name] = String(v);
+        }
+        // EVERY MEMORY WITH ITS VERSION, read in this transaction — which is what makes a
+        // correction reach the next execution and never this one.
+        const snap = {};
+        for (const m of mem.values()) {
+          if (m.tenant_id === tenant && m.agent_id === a.agent_id) snap[m.key] = { value: m.value, version: m.version };
+        }
         exec = {
-          id: runId, automation_id: autoId, tenant_id: tenant, trigger, occurrence: occ,
+          id: runId, automation_id: autoId, agent_id: a.agent_id, tenant_id: tenant, trigger, occurrence: occ,
           // THE SNAPSHOT. What runs is the configuration recorded HERE, which is what
           // makes an edit reach the next execution and never this one.
-          steps: a.steps, zone: a.zone, outcomes: null, missed: null, finished_at: null,
+          steps: a.steps, zone: a.zone, outcomes: [], missed: null, finished_at: null,
+          position: 0, vars, input: given ?? {}, memory: snap,
+          waiting: null, wait_until: null, decisions: {},
+          created_at: new Date(now()).toISOString(),
         };
         execs.set(runId, exec);
         fresh = true;
@@ -324,9 +388,12 @@ export function memoryRest({ now = () => Date.now() } = {}) {
     /** `agent.record_automation_occurrence` — a finished run with NO work row. */
     const recordOccurrence = (tenant, autoId, runId, occ, stop, missed) => {
       const a = autos.get(autoId);
-      execs.set(runId, { id: runId, automation_id: autoId, tenant_id: tenant, trigger: "schedule",
+      execs.set(runId, { id: runId, automation_id: autoId, agent_id: a?.agent_id ?? null,
+        tenant_id: tenant, trigger: "schedule",
         occurrence: occ, steps: a?.steps ?? [], zone: a?.zone ?? null, outcomes: [], missed: missed ?? null,
-        finished_at: new Date(now()).toISOString() });
+        finished_at: new Date(now()).toISOString(),
+        position: 0, vars: {}, input: {}, memory: {}, waiting: null, wait_until: null, decisions: {},
+        created_at: new Date(now()).toISOString() });
       runs.set(runId, { id: runId, tenant_id: tenant, status: "stopped", agent_name: "automation", model: "none",
         limits: null, stop, created_at: "2026-09-15T00:00:00Z" });
       entries.set(runId, new Map([
@@ -337,7 +404,8 @@ export function memoryRest({ now = () => Date.now() } = {}) {
 
     /** `agent.finish_automation_run` — the outcomes and the stop, through the fence. */
     if (p.endsWith("/rpc/finish_automation_run") && init.method === "POST") {
-      const { p_run_id: id, p_worker: worker, p_token: token, p_outcomes: outcomes, p_stop: stop } = body;
+      const { p_run_id: id, p_worker: worker, p_token: token, p_outcomes: outcomes, p_stop: stop,
+              p_position: pos = 0, p_vars: vars = {} } = body;
       if (!stop || typeof stop.reason !== "string") return res(400, { message: "finish_automation_run: an execution must say why it ended" });
       if (!Array.isArray(outcomes)) return res(400, { message: "finish_automation_run: the outcomes must be a list, one per step attempted" });
       const log = entries.get(id) ?? new Map();
@@ -353,7 +421,16 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       const answer = JSON.parse(await fenced.text());
       if (answer?.ok !== true) return res(200, answer);
       const exec = execs.get(id);
-      if (exec && exec.finished_at === null) { exec.outcomes = outcomes; exec.finished_at = new Date(now()).toISOString(); }
+      if (exec && exec.finished_at === null) {
+        exec.outcomes = outcomes;
+        exec.finished_at = new Date(now()).toISOString();
+        exec.position = Math.max(exec.position ?? 0, Number.isInteger(pos) ? pos : 0);
+        exec.vars = vars && typeof vars === "object" ? vars : exec.vars;
+        // ⚠ THE PAUSE IS CLEARED, and it is not tidying: a finished execution still
+        // carrying a deadline is one the scheduler would re-queue every minute for ever,
+        // and a CHECK on the real table refuses the row that would say so.
+        exec.waiting = null; exec.wait_until = null;
+      }
       const w = work.get(id);
       if (w && w.claimed_by === worker && w.claim_token === token) {
         w.claimed_by = null; w.claimed_at = null; w.lease_expires_at = null; w.claim_token = null; w.done_at = now();
@@ -362,7 +439,141 @@ export function memoryRest({ now = () => Date.now() } = {}) {
     }
 
     /**
-     * `agent.tick_automations` — file what is due, and advance past it.
+     * `agent.advance_automation_run` — one step's progress, fenced, in one transaction.
+     *
+     * **THROUGH `append_entry` ITSELF, never past it**, exactly as `finish` is: the fence is
+     * the one wall that keeps two workers off a run, and a fixture that wrote around it
+     * would be proving a path that does not ship.
+     */
+    if (p.endsWith("/rpc/advance_automation_run") && init.method === "POST") {
+      const { p_run_id: id, p_worker: worker, p_token: token, p_entry: entry,
+              p_position: pos, p_vars: vars, p_outcomes: outcomes, p_waiting: waiting = null } = body;
+      if (!entry || entry.kind !== "step") return res(400, { message: 'advance_automation_run: a step\'s progress is recorded as a "step" entry' });
+      if (!Array.isArray(outcomes)) return res(400, { message: "advance_automation_run: the outcomes must be a list, one per step attempted" });
+      if (!vars || typeof vars !== "object" || Array.isArray(vars)) return res(400, { message: "advance_automation_run: the values must be an object of name to value" });
+      if (!Number.isInteger(pos) || pos < 0) return res(400, { message: "advance_automation_run: the position must be a whole number of steps" });
+      if (waiting !== null && (typeof waiting !== "object" || typeof waiting.step !== "string")) {
+        return res(400, { message: "advance_automation_run: a pause has to say which step it is waiting at" });
+      }
+      const log = entries.get(id) ?? new Map();
+      const seq = log.size === 0 ? 0 : Math.max(...log.keys()) + 1;
+      const fenced = await fetch(`${u.origin}/rest/v1/rpc/append_entry`, {
+        method: "POST", headers: init.headers,
+        body: JSON.stringify({ p_run_id: id, p_seq: seq, p_worker: worker, p_token: token, p_body: entry }),
+      });
+      const answer = JSON.parse(await fenced.text());
+      if (answer?.ok !== true) return res(200, answer);
+
+      const exec = execs.get(id);
+      if (!exec) return res(200, { ...answer, advanced: false, why: "no-execution" });
+
+      let until = null;
+      if (waiting !== null) {
+        // ⚠ A RE-PAUSE KEEPS THE DEADLINE IT ALREADY HAS, or a spurious delivery would
+        // extend a wait for ever — a duplicate event doing harm.
+        if (exec.wait_until !== null && exec.waiting?.step === waiting.step) until = exec.wait_until;
+        else if (waiting.kind === "approval") until = new Date(now() + Math.max(1, Number(waiting.hours) || 1) * 3600e3).toISOString();
+        else if (waiting.mode === "until") until = untilLocal(waiting.at, exec.zone);
+        else until = new Date(now() + Math.max(1, Number(waiting.minutes) || 1) * 60e3).toISOString();
+      }
+
+      // PROGRESS MAY ONLY MOVE FORWARD, measured the same two ways the real guard uses.
+      const moved = exec.finished_at === null
+        && (exec.position ?? 0) <= pos
+        && (Array.isArray(exec.outcomes) ? exec.outcomes.length : 0) <= outcomes.length;
+      if (moved) {
+        exec.position = pos; exec.vars = vars; exec.outcomes = outcomes;
+        exec.waiting = waiting; exec.wait_until = until;
+      }
+      let released = null;
+      if (waiting !== null) {
+        const w = work.get(id);
+        released = !!(w && w.claimed_by === worker && w.claim_token === token && (w.lease_expires_at ?? 0) > now());
+        if (released) {
+          w.claimed_by = null; w.claimed_at = null; w.lease_expires_at = null; w.claim_token = null; w.done_at = now();
+        }
+      }
+      return res(200, { ...answer, advanced: moved, position: pos, waiting: waiting !== null, wait_until: until, released });
+    }
+
+    /**
+     * `agent.decide_automation_approval` — answer one waiting approval, once.
+     *
+     * The tenant is in the LOOKUP, so another account's execution and one that does not
+     * exist are the same answer. The first decision stands; a second press is absorbed.
+     */
+    if (p.endsWith("/rpc/decide_automation_approval") && init.method === "POST") {
+      const { p_tenant: tenant, p_run_id: id, p_step: step, p_verdict: verdict, p_note: note = null, p_by: by = null } = body;
+      if (!isText(tenant)) return res(400, { message: "decide_automation_approval: tenant must be a non-empty string" });
+      if (!["approved", "rejected"].includes(verdict)) return res(400, { message: 'decide_automation_approval: a decision is "approved" or "rejected"' });
+      if (!isText(step)) return res(400, { message: "decide_automation_approval: say which step is being answered" });
+      const exec = execs.get(id);
+      if (!exec || exec.tenant_id !== tenant) return res(200, { ok: false, error: "no-execution" });
+      if (exec.finished_at !== null) return res(200, { ok: false, error: "finished" });
+      if (!exec.waiting || exec.waiting.kind !== "approval" || exec.waiting.step !== step) {
+        return res(200, { ok: false, error: "not-waiting", waiting_for: exec.waiting?.step ?? null, kind: exec.waiting?.kind ?? null });
+      }
+      const had = exec.decisions?.[step] ?? null;
+      if (!had) {
+        exec.decisions = { ...(exec.decisions ?? {}), [step]: {
+          verdict, ...(isText(note) ? { note: note.trim() } : {}), by: by ?? tenant,
+          at: new Date(now()).toISOString(),
+        } };
+      }
+      const w = work.get(id);
+      let state = "not-found";
+      if (w) {
+        if (w.claimed_by !== null && (w.lease_expires_at ?? 0) > now()) state = "running";
+        else { w.kind = "resume"; w.done_at = null; w.enqueued_at = now(); w.attempts = 0; w.last_error = null; state = "queued"; }
+      }
+      return res(200, { ok: true, repeat: had !== null, verdict: had?.verdict ?? verdict, step, queued: state });
+    }
+
+    /** `agent.resume_due_automations` — put every suspended execution whose time has come back. */
+    if (p.endsWith("/rpc/resume_due_automations") && init.method === "POST") {
+      const limit = Math.max(1, Number(body.p_limit) || 25);
+      const due = [...execs.values()]
+        .filter((e) => e.waiting !== null && e.finished_at === null && e.wait_until !== null && Date.parse(e.wait_until) <= now())
+        .sort((a, b) => Date.parse(a.wait_until) - Date.parse(b.wait_until))
+        .slice(0, limit);
+      const out = [];
+      for (const e of due) {
+        const w = work.get(e.id);
+        let state = "not-found";
+        if (w) {
+          if (w.claimed_by !== null && (w.lease_expires_at ?? 0) > now()) state = "running";
+          else { w.kind = "resume"; w.done_at = null; w.enqueued_at = now(); w.attempts = 0; w.last_error = null; state = "queued"; }
+        }
+        out.push({ run_id: e.id, kind: e.waiting.kind, step: e.waiting.step, due_at: e.wait_until, action: state });
+      }
+      return res(200, out);
+    }
+
+    /** `agent.search_knowledge` — a substring stand-in for the real tsvector search. */
+    if (p.endsWith("/rpc/search_knowledge") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent_id: agentId, p_query: query, p_limit: limit = 5 } = body;
+      if (!isText(tenant)) return res(400, { message: "search_knowledge: tenant must be a non-empty string" });
+      // NOTHING SEARCHED FOR IS NOTHING FOUND, and it is not every document.
+      if (!isText(query)) return res(200, []);
+      const words = String(query).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+      if (!words.length) return res(200, []);
+      const hits = [...know.values()]
+        .filter((k) => k.tenant_id === tenant && k.agent_id === agentId)
+        .map((k) => {
+          const hay = `${k.title} ${k.body}`.toLowerCase();
+          const n = words.filter((w) => hay.includes(w)).length;
+          return { k, n };
+        })
+        .filter((h) => h.n > 0)
+        .sort((a, b) => b.n - a.n || a.k.title.toLowerCase().localeCompare(b.k.title.toLowerCase()))
+        .slice(0, Math.max(1, Number(limit) || 5));
+      return res(200, hits.map(({ k, n }) => ({
+        id: k.id, title: k.title, version: k.version, format: k.format,
+        text: k.body.slice(0, 200), rank: n,
+      })));
+    }
+
+    /** `agent.tick_automations` — file what is due, and advance past it.
      *
      * The advance is a plain day here rather than `automation_next_at`'s local-time
      * arithmetic (see the note above the maps). Every DECISION the cron reads is
@@ -425,7 +636,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const calls = [];
   const counted = async (url, init) => { calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined }); return fetch(url, init); };
   counted.calls = calls;
-  return { fetch: counted, runs, entries, work, agents, autos, execs };
+  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem };
 }
 
 /**

@@ -70,11 +70,19 @@ test("the catalog's names are derived, and two steps cannot share one", () => {
   assert.deepEqual([...new Set(STEP_TYPES)], STEP_TYPES, "no duplicate types");
   const twice = [AUTOMATION_STEPS[0], AUTOMATION_STEPS[0]];
   assert.throws(() => stepRegistry(twice), TypeError);
-  // THIS MILESTONE'S TWO, and one of each kind — which is what makes "a condition that
-  // does not match is skipped" drivable at all.
-  assert.deepEqual(STEP_TYPES, ["weekday", "note"]);
+  // ⚠ RE-ANCHORED, NOT APPEASED. This asserted `["weekday", "note"]` — the whole
+  // catalog as a literal, which was bought by nothing and went red on the first honest
+  // addition. Freezing a list by its contents is this repository's own recorded trap;
+  // the PROPERTY is that every kind the product declares is really offered, so a kind
+  // added with no step, or a step of a kind nothing draws, fails by existing.
   const kinds = AUTOMATION_STEPS.map((s) => s.stepKind);
-  assert.ok(kinds.includes("condition") && kinds.includes("action"));
+  for (const kind of STEP_KINDS) {
+    assert.ok(kinds.includes(kind), `some step is a ${kind}`);
+  }
+  assert.deepEqual([...new Set(kinds)].sort(), [...STEP_KINDS].sort(), "and no step has a kind the product does not declare");
+  // THE BRANCH IS A TRIPLE OR IT IS NOTHING: an `if` with no `otherwise` and no `end`
+  // to match is a step whose `readWorkflow` check can never be satisfied.
+  for (const t of ["if", "otherwise", "end"]) assert.ok(STEP_TYPES.includes(t), `the catalog has ${t}`);
 });
 
 test("⚠ the step cap is the column's own CHECK, read back out of the migration", () => {
@@ -93,9 +101,12 @@ test("⚠ the step cap is the column's own CHECK, read back out of the migration
 
 test("readWorkflow normalises, mints ids from the position, and refuses by name", () => {
   const ok = readWorkflow([{ type: "weekday", days: ["Mon", "sun", "mon"] }, { type: "note", text: "  hi  " }]);
+  // `out: null` IS STORED RATHER THAN OMITTED, so one fact has one representation: a
+  // step that binds nothing says so, instead of leaving a reader to tell an absent key
+  // from an empty one.
   assert.deepEqual(ok.steps, [
     { id: "s1", type: "weekday", days: ["sun", "mon"] },   // the WEEK's order, not the ticking order
-    { id: "s2", type: "note", text: "hi" },
+    { id: "s2", type: "note", text: "hi", out: null },
   ]);
   // Saving one selection twice stores the same bytes both times.
   const again = readWorkflow([{ type: "weekday", days: ["mon", "sun"] }]);
@@ -107,7 +118,7 @@ test("readWorkflow normalises, mints ids from the position, and refuses by name"
   assert.match(readWorkflow([{ type: "weekday", days: [] }]).error, /at least one day/);
   assert.match(readWorkflow([{ type: "weekday", days: ["funday"] }]).error, /no day called funday/);
   assert.match(readWorkflow([{ type: "note" }]).error, /what the note should say/);
-  assert.match(readWorkflow([{ type: "note", text: "x".repeat(MAX_NOTE + 1) }]).error, /longer than one note/);
+  assert.match(readWorkflow([{ type: "note", text: "x".repeat(MAX_NOTE + 1) }]).error, /that note is longer than/);
   // REFUSED, NEVER COERCED: `String(["mon"])` is `"mon"`.
   assert.match(readWorkflow([{ type: "weekday", days: [["mon"]] }]).error, /didn't arrive as a day/);
   // AND IT REFUSES RATHER THAN SHORTENING: a workflow quietly missing the step it could
@@ -286,10 +297,21 @@ test("the stop carries the day it asked about, so a skip can be explained later"
  * loudly** rather than quietly answering `no-agent`, which is the wrong-looking-right
  * failure this fixture exists to make impossible.
  */
-function routed({ executor = "automation", exec, finish, automations, attempts = 1, now } = {}) {
+/**
+ * ⚠ THE FAKE STORE HAS TO BE AS CAPABLE AS THE REAL ONE, and `advance` is the reason this
+ * comment exists. The runner now checkpoints every completed step, so a fake without it
+ * makes the executor halt on its first step — which reads as a lost lease and reported six
+ * correct cases as broken. *A fixture less capable than the thing it stands in for hides a
+ * defect exactly as well as one that is more*, and here it manufactured one.
+ *
+ * `advanced` COMES BACK AS WELL AS `ok`, because the real function answers both and the
+ * runner's reading of a retry depends on it.
+ */
+function routed({ executor = "automation", exec, finish, advance, search, automations, attempts = 1, now } = {}) {
   const events = [];
   const errors = [];
   const released = [];
+  const steps = [];
   const work = {
     claim: async ({ runId, worker }) => ({
       claimed: true, runId, tenant: "t1", kind: "start", executor, attempts,
@@ -308,12 +330,14 @@ function routed({ executor = "automation", exec, finish, automations, attempts =
     automations: automations === null ? undefined : (automations ?? {
       read: async () => exec,
       finish: finish ?? (async () => ({ ok: true, stored: true, seq: 1, finished: true })),
+      advance: advance ?? (async (a) => { steps.push(a); return { ok: true, stored: true, seq: 1, advanced: true }; }),
+      search: search ?? (async () => ({ excerpts: [] })),
     }),
     timer: { set: () => 1, clear: () => {} },
     onEvent: (e) => events.push(e),
     onError: (e) => errors.push(e),
   });
-  return { runner, events, errors, released };
+  return { runner, events, errors, released, steps };
 }
 
 const EXEC = {
@@ -404,7 +428,10 @@ test("an execution record that is gone, or unreadable, comes OFF the queue", asy
 test("a read that FAILED is retryable, and is released unfinished", async () => {
   // "Could not ask" and "there is nothing there" are opposite facts: one is our outage.
   const { runner, released, errors } = routed({
-    automations: { read: async () => { throw new Error("the database went away"); }, finish: async () => ({}) },
+    automations: {
+      read: async () => { throw new Error("the database went away"); },
+      finish: async () => ({}), advance: async () => ({ ok: true }), search: async () => ({ excerpts: [] }),
+    },
   });
   const out = await runner.deliver("r1");
   assert.equal(out.why, "failed");

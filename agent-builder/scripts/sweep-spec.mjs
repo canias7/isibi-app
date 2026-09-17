@@ -782,27 +782,31 @@ const spec = [
   // ⚠ THE ONE THE WHOLE MILESTONE TURNS ON. A condition that does not match is not a
   // failure, and showing it as one tells a customer their automation is broken when it
   // did exactly what they asked.
+  // RE-ANCHORED, NOT APPEASED: the outcomes became a keyed map so a resume can replace
+  // one, so `outcomes.push` moved to `put(i, …)`. The property is unchanged.
   m("automations: a condition that does not match reads as FAILED", AU,
-    'outcomes.push({ id, type, outcome: met ? "ran" : "skipped", why });',
-    'outcomes.push({ id, type, outcome: met ? "ran" : "failed", why });'),
+    'put(i, { outcome: met ? "ran" : "skipped", why });',
+    'put(i, { outcome: met ? "ran" : "failed", why });'),
   m("automations: a condition that does not match no longer stops the workflow", AU,
     'if (!met) stopped = { kind: "skipped", at: id, why };',
     'if (!met) stopped = null;'),
   // A SKIP AND A FAILURE AFTER IT SAY THE SAME THING, so a reader cannot tell "an
   // earlier condition said not today" from "an earlier step broke".
+  // RE-ANCHORED: the three readings are now composed once, above the fill, because a
+  // rejection is a third ending. THREE kinds of skip have to say three things.
   m("automations: the two kinds of skip stop saying different things", AU,
-    `        why: stopped.kind === "failed"
-          ? "an earlier step didn't work, so this one didn't run"
-          : "an earlier condition didn't match, so this one didn't run",`,
-    `        why: "this one didn't run",`),
+    `  const why = stopped === null ? "" :
+    stopped.kind === "failed" ? "an earlier step didn't work, so this one didn't run" :
+    stopped.kind === "rejected" ? "it wasn't approved, so this one didn't run" :
+    "an earlier condition didn't match, so this one didn't run";`,
+    `  const why = "this one didn't run";`),
   // EVERY STEP GETS AN OUTCOME. A list shorter than the workflow shows a workflow that
   // stops for no stated reason.
+  // RE-ANCHORED: the loop now BREAKS on a stop and the remaining steps are filled in
+  // afterwards, so the mutant is the fill rather than a `continue` inside the walk.
   m("automations: the steps after a stop get no outcome at all", AU,
-    `    if (stopped) {
-      outcomes.push({`,
-    `    if (stopped) {
-      if (stopped) continue;
-      outcomes.push({`),
+    "  if (stopped !== null) skipRange(0, steps.length, why);",
+    "  void why;"),
   // ⚠ A CATCH-UP RUN MUST ASK ABOUT THE DAY IT WAS FOR. Reading the clock instead makes
   // "every Monday" quietly become "most Mondays".
   m("automations: the occurrence stops beating the clock", AU,
@@ -814,10 +818,12 @@ const spec = [
     "const where = isText(zone) ? zone : new Intl.DateTimeFormat().resolvedOptions().timeZone;"),
   // A STORED STEP WHOSE TYPE IS GONE MUST FAIL, not be skipped: skipping runs a
   // DIFFERENT workflow from the one somebody saved and reports it as fine.
+  // RE-ANCHORED: the message is composed once now instead of twice.
   m("automations: a step type this deployment lacks is skipped instead of failed", AU,
-    `      outcomes.push({ id, type, outcome: "failed", error: \`there is no step called \${type || "(nothing)"} on this deployment\` });
-      stopped = { kind: "failed", at: id, error: \`there is no step called \${type || "(nothing)"} on this deployment\` };`,
-    `      outcomes.push({ id, type, outcome: "skipped", why: "no such step" });`),
+    `      const error = \`there is no step called \${type || "(nothing)"} on this deployment\`;
+      put(i, { outcome: "failed", error });`,
+    `      const error = \`there is no step called \${type || "(nothing)"} on this deployment\`;
+      put(i, { outcome: "skipped", why: error });`),
   // ⚠ READ AGAIN AT RUN TIME. These steps came back from a database, so they came from
   // outside — the same rule the journal follows for its own entries.
   m("automations: the stored config is trusted rather than read again", AU,
@@ -841,26 +847,39 @@ const spec = [
     "    void 0;"),
   // THE ID IS THE POSITION. A caller's own id is a second identity for one thing.
   m("automations: readWorkflow keeps a caller-supplied step id", AU,
-    "    steps.push(Object.freeze({ id: `s${at}`, type: def.type, ...readIt.config }));",
-    "    steps.push(Object.freeze({ id: one.id ?? `s${at}`, type: def.type, ...readIt.config }));"),
+    "    steps.push(Object.freeze({ id: `s${at}`, type: def.type, ...config }));",
+    "    steps.push(Object.freeze({ id: one.id ?? `s${at}`, type: def.type, ...config }));"),
   // IT REFUSES RATHER THAN SHORTENING.
   m("automations: a workflow over the cap is shortened instead of refused", AU,
     "  if (raw.length > max) return { error: `that's more steps than one automation can hold (${max})` };",
     "  if (raw.length > max) raw = raw.slice(0, max);"),
   // THE DAY THIS EXECUTION ASKED ABOUT RIDES ON THE STOP, or "skipped because it isn't
   // Monday" is unanswerable after the fact.
+  // RE-ANCHORED: the return carries the values and the position now, and the day comes
+  // off `day` rather than off a context that no longer exists at that point.
   m("automations: the stop forgets which day it asked about", AU,
-    "  return { outcomes, stop: { ...stop, on: ctx.date, weekday: ctx.weekday, zone: ctx.zone } };",
-    "  return { outcomes, stop };"),
+    "    stop: { ...stop, on: day.date, weekday: day.weekday, zone: day.zone },",
+    "    stop,"),
   // A STEP'S OWN THROW IS ITS OUTCOME, and `runWorkflow` never throws.
+  // RE-ANCHORED, and the anchor had to gain its own neighbour: there are three `catch`
+  // blocks in the walk now (the branch's, the step's, and the checkpoint's), so the bare
+  // `} catch (e) {` is AMBIGUOUS and the generator refuses it. This one is the step's,
+  // pinned by the line above it.
   m("automations: a step that throws escapes the executor", AU,
-    "    } catch (e) {\n      const error = String(e?.message ?? e);\n      outcomes.push({ id, type, outcome: \"failed\", error });",
-    "    } catch (e) {\n      throw e;\n      // eslint-disable-next-line no-unreachable\n      const error = String(e?.message ?? e);\n      outcomes.push({ id, type, outcome: \"failed\", error });"),
+    `    try { answer = await def.run(config, ctxFor(resume)); }
+    catch (e) {`,
+    `    try { answer = await def.run(config, ctxFor(resume)); }
+    catch (e) {
+      throw e;`),
   // `fields` IS COMPELLED, so a step type cannot exist without saying what it is
   // configured with — which is what the site's census and the form both read.
+  // RE-ANCHORED ONTO WHAT MOVED: an empty `fields` is now legal for a step that DECLARES
+  // `configless`, because `otherwise` and `end` really have nothing to set. So the
+  // property is no longer "fields is non-empty" — it is "an empty list is deliberate",
+  // and the mutant is the declaration being waved through.
   m("automations: a step may be declared with no fields", AU,
-    "  if (!Array.isArray(fields) || !fields.length) throw new TypeError(`defineStep(${type}): fields must say what this step is configured with`);",
-    "  void fields;"),
+    "  if (!fields.length && configless !== true) {",
+    "  if (false) {"),
 
   // ══════════════════════════════════════════════════════════════════════════
   // automation-store.mjs — the three things the engine says about one

@@ -122,6 +122,17 @@ export const AUTOMATION_CATCHUP_S = 3600;
  */
 export const AUTOMATION_TICK_LIMIT = 25;
 
+/**
+ * How many suspended executions one tick may wake.
+ *
+ * **ITS OWN NUMBER RATHER THAN THE TICK'S, because it bounds a different thing.** The tick
+ * bounds how many SCHEDULES are advanced; this bounds how many PAUSED executions are put
+ * back on the queue, and a platform can easily have far more of the second than the first —
+ * every approval anybody is waiting on is one. The two would have to be pulled apart the
+ * first time they mattered, so they are apart now.
+ */
+export const AUTOMATION_RESUME_LIMIT = 50;
+
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -443,6 +454,44 @@ export default {
       for (const e of errors.slice(0, 5)) console.error("agent-schedule", e);
     } catch (e) {
       console.error("agent-schedule", String(e?.message ?? e));
+    }
+
+    /**
+     * ── job three: wake every execution whose wait is over ──────────────────
+     *
+     * ⚠ **ITS OWN `try` FOR THE SAME REASON THE SCHEDULER HAS ONE.** A workflow that
+     * pauses is suspended with its worker released and its work row marked done, so this
+     * is the ONLY thing in the deployment that puts a timed wait back on the queue — the
+     * sweeper cannot, by design, because a row that is done is nothing to deliver. If a
+     * throw here were allowed to escape into the scheduler's block, one broken automation
+     * would strand every waiting execution on the platform.
+     *
+     * **ONE STATEMENT FOR BOTH KINDS OF PAUSE.** A timed wait whose deadline has passed
+     * and an approval nobody answered in time are the same fact about the table; the
+     * difference between them is what the STEP does when it resumes, which is the
+     * executor's business and not this loop's.
+     *
+     * **ONLY A ROW IT REALLY RE-QUEUED IS RUNG.** An execution somebody is already holding
+     * answers `running` — a doorbell for that is a delivery `claim_run` refuses, so it is
+     * latency spent to learn nothing.
+     */
+    try {
+      const due = await automations.resumeDue({ limit: AUTOMATION_RESUME_LIMIT });
+      let woke = 0;
+      const kinds = {};
+      for (const row of due) {
+        const action = typeof row?.action === "string" ? row.action : "?";
+        kinds[`${typeof row?.kind === "string" ? row.kind : "?"}:${action}`] =
+          (kinds[`${typeof row?.kind === "string" ? row.kind : "?"}:${action}`] ?? 0) + 1;
+        const runId = row?.run_id;
+        if (action === "queued" && isText(runId)) {
+          try { await env[QUEUE_BINDING].send({ runId }); woke += 1; }
+          catch (e) { console.error("agent-resume", JSON.stringify({ runId, ring: String(e?.message ?? e) })); }
+        }
+      }
+      console.log("agent-resume", JSON.stringify({ due: due.length, woke, ...kinds }));
+    } catch (e) {
+      console.error("agent-resume", String(e?.message ?? e));
     }
   },
 };

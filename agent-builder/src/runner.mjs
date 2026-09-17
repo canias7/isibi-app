@@ -98,9 +98,17 @@ export const TOLERATED_MISSES = Math.max(0, Math.floor((LEASE_TTL_S * 1000) / BE
  */
 export const MAX_ATTEMPTS = 5;
 
-/** Why a delivery did not run the work. Each needs a different thing done about it. */
+/**
+ * Why a delivery did not run the work. Each needs a different thing done about it.
+ *
+ * ⚠ **`waiting` IS THE ONE THAT IS NOT A FAILURE AND IS NOT `ran` EITHER.** The work was
+ * claimed, real progress was recorded and the worker was released on purpose — so reading
+ * it as `ran` would say the execution finished, and reading it as any refusal would say
+ * something went wrong. It is its own word, and the run is put back on the queue by the
+ * cron or by an approval rather than by anything here.
+ */
 export const OUTCOMES = Object.freeze([
-  "ran", "not-claimable", "already-finished", "unreadable", "no-agent", "no-executor",
+  "ran", "waiting", "not-claimable", "already-finished", "unreadable", "no-agent", "no-executor",
   "cannot-resume", "too-many-attempts", "lease-lost", "beat-failed", "conflict", "failed",
 ]);
 
@@ -325,15 +333,104 @@ export function makeRunner(opts = {}) {
         return await finish(true, "unreadable", "this execution's stored steps cannot be read as a list");
       }
 
+      /**
+       * ⚠ RETRIEVAL IS INJECTED, AND THIS IS THE ONE PLACE IT IS CHOSEN. The executor takes
+       * a one-function contract and never knows what is behind it, so replacing keyword
+       * search is replacing this closure. **An execution with no agent recorded REFUSES BY
+       * NAME rather than finding nothing** — one predates the reference material entirely,
+       * and "nothing matched" would read to a customer as a fact about their own documents.
+       */
+      const retrieve = async ({ query, limit }) => {
+        if (!exec.agentId) {
+          return { error: "this execution was accepted before reference material existed, so there is nothing to search" };
+        }
+        return await automations.search({ tenant: claim.tenant, agentId: exec.agentId, query, limit });
+      };
+
+      /**
+       * ⚠ THE CHECKPOINT — one step's progress, fenced, before the next step starts.
+       *
+       * It is what makes "resuming cannot repeat completed actions" a property rather than a
+       * hope, and it is the reason an execution is N+1 transactions rather than one. The
+       * journal entry is the durable record and the row update is the resumable position;
+       * `agent.advance_automation_run` writes both or neither.
+       *
+       * **A REFUSAL IS HANDED BACK AS `{ok: false}` AND NEVER THROWN, because the executor
+       * reads it** — it stops there and attempts nothing else, which is exactly right: a
+       * worker whose claim is gone must not write a stop either.
+       */
+      const record = async ({ position, outcomes, values, waiting, at }) => {
+        const entry = {
+          kind: "step",
+          // THE POSITION REACHED, which is what this entry is about. A pause records the
+          // position it is paused AT, so the pause and the later completion of that same step
+          // carry different values and neither can be mistaken for the other.
+          step: position,
+          at,
+          // AND WHICH OF THE TWO THIS IS. Without it a step that finished and then paused
+          // would produce two byte-identical bodies, the second read as `already`, and the
+          // log would hold one entry for two events.
+          mark: waiting ? "waiting" : "progress",
+          done: outcomes.length,
+        };
+        let answer;
+        try {
+          answer = await automations.advance({
+            runId, worker, token: hold.token, entry, position, values, outcomes, waiting,
+          });
+        } catch (e) {
+          onError({ at: "automation-advance", runId, error: String(e?.message ?? e) });
+          return { ok: false, why: String(e?.message ?? e) };
+        }
+        if (answer?.ok !== true) {
+          const why = typeof answer?.why === "string" ? answer.why : "unknown";
+          // THE DATABASE'S REFUSAL IS AUTHORITATIVE, and the flag is corrected from the one
+          // source that knows — the beat has not necessarily noticed yet.
+          if (CLAIM_GONE.includes(why)) { held = false; lostBecause = "lease-lost"; }
+          return { ok: false, why };
+        }
+        return { ok: true };
+      };
+
       // **THE CONFIGURATION IS THE ONE RECORDED AT ACCEPTANCE**, read here and never from
       // `agent.automations`. That is what makes an edit reach the next execution and never
       // this one — the same rule the instruction snapshot follows one executor over.
-      const { outcomes, stop } = await runWorkflow({
+      const walked = await runWorkflow({
         steps: exec.steps,
         zone: exec.zone,
         occurrence: exec.occurrence,
         now,
+        // ── where it had got to, and what it holds ─────────────────────────────
+        startedAt: exec.startedAt,
+        position: exec.position,
+        values: exec.values,
+        outcomes: exec.outcomes,
+        decisions: exec.decisions,
+        waiting: exec.waiting,
+        waitUntil: exec.waitUntil,
+        memory: exec.memory,
+        retrieve,
+        record,
       });
+      const { outcomes, stop, waiting, halted, values, position } = walked;
+
+      // ⚠ **A REFUSED CHECKPOINT MEANS NOTHING MORE MAY BE WRITTEN.** The execution is left
+      // exactly as the next holder needs to find it — no stop, no release — which is the same
+      // reading `runAgent` gives a refused journal write.
+      if (halted !== null) {
+        stopBeating();
+        onEvent({ at: "lost", runId, why: "lease-lost", done: false, error: halted });
+        return { ran: false, why: "lease-lost", runId, stop: null, error: halted };
+      }
+
+      // ⚠ **WAITING: ALREADY RELEASED BY THE TRANSACTION THAT RECORDED THE PAUSE**, so the
+      // ordinary `finish` is not called and nothing is held open. The cron or an approval puts
+      // it back on the queue, and a later delivery continues from the position just written.
+      if (waiting) {
+        stopBeating();
+        onEvent({ at: "waiting", runId, why: "waiting", done: false, kind: waiting.kind, step: waiting.step });
+        return { ran: true, why: "waiting", runId, stop: null, waiting, error: null };
+      }
 
       // The cheap wall in front of the fence, and a SECOND wall rather than the same one:
       // `finish_automation_run` refuses the write anyway, in the transaction that would
@@ -342,7 +439,7 @@ export function makeRunner(opts = {}) {
 
       let answer;
       try {
-        answer = await automations.finish({ runId, worker, token: hold.token, outcomes, stop });
+        answer = await automations.finish({ runId, worker, token: hold.token, outcomes, stop, position, values });
       } catch (e) {
         onError({ at: "automation-finish", runId, error: String(e?.message ?? e) });
         return await finish(false, "failed", String(e?.message ?? e));
