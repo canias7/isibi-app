@@ -14,7 +14,7 @@ import {
   IMAGE_CAP, IMAGE_ASPECT, MAX_PROMPT_CHARS,
   imagesAffordable,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
-  budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos,
+  budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos, photoInventory, imageSources,
 } from "../builder/site-images.mjs";
 import { uploadUrl } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
@@ -906,6 +906,42 @@ test("shownPhotos is three-state, because unknown must not pick a side", () => {
 
   // ANOTHER SITE'S UPLOAD IS NOT THIS SITE'S PHOTOGRAPH.
   assert.deepEqual(shownPhotos([{ source: '<SafeImage src="/u/other/a.jpg" />' }], "fw"), { known: true, count: 0 });
+});
+
+test("photoInventory is the WHOLE site or nothing, never a shorter list", () => {
+  // ⚠ THE READER ABOVE IS ONLY AS GOOD AS WHAT IT IS HANDED, and that is the
+  // reported defect (owner, 2026-09-17): *"A photograph inside an existing
+  // custom component currently produces 'This site shows no real photographs
+  // yet.'"* `shownPhotos` was correct throughout; its INPUT was the site's
+  // pages, and a site's own components live in their own list.
+  const pages = [{ path: "index.tsx", source: "<h1>Fretwork</h1>" }];
+  const parts = [{ name: "gallery-grid", source: '<SafeImage src="/u/fw/hero.jpg" alt="the bench" />' }];
+  assert.deepEqual(shownPhotos(pages, "fw"), { known: true, count: 0 },
+    "the control moved: the pages alone were never the defect");
+  assert.deepEqual(shownPhotos(photoInventory(pages, parts, true), "fw"), { known: true, count: 1 },
+    "a photograph inside a component was not counted — the reported defect");
+
+  // AND AN INCOMPLETE INVENTORY IS `null`, NEVER A SHORTER LIST (the owner's
+  // own instruction: *"Do not turn an incomplete photo inventory into a claim
+  // that every image is a placeholder."*). A component store that could not be
+  // read is nobody having looked, and `shownPhotos` answers `known: false` for
+  // exactly that — handing it the pages alone instead would be a real count of
+  // part of the site presented as a count of all of it.
+  assert.equal(photoInventory(pages, null, false), null, "an unreadable component store answered a partial inventory");
+  assert.deepEqual(shownPhotos(photoInventory(pages, null, false), "fw"), { known: false, count: 0 });
+  assert.equal(photoInventory(null, parts, true), null, "a site with no readable pages answered an inventory anyway");
+
+  // A SITE WITH NO COMPONENTS IS A READ THAT SUCCEEDED, so it is the pages and
+  // is `known` — the difference between "there are none" and "nobody looked",
+  // which is the same distinction `readSiteParts` draws one layer up.
+  assert.deepEqual(shownPhotos(photoInventory(pages, [], true), "fw"), { known: true, count: 0 });
+  assert.deepEqual(photoInventory(pages, [], true).map((f) => f.path), ["index.tsx"]);
+
+  // AND THE PATHS ARE `imageSources`' OWN, so this and the frame counter key
+  // the same file by the same name. A second spelling here is the whole class
+  // of defect the frame count was just fixed for.
+  assert.deepEqual(photoInventory(pages, parts, true), imageSources(pages, parts),
+    "photoInventory is a second definition of what the image steps operate on");
 });
 
 test("imageDirective says a zero budget as ours, and the build path is byte-identical", () => {

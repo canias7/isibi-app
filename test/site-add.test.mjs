@@ -214,7 +214,17 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // THE COST IS NAMED: `site-schema.mjs` pulls the Neon driver in, so this
     // module is no longer dependency-free at load. It carries no path's
     // wording, which is the property this test is really about.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs"].includes(from),
+    // `./site-files.mjs` (2026-09-17) is a LEAF with no imports of its own and
+    // is the platform's single answer to "where does a component live" —
+    // `PART_DIR`, `partPath`, `partNameOf`, `editableFiles`, read by the
+    // Worker and by the container through it. `deadQrs` has to answer "does
+    // this page import that component" once components joined the withheld
+    // set, and the alternative was a second literal `"-parts/"` beside the
+    // one `partNameOf` reads: the "two copies of one thing" trap, which is
+    // the same reason `MAX_FN_BODY` two entries up is imported rather than
+    // retyped. It carries VOCABULARY and no path's wording, which is the
+    // property this test is really about.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -1579,6 +1589,118 @@ test("a page THIS change wrote that renders a dropped code is withheld with it",
   });
   assert.deepEqual(kept.dropped.map((d) => d.name), ["gallery"], "a reverted page's route was treated as gone");
   assert.deepEqual(kept.qr.map((c) => c.name), ["posters"]);
+});
+
+test("a CUSTOM COMPONENT that renders a dropped code is withheld too, and the page importing it follows", () => {
+  // ⚠ THE DEFECT THE OWNER REPORTED STILL REPRODUCING (2026-09-17): the first
+  // cut read `wrote` — the PAGES — and a component is not a page, so a change
+  // whose binding sat in `src/routes/-parts/<name>.tsx` dropped the code and
+  // published the component regardless. A dead build, on purpose.
+  const URL_ = "https://fretwork-1.gofarther.app";
+  const qr = [{ name: "gallery", points: URL_ + "/gallery", label: "Our gallery" }];
+  const shows = [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src}/>}", added: true }];
+
+  const held = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [], wroteParts: shows, url: URL_ + "/" });
+  assert.deepEqual(held.qr, [], "the code a component renders was published anyway");
+  assert.deepEqual(held.withheldParts, [{ name: "qr-banner", added: true }], JSON.stringify(held.withheldParts));
+
+  // THE CONTROL, which is what makes the line above about the reference rather
+  // than about components being withheld wholesale: the same code, the same
+  // missing page, a component that never mentions it.
+  const blank = [{ name: "qr-banner", source: "export function QrBanner(){return <div/>}", added: true }];
+  const drop = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [], wroteParts: blank, url: URL_ + "/" });
+  assert.deepEqual(drop.dropped, [{ name: "gallery", route: "/gallery" }], "the code itself still goes");
+  assert.deepEqual(drop.withheldParts, [], "a component that never mentions the code was withheld");
+
+  // A COMPONENT THE SITE ALREADY HAS IS MARKED AS ONE, because withholding it
+  // means something different — the site keeps the version it is serving, and
+  // no page that imports it can break.
+  const kept = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [],
+    wroteParts: [{ ...shows[0], added: false }], url: URL_ + "/" });
+  assert.deepEqual(kept.withheldParts, [{ name: "qr-banner", added: false }]);
+
+  // …AND THE CASCADE CROSSES THE TWO LISTS, which is the property this half
+  // exists for: an ADDED page importing a withheld ADDED component compiles
+  // against a file that is not there, so it goes with it. `PART_DIR` is the
+  // one definition of what that import path looks like — the same constant the
+  // container and the band split read — so there is no second spelling here.
+  const cascade = deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source: "import { QrBanner } from '@/routes/-parts/qr-banner'\n<QrBanner/>", added: true }],
+    wroteParts: shows,
+  });
+  assert.deepEqual(cascade.withheldParts, [{ name: "qr-banner", added: true }]);
+  assert.deepEqual(cascade.withheld, [{ path: "posters.tsx", added: true }],
+    "the page importing the withheld component shipped anyway: " + JSON.stringify(cascade.withheld));
+
+  // AND A COMPONENT THE SITE ALREADY HAS BREAKS THE CHAIN, for the same reason
+  // a CHANGED page does: it reverts to what is serving, so the import resolves.
+  const safe = deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source: "import { QrBanner } from '@/routes/-parts/qr-banner'\n<QrBanner/>", added: true }],
+    wroteParts: [{ ...shows[0], added: false }],
+  });
+  assert.deepEqual(safe.withheld, [], "a page importing a component that reverts was withheld for nothing");
+
+  // ⚠ AND A NAME IS MATCHED AT ITS BOUNDARY, never as a prefix: `qr-banner`
+  // and `qr-banner-2` are two components, and an import of the second must not
+  // read as an import of the first.
+  const near = deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source: "import { X } from '@/routes/-parts/qr-banner-2'\n<X/>", added: true }],
+    wroteParts: shows,
+  });
+  assert.deepEqual(near.withheld, [], "a longer component name matched as a prefix of the withheld one");
+
+  // A NON-STRING `source` IS NOT A COMPONENT THAT RENDERS ANYTHING, the same
+  // `String(["a"]) === "a"` trap the page half already pays for.
+  const arr = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [], url: URL_ + "/",
+    wroteParts: [{ name: "qr-banner", source: ["SITE_QRS.gallery"], added: true }] });
+  assert.deepEqual(arr.withheldParts, [], "a non-string source was coerced into a component that renders the code");
+  assert.deepEqual(arr.dropped, [{ name: "gallery", route: "/gallery" }], "the code itself still goes");
+
+  // ⚠ AND THE LEFT EDGE IS A WALL, NOT A NICETY — a sweep survivor, then
+  // MEASURED over four real import shapes. `PART_DIR` is `-parts/`, so without
+  // `(^|["'/])` in front of it a page importing somebody else's
+  // `@/components/my-parts/qr-banner`, or merely LINKING to
+  // `https://x.test/spare-parts/qr-banner`, reads as an import of OUR
+  // `qr-banner` and is withheld for nothing. Measured: both of those ship with
+  // the edge and are withheld without it, while both real spellings of our own
+  // import — the `@/routes/-parts/x` every prompt teaches and the relative
+  // `./-parts/x` TypeScript also resolves — are withheld either way. It is the
+  // trap `partNameOf`'s own comment records (*"a PAGE legitimately called
+  // `my-parts/x.tsx` is not a component"*), met from the importing side.
+  const importer = (source) => deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source, added: true }], wroteParts: shows,
+  }).withheld.length;
+  assert.equal(importer("import { QrBanner } from '@/routes/-parts/qr-banner'"), 1, "our own import is not read as one");
+  assert.equal(importer("import { QrBanner } from './-parts/qr-banner'"), 1, "the relative spelling TypeScript resolves is not read as one");
+  assert.equal(importer("import { X } from '@/components/my-parts/qr-banner'"), 0, "another directory's component was read as ours");
+  assert.equal(importer('<a href="https://x.test/spare-parts/qr-banner">parts</a>'), 0, "a link in the page text was read as an import");
+
+  // AND THE FIXED POINT REALLY NEEDS ITS ROUNDS — also a sweep survivor, also
+  // measured rather than argued. The bound is `codes + parts + 1`, and a
+  // THREE-link chain is what separates it from a two-pass loop: each link is a
+  // code dying, its component withheld, and the ADDED page importing that
+  // component withheld in turn, which takes a route away and kills the next
+  // code. MEASURED with the loop cut to two passes: `c` survives its missing
+  // page, `pc` publishes rendering a code that does not exist, and
+  // `leaflet.tsx` ships importing a file nothing will write.
+  const link = (n, r) => ({ name: n, points: URL_ + r, label: n });
+  const draws = (n, c) => ({ name: n, source: "<img src={SITE_QRS." + c + ".src}/>", added: true });
+  const uses = (p, n) => ({ path: p, source: "import { X } from '@/routes/-parts/" + n + "'\n<X/>", added: true });
+  const deep = deadQrs({
+    qr: [link("a", "/gallery"), link("b", "/posters"), link("c", "/flyer")],
+    prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wroteParts: [draws("pa", "a"), draws("pb", "b"), draws("pc", "c")],
+    wrote: [uses("posters.tsx", "pa"), uses("flyer.tsx", "pb"), uses("leaflet.tsx", "pc")],
+  });
+  assert.deepEqual(deep.dropped.map((d) => d.name).sort(), ["a", "b", "c"],
+    "the third code survived its missing page: " + JSON.stringify(deep.dropped));
+  assert.deepEqual(deep.withheldParts.map((w) => w.name).sort(), ["pa", "pb", "pc"], JSON.stringify(deep.withheldParts));
+  assert.deepEqual(deep.withheld.map((w) => w.path).sort(), ["flyer.tsx", "leaflet.tsx", "posters.tsx"],
+    "the cascade stopped before the third link: " + JSON.stringify(deep.withheld));
 });
 
 test("deadQrNote says the two outcomes apart, and says nothing when there is nothing to say", () => {

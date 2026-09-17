@@ -159,7 +159,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -23452,7 +23452,7 @@ async function handleRequest(request, env, ctx) {
             // the code it belongs to is four hundred lines below a refusal that
             // composes the coverage, and a refusal there throws `ReferenceError`
             // that no source scan and no `node --check` can see.
-            let aDeadQr = { dropped: [], withheld: [] };
+            let aDeadQr = { dropped: [], withheld: [], withheldParts: [] };
             // …AND THE PAGES THE PROMPT WINDOW COULD NOT CARRY (2026-09-17).
             // Declared here for the reason above it: `aCoverage` reads it, and
             // this route's first possible call to that closure is a refusal
@@ -23703,6 +23703,10 @@ async function handleRequest(request, env, ctx) {
                 // twice.
                 droppedQrs: aDeadQr.dropped.length ? aDeadQr.dropped.slice(0, 6) : undefined,
                 heldPages: aDeadQr.withheld.length ? aDeadQr.withheld.map((w) => w.path).slice(0, 6) : undefined,
+                // …AND THE COMPONENTS, ON THEIR OWN FIELD FOR THE SAME REASON.
+                // A component has no route, so folding it into `heldPages`
+                // would put a name where every reader expects a path.
+                heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,
                 // THE DEVELOPER'S COPY OF THE TWO NEW FINDINGS. `seedSkips`
                 // carries the engine's own sentences, which name the rule the
                 // customer's clause deliberately leaves out; `noPopulation` is
@@ -24653,7 +24657,17 @@ async function handleRequest(request, env, ctx) {
                 // `aSkipped` is that exact list, so the directive asks for an
                 // empty src precisely when the next rung is the one being
                 // promised.
-                images: { buy: 0, shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes("photo") },
+                // ⚠ AND THE INVENTORY IS PAGES *AND* COMPONENTS (2026-09-17).
+                // This was `shownPhotos(aSrc, …)` — pages only — and since the
+                // band split a section IS a component, so a site whose hero
+                // photograph lives in `-parts/` was described to every page
+                // writer as having none. MEASURED through this route: 0
+                // against 1 on the same site. `photoInventory` is the one
+                // reader of "every file a photograph can be in", and it
+                // answers `null` when the component store could not be read,
+                // so an incomplete inventory claims nothing either way rather
+                // than becoming "every picture on it is a placeholder".
+                images: { buy: 0, shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug), place: aSkipped.includes("photo") },
                 // THE SITE'S OWN COMPONENTS, WITH THEIR REAL SOURCE. Until
                 // today the writer was shown `tsx` — the DECLARATIONS — under
                 // a heading telling it to write them, so a page importing a
@@ -24716,24 +24730,6 @@ async function handleRequest(request, env, ctx) {
             // the one file an addon most often writes was the one file nothing
             // swept. A token stored there publishes as a literal
             // `src="@@IMG:…@@"` and the page draws its alt text.
-            // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
-            //
-            // `countImageSlots` counts `@@IMG:` TOKENS, and this step's own
-            // directive forbids tokens — so on the addon path it has always
-            // answered 0 and `photoNote` has never once fired. Its own comment
-            // is the reason that matters: *"a NEW page that wants one publishes
-            // with a placeholder and said nothing about it. The customer is
-            // left looking at an empty frame with no way to know it is theirs
-            // to fill."* Written for the build path, and the path that ADDS
-            // pages is the one it never reached.
-            //
-            // THE TWO READERS ARE DISJOINT HERE, which is why adding them
-            // cannot double-count: this runs BEFORE the sweep below, so a token
-            // is still `src="@@IMG:…@@"` — counted by the first reader and NOT
-            // empty to the second. After the sweep the same token becomes
-            // `src=""`; counting there would be one frame reported twice.
-            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts))
-              + newEmptySlots(aSrc, imageSources(aValid.pages, aValid.parts));
             aValid.pages = applyImages(aValid.pages, {});
             aValid.parts = applyImages(aValid.parts, {});
             // AND LINTED. `validatePages` checks the SHAPE — a path, a Route
@@ -24930,6 +24926,15 @@ async function handleRequest(request, env, ctx) {
             // Nothing breaks, because what ships is a version that already
             // shipped — the binding is never deleted from a live page, it is
             // never introduced.
+            // ⚠ AND A COMPONENT IS A GENERATED FILE TOO (2026-09-17). This
+            // passed pages only, and MEASURED through the route: a change
+            // whose COMPONENT rendered the code published `ok: true` with
+            // `SITE_QRS.gallery` in `parts.json` and the code gone from the
+            // look — a binding to something that does not exist, in a file the
+            // next compile includes. `aValid.parts` is what the writer
+            // returned, and `aPartsRead.parts` is what the site already has,
+            // which is the only thing that can say whether withholding one
+            // means reverting it or never writing it.
             aDeadQr = deadQrs({
               qr: aMerged.qr, prior: aLook.qr, missing: aGone, url: aUrl,
               // THE PAGES THIS CHANGE WROTE, each carrying whether it is new,
@@ -24937,14 +24942,46 @@ async function handleRequest(request, env, ctx) {
               // disappears and takes its route with it, a changed one reverts.
               wrote: (aMerge.pages || []).filter((p) => p && aFilesOut.includes(p.path))
                 .map((p) => ({ path: p.path, source: p.source, added: (aMerge.added || []).includes(p.path) })),
+              // …AND THE COMPONENTS, on the same rule. `added` is decided
+              // against the snapshot the whole request was built from — never
+              // a second read — so "this component already exists" means the
+              // same thing here as it does at the wall below.
+              wroteParts: (Array.isArray(aValid.parts) ? aValid.parts : []).map((p) => ({
+                name: p && p.name, source: p && p.source,
+                added: !(aPartsRead.ok && (aPartsRead.parts || []).some((s) => s && String(s.name).toLowerCase() === String(p && p.name).toLowerCase())),
+              })),
             });
             if (aDeadQr.dropped.length) {
-              aMark("qr", "dropped", { dropped: aDeadQr.dropped.length, withheld: aDeadQr.withheld.length, missing: aGone.length });
+              aMark("qr", "dropped", { dropped: aDeadQr.dropped.length, withheld: aDeadQr.withheld.length, parts: aDeadQr.withheldParts.length, missing: aGone.length });
               aMerged.qr = aDeadQr.qr;
               // AND THE TWO ANSWERS FOLLOW IT. Re-asked rather than patched:
               // dropping the only field this change moved makes the whole
               // look store a no-op, and `moved` has to stop claiming it.
               aReadLook();
+            }
+            // AND A WITHHELD COMPONENT LEAVES THE RETURNED LIST HERE, above
+            // everything that reads it. Filtering at the merge instead would
+            // leave the wall, the reply and the trace each reading a different
+            // idea of what this change wrote, which is how two lists of one
+            // thing come apart — and this repository has that recorded.
+            //
+            // THE MERGE THEN DOES THE REST BY ITSELF: `mergeParts` replaces by
+            // name and keeps everything else, so a component taken off this
+            // list simply keeps the source the site is already serving, and
+            // one this change invented is never written at all.
+            if (aDeadQr.withheldParts.length) {
+              // ⚠ AND THE MATCH NEEDS NO FOLDING — both sides are the SAME
+              // `p.name`. `withheldParts` is built from `wroteParts`, which is
+              // built from this very list, so a case difference cannot arise
+              // here at all. A first cut lower-cased both sides; a sweep could
+              // not kill it, MEASURED over seven shapes it changed no answer,
+              // and the PAIR mutant could not kill it either. Dead by
+              // construction, so it is gone and this sentence is what it said.
+              // `String((p && p.name) || "")` STAYS: an entry with no name is a
+              // real shape and the coercion is what stops it throwing.
+              const aHoldParts = new Set(aDeadQr.withheldParts.map((w) => String(w.name)));
+              aValid.parts = (Array.isArray(aValid.parts) ? aValid.parts : [])
+                .filter((p) => !aHoldParts.has(String((p && p.name) || "")));
             }
             if (aDeadQr.withheld.length) {
               // RE-MERGED, NEVER PATCHED. Taking the withheld files out of what
@@ -24991,6 +25028,7 @@ async function handleRequest(request, env, ctx) {
                   ok: false, error: "qr-dependency", cost: 0,
                   droppedQrs: aDeadQr.dropped.slice(0, 6),
                   heldPages: aDeadQr.withheld.map((w) => w.path).slice(0, 6),
+                  heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,
                   msg: deadQrNote(aDeadQr).trim(),
                 }, { status: 422 });
               }
@@ -25105,6 +25143,67 @@ async function handleRequest(request, env, ctx) {
             const aParts = (aFreshParts.length && aPartsRead.ok)
               ? mergeParts(aPartsRead.parts, aFreshParts)
               : null;
+            // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
+            //
+            // `countImageSlots` counts `@@IMG:` TOKENS, and this step's own
+            // directive forbids tokens — so on the addon path it answered 0 on
+            // every obedient run and `photoNote` never once fired. Its own
+            // comment is the reason that matters: *"a NEW page that wants one
+            // publishes with a placeholder and said nothing about it. The
+            // customer is left looking at an empty frame with no way to know it
+            // is theirs to fill."* Written for the build path, and the path
+            // that ADDS pages is the one it never reached.
+            //
+            // ⚠ IT IS COMPUTED HERE, FROM WHAT SURVIVES, AND BOTH HALVES OF
+            // THAT ARE CORRECTIONS (owner, 2026-09-17: *"Calculate newly added
+            // frames from what actually survives the merge, matching files
+            // consistently."*). It used to run above the sweep over
+            // `aValid.pages` — what the writer RETURNED — with `aSrc` as the
+            // before. Two things were wrong and each was measured:
+            //
+            //   · THE BEFORE WAS PAGES ONLY. `newEmptySlots` keys per file, so
+            //     a component the site already has had no before at all and an
+            //     UNCHANGED one carrying one empty frame was reported as one
+            //     newly added frame. Measured: 1 against 0 on the same site.
+            //   · THE AFTER WAS THE ANSWER, NOT THE PUBLICATION. A page the QR
+            //     dependency withheld, or one the merge boundary refused, was
+            //     still counted — frames on files nobody will be served.
+            //
+            // ONE READER NOW, NOT A SUM. After `applyImages` a token IS an
+            // empty `src=""`, so the same reader counts a frame written as
+            // asked and a token written against the ban; adding the old token
+            // count here would report one frame twice. What it stops counting
+            // is a token in an element with no `alt` — and that is right, not a
+            // loss: the picture rung identifies a slot BY its alt text, so
+            // promising one is the same mistake as the missing `src` this
+            // round already fixed. `lintPages` reports that shape separately.
+            //
+            // AND AN UNREADABLE COMPONENT STORE TAKES COMPONENTS OFF BOTH
+            // SIDES, never one. Nothing is written to `parts.json` while
+            // `aPartsRead.ok` is false, so a symmetric omission is the exact
+            // truth about what this change did; dropping them from the BEFORE
+            // alone is the defect above, wearing the other hat.
+            //
+            // ⚠ AND THAT SYMMETRY NEEDS NO FLAG — `readSiteParts` answers
+            // `parts: []` on EVERY `ok: false`, so both sides are already empty
+            // when nobody could look. A first cut carried an `aPicParts` ternary
+            // saying so; a sweep could not kill it, MEASURED through this route
+            // over seven shapes it changed no answer, and the PAIR mutant could
+            // not kill it either — there is no input on which it differs. Dead
+            // by construction, so it is gone and this sentence is what it said.
+            // `test/addon-route` drives the unreadable store and asserts 0.
+            //
+            // `|| aPartsRead.parts` IS NOT that, and stays: it is what makes the
+            // AFTER *the whole site as this change leaves it* rather than *what
+            // the model handed back*. It is numerically inert only because
+            // `newEmptySlots` walks the AFTER alone — a property of another
+            // module, asserted in `test/site-picture` for this line's sake — so
+            // the day removals count, this stops being documentation and starts
+            // being a wall.
+            const aSlots = newEmptySlots(
+              imageSources(aSrc, aPartsRead.parts),
+              imageSources(aMerge.pages, aParts || aPartsRead.parts),
+            );
             // ── THE ADD STEP'S OWN REPAIR ROUND, handed to the spine's seam ──
             //
             // (owner, 2026-09-04: "try to fix it, if not fix, send as it is",

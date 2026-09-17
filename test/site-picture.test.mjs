@@ -579,4 +579,23 @@ test("newEmptySlots counts the frames a change added, and only those", () => {
 
   // JUNK IS 0, never a throw: this rides a reply the customer reads.
   assert.equal(newEmptySlots(null, undefined), 0, "a junk argument was not 0");
+
+  // ⚠ AND IT WALKS THE AFTER ALONE — asserted here because a line in the ADDON
+  // ROUTE rests on it (2026-09-17). That route hands this
+  // `imageSources(aMerge.pages, aParts || aPartsRead.parts)`, and the `||` is
+  // what makes the AFTER *the whole site as this change leaves it* rather than
+  // *what the model handed back*. Today the two are numerically identical
+  // BECAUSE of this property: a file present in the BEFORE and absent from the
+  // AFTER contributes nothing, exactly as an unchanged one contributes
+  // `count - count`.
+  //
+  // MEASURED through the route over seven shapes, byte-identical either way —
+  // so that line has no observable mutant, and a sweep reads it as a survivor
+  // for ever. This is its reader instead: the day removals start counting, the
+  // route's `||` stops being inert and goes from documentation to a wall, and
+  // whoever moves this line finds out here rather than in a customer's reply.
+  assert.equal(newEmptySlots([PG("src/routes/gallery.tsx", EMPTY("a"), EMPTY("b"))], []), 0,
+    "a file that left the AFTER was counted, so the addon route's `|| aPartsRead.parts` is no longer inert");
+  assert.equal(newEmptySlots([PG("src/routes/gallery.tsx", EMPTY("a"))], [PG("src/routes/index.tsx", FULL("c"))]), 0,
+    "a file absent from the AFTER contributed, so the addon route's AFTER expression now changes the answer");
 });

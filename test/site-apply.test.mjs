@@ -1518,22 +1518,55 @@ test("a photo slot nobody can fill is said out loud", async () => {
   assert.equal(countImageSlots(null), 0);
 
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // COUNTED BEFORE THE SWEEP, or there is nothing left to count — `applyImages`
-  // removes every token, which is the whole point of it.
+  // A TOKEN COUNT IS TAKEN BEFORE THE SWEEP, or there is nothing left to count
+  // — `applyImages` removes every token, which is the whole point of it.
   //
   // ANCHORED ON THE ASSIGNMENT, NEVER ON ITS ARGUMENT LIST (re-anchored
-  // 2026-09-12). This spelled `countImageSlots(aValid.pages)` and went red when
+  // 2026-09-12). This spelled `countImageSlots(pValid.pages)` and went red when
   // the count started reading the site's PARTS as well — reporting the count as
   // gone from a route that still makes it. The property here is the ORDER; what
   // the count is made over is a different property, and `test/image-parts` owns
   // it. Both anchors are asserted, because `indexOf` answering -1 is less than
   // anything and would pass this silently.
-  for (const [c, a] of [["const aSlots = countImageSlots(", "aValid.pages = applyImages"],
-                        ["const pSlots = countImageSlots(", "pValid.pages = applyImages"]]) {
+  //
+  // ⚠ AND THE EDIT PATH IS THE ONLY ONE LEFT ON IT — RE-ANCHORED 2026-09-17,
+  // because the ADDON path's property MOVED rather than broke. It counted
+  // tokens too, on a step whose own directive FORBIDS a token, so it answered
+  // zero on every obedient run and `photoNote` never once fired there. The
+  // addon half is asserted below on what it became; this loop is now about the
+  // one rung that really is a token counter.
+  for (const [c, a] of [["const pSlots = countImageSlots(", "pValid.pages = applyImages"]]) {
     assert.ok(w.indexOf(c) > 0, "no slot count before " + a);
     assert.ok(w.indexOf(a) > 0, "no sweep after " + c + " — rescope this guard");
     assert.ok(w.indexOf(c) < w.indexOf(a), "the count runs after the sweep, so it is always zero");
   }
+
+  // ── AND THE ADDON'S HALF, WHICH IS THE OPPOSITE ORDER FOR THE OPPOSITE
+  // REASON (2026-09-17) ──
+  //
+  // It counts EMPTY FRAMES, from what survives the merge, so it must run AFTER
+  // the sweep: a token written against the ban becomes `src=""` there, and the
+  // same reader then sees it. Three properties, each its own assertion, and
+  // each one the shape of a real defect this round fixed:
+  //
+  //   · it runs after the sweep, or a swept token is invisible to it;
+  //   · it reads `aMerge.pages` — what will be PUBLISHED — and never
+  //     `aValid.pages`, the answer, which still holds pages the QR dependency
+  //     withheld and the merge boundary refused;
+  //   · both sides are `imageSources`, so a component the site already has has
+  //     a BEFORE and an unchanged one reads as no new frame at all.
+  const aAt = w.indexOf("const aSlots = newEmptySlots(");
+  assert.ok(aAt > 0, "the addon's empty-frame count is gone");
+  const sweepAt = w.indexOf("aValid.pages = applyImages");
+  assert.ok(sweepAt > 0, "the addon sweep is gone — rescope this guard");
+  assert.ok(sweepAt < aAt, "the addon counts frames before the sweep, where a token is not yet one");
+  const mergeAt = w.indexOf("aMerge = mergeAddonPages(");
+  assert.ok(mergeAt > 0 && mergeAt < aAt, "the addon counts frames before the merge decides what publishes");
+  const call = w.slice(aAt, w.indexOf(");", aAt));
+  assert.match(call, /imageSources\(aSrc,/, "the BEFORE is pages only, so a component's own frames read as new");
+  assert.match(call, /imageSources\(aMerge\.pages,/, "the AFTER is the model's answer, not what really publishes");
+  assert.doesNotMatch(call, /aValid\.pages/, "the addon counts frames on pages the publish may never carry");
+
   assert.match(w, /photos: aSlots/, "the addon answer never carries it");
   assert.match(w, /photos: pSlots/, "the page edit never carries it");
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");

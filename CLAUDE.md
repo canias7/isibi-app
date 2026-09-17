@@ -8212,6 +8212,193 @@ worktree; never subtract from a number in a paragraph.**
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK** — the owner's
 instruction for this round.
 
+**CI HAS READ IT: `unit tests` run 2668 green — `# tests 6788 / # pass 6784 /
+# fail 0 / # skipped 4`**, against local `6788 / 6788 / 0 / 0`; the four are the
+three recorded environment skips plus `site-searchpath`'s baseline-commit case.
+And **`site build` run 1171 (10:15:41→10:39:56Z), ALL TWENTY STEPS GREEN:
+`site-build.mjs` 382 passed / 0 failed** in 17m31s — the FIFTEENTH independent
+run to answer 382, read out of the job's own log with every count bounded
+landmark-to-landmark (`##[group]Run …` to the next), **0 result lines before the
+first marker**. Beside it: kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47, and kit-render / kit-a11y /
+kit-effects / kit-paint each `all passed` with no count — the three result SHAPES
+the census has to ask for. **The unit step's TAP is `# pass 396 / # fail 0`**,
+and the arithmetic closes one layer down: 393 at run 1163 + 1 (`page-gen`
+249 → 250, the large-site round) + 2 (250 → 252, this one).
+
+### …AND A COMPONENT IS A GENERATED FILE TOO, IN BOTH READERS (2026-09-17)
+
+Owner: *"The latest tip still reproduces both outstanding defects… Include
+existing pages and custom components in the relevant readers. Calculate newly
+added frames from what actually survives the merge, matching files consistently.
+Do not turn an incomplete photo inventory into a claim that every image is a
+placeholder."*
+
+**THREE OF THE FOUR REPRODUCED AND ONE DID NOT, and saying which is the first
+finding.** Every shape was driven through `POST /api/site/<slug>/addon` before
+anything was touched:
+
+| shape | measured at the tip |
+|---|---|
+| a QR binding in a **custom component** | **REPRODUCES** — `ok: true`, `heldPages` absent, `SITE_QRS.gallery` stored in `parts.json`: a dead build, published |
+| a QR binding in an **added page** | already correct — 422 `qr-dependency`, `heldPages ["posters.tsx"]` |
+| **large-site page identity** | **does NOT reproduce** — `keep ["/target","/"]` shows `["index.tsx","target.tsx"]` and withholds `middle.tsx`; the route answers `unseenPages ["middle.tsx"]`, `changed ["target.tsx"]` |
+| a photograph in a component / an unchanged component's frame | **BOTH REPRODUCE** — see below |
+
+**The identity fix landed in the previous round and the guards for it are the
+LIFECYCLE case and the `keep` case; what the report describes is the state
+before it.** Recorded rather than silently re-fixed: re-fixing working code is
+how a guard ends up asserting the defect as correct, which this file has twice.
+
+**1. THE QR WITHHOLDING READ `wrote` — THE PAGES — AND A COMPONENT IS NOT A
+PAGE.** Since the band split a section IS a component: `src/routes/-parts/<n>.tsx`,
+travelling in its own list. So the fix shipped one file kind short, and the
+answer is the same one: a component this change **rewrote** goes back to the
+source the site is already serving, one it **invented** is not written at all.
+
+- **`deadQrs` TAKES `wroteParts` AND ANSWERS `withheldParts`**, and
+  `qrUnplaced` is still the ONE reader of "does this source show that code" —
+  asked one source at a time against the WHOLE code list, because its legacy
+  `SITE_QR` arm keys on a code's INDEX. It reads `source` and nothing else,
+  which is exactly why a component can be asked a page's question.
+- **THE CASCADE CROSSES THE TWO LISTS.** An **added** component that is
+  withheld is a file that will not exist, so every page this change wrote that
+  **imports** it goes with it — publishing the importer without the module is
+  `vite` refusing the build. A **changed** component breaks no importer.
+  MEASURED end to end: `heldParts ["qr-banner"]` + `heldPages ["posters.tsx"]`,
+  and with nothing left, the 422 at cost 0.
+- **`PART_DIR` IS THE ONE DEFINITION** of where a component lives — the same
+  constant `partNameOf` reads — so there is no second spelling of the import
+  path here. The leading `(^|["'/])` is what keeps a PAGE called
+  `my-parts/x.tsx` from reading as an import of `x`, and the trailing
+  `(?![\w-])` keeps `qr-banner-2` from matching `qr-banner`: both are the trap
+  that guard already records, met on the other side.
+- **THE WITHHELD COMPONENT LEAVES `aValid.parts` AT THE ROUTE, above everything
+  that reads it** — the wall, the reply, the merge and the trace each reading a
+  different idea of what this change wrote is how two lists of one thing come
+  apart. `mergeParts` then does the rest by itself.
+- **`heldParts` IS ITS OWN FIELD**, because a component has no route and folding
+  it into `heldPages` puts a name where every reader expects a path. Its
+  sentence is its own too: *"I haven't written the qr-banner section — it was
+  there to show that code"*, since *"I've left it as it was"* is false of
+  something that never existed.
+
+**2. THE PHOTO INVENTORY WAS PAGES ONLY, AND IT SAID SO AS A FACT ABOUT THE
+SITE.** A photograph inside an existing component produced *"This site shows no
+real photographs yet; every picture on it is a placeholder."* MEASURED at the
+module: `shownPhotos(pages, "fw")` → **0** against
+`shownPhotos(imageSources(pages, parts), "fw")` → **1**, on the same site;
+through the route, the two sentences swap.
+
+- **`photoInventory(pages, parts, partsKnown)` IS THE SIXTH STEP ASKING
+  `imageSources`**, not a sixth copy of the union. That function's own comment
+  records why it exists: five steps each read `pages` and a band-split build's
+  photographs were never planned, bought, counted, swept or linted.
+- **AN INCOMPLETE INVENTORY IS `null`, NEVER A SHORTER LIST** — the owner's own
+  instruction, and the whole reason this is a function rather than a call site.
+  `readSiteParts` answers `{ok, parts, why}` precisely because a read that
+  FAILED is not a site with no components; hand the failure through as `[]` and
+  the answer becomes *"every picture on it is a placeholder"* about a site whose
+  pictures we could not see. `null` reaches `shownPhotos` as `known: false` and
+  the directive says **"Leave every picture already on this site exactly as it
+  is"** — cannot-tell as a third answer, in the one input that decides what a
+  model believes about the site it is editing.
+
+**3. THE FRAME COUNT NOW READS WHAT SURVIVES THE MERGE, AND BOTH HALVES OF THAT
+ARE THE OWNER'S CORRECTION.** It ran above the sweep over `aValid.pages` — what
+the writer RETURNED — with `aSrc` as the before. Two things were wrong and each
+was measured: **the BEFORE was pages only**, so a component the site already has
+had no before at all and an UNCHANGED one carrying one empty frame reported one
+newly added frame (**1 against 0**, through the route); and **the AFTER was the
+answer, not the publication**, so a page the QR dependency withheld or the merge
+boundary refused was still counted.
+
+- **ONE READER NOW, NOT A SUM.** After `applyImages` a token IS an empty
+  `src=""`, so the same reader counts a frame written as asked and a token
+  written against the ban; adding the old `countImageSlots` here would report
+  one frame twice. What it stops counting is a token in an element with no
+  `alt` — right, not a loss: the picture rung finds a slot BY its alt text, so
+  promising that one is the missing-`src` mistake wearing another hat, and
+  `lintPages` reports it separately.
+- **AN UNREADABLE COMPONENT STORE TAKES COMPONENTS OFF BOTH SIDES**, never one.
+  Nothing is written to `parts.json` while `aPartsRead.ok` is false, so a
+  symmetric omission is the exact truth about what this change did; dropping
+  them from the BEFORE alone is defect 3 wearing the other hat.
+- **MEASURED through the route**: an unchanged component returned byte-identical
+  is **0**, and the control — the same component gaining a second frame — is
+  **1**, where before the fix they read 1 and 2.
+
+**⚠ AND COMBINED PAGE + PHOTOGRAPH IS STILL INCOMPLETE** (the owner's own
+words): *"it still skips photo and publishes a placeholder. The current work
+prepares a later request; it does not fulfil both parts in one request."* What
+this round and the last one bought is that the placeholder is now a slot the
+picture rung can really fill and the customer is told it is there. The
+hand-off remains a hand-off.
+
+**Guards**: `addon-route` **91 → 96** (the component that shows the dead code,
+with its cascade and the 422; **a component the site ALREADY HAS reverting while
+its importer still ships**; the photograph inside a component with the
+unreadable-store control; the unchanged component's frame with its control),
+`site-add` **42 → 43** (`deadQrs`' parts half driven directly — the reference,
+its control, the two `added` markings, the cross-list cascade, the chain break,
+the name boundary, the non-string source, **the four import shapes** and **a
+three-link chain**), `site-images` **72 → 73** (`photoInventory` three ways, plus
+the assertion that it IS `imageSources` and not a second definition), and
+`site-picture` **53** with the AFTER-only property asserted for the route's
+sake. **Every new case was proved RED against the pre-change product**, one file
+at a time — and the `site-images` one goes red at IMPORT, which is honest: the
+pre-change module has no such export.
+
+**Sweep: 29 mutants, 29 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-parts-and-frames.json`, over
+`worker.js`, `builder/site-add.mjs` and `builder/site-images.mjs`, against 12
+test files). **Three passes, and pass 1 read 31/25/6 with NOT ONE SURVIVOR THE
+PRODUCT'S**: three were guard gaps and three were measured inert.
+
+- **THE THREE GAPS WERE ALL REAL WALLS NOBODY DROVE**, each settled by
+  measurement rather than reading: the import test's LEFT EDGE (over four real
+  shapes — `@/components/my-parts/qr-banner` and a `/spare-parts/` link ship
+  with it and are withheld without it, while both spellings of our own import
+  are withheld either way); the fixed point's ROUND BOUND (a three-link chain —
+  with the loop cut to two passes, `c` survives its missing page, `pc` publishes
+  a dead binding and `leaflet.tsx` ships importing a file nothing will write);
+  and the route's `added` LOOKUP, which no module case can see because they hand
+  that flag in by hand.
+- **⚠ AND THE OTHER THREE HAD NO OBSERVABLE FORM AT ALL — the PAIR mutants
+  SURVIVED TOO, which is a stronger finding than "a redundant pair".** This
+  file's rule is *measure both versions, then mutate the PAIR, which must die*.
+  Mine did not. Measured over seven route shapes, `aPicParts` and the
+  withheld-name `toLowerCase()` changed no answer in ANY form — single or
+  paired — because each is **dead by construction**: `readSiteParts` answers
+  `parts: []` on every `ok: false`, so the flag's two branches are the same
+  list; and `withheldParts` is built from the very list the filter walks, so a
+  case difference cannot arise. Both are GONE, and the sentences they stood for
+  are in the code where they were.
+- **THE THIRD IS NOT THAT, AND THE DIFFERENCE IS THE RULE.**
+  `aParts || aPartsRead.parts` is inert only because `newEmptySlots` walks the
+  AFTER alone — a property of ANOTHER MODULE, not of this expression — so it is
+  kept, declared, and given a reader in `test/site-picture`: the day removals
+  count, it stops being documentation and starts being a wall. *Dead by
+  construction goes; dead only given a neighbour's behaviour stays and is
+  guarded where that behaviour lives.*
+
+**One older guard re-anchored, not appeased, and the property MOVED rather than
+broke.** `site-apply`'s *"a photo slot nobody can fill is said out loud"* looped
+over `aSlots` and `pSlots` asserting *"counted BEFORE the sweep, or there is
+nothing left to count"*. That is true of a TOKEN counter and false of a FRAME
+counter, so the loop is the EDIT path's alone now — the one rung that really
+counts tokens — and the addon half is asserted on what it became, as three
+separate properties: it runs AFTER the sweep, it reads `aMerge.pages` and never
+`aValid.pages`, and both sides are `imageSources`. **Strictly stronger than the
+line it replaces, and red against the pre-change product for the right reason**
+(*"the addon's empty-frame count is gone"*).
+
+**Suite 6,795** — 6,788 + 5 + 1 + 1, and the arithmetic closes exactly against
+**baselines re-measured in a detached worktree at `0cc8104d`** (`addon-route`
+91, `site-add` 42, `site-images` 72, `site-apply` 87, `site-picture` 53) rather
+than subtracted from a paragraph. `site-apply` and `site-picture` stay where
+they were: both gained assertions inside cases that already existed.
+
 
 ## Data, auth, payments, mail
 

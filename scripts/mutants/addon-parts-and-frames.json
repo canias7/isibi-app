@@ -1,0 +1,252 @@
+[
+  {
+    "label": "CONTROL: a comment only, above photoInventory",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": " * EVERY FILE A PHOTOGRAPH CAN BE IN — or `null` when part of it is unreadable",
+    "to": " * EVERY FILE A PHOTOGRAPH CAN BE IN (control) — or `null` when unreadable",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment only, inside deadQrs",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  // THE COMPONENTS THIS CHANGE WROTE, same rule and same reason. A component",
+    "to": "  // THE COMPONENTS THIS CHANGE WROTE (control). A component",
+    "control": true
+  },
+  {
+    "label": "the reported defect: a component that renders a dropped code is published anyway",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (heldParts.has(p.name) || !renders(p).some((n) => dead.has(n))) continue;",
+    "to": "      if (true) continue;"
+  },
+  {
+    "label": "every component this change wrote is withheld, whatever it renders",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (heldParts.has(p.name) || !renders(p).some((n) => dead.has(n))) continue;",
+    "to": "      if (heldParts.has(p.name)) continue;"
+  },
+  {
+    "label": "the withheld components never reach the caller",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  return { qr: codes.filter((c) => !dead.has(c.name)), dropped, withheld, withheldParts };",
+    "to": "  return { qr: codes.filter((c) => !dead.has(c.name)), dropped, withheld, withheldParts: [] };"
+  },
+  {
+    "label": "a component the site already has is marked as one this change invented",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const entry = { name: p.name, added: p.added === true };",
+    "to": "      const entry = { name: p.name, added: true };"
+  },
+  {
+    "label": "an INVENTED component is marked as one the site already has, so no importer follows it",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const entry = { name: p.name, added: p.added === true };",
+    "to": "      const entry = { name: p.name, added: false };"
+  },
+  {
+    "label": "the cascade stops at the component: a page importing a file that will not exist ships",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (entry.added) goneParts.add(p.name);",
+    "to": "      if (false) goneParts.add(p.name);"
+  },
+  {
+    "label": "a page is withheld for importing a component that merely REVERTS",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (entry.added) goneParts.add(p.name);",
+    "to": "      goneParts.add(p.name);"
+  },
+  {
+    "label": "the import test is dropped, so only a page RENDERING the code is withheld",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const needs = [...goneParts].some((n) => importsPart(p.source, n));",
+    "to": "      const needs = false;"
+  },
+  {
+    "label": "the import test loses its boundary, so qr-banner-2 reads as qr-banner",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    new RegExp(\"(^|[\\\"'/])\" + esc(PART_DIR) + esc(name) + \"(?![\\\\w-])\").test(String(src || \"\"));",
+    "to": "    new RegExp(esc(PART_DIR) + esc(name)).test(String(src || \"\"));"
+  },
+  {
+    "label": "the import test loses its left edge, so a PAGE called my-parts/x reads as an import",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    new RegExp(\"(^|[\\\"'/])\" + esc(PART_DIR) + esc(name) + \"(?![\\\\w-])\").test(String(src || \"\"));",
+    "to": "    new RegExp(esc(PART_DIR) + esc(name) + \"(?![\\\\w-])\").test(String(src || \"\"));"
+  },
+  {
+    "label": "a non-string component source is coerced, so String([\"SITE_QRS.gallery\"]) renders the code",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const parts = (Array.isArray(wroteParts) ? wroteParts : []).filter((p) => p && typeof p.name === \"string\" && p.name && typeof p.source === \"string\");",
+    "to": "  const parts = (Array.isArray(wroteParts) ? wroteParts : []).filter((p) => p && typeof p.name === \"string\" && p.name);"
+  },
+  {
+    "label": "the fixed point loses the components' rounds, so a long chain stops short",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  for (let round = 0; round <= codes.length + parts.length + 1; round++) {",
+    "to": "  for (let round = 0; round <= 1; round++) {"
+  },
+  {
+    "label": "the early return forgets the field, so a caller reads undefined.length",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (!gone.size || !codes.length) return { qr: codes, dropped: [], withheld: [], withheldParts: [] };",
+    "to": "  if (!gone.size || !codes.length) return { qr: codes, dropped: [], withheld: [] };"
+  },
+  {
+    "label": "the note says nothing about a withheld component",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const parts = (Array.isArray(withheldParts) ? withheldParts : []).filter((d) => d && d.name);",
+    "to": "  const parts = [];"
+  },
+  {
+    "label": "a component that never existed is reported as one left alone",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const kp = parts.filter((d) => d.added !== true), np = parts.filter((d) => d.added === true);",
+    "to": "  const kp = parts, np = [];"
+  },
+  {
+    "label": "the route drops the components, so deadQrs cannot see them at all",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              wroteParts: (Array.isArray(aValid.parts) ? aValid.parts : []).map((p) => ({",
+    "to": "              wroteParts: [].map((p) => ({"
+  },
+  {
+    "label": "the route calls every returned component new, so the site's own are never reverted",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                added: !(aPartsRead.ok && (aPartsRead.parts || []).some((s) => s && String(s.name).toLowerCase() === String(p && p.name).toLowerCase())),",
+    "to": "                added: true,"
+  },
+  {
+    "label": "the route calls every returned component existing, so an invented one is never withheld from its importer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                added: !(aPartsRead.ok && (aPartsRead.parts || []).some((s) => s && String(s.name).toLowerCase() === String(p && p.name).toLowerCase())),",
+    "to": "                added: false,"
+  },
+  {
+    "label": "a withheld component is left on the returned list, so it is written after all",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const aHoldParts = new Set(aDeadQr.withheldParts.map((w) => String(w.name)));",
+    "to": "              const aHoldParts = new Set();"
+  },
+  {
+    "label": "the ok reply never names the withheld components",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                // would put a name where every reader expects a path.\n                heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,",
+    "to": "                // would put a name where every reader expects a path.\n                heldParts: undefined,"
+  },
+  {
+    "label": "the reported defect: the photo inventory is the pages alone again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                images: { buy: 0, shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug), place: aSkipped.includes(\"photo\") },",
+    "to": "                images: { buy: 0, shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes(\"photo\") },"
+  },
+  {
+    "label": "an unreadable component store is reported as a site with no photographs",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (!Array.isArray(pages) || !partsKnown) return null;",
+    "to": "  if (!Array.isArray(pages)) return null;"
+  },
+  {
+    "label": "the inventory drops the components, so photoInventory is shownPhotos' old input",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  return imageSources(pages, Array.isArray(parts) ? parts : []);",
+    "to": "  return imageSources(pages, []);"
+  },
+  {
+    "label": "the reported defect: an unchanged component's own frames are counted as new",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              imageSources(aSrc, aPartsRead.parts),",
+    "to": "              aSrc,"
+  },
+  {
+    "label": "the AFTER is the model's answer, so a withheld page's frames are still promised",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              imageSources(aMerge.pages, aParts || aPartsRead.parts),",
+    "to": "              imageSources(aValid.pages, aParts || aPartsRead.parts),"
+  },
+  {
+    "label": "the AFTER drops the components, so a new frame inside one is never said",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              imageSources(aMerge.pages, aParts || aPartsRead.parts),",
+    "to": "              imageSources(aMerge.pages, []),"
+  },
+  {
+    "label": "an unreadable component store drops the components from the BEFORE alone",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              imageSources(aSrc, aPartsRead.parts),",
+    "to": "              imageSources(aSrc, []),"
+  },
+  {
+    "label": "the frame count is not on the wire, so the customer hears nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              photos: aSlots,",
+    "to": "              photos: 0,"
+  },
+  {
+    "label": "the REFUSAL never names the withheld components",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,\n                  msg: deadQrNote(aDeadQr).trim(),",
+    "to": "                  heldParts: undefined,\n                  msg: deadQrNote(aDeadQr).trim(),"
+  }
+]

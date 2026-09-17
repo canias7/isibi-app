@@ -2856,6 +2856,152 @@ test("a page this change never touched is not withheld, however its source reads
   assert.equal(live && live.source, stale.source, "an untouched page's bytes moved");
 });
 
+test("a CUSTOM COMPONENT that shows the dead code is withheld with it, and never reaches the site", async () => {
+  // ⚠ THE DEFECT THE OWNER REPORTED STILL REPRODUCING (2026-09-17). The first
+  // cut of this withholding read `wrote` — the PAGES this change wrote — and a
+  // component is not a page: a site's own components live at
+  // `src/routes/-parts/<name>.tsx` and travel in their own list. So a change
+  // whose QR binding sat in a COMPONENT dropped the code, published the
+  // component, and the site compiled a build referencing `SITE_QRS.gallery`
+  // for a code that does not exist.
+  //
+  // MEASURED through this route before the fix: `ok: true`, `heldPages
+  // undefined`, and the stored `parts.json` carrying `SITE_QRS.gallery.src`
+  // in `qr-banner`. That is a dead build published on purpose.
+  const r = await addon("fw-qr-part", "add a gallery page and a QR banner component with a code that opens it", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", "<p>See the banner.</p>")],
+    writtenParts: [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" }],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/", does: "a QR banner", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, ASSERTED RATHER THAN ASSUMED: the page really did not
+  // survive, so the code really is dead. Without it a run where the writer
+  // returned both pages passes this case with the fix deleted.
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+
+  // THE COMPONENT IS NAMED AND IS NOT WRITTEN. Two readers, because they are
+  // two claims: `heldParts` is what the route SAYS it withheld, and the store
+  // is what the site really holds afterwards.
+  assert.deepEqual(r.body.heldParts, ["qr-banner"], "the component carrying the dead binding was published: " + JSON.stringify(r.body.heldParts));
+  const parts = r.store.store.get("source/fw-qr-part/parts.json");
+  assert.equal(parts, undefined, "a component list was written for a change whose only component was withheld: " + parts);
+
+  // …AND IT NEVER REACHED THE COMPILER EITHER. A route that kept the file on
+  // its list and sent it anyway satisfies every assertion about the reply.
+  const files = (r.compiles[0] && r.compiles[0].body && r.compiles[0].body.files) || {};
+  for (const [path, src] of Object.entries(files)) {
+    assert.doesNotMatch(String(src), /SITE_QRS/, "the compiled site carries a binding for a code that does not exist, in " + path);
+  }
+  assert.deepEqual(Object.keys(files).filter((k) => /-parts\//.test(k)), [], "the withheld component was handed to the compiler: " + JSON.stringify(Object.keys(files)));
+
+  // …AND THE INDEPENDENT HALF STILL SHIPS: the home page never mentioned the
+  // code, so withholding is per FILE here exactly as it is per page.
+  assert.deepEqual(r.body.changed, ["index.tsx"], "the independent half of the change did not ship: " + JSON.stringify(r.body.changed));
+
+  // AND THE SENTENCE IS THE ONE FOR A COMPONENT THIS CHANGE WAS ADDING —
+  // "I've left it as it was" is false of something that never existed.
+  assert.match(r.body.coverNote, /I haven't written the qr-banner section/, r.body.coverNote);
+  assert.match(r.body.coverNote, /it was there to show that code/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I've left the qr-banner section/, "a component that never existed was reported as left alone");
+});
+
+test("a component the SITE ALREADY HAS reverts rather than vanishing, and its importer still ships", async () => {
+  // ⚠ A SWEEP SURVIVOR, AND IT IS THE ROUTE'S WIRING RATHER THAN THE MODULE'S.
+  // `deadQrs` decides `added` from what it is HANDED, and the route is the only
+  // thing that looks the name up in `aPartsRead.parts` — so a mutant marking
+  // every returned component `added: true` lived past every module case, which
+  // hands that flag in by hand.
+  //
+  // It costs two things at once: the customer is told the section was never
+  // written, about one the site keeps serving; and the component joins the
+  // "will not exist" set, so a page importing it is withheld for a file that is
+  // right there.
+  const had = { name: "qr-banner", source: "export function QrBanner(){return <div>Scan</div>}" };
+  const posters = writtenPage("/posters");
+  const uses = {
+    ...posters,
+    source: posters.source
+      .replace("import { createFileRoute", "import { QrBanner } from '@/routes/-parts/qr-banner'\nimport { createFileRoute")
+      .replace("<h1>", "<QrBanner /><h1>"),
+  };
+  const r = await addon("fw-qr-revert", "put the gallery code in the banner and add a posters page", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"], parts: [had],
+    look: { tsx: [{ name: "qr-banner", does: "the banner", props: "none" }] },
+    written: [uses],
+    writtenParts: [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" }],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/posters", name: "Posters", purpose: "print the code", sections: ["a banner"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/posters", does: "a QR banner", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.heldParts, ["qr-banner"], JSON.stringify(r.body.heldParts));
+
+  // THE PAGE THAT IMPORTS IT SHIPS, because the component the site is serving
+  // is still there — the half that is about the publication rather than the
+  // wording, and the one a mutant marking everything `added` breaks.
+  assert.equal(r.body.heldPages, undefined, "a page importing a component that merely reverts was withheld: " + JSON.stringify(r.body.heldPages));
+  assert.ok((r.body.added || []).includes("posters.tsx"), "the importer did not ship: " + JSON.stringify(r.body.added));
+
+  // AND THE SENTENCE IS THE ONE FOR A COMPONENT THAT ALREADY EXISTED.
+  assert.match(r.body.coverNote, /The qr-banner section is unchanged for the same reason/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /haven't written the qr-banner/,
+    "a component the site keeps serving was reported as one that was never written");
+
+  // …AND ITS STORED BYTES ARE THE SITE'S OWN. Read off the store, because the
+  // reply says what the route decided and this says what the site now holds.
+  const stored = JSON.parse(r.store.store.get("source/fw-qr-revert/parts.json") || "null");
+  assert.deepEqual(stored, [had], "the withheld rewrite reached parts.json: " + JSON.stringify(stored));
+});
+
+test("a page that only exists to import the withheld component goes with it", async () => {
+  // THE CASCADE, WHICH IS WHY THE WITHHOLDING IS A FIXED POINT RATHER THAN ONE
+  // PASS. Dropping the code withholds the component that renders it; an added
+  // page that IMPORTS that component then compiles against a file that is not
+  // there, so it has to go too — and here that leaves nothing at all, which is
+  // the refusal.
+  const posters = writtenPage("/posters");
+  const uses = {
+    ...posters,
+    source: posters.source
+      .replace("import { createFileRoute", "import { QrBanner } from '@/routes/-parts/qr-banner'\nimport { createFileRoute")
+      .replace("<h1>", "<QrBanner /><h1>"),
+  };
+  const r = await addon("fw-qr-cascade", "add a gallery page, a posters page and a QR banner", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [uses],
+    writtenParts: [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" }],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/posters", name: "Posters", purpose: "print the code", sections: ["a banner"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/posters", does: "a QR banner", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "qr-dependency", JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0, "a change that published nothing was charged for");
+  // BOTH LISTS, because the cascade is the property: the component went for
+  // showing the code, and the page went for IMPORTING the component. A fix
+  // that stopped at the component leaves `/posters` importing a missing file.
+  assert.deepEqual(r.body.heldParts, ["qr-banner"], JSON.stringify(r.body));
+  assert.deepEqual(r.body.heldPages, ["posters.tsx"], "the page importing the withheld component shipped anyway: " + JSON.stringify(r.body.heldPages));
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
+});
+
 test("a page this change invented to carry the code is not added at all, and says so in its own words", async () => {
   // THE OTHER SHAPE OF THE SAME WITHHOLDING, and it needs its own sentence:
   // "I've left it as it was" is FALSE of a page that has never existed, and a
@@ -3437,6 +3583,97 @@ test("a page added to a site that has photographs is not told the site has none"
   assert.doesNotMatch(flatNone, /already shows/, "a site with none was told it has some");
 });
 
+test("a photograph inside an existing CUSTOM COMPONENT counts, and is not reported as a placeholder", async () => {
+  // ⚠ THE REPORTED BASELINE DEFECT (owner, 2026-09-17): a photograph inside an
+  // existing custom component produced *"This site shows no real photographs
+  // yet; every picture on it is a placeholder."* — which is the opposite of
+  // true, in the sentence that tells the writer what it may not touch.
+  //
+  // THE CAUSE IS THAT THE READER'S INVENTORY WAS PAGES ONLY. A site's own
+  // components live at `src/routes/-parts/<name>.tsx` and travel in their own
+  // list, and `imageSources(pages, parts)` is the one definition of the files
+  // the image steps operate on — so reading `aSrc` alone asks about part of
+  // the site and answers about all of it.
+  //
+  // MEASURED at the module before the fix: `shownPhotos(pages)` 0 against
+  // `shownPhotos(imageSources(pages, parts))` 1, on the same site.
+  const part = { name: "gallery-grid", source: 'export function GalleryGrid(){return <div><SafeImage src="/u/fw-pic/hero.jpg" alt="the workshop" /></div>}' };
+  const r = await addon("fw-pic", "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"],
+    parts: [part], look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+  assert.doesNotMatch(flat, /shows no real photographs yet/,
+    "a site whose component holds a photograph was told every picture on it is a placeholder — the reported defect");
+  assert.match(flat, /already shows 1 real photograph/, "the photograph inside the component was not counted");
+  assert.match(flat, /do not replace one, and do not remove it/,
+    "the photograph was counted and not protected, which is the half a model reads past");
+
+  // ⚠ AND AN UNREADABLE STORE MUST NOT REPORT THE SITE'S OWN FRAMES AS SPACES
+  // THIS CHANGE MADE. That is the customer-facing end of the same symmetry: the
+  // components come off both sides of the frame count or neither, and here
+  // `readSiteParts` answers `parts: []` so both sides are already empty. A
+  // first cut wrote a flag saying so and it was dead by construction — no
+  // single mutant and no PAIR mutant could kill it, measured over seven shapes
+  // — so the flag is gone and this drives the property instead.
+  const held = await addon("fw-pic-blind-frames", "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"], partsFail: true,
+    parts: [{ name: "gallery-grid", source: 'export function G(){return <div><SafeImage src="" alt="a space" /></div>}' }],
+    look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(held.body.photos, 0,
+    "an unreadable component store reported the site's own frames as new spaces: " + held.body.photos);
+
+  // AND AN INCOMPLETE INVENTORY IS NOT A CLAIM THAT EVERY IMAGE IS A
+  // PLACEHOLDER (the owner's own sentence). A component store that could not
+  // be read means nobody looked, so the honest answer is the third one: leave
+  // every picture alone, and claim nothing in either direction.
+  const blind = await addon("fw-pic-blind", "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"], partsFail: true,
+    parts: [part], look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  const flatBlind = pagePrompt(blind).text.replace(/\\n/g, " ");
+  assert.doesNotMatch(flatBlind, /shows no real photographs yet/,
+    "a store we could not read was reported as a site with no photographs — cannot-tell read as a value");
+  assert.match(flatBlind, /Leave every picture already on this site exactly as it is/,
+    "an unreadable component store did not get the third sentence: " + (flatBlind.match(/PHOTOGRAPHS:[^\n]{0,200}/) || [""])[0]);
+});
+
+test("an UNCHANGED component's own empty frame is not a frame this change added", async () => {
+  // ⚠ THE SECOND REPORTED BASELINE DEFECT (owner, 2026-09-17): returning an
+  // unchanged custom component containing one empty frame reported one newly
+  // added frame. `newEmptySlots` keys per FILE, so a component the site
+  // already has had no before at all and every frame in it read as new.
+  //
+  // MEASURED through this route before the fix: `photos: 1` on a change that
+  // returned the component byte-identical.
+  const EMPTY = '<SafeImage src="" alt="a space for a picture" />';
+  const part = (body) => ({ name: "gallery-grid", source: "export function GalleryGrid(){return <div>" + body + "</div>}" });
+  const ask = (slug, back) => addon(slug, "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"],
+    parts: [part(EMPTY)], look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")], writtenParts: [part(back)],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+
+  const same = await ask("fw-frame-same", EMPTY);
+  assert.equal(same.body.ok, true, JSON.stringify(same.body));
+  assert.equal(same.body.photos, 0, "a component returned byte-identical was reported as a newly added empty frame");
+
+  // THE CONTROL, and it is what makes the assertion above about the BEFORE
+  // rather than about components being ignored: the same component gaining a
+  // second frame is one new frame, not two and not none.
+  const grown = await ask("fw-frame-grown", EMPTY + EMPTY);
+  assert.equal(grown.body.photos, 1, "a real new frame inside a component was not counted: " + grown.body.photos);
+});
+
 test("a photograph set aside leaves a slot the picture rung can actually fill", async () => {
   const r = await photoAsk("fw-photo-slot", { kinds: ["page", "photo"], written: [galleryWith("")] });
   const flat = pagePrompt(r).text.replace(/\\n/g, " ");
@@ -3479,9 +3716,16 @@ test("the empty frames a new page really has are counted and said", async () => 
   // has always had, which must survive the half it just gained. The directive
   // forbids `@@IMG:` and a model can write one regardless; `applyImages` then
   // sweeps it to `src=""`, so the frame is real and the customer has to hear
-  // about it. THE TWO COUNTERS ARE DISJOINT BY ORDER: both are taken before
-  // that sweep, where a token is a non-empty src and therefore not an empty
-  // slot — which is what stops one frame being reported twice.
+  // about it.
+  //
+  // RE-ANCHORED 2026-09-17: this assertion used to rest on TWO counters taken
+  // before that sweep, disjoint because a token is a non-empty src there.
+  // There is ONE now, taken AFTER it, and the property is why that is enough
+  // rather than a loss — a swept token IS an empty frame, so the same reader
+  // sees both shapes and nothing can be reported twice. The one thing it
+  // stops counting is a token in an element with no `alt`, which is right:
+  // the picture rung finds a slot BY its alt text, so promising that one is
+  // the missing-`src` mistake wearing another hat. `lintPages` reports it.
   const tok = await photoAsk("fw-photo-token", {
     kinds: ["page", "photo"],
     written: [galleryWith('<SafeImage src="@@IMG:a refret on the bench@@" alt="a refret" />')],

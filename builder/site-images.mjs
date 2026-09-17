@@ -272,6 +272,39 @@ export function shownPhotos(pages, slug) {
 }
 
 /**
+ * EVERY FILE A PHOTOGRAPH CAN BE IN — or `null` when part of it is unreadable
+ * (2026-09-17).
+ *
+ * ⚠ THE READER ABOVE WAS HANDED PAGES ONLY, AND A SITE'S PICTURES ARE NOT ALL
+ * ON ITS PAGES. Since the band split a section is a COMPONENT, so a site whose
+ * hero photograph lives in `-parts/gallery-grid.tsx` answered
+ * `{known: true, count: 0}` and every page writer was told *"This site shows no
+ * real photographs yet; every picture on it is a placeholder."* MEASURED:
+ * `shownPhotos(pages, "fw")` → 0 against `shownPhotos(imageSources(pages,
+ * parts), "fw")` → 1 on the same site.
+ *
+ * `imageSources` IS THE ONE DEFINITION OF "the files the image steps operate
+ * on", and its own comment records why it exists: five steps each read `pages`
+ * and a band-split build's photographs were never planned, bought, counted,
+ * swept or linted. This is the sixth step asking it rather than a sixth copy
+ * of the union.
+ *
+ * AND AN INCOMPLETE INVENTORY IS `null`, NEVER A SHORTER LIST — which is the
+ * whole reason this is a function and not a call site. `readSiteParts` answers
+ * `{ok, parts, why}` precisely because a read that FAILED is not a site with no
+ * components; hand the failure through as `[]` and the answer becomes *"every
+ * picture on it is a placeholder"* about a site whose pictures we could not
+ * see. `null` reaches `shownPhotos` as `known: false`, and the directive then
+ * says nothing either way. The recorded "cannot-tell must never read as a
+ * value", in the one input that decides what a model believes about the site it
+ * is editing.
+ */
+export function photoInventory(pages, parts, partsKnown) {
+  if (!Array.isArray(pages) || !partsKnown) return null;
+  return imageSources(pages, Array.isArray(parts) ? parts : []);
+}
+
+/**
  * What a build may spend on pictures, once it is known whether this is the first.
  *
  * ONE PLACE, so the two cases cannot drift: a first build gets the family's

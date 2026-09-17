@@ -12534,3 +12534,106 @@ and three were more interesting:
 
 **Nothing merged, nothing deployed, nothing paid.** Next is the combined page +
 photo work you paused this for.
+
+---
+
+## 2026-09-17 — a component is a file too, in both readers
+
+You said both defects still reproduce. **Three of the four shapes did and one
+did not**, and I ran every one of them through the real request before touching
+anything, because "still reproduces" and "reproduces in a shape the fix never
+covered" need different work.
+
+### What each shape actually did
+
+| what I asked for | what happened at the current code |
+|---|---|
+| a QR code shown inside a **custom section** | **broken** — published, code deleted, the section still referencing it. A site that would not build. |
+| a QR code shown inside a **new page** | already correct — refused, nothing published |
+| **large sites: change /target** | **could not reproduce** — /target is shown, /middle is the one held back, and you are told so |
+| a **photo inside a custom section** | **broken** — "this site shows no real photographs yet" |
+| an **unchanged section with an empty frame** | **broken** — reported as one new frame |
+
+The large-site one was fixed in the round you were reading; what your report
+describes is how it behaved before that. I have written that down rather than
+"fixing" it again — re-fixing working code is how a test ends up certifying the
+bug, and that has happened here twice.
+
+### 1. The QR fix was one file kind short
+
+Your sites are built out of **sections** now, each one its own file. The fix I
+shipped looked at pages and not at sections, so a QR code shown in a section
+slipped straight through: code deleted, section published, site broken.
+
+Same answer as before, extended: a section that already existed goes back to the
+version you are already serving, a section this change was inventing is simply
+not written, and **any new page that uses a section we just withheld goes with
+it** — publishing a page that imports a file that does not exist is the build
+failing outright. If that leaves nothing at all to publish, the whole thing is
+refused and costs nothing.
+
+You get told about it in the section's own words: *"I haven't written the
+qr-banner section — it was there to show that code."* Not "I left it as it was",
+which is untrue of something that never existed.
+
+### 2. "This site has no photographs" was counting only your pages
+
+Exactly as you found it. A photograph living inside a section was invisible to
+the count, so the model writing your page was told every picture on the site is
+a placeholder — which is the one sentence that could make it feel free to
+replace one you paid for.
+
+It counts sections now. And the part I want to flag, because it is your
+instruction and it is easy to get wrong: **when we cannot read your sections at
+all, the answer is neither number.** Not "no photographs". The model is simply
+told to leave every picture exactly as it is and nothing is claimed either way.
+
+### 3. "One new empty frame" was counting frames that were already there
+
+Two separate mistakes, both measured. The "before" picture was pages only, so a
+section that already existed had no before at all and every frame in it read as
+new — which is why returning a section **unchanged** reported one new frame. And
+the "after" was what the model handed back rather than what really gets
+published, so a page we withheld could still have its frames promised to you.
+
+Now: before and after both cover pages and sections, and the after is what the
+publish really carries. An unchanged section reports **0**; the same section
+gaining a real second frame reports **1**.
+
+### Combined page + photo is still incomplete, as you said
+
+It still sets the photograph aside and publishes a placeholder. What these two
+rounds bought is that the placeholder is now a slot the photo step can actually
+fill, and you are told the frame is there. One request still does not do both
+parts.
+
+**Checks**: 6,795 tests green, up 7. Every new test was run against the old code
+first and every one failed there. One older test was re-anchored — its rule was
+"count before the sweep", which is right for the edit path and is the opposite of
+right for this one, so it now covers the edit path alone and the addon half is
+tested on what it became.
+
+**And the deliberate-sabotage run came back clean: 29 out of 29 caught** — but
+the first pass is the part worth reading. Six sabotages survived it and **not one
+was a real hole in the fixes**. Three were walls nothing had ever pushed on, and
+all three are real:
+
+- a page that imports somebody *else's* section from a similarly-named folder
+  would have had its change withheld for nothing;
+- a long chain — code → section → page → next code → next section → next page —
+  stopped one link short, publishing a section showing a code that no longer
+  exists;
+- and the route's own "does this site already have this section" lookup, which
+  no other test could see, because every one of them answers that question by
+  hand.
+
+The other three are the interesting ones. **They could not be broken at all** —
+not by one change, not by two — which normally means a test is missing and here
+means the code does nothing. Two of them were checks whose condition can never
+be false, so they are gone, with the sentence they stood for left where they
+were. The third does nothing *today* only because another piece of the code
+happens to work a certain way, so it stays, and that other piece now has a test
+saying so — the day it changes, this one starts mattering and somebody finds out
+from a red run rather than from a customer.
+
+**Nothing merged, nothing deployed, nothing paid, and no edit-path work.**

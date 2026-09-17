@@ -125,6 +125,12 @@ import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
 // kind ADDS one beside the others and refuses only a duplicate.
 import { qrList, qrName, qrUnplaced, readQrText, MAX_QRS } from "./site-qr-list.mjs";
+// WHERE A COMPONENT LIVES, AS ONE DEFINITION (2026-09-17). `deadQrs` has to
+// answer "does this page import that component", and `PART_DIR` is the single
+// place this repository says what a component's path looks like — the same
+// constant `partNameOf` reads, whose own guard records the `my-parts/x.tsx`
+// trap a bare substring test falls into.
+import { PART_DIR } from "./site-files.mjs";
 // THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
@@ -2799,24 +2805,43 @@ export function missingPagesNote(routes) {
  * shipped before — the binding is never deleted from a live page, it is simply
  * never introduced. The customer hears both halves and can ask again.
  *
+ * ⚠ AND A CUSTOM COMPONENT IS A GENERATED FILE TOO (2026-09-17, measured
+ * through the route). The first cut of this looked only at `aMerge.pages`, so
+ * a change whose COMPONENT rendered the code published `ok: true` with
+ * `SITE_QRS.gallery` stored in `parts.json` and the code gone from the look —
+ * a binding to something that does not exist, in a file the next compile
+ * includes. Reproduced: `droppedQrs` named the code, `heldPages` was absent,
+ * and `storedParts` carried the reference. The same defect one file kind over,
+ * and the same answer: a component this change rewrote goes back to the source
+ * the site is already serving, one it INVENTED is not written at all.
+ *
  * IT IS A FIXED POINT, NOT A PASS, and that is not decoration: withholding an
  * ADDED page takes its route away, which can kill a second code pointing at
  * it, which can withhold a third page. `MAX_QRS` is 6, so a chain that long is
  * constructible rather than hypothetical. The loop settles when a round drops
  * nothing new, and it terminates because every round that continues adds to a
- * set bounded by the codes and the pages.
+ * set bounded by the codes, the pages and the components.
+ *
+ * AND THE COMPONENTS EXTEND THAT CHAIN RATHER THAN SITTING BESIDE IT. A
+ * component this change INVENTED and then withheld is a file that will not
+ * exist, so every page this change wrote that IMPORTS it is withheld too —
+ * publishing the importer without the module is `vite` refusing the build,
+ * which is this repository's own most expensive measured class. A component it
+ * merely CHANGED breaks no importer: the version that ships is the one the
+ * site is already serving.
  *
  * `qrUnplaced` IS THE ONE READER OF "does a page show this code" — its own
  * binding regex, already written, already guarded — so this asks it and
  * inverts the answer rather than owning a second copy of that correspondence.
  * It is asked ONE PAGE AT A TIME against the WHOLE code list, because its
  * legacy `SITE_QR` arm keys on a code's INDEX: handing it a one-element list
- * would make every code look like the first.
+ * would make every code look like the first. It reads `source` and nothing
+ * else, which is why a component can be asked the same question as a page.
  */
-export function deadQrs({ qr, prior, missing, wrote, url } = {}) {
+export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
   const codes = qrList(qr);
   const gone = new Set((Array.isArray(missing) ? missing : []).map(route).filter(Boolean));
-  if (!gone.size || !codes.length) return { qr: codes, dropped: [], withheld: [] };
+  if (!gone.size || !codes.length) return { qr: codes, dropped: [], withheld: [], withheldParts: [] };
   const base = siteAddress(url);
   const had = new Set(qrList(prior).map((c) => c.name));
   // WHICH ROUTE OF OURS THIS CODE OPENS, or "" for anything else. The exact
@@ -2847,15 +2872,27 @@ export function deadQrs({ qr, prior, missing, wrote, url } = {}) {
   // touch cannot render a code the change just invented — it would not have
   // compiled — and it is not ours to withhold in any case.
   const written = (Array.isArray(wrote) ? wrote : []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string");
+  // THE COMPONENTS THIS CHANGE WROTE, same rule and same reason. A component
+  // the change did not touch cannot render a code the change just invented.
+  const parts = (Array.isArray(wroteParts) ? wroteParts : []).filter((p) => p && typeof p.name === "string" && p.name && typeof p.source === "string");
   // WHICH CODES A GIVEN PAGE RENDERS: `qrUnplaced` inverted, per page, against
   // the whole list so its index-keyed legacy arm still means what it means.
   const renders = (p) => {
     const off = new Set(qrUnplaced(codes, [p]));
     return codes.map((c) => c.name).filter((n) => n && !off.has(n));
   };
-  const dead = new Set(), held = new Map();
-  const dropped = [], withheld = [];
-  for (let round = 0; round <= codes.length + 1; round++) {
+  // DOES THIS SOURCE IMPORT THAT COMPONENT. `PART_DIR` is the one definition
+  // of where a component lives, and the leading `(^|["'/])` is what keeps a
+  // PAGE called `my-parts/x.tsx` from reading as an import of `x` — the trap
+  // `partNameOf`'s own guard records. It matches both spellings that reach a
+  // compiler: the `@/routes/-parts/x` every prompt teaches, and the relative
+  // `./-parts/x` TypeScript also resolves.
+  const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const importsPart = (src, name) =>
+    new RegExp("(^|[\"'/])" + esc(PART_DIR) + esc(name) + "(?![\\w-])").test(String(src || ""));
+  const dead = new Set(), held = new Map(), heldParts = new Map(), goneParts = new Set();
+  const dropped = [], withheld = [], withheldParts = [];
+  for (let round = 0; round <= codes.length + parts.length + 1; round++) {
     let moved = false;
     for (const c of codes) {
       if (dead.has(c.name)) continue;
@@ -2863,8 +2900,21 @@ export function deadQrs({ qr, prior, missing, wrote, url } = {}) {
       if (!r || !gone.has(r)) continue;
       dead.add(c.name); dropped.push({ name: c.name, route: r }); moved = true;
     }
+    // THE COMPONENTS FIRST, so a page withheld for importing one is decided in
+    // the same round rather than the next — a nicety for the bound, and the
+    // fixed point is the same either way.
+    for (const p of parts) {
+      if (heldParts.has(p.name) || !renders(p).some((n) => dead.has(n))) continue;
+      const entry = { name: p.name, added: p.added === true };
+      heldParts.set(p.name, entry); withheldParts.push(entry); moved = true;
+      // AND ONE THIS CHANGE INVENTED TAKES ITS MODULE WITH IT: nothing may
+      // import a file that will not be written.
+      if (entry.added) goneParts.add(p.name);
+    }
     for (const p of written) {
-      if (held.has(p.path) || !renders(p).some((n) => dead.has(n))) continue;
+      const shows = renders(p).some((n) => dead.has(n));
+      const needs = [...goneParts].some((n) => importsPart(p.source, n));
+      if (held.has(p.path) || !(shows || needs)) continue;
       const entry = { path: p.path, added: p.added === true };
       held.set(p.path, entry); withheld.push(entry); moved = true;
       // AND A PAGE THIS CHANGE INVENTED TAKES ITS ROUTE WITH IT — that is what
@@ -2875,7 +2925,7 @@ export function deadQrs({ qr, prior, missing, wrote, url } = {}) {
     }
     if (!moved) break;
   }
-  return { qr: codes.filter((c) => !dead.has(c.name)), dropped, withheld };
+  return { qr: codes.filter((c) => !dead.has(c.name)), dropped, withheld, withheldParts };
 }
 
 /**
@@ -2893,12 +2943,17 @@ export function deadQrs({ qr, prior, missing, wrote, url } = {}) {
  *
  * AND THE SECOND SENTENCE NAMES ROUTES, not file names: `/` is what they see
  * in the address bar, `index.tsx` is ours.
+ *
+ * A COMPONENT GETS ITS OWN SENTENCE, because it has no route to name and
+ * "I left / as it was" is not true of it. The customer asked for a section, so
+ * the section is what they hear about.
  */
-export function deadQrNote({ dropped = [], withheld = [] } = {}) {
+export function deadQrNote({ dropped = [], withheld = [], withheldParts = [] } = {}) {
   const out = [];
   const names = (l) => l.slice(0, 3).map((d) => d && d.name).filter(Boolean).join(", ");
   const drop = (Array.isArray(dropped) ? dropped : []).filter((d) => d && d.name);
   const held = (Array.isArray(withheld) ? withheld : []).filter((d) => d && d.path);
+  const parts = (Array.isArray(withheldParts) ? withheldParts : []).filter((d) => d && d.name);
   if (drop.length) {
     out.push("I didn't add the QR code" + (drop.length === 1 ? " " : "s ") + names(drop) +
       " — " + (drop.length === 1 ? "it was" : "they were") + " going to open that page, and a code that opens nothing " +
@@ -2919,6 +2974,18 @@ export function deadQrNote({ dropped = [], withheld = [] } = {}) {
     out.push("I haven't added " + where(never) + " either — " + (never.length === 1 ? "it was" : "they were") +
       " there to show that code, so on " + (never.length === 1 ? "its" : "their") + " own " +
       (never.length === 1 ? "it" : "they") + " would have been a page pointing at nothing.");
+  }
+  // AND THE SAME TWO OUTCOMES FOR A COMPONENT, in its own words. It has no
+  // route, so it is named as the customer named it, and the two are kept apart
+  // for the same reason: "left as it was" is false of one that never existed.
+  const kp = parts.filter((d) => d.added !== true), np = parts.filter((d) => d.added === true);
+  if (kp.length) {
+    out.push("The " + names(kp) + " section" + (kp.length === 1 ? " is" : "s are") +
+      " unchanged for the same reason — showing that code was the change.");
+  }
+  if (np.length) {
+    out.push("And I haven't written the " + names(np) + " section" + (np.length === 1 ? "" : "s") +
+      " — " + (np.length === 1 ? "it was" : "they were") + " there to show that code.");
   }
   return out.join(" ");
 }
