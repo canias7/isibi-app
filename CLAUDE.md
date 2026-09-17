@@ -8778,6 +8778,28 @@ ask); the unbought-token guard (the property was never *neither lane buys*, it i
 that an unbought token never publishes); and four bill lines whose tail is now
 open because a picture is a non-spread `{images: n}` term.
 
+**Sweep: 40 mutants, 40 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-page-photo-buys.json`, over
+`worker.js`, `builder/site-add.mjs` and `public/chat.js`, against 9 test files).
+**Pass 1 read 39/30/9 and NOT ONE SURVIVOR WAS THE PRODUCT'S**: seven were gaps
+in this change's own guards and two were measured INERT. The seven are the three
+vacuous cases above plus four walls nobody drove — the photo tool's cap read as
+its own number rather than the platform's, the purchase reading the answer rather
+than the publication, the stored components handed in for the sweep, and the job
+branch's reserve dropped from the reply's cost (which no route guard can see, so
+it is closed as a CENSUS in `addon-queue`).
+**⚠ AND THE TWO INERT ONES HAVE THE SAME CAUSE: `photo` IS THE ONLY KIND WITH A
+LAYER AND A TOOL, so `addLayerIn`'s membership test and `PLACING_ADDS`' `shape`
+filter cannot separate from the conditions beside them — 81 probes (every kind
+against nine company shapes), ZERO differences either way.** They are answered
+differently on purpose. The first is made DRIVABLE — `addLayerIn(kind, kinds,
+placing = PLACING_ADDS)` takes the group as a PARAMETER, the `cleanTools(v,
+catalog)` precedent, so a two-kind world exists to ask it in and the guard drives
+every member both ways; *a wall nobody can drive is a wall nobody is guarding*,
+and the answer is to build the world rather than to declare the wall. The second
+has nowhere to stand, so it is DECLARED in the code with its pair named (the
+load-time partition below it) and given an observable replacement mutant.
+
 **Suite 6,813** — 6,802 + 10 (`addon-route` 101 → 111) + 1 (`site-add` 44 → 45),
 and the arithmetic closes exactly. **Both sides measured**, the baselines in a
 detached worktree at `0f873e2c` rather than subtracted from a paragraph —

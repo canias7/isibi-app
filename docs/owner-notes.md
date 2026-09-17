@@ -12835,6 +12835,12 @@ pretend world with two kinds in it). The other I couldn't, so I've written into
 the code why it's there and why nothing can see it — otherwise the next person
 along deletes a line that looks like it does nothing.
 
+**With all nine closed, the sweep ran again from scratch and came back clean:
+forty deliberate breakages, forty caught, and the two decoys — harmless comment
+changes that must survive, the sweep's own check on its honesty — both survived.**
+That second run is the number worth having; the first one only told me where my
+tests were thin.
+
 Suite 6,813, all green.
 
 **Nothing merged, nothing deployed, nothing paid. No real photograph has been
