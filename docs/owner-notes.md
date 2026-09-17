@@ -12084,3 +12084,56 @@ the site — and here it matters for the same reason as last time: the site draw
 button, so the site goes LAST or somebody can press a button nothing is listening to.
 
 **Still no model, still your call, still last.**
+
+---
+
+## 2026-09-17 — a question that times out, a tool you can take away, and a Stop button
+
+Four things that were all missing, and they only look like one thing from a distance:
+
+**A question nobody answers now times out.** An approval request has a day to be answered.
+After that the agent is told nobody answered in time, it says so, and the run finishes — it
+does not sit there for ever waiting. And somebody coming back the next morning cannot
+approve it late: the window closed, so it has to be asked again.
+
+**The distinction that took the most care: "untick" and "take away" are different things,
+and now you have both.**
+
+* **Unticking a tool** in the settings form changes what the agent's NEXT run is allowed to
+  do. A run already going keeps what it started with, deliberately — a run that loses a tool
+  half way through is a run whose plan no longer works.
+* **Taking a tool away** is the opposite: it says *stop doing this now*, and it reaches a run
+  already in progress, before its next action. Anything waiting for your approval on that
+  tool is taken back at the same time, so you cannot be asked to approve a call that is no
+  longer allowed to happen.
+
+You can put it back, and putting it back does not re-open the requests it took away — those
+were answered, and the agent asks again if it still wants the call.
+
+**And a Stop button for a run.** It releases the work, clears any wait, takes back anything
+that was waiting for you, and tells you how far it got. **It does not claim to undo
+anything**, because it cannot: a tool call that already happened has already happened, and
+saying otherwise would be the most expensive kind of wrong. Stopping it twice tells you what
+really happened rather than writing a second ending.
+
+**⚠ Two things were genuinely broken and only running it found them.** In both cases a run
+was left saying "working" for ever with nothing anybody could do about it — because a run
+waiting for a person has nothing on the queue to deliver, and only a decision puts it back.
+So when nobody decided, nothing did; and when a revocation answered the request instead of a
+person, nothing did either. Both are fixed, and the agent engine now has a job on its
+one-minute timer whose whole purpose is that no run can be left in that state.
+
+**A third thing was wrong in a way that hid itself.** A cancelled run correctly read as
+stopped — and carried nothing saying WHY, because the record was written in a shape the
+projection does not read. It is the same shape every other stop uses now.
+
+**No screen for any of it yet, on purpose.** You said the frontend is fine as it is, so the
+backend went first. The routes are there and tested; the buttons are a design job and yours
+to direct. There is a list in the tests naming exactly which routes have no screen, so it
+cannot be quietly forgotten.
+
+**Nothing is merged, nothing is deployed, and the database change is written but not
+applied.** The order when it goes is the usual one — database, then the engine, then the
+site.
+
+**Still no model, still your call, still last.**

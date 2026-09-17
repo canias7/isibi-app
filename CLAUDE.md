@@ -2154,6 +2154,68 @@ page scope; nothing is merged or deployed.
   **migration → engine → site**, because a form that saves a step no executor can run is
   a control that ANSWERS, wrongly.
 
+- **A TOOL'S PERMISSION CAN BE TAKEN AWAY AND A RUN CAN BE STOPPED (2026-09-17).**
+  Owner: *"approval expiry, explicit revocation, cancellation… Keep accepted runs'
+  recorded configuration stable, but define explicit permission revocation
+  separately and enforce it before subsequent actions… Don't claim completed
+  effects were undone."* **The engine half — the window, the two revocation kinds,
+  the cancellation and the cron's fourth job — is in `agent-builder/CLAUDE.md`**;
+  what belongs here is the site builder's.
+  **FIVE MORE `/api/agent/*` ROUTES, 27 in all, AND `worker.js` NEEDED NO CHANGE
+  AGAIN** — the block dispatches on `Object.hasOwn(AGENT_ROUTES, url.pathname)` and
+  already hands every handler `query`, `body`, `tenant: user.id`, `store`, `ring`
+  and `log`, so `tool-withdraw`, `tool-revoke`, `tool-restore`, `revoked-tools` and
+  `run-cancel` are five entries on one object. That is the gate-once design paying
+  for itself a fourth time.
+  **⚠ TAKING A TOOL AWAY IS NOT THE SETTINGS TICK, and conflating them is the
+  mistake these routes exist to avoid.** Unticking changes what the agent's NEXT
+  run is accepted with and deliberately does not reach a run already going — a run
+  that loses a tool half way through is a run whose plan no longer works. A
+  revocation says *stop doing this now*, and the engine reads it again on every
+  delivery. So a customer has both, and which one they want is a real choice
+  rather than a duplicate.
+  **WITHDRAWING A REQUEST IS ITS OWN ROUTE AND NOT A THIRD VERDICT.** Taking a
+  request back is not deciding it and the model is told a different thing, so the
+  two cannot share a door — a screen sending the wrong field would turn a
+  withdrawal into a rejection somebody never made. **AND A CALL THAT HAS ALREADY
+  RUN CANNOT BE TAKEN BACK**: a database cannot recall a tool call, so that is its
+  own 409 with its own sentence rather than "that isn't waiting any more", which
+  would imply it did not happen.
+  **THE TOOL NAME IS CHECKED AGAINST `AGENT_TOOLS`, NOT ONLY AGAINST THE
+  GRAMMAR** — the platform's own catalog, in code — because a revocation of a name
+  no tool has is a row that can never do anything and would sit on a screen looking
+  like a withdrawn permission.
+  **⚠ AND EVERY RUN A REVOCATION ANSWERED IS RUNG.** `revoke_agent_tool` withdraws
+  the requests still waiting for that tool and puts their runs back inside its own
+  transaction — but a SQL function cannot ring a Cloudflare queue, so without the
+  doorbell the run waits for the next cron tick. A failed ring is said
+  (`notified`) and never raised: the work is durable either way.
+  **A CANCELLATION SAYS WHAT HAD ALREADY COMPLETED AND NEVER THAT IT WAS UNDONE.**
+  The counts come from the function and the sentence is asserted in both
+  directions — *don't claim completed effects were undone* is the one thing this
+  feature must get right.
+  **THERE IS NO SCREEN FOR ANY OF THE FIVE YET, AND THAT IS DECLARED RATHER THAN
+  DISGUISED.** The standing instruction is that the frontend is fine as it is, so
+  the backend landed first; `test/agent-builder-view.test.mjs` gained a
+  `NO_SCREEN_YET` list kept SEPARATE from `SERVER_ONLY`, because they are separate
+  facts — a person is exactly who takes a tool away or stops a run, so calling
+  these server-only would record a design decision nobody made. Every name on it
+  must be a real route AND must not already be called, so it shrinks when the
+  screen arrives. **No mutant guards that list and the reasoning is in the guard**:
+  a mutation of a test file nothing outside `scripts/mutants/` reads is inert by
+  construction, and there is no observable half to mutate instead.
+  **Guards**: `agent-api` 42 → **49** (the ten site sweep survivors closed where a
+  mutant can see them, each with its control), three censuses re-anchored by FIELDS
+  of the thing being acted on rather than by an exemption (`tool`, checked against
+  the catalog, and `reason`, a person's own words), and
+  `scripts/mutants/agent-controls.json` (13 entries, 2 controls).
+  **MEASURED: site suite 6,792 → 6,799, 0 failed, 2 skipped** — run with `npm
+  test`, never with `--test-timeout=20000`, which cuts `css-reachable` off at 20 s
+  and reads four cases short.
+  **NOT APPLIED, NOT DEPLOYED, NOT MERGED.** The migration is prepared in
+  `agent-builder/supabase/migrations/`, and when it goes the order is the recorded
+  one — **migration → engine → site** — because the migration adds the column the
+  engine writes and the functions these routes call.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose
