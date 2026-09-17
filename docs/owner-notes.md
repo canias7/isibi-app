@@ -229,6 +229,17 @@ strands a run instead of duplicating one.
 - **Main merged into the branch**, as you asked — nine commits, all of it the
   agent-builder work. **Nothing it touches overlaps this fix**; the only shared
   files are the two documents.
+- **CI has read the merged result, both workflows, green.** The unit suite ran on
+  GitHub's own machine and answered **6,749 tests, 0 failed** — the same total I
+  measured here. And the container harness ran too (it does when scheduler code
+  moves): **all twenty steps green**, the big one **382 checks passed, 0 failed**
+  in 14m19s, with the six smaller ones beside it at their usual numbers.
+- **Two things in that log are worth a word, because both look worse than they
+  are.** Two lines are stamped as errors — they are the harness deliberately
+  compiling a page with a type error to prove the site still ships, each followed
+  immediately by the check that says so. And four of the twenty steps print "all
+  passed" instead of a number, so a count of the numbers alone finds seven
+  results for twenty steps; I read all three shapes rather than the one.
 
 ### The correction you asked for: it will not wait until 23:00
 

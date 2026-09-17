@@ -7448,6 +7448,46 @@ rather than glossed: `render-sandbox`'s *"THE DROP IS PROVEN BY A REFUSED
 WRITE"*, which is about writing outside the repository root and is the recorded
 environment case. The TOTAL is what carries across.
 
+**CI HAS READ BOTH, ON THE MERGED TIP `91fec70a`.** `unit tests` run **2655**,
+green (2026-09-17 03:49:22→03:51:22Z) — `# tests 6749 / # pass 6745 / # fail 0 /
+# skipped 4`, against local `6749 / 6749 / 0 / 0`; the four are the three
+recorded environment skips plus `site-searchpath`'s baseline-commit case, and
+**the TOTAL is what matches**. Run **2656** is green on the docs-only tip
+`6c55bc57`, and that push started **no** `site build` — `paths` covers neither
+document, which is the filter behaving. And `site build` run **1163**
+(03:49:17→04:08:47Z, job `105068654802`) green, **all twenty steps**:
+`site-build.mjs` **382 passed / 0 failed** in **14m19s** (03:50:56→04:05:15Z),
+with kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47 beside it. **It fired because `site-jobs.mjs`
+is in that workflow's `paths`** — the change moves product code the container
+carries. **1163 joins the `382` scan list.**
+
+- **⚠ AND THE `##[group]` BOUNDING DOES ATTACH — the run-1152 note said it does
+  not, and what was wrong was WHERE the window is drawn.** GitHub wraps only a
+  step's COMMAND ECHO in the group; the step's OUTPUT follows after
+  `##[endgroup]`, so reading *inside* the groups finds **zero** counts and reads
+  as "this log format has no groups". The honest window is landmark to
+  landmark — one `##[group]Run …` marker to the NEXT one — which is this file's
+  own windowing rule, met on a log instead of on source. Measured: 31 markers,
+  7 counts, every one inside the window of the step that produced it, **0 before
+  the first marker**. So attribution is bounded here rather than read in step
+  order, which is what 1152 had to settle for.
+- **AND FOUR OF THE TWENTY STEPS PRINT NO `N passed` LINE AT ALL** — `kit-render`,
+  `kit-a11y`, `kit-effects` and `kit-paint` end in **`all passed`**, and the unit
+  step in this job (`page-gen` + `publish-pages`) prints TAP (`# pass 390 /
+  # fail 0 / # skipped 0`). **A census that counts only `N passed` lines finds
+  seven and silently reports four steps as having no result** — the recorded
+  "a negative assertion must prove its observer is alive", in the reader for it.
+  Ask for all three forms, or say which steps the number does not cover.
+- **The two `##[error]` lines in the log are the harness's own fixtures**, both
+  inside the `site-build.mjs` window: `[build-service] typecheck failed,
+  shipping anyway`, each followed immediately by its own `ok` line (*"A TYPE
+  ERROR NO LONGER STOPS THE SITE"*, *"a site with one bad page still reports the
+  type error"*). GitHub's renderer stamps any line containing `error TS…`; the
+  step is 382/0 and the job is green. **A red-looking line in a green job is
+  worth naming rather than glossing** — it is the recorded "the typecheck
+  REPORTS; only `vite build` refuses", visible in CI.
+
 **NOT MERGED TO MAIN AND NOT DEPLOYED** — the owner's instruction for this round,
 as for the last four. No paid call was made and no demo site was touched.
 
@@ -7981,9 +8021,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   all twenty steps, `site-build.mjs` **382 passed / 0 failed**, with
   kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
   site-routing 14, site-runtime 47 beside it — the TWELFTH independent run to
-  answer 382. **The per-step `##[group]` bounding did not attach on this log
-  format**, so the seven counts are read in step order and match the recorded
-  six; that is weaker attribution than bounded and is said rather than glossed).
+  answer 382. **That reading said the per-step `##[group]` bounding "did not
+  attach on this log format" and settled for step order; run 1163 FALSIFIED
+  that** — the bounding attaches, the window just has to be drawn marker to
+  marker rather than inside the group, because GitHub wraps only the command
+  echo. See the DST section for the measurement; 1152's counts are unchanged and
+  only their attribution was weaker than it needed to be.)
   Before it, **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
   sessions stamped a suite and neither number was the merged one**, which is
   this file's own "a number stamped in two places drifts when only one is
