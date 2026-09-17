@@ -3686,3 +3686,206 @@ and Approve / Don't. Approving what you were not shown is the one mistake here t
 be taken back, so the whole argument object is drawn and a row whose arguments cannot be
 read says so rather than drawing an empty box. The textarea stays enabled, and the loser of
 a race is told whose answer stands rather than being shown their own.
+
+---
+
+## Milestone 5: an operation's identity is its position AND its arguments (2026-09-17)
+
+**THE MILESTONE'S WORDING IS *"make actions safe across retries and interruptions —
+stable operation identities bound to arguments; explicit unresolved state"*, and what
+it bought was FOUR MEASURED DEFECTS, every one reproduced before it was fixed.** Three
+were in the resume path and one was in the SQL underneath it. None was found by reading.
+
+### THE IDENTITY: `<run>:<step>:<index>:<the arguments' own hash>`
+
+`ctx.operation`, and **each half answers a different question.**
+
+- **THE POSITION SAYS *one slot is one operation*.** It is the same on every redelivery
+  of one call, which is what lets a tool ask the database for the row it already made
+  rather than making a second one.
+- **THE ARGUMENTS SAY *a different call is never the same operation*.** Without them a
+  slot re-filled with some other request inherits its predecessor's identity — and for
+  `run_automation` that is a genuinely different ask coming back "already running" about
+  work nobody wanted.
+- **AND KEYING ON THE ARGUMENTS IS A WALL RATHER THAN A FIX FOR SOMETHING BROKEN TODAY,
+  which is said rather than glossed.** The position alone is sufficient right now only
+  because the model entry is written BEFORE the dispatch and `replay` reads the arguments
+  back out of it — a property of the loop, not of identity. *A rule true because of a
+  layer below it expires when that layer moves*, and the layer here is one retry policy
+  away.
+- **`operationKey` ANSWERS `null` FOR ARGUMENTS THAT CANNOT BE WRITTEN DOWN**, and the
+  two call sites do different things with it: the live dispatch REFUSES the call and
+  tells the model (the same wall shape as "no such tool", for the same reason — it is a
+  model's output, so it must come back as a readable tool result), and a resume hands
+  `null` through so every tool needing an identity refuses BY NAME rather than minting
+  one. Nothing but the encoder's own `TypeError` is caught.
+
+### Defect 1 — A RESUMED CALL RAN WITH ANOTHER CALL'S ARGUMENTS
+
+The arguments were looked up LATER, by the call's `id` — and a model is not obliged to
+give one. `modelEntry` stores `id: c.id ?? null`, so with two ids null a `.find` answered
+the FIRST call's arguments for both. **MEASURED: two writes in one batch, the model naming
+no ids, the store dying before the results were written — and on the resume `forget` ran
+with `remember`'s arguments.** The agent forgot the fact it had just been told to keep,
+and the name it was asked to forget was never touched.
+
+**For a GATED call the wall failed closed instead, which is worse than it sounds**: the
+decision is read at the right position with the wrong arguments, so `matches` is false and
+it reads `stale` — a call a person really approved refused for ever.
+
+**THE FIX KILLS THE CLASS RATHER THAN THE INSTANCE.** `replay`'s pending slot carries
+`args`, taken off `calls[index]` at the moment the slot is made, beside the name and the
+id it already took from there. `findArgs` is deleted: there is no later pairing left to
+get wrong. `args: undefined` stays a real answer — a tool that takes none.
+
+### Defect 2 — THE ARGUMENT HASH DID NOT SURVIVE BEING WRITTEN DOWN
+
+`{id: "a-7", note: undefined}` and the same object after a journal round trip hashed
+DIFFERENTLY: JSON drops an `undefined` property and rewrites an `undefined` array element
+as `null`. The live path hashes the model's own object and a resume hashes what came back
+out of the store, so an approval on such a call was asked about one hash and re-read at
+another — `matches` false, `stale`, and the call refused for ever. **The two objects PRINT
+identically, because JSON is what prints them**, which is why this was invisible to
+reading.
+
+**`storedForm` IS JSON'S OWN NORMALISATION, DONE BY JSON, ONCE, IN FRONT OF EVERY HASH.**
+Nothing that survives storage is collapsed: `1` and `"1"` still differ, and so do `null`
+and `"null"` and `[]` and `{}`. What is collapsed is only what storage collapses anyway —
+and **preserving a distinction the store cannot keep does not prevent a collision, it
+manufactures one.** A value JSON cannot write at all RAISES.
+
+**ONE CASE WAS RE-ANCHORED, NOT APPEASED.** `⚠ THE SAME CALL HASHES THE SAME WAY` demanded
+`{a: undefined}` and `{}` hash apart, on the reasoning that JSON collapsing them is a
+collision. That reasoning is wrong in one direction and the case now asserts the opposite
+property with its own measurement beside it.
+
+### Defect 3 — AN UNREADABLE `toolCalls` WAS ITERATED, IN THE READER THAT NAMES JUNK
+
+`toolCalls: "junk"` came back as **FOUR pending calls named `null` and four tool calls on
+the meter, with `problems` EMPTY** — a string is iterable by index and `.length` is its
+character count. A run resumed from such a log was billed for calls nobody made and told
+"cannot resume" about calls that do not exist. This is the function whose own
+documentation says a junk entry is named rather than skipped.
+
+**ITS GUARD USES A RAW STORED ENTRY, because `modelEntry` CANNOT PRODUCE THAT SHAPE** — it
+maps the list and throws. That is the producer being right, and it is exactly why the
+reader still has to be checked: such a log comes back from STORAGE, and nothing outside
+goes through the producer. The case asserts the producer's throw too, so a `modelEntry`
+that started admitting it would go red.
+
+### Defect 4 — A DUPLICATE RUN ID RAISED INSTEAD OF READING AS A REPEAT
+
+`accept_automation_run` named the partial occurrence index as its conflict target, and **a
+manual execution has no occurrence** — so a redelivered `run_automation` met the PRIMARY
+KEY. **MEASURED on a real PostgreSQL: `duplicate key value violates unique constraint
+"automation_runs_pkey"`, with one execution, one run and one work row.** So no second
+execution was ever possible and the guarantee held, while the ANSWER was an exception: a
+redelivered tool call came back a FAILURE about work that really is queued and will run.
+
+**`capability-tools.mjs`'s OWN NOTE CLAIMED THIS FUNCTION ANSWERED `repeat`. It did not**,
+and the correction is written where the claim was rather than the claim quietly becoming
+true. The function now probes by the occurrence and then by the run id, and its insert
+carries a bare `on conflict do nothing` — **no target, so it absorbs either identity**;
+this table has exactly two unique things and both mean "already filed", while a check
+constraint and a foreign key are not absorbed with them. A run id belonging to ANOTHER
+automation is deliberately not found, so such a call still meets the primary key: that is
+a caller pointing one execution's record at another.
+
+**The migration edited is UNAPPLIED** (a round-number placeholder, this folder's own tell
+— applied files are renamed to their remote version), so the fix goes in place rather than
+duplicating a 172-line function into a fifth file. Had it been applied, the fix would be a
+new migration.
+
+### UNRESOLVED IS A THIRD ANSWER, AND IT IS NOT A KIND OF FAILURE
+
+`ok: false` says the work did not happen. `unresolved` says nobody knows whether it did —
+we asked a store to change something and never heard back. **The two invite opposite next
+moves**: a failure invites doing it again, an unknown invites CHECKING first. Recording an
+unknown as a failure is a claim nothing here is entitled to make, in the direction that
+loses somebody's data.
+
+- **`writes` ON A TOOL DECIDES WHAT A FAILURE MEANS**, not whether the tool may run. A read
+  that throws did not happen; a write that throws may have. Refused if it is not a boolean,
+  for `repeatable`'s own reason.
+- **AND A WRITE MUST BE REPEATABLE, ENFORCED IN `defineTool`** rather than trusted: a write
+  that cannot be repeated can never finish after an interruption at all — the resume refuses
+  it and names it, for ever, so the tool is a control that holds and never completes.
+- **IT IS A CENSUS, NOT A LABEL.** `test/capabilities.test.mjs` drives every tool against a
+  RECORDING capability seam and requires `writes` to be true exactly when one of
+  `CAPABILITY_WRITES` was touched — with the observer proved alive (a tool that reached no
+  operation proves nothing about its flag) and both directions really exercised.
+  `CAPABILITY_WRITES` is declared beside `CAPABILITIES` rather than inferred from a name:
+  `setAutomationEnabled` and `startAutomation` both read as writes and `readExecution` does
+  not, but a rule built on the words `save`/`set`/`start` is one the next operation's name
+  breaks in silence. Four of the twelve write.
+- **IT RIDES ONLY WHEN IT IS TRUE**, so every entry written before this exists and every
+  resolved entry written after it are byte for byte what they were — and `append_entry`
+  validates only that the body is an object, so there is no migration in it.
+- **THE MODEL IS TOLD IN THE TEXT**, not only in a field beside it. A flag a model is not
+  shown changes nothing about what it does next, and what it does next is the whole reason
+  to distinguish the two.
+- **AND `cannot-resume` NAMES WHICH BLOCKED CALLS ARE UNRESOLVED.** A non-writing tool that
+  blocked a resume changed nothing; somebody deciding what to do about a stranded run needs
+  to know which they have, and the stop is the only place they can read it.
+
+### WHAT MAKES EACH WRITE SAFE TO REPEAT, proved on a real PostgreSQL rather than claimed
+
+| tool | why |
+|---|---|
+| `remember` | an upsert by the fact's own name — **and the VERSION does not move either**, which is `agent.save_memory`'s own rule (`unchanged` for the same words), not this module's care |
+| `forget` | a delete of one name; the second answers `forgot: false` and the state is identical |
+| `pause_automation` | a write of the CALLER'S value to a named row, and **the ANSWER is identical too**, which is what lets a redelivery finish the call rather than having to tell a resumed run from a first attempt |
+| `run_automation` | the derived identity above, and defect 4 is what it took to make that true |
+
+### AND EIGHT SQL MUTANTS WERE AIMED AT SUPERSEDED DEFINITIONS
+
+**The recorded trap a THIRD time, and the third time it sat unnoticed** — found by a
+census, not by a survivor, because no SQL sweep had run since the workflow migration
+landed. That migration redefines `accept_automation_run`, `finish_automation_run` and
+`agent.automation_history`, and `mAuto` still pointed all eight at the automations
+migration's superseded copies. **Inert by construction**: the anchor is present and unique
+in the file it was pointed at, so the pre-check is satisfied and the mutant lands on dead
+code — its survival reading as a test gap rather than as a spec fault. `mAuto`'s own
+comment said "these are the things only this migration has", which is what became false.
+
+**THE GENERATOR ASKS NOW**, per mutant: is the anchor inside a function a LATER migration
+redefines? Proved alive on two real breakages. **Its first two drafts were both wrong and
+both are recorded in the code**:
+
+- asking only whether the ANCHOR TEXT occurs later reported **six correct entries as
+  broken** — `using (tenant_id = agent.tenant_id())` is ordinary policy text a later file
+  writes for a different table, and `'error', 'no-agent'` is a sentence four functions
+  share. *The anchor's text cannot say which object it belongs to; its POSITION can.*
+- taking the nearest PRECEDING `create or replace` header attributed every index and
+  constraint mutant after the last function in a file to that function — **eight more
+  false alarms.** *A preceding landmark is not an enclosing one.*
+- and the third draft was a DEAD OBSERVER: it looked for `$$;` at the start of a line,
+  which **MEASURED over these migrations is the minority form** (40 bodies end `end; $$;`,
+  22 end `$$;` alone, 2 end `end $$;`). It passed with all eight known-bad entries put
+  back. Found by proving it alive rather than by trusting a green run.
+
+**VIEWS ARE DELIBERATELY NOT COVERED** and that is stated in the code: a view's body has no
+delimiter as unambiguous as `$$;`, and inventing one is the "flat scans where depth
+matters" trap. There are four; `automation_history` was the one instance and was
+re-pointed by hand.
+
+### Measured
+
+- **Engine suite 393**, 0 failed (391 before the capability census, 387 before this round).
+- **Real PostgreSQL (`npm run test:pg`): 627 → 632, 0 failed.** The five are the repeated
+  run id reading as one execution with nothing written twice, and `set_automation_enabled`
+  twice leaving the same state with the same answer, each with its control.
+- **`npm run verify:tools`: 69 → 78, 0 failed**, section 5b driving the redelivery through
+  the REAL capability store: the same call twice is ONE execution naming the same id, a
+  DIFFERENT call at the same position is its own (the control that says the arguments are
+  load-bearing), and no identity at all refuses `no-id` and starts nothing.
+  **`ctx` is built by hand there, deliberately** — two deliveries of one message is a
+  different property (the claim refuses the second, which section 8 reads off `attempts`)
+  and could never exercise the case where the first attempt's result was lost.
+- **`verify:auto` 70, `verify:wf` 125, `verify:chat` 112 and the site builder's suite
+  6,791 — every one unchanged**, which is the control that this round moved nothing else.
+- **Sweep spec 384 → 400 entries; SQL spec 168.**
+- ⚠ **AND ONE MORE NAME COLLISION, in my own new section**: `before`, `first`, `again` and
+  `second` were already declared in `verify-tools.mjs`, which is one long function body —
+  *a re-anchor lands in a scope it did not write*, met three times in one edit. Every local
+  the section declares is prefixed now.

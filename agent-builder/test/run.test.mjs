@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { runAgent } from "../src/run.mjs";
+import { replay } from "../src/journal.mjs";
 import { defineAgent, defineTool, PUBLIC } from "../src/define.mjs";
 import { LIMIT_DEFAULTS } from "../src/limits.mjs";
 
@@ -499,6 +500,75 @@ test("⚠ AND A BLOCKED CALL THAT WRITES IS NAMED AS UNRESOLVED", async () => {
   const r = await runAgent({ agent: agentWith([writer]), send: async () => says("x"), from: entries });
   assert.equal(r.stop.reason, "cannot-resume");
   assert.deepEqual([...r.stop.pending], [{ step: 1, index: 0, name: "charge", unresolved: true }]);
+});
+
+test("⚠ AN UNRESOLVED WRITE IS SAID TO THE MODEL, not only recorded beside it", async () => {
+  // A SWEEP SURVIVOR IS WHY THIS EXISTS. Every assertion I first wrote was about the
+  // ENTRY, so the argument `toolResultFor` takes could be cut and nothing noticed — and
+  // the model's view is the whole reason the distinction exists at all. A flag a model is
+  // not shown changes nothing about what it does next.
+  const writer = defineTool({
+    name: "charge", description: "takes money", input: { type: "object" }, scope: PUBLIC,
+    writes: true, repeatable: true, run: async () => { throw new Error("the wire went"); },
+  });
+  const reader = defineTool({
+    name: "look", description: "reads", input: { type: "object" }, scope: PUBLIC,
+    repeatable: true, run: async () => { throw new Error("the wire went"); },
+  });
+  const j = journalOf();
+  // The send is HELD, because what the model was shown is its SECOND request's messages —
+  // the only place the tool results reach it.
+  const send = scripted([wants("charge", "look"), says("done")]);
+  const r = await runAgent({ agent: agentWith([writer, reader]), prompt: "go", journal: j, send });
+  assert.equal(r.ok, true, "a failed tool should not end the run");
+
+  // THE ENTRY, and only for the write.
+  const entries = j.log.filter((e) => e.kind === "tool");
+  assert.equal(entries.find((e) => e.name === "charge").unresolved, true);
+  assert.equal("unresolved" in entries.find((e) => e.name === "look"), false,
+    "a read that failed was recorded as maybe-having-happened");
+
+  // ⚠ WHAT THE MODEL WAS SHOWN, off the request that really went out.
+  assert.equal(send.calls.length, 2, "the model was not asked a second time");
+  const shown = send.calls[1].messages.at(-1).content;
+  const chargeResult = shown.find((x) => x.name === "charge");
+  const lookResult = shown.find((x) => x.name === "look");
+  assert.equal(chargeResult.unresolved, true);
+  assert.match(chargeResult.result, /UNRESOLVED/, "the model was not told in the text");
+  assert.match(chargeResult.result, /check before doing it again/);
+  assert.match(chargeResult.result, /the wire went/, "the real error was dropped");
+  assert.equal("unresolved" in lookResult, false);
+  assert.doesNotMatch(lookResult.result, /UNRESOLVED/, "a read that failed was said to be unknown");
+
+  // AND THE RUN'S OWN RECORD, which is what a caller reads.
+  const results = r.steps[0].results;
+  assert.equal(results.find((x) => x.name === "charge").unresolved, true);
+  assert.equal("unresolved" in results.find((x) => x.name === "look"), false);
+});
+
+test("...AND A REPLAY SAYS THE SAME THING, so a resumed conversation is not a different one", () => {
+  // The other half, and a sweep survivor too: `replay` reads `unresolved` back off the
+  // entry and hands it to the SAME composer the live loop uses. Without it a resumed run
+  // would show the model a plain failure where the first attempt showed an unknown — two
+  // conversations for one log, which is the thing `journal.mjs` exists to prevent.
+  const calls = [{ id: "c0", name: "charge", args: {} }];
+  const state = replay([
+    { kind: "started", at: 1, prompt: "go", tenant: "t", agent: "a" },
+    { kind: "model", at: 2, step: 1, ms: 1, text: "", toolCalls: calls },
+    { kind: "tool", at: 3, step: 1, index: 0, name: "charge", ms: 1, ok: false,
+      error: "the wire went", unresolved: true },
+  ]);
+  const said = state.messages.at(-1).content[0];
+  assert.equal(said.unresolved, true);
+  assert.match(said.result, /UNRESOLVED/);
+  // AND THE OBSERVER IS ALIVE: the same entry without the flag reads as a plain failure.
+  const plain = replay([
+    { kind: "started", at: 1, prompt: "go", tenant: "t", agent: "a" },
+    { kind: "model", at: 2, step: 1, ms: 1, text: "", toolCalls: calls },
+    { kind: "tool", at: 3, step: 1, index: 0, name: "charge", ms: 1, ok: false, error: "the wire went" },
+  ]).messages.at(-1).content[0];
+  assert.equal("unresolved" in plain, false);
+  assert.doesNotMatch(plain.result, /UNRESOLVED/);
 });
 
 test("...AND A PENDING REPEATABLE TOOL IS RE-RUN, so the run carries on", async () => {
