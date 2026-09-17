@@ -97,7 +97,57 @@ export function simulatedAnswer({ system, messages, tool = null }) {
   ].join(" ").replace(/ +\n/g, "\n").trimEnd();
 }
 
-export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } = {}) {
+/**
+ * ⚠ ARGUMENTS FOR AN OFFERED TOOL, FILLED FROM ITS OWN SCHEMA.
+ *
+ * A real model reads a tool's input schema and writes arguments that fit it; a stand-in
+ * that only ever knew `{text}` could call exactly one tool, which made every tool but
+ * `echo` unreachable from this side and so untestable end to end. **It fills the REQUIRED
+ * properties and nothing else**, from the prompt for a string and from the declared type
+ * otherwise, which is the smallest thing that is honestly schema-driven.
+ *
+ * What it cannot invent is an IDENTIFIER — a source id, an automation id — because those
+ * name real rows. A caller that wants one of those tools driven passes `toolArgs`, and
+ * the brief allows exactly that: *scripted stand-in responses for integration tests,
+ * clearly labeled as simulated.*
+ */
+export function standInArgs(tool, prompt) {
+  // ⚠ THE WIRE NAME FIRST. What a model is handed is `wireTools`' shape —
+  // `{name, description, input_schema}` — not the tool object, and reading `input` alone
+  // found nothing, filled no arguments and made `echo` answer about an empty string. The
+  // internal name is kept as a fallback so this is drivable with a tool object directly,
+  // which is what the guards do.
+  const schema = tool?.input_schema ?? tool?.input;
+  const props = schema && typeof schema.properties === "object" ? schema.properties : {};
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  const said = String(prompt ?? "");
+  const args = {};
+  for (const name of required) {
+    const type = props[name]?.type;
+    // ⚠ WHAT THE REQUEST SAYS WINS, which is the half that makes this schema-driven
+    // rather than a fixed shape. A request that writes `id=<something>` is answering a
+    // declared property by name, exactly as a model reading the schema would — and it is
+    // the only way a stand-in can ever fill a property that names a real row, because an
+    // identifier is not a thing anything here can invent.
+    const told = new RegExp(`\\b${name}=("[^"]*"|\\S+)`).exec(said);
+    if (told) {
+      const raw = told[1].startsWith('"') ? told[1].slice(1, -1) : told[1];
+      if (type === "number" || type === "integer") args[name] = Number(raw);
+      else if (type === "boolean") args[name] = raw === "true";
+      else if (type === "object" || type === "array") { try { args[name] = JSON.parse(raw); } catch { args[name] = type === "array" ? [] : {}; } }
+      else args[name] = raw;
+      continue;
+    }
+    if (type === "number" || type === "integer") args[name] = 1;
+    else if (type === "boolean") args[name] = true;
+    else if (type === "object") args[name] = {};
+    else if (type === "array") args[name] = [];
+    else args[name] = said.slice(0, 200);
+  }
+  return args;
+}
+
+export function makeStandIn({ toolName = "echo", toolArgs = null, rounds = null, waitMs = null } = {}) {
   return async function send({ messages, step, tools, system }) {
     const offered = Array.isArray(tools) ? tools : [];
 
@@ -151,12 +201,42 @@ export function makeStandIn({ toolName = "echo", rounds = null, waitMs = null } 
     // ── the ordinary shape: one tool call, then an answer ─────────────────────
     // So a driven run exercises a step, a tool, a second step and a stop, rather
     // than the shortest path through it.
-    const first = messages.find((m) => m.role === "user")?.content ?? "";
+    // ⚠ THE LATEST THING SAID, NOT THE FIRST — which is what a model answers, and what
+    // this read for as long as a conversation was one message long. The moment a second
+    // message reached an agent that holds tools, every later turn was answered against
+    // the opening question: a run asked to list its sources searched them instead, for
+    // the words somebody typed two turns ago. `simulatedAnswer` has always quoted the
+    // LAST thing said, so the two halves of this file disagreed about which turn the
+    // conversation was on.
+    const asked = messages.filter((m) => m.role === "user");
+    const first = asked.length ? asked[asked.length - 1].content ?? "" : "";
     const n = Number.isInteger(rounds) && rounds >= 1 ? rounds : 1;
     if (step <= n) {
+      // ⚠ **IT CHOOSES FROM WHAT IT WAS OFFERED, which is the one thing that makes this
+      // model-like rather than scripted** — and it was choosing a name it had not been
+      // shown. Asking for `echo` while holding only `search_reference` spends a step and
+      // a tool slot discovering a tool that was never offered: a correct refusal and a
+      // wrong conversation, and it made every tool but one unreachable from this side.
+      //
+      // The caller's name wins when it is really on offer; otherwise a tool that needs no
+      // arguments, because that is the one this side can always fill honestly; otherwise
+      // the first thing there is.
+      // ⚠ AND WHICH TOOL IS READ FROM THE REQUEST FIRST, which is the one thing that
+      // makes this a CHOICE. A person writing "use search_reference to find the price"
+      // has named a tool the agent holds, and a stand-in that ignored that could only
+      // ever exercise one tool however many a customer had ticked.
+      const named = offered.find((t) => typeof t?.name === "string" && new RegExp(`\\b${t.name}\\b`).test(String(first)));
+      const pick = named
+        ?? offered.find((t) => t?.name === toolName)
+        ?? offered.find((t) => !((t?.input_schema ?? t?.input)?.required ?? []).length)
+        ?? offered[0];
       return {
         text: "",
-        toolCalls: [{ id: `call-${step}`, name: toolName, args: { text: String(first).slice(0, 200) } }],
+        toolCalls: [{
+          id: `call-${step}`,
+          name: pick.name,
+          args: toolArgs && typeof toolArgs === "object" ? toolArgs : standInArgs(pick, first),
+        }],
         usage: { inputTokens: 12, outputTokens: 5 },
         costMicros: 40,
       };

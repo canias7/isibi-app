@@ -7,6 +7,7 @@
  */
 
 import { defineAgent, defineTool, PUBLIC } from "./define.mjs";
+import { CAPABILITY_TOOLS } from "./capability-tools.mjs";
 
 /**
  * A tool with no side effects at all, so the first agent through the real API
@@ -46,8 +47,11 @@ const support = Object.freeze({
  * the producer rather than about the input, and the one tool somebody forgets to
  * deny is the one that matters.
  *
- * **ONLY WHAT IS REALLY IMPLEMENTED AND REALLY COMPLETABLE GOES IN, and today that
- * is `echo` alone.** `wait` and `commit` are implemented and are deliberately NOT
+ * **ONLY WHAT IS REALLY IMPLEMENTED AND REALLY COMPLETABLE GOES IN**, which is `echo`
+ * plus `CAPABILITY_TOOLS` — twelve operations that each end in a database function the
+ * customer's own screen also calls. Nothing here composes an answer.
+ * **A tool needs a backend to reach, so every one of the twelve answers `no-backend`
+ * rather than a plausible success where there is none.** `wait` and `commit` are implemented and are deliberately NOT
  * offered: they exist to demonstrate duration and the no-repeat refusal, and the
  * stand-in answers them with the SLOW shape — `SLOW_ROUNDS` (8) tool calls —
  * against an authored budget of two. **MEASURED, not reasoned about: an authored
@@ -61,7 +65,7 @@ const support = Object.freeze({
  * offers, a customer selects, and the run then withholds — a promise the layer below
  * refuses, with nobody able to see why.
  */
-export const OFFERED = Object.freeze([echo]);
+export const OFFERED = Object.freeze([echo, ...CAPABILITY_TOOLS]);
 
 /** The catalog's names, DERIVED, so nothing can hold a second copy of the list. */
 export const OFFERED_NAMES = Object.freeze(OFFERED.map((t) => t.name));

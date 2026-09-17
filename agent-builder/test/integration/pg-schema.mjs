@@ -2481,6 +2481,126 @@ try {
     jget(`select (input->>'topic') || '|' || (vars->>'topic') from agent.automation_runs where id='${R_IN}';`) === "boiler|boiler");
 
 
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── the capability operations: what a person's screen and their agent BOTH run ──");
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⚠ THESE ARE THE FUNCTIONS THE SITE'S ROUTES AND THE ENGINE'S TOOLS BOTH CALL, which
+  // is the only arrangement in which "the same underlying operation" is a fact rather
+  // than a claim: the two products are separate Workers and neither may import the other,
+  // so a shared JavaScript module is not available and the database is what is left.
+  //
+  // Every refusal below is read for ITS OWN REASON, because a refusal from the wrong gate
+  // looks exactly like the wall working — and every group carries a CONTROL that must
+  // succeed, without which a database refusing everything would pass this file.
+  check("⚠ ownership answers a BOOLEAN, so 'not yours' and 'not there' are one answer",
+    jget(`select agent.owns_agent('t1','${AG_ON}')::text || '|' || agent.owns_agent('t2','${AG_ON}')::text
+            || '|' || agent.owns_agent('t1','00000000-0000-4000-8000-000000000000')::text;`) === "true|false|false");
+
+  check("listing the reference material answers this agent's own",
+    jget(`select count(*) from agent.list_knowledge('t1','${AG_ON}') t;`) === "2");
+  check("⚠ ...and the list carries NO material, so a tool is not the cheap way to pull every document",
+    jget(`select (t ? 'body')::text from agent.list_knowledge('t1','${AG_ON}') t limit 1;`) === "false");
+  check("⚠ ...and the account next door gets nothing rather than a refusal",
+    jget(`select count(*) from agent.list_knowledge('t2','${AG_ON}') t;`) === "0");
+  check("reading one source whole DOES carry it",
+    /Boiler service/.test(jget(`select agent.read_knowledge('t1','${K1}')->>'body';`)));
+  check("⚠ ...and the account next door reads nothing at all",
+    jget(`select coalesce(agent.read_knowledge('t2','${K1}')::text,'NULL');`) === "NULL");
+
+  // ── memory ────────────────────────────────────────────────────────────────
+  const MEMA = "ee000000-0000-0000-0000-0000000000c1";
+  const saved = jget(`select agent.save_memory('t1','${AG_ON}','cap_tone','formal','${MEMA}')::text;`);
+  check("a memory is created, at version 1",
+    /"saved"\s*:\s*"created"/.test(saved) && /"version"\s*:\s*1/.test(saved), saved);
+  check("⚠ saving the SAME words again is the same fact at the same version",
+    /"saved"\s*:\s*"unchanged"/.test(jget(`select agent.save_memory('t1','${AG_ON}','cap_tone','formal',null)::text;`)));
+  check("...and the row really did not move",
+    jget(`select version::text from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='cap_tone';`) === "1");
+  check("⚠ THE CONTROL: different words DO move it",
+    /"saved"\s*:\s*"corrected"/.test(jget(`select agent.save_memory('t1','${AG_ON}','cap_tone','chatty',null)::text;`)) &&
+    jget(`select version::text from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='cap_tone';`) === "2");
+
+  // EACH REFUSAL BY ITS OWN NAME, or "it refused" is satisfied by a function that refuses
+  // everything for some other reason.
+  for (const [what, call, why] of [
+    ["a name that is not an identifier", `agent.save_memory('t1','${AG_ON}','Not A Name','x',null)`, "bad-name"],
+    ["nothing to remember", `agent.save_memory('t1','${AG_ON}','cap_x','   ',null)`, "empty"],
+    ["longer than one memory can be", `agent.save_memory('t1','${AG_ON}','cap_x',repeat('a',4001),null)`, "too-long"],
+    ["a source nobody can account for", `agent.save_memory('t1','${AG_ON}','cap_x','v',null,'somewhere')`, "bad-source"],
+    ["the account next door's agent", `agent.save_memory('t2','${AG_ON}','cap_x','v',null)`, "no-agent"],
+  ]) {
+    check(`⚠ ${what} is refused as \`${why}\``,
+      jget(`select ${call}->>'error';`) === why, jget(`select ${call}::text;`));
+  }
+  check("...and not one of those wrote a row",
+    jget(`select count(*) from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='cap_x';`) === "0");
+  check("⚠ the ceiling is asked only for a name this agent does NOT already hold",
+    jget(`select agent.save_memory('t1','${AG_ON}','cap_new','v',null,'person',1)->>'error';`) === "too-many" &&
+    jget(`select agent.save_memory('t1','${AG_ON}','cap_tone','again',null,'person',1)->>'saved';`) === "corrected");
+  check("forgetting says whether there WAS one, rather than failing when there was not",
+    jget(`select agent.delete_memory('t1','${AG_ON}','cap_tone')->>'forgot';`) === "true" &&
+    jget(`select agent.delete_memory('t1','${AG_ON}','cap_tone')->>'forgot';`) === "false");
+  check("⚠ ...and the account next door cannot forget anything of this agent's",
+    jget(`select agent.delete_memory('t2','${AG_ON}','anything')->>'error';`) === "no-agent");
+
+  // ── automations ───────────────────────────────────────────────────────────
+  check("listing the automations answers this agent's own, counting steps rather than carrying them",
+    Number(jget(`select count(*) from agent.list_automations('t1','${AG_ON}') t;`)) >= 1 &&
+    jget(`select (t ? 'steps')::text from agent.list_automations('t1','${AG_ON}') t limit 1;`) === "true" &&
+    jget(`select jsonb_typeof(t->'steps') from agent.list_automations('t1','${AG_ON}') t limit 1;`) === "number");
+  check("⚠ ...and reading one DOES carry them, as a list",
+    jget(`select jsonb_typeof(agent.read_automation('t1','${AU2}')->'steps');`) === "array");
+  check("⚠ ...and the account next door reads nothing",
+    jget(`select coalesce(agent.read_automation('t2','${AU2}')::text,'NULL');`) === "NULL");
+
+  check("⚠ a null `enabled` is REFUSED, never read as 'turn it off'",
+    jget(`select agent.set_automation_enabled('t1','${AU2}',null)->>'error';`) === "bad-enabled");
+  check("⚠ ...and the account next door's attempt answers no-automation and writes nothing",
+    jget(`select agent.set_automation_enabled('t2','${AU2}',false)->>'error';`) === "no-automation");
+  const wasOn = jget(`select enabled::text from agent.automations where id='${AU2}';`);
+  check("THE CONTROL: the owner really can turn it off, and the row moves",
+    jget(`select agent.set_automation_enabled('t1','${AU2}',false)->>'ok';`) === "true" &&
+    jget(`select enabled::text from agent.automations where id='${AU2}';`) === "false", wasOn);
+  jget(`select agent.set_automation_enabled('t1','${AU2}',${wasOn});`);
+
+  // ── what an execution did ─────────────────────────────────────────────────
+  check("an execution history is scoped to the account",
+    Number(jget(`select count(*) from agent.list_executions('t1','${AU2}',10) t;`)) >= 0 &&
+    jget(`select count(*) from agent.list_executions('t2','${AU2}',10) t;`) === "0");
+  check("⚠ ...and its limit is CLAMPED rather than refused, at both ends",
+    jget(`select count(*) from agent.list_executions('t1','${AU2}',-5) t;`) === jget(`select count(*) from agent.list_executions('t1','${AU2}',1) t;`));
+
+  // ── the grants ────────────────────────────────────────────────────────────
+  // ⚠ ASKED AS A PRIVILEGE, NEVER AS A REFUSAL. `authenticated` holds no USAGE on this
+  // schema, so every call as that role answers `permission denied for schema agent`
+  // whatever the function grants are — which is this repository's own recorded "a refusal
+  // from the wrong gate looks exactly like the wall working", and only `has_function_privilege`
+  // can see past it.
+  for (const fn of ["agent.owns_agent(text, uuid)", "agent.list_knowledge(text, uuid)",
+                    "agent.save_memory(text, uuid, text, text, uuid, text, integer)",
+                    "agent.delete_memory(text, uuid, text)",
+                    "agent.set_automation_enabled(text, uuid, boolean)",
+                    "agent.read_execution(text, uuid)"]) {
+    check(`⚠ only the backend may call ${fn.split("(")[0]}`,
+      jget(`select has_function_privilege('service_role','${fn}','execute')::text || '|'
+              || has_function_privilege('authenticated','${fn}','execute')::text || '|'
+              || has_function_privilege('anon','${fn}','execute')::text;`) === "true|false|false");
+  }
+  check("⚠ every one of them pins an empty search_path and runs as its owner",
+    jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname='agent'
+              and p.proname in ('owns_agent','list_knowledge','read_knowledge','list_memory','save_memory',
+                                'delete_memory','list_automations','read_automation','set_automation_enabled',
+                                'list_executions','read_execution')
+              -- ⚠ THE VALUE IS STORED WITH ITS QUOTES -- search_path="" and not
+              -- search_path= -- read off pg_proc rather than guessed. The first write of
+              -- this line asked for the unquoted form and reported eleven correct
+              -- functions as broken. (And its comment then used backticks, INSIDE a
+              -- template literal, which ended the string: prose carrying the thing it
+              -- is quoting, in the one place that cannot hold it.)
+              and p.prosecdef and 'search_path=""' = any(p.proconfig);`) === "11");
+
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

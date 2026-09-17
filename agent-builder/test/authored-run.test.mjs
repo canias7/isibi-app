@@ -241,8 +241,17 @@ function bench({ answers = [], agents = AGENTS } = {}) {
     return { text: "done", toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 };
   };
   let w = 0;
+  // ⚠ A RECORDING BACKEND, so the SCOPING HOP is drivable. `makeRunner` is handed a
+  // factory with no account attached to it, exactly as the Worker hands it one; what is
+  // recorded is which tenant and which agent the runner applied, per delivery.
+  const scopings = [];
+  const capabilities = {
+    forTenant: (tenant) => ({
+      forAgent: (agentId) => { scopings.push({ tenant, agentId }); return { marker: `${tenant}/${agentId}` }; },
+    }),
+  };
   const runner = makeRunner({
-    work, store, send, agents, timer,
+    work, store, send, agents, timer, capabilities,
     now: () => clock, nameWorker: () => `worker-${++w}`, onError: () => {},
   });
   const accept = async (entry) => {
@@ -250,7 +259,7 @@ function bench({ answers = [], agents = AGENTS } = {}) {
     await work.accept({ runId, tenant: "t1", entry });
     return runId;
   };
-  return { rest, store, work, runner, calls, accept, timer, advance: (ms) => { clock += ms; },
+  return { rest, store, work, runner, calls, accept, timer, scopings, advance: (ms) => { clock += ms; },
            kinds: (runId) => [...rest.entries.get(runId).values()].map((e) => e.kind) };
 }
 
@@ -266,6 +275,55 @@ test("THE MODEL IS SENT THE INSTRUCTIONS FROM THE LOG, NOT THE REGISTRY'S PLACEH
   // like. If the two were equal this case would pass with the wiring cut.
   assert.notEqual(AUTHORED[AUTHORED_AGENT].instructions, WROTE);
   assert.ok(!b.calls[0].system.includes("placeholder"), "the placeholder reached the model");
+});
+
+test("⚠ THE BACKEND A TOOL REACHES IS SCOPED FROM THE CLAIM AND THE SNAPSHOT, per delivery", async () => {
+  // THE WIRING HOP, driven — the class this repository keeps paying for. The capability
+  // layer can be perfect and the runner can scope it to the wrong agent, or to none, and
+  // from outside both read as a tool that found nothing.
+  const b = bench();
+  const runId = await b.accept(start({ instructions: WROTE, history: [], authoredAgent: "a-1", message: "m-1" }));
+  await b.runner.deliver(runId);
+  assert.deepEqual(b.scopings, [{ tenant: "t1", agentId: "a-1" }],
+    "the backend was scoped to something other than this run's own account and agent");
+
+  // AND THE TENANT IS THE CLAIM'S, so a second run of a different account scopes apart.
+  const other = `run-${Math.random().toString(16).slice(2, 8)}`;
+  await b.work.accept({ runId: other, tenant: "t2", entry: start({ instructions: WROTE, history: [], authoredAgent: "a-2", message: "m-2" }) });
+  await b.runner.deliver(other);
+  assert.deepEqual(b.scopings.at(-1), { tenant: "t2", agentId: "a-2" });
+});
+
+test("...AND THE BACKEND IS SCOPED AGAIN ON EVERY DELIVERY, exactly as the snapshot is", async () => {
+  // ⚠ THE SCENARIO IS A LOST LEASE, because it is the one that leaves the run OPEN — the
+  // same reason the instructions' own case uses it. A second delivery of a FINISHED run
+  // is correctly `already-finished` and scopes nothing, which is what the first draft of
+  // this asserted and measured wrong.
+  const b = bench({
+    answers: [async () => { b.advance(LEASE_TTL_S * 1000 + 1); await b.timer.fire(); return { text: "nobody may record this", toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 }; }],
+  });
+  const runId = await b.accept(start({ instructions: WROTE, history: [], authoredAgent: "a-1", message: "m-1" }));
+  const lost = await b.runner.deliver(runId);
+  assert.equal(lost.why, "lease-lost", `stopped for "${lost.why}"`);
+  const again = await b.runner.deliver(runId);
+  assert.equal(again.why, "ran", again.error);
+  assert.equal(b.scopings.length, 2, "the second delivery did not scope a backend of its own");
+  assert.deepEqual(b.scopings, [{ tenant: "t1", agentId: "a-1" }, { tenant: "t1", agentId: "a-1" }]);
+});
+
+test("⚠ A RUN WITH NO AUTHORED AGENT IS GIVEN NO BACKEND AT ALL", async () => {
+  // Every verification agent and every run started through `POST /runs` is this shape.
+  // Handing one a backend would mean choosing an agent for it here, which is the one
+  // decision this code has no honest way to make — so it gets none, and every capability
+  // tool refuses by name.
+  const b = bench();
+  const runId = await b.accept(startedEntry({
+    at: NOW, tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+    prompt: "hello", limits: limitsToJson(AUTHORED[AUTHORED_AGENT].limits),
+  }));
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "ran", out.error);
+  assert.deepEqual(b.scopings, [], "a run with no snapshot was handed a scoped backend");
 });
 
 test("...AND IT IS READ AGAIN ON EVERY DELIVERY, which is what makes it a SNAPSHOT", async () => {

@@ -962,6 +962,15 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
     ["a stray `otherwise`", [{ type: "otherwise" }], []],
     ["a stray `end`", [{ type: "end" }], []],
     ["two `otherwise`s", [IF, { type: "otherwise" }, { type: "otherwise" }, { type: "end" }], []],
+    // ⚠ THE ONE SHAPE THAT SEPARATES DEPTH FROM POSITION when a reader only answers
+    // ok-or-error: a nested branch where BOTH arms have an `otherwise`. A reader taking
+    // the OUTERMOST open `if` hands the inner arm's `otherwise` to the outer one, and the
+    // outer's own is then refused as a second — so a perfectly legal workflow cannot be
+    // saved. Found by a sweep survivor on the site's own copy, which every other nested
+    // shape here passed straight through.
+    ["nested, with an `otherwise` on BOTH arms",
+      [IF, IF, N("a"), { type: "otherwise" }, N("b"), { type: "end" },
+        { type: "otherwise" }, N("c"), { type: "end" }], []],
     // ── THE PATHS, which is what this case was added for ──────────────────────
     ["one arm's value, used after the end",
       [IF, N("x", "draft"), { type: "otherwise" }, N("y"), { type: "end" }, N("{{draft}}")], []],

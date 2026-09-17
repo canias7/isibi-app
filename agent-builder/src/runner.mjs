@@ -161,6 +161,24 @@ export function makeRunner(opts = {}) {
   const automations = opts.automations && typeof opts.automations.read === "function"
     ? opts.automations
     : null;
+  /**
+   * ⚠ WHAT A TOOL CAN REACH, AND IT IS UNSCOPED HERE ON PURPOSE.
+   *
+   * `makeCapabilities(...)` on its own can reach nothing: the operations only exist once
+   * `forTenant(t).forAgent(a)` has been applied, and the two identities are applied per
+   * delivery, below, from the CLAIM and from the run's own journal snapshot. So what this
+   * module holds is a factory that has no account attached to it, and the scoping happens
+   * at the one point where both facts are known and neither has been through a model.
+   *
+   * **A deployment that hands in nothing is a deployment where every capability tool
+   * refuses by name** — which is right, and is not the same as one where they quietly
+   * answer as though the work were done.
+   */
+  const capabilities = opts.capabilities && typeof opts.capabilities.forTenant === "function"
+    ? opts.capabilities
+    : null;
+  /** Where a tool that starts work gets an identifier. Injected; never a global. */
+  const newId = typeof opts.newId === "function" ? opts.newId : () => crypto.randomUUID();
   // A worker's name identifies THIS holder. It must differ per delivery, or two
   // concurrent deliveries in one isolate would each read the other's claim as
   // their own — the exact confusion the claim exists to prevent.
@@ -574,9 +592,31 @@ export function makeRunner(opts = {}) {
         }
       }
 
+      /**
+       * ⚠ THE BACKEND THIS RUN'S TOOLS MAY REACH, SCOPED FROM TWO FACTS NEITHER OF WHICH
+       * CAME FROM A MODEL — and both are read again on every delivery, exactly as the
+       * instructions and the tool selection are.
+       *
+       *   * the TENANT is `claim.tenant`, answered by `claim_run` in the same statement
+       *     that took the row, so a stale or replayed message can never make a consumer
+       *     act as somebody else;
+       *   * the AGENT is the run's own first journal entry, which nobody can edit.
+       *
+       * **A run with no authored agent gets NO capabilities at all.** That is every
+       * verification agent and every run started through `POST /runs`, and handing one of
+       * those a backend would mean choosing an agent for it here — which is the one
+       * decision this code has no honest way to make.
+       */
+      const authoredAgent = typeof open.state?.authoredAgent === "string" ? open.state.authoredAgent : null;
+      const canDo = capabilities && authoredAgent
+        ? capabilities.forTenant(claim.tenant).forAgent(authoredAgent)
+        : null;
+
       const record = await runAgent({
         agent,
         tenant: { id: claim.tenant },
+        capabilities: canDo,
+        newId,
         from: open.entries,
         // **OWNERSHIP BEFORE ANY NEW WORK, ASKED OF THE DATABASE.** Before each model
         // call and before each tool batch — so a claim lost during the previous step

@@ -86,6 +86,25 @@ export async function runAgent(opts = {}) {
     throw new TypeError("runAgent: checkpoint must be a function");
   }
   const checkpoint = typeof opts.checkpoint === "function" ? opts.checkpoint : null;
+  /**
+   * ⚠ WHAT A TOOL CAN REACH, ALREADY SCOPED TO ONE ACCOUNT AND ONE AGENT.
+   *
+   * It is handed in rather than built here for the reason every dependency in this file
+   * is: a loop that could open a database is a loop that cannot be driven without one.
+   * What matters for safety is that it arrives ALREADY SCOPED — the caller applied the
+   * tenant and the agent, both of which it read from the claim and the journal, so
+   * nothing below this line can widen it and no tool argument can reach past it.
+   *
+   * **`null` IS A REAL ANSWER and is the default.** Every capability tool refuses by name
+   * without one; the alternative — building an unscoped backend here — is the one shape
+   * that could hand a tool the whole database.
+   */
+  const capabilities = opts.capabilities ?? null;
+  if (capabilities !== null && typeof capabilities !== "object") {
+    throw new TypeError("runAgent: capabilities must be an object of operations, already scoped");
+  }
+  /** Where a tool that starts work gets its identifier. Injected; never a global. */
+  const newId = typeof opts.newId === "function" ? opts.newId : null;
   const mayStart = async (what, step) => { if (checkpoint) await checkpoint({ what, step }); };
 
   // THE AGENT'S OWN LIMITS ARE THE AUTHOR'S AND ARE TRUSTED; a per-run override
@@ -180,7 +199,7 @@ export async function runAgent(opts = {}) {
       const at = now();
       let done;
       try {
-        const value = await tool.run(findArgs(prior, p), toolContext({ tenant, agent, limits, step: p.step, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt) }));
+        const value = await tool.run(findArgs(prior, p), toolContext({ tenant, agent, limits, step: p.step, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId }));
         done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: true, value });
       } catch (error) {
         done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: false, error: String(error?.message ?? error) });
@@ -313,7 +332,7 @@ export async function runAgent(opts = {}) {
         const why = withheld.some((w) => w.name === call?.name) ? "not permitted for this tenant" : "no such tool";
         throw new Error(`${String(call?.name ?? "(unnamed)")}: ${why}`);
       }
-      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt) }));
+      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId }));
     }, { limit: limits.parallelTools, now });
 
     // EACH RESULT IS RECORDED AS IT LANDS, which is what makes a half-finished
@@ -352,10 +371,31 @@ function requireEntries(from) {
 }
 
 /** What a tool is told. One builder, so the live path and the resume path agree. */
-function toolContext({ tenant, agent, limits, step, id, room }) {
+function toolContext({ tenant, agent, limits, step, id, room, capabilities, newId }) {
   return Object.freeze({
     tenant: tenant ?? null, agent: agent.name, step, toolCallId: id,
     toolMs: capMs(limits.toolMs, room()),
+    /**
+     * ⚠ THE BACKEND A TOOL REACHES, ALREADY SCOPED — and the scoping is why it arrives
+     * here rather than being looked up by the tool.
+     *
+     * It is `capabilities.forTenant(t).forAgent(a)` already applied, so not one operation
+     * on it takes a tenant or an agent id and there is nowhere for a tool argument to
+     * become one. The two identities came from the claim and from the run's own journal
+     * snapshot; neither has ever been through a model.
+     *
+     * **ABSENT IS A REAL ANSWER.** A run built with no capabilities hands every tool
+     * `undefined`, and each of them refuses BY NAME rather than pretending — which is
+     * what keeps a deployment with no store behind it from answering as though it had
+     * done the work.
+     */
+    capabilities: capabilities ?? null,
+    /**
+     * A fresh identifier, for the one tool that starts work. **It is injected because
+     * nothing below this line may reach a global**, and it is the reason a model cannot
+     * name a run: there is no argument for one, and this is the only source.
+     */
+    newId: typeof newId === "function" ? newId : null,
   });
 }
 

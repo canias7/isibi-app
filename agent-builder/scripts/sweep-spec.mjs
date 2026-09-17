@@ -30,6 +30,8 @@ const ST = at("model-standin.mjs");
 const AU = at("automations.mjs");
 const AS = at("automation-store.mjs");
 const WR = at("workflow-refs.mjs");
+const CP = at("capabilities.mjs");
+const CT = at("capability-tools.mjs");
 /**
  * THE TWO FILES OUTSIDE `src/` THAT DECIDE WHETHER A DEPLOYMENT CAN BE IDENTIFIED —
  * the workflow that mints the version id and the script that holds the Worker to it.
@@ -970,9 +972,67 @@ const spec = [
   m("worker: the catch-up window becomes unbounded, so downtime is a burst", W,
     "export const AUTOMATION_CATCHUP_S = 3600;",
     "export const AUTOMATION_CATCHUP_S = 3600 * 24 * 3650;"),
+  // ══════════════════════════════════════════════════════════════════════════
+  // capabilities.mjs and capability-tools.mjs — what an agent's tools may reach
+  // ══════════════════════════════════════════════════════════════════════════
+  m("caps: the tenant comes from an ARGUMENT, so a model can name another account", CP,
+    "              return list(await rpc(CAPABILITY_RPC.listMemory, { p_tenant: tenant, p_agent_id: agentId }));",
+    "              return list(await rpc(CAPABILITY_RPC.listMemory, { p_tenant: arguments[0]?.tenant ?? tenant, p_agent_id: agentId }));"),
+  m("caps: the agent comes from an ARGUMENT, so one agent reads its sibling's memory", CP,
+    "              return list(await rpc(CAPABILITY_RPC.listKnowledge, { p_tenant: tenant, p_agent_id: agentId }));",
+    "              return list(await rpc(CAPABILITY_RPC.listKnowledge, { p_tenant: tenant, p_agent_id: arguments[0]?.agent ?? agentId }));"),
+  m("caps: a row belonging to a SIBLING agent is handed over", CP,
+    "            return owner === agentId ? row : null;", "            return row;"),
+  m("caps: the sibling wall reads a field nothing writes, so it refuses everything", CP,
+    "            const owner = row.agent ?? row.agent_id ?? null;", "            const owner = row.owner ?? null;"),
+  m("caps: an execution is answered without asking whose automation it is", CP,
+    "              return (await this.readAutomation({ id: row.automation })) ? row : null;", "              return row;"),
+  m("caps: a history is answered without asking whose automation it is", CP,
+    "              if (!(await this.readAutomation({ id: automation }))) return [];", "              void automation;"),
+  m("caps: `enabled` is COERCED, so the string \"false\" turns an automation ON", CP,
+    '              if (typeof enabled !== "boolean") return { ok: false, error: "bad-enabled" };',
+    "              if (enabled === undefined) return { ok: false, error: \"bad-enabled\" };"),
+  m("caps: an id is taken on trust, so a junk one reaches the database", CP,
+    "const isId = (v) => typeof v === \"string\" && UUID.test(v);",
+    "const isId = (v) => typeof v === \"string\";"),
+  m("caps: the profile header is the same for a read and a write", CP,
+    "    [write ? \"content-profile\" : \"accept-profile\"]: schema,",
+    "    \"accept-profile\": schema,"),
+  m("caps: a failed request is read as an answer rather than raised", CP,
+    "      const e = new Error(`${name}: HTTP ${res.status}${parsed?.message ? ` — ${parsed.message}` : \"\"}`);\n      e.status = res.status;\n      throw e;",
+    "      return null;"),
+  m("tools: a tool with NO backend answers as though it had done the work", CT,
+    "  if (!can || typeof can !== \"object\") return NO_BACKEND;",
+    "  if (false) return NO_BACKEND;"),
+  m("tools: `remember` lets an ARGUMENT say where the fact came from", CT,
+    'const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: "run" });',
+    "const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: args.source ?? \"run\" });"),
+  m("tools: starting an automation is declared safe to repeat, so a redelivery starts a second", CT,
+    "  name: \"run_automation\",", "  name: \"run_automation\", repeatable: true,"),
+  m("tools: a model names the run it starts", CT,
+    "    const runId = typeof ctx?.newId === \"function\" ? ctx.newId() : null;",
+    "    const runId = args.runId ?? (typeof ctx?.newId === \"function\" ? ctx.newId() : null);"),
+  m("tools: with no way to mint an id it starts one anyway, with none", CT,
+    '    if (!runId) return { ok: false, error: "no-id", say: "this deployment cannot mint a run id, so nothing was started" };',
+    "    void runId;"),
+  m("tools: forgetting something that was not there reads as having removed it", CT,
+    "    return { ok: true, forgot: answer.forgot === true,", "    return { ok: true, forgot: true,"),
+  m("tools: a database refusal is passed on as a SUCCESS", CT,
+    '    if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused", say: sayMemory(answer?.error) };',
+    "    if (false) return { ok: false, error: answer?.error ?? \"refused\", say: sayMemory(answer?.error) };"),
+  m("run: a tool is handed no backend at all, so every capability refuses", R,
+    "  const capabilities = opts.capabilities ?? null;", "  const capabilities = null;"),
+  m("runner: the backend is scoped to the tenant and NOT to the agent", RN,
+    "        ? capabilities.forTenant(claim.tenant).forAgent(authoredAgent)",
+    "        ? capabilities.forTenant(claim.tenant).forAgent(\"00000000-0000-4000-8000-000000000000\")"),
+  m("runner: a run with no authored agent is given a backend anyway", RN,
+    "      const canDo = capabilities && authoredAgent", "      const canDo = capabilities"),
   m("worker: the runner is built with no automation executor", W,
-    "    work, store, automations, send, agents: AGENTS, now,",
-    "    work, store, send, agents: AGENTS, now,"),
+    "    work, store, automations, capabilities, send, agents: AGENTS, now,",
+    "    work, store, capabilities, send, agents: AGENTS, now,"),
+  m("worker: the runner is built with no backend for its tools to reach", W,
+    "    work, store, automations, capabilities, send, agents: AGENTS, now,",
+    "    work, store, automations, send, agents: AGENTS, now,"),
 
   // ══════════════════════════════════════════════════════════════════════════
   // workflow-refs.mjs — the `{{name}}` syntax, in the ONE place all three

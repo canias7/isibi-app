@@ -92,6 +92,22 @@ const RPCS = {
   resume_due_automations: { args: ["p_limit::integer"], shape: "set" },
   search_knowledge: { args: ["p_tenant", "p_agent_id::uuid", "p_query", "p_limit::integer"], shape: "set" },
   agent_memory_snapshot: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
+  // ── what an agent's own tools reach ───────────────────────────────────────
+  // THE SAME FUNCTIONS THE CUSTOMER'S SCREEN CALLS, which is the whole point of the
+  // capability layer: there is no second implementation for a tool to drift from, so
+  // driving a tool through this shim exercises exactly what a person pressing the
+  // button exercises.
+  owns_agent: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
+  list_knowledge: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },
+  read_knowledge: { args: ["p_tenant", "p_source_id::uuid"], shape: "value" },
+  list_memory: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },
+  save_memory: { args: ["p_tenant", "p_agent_id::uuid", "p_key", "p_value", "p_id::uuid", "p_source", "p_max::integer"], shape: "value" },
+  delete_memory: { args: ["p_tenant", "p_agent_id::uuid", "p_key"], shape: "value" },
+  list_automations: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },
+  read_automation: { args: ["p_tenant", "p_id::uuid"], shape: "value" },
+  set_automation_enabled: { args: ["p_tenant", "p_id::uuid", "p_enabled::boolean"], shape: "value" },
+  list_executions: { args: ["p_tenant", "p_automation_id::uuid", "p_limit::integer"], shape: "set" },
+  read_execution: { args: ["p_tenant", "p_id::uuid"], shape: "value" },
 };
 
 /**

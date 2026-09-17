@@ -145,6 +145,69 @@ export const AGENT_TOOLS = Object.freeze([
     label: "Echo",
     does: "Repeats a short piece of text back. It is here so you can see that tools work at all — it reads nothing, changes nothing and sends nothing.",
   }),
+  // ── what the agent may read ───────────────────────────────────────────────
+  Object.freeze({
+    name: "search_reference",
+    label: "Search its reference material",
+    does: "Looks through the sources you have given this agent and finds the passages that match, each with the name of the source it came from.",
+  }),
+  Object.freeze({
+    name: "list_reference",
+    label: "List its reference material",
+    does: "Sees what sources it has, by name. It does not read them — that is the next one.",
+  }),
+  Object.freeze({
+    name: "read_reference",
+    label: "Read one source in full",
+    does: "Opens one of its sources and reads the whole thing.",
+  }),
+  // ── what it may remember ──────────────────────────────────────────────────
+  Object.freeze({
+    name: "list_memory",
+    label: "See what it remembers",
+    does: "Lists the facts and preferences saved for this agent.",
+  }),
+  Object.freeze({
+    name: "remember",
+    label: "Remember something",
+    does: "Saves a short fact or preference under a name, or corrects one it already has. Anything it saves is marked as having come from the agent rather than from you.",
+  }),
+  Object.freeze({
+    name: "forget",
+    label: "Forget something",
+    does: "Removes one remembered fact by its name.",
+  }),
+  // ── what it may do with its automations ───────────────────────────────────
+  Object.freeze({
+    name: "list_automations",
+    label: "See its automations",
+    does: "Lists this agent's automations — what each is called, whether it is on, and when it next runs.",
+  }),
+  Object.freeze({
+    name: "read_automation",
+    label: "Read one automation",
+    does: "Opens one automation and reads every step in it.",
+  }),
+  Object.freeze({
+    name: "pause_automation",
+    label: "Turn an automation on or off",
+    does: "Stops one of its automations running, or starts it again. It cannot change what the automation does.",
+  }),
+  Object.freeze({
+    name: "run_automation",
+    label: "Run an automation now",
+    does: "Starts one of its automations straight away, without waiting for its schedule.",
+  }),
+  Object.freeze({
+    name: "list_executions",
+    label: "See what an automation did",
+    does: "Looks at the recent runs of one automation — whether each finished, what it is waiting for, and what it produced.",
+  }),
+  Object.freeze({
+    name: "read_execution",
+    label: "Read one run in full",
+    does: "Opens one run of an automation and reads every step's outcome.",
+  }),
 ]);
 
 /** The catalog's names, DERIVED, so nothing holds a second copy of the list. */
@@ -1641,8 +1704,12 @@ export function memoryRow(r) {
     id: typeof r?.id === "string" ? r.id : "",
     key: typeof r?.key === "string" ? r.key : "",
     value: typeof r?.value === "string" ? r.value : "",
-    // WHERE IT CAME FROM, and an unreadable one is `person` — the only source anything can
-    // write today, so reading it as anything else would invent a provenance.
+    // ⚠ WHERE IT CAME FROM, and an unreadable one is `person`. **That default WAS "the
+    // only source anything can write today" and is not any more**: an agent holding the
+    // `remember` tool writes `run`, which is set by the tool itself and can never come
+    // from a model's arguments. The default stays `person` because it is the reading that
+    // claims LESS — saying a person typed something they typed is right, and saying a run
+    // learned something nobody can point at is a provenance nobody can correct.
     source: MEMORY_SOURCES.includes(r?.source) ? r.source : "person",
     version: Number.isInteger(r?.version) ? r.version : null,
     at: typeof r?.created_at === "string" ? r.created_at : null,
