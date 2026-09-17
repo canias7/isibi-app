@@ -20,6 +20,7 @@ import { PUBLIC } from "../src/define.mjs";
 const T = "tenant-one";
 const AG = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
+const AUTO = "33333333-3333-4333-8333-333333333333";
 const MIGRATIONS = path.join(import.meta.dirname, "..", "supabase", "migrations");
 
 /** A backend that records what went out and answers whatever the case wants back. */
@@ -35,6 +36,14 @@ function recorder(answer = () => ({})) {
     },
   });
   return { can, sent };
+}
+
+/** A backend that FAILS — the arm the recorder above cannot reach, because it always answers 200. */
+function failing(status = 500, message = "boom") {
+  return makeCapabilities({
+    url: "http://local", key: "service-key",
+    fetch: async () => ({ ok: false, status, text: async () => JSON.stringify({ message }) }),
+  });
 }
 
 test("the surface is exactly what it declares, and nothing is reachable off the list", () => {
@@ -121,12 +130,37 @@ test("⚠ A SIBLING AGENT'S ROW IS NOT THIS AGENT'S, which no tenant filter can 
   assert.equal(await ops.readAutomation({ id: AG }), null, "a sibling's automation was handed over");
   assert.equal(await ops.readExecution({ id: AG }), null, "a sibling's execution was handed over");
 
+  // ⚠ AND THE LIST, WHICH IS THE ONE THE DATABASE CANNOT HELP WITH. `read_knowledge`,
+  // `read_automation` and `read_execution` each hand back a row carrying an owner, so the
+  // wall has something to compare; `agent.list_executions` filters on the TENANT and the
+  // automation id and knows nothing about an agent, so this pre-check is the whole of it.
+  // MEASURED: a mutant cutting it SURVIVED the suite — every other sibling assertion above
+  // passed while one agent could read a sibling's automation history.
+  // ⚠ THE AUTOMATION ID MUST BE A REAL UUID. `readAutomation` refuses a malformed id on
+  // SHAPE, before it ever asks who owns it, so a made-up `"a1"` makes this case pass with
+  // the wall deleted — which is what the first draft did, and what the control below caught.
+  const { can: canL, sent: sentL } = recorder((fn) => (
+    fn === "read_automation" ? { id: AUTO, agent: OTHER, steps: [] }
+    : fn === "list_executions" ? [{ id: "e1" }] : []));
+  assert.deepEqual(await canL.forTenant(T).forAgent(AG).listExecutions({ automation: AUTO }), [],
+    "a sibling's automation history was handed over");
+  // AND THE QUERY WAS NEVER SENT, which is the stronger half: the wall stops the ask, so a
+  // reader that answered rows the filter then dropped would still fail here.
+  assert.equal(sentL.filter((c) => c.rpc === "list_executions").length, 0,
+    "a sibling's history was asked for at all");
+
   // THE CONTROL, without which "it answers null" is satisfied by a reader that answers
   // null for everything.
   const mine = { id: "k1", agent: AG, body: "mine" };
   const { can: can2 } = recorder((fn) => (fn === "read_knowledge" ? mine : []));
   const ops2 = can2.forTenant(T).forAgent(AG);
   assert.deepEqual(await ops2.readKnowledge({ id: AG }), mine, "this agent's own source was withheld");
+  const { can: can3, sent: sent3 } = recorder((fn) => (
+    fn === "read_automation" ? { id: AUTO, agent: AG, steps: [] }
+    : fn === "list_executions" ? [{ id: "e1" }] : []));
+  assert.deepEqual(await can3.forTenant(T).forAgent(AG).listExecutions({ automation: AUTO }), [{ id: "e1" }],
+    "this agent's own history was withheld");
+  assert.equal(sent3.filter((c) => c.rpc === "list_executions").length, 1);
 });
 
 test("⚠ `enabled` IS REFUSED, NEVER COERCED — `Boolean(\"false\")` is `true`", async () => {
@@ -164,6 +198,29 @@ test("⚠ the profile header is derived from the DIRECTION, not from the call si
   assert.equal(sent.at(-1).headers["content-profile"], "agent");
   assert.equal(sent.at(-1).headers["accept-profile"], undefined,
     "a write carried the read header — which PostgREST ignores, so it would resolve against `public`");
+});
+
+test("⚠ A BACKEND THAT FAILED IS RAISED, NEVER READ AS AN ANSWER", async () => {
+  // **CANNOT-TELL MUST NEVER READ AS A VALUE**, and this is the one reader where the two
+  // wrong readings are opposite and both plausible. If a non-2xx answered `null`:
+  //   * `readAutomation` would read it as "there is no such automation", and
+  //   * `listMemory` would read it as "this agent remembers nothing" —
+  // so an outage would tell an agent its memory is empty, and the agent would then act on
+  // that. MEASURED: a mutant replacing the throw with `return null` SURVIVED the whole
+  // suite, because every case above answers 200.
+  const ops = failing(500).forTenant(T).forAgent(AG);
+  await assert.rejects(() => ops.listMemory(), (e) => {
+    assert.equal(e.status, 500);
+    assert.match(e.message, /HTTP 500/);
+    return true;
+  }, "a 500 was read as an answer");
+  await assert.rejects(() => ops.readAutomation({ id: AG }), /HTTP 500/,
+    "a 500 was read as 'there is no such automation'");
+  await assert.rejects(() => ops.listKnowledge(), /HTTP 500/);
+  // THE CONTROL: the same calls against a backend that answers really do answer, so
+  // "it rejects" is not satisfied by a store that rejects everything.
+  const { can } = recorder(() => []);
+  assert.deepEqual(await can.forTenant(T).forAgent(AG).listMemory(), []);
 });
 
 // ── the tools ───────────────────────────────────────────────────────────────
@@ -246,6 +303,24 @@ test("⚠ `run_automation` MINTS ITS OWN RUN ID and refuses when it cannot", asy
   const none = await tool.run({ id: AG }, { capabilities: ops });
   assert.equal(none.ok, false);
   assert.equal(none.error, "no-id");
+});
+
+test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thing removed", async () => {
+  // MEASURED: a mutant hardcoding `forgot: true` SURVIVED, and the answer it produced was
+  // self-contradictory — `forgot: true` beside "there was nothing remembered under that
+  // name". Nothing drove a forget of a name that was not there.
+  const tool = CAPABILITY_TOOLS.find((t) => t.name === "forget");
+  const nothing = recorder(() => ({ ok: true, forgot: false }));
+  const gone = await tool.run({ name: "tone" }, { capabilities: nothing.can.forTenant(T).forAgent(AG) });
+  assert.equal(gone.ok, true, "a name that was not there is not a failure");
+  assert.equal(gone.forgot, false, "forgetting nothing was reported as having removed something");
+  assert.match(gone.say, /nothing remembered under that name/);
+
+  // THE CONTROL, without which `forgot: false` is satisfied by a tool that always says so.
+  const had = recorder(() => ({ ok: true, forgot: true }));
+  const out = await tool.run({ name: "tone" }, { capabilities: had.can.forTenant(T).forAgent(AG) });
+  assert.equal(out.forgot, true, "a fact really removed was reported as absent");
+  assert.equal(out.say, "forgotten");
 });
 
 test("a refusal from the database is passed on as a sentence, never as a success", async () => {

@@ -527,3 +527,55 @@ test("an unbounded limit survives the log, where JSON would turn it into null", 
   assert.equal(JSON.parse(JSON.stringify(j.log[0].limits)).wallMs, "Infinity",
     "the unbounded limit did not survive a round trip through JSON");
 });
+
+// ── the backend a tool reaches ───────────────────────────────────────────────
+
+test("⚠ THE SCOPED BACKEND REACHES THE TOOL — the hop a capability dies at in silence", async () => {
+  // **THE WIRING LAYER**, in the one place a capability can be perfectly correct and
+  // completely dead. `runAgent` takes the already-scoped operations and puts them on the
+  // tool context; if that one assignment is cut, every capability tool answers
+  // `no-backend` and the run still completes, still answers, and still reads as success
+  // from every other angle. MEASURED: a mutant replacing `opts.capabilities ?? null` with
+  // `null` SURVIVED the whole suite — nothing drove a tool through `runAgent` with a
+  // backend behind it.
+  const reached = [];
+  const can = { listMemory: async () => { reached.push("listMemory"); return [{ name: "tone" }]; } };
+  const t = defineTool({
+    name: "recall", description: "recall", input: { type: "object" }, scope: PUBLIC,
+    run: async (_args, ctx) => {
+      if (!ctx?.capabilities) return { ok: false, error: "no-backend" };
+      return { ok: true, memories: await ctx.capabilities.listMemory() };
+    },
+  });
+  const r = await runAgent({
+    agent: agentWith([t]), prompt: "what do you remember", capabilities: can,
+    send: scripted([wants("recall"), says("your tone is plain")]),
+  });
+  assert.equal(r.ok, true, r.stop?.reason);
+  assert.deepEqual(reached, ["listMemory"], "the tool never reached the backend");
+  assert.deepEqual(r.steps[0].results[0].value, { ok: true, memories: [{ name: "tone" }] });
+
+  // THE CONTROL, without which "it reached the backend" is satisfied by a tool that
+  // reaches one however it was built: the SAME run with no capabilities refuses by name.
+  const none = await runAgent({
+    agent: agentWith([t]), prompt: "what do you remember",
+    send: scripted([wants("recall"), says("nothing")]),
+  });
+  assert.deepEqual(none.steps[0].results[0].value, { ok: false, error: "no-backend" });
+  assert.deepEqual(reached, ["listMemory"], "a run with no backend reached one anyway");
+});
+
+test("capabilities that are not operations are refused at the door, not at the tool", async () => {
+  // A junk backend must not become a tool context a tool then calls a method on — that is
+  // a TypeError in front of a customer instead of a sentence.
+  for (const bad of ["ops", 4, true]) {
+    await assert.rejects(
+      () => runAgent({ agent: agentWith(), prompt: "go", send: scripted([says("ok")]), capabilities: bad }),
+      /already scoped/, `capabilities of ${JSON.stringify(bad)} was accepted`);
+  }
+  // `null` and absent are the same real answer — a deployment with no store behind it.
+  for (const none of [null, undefined]) {
+    const r = await runAgent({ agent: agentWith(), prompt: "go", send: scripted([says("ok")]), capabilities: none });
+    assert.equal(r.ok, true);
+  }
+});

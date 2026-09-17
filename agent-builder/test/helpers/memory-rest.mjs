@@ -573,6 +573,23 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       })));
     }
 
+    /** `agent.list_memory` — one agent's remembered facts, by name.
+     *
+     * ⚠ THE OWNERSHIP TEST IS THE REAL FUNCTION'S OWN (`agent.owns_agent`), and it is
+     * mirrored rather than skipped: a fixture that answered every agent's memories would
+     * be MORE forgiving than the thing it stands in for, and the wall this serves as the
+     * far end of is the one a capability tool is entirely made of.
+     */
+    if (p.endsWith("/rpc/list_memory") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent_id: agentId } = body;
+      const a = agents.get(agentId);
+      if (!a || a.tenant_id !== tenant) return res(200, []);
+      return res(200, [...mem.values()]
+        .filter((m) => m.tenant_id === tenant && m.agent_id === agentId)
+        .sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0))
+        .map((m) => ({ id: m.id, name: m.key, value: m.value, version: m.version, source: m.source })));
+    }
+
     /** `agent.tick_automations` — file what is due, and advance past it.
      *
      * The advance is a plain day here rather than `automation_next_at`'s local-time

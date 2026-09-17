@@ -14,6 +14,8 @@ import { makeStandIn } from "../src/model-standin.mjs";
 import { runAgent } from "../src/run.mjs";
 import { memoryRest } from "./helpers/memory-rest.mjs";
 import { LEASE_TTL_S, BEAT_EVERY_MS } from "../src/runner.mjs";
+import { AUTHORED_AGENT } from "../src/agents.mjs";
+import { startedEntry, limitsToJson } from "../src/journal.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIR = path.resolve(HERE, "..");
@@ -829,5 +831,100 @@ test("⚠ a RING that fails costs that row its latency and nothing else", async 
       assert.equal(rest.work.get(id).kind, "resume", `${id} was not re-queued`);
       assert.equal(rest.work.get(id).done_at, null, `${id} is still off the queue`);
     }
+  });
+});
+
+// ── the backend the deployment's own tools reach ─────────────────────────────
+
+const MEM_AGENT = "44444444-4444-4444-8444-444444444444";
+
+test("⚠ A DELIVERY'S TOOLS REACH THE REAL STORE — the hop between the Worker and a capability", async () => {
+  // **THE WIRING LAYER, at the only place both halves exist at once.** `parts` builds the
+  // capability backend and `buildRunner` hands it to `makeRunner`; drop that ONE key and
+  // every capability tool answers `no-backend`, the run still completes, the queue still
+  // acks, and the customer is told the agent remembers nothing. MEASURED: a mutant cutting
+  // `capabilities` out of that argument list SURVIVED the whole suite — nothing drove a
+  // capability tool through a real delivery.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    rest.agents.set(MEM_AGENT, { id: MEM_AGENT, tenant_id: "t1", status: "active" });
+    rest.mem.set("m-1", { id: "m-1", tenant_id: "t1", agent_id: MEM_AGENT,
+                          key: "opening_hours", value: "nine to five", version: 2, source: "person" });
+
+    const runId = "run-mem-1";
+    const accepted = await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({
+        p_run_id: runId, p_tenant: "t1", p_kind: "start",
+        p_entry: startedEntry({
+          at: "2026-09-17T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+          // The stand-in picks the tool the request names, so the prompt is what makes
+          // this a `list_memory` call rather than a guess about its ordering.
+          prompt: "use list_memory and tell me what you remember",
+          limits: limitsToJson({ steps: 2 }),
+          instructions: "You answer about the shop.", history: [],
+          authoredAgent: MEM_AGENT, message: "msg-1", tools: ["list_memory"],
+        }),
+      }),
+    });
+    assert.equal(accepted.status, 200, await accepted.text());
+
+    const batch = batchOf([{ runId }]);
+    await worker.queue(batch, env, ctx);
+    assert.deepEqual(batch.acked, [0], "the delivery was retried rather than finished");
+
+    // ⚠ THE ASSERTION IS ON WHAT THE TOOL GOT BACK, not on the run finishing. A run with
+    // no backend finishes just as happily — with `no-backend` in the tool result, which is
+    // what the mutant produced.
+    const log = [...rest.entries.get(runId).values()];
+    const tools = log.filter((e) => e.kind === "tool");
+    assert.equal(tools.length, 1, `the model called ${tools.length} tools: ${JSON.stringify(log.map((e) => e.kind))}`);
+    assert.equal(tools[0].name, "list_memory");
+    assert.equal(tools[0].value?.ok, true, `the tool refused: ${JSON.stringify(tools[0].value)}`);
+    assert.deepEqual(tools[0].value.memories.map((m) => m.name), ["opening_hours"],
+      "the tool answered without reaching the store");
+    assert.equal(tools[0].value.memories[0].value, "nine to five");
+
+    // AND IT WAS SCOPED TO THE AUTHORED AGENT, not to some other agent of the same account
+    // — the tenant comes from the claim and the agent from the run's own snapshot.
+    const asked = rest.fetch.calls.filter((c) => c.url.endsWith("/rpc/list_memory"));
+    assert.equal(asked.length, 1);
+    assert.equal(asked[0].body.p_tenant, "t1");
+    assert.equal(asked[0].body.p_agent_id, MEM_AGENT);
+  });
+});
+
+test("...AND A SIBLING'S MEMORY IS NOT THIS AGENT'S, through the real delivery", async () => {
+  // THE CONTROL that makes the case above about the wiring rather than about the fake:
+  // the same run against an agent that owns nothing answers an empty list, so "it came
+  // back with a memory" cannot be satisfied by a store that answers everything.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const other = "55555555-5555-4555-8555-555555555555";
+    rest.agents.set(MEM_AGENT, { id: MEM_AGENT, tenant_id: "t1", status: "active" });
+    rest.agents.set(other, { id: other, tenant_id: "t1", status: "active" });
+    rest.mem.set("m-1", { id: "m-1", tenant_id: "t1", agent_id: other,
+                          key: "opening_hours", value: "nine to five", version: 1, source: "person" });
+
+    const runId = "run-mem-2";
+    await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({
+        p_run_id: runId, p_tenant: "t1", p_kind: "start",
+        p_entry: startedEntry({
+          at: "2026-09-17T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+          prompt: "use list_memory and tell me what you remember",
+          limits: limitsToJson({ steps: 2 }),
+          instructions: "You answer about the shop.", history: [],
+          authoredAgent: MEM_AGENT, message: "msg-1", tools: ["list_memory"],
+        }),
+      }),
+    });
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+    const tool = [...rest.entries.get(runId).values()].find((e) => e.kind === "tool");
+    assert.equal(tool.value.ok, true);
+    assert.deepEqual(tool.value.memories, [], "a sibling agent's memory was handed over");
   });
 });
