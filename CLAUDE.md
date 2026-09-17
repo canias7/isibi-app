@@ -7178,6 +7178,20 @@ unprivileged user), two RTL cases (template deps not installed) and
 Three recorded environment skips plus the one this branch's neighbour added —
 which is why the number to carry is the TOTAL.
 
+**AND `site build` RUN 1164 IS GREEN ON THE SAME SHA (2026-09-17
+06:11:15→06:30:24Z, all twenty steps): `site-build.mjs` 382 passed / 0
+failed in 13m48s**, with kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47 beside it — every count
+bounded to its own step window, 12 steps carrying a result and 0 before the
+first marker. **It fired because `worker.js` and `builder/**` moved**, which is
+that workflow's `paths` behaving; 1164 joins the 382 scan list.
+**AND THAT STEP'S TAP MOVED, WHICH IS THE ARITHMETIC CLOSING ONE LAYER DOWN**:
+the unit step (`page-gen` + `publish-pages`) reads `pass 393` against **390** on
+runs 1162 and 1163 — exactly the three `page-gen` cases this round added, since
+`test/page-gen.test.mjs` is in that step's own glob.
+**The docs push that followed (`fb643a8d`) started `unit tests` 2660, green, and
+NO `site build`** — two documents, which the `paths` filter does not cover.
+
 **NOT MERGED AND NOT DEPLOYED, and no paid call was made** — the owner's
 instruction for this round. Every measurement here is from driving the real
 route against stubbed seams.

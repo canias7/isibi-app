@@ -254,8 +254,12 @@ itself twice here.
 - **CI agrees: `unit tests` 2659 green** — 6,761 tests, 0 failed, 4 skipped, and
   the four are the usual environment ones (a case needing root, two needing the
   template installed, one needing git history a shallow checkout does not have).
-  `site build` 1164 is still running; it takes about twenty minutes and I will
-  report it.
+  **`site build` 1164 is green too** — all twenty steps, the container harness
+  382 passed / 0 failed in 13m48s, and the same six counts beside it as every
+  run before. It ran because this change moves real product code, which is the
+  filter behaving. One small thing worth seeing: the harness's own unit step
+  went 390 → 393, which is exactly the three module tests I added — the numbers
+  agree two layers down.
 
 ### Not done, by your instruction
 
