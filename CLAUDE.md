@@ -7449,6 +7449,120 @@ this file's own recorded trap.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
 
+### A COMBINED PAGE + PHOTOGRAPH ASK STOPS LYING AND LEAVES A FILLABLE SLOT (2026-09-17)
+
+Owner, after the large-site work: *"then continue with … combined page + photo."*
+
+*"Add a gallery page showing photos of our work"* picks `page` AND `photo`, and
+`photo` is the one DISPATCHED kind, so it is set aside with a sentence — *"ask
+for it on its own and I'll place it"* — and the page is built and published.
+**Three things were wrong with that, every one MEASURED through
+`POST /api/site/<slug>/addon` before anything was touched.** **Only the second
+is specific to the pairing** — the other two are true of any addon that reaches
+the page writer at all, which every `page` and `component` ask does — and all
+three surface together here, which is why this combination is what found them.
+
+**1. A BUDGET OF OURS WAS SAID AS A FACT ABOUT THE SITE.** The addon passes
+`images: 0` — correct, and the rule `budgetFor` exists to keep, since a revise
+re-buying pictures the owner already has was a ~94-credit bug. But
+`imageDirective(0)` says *"PHOTOGRAPHS: none on this site"*, which is false on
+every site that has any: measured on a site showing two bought photographs,
+**identical sentence.** The two are separated now — the zero is stated as OURS
+(*"this change buys none, so do not write any `@@IMG:@@` token"*) and what the
+site has is a second sentence.
+
+- **`shownPhotos(pages, slug)` IS THREE-STATE**, because `null` is "nobody
+  looked" and the one thing that must not happen there is a claim either way:
+  an unread source gets *"Leave every picture already on this site exactly as
+  it is."* It counts DISTINCT urls under the site's own `/u/<slug>/` mark, so
+  one photograph drawn in two bands is one, and another site's uploads are
+  none of ours.
+- **AND NAMING THEM IS ONLY HALF OF IT.** A page writer edits what it is SHOWN,
+  and those photographs sit on a page this change hands it back in full — so the
+  count without an instruction tells it they are there and nothing about leaving
+  them alone. *"…and they stay exactly as they are — do not replace one, and do
+  not remove it."* They cost real money and the owner already paid it.
+
+**2. IT ASKED FOR THE ONE SLOT SHAPE ITS OWN NEXT STEP CANNOT FILL.** The zero
+form said *"a `<SafeImage>` with NO src"*, and the picture rung — the rung this
+hand-off promises — fills a slot by rewriting a `src` ATTRIBUTE. **MEASURED both
+directions: a build whose token was not bought comes out of `applyImages` as
+`src=""` and the picture rung sees ONE slot; the shape the addon asked for reads
+as ZERO.** So the customer was told to ask again for a photograph the next rung
+had nowhere to put. It asks for `src=""` now, and **an empty src and a missing
+one render identically** — `safe-image.tsx` branches on `!src` — so it costs
+nothing a visitor can see. Sent only when a photograph was really set aside, so
+an addon nobody asked a picture of is byte-identical to what it was.
+
+**3. THE CUSTOMER WAS NEVER TOLD THE NEW PAGE HAS EMPTY FRAMES.**
+`countImageSlots` counts `@@IMG:` TOKENS, and its own comment says exactly why
+it exists — *"a NEW page that wants one publishes with a placeholder and, until
+this, said nothing about it"* — while this step's directive FORBIDS tokens. So
+its answer here is *the number of tokens a model wrote against an instruction
+not to*, which is 0 whenever the model obeys: `photoNote` has never once fired
+on this path. **The defect that reader was written to close, one rung along from
+where it was closed.**
+
+**AND THE SAME IS TRUE OF THE EDIT PATH'S `page` RUNG, checked rather than
+assumed** — it passes `images: 0` for the same reason and computes `pSlots` the
+same way, so its `photos` is 0 on every obedient answer too. **Not fixed here**:
+that rung tweaks an existing page rather than adding one, the owner's standing
+instruction is to keep edit-path work separate, and it is recorded in the
+backlog.
+
+- **`newEmptySlots(before, after)` IS PER PAGE AND ONLY THE INCREASE.** An addon
+  that edits the home page to add a link must not report the home page's
+  EXISTING empty frames as new spaces — a true count of the wrong thing, which
+  reads to a customer as *"your change made these"*.
+- **NEGATIVE NEVER SUBTRACTS.** A change that FILLS a frame leaves fewer empty
+  than it found, and letting that offset another page's new one reports zero
+  over a site that really does have a new empty frame on it.
+- **A `src`-LESS ELEMENT IS NOT A FRAME ANYBODY CAN FILL**, so it is not
+  counted: promising it is promising a space the picture step cannot use.
+- **THE TWO COUNTERS ARE DISJOINT BY ORDER, and that is what stops one frame
+  being reported twice**: both are taken BEFORE `applyImages` sweeps, where a
+  token is a non-empty `src` and therefore not an empty slot. A token a model
+  wrote despite the ban is still counted, because the sweep makes the frame
+  real.
+
+**⚠ `!Array.isArray(n)` IN THE OBJECT BRANCH IS INERT, MEASURED AND DECLARED.**
+The list branch above returns on EVERY path, its own `!shots.length` fallback
+included, so no array can reach it — **ten array shapes, byte-identical with the
+guard and with it cut.** Kept because the PAIR is what a reader needs (*arrays
+are answered above* / *this branch is objects only*) and reordering the two
+branches is a one-line edit that reads as tidying; the sweep drives the list
+branch's own guard plus an observable mutant of the same line instead.
+
+**Guards**: `addon-route` **82 → 85**, `site-images` **70 → 72**, `site-picture`
+**52 → 53**, every case driven through the real route or the real module, and
+every new assertion proved RED against the defect it forbids. **Suite 6,780** —
+6,774 + 6, and the arithmetic closes exactly.
+
+**Sweep: 24 mutants, 24 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-page-photo.json`, over `worker.js`,
+`builder/site-images.mjs` and `builder/site-picture.mjs`, against 7 test files).
+**Pass 1 read 23/18/5 and not one survivor was the product's** — four were gaps
+in this change's own guards and the fifth was the inert belt above. Two of the
+four are worth keeping as rules:
+
+- **⚠ THE CLAMP HAD NO ARMING FIXTURE, AND THE CASE'S OWN COMMENT CLAIMED
+  OTHERWISE.** It said *"a fill somewhere else must not offset a new one"* and
+  filled the page's ONLY frame — which takes that page out of the `after` map
+  entirely, so the loop never visits it and there is no negative to clamp.
+  **MEASURED: the unclamped sum passes every other assertion in the case.** The
+  shape that arms it keeps one empty frame while losing another. *A case that
+  names the property it tests is not thereby testing it.*
+- **⚠ AND NO FIXTURE HAD A PAGE GAIN A PICTURE**, so "count the empty frames"
+  and "count every frame" were the same assertion throughout — measured, the
+  whole case passes with `isEmptySlot` never asked. A new page with one filled
+  frame and one empty is the discriminator.
+
+The other two were walls nobody drove: the protection clause had **no reader
+anywhere in the tree** (one occurrence, the source), and `countImageSlots` on
+this path had no case writing a token.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
+
 ### THE HAND-OFF AND ITS ANSWER ARE ONE OUTCOME NOW (2026-09-16)
 
 Owner, after run 50: *"Reconcile the original handoff with the receiving
@@ -9333,6 +9447,19 @@ rule and the measurement.
   NOT done here — the owner's instruction for that round was *"Keep edit-path
   work … separate"* — and the addon's `readSiteParts` is already exported-shaped
   for it, so this is a wiring change rather than a design one.
+- **THE EDIT PATH'S `page` RUNG NEVER TELLS THE CUSTOMER ABOUT AN EMPTY PICTURE
+  FRAME EITHER (open, 2026-09-17, found while fixing the addon's copy of it).**
+  `worker.js:22532` computes `pSlots = countImageSlots(…)` on a rung whose
+  directive is `images: 0` — *"do not write any `@@IMG:@@` token"* — so the
+  count is the number of tokens a model wrote against an instruction not to,
+  and `photoNote` is silent on every obedient answer. A tweak that adds a
+  picture slot to an existing page publishes an empty frame the customer is
+  never told about, exactly as the addon did.
+  **The fix is the one the addon has**: `newEmptySlots(before, after)` beside
+  the token count, per page and only the increase, both taken before
+  `applyImages` sweeps so no frame is reported twice. The function is exported
+  and driven. Deliberately NOT done here — *"Keep edit-path work … separate"* —
+  and it is a wiring change rather than a design one.
 - **A WORKING `video-embed` IS INVISIBLE TO THE `data-slot` CENSUS (open,
   2026-09-17, found by verifying the render).** The component stamps
   `data-slot="video-embed"` on its FALLBACK branch — the "Video unavailable"

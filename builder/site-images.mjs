@@ -718,8 +718,9 @@ export function imageDirective(n) {
   // repeated shot): byte-identical with the test and with it cut. It stays
   // because the PAIR is what a reader needs — *arrays are answered above* and
   // *this branch is objects only* — and reordering the two branches is a
-  // one-line edit that reads as tidying. The sweep drives the list branch's own
-  // guard instead, which is the observable half of the same property.
+  // one-line edit that reads as tidying. The sweep drives the two observable
+  // halves of the same property instead: the list branch's own guard, and this
+  // line's `typeof` test, which a number really does fall through.
   if (n && typeof n === "object" && !Array.isArray(n)) {
     const shown = n.shown && typeof n.shown === "object" ? n.shown : null;
     const has = shown && shown.known ? Math.max(0, Math.floor(Number(shown.count)) || 0) : null;

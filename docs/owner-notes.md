@@ -155,6 +155,70 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-17 — "Add a gallery page with photos of our work": three things were wrong
+
+The last item on the list you gave me. Same rules: **nothing merged, nothing
+deployed, no credits spent.**
+
+### The short version
+
+That one sentence asks for two things — a page, and photographs. The addon can
+make the page; photographs belong to a different step, so it sets that half
+aside and says *"ask for it on its own and I'll place it."* That much was right.
+
+Three things around it were not. Only the second is specific to this pairing —
+the other two are true of any addon that writes a page at all — but all three
+surface together here, which is why this combination is what found them:
+
+1. **We told the model the site has no photographs — on sites that have some.**
+   Word for word: *"PHOTOGRAPHS: none on this site."* I measured it on a site
+   showing two real ones and got the identical sentence. The model is writing a
+   new page while being told something false about the site it is writing for.
+
+2. **The promise we made couldn't be kept.** We asked the model to leave a
+   picture slot in a shape the photograph step cannot actually fill. So the
+   customer does what we told them — asks for the photo on its own — and that
+   step finds nowhere to put it. I checked both shapes against the real code:
+   the one we asked for reads as **zero** slots, the right one reads as **one**.
+
+3. **Nobody was told the new page has empty picture frames.** There is already
+   a sentence for that, written for exactly this reason — *"There are 2 spaces
+   for a photo — upload yours in the Data panel and they'll fill in."* It counts
+   something this particular step is forbidden to produce, so on the one path
+   that adds pages it has counted zero since the day it was written and that
+   sentence has never once appeared.
+
+### What it does now
+
+- It says the zero is **ours** — *"this change buys none"* — and then says
+  separately what the site really has, or nothing at all when we could not
+  read the pages. Never a guess in either direction.
+- It tells the model those photographs **stay exactly as they are**. Naming them
+  without that line tells a model they exist and nothing about leaving them
+  alone, and it edits what it is shown. You paid for those pictures.
+- It asks for the slot shape the photograph step can really fill. Looks
+  identical to a visitor — same placeholder either way.
+- It counts the empty frames the change actually **added**, per page. Frames
+  that were already on a page it touched are not reported as spaces your change
+  made, and a frame it filled somewhere else does not cancel out a new one.
+
+### Worth knowing
+
+Four of the five things my mutation sweep flagged were **holes in my own new
+tests**, not in the code — including one where the test's own comment claimed
+to check something it could not reach. I measured each one rather than guessing,
+and every new check was proved to fail against the bug it is there to catch
+before I believed it.
+
+The fifth was a line that genuinely cannot ever run. I measured that too, over
+ten cases, left it in with a note saying why, and pointed the sweep at the line
+next to it that can.
+
+**Nothing here is live.** Next time you run a real addon that asks for a page
+and a photo together, this is what changes.
+
+---
+
 ## 2026-09-17 — Big sites: the addon stopped telling the writer to retype them
 
 Next on your list after the two gaps. Same rules: **nothing merged, nothing
@@ -6688,6 +6752,20 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 ---
 
 ## Open — bugs and gaps
+
+**Open 2026-09-17 — the edit path has the same "nobody mentioned the empty
+picture frame" gap the addon just had**
+
+When an edit tweaks an existing page and that tweak leaves a picture slot, the
+customer is not told — the same sentence, the same silence, one rung along from
+the one I fixed today. I checked rather than assumed: that rung is told to buy
+no photographs in the same words, and it counts the same thing, so it counts
+zero on any ordinary answer.
+
+It is a smaller case than the addon's, because that rung changes a page rather
+than adding one. The fix is the piece I just wrote, wired in beside the existing
+count. **Left alone deliberately** — you asked for edit-path work to stay
+separate from this round.
 
 **Open 2026-09-12 — Hebden Bike Repair still has the writing across its hero,
 and one republish clears it**
