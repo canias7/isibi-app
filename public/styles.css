@@ -5109,6 +5109,32 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    sentence about nothing answering — which would otherwise look like the reason. */
 .ag-err-send { margin: .4rem .2rem 0; min-height: 0; }
 
+/* ── a tool call waiting for a person ─────────────────────────────────────────
+   Above the box, because it is the reason nothing is happening. It reads as a
+   question rather than as an error: nothing has gone wrong, and nothing has been
+   done either. */
+.ag-aps { margin: .2rem .2rem .1rem; display: flex; flex-direction: column; gap: .5rem; }
+.ag-aps-err { margin: .2rem .2rem 0; }
+.ag-ap {
+  border: 1px solid var(--line-2); border-left: 3px solid var(--accent, #6b5bd2);
+  border-radius: 10px; padding: .6rem .75rem; background: var(--panel);
+}
+.ag-ap-t { font-weight: 600; font-size: .9rem; }
+.ag-ap-s { margin-top: .2rem; font-size: .88rem; line-height: 1.5; }
+.ag-ap-none { margin-top: .35rem; color: var(--muted); font-size: .84rem; }
+.ag-ap-args { margin: .4rem 0 0; padding: 0; list-style: none; font-size: .84rem; line-height: 1.6; }
+.ag-ap-args li { display: flex; gap: .4rem; }
+.ag-ap-k { color: var(--muted); flex: 0 0 auto; }
+/* The value can be a long line of JSON, so it wraps rather than widening the column. */
+.ag-ap-v { min-width: 0; overflow-wrap: anywhere; }
+.ag-ap-acts { margin-top: .55rem; display: flex; gap: .45rem; }
+.ag-ap-yes, .ag-ap-no {
+  border: 1px solid var(--line-2); border-radius: 8px; padding: .3rem .8rem;
+  font: inherit; font-size: .85rem; cursor: pointer; background: var(--panel);
+}
+.ag-ap-yes { background: var(--accent, #6b5bd2); border-color: transparent; color: #fff; }
+.ag-ap-yes[disabled], .ag-ap-no[disabled] { opacity: .55; cursor: default; }
+
 /* A disabled write control says so rather than looking pressable. */
 .ag-save:disabled, .ag-send-btn:disabled { opacity: .55; cursor: default; }
 

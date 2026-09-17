@@ -1016,12 +1016,35 @@ const spec = [
     "const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: args.source ?? \"run\" });"),
   m("tools: starting an automation is declared safe to repeat, so a redelivery starts a second", CT,
     "  name: \"run_automation\",", "  name: \"run_automation\", repeatable: true,"),
+  // RE-ANCHORED, NOT APPEASED: the id is derived from the CALL now, so the mutant that
+  // lets a model name its own run has to reach past the derivation rather than past a
+  // mint. The property is unmoved — an argument may never become an execution's identity.
   m("tools: a model names the run it starts", CT,
-    "    const runId = typeof ctx?.newId === \"function\" ? ctx.newId() : null;",
-    "    const runId = args.runId ?? (typeof ctx?.newId === \"function\" ? ctx.newId() : null);"),
-  m("tools: with no way to mint an id it starts one anyway, with none", CT,
-    '    if (!runId) return { ok: false, error: "no-id", say: "this deployment cannot mint a run id, so nothing was started" };',
+    "    const runId = typeof ctx?.operation === \"string\" && ctx.operation\n      ? await uuidFrom(ctx.operation) : null;",
+    "    const runId = args.runId ?? (typeof ctx?.operation === \"string\" && ctx.operation\n      ? await uuidFrom(ctx.operation) : null);"),
+  // RE-ANCHORED, NOT APPEASED: the id is DERIVED now rather than minted, and the refusal
+  // is what stops a deployment that cannot identify the call from minting one anyway.
+  m("tools: with no way to identify the call it starts one anyway, with none", CT,
+    '    if (!runId) return { ok: false, error: "no-id", say: "this deployment cannot identify the call, so nothing was started" };',
     "    void runId;"),
+  m("tools: the execution id is minted afresh, so a redelivery makes a second one", CT,
+    "    const runId = typeof ctx?.operation === \"string\" && ctx.operation\n      ? await uuidFrom(ctx.operation) : null;",
+    "    const runId = typeof ctx?.newId === \"function\" ? ctx.newId() : null;"),
+  m("tools: starting an automation is declared unsafe to repeat, so an approved one strands", CT,
+    "  repeatable: true,\n  run: async (args, can, ctx) => {",
+    "  repeatable: false,\n  run: async (args, can, ctx) => {"),
+  m("approvals: a derived id is not a uuid, so the column refuses it at the last moment", AP,
+    "  b[6] = (b[6] & 0x0f) | 0x50;", "  b[6] = b[6];"),
+  m("approvals: the same call derives a different id each time", AP,
+    "  const digest = new Uint8Array(await crypto.subtle.digest(\"SHA-256\", new TextEncoder().encode(String(text))));",
+    "  const digest = crypto.getRandomValues(new Uint8Array(16));"),
+  m("run: the call's identity is not built, so a tool that needs one refuses for ever", R,
+    "    operation: operationSeed === null || !Number.isInteger(step) || !Number.isInteger(index)\n      ? null\n      : `${operationSeed}:${step}:${index}`,",
+    "    operation: null,"),
+  m("run: every call in a run shares one identity", R,
+    "      : `${operationSeed}:${step}:${index}`,", "      : `${operationSeed}`,"),
+  m("runner: the run is not the seed, so two runs derive the same work", RN,
+    "        operationSeed: runId,", "        operationSeed: \"seed\","),
   m("tools: forgetting something that was not there reads as having removed it", CT,
     "    return { ok: true, forgot: answer.forgot === true,", "    return { ok: true, forgot: true,"),
   m("tools: a database refusal is passed on as a SUCCESS", CT,
@@ -1095,7 +1118,7 @@ const spec = [
     "  approval: true,\n  run: async (args, can) => {\n    const answer = await can.setAutomationEnabled(",
     "  run: async (args, can) => {\n    const answer = await can.setAutomationEnabled("),
   m("tools: starting an automation needs nobody", CT,
-    "  approval: true,\n  run: async (args, can, ctx) => {", "  run: async (args, can, ctx) => {"),
+    "  approval: true,\n  // ⚠ SAFE TO REPEAT", "  // ⚠ SAFE TO REPEAT"),
 
   // ── the gate, in the loop ─────────────────────────────────────────────────
   m("run: a gated call is dispatched without asking anybody", R,

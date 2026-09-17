@@ -179,6 +179,7 @@ begin
   -- so a second press re-reads what the winner wrote rather than replacing it.
   if v_row.verdict is not null then
     return jsonb_build_object('ok', true, 'repeat', true, 'id', v_row.id,
+                              'run', v_row.run_id,
                               'verdict', v_row.verdict, 'note', v_row.note,
                               'decided_by', v_row.decided_by);
   end if;
@@ -195,6 +196,11 @@ begin
   v_back := agent.requeue_run(v_row.run_id, p_tenant);
 
   return jsonb_build_object('ok', true, 'repeat', false, 'id', v_row.id,
+                            -- WHICH RUN, so the caller can ring the doorbell. `requeue_run`
+                            -- has already put the work back INSIDE this transaction; a SQL
+                            -- function cannot ring a Cloudflare queue, so the prompt half
+                            -- is the caller's and the durable half is already done.
+                            'run', v_row.run_id,
                             'verdict', v_row.verdict, 'note', v_row.note,
                             'decided_by', v_row.decided_by, 'requeued', v_back);
 end; $$;

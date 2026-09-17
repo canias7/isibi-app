@@ -834,6 +834,40 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return answerOf(r, "decide approval");
     },
 
+    // ── a tool call waiting for a person ────────────────────────────────────
+
+    /**
+     * Every tool call this account has waiting, oldest first.
+     *
+     * `agentId` narrows it to one agent's, and `null` is every agent's — which is what a
+     * list screen wants. **THE TENANT IS AN ARGUMENT AND IS ALWAYS IN THE FILTER**: the
+     * function bypasses RLS like every other one here, so this is the wall.
+     */
+    async listToolApprovals(tenant, agentId = null, limit = MAX_TOOL_APPROVALS) {
+      const r = await req("POST", "rpc/pending_approvals", {
+        body: { p_tenant: tenant, p_agent_id: agentId ?? null, p_limit: limit },
+      });
+      if (!r.ok) throw storeFail("list tool approvals", r);
+      return rows(r).map(toolApprovalRow);
+    },
+
+    /**
+     * A person answers one of them.
+     *
+     * **`by` IS COMPELLED BY THE DATABASE AND IS SUPPLIED FROM THE VERIFIED SESSION.**
+     * The function refuses a blank one (`no-decider`), which is what "only an authorized
+     * user can approve" rests on — a decision nobody can be tied to is one nobody can be
+     * asked about afterwards. It is never read from a request body; there is no argument
+     * for it on the route.
+     */
+    async decideToolApproval(tenant, { id, verdict, note, by }) {
+      const r = await req("POST", "rpc/decide_tool_approval", {
+        body: { p_tenant: tenant, p_id: id, p_verdict: verdict, p_note: note ?? null, p_by: by },
+      });
+      if (!r.ok) throw storeFail("decide tool approval", r);
+      return answerOf(r, "decide tool approval");
+    },
+
     // ── reference material ──────────────────────────────────────────────────
     //
     // **PLAIN TABLE WRITES RATHER THAN FUNCTIONS, and the difference from the automation
@@ -1735,6 +1769,15 @@ export const KNOWLEDGE_FORMATS = Object.freeze(["text", "markdown"]);
 
 /** How much one agent may remember, and how long one memory may be. */
 export const MAX_MEMORIES = 100;
+/**
+ * How many waiting tool calls one read hands back.
+ *
+ * **IT IS THE DATABASE'S OWN CEILING, not a second one beside it.**
+ * `agent.pending_approvals` clamps its limit to 100, so asking for more is asking for
+ * something the function will not give — and a screen built on a bound the server does
+ * not share is one that silently shows a short list as a whole one.
+ */
+export const MAX_TOOL_APPROVALS = 100;
 export const MEMORY_VALUE_MAX = 4000;
 /** Where a memory came from. `run` exists for the day extraction does; nothing writes it. */
 export const MEMORY_SOURCES = Object.freeze(["person", "run"]);
@@ -1831,7 +1874,20 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/memory": "GET",
   "/api/agent/memory-save": "POST",
   "/api/agent/memory-delete": "POST",
+  // ── a tool call waiting for a person ──────────────────────────────────────
+  // ⚠ NAMED `tool-*` BECAUSE THIS PRODUCT ALREADY HAS AN `approval` THAT IS NOT THIS
+  // ONE. `/api/agent/automation-approve` answers an approval STEP inside a workflow —
+  // a place in a list of steps somebody wrote. These answer one TOOL CALL a model made
+  // inside a conversation, identified by where it sits in that conversation. Two
+  // different things wearing one word is how a screen comes to send the wrong one.
+  "/api/agent/tool-approvals": "GET",
+  "/api/agent/tool-approve": "POST",
 });
+
+/** Approve, or reject. Nothing else, and never a default. */
+export const TOOL_VERDICTS = Object.freeze(["approved", "rejected"]);
+/** How long a decider's note may be. The column's own bound. */
+export const TOOL_NOTE_MAX = 2000;
 
 /** Which routes read a body, so the caller knows whether to parse one. */
 export const AGENT_POST_ROUTES = Object.freeze(
@@ -1853,6 +1909,28 @@ export function agentBodyMax(path) {
 
 const ok = (body) => ({ status: 200, body: { ok: true, ...body } });
 const no = (status, error, extra) => ({ status, body: { error, ...(extra || {}) } });
+
+/**
+ * One tool call waiting for a person, as the screen reads it.
+ *
+ * **IT FAILS CLOSED ON THE ARGUMENTS**, which is the field the whole decision is about:
+ * a row whose `args` cannot be read as an object answers `{}` and the screen says it has
+ * nothing to show, rather than drawing a person a decision they cannot see the subject
+ * of. Approving what you were not shown is the one mistake here that cannot be taken back.
+ */
+export function toolApprovalRow(r) {
+  const args = r?.args && typeof r.args === "object" && !Array.isArray(r.args) ? r.args : {};
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    run: typeof r?.run === "string" ? r.run : "",
+    agent: typeof r?.agent === "string" ? r.agent : null,
+    tool: typeof r?.tool === "string" ? r.tool : "",
+    args,
+    step: Number.isInteger(r?.step) ? r.step : 0,
+    index: Number.isInteger(r?.index) ? r.index : 0,
+    requestedAt: typeof r?.requestedAt === "string" ? r.requestedAt : null,
+  };
+}
 
 /** The one answer for "not yours" and "no such agent". */
 const NO_AGENT = () => no(404, "that agent isn't here any more");
@@ -2459,6 +2537,63 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       }
       const m = await store.saveMemory(who, { agentId, id: mint(), key, value });
       return m ? ok({ memory: m }) : NO_AGENT();
+    }
+
+    if (path === "/api/agent/tool-approvals") {
+      // ⚠ THE AGENT FILTER IS OPTIONAL AND IS CHECKED WHEN IT IS GIVEN. Without one the
+      // answer is this ACCOUNT'S waiting calls, which is what a person wants to see; with
+      // one, the ownership test runs first, so a stranger's agent id reads as a missing
+      // agent exactly as it does everywhere else.
+      const agentId = q.get("agent") === null ? null : cleanId(q.get("agent"));
+      if (q.get("agent") !== null && !agentId) return no(400, "which agent?");
+      if (agentId && !(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      return ok({ agent: agentId, approvals: await store.listToolApprovals(who, agentId) });
+    }
+
+    if (path === "/api/agent/tool-approve") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which request?");
+      // REFUSED, NEVER DEFAULTED. A verdict this cannot read is a person's answer nobody
+      // can establish — and reading a typo as `approved` runs a call nobody allowed.
+      if (!TOOL_VERDICTS.includes(b.verdict)) return no(400, "say whether it is approved or rejected");
+      if (b.note !== undefined && b.note !== null && typeof b.note !== "string") {
+        return no(400, "that note didn't arrive as text");
+      }
+      const note = b.note === undefined || b.note === null ? null : cleanText(b.note, TOOL_NOTE_MAX);
+      // ⚠ WHO DECIDED COMES FROM THE VERIFIED SESSION AND FROM NOWHERE ELSE. There is no
+      // `by` on this route's body and nothing reads one: an agent cannot approve its own
+      // request because it has no way to be a session, and a person cannot be impersonated
+      // because the field is not on the wire.
+      const d = await store.decideToolApproval(who, { id, verdict: b.verdict, note, by: who });
+      // NOT FOUND, NEVER FORBIDDEN — another account's request and one that does not
+      // exist answer identically, because the difference between them is information.
+      if (d?.ok !== true) return no(404, "that request isn't waiting any more");
+      // ⚠ THE DOORBELL, AND IT IS A DOORBELL AND NEVER THE WORK. `decide_tool_approval`
+      // already put the run back on the queue INSIDE its own transaction — but it is a
+      // SQL function and a SQL function cannot ring a Cloudflare queue, so without this
+      // the person presses Approve and nothing visibly happens until the sweeper's next
+      // tick. **A failed ring is logged and said (`notified: false`) and never raised**:
+      // the work is durable either way, and answering an error would tell somebody their
+      // decision failed when it is committed and will run.
+      //
+      // ⚠ RUNG EVEN ON A REPEAT, for the send route's own reason: a first press whose
+      // ring failed leaves a run nobody has told anyone about, and the second press is
+      // exactly when to say it again. A duplicate ring is harmless by construction —
+      // `claim_run` answers `not-claimable` and the delivery does nothing.
+      let notified = false;
+      const back = cleanId(d.run);
+      if (back && typeof ring === "function") {
+        try { await ring(back); notified = true; }
+        catch (e) { if (typeof log === "function") log("agent approval: the queue was not rung", String(e?.message ?? e)); }
+      }
+      return ok({
+        notified,
+        id: d.id, verdict: d.verdict, note: d.note ?? null,
+        // ⚠ `repeat` IS SAID RATHER THAN HIDDEN. Two people pressing at once is one
+        // decision and a loser, and the loser must be told whose answer stands rather
+        // than being shown their own.
+        repeat: d.repeat === true, decidedBy: d.decided_by ?? null,
+      });
     }
 
     if (path === "/api/agent/memory-delete") {

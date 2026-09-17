@@ -119,6 +119,20 @@ export async function runAgent(opts = {}) {
   if (approvals !== null && typeof approvals?.ask !== "function") {
     throw new TypeError("runAgent: approvals must be an object with an ask(), already bound to this run");
   }
+  /**
+   * ⚠ WHERE A TOOL THAT STARTS WORK GETS AN IDENTITY FOR THE CALL IT IS IN.
+   *
+   * A string this run and this position own: the caller supplies the run half (it is the
+   * only half this loop does not know) and the step and index are added below. **A tool
+   * that derives its work's id from this is safe to repeat by construction** — a
+   * redelivery asks the database for the same id and finds the row already there, where a
+   * freshly minted id would make a second piece of work out of one request.
+   *
+   * `null` is a real answer, and a tool that needs one REFUSES rather than inventing one:
+   * minting quietly is exactly the behaviour this exists to remove.
+   */
+  const operationSeed = typeof opts.operationSeed === "string" && opts.operationSeed.trim() !== ""
+    ? opts.operationSeed : null;
   /** Where a tool that starts work gets its identifier. Injected; never a global. */
   const newId = typeof opts.newId === "function" ? opts.newId : null;
   const mayStart = async (what, step) => { if (checkpoint) await checkpoint({ what, step }); };
@@ -294,7 +308,7 @@ export async function runAgent(opts = {}) {
       const at = now();
       let done;
       try {
-        const value = await tool.run(findArgs(prior, p), toolContext({ tenant, agent, limits, step: p.step, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId }));
+        const value = await tool.run(findArgs(prior, p), toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed }));
         done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: true, value });
       } catch (error) {
         done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: false, error: String(error?.message ?? error) });
@@ -463,7 +477,7 @@ export async function runAgent(opts = {}) {
       // state that reaches the tool.
       const verdict = decided.get(i);
       if (verdict && verdict.state !== "approved") return approvalRefusal(verdict);
-      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId }));
+      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, index: i, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed }));
     }, { limit: limits.parallelTools, now });
 
     // EACH RESULT IS RECORDED AS IT LANDS, which is what makes a half-finished
@@ -502,7 +516,7 @@ function requireEntries(from) {
 }
 
 /** What a tool is told. One builder, so the live path and the resume path agree. */
-function toolContext({ tenant, agent, limits, step, id, room, capabilities, newId }) {
+function toolContext({ tenant, agent, limits, step, id, room, capabilities, newId, operationSeed, index }) {
   return Object.freeze({
     tenant: tenant ?? null, agent: agent.name, step, toolCallId: id,
     toolMs: capMs(limits.toolMs, room()),
@@ -521,6 +535,17 @@ function toolContext({ tenant, agent, limits, step, id, room, capabilities, newI
      * done the work.
      */
     capabilities: capabilities ?? null,
+    /**
+     * ⚠ THE IDENTITY OF THIS CALL, or `null` where the caller could not give one.
+     *
+     * `<run>:<step>:<index>` — the same three facts an approval is bound to, and for the
+     * same reason: they name ONE call and they are the same on every redelivery of it.
+     * A tool that starts work derives its work's id from this, so running it twice asks
+     * the database for the same row rather than making a second one.
+     */
+    operation: operationSeed === null || !Number.isInteger(step) || !Number.isInteger(index)
+      ? null
+      : `${operationSeed}:${step}:${index}`,
     /**
      * A fresh identifier, for the one tool that starts work. **It is injected because
      * nothing below this line may reach a global**, and it is the reason a model cannot

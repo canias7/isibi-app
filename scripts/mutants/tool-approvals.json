@@ -1,0 +1,188 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the tool-approval routes",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "control": true,
+  "from": "  // ── a tool call waiting for a person ──────────────────────────────────────",
+  "to": "  // ── a tool call waiting for a person (control) ────────────────────────────"
+ },
+ {
+  "label": "CONTROL: a comment only, above the approval banner",
+  "files": [
+   "public/chat.js"
+  ],
+  "control": true,
+  "from": "// ── tool calls waiting for a person ─────────────────────────────────────────",
+  "to": "// ── tool calls waiting for a person (control) ───────────────────────────────"
+ },
+ {
+  "label": "route: who decided is taken from the body, so anybody can be named",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const d = await store.decideToolApproval(who, { id, verdict: b.verdict, note, by: who });",
+  "to": "      const d = await store.decideToolApproval(who, { id, verdict: b.verdict, note, by: b.by || who });"
+ },
+ {
+  "label": "route: a verdict is defaulted rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!TOOL_VERDICTS.includes(b.verdict)) return no(400, \"say whether it is approved or rejected\");",
+  "to": "      if (false) return no(400, \"x\");"
+ },
+ {
+  "label": "route: a stranger's request answers FORBIDDEN, which confirms the id is real",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (d?.ok !== true) return no(404, \"that request isn't waiting any more\");",
+  "to": "      if (d?.ok !== true) return no(403, \"that request is not yours\");"
+ },
+ {
+  "label": "route: the loser of a race is shown their own verdict",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        repeat: d.repeat === true, decidedBy: d.decided_by ?? null,",
+  "to": "        repeat: false, decidedBy: d.decided_by ?? null,"
+ },
+ {
+  "label": "route: the agent filter is taken without checking it belongs to this account",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (agentId && !(await store.ownsAgent(who, agentId))) return NO_AGENT();\n      return ok({ agent: agentId, approvals: await store.listToolApprovals(who, agentId) });",
+  "to": "      return ok({ agent: agentId, approvals: await store.listToolApprovals(who, agentId) });"
+ },
+ {
+  "label": "store: the tenant is left off the list, so it answers every account's",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        body: { p_tenant: tenant, p_agent_id: agentId ?? null, p_limit: limit },",
+  "to": "        body: { p_agent_id: agentId ?? null, p_limit: limit },"
+ },
+ {
+  "label": "store: the decision goes out with nobody attached to it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        body: { p_tenant: tenant, p_id: id, p_verdict: verdict, p_note: note ?? null, p_by: by },",
+  "to": "        body: { p_tenant: tenant, p_id: id, p_verdict: verdict, p_note: note ?? null, p_by: null },"
+ },
+ {
+  "label": "store: a failed request is read as an answer rather than raised",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!r.ok) throw storeFail(\"list tool approvals\", r);",
+  "to": "      if (!r.ok) return [];"
+ },
+ {
+  "label": "row: the arguments a person answers about are read from junk",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const args = r?.args && typeof r.args === \"object\" && !Array.isArray(r.args) ? r.args : {};",
+  "to": "  const args = r?.args ?? {};"
+ },
+ {
+  "label": "row: the cap is a number of this file's own, not the function's ceiling",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const MAX_TOOL_APPROVALS = 100;",
+  "to": "export const MAX_TOOL_APPROVALS = 250;"
+ },
+ {
+  "label": "screen: an answer is written into whatever conversation is open now",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (agentMsgsFor !== id || bound.uid !== agentUid()) return;\n    if (!res.ok || !j.ok) {\n      agentApprovalsErr = (j && j.error) || 'Couldn’t check what is waiting.';",
+  "to": "    if (false) return;\n    if (!res.ok || !j.ok) {\n      agentApprovalsErr = (j && j.error) || 'Couldn’t check what is waiting.';"
+ },
+ {
+  "label": "screen: a failed check empties the list, so a stopped agent reads as idle",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      agentApprovalsErr = (j && j.error) || 'Couldn’t check what is waiting.';",
+  "to": "      agentApprovalsErr = (j && j.error) || 'Couldn’t check what is waiting.'; agentApprovals = [];"
+ },
+ {
+  "label": "screen: the press names who decided, which the server would then believe",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      body: JSON.stringify({ id: id, verdict: verdict }),",
+  "to": "      body: JSON.stringify({ id: id, verdict: verdict, by: agentUid() }),"
+ },
+ {
+  "label": "screen: a press that came back after the screen moved writes anyway",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;\n    if (!res.ok || !j.ok) {\n      agentApprovalsErr = (j && j.error) || 'Couldn’t record that.';",
+  "to": "    if (false) return;\n    if (!res.ok || !j.ok) {\n      agentApprovalsErr = (j && j.error) || 'Couldn’t record that.';"
+ },
+ {
+  "label": "screen: the loser of a race is shown their own answer",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    } else if (j.repeat === true) {",
+  "to": "    } else if (false) {"
+ },
+ {
+  "label": "screen: a second press while one is in flight sends a second decision",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!id || agentApprovalBusy) return;",
+  "to": "  if (!id) return;"
+ },
+ {
+  "label": "screen: the conversation is never re-read, so the run looks stuck after a yes",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    agentApprovalsLoad(forAgent);\n    agentThreadLoad(forAgent, true);",
+  "to": "    agentApprovalsLoad(forAgent);"
+ },
+ {
+  "label": "screen: the banner is drawn for whatever conversation is open, not the one it was read for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        (agentApprovalsFor === a.id && (agentApprovals || []).length",
+  "to": "        ((agentApprovals || []).length"
+ },
+ {
+  "label": "screen: nothing is checked on a quiet reload, so a run that stops is silent",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!agentMsgsErr) agentApprovalsLoad(id);",
+  "to": ""
+ },
+ {
+  "label": "screen: the buttons stay live while a press is in flight",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const busy = agentApprovalBusy === r.id;",
+  "to": "  const busy = false;"
+ },
+ {
+  "label": "screen: an argument that is not text is drawn as [object Object]",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  try { return JSON.stringify(v); } catch { return String(v); }",
+  "to": "  return String(v);"
+ }
+]

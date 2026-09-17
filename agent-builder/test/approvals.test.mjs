@@ -129,6 +129,18 @@ test("⚠ AN ASK THAT FAILED IS RAISED, NEVER READ AS A VERDICT", async () => {
     await assert.rejects(() => gate.ask({ step: 0, index: 0, tool: "t", args: {} }),
       undefined, `${JSON.stringify(bad)} was read as an answer`);
   }
+  // ⚠ AND THE STATUS IS CARRIED, WHICH IS WHAT MAKES THE REFUSAL USEFUL — and what a
+  // sweep survivor was about. There are two walls here: the non-2xx throw, and the
+  // shape check below it that refuses an answer which is not an object. With the first
+  // removed the second still rejects, so "it rejects" cannot tell them apart — and a
+  // caller that cannot see a 5xx cannot tell an OUTAGE from a malformed reply, which
+  // want opposite things done. Only the status separates them.
+  const { gate: dead } = backend(() => ({ __status: 503 }));
+  await assert.rejects(() => dead.ask({ step: 0, index: 0, tool: "t", args: {} }), (e) => {
+    assert.equal(e.status, 503, "a failed request came back with no status on it");
+    assert.match(e.message, /HTTP 503/);
+    return true;
+  });
   // THE CONTROL: a real answer really does answer.
   const { gate } = backend(said({ verdict: "approved" }));
   assert.equal((await gate.ask({ step: 0, index: 0, tool: "t", args: {} })).state, "approved");

@@ -638,6 +638,10 @@ export function makeRunner(opts = {}) {
         tenant: { id: claim.tenant },
         capabilities: canDo,
         approvals: mayCall,
+        // ⚠ THE RUN IS THE HALF THE LOOP CANNOT KNOW, and it is the claim's own id — so a
+        // tool that starts work derives an identity from the CALL rather than minting one,
+        // and a redelivery of this run asks the database for the same row.
+        operationSeed: runId,
         newId,
         from: open.entries,
         // **OWNERSHIP BEFORE ANY NEW WORK, ASKED OF THE DATABASE.** Before each model

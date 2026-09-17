@@ -33,16 +33,29 @@
  *   * `remember` is an upsert keyed by the fact's own name and `forget` is a delete of
  *     one — running either twice leaves exactly the state running it once does, which is
  *     what the word means here even though `forget`'s ANSWER differs the second time;
- *   * `change_automation` and `pause_automation` are writes to a named row with the
- *     caller's own values, so the end state does not depend on how many times they ran;
- *   * **`make_automation` and `run_automation` are NOT repeatable, and that is honest
- *     rather than cautious.** Each mints an id per call today, so a redelivery would make
- *     a second automation or a second execution. Giving them an identity derived from
- *     their arguments is the next milestone's work, and until it is done the default that
- *     protects is the correct answer.
+ *   * `pause_automation` is a write to a named row with the caller's own values, so the
+ *     end state does not depend on how many times it ran;
+ *   * **`run_automation` is repeatable BECAUSE ITS IDENTITY IS DERIVED, and that is the
+ *     one entry here where the reason had to be built rather than observed.** It minted a
+ *     fresh id per call, so a redelivery made a SECOND execution and `false` was the
+ *     honest answer — but `false` also made it unusable the moment it was gated: the run
+ *     holds, a person approves, and the resume refuses a pending non-repeatable call.
+ *     MEASURED, in the live demonstration. Its id now comes from `ctx.operation`
+ *     (`<run>:<step>:<index>`), so running it again asks the database for the same
+ *     execution and there is nothing left for the flag to protect.
+ *
+ * ⚠ THIS LIST ONCE NAMED `make_automation` AND `change_automation`, WHICH DO NOT EXIST.
+ * Creating and editing an automation are `CAPABILITIES` a person's screen reaches; no
+ * TOOL offers either, so the paragraph was reasoning about a surface an agent has never
+ * had. The twelve tools are censused against the catalog both ways in
+ * `test/capabilities.test.mjs`; this prose is not, and that is why it drifted.
  */
 
 import { defineTool, PUBLIC } from "./define.mjs";
+// ⚠ `approvals.mjs` IS THE IDENTITY MODULE as well as the approval store: `argsHash`
+// and `uuidFrom` are both "the same call always reads the same way", and splitting
+// them into two files would be two answers to one question.
+import { uuidFrom } from "./approvals.mjs";
 
 /** How long a piece of text a tool may be handed, so a schema states its own bound. */
 export const TOOL_TEXT_MAX = 4000;
@@ -281,11 +294,32 @@ const runAutomation = tool({
   // A PERSON SAYS YES FIRST, for the reason above: this starts work that goes on after
   // the conversation ends.
   approval: true,
+  // ⚠ SAFE TO REPEAT, AND THAT IS THE DERIVED IDENTITY BELOW RATHER THAN A CLAIM.
+  //
+  // It was `false`, and `false` was right while the id was minted per call: a redelivery
+  // made a SECOND execution. But a gated tool that is not repeatable is a tool nobody can
+  // use — MEASURED, in the live demonstration: the run holds, a person approves, the
+  // resume finds a pending non-repeatable call and answers `cannot-resume`. **A control
+  // that holds, is approved, and then refuses is a dead control that ANSWERS**, which is
+  // this repository's own worst shape of that defect.
+  //
+  // With the id derived from the CALL, running it again asks the database for the same
+  // execution and `accept_automation_run` answers `repeat` — so there is nothing left for
+  // `repeatable: false` to protect.
+  repeatable: true,
   run: async (args, can, ctx) => {
-    // THE RUN ID IS MINTED HERE AND NEVER TAKEN FROM AN ARGUMENT. A model naming the id
-    // of a run is a model that can point one execution's record at another.
-    const runId = typeof ctx?.newId === "function" ? ctx.newId() : null;
-    if (!runId) return { ok: false, error: "no-id", say: "this deployment cannot mint a run id, so nothing was started" };
+    // ⚠ THE RUN ID IS DERIVED FROM THIS CALL, NEVER MINTED AND NEVER TAKEN FROM AN
+    // ARGUMENT. A model naming the id of a run is a model that can point one execution's
+    // record at another; a FRESH id per call is a redelivery becoming a second execution.
+    // `ctx.operation` is `<run>:<step>:<index>` — the same three facts an approval is
+    // bound to — so the same call always asks for the same execution.
+    //
+    // **A DEPLOYMENT THAT CANNOT IDENTIFY THE CALL IS REFUSED, not quietly minted for.**
+    // Minting here would restore exactly the behaviour this removes, in the one case
+    // nobody is watching.
+    const runId = typeof ctx?.operation === "string" && ctx.operation
+      ? await uuidFrom(ctx.operation) : null;
+    if (!runId) return { ok: false, error: "no-id", say: "this deployment cannot identify the call, so nothing was started" };
     const answer = await can.startAutomation({ id: text(args.id), runId, input: args.input ?? {} });
     if (answer?.ok !== true) {
       return { ok: false, error: answer?.error ?? "refused",

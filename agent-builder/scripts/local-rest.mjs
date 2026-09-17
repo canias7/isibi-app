@@ -98,6 +98,16 @@ const RPCS = {
   // driving a tool through this shim exercises exactly what a person pressing the
   // button exercises.
   owns_agent: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
+  // ── a tool call a person has to say yes to ────────────────────────────────
+  // BOTH SIDES OF ONE DECISION, and they are reached by different callers on purpose:
+  // the ENGINE asks (`request_tool_approval`, from the run loop) and the SITE answers
+  // (`decide_tool_approval`, from a route behind a verified session). Driving both
+  // through this shim is what makes "the run stops, a person presses, the run carries
+  // on" a thing that really happened rather than a thing two fakes agreed about.
+  request_tool_approval: { args: ["p_tenant", "p_run_id::uuid", "p_agent_id::uuid", "p_step::integer", "p_idx::integer", "p_tool", "p_args::jsonb", "p_hash", "p_id::uuid"], shape: "value" },
+  decide_tool_approval: { args: ["p_tenant", "p_id::uuid", "p_verdict", "p_note", "p_by"], shape: "value" },
+  pending_approvals: { args: ["p_tenant", "p_agent_id::uuid", "p_limit::integer"], shape: "set" },
+  run_approvals: { args: ["p_tenant", "p_run_id::uuid"], shape: "set" },
   list_knowledge: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },
   read_knowledge: { args: ["p_tenant", "p_source_id::uuid"], shape: "value" },
   list_memory: { args: ["p_tenant", "p_agent_id::uuid"], shape: "set" },

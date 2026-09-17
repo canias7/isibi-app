@@ -68,6 +68,25 @@ export function canonicalJson(value) {
   return JSON.stringify(walk(value));
 }
 
+/**
+ * A UUID derived from text, deterministically — the same words always give the same id.
+ *
+ * **THIS IS WHAT MAKES AN ACTION SAFE TO REPEAT.** A tool that mints a fresh id per call
+ * turns a redelivery into a second piece of work; one whose id is DERIVED from the call it
+ * belongs to turns a redelivery into the database finding the row already there. The
+ * digest's own bits are used, with the version and variant nibbles set so the value really
+ * is a UUID — a column typed `uuid` refuses anything else, and a "uuid" that is not one is
+ * a failure at the last possible moment rather than here.
+ */
+export async function uuidFrom(text) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text))));
+  const b = digest.slice(0, 16);
+  b[6] = (b[6] & 0x0f) | 0x50;   // version 5 — named, so nothing reads it as random
+  b[8] = (b[8] & 0x3f) | 0x80;   // the RFC variant
+  const hex = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** The arguments, as one stable hex string. */
 export async function argsHash(args) {
   const bytes = new TextEncoder().encode(canonicalJson(args ?? {}));

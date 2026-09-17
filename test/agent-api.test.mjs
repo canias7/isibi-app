@@ -144,6 +144,15 @@ function fakeStore(over = {}) {
       return { id: A1, key: "tone", value: "formal", version: 1 };
     },
     removeMemory: async (...a) => { calls.push({ name: "removeMemory", args: a }); return true; },
+    // ── a tool call waiting for a person ───────────────────────────────────
+    // AND THE SAME RULE A FOURTH TIME: a route whose store operation this fake lacks
+    // throws, and the census reads the 502 — which is the census being right about a
+    // route with nothing behind it. The answer shapes are the real store's.
+    listToolApprovals: async (...a) => { calls.push({ name: "listToolApprovals", args: a }); return []; },
+    decideToolApproval: async (...a) => {
+      calls.push({ name: "decideToolApproval", args: a });
+      return { ok: true, repeat: false, id: A1, verdict: "approved", note: null, decided_by: T1 };
+    },
   };
   void note;
   return { calls, store: { ...base, ...over } };

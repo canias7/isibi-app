@@ -75,6 +75,39 @@ try {
     await drain();
     return sent;
   };
+  /**
+   * Send one message and — where the run stops for a person — BE that person.
+   *
+   * **EVERY HOP IS THE REAL ONE.** The run holds because `run.mjs` asked
+   * `agent.request_tool_approval` through the engine's own store; what is waiting is read
+   * through the SITE'S route, which is what the screen reads; the decision goes through
+   * the SITE'S route, which is what the button presses; and the run comes back because
+   * `agent.decide_tool_approval` called `agent.requeue_run` inside its own transaction.
+   * Nothing here writes a row by hand.
+   *
+   * ⚠ AND IT TICKS AFTER DRAINING, which is a fact about the product rather than about
+   * this script: the decision is recorded by a SQL function, and a SQL function cannot
+   * ring a Cloudflare queue. The site's route rings it afterwards — that is the prompt
+   * path and it is asserted below — and the SWEEPER is what makes the work durable when
+   * the ring fails. Driving both is what proves the run is not stranded either way.
+   */
+  const decide = async (agent, runId, verdict = "approved", tenant = A) => {
+    const waiting = await api("/api/agent/tool-approvals", { tenant, query: { agent } });
+    const row = (waiting.body.approvals || []).find((r) => r.run === runId) || null;
+    if (!row) return null;
+    const said = await api("/api/agent/tool-approve", { tenant, body: { id: row.id, verdict }, ring });
+    await drain();
+    await tick();
+    await drain();
+    return { row, said: said.body, status: said.status };
+  };
+  /** Send, then answer whatever it stopped to ask. */
+  const askOk = async (agent, words, verdict = "approved", tenant = A) => {
+    const sent = await ask(agent, words, tenant);
+    const answered = await decide(agent, sent.body.runId, verdict, tenant);
+    return { ...sent, approval: answered };
+  };
+
   /** What the run ended up saying, and which tool it really called. */
   const answer = (runId) => q(`select coalesce(stop ->> 'text', '') from agent.runs where id = '${runId}';`);
   const calledTool = (runId) =>
@@ -231,16 +264,47 @@ try {
   const theirRead = await ask(AG, `use read_automation id=${theirAuto.body.id}`);
   check("...and so does the account next door's", toolResult(theirRead.body.runId)?.error === "no-automation");
 
-  const paused = await ask(AG, `use pause_automation id=${AUTO} enabled=false`);
-  check("turning one off answers", toolResult(paused.body.runId)?.ok === true);
+  // ⚠ FROM HERE ON THE RUN STOPS FOR A PERSON. `pause_automation` and `run_automation`
+  // change what the account DOES outside this conversation, so both are gated in code —
+  // and every check below is therefore about the WHOLE loop: the run held, a person was
+  // shown the exact arguments, they pressed, and the run carried on and did the thing.
+  const heldFirst = await ask(AG, `use pause_automation id=${AUTO} enabled=false`);
+  check("⚠ A GATED CALL STOPS THE RUN AND NOTHING HAPPENS",
+    calledTool(heldFirst.body.runId) === "" &&
+    q(`select enabled::text from agent.automations where id = '${AUTO}';`) === "true",
+    `tool entry: "${calledTool(heldFirst.body.runId)}"`);
+  const waitingNow = await api("/api/agent/tool-approvals", { query: { agent: AG } });
+  const req = (waitingNow.body.approvals || [])[0] || {};
+  check("⚠ ...and THE SCREEN'S OWN ROUTE shows what is waiting, with the arguments it would run with",
+    req.tool === "pause_automation" && req.args?.id === AUTO && req.args?.enabled === false,
+    JSON.stringify(req).slice(0, 200));
+  check("⚠ the account next door is shown nothing of it",
+    ((await api("/api/agent/tool-approvals", { tenant: B })).body.approvals || []).length === 0);
+  // ⚠ AND AN AGENT CANNOT ANSWER IT. There is no tool for it, so the only thing an agent
+  // could do is name one — and the platform has none, which is a census rather than a
+  // hope. Asked here as well as in the suite because this is the live surface.
+  check("⚠ no tool this agent holds can decide an approval",
+    !TOOLS.some((n) => /approv|decide|authoris|authoriz/i.test(n)), TOOLS.join(" "));
+
+  const answered = await decide(AG, heldFirst.body.runId, "approved");
+  check("a person approves it through the site's own route", answered?.status === 200 && answered?.said?.ok === true,
+    JSON.stringify(answered?.said).slice(0, 160));
+  check("⚠ ...and WHO DECIDED is the account, recorded by the database and not by the caller",
+    q(`select coalesce(decided_by,'-') from agent.tool_approvals where id = '${req.id}';`) === A);
+  check("⚠ ...and the DOORBELL RANG, so the run comes back at once rather than at the next sweep",
+    answered?.said?.notified === true, JSON.stringify(answered?.said).slice(0, 160));
+
+  const paused = { body: heldFirst.body };
+  check("turning one off answers, once a person has said so", toolResult(paused.body.runId)?.ok === true,
+    JSON.stringify(toolResult(paused.body.runId)).slice(0, 160));
   // ⚠ THE FLAG IN THE DATABASE, not the sentence.
   check("⚠ ...and THE ROW IS OFF", q(`select enabled::text from agent.automations where id = '${AUTO}';`) === "false");
-  const resumed = await ask(AG, `use pause_automation id=${AUTO} enabled=true`);
+  const resumed = await askOk(AG, `use pause_automation id=${AUTO} enabled=true`);
   check("turning it on again puts it back", toolResult(resumed.body.runId)?.ok === true &&
     q(`select enabled::text from agent.automations where id = '${AUTO}';`) === "true");
   check("⚠ ...and re-arms it FORWARD, so a spell switched off is not a backlog",
     q(`select (next_run_at > now())::text from agent.automations where id = '${AUTO}';`) === "true");
-  const sibPause = await ask(AG, `use pause_automation id=${sibAuto.body.id} enabled=false`);
+  const sibPause = await askOk(AG, `use pause_automation id=${sibAuto.body.id} enabled=false`);
   check("⚠ a sibling's automation cannot be turned off, and nothing is written",
     toolResult(sibPause.body.runId)?.ok === false &&
     q(`select enabled::text from agent.automations where id = '${sibAuto.body.id}';`) === "true");
@@ -249,7 +313,7 @@ try {
   console.log("\n5. STARTING ONE, AND WATCHING WHAT IT DID");
   // ═════════════════════════════════════════════════════════════════════════
   const wasRuns = q(`select count(*) from agent.automation_runs where automation_id = '${AUTO}';`);
-  const started = await ask(AG, `use run_automation id=${AUTO}`);
+  const started = await askOk(AG, `use run_automation id=${AUTO}`);
   const runOut = toolResult(started.body.runId);
   check("the tool says it started one", runOut?.ok === true, JSON.stringify(runOut).slice(0, 160));
   check("⚠ ...and AN EXECUTION ROW EXISTS that did not before",
@@ -344,6 +408,31 @@ try {
   check("⚠ ...and the same automations",
     JSON.stringify(screenAutos) === JSON.stringify(agentAutos) && screenAutos.length > 0,
     `${JSON.stringify(screenAutos)} / ${JSON.stringify(agentAutos)}`);
+
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n7b. SAYING NO, AND WHAT THAT LEAVES BEHIND");
+  // ═════════════════════════════════════════════════════════════════════════
+  // ⚠ THE OTHER HALF, AND APPROVING EVERYTHING DOES NOT DEMONSTRATE IT. A rejection has
+  // to leave the world exactly as it was AND reach the model as something it can answer
+  // from — a refusal nobody is told about is a tool that will simply be asked for again.
+  const wasOn = q(`select enabled::text from agent.automations where id = '${AUTO}';`);
+  const refused = await askOk(AG, `use pause_automation id=${AUTO} enabled=false`, "rejected");
+  check("a refused call answers the model rather than crashing the run",
+    toolResult(refused.body.runId)?.error === "rejected",
+    JSON.stringify(toolResult(refused.body.runId)).slice(0, 160));
+  check("⚠ ...and THE ROW IS EXACTLY AS IT WAS — the call never happened",
+    q(`select enabled::text from agent.automations where id = '${AUTO}';`) === wasOn, wasOn);
+  check("⚠ ...and the run FINISHED rather than being stranded",
+    q(`select coalesce(stop ->> 'reason','-') from agent.runs where id = '${refused.body.runId}';`) === "answered");
+  check("⚠ ...and the refusal reached the model, so it can say why",
+    q(`select count(*) from agent.run_entries where run_id = '${refused.body.runId}'
+        and body ->> 'kind' = 'tool' and body -> 'value' ->> 'say' like '%declined%';`) === "1");
+  // ⚠ THE FIRST DECISION STANDS, driven against the live function: pressing again reads
+  // the winner's answer back rather than replacing it.
+  const pressedTwice = await api("/api/agent/tool-approve", { body: { id: refused.approval.row.id, verdict: "approved" } });
+  check("⚠ a second press re-reads the first decision rather than overturning it",
+    pressedTwice.body.repeat === true && pressedTwice.body.verdict === "rejected",
+    JSON.stringify(pressedTwice.body).slice(0, 160));
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n8. WHAT THE WHOLE RUN LEFT BEHIND");

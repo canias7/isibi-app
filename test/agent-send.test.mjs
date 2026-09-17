@@ -27,12 +27,14 @@ import {
   handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_BODY_MAX,
   runView, threadRow, cleanSendKey, RUN_STATES, STANDIN_MODEL, MAX_THREAD,
   AGENT_TOOLS, AGENT_TOOL_NAMES, MAX_AGENT_TOOLS, AGENT_STATUSES, cleanStatus, cleanTools,
+  TOOL_VERDICTS, MAX_TOOL_APPROVALS, toolApprovalRow,
 } from "../agent-store.mjs";
 // ⚠ THE ENGINE'S OWN REGISTRY, IMPORTED HERE AND NOWHERE ELSE. `agent-store.mjs`
 // may not import it — the two are separate products in separate Workers — so the
 // copy each of them holds is kept honest by a census in a test, which is the one
 // place that may read both.
 import { OFFERED, OFFERED_NAMES } from "../agent-builder/src/agents.mjs";
+import { CAPABILITY_RPC } from "../agent-builder/src/capabilities.mjs";
 import {
   AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
   MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
@@ -1035,4 +1037,255 @@ test("the tool catalog's census is untouched by any of it", () => {
   // had quietly stopped looking at the tools.
   assert.deepEqual([...AGENT_TOOL_NAMES].sort(), [...OFFERED_NAMES].sort());
   assert.ok(OFFERED.length >= 1);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// A TOOL CALL A PERSON HAS TO SAY YES TO — the wall, from this side
+// ════════════════════════════════════════════════════════════════════════════
+
+test("⚠ NOTHING AN AGENT CAN CALL REACHES THE DECIDING FUNCTION — from BOTH sides", () => {
+  // The engine asserts this over its own modules. What is asserted HERE is the pair,
+  // which only this file can see: the site owns the route that decides, the engine owns
+  // the tools, and an agent approving its own request would be one of those two reaching
+  // the other's function. Neither may import the other, so the census is the wall.
+  const DECIDER = "decide_tool_approval";
+  // (1) No capability the engine offers names it.
+  assert.ok(!Object.values(CAPABILITY_RPC).includes(DECIDER),
+    "an agent capability calls the deciding function");
+  // (2) No tool in either catalog is named for deciding anything.
+  for (const name of [...AGENT_TOOL_NAMES, ...OFFERED_NAMES]) {
+    assert.ok(!/approv|decide|authoris|authoriz/i.test(name), `${name} sounds like a decision`);
+  }
+  // (3) THE SITE'S OWN SOURCE NAMES IT EXACTLY ONCE — in the store operation the ROUTE
+  //     calls — so there is no second caller for a tool to be wired to later. Comments
+  //     are blanked first, because this file's own most-repeated trap is prose that
+  //     contains the thing it forbids, and `agent-store.mjs` explains this very rule.
+  const blanked = readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8")
+    .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  const hits = [...blanked.matchAll(/decide_tool_approval/g)].length;
+  assert.equal(hits, 1, `the site names the deciding function ${hits} times`);
+  // AND THE OBSERVER IS ALIVE: the scanner can see a function name at all.
+  assert.ok(blanked.includes("pending_approvals"), "the scanner found nothing to look at");
+});
+
+test("⚠ WHO DECIDED IS THE VERIFIED SESSION, AND THERE IS NO FIELD FOR IT ON THE WIRE", async () => {
+  const sent = [];
+  const store = {
+    ownsAgent: async () => true,
+    listToolApprovals: async (...a) => { sent.push({ op: "list", a }); return []; },
+    decideToolApproval: async (...a) => {
+      sent.push({ op: "decide", a });
+      return { ok: true, repeat: false, id: "ap-1", verdict: "approved", note: null, decided_by: a[0] };
+    },
+  };
+  const T = "11111111-1111-4111-8111-111111111111";
+  // Every one of these is a field a caller could send, and not one is read.
+  const r = await handleAgentApi({
+    path: "/api/agent/tool-approve", method: "POST", tenant: T, store,
+    body: { id: "22222222-2222-4222-8222-222222222222", verdict: "approved",
+            by: "somebody-else", decided_by: "somebody-else", decidedBy: "somebody-else",
+            tenant: "another-account", p_by: "somebody-else" },
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const call = sent.find((c) => c.op === "decide");
+  assert.equal(call.a[0], T, "the tenant did not come from the verified session");
+  assert.equal(call.a[1].by, T, "who decided came from somewhere other than the session");
+  assert.ok(!JSON.stringify(call.a[1]).includes("somebody-else"),
+    "a body field reached the decision");
+});
+
+test("a verdict is refused rather than defaulted, and nothing is written", async () => {
+  const sent = [];
+  const store = {
+    ownsAgent: async () => true,
+    decideToolApproval: async (...a) => { sent.push(a); return { ok: true }; },
+  };
+  const T = "11111111-1111-4111-8111-111111111111";
+  for (const bad of [undefined, null, "", "yes", "APPROVED", "maybe", true, 1, ["approved"]]) {
+    sent.length = 0;
+    const r = await handleAgentApi({
+      path: "/api/agent/tool-approve", method: "POST", tenant: T, store,
+      body: { id: "22222222-2222-4222-8222-222222222222", verdict: bad },
+    });
+    assert.equal(r.status, 400, `verdict ${JSON.stringify(bad)} was accepted`);
+    assert.deepEqual(sent, [], `verdict ${JSON.stringify(bad)} reached the store`);
+  }
+  // THE CONTROL, without which "it refuses" is satisfied by a route that refuses everything.
+  for (const good of TOOL_VERDICTS) {
+    sent.length = 0;
+    const r = await handleAgentApi({
+      path: "/api/agent/tool-approve", method: "POST", tenant: T, store,
+      body: { id: "22222222-2222-4222-8222-222222222222", verdict: good },
+    });
+    assert.equal(r.status, 200, `${good} was refused`);
+    assert.equal(sent.length, 1);
+  }
+});
+
+test("⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS, not shown their own", async () => {
+  const T = "11111111-1111-4111-8111-111111111111";
+  const store = {
+    ownsAgent: async () => true,
+    decideToolApproval: async () => ({ ok: true, repeat: true, id: "ap-1",
+                                       verdict: "rejected", note: "no", decided_by: "them" }),
+  };
+  const r = await handleAgentApi({
+    path: "/api/agent/tool-approve", method: "POST", tenant: T, store,
+    body: { id: "22222222-2222-4222-8222-222222222222", verdict: "approved" },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.repeat, true, "a second press was reported as a fresh decision");
+  assert.equal(r.body.verdict, "rejected", "the loser was shown their own verdict");
+});
+
+test("the verdicts and the cap are the database's own, and a row fails closed", () => {
+  const sql = readdirSync(new URL("../agent-builder/supabase/migrations", import.meta.url))
+    .filter((f) => f.endsWith(".sql")).sort()
+    .map((f) => readFileSync(new URL(`../agent-builder/supabase/migrations/${f}`, import.meta.url), "utf8"))
+    .join("\n");
+  // THE COLUMN'S OWN ENUM, read out of the migration rather than typed here — two copies
+  // of one list is the shape that drifts.
+  const check = /verdict\s+text\s+check \(verdict in \(([^)]*)\)\)/.exec(sql);
+  assert.ok(check, "the migration's verdict check could not be found");
+  const fromSql = check[1].split(",").map((x) => x.trim().replace(/'/g, "")).sort();
+  assert.deepEqual([...TOOL_VERDICTS].sort(), fromSql);
+  // AND THE LIMIT IS THE FUNCTION'S OWN CEILING, not a second one beside it.
+  const clamp = /v_limit integer := least\(greatest\(coalesce\(p_limit, 20\), 1\), (\d+)\)/.exec(sql);
+  assert.ok(clamp, "pending_approvals' own clamp could not be found");
+  assert.equal(MAX_TOOL_APPROVALS, Number(clamp[1]));
+
+  // ⚠ AND THE ROW FAILS CLOSED ON THE ARGUMENTS, which is the field the decision is
+  // about: a person must never be shown a blank where the subject should be.
+  for (const junk of [null, undefined, "args", 4, ["a"]]) {
+    assert.deepEqual(toolApprovalRow({ id: "a", args: junk }).args, {},
+      `args of ${JSON.stringify(junk)} was drawn as a decision's subject`);
+  }
+  assert.deepEqual(toolApprovalRow({ id: "a", args: { id: "x" } }).args, { id: "x" });
+  assert.equal(toolApprovalRow({}).tool, "", "a row with no tool read as something");
+  assert.equal(toolApprovalRow(null).step, 0);
+});
+
+test("⚠ THE REQUEST THE STORE REALLY SENDS carries the tenant and the decider", async () => {
+  // **THE ROUTE'S OWN ARGUMENTS CANNOT SEE THIS.** Four sweep mutants lived inside these
+  // two store bodies — the tenant left off the list, the decider sent as null — and every
+  // route-level case passed with all four applied, because the route hands the right
+  // values to a function that then drops them. What settles it is the wire.
+  const T = "11111111-1111-4111-8111-111111111111";
+  const AG = "22222222-2222-4222-8222-222222222222";
+  const r1 = recorder({ "rpc/pending_approvals": { status: 200, body: [] } });
+  await r1.store.listToolApprovals(T, AG);
+  const list = r1.seen.at(-1);
+  assert.match(list.url, /rpc\/pending_approvals$/);
+  assert.equal(list.body.p_tenant, T, "the list went out with no account on it");
+  assert.equal(list.body.p_agent_id, AG);
+  assert.equal(list.body.p_limit, MAX_TOOL_APPROVALS);
+  // The profile header says it WRITES, because it is a POST to `/rpc/` — PostgREST
+  // ignores the read header on a write, which is how a call once resolved against `public`.
+  assert.equal(list.headers["content-profile"], "agent");
+
+  const r2 = recorder({ "rpc/decide_tool_approval": { status: 200, body: { ok: true, id: "ap-1" } } });
+  await r2.store.decideToolApproval(T, { id: "ap-1", verdict: "approved", note: null, by: T });
+  const decide = r2.seen.at(-1);
+  assert.equal(decide.body.p_tenant, T);
+  assert.equal(decide.body.p_by, T, "the decision went out with nobody attached to it");
+  assert.equal(decide.body.p_verdict, "approved");
+  assert.equal(decide.body.p_note, null);
+
+  // AND A FAILED REQUEST IS RAISED, NEVER READ AS AN ANSWER: `[]` from a 500 would tell
+  // somebody there is nothing waiting while their agent sits stopped.
+  const r3 = recorder({ "rpc/pending_approvals": { status: 500, body: { message: "boom" } } });
+  await assert.rejects(() => r3.store.listToolApprovals(T, AG), /list tool approvals/);
+  const r4 = recorder({ "rpc/decide_tool_approval": { status: 500, body: { message: "boom" } } });
+  await assert.rejects(() => r4.store.decideToolApproval(T, { id: "ap-1", verdict: "approved", by: T }));
+});
+
+test("⚠ AN AGENT FILTER IS CHECKED, AND A REFUSED DECISION IS NOT-FOUND", async () => {
+  const T = "11111111-1111-4111-8111-111111111111";
+  const listed = [];
+  const store = {
+    ownsAgent: async () => false,
+    listToolApprovals: async (...a) => { listed.push(a); return []; },
+    decideToolApproval: async () => ({ ok: false, error: "no-request" }),
+  };
+  // A stranger's agent id must read as a missing agent, exactly as it does everywhere
+  // else — and the list must not be run for it at all.
+  const r = await handleAgentApi({
+    path: "/api/agent/tool-approvals", method: "GET", tenant: T, store,
+    query: new URLSearchParams({ agent: "33333333-3333-4333-8333-333333333333" }),
+  });
+  assert.equal(r.status, 404, `a stranger's agent answered ${r.status}`);
+  assert.deepEqual(listed, [], "the list ran for an agent that is not this account's");
+
+  // ⚠ NOT FOUND, NEVER FORBIDDEN. `403` tells a stranger the id they guessed is real,
+  // which is the information the answer exists to withhold.
+  const d = await handleAgentApi({
+    path: "/api/agent/tool-approve", method: "POST", tenant: T, store,
+    body: { id: "44444444-4444-4444-8444-444444444444", verdict: "approved" },
+  });
+  assert.equal(d.status, 404, `a refused decision answered ${d.status}`);
+
+  // THE CONTROL: with the agent owned, the list really runs and the tenant reaches it.
+  const okListed = [];
+  const okStore = { ownsAgent: async () => true, listToolApprovals: async (...a) => { okListed.push(a); return []; } };
+  const r2 = await handleAgentApi({
+    path: "/api/agent/tool-approvals", method: "GET", tenant: T, store: okStore,
+    query: new URLSearchParams({ agent: "33333333-3333-4333-8333-333333333333" }),
+  });
+  assert.equal(r2.status, 200);
+  assert.equal(okListed.length, 1);
+  assert.equal(okListed[0][0], T);
+});
+
+test("⚠ A DECISION RINGS THE ENGINE'S DOORBELL — otherwise Approve does nothing for a minute", async () => {
+  // `decide_tool_approval` puts the run back on the queue INSIDE its own transaction, so
+  // the work is durable the moment the decision commits. What it cannot do is ring a
+  // Cloudflare queue, and without a ring the run comes back only on the sweeper's next
+  // tick — a person presses Approve and watches nothing happen.
+  const T = "11111111-1111-4111-8111-111111111111";
+  const rung = [];
+  const store = {
+    ownsAgent: async () => true,
+    decideToolApproval: async () => ({ ok: true, repeat: false, id: "ap-1",
+                                       run: "33333333-3333-4333-8333-333333333333",
+                                       verdict: "approved", note: null, decided_by: T }),
+  };
+  const r = await handleAgentApi({
+    path: "/api/agent/tool-approve", method: "POST", tenant: T, store,
+    ring: async (id) => { rung.push(id); },
+    body: { id: "22222222-2222-4222-8222-222222222222", verdict: "approved" },
+  });
+  assert.equal(r.status, 200);
+  assert.deepEqual(rung, ["33333333-3333-4333-8333-333333333333"], "the run was never rung");
+  assert.equal(r.body.notified, true);
+
+  // ⚠ A REPEAT IS RUNG TOO, for the send route's own reason: a first press whose ring
+  // failed leaves a run nobody has told anyone about, and the second press is exactly
+  // when to say it again. A duplicate ring is harmless — `claim_run` refuses it.
+  rung.length = 0;
+  const twice = {
+    ownsAgent: async () => true,
+    decideToolApproval: async () => ({ ok: true, repeat: true, id: "ap-1",
+                                       run: "33333333-3333-4333-8333-333333333333",
+                                       verdict: "rejected", note: null, decided_by: "them" }),
+  };
+  await handleAgentApi({
+    path: "/api/agent/tool-approve", method: "POST", tenant: T, store: twice,
+    ring: async (id) => { rung.push(id); },
+    body: { id: "22222222-2222-4222-8222-222222222222", verdict: "approved" },
+  });
+  assert.deepEqual(rung, ["33333333-3333-4333-8333-333333333333"], "a repeat was not rung");
+
+  // ⚠ AND A FAILED RING IS SAID, NEVER RAISED. The decision is committed and the work
+  // will run; answering an error would tell somebody their decision failed when it did not.
+  const said = [];
+  const r3 = await handleAgentApi({
+    path: "/api/agent/tool-approve", method: "POST", tenant: T, store,
+    ring: async () => { throw new Error("queue down"); },
+    log: (...a) => said.push(a.join(" ")),
+    body: { id: "22222222-2222-4222-8222-222222222222", verdict: "approved" },
+  });
+  assert.equal(r3.status, 200, "a failed doorbell failed the decision");
+  assert.equal(r3.body.ok, true);
+  assert.equal(r3.body.notified, false, "a failed ring was reported as a ring");
+  assert.ok(said.some((l) => /not rung/.test(l)), "a failed ring said nothing at all");
 });

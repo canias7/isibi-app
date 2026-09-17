@@ -2601,3 +2601,205 @@ test("⚠ EVERY HOOK THE MARKUP DECLARES IS BOUND TO SOMETHING — the census th
   assert.ok(checked >= 30, `the census only looked at ${checked} hooks`);
   assert.ok(CHAT.includes('data-change="agent-auto-step-field"'), "the hook this census exists for is gone");
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// A TOOL CALL WAITING FOR A PERSON
+//
+// The same class again, and the reason it belongs here rather than in a route
+// test: every one of these bugs produces a screen that is internally consistent
+// and wrong, and a source read cannot see any of it.
+// ────────────────────────────────────────────────────────────────────────────
+
+const WAITING = [{
+  id: "ap-1", run: "r1", agent: "A", tool: "pause_automation",
+  args: { id: "auto-7", enabled: false }, step: 1, index: 0, requestedAt: "2026-09-17T09:00:00Z",
+}];
+
+test("⚠ WHAT IS WAITING IS DRAWN FOR THE CONVERSATION IT WAS READ FOR, and no other", async () => {
+  const gate = held(okRes({ approvals: WAITING, agent: "A" }));
+  const w = loadScreen({
+    answer: (p) => (p.startsWith("/api/agent/tool-approvals") ? gate.p : okRes({ agents: [], approvals: [] })),
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A";');
+  const reading = w.ev('agentApprovalsLoad("A")');
+  // The screen moves to B while the read is in flight.
+  w.ev('agentThread = "B"; agentMsgsFor = "B";');
+  gate.release();
+  await reading;
+  // NOTHING WAS WRITTEN, because the answer is about a conversation nobody is looking
+  // at. Showing B's reader a decision about A's agent is showing somebody a question
+  // that is not theirs to answer.
+  assert.equal(w.ev("agentApprovals"), null, "A's waiting calls were written into B's screen");
+  assert.equal(w.ev("agentApprovalsFor"), null);
+});
+
+test("a failed check keeps the rows it had — and 'nothing waiting' is not what it says", async () => {
+  // ⚠ `null` AND `[]` ARE DIFFERENT ANSWERS. A failed read that answered `[]` would tell
+  // somebody there is nothing to do while their agent sits stopped — the one wrong answer
+  // this screen can give, because it is the answer that ends the conversation.
+  const w = loadScreen({ answer: () => ({ ok: false, status: 500, json: async () => ({ error: "boom" }) }) });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  await w.ev('agentApprovalsLoad("A")');
+  assert.equal(w.ev("agentApprovals.length"), 1, "a failed read emptied the list");
+  assert.ok(w.ev("agentApprovalsErr").length > 0, "a failed read said nothing");
+});
+
+test("⚠ THE PRESS SENDS THE ID AND THE VERDICT AND NOTHING ELSE", async () => {
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, init) => {
+      sent.push({ p, body: init && init.body ? JSON.parse(init.body) : null });
+      return p === "/api/agent/tool-approve"
+        ? okRes({ id: "ap-1", verdict: "approved", repeat: false })
+        : okRes({ agents: [], approvals: [], messages: [] });
+    },
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  await w.ev('agentApprovalDecide("ap-1", "approved")');
+  const press = sent.find((c) => c.p === "/api/agent/tool-approve");
+  assert.ok(press, "the press never reached the server");
+  // WHO DECIDED IS THE SERVER'S TO TAKE FROM THE SESSION. A screen that sent one would
+  // be a screen that could be told to send somebody else's.
+  assert.deepEqual(Object.keys(press.body).sort(), ["id", "verdict"]);
+  assert.equal(press.body.id, "ap-1");
+  assert.equal(press.body.verdict, "approved");
+  // AND BOTH ARE RE-READ AFTERWARDS: the decision put the run back on the queue, so the
+  // conversation is the thing that changes next, and this row is gone from the list
+  // either way.
+  assert.ok(sent.some((c) => c.p.startsWith("/api/agent/tool-approvals")), "the list was not re-read");
+  assert.ok(sent.some((c) => c.p.startsWith("/api/agent/messages")), "the conversation was not re-read");
+});
+
+test("⚠ A PRESS WHOSE ANSWER LANDS AFTER THE SCREEN MOVED WRITES NOTHING", async () => {
+  const gate = held(okRes({ id: "ap-1", verdict: "approved", repeat: false }));
+  const asked = [];
+  const w = loadScreen({
+    answer: (p) => { asked.push(p); return p === "/api/agent/tool-approve" ? gate.p : okRes({ agents: [], approvals: [], messages: [] }); },
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  const pressing = w.ev('agentApprovalDecide("ap-1", "approved")');
+  w.ev('agentThread = "B"; agentMsgsFor = "B";');
+  gate.release();
+  await pressing;
+  // NEITHER RE-READ HAPPENED, because both would be about a conversation nobody is on.
+  assert.equal(asked.filter((p) => p.startsWith("/api/agent/messages")).length, 0,
+    "A's conversation was re-read into B's screen");
+  assert.equal(w.ev("agentApprovalsErr"), "", "A's outcome was announced into B's screen");
+});
+
+test("⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS", async () => {
+  const w = loadScreen({
+    answer: (p) => (p === "/api/agent/tool-approve"
+      ? okRes({ id: "ap-1", verdict: "rejected", repeat: true, decidedBy: "them" })
+      : okRes({ agents: [], approvals: [], messages: [] })),
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  await w.ev('agentApprovalDecide("ap-1", "approved")');
+  // Somebody else's verdict, in their words — not a silent success that shows this
+  // person their own answer standing when it is not.
+  assert.match(w.ev("agentApprovalsErr"), /already answered/);
+  assert.match(w.ev("agentApprovalsErr"), /rejected/);
+});
+
+test("a second press while one is in flight does nothing, and the buttons say so", async () => {
+  const gate = held(okRes({ id: "ap-1", verdict: "approved", repeat: false }));
+  const sent = [];
+  const w = loadScreen({
+    answer: (p) => { sent.push(p); return p === "/api/agent/tool-approve" ? gate.p : okRes({ agents: [], approvals: [], messages: [] }); },
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  const first = w.ev('agentApprovalDecide("ap-1", "approved")');
+  assert.equal(w.ev("agentApprovalBusy"), "ap-1");
+  // The drawn buttons are disabled while it is in flight, read off the real markup.
+  assert.match(w.ev(`agentApprovalHtml(${JSON.stringify(WAITING[0])})`), /data-act="agent-tool-approve"[^>]*disabled/);
+  await w.ev('agentApprovalDecide("ap-1", "rejected")');
+  gate.release();
+  await first;
+  assert.equal(sent.filter((p) => p === "/api/agent/tool-approve").length, 1,
+    "a second press sent a second, opposite decision");
+});
+
+test("⚠ THE BANNER IS DRAWN FOR THE CONVERSATION IT WAS READ FOR, and no other", () => {
+  // The read's own binding check is one wall; this is the other, and they are not the
+  // same. A read that landed correctly for A, followed by the screen opening B, would
+  // otherwise draw A's waiting call under B's message box — somebody being offered a
+  // decision about an agent they are not looking at.
+  const w = loadScreen({ answer: () => okRes({ agents: [], approvals: [] }) });
+  setRows(w);
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A"; renderAgents();');
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /ag-ap-t/,
+    "the banner was not drawn for the conversation it belongs to");
+  w.ev('agentThread = "B"; agentMsgs = []; agentMsgsFor = "B"; renderAgents();');
+  assert.doesNotMatch(w.s.document.getElementById("viewAgents").innerHTML, /ag-ap-t/,
+    "A's waiting call was drawn under B's message box");
+});
+
+test("⚠ A QUIET RELOAD CHECKS WHAT IS WAITING — a run that stops must not do so in silence", () => {
+  // The gate takes effect WHILE somebody is looking at the conversation; that is the
+  // whole point of it. A banner that only appeared on a deliberate reload would leave
+  // them watching a run that has stopped and will not start again until they press
+  // something — and nothing on the screen would say so.
+  const asked = [];
+  const w = loadScreen({ answer: (p) => { asked.push(p); return okRes({ agents: [], approvals: [], messages: [] }); } });
+  setRows(w);
+  return w.ev('agentThreadLoad("A", true)').then(() => {
+    assert.ok(asked.some((p) => p.startsWith("/api/agent/tool-approvals")),
+      `a quiet reload never asked what is waiting: ${asked.join(", ")}`);
+  });
+});
+
+test("a press whose FAILURE lands after the screen moved says nothing into the new one", async () => {
+  // The success path writes nothing anywhere, so it cannot see this wall at all: what
+  // the binding check really protects is the SENTENCE — a red line about A's decision,
+  // under B's message box, about something B's reader never pressed.
+  const gate = held({ ok: false, status: 500, json: async () => ({ error: "that request isn’t waiting any more" }) });
+  const w = loadScreen({
+    answer: (p) => (p === "/api/agent/tool-approve" ? gate.p : okRes({ agents: [], approvals: [], messages: [] })),
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  const pressing = w.ev('agentApprovalDecide("ap-1", "approved")');
+  w.ev('agentThread = "B"; agentMsgsFor = "B"; agentApprovalsErr = "";');
+  gate.release();
+  await pressing;
+  assert.equal(w.ev("agentApprovalsErr"), "", "A's failure was announced into B's screen");
+
+  // THE CONTROL, without which "it says nothing" is satisfied by a press that never
+  // reports anything: the same failure, landing on the screen it was pressed from, IS said.
+  const gate2 = held({ ok: false, status: 500, json: async () => ({ error: "that request isn’t waiting any more" }) });
+  const w2 = loadScreen({
+    answer: (p) => (p === "/api/agent/tool-approve" ? gate2.p : okRes({ agents: [], approvals: [], messages: [] })),
+  });
+  setRows(w2);
+  w2.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w2.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  const p2 = w2.ev('agentApprovalDecide("ap-1", "approved")');
+  gate2.release();
+  await p2;
+  assert.match(w2.ev("agentApprovalsErr"), /waiting/, "the failure was swallowed on its own screen");
+});
+
+test("an argument that is not text is shown as what it is, not as [object Object]", () => {
+  // A person deciding cannot act on `[object Object]`, and that is exactly what a model
+  // writing a nested argument produces through `String()`.
+  const w = loadScreen({ answer: () => okRes({ agents: [] }) });
+  assert.equal(w.ev('agentApprovalValue({ a: 1 })'), '{"a":1}');
+  assert.equal(w.ev('agentApprovalValue([1, "two"])'), '[1,"two"]');
+  assert.equal(w.ev('agentApprovalValue("plain")'), "plain");
+  assert.equal(w.ev('agentApprovalValue(null)'), "(nothing)");
+  assert.equal(w.ev('agentApprovalValue(undefined)'), "(nothing)");
+  assert.equal(w.ev('agentApprovalValue(false)'), "false");
+});

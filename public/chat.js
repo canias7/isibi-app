@@ -1059,6 +1059,16 @@ let agentState = 'loading';
 let agentErr = '';
 /** The open thread's messages, the agent they belong to, and any read failure. */
 let agentMsgs = null;
+// ── tool calls waiting for a person ─────────────────────────────────────────
+//
+// ⚠ `null` IS "NOT ASKED YET" AND `[]` IS "NOTHING IS WAITING", and the two must stay
+// apart: a failed read that answered `[]` would tell somebody there is nothing to do
+// while their agent sits stopped — which is the one wrong answer this screen can give.
+// A failed read keeps the rows it had.
+let agentApprovals = null;     // what this account has waiting, as the server last said
+let agentApprovalsFor = null;  // the agent it was read for
+let agentApprovalsErr = '';
+let agentApprovalBusy = '';    // the id of the request a press is in flight for
 let agentMsgsFor = null;
 let agentMsgsErr = '';
 /**
@@ -1527,6 +1537,136 @@ async function agentThreadLoad(id, quiet) {
   // for as long as the screen is open — so it is the presence of live work in a
   // successful answer that arms the next one, and nothing else.
   if (!agentMsgsErr && agentLive(agentMsgs)) agentPollSoon(id);
+  // ⚠ ASKED ON EVERY READ INCLUDING THE QUIET ONES, because a run reaches a gated call
+  // WHILE somebody is looking at the conversation — that is the whole point of the gate —
+  // and a banner that only appeared on a deliberate reload would leave them watching a
+  // run that has stopped and will not start again until they press something.
+  if (!agentMsgsErr) agentApprovalsLoad(id);
+}
+
+/**
+ * What this agent has waiting for a person.
+ *
+ * Read with the thread and again on every poll, because a run that reaches a gated call
+ * produces one of these WHILE somebody is looking at the conversation — the whole point
+ * being that the work stops until they answer.
+ *
+ * **IT IS SCOPED TO THE AGENT ON THE WIRE**, not filtered here: the route takes the id,
+ * checks it belongs to this account, and answers that agent's. Reading the account's
+ * whole list and narrowing it in the browser would put another agent's waiting calls in
+ * this screen's memory for no reason.
+ */
+async function agentApprovalsLoad(id) {
+  const bound = agentBind();
+  try {
+    const res = await apiFetch('/api/agent/tool-approvals?agent=' + encodeURIComponent(id));
+    const j = await res.json().catch(() => ({}));
+    // MOVED ON, OR SIGNED IN AS SOMEBODY ELSE — the same wall every other read here has,
+    // for the same reason: an answer landing in a screen that has since changed is
+    // somebody being shown a decision that is not theirs to make.
+    if (agentMsgsFor !== id || bound.uid !== agentUid()) return;
+    if (!res.ok || !j.ok) {
+      agentApprovalsErr = (j && j.error) || 'Couldn’t check what is waiting.';
+    } else {
+      agentApprovals = Array.isArray(j.approvals) ? j.approvals : [];
+      agentApprovalsFor = id;
+      agentApprovalsErr = '';
+    }
+  } catch {
+    if (agentMsgsFor === id) agentApprovalsErr = 'Couldn’t reach the server.';
+  }
+  renderAgents();
+}
+
+/**
+ * Answer one of them.
+ *
+ * **THE SCREEN SENDS THE ID AND THE VERDICT AND NOTHING ELSE.** Who decided is taken by
+ * the server from the verified session; there is no field for it here, and there is no
+ * tool anywhere that reaches this route — an agent cannot answer its own request because
+ * it has no way to be a session.
+ */
+async function agentApprovalDecide(id, verdict) {
+  if (!id || agentApprovalBusy) return;
+  const bound = agentBind();
+  const forAgent = agentMsgsFor;
+  agentApprovalBusy = id;
+  agentApprovalsErr = '';
+  renderAgents();
+  try {
+    const res = await apiFetch('/api/agent/tool-approve', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: id, verdict: verdict }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;
+    if (!res.ok || !j.ok) {
+      agentApprovalsErr = (j && j.error) || 'Couldn’t record that.';
+    } else if (j.repeat === true) {
+      // ⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS. Two people pressing at once is
+      // one decision, and showing the loser their own verdict would be this screen saying
+      // something the database did not.
+      agentApprovalsErr = 'Somebody already answered that one — it was ' + String(j.verdict) + '.';
+    }
+  } catch {
+    if (agentMsgsFor === forAgent) agentApprovalsErr = 'Couldn’t reach the server.';
+  }
+  agentApprovalBusy = '';
+  // RE-READ BOTH, and in this order: the decision put the run back on the queue, so the
+  // conversation is the thing that changes next. The list is re-read because this row is
+  // gone from it either way — answered by us, or by whoever won the race.
+  if (agentMsgsFor === forAgent && bound.uid === agentUid()) {
+    agentApprovalsLoad(forAgent);
+    agentThreadLoad(forAgent, true);
+  } else {
+    renderAgents();
+  }
+}
+
+/** One waiting call, as a sentence somebody can act on. */
+function agentApprovalHtml(r) {
+  // ⚠ THE ARGUMENTS ARE SHOWN, NOT SUMMARISED. Approving what you were not shown is the
+  // one mistake here that cannot be taken back, so the whole object is drawn — and a row
+  // whose arguments could not be read draws the sentence saying so rather than an empty
+  // box that reads like a call with no arguments.
+  const keys = Object.keys(r.args || {});
+  const args = keys.length
+    ? '<ul class="ag-ap-args">' + keys.map((k) =>
+        '<li><span class="ag-ap-k">' + esc(k) + '</span> ' +
+        '<span class="ag-ap-v">' + esc(agentApprovalValue(r.args[k])) + '</span></li>').join('') + '</ul>'
+    : '<div class="ag-ap-none">with nothing filled in</div>';
+  const busy = agentApprovalBusy === r.id;
+  return '<div class="ag-ap" data-ap="' + esc(r.id) + '">' +
+    '<div class="ag-ap-t">Waiting for you</div>' +
+    '<div class="ag-ap-s">This agent wants to run <b>' + esc(agentToolLabel(r.tool)) + '</b>. ' +
+      'Nothing has happened yet.</div>' +
+    args +
+    '<div class="ag-ap-acts">' +
+      '<button class="ag-ap-yes" data-act="agent-tool-approve" data-id="' + esc(r.id) + '"' +
+        (busy ? ' disabled' : '') + '>Approve</button>' +
+      '<button class="ag-ap-no" data-act="agent-tool-reject" data-id="' + esc(r.id) + '"' +
+        (busy ? ' disabled' : '') + '>Don’t</button>' +
+    '</div>' +
+  '</div>';
+}
+
+/** One argument, as text. Objects and lists are shown as JSON rather than as [object Object]. */
+function agentApprovalValue(v) {
+  if (typeof v === 'string') return v;
+  if (v === null || v === undefined) return '(nothing)';
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+/**
+ * The tool's own label from the catalog, or its name.
+ *
+ * THE CATALOG IS THE SERVER'S and rides on the agent list; a deployment that predates it
+ * answers no `tools` key, and then the NAME is what there is. Inventing a prettier one
+ * here would be this screen making up a description of something it does not own.
+ */
+function agentToolLabel(name) {
+  const t = (agentTools || []).find((x) => x && x.name === name);
+  return (t && t.label) || name || 'that';
 }
 
 /**
@@ -3382,6 +3522,13 @@ function renderAgentsNow() {
           '</button>' +
         '</div>' +
         '<div class="ag-thread" id="agThread">' + body + '</div>' +
+        // ⚠ ABOVE THE BOX, because it is the reason nothing is happening. A person who
+        // cannot see why their agent has stopped has no way to start it again — and this
+        // is the one control on this screen whose absence is silent.
+        (agentApprovalsFor === a.id && (agentApprovals || []).length
+          ? '<div class="ag-aps">' + (agentApprovals || []).map(agentApprovalHtml).join('') + '</div>'
+          : '') +
+        (agentApprovalsErr ? '<div class="ag-err ag-aps-err">' + esc(agentApprovalsErr) + '</div>' : '') +
         // THE TYPED TEXT SURVIVES A FAILED SEND, and it is THIS conversation's.
         // `agentMsgDrafts` is keyed by agent and written back into the box,
         // because this panel is rebuilt from innerHTML: a draft living only in
@@ -12615,6 +12762,11 @@ const CLICK_ACTIONS = {
   'agent-auto-ask-cancel': () => agentAutoAskCancel(),
   'agent-auto-approve': (e, el) => agentAutoDecide(el.dataset.run, 'approved'),
   'agent-auto-reject': (e, el) => agentAutoDecide(el.dataset.run, 'rejected'),
+  // ⚠ NOT THE TWO ABOVE. Those answer an approval STEP in a workflow; these answer one
+  // TOOL CALL a model made in a conversation. Two different things, and a screen that
+  // sent one where the other was meant would answer somebody else's question.
+  'agent-tool-approve': (e, el) => agentApprovalDecide(el.dataset.id, 'approved'),
+  'agent-tool-reject': (e, el) => agentApprovalDecide(el.dataset.id, 'rejected'),
   // ── reference material and memory ─────────────────────────────────────────
   'agent-knows': (e, el) => agentKnows(el.dataset.id),
   'agent-know-back': () => agentKnowBack(),

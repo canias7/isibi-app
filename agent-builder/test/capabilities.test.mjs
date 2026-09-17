@@ -262,18 +262,17 @@ test("⚠ A TOOL WITH NO BACKEND REFUSES BY NAME — it does not answer as thoug
 
 test("which tools are safe to repeat, and why each", () => {
   const byName = new Map(CAPABILITY_TOOLS.map((t) => [t.name, t]));
-  // THE READS AND THE IDEMPOTENT WRITES. Running any of these twice leaves exactly the
-  // state running it once does, which is what `repeatable` is about.
-  for (const n of ["search_reference", "list_reference", "read_reference", "list_memory",
-                   "remember", "forget", "list_automations", "read_automation",
-                   "pause_automation", "list_executions", "read_execution"]) {
-    assert.equal(byName.get(n).repeatable, true, `${n} should be safe to repeat`);
+  void byName;
+  // ⚠ RE-ANCHORED, NOT APPEASED: `run_automation` moved from `false` to `true`, and the
+  // REASON moved with it. `false` was honest while the id was minted per call — and it
+  // also made the tool unusable once gated, because a resume refuses a pending
+  // non-repeatable call and a person who has just approved one gets `cannot-resume`.
+  // MEASURED in the live demonstration. What makes `true` honest is asserted below, on
+  // the derived identity, rather than taken on trust here.
+  for (const t of CAPABILITY_TOOLS) {
+    assert.equal(t.repeatable, true, `${t.name} is not safe to repeat`);
   }
-  // ⚠ AND THE ONE THAT IS NOT, because it mints an id per call: a redelivery would make
-  // a SECOND execution. The default that protects is the right answer until an identity
-  // derived from the arguments exists.
-  assert.equal(byName.get("run_automation").repeatable, false,
-    "starting an automation was declared safe to repeat, which would double it");
+  assert.equal(CAPABILITY_TOOLS.length, 12, "the census is looking at the whole catalog");
 });
 
 test("⚠ `remember` SETS `source: run` ITSELF, and a model cannot claim a person typed it", async () => {
@@ -287,24 +286,46 @@ test("⚠ `remember` SETS `source: run` ITSELF, and a model cannot claim a perso
   assert.equal(tool.input.properties.source, undefined);
 });
 
-test("⚠ `run_automation` MINTS ITS OWN RUN ID and refuses when it cannot", async () => {
-  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: "a1", agent: AG } : { ok: true, id: "made" }));
-  const ops = can.forTenant(T).forAgent(AG);
+test("⚠ `run_automation` DERIVES ITS RUN ID FROM THE CALL, so a redelivery is one execution", async () => {
+  // ⚠ RE-ANCHORED, NOT APPEASED. This asserted that the id was MINTED, which was true and
+  // was the reason the tool could not be resumed after somebody approved it. The property
+  // now is that the same call always asks for the same execution — which is what makes
+  // `repeatable: true` above honest rather than convenient.
+  const mk = () => recorder((fn) => (fn === "read_automation" ? { id: "a1", agent: AG } : { ok: true, id: "made" }));
   const tool = CAPABILITY_TOOLS.find((t) => t.name === "run_automation");
 
-  const out = await tool.run({ id: AG, runId: "chosen-by-the-model" }, { capabilities: ops, newId: () => "ours" });
+  const a = mk();
+  const out = await tool.run({ id: AG, runId: "chosen-by-the-model" },
+    { capabilities: a.can.forTenant(T).forAgent(AG), operation: "run-7:1:0", newId: () => "ours" });
   assert.equal(out.ok, true, JSON.stringify(out));
-  assert.equal(sent.at(-1).body.p_run_id, "ours", "a model named the run it started");
-  // AND THE SCHEMA DOES NOT OFFER IT EITHER.
-  assert.equal(tool.input.properties.runId, undefined);
+  const first = a.sent.at(-1).body.p_run_id;
+  assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    `the derived id is not a uuid: ${first}`);
+  assert.notEqual(first, "ours", "a minted id was used where a derived one exists");
+  assert.notEqual(first, "chosen-by-the-model", "a model named the run it started");
+  assert.equal(tool.input.properties.runId, undefined, "the schema offers the model an id");
 
-  // ⚠ WITH NO WAY TO MINT ONE IT REFUSES rather than sending a null, which the database
-  // would take as "pick one for me" and which nothing could then be told apart from.
-  const none = await tool.run({ id: AG }, { capabilities: ops });
-  assert.equal(none.ok, false);
-  assert.equal(none.error, "no-id");
+  // THE SAME CALL AGAIN IS THE SAME EXECUTION — which is the whole of the guarantee.
+  const b = mk();
+  await tool.run({ id: AG }, { capabilities: b.can.forTenant(T).forAgent(AG), operation: "run-7:1:0" });
+  assert.equal(b.sent.at(-1).body.p_run_id, first, "a redelivery asked for a different execution");
+  // AND A DIFFERENT CALL IS A DIFFERENT ONE, or every call in a run would collide.
+  const c = mk();
+  await tool.run({ id: AG }, { capabilities: c.can.forTenant(T).forAgent(AG), operation: "run-7:1:1" });
+  assert.notEqual(c.sent.at(-1).body.p_run_id, first, "two different calls share one execution");
+
+  // ⚠ A DEPLOYMENT THAT CANNOT IDENTIFY THE CALL IS REFUSED, not minted for — minting
+  // would restore the behaviour this removes, in the one case nobody is watching.
+  const d = mk();
+  for (const ctx of [{ capabilities: d.can.forTenant(T).forAgent(AG) },
+                     { capabilities: d.can.forTenant(T).forAgent(AG), operation: "" },
+                     { capabilities: d.can.forTenant(T).forAgent(AG), operation: 4, newId: () => "ours" }]) {
+    const none = await tool.run({ id: AG }, ctx);
+    assert.equal(none.ok, false, JSON.stringify(none));
+    assert.equal(none.error, "no-id");
+  }
+  assert.equal(d.sent.filter((x) => x.rpc === "run_automation").length, 0, "a refused call still started one");
 });
-
 test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thing removed", async () => {
   // MEASURED: a mutant hardcoding `forgot: true` SURVIVED, and the answer it produced was
   // self-contradictory — `forgot: true` beside "there was nothing remembered under that

@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import { defineAgent, defineTool, withInstructions, narrowTools, toolsFor, PUBLIC } from "../src/define.mjs";
 import { planLimits, stoppedBy } from "../src/limits.mjs";
 import { startedEntry, replay, limitsToJson } from "../src/journal.mjs";
-import { makeRunner, LEASE_TTL_S } from "../src/runner.mjs";
+import { OUTCOMES, makeRunner, LEASE_TTL_S } from "../src/runner.mjs";
 import { AGENTS, AUTHORED, AUTHORED_AGENT, OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
 import { makeStandIn, simulatedAnswer, SIMULATED, SIMULATED_QUOTE,
          SLOW_TOOLS, SLOW_TOOL, SLOW_ROUNDS } from "../src/model-standin.mjs";
@@ -221,7 +221,7 @@ test("THE CONVERSATION A RUN WAS GIVEN COSTS IT NOTHING", () => {
  * run executes under is the one a deployment would use, placeholder instructions
  * and all.
  */
-function bench({ answers = [], agents = AGENTS, verdict = () => ({ state: "approved", id: "ap-1" }) } = {}) {
+function bench({ answers = [], agents = AGENTS, gate, verdict = () => ({ state: "approved", id: "ap-1" }) } = {}) {
   const asked = [];
   let clock = NOW;
   const { rest, store, work } = liveStore({ now: () => clock });
@@ -264,7 +264,10 @@ function bench({ answers = [], agents = AGENTS, verdict = () => ({ state: "appro
     }),
   };
   const runner = makeRunner({
-    work, store, send, agents, timer, capabilities, approvals,
+    work, store, send, agents, timer, capabilities,
+    // A CASE MAY HAND IN SOMETHING THAT IS NOT A FACTORY, which is what a
+    // mis-configured deployment really looks like from here.
+    approvals: gate === undefined ? approvals : gate,
     now: () => clock, nameWorker: () => `worker-${++w}`, onError: () => {},
   });
   const accept = async (entry) => {
@@ -1086,4 +1089,83 @@ test("...AND THE DELIVERY AFTER THE DECISION CARRIES ON FROM THE SAME LOG", asyn
   // what makes the second ask find the first request rather than make a second one.
   assert.deepEqual(b.asked.map((a) => `${a.step}:${a.index}:${a.tool}`),
     ["1:0:pause_automation", "1:0:pause_automation"]);
+});
+
+test("⚠ EVERY RUN CAN HAVE A CALL THAT NEEDS A PERSON — not only an authored one", async () => {
+  // The capability BACKEND needs an authored agent, because scoping it means choosing
+  // one and there is no honest way to do that here. A GATE does not: it is bound to the
+  // run and the account, both from the claim, and the agent id only decides whether a
+  // screen can show what is waiting without reading the journal. Narrowing it to
+  // authored runs would leave every other run's gated calls ungated — which is a wall
+  // that is off for exactly the runs nobody is watching.
+  const act = defineTool({
+    name: "act", description: "does a thing", input: { type: "object" }, scope: PUBLIC,
+    approval: true, run: async () => ({ ok: true }),
+  });
+  const registry = { plain: defineAgent({
+    name: "plain", model: "stand-in", instructions: "do it", tools: [act], limits: { steps: 2 } }) };
+  const b = bench({ agents: registry, answers: [asksFor("act")],
+                    verdict: () => ({ state: "pending", id: "ap-9" }) });
+  // NO `authoredAgent` AND NO `tools` — this is a run started through `POST /runs`.
+  const runId = await b.accept(start({ agent: "plain", model: "stand-in" }));
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "awaiting-approval", out.error);
+  assert.equal(b.gatings.length, 1, "a run with no authored agent was never given a gate");
+  assert.equal(b.gatings[0].agentId, null, "an agent id was invented for a run that has none");
+  assert.equal(b.asked.length, 1);
+});
+
+test("⚠ A GATE THAT CANNOT BE REACHED IS RETRYABLE — the run is not closed over an outage", async () => {
+  const act = defineTool({
+    name: "act", description: "does a thing", input: { type: "object" }, scope: PUBLIC,
+    approval: true, run: async () => ({ ok: true }),
+  });
+  const registry = { plain: defineAgent({
+    name: "plain", model: "stand-in", instructions: "do it", tools: [act], limits: { steps: 2 } }) };
+  const b = bench({
+    agents: registry, answers: [asksFor("act")],
+    gate: { forTenant: () => ({ forRun: () => ({ ask: async () => { throw new Error("HTTP 503"); } }) }) },
+  });
+  const runId = await b.accept(start({ agent: "plain", model: "stand-in" }));
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "failed", out.error);
+  assert.match(out.error, /approval-failed/);
+  // ⚠ THE WORK IS LEFT ON THE QUEUE, which is the whole difference: a store that is down
+  // comes back, and a run closed over it never does. `cannot-resume` and
+  // `awaiting-approval` mark the work done because nothing will change without a person;
+  // this will change by itself.
+  assert.equal(b.rest.work.get(runId).done_at, null, "the run was closed over an outage");
+  assert.equal(b.rest.runs.get(runId).status, "running", "a retryable failure wrote a stop");
+});
+
+test("a gate that is not a factory is refused, and the call is refused by name", async () => {
+  const seen = [];
+  const act = defineTool({
+    name: "act", description: "does a thing", input: { type: "object" }, scope: PUBLIC,
+    approval: true, run: async () => { seen.push(1); return { ok: true }; },
+  });
+  const registry = { plain: defineAgent({
+    name: "plain", model: "stand-in", instructions: "do it", tools: [act], limits: { steps: 3 } }) };
+  for (const bad of ["a-gate", 4, {}, { forTenant: "nope" }]) {
+    const b = bench({ agents: registry, gate: bad, answers: [asksFor("act"), { text: "ok", toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 }] });
+    const runId = await b.accept(start({ agent: "plain", model: "stand-in" }));
+    const out = await b.runner.deliver(runId);
+    assert.equal(out.why, "ran", `${JSON.stringify(bad)}: ${out.error}`);
+    const tool = [...b.rest.entries.get(runId).values()].find((e) => e.kind === "tool");
+    assert.equal(tool.value.error, "no-approver", `${JSON.stringify(bad)} was accepted as a gate`);
+  }
+  assert.deepEqual(seen, [], "a gated call ran with a broken gate behind it");
+});
+
+test("⚠ EVERY OUTCOME A DELIVERY CAN ANSWER IS IN THE CENSUS", () => {
+  // `OUTCOMES` is what a caller switches on. A word this can answer and that list does
+  // not carry is one every reader falls through on — silently, because a `default` branch
+  // is the shape that hides it.
+  assert.ok(OUTCOMES.includes("awaiting-approval"),
+    "a delivery can answer a word the census has never heard of");
+  assert.equal(new Set(OUTCOMES).size, OUTCOMES.length, "the census says one thing twice");
+  // AND THE OBSERVER IS ALIVE: the words this file really drives are all in it.
+  for (const why of ["ran", "awaiting-approval", "cannot-resume", "failed", "not-claimable"]) {
+    assert.ok(OUTCOMES.includes(why), `${why} is driven here and is not in the census`);
+  }
 });

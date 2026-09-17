@@ -2433,6 +2433,216 @@ longer than one consumer invocation against a real ceiling (the longest driven e
 is 65.6 s), and `force row level security`, which is unverifiable where the harness owner
 is a superuser.
 
+## Milestone 2: the two workflow findings, closed (2026-09-17)
+
+Both reproduced before anything was changed, and each proved RED against its own defect
+while leaving the other's cases green — so they are independent rather than one bug.
+
+**FINDING A — a restart immediately after checkpointing a false `if` lost the decision to
+enter `otherwise`.** `jumpedToElse` was a bare `new Set()`, so the choice lived only in
+the process that made it: the resumed run reached the `otherwise`, read the empty set as
+*the first arm ran*, skipped the whole else arm and reported `done`. **The customer's
+workflow ran neither arm and said it was fine.**
+
+It is derived from the RECORD now — each `if`'s own stored outcome, found by that `if`'s
+index and resolved through the branch map, so a stored list that no longer matches the
+workflow cannot point at an arm that is not there. **AND THE RECORD MUST AGREE WITH THE
+STEP IT SITS AT**: `took` is a field only an `if` can write, so an outcome recorded
+against something else carrying one is not evidence about this branch. Refuse rather than
+coerce — found by a guard case, not by review.
+
+**FINDING B — validation accepted a reference to a value produced only in a branch that
+may not run.** One flat set of every `out`, so a name bound under `if` was "available" to
+the `otherwise` arm and to every step past the `end`; it saved cleanly and resolved to
+nothing at run time on whichever path did not produce it. **A frame per open `if`, each
+arm keeping its own additions, and only what BOTH arms produce survives the rejoin** — an
+`if` with no `otherwise` contributes nothing, because the empty arm is a real path.
+
+**⚠ AND THE SITE'S OWN VALIDATOR HAD THE SAME FLAT SET, which is the half that mattered
+to a customer.** `cleanWorkflow` in the root's `agent-store.mjs` is the door a save really
+goes through, and the engine's fix had not reached it: the two disagreed, and the loose
+one was the one deciding what may be stored. It is a declared COPY (neither product may
+import the other), so `test/agent-send.test.mjs` — the one file that may load both — now
+**DRIVES the two over 22 shapes and requires the same verdict, the same sentence and the
+same `produces`.** Comparing source could never have seen it; the two are written
+differently on purpose.
+
+**A SWEEP SURVIVOR FOUND A THIRD THING, in the fix itself.** Asserting only that a
+cross-arm reference is refused was satisfied by the TYPO refusal — and for the commonest
+shape of this mistake (bind under `if`, use it after the branch) the frame is popped by
+then, so it said *nothing here produces it* and sent somebody hunting a misspelling that
+is not there. `armOnly` remembers what a rejoin did not keep, **for the SENTENCE and
+never for visibility**. Its neighbour disjunct was measured INERT over nine shapes
+(`here()` is itself in `frames`) and deleted rather than left to read as a wall.
+
+**THE INTERRUPTION MATRIX IS ONE CASE AND IT WALKS EVERY BOUNDARY.** One counter spans
+the whole execution — not its first delivery, which was this case's own first mistake and
+left the wait and the approval untouched — so cut N is the Nth place a deploy, an
+eviction or a lost lease could really land. Each cut resumes from the persisted row alone
+and must end where the uninterrupted run did, with **nothing completed run twice**,
+proved by a mark nothing in the executor can write. `waiting` is deliberately left
+unstamped: it is the step the next delivery re-enters, not completed work. **The boundary
+count is DERIVED from the uninterrupted chain**, so the observer cannot go quiet as the
+workflow grows a step.
+
+**Measured**: engine suite 329 → 332; site suite 6,772 → 6,773; real PostgreSQL **569, 0
+failed** (unchanged — the control that the database side did not move); `verify:auto` 70,
+unchanged. **`verify:wf` 116 → 125**: a new section drives the branch boundary through the
+REAL store, reads `took` back out of jsonb, proves from the journal that the `if`'s own
+checkpoint really is a committed position, replays from exactly that state, and carries
+the control that with the field gone it runs neither arm. **Engine sweep 306 → 316
+spec entries; the site's 55 → 62.**
+
+**⚠ AND THE SITE SWEEP LEFT ONE SURVIVOR THAT WAS A REAL GAP.** Its branch reader matched
+`otherwise` by POSITION, and every nested shape in the census passed straight through it —
+because when a reader answers only ok-or-error, the one shape that separates position from
+depth is **a nested branch with an `otherwise` on BOTH arms**. Measured: the mutant refuses
+that legal workflow at step 7. In the census now, killed on both sides.
+
+---
+
+## Milestone 3: an agent's own tools, on the operations the screen runs (2026-09-17)
+
+`src/capabilities.mjs`, `src/capability-tools.mjs`,
+`supabase/migrations/20260918000000_agent_capability_operations.sql` (**PREPARED, NOT
+APPLIED**), and `scripts/verify-tools.mjs`.
+
+**THE MILESTONE'S OWN WORDING IS THE TEST: *returning canned success messages does not
+complete this*.** So every check in the demonstration reads the ROW back out of
+PostgreSQL after the tool ran, never the sentence the tool returned.
+
+**THE SHARED THING IS THE DATABASE, because it is what is available.** "The same
+underlying operations as the frontend" cannot be a shared JavaScript module here — the two
+products are separate Workers and `worker.js`'s module graph is a container image input,
+so neither may import the other. One migration adds what both halves need: `owns_agent`,
+`list_knowledge`, `read_knowledge`, `list_memory`, `save_memory`, `delete_memory`,
+`list_automations`, `read_automation`, `set_automation_enabled`, `list_executions`,
+`read_execution`. Each is `security definer` with `search_path` pinned empty, revoked from
+`public`, granted to `service_role` ALONE — `authenticated` gets nothing, because these
+take the tenant as an ARGUMENT and a customer who could call one could name somebody
+else's account.
+
+**⚠ THE TENANT AND THE AGENT ARE CLOSURES, NEVER ARGUMENTS.**
+`makeCapabilities(...).forTenant(t).forAgent(a)` hands back the operations and **not one
+of the fourteen takes either** — so a model, which writes tool arguments, has nowhere to
+put one. It is the shape `store.mjs` already uses for runs. The runner applies both per
+delivery, from the CLAIM (answered by `claim_run` in the statement that took the row) and
+from the run's own first journal entry, which nobody can edit; **a run with no authored
+agent gets no backend at all**, which is every verification agent and every run started
+through `POST /runs`.
+
+**AND A SECOND WALL THE DATABASE CANNOT PUT UP.** These functions are scoped to the
+ACCOUNT because a person is entitled to their whole account; an agent is entitled to ITS
+OWN. So a row naming a sibling agent answers the same "no such thing" a missing one does —
+the wall no tenant filter can see, because both agents share an owner.
+
+**TWELVE TOOLS, every one PUBLIC-scoped and in the catalog a customer ticks from**, and
+the site's catalog gains them in PERSON-facing words (the engine's `description` is
+written for a model deciding whether to call a thing; `label`/`does` for a person deciding
+whether to allow it). **A tool with no backend refuses BY NAME** rather than answering as
+though it had worked — the dead-control finding in its worst form, the control that
+ANSWERS.
+
+**⚠ STARTING AN AUTOMATION IS DURABLE AND NOT INSTANT, and the difference from the
+screen's own button is deliberate.** A route rings the queue afterwards; a TOOL runs
+inside the CONSUMER, and **the consumer never produces** — which is why its configuration
+asks for the project and not for a queue binding. Making a tool ring would put a producer
+inside the consumer. The cost is one cron tick: `accept_automation_run` commits the
+execution and its work row together, and `sweep_run_work` offers an unheld row **with no
+grace at all**. The answer says so, because a tool that implies "now" and means "shortly"
+is one whose customer thinks it failed.
+
+**`make_automation` AND `change_automation` ARE DELIBERATELY NOT OFFERED YET.** Writing a
+workflow means writing STEPS, and a step list a model composes has to go through the same
+`readWorkflow` a saved one does. The capability store already holds `createAutomation` for
+the day it is wired, so the gap is one hop rather than a missing feature — and offering a
+tool that saves a workflow nothing validated would be a control that answers and then
+fails at the first execution.
+
+### Three things the demonstration found that nothing else could
+
+1. **THE STAND-IN READ THE FIRST USER MESSAGE, NOT THE LATEST.** Harmless while a
+   conversation was one message long; the moment a second message reached an agent holding
+   tools, **every later turn was answered against the opening question** — a run asked to
+   list its sources searched them instead, for words typed two turns ago. `simulatedAnswer`
+   has always quoted the LAST thing said, so the two halves of that file disagreed about
+   which turn the conversation was on.
+2. **IT READ `tool.input` WHERE A MODEL IS HANDED `input_schema`**, so it filled no
+   arguments at all and `echo` answered about an empty string. *Written against the
+   internal shape, delivered the wire one.*
+3. **A `name` FOLDS CASE RATHER THAN REFUSING**, so the check written for a bad name was
+   passing a good one. The fold is asserted positively now, beside a name no fold can
+   rescue.
+
+### Measured
+
+- **`npm run verify:tools`: 57 checks, 0 failed, and 12 of 12 tools really called** —
+  asserted as a CENSUS over the catalog, so a tool added next month cannot go
+  undemonstrated in silence. The search really finds a price out of material a person
+  saved; a memory the agent writes is the row the person's own screen reads back; an
+  automation the agent turns off is off in the database.
+- **⚠ AND SECTION 7 PROVES "THE SAME OPERATION" BY ITS OUTCOME rather than by its
+  source**: the same fact saved through the screen's route and through the agent's tool
+  leaves the SAME row but for who said so (`person` against `run`), the version rule is
+  one rule through either door, and the two see the same sources and the same automations.
+- **Real PostgreSQL (`npm run test:pg`): 569 → 604 checks, 0 failed.** Every refusal read
+  for ITS OWN gate with a control beside it, the grants asked as a PRIVILEGE rather than
+  as a refusal (`authenticated` holds no USAGE on the schema, so a refusal says nothing
+  about the function grant), and all eleven proved `security definer` with
+  `search_path=""` — **read off `pg_proc`, because Postgres stores the value WITH its
+  quotes and the first write of that line reported eleven correct functions as broken.**
+- **Engine suite 332 → 350** (`test/capabilities.test.mjs` 15, `authored-run` 38 → 40).
+  Three were proved RED against their own defect.
+- **Site suite 6,773**, and the census between the two catalogs is what caught the
+  divergence the moment the engine gained tools the site did not offer.
+- `verify:wf` **125**, `verify:auto` **70**, `verify:chat` **112** — all unchanged, which
+  is the control that this round broke nothing.
+- **⚠ AND THE SWEEP'S OWN SPOT-CHECK WAS THE WRONG INSTRUMENT, which is worth more than
+  the tally it produced.** This line first read *"all 20 new mutants spot-checked and
+  killed"*; the full pass then read **331 mutants, 326 killed, 5 survived**, and
+  *"a narrow list can only produce a false SURVIVOR, never a false kill"* says both cannot
+  be true. **The re-check was wrong, and this repository records the class.**
+  `scripts/mutate.mjs` sets `MUTATION_SWEEP=1` on its child; the re-check did not, so the
+  spec-anchor census — whose subject is the COMMITTED tree, which a mutant deliberately is
+  not — failed for every mutant. MEASURED: the one failing test was `⚠ THE SWEEP SPEC'S
+  ANCHORS ARE ALL STILL THERE`, for all five. A re-check that does not mirror the runner's
+  child environment reports a kill for a reason that has nothing to do with the property,
+  and **a false kill is worse than a false survivor, because it says a property is guarded
+  when nothing asked.** The re-check now mirrors that environment AND NAMES the test that
+  failed, so a kill can be read for its reason.
+- **THE FIVE WERE REAL, AND EVERY ONE WAS A GAP IN THE NEW GUARDS.** `listExecutions`'
+  sibling wall was undriven — `agent.list_executions` filters on the TENANT and the
+  automation id and knows nothing about an agent, so that pre-check is the whole of the
+  wall, and the case driving the other three sibling refusals never called it. A failed
+  request read as an answer, which nothing asked because every case drove a backend that
+  answers 200 — and `null` there would have `listMemory` telling an agent it remembers
+  nothing during an outage. A `forget` of a name that was not there, whose mutant produced
+  a self-contradictory answer nobody drove. And **TWO WIRING HOPS** — `run.mjs` dropping
+  `opts.capabilities` and `worker.mjs` dropping the key on the way to `makeRunner` —
+  either of which makes every capability answer `no-backend` while the run completes, the
+  queue acks and the customer is told the agent knows nothing.
+  ⚠ AND THE FIRST DRAFT OF THE SIBLING CASE PASSED VACUOUSLY: `"a1"` is not a UUID, so
+  `readAutomation` refused on SHAPE before ever asking who owned it. Its control caught it.
+- **Engine sweep spec 316 → 337, then 331 mutants, 331 killed, 0 survived, 0 never
+  applied, 6 comment-only controls** on the pass after those five were closed. One
+  pre-existing anchor was re-anchored, not appeased.
+
+### What remains disconnected, and what the next milestone rests on
+
+- **NOTHING IS APPLIED AND NOTHING IS DEPLOYED.** The migration is prepared locally. When
+  it goes, the order is the recorded one — **migration → engine → site** — and here the
+  reason is sharper than usual: the site's catalog ships the TICK, and a tick for a tool
+  the live engine cannot run is a control that answers and is discarded.
+- **No provider is connected and none can be.** Every conversation runs on the stand-in
+  and every automation execution has no model at all; the demonstration asserts both.
+- **`run_automation` is the one tool that is not repeatable**, because it mints an id per
+  call — so a redelivery would start a second execution. **That is what milestone 5 is
+  for**, and until it has an identity derived from its arguments the default that protects
+  is the right answer.
+- **Milestone 4 (permissions and approvals) rests on this**: the tool catalog, the
+  per-agent selection and the closure boundary are what an approval would be bound to,
+  and `agent.decide_automation_approval` already holds "only the first decision stands".
+
 ## Where things stand
 
 
@@ -3367,3 +3577,112 @@ looked sufficient and neither was:
   300 that are not controls. Four passes, and the tally above is the last one's own
   answer rather than a targeted re-run bolted onto a stale count.
 - **Engine suite 306 → 329**, 0 failed.
+
+## Milestone 4: a tool call a person has to say yes to (2026-09-17)
+
+**THE REQUIREMENT IS DECLARED IN CODE, ON THE TOOL** — `defineTool({ approval: true })` —
+and nowhere else. Not in an instruction, not in a retrieved document, not in a memory, not
+in a tool result, **because none of those may grant a capability and a requirement DATA can
+set is one data can unset.** Data may tighten what an agent may do (the tool list a customer
+ticks); it may never loosen it. Driven three ways: the grant written into the instructions,
+the grant returned by a tool's own answer — the one an agent can produce for itself — and a
+tool nobody gave it, which never reaches the gate at all because the tenancy narrowing is
+the wall in front of it.
+
+`approval` is refused if it is not a boolean, for `repeatable`'s own reason: `Boolean("false")`
+is `true`, and a string out of a config file must not be what makes a gated tool ungated. It
+is NOT compelled the way `scope` is, and the difference is which way being wrong hurts —
+both of scope's defaults are actively wrong, while here one default is simply safe.
+
+**WHICH TOOLS NEED A PERSON: `pause_automation` and `run_automation`, pinned BOTH WAYS.**
+The line is what the call changes OUTSIDE this conversation — work that carries on after it
+is over and that nobody may be watching. Reads and the agent's own notes are not gated,
+because gating everything is how an approval becomes a thing people click through.
+
+### The identity is `(run, step, index)`, the authority is the argument hash
+
+Two calls of the same tool in one answer are two requests: the position is part of who is
+being asked about. Approving a row authorises EXACTLY the arguments that row holds, so a
+decision about other arguments reads as `stale` however it was answered — **`matches` is
+asked BEFORE the verdict**, and it is compared by the DATABASE inside the statement that
+read the row, because the row it has to agree with is the one a person was shown.
+
+**`canonicalJson` TAGS EVERY SCALAR WITH ITS TYPE, and that is not decoration.** Plain JSON
+cannot tell `{a: undefined}` from `{}` (it drops the key), or `1` from `"1"`, or `null` from
+`"null"`, or `[undefined]` from `[null]` — and each of those collisions is one person's
+approval authorising a different call. Five such pairs are driven. Object keys are SORTED
+(key order is not part of the arguments, or a provider reordering a field would void a
+person's answer); arrays keep their order, because there the order is the value.
+
+### The wait is the one this product already has
+
+A run whose tool calls have no results is already the shape of "stopped part-way". The work
+row is marked DONE — there is nothing to redeliver until somebody answers — the log is left
+**OPEN with no stop**, so the run still reads as in progress with its calls pending, and
+`agent.decide_tool_approval` calls `agent.requeue_run`: the function a person pressing "try
+again" already uses. **No second queue, no second journal, no poller.** Driven end to end
+through a real delivery — held, requeued, resumed — with the model NOT asked again for the
+step already paid for.
+
+**THE BATCH IS HELD WHOLE**, in front of the dispatch and in front of the meter. A prefix
+performs real side effects whose results nobody reads, because the run stops either way —
+the same argument the tool-budget refusal above it makes. Nothing is billed as a tool call,
+because nothing happened.
+
+### ⚠ The order against `repeatable` on a resume is the whole point
+
+`repeatable` asks *might this have run*. The gate sits IN FRONT of the dispatch, so a call a
+person REFUSED definitively did not — and answering `cannot-resume` about it would strand
+the run on a hazard that does not exist, for ever, since every later delivery would refuse
+the same way. So the decisions are read FIRST, a refused call is answered rather than run,
+and only then is `repeatable` asked of what is left.
+
+**AN APPROVED PENDING CALL STILL FALLS TO `repeatable`**, because it may have been
+dispatched before the process died — and that control is what stops the case passing with
+the whole gate deleted. Making an approved non-repeatable call resumable needs an identity
+derived from its arguments, which is M5's work and is not done here.
+
+**EACH ASK IS AT ITS OWN `(step, index)`, taken off the pending entry.** ⚠ My own first
+draft asked at FABRICATED positions: it numbered the pending calls 0..n and passed one step,
+which would have created requests for calls nobody made. A batch that half-finished leaves a
+GAPPED pending list — calls 0 and 2 answered, 1 and 3 not — and that is the case that finds it.
+
+### Three refusals, never one
+
+`rejected` (somebody said no, with their words), `stale` (a decision about different
+arguments) and `unavailable` (there is nowhere to ask) are three different errors, because
+"somebody said no" and "nobody could be asked" want opposite things done about them. All
+three are tool RESULTS the model can read and carry on from, in the `no-backend` idiom — a
+refusal the model never sees is a tool it asks for again immediately. **Only `pending` stops
+the run.** An ask that THREW is `approval-failed`, which leaves the log open and is
+RETRYABLE: a store that is down comes back, and a run closed over it never does.
+
+**A FAILED ASK IS RAISED, NEVER READ AS A VERDICT.** Read as "not approved" an outage stops
+every run and fills a customer's screen with requests nobody made; read as "approved" it is
+an outage authorising tool calls. ⚠ AND THE STATUS IS CARRIED, which a sweep survivor is
+why: there are two walls here — the non-2xx throw and the shape check below it — and with
+the first removed the second still rejects, so "it rejects" cannot tell them apart. Only the
+status separates an outage from a malformed reply.
+
+### Nothing an agent can call decides an approval
+
+Censused four ways, and it is a census rather than a fact about today's catalog: no
+capability names `decide_tool_approval`; no offered tool in either catalog is named for
+deciding; the two engine modules an agent's tools can reach do not contain the name
+anywhere; and the SITE names it exactly once, in the store operation the route calls, so
+there is no second caller for a tool to be wired to later. **Comments are blanked first** —
+`approvals.mjs` explains this very rule, which is this repository's own most-repeated trap.
+
+`decide_tool_approval` is `service_role`-only and REFUSES a blank decider (`no-decider`),
+which is what "only an authorized user can approve" rests on: a decision nobody can be tied
+to is one nobody can be asked about afterwards. The site's route takes that identity from
+the VERIFIED session — **there is no `by` field on the wire and nothing reads one**.
+
+### The screen
+
+A banner above the message box, because it is the reason nothing is happening: what the
+agent wants to run, in the catalog's own words, **with the arguments it would run with**,
+and Approve / Don't. Approving what you were not shown is the one mistake here that cannot
+be taken back, so the whole argument object is drawn and a row whose arguments cannot be
+read says so rather than drawing an empty box. The textarea stays enabled, and the loser of
+a race is told whose answer stands rather than being shown their own.

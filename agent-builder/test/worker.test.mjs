@@ -928,3 +928,87 @@ test("...AND A SIBLING'S MEMORY IS NOT THIS AGENT'S, through the real delivery",
     assert.deepEqual(tool.value.memories, [], "a sibling agent's memory was handed over");
   });
 });
+
+test("⚠ A GATED CALL REALLY IS PUT TO A PERSON, THROUGH THE DEPLOYED WIRING", async () => {
+  // **THE WIRING LAYER, at the only place both halves exist at once.** `parts` builds the
+  // approval store and `buildRunner` hands it to `makeRunner`; drop that ONE key and every
+  // gated call answers `no-approver`, the run completes, the queue acks, and a tool a
+  // person was supposed to authorise is quietly never run and never asked about. MEASURED:
+  // two mutants — the key cut from the argument list, and the store never built — SURVIVED
+  // the whole suite, because nothing drove a gated tool through a real delivery.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    rest.agents.set(MEM_AGENT, { id: MEM_AGENT, tenant_id: "t1", status: "active" });
+
+    const runId = "run-gate-1";
+    const accepted = await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({
+        p_run_id: runId, p_tenant: "t1", p_kind: "start",
+        p_entry: startedEntry({
+          at: "2026-09-17T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+          prompt: "use pause_automation with id=" + MEM_AGENT + " to turn it off",
+          limits: limitsToJson({ steps: 2 }),
+          instructions: "You look after the shop.", history: [],
+          authoredAgent: MEM_AGENT, message: "msg-1", tools: ["pause_automation"],
+        }),
+      }),
+    });
+    assert.equal(accepted.status, 200, await accepted.text());
+
+    const batch = batchOf([{ runId }]);
+    await worker.queue(batch, env, ctx);
+    assert.deepEqual(batch.acked, [0]);
+
+    // ⚠ NOTHING RAN, AND THE ASSERTION IS ON THE ROW — not on the run finishing. A run
+    // with no approval store finishes just as happily, with `no-approver` in the tool
+    // result, which is what the mutants produced.
+    assert.equal(rest.approvals.size, 1, "the call was never put to anybody");
+    const row = [...rest.approvals.values()][0];
+    assert.equal(row.tool, "pause_automation");
+    assert.equal(row.tenant_id, "t1", "the account came from somewhere other than the claim");
+    assert.equal(row.agent_id, MEM_AGENT);
+    assert.equal(row.verdict, null, "the request arrived already answered");
+    assert.equal(row.args.id, MEM_AGENT, "the arguments a person answers about are not the model's");
+    assert.equal(typeof row.args_hash, "string");
+    assert.ok(row.args_hash.length === 64, `the arguments were sent unhashed: ${row.args_hash}`);
+
+    // AND THE RUN IS STILL OPEN, with its call pending — the durable wait.
+    assert.equal(rest.runs.get(runId).status, "running");
+    assert.deepEqual([...rest.entries.get(runId).values()].map((e) => e.kind), ["started", "model"]);
+    assert.notEqual(rest.work.get(runId).done_at, null, "the delivery was left claimable");
+  });
+});
+
+test("...AND A SECOND DELIVERY FINDS THE FIRST REQUEST rather than making another", async () => {
+  // THE CONTROL that makes the case above about the wiring rather than about the fake: a
+  // redelivery re-asks, and one person has one thing to answer.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    rest.agents.set(MEM_AGENT, { id: MEM_AGENT, tenant_id: "t1", status: "active" });
+    const runId = "run-gate-2";
+    const entry = startedEntry({
+      at: "2026-09-17T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+      prompt: "use pause_automation with id=" + MEM_AGENT + " to turn it off",
+      limits: limitsToJson({ steps: 2 }),
+      instructions: "You look after the shop.", history: [],
+      authoredAgent: MEM_AGENT, message: "msg-1", tools: ["pause_automation"],
+    });
+    await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({ p_run_id: runId, p_tenant: "t1", p_kind: "start", p_entry: entry }),
+    });
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+    // Put it back on the queue the way a decision does, and deliver again.
+    await rest.fetch("https://p.supabase.co/rest/v1/rpc/requeue_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({ p_run_id: runId, p_tenant: "t1" }),
+    });
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+    assert.equal(rest.approvals.size, 1, "a redelivery made a second thing to answer");
+    // The model was asked once and only once: the second delivery resumed from the log.
+    assert.equal([...rest.entries.get(runId).values()].filter((e) => e.kind === "model").length, 1);
+  });
+});

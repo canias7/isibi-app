@@ -44,6 +44,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   // tenant and the agent are both in the filter.
   const know = new Map();                  // id -> the agent_knowledge row
   const mem = new Map();                   // id -> the agent_memory row
+  const approvals = new Map();             // id -> the tool_approvals row
   let tokens = 0;                          // claim tokens, minted per claim
   /** Canonical JSON: what `jsonb` equality amounts to here — key order normalised. */
   const canon = (v) => JSON.stringify(v, (_k, x) =>
@@ -573,6 +574,35 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       })));
     }
 
+    /** `agent.request_tool_approval` — record that one tool call is waiting for a person.
+     *
+     * ⚠ IDEMPOTENT, AND THE IDENTITY IS `(run, step, idx)` — the partial unique key, which
+     * is what makes a redelivery find the FIRST request rather than make a second one for
+     * somebody to answer twice. The arguments are REPORTED against the stored hash and
+     * never written over it: the row is what a person was shown and may already have
+     * answered. Both properties are proved on a real engine in `test/integration/pg-schema.mjs`;
+     * what this stands in for is the PROTOCOL.
+     */
+    if (p.endsWith("/rpc/request_tool_approval") && init.method === "POST") {
+      const { p_tenant: tenant, p_run_id: runId, p_agent_id: agentId,
+              p_step: step, p_idx: idx, p_tool: tool, p_args: args, p_hash: hash } = body;
+      const run = runs.get(runId);
+      if (!run || run.tenant_id !== tenant) return res(200, { ok: false, error: "no-run" });
+      const key = `${runId}:${step}:${idx}`;
+      if (!approvals.has(key)) {
+        approvals.set(key, {
+          id: `ap-${approvals.size + 1}`, tenant_id: tenant, run_id: runId, agent_id: agentId ?? null,
+          step, idx, tool, args: args ?? {}, args_hash: hash,
+          verdict: null, note: null, decided_by: null, requested_at: "2026-09-17T00:00:00Z",
+        });
+      }
+      const row = approvals.get(key);
+      return res(200, {
+        ok: true, id: row.id, tool: row.tool, verdict: row.verdict, note: row.note,
+        args_hash: row.args_hash, matches: row.args_hash === hash, requested_at: row.requested_at,
+      });
+    }
+
     /** `agent.list_memory` — one agent's remembered facts, by name.
      *
      * ⚠ THE OWNERSHIP TEST IS THE REAL FUNCTION'S OWN (`agent.owns_agent`), and it is
@@ -653,7 +683,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const calls = [];
   const counted = async (url, init) => { calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined }); return fetch(url, init); };
   counted.calls = calls;
-  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem };
+  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem, approvals };
 }
 
 /**
