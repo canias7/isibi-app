@@ -251,6 +251,11 @@ itself twice here.
 - Every one of the seven new tests drives the real addon request end to end and
   checks four things: what each designer was really shown, what instruction the
   page writer was really given, what got stored, and what you would be told.
+- **CI agrees: `unit tests` 2659 green** — 6,761 tests, 0 failed, 4 skipped, and
+  the four are the usual environment ones (a case needing root, two needing the
+  template installed, one needing git history a shallow checkout does not have).
+  `site build` 1164 is still running; it takes about twenty minutes and I will
+  report it.
 
 ### Not done, by your instruction
 

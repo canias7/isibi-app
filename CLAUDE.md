@@ -7169,6 +7169,15 @@ the same property.
 **Suite 6,761** — 6,749 + 7 (`addon-route`) + 2 (`site-add`) + 3 (`page-gen`),
 and the arithmetic closes exactly.
 
+**CI HAS READ IT: `unit tests` run 2659 on `4e4e2289`, green (2026-09-17
+06:11:15→06:13:15Z, the suite step 109 s) — `# tests 6761 / # pass 6757 /
+# fail 0 / # skipped 4`**, against local `6761 / 6761 / 0 / 0`. **The four are
+named rather than assumed**: the privilege-drop case (needs root and an
+unprivileged user), two RTL cases (template deps not installed) and
+`site-searchpath`'s baseline-commit case (a shallow checkout holds one commit).
+Three recorded environment skips plus the one this branch's neighbour added —
+which is why the number to carry is the TOTAL.
+
 **NOT MERGED AND NOT DEPLOYED, and no paid call was made** — the owner's
 instruction for this round. Every measurement here is from driving the real
 route against stubbed seams.
