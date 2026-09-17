@@ -106,10 +106,16 @@
   "to": "  if (false) {"
  },
  {
-  "label": "an ARRAY reaches the object form, so a build's chosen pictures are read as a budget shape",
+  "label": "a NUMBER reaches the object form, so a build's own budget is read as a budget shape",
   "files": ["builder/site-images.mjs"],
   "from": "  if (n && typeof n === \"object\" && !Array.isArray(n)) {",
-  "to": "  if (n && typeof n === \"object\") {"
+  "to": "  if (n && !Array.isArray(n)) {"
+ },
+ {
+  "label": "the list branch stops answering, so a build's chosen pictures fall past it",
+  "files": ["builder/site-images.mjs"],
+  "from": "  if (Array.isArray(n)) {",
+  "to": "  if (false) {"
  },
 
  {

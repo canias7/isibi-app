@@ -709,6 +709,17 @@ export function imageDirective(n) {
   // own and I'll place it" — a promise the next rung could not keep in one hop.
   // An EMPTY src and a missing one render identically (`SafeImage` branches on
   // `!src`), so this costs nothing a visitor can see.
+  //
+  // `!Array.isArray(n)` IS A DECLARED BELT, NOT A WALL, and it is said here
+  // because a sweep cannot say it. The list form above returns on EVERY path —
+  // including its own `!shots.length` fallback — so no array can reach this
+  // line. MEASURED over ten array shapes (empty, one shot, two pages, a null
+  // entry, an entry with no `describe`, a blank `describe`, a bare string, a
+  // repeated shot): byte-identical with the test and with it cut. It stays
+  // because the PAIR is what a reader needs — *arrays are answered above* and
+  // *this branch is objects only* — and reordering the two branches is a
+  // one-line edit that reads as tidying. The sweep drives the list branch's own
+  // guard instead, which is the observable half of the same property.
   if (n && typeof n === "object" && !Array.isArray(n)) {
     const shown = n.shown && typeof n.shown === "object" ? n.shown : null;
     const has = shown && shown.known ? Math.max(0, Math.floor(Number(shown.count)) || 0) : null;

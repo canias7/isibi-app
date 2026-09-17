@@ -548,6 +548,24 @@ test("newEmptySlots counts the frames a change added, and only those", () => {
     [PG("src/routes/index.tsx", FULL("a")), PG("src/routes/gallery.tsx", EMPTY("b"))],
   ), 1, "filling one frame cancelled out a new one");
 
+  // …AND THE ASSERTION ABOVE CANNOT REACH THE CLAMP, which is why this one is
+  // here. Filling a page's ONLY frame takes that page out of the `after` map
+  // entirely, so the loop never visits it and there is no negative to clamp —
+  // MEASURED: the unclamped sum passes every other assertion in this case. The
+  // shape that arms it is a page that KEEPS an empty frame while losing
+  // another: signed, (1 − 2) + (1 − 0) is 0 over a site with a real new space.
+  assert.equal(newEmptySlots(
+    [PG("src/routes/index.tsx", EMPTY("a"), EMPTY("b"))],
+    [PG("src/routes/index.tsx", EMPTY("a"), FULL("b")), PG("src/routes/gallery.tsx", EMPTY("c"))],
+  ), 1, "a page that filled one of two frames cancelled out another page's new one");
+
+  // A NEW PAGE'S FILLED FRAME IS NOT A SPACE. Without this, "count the empty
+  // frames" and "count every frame" are the same assertion on every fixture
+  // above, because no page in them gains a picture — measured, the whole case
+  // passes with `isEmptySlot` never asked.
+  assert.equal(newEmptySlots([], [PG("src/routes/gallery.tsx", FULL("a"), EMPTY("b"))]), 1,
+    "a filled frame on a new page was reported as a space the customer can fill");
+
   // AND A `src`-LESS ELEMENT IS NOT A FRAME ANYBODY CAN FILL — `imageSlots`
   // rewrites a `src` attribute, so an element without one is invisible to the
   // rung this count exists to hand over to. Counting it would promise a space

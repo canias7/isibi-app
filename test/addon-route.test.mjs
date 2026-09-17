@@ -3062,6 +3062,13 @@ test("a page added to a site that has photographs is not told the site has none"
     "the writer was told this site has no photographs, on a site showing two — the reported defect");
   assert.match(flat, /already shows 2 real photographs/, "the writer was not told what the site really has");
   assert.match(flat, /this change buys none/, "the zero budget stopped being stated as ours");
+  // AND NAMING THEM IS ONLY HALF OF IT. A page writer edits what it is shown,
+  // and the two photographs above are on a page this change hands it back in
+  // full — so the count without the instruction tells it they are there and
+  // nothing about leaving them alone. They cost real money and the owner
+  // already paid it.
+  assert.match(flat, /do not replace one, and do not remove it/,
+    "the site's own photographs were named to the writer and not protected");
   // THE BUDGET IS UNCHANGED AND MUST BE: this step may never re-buy a set the
   // owner already has, which is what `budgetFor`'s zero exists for.
   assert.match(flat, /do not write any @@IMG:@@ token/i, "the addon started inviting a purchase");
@@ -3112,4 +3119,17 @@ test("the empty frames a new page really has are counted and said", async () => 
     kinds: ["page", "photo"], storedPages: already, written: [galleryWith("")],
   });
   assert.equal(kept.body.photos, 0, "the home page's existing empty frames were reported as new spaces");
+
+  // AND A TOKEN THE MODEL WROTE ANYWAY IS STILL COUNTED — the half this path
+  // has always had, which must survive the half it just gained. The directive
+  // forbids `@@IMG:` and a model can write one regardless; `applyImages` then
+  // sweeps it to `src=""`, so the frame is real and the customer has to hear
+  // about it. THE TWO COUNTERS ARE DISJOINT BY ORDER: both are taken before
+  // that sweep, where a token is a non-empty src and therefore not an empty
+  // slot — which is what stops one frame being reported twice.
+  const tok = await photoAsk("fw-photo-token", {
+    kinds: ["page", "photo"],
+    written: [galleryWith('<SafeImage src="@@IMG:a refret on the bench@@" alt="a refret" />')],
+  });
+  assert.equal(tok.body.photos, 1, "a token written despite the ban was not counted as a space");
 });
