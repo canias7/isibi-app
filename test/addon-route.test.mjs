@@ -29,7 +29,13 @@ import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, STORED_SCHEMA 
 // THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
 // a case that hardcoded "12001 characters is too big" would be a second copy of
 // `MAX_PART_CHARS` and would pass silently the day the real one moved.
-import { MAX_PART_CHARS } from "../builder/page-gen.mjs";
+import { MAX_PART_CHARS, MAX_PRIOR_CHARS } from "../builder/page-gen.mjs";
+// REAL GENERATED PAGES, so "a site too large to show whole" is real source
+// rather than padding — the same corpus a dozen false-alarm checks measure
+// against, and the one place these files are reached from.
+import fs from "node:fs";
+import path from "node:path";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { existingFacts } from "../builder/site-add.mjs";
 import { SITE_KINDS, OPAQUE_KINDS } from "../builder/site-requirements.mjs";
 // THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
@@ -2795,4 +2801,126 @@ test("page + QR where both arrive publishes the code and says nothing — and an
   assert.equal(prior.body.droppedQrs, undefined, "a code the site already had was dropped by a change that did not add it");
   assert.equal(prior.body.stuckQrs, undefined, "a code the site already had was reported");
   assert.deepEqual((storedLook(prior, "fw-qr-prior").qr || []).map((q) => q.name), ["gallery"], "the site's own code did not survive");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A SITE TOO LARGE TO SHOW WHOLE (2026-09-17)
+//
+// The addon's page window is `MAX_PRIOR_CHARS`, and over it the block fell
+// through to a branch written for a REVISE: page names and "write them again in
+// full". On a path where a returned page REPLACES the stored one that is the
+// opposite instruction, and the whole addon contract went with it.
+//
+// MEASURED OVER THE 100-SITE CORPUS BEFORE ANY OF THIS: zero sites exceed the
+// window today (max 50,646 characters, 6 pages; the mean page is 7,744, so the
+// window holds ~11.6 of them). A site reaches it by GROWING — every addon adds
+// a page or a section — so this is the shape of the platform's own future
+// rather than a state anything is in now.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Real generated pages, several sites' worth, so "too large" is real source. */
+function corpusPages(sites) {
+  const out = [];
+  for (const s of sites) {
+    for (const f of fs.readdirSync(path.join(CORPUS_DIR, s)).filter((x) => x.endsWith(".tsx"))) {
+      out.push({
+        path: "src/routes/" + (s + "-" + f.replace(/\.tsx$/, "")).toLowerCase() + ".tsx",
+        source: fs.readFileSync(path.join(CORPUS_DIR, s, f), "utf8"),
+      });
+    }
+  }
+  return out;
+}
+const BIG = ["salon", "printer", "restaurant", "music-school"];
+const shownPaths = (t) => [...t.matchAll(/--- (src\/routes\/[a-z0-9.\-]+\.tsx) ---/g)].map((m) => m[1]);
+
+test("a site too large for the window keeps the addon contract, shows what fits and names the rest", async () => {
+  const stored = corpusPages(BIG);
+  const chars = stored.reduce((n, p) => n + p.source.length, 0);
+  assert.ok(chars > MAX_PRIOR_CHARS, "the fixture is not over the window — " + chars + " against " + MAX_PRIOR_CHARS);
+
+  const r = await addon("fw-big", "add a page listing our opening hours", {
+    kinds: ["page"], publishes: true, storedPages: stored,
+    written: [writtenPage("/hours")],
+    answers: { page: { page: [{ path: "/hours", name: "Hours", purpose: "say when we are open", sections: ["a table"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+
+  // THE CONTRACT, WHICH DISAPPEARED ENTIRELY BEFORE THIS.
+  assert.match(flat, /RETURN ONLY WHAT IS NEW OR CHANGED/, "the addon contract went with the source");
+  assert.match(flat, /`remove` IS THE ONLY THING THAT DOES IT/, "the delete verb went with the source");
+  assert.match(flat, /BYTE-IDENTICAL/, "the don't-rewrite rule went with the source");
+  assert.doesNotMatch(flat, /write them again in full/,
+    "the writer was told to rewrite a site it is only adding to — the reported defect");
+
+  // WHAT FITS IS SHOWN, WHAT DOES NOT IS NAMED, AND THE TWO ARE THE WHOLE SITE.
+  const shown = shownPaths(pagePrompt(r).text);
+  assert.ok(shown.length > 0, "nothing at all was shown");
+  assert.ok(shown.length < stored.length, "the fixture fitted whole, so this case is not about the window");
+  const named = flat.match(/ARE UNCHANGED: (.*?)\. Do NOT/);
+  assert.ok(named, "the pages that did not fit are not named: " + flat.slice(0, 400));
+  const unseen = named[1].split(", ");
+  assert.equal(shown.length + unseen.length, stored.length, "shown + named is not the whole site");
+  assert.equal(shown.filter((p) => unseen.includes(p)).length, 0, "a page was both shown and named as unseen");
+  assert.match(flat, /Do NOT return a file for any of them/,
+    "a page named and not shown was not forbidden — returning one replaces a file nobody saw");
+
+  // AND IT IS RECORDED. `ok: true` with an empty `problems` and an empty
+  // `coverNote` is exactly what this answered before, so the one fact that
+  // explains a weak result on a large site was nowhere at all.
+  assert.deepEqual(r.body.unseenPages, unseen, "the reply does not carry what the window could not hold");
+  const rec = storedAnswer(r, "fw-big");
+  assert.deepEqual(rec.coverage.unseenPages, unseen, "the stored record does not carry it");
+  // …AND NOT TO THE CUSTOMER, deliberately: they can do nothing with it, and the
+  // things they CAN act on have their own sentences.
+  assert.equal(r.body.coverNote, "", "the customer was told about the prompt window: " + r.body.coverNote);
+});
+
+test("the pages this change is about are the ones shown, whatever their stored order", async () => {
+  // `keep` is the whole of this: without it the selection is stored order and
+  // the page a section was designed to land on is exactly the one worth the
+  // budget. The target here is DEAD LAST in stored order, so a selection that
+  // ignored `keep` could not show it.
+  const stored = corpusPages(BIG);
+  stored[0] = { ...stored[0], path: "src/routes/index.tsx" };
+  const last = stored[stored.length - 1];
+  const target = "/" + last.path.replace("src/routes/", "").replace(/\.tsx$/, "");
+
+  const r = await addon("fw-big-keep", "add a note about parking to " + target, {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...last, source: last.source.replace("</main>", "<p>Parking is free.</p></main>") }],
+    answers: { component: { component: [{ page: target, does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const shown = shownPaths(pagePrompt(r).text);
+  assert.ok(shown.length < stored.length, "the fixture fitted whole, so this case is not about the window");
+  assert.ok(shown.includes(last.path), "the page the change is about was not shown: " + JSON.stringify(shown));
+  // AND THE HOME PAGE, which is the nav anchor almost every addon touches —
+  // "usually ONE new page, plus the page a visitor would look on to find it".
+  assert.ok(shown.includes("src/routes/index.tsx"), "the home page was not shown: " + JSON.stringify(shown));
+  // THE CONTROL that makes both of those about `keep` rather than about luck:
+  // the target is the LAST page stored, so stored order alone would drop it.
+  assert.equal(stored.indexOf(last), stored.length - 1);
+});
+
+test("an ordinary site is byte-identical — the window changes nothing until it binds", async () => {
+  // THE CONTROL FOR THE WHOLE ROUND. Every site on the platform is under the
+  // window today, so a change here that moved the ordinary prompt would be a
+  // change to every addon that has ever run.
+  const stored = corpusPages(["salon"]);
+  assert.ok(stored.reduce((n, p) => n + p.source.length, 0) < MAX_PRIOR_CHARS, "the control fixture is over the window");
+  const r = await addon("fw-small", "add a page listing our opening hours", {
+    kinds: ["page"], publishes: true, storedPages: stored,
+    written: [writtenPage("/hours")],
+    answers: { page: { page: [{ path: "/hours", name: "Hours", purpose: "say when we are open", sections: ["a table"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const t = pagePrompt(r).text;
+  assert.equal(shownPaths(t).length, stored.length, "a site that fits was not shown whole");
+  assert.match(t.replace(/\\n/g, " "), /Below is the CURRENT source of every page/,
+    "a site that fits was told it is too large to show");
+  assert.doesNotMatch(t, /ARE UNCHANGED:/, "a site that fits named pages as unseen");
+  assert.equal(r.body.unseenPages, undefined, "a site that fits reported a window that did not bind");
+  assert.equal(storedAnswer(r, "fw-small").coverage.unseenPages.length, 0, "the record claims a window that did not bind");
 });

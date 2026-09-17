@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import {
   MAX_RETURNED, mergeAddonPages, mergeAddonSchema, ADDON_TABLE_FIELDS, ADDON_SPEC_FIELDS,
   unlinkedPages, routeOf, addonReply, keptReply, rowLists, orderingMoved } from "../builder/site-addon.mjs";
-import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
+import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL, MAX_PAGE_CHARS, MAX_PRIOR_CHARS } from "../builder/page-gen.mjs";
 import { EDIT_RULE } from "../builder/site-edit.mjs";
 // THE ADD STEP'S OWN RULE (2026-09-02) — the addon no longer reads EDIT_RULE.
 import { addRule } from "../builder/site-add.mjs";
@@ -199,16 +199,49 @@ test("mode reaches the request through the ONE call definition", () => {
   assert.deepEqual(addon.system, revise.system);
 });
 
-test("a site too large to inline falls back to the full rewrite in BOTH modes", () => {
-  // The degradation is deliberate: with the source not shown, "return only what
-  // changed" is an instruction the model cannot follow — it has nothing to
-  // return the rest OF.
-  const huge = [page("index.tsx", "x".repeat(400000))];
-  for (const mode of ["addon", "revise"]) {
-    const b = priorPagesBlock(huge, mode);
-    assert.match(b, /too large to show here/, mode + " must degrade rather than lie");
-    assert.ok(!/RETURN ONLY WHAT IS NEW OR CHANGED/.test(b));
-  }
+test("a site too large to inline keeps the ADDON contract and names what it could not show", () => {
+  // ⚠ RE-ANCHORED 2026-09-17, AND THE OLD EXPECTATION ASSERTED THE DEFECT AS
+  // CORRECT. It read *"falls back to the full rewrite in BOTH modes"*, with the
+  // reasoning: *"with the source not shown, 'return only what changed' is an
+  // instruction the model cannot follow — it has nothing to return the rest
+  // OF."* That is true of a REVISE, where an unreturned page is deleted, and
+  // FALSE of an addon, where an unreturned page is KEPT — so the model needs
+  // nothing in hand in order not to return it.
+  //
+  // Measured through the real route on 17 real pages (181,258 characters): the
+  // addon lost every clause of its contract and gained *"write them again in
+  // full"*, which on a path where a returned page REPLACES the stored one is
+  // the opposite instruction. So the two modes part company here.
+  const many = Array.from({ length: 12 }, (_, i) => page("p" + i + ".tsx", "y".repeat(10000)));
+
+  // THE ADDON KEEPS ITS CONTRACT AND SHOWS WHAT FITS.
+  const a = priorPagesBlock(many, "addon");
+  assert.match(a, /RETURN ONLY WHAT IS NEW OR CHANGED/, "the addon contract went with the source");
+  assert.match(a, /`remove` IS THE ONLY THING THAT DOES IT/, "the delete verb went with the source");
+  assert.doesNotMatch(a, /write them again in full/, "the addon was told to rewrite the site it is adding to");
+  assert.match(a, /THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED/, "what was dropped is not named");
+  assert.match(a, /Do NOT return a file for any of them/, "a page named and not shown was not forbidden");
+  const shown = [...a.matchAll(/--- (src\/routes\/[^ ]+) ---/g)].map((m) => m[1]);
+  assert.ok(shown.length > 0 && shown.length < many.length, shown.length + " of " + many.length + " shown");
+
+  // A REVISE STILL DEGRADES THE OLD WAY, and that is right there: an unreturned
+  // page is a DELETED page, so "return only what changed" really is unfollowable
+  // without the source in hand.
+  const r = priorPagesBlock(many, "revise");
+  assert.match(r, /too large to show here/, "revise must degrade rather than lie");
+  assert.ok(!/RETURN ONLY WHAT IS NEW OR CHANGED/.test(r));
+
+  // AND ONE PAGE BIGGER THAN THE WHOLE WINDOW IS STILL SHOWN, because an addon
+  // prompt with no source at all is the revise fallback wearing this branch's
+  // words. MEASURED AS A BELT RATHER THAN A PATH: `MAX_PAGE_CHARS` (48,000) is
+  // under `MAX_PRIOR_CHARS` (90,000), so no page `validatePages` admits can
+  // reach here — the relationship is asserted, so the day either number moves
+  // this stops being a belt loudly rather than quietly.
+  assert.ok(MAX_PAGE_CHARS < MAX_PRIOR_CHARS,
+    "a single validated page can now exceed the prompt window — the one-page fallback is a live path, not a belt");
+  const huge = priorPagesBlock([page("index.tsx", "x".repeat(400000))], "addon");
+  assert.match(huge, /RETURN ONLY WHAT IS NEW OR CHANGED/, "a one-page site over the window lost the contract");
+  assert.ok(huge.includes("--- src/routes/index.tsx ---"), "a one-page site over the window was shown nothing at all");
 });
 
 // ── the guard that stops this rotting ────────────────────────────────────────

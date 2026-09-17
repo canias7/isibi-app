@@ -189,7 +189,12 @@ test("every model call on the addon route rides the job's clock", () => {
   assert.ok(wrapped >= 3, `only ${wrapped} small calls go through aQuick — the picker, one per kind and the seed net all must`);
   // AND THE PAGE CALL, the one call that does not go through aQuick and the
   // longest: the budget rides the argument `generateSitePages` names for it.
-  assert.match(b, /aSrc, "addon", undefined, aJob && aJob\.budget\)/, "the page call runs with no clock under a job");
+  // RE-ANCHORED 2026-09-17: the call's argument list grew a tail (`kind`,
+  // `keep` — which pages to show first on a site too large to show whole), so
+  // pinning the budget as the LAST argument was a claim about the signature's
+  // length rather than about the clock. The property is that the budget rides
+  // the argument after `target`, which is where `generateSitePages` names it.
+  assert.match(b, /aSrc, "addon", undefined, aJob && aJob\.budget[,)]/, "the page call runs with no clock under a job");
 });
 
 test("cancel and budget are re-asked before the page call and before the publish", () => {

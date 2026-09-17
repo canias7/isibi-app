@@ -1393,7 +1393,7 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [] } = {}) {
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
@@ -1467,5 +1467,22 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // WHAT THE ENGINE DROPPED WHOLE, PER TIER — the report that did not exist
     // above the table tier at all. `{function: ["send_reminder"], job: […]}`.
     unbuilt: unbuilt && typeof unbuilt === "object" ? unbuilt : {},
+    // ── THREE FINDINGS THAT REACHED THE REPLY AND NOT THE RECORD ──────────
+    //
+    // ⚠ THE FIRST TWO WERE PASSED IN AND DROPPED. The addon route has handed
+    // `missingPages` and `unknownKit` to this function since each was written,
+    // and neither was in the destructure — measured: `requirementRecord({…,
+    // missingPages: ["/gallery"]}).missingPages` answered `undefined`. So the
+    // reply named a page that did not survive and a kit component that is not
+    // in the kit, and the STORED record — the thing anybody comes back to —
+    // did not. This repository's own wiring trap, in the record built to
+    // outlive the reply.
+    //
+    // The third is this round's: which of the site's pages the prompt window
+    // could not carry, which is the one fact that explains a weak result on a
+    // large site.
+    missingPages: (Array.isArray(missingPages) ? missingPages : []).slice(0, MAX_REQUIREMENTS),
+    unknownComponents: (Array.isArray(unknownKit) ? unknownKit : []).slice(0, MAX_REQUIREMENTS),
+    unseenPages: (Array.isArray(unseenPages) ? unseenPages : []).slice(0, MAX_REQUIREMENTS),
   };
 }

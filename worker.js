@@ -135,7 +135,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -244,7 +244,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, fileOfRoute, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -4577,8 +4577,12 @@ export async function siteWebResearch(env, brief, queries) {
 function pagesCall(env) {
   return (keys, req, budget) => callModel(keys, req, budget, modelSend(env), modelOpts(env, null));
 }
-const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined) =>
-  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env));
+// `kind` AND `keep` RIDE THE TAIL, in the module's own order. The wrapper had
+// stopped one argument short of the module's signature twice before — the
+// recorded wiring trap, where the value is computed and the hop drops it — so
+// the guard below derives this call's argument list from `genPages`' own.
+const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined, kind = "", keep = []) =>
+  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind, keep);
 
 // HOW MUCH LONGER THE WORKER WAITS THAN THE CONTAINER DOES.
 //
@@ -23449,6 +23453,11 @@ async function handleRequest(request, env, ctx) {
             // composes the coverage, and a refusal there throws `ReferenceError`
             // that no source scan and no `node --check` can see.
             let aDeadQr = { dropped: [], stuck: [] };
+            // …AND THE PAGES THE PROMPT WINDOW COULD NOT CARRY (2026-09-17).
+            // Declared here for the reason above it: `aCoverage` reads it, and
+            // this route's first possible call to that closure is a refusal
+            // four hundred lines ahead of the page call that fills this in.
+            let aUnseenPages = [];
             // …THE SEED ROWS THAT WERE ASKED FOR AND NOT PUT IN (2026-09-15).
             // `seedSiteRows` has answered `{seeded, skipped}` all along and the
             // skip list went into the migration record and REACHED NOBODY:
@@ -23697,6 +23706,14 @@ async function handleRequest(request, env, ctx) {
                 // carries the engine's own sentences, which name the rule the
                 // customer's clause deliberately leaves out; `noPopulation` is
                 // the bare table list.
+                // …AND THE PAGES THE PROMPT WINDOW COULD NOT CARRY. The one
+                // fact that explains a weak result on a large site, and until
+                // this it was nowhere: a 17-page site answered `ok: true` with
+                // an empty `problems` and an empty `coverNote`, exactly as a
+                // one-page site does. Developer-facing, because a customer can
+                // do nothing with it and the things they CAN act on already
+                // have their own sentences.
+                unseenPages: aUnseenPages.length ? aUnseenPages : undefined,
                 seedSkips: aSeedSkips.length ? aSeedSkips.slice(0, 12) : undefined,
                 noPopulation: aNoFill.length ? aNoFill.slice(0, 12) : undefined,
                 // WHAT THE BACKEND LOOKUP REALLY ANSWERED, so a support read
@@ -23950,6 +23967,13 @@ async function handleRequest(request, env, ctx) {
               made: aMade(), reportable: aReportable(), existing: aExisting(),
               unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
               unknownKit: [...aUnknownKit], missingPages: aMissing,
+              // AND WHICH OF THE SITE'S PAGES THE PROMPT WINDOW COULD NOT
+              // CARRY. On the STORED record as well as the reply, because the
+              // reply is read once and the record is what anybody comes back
+              // to — and this is the one fact that explains a weak result on a
+              // large site. The record is re-written below the publish, so it
+              // catches this whichever branch the change took.
+              unseenPages: aUnseenPages,
             });
             const aSaveAnswer = async () => {
               try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
@@ -24512,6 +24536,47 @@ async function handleRequest(request, env, ctx) {
             for (const b of Object.values(pageComponents(aSrc))) {
               for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);
             }
+            // ── WHICH PAGES TO SHOW FIRST ON A SITE TOO LARGE TO SHOW WHOLE ──
+            //
+            // `priorPagesSent` fits what it can and NAMES the rest; `keep` is
+            // the order it tries. The pages this change is about come first —
+            // every add kind carries the route it lands on, and the page a
+            // section was designed for is exactly the one worth the budget —
+            // then the HOME page, which is the nav anchor almost every addon
+            // touches ("usually that is ONE new page, plus the page a visitor
+            // would look on to find it"). Everything else keeps stored order.
+            //
+            // BY FILE PATH, because that is what `priorPages` really carries;
+            // `fileOfRoute` is the one converter and is the producer's own.
+            const aKeepPages = [];
+            const aWantPage = (r) => {
+              const f = fileOfRoute(r);
+              if (f && !aKeepPages.includes("src/routes/" + f)) aKeepPages.push("src/routes/" + f);
+            };
+            for (const ans of aAnswers) {
+              for (const v of (Array.isArray(ans.value) ? ans.value : [ans.value])) {
+                if (v && typeof v === "object" && typeof v.page === "string") aWantPage(v.page);
+                if (v && typeof v === "object" && typeof v.path === "string") aWantPage(v.path);
+              }
+            }
+            aWantPage("/");
+            // AND WHAT THE WINDOW COULD NOT CARRY IS RECORDED. `ok: true` with
+            // nothing in `problems` and nothing in `coverNote` is exactly what
+            // a 17-page site answered before this, so the one fact that would
+            // have explained a poor result was nowhere. Asked ONCE, from the
+            // same pure function the prompt is built from, so the mark and the
+            // block cannot disagree about which pages the model saw.
+            //
+            // THE TRACE AND THE DEVELOPER RECORD, NOT THE CUSTOMER. "Eleven of
+            // your pages were not shown" is not something they can act on, and
+            // on a change that worked it is alarming about nothing; what they
+            // CAN act on — a page that did not survive, a component that was
+            // not replaced — already has its own sentence.
+            const aPagesSent = priorPagesSent(aSrc || [], { keep: aKeepPages });
+            if (aPagesSent.withheld.length) {
+              aUnseenPages = aPagesSent.withheld.slice(0, 12);
+              aMark("pages", "window", { shown: aPagesSent.shown.length, withheld: aPagesSent.withheld.length, chars: aPagesSent.chars });
+            }
             const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
             try {
@@ -24563,7 +24628,7 @@ async function handleRequest(request, env, ctx) {
                 theme: aMerged.theme || aLook.theme, css: aNextCss,
               // THE JOB'S CLOCK RIDES THE PAGE CALL TOO — the one call on this
               // route that does not go through `aQuick`, and the longest.
-              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget);
+              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget, undefined, "", aKeepPages);
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });

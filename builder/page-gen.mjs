@@ -2573,8 +2573,57 @@ export function styleDirective({ theme, css } = {}) {
  * every revise. Over the cap the pages are named but not shown, which degrades
  * to today's behaviour for the site that would have been most expensive.
  */
-const MAX_PRIOR_CHARS = 90000;
-export function priorPagesBlock(pages, mode = "revise", target = "") {
+export const MAX_PRIOR_CHARS = 90000;
+
+/**
+ * WHICH OF THE SITE'S PAGES FIT IN THIS REQUEST, AND WHICH DID NOT (2026-09-17).
+ *
+ * `partsSent`'s shape one layer over, and for the same reason: a bound that
+ * drops what it cannot carry has to NAME what it dropped, or the reader
+ * concludes the site does not have it.
+ *
+ * WHAT IT REPLACES ON THE ADDON PATH WAS WORSE THAN A SILENT DROP. Over
+ * `MAX_PRIOR_CHARS` the block fell through to a branch written for a REVISE —
+ * page names and *"write them again in full"* — which on a path where a
+ * returned page REPLACES the stored one is the opposite instruction. Measured
+ * through the real route on 17 real pages (181,258 characters): none of the
+ * addon contract survived (no *"return only what is new"*, no `remove` verb, no
+ * byte-identical rule, no "an unreturned page is KEPT"), the rewrite
+ * instruction was there instead, and `ok: true` came back with nothing in
+ * `problems` and nothing in `coverNote` — **nobody was told**.
+ *
+ * `keep` IS THE PAGES THIS CHANGE IS ABOUT, first and in its own order, then
+ * everything else in stored order. Without it the selection is arbitrary, and
+ * the page a section was designed to land on is exactly the one worth showing;
+ * the route fills it from the cleaned answers' own `page` fields plus the home
+ * page, which is the nav anchor every addon touches.
+ *
+ * A PAGE TOO BIG FOR WHAT IS LEFT IS SKIPPED, NOT A STOP — `partsSent`'s rule,
+ * so one enormous page does not withhold four small ones behind it.
+ */
+export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [] } = {}) {
+  const list = (Array.isArray(pages) ? pages : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
+  const first = (Array.isArray(keep) ? keep : []).filter((k) => typeof k === "string" && k);
+  const order = [
+    ...first.map((k) => list.find((p) => p.path === k)).filter(Boolean),
+    ...list.filter((p) => !first.includes(p.path)),
+  ];
+  const shown = [], withheld = [];
+  let total = 0;
+  for (const p of order) {
+    if (total + p.source.length > max) { withheld.push(p.path); continue; }
+    total += p.source.length;
+    shown.push(p);
+  }
+  // IN STORED ORDER ON THE WIRE, whatever `keep` did to the selection: which
+  // pages are SHOWN is a budget decision, and the order they are read in is the
+  // site's own. A model handed its pages in an order that moves per request
+  // reads that order as meaning something.
+  return { shown: list.filter((p) => shown.includes(p)), withheld, names: list.map((p) => p.path), chars: total };
+}
+
+export function priorPagesBlock(pages, mode = "revise", target = "", { keep = [] } = {}) {
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
   if (!list.length) return "";
@@ -2617,9 +2666,38 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
   // declares its own CHROME with its own links, so a page nobody links to is a
   // page nobody can reach. Usually that is the home page, and usually the answer
   // is two files instead of six.
-  if (mode === "addon" && total <= MAX_PRIOR_CHARS) {
+  // ── THE ADDON CONTRACT IS SENT WHATEVER THE SITE'S SIZE (2026-09-17) ──────
+  //
+  // This branch used to be gated on `total <= MAX_PRIOR_CHARS`, and a site over
+  // it fell through to the revise fallback below — page names and *"write them
+  // again in full"*, which on a path where a returned page REPLACES the stored
+  // one is the opposite of what this lane means. Measured through the real
+  // route on 17 real pages: none of the contract survived and the rewrite
+  // instruction was there instead, with `ok: true` and nothing said to anybody.
+  //
+  // So the contract is unconditional and the SOURCE is what gives: as many
+  // pages as fit, chosen by `keep` first, and the rest NAMED. A page named and
+  // not shown reads as one the model must not return, which is exactly what it
+  // is — returning it would replace a file nobody has seen, and `keptProse`
+  // would refuse the whole change for it.
+  if (mode === "addon") {
+    const sent = priorPagesSent(list, { keep });
+    // AT LEAST ONE PAGE, WHATEVER THE BUDGET SAYS. A single page larger than
+    // the whole window would otherwise send an addon prompt with no source at
+    // all, which is the fallback below wearing this branch's words. One page is
+    // worse than all of them and better than none — and the page it falls back
+    // to is the first `keep` names, because that is the one the change is about.
+    const first = (Array.isArray(keep) ? keep : []).map((k) => list.find((p) => p.path === k)).find(Boolean) || list[0];
+    const seen = sent.shown.length ? sent.shown : [first];
+    const unseen = sent.shown.length ? sent.withheld : list.filter((p) => p !== first).map((p) => p.path);
     return "\n\nTHE SITE AS IT STANDS — YOU ARE ADDING TO IT\n" +
-      "Below is the CURRENT source of every page, exactly as it is published right now.\n\n" +
+      (unseen.length
+        ? "Below is the current source of " + seen.length + " of this site's " + list.length + " pages, exactly as they " +
+          "are published right now. This site is too large to show you whole.\n\n" +
+          "THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED: " + unseen.join(", ") + ". Do NOT " +
+          "return a file for any of them — you have not been shown what you would be replacing, and a page you do " +
+          "not return is kept exactly as it is, which is what you want here. You may link to them by route.\n\n"
+        : "Below is the CURRENT source of every page, exactly as it is published right now.\n\n") +
       "RETURN ONLY WHAT IS NEW OR CHANGED. A page you do not return is kept exactly as it is, so returning one " +
       "unchanged bills the customer for retyping their own site. Usually that is ONE new page, plus the page a " +
       "visitor would look on to find it — each page carries its own nav links, so a new page nobody links to is " +
@@ -2649,7 +2727,7 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
       "Anything you DO return must be the whole file, and everything in it that this change does not touch stays " +
       "BYTE-IDENTICAL — the same headings, the same sentences, the same sections in the same order. The customer " +
       "wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
-      list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
+      seen.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
   }
   if (total > MAX_PRIOR_CHARS) {
     return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + list.map((p) => p.path).join(", ") +
@@ -2666,7 +2744,7 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
     list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
 }
 
-export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = null, mode = "revise", target = "") {
+export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = null, mode = "revise", target = "", keep = []) {
   const name = String(brand || "").trim();
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
@@ -2703,7 +2781,7 @@ export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = nu
     // LAST, so the model reads the brief and the schema first and the
     // site-to-edit second. Empty on a first build, so nothing about that path
     // changes.
-    priorPagesBlock(priorPages, mode, target);
+    priorPagesBlock(priorPages, mode, target, { keep });
 }
 
 // A route path the container will accept: under src/routes, .tsx, no traversal,
@@ -4209,7 +4287,7 @@ export function pageRulesFor(spec, kind = "") {
   return String(kind) === "shopfront" ? withoutCharts(rules) : rules;
 }
 
-export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "" } = {}) {
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [] } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4228,7 +4306,7 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target);
+  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target, keep);
   return {
     // The composer's Builder picker chooses this; `modelsFor()` with no
     // argument is the default pair, which is what the eval harness and every
@@ -4285,12 +4363,12 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "") {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = []) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep });
   // Provider decided in ONE place — see callBuilderModel. It answers in
   // Anthropic's shape whichever one served it, so every line below this is
   // unchanged and cannot tell the difference.
