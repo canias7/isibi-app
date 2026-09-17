@@ -804,6 +804,31 @@ test("⚠ an approval waits, and a DECISION is matched by the step's own id", as
   assert.equal(answered.outcomes[0].outcome, "ran");
   assert.equal(answered.outcomes[1].outcome, "waiting");
   assert.equal(answered.stop, null, "it ran past a pause nobody had answered");
+
+  // ⚠ AND THE READING THAT SEPARATES THEM IS PAST THE DEADLINE, which the case above
+  // cannot reach: before it, a step with no decision waits either way. A reader that
+  // merely asked "is something suspended" hands the FIRST pause's `waitUntil` to the
+  // SECOND one, and the second then times out on a deadline that was never its own —
+  // rejecting a run nobody was ever asked about. Measured: a sweep mutant survived the
+  // case above and dies on this one.
+  const late = await runWorkflow({
+    steps: two, occurrence: WED, now: () => DEADLINE + 60_000,
+    position: one.position, outcomes: one.outcomes, waiting: one.waiting, waitUntil: DEADLINE,
+    decisions: { s1: { verdict: "approved" } },
+  });
+  assert.equal(late.stop, null, "the second pause timed out on the FIRST one's deadline");
+  assert.equal(late.waiting.step, "s2", "it did not stop at the second approval");
+  assert.equal(late.outcomes[1].outcome, "waiting");
+  // THE CONTROL, in the same shape: the FIRST pause really does time out on that
+  // deadline when it is the one suspended — so the line above is about which pause the
+  // deadline belongs to, and not about timeouts being broken.
+  const firstTimedOut = await runWorkflow({
+    steps: two, occurrence: WED, now: () => DEADLINE + 60_000,
+    position: one.position, outcomes: one.outcomes, waiting: one.waiting, waitUntil: DEADLINE,
+    decisions: {},
+  });
+  assert.equal(firstTimedOut.stop.reason, "rejected");
+  assert.match(firstTimedOut.stop.why, /nobody answered/);
 });
 
 test("⚠ the timeout outcome is the CUSTOMER'S choice, and all three are different", async () => {
@@ -1170,7 +1195,9 @@ test("⚠ a search is scoped to the ACCOUNT and the AGENT, and no agent REFUSES 
 test("⚠ the execution's own snapshot is what runs — its steps, its memory, its position", async () => {
   // THE CONFIGURATION IS THE ONE RECORDED AT ACCEPTANCE, which is what makes an edit
   // reach the NEXT execution and never this one.
+  const finished = [];
   const { runner } = routed({
+    finish: async (a) => { finished.push(a); return { ok: true, finished: true }; },
     exec: {
       runId: "r1", automationId: "c1", tenant: "t1", trigger: "manual", agentId: "a1",
       occurrence: null, zone: null, finishedAt: null,
@@ -1181,7 +1208,14 @@ test("⚠ the execution's own snapshot is what runs — its steps, its memory, i
       ],
       // AS IF IT HAD ALREADY RUN THE FIRST STEP AND PAUSED — the position and the values
       // are the row's, and a runner that ignored either would run step 1 again.
-      position: 1, values: { a: "one" }, outcomes: [{ id: "s1", type: "note", outcome: "ran", result: "one" }],
+      //
+      // ⚠ **THE STORED OUTCOME CARRIES A MARK NO RE-RUN CAN PRODUCE (`ranAt`), and that
+      // is what makes "it did not run twice" observable at all.** Without it a second run
+      // of the same step writes a byte-identical outcome over the first, so the answer is
+      // the same either way — measured, by a sweep mutant that dropped the position and
+      // survived. The one difference a re-run leaves is the mark being gone.
+      position: 1, values: { a: "one" },
+      outcomes: [{ id: "s1", type: "note", outcome: "ran", result: "one", ranAt: "earlier" }],
       memory: { tone: { value: "formal", version: 4 } },
       waiting: null, waitUntil: null, decisions: {},
     },
@@ -1190,6 +1224,12 @@ test("⚠ the execution's own snapshot is what runs — its steps, its memory, i
   assert.equal(r.why, "ran");
   assert.equal(r.stop.reason, "done");
   assert.equal(r.stop.result, "one in a formal way", "the snapshot's memory or values did not reach the executor");
-  // AND THE FIRST STEP KEPT ITS RECORDED OUTCOME rather than being run a second time.
-  assert.equal(r.stop.outcomes?.length ?? 3, 3);
+  // AND THE FIRST STEP KEPT ITS RECORDED OUTCOME rather than being run a second time —
+  // asked of the outcome the runner really handed to `finish`, which is where a re-run
+  // would have overwritten it.
+  const done = finished.at(-1);
+  assert.ok(done, "nothing was finished");
+  assert.equal(done.outcomes.length, 3);
+  assert.equal(done.outcomes[0].ranAt, "earlier", "the first step was run a second time");
+  assert.equal(done.position, 3);
 });

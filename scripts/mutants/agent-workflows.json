@@ -1,0 +1,444 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the workflow reader",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": " * `{{name}}` \u2014 the same syntax the engine resolves, in the one place the site needs it.",
+  "to": " * `{{name}}` (control) \u2014 the same syntax the engine resolves, in the one place the site needs it.",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment only, above the memory block",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    // MEMORY \u2014 facts and preferences that persist between conversations",
+  "to": "    // MEMORY (control) \u2014 facts and preferences that persist between conversations",
+  "control": true
+ },
+ {
+  "label": "refs: a malformed reference is READ as a name, so `{{ }}` is refused as a typo",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (AGENT_NAME_RE.test(m[1]) && !out.includes(m[1])) out.push(m[1]);",
+  "to": "    if (!out.includes(m[1])) out.push(m[1]);"
+ },
+ {
+  "label": "refs: a name nothing produces is STORED rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "            return { error: `step ${at}: nothing here produces a value called \"${name}\"` };",
+  "to": "            continue;"
+ },
+ {
+  "label": "refs: a step's own `out` is added BEFORE its references are read, so it can name itself",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (typeof one.out === \"string\" && one.out) produces.add(one.out);\n    steps.push(one);",
+  "to": "    steps.push(one);\n    if (typeof one.out === \"string\" && one.out) produces.add(one.out);"
+ },
+ {
+  "label": "refs: the declared inputs never reach the reader, so every input reference is a typo",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const produces = new Set((Array.isArray(inputs) ? inputs : []).filter((n) => typeof n === \"string\"));",
+  "to": "  const produces = new Set();"
+ },
+ {
+  "label": "branch: an unbalanced workflow is SAVED, and the engine has to fail it whole",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const shape = branchShape(steps);\n  if (shape.error) return { error: shape.error };",
+  "to": "  const shape = branchShape(steps);\n  void shape;"
+ },
+ {
+  "label": "branch: `otherwise` is matched by POSITION rather than by depth",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const top = open[open.length - 1];\n      if (!top) return { error: `step ${at}: \"Otherwise\" has no \"If\" above it` };",
+  "to": "      const top = open[0];\n      if (!top) return { error: `step ${at}: \"Otherwise\" has no \"If\" above it` };"
+ },
+ {
+  "label": "branch: an `if` with no `end` is accepted",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (open.length) {\n    return { error: `step ${open[open.length - 1].at + 1}: that \"If\" has no \"End of the if\" below it` };\n  }",
+  "to": "  if (false) {\n    return { error: `step ${open[open.length - 1].at + 1}: that \"If\" has no \"End of the if\" below it` };\n  }"
+ },
+ {
+  "label": "branch: a second `otherwise` on one `if` is accepted",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (top.elseAt !== null) return { error: `step ${at}: that \"If\" already has an \"Otherwise\"` };",
+  "to": "      if (false) return { error: `step ${at}: that \"If\" already has an \"Otherwise\"` };"
+ },
+ {
+  "label": "fields: a field that does not apply is READ and STORED anyway",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!fieldApplies(f, one)) continue;",
+  "to": "      if (false) continue;"
+ },
+ {
+  "label": "fields: `when` is satisfied by anything, so every conditional field applies",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!allowed.includes(soFar[on])) return false;",
+  "to": "    if (false) return false;"
+ },
+ {
+  "label": "read: a choice falls back to the FIRST option rather than refusing",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (typeof raw !== \"string\" || !f.options.includes(raw)) {\n      return { error: `${said} has to be one of: ${f.options.join(\", \")}` };\n    }\n    return { value: raw };",
+  "to": "    return { value: f.options.includes(raw) ? raw : f.options[0] };"
+ },
+ {
+  "label": "read: a number is COERCED, so `Number('3 days')` decides a wait",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (typeof raw !== \"number\" || !Number.isInteger(raw)) return { error: `${said} has to be a whole number` };",
+  "to": "    raw = Math.trunc(Number(raw));"
+ },
+ {
+  "label": "read: a number outside its bounds is CLAMPED, storing a bound nobody chose",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (f.min !== undefined && raw < f.min) return { error: `${said} has to be between ${f.min} and ${f.max}` };",
+  "to": "    if (f.min !== undefined && raw < f.min) raw = f.min;"
+ },
+ {
+  "label": "read: a time need not be whole minutes on the 24-hour clock",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    const m = /^([01]\\d|2[0-3]):([0-5]\\d)$/.exec(raw.trim());",
+  "to": "    const m = /^(\\d+):(\\d+)/.exec(raw.trim());"
+ },
+ {
+  "label": "read: a name is not folded, so {{Tone}} and {{tone}} become two values",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    const name = raw.trim().toLowerCase();\n    if (!AGENT_NAME_RE.test(name)) {",
+  "to": "    const name = raw.trim();\n    if (!AGENT_NAME_RE.test(name.toLowerCase())) {"
+ },
+ {
+  "label": "read: a field kind this does not know PASSES rather than refusing",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  return { error: `${said} is configured in a way this can't read` };",
+  "to": "  return { value: raw };"
+ },
+ {
+  "label": "inputs: `required` is COERCED, so \"false\" makes everything compulsory",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (d.required !== undefined && typeof d.required !== \"boolean\") {\n      return { error: `input ${at}: whether it has to be answered didn't arrive as a yes or no` };\n    }",
+  "to": "    void d;"
+ },
+ {
+  "label": "inputs: two of one name are accepted, so a reference cannot be resolved",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (seen.has(name)) return { error: `input ${at}: there is already something called \"${name}\"` };",
+  "to": "    if (false) return { error: `input ${at}: there is already something called \"${name}\"` };"
+ },
+ {
+  "label": "inputs: a label falls back to nothing, so a box has no words beside it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    inputs.push({ name, label: label || name, required: d.required === true, default: dflt });",
+  "to": "    inputs.push({ name, label, required: d.required === true, default: dflt });"
+ },
+ {
+  "label": "run input: an answer nothing asked for is DROPPED rather than named",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!d) return { error: `this automation doesn't ask for anything called \"${k}\"` };",
+  "to": "    if (!d) continue;"
+ },
+ {
+  "label": "run input: a required answer left blank is accepted",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (given.trim() === \"\") return { error: `${d.label || d.name} has to be filled in` };",
+  "to": "    if (false) return { error: `${d.label || d.name} has to be filled in` };"
+ },
+ {
+  "label": "run input: an answer that is not text is COERCED",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (typeof v[k] !== \"string\") return { error: `\"${k}\" didn't arrive as text` };",
+  "to": "    if (typeof v[k] !== \"string\") { out[k] = String(v[k]); continue; }"
+ },
+ {
+  "label": "approve: a verdict this cannot read is DEFAULTED to approved",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!AUTOMATION_VERDICTS.includes(b.verdict)) return no(400, \"say whether it is approved or rejected\");",
+  "to": "      if (!AUTOMATION_VERDICTS.includes(b.verdict)) b.verdict = \"approved\";"
+ },
+ {
+  "label": "approve: `finished` is answered as the missing-run 404, so a screen cannot tell",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (d.error === \"finished\") {\n        return no(409, \"that run has already finished, so there is nothing left to approve\", { finished: true });\n      }",
+  "to": "      if (d.error === \"finished\") return NO_EXECUTION();"
+ },
+ {
+  "label": "approve: `not-waiting` loses its own flag, so the screen has to parse our prose",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        return no(409, \"that run isn't waiting to be approved just now \u2014 open its history to see where it is\", { notWaiting: true });",
+  "to": "        return no(409, \"that run isn't waiting to be approved just now \u2014 open its history to see where it is\");"
+ },
+ {
+  "label": "approve: the doorbell is rung BEFORE the transaction has committed",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      let notified = false;\n      if (d.queued === \"queued\" && typeof ring === \"function\") {",
+  "to": "      let notified = false;\n      if (typeof ring === \"function\") {"
+ },
+ {
+  "label": "approve: a failed ring is RAISED, so a committed decision reads as a failure",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        catch (e) { if (typeof log === \"function\") log(\"approval: the queue was not rung\", String(e?.message ?? e)); }",
+  "to": "        catch (e) { throw e; }"
+ },
+ {
+  "label": "knowledge: the LIST carries the material, four megabytes to draw a list of names",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        sources: await store.listKnowledge(who, agentId),",
+  "to": "        sources: await store.listKnowledge(who, agentId, { withBody: true }),"
+ },
+ {
+  "label": "knowledge: the material is trimmed like a field, so a document loses its blank lines",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const body = b.body.replace(/^\\s+|\\s+$/g, \"\");",
+  "to": "      const body = b.body.replace(/\\s+/g, \" \").trim();"
+ },
+ {
+  "label": "knowledge: a format this cannot render is DEFAULTED rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!KNOWLEDGE_FORMATS.includes(format)) return no(400, `a source is ${KNOWLEDGE_FORMATS.join(\" or \")}`);",
+  "to": "      if (!KNOWLEDGE_FORMATS.includes(format)) return ok({ source: null });"
+ },
+ {
+  "label": "knowledge: an EDIT asks the ceiling, so correcting the last source is refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const id = cleanId(b.id);\n      if (id) {",
+  "to": "      const id = cleanId(b.id);\n      if (false) {"
+ },
+ {
+  "label": "knowledge: a duplicate name is a 500 rather than a sentence saying what to do",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (k.error === \"duplicate\") {",
+  "to": "      if (false) {"
+ },
+ {
+  "label": "knowledge: the ceiling is not asked, so an agent holds as many sources as it likes",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (held >= MAX_KNOWLEDGE) {",
+  "to": "      if (false) {"
+ },
+ {
+  "label": "knowledge: a version it cannot read is CLAIMED to be 1",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    version: Number.isInteger(r?.version) ? r.version : null,\n    at: typeof r?.created_at === \"string\" ? r.created_at : null,\n    updatedAt: typeof r?.updated_at === \"string\" ? r.updated_at : null,\n  };\n}\n\n/** One saved fact, with where it came from and when it last changed. */",
+  "to": "    version: Number.isInteger(r?.version) ? r.version : 1,\n    at: typeof r?.created_at === \"string\" ? r.created_at : null,\n    updatedAt: typeof r?.updated_at === \"string\" ? r.updated_at : null,\n  };\n}\n\n/** One saved fact, with where it came from and when it last changed. */"
+ },
+ {
+  "label": "memory: the route reads `b.key`, which the import owns under another grammar",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const key = typeof b.name === \"string\" ? b.name.trim().toLowerCase() : \"\";\n      if (!key) return no(400, \"give it a name, so a step can ask for it\");",
+  "to": "      const key = typeof b.key === \"string\" ? b.key.trim().toLowerCase() : \"\";\n      if (!key) return no(400, \"give it a name, so a step can ask for it\");"
+ },
+ {
+  "label": "memory: the ceiling is asked for a name the agent ALREADY holds, so a correction is refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!held.some((m) => m.key === key) && held.length >= MAX_MEMORIES) {",
+  "to": "      if (held.length >= MAX_MEMORIES) {"
+ },
+ {
+  "label": "memory: a delete drops the agent from the filter, taking one name off every agent",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      return (await store.removeMemory(who, agentId, key)) ? ok({ agent: agentId, key }) : NO_MEMORY();",
+  "to": "      return (await store.removeMemory(who, null, key)) ? ok({ agent: agentId, key }) : NO_MEMORY();"
+ },
+ {
+  "label": "memory: a source it cannot read is kept, so provenance says whatever arrived",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    source: MEMORY_SOURCES.includes(r?.source) ? r.source : \"person\",",
+  "to": "    source: r?.source ?? \"person\","
+ },
+ {
+  "label": "history: `waiting` is read off the RUN's status, so a pause reads as queued",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const state = r?.run_status !== \"stopped\"\n    ? (waiting ? \"waiting\" : \"queued\")",
+  "to": "  const state = r?.run_status !== \"stopped\"\n    ? \"queued\""
+ },
+ {
+  "label": "history: a REJECTED execution carries the last note as its result",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    result: state === \"done\" && typeof stop?.result === \"string\" ? stop.result : null,",
+  "to": "    result: typeof stop?.result === \"string\" ? stop.result : null,"
+ },
+ {
+  "label": "history: the whole stored pause reaches the screen, fields nobody has written included",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    waiting: waiting ? {\n      // ONLY WHAT SOMEBODY LOOKING AT IT NEEDS: which step, which kind, what is being",
+  "to": "    waiting: waiting ? { ...waiting,\n      // ONLY WHAT SOMEBODY LOOKING AT IT NEEDS: which step, which kind, what is being"
+ },
+ {
+  "label": "history: a pause of a kind it cannot read draws the APPROVE buttons",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      kind: waiting.kind === \"approval\" ? \"approval\" : \"wait\",",
+  "to": "      kind: waiting.kind === \"wait\" ? \"wait\" : \"approval\","
+ },
+ {
+  "label": "history: a timeout outcome it cannot read is INVENTED",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      onTimeout: AUTOMATION_TIMEOUTS.includes(waiting.on_timeout) ? waiting.on_timeout : null,",
+  "to": "      onTimeout: waiting.on_timeout ?? \"reject\","
+ },
+ {
+  "label": "screen: a step's choice redraws nothing, so a conditional control never appears",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  'agent-auto-step-field': () => agentAutoStructural((draft) => draft),",
+  "to": "  'agent-auto-step-field': () => {},"
+ },
+ {
+  "label": "screen: a step's choice redraws WITHOUT reading the form, eating what was typed",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  'agent-auto-step-field': () => agentAutoStructural((draft) => draft),\n};",
+  "to": "  'agent-auto-step-field': () => renderAgents(),\n};"
+ },
+ {
+  "label": "screen: the branch depth is dropped, so a workflow is a flat list of nine rows",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      ' style=\"--ag-step-d:' + (Number.isFinite(depth) ? depth : 0) + '\">' +",
+  "to": "      '>' +"
+ },
+ {
+  "label": "screen: an `otherwise` is indented like the steps under it, so the arms read as one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    out.push(t === 'otherwise' ? Math.max(0, d - 1) : d);",
+  "to": "    out.push(d);"
+ },
+ {
+  "label": "screen: Run now runs without asking for what the automation asks for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!asks.length) { agentAutoRun(target, {}); return; }",
+  "to": "  agentAutoRun(target, {}); return;"
+ },
+ {
+  "label": "screen: the ask form starts empty, so a default is a control that answers nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  for (const d of asks) values[d.name] = typeof d.default === 'string' ? d.default : '';",
+  "to": "  for (const d of asks) values[d.name] = '';"
+ },
+ {
+  "label": "screen: a decision is sent with no step, so the server cannot tell what was answered",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!step) { agentAutoActErr = 'That run isn\u2019t waiting to be approved any more.'; renderAgents(); return; }",
+  "to": "  void step;"
+ },
+ {
+  "label": "screen: the approve buttons are drawn for a TIMED wait, which no decision is read from",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "            (r.waiting.kind === 'approval'\n              ? '<div class=\"ag-hint\">' +",
+  "to": "            (true\n              ? '<div class=\"ag-hint\">' +"
+ },
+ {
+  "label": "screen: which arm ran is not drawn, so two branch rows look identical",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "                (autoSaid(o.took) ? ' \u00b7 ' + esc(o.took === 'first' ? 'first arm' : 'other arm') : '') +",
+  "to": "                '' +"
+ },
+ {
+  "label": "screen: an excerpt is drawn with no source, which is an assertion nobody can check",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "                ((o.sources || []).length\n                  ? ' \u2014 ' + esc((o.sources || []).map((src) =>",
+  "to": "                (false\n                  ? ' \u2014 ' + esc((o.sources || []).map((src) =>"
+ }
+]

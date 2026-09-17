@@ -3286,3 +3286,84 @@ corrected, and three of the four are recorded traps met again:
 4. **The "not waiting at that step" case asked a run that had FINISHED**, and was
    answered `finished` by a route doing exactly the right thing. It needs an execution
    that really is suspended.
+
+### What the guards cost, and the one finding the sweep produced
+
+**⚠ THE SWEEP SAID THE WHOLE FEATURE WAS UNGUARDED, AND IT WAS RIGHT.** The first pass
+over this round read **300 mutants, 262 killed, 38 survived — and 38 of the 39 new
+mutants were this round's own work.** Every property they break is proven end to end by
+`verify:wf` against a real PostgreSQL; `npm run sweep` runs `test/*.test.mjs` and not
+that. **A property proven only by an instrument the sweep cannot run is a property no
+mutant can be caught by**, and the demonstration's 116 green checks said nothing about
+it either way.
+
+Twenty cases in `automations.test.mjs` (28 → 48) and three in `worker.test.mjs`
+(25 → 28) close it at the module, where a mutant can be seen. **It took three more
+passes — 262 → 294 → 298 → 300 killed — and not one survivor at any point was the
+product's.** Pass 2's six:
+
+- **TWO WERE INERT BY CONSTRUCTION, MEASURED RATHER THAN HUNTED**, and both are
+  REPLACED by an observable mutant of the same property rather than deleted.
+  `fillRefs`'s FALLBACK bag swapped for `Object.create({})` is reached only when
+  `values` is not an object — and that has no own `constructor` either, so
+  `Object.hasOwn` answers the same both ways over every shape (driven: `null`,
+  `undefined`, `7`, `"x"`, `["a"]`). And `exec.live?.steps ?? exec.steps` reads a field
+  **nothing anywhere produces** — not the store, not the migration — so the optional
+  chain always answered `undefined`.
+- **THREE WERE FIXTURES TOO SHALLOW TO SEPARATE TWO READINGS**, which is this
+  repository's own most-repeated guard trap, three times in one pass. The nested branch
+  case had the inner `if` already CLOSED at the `otherwise`, so the innermost and the
+  outermost open entry are the same one and `open[0]` passes. ONE approval in a workflow
+  cannot tell "matched by the step's id" from "matched by anything suspended at all" —
+  two can, and the answer to the first must leave the second waiting. And the runner's
+  timer threw `set` and `clear` away, so "the heartbeat stopped" was unobservable in the
+  one case that is about a released claim not being renewed.
+- **ONE WAS SIMPLY UNDRIVEN**: a ring that FAILS. One bad send must not take the rows
+  behind it down, and both rows are re-queued either way, because the transaction did
+  that before anything was rung.
+
+**AND PASS 3 LEFT TWO, BOTH THE SAME SHAPE ONE LAYER DEEPER — a case that reaches the
+right code and cannot OBSERVE the difference.** Worth recording because both readings
+looked sufficient and neither was:
+
+- **TWO APPROVALS WERE NOT ENOUGH; THE CLOCK HAD TO BE PAST THE DEADLINE.** Before it, a
+  pause with no decision waits whichever way the resume is matched, so the two readings
+  agree. Past it, a reader that merely asked "is something suspended" hands the FIRST
+  pause's `waitUntil` to the SECOND — which then times out on a deadline that was never
+  its own, **rejecting a run nobody was ever asked about**. The control beside it is the
+  first pause really timing out on that same deadline, so the case is about which pause
+  the deadline belongs to rather than about timeouts working.
+- **A RE-RUN OVERWRITES A STORED OUTCOME WITH A BYTE-IDENTICAL ONE.** Dropping the
+  resumed position ran step one a second time and wrote the same outcome over the first,
+  so every assertion about the answer held. The stored outcome carries a mark no re-run
+  can produce (`ranAt`), and the assertion is made on what the runner really handed to
+  `finish` — which is the only place the overwrite would show.
+
+### Measured
+
+- **`npm run verify:wf`: 116 checks, 0 failed**, with the final tally reading
+  `done=4 failed=1 rejected=2 waiting=4` and *"not one execution anywhere called a
+  model"*.
+- **`npm run verify:auto`: 70 checks, 0 failed** — unchanged by this round, which is the
+  control that says the scheduled path still works.
+- **Real PostgreSQL 16 (`npm run test:pg`): 496 → 569 checks, 0 failed.** The 73 are
+  this migration's own guarantees, each driven through the real function rather than
+  read off the file: progress moving forward only with a stale advance proved a no-op,
+  a pause releasing its worker and a re-pause keeping its deadline, the first decision
+  standing with the account next door refused, a suspended execution unclaimable, the
+  real `tsvector` search STEMMING and scoped three ways, a stopword query finding
+  nothing, a version moving on the body and not on the title, memory scoped by its own
+  index with the snapshot frozen at acceptance, and an input nothing asked for named
+  rather than dropped. **496 is a run of this file on the pre-change tree**, not a
+  carried stamp.
+- **⚠ THREE SETUP MISTAKES OF MY OWN IN THAT FILE, and each was the schema being
+  right.** The claim answers `claim_token`, not `token` — one missing key failed
+  fourteen checks in a row. A suspended execution CANNOT be claimed, because the pause
+  released it, so a stale-advance case has to re-queue first. And clearing `waiting`
+  without `wait_until` is refused by `automation_runs_wait_is_whole`, which is now its
+  own check in both directions rather than a workaround.
+- **Engine mutation sweep: 300 product mutants, 300 killed, 0 survived, 0 never applied,
+  6 comment-only controls survived** — 306 spec entries, of which the runner counts the
+  300 that are not controls. Four passes, and the tally above is the last one's own
+  answer rather than a targeted re-run bolted onto a stale count.
+- **Engine suite 306 → 329**, 0 failed.
