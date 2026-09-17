@@ -529,6 +529,21 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
   const rows = (r) => (Array.isArray(r.body) ? r.body : []);
   const t = (tenant) => encodeURIComponent(tenant);
 
+  /**
+   * The object a transaction answered with.
+   *
+   * **AN ANSWER THAT IS NOT AN OBJECT IS A FAILURE, never an empty success.** PostgREST
+   * hands back whatever the function returned, and reading `undefined.ok` as "not ok"
+   * would turn a broken deployment into a plausible refusal sentence.
+   */
+  const answerOf = (r, what) => {
+    const a = r.body;
+    if (!a || typeof a !== "object" || Array.isArray(a)) {
+      throw storeFail(what, { status: r.status, text: "no answer came back" });
+    }
+    return a;
+  };
+
   return {
     /** Every agent of one account, newest first, off the overview view. */
     async list(tenant) {
@@ -697,6 +712,127 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return a;
     },
 
+    // ═══════════════════════════════════════════════════════════════════
+    // AUTOMATIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Every automation of one agent, newest-changed first. */
+    async listAutomations(tenant, agentId) {
+      const r = await req("GET",
+        `automations?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}` +
+        `&select=id,agent_id,name,enabled,schedule,at_local,zone,steps,next_run_at,updated_at` +
+        `&order=updated_at.desc&limit=${MAX_AUTOMATIONS}`);
+      if (!r.ok) throw storeFail("list automations", r);
+      return rows(r).map(automationRow);
+    },
+
+    /**
+     * Does this account own this automation?
+     *
+     * The tenant is in the filter, so a stranger's id and an id that does not exist are
+     * one answer — which is what keeps this from confirming that somebody else's
+     * automation is real.
+     */
+    async ownsAutomation(tenant, id) {
+      const r = await req("GET", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}&select=id&limit=1`);
+      if (!r.ok) throw storeFail("read automation", r);
+      return rows(r).length === 1;
+    },
+
+    /**
+     * Make one.
+     *
+     * **THE ID IS OURS AND THE ARITHMETIC IS THE DATABASE'S.** A daily schedule's next
+     * instant is computed by `agent.automation_next_at`, which is the only thing in this
+     * system that owns a time zone database — working it out here would be a second copy
+     * of it, in a language whose answer would then decide when somebody's work runs.
+     */
+    async createAutomation(tenant, { agentId, id, name, enabled, schedule, at, zone, steps }) {
+      const r = await req("POST", "rpc/create_automation", {
+        body: {
+          p_tenant: tenant, p_agent_id: agentId, p_id: id, p_name: name,
+          p_enabled: enabled, p_schedule: schedule, p_at_local: at, p_zone: zone,
+          p_steps: steps, p_max: MAX_AUTOMATIONS,
+        },
+      });
+      if (!r.ok) throw storeFail("create automation", r);
+      return answerOf(r, "create automation");
+    },
+
+    /** Change one. A replace of its settings, and the form always sends all of them. */
+    async updateAutomation(tenant, { id, name, enabled, schedule, at, zone, steps }) {
+      const r = await req("POST", "rpc/update_automation", {
+        body: {
+          p_tenant: tenant, p_id: id, p_name: name, p_enabled: enabled,
+          p_schedule: schedule, p_at_local: at, p_zone: zone, p_steps: steps,
+        },
+      });
+      if (!r.ok) throw storeFail("update automation", r);
+      return answerOf(r, "update automation");
+    },
+
+    /**
+     * Turn one on or off, and NOTHING ELSE.
+     *
+     * **ITS OWN NARROW WRITE, deliberately.** The toggle is the one change that must not
+     * carry a whole configuration with it: sending the form's other fields from a list
+     * row would mean a stale tab quietly restoring an old schedule as the price of
+     * pressing a switch.
+     */
+    async setAutomationEnabled(tenant, id, enabled) {
+      const r = await req("PATCH", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
+        prefer: "return=representation",
+        body: { enabled },
+      });
+      if (!r.ok) throw storeFail("enable automation", r);
+      return rows(r).length === 1 ? automationRow(rows(r)[0]) : null;
+    },
+
+    /** The executions go with it, by the foreign key's own `on delete cascade`. */
+    async removeAutomation(tenant, id) {
+      const r = await req("DELETE", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
+        prefer: "return=representation",
+      });
+      if (!r.ok) throw storeFail("delete automation", r);
+      return rows(r).length === 1;
+    },
+
+    /**
+     * START ONE NOW — the same transaction the schedule uses, with `manual` as the
+     * trigger and no occurrence.
+     *
+     * **EVERY ARGUMENT IS AN ID.** There is no workflow, no step and no bound among
+     * them: what this execution runs is read from the automation's own row inside the
+     * transaction, so a bug in this process cannot change what somebody's automation
+     * does even by accident.
+     */
+    async runAutomation(tenant, { automationId, runId }) {
+      const r = await req("POST", "rpc/accept_automation_run", {
+        body: {
+          p_tenant: tenant, p_automation_id: automationId, p_run_id: runId,
+          p_trigger: "manual", p_occurrence: null,
+        },
+      });
+      if (!r.ok) throw storeFail("run automation", r);
+      return answerOf(r, "run automation");
+    },
+
+    /**
+     * One automation's history, newest first.
+     *
+     * OFF `agent.automation_history`, which is a VIEW: the execution's own record joined
+     * to its run's projected status and stop. The status lives in exactly one place and
+     * this is the only reader that needs both halves.
+     */
+    async executions(tenant, automationId, limit = MAX_EXECUTIONS) {
+      const r = await req("GET",
+        `automation_history?tenant_id=eq.${t(tenant)}&automation_id=eq.${automationId}` +
+        `&select=id,automation_id,trigger,occurrence,steps,outcomes,missed,created_at,finished_at,` +
+        `run_status,run_stop&order=created_at.desc&limit=${Number(limit) || MAX_EXECUTIONS}`);
+      if (!r.ok) throw storeFail("read executions", r);
+      return rows(r).map(executionRow);
+    },
+
     /**
      * One agent and its whole conversation, in one transaction, ONCE.
      *
@@ -723,6 +859,281 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTOMATIONS — a trigger, a condition, an action, a saved result
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** How many automations one agent may hold. The create function's own ceiling. */
+export const MAX_AUTOMATIONS = 20;
+
+/** How long an automation's name may be — the column's own check constraint. */
+export const AUTOMATION_NAME_MAX = 200;
+
+/** How many steps one workflow may hold — the column's own check constraint. */
+export const MAX_AUTOMATION_STEPS = 20;
+
+/** How long a note may be — the engine's own `MAX_NOTE`, censused against it. */
+export const MAX_STEP_NOTE = 2000;
+
+/**
+ * How many executions one history read carries.
+ *
+ * Newest first and bounded, because a daily automation left alone for a year holds 365
+ * of them and a screen showing one automation does not need all of them to say what it
+ * has been doing.
+ */
+export const MAX_EXECUTIONS = 50;
+
+/** How a trigger starts. `manual` is Run now only; `daily` also fires once a day. */
+export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily"]);
+
+/** Sunday first, because that is the order every weekday index in this tree uses. */
+export const AUTOMATION_DAYS = Object.freeze(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
+
+/**
+ * ⚠ THE STEP CATALOG — every kind of step a workflow may hold, as the browser is
+ * shown them.
+ *
+ * **A COPY OF THE ENGINE'S `AUTOMATION_STEPS`, DECLARED AS ONE, CENSUSED BOTH WAYS**
+ * (`test/agent-send.test.mjs`, the one file that may import both products). The engine
+ * runs in its own Worker and this file may not import it — `worker.js`'s module graph is
+ * a container image input, so importing the agent product would pull the whole of it
+ * into the image. A copy with a census both ways is this repository's standard remedy,
+ * and it is the same arrangement `AGENT_TOOLS` already has.
+ *
+ * **WHAT IS COPIED IS A DECLARATION, NOT A RULE.** `fields` says what a step is
+ * configured WITH, which is what the form needs to draw and what the validator below
+ * needs to read; what each value MEANS is the engine's `read`, and it stays the
+ * authority — this refuses a note with no text, and the engine refuses it again at run
+ * time because the row came back from a database.
+ *
+ * **THE WORDS ARE THE SAME ON BOTH SIDES HERE, unlike the tool catalog's**, because a
+ * step's `label` and `does` were written for a person on both sides. They are censused
+ * too, so a step described one way in the engine and another way on screen is a red run.
+ */
+export const AUTOMATION_STEPS = Object.freeze([
+  Object.freeze({
+    type: "weekday",
+    kind: "condition",
+    label: "Only on certain days",
+    does: "Carry on only on the days you pick. On any other day the rest of the workflow is skipped.",
+    fields: Object.freeze([Object.freeze({ name: "days", kind: "days", required: true })]),
+  }),
+  Object.freeze({
+    type: "note",
+    kind: "action",
+    label: "Save a note",
+    does: "Write a line into this automation's results, so the run has something to show.",
+    fields: Object.freeze([Object.freeze({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE })]),
+  }),
+]);
+
+/** The catalog's type names, DERIVED, so nothing holds a second copy of the list. */
+export const AUTOMATION_STEP_TYPES = Object.freeze(AUTOMATION_STEPS.map((s) => s.type));
+
+/**
+ * A stored workflow, or a named refusal.
+ *
+ * **ONE VALIDATOR OVER THE DECLARED FIELDS, rather than one per type.** A step type is
+ * a `type` and a list of fields, so the rules are about FIELD KINDS — and adding a
+ * fourth step type is adding it to the catalog rather than adding a branch here.
+ *
+ * **IT REFUSES RATHER THAN SHORTENING, and it names the step by position.** A workflow
+ * quietly missing the step it could not read is one that looks saved and does something
+ * else; "step 2" is what a person can act on, because that is how the form numbers them.
+ *
+ * **THE ID IS MINTED FROM THE POSITION AND NEVER TAKEN FROM THE CALLER** — the same rule
+ * the engine's reader follows, so an outcome's `id` names the same step on both sides.
+ */
+export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATION_STEPS) {
+  if (!Array.isArray(v)) return { error: "the steps have to arrive as a list" };
+  if (v.length > max) return { error: `that's more steps than one automation can hold (${max})` };
+  const byType = new Map(catalog.map((s) => [s.type, s]));
+  const steps = [];
+  for (let i = 0; i < v.length; i++) {
+    const at = i + 1;
+    const raw = v[i];
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return { error: `step ${at} didn't arrive as a step` };
+    }
+    const def = byType.get(typeof raw.type === "string" ? raw.type : "");
+    if (!def) return { error: `step ${at}: this platform has no step called ${String(raw.type ?? "(nothing)")}` };
+    const one = { id: `s${at}`, type: def.type };
+    for (const f of def.fields) {
+      const got = readStepField(raw[f.name], f);
+      if (got.error) return { error: `step ${at}: ${got.error}` };
+      // A FIELD THE CALLER DID NOT NAME IS NOT SENT. `required` is what decides whether
+      // that is a refusal; an optional one absent simply is not stored.
+      if (got.value !== undefined) one[f.name] = got.value;
+    }
+    steps.push(one);
+  }
+  return { steps };
+}
+
+/**
+ * One field of one step.
+ *
+ * **REFUSED, NEVER COERCED.** `String(["mon"])` is `"mon"`, so a coercing reader turns a
+ * nested list into a day and nothing complains — and `Boolean("false")` is `true`. Every
+ * kind below asks the type first.
+ */
+function readStepField(raw, f) {
+  if (f.kind === "text") {
+    if (raw === undefined || raw === null) {
+      return f.required ? { error: `${f.name} can't be empty` } : { value: undefined };
+    }
+    if (typeof raw !== "string") return { error: `${f.name} didn't arrive as text` };
+    const text = raw.trim();
+    if (!text) return f.required ? { error: `${f.name} can't be empty` } : { value: undefined };
+    if (f.max && text.length > f.max) return { error: `${f.name} is longer than it can be (${f.max} characters)` };
+    return { value: text };
+  }
+  if (f.kind === "days") {
+    if (!Array.isArray(raw)) return { error: "pick which days it should run on" };
+    if (!raw.length) return { error: "pick at least one day, or take this step out" };
+    const picked = [];
+    for (const d of raw) {
+      if (typeof d !== "string") return { error: "one of the days didn't arrive as a day" };
+      const name = d.trim().toLowerCase();
+      if (!AUTOMATION_DAYS.includes(name)) return { error: `there is no day called ${d}` };
+      if (!picked.includes(name)) picked.push(name);
+    }
+    // THE WEEK'S OWN ORDER, not the order they were ticked, so saving one selection
+    // twice stores the same bytes both times — and matches what the engine stores.
+    return { value: AUTOMATION_DAYS.filter((d) => picked.includes(d)) };
+  }
+  // A FIELD KIND THIS DOES NOT KNOW IS A REFUSAL, never a pass. It can only arrive from
+  // a catalog entry somebody added without adding its rule, and passing it through would
+  // store whatever the caller sent under a name the form invented.
+  return { error: `${f.name} is configured in a way this can't read` };
+}
+
+/** `HH:MM`, whole minutes, nothing else. The one shape the schedule stores. */
+const AT_SHAPE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * Is this a time zone this runtime really has?
+ *
+ * **ASKED OF `Intl`, NEVER OF A LIST.** A hand-kept list of zones is wrong the first
+ * time a country changes its mind, and the one it is missing is the one somebody needs.
+ * The same rule the site builder's scheduled jobs already follow.
+ *
+ * It is the FIRST of two walls: `agent.automation_next_at` raises for a zone PostgreSQL
+ * cannot use, so a zone this admits and the database does not is refused there instead
+ * of being stored. Two runtimes, two time zone databases, and only one of them decides
+ * when something runs.
+ */
+export function validTimeZone(v) {
+  if (typeof v !== "string" || !v.trim()) return null;
+  const zone = v.trim();
+  try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return zone; }
+  catch { return null; }
+}
+
+/**
+ * The trigger off a request body, or a named refusal.
+ *
+ * **A SCHEDULE IS WHOLE OR IT IS NOT A SCHEDULE** — the column's own constraint says the
+ * same thing, and refusing here is what turns it into a sentence rather than a Postgres
+ * error nobody can act on.
+ *
+ * **THE ZONE IS THE AUTOMATION'S, NOT THE SCHEDULE'S**, so a Run-now automation may have
+ * one too: a weekday condition asks which day it is somewhere, and without this it would
+ * mean the day in UTC for every manual automation, silently.
+ */
+export function cleanSchedule(b) {
+  const schedule = typeof b?.schedule === "string" ? b.schedule.trim() : "manual";
+  if (!AUTOMATION_SCHEDULES.includes(schedule)) {
+    return { error: "an automation is started by hand or on a daily schedule" };
+  }
+  const zone = b?.zone === undefined || b?.zone === null || b?.zone === ""
+    ? null
+    : validTimeZone(b.zone);
+  if (b?.zone && !zone) return { error: "that isn't a time zone this can use" };
+
+  if (schedule === "manual") {
+    // A TIME WITH NO SCHEDULE IS A CONTROL SOMEBODY SET THAT NOTHING READS, so it is
+    // dropped rather than stored — and the column's constraint refuses it anyway.
+    return { schedule, at: null, zone };
+  }
+  const at = typeof b?.at === "string" ? b.at.trim() : "";
+  if (!AT_SHAPE.test(at)) return { error: "say what time of day it should run, as HH:MM" };
+  if (!zone) return { error: "a daily schedule needs a time zone, so the time means somewhere" };
+  // SECONDS ARE OURS, NOT THE CALLER'S. The screen offers a time, not a stopwatch.
+  return { schedule, at: `${at}:00`, zone };
+}
+
+/**
+ * One automation, as the browser reads it.
+ *
+ * **IT FAILS CLOSED ON EVERY FIELD IT CANNOT READ.** An `enabled` that is not a boolean
+ * reads as OFF — being wrong that way costs a press of the toggle, and being wrong the
+ * other way is an automation running that somebody believes is stopped.
+ */
+export function automationRow(r) {
+  const steps = Array.isArray(r?.steps) ? r.steps : [];
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    agentId: typeof r?.agent_id === "string" ? r.agent_id : "",
+    name: typeof r?.name === "string" ? r.name : "",
+    enabled: r?.enabled === true,
+    schedule: AUTOMATION_SCHEDULES.includes(r?.schedule) ? r.schedule : "manual",
+    // `HH:MM:SS` out of Postgres, `HH:MM` on screen. One shape leaves this file.
+    at: typeof r?.at_local === "string" ? r.at_local.slice(0, 5) : null,
+    zone: typeof r?.zone === "string" && r.zone ? r.zone : null,
+    steps,
+    nextRunAt: typeof r?.next_run_at === "string" ? r.next_run_at : null,
+    updatedAt: typeof r?.updated_at === "string" ? r.updated_at : null,
+  };
+}
+
+/**
+ * What became of one execution.
+ *
+ * **SIX WORDS, AND EACH IS A DIFFERENT THING TO SAY TO SOMEBODY.** `skipped` is the one
+ * that earns its place twice over: a condition that did not match is not a failure, and
+ * showing it as one would tell a customer their automation is broken when it did exactly
+ * what they asked.
+ */
+export const AUTOMATION_STATES = Object.freeze(["queued", "done", "skipped", "failed", "missed", "paused"]);
+
+/**
+ * One execution, as the browser reads it.
+ *
+ * **THE STATE IS DERIVED FROM THE RUN'S OWN STOP AND FROM NOTHING ELSE.** The execution
+ * row deliberately carries no status column — that would be a second copy of a fact the
+ * journal already states — so this is the only place the word is chosen.
+ *
+ * **AN UNREADABLE STOP ON A STOPPED RUN IS `failed`, NOT `queued`.** Cannot-tell must
+ * never read as "still going": a row that says it is queued for ever is the one state
+ * nobody can act on.
+ */
+export function executionRow(r) {
+  const stop = r?.run_stop && typeof r.run_stop === "object" && !Array.isArray(r.run_stop) ? r.run_stop : null;
+  const reason = typeof stop?.reason === "string" ? stop.reason : "";
+  const state = r?.run_status !== "stopped"
+    ? "queued"
+    : AUTOMATION_STATES.includes(reason) && reason !== "queued" ? reason : "failed";
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    automationId: typeof r?.automation_id === "string" ? r.automation_id : "",
+    trigger: r?.trigger === "schedule" ? "schedule" : "manual",
+    occurrence: typeof r?.occurrence === "string" ? r.occurrence : null,
+    state,
+    // WHAT IT SAVED, WHY IT SKIPPED, OR WHAT BROKE — one of the three, never two.
+    result: state === "done" && typeof stop?.result === "string" ? stop.result : null,
+    why: state === "skipped" && typeof stop?.why === "string" ? stop.why : null,
+    error: state === "failed" && typeof stop?.error === "string" ? stop.error : null,
+    on: typeof stop?.on === "string" ? stop.on : null,
+    missed: Number.isInteger(r?.missed) ? r.missed : null,
+    outcomes: Array.isArray(r?.outcomes) ? r.outcomes : [],
+    steps: Array.isArray(r?.steps) ? r.steps : [],
+    at: typeof r?.created_at === "string" ? r.created_at : null,
+    finishedAt: typeof r?.finished_at === "string" ? r.finished_at : null,
+  };
+}
+
 // ── the surface ─────────────────────────────────────────────────────────────
 
 /** Every path this handles, so `worker.js` and the guard read ONE list. */
@@ -735,6 +1146,14 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/message": "POST",
   "/api/agent/send": "POST",
   "/api/agent/import": "POST",
+  // ── automations ───────────────────────────────────────────────────────────
+  "/api/agent/automations": "GET",
+  "/api/agent/automation-create": "POST",
+  "/api/agent/automation-update": "POST",
+  "/api/agent/automation-enable": "POST",
+  "/api/agent/automation-delete": "POST",
+  "/api/agent/automation-run": "POST",
+  "/api/agent/automation-history": "GET",
 });
 
 /** Which routes read a body, so the caller knows whether to parse one. */
@@ -760,6 +1179,9 @@ const no = (status, error, extra) => ({ status, body: { error, ...(extra || {}) 
 
 /** The one answer for "not yours" and "no such agent". */
 const NO_AGENT = () => no(404, "that agent isn't here any more");
+
+/** And its counterpart, for the same reason: not found, never forbidden. */
+const NO_AUTOMATION = () => no(404, "that automation isn't here any more");
 
 /**
  * A store failure, as one sentence plus a log line.
@@ -1030,6 +1452,138 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         // the two would disagree the moment one of them was updated.
         runId,
       });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AUTOMATIONS
+    //
+    // **THE TENANT IS `who` IN EVERY ONE OF THEM AND IS NEVER READ FROM A BODY.** It
+    // came from the verified token above, the block is gated ONCE over all of these,
+    // and every statement below carries it in the FILTER — which is the wall, because
+    // `service_role` bypasses row level security and the policies only protect a
+    // customer's own direct read.
+    // ═══════════════════════════════════════════════════════════════════
+
+    if (path === "/api/agent/automations") {
+      const agentId = cleanId(q.get("agent"));
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      // **THE CATALOG RIDES WITH THE LIST**, exactly as the tool catalog rides with the
+      // agent list: the form is only reachable from this screen, so a catalog arriving
+      // separately would be a second thing to fail and a second state to draw. A browser
+      // that gets no `steps` key — an older Worker — says so honestly rather than
+      // drawing an empty form.
+      return ok({
+        agent: agentId,
+        automations: await store.listAutomations(who, agentId),
+        steps: AUTOMATION_STEPS,
+        days: AUTOMATION_DAYS,
+        max: MAX_AUTOMATIONS,
+      });
+    }
+
+    if (path === "/api/agent/automation-create" || path === "/api/agent/automation-update") {
+      const editing = path.endsWith("update");
+      const name = cleanText(b.name, AUTOMATION_NAME_MAX);
+      if (!name) return no(400, "give it a name first");
+
+      const trigger = cleanSchedule(b);
+      if (trigger.error) return no(400, trigger.error);
+      const flow = cleanWorkflow(b.steps);
+      if (flow.error) return no(400, flow.error);
+      // **`enabled` IS REFUSED RATHER THAN COERCED.** `Boolean("false")` is `true`, so a
+      // string out of a form would turn "off" into "on" — the one direction that starts
+      // work nobody asked for. Absent means on, which is what making one means.
+      if (Object.hasOwn(b, "enabled") && typeof b.enabled !== "boolean" && b.enabled !== undefined) {
+        return no(400, "an automation is either on or off");
+      }
+      const enabled = b.enabled === undefined ? true : b.enabled;
+
+      const shape = {
+        name, enabled, schedule: trigger.schedule, at: trigger.at, zone: trigger.zone,
+        steps: flow.steps,
+      };
+
+      if (!editing) {
+        const agentId = cleanId(b.agent);
+        if (!agentId) return no(400, "which agent?");
+        // NO OWNERSHIP CHECK OUT HERE, and that is deliberate rather than missing: the
+        // check is INSIDE the transaction, against the tenant this process verified, so
+        // an agent deleted between a check and an insert cannot leave an automation
+        // pointing at nothing.
+        const a = await store.createAutomation(who, { agentId, id: mint(), ...shape });
+        if (a.error === "no-agent") return NO_AGENT();
+        if (a.error === "too-many") {
+          return no(409, `that's as many automations as one agent can hold (${MAX_AUTOMATIONS}) — delete one first`);
+        }
+        if (a.ok !== true) return NO_AGENT();
+        return ok({ id: a.id, nextRunAt: a.next_run_at ?? null });
+      }
+
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which automation?");
+      const a = await store.updateAutomation(who, { id, ...shape });
+      if (a.ok !== true) return NO_AUTOMATION();
+      // ⚠ AN EDIT REACHES THE NEXT EXECUTION AND CAN NEVER REACH AN ACCEPTED ONE. What a
+      // run executes was copied into its own record when it was accepted, so this
+      // statement cannot change what is already running or already ran — which is the
+      // property `steps` being a snapshot exists for.
+      return ok({ id: a.id, nextRunAt: a.next_run_at ?? null });
+    }
+
+    if (path === "/api/agent/automation-enable") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which automation?");
+      if (typeof b.enabled !== "boolean") return no(400, "say whether it should be on or off");
+      const a = await store.setAutomationEnabled(who, id, b.enabled);
+      // **TURNING IT OFF PREVENTS NEW EXECUTIONS AND NOTHING ELSE.** It is not a delete
+      // and not a cancellation: work already accepted keeps its own recorded
+      // configuration and finishes.
+      return a ? ok({ automation: a }) : NO_AUTOMATION();
+    }
+
+    if (path === "/api/agent/automation-delete") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which automation?");
+      return (await store.removeAutomation(who, id)) ? ok({ id }) : NO_AUTOMATION();
+    }
+
+    if (path === "/api/agent/automation-run") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which automation?");
+      const a = await store.runAutomation(who, { automationId: id, runId: mint() });
+      if (a.error === "no-automation") return NO_AUTOMATION();
+      // ⚠ TWO REFUSALS, TWO SENTENCES, AND NEITHER IS A FAILURE. The transaction wrote
+      // nothing at all on either path — no execution, no run — so turning the thing back
+      // on and pressing again is a fresh press rather than a retry of a half-written one.
+      // **409, NOT 404 AND NOT 500**: the request was well formed, the automation exists
+      // and is theirs, and nothing is broken.
+      if (a.error === "disabled") {
+        return no(409, "this automation is off, so it isn't starting anything — turn it on and try again", { disabled: true });
+      }
+      if (a.error === "paused") {
+        return no(409, "this agent is paused, so its automations aren't starting anything new — resume it in its settings", { paused: true });
+      }
+      if (a.ok !== true) return NO_AUTOMATION();
+
+      // ── RING THE ENGINE, AFTER THE TRANSACTION AND NEVER BEFORE IT ──────────
+      // The same doorbell a message rings, for the same reason and with the same
+      // reading: the work is committed by now, so a failed ring decides how soon this
+      // starts and nothing about whether it starts at all.
+      const runId = cleanId(a.run_id);
+      let notified = false;
+      if (runId && typeof ring === "function") {
+        try { await ring(runId); notified = true; }
+        catch (e) { if (typeof log === "function") log("automation run: the queue was not rung", String(e?.message ?? e)); }
+      }
+      return ok({ id, runId, notified, repeat: !!a.repeat });
+    }
+
+    if (path === "/api/agent/automation-history") {
+      const id = cleanId(q.get("id"));
+      if (!id) return no(400, "which automation?");
+      if (!(await store.ownsAutomation(who, id))) return NO_AUTOMATION();
+      return ok({ id, executions: await store.executions(who, id) });
     }
 
     if (path === "/api/agent/import") {

@@ -11765,3 +11765,203 @@ describe that run as proving anything in advance.** Schema receipt will come fro
 the actual `shownSteps` capture taken before the call, correctness from the
 independent aggregate against the RPC and the browser, and reporting accuracy from
 the reply you actually get. Your approval for it is still its own decision.
+
+## Automations: one complete one, end to end (2026-09-16)
+
+You asked for trigger → condition → action → saved result, with the real model kept
+for the end. It is built, it runs, and it is **not deployed** — the branch is pushed
+and every number below is from this machine. I have not merged, applied the
+migration or touched a live account.
+
+### What it does
+
+An agent now has an **Automations** section. You make one, name it, give it an
+ordered list of steps, and start it either way:
+
+- **Run now** — a button on the row.
+- **Every day at a time you choose, in a zone you choose.**
+
+Both go through the *same* durable queue the agent runs already use. There is no
+second execution system and no second scheduler: the one-minute cron that recovers
+dropped work gained a second job, in its own `try` block, so a broken schedule can
+never take the recovery down with it.
+
+Two steps this round, and **neither uses the model**:
+
+- **Only on these days** — a condition. If today is not one of the days you picked,
+  the execution stops there and reads **Skipped**, not Failed, and so does every step
+  under it. That was your requirement and it is the wall as well as the word: the
+  stop's reason is one of `done`, `skipped`, `failed`, and each step carries its own.
+- **Save a note to the results** — an action. It writes a line into the automation's
+  results, which is what the history then shows you.
+
+The step format is deliberately open: a step declares its type, whether it is a
+condition or an action, what it is called, what it does, and the fields the form
+should draw for it. Adding an app action, a branch, a wait or an approval later is a
+new declaration rather than a new screen. **The one that will need more than a
+declaration is a WAIT or an APPROVAL**, and I would rather say so now than discover
+it then: a workflow that can pause between steps needs each step's outcome written
+down separately, and today the whole execution is one transaction.
+
+### What you can see
+
+The row says when it next runs. **Runs** opens the history: every execution with its
+state, what it saved or why it skipped, and a line per step. A run you start by hand
+appears immediately and the screen watches it for a few seconds.
+
+### The three things that had to be right about scheduling
+
+1. **A duplicate delivery cannot make a duplicate run.** The key is the local DATE in
+   the automation's own zone, and the database holds one execution per automation per
+   date on a unique index. Two ticks, a redelivered tick and a hand-run in the same
+   minute all lose the same way. A check in our code would have been a race dressed
+   up as a wall.
+2. **Daylight saving is one function.** 09:00 in London is 08:00Z in summer and
+   09:00Z in winter with nothing about the automation changing. A time inside the
+   spring-forward gap still answers an instant rather than stopping for ever.
+3. **Downtime is not a burst.** If nothing runs for a week, you get ONE record saying
+   the occurrence was missed and how many went by — not seven runs at once. The
+   schedule jumps to the next occurrence after *now*, and there is an hour-long
+   catch-up window for the ordinary "the tick was a few minutes late" case.
+
+### Control
+
+Turning an automation off, or pausing its agent, stops new executions — **and neither
+writes anything at all**, so turning it back on never finds work waiting that nobody
+asked for. An execution already accepted keeps the workflow it was accepted with, so
+editing an automation reaches the next run and never the one in flight. Every route
+takes the account from the signed-in token, and another account's automation reads
+exactly like one that does not exist.
+
+### The defects this round found, all of them by running things
+
+- **The claim never forwarded which executor wanted the work.** The column was right,
+  the database was right, the routing was right, and every automation delivery still
+  answered "no agent" — one hop between them dropped the field. The unit test could
+  not see it because its fake answered the field directly. The real dispatcher found
+  it.
+- **The screen drew zero steps.** A re-render reads the form back first so it cannot
+  eat what you are typing; adding a step then wrote the new list and the read-back
+  immediately replaced it with the old one. The form carries a generation number now.
+- **The execution history drew the word "undefined" three times**, once in the red
+  error slot — found the moment I rendered the screen in a real browser for these
+  screenshots, not by any test.
+- Three more that would have thrown on the first run (a module-level ordering, a
+  function declared in the wrong scope, a foreign key that had to be deferred) and
+  one design correction: the time zone belongs to the automation, not only to its
+  schedule, or "only on Mondays" on a Run-now automation would quietly have meant
+  Monday in UTC.
+
+### What was measured, and what was not
+
+Every number here is from a run on this machine, taken after the run.
+
+| check | result |
+|---|---|
+| the nine demonstrations, through the real dispatcher (`verify:auto`) | **68 checks, 0 failed** — `done=5 missed=1 paused=1 skipped=1` |
+| real PostgreSQL 16 (`test:pg`) | **417 → 495 checks, 0 failed** |
+| engine suite | **306**, 0 failed |
+| site suite | **6,720** (6,718 pass, 2 skipped, 0 fail) |
+| engine mutation sweep | **261 mutants, 261 killed, 0 survived, 6 controls survived** |
+| site mutation sweep | **51 mutants, 51 killed, 0 survived, 2 controls survived** |
+
+**The sweeps are what this round is really worth, and the honest version is that the
+first pass of each one found gaps in my own checks rather than in the product.** The
+engine sweep's eight survivors were four in the cron's automation half (nothing in that
+directory drove it), two guard gaps, one snapshot property and one that is invisible on
+a machine whose clock is already UTC. The site sweep's eight included **two cases that
+asserted nothing at all** — a held-response fixture asked for the wrong field, so a save
+fell into its own error path and a list answer never landed, and both cases passed with
+the wall deleted. They have controls under them now. The SQL sweep's two were both
+real: a racing twin could have created a second run for the same day, and the
+daylight-saving candidate could be read in UTC — neither reachable by the checks I had
+written, both reachable in production.
+
+**Nothing is deployed and nothing is applied.** The branch is pushed. When you want it
+live the order is fixed and one-way — **migration → engine → site** — for the reason the
+last milestone recorded: whichever side DECIDES a thing must not go out before the side
+that ACTS on it. The migration adds the `executor` column with the default `'agent'`,
+so applying it changes nothing on its own.
+
+**One design call for you.** At the real 560px column an automation's row gives
+**262.8px to its four buttons and 245.6px to its name, schedule and steps**, and the
+buttons do not drop to their own line. It reads fine and it is tight — say the word and
+they wrap; I have not touched it.
+
+---
+
+## 2026-09-17 — the automations are live, and the order was the whole risk
+
+You said *"Merge carefully"*. Careful here meant one thing above all: **the order**.
+Three pieces had to go out, each first for its own reason, and getting it wrong would
+have shipped exactly the defect the last round was opened to fix.
+
+**migration → engine → site.** The database first, because the engine's cron calls a
+function every minute that did not exist yet and the site's list screen reads a table
+that did not exist yet. Then the engine, because a form that saves a step no executor
+can run is a control that *answers, wrongly* — worse than a dead one. Then the screen.
+
+**The database.** Applied as remote version `20260917003304`, while there were zero
+agents and zero messages on the platform, so nothing of yours was anywhere near it.
+Two things I checked rather than assumed. It redefines a function the LIVE engine was
+calling at that moment, so I read the live version out of the database first and
+confirmed the new one is the same thing plus one extra field — same signature, nothing
+that could surprise the running Worker. And because a session can only reach your
+database through the connector, the SQL had to be re-typed into a tool call; rather
+than trust that, I built two throwaway local databases, gave one the committed file
+and one what I was about to send, and compared **357 objects** — identical. Then I
+read the live result back and compared the **82 objects this migration creates**
+against the file: same md5. What is live is the file.
+
+**The engine.** Deployed and verified: thirteen steps green, **71 checks passed, 0
+failed** over five real runs, its throwaway test customer deleted after.
+
+**And then the part worth your attention: it really ran, on its own.** That 71-check
+suite is the older one and does not touch automations, so I proved the new half
+separately — a throwaway agent, two automations created through the same function the
+screen uses, made due, and then left alone for Cloudflare's own every-minute trigger
+to find them. It found them:
+
+* **"Runs today"** → finished **done**. The day condition ran ("Thursday is one of the
+  days this runs on"), the note ran, and the note it saved is in the results.
+* **"Mondays only"**, on a Thursday → finished **Skipped**. Both steps say why. Not
+  failed — which is the behaviour you asked for in as many words.
+
+Both then advanced themselves to tomorrow's occurrence, one row each, no pile-up. I
+also asked for the same day twice (it answered "already did that" and pointed at the
+first run rather than making a second), asked for a switched-off one (refused, nothing
+written), and asked from a different account (refused as if it did not exist). Then I
+deleted the lot: the platform is back to zero agents, zero automations, zero runs of
+mine.
+
+**One small thing I liked:** your append-only journal refused my cleanup. It would not
+let me delete a run's log on its own — *"delete the run and its log goes with it"*. A
+guard doing its job on me.
+
+**What shipped, and how I checked it was really shipped.** Deploy **2133**, green in
+**2m58s**. Two things I do on every one of these now, and both paid off:
+
+* I worked out the container image's fingerprint *before* pushing — for what main had
+  and for what I was about to push. The deploy's own log then printed both, in a
+  before/after diff, and both matched. So the container that rolled is the one I meant.
+* The page's own file is served from your Worker, so I compared the bytes: `chat.js`
+  is now 705,648 bytes and identical to the code I merged (it was 665,502 before). The
+  cheap tell is one identifier the whole Automations form turns on — **0 occurrences in
+  what the platform served this morning, 2 now.**
+
+**Nothing else moved.** I took a reading of six live sites immediately before pushing
+and again after: byte-for-byte the same, same versions. The interactive half too, not
+just a 200 — `/status` and `/booking-check` both still answer **3**, which is the number
+that actually matters on that site.
+
+**The container rolled at 00:55:20Z, so the usual 15–20 minute settling ran to about
+01:10–01:15Z.** If you press a paid build inside that window it may still be on the old
+image; after it, you are on the new one.
+
+**What is NOT proven, plainly.** Nobody has clicked the new screen as a signed-in
+customer. Doing that needs the service key, which lives only in GitHub Actions — the
+same wall every paid check here meets. What IS proven is each layer on its own: the
+database by reading the migration back, the engine by 71 live checks plus the scheduled
+run above, and the screen by the served bytes matching the code. And the one design call
+from last time is still yours: whether the automation row's four buttons should drop to
+their own line at 560px.

@@ -33,6 +33,16 @@ import {
 // copy each of them holds is kept honest by a census in a test, which is the one
 // place that may read both.
 import { OFFERED, OFFERED_NAMES } from "../agent-builder/src/agents.mjs";
+import {
+  AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
+  MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
+  WEEKDAYS as ENGINE_WEEKDAYS,
+} from "../agent-builder/src/automations.mjs";
+import {
+  AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
+  AUTOMATION_DAYS as SITE_DAYS, MAX_AUTOMATION_STEPS as SITE_MAX_STEPS,
+  MAX_STEP_NOTE as SITE_MAX_NOTE,
+} from "../agent-store.mjs";
 
 const KEY = "service-key";
 const T1 = "11111111-1111-4111-8111-111111111111";
@@ -860,4 +870,57 @@ test("THE SELECTION'S ORDER IS THE CATALOG'S, whatever order it arrives in", () 
   assert.deepEqual(cleanTools(["alpha", "gamma"], two).unknown, ["gamma"]);
   // THE DEFAULT IS THE REAL CATALOG, which is what every caller uses.
   assert.deepEqual(cleanTools([...AGENT_TOOL_NAMES]).names, [...AGENT_TOOL_NAMES]);
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE STEP CATALOG IS A COPY, AND THIS IS THE CENSUS THAT KEEPS IT ONE
+//
+// The engine runs in its own Worker and `agent-store.mjs` may not import it —
+// `worker.js`'s module graph is a container image input, so importing the agent
+// product would pull the whole of it into the image. **THIS FILE IS THE ONLY PLACE IN
+// THE REPOSITORY THAT MAY IMPORT BOTH**, which is what makes a census possible at all.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
+  // A step the engine can run and the screen never offers is a capability nobody can
+  // reach; a step the screen offers and the engine cannot run is a control that saves,
+  // draws, and fails at the first execution. Only a census in both directions catches
+  // the second one, which is the worse of the two.
+  assert.deepEqual([...SITE_STEP_TYPES].sort(), [...ENGINE_STEP_TYPES].sort());
+  assert.ok(ENGINE_STEP_TYPES.length >= 2, "the census is looking at something");
+
+  for (const type of ENGINE_STEP_TYPES) {
+    const engine = ENGINE_STEPS.find((s) => s.type === type);
+    const site = SITE_STEPS.find((s) => s.type === type);
+    assert.ok(site, `${type} is runnable and is offered nowhere`);
+    // THE KIND DECIDES THE BEHAVIOUR A PERSON IS PROMISED. A condition described as an
+    // action would be a step somebody adds expecting it to DO something.
+    assert.equal(site.kind, engine.stepKind, `${type}: the two disagree about what kind of step it is`);
+    // THE WORDS ARE THE SAME ON BOTH SIDES HERE, unlike the tool catalog's — a step's
+    // label and description were written for a person on both sides, so a step described
+    // one way in the engine and another way on screen is a drift rather than a division.
+    assert.equal(site.label, engine.label, `${type}: the label drifted`);
+    assert.equal(site.does, engine.does, `${type}: the description drifted`);
+    // AND THE FIELDS, because the form draws from the site's copy and the engine's `read`
+    // is what decides whether what it collected means anything.
+    assert.deepEqual(site.fields.map((f) => f.name), engine.fields.map((f) => f.name), `${type}: the fields drifted`);
+    assert.deepEqual(site.fields.map((f) => f.kind), engine.fields.map((f) => f.kind), `${type}: the field kinds drifted`);
+  }
+});
+
+test("the two caps and the week are the same number and the same order on both sides", () => {
+  assert.equal(SITE_MAX_STEPS, ENGINE_MAX_STEPS, "a workflow the screen accepts and the engine bounds differently");
+  assert.equal(SITE_MAX_NOTE, ENGINE_MAX_NOTE, "a note the screen accepts and the engine refuses");
+  // THE ORDER IS PART OF IT: both sides normalise a day selection into the week's own
+  // order so that saving one selection twice stores the same bytes, and two different
+  // orders would make those two different rows.
+  assert.deepEqual([...SITE_DAYS], [...ENGINE_WEEKDAYS]);
+});
+
+test("the tool catalog's census is untouched by any of it", () => {
+  // THE CONTROL. Without it, "the catalogs agree" could be satisfied by a census that
+  // had quietly stopped looking at the tools.
+  assert.deepEqual([...AGENT_TOOL_NAMES].sort(), [...OFFERED_NAMES].sort());
+  assert.ok(OFFERED.length >= 1);
 });

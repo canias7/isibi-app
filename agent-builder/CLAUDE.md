@@ -2735,3 +2735,341 @@ own CLAUDE.md has that half in full.
 the building account needs `SUPABASE_SERVICE_KEY`, which lives only in GitHub
 Actions, so the end-to-end press is the owner's — the same wall every paid harness
 in this repository meets. Each layer is established on its own instead.
+
+## Automations: trigger → condition → action → saved result (2026-09-16)
+
+Owner: *"Build one complete automation that a customer can configure and run"*, and
+first: ***"inspect the existing engine, queue, scheduler, and frontend so we reuse
+what exists."*** That inspection is what decided the shape, so it is written down
+before the feature is.
+
+**THE DURABLE EXECUTION SYSTEM IS FOUR GENERIC PIECES AND ONE SPECIFIC EXECUTOR.**
+The queue (`agent-runs`, a doorbell carrying `{runId}` and nothing else), the work
+row (`agent.run_work` — claim, lease, token, attempts, done), the fence
+(`agent.append_entry`) and the recovery (`agent.sweep_run_work` on the one-minute
+cron) know nothing about agents. Only `runAgent` does. **So an automation execution
+IS a run** — `agent.runs` + `agent.run_work` + a `started`/`stopped` pair in the
+journal — and it reuses claiming, leasing, fencing, sweeping and the doorbell
+UNCHANGED. Nothing was added to the journal's vocabulary: `replay` reads an
+execution's log cleanly (0 steps, no problems), which is the measurement that says
+the reuse is real rather than asserted.
+
+**⚠ `run_work.executor` IS THE DISCRIMINATOR, AND `run_work.kind` COULD NOT BE.**
+`requeue_run` sets `kind = 'resume'` unconditionally, so `kind` says *why a row is
+outstanding* and never *what it is* — an automation resumed once would have been
+routed to the agent loop, and only on a resume, which is the worst shape of defect
+this repository records. `executor` is a column with the default `'agent'`,
+answered by `claim_run` **in the same statement that says whose the work is**, and
+set to `'automation'` by `accept_automation_run` **inside the accepting
+transaction**, so there is no instant at which a consumer could claim the row and
+route it wrongly.
+
+### The step format, and what it has to carry before there are steps worth having
+
+`src/automations.mjs`. `defineStep` compels four parts plus two functions — `type`,
+`kind` (`condition | action`), `label`, `does`, `fields`, `read`, `run` — and
+THROWS if any is missing, so a step cannot ship as a description with no way to
+configure it. **`fields` is what the screen draws**, which is why it is compelled:
+a step the catalog offers and the form cannot render is a dead control.
+
+Two steps this milestone: `weekday` (a condition) and `note` (an action). Both run
+with **no model call at all**, which is the owner's *"This should work without any
+model call"* and is also what makes the whole path cheap enough to drive in a test.
+
+- **A CONDITION THAT DOES NOT MATCH IS `skipped`, NEVER `failed`**, and so is every
+  step after it — with a `why` that says which of the two happened, because "an
+  earlier condition didn't match" and "an earlier step didn't work" are different
+  things to read. The stop's `reason` is `done | skipped | failed`.
+- **EVERY STEP GETS AN OUTCOME, including the ones that never ran.** A workflow
+  reporting three of five outcomes is a workflow whose reader has to guess.
+- **`runWorkflow` NEVER THROWS.** A step that throws becomes that step's outcome.
+- **WHICH DAY IT IS, IS ASKED OF THE EXECUTION AND NOT OF THE CLOCK.** A scheduled
+  execution carries the local DATE it is an occurrence of, so a catch-up delivery at
+  00:30 on Tuesday still asks about the Monday it was FOR. Without it, "every
+  Monday" would mean "every Monday the delivery happened to land on".
+- **NO ZONE MEANS UTC, AS A CONSTANT AND NEVER AS THE RUNTIME'S LOCALITY.** This
+  machine resolves `Intl` to UTC, so the two are indistinguishable here — the guard
+  moves `process.env.TZ` to `Asia/Tokyo` and asserts the answer does not follow, with
+  the control that a NAMED zone still is honoured. A sweep survivor is what said the
+  original assertion could not see it.
+- **A STORED STEP TYPE THIS DEPLOYMENT NO LONGER HAS `fails`, it is not skipped.**
+  Skipping runs a DIFFERENT workflow from the one somebody saved and reports it fine.
+- **`readWorkflow` MINTS THE STEP ID FROM THE POSITION and refuses by name rather
+  than shortening.** A workflow quietly missing the step it could not read is a
+  workflow that looks saved and does something else.
+
+### The whole execution is one transaction, so there is no step-level fence
+
+`finish_automation_run` writes the outcomes and the `stopped` entry together,
+through `append_entry` — the same fence every journal write goes through — and then
+releases the work. **The execution is already released by the transaction that
+finished it**, so the runner does NOT call its ordinary `finish`: doing so would be
+a second release of a claim the database has cleared.
+
+**THE STEP THAT CHANGES THIS IS A `wait` OR AN `approval`**, which is stated now
+rather than discovered later: a workflow that can pause between steps needs each
+step's outcome durable on its own, and that is a per-step `append_entry` and a
+`pending` shape the journal does not have yet. Everything else on the roadmap — app
+actions, branches — fits the one-transaction shape as it stands.
+
+### The scheduler rides the cron that already exists
+
+`worker.scheduled` gained a SECOND job and a SECOND `try` block. **Two jobs, two
+blocks, and neither can silence the other**: the sweeper is the recovery for every
+dropped run in the deployment, and a scheduler that threw would take it down with
+it — a broken schedule stopping the thing that fixes everything else.
+
+**IT RE-USES THE CRON RATHER THAN ADDING ONE.** The tick already runs every minute
+because the lease is 90 seconds; a daily schedule needs nothing finer, so a second
+trigger would be a second thing to configure for no gain.
+
+**THE FUNCTION FILES AND THE WORKER RINGS.** `tick_automations` accepts what is due
+in the database and answers one row per automation touched; the Worker's only job
+afterwards is the doorbell. **Only an `action === "filed"` row is rung** — a missed
+or refused occurrence is already finished and has no work row at all, so ringing for
+one would be a doorbell for a run nothing will ever claim.
+
+### Reliable scheduling: three separate problems, three separate answers
+
+1. **DUPLICATE DELIVERIES LOSE IN THE DATABASE.** The occurrence key is the LOCAL
+   DATE in the automation's own zone, and `automation_runs_one_per_occurrence` is a
+   partial unique index on `(automation_id, occurrence) where occurrence is not
+   null`. Two ticks, a redelivered tick and a hand-run of the same minute all arrive
+   at `accept_automation_run` and every one of them loses on that index with its
+   insert a no-op. A check in the scheduler would be a race wearing a wall's clothes.
+   **The partial clause is what keeps "Run now" meaning what it says**: a manual run
+   has no occurrence, so two presses are two executions.
+2. **TIME ZONES AND DAYLIGHT SAVING ARE ONE FUNCTION.** `automation_next_at` is the
+   only place the arithmetic lives — a local date plus a local time, resolved through
+   the zone — so a 09:00 London schedule is 08:00Z in summer and 09:00Z in winter
+   with the row unchanged. A local time inside the spring-forward gap still answers an
+   instant, because a schedule that stops for ever on one day a year is worse than one
+   that runs an hour out.
+3. **DOWNTIME IS NOT A BURST.** `next_run_at` advances to the first occurrence after
+   NOW rather than to the one after the occurrence just handled, so a week away
+   produces ONE record — `action: "missed"`, with how many occurrences went by,
+   COUNTED IN LOCAL DATES rather than by dividing an interval, because a local day is
+   23 or 25 hours long twice a year. `AUTOMATION_CATCHUP_S` (3600) is the line between
+   "late enough to still run" and "too old"; `AUTOMATION_TICK_LIMIT` (25) bounds one
+   tick. **A missed occurrence is RECORDED, not skipped**: an account that was away
+   and then sees nothing in the history cannot tell that from an automation that never
+   worked.
+
+### Control and isolation
+
+**DISABLING AN AUTOMATION OR PAUSING ITS AGENT PREVENTS NEW EXECUTIONS, and ⚠
+NEITHER REFUSAL WRITES ANYTHING** — not the execution, not a run, not a work row.
+Both are how an account says "not now", and turning one back on must not find work
+nobody asked for waiting in the queue. The two are ONE READ (`automations` joined to
+`agents`), because the question that matters is about the two of them together and a
+second statement is something a pause can land between.
+
+**ALREADY-ACCEPTED WORK KEEPS ITS RECORDED CONFIGURATION.** `automation_runs.steps`
+and `.zone` are copied in at acceptance and the runner reads THEM, never
+`agent.automations` — the same rule the instruction snapshot follows one executor
+over. An edit reaches the next execution and never this one.
+
+**OWNERSHIP IS ENFORCED WHERE THE WRITE HAPPENS.** Every function takes the tenant
+and puts it in the lookup, so another account's automation and one that does not
+exist are the same answer (`no-automation`). RLS is the belt: policies keyed on
+`agent.tenant_id()` on both tables, `authenticated` granted SELECT and nothing else,
+and `agent.automation_history` is `security_invoker = true` — **without which the
+view runs as its OWNER and is a hole through both policies.**
+
+### ⚠ What went wrong, and every one was found by driving rather than by reading
+
+1. **`work.claim` NEVER FORWARDED `executor`.** The column was right, the migration
+   was right, `claim_run` answered it, the runner's routing branch was right — and
+   every automation delivery answered `no-agent`, because the one hop between them
+   dropped the field. **The unit guard could not see it: its fake `work` returned
+   `executor` directly, so the fixture was MORE capable than the real producer** in
+   the function whose defect it was hiding. Found by the real dispatcher. *The wiring
+   layer, for the thirteenth-odd time in this repository, and the fixture trap in the
+   same breath.*
+2. **THE FOREIGN KEY HAD TO BE DEFERRED, and only a real database said so.**
+   `accept_automation_run` probes the occurrence — inserting into `automation_runs` —
+   BEFORE `accept_run` creates the `agent.runs` row, because the probe is what makes
+   the duplicate lose. With the FK checked per statement every accept failed. It is
+   `deferrable initially deferred`, so it is checked at COMMIT: an execution naming no
+   run is still impossible, and the order is free.
+3. **THE ZONE BELONGS TO THE AUTOMATION, NOT TO ITS SCHEDULE.** The first draft put
+   `zone` under the daily-only constraint. A manual automation has no schedule to
+   carry one, so "only on Mondays" on a Run-now automation would have meant Monday in
+   UTC, silently.
+4. **`MAX_NOTE` WAS DECLARED BELOW THE STEP THAT READS IT.** `fields` is evaluated at
+   DEFINITION time, unlike a `run` body, so the module threw on load — the temporal
+   dead zone, in the one position `node --check` cannot see.
+5. **`deliverAutomation` WAS DECLARED AT THE WRONG SCOPE**, assigning `held` and
+   `lostBecause` and calling `stopBeating`, all of which are `deliver`-local. `node
+   --check` passed and it would have thrown on the first delivery.
+
+### The fixtures had to get more capable, twice
+
+**`test/helpers/memory-rest.mjs` GAINED THE AUTOMATION SIDE** — the two tables, the
+three RPCs, and `executor` on the work row — because four sweep mutants survived in
+`worker.scheduled` with every module correct: the cron filing nothing, ringing for
+occurrences that were never queued, an unbounded catch-up window, and a runner built
+with no automation executor. **Every one of them lives in the handler nothing in the
+test directory drove.** *A wall nobody can drive is a wall nobody is guarding*, in
+the code that decides what happens to a customer's schedule after downtime.
+**WHERE THE FAKE IS DELIBERATELY LESS CAPABLE IT SAYS SO**: the DST arithmetic is
+not re-implemented there — that is proved on a real PostgreSQL, and a JavaScript copy
+of it would be a second version of the one thing this repository proved on the engine.
+
+**AND THE `defineStep` FIXTURE WAS VACUOUS.** It deleted each key of a `whole` spec
+in turn and asserted a throw — and `whole` had no `fields` at all, so every variant
+threw for the ABSENT `fields` rather than for the deleted key: seven assertions, none
+of them about what it said, and `fields` never compelled. A sweep mutant making
+`fields` optional is what found it. **The fix is the CONTROL**: the whole spec must be
+ACCEPTED first, or "a step with no X is refused" is satisfied by a spec refused for
+some other reason.
+
+### What the demonstration really drives
+
+`npm run verify:auto` (`scripts/verify-automations.mjs`) drives **`worker.queue` and
+`worker.scheduled` themselves**, against a real PostgreSQL with these migrations
+applied and a local PostgREST stand-in — not a hand-built runner, which is precisely
+what would have hidden the `executor` hop. Nine sections, in the order the owner
+named them:
+
+1. a manual run, end to end: accepted → rung → claimed → the workflow → the outcomes
+   and the stop in one transaction;
+2. a scheduled run, through `tick_automations` and the real cron handler;
+3. duplicate delivery at BOTH ends — the same queue message twice (the claim refuses
+   the second) and the same occurrence twice (the index refuses the second);
+4. a condition that does not match: `skipped`, with every later step skipped and a
+   reason that says which kind of skip it was;
+5. disabling an automation, and pausing its agent;
+6. account isolation — another tenant's automation is `no-automation`;
+7. editing a workflow AFTER a run was accepted: the accepted one keeps what it had,
+   the next one gets the edit;
+8. missed occurrences after downtime: one record, counted, no burst;
+9. what the run left behind — the journal reads back cleanly through `replay`, which
+   is the measurement that says an automation execution really is a run.
+
+### Measured
+
+- **`npm run verify:auto`: 68 checks, 0 failed**, with the final tally across the
+  fixtures reading `done=5 missed=1 paused=1 skipped=1`.
+- **Real PostgreSQL 16 (`npm run test:pg`): 417 → 495 checks, 0 failed.** The 78 are
+  the automations section — the once-per-occurrence index with its control, the
+  deferred FK proved by a COMMIT-time refusal, both refusals writing nothing, the
+  snapshot, the fence, the DST pair, the catch-up and the advance, and the invoker
+  view read from both accounts. **Both numbers are runs of this file**: 417 is the
+  pre-change tree, measured by checking the parent's copy out and running it, rather
+  than taken from the last stamp.
+- **Engine mutation sweep: 261 mutants, 261 killed, 0 survived, 0 never applied, 6
+  comment-only controls survived.** Pass 1 killed 253 with **eight survivors, and not
+  one of them was the product's** — four were the `worker.scheduled` block nothing in
+  the test directory drove, two were guard gaps (`defineStep`'s vacuous fixture, the
+  store's unreadable `steps`), one was the snapshot's zone and occurrence, and one
+  (`no zone guesses the runtime's own locality`) was INERT on this machine and was
+  closed by moving `process.env.TZ` rather than by hunting it.
+- **Engine suite 306**, 0 failed (299 before this round; +5 `worker`, +2 `automations`).
+- **SQL mutation sweep over the migrations**: pass 1 read 123 mutants, 121 killed, 2
+  survived, 6 controls. **Both survivors were this file's own gaps and both were real**
+  — see the probe's own comments — and closing them took the real-Postgres check from
+  487 to **495**.
+
+### AND IT IS ALL LIVE — the scheduled path ran through the real cron (2026-09-17)
+
+Owner: *"Merge carefully"*. **THE ORDER WAS THE WHOLE RISK, and it is
+migration → engine → site**, each first for its own reason: the migration because the
+engine's cron calls `tick_automations` every minute and the site's list route reads
+`agent.automations`, and the engine because a form that saves a step no executor can
+run is *a control that ANSWERS, wrongly* — the exact defect the settings round was
+opened to fix. The site's half is in the root `CLAUDE.md`.
+
+**1. THE MIGRATION — remote version `20260917003304`, and the file is renamed for it.**
+Applied while `agent.agents` held ZERO rows, so no customer's data was anywhere near it.
+
+- **GOING BEFORE THE ENGINE WAS CHECKED, NOT ASSUMED.** This migration redefines
+  `agent.claim_run`, which the LIVE engine was calling at the time. Read back with
+  `pg_get_functiondef` first: the live body was byte-for-byte the new one MINUS the
+  `'executor', v_row.executor` line and its comment. Same signature, one field more —
+  so the deployed engine could not notice, and the ordering question had an answer
+  instead of a hope.
+- **WHAT IS LIVE WAS PROVED EQUAL TO THE FILE, BY EXECUTION.** The connector is the
+  only way in from a session, so 57KB of SQL had to be authored in a tool call. The
+  whole-line comments OUTSIDE dollar-quoted bodies were stripped mechanically
+  (Postgres stores none of them) and the result was proved equivalent by giving two
+  throwaway local databases one version each and comparing **357 objects — identical**.
+  The strip's toggle is valid because it was MEASURED: the only tag in the file is
+  `$$`, it occurs 20 times on 20 distinct lines, and no comment inside a body carries
+  a `$`. A hand-rolled dollar-quote parser is this repository's "flat scans where
+  depth matters" trap, and the first attempt at one failed exactly that way.
+- **THE READ-BACK GATE IS NARROW ON PURPOSE.** 10 function definitions by md5, every
+  column of both tables and the view plus `run_work.executor`, every index, both
+  policies, every check constraint, the RLS flags, the trigger, and the view's
+  `reloptions` where `security_invoker` lives: **82 objects, md5
+  `976acfa04457bc8242958900e51d8284`, identical on all three** — the committed file
+  locally, the stripped file locally, and the live database.
+  **A census over the WHOLE `agent` schema is the WRONG instrument and was tried
+  first**: it counts roles and grants the two environments legitimately differ on (342
+  rows live against 357 locally), so it cannot tell a transcription slip from Supabase
+  holding more roles than a fresh cluster. Narrow, or it says nothing.
+- All 24 existing `run_work` rows read `executor='agent'` after it, which is what they
+  already meant, and `tick_automations(3600, 25)` answered 0 rows rather than raising
+  — a live smoke of the function the cron was about to call every minute.
+- **PostgREST resolved all four relations before the site shipped**: `agent.automations`,
+  `automation_runs`, `automation_history` and `agents` each answer **`42501 permission
+  denied for schema agent`** to the publishable key — the schema-grant wall, NOT
+  `PGRST205`, with the pre-existing `agents` as the control. That is the check that
+  says the site's routes will not 400 on a relation the cache has never seen.
+
+**2. THE ENGINE — `agent deploy` run 35 on `31efcc7`, all thirteen steps green.**
+Version `ef0645d7-fa33-4bf9-afb5-f319b95af51d`, `deployedAt 00:36:32.643217Z`, which
+lands inside the run's own re-deploy step (00:36:30→00:36:34Z). The live verification
+ran 00:36:45→00:44:06 (**7m21s**) and read **71 passed, 0 failed** over five real runs
+(long, exclusive, handover, guarded, fence); the throwaway customer was deleted and the
+cleanup read `13 users listed, 0 left by a verification`.
+**THAT SUITE DOES NOT TOUCH AUTOMATIONS**, which is said rather than glossed — it is the
+pre-existing fencing verification. What proves the automation half is below.
+
+**3. THE SCHEDULED PATH RAN LIVE, THROUGH THE REAL CRON AND THE REAL QUEUE.** A
+throwaway tenant, two automations created through the REAL `agent.create_automation`
+(not inserts of our own) and made due, then left alone for Cloudflare's own
+`* * * * *` trigger to find. Both came back `run_status: stopped`, `finished`, with
+`executor: automation` on their work rows:
+
+| automation | stop | outcomes |
+|---|---|---|
+| `Runs today` (all seven days) | `done` | `weekday: ran` — *"Thursday is one of the days this runs on"*; `note: ran`, result *"the live scheduled path reached the note step"* |
+| `Mondays only` (on a Thursday) | **`skipped`** | `weekday: skipped` — *"Thursday isn't one of the days this runs on"*; `note: skipped` — *"an earlier condition didn't match, so this one didn't run"* |
+
+- **A CONDITION THAT DOES NOT MATCH READS `skipped`, NOT `failed`** — the owner's
+  requirement 4, live, in the customer-facing view.
+- **THE JOURNAL IS A RUN'S**: `started` at seq 0 (`agent: automation`, **`model:
+  none`** — not `stand-in`, so nothing wears a "simulated" label) and `stopped` at seq
+  1, one stopped entry each. That is the measurement that says an automation execution
+  really IS a run.
+- **NO BURST**: both advanced to `2026-09-18 00:44:00+00` — tomorrow's occurrence,
+  exactly one local day on (01:44 Europe/London is 00:44Z under BST), one row each.
+- **DUPLICATE DELIVERY, live**: the same occurrence asked for a second time answered
+  `ok: true, repeat: true` with **the original run id** and left the execution count at 1.
+- **BOTH REFUSAL WALLS, live, writing nothing**: a disabled automation answers
+  `disabled` and a stranger's account answers `no-automation` (so another tenant's
+  automation and one that does not exist are one answer), with executions, runs and
+  work rows all `2 -> 2` across both calls.
+- **AND THE CRON SIMPLY NEVER SELECTS A DISABLED ROW** — `tick_automations` filters on
+  `a.enabled`, so "disabling prevents new executions" is a negative reading, which is
+  why an enabled control was stood up in the same window rather than trusting a zero.
+
+**MEASURED ON THE MERGED TREE** (main merged in first; only the two documents
+overlapped, so no code file was touched by both sides):
+
+- Engine suite **306**, 0 failed. Real PostgreSQL **495 passed, 0 failed**.
+  `verify:auto` **68 checks, 0 failed**.
+- **SQL sweep over the migrations, a single clean run: 123 mutants, 123 killed, 0
+  survived, 0 never applied, 6 comment-only controls survived.** The spec holds 129
+  entries — 123 product mutants and 6 controls — and the runner counts only the
+  product ones, which is why both passes read "123": the two survivors pass 1 found
+  are killed here in one run rather than in a targeted re-run bolted onto a stale
+  tally.
+
+**⚠ AND THE SWEEP'S RESTORE TRAP COST A FIX, which is now a recorded rule.** A
+`trap … EXIT` around a sweep reads as belt-and-braces and is not: the runner already
+restores in its own `finally`, so on a clean run the trap restores the swept files to
+**HEAD** — discarding the uncommitted work the sweep was measuring. Measured: a 43/43
+green sweep ended with an empty `git diff` on all three swept files. The trap is for
+`INT` and `TERM` only. The tell is a clean tally beside an empty diff.

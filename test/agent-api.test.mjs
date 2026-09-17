@@ -89,6 +89,31 @@ function fakeStore(over = {}) {
         seq: 1, created_at: "2026-09-15T12:00:00Z", state: "queued",
       };
     },
+    // ── automations ────────────────────────────────────────────────────────
+    // THE ANSWER SHAPES ARE THE ONES THE REAL FUNCTIONS GIVE, copied from this
+    // migration's own driven output on a real PostgreSQL rather than invented — a
+    // fake in a different shape from reality hides bugs exactly as well as one
+    // that is less capable, and this file has paid for that twice.
+    listAutomations: async (...a) => { calls.push({ name: "listAutomations", args: a }); return []; },
+    ownsAutomation: async (...a) => { calls.push({ name: "ownsAutomation", args: a }); return true; },
+    createAutomation: async (...a) => {
+      calls.push({ name: "createAutomation", args: a });
+      return { ok: true, id: A1, next_run_at: null };
+    },
+    updateAutomation: async (...a) => {
+      calls.push({ name: "updateAutomation", args: a });
+      return { ok: true, id: A1, next_run_at: null };
+    },
+    setAutomationEnabled: async (...a) => {
+      calls.push({ name: "setAutomationEnabled", args: a });
+      return { id: A1, enabled: false };
+    },
+    removeAutomation: async (...a) => { calls.push({ name: "removeAutomation", args: a }); return true; },
+    runAutomation: async (...a) => {
+      calls.push({ name: "runAutomation", args: a });
+      return { ok: true, repeat: false, run_id: RID, occurrence: null, trigger: "manual", state: "queued" };
+    },
+    executions: async (...a) => { calls.push({ name: "executions", args: a }); return []; },
   };
   void note;
   return { calls, store: { ...base, ...over } };
@@ -110,10 +135,16 @@ test("every operation is scoped by the tenant the handler was given", async () =
     const f = fakeStore();
     const r = await handleAgentApi({
       path, method: AGENT_ROUTES[path], tenant: T1, store: f.store,
-      query: new URLSearchParams({ id: A1 }),
+      query: new URLSearchParams({ id: A1, agent: A1 }),
       // `key` is the import's identity and is REQUIRED — a census that omitted
       // it drove a 400 for that route and proved nothing about its scoping.
-      body: { id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [] },
+      // ⚠ GROWN FOR THE AUTOMATION ROUTES, not exempted for them. Each needs its own
+      // arguments, and a census that drove them without would prove nothing about
+      // their scoping — it would just read the 400 every one of them correctly gives.
+      body: {
+        id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [],
+        agent: A1, enabled: true, schedule: "manual", steps: [],
+      },
       newId: () => A1,
     });
     assert.equal(r.status, 200, `${path} answered ${r.status}`);
@@ -211,8 +242,17 @@ test("no route reads an account off the body or the query — asserted over the 
   // not got. What this census forbids is unchanged — a route reading who is asking
   // out of what they sent — and the shape of the allow-list is why adding a field
   // has to be a deliberate edit here.
+  // ⚠ RE-ANCHORED AGAIN, by SIX automation fields and not by an exemption. `agent` is
+  // WHICH AGENT an automation belongs to — an agent id, checked against the verified
+  // tenant inside the transaction, exactly as every other route's `id` is — and it is
+  // not an account: the four spellings this census exists to forbid (`tenant`, `uid`,
+  // `owner`, `account`) are still not in it and the positive case above still drives
+  // every one of them. `schedule`, `at`, `zone`, `steps` and `enabled` are the
+  // automation's own configuration, each read through a validator that refuses rather
+  // than coerces.
   const allowed = new Set(["id", "name", "instructions", "body", "at", "messages", "text", "key",
-                           "status", "tools"]);
+                           "status", "tools",
+                           "agent", "enabled", "schedule", "zone", "steps"]);
   const strays = [...new Set(reads)].filter((k) => !allowed.has(k));
   assert.deepEqual(strays, [], `the handler reads ${strays.join(", ")} off the request`);
 });
@@ -421,8 +461,14 @@ test("the service key reaches a header and nothing else", async () => {
   for (const path of Object.keys(AGENT_ROUTES)) {
     answers.push(await handleAgentApi({
       path, method: AGENT_ROUTES[path], tenant: T1, store: rec.store,
-      query: new URLSearchParams({ id: A1 }),
-      body: { id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [] },
+      query: new URLSearchParams({ id: A1, agent: A1 }),
+      // ⚠ GROWN FOR THE AUTOMATION ROUTES, not exempted for them. Each needs its own
+      // arguments, and a census that drove them without would prove nothing about
+      // their scoping — it would just read the 400 every one of them correctly gives.
+      body: {
+        id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [],
+        agent: A1, enabled: true, schedule: "manual", steps: [],
+      },
       newId: () => A1,
     }));
   }
@@ -745,7 +791,11 @@ test("a path this module does not handle answers null, so one dispatch decides",
 
 test("the branch list and the route list are the same names, both ways", () => {
   const body = SRC.slice(SRC.indexOf("export async function handleAgentApi"));
-  const branched = new Set([...body.matchAll(/path === "(\/api\/agent\/[a-z]+)"/g)].map((m) => m[1]));
+  // ⚠ RE-ANCHORED ONTO THE PATH'S REAL SHAPE: `[a-z]+` stops at a hyphen, so every
+  // `automation-*` route matched as the SHORTER prefix `/api/agent/automation` and the
+  // census reported seven working branches as missing. A needle that cannot spell the
+  // names it is a census of is a census of something else.
+  const branched = new Set([...body.matchAll(/path === "(\/api\/agent\/[a-z-]+)"/g)].map((m) => m[1]));
   assert.deepEqual([...branched].sort(), Object.keys(AGENT_ROUTES).sort(),
     "a route with no branch answers 500; a branch with no route is unreachable");
 });

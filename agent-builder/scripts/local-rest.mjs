@@ -74,6 +74,15 @@ const RPCS = {
   // against a real PostgreSQL. Six arguments and not one of them is structured, so
   // there is nothing here for a caller to hand over but ids and words.
   send_to_agent: { args: ["p_tenant", "p_agent_id::uuid", "p_message_id::uuid", "p_body", "p_send_key", "p_run_id::uuid"], shape: "value" },
+  // ── automations ───────────────────────────────────────────────────────────
+  // THE SAME TRANSLATION AND THE SAME GUARANTEES: these are the product's own
+  // functions, called as they are called in production, so what is local here is the
+  // HTTP hop and nothing else. `tick_automations` answers a SET, like the sweeper.
+  create_automation: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_max::integer"], shape: "value" },
+  update_automation: { args: ["p_tenant", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb"], shape: "value" },
+  accept_automation_run: { args: ["p_tenant", "p_automation_id::uuid", "p_run_id::uuid", "p_trigger", "p_occurrence::date"], shape: "value" },
+  finish_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_outcomes::jsonb", "p_stop::jsonb"], shape: "value" },
+  tick_automations: { args: ["p_catchup_s::integer", "p_limit::integer"], shape: "set" },
 };
 
 /**
@@ -86,6 +95,13 @@ const AGENT_COLUMNS = new Set(["id", "tenant_id", "name", "instructions", "creat
   "last_message", "status", "tools"]);
 const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "run_id",
   "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at"]);
+
+/** The automations' own columns, and their executions'. A third set, for a third half. */
+const AUTOMATION_COLUMNS = new Set(["id", "agent_id", "tenant_id", "name", "enabled", "schedule",
+  "at_local", "zone", "steps", "next_run_at", "created_at", "updated_at"]);
+const EXECUTION_COLUMNS = new Set(["id", "automation_id", "tenant_id", "trigger", "occurrence",
+  "steps", "zone", "outcomes", "missed", "created_at", "finished_at",
+  "run_status", "run_stop", "run_started_at", "run_stopped_at"]);
 
 export function startLocalRest({ db, port = 0, quiet = true } = {}) {
   if (!db) throw new TypeError("startLocalRest: db is required");
@@ -281,6 +297,48 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
         if (!where) return send(400, { message: "a DELETE must name which rows" });
         const r = await sql(`with del as (delete from agent.agents ${where} returning id, name, instructions, created_at, updated_at)
           select coalesce(json_agg(t), '[]')::text from del t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      // ── automations ───────────────────────────────────────────────────────
+      if (p === "/rest/v1/automations" && req.method === "GET") {
+        const cols = selectOf(url.searchParams, AUTOMATION_COLUMNS, ["id"]);
+        const order = url.searchParams.get("order") === "updated_at.desc" ? "order by updated_at desc" : "";
+        const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.automations ${whereOf(url.searchParams, AUTOMATION_COLUMNS)} ${order} ${limit}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/automations" && req.method === "PATCH") {
+        // THE TOGGLE IS THE ONLY PATCH THE STORE MAKES, and `enabled` is the only column
+        // it writes — everything else about an automation goes through a transaction,
+        // because a schedule is three columns that must agree.
+        if (typeof body?.enabled !== "boolean") return send(400, { message: "nothing writable was asked for" });
+        const where = whereOf(url.searchParams, AUTOMATION_COLUMNS);
+        // NEVER AN UNFILTERED UPDATE: without a filter this would switch every account's
+        // automations on or off at once.
+        if (!where) return send(400, { message: "a PATCH must name which rows" });
+        const r = await sql(`with upd as (
+            update agent.automations set enabled = ${body.enabled ? "true" : "false"} ${where}
+            returning id, agent_id, name, enabled, schedule, at_local, zone, steps, next_run_at, updated_at)
+          select coalesce(json_agg(t), '[]')::text from upd t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/automations" && req.method === "DELETE") {
+        const where = whereOf(url.searchParams, AUTOMATION_COLUMNS);
+        if (!where) return send(400, { message: "a DELETE must name which rows" });
+        const r = await sql(`with del as (delete from agent.automations ${where} returning id, name)
+          select coalesce(json_agg(t), '[]')::text from del t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if ((p === "/rest/v1/automation_runs" || p === "/rest/v1/automation_history") && req.method === "GET") {
+        const rel = p.endsWith("automation_runs") ? "agent.automation_runs" : "agent.automation_history";
+        const cols = selectOf(url.searchParams, EXECUTION_COLUMNS, ["id"]);
+        const order = url.searchParams.get("order") === "created_at.desc" ? "order by created_at desc" : "";
+        const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from ${rel} ${whereOf(url.searchParams, EXECUTION_COLUMNS)} ${order} ${limit}) t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(200, JSON.parse(r.out || "[]"));
       }

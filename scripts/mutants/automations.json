@@ -1,0 +1,430 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the automation catalog",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": " * ⚠ THE STEP CATALOG — every kind of step a workflow may hold, as the browser is",
+  "to": " * ⚠ THE STEP CATALOG (control) — every kind of step a workflow may hold, as the browser is",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment only, above the automations screen",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": " * A THIRD SCREEN FOR ONE AGENT, reached from its conversation. It is not inside the",
+  "to": " * A THIRD SCREEN FOR ONE AGENT (control), reached from its conversation. It is not inside the",
+  "control": true
+ },
+ {
+  "label": "a workflow over the cap is shortened rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (v.length > max) return { error: `that's more steps than one automation can hold (${max})` };",
+  "to": "  if (v.length > max) v = v.slice(0, max);"
+ },
+ {
+  "label": "a step type the platform has not got is dropped rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!def) return { error: `step ${at}: this platform has no step called ${String(raw.type ?? \"(nothing)\")}` };",
+  "to": "    if (!def) continue;"
+ },
+ {
+  "label": "the step id comes from the caller rather than from the position",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    const one = { id: `s${at}`, type: def.type };",
+  "to": "    const one = { id: typeof raw.id === \"string\" && raw.id ? raw.id : `s${at}`, type: def.type };"
+ },
+ {
+  "label": "a field kind with no rule passes rather than refusing",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  return { error: `${f.name} is configured in a way this can't read` };",
+  "to": "  return { value: raw };"
+ },
+ {
+  "label": "a nested list is coerced into a day",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (typeof d !== \"string\") return { error: \"one of the days didn't arrive as a day\" };",
+  "to": "      void 0;"
+ },
+ {
+  "label": "a nested list is coerced into a note",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (typeof raw !== \"string\") return { error: `${f.name} didn't arrive as text` };",
+  "to": "    if (typeof raw !== \"string\") raw = String(raw);"
+ },
+ {
+  "label": "a day selection keeps the ticking order rather than the week's",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    return { value: AUTOMATION_DAYS.filter((d) => picked.includes(d)) };",
+  "to": "    return { value: picked };"
+ },
+ {
+  "label": "a note longer than the cap is stored rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (f.max && text.length > f.max) return { error: `${f.name} is longer than it can be (${f.max} characters)` };",
+  "to": "    if (f.max && text.length > f.max) return { value: text.slice(0, f.max) };"
+ },
+ {
+  "label": "a daily schedule is accepted with no zone, so its time means nowhere",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (!zone) return { error: \"a daily schedule needs a time zone, so the time means somewhere\" };",
+  "to": "  void 0;"
+ },
+ {
+  "label": "a time is accepted in any shape",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (!AT_SHAPE.test(at)) return { error: \"say what time of day it should run, as HH:MM\" };",
+  "to": "  void 0;"
+ },
+ {
+  "label": "seconds come from the caller rather than from us",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  return { schedule, at: `${at}:00`, zone };",
+  "to": "  return { schedule, at, zone };"
+ },
+ {
+  "label": "a zone nobody can use is stored rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (b?.zone && !zone) return { error: \"that isn't a time zone this can use\" };",
+  "to": "  void 0;"
+ },
+ {
+  "label": "the zone is asked of a list rather than of Intl",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  try { new Intl.DateTimeFormat(\"en-US\", { timeZone: zone }); return zone; }",
+  "to": "  try { if (!/^[A-Za-z]+\\/[A-Za-z_]+$|^UTC$/.test(zone)) throw new Error(\"no\"); return zone; }"
+ },
+ {
+  "label": "a manual automation may not carry a zone, so a weekday means UTC",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    return { schedule, at: null, zone };",
+  "to": "    return { schedule, at: null, zone: null };"
+ },
+ {
+  "label": "an unreadable `enabled` fails OPEN, so an automation runs that looks stopped",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    enabled: r?.enabled === true,",
+  "to": "    enabled: r?.enabled !== false,"
+ },
+ {
+  "label": "a stopped run whose stop cannot be read is shown as still queued",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    ? \"queued\"\n    : AUTOMATION_STATES.includes(reason) && reason !== \"queued\" ? reason : \"failed\";",
+  "to": "    ? \"queued\"\n    : AUTOMATION_STATES.includes(reason) ? reason : \"queued\";"
+ },
+ {
+  "label": "a stop may claim to be `queued`, a state no stop has",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    : AUTOMATION_STATES.includes(reason) && reason !== \"queued\" ? reason : \"failed\";",
+  "to": "    : AUTOMATION_STATES.includes(reason) ? reason : \"failed\";"
+ },
+ {
+  "label": "a done execution also shows a reason it skipped and an error",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    why: state === \"skipped\" && typeof stop?.why === \"string\" ? stop.why : null,",
+  "to": "    why: typeof stop?.why === \"string\" ? stop.why : null,"
+ },
+ {
+  "label": "the time reaches the screen with its seconds",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    at: typeof r?.at_local === \"string\" ? r.at_local.slice(0, 5) : null,",
+  "to": "    at: typeof r?.at_local === \"string\" ? r.at_local : null,"
+ },
+ {
+  "label": "the list read no longer carries the catalog, so the form has nothing to draw",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        steps: AUTOMATION_STEPS,\n        days: AUTOMATION_DAYS,",
+  "to": "        days: AUTOMATION_DAYS,"
+ },
+ {
+  "label": "the list is read without asking whose agent it is",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();\n      // **THE CATALOG RIDES WITH THE LIST",
+  "to": "      // **THE CATALOG RIDES WITH THE LIST"
+ },
+ {
+  "label": "the history is read without asking whose automation it is",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!(await store.ownsAutomation(who, id))) return NO_AUTOMATION();",
+  "to": "      void 0;"
+ },
+ {
+  "label": "`enabled` is coerced on the toggle, so a string turns it on",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (typeof b.enabled !== \"boolean\") return no(400, \"say whether it should be on or off\");",
+  "to": "      void 0;"
+ },
+ {
+  "label": "`enabled` is coerced on a create, so \"false\" starts something",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (Object.hasOwn(b, \"enabled\") && typeof b.enabled !== \"boolean\" && b.enabled !== undefined) {\n        return no(400, \"an automation is either on or off\");\n      }",
+  "to": "      void 0;"
+ },
+ {
+  "label": "a create defaults `enabled` to off rather than on",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const enabled = b.enabled === undefined ? true : b.enabled;",
+  "to": "      const enabled = b.enabled === undefined ? false : b.enabled;"
+ },
+ {
+  "label": "a disabled automation's refusal is answered as a missing one",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (a.error === \"disabled\") {\n        return no(409, \"this automation is off, so it isn't starting anything — turn it on and try again\", { disabled: true });\n      }",
+  "to": "      void 0;"
+ },
+ {
+  "label": "a paused agent's refusal loses its flag, so the screen cannot offer the fix",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        return no(409, \"this agent is paused, so its automations aren't starting anything new — resume it in its settings\", { paused: true });",
+  "to": "        return no(409, \"this agent is paused, so its automations aren't starting anything new — resume it in its settings\");"
+ },
+ {
+  "label": "a failed ring is raised, so a committed automation reads as a failure",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        catch (e) { if (typeof log === \"function\") log(\"automation run: the queue was not rung\", String(e?.message ?? e)); }",
+  "to": "        catch (e) { throw e; }"
+ },
+ {
+  "label": "the doorbell is rung before the transaction rather than after it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const a = await store.runAutomation(who, { automationId: id, runId: mint() });",
+  "to": "      if (typeof ring === \"function\") await ring(mint());\n      const a = await store.runAutomation(who, { automationId: id, runId: mint() });"
+ },
+ {
+  "label": "the run id comes from the body rather than being minted",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const a = await store.runAutomation(who, { automationId: id, runId: mint() });",
+  "to": "      const a = await store.runAutomation(who, { automationId: id, runId: b.runId || mint() });"
+ },
+ {
+  "label": "the ceiling is not handed to the transaction that does the insert",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "          p_steps: steps, p_max: MAX_AUTOMATIONS,",
+  "to": "          p_steps: steps,"
+ },
+ {
+  "label": "the toggle is written without a tenant filter",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const r = await req(\"PATCH\", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {",
+  "to": "      const r = await req(\"PATCH\", `automations?id=eq.${id}`, {"
+ },
+ {
+  "label": "the delete is written without a tenant filter",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const r = await req(\"DELETE\", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {",
+  "to": "      const r = await req(\"DELETE\", `automations?id=eq.${id}`, {"
+ },
+ {
+  "label": "the history is read without a tenant filter",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        `automation_history?tenant_id=eq.${t(tenant)}&automation_id=eq.${automationId}` +",
+  "to": "        `automation_history?automation_id=eq.${automationId}` +"
+ },
+ {
+  "label": "an answer that is not an object reads as a refusal rather than a failure",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!a || typeof a !== \"object\" || Array.isArray(a)) {\n      throw storeFail(what, { status: r.status, text: \"no answer came back\" });\n    }",
+  "to": "    if (!a || typeof a !== \"object\" || Array.isArray(a)) return { ok: false };"
+ },
+ {
+  "label": "⚠ the form's read-back is no longer gated on the drawing it holds",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (drawn !== String(autoGen(agentAutoDraft))) return; // it is older than what we hold",
+  "to": "  void drawn;"
+ },
+ {
+  "label": "⚠ a structural change does not mark the drawing stale",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAutoDraft = { ...next, gen: autoGen(draft) + 1 };",
+  "to": "  agentAutoDraft = { ...next, gen: autoGen(draft) };"
+ },
+ {
+  "label": "a structural change does not read what is typed first",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAutoFormRead();                    // whatever is typed, before anything moves\n  const draft = agentAutoForm();",
+  "to": "  const draft = agentAutoForm();"
+ },
+ {
+  "label": "the save reads the DOM blind rather than through the gate",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAutoFormRead();\n  const values = agentAutoForm();",
+  "to": "  const values = agentAutoValues();"
+ },
+ {
+  "label": "the form's own generation is not drawn, so nothing can tell them apart",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return '<div class=\"ag-form\" id=\"agAutoForm\" data-gen=\"' + autoGen(agentAutoDraft) + '\">' +",
+  "to": "  return '<div class=\"ag-form\" id=\"agAutoForm\">' +"
+ },
+ {
+  "label": "the toggle sends the opposite of what the row says",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      body: JSON.stringify({ id: target, enabled: on === 'on' }),",
+  "to": "      body: JSON.stringify({ id: target, enabled: on !== 'on' }),"
+ },
+ {
+  "label": "the screen's own bookkeeping goes on the wire",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const { gen, ...sent } = values;",
+  "to": "  const sent = values; const gen = 0;"
+ },
+ {
+  "label": "a save that lands on another screen still clears its draft",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing) { agentAutoBusy = false; renderAgents(); return; }",
+  "to": "  if (false) { agentAutoBusy = false; renderAgents(); return; }"
+ },
+ {
+  "label": "a failed save throws the words away",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (failed) { say(failed); return; }   // the draft stays, so pressing Save again sends the same thing",
+  "to": "  if (failed) { agentAutoDraft = null; say(failed); return; }"
+ },
+ {
+  "label": "a failed list read is shown as an empty agent",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      agentAutoState = 'error';\n      agentAutoErr = (j && j.error) || 'Couldn’t load the automations.';",
+  "to": "      agentAutoRows = [];"
+ },
+ {
+  "label": "the watch keeps polling while the form is open",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!agentSame(bound) || agentAutoRunsFor !== id || agentAutoEditing !== null) return;",
+  "to": "    if (!agentSame(bound) || agentAutoRunsFor !== id) return;"
+ },
+ {
+  "label": "the watch never stops",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (agentAutoRunsFor === id && agentAutoEditing === null) agentAutoWatchSoon(id, left - 1);",
+  "to": "    if (agentAutoRunsFor === id && agentAutoEditing === null) agentAutoWatchSoon(id, left);"
+ },
+ {
+  "label": "a list read that arrived for another agent is written in anyway",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (agentAuto !== forAgent || bound.uid !== agentUid()) return;\n    if (!res.ok || !j.ok) {",
+  "to": "    if (false) return;\n    if (!res.ok || !j.ok) {"
+ },
+ {
+  "label": "the empty catalog draws a form nobody can save",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      : '<div class=\"ag-nothing\">There are no kinds of step to add yet. When there are, they’ll be listed here.</div>') +",
+  "to": "      : '') +"
+ },
+ {
+  "label": "the history draws a line for a value that is not there (undefined in the red slot)",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "function autoSaid(v) { return typeof v === 'string' && v !== ''; }",
+  "to": "function autoSaid(v) { return v !== null; }",
+  "control": false
+ },
+ {
+  "label": "the generation gate reads 'no attribute' as generation zero (the pair)",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const drawn = form.getAttribute ? form.getAttribute('data-gen') : null;\n  // A DECLARED REDUNDANCY, and it is mutated as a PAIR because on its own it is INERT:\n  // with `|| '0'` gone, `null !== String(gen)` already returns. It stays because the\n  // two say different things — that line is about the DEFAULT, this one about the\n  // STATE — and the one a later edit reaches for is the default.\n  if (drawn === null) return;                           // nothing has drawn it yet\n",
+  "to": "  const drawn = (form.getAttribute && form.getAttribute('data-gen')) || '0';\n",
+  "control": false
+ }
+]

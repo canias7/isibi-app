@@ -1663,7 +1663,762 @@ function agentWhyText(why) {
  * takes the sites list with it. It is kept as the number the import may carry,
  * which is the one place the browser still decides.
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * AUTOMATIONS — a trigger, a condition, an action, a saved result.
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * A THIRD SCREEN FOR ONE AGENT, reached from its conversation. It is not inside the
+ * settings form deliberately: that form is what the agent IS — its name, its
+ * instructions, what it may use — and this is what it does on its own. Two short
+ * screens read better than one long one, and each has a different thing at stake.
+ *
+ * **NULL IS "NOT ASKED YET" AND `[]` IS "THIS AGENT HAS NONE"**, the same distinction
+ * the agent list needs and for the same reason: collapsing them makes every first paint
+ * claim there is nothing before anybody has looked.
+ */
+let agentAuto = null;          // which agent's automations are open
+let agentAutoRows = null;      // its automations, as the server last answered
+let agentAutoState = 'loading';
+let agentAutoErr = '';
+/**
+ * The step catalog, AS THE SERVER SENT IT.
+ *
+ * **THE BROWSER DRAWS WHAT THIS SAYS AND CAN NEVER ADD TO IT.** A step type is code in
+ * the engine; this is the server's answer to "what may I configure", and a Worker that
+ * predates it answers no `steps` key at all — which draws an honest sentence rather than
+ * an empty form somebody could fill in and never save.
+ */
+let agentAutoCat = null;
+let agentAutoEditing = null;   // an automation id, '' for a new one, null for the list
+/**
+ * The form's values, kept across a failed save AND across every re-render.
+ *
+ * The panel is rebuilt from `innerHTML` whenever anything changes — adding a step,
+ * reordering one, an error arriving — so values that lived only in the DOM would be
+ * wiped by the very redraw that shows the change. `agentAutoFormRead` puts them here
+ * FIRST, through the same one door the message composer goes through.
+ */
+let agentAutoDraft = null;
+let agentAutoBusy = false;
+let agentAutoActErr = '';
+let agentAutoSaved = false;
+let agentAutoRuns = null;      // the open automation's executions
+let agentAutoRunsFor = null;
+let agentAutoRunsErr = '';
+
+/** How long to keep asking after a Run now, and how often. */
+const AUTO_WATCH_MS = 1500;
+const AUTO_WATCH_TRIES = 6;
+let agentAutoWatch = null;
+
 const AGENT_THREAD_MAX = 200;
+
+// ── automations: reading ────────────────────────────────────────────────────
+
+/** The automation being edited, out of the list the server sent. */
+const agentAutoRow = () => (agentAutoRows || []).find((a) => a.id === agentAutoEditing) || null;
+
+/** An instant as a person reads it, or an em dash. Absolute, because "next run" is. */
+function autoWhen(iso) {
+  if (typeof iso !== 'string' || !iso) return '—';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '—';
+  try { return new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch { return new Date(t).toISOString().slice(0, 16).replace('T', ' '); }
+}
+
+/** How an automation starts, in one line. */
+function autoTrigger(a) {
+  if (!a || a.schedule !== 'daily') return 'Run now only';
+  return 'Every day at ' + (a.at || '—') + (a.zone ? ' (' + a.zone + ')' : '');
+}
+
+/** What the platform calls each step type, out of the catalog the server sent. */
+function autoStepLabel(type) {
+  const cat = (agentAutoCat && agentAutoCat.steps) || [];
+  const def = cat.find((d) => d.type === type);
+  return (def && def.label) || type || 'a step';
+}
+
+/**
+ * One step, as a sentence.
+ *
+ * **IT READS THE STORED CONFIGURATION, NOT THE CATALOG'S DESCRIPTION.** "Only on
+ * Mondays" and "Only on certain days" are different things to show somebody, and the
+ * second one is what a step list full of the same words looks like.
+ */
+function autoStepLine(st) {
+  if (!st || typeof st !== 'object') return 'a step this can’t read';
+  if (st.type === 'weekday') {
+    const days = Array.isArray(st.days) ? st.days : [];
+    return days.length ? 'Only on ' + days.map(autoDayName).join(', ') : 'Only on certain days';
+  }
+  if (st.type === 'note') return 'Save a note: “' + String(st.text || '') + '”';
+  return autoStepLabel(st.type);
+}
+
+const AUTO_DAY_NAMES = { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat' };
+const autoDayName = (d) => AUTO_DAY_NAMES[d] || d;
+
+/**
+ * Load one agent's automations, and the catalog with them.
+ *
+ * ONE READ FOR THE WHOLE SCREEN — the list and what may be configured — because the
+ * form is only reachable from here, so a catalog arriving separately would be a second
+ * thing to fail and a second state to draw.
+ */
+async function agentAutoLoad(quiet) {
+  const bound = agentBind();
+  const forAgent = agentAuto;
+  if (!quiet) { agentAutoState = 'loading'; agentAutoErr = ''; renderAgents(); }
+  try {
+    const res = await apiFetch('/api/agent/automations?agent=' + encodeURIComponent(forAgent));
+    const j = await res.json().catch(() => ({}));
+    // THE SCREEN MAY HAVE MOVED ON, or another account may be signed in. Writing this
+    // answer into a screen showing another agent's automations would be showing somebody
+    // a list that is not theirs.
+    if (agentAuto !== forAgent || bound.uid !== agentUid()) return;
+    if (!res.ok || !j.ok) {
+      // A FAILED READ IS NOT AN EMPTY AGENT. The rows it had are left exactly as they
+      // were, so an error does not look like everything having been deleted.
+      agentAutoState = 'error';
+      agentAutoErr = (j && j.error) || 'Couldn’t load the automations.';
+    } else {
+      agentAutoRows = Array.isArray(j.automations) ? j.automations : [];
+      agentAutoCat = { steps: Array.isArray(j.steps) ? j.steps : [], days: Array.isArray(j.days) ? j.days : [], max: j.max };
+      agentAutoState = 'ready';
+      agentAutoErr = '';
+    }
+  } catch {
+    if (agentAuto !== forAgent || bound.uid !== agentUid()) return;
+    agentAutoState = 'error';
+    agentAutoErr = 'Couldn’t reach the server.';
+  }
+  renderAgents();
+}
+
+/** One automation's history, newest first. */
+async function agentAutoRunsLoad(id, quiet) {
+  const bound = agentBind();
+  const forId = String(id || '');
+  if (!forId) return;
+  if (!quiet) { agentAutoRuns = null; agentAutoRunsErr = ''; agentAutoRunsFor = forId; renderAgents(); }
+  try {
+    const res = await apiFetch('/api/agent/automation-history?id=' + encodeURIComponent(forId));
+    const j = await res.json().catch(() => ({}));
+    if (agentAutoRunsFor !== forId || bound.uid !== agentUid()) return;
+    if (!res.ok || !j.ok) agentAutoRunsErr = (j && j.error) || 'Couldn’t load the history.';
+    else { agentAutoRuns = Array.isArray(j.executions) ? j.executions : []; agentAutoRunsErr = ''; }
+  } catch {
+    if (agentAutoRunsFor !== forId || bound.uid !== agentUid()) return;
+    agentAutoRunsErr = 'Couldn’t reach the server.';
+  }
+  renderAgents();
+}
+
+/**
+ * Watch one automation's history for a few seconds after a Run now.
+ *
+ * **BOUNDED, AND IT STOPS ITSELF.** An execution of this milestone's steps finishes in
+ * well under a second once the doorbell rings, so a handful of tries covers it and a
+ * permanent poll would be a redraw every two seconds for as long as the screen is open.
+ * **IT DOES NOT RUN WHILE THE FORM IS OPEN** — nothing may redraw a form behind
+ * somebody, and saying that in one line is better than a rule about which inputs are
+ * safe to replace.
+ */
+function agentAutoWatchStop() {
+  if (agentAutoWatch !== null) { clearTimeout(agentAutoWatch); agentAutoWatch = null; }
+}
+function agentAutoWatchSoon(id, left) {
+  agentAutoWatchStop();
+  if (!(left > 0)) return;
+  const bound = agentBind();
+  agentAutoWatch = setTimeout(async () => {
+    agentAutoWatch = null;
+    // ASKED WHEN THE TIMER FIRES, not when it was armed: between the two, somebody can
+    // open another agent, open the form, or sign in as somebody else.
+    if (!agentSame(bound) || agentAutoRunsFor !== id || agentAutoEditing !== null) return;
+    await agentAutoRunsLoad(id, true);
+    if (agentAutoRunsFor === id && agentAutoEditing === null) agentAutoWatchSoon(id, left - 1);
+  }, AUTO_WATCH_MS);
+}
+
+// ── automations: the form's own values ──────────────────────────────────────
+
+/** A blank automation, and the shape every draft has. */
+const autoBlank = () => ({ name: '', enabled: true, schedule: 'manual', at: '09:00', zone: autoGuessZone(), steps: [], gen: 0 });
+
+/**
+ * The browser's own zone, offered as the default.
+ *
+ * ASKED OF `Intl`, never guessed from an offset: an offset is not a zone, and two places
+ * sharing one today part company in March. A browser that will not say answers `UTC`,
+ * which the person can change.
+ */
+function autoGuessZone() {
+  try { return new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+  catch { return 'UTC'; }
+}
+
+/**
+ * Read the form out of the DOM.
+ *
+ * **THE TYPES COME OFF THE ROWS THEMSELVES**, so the draft can be rebuilt from the
+ * screen alone — a step list held half in the DOM and half in a variable is two lists
+ * that disagree the first time one of them is rewritten.
+ */
+function agentAutoValues() {
+  const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const checked = (id) => { const el = document.getElementById(id); return !!(el && el.checked); };
+  const rows = typeof document.querySelectorAll === 'function'
+    ? [...document.querySelectorAll('[data-step-type]')] : [];
+  const steps = rows.map((row) => {
+    const type = (row.getAttribute && row.getAttribute('data-step-type')) || '';
+    const st = { type };
+    const fields = typeof row.querySelectorAll === 'function' ? [...row.querySelectorAll('[data-field]')] : [];
+    for (const f of fields) {
+      const name = (f.getAttribute && f.getAttribute('data-field')) || '';
+      if (!name) continue;
+      st[name] = f.value;
+    }
+    const days = typeof row.querySelectorAll === 'function' ? [...row.querySelectorAll('[data-day]')] : [];
+    if (days.length) {
+      st.days = days.filter((d) => d.checked)
+                    .map((d) => (d.getAttribute && d.getAttribute('data-day')) || '')
+                    .filter(Boolean);
+    }
+    return st;
+  });
+  return {
+    name: val('agAutoName').trim().slice(0, AGENT_NAME_MAX),
+    // OFF is what the box says, so the control and the value cannot disagree.
+    enabled: !checked('agAutoOff'),
+    schedule: val('agAutoSched') === 'daily' ? 'daily' : 'manual',
+    at: val('agAutoAt') || '09:00',
+    zone: val('agAutoZone').trim(),
+    steps,
+  };
+}
+
+/**
+ * Put whatever is on screen into the draft, before anything redraws it.
+ *
+ * ⚠ **ONLY WHEN THE FORM ON SCREEN IS A DRAWING OF THE DRAFT THIS HOLDS, and that
+ * condition is the whole of why adding a step works.** Found in a real browser and by
+ * nothing else: pressing "+ Save a note" builds a NEW draft with one more step and asks
+ * for a redraw — and this ran first, read the form that is still showing the OLD step
+ * list, and wrote it straight back over the step just added. Zero steps, every time,
+ * with every unit case passing.
+ *
+ * A generation number is what tells them apart. The form carries the one it was drawn
+ * with; a structural change bumps the draft's. They agree exactly when the screen is
+ * showing what this variable holds, which is the only state in which reading the screen
+ * back is right. A step COUNT would not do it — reordering keeps the count.
+ */
+function agentAutoFormRead() {
+  if (agentAuto === null || agentAutoEditing === null) return;
+  const form = document.getElementById('agAutoForm');
+  if (!form) return;                                    // the form is not drawn
+  // ⚠ **A FORM THAT DECLARES NO GENERATION IS NOT ONE THIS READ MAY TRUST.** `|| '0'`
+  // turned "there is no attribute" into generation zero — which is exactly what a fresh
+  // draft holds — so an element found before the form had ever been drawn passed the
+  // gate and the draft was overwritten with an EMPTY form. Cannot-tell must never read
+  // as a value, and the value it read as was the one that always matches.
+  const drawn = form.getAttribute ? form.getAttribute('data-gen') : null;
+  // A DECLARED REDUNDANCY, and it is mutated as a PAIR because on its own it is INERT:
+  // with `|| '0'` gone, `null !== String(gen)` already returns. It stays because the
+  // two say different things — that line is about the DEFAULT, this one about the
+  // STATE — and the one a later edit reaches for is the default.
+  if (drawn === null) return;                           // nothing has drawn it yet
+  if (drawn !== String(autoGen(agentAutoDraft))) return; // it is older than what we hold
+  agentAutoDraft = { ...agentAutoValues(), gen: autoGen(agentAutoDraft) };
+}
+
+/** Which drawing of the form a draft is. Absent is 0, so a stored automation starts there. */
+const autoGen = (d) => (d && Number.isFinite(d.gen) ? d.gen : 0);
+
+/**
+ * Change the SHAPE of the workflow — add a step, move one, take one out.
+ *
+ * ONE DOOR FOR ALL THREE, so none of them can forget the order that makes it work:
+ * read what is on screen, apply the change to THAT, and mark the drawing stale.
+ */
+function agentAutoStructural(mutate) {
+  agentAutoFormRead();                    // whatever is typed, before anything moves
+  const draft = agentAutoForm();
+  const next = mutate(draft);
+  if (!next) return;
+  agentAutoDraft = { ...next, gen: autoGen(draft) + 1 };
+  agentAutoSaved = false;
+  renderAgents();
+}
+
+/** The draft, or the stored automation, or a blank one — in that order. */
+function agentAutoForm() {
+  if (agentAutoDraft) return agentAutoDraft;
+  const cur = agentAutoRow();
+  if (!cur) return autoBlank();
+  return {
+    name: cur.name, enabled: cur.enabled, schedule: cur.schedule,
+    at: cur.at || '09:00', zone: cur.zone || autoGuessZone(),
+    steps: (cur.steps || []).map((st) => ({ ...st })),
+    gen: 0,
+  };
+}
+
+// ── automations: what the buttons do ────────────────────────────────────────
+
+function agentAutomations(id) {
+  agentPollStop();
+  agentAuto = String(id || '');
+  agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false;
+  agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null;
+  agentAutoLoad();
+}
+function agentAutoBack() {
+  agentAutoWatchStop();
+  const back = agentAuto;
+  agentAuto = null; agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = '';
+  agentAutoRunsFor = null; agentAutoRuns = null;
+  // BACK TO THE CONVERSATION IT BELONGS TO, which is where this was opened from.
+  if (back) agentOpen(back); else renderAgents();
+}
+function agentAutoNew() { agentAutoWatchStop(); agentAutoEditing = ''; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoEditing = String(id || ''); agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoCancel() { agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoReload() { agentAutoLoad(); }
+function agentAutoHistory(id) {
+  agentAutoWatchStop();
+  const target = String(id || '');
+  // A SECOND PRESS CLOSES IT, so the row is a toggle and not a one-way door.
+  if (agentAutoRunsFor === target) { agentAutoRunsFor = null; agentAutoRuns = null; renderAgents(); return; }
+  agentAutoRunsLoad(target);
+}
+
+/** Add a step of one type, with the catalog's own fields empty. */
+function agentAutoStepAdd(type) {
+  agentAutoStructural((draft) => {
+    const max = (agentAutoCat && agentAutoCat.max) || 20;
+    if (draft.steps.length >= max) {
+      agentAutoActErr = 'That’s as many steps as one automation can hold (' + max + ').';
+      renderAgents();
+      return null;
+    }
+    // THE CATALOG'S OWN FIELDS, EMPTY — except a weekday, which starts on one day
+    // because an empty day list is a step the server would refuse on the first save.
+    const st = { type: String(type || '') };
+    if (st.type === 'weekday') st.days = ['mon'];
+    if (st.type === 'note') st.text = '';
+    agentAutoActErr = '';
+    return { ...draft, steps: [...draft.steps, st] };
+  });
+}
+/** Move one step, or take it out. The ORDER is the workflow, so this is the workflow. */
+function agentAutoStepMove(at, by) {
+  agentAutoStructural((draft) => {
+    const i = Number(at);
+    const to = i + Number(by);
+    if (!(i >= 0 && i < draft.steps.length) || !(to >= 0 && to < draft.steps.length)) return null;
+    const steps = [...draft.steps];
+    const [one] = steps.splice(i, 1);
+    steps.splice(to, 0, one);
+    return { ...draft, steps };
+  });
+}
+function agentAutoStepDrop(at) {
+  agentAutoStructural((draft) => {
+    const i = Number(at);
+    if (!(i >= 0 && i < draft.steps.length)) return null;
+    return { ...draft, steps: draft.steps.filter((_, n) => n !== i) };
+  });
+}
+
+/**
+ * Save it — a create or an edit, and the same body either way.
+ *
+ * **THE DRAFT IS KEPT BEFORE ANYTHING CAN FAIL**, including the refusals below: the
+ * panel is redrawn to show a sentence, and without this the words would be gone by the
+ * time the sentence appeared.
+ */
+async function agentAutoSave() {
+  // THROUGH THE SAME GATE, so a Save pressed straight after adding a step sends the
+  // step rather than the form that has not been redrawn with it yet.
+  agentAutoFormRead();
+  const values = agentAutoForm();
+  agentAutoDraft = values;
+  agentAutoSaved = false;
+  const say = (m) => { agentAutoActErr = m; renderAgents(); };
+  if (!values.name) { say('Give it a name first.'); return; }
+
+  const { gen, ...sent } = values;
+  void gen;
+  const bound = agentBind();
+  const editing = agentAutoEditing;
+  const forAgent = agentAuto;
+  agentAutoBusy = true; agentAutoActErr = ''; renderAgents();
+  let failed = '';
+  let made = null;
+  try {
+    const res = await apiFetch(editing ? '/api/agent/automation-update' : '/api/agent/automation-create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // ⚠ `gen` IS THIS SCREEN'S OWN BOOKKEEPING AND DOES NOT GO ON THE WIRE. It says
+      // which drawing of the form a draft is, which is a fact about a browser; a body
+      // should say what it means, and a server reading a field nobody meant to send is
+      // how a field ends up load-bearing by accident.
+      body: JSON.stringify(editing
+        ? { id: editing, ...sent }
+        : { agent: forAgent, ...sent }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';
+    else if (typeof j.id === 'string') made = j.id;
+  } catch { failed = 'Couldn’t reach the server.'; }
+
+  // THE SCREEN MAY HAVE MOVED ON. Closing a form, clearing a draft or writing an error
+  // into one somebody has since opened would all be acting on another screen.
+  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing) { agentAutoBusy = false; renderAgents(); return; }
+
+  agentAutoBusy = false;
+  if (failed) { say(failed); return; }   // the draft stays, so pressing Save again sends the same thing
+  agentAutoDraft = null;
+  agentAutoSaved = true;
+  // A CREATE BECOMES AN EDIT OF WHAT IT JUST MADE, so the next press adjusts the same
+  // automation rather than making a second one.
+  if (!editing && made) agentAutoEditing = made;
+  await agentAutoLoad(true);
+}
+
+/** On or off. Its own narrow write, so a toggle cannot carry a stale configuration. */
+async function agentAutoToggle(id, on) {
+  const target = String(id || '');
+  const bound = agentBind();
+  agentAutoBusy = true; agentAutoActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/automation-enable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: target, enabled: on === 'on' }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t change that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentAutoBusy = false;
+  if (!agentSame(bound)) { renderAgents(); return; }
+  if (failed) agentAutoActErr = failed;
+  await agentAutoLoad(true);
+}
+
+/** Run it now — the same workflow the schedule starts, through the same queue. */
+async function agentAutoRun(id) {
+  const target = String(id || '');
+  const bound = agentBind();
+  agentAutoBusy = true; agentAutoActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/automation-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: target }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t start that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentAutoBusy = false;
+  if (!agentSame(bound) || agentAuto === null) { renderAgents(); return; }
+  if (failed) { agentAutoActErr = failed; renderAgents(); return; }
+  // OPEN ITS HISTORY AND WATCH IT BRIEFLY. The work is committed by now, so this is
+  // about how soon it appears and never about whether it happened.
+  agentAutoRunsFor = target;
+  await agentAutoRunsLoad(target, true);
+  agentAutoWatchSoon(target, AUTO_WATCH_TRIES);
+}
+
+/**
+ * Delete. CONFIRMED FIRST, because the history goes with it by the foreign key's own
+ * cascade and there is no copy of it anywhere else.
+ */
+async function agentAutoDelete(id) {
+  const target = String(id || '');
+  if (!target) return;
+  const a = (agentAutoRows || []).find((x) => x.id === target);
+  if (!window.confirm('Delete ' + ((a && a.name) || 'this automation') + ' and everything it has run? This cannot be undone.')) return;
+  const bound = agentBind();
+  agentAutoBusy = true; agentAutoActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/automation-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: target }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t delete that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentAutoBusy = false;
+  if (agentSame(bound)) {
+    if (failed) agentAutoActErr = failed;
+    else {
+      agentAutoEditing = null; agentAutoDraft = null;
+      if (agentAutoRunsFor === target) { agentAutoRunsFor = null; agentAutoRuns = null; }
+    }
+  }
+  await agentAutoLoad(true);
+}
+
+/**
+ * ⚠ THE AUTOMATIONS SCREEN.
+ *
+ * Two states and no third: the LIST, and one automation's FORM. A form is opened over
+ * the list rather than beside it, so nothing redraws behind somebody who is typing — the
+ * one rule that makes the whole of this safe without a per-input guard.
+ */
+function automationsHtml() {
+  const agent = (agentRows || []).find((a) => a.id === agentAuto) || null;
+  const head =
+    '<div class="ag-head ag-thread-head">' +
+      '<button class="ag-back" data-act="agent-auto-back" aria-label="Back to the conversation" title="Back">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>' +
+      '</button>' +
+      '<div class="ag-thread-name">Automations' + (agent ? ' · ' + esc(agent.name) : '') + '</div>' +
+      (agentAutoEditing === null
+        ? '<button class="ag-edit" data-act="agent-auto-new" aria-label="New automation" title="New automation">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>' +
+          '</button>'
+        : '') +
+    '</div>';
+
+  if (agentAutoEditing !== null) return '<div class="ag-page ag-thread-page">' + head + automationFormHtml(agent) + '</div>';
+
+  // ── the list ─────────────────────────────────────────────────────────────
+  let body;
+  if (agentAutoState === 'loading' && agentAutoRows === null) {
+    body = '<div class="ag-empty"><div class="ag-empty-s">Loading…</div></div>';
+  } else if (agentAutoState === 'error' && agentAutoRows === null) {
+    body = '<div class="ag-empty">' +
+             '<div class="ag-empty-t">Couldn’t load the automations</div>' +
+             '<div class="ag-empty-s">' + esc(agentAutoErr) + '</div>' +
+             '<button class="ag-retry" data-act="agent-auto-reload">Try again</button>' +
+           '</div>';
+  } else if (!(agentAutoRows || []).length) {
+    body = '<div class="ag-empty">' +
+             '<div class="ag-empty-t">No automations yet</div>' +
+             '<div class="ag-empty-s">An automation runs a short list of steps — on its own every day, or whenever you press Run now. It doesn’t use the model.</div>' +
+             '<button class="ag-retry" data-act="agent-auto-new">New automation</button>' +
+           '</div>';
+  } else {
+    body = (agentAutoRows || []).map(automationRowHtml).join('');
+  }
+
+  return '<div class="ag-page ag-thread-page">' + head +
+    '<div class="ag-autos">' +
+      // A READ THAT FAILED WHILE ROWS WERE ALREADY ON SCREEN says so ABOVE them rather
+      // than replacing them: what is drawn is still the last thing the server really said.
+      (agentAutoState === 'error' && agentAutoRows !== null
+        ? '<div class="ag-err">' + esc(agentAutoErr) + '</div>' : '') +
+      (agentAutoActErr ? '<div class="ag-err">' + esc(agentAutoActErr) + '</div>' : '') +
+      body +
+    '</div>' +
+  '</div>';
+}
+
+/** One automation in the list: what it is, when it next runs, and what it has done. */
+function automationRowHtml(a) {
+  const open = agentAutoRunsFor === a.id;
+  return '<div class="ag-auto' + (a.enabled ? '' : ' ag-auto-off') + '">' +
+    '<div class="ag-auto-top">' +
+      '<div class="ag-auto-m">' +
+        '<div class="ag-auto-n">' + esc(a.name) +
+          (a.enabled ? '' : '<span class="ag-chip ag-chip-off">Off</span>') +
+        '</div>' +
+        '<div class="ag-auto-s">' + esc(autoTrigger(a)) +
+          // THE NEXT SCHEDULED RUN, which is the one thing a schedule has to be able to
+          // say. A manual automation has none and says nothing rather than "—".
+          (a.schedule === 'daily' && a.nextRunAt
+            ? ' · next ' + esc(autoWhen(a.nextRunAt)) : '') +
+        '</div>' +
+        '<div class="ag-auto-steps">' +
+          ((a.steps || []).length
+            ? (a.steps || []).map((st, i) =>
+                '<span class="ag-auto-step">' + (i + 1) + '. ' + esc(autoStepLine(st)) + '</span>').join('')
+            : '<span class="ag-auto-step ag-auto-none">No steps yet</span>') +
+        '</div>' +
+      '</div>' +
+      '<div class="ag-auto-acts">' +
+        '<button class="ag-auto-btn" data-act="agent-auto-run" data-id="' + esc(a.id) + '"' +
+          (agentAutoBusy ? ' disabled' : '') + '>Run now</button>' +
+        '<button class="ag-auto-btn" data-act="agent-auto-toggle" data-id="' + esc(a.id) + '"' +
+          ' data-on="' + (a.enabled ? 'off' : 'on') + '"' + (agentAutoBusy ? ' disabled' : '') + '>' +
+          (a.enabled ? 'Turn off' : 'Turn on') + '</button>' +
+        '<button class="ag-auto-btn" data-act="agent-auto-edit" data-id="' + esc(a.id) + '">Edit</button>' +
+        '<button class="ag-auto-btn" data-act="agent-auto-history" data-id="' + esc(a.id) + '">' +
+          (open ? 'Hide runs' : 'Runs') + '</button>' +
+      '</div>' +
+    '</div>' +
+    (open ? automationRunsHtml() : '') +
+  '</div>';
+}
+
+/** The words for each state, and they are six different things to say. */
+const AUTO_STATE_WORDS = {
+  queued: 'Queued', done: 'Done', skipped: 'Skipped',
+  failed: 'Failed', missed: 'Missed', paused: 'Agent paused',
+};
+
+/** One automation's history: what each run did, step by step. */
+/**
+ * Is there a sentence to draw here?
+ *
+ * The one test every optional line in an execution goes through, so `null`, an absent
+ * key and an empty string are one answer — "nothing was said" — rather than three
+ * shapes each reader has to remember.
+ */
+function autoSaid(v) { return typeof v === 'string' && v !== ''; }
+
+function automationRunsHtml() {
+  if (agentAutoRunsErr) return '<div class="ag-auto-runs"><div class="ag-err">' + esc(agentAutoRunsErr) + '</div></div>';
+  if (agentAutoRuns === null) return '<div class="ag-auto-runs"><div class="ag-auto-none">Loading…</div></div>';
+  if (!agentAutoRuns.length) return '<div class="ag-auto-runs"><div class="ag-auto-none">It hasn’t run yet.</div></div>';
+  return '<div class="ag-auto-runs">' + agentAutoRuns.map((r) =>
+    '<div class="ag-run">' +
+      '<div class="ag-run-top">' +
+        '<span class="ag-chip ag-chip-' + esc(r.state) + '">' + esc(AUTO_STATE_WORDS[r.state] || r.state) + '</span>' +
+        '<span class="ag-run-when">' + esc(autoWhen(r.at)) + '</span>' +
+        '<span class="ag-run-how">' + (r.trigger === 'schedule' ? 'Scheduled' : 'Run now') +
+          (r.occurrence ? ' · ' + esc(r.occurrence) : '') + '</span>' +
+      '</div>' +
+      // THE FINAL RESULT, THE REASON IT SKIPPED, OR THE ERROR — one of the three, never
+      // two, because an execution ended exactly one way.
+      //
+      // ⚠ **ASKED AS "IS THERE A SENTENCE HERE", NEVER AS `!== null`.** `executionRow`
+      // answers all three as `string | null`, so `!== null` was right for every row this
+      // Worker can send — and `undefined !== null` is TRUE, so a row that simply does not
+      // CARRY the key drew the literal word `undefined`, three times, in the execution
+      // history. **Measured, in a render**: a row with the three keys absent produced
+      // `<div class="ag-run-out">undefined</div>` and two more like it, the last of them in
+      // the red error slot. No unit case saw it because every fixture was the real
+      // producer's output. *Cannot-tell must never read as a value* — and a renderer is
+      // exactly where a row from some other shape eventually arrives.
+      (autoSaid(r.result) ? '<div class="ag-run-out">' + esc(r.result) + '</div>' : '') +
+      (autoSaid(r.why) ? '<div class="ag-run-why">' + esc(r.why) + '</div>' : '') +
+      (autoSaid(r.error) ? '<div class="ag-run-err">' + esc(r.error) + '</div>' : '') +
+      (r.state === 'missed' && r.missed
+        ? '<div class="ag-run-why">' + esc(String(r.missed)) + ' scheduled run' + (r.missed === 1 ? '' : 's') +
+          ' went by while nothing was running them.</div>' : '') +
+      (r.state === 'paused'
+        ? '<div class="ag-run-why">The agent was paused, so this one didn’t start.</div>' : '') +
+      // EACH STEP'S OWN OUTCOME. Every step gets a line, including the ones that never
+      // ran — a list that stopped short would show a workflow ending for no reason.
+      ((r.outcomes || []).length
+        ? '<div class="ag-run-steps">' + r.outcomes.map((o, i) =>
+            '<div class="ag-run-step ag-step-' + esc(o.outcome) + '">' +
+              '<span class="ag-step-n">' + (i + 1) + '</span>' +
+              '<span class="ag-step-w">' + esc(autoStepLabel(o.type)) + '</span>' +
+              '<span class="ag-step-o">' + esc(o.outcome) + '</span>' +
+              '<span class="ag-step-d">' + esc(o.why || o.error || o.result || '') + '</span>' +
+            '</div>').join('') + '</div>'
+        : '') +
+    '</div>').join('') + '</div>';
+}
+
+/** The form: a name, whether it is on, how it starts, and the ordered steps. */
+function automationFormHtml(agent) {
+  void agent;
+  const f = agentAutoForm();
+  const cur = agentAutoRow();
+  const cat = (agentAutoCat && agentAutoCat.steps) || [];
+  const days = (agentAutoCat && agentAutoCat.days) || [];
+  return '<div class="ag-form" id="agAutoForm" data-gen="' + autoGen(agentAutoDraft) + '">' +
+    '<label class="ag-lbl" for="agAutoName">Name</label>' +
+    '<input class="ag-in" id="agAutoName" maxlength="' + AGENT_NAME_MAX + '" placeholder="Morning check" value="' + esc(f.name) + '">' +
+
+    '<label class="ag-lbl" for="agAutoSched">How it starts</label>' +
+    '<div class="ag-hint">Either way it runs the same steps, through the same queue.</div>' +
+    '<select class="ag-in" id="agAutoSched" data-change="agent-auto-sched">' +
+      '<option value="manual"' + (f.schedule === 'manual' ? ' selected' : '') + '>Only when I press Run now</option>' +
+      '<option value="daily"' + (f.schedule === 'daily' ? ' selected' : '') + '>Every day, at a time I choose</option>' +
+    '</select>' +
+    '<div class="ag-auto-when' + (f.schedule === 'daily' ? '' : ' ag-auto-when-off') + '">' +
+      '<label class="ag-lbl" for="agAutoAt">At</label>' +
+      '<input class="ag-in ag-in-time" id="agAutoAt" type="time" value="' + esc(f.at) + '">' +
+      '<label class="ag-lbl" for="agAutoZone">In this time zone</label>' +
+      '<input class="ag-in" id="agAutoZone" maxlength="200" placeholder="Europe/London" value="' + esc(f.zone) + '">' +
+      // SAID OUT LOUD, because it is the one thing about a daily schedule that surprises
+      // people, and it is what the arithmetic really does.
+      '<div class="ag-hint">The time is local to that zone, so it stays at the same clock time when the clocks change.</div>' +
+    '</div>' +
+
+    '<label class="ag-lbl">Steps</label>' +
+    '<div class="ag-hint">They run in order. A condition that doesn’t match stops the rest — that shows as Skipped, not as a failure.</div>' +
+    '<div class="ag-steps">' +
+      (f.steps.length
+        ? f.steps.map((st, i) => automationStepHtml(st, i, f.steps.length, cat, days)).join('')
+        : '<div class="ag-auto-none">No steps yet. Add one below.</div>') +
+    '</div>' +
+    (cat.length
+      ? '<div class="ag-step-add">' + cat.map((d) =>
+          '<button class="ag-auto-btn" data-act="agent-auto-step-add" data-type="' + esc(d.type) + '"' +
+            ' title="' + esc(d.does) + '">+ ' + esc(d.label) + '</button>').join('') + '</div>'
+      // A REAL BRANCH, not decoration: a Worker that predates the catalog answers no
+      // `steps` key, and an empty form somebody could fill in and never save is worse
+      // than a sentence.
+      : '<div class="ag-nothing">There are no kinds of step to add yet. When there are, they’ll be listed here.</div>') +
+
+    '<label class="ag-lbl">Status</label>' +
+    '<label class="ag-check">' +
+      '<input type="checkbox" id="agAutoOff"' + (f.enabled ? '' : ' checked') + '>' +
+      '<span class="ag-tool-m">' +
+        '<span class="ag-check-t">Off</span>' +
+        '<span class="ag-tool-d">It keeps everything it has run. It just won’t start anything new — not on its schedule, and not from Run now.</span>' +
+      '</span>' +
+    '</label>' +
+
+    '<div class="ag-actions">' +
+      '<button class="ag-save" data-act="agent-auto-save"' + (agentAutoBusy ? ' disabled' : '') + '>' +
+        (agentAutoBusy ? 'Saving…' : 'Save') + '</button>' +
+      '<button class="ag-cancel" data-act="agent-auto-cancel">' + (cur ? 'Back' : 'Cancel') + '</button>' +
+      (cur ? '<button class="ag-del" data-act="agent-auto-delete" data-id="' + esc(cur.id) + '">Delete</button>' : '') +
+    '</div>' +
+    (agentAutoSaved && !agentAutoActErr
+      ? '<div class="ag-saved">Saved. It’s on your account, so it’s the same wherever you sign in.</div>' : '') +
+    '<div class="ag-err">' + esc(agentAutoActErr) + '</div>' +
+  '</div>';
+}
+
+/** One step in the form, with its own fields and its place in the order. */
+function automationStepHtml(st, i, total, cat, days) {
+  const def = cat.find((d) => d.type === st.type) || null;
+  const fields = (def && def.fields) || [];
+  return '<div class="ag-step" data-step-type="' + esc(st.type) + '">' +
+    '<div class="ag-step-head">' +
+      '<span class="ag-step-n">' + (i + 1) + '</span>' +
+      '<span class="ag-step-w">' + esc((def && def.label) || st.type) + '</span>' +
+      '<span class="ag-step-k">' + esc((def && def.kind) || '') + '</span>' +
+      '<span class="ag-step-move">' +
+        '<button class="ag-auto-btn" data-act="agent-auto-step-up" data-at="' + i + '"' +
+          (i === 0 ? ' disabled' : '') + ' aria-label="Move up" title="Move up">↑</button>' +
+        '<button class="ag-auto-btn" data-act="agent-auto-step-down" data-at="' + i + '"' +
+          (i === total - 1 ? ' disabled' : '') + ' aria-label="Move down" title="Move down">↓</button>' +
+        '<button class="ag-auto-btn" data-act="agent-auto-step-del" data-at="' + i + '" aria-label="Remove" title="Remove">✕</button>' +
+      '</span>' +
+    '</div>' +
+    fields.map((fd) => {
+      if (fd.kind === 'days') {
+        const picked = Array.isArray(st.days) ? st.days : [];
+        return '<div class="ag-step-days">' + days.map((d) =>
+          '<label class="ag-day">' +
+            '<input type="checkbox" data-day="' + esc(d) + '"' + (picked.includes(d) ? ' checked' : '') + '>' +
+            '<span>' + esc(autoDayName(d)) + '</span>' +
+          '</label>').join('') + '</div>';
+      }
+      return '<input class="ag-in ag-step-in" data-field="' + esc(fd.name) + '"' +
+        (fd.max ? ' maxlength="' + fd.max + '"' : '') +
+        ' placeholder="What the note should say" value="' + esc(st[fd.name] || '') + '">';
+    }).join('') +
+  '</div>';
+}
 
 /** The agent the open thread belongs to, out of the list the server sent. */
 const agentOpenRow = () => (agentRows || []).find((a) => a.id === agentThread) || null;
@@ -1681,12 +2436,21 @@ const agentOpenRow = () => (agentRows || []).find((a) => a.id === agentThread) |
  */
 function renderAgents() {
   const held = agentComposerRead();
+  // ⚠ THE AUTOMATION FORM GOES THROUGH THE SAME DOOR, for the same reason: a redraw
+  // replaces every input it drew, so anything typed since the last state change would be
+  // gone. Reading it into the draft first is what makes "add a step" keep the note you
+  // were half way through writing in the step above it.
+  agentAutoFormRead();
   renderAgentsNow();
   agentComposerRestore(held);
 }
 function renderAgentsNow() {
   const view = document.getElementById('viewAgents');
   if (!view) return;
+
+  // AUTOMATIONS FIRST, because it is a screen of its own rather than a panel inside
+  // one: while it is open, neither the conversation nor the settings form is.
+  if (agentAuto !== null) { view.innerHTML = automationsHtml(); wireActions(view); return; }
 
   // The thread. One agent, its messages, and a box to add another.
   if (agentThread !== null && agentEditing === null) {
@@ -1729,6 +2493,11 @@ function renderAgentsNow() {
           '</button>' +
           '<span class="ag-av ag-av-sm">' + esc(agentInitial(a.name)) + '</span>' +
           '<div class="ag-thread-name">' + esc(a.name) + '</div>' +
+          '<button class="ag-edit" data-act="agent-automations" data-id="' + esc(a.id) + '" aria-label="Automations" title="Automations">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+              '<circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l2.5 1.5"></path>' +
+            '</svg>' +
+          '</button>' +
           '<button class="ag-edit" data-act="agent-edit" data-id="' + esc(a.id) + '" aria-label="Edit this agent" title="Instructions">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>' +
           '</button>' +
@@ -10944,6 +11713,21 @@ const CLICK_ACTIONS = {
   'agent-import': () => agentImport(),
   'agent-reload': () => agentReload(),
   'agent-thread-retry': (e, el) => agentThreadRetry(el.dataset.id),
+  'agent-automations': (e, el) => agentAutomations(el.dataset.id),
+  'agent-auto-back': () => agentAutoBack(),
+  'agent-auto-new': () => agentAutoNew(),
+  'agent-auto-edit': (e, el) => agentAutoEdit(el.dataset.id),
+  'agent-auto-cancel': () => agentAutoCancel(),
+  'agent-auto-save': () => agentAutoSave(),
+  'agent-auto-delete': (e, el) => agentAutoDelete(el.dataset.id),
+  'agent-auto-toggle': (e, el) => agentAutoToggle(el.dataset.id, el.dataset.on),
+  'agent-auto-run': (e, el) => agentAutoRun(el.dataset.id),
+  'agent-auto-history': (e, el) => agentAutoHistory(el.dataset.id),
+  'agent-auto-reload': () => agentAutoReload(),
+  'agent-auto-step-add': (e, el) => agentAutoStepAdd(el.dataset.type),
+  'agent-auto-step-up': (e, el) => agentAutoStepMove(el.dataset.at, -1),
+  'agent-auto-step-down': (e, el) => agentAutoStepMove(el.dataset.at, 1),
+  'agent-auto-step-del': (e, el) => agentAutoStepDrop(el.dataset.at),
   'landing': () => goLanding(),
 };
 // THE MEDIA SIDE'S ACTIONS ARE GONE, AND SO IS THEIR MARKUP. This table used to
@@ -10956,7 +11740,12 @@ const CLICK_ACTIONS = {
 // never runs, while naming a function that no longer exists. The builder's own
 // chrome does not go through this table at all — it wires its handlers as it
 // renders — which is why so little is left here.
-const CHANGE_ACTIONS = {};
+const CHANGE_ACTIONS = {
+  // THE SCHEDULE CHOICE REDRAWS, because picking "every day" has to reveal the time and
+  // the zone. Everything else in this form is read at Save — a redraw per keystroke is
+  // the twitch the read-first door exists to remove.
+  'agent-auto-sched': () => agentAutoStructural((draft) => draft),
+};
 const INPUT_ACTIONS = {
   // TYPED WORDS ARE THE DRAFT, IMMEDIATELY — not on Send. A poll re-render reads the
   // box too (`agentComposerRead`), and the redundancy is deliberate: this covers the

@@ -1925,6 +1925,168 @@ page scope; nothing is merged or deployed.
   the database by the migration read-back, the engine by 71 live checks, and the
   screen by the served bytes matching the tree.
 
+- **AN AGENT CAN BE AUTOMATED NOW: trigger → condition → action → saved result
+  (2026-09-16).** Owner: *"Build one complete automation that a customer can
+  configure and run"*, and *"Keep the real model for the end."* **The engine half —
+  the step registry, the workflow executor, the scheduler, the once-per-occurrence
+  guarantee and the DST arithmetic — is in `agent-builder/CLAUDE.md`**; what belongs
+  here is the site builder's.
+  **SEVEN ROUTES, AND `worker.js` NEEDED NO CHANGE AT ALL.** The `/api/agent/*`
+  block dispatches on `Object.hasOwn(AGENT_ROUTES, url.pathname)` and already hands
+  every handler `query`, `body`, `tenant: user.id`, `store`, `ring` and `log` — so
+  adding `automations`, `automation-create`, `automation-update`, `automation-enable`,
+  `automation-delete`, `automation-run` and `automation-history` is seven entries on
+  one object. **That is the gate-once design paying for itself**: an eighth route
+  cannot be added ungated because there is nowhere to add one that is not already
+  behind the gate, and the tenant census over the whole family passes by construction.
+  **THE STEP CATALOG HERE IS A COPY, AND IT IS CENSUSED BOTH WAYS.** `worker.js`'s
+  module graph is a container image input, so importing the engine's
+  `src/automations.mjs` into `agent-store.mjs` would put the agent product inside the
+  site's container image. `AUTOMATION_STEPS` is declared as a copy and
+  `test/agent-send.test.mjs` — the ONE file that may import both products — asserts
+  the two name sets equal in both directions, plus each step's kind, label, does and
+  field shape, and the two caps. **What lives here and not there is the WORDS**: the
+  engine's are written for an executor, `label`/`does` for a person choosing a step.
+  **A SELECTION IS VALIDATED WHERE IT IS WRITTEN, AND A REFUSED STEP IS NAMED.**
+  `cleanWorkflow` refuses an unknown type, a note past `MAX_STEP_NOTE` (2000) and a
+  day that is not a day, by name, and **never shortens** — a workflow quietly missing
+  the step it could not read is one that looks saved and does something else. The day
+  list takes the WEEK'S order rather than the ticking order, so two saves of one
+  selection are byte-identical. `validTimeZone` asks `Intl`, never a list.
+  **`enabled` IS REFUSED, NEVER COERCED**, and the toggle's body carries the id and
+  the flag and nothing else: a route that read `"false"` as true would disable
+  nothing while saying it had.
+  **`automationRow` AND `executionRow` FAIL CLOSED.** A schedule it cannot read is
+  `manual` (no next run rather than a wrong one), and an execution's state is
+  DERIVED from the run's own `status`/`stop` — `queued · done · skipped · failed ·
+  missed · paused` — because `agent.automation_runs` deliberately has no status
+  column to disagree with the journal.
+  **⚠ TWO REFUSALS ARE 409s WITH THEIR OWN FLAGS, never the missing-agent 404**: a
+  disabled automation and a paused agent are both "not now", the request was well
+  formed, and the screen offers the one thing that helps rather than parsing prose
+  for it. **Nothing at all is written on either path.**
+  **THE SCREEN** is a section on the existing agent view: a list with a next-run
+  line and an execution history, a form with a name, an enabled tick, a trigger
+  (Run now / daily at a time in a zone) and an ORDERED step list with add, move and
+  remove. No canvas.
+  **⚠ AND THE FORM DREW ZERO STEPS — a defect a real browser found and the whole
+  suite could not.** `renderAgents` rebuilds from `innerHTML` and reads the live form
+  back first so a re-render cannot eat what is typed; a structural change (adding,
+  moving or dropping a step) then wrote the new list and the read-back *immediately
+  overwrote it with the stale DOM*. The fix is a GENERATION NUMBER on the drawing:
+  the form carries `data-gen`, `agentAutoFormRead` reads it back only when the
+  drawing is as new as what is held, and `agentAutoStructural` bumps it. *A
+  read-first door is correct until something writes a value the DOM has never seen.*
+  **AND `gen` LEAKED ONTO THE WIRE** in the create body until it was destructured
+  out — the draft's own bookkeeping arriving at the server as a field.
+  **A RUN NOW OPENS THE HISTORY AND WATCHES IT**, `AUTO_WATCH_MS` 1500 for at most
+  `AUTO_WATCH_TRIES` (6) reads, armed only by a successful read and re-asking the
+  account and the agent when it fires — the same binding rule the conversation poll
+  follows, for the same reason.
+  **⚠ AND THE EXECUTION HISTORY DREW THE WORD `undefined`, THREE TIMES.** The three
+  optional lines — what it saved, why it skipped, what broke — were gated on
+  `!== null`, which is right for every row `executionRow` builds (it answers all three
+  as `string | null`) and **`undefined !== null` is TRUE**, so a row that does not
+  CARRY the keys drew the literal word, the last of them in the red error slot.
+  MEASURED in a real render: 3 occurrences before, 0 after. **No unit case could see
+  it, because every fixture was the real producer's output** — which is the right way
+  to build a fixture and is exactly why the new guard's is deliberately not.
+  `autoSaid` is the one test all three go through, so `null`, an absent key and an
+  empty string are ONE answer. *Cannot-tell must never read as a value*, in the one
+  layer where a row of some other shape eventually arrives.
+  **AND THE GENERATION GATE READ "NO ATTRIBUTE" AS GENERATION ZERO.** `|| '0'` on
+  `getAttribute('data-gen')` turned an undeclared generation into the one value a
+  fresh draft always holds, so a form element found before anything had drawn it
+  passed the gate and the draft was overwritten from an EMPTY DOM. Same trap, same
+  screen, one function apart — and the second one is what a fake `getElementById`
+  that creates on demand makes reachable, which is how it was found.
+  **OPEN, and it is a design call rather than a defect**: at the page's real 560px
+  the row gives **262.8px to its four buttons and 245.6px to the automation's name,
+  schedule and steps** (card 553.6px, measured in a real browser), and the actions do
+  NOT wrap below on that width. It is legible and it is tight; whether the actions
+  should drop to their own line is the owner's.
+  **MEASURED**: site suite **6,720** (6,718 pass, 2 skipped, 0 fail); `agent-binding`
+  42 → **74**, `agent-automations` **19**, `agent-send` 42 → **43**. Site sweep
+  (`scripts/mutants/automations.json`, 11 test files — a narrow list can only produce a
+  false SURVIVOR, never a false kill): **51 mutants, 51 killed, 0 survived, 0 never
+  applied, 2 comment-only controls survived.**
+  **Pass 1 read 43/8 and not one survivor was the product's — but two of them were
+  CASES THAT ASSERTED NOTHING, which is the more useful finding.** `held()` hands back
+  `{p, release}` and two of my own cases asked for `gate.res`, which is `undefined`: the
+  save fell into its own catch and the list answer never landed, so both passed with the
+  wall deleted. Every other held-gate case in that file uses `gate.p`. Both now have a
+  CONTROL underneath — the same save landing on the form it was pressed from DOES become
+  an edit, the same answer landing on the screen that asked for it IS written — because
+  a negative assertion is only worth what its observer is worth.
+  Of the other six: the history read's tenant filter and `answerOf`'s junk-answer wall
+  were undriven (the store request census now walks **every** automation operation and
+  asserts its own count, so one added later fails by existing); the save-through-the-gate
+  and both watch properties had no case at all; and the generation belt was **INERT** —
+  with `|| '0'` already gone, `null !== String(gen)` returns anyway — so it is declared
+  in the code and mutated as a PAIR with the default it belts.
+- **AND ALL THREE HALVES ARE LIVE (2026-09-17), IN THE ORDER migration → engine →
+  site, each first for its own reason.** Owner: *"Merge carefully"*, and careful here
+  meant the ORDER above everything: the migration first because the engine's cron calls
+  `tick_automations` every minute and this Worker's list route reads `agent.automations`;
+  the ENGINE before the site because a form that saves a step no executor can run is **a
+  control that ANSWERS, wrongly** — the defect the settings round was opened to fix, one
+  milestone earlier. The engine's half is in `agent-builder/CLAUDE.md`; this is the site's.
+  - **Migration `20260917003304`**, applied while the platform held ZERO agents. Going
+    before the engine was CHECKED: it redefines `agent.claim_run`, which the live engine
+    was calling, and the live body read back byte-for-byte as the new one minus its one
+    new field. Equality with the committed file was proved by EXECUTION (357 objects
+    across two throwaway local databases) and then by a narrowed read-back of the live
+    result — **82 objects, md5 `976acfa04457bc8242958900e51d8284`, identical on all
+    three**. A whole-schema census is the WRONG instrument and was tried first: it counts
+    roles and grants the environments legitimately differ on.
+  - **Engine**: `agent deploy` run 35, thirteen steps green, **71 passed / 0 failed**.
+  - **Site**: **deploy 2133, 00:52:28→00:55:26Z, green in 2m58s**, on `main` `10a6c5d` →
+    `522d00e` (fast-forward). Image step 2m13s, Wrangler 20s.
+  **⚠ AND POSTGREST HAD THE NEW RELATIONS BEFORE THIS WORKER SHIPPED — the check that
+  belongs to THIS side.** `agent.automations`, `automation_runs` and `automation_history`
+  each answer **`42501 permission denied for schema agent`** to the publishable key, not
+  `PGRST205`, with the pre-existing `agents` answering identically as the CONTROL.
+  Without it the agent list would 400 on a relation the schema cache has never seen —
+  the recorded settings-round defect, met from the other direction and closed in advance.
+  **THE IMAGE ID WAS COMPUTED BEFORE THE PUSH AND THE DEPLOY AGREED ON BOTH ENDS — the
+  seventh cross-check of that technique, and the strongest available form of it.**
+  `origin/main` → **`03fd9114aab4c098`** and the candidate → **`7273d2569866364f`** (183
+  inputs each), both hashed before anything moved; the log's own diff then reads
+  `- "image": …03fd9114aab4c098` / `+ "image": …7273d2569866364f`, `EDIT
+  isibi-app-sitebuildcontainer`, `SUCCESS Modified application`, `Applied changes` at
+  **00:55:20.88Z** — read out of the diff rather than inferred from the step's duration.
+  **So the 15–20 minute hold ran to ~01:10–01:15Z.** The ids differ because
+  `agent-store.mjs` is on the Dockerfile's COPY line.
+  **THE SERVED-FILE CHECK IS AVAILABLE AND IT DISCRIMINATES THIS DEPLOY.** `Found 2 new
+  or modified static assets` (`/chat.js`, `/styles.css`), and both are **byte-identical
+  to the merged tree** — `chat.js` 705,648 bytes sha256 `56c3cfa2c177e6a5` (665,502 /
+  `a8b1dc1674cf5bf4` before), `styles.css` 348,527 / `9a72381a99f662b7`. **The cheap
+  discriminator is `agAutoForm`: 0 occurrences in what main served before, 2 now** — the
+  identifier the whole Automations form turns on, absent from every byte the platform
+  had ever served. `env.AGENT_RUN_QUEUE (agent-runs)` and `Producer for agent-runs` are
+  in the deploy's own binding list, so the site's ring to the engine is live.
+  **REGRESSION: BYTE-IDENTICAL, with the baseline taken immediately BEFORE the push and
+  compared after** (the process miss of two rounds ago, not repeated). Six sites 200 at
+  the same sizes (repairbench-1 46,355 · fretwork-1 58,523 · ashgrove-1 31,120 ·
+  northgroup-5 1,641 · washhouse-1 52,404 · ben-crowe-guitar 52,060), and the
+  interactive half because a 200 is an availability check and never a health check:
+  `/status` **200/6,272** and `/booking-check` **200/6,390** on the same
+  `x-site-version 01789551373761-47doj7`, with `count_booked_repairs` and
+  `count_existing_bookings` both **200 answering 3**. Gate discriminator 401/401/401/404.
+  **The merge started exactly one workflow** — deploy 2133 and nothing else.
+  **MEASURED ON THE MERGED TREE: site suite 6,743** (6,741 pass, 2 skipped, 0 fail), and
+  **the arithmetic closes exactly**: this branch's 6,720 plus main's **23**, isolated by
+  running the three test files main touched at both tips (77 at the merged tree against
+  54 at the pre-merge tip, `test/job-delivery.test.mjs` being new) rather than by
+  subtracting. Only `CLAUDE.md` and `docs/owner-notes.md` were touched by both sides of
+  the merge, so there was no clean-but-wrong auto-merge in any code file to hunt.
+  **AND THE SQL SWEEP'S SINGLE CLEAN PASS: 123 mutants, 123 killed, 0 survived, 0 never
+  applied, 6 comment-only controls survived.** The spec holds 129 entries — 123 product
+  mutants and 6 controls — and the runner counts only the product ones, which is why
+  both passes read "123": the two survivors pass 1 found are killed here in one run
+  rather than in a targeted re-run bolted onto a stale tally.
+  **⚠ AND A SWEEP'S RESTORE TRAP MUST NOT FIRE ON A SUCCESSFUL EXIT — it discards your
+  own uncommitted work.** Recorded in THE TRAPS; it cost one restore this round.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

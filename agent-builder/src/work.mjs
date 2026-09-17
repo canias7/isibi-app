@@ -166,6 +166,26 @@ export function makeWork(opts = {}) {
         runId: answer.run_id,
         tenant: answer.tenant_id,
         kind: answer.kind,
+        // ⚠ **WHICH EXECUTOR WANTS THIS ROW, FORWARDED — and forgetting it here is what
+        // shipped the automation routing DEAD.** The database answered it, `claim_run`
+        // has carried it since the automations migration, and this object is built field
+        // by field: an answer that is not named here does not exist to the runner. The
+        // routing branch was correct, the column was correct, and every automation
+        // delivery came back `no-agent` because `claim.executor` was `undefined`.
+        //
+        // **FOUND BY THE REAL DISPATCHER AND BY NOTHING ELSE.** The runner's own guard
+        // drives a FAKE `work` whose `claim` answers `executor` directly, so it proved
+        // the branch and not the hop — *a fixture more capable than the real producer
+        // hides a defect exactly as well as one that is less.* `work.test.mjs` now drives
+        // this function over a fake fetch and asserts the field survives.
+        //
+        // `?? "agent"` because a deployment whose database predates the column answers no
+        // such field, and the only safe reading of "this row does not say" is the
+        // executor every row had before there was a choice.
+        // `isText`, NOT TRUTHINESS: `"   "` is a truthy string and is not an executor —
+        // caught by this module's own guard, which is the recorded "refuse, never coerce"
+        // one line after writing a comment about failing closed.
+        executor: isText(answer.executor) ? answer.executor.trim() : "agent",
         attempts: answer.attempts ?? 0,
         token: answer.claim_token,
       };

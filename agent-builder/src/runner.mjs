@@ -63,6 +63,7 @@
 import { runAgent } from "./run.mjs";
 import { stoppedEntry } from "./journal.mjs";
 import { withInstructions, narrowTools } from "./define.mjs";
+import { runWorkflow } from "./automations.mjs";
 
 /**
  * How long a claim is good for without a beat. **A LIVENESS CHECK, NOT A DURATION
@@ -99,7 +100,7 @@ export const MAX_ATTEMPTS = 5;
 
 /** Why a delivery did not run the work. Each needs a different thing done about it. */
 export const OUTCOMES = Object.freeze([
-  "ran", "not-claimable", "already-finished", "unreadable", "no-agent",
+  "ran", "not-claimable", "already-finished", "unreadable", "no-agent", "no-executor",
   "cannot-resume", "too-many-attempts", "lease-lost", "beat-failed", "conflict", "failed",
 ]);
 
@@ -138,6 +139,20 @@ export function makeRunner(opts = {}) {
   // branch that matters most — a lease lost half way through a run — is otherwise
   // only reachable by sitting still for ninety seconds.
   const timer = opts.timer ?? { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h) };
+  /**
+   * ⚠ THE SECOND EXECUTOR, AND IT IS OPTIONAL RATHER THAN REQUIRED — deliberately.
+   *
+   * The deployed Worker always passes one, and a deployment that did not would be
+   * unable to run a whole kind of work; but every caller written before automations
+   * existed builds a runner with three dependencies, and making this a fourth
+   * REQUIRED one would turn a feature addition into a breaking change for a local
+   * driver. Absent, an automation delivery answers `no-executor` — which says exactly
+   * what is true — rather than being routed into the agent loop, which is the one
+   * wrong thing available.
+   */
+  const automations = opts.automations && typeof opts.automations.read === "function"
+    ? opts.automations
+    : null;
   // A worker's name identifies THIS holder. It must differ per delivery, or two
   // concurrent deliveries in one isolate would each read the other's claim as
   // their own — the exact confusion the claim exists to prevent.
@@ -263,6 +278,103 @@ export function makeRunner(opts = {}) {
       return { ran: why === "ran", why, runId, stop, error };
     };
 
+    /**
+     * ⚠ RUN AN AUTOMATION — the second executor, and the whole of what it does
+     * differently.
+     *
+     * It is reached only from a claim that said `executor: "automation"`, so everything
+     * above it — the claim, the token, the heartbeat, the attempt ceiling — has already
+     * happened and is shared. What is different is that there is no model, no agent
+     * registry lookup and no journal replay: the configuration comes out of the execution
+     * record it was accepted with, and the whole thing is one pass and one write.
+     *
+     * **NO CHECKPOINT LOOP, AND THAT IS ARITHMETIC RATHER THAN AN OMISSION.** `runAgent`
+     * asks the database whether it still holds the run before every model call and every
+     * tool batch, because each of those costs money or touches the outside world and there
+     * are many of them. A workflow of this milestone's steps touches nothing outside this
+     * process and finishes in microseconds, so there is nothing to interrupt between: the
+     * one place exclusivity has to hold is the WRITE, and `agent.finish_automation_run`
+     * puts that behind the same fence every journal write goes through. **The day a step
+     * can reach outside — an app action, a wait — that stops being true**, and the note at
+     * the top of `automations.mjs` says what has to change with it.
+     */
+      const deliverAutomation = async () => {
+      // A DEPLOYMENT WITH NO AUTOMATION EXECUTOR SAYS SO. Taken off the queue rather than
+      // retried, because another delivery cannot help: that needs a deployment.
+      if (!automations) {
+        return await finish(true, "no-executor", "this deployment has no automation executor");
+      }
+
+      let exec;
+      try {
+        exec = await automations.read(runId, claim.tenant);
+      } catch (e) {
+        // COULD NOT ASK. Nothing is decided, so the run is released UNFINISHED and the
+        // sweeper offers it again — the same reading `work.claim` failing gets.
+        onError({ at: "automation-read", runId, error: String(e?.message ?? e) });
+        return await finish(false, "failed", String(e?.message ?? e));
+      }
+
+      // A WORK ROW WHOSE EXECUTION RECORD IS GONE, or whose steps cannot be read. Neither
+      // is helped by another delivery, and running an unreadable workflow as an empty one
+      // would report a run nobody configured as having succeeded.
+      if (!exec) {
+        return await finish(true, "unreadable", "this run has no automation execution record");
+      }
+      if (!Array.isArray(exec.steps)) {
+        return await finish(true, "unreadable", "this execution's stored steps cannot be read as a list");
+      }
+
+      // **THE CONFIGURATION IS THE ONE RECORDED AT ACCEPTANCE**, read here and never from
+      // `agent.automations`. That is what makes an edit reach the next execution and never
+      // this one — the same rule the instruction snapshot follows one executor over.
+      const { outcomes, stop } = await runWorkflow({
+        steps: exec.steps,
+        zone: exec.zone,
+        occurrence: exec.occurrence,
+        now,
+      });
+
+      // The cheap wall in front of the fence, and a SECOND wall rather than the same one:
+      // `finish_automation_run` refuses the write anyway, in the transaction that would
+      // have performed it. This only saves a round trip on a run we already know is gone.
+      assertHeld();
+
+      let answer;
+      try {
+        answer = await automations.finish({ runId, worker, token: hold.token, outcomes, stop });
+      } catch (e) {
+        onError({ at: "automation-finish", runId, error: String(e?.message ?? e) });
+        return await finish(false, "failed", String(e?.message ?? e));
+      }
+
+      if (answer?.ok !== true) {
+        const why = typeof answer?.why === "string" ? answer.why : "unknown";
+        // THE DATABASE'S REFUSAL IS AUTHORITATIVE. A fenced refusal means the claim is
+        // gone — which the beat has not necessarily noticed yet — so the flag is corrected
+        // from the one source that knows, and nothing is released: somebody else holds it.
+        if (CLAIM_GONE.includes(why)) {
+          held = false; lostBecause = "lease-lost";
+          return await finish(false, "lease-lost", why);
+        }
+        // A DIFFERENT entry in this run's own slot. The claim may still be ours; what is
+        // stale is our picture of the log, and the next delivery reads what is really
+        // there.
+        if (why === "conflict") {
+          return await finish(false, "conflict", "another writer's entry is in this run's log");
+        }
+        return await finish(false, "failed", `finish_automation_run: ${why}`);
+      }
+
+      // ⚠ **FINISHED, AND ALREADY RELEASED BY THE TRANSACTION THAT FINISHED IT** — so the
+      // ordinary `finish` is NOT called here, and calling it would be a second release of
+      // a claim the database has already cleared. What still has to happen is this
+      // process's own tidying: stop the heartbeat, and say what happened.
+      stopBeating();
+      onEvent({ at: "done", runId, why: "ran", done: true, reason: stop?.reason ?? null });
+      return { ran: true, why: "ran", runId, stop, error: null };
+      };
+
     try {
       // **THE TENANT COMES FROM THE CLAIM, NEVER FROM THE DELIVERY.** The message
       // said which run; the database said whose. So a forged or stale message can
@@ -272,6 +384,26 @@ export function makeRunner(opts = {}) {
       if (claim.attempts > maxAttempts) {
         // Said out loud and taken off the queue, rather than spun on for ever.
         return await finish(true, "too-many-attempts", `given up after ${claim.attempts} attempts`);
+      }
+
+      /**
+       * ⚠ **WHICH EXECUTOR, ANSWERED BY THE CLAIM, AND ASKED BEFORE THE AGENT IS
+       * LOOKED UP.** An automation has no agent in the registry, so reading the log
+       * first would answer `no-agent` about work that has nothing to do with agents.
+       *
+       * **IT IS `claim.executor` AND NOT `claim.kind`, and that distinction cost a
+       * design.** `kind` is why the row is outstanding — `agent.requeue_run` sets it to
+       * `'resume'` on every resume — so an automation discriminated by it would become
+       * an agent run the first time anybody asked for it again. `executor` is what the
+       * row IS, and nothing rewrites it.
+       *
+       * **AND IT COMES FROM THE DATABASE, NOT FROM THE MESSAGE.** The doorbell carries
+       * a run id and nothing else, exactly as before; the same statement that takes the
+       * work says whose it is AND what it is. A delivery cannot choose an executor any
+       * more than it can choose a tenant.
+       */
+      if (claim.executor === "automation") {
+        return await deliverAutomation();
       }
 
       // **THE JOURNAL IS BOUND TO THIS CLAIM.** `open` refuses to hand one back
