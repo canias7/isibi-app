@@ -4548,10 +4548,18 @@ does not. Three more findings are recorded where they happened:
   unconditional.
 - **Engine suite 429 → 432**, 0 failed. (413 at the start of this round; the sixteen before
   these three are M8's closed survivors and the revocation's own cases.)
-- **Site suite 6,792**, 0 failed, 2 skipped — **unchanged, which is the control**: the site's
-  changes grew three censuses and a fake rather than adding a case. Measured with `npm test`
-  from the repository root, not with `--test-timeout=20000`, which cuts `css-reachable` off at
-  20 s and reads 6,788.
+- **Site suite 6,799**, 0 failed, 2 skipped. Measured with `npm test` from the repository
+  root, not with `--test-timeout=20000`, which cuts `css-reachable` off at 20 s and reads
+  6,788.
+  **⚠ AND THIS LINE READ 6,792 AND SAID "unchanged, which is the control" — BOTH HALVES WERE
+  WRONG, and the correction is here rather than edited silently.** The number was stamped
+  before this round's own ten sweep survivors were closed with SEVEN new `agent-api` cases,
+  which is exactly the difference: *stamp measured numbers only AFTER the run*, this
+  directory's first rule, in the entry that quotes it — and the second time after M5's own
+  correction of the same shape. It was found by measuring the commit in a clean worktree
+  rather than by reading the note about it. **A worktree run reads one extra FAILURE**
+  (`render-sandbox`'s privilege-drop case, which is about writing outside the repository
+  root), so the TOTAL is what carries across a machine and the pass count is not.
 - **`verify:tools` 112 · `verify:chat` 112 · `verify:auto` 70 · `verify:wf` 125 ·
   `verify:ops` 53 — every one unchanged and green**, which is the control that this round
   broke nothing.
@@ -4571,3 +4579,147 @@ When it goes, the order is the recorded one — **migration → engine → site*
 reason is sharper than usual: the migration adds `expires_at`, which the live
 `request_tool_approval` does not write, so an engine shipped first would stamp no windows; and
 a site shipped first would offer routes for functions that do not exist.
+---
+
+## Milestone 9: what a run is really doing (2026-09-17)
+
+Owner: *"Make operational states truthful: backend status and history sufficient to
+distinguish queued, running, waiting, awaiting approval, unresolved, failed, cancelled,
+completed. A stranded run must not appear to be actively working forever. Reuse the current
+interface where a small status correction is needed; no redesign."*
+
+**ONE WORD WAS DOING FIVE JOBS.** `agent.runs.status` is `new | running | stopped`, projected
+off the log and right about what it says — and the CONVERSATION reader turned `running` into
+`working`. So a run really thinking, a run waiting for a person, and a run **nothing will ever
+deliver again** all read as *working*, for ever, with nothing telling them apart. The last of
+those is the one the requirement names, and M5's own notes had already recorded it as open:
+*"a stranded run reads as WORKING to a customer, for ever… the state is explicit in the RECORD
+and not yet on the SCREEN."*
+
+**NOTHING IS REDESIGNED AND NO STATUS COLUMN MOVES.** `status` stays a three-valued projection
+of the log. What this adds is the two FACTS a reader needs, appended to the view the screen
+already reads.
+
+### The two facts, and why each comes out of the log rather than the queue
+
+- **`run_open_calls` — how many tool calls have no result.** A model entry carries its
+  `toolCalls` and a tool entry carries the `(step, index)` slot it answers, so the count is
+  asked-for minus answered, **floored at zero**: a log holding more tool entries than a model
+  asked for is not a state this product can write, and a negative count would read as a value
+  to whichever branch tests `> 0`. It is ZERO for every run that has ever finished a batch,
+  which is what makes a non-zero one meaningful rather than noisy.
+  **IT IS NOT A SECOND COPY OF `replay`'s `pending`.** That says WHICH calls are pending, with
+  their names and arguments, because the loop needs them; this says HOW MANY, because a screen
+  needs only whether the run can move. The engine's reader stays the authority on what to do.
+- **`run_awaiting` — whether a request is waiting for a person AND can still be answered.**
+  Not merely *a row exists*: a decided request is answered, a withdrawn one was answered by
+  the withdrawal, and an EXPIRED one cannot be answered at all. Reading any of the three as
+  waiting would leave a run in a state whose only exit is a decision nobody can make — which
+  is the stranding this column exists to expose. And it is the RUN's own request, never any
+  request of the account's: without that, one unanswered question would put every one of
+  somebody's runs in the waiting state.
+
+**⚠ `agent.run_work` IS STILL DELIBERATELY NOT JOINED.** It would answer "is there anything on
+the queue" directly and is the obvious thing to reach for — but `authenticated` holds NOTHING
+on that table, so under `security_invoker` it answers NULL for every customer and a run would
+read as stranded the moment somebody looked at it. The log and the approvals answer the same
+question from relations the reader can see.
+
+**AND THE COLUMNS ARE APPENDED BECAUSE POSTGRES REQUIRES IT, not because it reads nicely:**
+`create or replace view` may only ADD columns at the end. Tidying that order is a broken
+deploy — the same rule `agent_overview` already records.
+
+### ⚠ A REAL DEFECT ONLY A REAL DATABASE COULD SAY
+
+`security_invoker` reads every relation **as the caller**, so the new approvals lateral needs
+the caller's own SELECT. MEASURED before the fix: `has_table_privilege('authenticated',
+'agent.tool_approvals', 'select')` is TRUE and the same question for `service_role` is
+**FALSE** — that table was reached only through `security definer` functions until now. So the
+CUSTOMER could read the conversation and the SERVER could not, and the server is the reader
+every route uses: the site's thread read would have failed `permission denied for table
+tool_approvals` **on every conversation that has a message in it.**
+
+- **ONE GRANT, AND IT WIDENS NOTHING.** `service_role` already reads any run's requests through
+  `agent.run_approvals`, which is definer and granted to it; this only lets it read them
+  without naming a run. The alternative — a definer function inside the view — would put a
+  privilege-elevating call inside a `security_invoker` view, which is the one thing that
+  option exists to avoid.
+- **AND THE PROBE THAT MISSED IT IS WORTH MORE THAN THE FIX.** Read against an EMPTY
+  `agent_messages` the view answers `0` happily, because **a lateral is never evaluated for a
+  row that does not exist** — so the permission is never checked and nothing looks wrong. *A
+  negative assertion needs its observer alive*, and here the observer is a row. The check asks
+  the privilege directly AND drives both roles over a row that really exists.
+
+### Seven states on the wire, and the order is the meaning
+
+`queued · working · waiting · unresolved · answered · cancelled · failed`, and the two new
+ones are told apart by `awaiting ? "waiting" : open > 0 ? "unresolved" : …`. **A person who CAN
+answer is the thing to do, whatever else is true**; only when nobody can does an unanswered
+call become a stranding. Reversing those two reports a run somebody could rescue as stranded.
+
+- **BOTH FACTS ARE REFUSED, NEVER COERCED.** `run_awaiting` must be the boolean `true` — a
+  string `"false"` is truthy and would put every run in the waiting state — and
+  `run_open_calls` must be a real integer, because a view that answered `null` (an older
+  deployment, a reader asking for fewer columns) must read as *nothing to say* rather than as
+  a stranding.
+- **`open` RIDES ONLY ON THE TWO STATES IT IS ABOUT.** One call and four calls are different
+  things for somebody deciding what to do; sending `0` on the ordinary states would invite a
+  reader to draw it.
+- **`queued` IS STILL TOLD FROM `working` BY THE STEP**, which is the distinction that was
+  already here and had to survive: `status` reads `running` from the instant a run is accepted,
+  because the accepting transaction writes the `started` entry.
+- **⚠ A RUN SOMEBODY STOPPED IS NOT A RUN THAT FAILED.** Nothing went wrong — a person asked
+  for it to stop — so reading it as `failed` would tell them their own decision was a fault,
+  and `cancelled` is the one non-answered stop a screen must not offer to retry. It carries
+  who, their own words and how far it got, because *don't claim completed effects were
+  undone*: the counts are the only honest thing to say about a cancelled run, so they travel
+  with it rather than being left in a journal nothing on the site reads.
+
+### What the demonstration drives
+
+`verify:chat` section 18, through the SITE's own conversation route — the reader a customer
+gets — against a real PostgreSQL: a run waiting for a person reads `waiting` and says how many
+calls are waiting; **the SAME run, with nobody having touched it, reads `unresolved` once its
+window closes**, with the control that putting the window back puts it back in `waiting`; an
+ordinary run whose batch was answered is still `working` and says nothing about open calls; a
+cancellation reads `cancelled` with the account that stopped it, their words and the counts,
+and its work row released; and a run accepted and not yet worked on still reads `queued` while
+the database says `running`.
+
+### Measured
+
+- **Real PostgreSQL 16 (`npm run test:pg`): 734 → 756 checks, 0 failed** — 22, and the
+  arithmetic closes exactly. The column census by name, both readers' privileges, the count
+  over a fully-answered batch and a half-answered one and an impossible log, all four ways a
+  request stops being answerable, the cancellation's counts and the projection's two halves
+  agreeing, and the isolation through the two new columns with its observer alive.
+- **`npm run verify:chat`: 112 → 126 checks, 0 failed.**
+- **Engine suite 432 → 435**, 0 failed. **Site suite 6,799 → 6,802** (6,800 pass, 2 skipped,
+  0 fail), and the arithmetic closes exactly: `agent-send` 55 → 58 and nothing else moved.
+- **⚠ AND THE M4 SITE STAMP OF 6,792 WAS LOW BY SEVEN — corrected in that entry rather than
+  edited silently.** Measured in a clean worktree at that commit: **6,799**. The seven are
+  M4's own survivor-closing cases, which landed AFTER the number was written down. *Stamp
+  measured numbers only AFTER the run* — this directory's first rule, in the entry that quotes
+  it, for the second time after M5's own correction. **A worktree run reads one extra FAILURE**
+  (`render-sandbox`'s privilege-drop case, which is about writing outside the repository root),
+  so the TOTAL is what carries across and the pass count does not.
+- Sweep specs: SQL 223 → 231 entries, the site's 13 → 24.
+
+### ⚠ TWO FIXTURE FAULTS OF MY OWN, both recorded shapes
+
+1. **THE PG SECTION REUSED AN AGENT ID FIVE HUNDRED LINES UP** (`dddddddd-1111-…`), so the
+   whole section failed on `agents_pkey` and reported **thirteen correct behaviours as
+   broken**. This file is one long body whose fixtures share a database, and the same collision
+   is already recorded here once. It has its own ids now and a census that they are unused
+   before anything is written, which makes a future collision a sentence rather than a cascade.
+2. **`decide_tool_approval` TAKES FIVE ARGUMENTS WITH THE NOTE BEFORE THE DECIDER.** The first
+   draft wrote six in another order, Postgres refused the call, and the two checks under it
+   failed about a decision that never happened. The call's own answer is asserted now, so a
+   refused decision is its own failure rather than somebody else's.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** `20260918040000_agent_run_states_are_truthful.sql`
+is prepared locally, and the round-number name is this folder's own tell for an unapplied file.
+When it goes the order is the recorded one — **migration → engine → site** — and here the
+migration's reason is the sharpest yet: the site's thread read asks for `run_open_calls` and
+`run_awaiting` BY NAME, so against a view that has not got them PostgREST answers 400 and
+every account's conversation fails to load. Not degraded — refused.

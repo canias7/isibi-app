@@ -12137,3 +12137,55 @@ applied.** The order when it goes is the usual one — database, then the engine
 site.
 
 **Still no model, still your call, still last.**
+
+---
+
+## 2026-09-17 — a run now says what it is really doing
+
+*"A stranded run must not appear to be actively working forever."* It was. **One word was
+doing five jobs**: a run thinking, a run waiting for you, and a run **nothing was ever going
+to touch again** all said *working*, and the last one said it for ever.
+
+**Nothing is redesigned. Same screen, same field, same place it already reads.** The
+conversation just gets two more facts about each run, so it can tell five things apart where
+it could tell two:
+
+| it says | it means |
+|---|---|
+| **queued** | accepted, nothing done yet |
+| **working** | it is getting on with it |
+| **waiting** | it wants you to approve something, and you still can |
+| **unresolved** | a call it made has no answer and **nobody can give it one** — this is the one that used to say "working" for ever |
+| **answered** | done, here are the words |
+| **cancelled** | you stopped it — and it says how far it got |
+| **failed** | something went wrong, and what |
+
+**The difference between *waiting* and *unresolved* is whether you can still do something.**
+If there is a request you can approve, it is waiting for you. If the window closed, or it was
+taken back, or the run simply lost a call when a process died, then nobody can rescue it and
+saying "working" is a lie. Both say how many calls are outstanding, because one and four are
+different problems.
+
+**And a stopped run is not a failed run.** Nothing went wrong — you asked for it to stop — so
+it says `cancelled`, carries who stopped it and what they said, and **tells you what had
+already run**. It still does not claim to undo anything, because it cannot.
+
+**⚠ One thing was genuinely broken and only a real database found it.** The conversation read
+now touches one more table, and it turned out the SERVER was not allowed to read that table —
+only a signed-in customer was. So every conversation would have failed to load, with a
+permission error, the moment this shipped. One line fixed it and it gives the server nothing
+it could not already get. **The check that missed it is worth knowing about too**: with no
+messages in the database the read works perfectly, because there is no row for the permission
+to be checked against. It is checked over a real row now.
+
+**A number in my own notes was wrong and is corrected rather than quietly fixed.** Yesterday's
+entry said the site's test count had not moved; it had, by seven — I wrote the number down
+before finishing the work that changed it. Measured properly this time: 6,799 before, 6,802
+now.
+
+**Still nothing merged, nothing deployed, the database change written and not applied.** When
+it goes, the database must go FIRST and this time it really matters: the conversation asks for
+the two new facts by name, so against a database that has not got them every account's
+conversation gets refused outright rather than degrading.
+
+**Still no model. Still last, still your call.**

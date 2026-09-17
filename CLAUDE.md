@@ -2335,6 +2335,67 @@ page scope; nothing is merged or deployed.
 - **THE PLATFORM KNOWS WHAT EACH MODEL WILL ACCEPT.** Read from the providers'
   own docs — **these move, so re-read rather than trusting this table**:
 
+- **A RUN NOBODY CAN MOVE NO LONGER READS AS WORKING (2026-09-17).** Owner: *"Make
+  operational states truthful: backend status and history sufficient to distinguish
+  queued, running, waiting, awaiting approval, unresolved, failed, cancelled,
+  completed. A stranded run must not appear to be actively working forever. Reuse the
+  current interface where a small status correction is needed; no redesign."* **The
+  engine half — the two columns, why each comes out of the log rather than the queue,
+  and the grant only a real database could ask for — is in `agent-builder/CLAUDE.md`**;
+  what belongs here is the site builder's.
+  **ONE WORD WAS DOING FIVE JOBS AND IT WAS THIS READER'S.** `agent.runs.status` is
+  `new | running | stopped` and is right about what it says; `runView` turned `running`
+  into `working`, so a run really thinking, a run waiting for a person and a run
+  **nothing will ever deliver again** all read as *working*, for ever. The last of those
+  is what the requirement names, and M5's own notes had recorded it as open.
+  **`RUN_STATES` IS 4 → 7** — `queued · working · waiting · unresolved · answered ·
+  cancelled · failed` — and **no redesign**: the same route, the same field, the same
+  `m.run.state` the screen already reads. What changed is that three of the five things
+  it used to cover now have their own word.
+  **⚠ THE ORDER IS THE MEANING.** `awaiting ? "waiting" : open > 0 ? "unresolved" :
+  step > 0 ? "working" : "queued"`. A person who CAN answer is the thing to do whatever
+  else is true; only when nobody can does an unanswered call become a stranding.
+  Reversing those two reports a run somebody could rescue as stranded, which is a mutant
+  in the sweep.
+  **BOTH FACTS ARE REFUSED, NEVER COERCED.** `run_awaiting` must be the boolean `true`
+  — `"false"` is truthy and would put every run in the waiting state — and
+  `run_open_calls` must be a real integer, so a view that answered `null` (an older
+  deployment, a reader asking for fewer columns) reads as *nothing to say* rather than
+  as a stranding. **`open` rides only on the two states it is about**, because one call
+  and four calls are different things for somebody deciding what to do, and a `0` on the
+  ordinary states would invite a reader to draw it.
+  **⚠ A RUN SOMEBODY STOPPED IS NOT A RUN THAT FAILED.** Nothing went wrong — a person
+  asked for it to stop — so `failed` would tell them their own decision was a fault, and
+  `cancelled` is the one non-answered stop a screen must not offer to retry. It carries
+  who (through `cleanId`, so nothing else in a stop body can reach the wire wearing an
+  account's name), their own words, and **how far it got**, because *don't claim
+  completed effects were undone*: the counts are the only honest thing to say about a
+  cancelled run, and leaving them in a journal nothing on this side reads would mean a
+  screen could not say it.
+  **AND `queued` IS STILL TOLD FROM `working` BY THE STEP**, which is the distinction
+  that was already here and had to survive: `status` reads `running` from the instant a
+  run is accepted, because the accepting transaction writes the `started` entry.
+  **⚠ THE READ HAD TO ASK FOR THE TWO COLUMNS, AND A SWEEP SURVIVOR IS WHY THAT IS
+  GUARDED.** `runView` can be perfect and the view can carry both — and if the `&select=`
+  does not NAME them PostgREST does not send them, both readers fail closed, and every
+  waiting or stranded run reads `working` again. From outside that is indistinguishable
+  from the feature never having been built: *the wiring layer*, which this repository
+  keeps paying for. Asserted on the WIRE and by NAME rather than by counting, with a
+  control that a select list which had stopped naming anything would not satisfy it.
+  **Guards**: `agent-send` 55 → **58** — the seven-state partition RE-ANCHORED by three
+  states rather than by a count (the census still requires every state to be DRIVEN, so
+  one added and never exercised fails by existing), a run nobody can move with the order
+  of the two facts asserted, a run somebody stopped with six junk deciders driven, and
+  the select list on the wire.
+  **MEASURED: site suite 6,799 → 6,802, 0 failed, 2 skipped** — run with `npm test`,
+  never with `--test-timeout=20000`. **Site sweep: 22 mutants, 22 killed, 0 survived, 0
+  never applied, 2 comment-only controls survived** — the spec 13 → 24 entries; two
+  survived the first pass and NEITHER was the product's.
+  **NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and the migration's reason for going first
+  is the sharpest of the chain: this read asks for `run_open_calls` and `run_awaiting` BY
+  NAME, so against a view that has not got them PostgREST answers 400 and every
+  account's conversation fails to load. Not degraded — refused.
+
   | model | context | max output | $ / MTok in · out |
   |---|---|---|---|
   | `grok-4.6` (default) | **500K** | **no stated limit** | $2 · $6 |
