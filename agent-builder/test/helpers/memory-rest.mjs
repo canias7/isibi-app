@@ -696,9 +696,17 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         const w = work.get(row.run_id);
         if (!w) continue;
         seen.add(row.run_id);
-        if (w.claimed_by && Date.parse(w.lease_expires_at ?? 0) > now) continue;
-        w.kind = "resume"; w.done_at = null; w.attempts = 0; w.last_error = null;
-        out.push({ run: row.run_id, tenant: row.tenant_id, action: "requeued" });
+        // ⚠ A ROW SOMEBODY IS HOLDING IS REPORTED AS `held`, NOT SKIPPED — the real function's
+        // own shape. Skipping it here would leave the CALLER's filter (`action === 'requeued'`
+        // before it rings) undrivable, because nothing would ever hand it a row to skip; a
+        // sweep survivor is what said so. *A fake less capable than the thing it stands in for
+        // hides a defect exactly as well as one that is more.*
+        if (w.claimed_by && Date.parse(w.lease_expires_at ?? 0) > now) {
+          out.push({ run: row.run_id, tenant: row.tenant_id, action: "held", state: "running" });
+        } else {
+          w.kind = "resume"; w.done_at = null; w.attempts = 0; w.last_error = null;
+          out.push({ run: row.run_id, tenant: row.tenant_id, action: "requeued", state: "queued" });
+        }
         if (out.length >= lim) break;
       }
       return res(200, out);

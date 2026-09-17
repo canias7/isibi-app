@@ -1,108 +1,196 @@
 [
- {
-  "label": "CONTROL: a comment only, above the revocation routes",
-  "control": true,
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "  // \u2500\u2500 a permission taken away, and a run stopped \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
-  "to": "  // \u2500\u2500 a permission taken away, and a run stopped (control) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
- },
- {
-  "label": "NOTE: no mutant for `NO_SCREEN_YET` \u2014 inert by construction, declared rather than hunted",
-  "control": true,
-  "files": [
-   "test/agent-builder-view.test.mjs"
-  ],
-  "from": "  const NO_SCREEN_YET = [\"/api/agent/tool-withdraw\", \"/api/agent/tool-revoke\",",
-  "to": "  const NO_SCREEN_YET = [ /* control: a comment only */ \"/api/agent/tool-withdraw\", \"/api/agent/tool-revoke\","
- },
- {
-  "label": "route: who withdrew a request is taken from the body, so anybody can be named",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "      const d = await store.revokeToolApproval(who, { id, by: who, note });",
-  "to": "      const d = await store.revokeToolApproval(who, { id, by: b.by || who, note });"
- },
- {
-  "label": "\u26a0 route: a call that has already RUN is reported as never having waited",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "        if (d?.error === \"already-ran\") {",
-  "to": "        if (false) {"
- },
- {
-  "label": "\u26a0 route: a withdrawal does not ring, so the run waits for the next cron tick",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "      let notified = false;\n      const back = cleanId(d.run);\n      if (back && typeof ring === \"function\") {\n        try { await ring(back); notified = true; }\n        catch (e) { if (typeof log === \"function\") log(\"agent withdrawal: the queue was not rung\", String(e?.message ?? e)); }\n      }\n      return ok({ notified, id: d.id, withdrawn: true, repeat: d.repeat === true });",
-  "to": "      return ok({ notified: false, id: d.id, withdrawn: true, repeat: d.repeat === true });"
- },
- {
-  "label": "\u26a0 route: a tool name no tool has is revoked anyway, so a dead row sits on a screen",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "      if (!AGENT_TOOLS.some((t) => t.name === tool)) {\n        return no(400, `there is no tool called \"${tool}\"`);\n      }",
-  "to": "      if (false) {\n        return no(400, `there is no tool called \"${tool}\"`);\n      }"
- },
- {
-  "label": "\u26a0 route: another account can take a tool away from this agent",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();\n      if (path === \"/api/agent/tool-restore\") {",
-  "to": "      if (false) return NO_AGENT();\n      if (path === \"/api/agent/tool-restore\") {"
- },
- {
-  "label": "\u26a0 route: a revocation does not ring the runs it answered, so they are stranded",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "      let notified = 0;\n      const back = Array.isArray(gone.runs) ? gone.runs : [];",
-  "to": "      let notified = 0;\n      const back = [];"
- },
- {
-  "label": "route: lifting a revocation implies the withdrawn requests came back",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "                    say: \"it can use that again from its next action \u2014 anything that was waiting for it stays withdrawn\" });",
-  "to": "                    say: \"it can use that again, and everything that was waiting for it is waiting again\" });"
- },
- {
-  "label": "route: who cancelled a run is taken from the body",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "      const stopped = await store.cancelRun(who, { runId, by: who, reason });",
-  "to": "      const stopped = await store.cancelRun(who, { runId, by: b.by || who, reason });"
- },
- {
-  "label": "\u26a0 route: a cancellation reports nothing as having completed",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "        completedSteps: stopped.completedSteps ?? 0,\n        completedCalls: stopped.completedCalls ?? 0,",
-  "to": "        completedSteps: 0,\n        completedCalls: 0,"
- },
- {
-  "label": "\u26a0 route: a cancellation's sentence claims the work was undone",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "        say: typeof stopped.say === \"string\" ? stopped.say\n          : \"stopped \u2014 what had already run has already run and was not undone\",",
-  "to": "        say: \"stopped \u2014 everything it had done was rolled back\","
- },
- {
-  "label": "\u26a0 store: a malformed revoked-tools answer is read as one tool name",
-  "files": [
-   "agent-store.mjs"
-  ],
-  "from": "      const got = rows(r);\n      return got.filter((t) => typeof t === \"string\");",
-  "to": "      const got = rows(r);\n      return [].concat(got ?? []);"
- }
+  {
+    "label": "CONTROL: a comment only, above the revocation routes",
+    "control": true,
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  // \u2500\u2500 a permission taken away, and a run stopped \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "to": "  // \u2500\u2500 a permission taken away, and a run stopped (control) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+  },
+  {
+    "label": "NOTE: no mutant for `NO_SCREEN_YET` \u2014 inert by construction, declared rather than hunted",
+    "control": true,
+    "files": [
+      "test/agent-builder-view.test.mjs"
+    ],
+    "from": "  const NO_SCREEN_YET = [\"/api/agent/tool-withdraw\", \"/api/agent/tool-revoke\",",
+    "to": "  const NO_SCREEN_YET = [ /* control: a comment only */ \"/api/agent/tool-withdraw\", \"/api/agent/tool-revoke\","
+  },
+  {
+    "label": "route: who withdrew a request is taken from the body, so anybody can be named",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      const d = await store.revokeToolApproval(who, { id, by: who, note });",
+    "to": "      const d = await store.revokeToolApproval(who, { id, by: b.by || who, note });"
+  },
+  {
+    "label": "\u26a0 route: a call that has already RUN is reported as never having waited",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "        if (d?.error === \"already-ran\") {",
+    "to": "        if (false) {"
+  },
+  {
+    "label": "\u26a0 route: a withdrawal does not ring, so the run waits for the next cron tick",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      let notified = false;\n      const back = cleanId(d.run);\n      if (back && typeof ring === \"function\") {\n        try { await ring(back); notified = true; }\n        catch (e) { if (typeof log === \"function\") log(\"agent withdrawal: the queue was not rung\", String(e?.message ?? e)); }\n      }\n      return ok({ notified, id: d.id, withdrawn: true, repeat: d.repeat === true });",
+    "to": "      return ok({ notified: false, id: d.id, withdrawn: true, repeat: d.repeat === true });"
+  },
+  {
+    "label": "\u26a0 route: a tool name no tool has is revoked anyway, so a dead row sits on a screen",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      if (!AGENT_TOOLS.some((t) => t.name === tool)) {\n        return no(400, `there is no tool called \"${tool}\"`);\n      }",
+    "to": "      if (false) {\n        return no(400, `there is no tool called \"${tool}\"`);\n      }"
+  },
+  {
+    "label": "\u26a0 route: another account can take a tool away from this agent",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();\n      if (path === \"/api/agent/tool-restore\") {",
+    "to": "      if (false) return NO_AGENT();\n      if (path === \"/api/agent/tool-restore\") {"
+  },
+  {
+    "label": "\u26a0 route: a revocation does not ring the runs it answered, so they are stranded",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      let notified = 0;\n      const back = Array.isArray(gone.runs) ? gone.runs : [];",
+    "to": "      let notified = 0;\n      const back = [];"
+  },
+  {
+    "label": "route: lifting a revocation implies the withdrawn requests came back",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "                    say: \"it can use that again from its next action \u2014 anything that was waiting for it stays withdrawn\" });",
+    "to": "                    say: \"it can use that again, and everything that was waiting for it is waiting again\" });"
+  },
+  {
+    "label": "route: who cancelled a run is taken from the body",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      const stopped = await store.cancelRun(who, { runId, by: who, reason });",
+    "to": "      const stopped = await store.cancelRun(who, { runId, by: b.by || who, reason });"
+  },
+  {
+    "label": "\u26a0 route: a cancellation reports nothing as having completed",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "        completedSteps: stopped.completedSteps ?? 0,\n        completedCalls: stopped.completedCalls ?? 0,",
+    "to": "        completedSteps: 0,\n        completedCalls: 0,"
+  },
+  {
+    "label": "\u26a0 route: a cancellation's sentence claims the work was undone",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "        say: typeof stopped.say === \"string\" ? stopped.say\n          : \"stopped \u2014 what had already run has already run and was not undone\",",
+    "to": "        say: \"stopped \u2014 everything it had done was rolled back\","
+  },
+  {
+    "label": "\u26a0 store: a malformed revoked-tools answer is read as one tool name",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      const got = rows(r);\n      return got.filter((t) => typeof t === \"string\");",
+    "to": "      const got = rows(r);\n      return [].concat(got ?? []);"
+  },
+  {
+    "label": "\u26a0 store: a run nobody can move reads as WORKING, which is the defect the milestone names",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "    const state = awaiting ? \"waiting\" : open > 0 ? \"unresolved\" : step > 0 ? \"working\" : \"queued\";",
+    "to": "    const state = step > 0 ? \"working\" : \"queued\";"
+  },
+  {
+    "label": "\u26a0 store: a call nobody answered is not reported, so a stranded run reads as working",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "    const state = awaiting ? \"waiting\" : open > 0 ? \"unresolved\" : step > 0 ? \"working\" : \"queued\";",
+    "to": "    const state = awaiting ? \"waiting\" : step > 0 ? \"working\" : \"queued\";"
+  },
+  {
+    "label": "\u26a0 store: a run waiting for a person is reported as stranded instead \u2014 the ORDER is the meaning",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "    const state = awaiting ? \"waiting\" : open > 0 ? \"unresolved\" : step > 0 ? \"working\" : \"queued\";",
+    "to": "    const state = open > 0 ? \"unresolved\" : awaiting ? \"waiting\" : step > 0 ? \"working\" : \"queued\";"
+  },
+  {
+    "label": "store: the awaiting flag is coerced, so a string \"false\" puts every run in the waiting state",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "    const awaiting = (r && r.run_awaiting) === true;",
+    "to": "    const awaiting = !!(r && r.run_awaiting);"
+  },
+  {
+    "label": "\u26a0 store: an unreadable open-call count is read as a stranding rather than as nothing to say",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "    const open = Number.isInteger(r && r.run_open_calls) && r.run_open_calls > 0 ? r.run_open_calls : 0;",
+    "to": "    const open = Number(r && r.run_open_calls) || 0;"
+  },
+  {
+    "label": "store: how many calls are outstanding never reaches the screen",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      ...(state === \"waiting\" || state === \"unresolved\" ? { open } : {}),",
+    "to": "      ...(false ? { open } : {}),"
+  },
+  {
+    "label": "\u26a0 store: a run somebody STOPPED is reported as a run that FAILED",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  if (why === \"cancelled\") {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "store: a cancelled run reports nothing as having completed, so the counts read as zero",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      completedSteps: Number.isInteger(stop?.completedSteps) ? stop.completedSteps : 0,\n      completedCalls: Number.isInteger(stop?.completedCalls) ? stop.completedCalls : 0,",
+    "to": "      completedSteps: 0,\n      completedCalls: 0,"
+  },
+  {
+    "label": "store: who stopped a run is read out of the stop without being checked as an id",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "      by: cleanId(stop && stop.cancelledBy) || \"\",",
+    "to": "      by: String((stop && stop.cancelledBy) ?? \"\"),"
+  },
+  {
+    "label": "\u26a0 store: the conversation never asks for the two facts, so every state falls back to working",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": ",run_open_calls,run_awaiting",
+    "to": ""
+  },
+  {
+    "label": "store: the seven states shrink back to four, so three of them cannot be named",
+    "files": [
+      "agent-store.mjs"
+    ],
+    "from": "  \"queued\", \"working\", \"waiting\", \"unresolved\", \"answered\", \"cancelled\", \"failed\",",
+    "to": "  \"queued\", \"working\", \"answered\", \"failed\","
+  }
 ]

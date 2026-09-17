@@ -509,6 +509,94 @@ try {
     madeUpStatus.status === 400 && /active or paused/i.test(madeUpStatus.body.error || ""), JSON.stringify(madeUpStatus.body));
   check("...with no agent made",
     q(`select count(*) from agent.agents where name = 'Junk' and tenant_id = '${A}';`) === "0");
+
+  // ── 18. WHAT A RUN IS REALLY DOING ────────────────────────────────────────
+  //
+  // ⚠ **ONE WORD WAS DOING FIVE JOBS AND THE REQUIREMENT NAMES THE WORST OF THEM.**
+  // `agent.runs.status` is `new | running | stopped`, and this reader turned `running` into
+  // `working` — so a run really thinking, a run waiting for a person, and a run NOTHING WILL
+  // EVER DELIVER AGAIN all read as *working*, for ever. The three below are driven through
+  // the SITE's own conversation route, because that is the reader a customer gets.
+  console.log("\n── 18. waiting, unresolved and cancelled read as themselves ──");
+  const stAgent = (await api("/api/agent/create",
+    { body: { name: "States", instructions: "Say what you are doing.", tools: [tool] } })).body.agent.id;
+
+  // ── WAITING: a request a person can still answer. A run in this state has its work row
+  // marked DONE — there is nothing to redeliver until somebody answers — which is exactly
+  // why it used to read as *working* with no way to tell.
+  const asking = await api("/api/agent/send", { body: { id: stAgent, body: "waiting on a person", key: "st-wait" } });
+  q(`insert into agent.run_entries (run_id, seq, body) values ('${asking.body.runId}', 1,
+       '{"kind":"model","at":2,"step":1,"text":"","toolCalls":[{"id":"c0","name":"${tool}","args":{}}]}'::jsonb);`);
+  const askedFor = q(`select agent.request_tool_approval('${A}','${asking.body.runId}','${stAgent}',1,0,
+    '${tool}','{}'::jsonb,'vh1') ->> 'id';`);
+  const waitRow = async () => (await api("/api/agent/messages", { query: { id: stAgent } }))
+    .body.messages.find((m) => m.id === asking.body.message.id);
+  let row = await waitRow();
+  check("a run waiting for a person reads WAITING, not working",
+    row && row.run.state === "waiting", JSON.stringify(row && row.run));
+  check("...and it says how many calls are waiting, because one and four are different things",
+    row && row.run.open === 1, JSON.stringify(row && row.run));
+
+  // ⚠ AND A WINDOW THAT CLOSES MOVES IT — the same run, the same log, nobody having touched
+  // it. This is the state the requirement names: *a stranded run must not appear to be
+  // actively working forever.* Nobody can answer that request any more, so the run is not
+  // waiting for a person; its call is simply unresolved.
+  q(`update agent.tool_approvals set expires_at = now() - interval '1 minute' where id = '${askedFor}';`);
+  row = await waitRow();
+  check("⚠ once the window closes the SAME run reads UNRESOLVED rather than waiting",
+    row && row.run.state === "unresolved", JSON.stringify(row && row.run));
+  check("...still naming the call nobody answered", row && row.run.open === 1, JSON.stringify(row && row.run));
+  // THE CONTROL that makes both of those about the approval rather than about the log:
+  // putting the window back puts the run back in the waiting state.
+  q(`update agent.tool_approvals set expires_at = now() + interval '1 hour' where id = '${askedFor}';`);
+  check("...and back inside its window it waits again",
+    (await waitRow()).run.state === "waiting");
+
+  // ── AND AN ORDINARY RUN IS STILL `working`, which is what makes the two above mean
+  // something rather than being a reader that says "unresolved" about everything.
+  const busy = await api("/api/agent/send", { body: { id: stAgent, body: "ordinary work", key: "st-busy" } });
+  q(`insert into agent.run_entries (run_id, seq, body) values
+       ('${busy.body.runId}', 1, '{"kind":"model","at":2,"step":1,"text":"","toolCalls":[{"id":"c0","name":"${tool}","args":{}}]}'::jsonb),
+       ('${busy.body.runId}', 2, '{"kind":"tool","at":3,"step":1,"index":0,"name":"${tool}","ms":1,"ok":true}'::jsonb);`);
+  const busyRow = (await api("/api/agent/messages", { query: { id: stAgent } }))
+    .body.messages.find((m) => m.id === busy.body.message.id);
+  check("a run whose batch was answered is still WORKING",
+    busyRow && busyRow.run.state === "working", JSON.stringify(busyRow && busyRow.run));
+  check("...and says nothing about open calls, rather than sending a zero to be drawn",
+    busyRow && busyRow.run.open === undefined, JSON.stringify(busyRow && busyRow.run));
+
+  // ── CANCELLED: somebody stopped it. NOT a failure — nothing went wrong — and the counts
+  // are the one honest thing to say about it. *Don't claim completed effects were undone.*
+  // The field is `run`, as every other route here names it — read off the route rather than
+  // guessed: the first draft sent `runId` and was answered `which run?`, correctly.
+  const stopped = await api("/api/agent/run-cancel",
+    { body: { run: busy.body.runId, reason: "changed my mind" } });
+  check("the cancellation is accepted and says nothing was undone",
+    stopped.status === 200 && /was not undone/.test(stopped.body.say || ""), JSON.stringify(stopped.body));
+  const goneRow = (await api("/api/agent/messages", { query: { id: stAgent } }))
+    .body.messages.find((m) => m.id === busy.body.message.id);
+  check("⚠ a run somebody stopped reads CANCELLED, never failed",
+    goneRow && goneRow.run.state === "cancelled", JSON.stringify(goneRow && goneRow.run));
+  check("...naming who stopped it and how far it got",
+    goneRow && goneRow.run.by === A && goneRow.run.completedSteps === 1 && goneRow.run.completedCalls === 1,
+    JSON.stringify(goneRow && goneRow.run));
+  check("...and carrying their words rather than a sentence of ours",
+    goneRow && goneRow.run.note === "changed my mind", JSON.stringify(goneRow && goneRow.run));
+  // AND NOTHING WILL DELIVER IT AGAIN, which is the half a state word cannot carry.
+  check("...with its work released so nothing is delivered again",
+    q(`select (done_at is not null)::text from agent.run_work where run_id = '${busy.body.runId}';`) === "true");
+
+  // ⚠ AND `queued` IS STILL TOLD FROM `working` BY THE STEP, which is the distinction that
+  // was already here and must survive: `status` reads `running` from the instant a run is
+  // accepted, because the accepting transaction writes the `started` entry.
+  const fresh = await api("/api/agent/send", { body: { id: stAgent, body: "not started yet", key: "st-fresh" } });
+  const freshRow = (await api("/api/agent/messages", { query: { id: stAgent } }))
+    .body.messages.find((m) => m.id === fresh.body.message.id);
+  check("a run accepted and not yet worked on still reads QUEUED",
+    freshRow && freshRow.run.state === "queued", JSON.stringify(freshRow && freshRow.run));
+  check("...and the database really says `running`, so the step is what tells them apart",
+    q(`select status from agent.runs where id = '${fresh.body.runId}';`) === "running");
+
 } finally {
   await rest.close();
   try { su(`psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`); } catch { /* best effort */ }

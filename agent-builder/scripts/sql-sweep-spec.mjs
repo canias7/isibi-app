@@ -134,6 +134,21 @@ const mAuthored = mFn("authored_run");
 const mThread = (label, from, to, control = false) =>
   ({ label, files: [lastDefining("create or replace view agent.agent_thread")], from, to, control });
 /**
+ * ⚠ **THE MESSAGE TABLE'S OWN DDL IS NOT THE VIEW'S, and conflating them cost an anchor.**
+ * `run_id` and `messages_one_send_per_agent` are `agent.agent_messages`' column and index,
+ * added once and never re-emitted — so they belong to the migration that really defines
+ * them and not to whichever file last redefines the thread view. They rode on `mThread`
+ * until a later migration redefined that view for a different reason, at which point both
+ * anchors moved to a file that has never contained them: *a position is not an identity*,
+ * the recorded trap, arriving through a sibling change rather than through a sweep.
+ *
+ * Caught by the generator's own anchor census (`ANCHOR NOT FOUND`) rather than by a
+ * survivor, which is what that pre-check is for — a spec entry pointing at a file without
+ * its anchor reads as a test gap after the run and as nothing at all before it.
+ */
+const mLink = (label, from, to, control = false) =>
+  ({ label, files: [lastDefining("add column if not exists run_id uuid")], from, to, control });
+/**
  * THE AUTOMATIONS MIGRATION, found by what it defines rather than by its position —
  * the same rule `lastDefining` exists for. `claim_run` is redefined THERE, so
  * `mClaim` above already points at this file for anything it touches; these are the
@@ -530,10 +545,10 @@ const spec = [
     "  select count(*)::int as step from agent.run_entries e where e.run_id = m.run_id"),
   mThread("SQL/thread: anon can read the conversation",
     "revoke all on agent.agent_thread from anon;", "grant select on agent.agent_thread to anon;"),
-  mThread("SQL/link: a retained run takes the customer's writing with it",
+  mLink("SQL/link: a retained run takes the customer's writing with it",
     "alter table agent.agent_messages add column if not exists run_id uuid\n  references agent.runs (id) on delete set null;",
     "alter table agent.agent_messages add column if not exists run_id uuid\n  references agent.runs (id) on delete cascade;"),
-  mThread("SQL/link: the send key is unique per TENANT rather than per conversation",
+  mLink("SQL/link: the send key is unique per TENANT rather than per conversation",
     "create unique index if not exists messages_one_send_per_agent\n  on agent.agent_messages (agent_id, send_key)\n  where send_key is not null;",
     "create unique index if not exists messages_one_send_per_agent\n  on agent.agent_messages (send_key)\n  where send_key is not null;"),
   // RE-ANCHORED: `send_to_agent` now lives in the settings migration, whose header is
@@ -944,11 +959,43 @@ const spec = [
   mExpiredSweep("⚠ SQL/expiry: nothing is put back at all, so the run is stranded",
     "    v_back := agent.requeue_run(v_run.run_id, v_run.tenant_id);",
     "    v_back := jsonb_build_object('state', 'skipped');"),
-  // ⚠ ANCHORED WITH THE LINE BELOW IT: the same test appears in `revoke_agent_tool`, and
-  // `return next` is what makes this one the sweep's.
-  mExpiredSweep("SQL/expiry: a run somebody is holding is reported as requeued",
-    "    if v_back ->> 'state' = 'queued' then\n      return next jsonb_build_object",
-    "    if true then\n      return next jsonb_build_object"),
+  // ⚠ **RE-ANCHORED, NOT APPEASED, when the sweep proved the CALLER's own filter undrivable.**
+  // This used to read `if v_back ->> 'state' = 'queued' then return next …` — a row somebody
+  // holds was skipped silently, so nothing anywhere ever handed `worker.scheduled` a row it
+  // had to refuse to ring, and its `action === "requeued"` test SURVIVED the JS sweep. The
+  // function reports both outcomes now and names which, so the property here moved from
+  // *is a held row reported at all* to *does its action say which it was* — strictly
+  // stronger, because the old spelling could not tell a wrong action from a missing row.
+  mExpiredSweep("⚠ SQL/expiry: a run somebody is holding is reported as requeued, so the caller rings it",
+    "      'action', case when v_back ->> 'state' = 'queued' then 'requeued' else 'held' end,",
+    "      'action', 'requeued',"),
+  mExpiredSweep("SQL/expiry: a held row is dropped instead of reported, so nobody can see it was looked at",
+    "    return next jsonb_build_object('run', v_run.run_id, 'tenant', v_run.tenant_id,\n      'action', case",
+    "    if v_back ->> 'state' <> 'queued' then continue; end if;\n    return next jsonb_build_object('run', v_run.run_id, 'tenant', v_run.tenant_id,\n      'action', case"),
+  // ── WHAT A RUN IS REALLY DOING ───────────────────────────────────────────
+  //
+  // ⚠ THE TWO COLUMNS THAT TELL A WAITING RUN FROM A STRANDED ONE FROM A WORKING ONE. Without
+  // them the store's reader answers `working` for all three, for ever — which is the defect
+  // the milestone names. `mThread` is right for these: they really are the thread view's.
+  mThread("⚠ SQL/states: the open-call count is the number of ENTRIES rather than calls with no result",
+    "           coalesce(sum(jsonb_array_length(coalesce(e.body -> 'toolCalls', '[]'::jsonb)))\n                      filter (where e.kind = 'model'), 0)\n           - count(*) filter (where e.kind = 'tool'), 0) as calls",
+    "           count(*) filter (where e.kind = 'model'), 0) as calls"),
+  mThread("SQL/states: an impossible log answers a NEGATIVE count, which reads as a value to `> 0`",
+    "  select greatest(\n           coalesce(sum(", "  select (\n           coalesce(sum("),
+  mThread("⚠ SQL/states: a DECIDED request still reads as waiting, so the run never leaves that state",
+    "            where a.run_id = m.run_id and a.verdict is null\n              and (a.expires_at is null or a.expires_at > now())) as waiting",
+    "            where a.run_id = m.run_id) as waiting"),
+  mThread("⚠ SQL/states: a request whose window has CLOSED reads as waiting for somebody who cannot answer",
+    "              and (a.expires_at is null or a.expires_at > now())) as waiting",
+    "              and true) as waiting"),
+  mThread("⚠ SQL/states: any request of this account's makes every one of its runs read as waiting",
+    "            where a.run_id = m.run_id and a.verdict is null", "            where a.verdict is null"),
+  mThread("SQL/states: the waiting flag answers NULL rather than false, so cannot-tell wears a value's clothes",
+    "  coalesce(ask.waiting, false) as run_awaiting", "  ask.waiting as run_awaiting"),
+  mThread("SQL/states: the open-call count answers NULL for a run with no log at all",
+    "  coalesce(open.calls, 0) as run_open_calls", "  open.calls as run_open_calls"),
+  mThread("⚠ SQL/states: the server cannot read the approvals the view reaches, so every conversation fails",
+    "grant select on agent.tool_approvals to service_role;", "-- no grant"),
   mPending("⚠ SQL/lists: an expired request is offered as something to answer, and then refused",
     "       and (a.expires_at is null or a.expires_at > now())", "       and true"),
   mRunApprovals("⚠ SQL/lists: a run's own list cannot say a window closed",

@@ -559,6 +559,12 @@ export default {
           catch (e) { console.error("agent-expired", JSON.stringify({ runId, ring: String(e?.message ?? e) })); }
         }
       }
+      // ⚠ **TWO NUMBERS BECAUSE THEY REALLY DIFFER.** The function reports every run whose
+      // windows have closed and says per row whether it could put it back, so `closed` is
+      // what the tick looked at and `rung` is what it could act on — a run somebody is
+      // holding is `held` and is deliberately not rung. They were always equal until the
+      // function started saying which, which made this line unable to tell an operator
+      // anything and the filter above it unable to be driven.
       console.log("agent-expired", JSON.stringify({ closed: stale.length, rung }));
     } catch (e) {
       console.error("agent-expired", String(e?.message ?? e));

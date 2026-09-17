@@ -503,15 +503,26 @@ begin
     -- answers `running` for a live lease — so a worker still on the run is never disturbed —
     -- and clears `done_at` and the attempt count for anything else.
     v_back := agent.requeue_run(v_run.run_id, v_run.tenant_id);
-    if v_back ->> 'state' = 'queued' then
-      return next jsonb_build_object('run', v_run.run_id, 'tenant', v_run.tenant_id,
-                                     'action', 'requeued');
-    end if;
+    -- ⚠ **BOTH OUTCOMES ARE REPORTED, AND THE ACTION IS WHAT TELLS THEM APART.** A row
+    -- somebody is holding was looked at and deliberately left alone, and reporting only the
+    -- re-queued ones makes that silent: an operator reading the log cannot tell a tick that
+    -- found one run from a tick that found four and could act on one. It also left the
+    -- CALLER's own filter — `action === 'requeued'` before it rings — unable to be driven at
+    -- all, because nothing anywhere produced a row it had to skip: *a wall nobody can drive
+    -- is a wall nobody is guarding*, and a sweep survivor is what said so.
+    --
+    -- **A `held` ROW MUST NEVER BE RUNG.** The doorbell would be a delivery `claim_run`
+    -- refuses — latency spent to learn what this function already knows — so the action is
+    -- the whole of what the caller reads, and it is a NAME rather than a boolean because a
+    -- third outcome is a word rather than a migration.
+    return next jsonb_build_object('run', v_run.run_id, 'tenant', v_run.tenant_id,
+      'action', case when v_back ->> 'state' = 'queued' then 'requeued' else 'held' end,
+      'state', v_back ->> 'state');
   end loop;
 end; $$;
 
 comment on function agent.requeue_expired_approvals(integer) is
-  'Put back every run whose approval windows have all closed, so the refusal reaches the model instead of the run being stranded. A run somebody can still answer is left alone.';
+  'Put back every run whose approval windows have all closed, so the refusal reaches the model instead of the run being stranded. A run somebody can still answer is left alone, and one somebody is holding is reported as held rather than silently skipped.';
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- 6. CANCELLING A RUN

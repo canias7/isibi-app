@@ -1536,7 +1536,12 @@ try {
   // the fixture having answered a column the database did not have. Named one by one
   // rather than counted, so a rename is caught as well as a removal.
   for (const col of ["id", "agent_id", "seq", "body", "created_at", "run_id",
-                     "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at"]) {
+                     "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at",
+                     // THE TWO FACTS THAT TELL A WAITING RUN FROM A STRANDED ONE FROM A WORKING
+                     // ONE. Missing, the store's reader answers `working` for all three — which
+                     // is the defect they were added for, and the one `run_model` already
+                     // records the shape of: a column the fixture had and the database did not.
+                     "run_open_calls", "run_awaiting"]) {
     check(`the view carries ${col}`,
       jget(`select count(*) from information_schema.columns
              where table_schema='agent' and table_name='agent_thread' and column_name='${col}';`) === "1");
@@ -3239,6 +3244,150 @@ try {
              where t ->> 'id' = '${ap1}';`) === "0" &&
       jget(`select t ->> 'verdict' from agent.run_approvals('${XT}','${R1}') as t
              where t ->> 'id' = '${ap1}';`) === "revoked");
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── WHAT A RUN IS REALLY DOING ──");
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⚠ **ONE WORD WAS DOING FIVE JOBS.** `agent.runs.status` is `new | running | stopped` and
+  // is right about what it says; the CONVERSATION reader turned `running` into `working`, so
+  // a run really thinking, a run waiting for a person and a run nothing will ever deliver
+  // again all read as *working*, for ever. These two columns are the facts that tell them
+  // apart, and they are checked HERE because the view is the only place they exist — a unit
+  // guard can only ever assert what a fixture answered.
+  {
+    const ST = "st-tenant-1";
+    // ⚠ **ITS OWN IDS, AND THEY ARE PROVED UNUSED BEFORE ANYTHING IS WRITTEN.** The first
+    // draft reused `dddddddd-1111-…`, which an agent five hundred lines up already owns, so
+    // the whole section failed on `agents_pkey` and reported thirteen correct behaviours as
+    // broken. This file is one long body and its fixtures share a database: *a fixture that
+    // collides with an id somewhere else in the file reports the product as broken*, and it
+    // is recorded in this repository twice over. The census below is what makes it a
+    // sentence rather than a cascade.
+    const SG = "55aa55aa-1111-4111-8111-55aa55aa55aa";
+    const W_OK = "55aa55aa-0000-4000-8000-0000000000a1";   // working: a batch fully answered
+    const W_OPEN = "55aa55aa-0000-4000-8000-0000000000a2"; // unresolved: a call with no result
+    const W_ASK = "55aa55aa-0000-4000-8000-0000000000a3";  // waiting: a person can answer
+    const M_OK = "55aa55aa-0000-4000-8000-0000000000b1";
+    const M_OPEN = "55aa55aa-0000-4000-8000-0000000000b2";
+    const M_ASK = "55aa55aa-0000-4000-8000-0000000000b3";
+    check("this section's own ids are not somebody else's",
+      jget(`select (select count(*) from agent.agents where id='${SG}')
+                 + (select count(*) from agent.runs where id in ('${W_OK}','${W_OPEN}','${W_ASK}'))
+                 + (select count(*) from agent.agent_messages where id in ('${M_OK}','${M_OPEN}','${M_ASK}'));`) === "0");
+    allowed("an account with three runs in three different real states",
+      `insert into agent.agents (id, tenant_id, name, instructions) values ('${SG}','${ST}','St','x');
+       insert into agent.runs (id, tenant_id, status) values
+         ('${W_OK}','${ST}','running'), ('${W_OPEN}','${ST}','running'), ('${W_ASK}','${ST}','running');
+       insert into agent.agent_messages (id, agent_id, body, run_id) values
+         ('${M_OK}','${SG}','answered batch','${W_OK}'),
+         ('${M_OPEN}','${SG}','a call with no result','${W_OPEN}'),
+         ('${M_ASK}','${SG}','waiting on a person','${W_ASK}');`, asOwner);
+
+    /** One model entry asking for `n` calls, and `answered` of them answered. */
+    const batch = (run, n, answered) => {
+      const calls = Array.from({ length: n }, (_, i) => `{"id":"c${i}","name":"remember","args":{}}`).join(",");
+      psql(`insert into agent.run_entries (run_id, seq, body) values ('${run}', 0, '{"kind":"started","at":1}'::jsonb),
+              ('${run}', 1, '{"kind":"model","at":2,"step":1,"text":"","toolCalls":[${calls}]}'::jsonb);`, asOwner);
+      for (let i = 0; i < answered; i += 1) {
+        psql(`insert into agent.run_entries (run_id, seq, body) values
+                ('${run}', ${2 + i}, '{"kind":"tool","at":3,"step":1,"index":${i},"name":"remember","ms":1,"ok":true}'::jsonb);`, asOwner);
+      }
+    };
+    batch(W_OK, 2, 2);
+    batch(W_OPEN, 3, 1);
+    batch(W_ASK, 1, 0);
+
+    // ── THE COUNT COMES OUT OF THE LOG, which is the whole argument for it: the log is the
+    // record, so the record can answer how far a batch got.
+    check("a batch that was fully answered has NO open calls",
+      jget(`select run_open_calls from agent.agent_thread where id='${M_OK}';`) === "0",
+      jget(`select run_open_calls::text from agent.agent_thread where id='${M_OK}';`));
+    check("⚠ a batch stopped part way counts EVERY call it never recorded",
+      jget(`select run_open_calls from agent.agent_thread where id='${M_OPEN}';`) === "2",
+      jget(`select run_open_calls::text from agent.agent_thread where id='${M_OPEN}';`));
+    // AND IT NEVER GOES NEGATIVE. A log holding more tool entries than a model asked for is
+    // not a state this product can write, but the view reads whatever is there — and a
+    // negative count would read as a value to whichever branch tests `> 0`.
+    psql(`insert into agent.run_entries (run_id, seq, body) values
+            ('${W_OK}', 9, '{"kind":"tool","at":3,"step":1,"index":7,"name":"remember","ms":1,"ok":true}'::jsonb);`, asOwner);
+    check("...and an impossible log floors at zero rather than answering a negative",
+      jget(`select run_open_calls from agent.agent_thread where id='${M_OK}';`) === "0",
+      jget(`select run_open_calls::text from agent.agent_thread where id='${M_OK}';`));
+    psql(`delete from agent.run_entries where run_id='${W_OK}' and seq=9;`, asOwner);
+
+    // ── WAITING MEANS A PERSON CAN STILL ANSWER, and each of the three ways that stops being
+    // true is driven, because reading any of them as waiting leaves a run in a state whose
+    // only exit is a decision nobody can make.
+    // ⚠ **BOTH READERS MUST BE ABLE TO READ IT, AND THE SERVER IS THE ONE THAT NEARLY COULD
+    // NOT.** `security_invoker` reads every relation as the CALLER, so the approvals lateral
+    // needs the caller's own SELECT — measured: `authenticated` had it and `service_role` did
+    // not, so the site's thread read would have failed `permission denied for table
+    // tool_approvals` on every conversation with a message in it. Asked as a PRIVILEGE and
+    // then DRIVEN as both roles over a row that really exists, because a lateral is never
+    // evaluated for a row that is not there: read against an empty table the view answers
+    // happily and the permission is never checked.
+    for (const who of ["service_role", "authenticated"]) {
+      check(`${who} may read the approvals the view reaches`,
+        jget(`select has_table_privilege('${who}','agent.tool_approvals','select')::text;`) === "true");
+    }
+    check("a run with no request at all is not waiting for anybody",
+      jget(`select run_awaiting::text from agent.agent_thread where id='${M_OPEN}';`) === "false",
+      jget(`select coalesce(run_awaiting::text,'<read failed>') from agent.agent_thread where id='${M_OPEN}';`));
+    const stAsk = jget(`select agent.request_tool_approval('${ST}','${W_ASK}','${SG}',1,0,
+      'remember','{}'::jsonb,'sh1') ->> 'id';`);
+    check("THE CONTROL: a pending request inside its window IS waiting",
+      jget(`select run_awaiting::text from agent.agent_thread where id='${M_ASK}';`) === "true");
+    // ⚠ AND IT IS THE RUN'S OWN REQUEST, never any request of this account's — without this
+    // line, one person's unanswered question would put every one of their runs in the
+    // waiting state.
+    check("...and a request on ANOTHER run does not make this one wait",
+      jget(`select run_awaiting::text from agent.agent_thread where id='${M_OK}';`) === "false");
+    psql(`update agent.tool_approvals set expires_at = now() - interval '1 minute'
+           where id='${stAsk}';`, asOwner);
+    check("⚠ a request whose window has CLOSED is not waiting — nobody can answer it",
+      jget(`select run_awaiting::text from agent.agent_thread where id='${M_ASK}';`) === "false");
+    psql(`update agent.tool_approvals set expires_at = now() + interval '1 hour' where id='${stAsk}';`, asOwner);
+    check("...back inside its window it waits again, which is what makes that line about the clock",
+      jget(`select run_awaiting::text from agent.agent_thread where id='${M_ASK}';`) === "true");
+    // `(p_tenant, p_id, p_verdict, p_note, p_by)` — five, and the note comes BEFORE the
+    // decider. The first draft wrote six in another order and Postgres refused the call, so
+    // the two checks under it failed about a decision that never happened.
+    const decided = jget(`select agent.decide_tool_approval('${ST}','${stAsk}','approved',null,'person-1')::text;`);
+    check("the decision really landed, which is what makes the next line about waiting",
+      /"ok"\s*:\s*true/.test(decided), decided);
+    check("⚠ a request somebody has ANSWERED is not waiting either",
+      jget(`select run_awaiting::text from agent.agent_thread where id='${M_ASK}';`) === "false",
+      jget(`select coalesce(run_awaiting::text,'<read failed>') from agent.agent_thread where id='${M_ASK}';`));
+
+    // ── AND A CANCELLED RUN CARRIES HOW FAR IT GOT, which is the one honest thing to say
+    // about it. *Don't claim completed effects were undone.*
+    const cancelled = jget(`select agent.cancel_run('${ST}','${W_OPEN}','person-1','changed my mind')::text;`);
+    check("cancelling reports what had already completed rather than implying a rollback",
+      /"completedSteps"\s*:\s*1/.test(cancelled) && /"completedCalls"\s*:\s*1/.test(cancelled)
+      && /was not undone/.test(cancelled), cancelled);
+    check("⚠ the stop the CONVERSATION reads names the reason, who, and the counts",
+      jget(`select (run_stop ->> 'reason') || '|' || (run_stop ->> 'cancelledBy') || '|' ||
+                   (run_stop ->> 'completedSteps') || '|' || (run_stop ->> 'completedCalls')
+              from agent.agent_thread where id='${M_OPEN}';`) === "cancelled|person-1|1|1",
+      jget(`select coalesce(run_stop::text,'<null>') from agent.agent_thread where id='${M_OPEN}';`));
+    // ⚠ AND THE STATUS REALLY MOVED, which is the half the first draft of `cancel_run` got
+    // wrong: it wrote the reason at the TOP level of the entry body, so `status` went to
+    // `stopped` (that arm only reads `kind`) while `agent.runs.stop` stayed NULL — a run
+    // reading as ended with nothing saying how.
+    check("...and the run reads as stopped, so the two halves of the projection agree",
+      jget(`select run_status from agent.agent_thread where id='${M_OPEN}';`) === "stopped");
+
+    // ── THE ISOLATION, THROUGH THE SAME TWO COLUMNS. They read three relations between them
+    // — the log and the approvals — so `security_invoker` has to hold for both or a customer
+    // could count another account's pending calls.
+    const stClaim = { role: "authenticated", claims: `{"tenant_id":"${ST}"}` };
+    const otherClaim = { role: "authenticated", claims: '{"tenant_id":"st-tenant-2"}' };
+    check("the owning account reads its own counts through the view",
+      psql(`select run_open_calls || '|' || run_awaiting::text from agent.agent_thread where id='${M_ASK}';`,
+        stClaim).out === "1|false");
+    check("⚠ ...and the account next door reads no row at all, so those numbers are theirs alone",
+      psql(`select count(*) from agent.agent_thread where agent_id='${SG}';`, otherClaim).out === "0");
   }
 
 } finally {

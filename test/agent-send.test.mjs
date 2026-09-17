@@ -293,20 +293,95 @@ const row = (over = {}) => ({
   run_model: STANDIN_MODEL, run_stopped_at: null, ...over,
 });
 
-test("THE FOUR STATES ARE A PARTITION, and every run is exactly one of them", () => {
+test("THE SEVEN STATES ARE A PARTITION, and every run is exactly one of them", () => {
+  // ⚠ RE-ANCHORED, NOT APPEASED, AND BY THREE STATES RATHER THAN BY A COUNT. `working` used
+  // to cover a run really thinking, a run waiting for a person, a run nobody can move again,
+  // and a run somebody stopped — the last two FOR EVER. Each wants something different done
+  // about it, so each is its own word; the census below still requires every one of them to
+  // be DRIVEN, so a state added and never exercised fails by existing.
   const cases = [
     [row(), "queued"],
     [row({ run_step: 1 }), "working"],
+    // A person can still answer: the thing to do is on their screen.
+    [row({ run_step: 1, run_awaiting: true, run_open_calls: 1 }), "waiting"],
+    // Calls with no result and NOBODY able to answer — the stranding. Not a failure.
+    [row({ run_step: 1, run_awaiting: false, run_open_calls: 2 }), "unresolved"],
     [row({ run_status: "stopped", run_step: 1, run_stopped_at: SENT,
            run_stop: { reason: "answered", text: "[simulated] nine" } }), "answered"],
+    [row({ run_status: "stopped", run_step: 2, run_stopped_at: SENT,
+           run_stop: { reason: "cancelled", cancelledBy: T1, note: "changed my mind",
+                       completedSteps: 2, completedCalls: 1 } }), "cancelled"],
     [row({ run_status: "stopped", run_step: 2, run_stop: { reason: "spent", bound: "steps" } }), "failed"],
   ];
   for (const [r, state] of cases) {
-    assert.equal(runView(r).state, state, JSON.stringify(r.run_stop));
+    assert.equal(runView(r).state, state, JSON.stringify(r.run_stop ?? r));
     assert.ok(RUN_STATES.includes(state));
   }
-  assert.deepEqual([...RUN_STATES], ["queued", "working", "answered", "failed"]);
+  assert.deepEqual([...RUN_STATES],
+    ["queued", "working", "waiting", "unresolved", "answered", "cancelled", "failed"]);
   assert.equal(new Set(cases.map(([, s]) => s)).size, RUN_STATES.length, "not every state was driven");
+});
+
+test("⚠ A RUN NOBODY CAN MOVE DOES NOT READ AS WORKING, and the order of the two facts is the meaning", () => {
+  // The requirement in as many words: *a stranded run must not appear to be actively working
+  // forever*. A run waiting for a person has its work row marked done and its log left open,
+  // so nothing delivers it until somebody answers — and if nobody CAN, it never moves.
+  const open = (over) => runView(row({ run_step: 1, run_open_calls: 1, ...over }));
+  // A PERSON WHO CAN ANSWER IS THE THING TO DO, whatever else is true.
+  assert.equal(open({ run_awaiting: true }).state, "waiting");
+  assert.equal(open({ run_awaiting: false }).state, "unresolved");
+  // ⚠ REFUSED, NEVER COERCED. `Boolean("false")` is `true`, so a string would put every run
+  // in the waiting state — which is the direction that hides a stranding behind a banner
+  // nobody can press.
+  for (const junk of ["true", "false", 1, {}, ["true"]]) {
+    assert.equal(open({ run_awaiting: junk }).state, "unresolved", `${JSON.stringify(junk)} read as waiting`);
+  }
+  // AND A COUNT THAT IS NOT A COUNT IS NOTHING TO SAY, never a stranding: an older deployment
+  // or a reader asking for fewer columns answers no column at all.
+  for (const junk of [undefined, null, "2", 1.5, -1, NaN, ["2"]]) {
+    assert.equal(runView(row({ run_step: 1, run_open_calls: junk })).state, "working",
+      `${JSON.stringify(junk)} became a stranding`);
+  }
+  // HOW MANY RIDES ON THE TWO STATES IT IS ABOUT, and is left OFF the others rather than
+  // being sent as 0 — which would invite a screen to draw it for a healthy run.
+  assert.equal(open({ run_awaiting: false }).open, 1);
+  assert.equal(runView(row({ run_step: 1, run_awaiting: true, run_open_calls: 3 })).open, 3);
+  assert.ok(!Object.hasOwn(runView(row({ run_step: 1 })), "open"));
+  assert.ok(!Object.hasOwn(runView(row({ run_status: "stopped", run_stop: { reason: "answered", text: "x" } })), "open"));
+});
+
+test("⚠ A RUN SOMEBODY STOPPED IS NOT A RUN THAT FAILED, and it says how far it got", () => {
+  // Nothing went wrong: a person asked for it to stop. Reading it as `failed` would tell them
+  // their own decision was a fault — and `cancelled` is the one non-answered stop a screen
+  // should not offer to retry.
+  const v = runView(row({
+    run_status: "stopped", run_step: 4, run_stopped_at: SENT,
+    run_stop: { reason: "cancelled", cancelledBy: T1, note: "no longer needed",
+                completedSteps: 4, completedCalls: 3 },
+  }));
+  assert.equal(v.state, "cancelled");
+  assert.equal(v.why, "cancelled");
+  assert.equal(v.by, T1);
+  assert.equal(v.note, "no longer needed");
+  // ⚠ WHAT HAD ALREADY RUN TRAVELS WITH IT. *Don't claim completed effects were undone* — the
+  // counts are the only honest thing to say about a cancelled run, and leaving them in a
+  // journal nothing on this side reads would mean a screen could not say it.
+  assert.equal(v.completedSteps, 4);
+  assert.equal(v.completedCalls, 3);
+  // A CANCELLATION WITH NOTHING RECORDED SAYS ZERO rather than guessing, and refuses a count
+  // that is not one.
+  const bare = runView(row({ run_status: "stopped", run_stop: { reason: "cancelled" } }));
+  assert.equal(bare.state, "cancelled");
+  assert.equal(bare.completedSteps, 0);
+  assert.equal(bare.by, "");
+  for (const junk of ["4", 1.5, null, {}]) {
+    const j = runView(row({ run_status: "stopped", run_stop: { reason: "cancelled", completedSteps: junk } }));
+    assert.equal(j.completedSteps, 0, `${JSON.stringify(junk)} became a count`);
+  }
+  // AND AN ORDINARY STOP IS STILL `failed` WITH ITS OWN REASON, which is the control that
+  // makes the branch about cancellation rather than about every stop.
+  assert.equal(runView(row({ run_status: "stopped", run_stop: { reason: "call-failed" } })).state, "failed");
+  assert.equal(runView(row({ run_status: "stopped", run_stop: { reason: "cancelled-ish" } })).state, "failed");
 });
 
 test("⚠ QUEUED AND WORKING ARE TOLD APART BY THE STEP, not by the status", () => {

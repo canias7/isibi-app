@@ -1028,13 +1028,14 @@ test("⚠ THE EXPIRY TICK PUTS BACK EVERY RUN NOBODY ANSWERED, AND ONLY THOSE", 
     const ctx = { waitUntil() {} };
     let n = 0;
     /** One run holding one request, with its work row done as a held run's is. */
-    const holding = (id, expiresAt, { alsoLive = false, ended = false } = {}) => {
+    const holding = (id, expiresAt, { alsoLive = false, ended = false, heldBy = null } = {}) => {
       rest.runs.set(id, { id, tenant_id: TENANT, status: "running", stop: null });
       rest.agents.set(AGENT, { id: AGENT, tenant_id: TENANT, name: "A", instructions: "x", status: "active", tools: [] });
       rest.work.set(id, {
         run_id: id, tenant_id: TENANT, kind: "start", executor: "agent", attempts: 0,
-        claimed_by: null, claim_token: null, lease_expires_at: null,
-        done_at: Date.now(), enqueued_at: Date.now(), last_error: null,
+        claimed_by: heldBy, claim_token: heldBy ? "tok-other" : null,
+        lease_expires_at: heldBy ? new Date(Date.now() + 60_000).toISOString() : null,
+        done_at: heldBy ? null : Date.now(), enqueued_at: Date.now(), last_error: null,
       });
       const add = (at) => rest.approvals.set(`ap-${++n}`, {
         id: `ap-${n}`, tenant_id: TENANT, run_id: id, agent_id: AGENT, step: 1, idx: n,
@@ -1051,6 +1052,14 @@ test("⚠ THE EXPIRY TICK PUTS BACK EVERY RUN NOBODY ANSWERED, AND ONLY THOSE", 
     holding("half-open", Date.now() - 60_000, { alsoLive: true });
     holding("still-open", Date.now() + 3_600_000);
     holding("already-ended", Date.now() - 60_000, { ended: true });
+    // ⚠ **A RUN SOMEBODY IS STILL WORKING ON IS REPORTED AND NOT RUNG**, and until the
+    // function started saying which, nothing anywhere produced a row this handler had to
+    // skip — so its own `action === "requeued"` filter could not be driven and a mutant
+    // deleting it SURVIVED the sweep. *A wall nobody can drive is a wall nobody is
+    // guarding.* `requeue_run` answers `running` for a live lease and takes nothing, so a
+    // doorbell for this row would be a delivery `claim_run` refuses: latency spent to
+    // learn what the sweep already knows.
+    holding("somebody-on-it", Date.now() - 60_000, { heldBy: "worker-elsewhere" });
 
     await worker.scheduled({}, env, ctx);
     const rung = env[QUEUE_BINDING].sent.map((m) => m.runId);
@@ -1061,6 +1070,11 @@ test("⚠ THE EXPIRY TICK PUTS BACK EVERY RUN NOBODY ANSWERED, AND ONLY THOSE", 
     for (const id of ["half-open", "still-open", "already-ended"]) {
       assert.notEqual(rest.work.get(id).done_at, null, `${id} was put back and should not have been`);
     }
+    // AND THE HELD ONE KEEPS ITS HOLDER'S CLAIM rather than being taken from under it — the
+    // row was LOOKED AT (the sweep reported it) and deliberately left alone, which is the
+    // distinction the filter exists for and the reason the log carries two numbers.
+    assert.equal(rest.work.get("somebody-on-it").claimed_by, "worker-elsewhere");
+    assert.equal(rest.work.get("somebody-on-it").kind, "start", "a held run was re-queued under its holder");
   });
 });
 

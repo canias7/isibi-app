@@ -279,19 +279,25 @@ function bench({ answers = [], agents = AGENTS, gate, revoked = [], verdict = ()
       },
     }),
   };
+  // ⚠ AND THE RUNNER'S OWN EVENTS ARE RECORDED, because a withdrawal reaching a run already
+  // going has exactly one place an operator can see that it did: this log line. Without a
+  // recorder here, "it was said" is unobservable and a mutant deleting the line survives —
+  // which is what the sweep reported.
+  const events = [];
   const runner = makeRunner({
     work, store, send, agents, timer, capabilities,
     // A CASE MAY HAND IN SOMETHING THAT IS NOT A FACTORY, which is what a
     // mis-configured deployment really looks like from here.
     approvals: gate === undefined ? approvals : gate,
     now: () => clock, nameWorker: () => `worker-${++w}`, onError: () => {},
+    onEvent: (e) => { events.push(e); },
   });
   const accept = async (entry) => {
     const runId = `run-${rest.runs.size + 1}`;
     await work.accept({ runId, tenant: "t1", entry });
     return runId;
   };
-  return { rest, store, work, runner, calls, accept, timer, scopings, gatings, asked,
+  return { rest, store, work, runner, calls, accept, timer, scopings, gatings, asked, events,
            revokeAsks, revoke: (...names) => { revokedNow = [...revokedNow, ...names]; },
            advance: (ms) => { clock += ms; },
            kinds: (runId) => [...rest.entries.get(runId).values()].map((e) => e.kind) };
@@ -358,6 +364,84 @@ test("⚠ A RUN WITH NO AUTHORED AGENT IS GIVEN NO BACKEND AT ALL", async () => 
   const out = await b.runner.deliver(runId);
   assert.equal(out.why, "ran", out.error);
   assert.deepEqual(b.scopings, [], "a run with no snapshot was handed a scoped backend");
+});
+
+test("⚠ A TOOL WHOSE PERMISSION WAS WITHDRAWN DOES NOT RUN, AND THE WITHDRAWAL IS SAID", async () => {
+  // ⚠ **THE WIRING HOP, AND THE SWEEP IS WHAT SAID IT WAS UNGUARDED.** Three mutants
+  // survived here and all three are this one delivery: the revocation read from the
+  // SNAPSHOT instead of live (`open.state?.revoked ?? []`, which is `[]` for every entry
+  // this product has ever written), the list never FORWARDED to the loop, and the log line
+  // deleted. Every property they break is proved end to end by `verify:controls`, which
+  // `npm run sweep` does not run — *a property proven only by an instrument the sweep
+  // cannot run is a property no mutant can be caught by.*
+  const b = bench({ revoked: ["echo"], answers: [asksFor("echo", { say: "hello" })] });
+  const runId = await b.accept(start({
+    instructions: WROTE, history: [], authoredAgent: "a-1", message: "m-1", tools: ["echo"],
+  }));
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "ran", out.error);
+
+  // THE READ REALLY HAPPENED, against this run's own account and agent — and a mutant
+  // reading the snapshot instead asks nobody at all.
+  assert.deepEqual(b.revokeAsks, [{ tenant: "t1", agentId: "a-1" }]);
+
+  // AND THE LOOP ACTED ON IT: the tool answered a refusal rather than running. The result
+  // is a READABLE TOOL RESULT, which is the shape every other wall here uses — a refusal
+  // the model never sees is a tool it asks for again immediately.
+  const said = [...b.rest.entries.get(runId).values()].find((e) => e.kind === "tool");
+  assert.ok(said, "the revoked call left no tool entry at all");
+  assert.equal(said.name, "echo");
+  assert.equal(said.value?.error, "tool-revoked", JSON.stringify(said.value));
+  // ⚠ AND IT IS NOT REPORTED AS A REJECTION OR AS A MISSING TOOL — three different facts
+  // needing three different remedies, and `echo` exists.
+  assert.ok(!/declined|no such tool/.test(said.value?.say ?? ""), said.value?.say);
+
+  // SAID, never silently applied. This log line is the one place an operator can see that
+  // a withdrawal took effect on a run already going.
+  const heard = b.events.filter((e) => e.at === "tools-revoked");
+  assert.equal(heard.length, 1, `the withdrawal was not said: ${JSON.stringify(b.events.map((e) => e.at))}`);
+  assert.deepEqual(heard[0].tools, ["echo"]);
+  assert.equal(heard[0].runId, runId);
+});
+
+test("...AND IT IS ASKED LIVE ON EVERY DELIVERY, so a withdrawal reaches a run already going", async () => {
+  // ⚠ **THIS IS THE ASYMMETRY THE MILESTONE TURNS ON, driven.** The tool SELECTION is read
+  // from the snapshot, so a customer un-ticking a tool cannot change what a run already
+  // under way may call. A REVOCATION is the opposite act — *stop doing this now* — so it is
+  // read again on every delivery, past the snapshot. Nothing in the log could ever carry
+  // it: this run's entry says `tools: ["echo"]` and says nothing about a withdrawal.
+  //
+  // THE SCENARIO IS A LOST LEASE, because it is the one that leaves the run OPEN, and this
+  // file's other per-delivery cases use it for the same reason.
+  const b = bench({
+    answers: [
+      async () => { b.advance(LEASE_TTL_S * 1000 + 1); await b.timer.fire(); return asksFor("echo", { say: "first" }); },
+      asksFor("echo", { say: "second" }),
+    ],
+  });
+  const runId = await b.accept(start({
+    instructions: WROTE, history: [], authoredAgent: "a-1", message: "m-1", tools: ["echo"],
+  }));
+  const lost = await b.runner.deliver(runId);
+  assert.equal(lost.why, "lease-lost", `stopped for "${lost.why}"`);
+  // NOTHING WAS WITHDRAWN WHEN THE FIRST DELIVERY ASKED — the control, without which the
+  // second delivery's refusal could be a revocation that was always there.
+  assert.deepEqual(b.revokeAsks, [{ tenant: "t1", agentId: "a-1" }]);
+  assert.deepEqual(b.events.filter((e) => e.at === "tools-revoked"), []);
+
+  // SOMEBODY TAKES THE TOOL AWAY BETWEEN THE TWO DELIVERIES OF ONE RUN.
+  b.revoke("echo");
+  const again = await b.runner.deliver(runId);
+  assert.equal(again.why, "ran", again.error);
+  assert.equal(b.revokeAsks.length, 2, "the second delivery did not ask again");
+
+  // AND THE SECOND DELIVERY SAW IT. The snapshot is unchanged and still names `echo` as
+  // selected, which is exactly what makes this about the live read.
+  const heard = b.events.filter((e) => e.at === "tools-revoked");
+  assert.equal(heard.length, 1);
+  assert.deepEqual(heard[0].tools, ["echo"]);
+  const said = [...b.rest.entries.get(runId).values()].find((e) => e.kind === "tool");
+  assert.equal(said?.value?.error, "tool-revoked", JSON.stringify(said?.value));
 });
 
 test("...AND IT IS READ AGAIN ON EVERY DELIVERY, which is what makes it a SNAPSHOT", async () => {

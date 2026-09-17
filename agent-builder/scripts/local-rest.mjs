@@ -166,7 +166,11 @@ for (const name of ONCE_OF) {
 const AGENT_COLUMNS = new Set(["id", "tenant_id", "name", "instructions", "created_at", "updated_at",
   "last_message", "status", "tools"]);
 const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "run_id",
-  "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at"]);
+  "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at",
+  // ⚠ THE TWO THAT TELL FIVE STATES APART. A shim that refuses a column the view really has
+  // reports the product as broken, and one that ignores the list would hide a route asking
+  // for a column that does not exist — which is why this is a SET and not a pass-through.
+  "run_open_calls", "run_awaiting"]);
 
 /** The automations' own columns, and their executions'. A third set, for a third half. */
 const AUTOMATION_COLUMNS = new Set(["id", "agent_id", "tenant_id", "name", "enabled", "schedule",

@@ -477,7 +477,33 @@ export const STANDIN_MODEL = "stand-in";
  * without. Every run is exactly one of them, so the screen needs no fifth branch
  * and no "unknown" that reads as a blank bubble.
  */
-export const RUN_STATES = Object.freeze(["queued", "working", "answered", "failed"]);
+/**
+ * ⚠ **SEVEN STATES, AND FOUR OF THEM USED TO BE ONE WORD.**
+ *
+ * `working` covered a run really thinking, a run waiting for a person, a run that can never
+ * move again, and a run somebody stopped — the last two for EVER, which is the one thing the
+ * requirement names out loud. Each of the four wants something different done about it, so
+ * each has to be sayable:
+ *
+ *   `queued`   — accepted, nothing done yet.
+ *   `working`  — a step is under way.
+ *   `waiting`  — a person can still answer a request; the screen's banner is the thing to do.
+ *   `unresolved` — tool calls with no result and NOBODY able to answer. It will not move on
+ *                its own, and nothing about it is a failure: it is a run that needs a person
+ *                to decide, and until this existed it read as *working*.
+ *   `answered` — it finished and said something.
+ *   `cancelled`— somebody stopped it. **Not `failed`**: nothing went wrong, and the run's own
+ *                stop carries who stopped it and how far it got.
+ *   `failed`   — it stopped without answering, with the engine's own reason.
+ *
+ * **NOTHING WAS REDESIGNED TO GET THEM.** `agent.runs.status` is still `new | running |
+ * stopped`, projected off the log; the two facts that tell the middle four apart are columns
+ * appended to the view the screen already reads, and both come out of relations the customer
+ * can already see.
+ */
+export const RUN_STATES = Object.freeze([
+  "queued", "working", "waiting", "unresolved", "answered", "cancelled", "failed",
+]);
 
 /**
  * What a message's run looks like on the wire, or `null` if it started none.
@@ -504,7 +530,29 @@ export function runView(r) {
   const simulated = (r && r.run_model) === STANDIN_MODEL;
   const at = ms(r && r.run_stopped_at);
   if (r.run_status !== "stopped") {
-    return { id, state: step > 0 ? "working" : "queued", step, simulated, text: "", why: "", at: 0 };
+    // ⚠ **A RUN NOBODY CAN MOVE MUST NOT READ AS WORKING.** A run waiting for a person has
+    // its work row marked done and the log left open, so nothing is going to deliver it until
+    // somebody answers — and the answer might be unreachable (a withdrawn request, a closed
+    // window) or the calls might never have been asked about at all. Three different things
+    // to do about it, so three different words.
+    //
+    // ⚠ REFUSED, NEVER COERCED, on both facts. `run_awaiting` must be the boolean `true` —
+    // a string `"false"` is truthy and would put every run in the waiting state — and
+    // `run_open_calls` must be a real integer, because a view that answered `null` for it
+    // (a reader asking for fewer columns, an older deployment) must read as "nothing to say"
+    // rather than as a stranding.
+    const awaiting = (r && r.run_awaiting) === true;
+    const open = Number.isInteger(r && r.run_open_calls) && r.run_open_calls > 0 ? r.run_open_calls : 0;
+    // THE ORDER IS THE MEANING. A person who CAN answer is the thing to do, whatever else is
+    // true; only when nobody can does an unanswered call become a stranding.
+    const state = awaiting ? "waiting" : open > 0 ? "unresolved" : step > 0 ? "working" : "queued";
+    // `open` RIDES ON THE ANSWER for the two states it is about, because "one call" and "four
+    // calls" are different things for somebody deciding what to do — and it is left off the
+    // ordinary states rather than sent as 0, which would invite a reader to draw it.
+    return {
+      id, state, step, simulated, text: "", why: "", at: 0,
+      ...(state === "waiting" || state === "unresolved" ? { open } : {}),
+    };
   }
   if (stop && stop.reason === "answered") {
     // The text is whatever the run produced. It is NOT trimmed, coerced or
@@ -518,6 +566,25 @@ export function runView(r) {
   // which is a cannot-tell said out loud rather than an empty string that reads
   // like a reason nobody wrote down.
   const why = stop && typeof stop.reason === "string" && stop.reason ? stop.reason : "unknown";
+  // ⚠ **A RUN SOMEBODY STOPPED IS NOT A RUN THAT FAILED.** Nothing went wrong: a person asked
+  // for it to stop, and the stop carries who and how far it got. Reading it as `failed` would
+  // tell them their own decision was a fault — and `cancelled` is the one non-answered stop
+  // that a screen should not offer to retry.
+  if (why === "cancelled") {
+    return {
+      id, state: "cancelled", step, simulated, text: "", why, at,
+      // WHO, AND WHAT HAD ALREADY RUN. *Don't claim completed effects were undone*: the
+      // counts are the only honest thing to say about a cancelled run, so they travel with it
+      // rather than being left in a journal nothing on this side reads.
+      // WHO STOPPED IT, through `cleanId` because it is an account id and the wire must not
+      // carry whatever else a stop body happens to hold. An unreadable one is `""` — absent
+      // rather than guessed, which is the only honest answer when the journal cannot say.
+      by: cleanId(stop && stop.cancelledBy) || "",
+      note: typeof stop?.note === "string" ? stop.note : "",
+      completedSteps: Number.isInteger(stop?.completedSteps) ? stop.completedSteps : 0,
+      completedCalls: Number.isInteger(stop?.completedCalls) ? stop.completedCalls : 0,
+    };
+  }
   return { id, state: "failed", step, simulated, text: "", why, at };
 }
 
@@ -747,7 +814,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       // is plain SQL and the schema check drives it on a real PostgreSQL.
       const r = await req("GET",
         `agent_thread?agent_id=eq.${agentId}` +
-        `&select=id,body,created_at,seq,run_id,run_status,run_stop,run_step,run_model,run_stopped_at` +
+        `&select=id,body,created_at,seq,run_id,run_status,run_stop,run_step,run_model,run_stopped_at,run_open_calls,run_awaiting` +
         `&order=seq.desc&limit=${MAX_THREAD}`);
       if (!r.ok) throw storeFail("read messages", r);
       return rows(r).map(threadRow).reverse();

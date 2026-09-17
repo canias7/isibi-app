@@ -946,6 +946,33 @@ test("⚠ THE REVOCATION AND CANCELLATION OPERATIONS: what each really sends", a
   assert.deepEqual(sent[4].body, { p_tenant: T, p_run_id: RUN, p_by: "person-1", p_reason: "changed my mind" });
 });
 
+test("⚠ THE EXPIRY SWEEP'S ANSWER IS A LIST OR IT IS NOTHING", async () => {
+  // `requeue_expired_approvals` is a set-returning function, so the answer is a list of
+  // rows. Anything else is a shape this deployment does not understand, and the caller
+  // ITERATES it — `worker.scheduled` walks the rows looking for the ones it really
+  // re-queued, so a string answer would be walked CHARACTER BY CHARACTER and an object
+  // would throw inside the cron block that keeps the sweeper alive.
+  //
+  // ⚠ AND IT IS THE PLATFORM SWEEP, so there is no tenant to scope it to — that is not a
+  // hole in the closure rule (`forTenant` is what every OPERATION comes from); it is
+  // `reclaimable`'s own shape, reachable only from `worker.scheduled`.
+  for (const bad of [{ ok: true }, "requeued", 7, null, undefined]) {
+    const { can } = backend(() => bad);
+    assert.deepEqual(await can.expiredApprovals({ limit: 10 }), [], JSON.stringify(bad) ?? "undefined");
+  }
+  // THE CONTROL: a real answer comes through WHOLE, rows and all — without it, a reader
+  // that answered `[]` for everything would satisfy every line above.
+  const rows = [{ run: RUN, tenant: T, action: "requeued" }];
+  const { can, sent } = backend(() => rows);
+  assert.deepEqual(await can.expiredApprovals({ limit: 10 }), rows);
+  assert.equal(sent.at(-1).rpc, "requeue_expired_approvals");
+  assert.equal(sent.at(-1).body.p_limit, 10);
+  // AND AN UNASKED LIMIT IS THE FUNCTION'S OWN, never a number invented here: the bound on
+  // one tick belongs where the query is.
+  await can.expiredApprovals();
+  assert.equal(sent.at(-1).body.p_limit, null);
+});
+
 test("⚠ A REVOCATION LIST THAT IS NOT A LIST OF NAMES IS NOT READ AS ONE", async () => {
   // `revoked_tools` is a set-returning function, so the answer is a bare list of strings.
   // Anything else is refused rather than coerced — `String(["act"])` is `"act"`, and a
