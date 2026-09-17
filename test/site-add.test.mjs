@@ -1351,3 +1351,84 @@ test("addRepairNote: quiet on a fix that held; a fix there was no time for, or t
   const mixed = REPAIR.addRepairNote({ ran: true, built: { files: {} }, repaired: ["/gear"], refused: [{ route: "/prices", reason: "cannot" }] });
   assert.match(mixed, /\/prices/); assert.doesNotMatch(mixed, /\/gear/); assert.match(mixed, /published as it is/);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE PLANNED-ROUTE HAND-OFF, AT THE MODULE (2026-09-17)
+//
+// The route-level demonstrations are in `test/addon-route.test.mjs`, where each
+// of these is driven through `POST /api/site/<slug>/addon`. These are the
+// branches a route case cannot separate — the shortcut's own boundary, the
+// second-add refusal, and the two halves of the note — every one a survivor of
+// the first mutation pass rather than a case written from the code.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a page this change is adding is a destination, is not a page the site HAS, and cannot be added twice", () => {
+  const ADDING = { ...SITE, planned: [{ path: "/gallery", name: "Gallery" }] };
+  const on = (page, site) => cleanAdd("component", [{ page, does: "a caption", components: ["card"] }], site);
+
+  // THE ONE-PAGE SHORTCUT READS THE SITE AS IT WILL BE, not as it is. Its whole
+  // justification is "there is exactly one place this can go", which expires
+  // the instant this same change adds a second page — the recorded "a rule true
+  // because of a layer below it expires when that layer moves", where the layer
+  // is this message's own earlier designer.
+  assert.equal(on("", SITE).value[0].page, "/", "a site really adding nothing lost the shortcut");
+  assert.equal(on("", ADDING).why, "no-page", "an unplaced section landed on the home page of a site that is growing a second one");
+  assert.equal(on("", { ...MULTI, planned: [] }).why, "no-page", "the multi-page refusal moved");
+
+  // A PLANNED ROUTE IS A DESTINATION, and one nobody is adding still is not.
+  assert.equal(on("/gallery", ADDING).value[0].page, "/gallery");
+  assert.equal(on("/gallery", SITE).why, "no-page");
+  assert.equal(on("/prices", ADDING).why, "no-page", "any route at all became a destination");
+
+  // …AND IT IS STILL NOT A PAGE THE SITE HAS: adding it a second time is the
+  // same refusal as adding one that is already live.
+  const pg = (path) => cleanAdd("page", [{ path, name: "G", purpose: "show the work", sections: ["a grid"] }], ADDING);
+  assert.equal(pg("/gallery").why, "page-exists", "a page this change already plans could be made a second time");
+  assert.equal(pg("/prices").ok, true, "a route nobody has and nobody is adding stopped being addable");
+
+  // THE SHAPE IS TOLERANT AT THE EDGES, because the route hands `{path, name}`
+  // and a caller with only routes is a legitimate reading of the same fact.
+  assert.equal(on("/gallery", { ...SITE, planned: ["/gallery"] }).value[0].page, "/gallery");
+  assert.equal(on("/gallery", { ...SITE, planned: [null, 7, {}, { path: "" }] }).why, "no-page");
+});
+
+test("the note says a planned page is coming, never that it is there, and tells written components from declared ones", () => {
+  const coming = siteNote({ name: "Fretwork", pages: ["/"], labels: { "/": "Guitar repairs" },
+    planned: [{ path: "/gallery", name: "Gallery" }] });
+  // TWO LINES, AND THE FIRST IS THE SITE AS IT IS. Folding the planned page in
+  // would send a designer looking for source that does not exist yet.
+  assert.match(coming, /^Its pages are: \/ \("Guitar repairs"\)\.$/m, coming);
+  assert.match(coming, /^This same change is ALSO adding a page, which do(es)? not exist yet: \/gallery \("Gallery"\)\./m, coming);
+  assert.doesNotMatch(coming, /^Its pages are: [^\n]*gallery/m, "the planned page was presented as one the site has");
+  // A SITE ADDING NOTHING READS EXACTLY AS IT ALWAYS DID.
+  assert.doesNotMatch(siteNote({ name: "Fretwork", pages: ["/"] }), /ALSO adding/);
+  assert.doesNotMatch(siteNote({ name: "Fretwork", pages: ["/"], planned: [{ path: "/" }] }), /ALSO adding/,
+    "a planned route the site already has was announced as new");
+
+  // ── WRITTEN VERSUS DECLARED ─────────────────────────────────────────────
+  //
+  // `tsx` is the cumulative DECLARATION list and says nothing about whether
+  // anything was ever written; `parts` is what has a file. Three states, and
+  // the third is why `null` is not `[]`.
+  const both = siteNote({ name: "F", pages: ["/"],
+    tsx: [{ name: "tide-chart" }, { name: "catch-log" }], parts: [{ name: "tide-chart" }] });
+  assert.match(both, /already written: tide-chart/, both);
+  assert.match(both, /nothing has written yet: catch-log/, both);
+  assert.doesNotMatch(both, /already written: [^\n;]*catch-log/, "a declaration with no file was called written");
+  assert.doesNotMatch(both, /nothing has written yet: [^\n;]*tide-chart/, "a component with a file was called unwritten");
+  // A READ THAT FAILED IS NOT A SITE WITH NO COMPONENTS: `null` leaves the old
+  // sentence, which is what every caller that passes no `parts` gets.
+  assert.match(siteNote({ name: "F", pages: ["/"], tsx: [{ name: "tide-chart" }] }), /parts written for it: tide-chart/);
+  assert.match(siteNote({ name: "F", pages: ["/"], tsx: [{ name: "tide-chart" }], parts: null }), /parts written for it: tide-chart/,
+    "a failed parts read was reported as a site with no components of its own");
+  assert.match(siteNote({ name: "F", pages: ["/"], tsx: [{ name: "tide-chart" }], parts: [] }), /nothing has written yet: tide-chart/,
+    "a site that really has no component files was not said to have none");
+
+  // AND THE LOOK IT IS WEARING, in names — the thing every add rule tells a
+  // designer to keep and nothing in its inputs used to state.
+  const look = siteNote({ name: "F", pages: ["/"], theme: "harbour-slate", css: true });
+  assert.match(look, /Its theme is harbour-slate/, look);
+  assert.match(look, /stylesheet written for it/, look);
+  assert.doesNotMatch(siteNote({ name: "F", pages: ["/"] }), /Its theme is/);
+  assert.doesNotMatch(siteNote({ name: "F", pages: ["/"], theme: "harbour-slate" }), /stylesheet written for it/);
+});

@@ -2456,6 +2456,11 @@ test("a returned component may replace one the writer WAS shown, and may not rep
   const r = await addon("fw-parts-wall", "change the chart's caption", {
     kinds: ["component"], publishes: true,
     parts: [{ name: "huge-thing", source: BIG }, { name: "small-thing", source: SMALL }],
+    // BOTH ARE ALSO DECLARED ON THE LOOK, which is the ordinary state of a site
+    // that has them — and it is what makes the "to build" filter observable: a
+    // filter keyed on what was SHOWN would put `huge-thing` back under
+    // "Components to build" and ask for exactly the rewrite the wall refuses.
+    look: { tsx: [{ name: "huge-thing", does: "a huge thing", props: "none" }, { name: "small-thing", does: "a small thing", props: "none" }] },
     writtenParts: [
       { name: "huge-thing", source: "export default function Huge(){ return <p>rewritten from a description</p> }" },
       { name: "small-thing", source: "export default function Small(){ return <p>edited</p> }" },
@@ -2471,6 +2476,12 @@ test("a returned component may replace one the writer WAS shown, and may not rep
   assert.ok(page.text.includes("small</p>"), "the small component's source was not shown — this case tests nothing");
   assert.ok(!page.text.includes("x".repeat(200)), "the huge component's source WAS shown — this case tests nothing");
   assert.match(page.text, /too long to include here: huge-thing/, "a withheld component was not named to the writer");
+  // AND NEITHER IS OFFERED TO BE BUILT, though both are declared on the look:
+  // one because its source is right there, the other because it exists and
+  // could not be carried. A filter keyed on what was shown would fail here.
+  const build = page.text.indexOf("Components to build");
+  assert.ok(build < 0 || !page.text.slice(build).includes("huge-thing"),
+    "a component too long to show was offered to be written from its description: " + page.text.slice(build, build + 600));
 
   // THE WALL: the one it could not see is kept, the one it could see is taken.
   assert.deepEqual(r.body.keptParts, ["huge-thing"], "the wall did not hold: " + JSON.stringify(r.body.keptParts));

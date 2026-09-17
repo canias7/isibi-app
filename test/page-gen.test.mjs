@@ -5232,3 +5232,85 @@ test("ZERO FALSE ALARMS ON THE REAL CORPUS — measured, not argued", () => {
   assert.ok(withImports > 3000, "only " + withImports + " of " + files.length + " files carried an import — the scan is reading the wrong things");
   assert.deepEqual(alarms, [], "these correct files were rewritten by the duplicate-import repair:\n  " + alarms.join("\n  "));
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SITE'S OWN COMPONENTS, AND THE LOOK IT IS WEARING (2026-09-17)
+//
+// The addon route's demonstrations are in `test/addon-route.test.mjs`. These are
+// the bounds a route case cannot reach — what one request may carry, and what is
+// said about what it could not — and every one of them is a survivor of the
+// first mutation pass rather than a case written from the code.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("partsSent bounds one component and the whole block, and names what it could not carry", () => {
+  const big = (n, len) => ({ name: n, source: "x".repeat(len) });
+  // ONE COMPONENT'S OWN CEILING.
+  assert.deepEqual(api.partsSent([big("a", api.MAX_PART_CHARS)]).shown.map((p) => p.name), ["a"]);
+  assert.deepEqual(api.partsSent([big("a", api.MAX_PART_CHARS + 1)]).withheld, ["a"]);
+
+  // AND THE WHOLE REQUEST'S, which is a SECOND number rather than the same one:
+  // a single enormous component must not crowd out four small ones, and forty
+  // small ones must not add up to a request nothing else fits in.
+  // THE SLICE IS DERIVED FROM BOTH BOUNDS AND THEN CHECKED, so the case cannot
+  // quietly stop separating them the day either number moves: four must overrun
+  // the block, three must fit inside it, and each must be under the per-component
+  // ceiling or the wrong bound is doing the refusing.
+  const each = Math.min(api.MAX_PART_CHARS, Math.floor(api.MAX_PARTS_CHARS / 4) + 1);
+  assert.ok(each <= api.MAX_PART_CHARS && each * 3 <= api.MAX_PARTS_CHARS && each * 4 > api.MAX_PARTS_CHARS,
+    "the probe cannot separate the two bounds — " + each + " against " + api.MAX_PART_CHARS + " / " + api.MAX_PARTS_CHARS);
+  const many = api.partsSent([big("a", each), big("b", each), big("c", each), big("d", each)]);
+  assert.deepEqual(many.shown.map((p) => p.name), ["a", "b", "c"], "the whole-request bound let a fourth component through");
+  assert.deepEqual(many.withheld, ["d"]);
+
+  // NOTHING IS DROPPED IN SILENCE: every name the site has a file for is in
+  // `names`, whichever list carried it, and that is what `tsxDirective` filters
+  // on — a component withheld for size is still one that EXISTS.
+  assert.deepEqual(many.names, ["a", "b", "c", "d"]);
+  assert.deepEqual(api.partsSent(null), { shown: [], withheld: [], names: [] });
+  assert.deepEqual(api.partsSent([{ name: "a", source: "x" }, { name: "a", source: "y" }]).names, ["a"], "one name, twice");
+  // IN STORED ORDER AND NEVER SORTED BY SIZE, or which component is shown would
+  // depend on the others and an unrelated addition could withdraw one silently.
+  assert.deepEqual(api.partsSent([big("big", api.MAX_PART_CHARS), big("small", 10)]).shown.map((p) => p.name), ["big", "small"]);
+});
+
+test("the components a request could not carry are named, and told apart from the ones it can", () => {
+  const sent = api.partsSent([{ name: "small", source: "export default () => null" }, { name: "huge", source: "y".repeat(api.MAX_PART_CHARS + 1) }]);
+  const block = api.partsDirective(sent);
+  assert.ok(block.includes("export default () => null"), "the carried component's source is absent: " + block);
+  assert.match(block, /too long to include here: huge/, block);
+  // THE WITHHELD HALF IS ONLY WORTH ANYTHING IF IT SAYS WHAT TO DO. Naming a
+  // component and leaving it at that is an invitation to write it again, which
+  // is the defect this whole block exists to stop.
+  assert.match(block, /do NOT return a file in `parts` for/, "a withheld component was named with no instruction: " + block);
+  // AND A SITE WITH NONE SENDS NOTHING AT ALL.
+  assert.equal(api.partsDirective(api.partsSent([])), "");
+  assert.equal(api.partsDirective(null), "");
+  // BOTH LISTS FEED THE FILTER, so neither kind is offered to be built again.
+  const tsx = [{ name: "small", does: "a small thing", props: "none" }, { name: "huge", does: "a huge thing", props: "none" }, { name: "new", does: "a new thing", props: "none" }];
+  const build = api.tsxDirective(tsx, sent.names);
+  assert.ok(build.includes("new"), build);
+  assert.ok(!build.includes("small") && !build.includes("huge"), "a component the site already has was offered to be written again: " + build);
+});
+
+test("the stylesheet is sent as already applied, and a cut one says it was cut", () => {
+  const short = api.styleDirective({ theme: "harbour-slate", css: ".a{color:red}" });
+  assert.match(short, /theme is \*\*harbour-slate\*\*/, short);
+  assert.ok(short.includes(".a{color:red}"), short);
+  assert.match(short, /ALREADY APPLIED/, "the sheet was offered without saying it is already in force");
+  assert.doesNotMatch(short, /characters of it/, "a sheet that fitted whole was announced as cut");
+
+  // A CUT SHEET SAYS SO. A truncated stylesheet presented whole has the model
+  // conclude a selector does not exist and write the rule inline instead —
+  // where editing the stylesheet can no longer reach it.
+  const long = ".x{}".repeat(api.MAX_STYLE_CHARS);
+  const cut = api.styleDirective({ css: long });
+  assert.match(cut, new RegExp("The first " + api.MAX_STYLE_CHARS + " characters of it, of " + long.length + ":"), cut.slice(0, 500));
+  assert.ok(cut.length < long.length, "the whole sheet went out anyway");
+
+  // EACH HALF STANDS ALONE, and a site with neither sends nothing.
+  assert.match(api.styleDirective({ theme: "harbour-slate" }), /theme is/);
+  assert.doesNotMatch(api.styleDirective({ theme: "harbour-slate" }), /stylesheet/);
+  assert.equal(api.styleDirective({}), "");
+  assert.equal(api.styleDirective(), "");
+  assert.equal(api.styleDirective({ theme: "   ", css: "  " }), "");
+});

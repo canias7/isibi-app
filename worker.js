@@ -24682,12 +24682,18 @@ async function handleRequest(request, env, ctx) {
             // NAMED, NEVER DROPPED IN SILENCE — `aKeptParts` rides the reply
             // and the trace, because a component the customer asked to change
             // and did not get changed is the one thing they must hear.
-            const aShownParts = new Set(aSentParts.shown.map((p) => p.name.toLowerCase()));
+            // `withheld` IS THE WHOLE TEST, and the obvious second half was
+            // DEAD BY CONSTRUCTION. The first draft also asked "…unless it was
+            // shown", which reads as a belt and cannot ever fire: `partsSent`
+            // sends each component down exactly one branch and dedupes names
+            // first, so `shown` and `withheld` are disjoint — MEASURED over
+            // five shapes, including a name given twice at both sizes and a
+            // list that overruns the whole-request bound. A sweep mutant
+            // cutting that line survived everything, which is what said so.
             const aKeptParts = [];
             const aFreshParts = (Array.isArray(aValid.parts) ? aValid.parts : []).filter((p) => {
               const n = String((p && p.name) || "").toLowerCase();
               if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;
-              if (aShownParts.has(n)) return true;
               aKeptParts.push(p.name);
               return false;
             });

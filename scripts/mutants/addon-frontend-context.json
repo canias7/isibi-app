@@ -17,7 +17,6 @@
   "to": " * THE COMPONENTS THIS SITE ALREADY HAS, WITH THEIR REAL SOURCE (control).",
   "control": true
  },
-
  {
   "label": "a planned route is not a destination — the reported defect, restored",
   "files": [
@@ -66,7 +65,6 @@
   "from": "        if (going.includes(path) || ctx.paths.includes(path)) return { ok: false, why: \"page-exists\" };",
   "to": "        if (have.includes(path) || ctx.paths.includes(path)) return { ok: false, why: \"page-exists\" };"
  },
-
  {
   "label": "the route never tells a later designer about a page this change is adding",
   "files": [
@@ -107,7 +105,6 @@
   "from": "    lines.push(\"This same change is ALSO adding \" + (coming.length === 1 ? \"a page\" : coming.length + \" pages\") + \", which do not exist yet: \" +",
   "to": "    lines.push(\"Its pages also include \" + (coming.length === 1 ? \"a page\" : coming.length + \" pages\") + \": \" +"
  },
-
  {
   "label": "the page writer is not shown the site's own component source",
   "files": [
@@ -156,7 +153,6 @@
   "from": "      \"They exist and they work. Import and call them exactly as above, and do NOT return a file in `parts` for\",",
   "to": "      \"They exist and they work.\","
  },
-
  {
   "label": "a returned component replaces one the writer was never shown",
   "files": [
@@ -166,20 +162,12 @@
   "to": "              return true;"
  },
  {
-  "label": "the wall reads a second `partsSent` over a re-read store rather than the one the prompt was built from",
+  "label": "the wall reads the DECLARATIONS rather than the store the prompt was built from, so it refuses nothing",
   "files": [
    "worker.js"
   ],
-  "from": "            const aShownParts = new Set(aSentParts.shown.map((p) => p.name.toLowerCase()));",
-  "to": "            const aShownParts = new Set(partsSent(await loadSiteParts(env, ownerSlug)).withheld.map((p) => String(p).toLowerCase()));"
- },
- {
-  "label": "the wall refuses everything, including a component the writer really was shown",
-  "files": [
-   "worker.js"
-  ],
-  "from": "              if (aShownParts.has(n)) return true;",
-  "to": "              if (false) return true;"
+  "from": "              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;",
+  "to": "              if (!partsSent(aMerged.tsx).withheld.some((w) => w.toLowerCase() === n)) return true;"
  },
  {
   "label": "a kept component is not named on the reply",
@@ -213,7 +201,6 @@
   "from": "  if (typeof a.keptPartsNote === 'string' && a.keptPartsNote) out += ' ' + a.keptPartsNote;",
   "to": "  void a.keptPartsNote;"
  },
-
  {
   "label": "the page writer is not shown the theme or the stylesheet",
   "files": [
@@ -246,7 +233,6 @@
   "from": "              theme: typeof aLook.theme === \"string\" ? aLook.theme : \"\",",
   "to": "              theme: \"\","
  },
-
  {
   "label": "the page call's plan carries only what THIS change declares",
   "files": [
@@ -279,7 +265,6 @@
   "from": "      if (!m[2].startsWith(\"routes/-parts/\")) {\n        const mod = m[2].split(\"/\").pop();",
   "to": "      {\n        const mod = m[2].split(\"/\").pop();"
  },
-
  {
   "label": "the components the site really has are read off the DECLARATIONS rather than the store",
   "files": [
@@ -311,5 +296,13 @@
   ],
   "from": "    const onlyPlanned = declared.filter((n) => !lower.includes(n.toLowerCase()));",
   "to": "    const onlyPlanned = declared;"
+ },
+ {
+  "label": "the wall asks whether the component was SHOWN rather than whether it was withheld — the disjoint pair, inverted",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;",
+  "to": "              if (aSentParts.shown.some((w) => w.name.toLowerCase() === n)) return true;"
  }
 ]

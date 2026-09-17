@@ -592,6 +592,19 @@ test("HOP 6b: the browser prints the server's sentence and composes none of its 
   // server fills, and the server is still the only composer.
   assert.match(W, /coverNote: \[\n\s*requirementNote\(/, "the server sends a field the browser does not read");
   assert.match(W, /missingPagesNote\(aMissing\),/, "the missing-page sentence never reaches the field the browser prints");
+  // ── AND THE SECOND SENTENCE THAT FOLLOWS THIS RULE (2026-09-17) ──────────
+  //
+  // A component the page writer was not shown and would have replaced: the
+  // decision is entirely the server's, because it is the only thing that knows
+  // which component sources fitted in the request. Asserted on BOTH sides for
+  // the reason above — either alone is half a wire — and the browser must
+  // compose nothing of its own about it, which is what the third assertion is:
+  // the only sentence in that file naming a kept component is the one it
+  // prints verbatim.
+  assert.match(C, /if \(typeof a\.keptPartsNote === 'string' && a\.keptPartsNote\) out \+= ' ' \+ a\.keptPartsNote;/,
+    "the addon reply does not say a component was kept rather than replaced");
+  assert.match(W, /keptPartsNote: keptPartsNote\(aKeptParts\) \|\| undefined,/, "the server sends no sentence for the field the browser prints");
+  assert.doesNotMatch(C, /too long for me to read in one go/, "the browser composes its own kept-component sentence");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
