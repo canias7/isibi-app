@@ -4757,3 +4757,220 @@ When it goes the order is the recorded one — **migration → engine → site**
 migration's reason is the sharpest yet: the site's thread read asks for `run_open_calls` and
 `run_awaiting` BY NAME, so against a view that has not got them PostgREST answers 400 and
 every account's conversation fails to load. Not degraded — refused.
+
+---
+
+## Milestone 10: richer workflows — types, loops, error paths, subworkflows (2026-09-17)
+
+Owner: *"Build richer workflows: typed inputs and outputs with validated references;
+bounded loops with durable iteration progress; subworkflows with version snapshots and
+depth limits; explicit error paths and bounded retries; durable waits for events as well
+as time and approvals. Prove that restarting inside a loop, branch, or subworkflow
+resumes correctly without repeating completed effects. Enforce execution budgets across
+parent and child workflows."*
+
+**FOUR OF THE FIVE ARE BUILT AND THE FIFTH IS DEFERRED ON PURPOSE.** Durable waits for
+EVENTS belong with the triggers milestone — an event wait and an inbound event are one
+mechanism, and building the waiting half without the arriving half would be a control
+that answers — so it is recorded there rather than half-done here.
+
+### Typed values: one table in two languages
+
+`VALUE_TYPES` is `text · number · list` and `TYPE_ACCEPTS` says what may be used where.
+A step declares what it PRODUCES (derived at declaration, never taken from a stored row)
+and a reference field declares what it ACCEPTS, so a list handed to a field that wants
+text is refused **while it is still somebody's form** rather than resolving to
+`String(["a"])` at run time.
+
+- **`accepts` MUST PAIR WITH `refs: true`**, or it is an opinion about references on a
+  field that takes none — a dead declaration, refused at author time.
+- **ABSENT MEANS `text`**, which is what every field that existed before this wanted, so
+  nothing moved.
+- **AN `accepts` OUTSIDE THE TABLE IS REFUSED RATHER THAN IGNORED**: `TYPE_ACCEPTS[undefined]`
+  is `undefined`, and a lookup nothing can satisfy reads exactly like no wall at all.
+
+### Bounded loops, and the iteration is a ROW
+
+`repeat`/`endrepeat`, over a named list or a fixed number of times.
+
+- **`BLOCK_SHAPES` IS A TABLE, NOT TWO HARDCODED NAMES.** `branchMap` walks a stack of
+  shapes, so a closer must close its OWN kind of block (an "End of the if" under a
+  "Repeat" is refused by name and by position) and a middle marker must belong to its own
+  opener. Matching by count alone would pair a loop with a branch's end and balance
+  perfectly while meaning something nobody asked for.
+- **NOTHING BOUND INSIDE A LOOP SURVIVES ITS END**, and that is the same rule an `if` with
+  no `otherwise` already has rather than a special case: a list can be empty, so the body
+  may never run, and the zero-iterations path is a real path.
+- **THE ITERATION IS DURABLE.** `loops` carries each open repeat's index and its resolved
+  list; outcome keys are `<position>#<open>.<iteration>`, so a step inside a loop has one
+  outcome per round and a resume reads the round it is really on. **THE LIST IS
+  SNAPSHOTTED WHEN THE LOOP OPENS** — the same rule an execution's steps follow at
+  acceptance — because a loop re-reading its source each time round would iterate
+  something that changed under it.
+- **`MAX_LOOP_ITERATIONS` 50, `MAX_LOOP_DEPTH` 2, `MAX_STEP_RUNS` 200**, and the third is
+  the one loops make necessary: `MAX_WORKFLOW_STEPS` bounds the LIST, and with loops the
+  resource is RUNS. An empty list runs `rounds: 0` and skips the body; an over-long one is
+  refused WHOLE rather than truncated.
+
+### Error paths: stop, carry on, or try again
+
+- **ABSENT MEANS `stop` AND STORES NOTHING**, so every workflow saved before this round
+  trips byte for byte and nothing is migrated.
+- **THE OPTIONS ARE THE WALL AND THEY ARE THE FIELD'S OWN.** `errorPathFields` is derived
+  from the step's KIND, so a fifth failable step next month carries the controls by
+  existing — and `retry` is simply absent from a step whose answer a second attempt could
+  not change, which makes "there is no such path" and "that path is not available here"
+  ONE refusal off one declaration rather than a second rule beside the list.
+- **`knowledge` IS THE ONLY RETRYABLE STEP**, because it is the only one that reaches
+  outside the executor (its `retrieve` is an injected seam to the database), so a refusal
+  there can be an outage rather than an answer. `memory` reads a snapshot taken at
+  acceptance, `note` substitutes a string and `weekday` compares a date fixed for the
+  whole execution: trying any of those again spends a step run to reach the same answer.
+- **A BRANCH AND A PAUSE MAY NOT DECLARE ONE, and the two that may not are the interesting
+  half.** An `if` is always `ran` — it did its job, which was to choose — and a REJECTION
+  is a person saying no, so carrying on past one would be a workflow ignoring them.
+- **`continue` DOES NOT MAKE A FAILURE A SUCCESS.** The step keeps its `failed` outcome and
+  its own error; what changes is only whether the steps below run. The execution is still
+  `done` — it ran to its end as configured — but the stop carries **`carried`**, the number
+  of failures it went past, because `done` alone would report a success over a failure
+  nobody reads. `executionRow` surfaces it on `done` and on no other state.
+- **A RETRY IS A STEP RUN.** The outcome row is overwritten by each attempt, so counting
+  rows alone would make retries free against `MAX_STEP_RUNS` and a workflow could buy
+  itself unbounded work by asking for them. `runsSpent` adds the durable attempt counts,
+  and a retry that cannot be afforded is SAID rather than quietly skipped.
+- **THE COUNT IS DURABLE, AND THAT IS THE WHOLE OF "BOUNDED" UNDER INTERRUPTION.** A
+  counter living in the process gives every delivery a fresh budget — bounded retries,
+  unbounded in practice. It is keyed exactly as an outcome is, so inside a loop it is **per
+  round**: round three failing is not evidence about round one and must not inherit its
+  exhausted budget.
+- **IT GOVERNS THE TWO WAYS A STEP SAYS IT FAILED** — it threw, or it answered `failed` —
+  **and nothing else.** A row this deployment cannot read, a reference that resolves to
+  nothing, a branch that does not balance: those are not failing steps, they are a workflow
+  that does not match what somebody saved, and carrying on past one would run a different
+  workflow while reporting the one they wrote.
+- **`MAX_STEP_RETRIES` 3, and retries exhausted is a STOP.** Asking for another attempt is
+  asking for the step to work, not for its failure to be ignored — so "try three times then
+  carry on" is not expressible, which is a stated trade rather than an oversight: the
+  alternative is a second choice beside the count, and nobody has asked for it.
+
+### Subworkflows: expanded, not called
+
+- **`expandWorkflow` REPLACES A `workflow` STEP WITH THE CHILD'S OWN STEPS BEFORE THE
+  EXECUTION STARTS.** So there is no new wait kind, no parent-child link, no second journal,
+  and no way for a child to be stranded while its parent waits — **and the budget is shared
+  BY CONSTRUCTION rather than by a check**, which is a stronger statement than the
+  requirement asks for: one flattened list, one `MAX_STEP_RUNS`, one set of outcomes, one
+  position a restart re-enters.
+- **THE SNAPSHOT IS THE STAMP.** Every spliced step carries `from` (the child) and `ver`
+  (the version copied in), and the answer carries `uses`. **The innermost origin wins**: a
+  grandchild's steps keep the grandchild's stamp, because those are its words.
+- **THE IDS ARE RE-MINTED BY FLATTENED POSITION, IN EXACTLY ONE PASS** — the recursion hands
+  its steps back unnumbered — because the executor keys outcomes on position and two
+  children both numbering their steps `s1` would collide.
+- **`MAX_SUBWORKFLOW_DEPTH` 2 BOUNDS THE CHAIN; `MAX_FLAT_STEPS` IS DERIVED FROM
+  `MAX_STEP_RUNS` and equals it**, because a list longer than the runs one execution may
+  make cannot finish however it is written.
+- **A CYCLE IS REFUSED BY NAME AND WITH ITS CHAIN, not as depth.** The bound would terminate
+  one either way, and "too deep" about a workflow that calls itself sends somebody looking
+  for nesting that is not there.
+- **A CHILD THAT DECLARES ITS OWN INPUTS IS REFUSED**, because nothing supplies them: a
+  subworkflow shares the parent's values and there is no argument list on the call step, so
+  every reference to such an input would resolve to nothing at run time — a workflow that
+  saves and then fails. Passing values in is the next increment and is deliberately not
+  built.
+- **NOT FOUND AND NOT THIS AGENT'S ARE ONE ANSWER**, and the LOOKUP is what enforces that:
+  `expandWorkflow` knows nothing about a tenant or an agent, so the wall lives where the
+  query is and what comes back here is data.
+- **A FLATTENED WORKFLOW IS VALIDATED AS ONE WORKFLOW.** A child may name what the parent
+  produced above the call, a forward reference is refused exactly as a typo is, and a branch
+  may open in the child and close in the parent — driven both ways round, so "one workflow"
+  is a measurement rather than a slogan.
+- **A CALL THAT REACHED THE EXECUTOR IS A ROW THAT WAS NEVER EXPANDED**, so it fails by name
+  rather than falling through to the action tail, which would read a call as a step that did
+  something. Declared pair with the step's own `run`, mutated together.
+
+### ⚠ The stamp did not survive validation, and that is the wiring layer one function along
+
+`readWorkflow` rebuilds each step from its READ config — which is right, and is what keeps
+a stored row from carrying a field nothing validated — and therefore DROPPED the `from`/`ver`
+a flattened subworkflow's steps carry. The snapshot was written by one function and thrown
+away by the one that runs next; a case caught it, not a reading. It passes through now,
+**CHECKED rather than trusted** (provenance decides nothing, so a forged pair is a wrong
+label rather than a hole, and a wrong label is still worth refusing) and **BOTH OR NEITHER**,
+because a `from` with no readable `ver` is a snapshot that cannot say what it captured.
+
+### ⚠ TWO COMMITS WERE PUSHED RED, and the reason is worth more than the fix
+
+The error-path round added an `on_error` control to the step catalog. The browser's form
+draws every catalog field generically and **a `<select>` always has a value**, so every step
+the form saved began carrying `on_error: "stop"` — bytes no workflow saved before it had, and
+the server's "absent means the default" unreachable from the one door that matters.
+`test/agent-binding.test.mjs` caught it and I did not run it: I ran the three agent test
+files whose NAMES matched what I had touched. **A change to a catalog the form draws from
+puts the browser guards in scope whatever their filename says**, which is this repository's
+own *re-run the thing the change is asserted by*.
+
+The fix is the opposite rule for the opposite reason, and both halves are now in the code:
+a REQUIRED choice has no blank option and no silent default, because one with nothing
+selected would save whichever value happened to be first; an OPTIONAL one offers a blank,
+because there the server owns what absent means. The blank NAMES the default, the reader
+sends nothing for it rather than `""` (a second way to say nothing on the wire), and a new
+step is seeded with no answer at all.
+
+### ⚠ And the refusal sentences diverge across the two doors — MEASURED, 15 of them
+
+Driving both validators over every step field with a wrong-kind value: **15 divergences
+across 11 fields**, every one pre-existing and none previously guarded. The site's generic
+`readStepField` names the field KEY where the engine's bespoke `read` carries its own phrase
+(`on_timeout has to be one of: …` against `what happens if nobody answers has to be one
+of: …`), and for a non-string in a required TEXT field the engine reads it as BLANK where
+the site refuses it as the wrong kind — a coercion.
+
+**THE `empty` SENTENCE IS THE PRECEDENT AND IT IS THE FIX**: the word lives on the FIELD and
+both doors read it. That closed the four blank-required divergences this round; the other 15
+need `defineStep` to hand each `read` a `said(name)` composer and `readTextField` to refuse a
+non-string, which is its own piece of work and is recorded rather than buried in this one.
+Two of this round's own readers were written the coercing way and were corrected on the spot,
+both caught by the cross-product census within the hour.
+
+### Measured
+
+- **Engine suite 435 → 460**, 0 failed (`automations.test.mjs` 51 → 76).
+- **Site suite 6,805** (6,803 pass, 2 skipped, 0 fail); `agent-send` 55 → 61,
+  `agent-automations` 37.
+- **Engine sweep spec 457 → 492 entries** (9 controls). The pass at the error-path commit
+  read **469 mutants, 467 killed, 2 survived, 8 comment-only controls**, and neither survivor
+  was the product's: one a real guard gap (nothing asserted the attempt count comes back on
+  the ANSWER as well as on the checkpoint — two readers of one fact) and one MEASURED INERT
+  over 252 stored-row shapes and declared a second wall in the code. **That pair cannot be
+  swept as one**: its halves are a thousand lines apart and the runner applies one
+  replacement per mutant, so the spec records it as a comment-only control over the
+  declaration that explains it. The subworkflow mutants have not been swept yet.
+- **Site sweep (`scripts/mutants/workflow-errors.json`): 10 mutants, 10 killed, 0 survived,
+  0 never applied, 1 comment-only control.** One survived the first pass — the stray-path
+  refusal's ORDER — because every other shape in the census has ONE thing wrong with it, and
+  one thing wrong cannot tell an order. Closed with two shapes on `repeat`, whose own field
+  refusals already agree word for word because `says` was declared on them.
+- **The restart matrices: the LOOP one is 10 cuts over a four-round loop, the RETRY one walks
+  every checkpoint of a step that keeps failing, and the SUBWORKFLOW one walks a loop that
+  lives inside a child.** Each derives its boundary count from the uninterrupted chain and
+  each has its observer proved alive by throwing the durable state away. **⚠ AND THE RETRY
+  MATRIX'S FIRST OBSERVER WAS DEAD**: a retriever that fails twice and then works answers its
+  THIRD call successfully whichever delivery that call lands in, so the total is three either
+  way. The store never recovers now, and the assertion is the number of attempts the step was
+  ALLOWED.
+
+### NOT WIRED, NOT APPLIED, NOT DEPLOYED — and the hop is named rather than left to be found
+
+**`expandWorkflow` HAS NO CALLER IN THE RUNNER.** The lookup needs a store read for one of
+this agent's automations and the flattened list needs somewhere to be persisted, and both
+need the migration: `agent.automations` has no `version` column, `agent.automation_runs` has
+no `loops`, `tries` or `uses`, and `create_automation`/`update_automation` do not yet refuse a
+call naming an automation that is not the agent's — which is the transaction's job and not a
+route's, because a check outside it can be raced (the existing comment there says exactly
+that about agent ownership).
+
+**The migration is HELD while the SQL sweep in flight finishes**, because it edits
+`20260917120000_agent_workflow_knowledge_memory.sql`, and a tally about a tree nobody will
+commit is not a tally. A module with one hop cut is this repository's most-recorded defect,
+so the gap is written down here on the day it was created.

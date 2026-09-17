@@ -12189,3 +12189,58 @@ the two new facts by name, so against a database that has not got them every acc
 conversation gets refused outright rather than degrading.
 
 **Still no model. Still last, still your call.**
+
+---
+
+## 2026-09-17 — richer workflows: types, loops, error paths, subworkflows
+
+Four of the five things you asked for in that item are built. The fifth — waiting for an
+EVENT — belongs with the triggers work, because an event to wait for and an event arriving
+are one mechanism, and building the waiting half alone would be another control that answers
+and does nothing. It is written down there rather than half-done here.
+
+**What a customer can now do that they could not:**
+
+- **Say what kind of thing a value is** — text, a number, or a list — so a list dropped into
+  a sentence, or a sentence handed to something that loops, is refused on the form rather
+  than going quiet at run time.
+- **Repeat steps** — once for each thing in a list, or a fixed number of times. **Which time
+  round it is on is saved**, so if the machine running it is replaced half way through the
+  third round it carries on at the third round: not the first, which would do three rounds'
+  work again, and not the fourth, which would skip one.
+- **Say what happens when a step does not work** — stop (which is what it did before and
+  still does if they say nothing), carry on with the next step, or try again up to three
+  times. **The count of attempts already made is saved too**, because a counter that lives
+  only in the machine gives every restart a fresh budget — three tries would quietly become
+  three tries a minute for ever.
+- **Run one automation inside another.** Its steps are copied in when the run starts, so
+  editing it afterwards cannot change a run already going — and what version was copied is
+  recorded, so the history can say it.
+
+**Two things I want to be plain about.**
+
+**I pushed two commits with a failing test in them.** I changed the list of controls a step
+can have, ran the three test files whose names matched what I had touched, and did not run the
+suite — and one of the browser tests was right to fail: the new control was a dropdown, a
+dropdown always has something selected, so every step the form saved started carrying an
+answer nobody chose. It is fixed (an optional dropdown now offers a blank that says what the
+default does and sends nothing when it is picked), and both the mistake and the reason are
+written into the notes so the next session meets them.
+
+**One piece is deliberately not wired up yet, and I am saying so rather than letting it look
+finished.** The part that copies one automation into another is written and fully tested, and
+nothing calls it: it needs the database change, and I am holding that until a long-running
+check finishes, because changing a file it is measuring would make its answer meaningless.
+A module that works perfectly with one connection missing is the commonest kind of defect in
+this repository, so it is named on the day it was made rather than found later.
+
+**Also measured and written down, not fixed:** the two halves of the platform — the screen's
+own checks and the engine's — disagree about the WORDS of fifteen refusals, all of them from
+before today. One says "on_timeout has to be one of…" where the other says "what happens if
+nobody answers has to be one of…", which means a customer gets one sentence or the other
+depending on which door turned them away. The fix is the same one I used for four of them
+today (the word lives with the field, and both doors read it) and it wants its own change
+rather than being buried in this one.
+
+**Still nothing merged, nothing deployed, nothing applied. Still no model — still last, still
+your call.**
