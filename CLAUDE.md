@@ -7400,7 +7400,7 @@ computed under the new offset was still ahead of `now`. It answers
 
 **Guards**: `test/job-delivery.test.mjs` **13 → 14** (the owner's exact sequence,
 the whole day it held, the following day running at the right minute, and the
-mirror failure) and `test/site-jobs.test.mjs` **47 → 48** (both policies driven
+mirror failure) and `test/site-jobs.test.mjs` **46 → 47** (both policies driven
 at `lastDueAt` AND through `dueJobs`, the half-hour zone, **a time falling AFTER
 the transition on the transition day** — the only shape that resolves under the
 offset after the change, without which half of `occurrenceOn`'s candidate pair
