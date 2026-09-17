@@ -1024,8 +1024,15 @@ const spec = [
   m("tools: `remember` lets an ARGUMENT say where the fact came from", CT,
     'const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: "run" });',
     "const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: args.source ?? \"run\" });"),
-  m("tools: starting an automation is declared safe to repeat, so a redelivery starts a second", CT,
-    "  name: \"run_automation\",", "  name: \"run_automation\", repeatable: true,"),
+  // ⚠ REPLACED, BECAUSE IT HAD BECOME INERT BY CONSTRUCTION. It ADDED `repeatable: true`
+  // to a tool that already declares it — a duplicate key in an object literal, where the
+  // later one wins and both are `true`. It was written while `run_automation` was
+  // `repeatable: false` and meant to flip it; once the tool's own answer changed, the
+  // mutant changed nothing and its survival said nothing about coverage. What it was ABOUT
+  // is the id: a FRESH one per call is what makes a redelivery a second execution.
+  m("tools: starting an automation mints a fresh id, so a redelivery starts a second", CT,
+    "      ? await uuidFrom(ctx.operation) : null;",
+    "      ? await uuidFrom(ctx.operation + String(Math.random())) : null;"),
   // RE-ANCHORED, NOT APPEASED: the id is derived from the CALL now, so the mutant that
   // lets a model name its own run has to reach past the derivation rather than past a
   // mint. The property is unmoved — an argument may never become an execution's identity.
@@ -1061,8 +1068,15 @@ const spec = [
   m("run: arguments that cannot be written down are hashed as something else", AP,
     "  const bytes = new TextEncoder().encode(canonicalJson(storedForm(args) ?? {}));",
     "  const bytes = new TextEncoder().encode(canonicalJson(args ?? {}));"),
-  m("run: a failure from anywhere is read as unwritable arguments", R,
-    "  catch (e) { if (e instanceof TypeError) return null; throw e; }", "  catch { return null; }"),
+  // ⚠ A DECLARED PAIR, because the narrow test alone is INERT: `storedForm` wraps every
+  // refusal in a `TypeError`, so nothing else can reach that catch through `argsHash` and
+  // widening it changes no answer. What IS observable is the two of them disagreeing — if
+  // the encoder raises something else while the catch still asks for a TypeError, an
+  // unwritable call escapes as a throw instead of the named refusal. Mutated as the pair,
+  // which is the only way a redundancy can be swept at all.
+  m("run: the encoder's refusal and the catch that reads it disagree", AP,
+    "  catch (e) { throw new TypeError(`storedForm: these arguments cannot be written down (${String(e?.message ?? e)})`); }",
+    "  catch (e) { throw new RangeError(`storedForm: these arguments cannot be written down (${String(e?.message ?? e)})`); }"),
   m("runner: the run is not the seed, so two runs derive the same work", RN,
     "        operationSeed: runId,", "        operationSeed: \"seed\","),
   m("tools: forgetting something that was not there reads as having removed it", CT,

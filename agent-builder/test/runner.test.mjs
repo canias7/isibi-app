@@ -109,6 +109,47 @@ function bench({ answers = [says("ok")], tools = [], limits = {}, maxAttempts, o
 // PERSISTED BEFORE ACCEPTED
 // ════════════════════════════════════════════════════════════════════════════
 
+test("⚠ A TOOL'S IDENTITY IS SEEDED WITH THE RUN'S OWN ID, so two runs never derive one", async () => {
+  // **THE RUNNER IS THE ONLY PLACE THIS HOP EXISTS** — `run.mjs` takes `operationSeed`
+  // from its caller, and the caller is here. A sweep mutant replacing it with a constant
+  // survived every module case: from inside `run.mjs` a seed is a seed, and what makes it
+  // an identity is that it is THIS run's. Two runs deriving one identity means one asking
+  // the database for the other's work.
+  const seen = [];
+  const watch = defineTool({
+    name: "act", description: "acts", input: { type: "object" }, scope: PUBLIC, repeatable: true,
+    run: async (args, ctx) => { seen.push(ctx.operation); return { ok: true }; },
+  });
+  const b = bench({
+    tools: [watch],
+    // ⚠ REAL USAGE, and the first draft's `usage: null` is why this note exists: an
+    // UNREPORTED usage against a finite bound is a stop with `reason: "unmeasured"`, which
+    // is this engine's own rule — so run 1 ended after one step and the case reported the
+    // identity as broken. `[1, 1]` from the send log is what said so.
+    answers: [{ text: "", toolCalls: [{ id: "c0", name: "act", args: { id: "a" } }],
+                usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 },
+              says("done"),
+              { text: "", toolCalls: [{ id: "c0", name: "act", args: { id: "a" } }],
+                usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1 },
+              says("done")],
+  });
+  const one = await b.accept("t1");
+  const d1 = await b.runner.deliver(one.runId);
+  assert.equal(d1.ran, true, JSON.stringify(d1));
+  const two = await b.accept("t1");
+  const d2 = await b.runner.deliver(two.runId);
+  assert.equal(d2.ran, true, JSON.stringify(d2));
+
+  assert.equal(seen.length, 2, `the tool ran ${seen.length} times; sends: ${JSON.stringify(b.calls.map((c) => c.step))}`);
+  // EACH IDENTITY BEGINS WITH ITS OWN RUN, read off the run the API really minted.
+  assert.equal(seen[0].startsWith(`${one.runId}:`), true, `${seen[0]} is not seeded with ${one.runId}`);
+  assert.equal(seen[1].startsWith(`${two.runId}:`), true, `${seen[1]} is not seeded with ${two.runId}`);
+  // ⚠ AND THE TWO DIFFER — the same tool, the same position, the same arguments, so the
+  // RUN is the only thing that can be telling them apart.
+  assert.notEqual(one.runId, two.runId);
+  assert.notEqual(seen[0], seen[1], "two runs derived one identity");
+});
+
 test("THE WORK IS COMMITTED BEFORE ACCEPTANCE IS ACKNOWLEDGED", async () => {
   const b = bench();
   const { runId } = await b.accept("t1", "do the thing");

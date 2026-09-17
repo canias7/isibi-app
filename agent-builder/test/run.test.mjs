@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { runAgent } from "../src/run.mjs";
 import { replay } from "../src/journal.mjs";
+import { argsHash } from "../src/approvals.mjs";
 import { defineAgent, defineTool, PUBLIC } from "../src/define.mjs";
 import { LIMIT_DEFAULTS } from "../src/limits.mjs";
 
@@ -406,6 +407,105 @@ test("runAgent refuses a journal it cannot write to, and a `from` that is not a 
 // ── resume. Every fixture below is a REAL run's log, truncated. ──────────────
 // A hand-typed "crashed log" is a fake in a different shape from reality; this
 // derives them from the real producer, which is the rule.
+// ════════════════════════════════════════════════════════════════════════════
+// WHAT A TOOL IS TOLD ITS CALL IS — and every case here exists because a sweep
+// said so. ELEVEN mutants survived the M5 round and EIGHT of them were in this
+// one region: nothing in `test/*.test.mjs` had ever read `ctx.operation` as
+// `run.mjs` BUILDS it, or resumed a batch holding two different calls. The
+// identity was proved end to end by `verify:tools`, which the sweep cannot run —
+// *a property proven only by an instrument the sweep cannot run is a property no
+// mutant can be caught by*, recorded once already in this directory.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** A tool that records the context it was handed, so the identity can be read. */
+const watcher = (name, over = {}) => {
+  const seen = [];
+  return { seen, tool: defineTool({
+    name, description: `does ${name}`, input: { type: "object" }, scope: PUBLIC,
+    repeatable: true, run: async (args, ctx) => { seen.push({ args, operation: ctx.operation }); return { ok: true }; },
+    ...over }) };
+};
+
+test("⚠ A TOOL IS TOLD ITS CALL'S OWN IDENTITY — the run, the position AND the arguments", async () => {
+  const w = watcher("act");
+  const r = await runAgent({
+    agent: agentWith([w.tool]), prompt: "go", operationSeed: "run-77",
+    send: scripted([{ text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+                      toolCalls: [{ id: "c0", name: "act", args: { id: "a" } },
+                                  { id: "c1", name: "act", args: { id: "b" } }] }, says("done")]),
+  });
+  assert.equal(r.ok, true);
+  assert.equal(w.seen.length, 2);
+  // EVERY PART IS ASSERTED, and the hash is the REAL one rather than a pattern: a
+  // shape check would pass for an identity built out of the wrong pieces.
+  assert.equal(w.seen[0].operation, `run-77:1:0:${await argsHash({ id: "a" })}`);
+  assert.equal(w.seen[1].operation, `run-77:1:1:${await argsHash({ id: "b" })}`);
+  // AND THE TWO ARE DIFFERENT, which is the property a single call cannot show.
+  assert.notEqual(w.seen[0].operation, w.seen[1].operation);
+});
+
+test("...AND THE ARGUMENTS ARE PART OF IT, so a re-filled slot cannot inherit an identity", async () => {
+  // THE CASE THE POSITION ALONE CANNOT SEE. Two runs ask the same tool at the same
+  // step and index; only the arguments differ, and the identities must differ with
+  // them — or a redelivery that answered differently would be absorbed into work
+  // nobody asked for.
+  const ask = async (args) => {
+    const w = watcher("act");
+    await runAgent({
+      agent: agentWith([w.tool]), prompt: "go", operationSeed: "run-77",
+      send: scripted([{ text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+                        toolCalls: [{ id: "c0", name: "act", args }] }, says("done")]),
+    });
+    return w.seen[0].operation;
+  };
+  const one = await ask({ id: "a" });
+  const two = await ask({ id: "b" });
+  assert.notEqual(one, two, "two different calls at one position share an identity");
+  // AND THE SAME CALL IS THE SAME IDENTITY — without this, "they differ" is satisfied
+  // by an identity that is simply random.
+  assert.equal(await ask({ id: "a" }), one, "the same call derived a different identity");
+  // The seed is part of it too, so two runs never collide.
+  const w = watcher("act");
+  await runAgent({
+    agent: agentWith([w.tool]), prompt: "go", operationSeed: "run-88",
+    send: scripted([{ text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+                      toolCalls: [{ id: "c0", name: "act", args: { id: "a" } }] }, says("done")]),
+  });
+  assert.notEqual(w.seen[0].operation, one, "two runs derive one identity");
+});
+
+test("⚠ AND WITH NO SEED THERE IS NO IDENTITY, rather than a partial one", async () => {
+  const w = watcher("act");
+  await runAgent({
+    agent: agentWith([w.tool]), prompt: "go",   // no operationSeed
+    send: scripted([wants("act"), says("done")]),
+  });
+  assert.equal(w.seen[0].operation, null,
+    "a run with no seed handed a tool an identity built out of what it had");
+});
+
+test("⚠ ARGUMENTS THAT CANNOT BE WRITTEN DOWN ARE ANSWERED, NOT RUN", async () => {
+  // A call that cannot be RECORDED cannot be resumed, approved or identified — so it
+  // is the one call none of this product's guarantees apply to, and it comes back as a
+  // readable tool result the model can correct itself from. The same wall shape as
+  // "no such tool", for the same reason.
+  const w = watcher("act");
+  const cycle = {}; cycle.self = cycle;
+  const r = await runAgent({
+    agent: agentWith([w.tool]), prompt: "go", operationSeed: "run-77",
+    send: scripted([{ text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+                      toolCalls: [{ id: "c0", name: "act", args: cycle }] }, says("done")]),
+  });
+  assert.equal(r.ok, true, "the run should carry on and tell the model");
+  assert.deepEqual(w.seen, [], "a call whose arguments cannot be recorded was made");
+  const said = r.steps[0].results[0];
+  assert.equal(said.ok, false);
+  assert.match(said.error, /cannot be recorded/);
+  assert.match(said.error, /^act:/, "the refusal does not name the tool");
+  // NOT read as an unresolved write: nothing was sent, so nothing can have happened.
+  assert.equal("unresolved" in said, false);
+});
+
 async function logOfInterruptedRun({ tools, script, killAfter }) {
   const j = journalOf();
   const send = scripted(script);
@@ -482,6 +582,67 @@ test("A PENDING NON-REPEATABLE TOOL REFUSES THE RESUME, AND NAMES IT", async () 
   assert.deepEqual([...r.stop.pending], [{ step: 1, index: 0, name: "charge", unresolved: false }]);
   assert.equal(ran, 0, "a tool that might already have charged somebody was run again");
   assert.equal(calls, 0);
+});
+
+test("⚠ A RESUMED BATCH GIVES EACH CALL ITS OWN ARGUMENTS AND ITS OWN IDENTITY", async () => {
+  // **TWO PENDING CALLS IS THE ONLY SHAPE THAT SEPARATES THE TWO READINGS.** With one,
+  // "its own arguments" and "the first pending call's arguments" are the same object and
+  // the same identity — so every earlier resume case passed with the pairing reversed, and
+  // a sweep mutant reading `prior.pending[0]` survived all of them.
+  const w = watcher("act");
+  // A journal that keeps the model answer and REFUSES both tool results: the process died
+  // after the batch was dispatched, which is what a resume is for.
+  const log = [];
+  const j = { log, append: async (e) => { if (e.kind === "tool") throw new Error("store died"); log.push(e); } };
+  await runAgent({
+    agent: agentWith([w.tool]), prompt: "go", journal: j, operationSeed: "run-77",
+    send: scripted([{ text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+                      toolCalls: [{ id: null, name: "act", args: { id: "a" } },
+                                  { id: null, name: "act", args: { id: "b" } }] }]),
+  });
+  assert.deepEqual(log.map((e) => e.kind), ["started", "model"], "the results were recorded after all");
+
+  // THE IDS ARE BOTH NULL ON PURPOSE — a model is not obliged to give one, and that is
+  // exactly the log in which the arguments used to be mixed up.
+  const w2 = watcher("act");
+  const r = await runAgent({
+    agent: agentWith([w2.tool]), from: [...log], operationSeed: "run-77",
+    journal: { append: async () => {} }, send: scripted([says("done")]),
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.stop));
+  assert.deepEqual(w2.seen.map((c) => c.args), [{ id: "a" }, { id: "b" }],
+    "a resumed call ran with another call's arguments");
+  assert.deepEqual(w2.seen.map((c) => c.operation), [
+    `run-77:1:0:${await argsHash({ id: "a" })}`,
+    `run-77:1:1:${await argsHash({ id: "b" })}`,
+  ], "a resumed call's identity was not built from its own arguments");
+});
+
+test("⚠ AND A RESUMED WRITE THAT THREW IS UNRESOLVED TOO, not just a live one", async () => {
+  // The resume path records its own entries, so it has its own copy of this decision —
+  // and a sweep mutant that dropped it there survived the live-path case entirely.
+  const writer = defineTool({
+    name: "charge", description: "takes money", input: { type: "object" }, scope: PUBLIC,
+    writes: true, repeatable: true, run: async () => { throw new Error("the wire went"); },
+  });
+  const log = [];
+  const j = { log, append: async (e) => { if (e.kind === "tool") throw new Error("store died"); log.push(e); } };
+  await runAgent({
+    agent: agentWith([writer]), prompt: "go", journal: j,
+    send: scripted([wants("charge")]),
+  });
+  const kept = [];
+  const r = await runAgent({
+    agent: agentWith([writer]), from: [...log], journal: { append: async (e) => { kept.push(e); } },
+    send: scripted([says("done")]),
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.stop));
+  const entry = kept.find((e) => e.kind === "tool");
+  assert.equal(entry.ok, false);
+  assert.equal(entry.unresolved, true, "a resumed write that threw was recorded as a plain failure");
+  // AND THE MODEL WAS TOLD, through the replay the resume rebuilds the conversation from.
+  const said = replay([...log, entry]).messages.at(-1).content[0];
+  assert.match(said.result, /UNRESOLVED/);
 });
 
 test("⚠ AND A BLOCKED CALL THAT WRITES IS NAMED AS UNRESOLVED", async () => {

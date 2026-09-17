@@ -75,6 +75,20 @@ test("⚠ THE SAME CALL HASHES THE SAME WAY, AND TWO DIFFERENT CALLS NEVER DO", 
   assert.equal((await argsHash({})).length, 64);
   // Absent arguments are the empty object, not a crash and not `null`.
   assert.equal(await argsHash(undefined), await argsHash({}));
+
+  // ⚠ **`canonicalJson` IS TOTAL, AND `storedForm` IS WHY THAT HAS TO BE ASSERTED HERE.**
+  // A sweep mutant folding the `undefined` tag into the `null` one survived everything:
+  // with `storedForm` in front of every hash, `undefined` no longer REACHES the encoder
+  // through `argsHash` — JSON drops such a property and the top-level case falls to `{}`.
+  // So the arm is unreachable from the hash and its injectivity is a property of the
+  // encoder alone. Kept total rather than trimmed, because it is a standalone encoder and
+  // a caller that hands it `undefined` must not get `null`'s answer; asserted directly,
+  // because nothing else can see it any more.
+  assert.notEqual(canonicalJson(undefined), canonicalJson(null));
+  assert.notEqual(canonicalJson(undefined), canonicalJson({}));
+  assert.notEqual(canonicalJson({ a: undefined }), canonicalJson({ a: null }));
+  // AND THE OBSERVER IS ALIVE: it agrees with itself.
+  assert.equal(canonicalJson(undefined), canonicalJson(undefined));
 });
 
 test("⚠ …AND THE HASH SURVIVES BEING WRITTEN DOWN, or it refuses its own approval", async () => {
