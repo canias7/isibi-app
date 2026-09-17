@@ -12688,3 +12688,15 @@ fourth was the spare part above.
 still hands the photograph on rather than placing it.
 
 **Nothing merged, nothing deployed, nothing paid, and no edit-path work.**
+
+**CI read both, and both are green.** The unit suite: 6,798 tests, 0 failures.
+The container harness: all twenty steps, the site build itself 382 checks and 0
+failures — it ran because this change touches the builder, which is what that
+workflow watches for.
+
+**One small honesty note.** This file keeps a running count of how many separate
+runs have answered "382", and the way to work it out is meant to be a search
+rather than adding one to the last number. I tried the search and it
+over-counts — it picks up a different workflow's run numbers, and two older runs
+that answered something else. So the count stays dropped and each entry names
+its own run instead. Not worth a fix; worth not publishing a wrong number.

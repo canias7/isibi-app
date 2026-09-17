@@ -8485,6 +8485,31 @@ was removed with its proof instead of being hunted.
 **Suite 6,798** — 6,795 + 2 (`addon-route`) + 1 (`site-add`), and the arithmetic
 closes exactly.
 
+**CI HAS READ BOTH, ON `b953c0fb`.** `unit tests` run **2674**, green
+(2026-09-17 19:04:41→19:06:43Z, the suite step 109 s) — `# tests 6798 /
+# pass 6794 / # fail 0 / # skipped 4`, against local `6798 / 6798 / 0 / 0`; the
+four are the three recorded environment skips plus `site-searchpath`'s
+baseline-commit case, and **the TOTAL is what matches**. And `site build` run
+**1173** (19:04:41→19:27:07Z), **all twenty steps green**: `site-build.mjs`
+**382 passed / 0 failed** in 16m06s, with kit-typecheck 4, contrast-cases 16,
+theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it and
+kit-render / kit-a11y / kit-effects / kit-paint each `all passed` with no count
+— the three result SHAPES a census has to ask for. Every count bounded
+landmark-to-landmark (`##[group]Run …` to the next), **0 result lines before the
+first marker**. It fired because `site-add.mjs` is under `builder/**`.
+**The unit step's TAP is `# pass 396 / # fail 0`, unchanged from run 1171** —
+correct, because this round adds no `page-gen` or `publish-pages` case.
+
+**⚠ AND THE "HOW MANY RUNS HAVE ANSWERED 382" SCAN IS NOT TRUSTWORTHY AS
+WRITTEN, which is worth saying rather than quietly publishing a number.** The
+recorded instruction is to DERIVE the count with a scan of this file instead of
+taking the next ordinal — and a scan for *a run number in the same paragraph as
+a 382 claim* over-collects: it picks up the `unit tests` run quoted in the same
+breath, and it picks up **run 1065, which read 373**, and **run 1115, whose
+count is recorded as UNREAD**. So the ordinal stays dropped and each entry names
+its own run and its own counts; anyone wanting the total has to scan for `site
+build` numbers only and subtract those two by hand.
+
 **COMBINED PAGE + PHOTOGRAPH REMAINS INCOMPLETE**, in the owner's words: it
 still skips photo and publishes a placeholder, and the same request does not yet
 place the picture.
