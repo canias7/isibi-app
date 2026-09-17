@@ -946,3 +946,249 @@ test("the pre-flight runs before anything is spent, reads both halves, and is wi
   assert.match(block, /refuses before spending[\s\S]*refuses before spending/, "an input does not say the run refuses rather than warns");
   assert.match(block, /roll separately/, "the image input does not say the two halves roll separately");
 });
+
+// ── THE JOB TIER: WHAT WAS PERSISTED, AND FIRING IT ───────────────────────────
+//
+// A job is the one kind whose work does not happen inside the addon request: the
+// request registers a row and a later cron tick runs it. So a run that reads only
+// the reply proves the designer answered and NOTHING about whether the schedule
+// was written down, what zone it was written in, or whether the runner works.
+//
+// Every assertion here drives the real functions. The two that decide whether a
+// live job gets FIRED are the ones that matter: a press that ran the wrong job,
+// or ran one nobody asked for, spends nothing but can send real messages on a
+// site whose owner has pasted a provider key.
+test("the jobs read tells unreadable from none, and keys by name", async () => {
+  const { jobRows } = await import("../scripts/addon-sweep.mjs");
+  // CANNOT-TELL IS ITS OWN ANSWER. The route answers 503 rather than an empty
+  // list on a bad read, and collapsing that into `{}` here would report a broken
+  // reader as a site that scheduled nothing — the wrong answer in the direction
+  // that reads as the feature being absent.
+  for (const bad of [null, undefined, {}, { jobs: null }, { jobs: "two" }, "no"]) {
+    assert.equal(jobRows(bad), null, `an unreadable answer must not read as a site with no jobs: ${JSON.stringify(bad)}`);
+  }
+  assert.deepEqual(jobRows({ jobs: [] }), {}, "a site with no jobs is an empty map, not null");
+  const rows = jobRows({ jobs: [
+    { name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null },
+    { name: "tidy", everyMinutes: 60, at: null, tz: null, enabled: false, lastRun: "2026-09-16T09:00:00Z", lastResult: "cleared 3" },
+    { name: "", everyMinutes: 15 },
+  ] });
+  assert.deepEqual(Object.keys(rows).sort(), ["remind_tomorrow", "tidy"], "a nameless row has no identity and must be dropped");
+  assert.equal(rows.remind_tomorrow.at, "09:00");
+  assert.equal(rows.remind_tomorrow.tz, "Europe/London", "the zone is the one field on the row no model chose — losing it loses the whole clock-time claim");
+  // WHICH FUNCTION IT RUNS (owner, 2026-09-16: "an identical count is not proof
+  // of which function was called"). On run 50 the job and its function shared a
+  // name, which is what made the omission invisible.
+  assert.equal(rows.remind_tomorrow.fn, "bookings_due_tomorrow");
+  assert.equal(rows.tidy.fn, "", "a row whose reference is gone must read empty, not absent — that job can never run");
+  assert.equal(rows.tidy.enabled, false);
+  assert.equal(rows.tidy.lastResult, "cleared 3");
+  // NULL RATHER THAN A CHEERFUL DEFAULT, the route's own rule carried through:
+  // a job that has never run and a job whose last run sent nothing are different
+  // facts, and "" for both invents a sentence for the first.
+  assert.equal(rows.remind_tomorrow.lastRun, null);
+  assert.equal(rows.remind_tomorrow.lastResult, null);
+});
+
+test("which jobs this run added is derived from the two reads, never from the reply", async () => {
+  const { newJobs } = await import("../scripts/addon-sweep.mjs");
+  assert.deepEqual(newJobs({ a: {} }, { a: {}, b: {}, c: {} }), ["b", "c"]);
+  assert.deepEqual(newJobs({ a: {} }, { a: {} }), [], "nothing new is an empty list");
+  // EITHER READ UNREADABLE ANSWERS `[]`. "I could not tell" must never arrive as
+  // "it added nothing" — and it must never arrive as "it added everything on the
+  // site" either, which is what a null BEFORE would produce if it read as {}.
+  assert.deepEqual(newJobs(null, { a: {}, b: {} }), [], "an unreadable before-read must not make every job look new");
+  assert.deepEqual(newJobs({ a: {} }, null), []);
+});
+
+test("the Run now press refuses rather than guessing which job to fire", async () => {
+  const { jobToRun } = await import("../scripts/addon-sweep.mjs");
+  const have = { remind_tomorrow: {}, tidy: {} };
+  // BLANK IS THE DEFAULT AND IT PRESSES NOTHING. The press really runs the job.
+  for (const off of ["", "   ", undefined, null]) {
+    assert.equal(jobToRun(off, ["remind_tomorrow"], have).run, false, `${JSON.stringify(off)} must not fire anything`);
+  }
+  // `auto` IS "THE ONE THIS RUN ADDED", never "the first job on the site".
+  assert.deepEqual(jobToRun("auto", ["remind_tomorrow"], have), { run: true, name: "remind_tomorrow" });
+  const none = jobToRun("auto", [], have);
+  assert.equal(none.run, false, "auto must not fall through to a pre-existing job when this run added none");
+  assert.match(none.why, /added no job/);
+  const many = jobToRun("auto", ["a", "b"], have);
+  assert.equal(many.run, false, "auto must refuse rather than pick one of two");
+  assert.match(many.why, /name one/, "the refusal must say what to do about it");
+  // A NAME IS CHECKED AGAINST THE SITE, so a typo is a refusal and not a quiet
+  // no-op — and it is matched case-insensitively against the REAL name, which is
+  // what the press is keyed by.
+  assert.deepEqual(jobToRun("Remind_Tomorrow", [], have), { run: true, name: "remind_tomorrow" });
+  const typo = jobToRun("remind_tommorow", [], have);
+  assert.equal(typo.run, false);
+  assert.match(typo.why, /no scheduled job called/);
+  // AND AN UNREADABLE LIST FIRES NOTHING. With no list there is no way to check a
+  // name against the site, and pressing anyway is pressing blind.
+  assert.equal(jobToRun("auto", ["x"], null).run, false, "an unreadable jobs list must not be pressed against");
+  assert.equal(jobToRun("remind_tomorrow", [], null).run, false);
+});
+
+test("the job lines say the zone, and say so even when there is nothing to say", async () => {
+  const { jobLines } = await import("../scripts/addon-sweep.mjs");
+  // "NOBODY LOOKED" AND "THE SITE SCHEDULED NOTHING" ARE DIFFERENT READINGS, the
+  // rule the coverage lines already follow. An absent line collapses them.
+  assert.match(jobLines(null, null, null).join("\n"), /COULD NOT BE READ/);
+  assert.match(jobLines({}, {}, null).join("\n"), /scheduled jobs on the site: none/);
+  const before = {};
+  const after = { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } };
+  const one = jobLines(before, after, null).join("\n");
+  assert.match(one, /this run added \["remind_tomorrow"\]/);
+  assert.match(one, /runs \(NO FUNCTION\)/, "a job with no reference must say so — it can never run");
+  assert.match(jobLines(before, { j: { fn: "count_it", everyMinutes: 60, at: null, tz: null, enabled: true } }, null).join("\n"),
+    /· j: runs count_it\(\)/, "the function it runs must be printed even when it differs from the job's name");
+  assert.match(one, /at 09:00 Europe\/London every 1440m/, "the clock time must be printed with its zone");
+  assert.match(one, /lastRun never/);
+  // A TIME WITH NO ZONE IS THE DEFECT THIS LINE EXISTS TO SHOW, so it is named
+  // rather than left blank — "09:00" reads as a working schedule either way.
+  const noTz = jobLines(before, { j: { everyMinutes: 1440, at: "09:00", tz: null, enabled: true } }, null).join("\n");
+  assert.match(noTz, /at 09:00 \(NO ZONE\)/, "a clock time whose zone was lost must say so");
+  // A PLAIN INTERVAL HAS NO CLOCK TIME AND MUST NOT INVENT ONE.
+  assert.match(jobLines(before, { j: { everyMinutes: 60, at: null, tz: null, enabled: true } }, null).join("\n"), /every 60m/);
+  // THE PRESS IS REPORTED IN BOTH DIRECTIONS, and a press that did not happen
+  // says WHY — a silent absence reads as a press that ran and found nothing.
+  assert.match(jobLines(before, after, { run: true, name: "remind_tomorrow", status: 200, sent: 0, result: "no email provider key in Secrets" }).join("\n"),
+    /ran remind_tomorrow now: 200 sent 0 — "no email provider key in Secrets"/);
+  assert.match(jobLines(before, after, { run: false, why: "not asked for" }).join("\n"), /did not run any job now: not asked for/);
+});
+
+test("a re-read that failed after the press says the outcome could not be verified", async () => {
+  const { jobLines } = await import("../scripts/addon-sweep.mjs");
+  // THE REGRESSION THIS CASE EXISTS FOR. The first draft folded the post-press
+  // re-read back into the pre-press map with `|| extra.jobsAfter`, so a re-read
+  // that FAILED printed the pre-press stamp -- `lastRun never` -- which reads as
+  // a press that did nothing at all. Cannot-tell arriving as a value, in the
+  // instrumentation written to stop exactly that.
+  const before = {};
+  const after = { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } };
+  const ran = { run: true, name: "remind_tomorrow", status: 200, sent: 2, result: "Sent 2." };
+
+  const unreadable = jobLines(before, after, ran, null).join("\n");
+  assert.match(unreadable, /COULD NOT BE VERIFIED/, "a failed re-read must say the persisted outcome is unknown");
+  assert.doesNotMatch(unreadable, /persisted: lastRun/, "a failed re-read must print no stamp at all");
+  assert.doesNotMatch(unreadable, /STILL never/, "and must not present the PRE-press stamp as the outcome");
+  // The route's own answer is still reported -- that claim is sound, and it is a
+  // different claim from what was written to the row.
+  assert.match(unreadable, /ran remind_tomorrow now: 200 sent 2/);
+
+  // A RE-READ THAT SUCCEEDED BUT LOST THE JOB is the same unknown, not a pass:
+  // the row it was asked about is not in the answer, so nothing can be said.
+  const gone = jobLines(before, after, ran, { something_else: {} }).join("\n");
+  assert.match(gone, /COULD NOT BE VERIFIED/);
+  assert.match(gone, /"remind_tomorrow" is not in the re-read/);
+
+  // AND THE CONTROL, without which the two above pass over a function that
+  // never reports a stamp at all: a good re-read prints the persisted values.
+  const ok = jobLines(before, after, ran, { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: "2026-09-17T08:00:00Z", lastResult: "Sent 2." } }).join("\n");
+  assert.match(ok, /persisted: lastRun 2026-09-17T08:00:00Z {2}lastResult "Sent 2\."/);
+  assert.doesNotMatch(ok, /COULD NOT BE VERIFIED/);
+
+  // A RUN THAT RECORDED NOTHING is its own reading: the re-read worked and the
+  // stamp is still absent, which is a real defect and not an unreadable answer.
+  const stampless = jobLines(before, after, ran, { remind_tomorrow: { everyMinutes: 1440, at: "09:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } }).join("\n");
+  assert.match(stampless, /persisted: lastRun STILL never/, "a press whose stamp never landed must be visible as such, not as an unreadable answer");
+  assert.doesNotMatch(stampless, /COULD NOT BE VERIFIED/);
+  assert.match(stampless, /CANNOT BE COMPARED/, "a row with nothing recorded is neither agreement nor disagreement");
+});
+
+test("the route's answer and the persisted result are COMPARED, not just printed", async () => {
+  const { jobLines } = await import("../scripts/addon-sweep.mjs");
+  // THE CHECK THE LIVE RUN IS BOUGHT FOR: "Run now returning 3 AND the fresh
+  // persisted result agreeing". Two lines a reader has to hold in their head is
+  // how a disagreement gets skimmed past -- and a disagreement is a real state,
+  // because `recordJobOutcome` writes the row and that write can fail on its own.
+  const before = {};
+  const after = { count_bookings: { everyMinutes: 1440, at: "23:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null } };
+  const row = (lastResult) => ({ count_bookings: { everyMinutes: 1440, at: "23:00", tz: "Europe/London", enabled: true, lastRun: "2026-09-17T22:00:00Z", lastResult } });
+  const ran = (result) => ({ run: true, name: "count_bookings", status: 200, sent: 0, result });
+
+  const agree = jobLines(before, after, ran("3 bookings in total."), row("3 bookings in total.")).join("\n");
+  assert.match(agree, /AGREE/);
+  assert.doesNotMatch(agree, /DISAGREE/, "`AGREE` must not be matched out of the word DISAGREE");
+
+  const differ = jobLines(before, after, ran("3 bookings in total."), row("2 bookings in total.")).join("\n");
+  assert.match(differ, /DISAGREE/);
+  // BOTH VALUES ARE NAMED, or the line says there is a problem and not what it is.
+  assert.match(differ, /route "3 bookings in total\." vs row "2 bookings in total\."/);
+
+  // AND A PRESS THAT DID NOT HAPPEN COMPARES NOTHING -- there is no route answer
+  // to compare against, so claiming agreement would be inventing one.
+  const none = jobLines(before, after, { run: false, why: "not asked for" }, row("3 bookings in total.")).join("\n");
+  assert.doesNotMatch(none, /AGREE|DISAGREE|CANNOT BE COMPARED/);
+});
+
+test("the harness reads the registry before the post, and the press is its own switch", async () => {
+  const src = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8");
+  // BEFORE THE POST, or "this run added it" is a claim nobody can make: the site
+  // may have carried a job of that name since a run in March. Asserted as an
+  // ORDER against the post's own line rather than as a position in the file.
+  const readAt = src.indexOf("const jobsBefore = jobRows(");
+  const postAt = src.indexOf(`/addon\`, { token: TOKEN, body: { instruction: c.ask`);
+  assert.ok(readAt > 0, "the before-read is gone");
+  assert.ok(postAt > 0, "the addon post moved — this window is reading something else");
+  assert.ok(readAt < postAt, "the jobs registry is read AFTER the change, so nothing can say which job is new");
+  // THE PRESS IS OFF BY DEFAULT. An env var that defaulted to `auto` would fire a
+  // real job on every free-text run, and on a site with a provider key that sends.
+  assert.match(src, /SWEEP_RUN_JOB \|\| ""/, "the press must default to pressing nothing");
+  // AND THE LAST READ FOLLOWS THE PRESS. `lastRun`/`lastResult` are written by the
+  // route after the run, so a single read taken before it cannot carry them back.
+  const pressAt = src.indexOf("body: { name: pick.name, run: true }");
+  assert.ok(pressAt > 0, "the Run now press is gone");
+  assert.ok(src.indexOf("jobRows(", pressAt) > pressAt, "nothing re-reads the registry after the press, so lastResult can never be seen");
+  // AND IT LANDS IN ITS OWN FIELD WITH NO FALLBACK. `|| extra.jobsAfter` here is
+  // the stale-value defect: an unreadable verification would print the pre-press
+  // stamp and read as a press that did nothing.
+  const verifyAt = src.indexOf("extra.jobsVerify = jobRows(", pressAt);
+  assert.ok(verifyAt > pressAt, "the post-press read does not land in its own field");
+  const verifyLine = src.slice(verifyAt, src.indexOf("\n", verifyAt));
+  assert.doesNotMatch(verifyLine, /\|\|/, "the post-press read falls back to a stale value instead of reporting that it failed");
+  // AND THE LINES ARE PRINTED, asserted by the branch's OWN CONDITION rather
+  // than by the call's position. `if (false) for (… of jobLines(…))` leaves
+  // `jobLines(` exactly where a search looks for it — this repository's
+  // "a positional guard cannot see a dead branch", and it is what survived
+  // this change's first sweep. Everything read back off a live job would be
+  // computed and thrown away, which is the wiring defect in its purest form.
+  const printAt = src.indexOf("for (const line of jobLines(");
+  assert.ok(printAt > 0, "nothing prints the job lines");
+  const cond = src.slice(src.lastIndexOf("\n", printAt) + 1, printAt);
+  assert.match(cond, /if \(c\.freeText\)/, "the job lines are printed under some other condition than a free-text ask");
+  assert.doesNotMatch(cond, /false/, "the job lines are computed and never printed");
+  // AND ALL FOUR MAPS REACH IT. Dropping the fourth argument makes `verify`
+  // `undefined`, which is falsy — so every press would report "could not be
+  // verified" over a re-read that worked perfectly. The map computed and never
+  // forwarded, one hop along from the branch above; a sweep survivor is why
+  // this line exists rather than the call's mere presence being the assertion.
+  const args = src.slice(printAt, src.indexOf("\n", printAt));
+  for (const a of ["extra.jobsBefore", "extra.jobsAfter", "extra.ranJob", "extra.jobsVerify"]) {
+    assert.ok(args.includes(a), `the job lines are composed without ${a}`);
+  }
+  // THE WORKFLOW OFFERS THE BOX AND FORWARDS IT — a dispatch input that is not
+  // forwarded is a control that answers, wrongly.
+  assert.match(WF, /^ {6}run_job:$/m, "the workflow has no run_job input");
+  assert.match(WF, /SWEEP_RUN_JOB: \$\{\{ github\.event\.inputs\.run_job \}\}/, "run_job never reaches the harness");
+  // AND THE DESCRIPTION SAYS THE PRESS IS REAL. This is the one input on the form
+  // that can cause a message to be sent to a real person.
+  const blk = WF.slice(WF.indexOf("      run_job:"), WF.indexOf("\npermissions:"));
+  assert.match(blk, /BLANK = do not press/, "the input does not say that blank presses nothing");
+  assert.match(blk, /IT REALLY RUNS/, "the input does not say the press really runs the job");
+});
+
+test("the owner's jobs route answers which function each job runs", async () => {
+  // THE ROUTE'S HALF OF THE SAME FIX. Reading it off the SPEC is the property:
+  // `runJob` does `spec.fn`, so a second copy stored elsewhere could disagree
+  // with what the runner would really call.
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = w.indexOf("jobs: jrows.map((j) => ({");
+  assert.ok(at > 0, "the jobs listing moved — this window is reading something else");
+  const block = w.slice(at, w.indexOf("\n            });", at));
+  assert.match(block, /fn: j\.spec && typeof j\.spec === "object" && typeof j\.spec\.fn === "string" \? j\.spec\.fn : ""/,
+    "the jobs route does not answer the persisted function reference, off the spec the runner reads");
+  // AND IT IS EMPTY RATHER THAN ABSENT for a row that lost it — a job with no
+  // reference can never run, and a missing key reads as "not asked about".
+  assert.doesNotMatch(block, /fn: [^\n]*\?\s*j\.spec\.fn\s*:\s*undefined/, "an absent reference must read as empty, not undefined");
+});

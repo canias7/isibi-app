@@ -74,6 +74,10 @@ on:
         description: 'addon harness only: the 16-hex container image id a COLD START must get, or the run refuses before spending. The Worker and the container roll separately, so the two expectations are separate — and an `unstamped` or unreadable answer refuses too, because cannot-tell must never read as a match.'
         required: false
         default: ''
+      run_job:
+        description: 'addon harness only: fire a scheduled job with the product''s own Run now, once, after the ask. BLANK = do not press. `auto` fires only a job THIS run registered, and refuses if the run added none or several. A NAME fires that job. IT REALLY RUNS: on a site whose owner has pasted a provider key in Secrets it really sends, so leave it blank unless that is what you want.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -120,6 +124,7 @@ jobs:
           SWEEP_BUDGET: ${{ github.event.inputs.budget }}
           SWEEP_EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
           SWEEP_EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}
+          SWEEP_RUN_JOB: ${{ github.event.inputs.run_job }}
           GAP_CASES: ${{ github.event.inputs.lanes }}
           GAP_SLUG: ${{ github.event.inputs.site }}
           GAP_DB_SLUG: ${{ github.event.inputs.dbsite }}

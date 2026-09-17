@@ -1639,3 +1639,152 @@ test("ACCEPTANCE: the reproduced omitted requirement is now named rather than dr
   assert.deepEqual(rec.handoffs, { delivered: 1, undelivered: 0 });
   assert.deepEqual(rec.handedTo, { page: ["a customer sees the repair listed on a page"] });
 });
+
+// ── ONE NEED, ONE OUTCOME: THE HAND-OFF RECONCILED BY EXPLICIT ID ────────────
+//
+// Run 50's finding. Two designers both spoke to "that count runs every night at
+// 11": the function step handed it on with no item (read `unknown`), the job
+// step covered it naming `nightly_booking_count` (read `configured`), and the
+// customer heard the pessimistic half about a job that was registered and had
+// just been fired successfully.
+test("a hand-off is reconciled by the id the receiving step echoes, never by prose", async () => {
+  const m = await import("../builder/site-requirements.mjs");
+  const MADE = [{ kind: "job", name: "nightly_booking_count", holds: ["1440", "23:00"], fails: [], checked: [] }];
+  const OPTS = { told: ["job"], made: MADE, reportable: ["job", "function"] };
+  const NEED = "That count runs every night at 11";
+
+  // THE ID IS OURS AND DETERMINISTIC, and it reaches the receiving designer.
+  const handed = m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job" }], "function").list;
+  assert.equal(handed[0].id, "function#0");
+  const brief = m.requirementBrief(handed, "job");
+  assert.match(brief, /\[function#0\] That count runs every night at 11/, "the brief must print the id the answer is to echo");
+  assert.match(brief, /put its id in `answers`/, "and must say to echo it");
+
+  // RUN 50'S CASE, with the echo. Both entries survive for diagnosis, the
+  // hand-off reads `configured`, and the customer hears it ONCE.
+  const answered = m.cleanRequirements([{ need: NEED, status: "covered", by: "nightly_booking_count job at 23:00 every 1440 minutes", kind: "job", item: "nightly_booking_count", answers: "function#0" }], "job").list;
+  assert.equal(answered[0].answers, "function#0", "the echo must survive cleaning");
+  const both = [...handed, ...answered];
+  const out = m.requirementOutcomes(both, OPTS);
+  assert.equal(out.length, 2, "both entries are preserved for diagnosis");
+  const ho = out.find((r) => r.status === "elsewhere");
+  assert.equal(ho.state, "configured", "the reconciled hand-off must stop reading `unknown`");
+  assert.equal(ho.reconciledBy, "job#0");
+  assert.equal(ho.reconciledItem, "nightly_booking_count", "the receiving step's IMPLEMENTED item is attached");
+  const note = m.requirementNote(both, OPTS);
+  assert.equal(note.split(NEED).length - 1, 1, `the need must be said to the customer exactly once, got: ${note}`);
+
+  // WITHOUT THE ECHO IT IS EXACTLY TODAY'S BEHAVIOUR. Additive and fail-closed:
+  // an older caller, a designer that did not echo, or a list with no ids at all
+  // reconciles nothing rather than guessing.
+  const noEcho = m.cleanRequirements([{ need: NEED, status: "covered", by: "nightly_booking_count job at 23:00", kind: "job", item: "nightly_booking_count" }], "job").list;
+  const before = m.requirementOutcomes([...handed, ...noEcho], OPTS).find((r) => r.status === "elsewhere");
+  assert.equal(before.state, "unknown", "with no echo the hand-off must read exactly as it did before this fix");
+  assert.equal(before.reconciledBy, undefined);
+
+  // PROSE MUST NOT JOIN THEM. The needs are word-for-word identical here and
+  // the echo is absent, so anything that matched descriptions would reconcile.
+  assert.equal(noEcho[0].need, handed[0].need, "this control is only meaningful while the two needs read alike");
+  // …AND THE RECONCILER MUST BE RUNNING WHILE IT REFUSES. With nothing echoing
+  // anywhere the function returns early, so the case above cannot see a prose
+  // fallback inside the join — a sweep survivor proved exactly that. A SECOND,
+  // echoing pair arms the join; the identical-prose pair beside it must still
+  // come back unreconciled.
+  const other = [
+    ...m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job" }, { need: "Something else entirely", status: "elsewhere", step: "job" }], "function").list,
+    ...m.cleanRequirements([
+      { need: NEED, status: "covered", by: "nightly_booking_count at 23:00", kind: "job", item: "nightly_booking_count" },
+      { need: "Something else entirely", status: "covered", by: "nightly_booking_count at 23:00", kind: "job", item: "nightly_booking_count", answers: "function#1" },
+    ], "job").list,
+  ];
+  const armed = m.requirementOutcomes(other, OPTS);
+  assert.equal(armed.find((r) => r.status === "elsewhere" && r.need === "Something else entirely").reconciledBy, "job#1",
+    "the join must be armed, or the assertion below proves nothing");
+  const proseOnly = armed.find((r) => r.status === "elsewhere" && r.need === NEED);
+  assert.equal(proseOnly.reconciledBy, undefined, "identical prose must not reconcile while the join is running");
+  assert.equal(proseOnly.state, "unknown");
+});
+
+test("the reconciliation clears only the requirement it names", async () => {
+  const m = await import("../builder/site-requirements.mjs");
+  const MADE = [{ kind: "job", name: "nightly_booking_count", holds: ["1440", "23:00"], fails: [], checked: [] }];
+  const OPTS = { told: ["job"], made: MADE, reportable: ["job", "function"] };
+  // THE CONTROL THE OWNER ASKED FOR: two DISTINCT requirements handed to one
+  // step, one of them answered. "The step ran" must not clear the other.
+  const handed = m.cleanRequirements([
+    { need: "That count runs every night at 11", status: "elsewhere", step: "job" },
+    { need: "The count is of bookings, not repairs", status: "elsewhere", step: "job" },
+  ], "function").list;
+  const answered = m.cleanRequirements([{ need: "That count runs every night at 11", status: "covered", by: "nightly_booking_count at 23:00", kind: "job", item: "nightly_booking_count", answers: "function#0" }], "job").list;
+  const out = m.requirementOutcomes([...handed, ...answered], OPTS);
+  const byNeed = (n) => out.find((r) => r.status === "elsewhere" && r.need === n);
+  assert.equal(byNeed("That count runs every night at 11").state, "configured");
+  assert.equal(byNeed("The count is of bookings, not repairs").state, "unknown", "an unanswered hand-off to the same step must stay unreconciled");
+  assert.equal(byNeed("The count is of bookings, not repairs").reconciledBy, undefined);
+  // AND IT IS STILL SAID TO THE CUSTOMER, in the clause for its own state.
+  const note = m.requirementNote([...handed, ...answered], OPTS);
+  assert.match(note, /I can't see from here whether The count is of bookings, not repairs/);
+});
+
+test("reconciliation refuses the three shapes that would launder a verdict", async () => {
+  const m = await import("../builder/site-requirements.mjs");
+  const NEED = "That count runs every night at 11";
+  const handed = { need: NEED, status: "elsewhere", step: "job", from: "function", id: "function#0" };
+  const ho = (outs) => outs.find((r) => r.status === "elsewhere");
+
+  // 1. AN ANSWER WHOSE OWN IMPLEMENTATION WAS NOT FOUND cannot settle anything
+  //    — that is an unknown laundering into a configured through a claim
+  //    nobody could check.
+  //    ITS STATE IS `configured`, DELIBERATELY: with `unknown` the entry would
+  //    be skipped by the state test as well, so the implementation test would
+  //    never be reached and cutting it would change nothing — which is exactly
+  //    the survivor that sent this case back. One reason to skip at a time.
+  const unfound = m.reconcileHandoffs([handed, { status: "covered", answers: "function#0", state: "configured", implementation: "absent", id: "job#0" }]);
+  assert.equal(ho(unfound).state, undefined, "an answer nobody could verify must not reconcile");
+  const control = m.reconcileHandoffs([handed, { status: "covered", answers: "function#0", state: "configured", implementation: "found", implementedBy: "j", id: "job#0" }]);
+  assert.equal(ho(control).state, "configured", "…and the same entry WITH its implementation found does reconcile, or the line above forbids nothing");
+
+  // 2. AN `unsupported` ANSWER — the step saying it could NOT — must not
+  //    settle what it was asked for. (The cleaner drops `answers` there too,
+  //    which is the belt; this is the wall.)
+  const refused = m.reconcileHandoffs([handed, { status: "unsupported", answers: "function#0", state: "failed", implementation: "found", id: "job#0" }]);
+  assert.equal(ho(refused).state, undefined, "a step that refused must not reconcile the hand-off it refused");
+  assert.equal(m.cleanRequirements([{ need: "x", status: "unsupported", why: "no", answers: "function#0" }], "job").list[0].answers, undefined,
+    "the cleaner must not keep an echo on a refusal");
+
+  // 3. CONFIGURATION MUST NEVER IMPLY DELIVERED BEHAVIOUR. Even an answering
+  //    entry that reached `delivered` hands the hand-off `configured`: the
+  //    hand-off is evidence about what was SET UP, and behaviour is the
+  //    answering entry's own claim to make.
+  const deliv = m.reconcileHandoffs([handed, { status: "covered", answers: "function#0", state: "delivered", implementation: "found", implementedBy: "j", kind: "job", id: "job#0" }]);
+  assert.equal(ho(deliv).state, "configured", "a delivered answer must cap the hand-off at configured");
+
+  // AND AN ECHO NAMING NOTHING reconciles nothing rather than matching loosely.
+  const stray = m.reconcileHandoffs([handed, { status: "covered", answers: "function#9", state: "configured", implementation: "found", id: "job#0" }]);
+  assert.equal(ho(stray).state, undefined);
+});
+
+test("a scheduled job says the schedule is set and its automatic running is not verified", async () => {
+  const m = await import("../builder/site-requirements.mjs");
+  // THE INTENDED CUSTOMER MEANING (owner, 2026-09-16): "Scheduled nightly at
+  // 23:00 Europe/London. Automatic execution has not yet been verified."
+  const MADE = [{ kind: "job", name: "nightly_booking_count", holds: ["1440", "23:00"], fails: [], checked: [] }];
+  const OPTS = { told: ["job"], made: MADE, reportable: ["job", "function"] };
+  const list = [
+    ...m.cleanRequirements([{ need: "That count runs every night at 11", status: "elsewhere", step: "job" }], "function").list,
+    ...m.cleanRequirements([{ need: "That count runs every night at 11", status: "covered", by: "nightly_booking_count at 23:00", kind: "job", item: "nightly_booking_count", answers: "function#0" }], "job").list,
+  ];
+  const note = m.requirementNote(list, OPTS);
+  assert.match(note, /Scheduled as you asked/, "the schedule half must be stated, not hedged");
+  assert.match(note, /Automatic running hasn't been verified from here yet/, "the unverified half is specific to a job and must be said");
+  // AND IT MUST NOT CLAIM WHAT NOTHING CHECKED. A job's applied facts carry
+  // `everyMinutes` and `at` and NO timezone, so a clause quoting one would be
+  // stating a fact this function cannot see.
+  assert.doesNotMatch(note, /Europe\/London|UTC/, "the zone is not available here and must not be invented");
+  // A NON-JOB KEEPS THE GENERAL CLAUSE — the job sentence is about one specific
+  // unverified thing and must not be said of a table or a function.
+  const tbl = m.cleanRequirements([{ need: "Bookings are stored", status: "covered", by: "bookings", kind: "table", item: "bookings" }], "table").list;
+  const n2 = m.requirementNote(tbl, { told: [], made: [{ kind: "table", name: "bookings", holds: ["collect"], fails: [], checked: [] }], reportable: ["table"] });
+  assert.match(n2, /I've set that up, but I can't confirm/);
+  assert.doesNotMatch(n2, /Scheduled as you asked/);
+});

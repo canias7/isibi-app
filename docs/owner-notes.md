@@ -604,10 +604,241 @@ than the states are — it prints the raw list, and every state underneath is
 it, because on your two rows busiest-first and oldest-first happen to give the
 same answer.
 
-**One press left, free**: `backend repair`, mode `verify`, slug `repairbench-1`.
-That reads `information_schema` and is the authoritative "no new tables or
-columns" — I probed seven plausible names and got nothing, but a probe only
-answers about names somebody guessed.
+### You pressed it, and it closes the milestone
+
+**Run 7, green in 22 seconds, nothing written.** Five checks ok, and the site
+came back **`ready`** — that's a fresh process re-reading Supabase and deciding
+for itself, not the tool vouching for its own earlier write.
+
+**The column list is identical to the one before run 49.** Same six tables, same
+columns, same types, same order:
+
+| table | columns |
+|---|---|
+| `bookings` | id, customer_name, bike, **drop_off_day**, updated_at, created_at |
+| `repairs` | id, customer_name, bike, issue, updated_at, created_at |
+| *plus* | the four internal ones — `_errors`, `_meta`, `_metrics`, `_secrets` |
+
+So the careful wording comes off: **run 49 created no table and no column.** Not
+"none of the names I guessed" — this is read out of the database's own catalog.
+Worth saying why that mattered: `repairs.issue` only ever showed up in one of
+these inventories. No probe had thought to ask about it.
+
+**The milestone is closed.** The addon reads the database the site really has,
+builds the right thing off it, and tells you the truth about what it did — each
+of those three proven by a different reader, not by the other two.
+
+**The one thing still open is the same one**: it cannot confirm its own work. The
+browser check was me, from outside. That's the design's limit, not a bug in it.
+
+---
+
+### The scheduled-job test — corrected, and smaller than I said
+
+You were right on all five. What follows is the corrected version.
+
+**The big one: `bookings` has no email field, so my reminder ask was wrong.**
+Checked properly this time — `email`, `phone`, `mobile`, `contact`,
+`customer_email` and `tel` all come back "no such column", while `drop_off_day`
+comes back "permission denied", which only a column that exists can say. **No
+table on your site holds a contact of any kind.** So a reminder-the-customer job
+would need a new column on `bookings`, which is a *table* change — and that
+kills the "no page, no compile" argument I built the cost on. Ask withdrawn.
+
+**Actual stubbed delivery now exists, and it isn't a live run with no key.** I
+had called "run it on a site with no mail key" stubbed delivery. It isn't: with
+no key the runner stops *before* the sender, so it proves the refusal and
+nothing else. There's a real test now that drives the runner with a fake clock
+and a sender that records what it was handed — two due customers, and it checks
+the right address, the right date in the message, the body arriving word for
+word, a bad address being dropped and counted, a text getting the number in the
+form the provider wants, and the missing-key case on its own. Eleven cases.
+**Nothing in it can reach a real person** — every address and number is from the
+ranges reserved for exactly this.
+
+**Three things I'd been treating as one.** Passing one proves neither other:
+
+| | how it gets proven |
+|---|---|
+| the schedule and timezone were really saved | only live |
+| the runner actually runs | only live (the Run now button) |
+| a nightly tick would *pick* the job | **done** — tested on a fixed clock |
+
+Run now can't prove the third: it forces the job regardless of whether it's due.
+Worth knowing before reading a green Run now as "the schedule works."
+
+**The live request is yours, and it's better than mine** — simpler, and it says
+both prohibitions out loud:
+
+> *"Every night at 11, count how many bookings we have and record the total in
+> the job's run result. Don't delete or change any bookings, don't email or text
+> anyone, and don't add a page."*
+
+It reads `bookings`, records a note rather than sending messages, and needs **no
+recipient, no new column, no page and no writes** — nothing is added to or
+deleted from your data. That makes it the one shape that's genuinely just a
+function and a job on this site.
+
+**And we already know the answer: 3.** Three readers agree and all three predate
+this, so there's no baseline to buy — the raw row count on the 15th, your
+`counts` press (2 on the 18th + 1 on the 19th), and both RPCs today. A plain
+count gives the run a number it can be *wrong* against, which the date-arithmetic
+version wouldn't have.
+
+**The four things I'll check:**
+
+1. what the function and job designers were actually handed
+2. the saved function name, the schedule, and the timezone spelled out
+3. **Run now returning 3, and the saved result agreeing** — the harness now
+   compares those two and says so, instead of printing two numbers and leaving
+   you to spot a mismatch. "Nothing saved yet" is a third answer, not a pass.
+4. whether the reply describes what it really set up
+
+**Three ways the model could still miss, and all three are visible** rather than
+silent: it marks the function public (the job gets refused, by name), it returns
+messages instead of a note (they all drop for want of an address, counted), or
+it designs a table (it's in the reply). None of them is a wrong answer wearing a
+right one's face — which is why it's worth running as written.
+
+**I can't price it, and I shouldn't have implied a ceiling.** "Below 12" wasn't
+enforced by anything. Nothing caps a single addon request — the server only
+refuses above 100,000 credits, and the harness's budget is checked between
+cases, which a one-ask run never has. **Your balance is the only real bound.**
+What I can say is the shape: no page generation, no compile, no publish, and a
+design call about a fifth the size of a page build's. That's an argument, not a
+number.
+
+**And I put my own worst habit into the new code.** The re-read after Run now
+fell back to the *before* value when it failed — so an unreadable check would
+have printed "last run: never" and read as a press that did nothing. It says
+"the persisted outcome could not be verified" now, and prints no stamp at all.
+There's a test for it that fails if the fallback comes back.
+
+**Dependency failures stay where they are**, as you said — in the route tests.
+They can't be caused by typing a sentence; the database has to actually refuse
+something.
+
+**One thing I'm scoping tighter, on your note.** The new delivery tests hand the
+function's answer *in* — so they prove what the runner does with it, not that a
+model writes SQL returning that shape, and not that anything is actually
+delivered. Both of those are still open. The test file says so at the top,
+because a file called "job delivery" is exactly the one somebody later quotes as
+proof that mail works.
+
+**Two things deliberately left out of this run**: whether a real nightly tick
+fires it (Run now forces the job, so a green press says nothing about that), and
+reusing this function from a *second* job later — that's its own follow-up.
+
+### It's merged, and here's the form to fill in
+
+CI green (6,698 tests), **deploy 2131 in 48 seconds**, and the container **did
+not roll** — I computed the image id before merging and the deploy agreed, so
+there's no waiting period. No product code moved: scripts, tests, one workflow,
+two documents.
+
+**`lane sweep` → Run workflow:**
+
+| field | value |
+|---|---|
+| confirm | `spend` |
+| harness | `addon` |
+| site | `repairbench-1` |
+| ask | *Every night at 11, count how many bookings we have and record the total in the job's run result. Don't delete or change any bookings, don't email or text anyone, and don't add a page.* |
+| picker | `grok` |
+| budget | `40` |
+| expect_deploy | `d9d8018dd336b8f3558e708c81840565cab67cce` |
+| expect_image | `d927ff27fd186f30` |
+| run_job | `auto` |
+| lanes | leave it — the ask replaces the case list |
+
+`run_job: auto` only fires a job *this run* created, and the site has no mail or
+SMS key, so nothing can be sent even if the model returns messages by mistake.
+
+**One thing I won't dress up.** I didn't take a size baseline before pushing this
+time, and two sites read a couple of hundred bytes different from a measurement
+hours old. They're stable across three reads, neither site has republished, and
+this deploy uploaded no files and rolled no container — so it isn't the cause.
+But "isn't the cause" is weaker than "explained", and the missing baseline is
+why I can't say more.
+
+### You ran it — it counted 3, for 3 credits
+
+**Run 50, green in 5m21s, 3 credits (137 → 134).** The pre-flight cleared both
+halves before anything was spent. It routed to a function and a job, exactly as
+planned, and **made no page** — the site is untouched, same version, all four
+pages the same size as before.
+
+**3 credits is the first real price for this shape** — against 12 for run 49 and
+13 for run 47. I'd refused to name a number; now there is one.
+
+**All four of your checks:**
+
+| | |
+|---|---|
+| designer inputs | both steps saw the real database — and the **job** step's list included the function the **function** step had just written, which is the hand-off that has to work |
+| schedule + timezone | `at 23:00 Europe/London every 1440m` — the zone spelled out |
+| Run now | **returned 3**, and the saved result **agrees**: *"Done — counted 3 bookings."* on both sides |
+| the reply | nothing failed, nothing missing — but see below |
+
+**The function is genuinely private**, checked from outside: a visitor calling it
+gets "permission denied", while the public one still answers 3. Its body is a
+single count — no write, no delete, nobody contacted.
+
+**One thing it got wrong, and it's worth your call.** The same requirement —
+*"that count runs every night at 11"* — got written down twice, once by each
+designer. The job step's version is recorded as configured. The function step's
+version had no name attached, so it landed as "can't tell" — **and that's the one
+the customer sentence uses**:
+
+> *"I can't see from here whether That count runs every night at 11 — nothing I
+> can check says either way"*
+
+...about a job that is registered at 23:00 and that the same run just fired
+successfully. Both halves are following the rules correctly; the effect is that
+one reply calls the same thing configured *and* unseeable, and the customer hears
+the gloomier one. **I haven't touched it** — you said no reporting changes unless
+a test turned up something real. This is the something real.
+
+**Two things still open**: whether a real 11pm tick fires it (Run now forces the
+job, so it can't answer that), and reusing this function from a second job later.
+
+**And one correction to myself.** Planning this I said I couldn't tell from
+outside whether an internal function existed. I can — it says "permission
+denied", where a missing one says "no such function". I reasoned instead of
+measuring, and the measurement says the opposite.
+
+### Both fixes are in
+
+**One need, one answer.** The job step now attaches what it built to the request
+it received, using an **id** the brief hands it and it copies back — not by
+matching the words, which is how two different needs that happen to read alike
+get silently joined. Run 50's duplicate now reads as configured once, linked to
+`nightly_booking_count`. Both entries stay in the record so you can still see
+what each designer said; it's the customer sentence that stops saying it twice.
+
+Four things it refuses to do, each one you named: settle a request just because
+the step ran; let a step that said it *couldn't* settle what it was asked for;
+reconcile through a claim nothing could verify; or let "configured" turn into
+"delivered". And with no id echoed back, nothing reconciles — it reads exactly
+as it does today.
+
+**The sentence a customer gets for a scheduled job is now your wording:**
+
+> *"Scheduled as you asked: … Automatic running hasn't been verified from here
+> yet, so have a look after the first one is due."*
+
+I deliberately don't quote the timezone in it — the job's applied facts carry
+the interval and the clock time and no zone, so naming one would be stating
+something that function can't actually see.
+
+**And the jobs list now says which function each job runs.** It didn't before,
+which on run 50 was invisible because the job and the function shared a name.
+It reads it from the same place the runner does, so it's the reference that
+would really be called — and a job that has lost its reference says
+`(NO FUNCTION)` rather than looking fine.
+
+**This one will roll the container** when merged, unlike the last change — so
+the 15–20 minute wait applies before anything paid.
 
 ---
 
