@@ -175,6 +175,24 @@ const mHistory = (label, from, to, control = false) =>
 const WKM = lastDefining("create table if not exists agent.agent_knowledge");
 const mWkm = (label, from, to, control = false) => ({ label, files: [WKM], from, to, control });
 
+/**
+ * THE APPROVAL CONTROLS — a window, a permission taken back, a run stopped. Found by what
+ * only IT defines, as everything here is; and the FUNCTIONS it redefines go through `mFn`,
+ * because `request_tool_approval` and `decide_tool_approval` are older than this migration.
+ */
+const CTRLS = lastDefining("create table if not exists agent.tool_revocations");
+const mCtrl = (label, from, to, control = false) => ({ label, files: [CTRLS], from, to, control });
+const mRevoke = mFn("revoke_agent_tool");
+const mRestore = mFn("restore_agent_tool");
+const mRevokedList = mFn("revoked_tools");
+const mWithdraw = mFn("revoke_tool_approval");
+const mCancel = mFn("cancel_run");
+const mExpiredSweep = mFn("requeue_expired_approvals");
+const mRequest = mFn("request_tool_approval");
+const mDecide = mFn("decide_tool_approval");
+const mPending = mFn("pending_approvals");
+const mRunApprovals = mFn("run_approvals");
+
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
   m("SQL/isolation: the runs policy stops comparing the tenant",
@@ -827,6 +845,118 @@ const spec = [
     "-- ⚠ THE DEFECT THIS CLOSES WAS REPRODUCED FIRST, against these migrations on a real",
     "-- The defect this closes was reproduced first, against these migrations on a real", true),
 
+  // ── EXPIRY, REVOCATION AND CANCELLATION ───────────────────────────────────
+  //
+  // ⚠ TWO OF THESE GUARD DEFECTS THAT WERE REPRODUCED FIRST. A run waiting for a person has
+  // its work row marked DONE, so anything that answers a request INSTEAD of a person has to
+  // put the run back — and neither the expiry nor the revocation did.
+  mRequest("⚠ SQL/window: a request is stamped with no window, so nothing can ever expire",
+    "          p_step, p_idx, p_tool, coalesce(p_args, '{}'::jsonb), p_hash, now() + agent.approval_window())",
+    "          p_step, p_idx, p_tool, coalesce(p_args, '{}'::jsonb), p_hash, null)"),
+  mRequest("⚠ SQL/window: expiry is not derived, so a request nobody answered reads as still pending",
+    "    when v_row.expires_at is not null and v_row.expires_at <= now() then 'expired'\n    else null end;",
+    "    else null end;"),
+  mRequest("⚠ SQL/window: `expired` answers null rather than false — cannot-tell as a value",
+    "    'expired', coalesce(v_state = 'expired', false),", "    'expired', v_state = 'expired',"),
+  mRequest("⚠ SQL/revocation: a person is asked about a call whose permission was withdrawn",
+    "  if p_agent_id is not null and exists (\n        select 1 from agent.tool_revocations r\n         where r.tenant_id = p_tenant and r.agent_id = p_agent_id and r.tool = p_tool) then",
+    "  if false then"),
+  mDecide("⚠ SQL/window: an EXPIRED request can still be approved",
+    "  if v_row.expires_at is not null and v_row.expires_at <= now() then\n    return jsonb_build_object('ok', false, 'error', 'expired', 'id', v_row.id,\n                              'run', v_row.run_id, 'expiresAt', v_row.expires_at);\n  end if;",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', 'expired');\n  end if;"),
+  mDecide("SQL/window: `revoked` can be set through the approve/reject door",
+    "  if p_verdict is null or p_verdict not in ('approved', 'rejected') then",
+    "  if p_verdict is null or p_verdict not in ('approved', 'rejected', 'revoked') then"),
+  mDecide("⚠ SQL/revocation: a request whose permission was withdrawn can still be decided",
+    "  if v_row.agent_id is not null and exists (\n        select 1 from agent.tool_revocations r\n         where r.tenant_id = p_tenant and r.agent_id = v_row.agent_id and r.tool = v_row.tool) then",
+    "  if false then"),
+  mCtrl("SQL/revocation: a revocation can be EDITED, so one wears another's timestamp",
+    "revoke update on agent.tool_revocations from service_role;",
+    "grant update on agent.tool_revocations to service_role;"),
+  mCtrl("SQL/revocation: a customer may write its own revocations",
+    "grant select on agent.tool_revocations to authenticated;",
+    "grant select, insert, delete on agent.tool_revocations to authenticated;"),
+  mCtrl("SQL/revocation: every account can read every revocation",
+    "  for select to authenticated using (tenant_id = agent.tenant_id());",
+    "  for select to authenticated using (true);"),
+  mCtrl("SQL/revocation: row level security is not forced, so the owner is exempt",
+    "alter table agent.tool_revocations force row level security;",
+    "-- force row level security removed"),
+  mRevoke("⚠ SQL/revocation: the requests still waiting for that tool are left pending",
+    "     where a.tenant_id = p_tenant and a.agent_id = p_agent_id\n       and a.tool = p_tool and a.verdict is null\n    returning a.run_id",
+    "     where false\n    returning a.run_id"),
+  mRevoke("⚠ SQL/revocation: the run it just answered is NOT put back, so it is stranded for ever",
+    "    v_back := agent.requeue_run(v_run.run_id, p_tenant);\n    if v_back ->> 'state' = 'queued' then",
+    "    v_back := jsonb_build_object('state', 'skipped');\n    if v_back ->> 'state' = 'queued' then"),
+  mRevoke("SQL/revocation: a withdrawal nobody can be tied to is accepted",
+    "  if p_by is null or btrim(p_by) = '' then\n    return jsonb_build_object('ok', false, 'error', 'no-decider');\n  end if;\n  if p_tool is null or p_tool !~ '^[a-zA-Z0-9_-]{1,64}$' then",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', 'no-decider');\n  end if;\n  if p_tool is null or p_tool !~ '^[a-zA-Z0-9_-]{1,64}$' then"),
+  mRevoke("SQL/revocation: any text at all is stored as a tool name",
+    "  if p_tool is null or p_tool !~ '^[a-zA-Z0-9_-]{1,64}$' then\n    return jsonb_build_object('ok', false, 'error', 'bad-tool');\n  end if;",
+    "  if p_tool is null then\n    return jsonb_build_object('ok', false, 'error', 'bad-tool');\n  end if;"),
+  mRevoke("⚠ SQL/revocation: another account can take a tool away from this agent",
+    "  if not agent.owns_agent(p_tenant, p_agent_id) then\n    return jsonb_build_object('ok', false, 'error', 'no-agent');\n  end if;\n  insert into agent.tool_revocations",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', 'no-agent');\n  end if;\n  insert into agent.tool_revocations"),
+  mRevokedList("⚠ SQL/revocation: what is revoked is not scoped to the AGENT, so a sibling loses the tool",
+    "   where r.tenant_id = p_tenant and r.agent_id = p_agent_id\n   order by r.tool;",
+    "   where r.tenant_id = p_tenant\n   order by r.tool;"),
+  mRevokedList("⚠ SQL/revocation: ...nor to the ACCOUNT",
+    "  select r.tool from agent.tool_revocations r", "  select r.tool from agent.tool_revocations r where true or"),
+  mRestore("⚠ SQL/revocation: lifting a revocation re-opens the requests it withdrew",
+    "  delete from agent.tool_revocations r\n   where r.tenant_id = p_tenant and r.agent_id = p_agent_id and r.tool = p_tool;",
+    "  delete from agent.tool_revocations r\n   where r.tenant_id = p_tenant and r.agent_id = p_agent_id and r.tool = p_tool;\n  update agent.tool_approvals a set verdict = null, decided_at = null, decided_by = null\n   where a.tenant_id = p_tenant and a.agent_id = p_agent_id and a.tool = p_tool and a.verdict = 'revoked';"),
+  // ⚠ ANCHORED WITH ITS NEIGHBOUR, because `revoke_tool_approval` reads the row and then
+  // updates it and both carry the same filter — the pre-check caught it as ambiguous.
+  mWithdraw("SQL/withdraw: another account's request can be taken back",
+    "  end if;\n  select * into v_row from agent.tool_approvals a\n   where a.id = p_id and a.tenant_id = p_tenant",
+    "  end if;\n  select * into v_row from agent.tool_approvals a\n   where a.id = p_id"),
+  mCancel("⚠ SQL/cancel: the stop is written at the top level, so the run ends with nothing saying how",
+    "    'stop', jsonb_build_object(\n      'reason', 'cancelled',", "    'reason', 'cancelled',\n    'unread', jsonb_build_object("),
+  mCancel("⚠ SQL/cancel: pending work is left claimable, so the run is delivered again",
+    "  update agent.run_work w\n     set claimed_by = null, claimed_at = null, lease_expires_at = null, claim_token = null,\n         done_at = now(), last_error = 'cancelled'\n   where w.run_id = p_run_id and w.done_at is null;",
+    "  -- the work row is left exactly as it was"),
+  mCancel("⚠ SQL/cancel: the wait is left, so the resume tick wakes something that has stopped",
+    "  update agent.automation_runs ar\n     set waiting = null, wait_until = null, finished_at = coalesce(ar.finished_at, now())\n   where ar.id = p_run_id and (ar.waiting is not null or ar.wait_until is not null);",
+    "  perform 1 from agent.automation_runs ar where ar.id = p_run_id;"),
+  mCancel("⚠ SQL/cancel: a request is left on somebody's screen for a run that has stopped",
+    "  update agent.tool_approvals a\n     set verdict = 'revoked', decided_at = now(), decided_by = p_by,\n         note = coalesce(p_reason, 'the run was cancelled')\n   where a.run_id = p_run_id and a.verdict is null;",
+    "  -- anything waiting is left waiting"),
+  mCancel("⚠ SQL/cancel: cancelling twice writes a SECOND ending over the first",
+    "  if exists (select 1 from agent.run_entries e where e.run_id = p_run_id and e.kind = 'stopped') then",
+    "  if false then"),
+  mCancel("SQL/cancel: a cancellation nobody can be tied to is accepted",
+    "  if p_by is null or btrim(p_by) = '' then\n    return jsonb_build_object('ok', false, 'error', 'no-decider');\n  end if;\n  select * into v_run from agent.runs r",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', 'no-decider');\n  end if;\n  select * into v_run from agent.runs r"),
+  mCancel("⚠ SQL/cancel: another account can stop this run",
+    "   where r.id = p_run_id and r.tenant_id = p_tenant\n     for update;", "   where r.id = p_run_id\n     for update;"),
+  mCancel("⚠ SQL/cancel: what had already completed is reported as nothing",
+    "    into v_steps, v_tools, v_seq\n    from agent.run_entries e where e.run_id = p_run_id;",
+    "    into v_steps, v_tools, v_seq\n    from agent.run_entries e where e.run_id = p_run_id and false;"),
+  mCancel("⚠ SQL/cancel: the answer claims the work was undone",
+    "    'say', 'stopped — what had already run has already run and was not undone');",
+    "    'say', 'stopped — everything it had done was rolled back');"),
+  mExpiredSweep("⚠ SQL/expiry: a run somebody can still answer is woken, so it is requeued for ever",
+    "       and not exists (select 1 from agent.tool_approvals b\n                        where b.run_id = a.run_id and b.verdict is null\n                          and (b.expires_at is null or b.expires_at > now()))",
+    "       and true"),
+  mExpiredSweep("⚠ SQL/expiry: a run that has already ended is offered again, once a minute for ever",
+    "       and not exists (select 1 from agent.run_entries e\n                        where e.run_id = a.run_id and e.body ->> 'kind' = 'stopped')",
+    "       and true"),
+  mExpiredSweep("⚠ SQL/expiry: nothing is put back at all, so the run is stranded",
+    "    v_back := agent.requeue_run(v_run.run_id, v_run.tenant_id);",
+    "    v_back := jsonb_build_object('state', 'skipped');"),
+  // ⚠ ANCHORED WITH THE LINE BELOW IT: the same test appears in `revoke_agent_tool`, and
+  // `return next` is what makes this one the sweep's.
+  mExpiredSweep("SQL/expiry: a run somebody is holding is reported as requeued",
+    "    if v_back ->> 'state' = 'queued' then\n      return next jsonb_build_object",
+    "    if true then\n      return next jsonb_build_object"),
+  mPending("⚠ SQL/lists: an expired request is offered as something to answer, and then refused",
+    "       and (a.expires_at is null or a.expires_at > now())", "       and true"),
+  mRunApprovals("⚠ SQL/lists: a run's own list cannot say a window closed",
+    "               when a.expires_at is not null and a.expires_at <= now() then 'expired'\n               else null end,",
+    "               else null end,"),
+  mCtrl("SQL/controls/CONTROL (comment only)",
+    "-- ⚠ **THREE THINGS, AND COLLAPSING ANY TWO LOSES A REAL DISTINCTION.**",
+    "-- Three things, and collapsing any two loses a real distinction (control).", true),
 ];
 
 // THE PRE-CHECK. Every anchor exactly once IN ITS OWN FILE, and a replacement that
