@@ -155,6 +155,31 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-17 — Before the photograph test: a note in the file was wrong
+
+Preparing the live page + photograph + QR test, I checked a line this file's
+engineering notes have carried since **8 August**: *"fal balance is empty, so no
+generated photograph has ever been bought on a site."*
+
+**It is false, and your own site disproves it.** `ashgrove-1` — Chairmakers, the
+Bristol workshop — was built on **30 August** and the notes record it as *"one
+page, 2 photographs, 45 credits"*. I fetched the live page today: it serves a
+real **1.35 MB JPEG** at `/u/ashgrove-1/86833f9a…jpg`, HTTP 200. So fal had
+money three weeks after that line was written, a photograph was bought, and it
+is on your site right now.
+
+**What I still cannot tell you is whether fal has money TODAY.** Nothing in my
+session has a fal key, and fal's own account is the only place that knows. That
+matters more than it sounds: with an empty balance the addon does not crash — it
+publishes the page with blank picture frames and says *"Couldn't make the
+photographs this time"*. So the run would spend your credits, look finished, and
+prove nothing about the one thing it was bought to prove. **It is worth thirty
+seconds checking your fal balance before pressing anything.**
+
+The line is corrected in the engineering notes with the measurement beside it.
+
+---
+
 ## 2026-09-17 — "Add a gallery page with photos of our work": three things were wrong
 
 The last item on the list you gave me. Same rules: **nothing merged, nothing

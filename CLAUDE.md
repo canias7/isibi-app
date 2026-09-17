@@ -10672,7 +10672,26 @@ rule and the measurement.
 - **Static voice previews** — the owner drops MP3s at `public/voices/<name>.mp3`.
 - **Real background removal** — needs a fal utility wired as an orchestrator step;
   blocked on a fal top-up.
-- **fal balance is empty**, so no generated photograph has ever been bought on a
-  site. Every `SafeImage` on every published site draws its placeholder.
+- **⚠ "fal balance is empty, so no generated photograph has ever been bought on a
+  site" IS FALSIFIED AND IS CORRECTED HERE (2026-09-17).** That sentence was
+  written **2026-08-08** (`git log -S` over this file) and has been carried
+  through four prunes since; `ashgrove-1` was built on **2026-08-30** and this
+  same file records it as *"one page, 2 photographs: 45 billed"*. **MEASURED
+  today**: `https://ashgrove-1.gofarther.app/` serves
+  `/u/ashgrove-1/86833f9a21022de9a22d55cd6bc3ba0d.jpg` at **200, 1,348,708
+  bytes, `image/jpeg`** — so fal had a balance three weeks after the line was
+  written and a photograph really was bought and really is being served.
+  `fretwork-1` also serves a `/u/` url, a **150-byte PNG**, which is far too
+  small to be a photograph and is almost certainly its uploaded mark; noted
+  because `photoUrls` counts any `/u/<slug>/` url and does not tell a logo from
+  a photograph.
+  **WHAT IS TRUE TODAY IS UNKNOWN FROM HERE AND IS NOT BEING GUESSED IN EITHER
+  DIRECTION.** No session holds a fal credential, and fal's own API is the only
+  reader of its balance. **The wrong direction is the expensive one**: an empty
+  balance is a GRACEFUL outcome — `imageNote` answers *"Couldn't make the
+  photographs this time, so the pictures are placeholders"* — so a paid run
+  against an empty fal spends the addon's credits, publishes placeholders, and
+  proves nothing about placement while looking like a complete result. It is a
+  **precondition to confirm before a photograph test, never a risk to absorb.**
 - **Mobile layout for the app is deliberately NOT being done** (owner's call,
   desktop-first).
