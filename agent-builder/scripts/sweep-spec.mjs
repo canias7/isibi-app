@@ -987,9 +987,13 @@ const spec = [
   m("refs: fillRefs substitutes NOTHING for an unknown name instead of naming it", WR,
     "      if (!missing.includes(name)) missing.push(name);\n      return whole;",
     '      return "";'),
-  m("refs: fillRefs resolves an inherited property, so {{constructor}} is a value", WR,
-    "  const bag = values && typeof values === \"object\" && !Array.isArray(values) ? values : {};",
-    "  const bag = values && typeof values === \"object\" && !Array.isArray(values) ? values : Object.create({});"),
+  // ⚠ REPLACED AFTER BEING MEASURED INERT. The first version of this mutant swapped the
+  // FALLBACK bag for `Object.create({})` — which is reached only when `values` is not an
+  // object, and has no own `constructor` either, so `Object.hasOwn` answers the same both
+  // ways over every shape (driven: null, undefined, 7, "x", ["a"]). This is the observable
+  // half of the same property, on the line that really decides it.
+  m("refs: fillRefs asks `in`, so {{constructor}} resolves through the prototype chain", WR,
+    "    if (!Object.hasOwn(bag, name)) {", "    if (!(name in bag)) {"),
   m("refs: valueText COERCES, so a list reads as its first element", WR,
     '  if (typeof v === "string") return v;', "  if (v !== null && v !== undefined) return String(v);"),
 
@@ -1081,8 +1085,12 @@ const spec = [
     '      if (false) {\n        stopBeating();\n        onEvent({ at: "waiting", runId, why: "waiting", done: false, kind: waiting.kind, step: waiting.step });'),
   m("runner: a pause keeps BEATING, so a released claim is still being renewed", RN,
     '      if (waiting) {\n        stopBeating();', "      if (waiting) {\n        void 0;"),
-  m("runner: the execution's own snapshot is ignored and the LIVE workflow is run", RN,
-    "        steps: exec.steps,\n        zone: exec.zone,", "        steps: exec.live?.steps ?? exec.steps,\n        zone: exec.zone,"),
+  // ⚠ REPLACED AFTER BEING MEASURED INERT. The first version read `exec.live?.steps ??
+  // exec.steps` — and `live` is a field NOTHING produces, in the store, the migration or
+  // anywhere else, so the optional chain always answered undefined and the `??` always
+  // took the real steps. This breaks the resumable half instead, which is observable.
+  m("runner: the position the execution reached is not passed on, so a resume starts again", RN,
+    "        startedAt: exec.startedAt,\n        position: exec.position,", "        startedAt: exec.startedAt,\n        position: 0,"),
   m("runner: the memory snapshot never reaches the executor", RN,
     "        memory: exec.memory,\n        retrieve,", "        memory: {},\n        retrieve,"),
 

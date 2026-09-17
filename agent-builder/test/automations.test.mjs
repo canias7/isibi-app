@@ -313,6 +313,7 @@ function routed({ executor = "automation", exec, finish, advance, search, automa
   const errors = [];
   const released = [];
   const steps = [];
+  const timers = { set: 0, clear: 0 };
   const work = {
     claim: async ({ runId, worker }) => ({
       claimed: true, runId, tenant: "t1", kind: "start", executor, attempts,
@@ -334,11 +335,14 @@ function routed({ executor = "automation", exec, finish, advance, search, automa
       advance: advance ?? (async (a) => { steps.push(a); return { ok: true, stored: true, seq: 1, advanced: true }; }),
       search: search ?? (async () => ({ excerpts: [] })),
     }),
-    timer: { set: () => 1, clear: () => {} },
+    // ⚠ THE TIMER RECORDS, because "the heartbeat stopped" is otherwise unobservable —
+    // a sweep mutant that left a released claim being renewed survived a fixture that
+    // threw both calls away.
+    timer: { set: () => { timers.set += 1; return timers.set; }, clear: () => { timers.clear += 1; } },
     onEvent: (e) => events.push(e),
     onError: (e) => errors.push(e),
   });
-  return { runner, events, errors, released, steps };
+  return { runner, events, errors, released, steps, timers };
 }
 
 const EXEC = {
@@ -606,6 +610,23 @@ test("⚠ the branch is matched by DEPTH, and one that does not balance is refus
   assert.equal(map.get(0).elseAt, 4, "the otherwise was paired with the inner if");
   assert.equal(map.get(0).endAt, 6);
 
+  // ⚠ AND THE SHAPE THAT REALLY SEPARATES DEPTH FROM POSITION: an `otherwise` reached
+  // while TWO `if`s are open. The case above has the inner one already closed, so the
+  // innermost and the outermost are the same entry and a reader taking either passes —
+  // measured, by a sweep mutant that took `open[0]` and survived it.
+  const deep = readWorkflow([IF, IF, { type: "otherwise" }, { type: "note", text: "in" },
+    { type: "end" }, { type: "end" }]);
+  assert.equal(deep.error, undefined, deep.error);
+  const dmap = branchMap(deep.steps).map;
+  assert.equal(dmap.get(1).elseAt, 2, "the otherwise belongs to the INNERMOST open if");
+  assert.equal(dmap.get(0).elseAt, null, "the outer if was given the inner one's otherwise");
+  assert.equal(dmap.get(1).endAt, 4, "the inner if closed on the outer end");
+  assert.equal(dmap.get(0).endAt, 5);
+  // AND A SECOND `otherwise` ON THE INNER ONE IS REFUSED, which a reader taking the
+  // OUTERMOST would let through.
+  assert.match(readWorkflow([IF, IF, { type: "otherwise" }, { type: "otherwise" },
+    { type: "end" }, { type: "end" }]).error, /step 4/);
+
   for (const [steps, where] of [
     [[{ type: "note", text: "a" }, IF], /step 2/],
     [[{ type: "otherwise" }], /step 1/],
@@ -760,6 +781,29 @@ test("⚠ an approval waits, and a DECISION is matched by the step's own id", as
   // spurious delivery harmless rather than a decision.
   const early = await resume({});
   assert.equal(early.waiting.step, "s1");
+
+  // ⚠ TWO APPROVALS IN ONE WORKFLOW IS THE SHAPE THAT SEPARATES "matched by id" FROM
+  // "matched by anything at all" — with one pause, a reader that merely asked whether
+  // SOMETHING was suspended gives the same answer, which a sweep mutant proved by
+  // surviving. Here the answer to the FIRST must not resume the SECOND.
+  const two = readWorkflow([
+    { type: "approval", ask: "First?", hours: 24, on_timeout: "reject" },
+    { type: "approval", ask: "Second?", hours: 24, on_timeout: "reject" },
+    { type: "note", text: "both" },
+  ]).steps;
+  const one = await runWorkflow({ steps: two, occurrence: WED, now: () => NOW });
+  assert.equal(one.waiting.step, "s1");
+  const answered = await runWorkflow({
+    steps: two, occurrence: WED, now: () => NOW + 60_000,
+    position: one.position, outcomes: one.outcomes, waiting: one.waiting, waitUntil: DEADLINE,
+    decisions: { s1: { verdict: "approved" } },
+  });
+  // IT MOVED ON AND STOPPED AT THE SECOND ONE, with no answer for it.
+  assert.equal(answered.waiting.step, "s2", "the first answer resumed the wrong pause");
+  assert.equal(answered.waiting.ask, "Second?");
+  assert.equal(answered.outcomes[0].outcome, "ran");
+  assert.equal(answered.outcomes[1].outcome, "waiting");
+  assert.equal(answered.stop, null, "it ran past a pause nobody had answered");
 });
 
 test("⚠ the timeout outcome is the CUSTOMER'S choice, and all three are different", async () => {
@@ -1041,7 +1085,7 @@ test("⚠ the advance carries the pause, the position and the values to the tran
 
 test("⚠ a WAITING execution is left suspended: not finished, not released again, not beating", async () => {
   const finished = [];
-  const { runner, events, released, steps } = routed({
+  const { runner, events, released, steps, timers } = routed({
     exec: {
       runId: "r1", automationId: "c1", tenant: "t1", trigger: "manual", agentId: "a1",
       occurrence: null, zone: null, finishedAt: null, position: 0,
@@ -1061,6 +1105,10 @@ test("⚠ a WAITING execution is left suspended: not finished, not released agai
   // finish and must not release again.
   assert.equal(finished.length, 0, "a suspended execution was finished");
   assert.equal(released.length, 0, "a suspended execution was released twice");
+  // ⚠ AND THE HEARTBEAT STOPPED. A suspended execution holds NOTHING — the transaction
+  // already released the claim, so a worker still renewing it would be renewing a lease
+  // it does not have, and the next holder's claim would be fought over by a timer.
+  assert.ok(timers.clear >= 1, "a suspended execution was left beating");
   // AND THE CHECKPOINT REALLY CARRIED THE PAUSE, which is what the release rides on.
   assert.equal(steps.at(-1).waiting.kind, "wait");
   assert.equal(events.at(-1).at, "waiting");

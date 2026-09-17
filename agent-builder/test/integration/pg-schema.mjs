@@ -2179,6 +2179,308 @@ try {
        values (gen_random_uuid(),'${AU1}','t1','manual','[]'::jsonb);`, "denied", claimT1);
   refused("...nor delete one", `delete from agent.automation_runs where id='${R_MAN1}';`, "denied", claimT1);
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // WAITING, APPROVING AND RESUMING — what a suspended execution may do
+  //
+  // A suspended execution is the one state in this schema where a row is meant to sit
+  // still, off the queue, holding nothing. Everything below is about what may and may
+  // not happen to it while nobody is running it, and each is driven through the real
+  // function rather than read off the migration.
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── waiting: progress moves forward only, and a pause releases ──");
+  const R_W1 = "cc000000-0000-0000-0000-0000000000d1";
+  const WSTEPS = `'[{"id":"s1","type":"note","text":"one"},{"id":"s2","type":"approval","ask":"ok?","hours":24,"on_timeout":"reject"},{"id":"s3","type":"note","text":"two"}]'::jsonb`;
+  allowed("an automation with an approval in it",
+    `update agent.automations set steps = ${WSTEPS} where id='${AU2}';`, asOwner);
+  const acc = jget(`select agent.accept_automation_run('t1','${AU2}','${R_W1}','manual',null)::text;`);
+  check("an execution to suspend", /"ok"\s*:\s*true/.test(acc), acc);
+  const hold = jget(`select agent.claim_run('${R_W1}','w-1',90)::text;`);
+  const TOK = (JSON.parse(hold).claim_token ?? "").trim();
+  check("...claimed, with a token", TOK.length > 0, hold);
+
+  // ONE STEP DONE, THEN THE PAUSE — the two calls a real delivery makes.
+  const adv1 = jget(`select agent.advance_automation_run('${R_W1}','w-1','${TOK}',
+    '{"kind":"step","step":1,"at":1,"mark":"progress","done":1}'::jsonb, 1,
+    '{"a":"one"}'::jsonb, '[{"id":"s1","outcome":"ran"}]'::jsonb, null)::text;`);
+  check("a step's progress is recorded and the row moves",
+    /"ok"\s*:\s*true/.test(adv1) && /"advanced"\s*:\s*true/.test(adv1), adv1);
+  const adv2 = jget(`select agent.advance_automation_run('${R_W1}','w-1','${TOK}',
+    '{"kind":"step","step":1,"at":1,"mark":"waiting","done":2}'::jsonb, 1,
+    '{"a":"one"}'::jsonb, '[{"id":"s1","outcome":"ran"},{"id":"s2","outcome":"waiting"}]'::jsonb,
+    '{"kind":"approval","step":"s2","ask":"ok?","hours":24,"on_timeout":"reject"}'::jsonb)::text;`);
+  check("...and a pause resolves its deadline from the hours it was given",
+    /"waiting"\s*:\s*true/.test(adv2) && /"released"\s*:\s*true/.test(adv2), adv2);
+  check("...23 hours out at least, which is the database's own arithmetic",
+    jget(`select wait_until > now() + interval '23 hours' from agent.automation_runs where id='${R_W1}';`) === "t");
+  // ⚠ THE WORKER IS RELEASED AND THE WORK IS OFF THE QUEUE — a suspended execution
+  // holds nothing at all, which is what makes waiting free.
+  check("⚠ the worker is released and the work is done",
+    jget(`select coalesce(claimed_by,'-') || '|' || (done_at is not null)::text
+            from agent.run_work where run_id='${R_W1}';`) === "-|true");
+  check("...and the journal holds one entry per event, the pause included",
+    jget(`select string_agg((body->>'step') || ':' || (body->>'mark'), ',' order by seq)
+            from agent.run_entries where run_id='${R_W1}' and body->>'kind'='step';`) === "1:progress,1:waiting");
+
+  // ⚠ PROGRESS MAY ONLY MOVE FORWARD. A stale worker re-delivering an older position
+  // must not rewind an execution that has already gone further.
+  // ⚠ IT HAS TO BE RE-QUEUED FIRST. The pause RELEASED the work — that is the whole
+  // point of it — so `claim_run` refuses a suspended execution, which is correct and is
+  // what made the first draft of this check hand an empty token to the transaction.
+  const cannot = jget(`select agent.claim_run('${R_W1}','w-2',90)::text;`);
+  check("⚠ a suspended execution cannot be claimed — the work is off the queue",
+    /"claimed"\s*:\s*false/.test(cannot), cannot);
+  jget(`select agent.requeue_run('${R_W1}','t1')::text;`);
+  const claim2 = jget(`select agent.claim_run('${R_W1}','w-2',90)::text;`);
+  const TOK2 = (JSON.parse(claim2).claim_token ?? "").trim();
+  const stale = jget(`select agent.advance_automation_run('${R_W1}','w-2','${TOK2}',
+    '{"kind":"step","step":0,"at":9,"mark":"progress","done":0}'::jsonb, 0,
+    '{}'::jsonb, '[]'::jsonb, null)::text;`);
+  check("⚠ a stale advance does NOT move the row", /"advanced"\s*:\s*false/.test(stale), JSON.stringify(stale));
+  check("...so the position and the values are the ones that were really reached",
+    jget(`select position || '|' || (vars->>'a') from agent.automation_runs where id='${R_W1}';`) === "1|one");
+
+  // ⚠ A RE-PAUSE KEEPS THE DEADLINE IT ALREADY HAS. Resolving it again from now would
+  // let a duplicate delivery extend a wait indefinitely — a duplicate doing harm.
+  const before = jget(`select wait_until::text from agent.automation_runs where id='${R_W1}';`);
+  jget(`select agent.advance_automation_run('${R_W1}','w-2','${TOK2}',
+    '{"kind":"step","step":1,"at":10,"mark":"waiting","done":2}'::jsonb, 1,
+    '{"a":"one"}'::jsonb, '[{"id":"s1","outcome":"ran"},{"id":"s2","outcome":"waiting"}]'::jsonb,
+    '{"kind":"approval","step":"s2","ask":"ok?","hours":24,"on_timeout":"reject"}'::jsonb)::text;`);
+  check("⚠ a RE-PAUSE at the same step does not restart the clock",
+    jget(`select wait_until::text from agent.automation_runs where id='${R_W1}';`) === before, before);
+
+  console.log("\n── approving: one answer stands, and it must be waiting for it ──");
+  const yes = jget(`select agent.decide_automation_approval('t1','${R_W1}','s2','approved','looks right','u1')::text;`);
+  check("a decision is accepted and puts the work back on the queue",
+    /"ok"\s*:\s*true/.test(yes) && /"queued"\s*:\s*"queued"/.test(yes), yes);
+  check("...recorded with who answered and what they said",
+    jget(`select (decisions->'s2'->>'verdict') || '|' || (decisions->'s2'->>'note') || '|' || (decisions->'s2'->>'by')
+            from agent.automation_runs where id='${R_W1}';`) === "approved|looks right|u1");
+  // ⚠ THE FIRST DECISION STANDS. By the time a second press arrives the execution may
+  // already have carried on, so changing the answer changes what a run did.
+  const twice = jget(`select agent.decide_automation_approval('t1','${R_W1}','s2','rejected','changed my mind','u1')::text;`);
+  check("⚠ a SECOND decision is absorbed and says so, and the first stands",
+    /"repeat"\s*:\s*true/.test(twice) && /"verdict"\s*:\s*"approved"/.test(twice), twice);
+  check("...and nothing was overwritten",
+    jget(`select decisions->'s2'->>'note' from agent.automation_runs where id='${R_W1}';`) === "looks right");
+  // NOT FOUND, NEVER FORBIDDEN: the account next door and a run that does not exist
+  // answer identically, because the difference is information.
+  const theirs = jget(`select agent.decide_automation_approval('t2','${R_W1}','s2','approved',null,'u2')::text;`);
+  check("⚠ the account next door cannot answer this account's approval",
+    /"error"\s*:\s*"no-execution"/.test(theirs), theirs);
+  const wrongStep = jget(`select agent.decide_automation_approval('t1','${R_W1}','s9','approved',null,'u1')::text;`);
+  check("a step it is not waiting at is refused by name, writing nothing",
+    /"error"\s*:\s*"not-waiting"/.test(wrongStep), wrongStep);
+  check("...and no decision was invented for it",
+    jget(`select (decisions ? 's9') from agent.automation_runs where id='${R_W1}';`) === "f");
+
+  console.log("\n── resuming: what is due, oldest first, and only what was re-queued ──");
+  const R_W2 = "cc000000-0000-0000-0000-0000000000d2";
+  jget(`select agent.accept_automation_run('t1','${AU2}','${R_W2}','manual',null)::text;`);
+  const c3 = jget(`select agent.claim_run('${R_W2}','w-3',90)::text;`);
+  const TOK3 = (JSON.parse(c3).claim_token ?? "").trim();
+  jget(`select agent.advance_automation_run('${R_W2}','w-3','${TOK3}',
+    '{"kind":"step","step":1,"at":1,"mark":"waiting","done":1}'::jsonb, 1, '{}'::jsonb,
+    '[{"id":"s1","outcome":"waiting"}]'::jsonb,
+    '{"kind":"wait","step":"s1","mode":"for","minutes":30}'::jsonb)::text;`);
+  // NOT DUE YET: the tick must leave it exactly where it is.
+  check("a suspended execution that is not due is woken by nothing",
+    jget(`select count(*) from agent.resume_due_automations(25) t
+            where (t->>'run_id') = '${R_W2}';`) === "0");
+  jget(`update agent.automation_runs set wait_until = now() - interval '1 minute' where id='${R_W2}';`);
+  const due = jget(`select string_agg((t->>'run_id') || ':' || (t->>'action'), ',') from agent.resume_due_automations(25) t;`);
+  check("⚠ once it is due it is re-queued, and the answer says so",
+    due === `${R_W2}:queued`, due);
+  check("...and the work row really is back on the queue",
+    jget(`select kind || '|' || (done_at is null)::text from agent.run_work where run_id='${R_W2}';`) === "resume|true");
+  // ⚠ A PAUSE AND ITS DEADLINE GO TOGETHER, in both directions. The first draft of the
+  // setup below cleared `waiting` and left `wait_until`, and was refused by this — which
+  // is the constraint doing its job and is worth its own check rather than a workaround.
+  refused("⚠ clearing a pause without its deadline is refused",
+    `update agent.automation_runs set waiting = null where id='${R_W1}';`,
+    "automation_runs_wait_is_whole", asOwner);
+  refused("...and a pause with no deadline is refused too",
+    `update agent.automation_runs set wait_until = null where id='${R_W1}';`,
+    "automation_runs_wait_is_whole", asOwner);
+
+  // A FINISHED EXECUTION IS NEVER WOKEN — there is nothing left to resume.
+  jget(`update agent.automation_runs set finished_at = now(), waiting = null, wait_until = null where id='${R_W1}';`);
+  check("a finished execution is not woken, whatever its deadline said",
+    jget(`select count(*) from agent.resume_due_automations(25) t where (t->>'run_id') = '${R_W1}';`) === "0");
+  // AND A FINISHED EXECUTION MAY NOT BE LEFT WAITING, which is a state nothing resumes.
+  refused("⚠ a finished execution cannot also be waiting",
+    `update agent.automation_runs set waiting = '{"kind":"wait","step":"s1"}'::jsonb where id='${R_W1}';`,
+    "automation_runs_finished_is_not_waiting", asOwner);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // REFERENCE MATERIAL — the real search, and who may read it
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── knowledge: a real tsvector search, scoped to one agent of one account ──");
+  const K1 = "dd000000-0000-0000-0000-0000000000e1";
+  const K2 = "dd000000-0000-0000-0000-0000000000e2";
+  const KT2 = "dd000000-0000-0000-0000-0000000000e3";
+  allowed("reference material for two accounts",
+    `insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body) values
+       ('${K1}','t1','${AG_ON}','Price list','Boiler service is 95 pounds including parts. A gutter clean is 60.'),
+       ('${K2}','t1','${AG_ON}','Opening hours','The workshop is open eight until five on weekdays.'),
+       ('${KT2}','t2','${AG_T2}','Their prices','Boiler service is 200 pounds.');`, asOwner);
+
+  // ⚠ THE SEARCH IS POSTGRESQL'S OWN, and this is the one place to see it: `pricing`
+  // finds `price` because the `english` configuration STEMS, which `simple` would not.
+  const hit = jget(`select coalesce(string_agg(t->>'title', ',' order by t->>'title'),'')
+                      from agent.search_knowledge('t1','${AG_ON}','boiler pricing',5) t;`);
+  check("⚠ the search really searches — one source matched, BY STEM", hit === "Price list", hit);
+  check("...and the answer is the MATCHED passage with its version",
+    /95/.test(jget(`select t->>'text' from agent.search_knowledge('t1','${AG_ON}','boiler',5) t limit 1;`)) &&
+    jget(`select t->>'version' from agent.search_knowledge('t1','${AG_ON}','boiler',5) t limit 1;`) === "1");
+  // ⚠ A QUERY WITH NOTHING SEARCHABLE IN IT FINDS NOTHING, NOT EVERYTHING. "There was
+  // nothing to look for" is a different answer from "there was, and it matched nothing".
+  check("⚠ a query of nothing but stopwords finds NOTHING",
+    jget(`select count(*) from agent.search_knowledge('t1','${AG_ON}','the and of',5) t;`) === "0");
+  check("...and so does an empty one",
+    jget(`select count(*) from agent.search_knowledge('t1','${AG_ON}','   ',5) t;`) === "0");
+  check("⚠ the account next door searching the same agent finds nothing at all",
+    jget(`select count(*) from agent.search_knowledge('t2','${AG_ON}','boiler',5) t;`) === "0");
+  check("...and its OWN agent finds only its own",
+    jget(`select coalesce(string_agg(t->>'title',','),'') from agent.search_knowledge('t2','${AG_T2}','boiler',5) t;`)
+      === "Their prices");
+  check("a search of ANOTHER agent of the same account finds nothing",
+    jget(`select count(*) from agent.search_knowledge('t1','${AG_OFF}','boiler',5) t;`) === "0");
+
+  // ⚠ TWO SOURCES OF ONE NAME IS A RETRIEVAL ANSWER NOBODY CAN ACT ON — which of them?
+  refused("two sources of one name per agent is refused, case-insensitively",
+    `insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body)
+       values (gen_random_uuid(),'t1','${AG_ON}','  PRICE LIST  ','again');`,
+    "agent_knowledge_one_title_per_agent", asOwner);
+  allowed("THE CONTROL: the same name under a DIFFERENT agent is fine",
+    `insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body)
+       values (gen_random_uuid(),'t1','${AG_OFF}','Price list','theirs');`, asOwner);
+  refused("a source with nothing in it is not a source",
+    `insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body)
+       values (gen_random_uuid(),'t1','${AG_ON}','Blank','');`, "check", asOwner);
+  refused("a format this platform cannot render is refused by name",
+    `insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body, format)
+       values (gen_random_uuid(),'t1','${AG_ON}','Pdf','x','pdf');`, "agent_knowledge_format_known", asOwner);
+
+  // ⚠ A VERSION SAYS WHICH TEXT A RUN QUOTED, so it moves on the BODY and on nothing else.
+  jget(`update agent.agent_knowledge set body = 'Boiler service is 115 pounds from October.' where id='${K1}';`);
+  check("⚠ editing the material BUMPS its version",
+    jget(`select version from agent.agent_knowledge where id='${K1}';`) === "2");
+  jget(`update agent.agent_knowledge set title = 'Prices' where id='${K1}';`);
+  check("⚠ ...and RENAMING it does NOT — a version is about the TEXT",
+    jget(`select version || '|' || title from agent.agent_knowledge where id='${K1}';`) === "2|Prices");
+  check("...and `updated_at` moved for both", 
+    jget(`select updated_at > created_at from agent.agent_knowledge where id='${K1}';`) === "t");
+
+  console.log("\n── knowledge: a customer reads their own and writes none of it ──");
+  check("an account reads its own reference material",
+    jget(`select count(*) from agent.agent_knowledge;`, claimT1) === "3");
+  check("...and none of the other account's",
+    jget(`select count(*) from agent.agent_knowledge where tenant_id='t2';`, claimT1) === "0");
+  refused("a client may not write reference material directly",
+    `insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body)
+       values (gen_random_uuid(),'t1','${AG_ON}','Sneaky','x');`, "denied", claimT1);
+  refused("...nor edit it", `update agent.agent_knowledge set body='x' where id='${K1}';`, "denied", claimT1);
+  refused("...nor delete it", `delete from agent.agent_knowledge where id='${K1}';`, "denied", claimT1);
+  refused("and `anon` reads none of it at all",
+    `select count(*) from agent.agent_knowledge;`, "denied", { role: "anon" });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // MEMORY — scoped by a unique index rather than by a filter anybody remembers
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── memory: (account, agent, name) is the identity, in the database ──");
+  allowed("a memory for each of three (account, agent) pairs",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value) values
+       (gen_random_uuid(),'t1','${AG_ON}','tone','formal'),
+       (gen_random_uuid(),'t1','${AG_OFF}','tone','chatty'),
+       (gen_random_uuid(),'t2','${AG_T2}','tone','theirs');`, asOwner);
+  // ⚠ THE SCOPE IS IN THE KEY. Without it "one value per name" is something every
+  // writer has to check, and two writers racing would both pass their own check.
+  refused("⚠ two values for one name on one agent is refused BY THE INDEX",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value)
+       values (gen_random_uuid(),'t1','${AG_ON}','tone','sneaky');`,
+    "agent_memory_one_per_key", asOwner);
+  check("THE CONTROL: two agents of one account keep their own",
+    jget(`select string_agg(value, ',' order by value) from agent.agent_memory where tenant_id='t1' and key='tone';`)
+      === "chatty,formal");
+  refused("a name that is not an identifier can never be reached by {{a name}}",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value)
+       values (gen_random_uuid(),'t1','${AG_ON}','Not A Name','x');`, "check", asOwner);
+  refused("a source nothing writes is refused, so provenance cannot say anything",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value, source)
+       values (gen_random_uuid(),'t1','${AG_ON}','other','x','somewhere');`,
+    "agent_memory_source_known", asOwner);
+
+  jget(`update agent.agent_memory set value='chatty' where tenant_id='t1' and agent_id='${AG_ON}' and key='tone';`);
+  check("⚠ correcting a memory bumps its version", 
+    jget(`select version from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='tone';`) === "2");
+  jget(`update agent.agent_memory set value='chatty' where tenant_id='t1' and agent_id='${AG_ON}' and key='tone';`);
+  check("...and saving the SAME value is not a correction",
+    jget(`select version from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='tone';`) === "2");
+
+  console.log("\n── memory: the snapshot an execution is given ──");
+  const snap = jget(`select agent.agent_memory_snapshot('t1','${AG_ON}')::text;`);
+  check("⚠ the snapshot carries the value AND the version",
+    /"value"\s*:\s*"chatty"/.test(snap) && /"version"\s*:\s*2/.test(snap), snap);
+  check("⚠ ...and it is scoped to the account", 
+    jget(`select agent.agent_memory_snapshot('t2','${AG_ON}')::text;`) === "{}");
+  check("an agent with nothing remembered answers {} — a real answer, not an absence",
+    jget(`select agent.agent_memory_snapshot('t1','${AG_T2}')::text;`) === "{}");
+  // ⚠ AND THE SNAPSHOT IS TAKEN AT ACCEPTANCE, which is what makes a correction reach
+  // the NEXT execution and never one already under way.
+  const R_M1 = "cc000000-0000-0000-0000-0000000000d3";
+  jget(`select agent.accept_automation_run('t1','${AU2}','${R_M1}','manual',null)::text;`);
+  check("an execution is given the memories as they stood when it was accepted",
+    jget(`select (memory->'tone'->>'value') || ' v' || (memory->'tone'->>'version')
+            from agent.automation_runs where id='${R_M1}';`) === "chatty v2");
+  jget(`update agent.agent_memory set value='formal again' where tenant_id='t1' and agent_id='${AG_ON}' and key='tone';`);
+  check("⚠ ...and a correction afterwards cannot reach it",
+    jget(`select memory->'tone'->>'value' from agent.automation_runs where id='${R_M1}';`) === "chatty");
+  const R_M2 = "cc000000-0000-0000-0000-0000000000d4";
+  jget(`select agent.accept_automation_run('t1','${AU2}','${R_M2}','manual',null)::text;`);
+  check("...while the NEXT execution gets the corrected one, at its new version",
+    jget(`select (memory->'tone'->>'value') || ' v' || (memory->'tone'->>'version')
+            from agent.automation_runs where id='${R_M2}';`) === "formal again v3");
+
+  console.log("\n── memory: a customer reads their own and writes none of it ──");
+  check("an account reads its own memories",
+    jget(`select count(*) from agent.agent_memory;`, claimT1) === "2");
+  check("...and none of the other account's",
+    jget(`select count(*) from agent.agent_memory where tenant_id='t2';`, claimT1) === "0");
+  refused("a client may not write a memory directly",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value)
+       values (gen_random_uuid(),'t1','${AG_ON}','sneaky','x');`, "denied", claimT1);
+  refused("...nor correct one", `update agent.agent_memory set value='x' where key='tone';`, "denied", claimT1);
+  refused("and `anon` reads none of it at all",
+    `select count(*) from agent.agent_memory;`, "denied", { role: "anon" });
+
+  console.log("\n── what an automation asks for ──");
+  refused("an input list longer than the cap is refused by the COLUMN",
+    `update agent.automations set inputs =
+       (select jsonb_agg(jsonb_build_object('name','a'||g,'label','A','required',false,'default','')) from generate_series(1,9) g)
+     where id='${AU2}';`, "automations_inputs_shaped", asOwner);
+  allowed("THE CONTROL: a list at the cap is accepted",
+    `update agent.automations set inputs =
+       (select jsonb_agg(jsonb_build_object('name','a'||g,'label','A','required',false,'default','')) from generate_series(1,8) g)
+     where id='${AU2}';`, asOwner);
+  allowed("one real declaration",
+    `update agent.automations set inputs = '[{"name":"topic","label":"What it is about","required":true,"default":""}]'::jsonb
+     where id='${AU2}';`, asOwner);
+  const R_IN = "cc000000-0000-0000-0000-0000000000d5";
+  const badIn = jget(`select agent.accept_automation_run('t1','${AU2}','${R_IN}','manual',null,'{"nonsense":"x"}'::jsonb)::text;`);
+  check("⚠ an answer nothing asked for is NAMED rather than dropped",
+    /"error"\s*:\s*"unknown-input"/.test(badIn) && /nonsense/.test(badIn), badIn);
+  check("...having written nothing at all",
+    jget(`select count(*) from agent.automation_runs where id='${R_IN}';`) === "0");
+  const missing = jget(`select agent.accept_automation_run('t1','${AU2}','${R_IN}','manual',null,'{}'::jsonb)::text;`);
+  check("a required answer left out is refused before anything is written",
+    /"error"\s*:\s*"(missing-input|bad-inputs)"/.test(missing), missing);
+  const goodIn = jget(`select agent.accept_automation_run('t1','${AU2}','${R_IN}','manual',null,'{"topic":"boiler"}'::jsonb)::text;`);
+  check("THE CONTROL: the answer it asked for is accepted", /"ok"\s*:\s*true/.test(goodIn), goodIn);
+  check("...and is snapshotted on the execution, in `input` AND seeded into `vars`",
+    jget(`select (input->>'topic') || '|' || (vars->>'topic') from agent.automation_runs where id='${R_IN}';`) === "boiler|boiler");
+
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

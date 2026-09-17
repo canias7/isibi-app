@@ -788,3 +788,46 @@ test("the resume tick's batch is bounded, and its failure cannot take the other 
     assert.equal(env[QUEUE_BINDING].sent.length, 1, "a broken resume took the scheduler down with it");
   });
 });
+
+test("⚠ a RING that fails costs that row its latency and nothing else", async () => {
+  // The work is committed by the time the doorbell is rung, so a failed ring decides how
+  // SOON an execution carries on and never whether it does — and one bad send must not
+  // take the rows behind it down, which is the difference between a backlog draining and
+  // a backlog stopping at whichever row the queue hiccuped on.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const auto = seedAutomation(rest, { over: { next_run_at: null, occurrence_for: null, schedule: "manual" } });
+    for (const id of ["a-first", "b-second"]) {
+      rest.execs.set(id, {
+        id, automation_id: auto.id, tenant_id: TENANT, agent_id: AGENT, trigger: "manual",
+        occurrence: null, steps: auto.steps, zone: "UTC", finished_at: null, position: 0,
+        vars: {}, input: {}, memory: {}, decisions: {},
+        waiting: { kind: "wait", step: "s1", mode: "for", minutes: 30 },
+        wait_until: new Date(Date.now() - 120_000).toISOString(), created_at: new Date().toISOString(),
+      });
+      rest.runs.set(id, { id, tenant_id: TENANT, status: "running", stop: null });
+      rest.work.set(id, {
+        run_id: id, tenant_id: TENANT, kind: "start", executor: "automation", attempts: 0,
+        claimed_by: null, claim_token: null, lease_expires_at: null,
+        done_at: Date.now(), enqueued_at: Date.now(), last_error: null,
+      });
+    }
+    // THE FIRST RING THROWS. The second row must still be rung.
+    const realSend = env[QUEUE_BINDING].send.bind(env[QUEUE_BINDING]);
+    let n = 0;
+    env[QUEUE_BINDING].send = async (m) => {
+      if (++n === 1) throw new Error("the queue hiccuped");
+      return realSend(m);
+    };
+    await assert.doesNotReject(() => worker.scheduled({}, env, ctx));
+    assert.deepEqual(env[QUEUE_BINDING].sent.map((m) => m.runId), ["b-second"],
+      "one failed ring stopped the rest of the tick");
+    // ⚠ AND BOTH ROWS ARE RE-QUEUED EITHER WAY, because the transaction did that before
+    // anything was rung — so the one whose ring failed is picked up by the next tick.
+    for (const id of ["a-first", "b-second"]) {
+      assert.equal(rest.work.get(id).kind, "resume", `${id} was not re-queued`);
+      assert.equal(rest.work.get(id).done_at, null, `${id} is still off the queue`);
+    }
+  });
+});

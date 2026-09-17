@@ -2087,6 +2087,73 @@ page scope; nothing is merged or deployed.
   rather than in a targeted re-run bolted onto a stale tally.
   **⚠ AND A SWEEP'S RESTORE TRAP MUST NOT FIRE ON A SUCCESSFUL EXIT — it discards your
   own uncommitted work.** Recorded in THE TRAPS; it cost one restore this round.
+- **RICHER WORKFLOWS, REFERENCE MATERIAL AND MEMORY (2026-09-17).** Owner: *"Focus on
+  richer workflows, knowledge, and memory. Leave the real model connection for the
+  end."* **The engine half — the nine-step registry, the resumable executor, the
+  `{{name}}` module, the retrieval contract and the three cron jobs — is in
+  `agent-builder/CLAUDE.md`**; what belongs here is the site builder's.
+  **SEVEN MORE `/api/agent/*` ROUTES, 22 in all, and `worker.js` NEEDED NO CHANGE
+  AGAIN.** The block dispatches on `Object.hasOwn(AGENT_ROUTES, url.pathname)` and
+  already hands every handler `query`, `body`, `tenant: user.id`, `store`, `ring` and
+  `log`, so `automation-approve`, `knowledge`, `knowledge-save`, `knowledge-delete`,
+  `memory`, `memory-save` and `memory-delete` are seven entries on one object. **That
+  is the gate-once design paying for itself a third time**: there is nowhere to add a
+  route that is not already behind the gate, and the tenant census over the whole
+  family passes by construction.
+  **THE STEP CATALOG HERE IS A COPY AND IS CENSUSED BOTH WAYS**, for the same reason
+  `AGENT_TOOLS` and `AUTOMATION_STEPS` already were — `worker.js`'s module graph is a
+  container image input, so importing the engine would put the agent product inside the
+  site's image. `test/agent-send.test.mjs` is the ONE file that may import both, and
+  **its census now compares four more properties per field**: `required`, `when`,
+  `refs` and a choice's `options`, plus `min`/`max`. Each is silent if it drifts —
+  `when` one way is a field the form hides and the engine still reads, or one the form
+  collects and the engine throws away — and all five were proved red by probe.
+  **⚠ A DEAD CHANGE HOOK, FOUND WRITING THE GUARDS.** The markup has carried
+  `data-change="agent-auto-step-field"` since the choice fields were written and
+  **nothing was bound to that name** — measured, one occurrence in the file and none in
+  `CHANGE_ACTIONS`. So picking "until a time" on a wait changed the select and redrew
+  nothing: no time box appeared, Save sent a `mode` with no `at`, and the server refused
+  it **naming a control that was not on the screen**. A dead control that ANSWERS, in
+  the feature this milestone is about. Bound now, and STRUCTURAL because which controls
+  exist is exactly what changes.
+  **AND THE CENSUS THAT WOULD HAVE CAUGHT IT**: every `agent-*` hook the markup declares
+  must have an entry in the table its own `bind(...)` call names — **the pairing derived
+  from those calls rather than listed**, so a fifth attribute added next month is covered
+  by existing. **SCOPED TO THE `agent-` FAMILY, and the reason is measured**: `data-act`
+  is answered by TWO dispatchers in that file, and the site builder's `data-act="data"`
+  is handled at its own reader and is not dead — so the wider claim would be red about
+  correct code. Proved red on the real defect, by name.
+  **⚠ TWO FIXTURES WERE LESS CAPABLE THAN WHAT THEY STAND IN FOR, and both were hiding
+  this round's own subject.** The browser's step catalog was a hand-typed PAIR written
+  when there were two steps — so with nine, the form under test **could not draw a
+  branch, a wait, an approval, a lookup or a memory read at all**, and every case about
+  them would have passed against a screen with no such control on it. It is derived from
+  `agent-store.mjs` now. And `hydrateAuto` read fields by `value="…"`, which **a
+  `<select>` has no attribute for** — so no browser case had ever read a choice field, in
+  the controls that decide which other controls exist.
+  **`out` CARRIES ITS OWN WORDS BECAUSE IT IS THE ONE FIELD WHOSE KEY IS NOT A LABEL.**
+  `out can't be empty` named a key nobody's screen calls anything; `says` is optional and
+  absent means the name, so no existing sentence moved.
+  **`executionRow` TELLS `waiting` FROM `queued` BY THE EXECUTION ROW, NOT BY THE RUN'S
+  STATUS** — a suspended execution has a `started` entry and no `stopped` one, so the run
+  says `running`, which is true and useless. **A REJECTION HAS A `why` AND DELIBERATELY NO
+  `result`**: somebody said no, so the automation produced nothing it was allowed to
+  produce, and carrying the last note forward would make a refusal read like a success in
+  every reader that shows the result first. The pause's projection is a FIXED SHAPE, so a
+  field added to a stored pause cannot reach a screen nobody has written.
+  **`cleanWorkflow` REFUSES A REFERENCE NOTHING PRODUCES, BY NAME AND BY POSITION**, and
+  a branch that does not balance with it — while it is still somebody's form, where it
+  can be fixed, rather than as an execution that fails days later having already charged
+  for the steps above it. A forward reference and a typo are the same refusal for the
+  same reason. **`branchShape` is a copy of the engine's algorithm and the answer is
+  structural rather than a matter of taste**, which is what keeps them in step.
+  **MEASURED**: site suite **6,770** (6,768 pass, 2 skipped, 0 fail) — 6,743 + 18
+  (`agent-automations` 19 → 37) + 9 (`agent-binding` 74 → 83), and the arithmetic closes
+  exactly. `agent-send` 45, unchanged in count and stronger in what it asks.
+  **NOT MERGED AND NOT DEPLOYED**, and the order when it is will be the recorded one:
+  **migration → engine → site**, because a form that saves a step no executor can run is
+  a control that ANSWERS, wrongly.
+
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose
