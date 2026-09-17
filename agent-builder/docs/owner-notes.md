@@ -1366,3 +1366,63 @@ this round broke nothing, and worth more than before because they now run agains
 that refuses a header it used to ignore.
 
 **Nothing is applied, deployed or merged. Still no model, still your call, still last.**
+
+---
+
+## 2026-09-17 — a retry that overwrote somebody's correction
+
+**Second of the nine. This one was a real bug with real consequences, and I reproduced it
+before writing a line of the fix.**
+
+**What went wrong.** An agent is told to remember something — say the tone to write in.
+It saves it. Then the process it was running in dies before it can record *that it saved
+it* — which happens: a deploy, an eviction, a lost connection. Meanwhile you notice the
+tone is wrong and change it yourself. The interrupted work then comes back, sees an
+unfinished job, does it again — **and your correction is gone.** Worse, it reported
+"changed it" while doing so, and nothing was reading that.
+
+The reasoning behind it was that saving the same fact twice leaves the same result. That is
+true if nothing happens in between. It is not true when somebody else can write.
+
+**What I built.** The backend now keeps a **record of every action it takes on your
+behalf**: which action, what it was asked with, and what happened. A repeat of the same
+action is answered from that record — the work is *not done again* — and the answer says
+plainly that it is a repeat, so the agent knows the current state may have moved on. The
+record and the action are saved together, in one go, so there is never a moment where the
+work happened and nothing knows about it.
+
+**And using one action's slot for a different request is refused**, not quietly turned into
+a second action. That matters: "do this again" and "do something else instead" arrive
+looking identical, and treating the second as the first is how work gets done nobody asked
+for.
+
+**Six things can be repeated safely now**: remembering, forgetting, turning an automation
+on or off, creating one, editing one, and starting one.
+
+**What I checked, and it is all through the real thing** — your own screen's routes, a real
+database, the real dispatcher, the real tools:
+
+- your correction survives the retry, and the retry says so;
+- **deleting and re-creating**: an agent forgets something, you write it again, the stale
+  forget comes back — and what you wrote is still there;
+- **two deliveries at once**: the fact is written once, both are answered, they agree;
+- **a restart**: a completely fresh connection with no memory of anything still recognises
+  the repeat, which is how I know the record is in the database and not in a variable;
+- **end to end**: a real message through the queue leaves a record stamped with that run.
+
+53 checks in a new demonstration, 24 more in the database checks, three more small tests.
+Everything else unchanged and green, which is how I know nothing else broke.
+
+**⚠ And the concurrency check found a second bug in my own fix**, which is why it was worth
+writing: two attempts arriving at the same instant, and the *underlying* save refused one of
+them with a database error instead of giving it the other's answer. The record decides what
+any failure was now — somebody else's win, or a real problem that must not be swallowed.
+
+**Five smaller mistakes of mine on the way**, all caught and all recorded: I hardcoded an
+agent's id where the route mints its own (every check failed for a reason that had nothing to
+do with the feature, while the check above them passed because it only asked for a 200); a
+type mistake Postgres refused outright; a parameter name colliding with one already there;
+**a test harness of mine that truncated its own input and then reported the migrations as
+broken**; and two breakage-sweep targets that matched six places instead of one.
+
+**Nothing is applied, deployed or merged. Still no model, still your call, still last.**

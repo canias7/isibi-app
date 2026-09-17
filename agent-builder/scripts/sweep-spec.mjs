@@ -1026,6 +1026,50 @@ const spec = [
   m("caps: the profile is asked about a method these RPCs never send", CP,
     "    ...profileFor(method, schema),", '    ...profileFor("GET", schema),'),
 
+  // ── approvals.mjs: THE IDENTITY, TAKEN APART ──────────────────────────────
+  // ⚠ THE SPLIT IS WHAT LETS THE RECORD STATE ITS OWN RULE. Folded into one key, two
+  // different argument sets are two different keys and therefore two separate operations,
+  // silently — the requirement's own counterexample.
+  m("identity: the hash is part of the key, so a re-filled slot is a second operation", AP,
+    "  const key = operation.slice(0, cut);", "  const key = operation;"),
+  m("identity: the position is dropped, so every call in a run shares one key", AP,
+    "  const hash = operation.slice(cut + 1);", '  const hash = "";'),
+  m("identity: a malformed operation is repaired into a key rather than refused", AP,
+    "  if (!/^[^\\s:]+:\\d+:\\d+$/.test(key)) return null;", "  if (false) return null;"),
+  m("identity: a hash with anything in it is accepted", AP,
+    "  if (!/^[0-9a-zA-Z+/=_-]+$/.test(hash)) return null;", "  if (false) return null;"),
+  m("identity: a non-string is coerced into one", AP,
+    '  if (typeof operation !== "string") return null;', '  operation = String(operation ?? "");'),
+  m("identity: an operation with nothing after the last colon is read as an identity", AP,
+    "  if (cut <= 0 || cut === operation.length - 1) return null;", "  if (cut <= 0) return null;"),
+  m("identity: any seed is read as a run, so a non-uuid reaches a uuid column", AP,
+    "  return Object.freeze({ key, hash, run: UUID_SHAPE.test(seed) ? seed : null });",
+    "  return Object.freeze({ key, hash, run: seed });"),
+
+  // ── capabilities.mjs: EVERY WRITE GOES THROUGH ITS RECORD ─────────────────
+  // ⚠ THE DEFECT THIS CLOSES WAS MEASURED: a retry of `remember` overwrote a person's
+  // correction, `saved: "corrected"`, v3 over their v2. Falling through to the plain function
+  // is the fail-OPEN direction, so a missing identity REFUSES.
+  m("caps: a write with no identity falls through to the unprotected function", CP,
+    "    if (!id) {\n      return { ok: false, error: operation === undefined || operation === null\n        ? \"operation-required\" : \"operation-unreadable\" };\n    }",
+    "    if (!id) return rpc(CAPABILITY_RPC[op], body);"),
+  m("caps: an unreadable identity is not told from an absent one", CP,
+    "      return { ok: false, error: operation === undefined || operation === null\n        ? \"operation-required\" : \"operation-unreadable\" };",
+    '      return { ok: false, error: "operation-required" };'),
+  m("caps: the write asks the plain function, so nothing is recorded", CP,
+    "    return rpc(`${CAPABILITY_RPC[op]}_once`, {", "    return rpc(`${CAPABILITY_RPC[op]}`, {"),
+  m("caps: the arguments' hash is not sent, so a re-filled slot cannot be told apart", CP,
+    "      p_op_key: id.key, p_args_hash: id.hash, p_op_run: id.run, ...body,",
+    "      p_op_key: id.key, p_args_hash: id.key, p_op_run: id.run, ...body,"),
+
+  // ── capability-tools.mjs: THE IDENTITY COMES FROM `ctx`, NEVER AN ARGUMENT ──
+  m("tools: `pause_automation` takes its identity from an argument", CT,
+    "enabled: args.enabled, operation: ctx?.operation });",
+    "enabled: args.enabled, operation: args.operation ?? ctx?.operation });"),
+  m("tools: `run_automation` takes its identity from an argument", CT,
+    "input: args.input ?? {}, operation: ctx.operation });",
+    "input: args.input ?? {}, operation: args.operation ?? ctx.operation });"),
+
   // ── rest-profile.mjs: THE ONE RULE ────────────────────────────────────────
   // Five stores ask this, so it is the one place a wrong answer reaches all of them —
   // and the five wiring mutants above are what stop it becoming the only wall, since a
@@ -1060,8 +1104,17 @@ const spec = [
     "  if (!can || typeof can !== \"object\") return NO_BACKEND;",
     "  if (false) return NO_BACKEND;"),
   m("tools: `remember` lets an ARGUMENT say where the fact came from", CT,
-    'const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: "run" });',
-    "const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: args.source ?? \"run\" });"),
+    'const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: "run", operation: ctx?.operation });',
+    "const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: args.source ?? \"run\", operation: ctx?.operation });"),
+  // ⚠ AND THE IDENTITY IS THE OTHER HALF OF THAT LINE. Dropped, the store refuses the write
+  // `operation-required` — loud — so the mutant worth having is one that takes the identity
+  // from an ARGUMENT, where a model can write it and two different calls can be made to look
+  // like one.
+  m("tools: `remember` lets an ARGUMENT be the call's identity", CT,
+    'source: "run", operation: ctx?.operation });', 'source: "run", operation: args.operation ?? ctx?.operation });'),
+  m("tools: `forget` takes its identity from an argument", CT,
+    "await can.deleteMemory({ name: text(args.name), operation: ctx?.operation });",
+    "await can.deleteMemory({ name: text(args.name), operation: args.operation ?? ctx?.operation });"),
   // ⚠ REPLACED, BECAUSE IT HAD BECOME INERT BY CONSTRUCTION. It ADDED `repeatable: true`
   // to a tool that already declares it — a duplicate key in an object literal, where the
   // later one wins and both are `true`. It was written while `run_automation` was
@@ -1086,8 +1139,8 @@ const spec = [
     "    const runId = typeof ctx?.operation === \"string\" && ctx.operation\n      ? await uuidFrom(ctx.operation) : null;",
     "    const runId = typeof ctx?.newId === \"function\" ? ctx.newId() : null;"),
   m("tools: starting an automation is declared unsafe to repeat, so an approved one strands", CT,
-    "  repeatable: true,\n  run: async (args, can, ctx) => {",
-    "  repeatable: false,\n  run: async (args, can, ctx) => {"),
+    "  repeatable: true,\n  run: async (args, can, ctx) => {\n    // ⚠ THE RUN ID IS DERIVED FROM THIS CALL",
+    "  repeatable: false,\n  run: async (args, can, ctx) => {\n    // ⚠ THE RUN ID IS DERIVED FROM THIS CALL"),
   m("approvals: a derived id is not a uuid, so the column refuses it at the last moment", AP,
     "  b[6] = (b[6] & 0x0f) | 0x50;", "  b[6] = b[6];"),
   m("approvals: the same call derives a different id each time", AP,
@@ -1117,8 +1170,24 @@ const spec = [
     "  catch (e) { throw new RangeError(`storedForm: these arguments cannot be written down (${String(e?.message ?? e)})`); }"),
   m("runner: the run is not the seed, so two runs derive the same work", RN,
     "        operationSeed: runId,", "        operationSeed: \"seed\","),
+  // ⚠ AMBIGUOUS AFTER THE REPEAT ARM WAS ADDED: `forget` answers `forgot: answer.forgot ===
+  // true` in TWO places now, the ordinary one and the absorbed one. Anchored on the sentence
+  // that follows only the ordinary arm.
   m("tools: forgetting something that was not there reads as having removed it", CT,
-    "    return { ok: true, forgot: answer.forgot === true,", "    return { ok: true, forgot: true,"),
+    '    return { ok: true, forgot: answer.forgot === true,\n      say: answer.forgot === true ? "forgotten"',
+    '    return { ok: true, forgot: true,\n      say: answer.forgot === true ? "forgotten"'),
+  // ⚠ AND THE ABSORBED ARM IS ITS OWN MUTANT. A repeat answered as though it had just
+  // happened is a claim about the present made from a record of the past — the fact may have
+  // been written again since, which section 3 of `verify:ops` is exactly about.
+  m("tools: an absorbed forget is answered as though it had just happened", CT,
+    '      return { ok: true, forgot: answer.forgot === true, repeat: true,',
+    '      return { ok: true, forgot: answer.forgot === true,'),
+  m("tools: an absorbed remember is reported as new work", CT,
+    "      ...(answer.repeat === true ? { repeat: true, say: \"that was already saved by this same request; check it if you need what is remembered now\" } : {}) };",
+    "      };"),
+  m("tools: an absorbed pause claims the automation is as this call left it", CT,
+    "      ...(answer.repeat === true ? { repeat: true, say: \"that was already done by this same request; it may have been changed since\" } : {}) };",
+    "      };"),
   m("tools: a database refusal is passed on as a SUCCESS", CT,
     '    if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused", say: sayMemory(answer?.error) };',
     "    if (false) return { ok: false, error: answer?.error ?? \"refused\", say: sayMemory(answer?.error) };"),
@@ -1187,8 +1256,8 @@ const spec = [
   m("define: the flag is read and then dropped, so no tool is ever gated", D,
     "    approval: spec.approval === true,", "    approval: false,"),
   m("tools: turning an automation off needs nobody", CT,
-    "  approval: true,\n  run: async (args, can) => {\n    const answer = await can.setAutomationEnabled(",
-    "  run: async (args, can) => {\n    const answer = await can.setAutomationEnabled("),
+    "  approval: true,\n  run: async (args, can, ctx) => {\n    const answer = await can.setAutomationEnabled(",
+    "  run: async (args, can, ctx) => {\n    const answer = await can.setAutomationEnabled("),
   m("tools: starting an automation needs nobody", CT,
     "  approval: true,\n  // ⚠ SAFE TO REPEAT", "  // ⚠ SAFE TO REPEAT"),
 

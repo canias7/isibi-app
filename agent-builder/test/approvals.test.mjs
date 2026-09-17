@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeApprovals, canonicalJson, argsHash, storedForm, approvalRefusal, APPROVAL_STATES } from "../src/approvals.mjs";
+import { makeApprovals, canonicalJson, argsHash, storedForm, approvalRefusal, APPROVAL_STATES, splitOperation } from "../src/approvals.mjs";
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { CAPABILITIES, CAPABILITY_RPC } from "../src/capabilities.mjs";
 import { OFFERED } from "../src/agents.mjs";
@@ -622,4 +622,41 @@ test("⚠ AND A MODEL CANNOT ASK FOR ITS OWN CALL TO BE APPROVED", async () => {
   });
   assert.equal(r.stop.reason, "awaiting-approval");
   assert.deepEqual(act.calls, []);
+});
+
+test("⚠ AN OPERATION'S IDENTITY COMES APART INTO A POSITION AND A HASH, and the split is the point", async () => {
+  // **FOLDED INTO ONE STRING, A DATABASE KEYED ON IT CANNOT STATE ITS OWN RULE**: two
+  // different argument sets would be two different keys and therefore two separate
+  // operations, silently — which is the outcome the requirement names. Kept apart, a slot
+  // re-filled with a different call meets the same key with a different hash and is refused.
+  const RUN = "11111111-1111-4111-8111-111111111111";
+  const one = splitOperation(`${RUN}:2:0:abc123`);
+  assert.deepEqual({ ...one }, { key: `${RUN}:2:0`, hash: "abc123", run: RUN });
+
+  // ⚠ THE SAME POSITION WITH DIFFERENT ARGUMENTS IS THE SAME KEY. That is what lets the
+  // record refuse it, and it is the one property a single string cannot express.
+  const other = splitOperation(`${RUN}:2:0:zzz999`);
+  assert.equal(other.key, one.key, "two calls in one slot got two keys");
+  assert.notEqual(other.hash, one.hash, "two different calls hashed alike");
+  // ...and a different POSITION is a different key, or every call in a run would collide.
+  assert.notEqual(splitOperation(`${RUN}:2:1:abc123`).key, one.key);
+  assert.notEqual(splitOperation(`${RUN}:3:0:abc123`).key, one.key);
+
+  // THE RUN IS THE SEED ONLY WHEN IT REALLY IS ONE, because the column is a uuid.
+  assert.equal(splitOperation("seed:0:0:ff").run, null, "a seed that is not a uuid was read as a run");
+  assert.equal(splitOperation("seed:0:0:ff").key, "seed:0:0", "...and the key still works");
+
+  // ⚠ REFUSED, NEVER REPAIRED. A key invented from a malformed identity is a key that
+  // collides with something, so every shape this cannot read answers null.
+  for (const junk of ["", "a:b", "a:b:c:ff", "x:1:0:", ":1:0:ff", "x:1:0:ff:gg", "x y:1:0:ff",
+                      "x:1:0:ff ", "x:-1:0:ff", "x:1:0:@@", null, undefined, 7, {}, [`${RUN}:2:0:abc`]]) {
+    assert.equal(splitOperation(junk), null, `${JSON.stringify(junk)} was read as an identity`);
+  }
+  // AND IT AGREES WITH WHAT `run.mjs` REALLY BUILDS, rather than with a shape typed here:
+  // the seed, the step, the index and the REAL `argsHash`.
+  const real = `${RUN}:4:2:${await argsHash({ id: "a", n: 1 })}`;
+  const split = splitOperation(real);
+  assert.equal(split.key, `${RUN}:4:2`);
+  assert.equal(split.hash, await argsHash({ id: "a", n: 1 }));
+  assert.equal(`${split.key}:${split.hash}`, real, "the split does not put back together");
 });

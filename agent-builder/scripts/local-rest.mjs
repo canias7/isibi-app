@@ -118,7 +118,32 @@ const RPCS = {
   set_automation_enabled: { args: ["p_tenant", "p_id::uuid", "p_enabled::boolean"], shape: "value" },
   list_executions: { args: ["p_tenant", "p_automation_id::uuid", "p_limit::integer"], shape: "set" },
   read_execution: { args: ["p_tenant", "p_id::uuid"], shape: "value" },
+  // ── the operation record ──────────────────────────────────────────────────
+  operation_check: { args: ["p_tenant", "p_op_key", "p_action", "p_args_hash"], shape: "value" },
+  operation_record: { args: ["p_tenant", "p_op_key", "p_action", "p_args_hash", "p_run_id::uuid", "p_outcome::jsonb"], shape: "value" },
 };
+
+/**
+ * ⚠ THE `_once` WRAPPERS ARE DERIVED FROM THE SIX, NEVER TYPED AGAIN.
+ *
+ * Each takes `p_tenant` followed by its own four and then the plain function's remaining
+ * parameters, in that order — so a parameter added to any of the six reaches its wrapper
+ * here by construction. Eleven argument lists written out twice is how a shim comes to
+ * serve a function the database no longer has, and this shim's whole value is that it is
+ * not more forgiving than the real thing.
+ */
+const ONCE_OF = ["save_memory", "delete_memory", "set_automation_enabled",
+  "accept_automation_run", "create_automation", "update_automation"];
+for (const name of ONCE_OF) {
+  const inner = RPCS[name];
+  if (!inner) throw new Error(`local-rest: ${name} is not served, so ${name}_once cannot be derived`);
+  const [tenant, ...rest] = inner.args;
+  if (tenant !== "p_tenant") throw new Error(`local-rest: ${name}'s first parameter is not p_tenant`);
+  RPCS[`${name}_once`] = {
+    args: ["p_tenant", "p_op_key", "p_args_hash", "p_op_run::uuid", ...rest],
+    shape: "value",
+  };
+}
 
 /**
  * The AUTHORED side's columns — the customer's own agents and conversations.

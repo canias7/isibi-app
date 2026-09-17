@@ -144,6 +144,46 @@ export async function argsHash(args) {
 }
 
 /**
+ * ⚠ AN OPERATION'S IDENTITY, TAKEN APART — the POSITION and the ARGUMENTS, kept separate.
+ *
+ * `ctx.operation` is `<run>:<step>:<index>:<hash>` and the two halves answer different
+ * questions. The KEY is the first three: one tool call, in one run, at one position, the
+ * same on every redelivery. The HASH is what the call was ASKED with.
+ *
+ * **THEY MUST NOT BE ONE STRING WHERE A DATABASE STORES THEM**, and that is the whole
+ * reason this function exists. Keyed on the WHOLE thing, two different argument sets are
+ * two different keys and therefore two separate operations — SILENTLY, which is exactly
+ * the outcome the requirement forbids. Kept apart, a slot re-filled with a different call
+ * meets the same key with a different hash and is refused.
+ *
+ * **SPLIT ON THE LAST COLON, deliberately**: a run id is a uuid, a step and an index are
+ * numbers, and a hash is hex — so only one colon can be the last one. And it is a REFUSAL
+ * rather than a repair: a shape this cannot read answers `null`, because a key invented
+ * from a malformed identity is a key that collides with something.
+ *
+ * `run` is the seed only when it really is a uuid (it is the run's own id), because that
+ * column is a uuid and a seed of some other shape is not a run.
+ */
+export function splitOperation(operation) {
+  if (typeof operation !== "string") return null;
+  const cut = operation.lastIndexOf(":");
+  if (cut <= 0 || cut === operation.length - 1) return null;
+  const key = operation.slice(0, cut);
+  const hash = operation.slice(cut + 1);
+  // THE KEY MUST STILL HOLD A POSITION. `a:b` splits into `a` and `b` and is not an
+  // identity; the shape is `<seed>:<step>:<index>`, so the key carries two colons of its
+  // own. Asked as a shape rather than by counting, so a seed containing a colon is refused
+  // rather than silently read as a step.
+  if (!/^[^\s:]+:\d+:\d+$/.test(key)) return null;
+  if (!/^[0-9a-zA-Z+/=_-]+$/.test(hash)) return null;
+  const seed = key.slice(0, key.indexOf(":"));
+  return Object.freeze({ key, hash, run: UUID_SHAPE.test(seed) ? seed : null });
+}
+
+/** A uuid, for deciding whether an operation's seed is really a run's id. */
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * What one ask can come back as. Every one is a different thing to DO, which is why none
  * of them is folded into another.
  *

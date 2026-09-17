@@ -2770,6 +2770,120 @@ try {
                                 'pending_approvals','run_approvals')
               and p.prosecdef and 'search_path=""' = any(p.proconfig);`) === "4");
 
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── AN OPERATION HAPPENS ONCE, HOWEVER MANY TIMES IT IS DELIVERED ──");
+  // ══════════════════════════════════════════════════════════════════════════
+  // The engine half is demonstrated by `npm run verify:ops`; what is proved HERE is what the
+  // DATABASE guarantees on its own, including the things no JavaScript check can see.
+  {
+    const OT = "op-tenant-1";
+    const OA = "dddddddd-1111-4111-8111-dddddddddddd";
+    const OKEY = "aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa:3:0";
+    const HASH = "abc123";
+    psql(`insert into agent.agents (id, tenant_id, name, instructions)
+          values ('${OA}', '${OT}', 'Ops', 'x');`, asWriter);
+
+    // FRESH, then a claim, then a repeat — the three answers, in order.
+    check("an unseen operation is `fresh`",
+      jget(`select agent.operation_check('${OT}', '${OKEY}', 'save_memory', '${HASH}') ->> 'state';`) === "fresh");
+    check("recording it answers that it was ours to record",
+      jget(`select agent.operation_record('${OT}', '${OKEY}', 'save_memory', '${HASH}', null,
+             '{"ok": true, "saved": "created"}'::jsonb)::text;`) === "true");
+    check("⚠ ...and the same key now answers `repeat` WITH THE OUTCOME",
+      jget(`select agent.operation_check('${OT}', '${OKEY}', 'save_memory', '${HASH}') -> 'outcome' ->> 'saved';`) === "created");
+    check("recording it AGAIN answers that somebody else had it",
+      jget(`select agent.operation_record('${OT}', '${OKEY}', 'save_memory', '${HASH}', null,
+             '{"ok": true, "saved": "corrected"}'::jsonb)::text;`) === "false");
+    check("⚠ ...and the FIRST outcome still stands — a record does not move",
+      jget(`select outcome ->> 'saved' from agent.operations where tenant_id='${OT}' and op_key='${OKEY}';`) === "created");
+
+    // ⚠ THE SAME KEY WITH DIFFERENT ARGUMENTS, WHICH IS THE REQUIREMENT'S OWN CASE.
+    check("⚠ the same key with DIFFERENT arguments is `mismatch`, never a second operation",
+      jget(`select agent.operation_check('${OT}', '${OKEY}', 'save_memory', 'something-else') ->> 'state';`) === "mismatch");
+    check("⚠ ...and the same key for a different ACTION is a mismatch too",
+      jget(`select agent.operation_check('${OT}', '${OKEY}', 'delete_memory', '${HASH}') ->> 'state';`) === "mismatch");
+
+    // ⚠ THE KEY IS THE ACCOUNT'S. One key, two accounts, two operations — or one account's
+    // retry would be answered with another's outcome.
+    check("⚠ the same key in another account is `fresh`",
+      jget(`select agent.operation_check('op-tenant-2', '${OKEY}', 'save_memory', '${HASH}') ->> 'state';`) === "fresh");
+
+    // AN OUTCOME IS REQUIRED. A row with none would be a claim a retry cannot be answered
+    // from, and `unfinished` exists to name it rather than read it as a repeat with nothing.
+    refused("an operation record with no outcome is refused",
+      `select agent.operation_record('${OT}', 'no-outcome:1:0', 'save_memory', '${HASH}', null, null);`,
+      "an outcome is required", asWriter);
+
+    // THE SHAPE CONSTRAINTS, each read for ITS OWN name.
+    refused("a key with whitespace in it is refused",
+      `insert into agent.operations (tenant_id, op_key, action, args_hash, outcome)
+       values ('${OT}', 'a key:1:0', 'save_memory', '${HASH}', '{}'::jsonb);`,
+      "operations_key_shaped", asWriter);
+    refused("an action that is not an identifier is refused",
+      `insert into agent.operations (tenant_id, op_key, action, args_hash, outcome)
+       values ('${OT}', 'k1:1:0', 'Save Memory', '${HASH}', '{}'::jsonb);`,
+      "operations_action_shaped", asWriter);
+    refused("a hash with a quote in it is refused",
+      `insert into agent.operations (tenant_id, op_key, action, args_hash, outcome)
+       values ('${OT}', 'k2:1:0', 'save_memory', 'ab''c', '{}'::jsonb);`,
+      "operations_hash_shaped", asWriter);
+    allowed("THE CONTROL: an ordinary record really is accepted",
+      `insert into agent.operations (tenant_id, op_key, action, args_hash, outcome)
+       values ('${OT}', 'k3:1:0', 'save_memory', '${HASH}', '{"ok": true}'::jsonb);`, asWriter);
+
+    // ⚠ A RECORD CANNOT BE REWRITTEN OR REMOVED, BY ANYBODY THE PLATFORM RUNS AS. Asked as a
+    // PRIVILEGE rather than as a refusal: `authenticated` holds no USAGE on this schema, so a
+    // refusal there would say nothing about the table grant.
+    check("⚠ the writer may insert and read and NOTHING else",
+      jget(`select has_table_privilege('service_role', 'agent.operations', 'INSERT')::text || ' '
+                 || has_table_privilege('service_role', 'agent.operations', 'SELECT')::text || ' '
+                 || has_table_privilege('service_role', 'agent.operations', 'UPDATE')::text || ' '
+                 || has_table_privilege('service_role', 'agent.operations', 'DELETE')::text;`) === "true true false false");
+    check("a tenant may read its own records and write none",
+      jget(`select has_table_privilege('authenticated', 'agent.operations', 'SELECT')::text || ' '
+                 || has_table_privilege('authenticated', 'agent.operations', 'INSERT')::text;`) === "true false");
+    check("⚠ ...and RLS is enabled AND forced, so the table's owner is not exempt either",
+      jget(`select relrowsecurity::text || ' ' || relforcerowsecurity::text
+              from pg_class where oid = 'agent.operations'::regclass;`) === "true true");
+    check("only the backend may call either helper",
+      jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname='agent' and p.proname in ('operation_check','operation_record')
+               and has_function_privilege('service_role', p.oid, 'EXECUTE')
+               and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+               and not has_function_privilege('anon', p.oid, 'EXECUTE');`) === "2");
+    check("⚠ and all eight new functions pin an empty search_path and run as their owner",
+      jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname='agent'
+               and (p.proname like '%\\_once' or p.proname in ('operation_check','operation_record'))
+               and p.prosecdef and 'search_path=""' = any(p.proconfig);`) === "8");
+
+    // ⚠ A WRAPPER DOES THE WORK ONCE AND THE ROW PROVES IT. This is the whole guarantee, in
+    // the database, with no engine in front of it.
+    const MK = `${OKEY.slice(0, -3)}:9:0`;
+    const memOf = () => jget(`select coalesce(max(value || '/v' || version), '(none)') from agent.agent_memory
+                               where tenant_id='${OT}' and agent_id='${OA}' and key='tone';`);
+    check("the wrapper writes the fact", jget(`select agent.save_memory_once('${OT}', '${MK}', '${HASH}', null,
+             '${OA}'::uuid, 'tone', 'formal', null, 'run', 100) ->> 'saved';`) === "created" && memOf() === "formal/v1",
+      memOf());
+    psql(`select agent.save_memory('${OT}', '${OA}'::uuid, 'tone', 'casual', null, 'person', 100);`, asWriter);
+    check("somebody corrects it, through the UNCHANGED function", memOf() === "casual/v2", memOf());
+    check("⚠ the same wrapper call again is a REPEAT and writes nothing",
+      jget(`select (agent.save_memory_once('${OT}', '${MK}', '${HASH}', null,
+             '${OA}'::uuid, 'tone', 'formal', null, 'run', 100) -> 'repeat')::text;`) === "true" && memOf() === "casual/v2",
+      memOf());
+    check("⚠ ...and a DIFFERENT call in that slot is refused, having written nothing",
+      jget(`select agent.save_memory_once('${OT}', '${MK}', 'other-hash', null,
+             '${OA}'::uuid, 'tone', 'breezy', null, 'run', 100) ->> 'error';`) === "operation-mismatch" && memOf() === "casual/v2",
+      memOf());
+    // AND A GENUINE REFUSAL IS NOT SWALLOWED BY THE WRAPPER. The record arbitrates a lost
+    // race; it must not turn a real refusal into a quiet success.
+    check("⚠ a refusal from the inner function comes through the wrapper as itself",
+      jget(`select agent.save_memory_once('${OT}', '${OKEY.slice(0, -3)}:11:0', '${HASH}', null,
+             '${OA}'::uuid, 'Bad Name', 'x', null, 'run', 100) ->> 'error';`) === "bad-name");
+    check("⚠ ...and a refusal is recorded, so its retry answers the same thing rather than re-running",
+      jget(`select count(*) from agent.operations where tenant_id='${OT}' and op_key='${OKEY.slice(0, -3)}:11:0';`) === "1");
+  }
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

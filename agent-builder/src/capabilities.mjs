@@ -38,6 +38,10 @@
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 import { profileFor } from "./rest-profile.mjs";
+// ⚠ `approvals.mjs` IS THE IDENTITY MODULE: it builds `<run>:<step>:<index>:<hash>` and
+// `splitOperation` is the one reader that takes it apart. Parsing it here would be a second
+// copy of a format, and the copy that drifts is the one deciding whether a retry is a retry.
+import { splitOperation } from "./approvals.mjs";
 
 /** A uuid, refused rather than coerced — `String(["…"])` is `"…"`. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -154,6 +158,37 @@ export function makeCapabilities(opts = {}) {
 
   const list = (v) => (Array.isArray(v) ? v : []);
 
+  /**
+   * ⚠ EVERY WRITE GOES THROUGH ITS OPERATION RECORD, AND THERE IS NO WAY ROUND IT.
+   *
+   * The six mutating functions each have a `_once` wrapper in the database that claims the
+   * operation, does the work through the UNCHANGED function, and records the outcome — one
+   * transaction, so the work and the record commit together or neither does. This is the one
+   * place that decides, because six call sites deciding is how the profile header came to be
+   * wrong on ten of fourteen operations.
+   *
+   * **AN IDENTITY IS REQUIRED, AND A MISSING ONE IS A REFUSAL RATHER THAN THE OLD PATH.**
+   * Falling through to the plain function would make the protection something a caller can
+   * forget, which is the fail-OPEN direction — and the defect this closes is a retry
+   * overwriting somebody's correction, which is not a thing to leave to a caller's care.
+   * An unreadable identity is its own refusal for the same reason: a key invented from a
+   * malformed one collides with something.
+   *
+   * The plain functions stay exactly as they were, and the site's own routes still call them
+   * — a PERSON pressing a button twice is a different question with a different answer, and
+   * `send_to_agent`'s own key is where that one is settled.
+   */
+  async function mutate(op, operation, body) {
+    const id = splitOperation(operation);
+    if (!id) {
+      return { ok: false, error: operation === undefined || operation === null
+        ? "operation-required" : "operation-unreadable" };
+    }
+    return rpc(`${CAPABILITY_RPC[op]}_once`, {
+      p_op_key: id.key, p_args_hash: id.hash, p_op_run: id.run, ...body,
+    });
+  }
+
   return {
     forTenant(tenant) {
       if (!isText(tenant)) throw new TypeError("forTenant: tenant must be a non-empty string");
@@ -194,16 +229,16 @@ export function makeCapabilities(opts = {}) {
             async listMemory() {
               return list(await rpc(CAPABILITY_RPC.listMemory, { p_tenant: tenant, p_agent_id: agentId }));
             },
-            async saveMemory({ name, value, source, id } = {}) {
-              return rpc(CAPABILITY_RPC.saveMemory, {
+            async saveMemory({ name, value, source, id, operation } = {}) {
+              return mutate("saveMemory", operation, {
                 p_tenant: tenant, p_agent_id: agentId, p_key: name ?? "", p_value: value ?? "",
                 p_id: isId(id) ? id : null, p_source: source ?? "person", p_max: CAP_MEMORIES,
-              }, true);
+              });
             },
-            async deleteMemory({ name } = {}) {
-              return rpc(CAPABILITY_RPC.deleteMemory, {
+            async deleteMemory({ name, operation } = {}) {
+              return mutate("deleteMemory", operation, {
                 p_tenant: tenant, p_agent_id: agentId, p_key: name ?? "",
-              }, true);
+              });
             },
 
             // ── automations ─────────────────────────────────────────────────
@@ -214,37 +249,37 @@ export function makeCapabilities(opts = {}) {
               if (!isId(id)) return null;
               return mine(await rpc(CAPABILITY_RPC.readAutomation, { p_tenant: tenant, p_id: id }));
             },
-            async createAutomation({ id, name, enabled, schedule, atLocal, zone, steps, inputs } = {}) {
-              return rpc(CAPABILITY_RPC.createAutomation, {
+            async createAutomation({ id, name, enabled, schedule, atLocal, zone, steps, inputs, operation } = {}) {
+              return mutate("createAutomation", operation, {
                 p_tenant: tenant, p_agent_id: agentId, p_id: id, p_name: name ?? "",
                 p_enabled: enabled !== false, p_schedule: schedule ?? "manual",
                 p_at_local: atLocal ?? null, p_zone: zone ?? null,
                 p_steps: steps ?? [], p_max: CAP_AUTOMATIONS, p_inputs: inputs ?? [],
-              }, true);
+              });
             },
-            async updateAutomation({ id, name, enabled, schedule, atLocal, zone, steps, inputs } = {}) {
-              return rpc(CAPABILITY_RPC.updateAutomation, {
+            async updateAutomation({ id, name, enabled, schedule, atLocal, zone, steps, inputs, operation } = {}) {
+              return mutate("updateAutomation", operation, {
                 p_tenant: tenant, p_id: id, p_name: name ?? "", p_enabled: enabled !== false,
                 p_schedule: schedule ?? "manual", p_at_local: atLocal ?? null, p_zone: zone ?? null,
                 p_steps: steps ?? [], p_inputs: inputs ?? [],
-              }, true);
+              });
             },
-            async setAutomationEnabled({ id, enabled } = {}) {
+            async setAutomationEnabled({ id, enabled, operation } = {}) {
               // ⚠ REFUSED, NEVER COERCED. `Boolean("false")` is `true`, and a model
               // writing `"false"` into a tool argument is exactly the input that would
               // turn an automation ON while the sentence says it was turned off.
               if (typeof enabled !== "boolean") return { ok: false, error: "bad-enabled" };
               if (!(await this.readAutomation({ id }))) return { ok: false, error: "no-automation" };
-              return rpc(CAPABILITY_RPC.setAutomationEnabled, {
+              return mutate("setAutomationEnabled", operation, {
                 p_tenant: tenant, p_id: id, p_enabled: enabled,
-              }, true);
+              });
             },
-            async startAutomation({ id, runId, input } = {}) {
+            async startAutomation({ id, runId, input, operation } = {}) {
               if (!(await this.readAutomation({ id }))) return { ok: false, error: "no-automation" };
-              return rpc(CAPABILITY_RPC.startAutomation, {
+              return mutate("startAutomation", operation, {
                 p_tenant: tenant, p_automation_id: id, p_run_id: runId,
                 p_trigger: "manual", p_occurrence: null, p_input: input ?? {},
-              }, true);
+              });
             },
 
             // ── what an execution did ───────────────────────────────────────

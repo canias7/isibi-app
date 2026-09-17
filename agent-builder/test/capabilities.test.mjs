@@ -17,12 +17,23 @@ import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
 import { PUBLIC, defineTool } from "../src/define.mjs";
 import { profileHeader } from "../src/rest-profile.mjs";
+import { splitOperation } from "../src/approvals.mjs";
 
 const T = "tenant-one";
 const AG = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
 const AUTO = "33333333-3333-4333-8333-333333333333";
 const MIGRATIONS = path.join(import.meta.dirname, "..", "supabase", "migrations");
+/**
+ * ⚠ AN OPERATION IDENTITY, BECAUSE EVERY WRITE NOW REQUIRES ONE. `<run>:<step>:<index>:<hash>`
+ * — the shape `run.mjs` builds and `splitOperation` reads. A write handed none is refused
+ * `operation-required`, deliberately: falling through to the unprotected function would make
+ * the deduplication something a caller can forget, and what it protects is somebody's
+ * correction not being overwritten by a retry. `OP()` gives each case its own.
+ */
+let opN = 0;
+const OP = (step = ++opN, index = 0, hash = "cafe1234") => `${RUN}:${step}:${index}:${hash}`;
+const RUN = "99999999-9999-4999-8999-999999999999";
 
 /**
  * A backend that records what went out and answers whatever the case wants back.
@@ -179,23 +190,24 @@ test("⚠ `enabled` IS REFUSED, NEVER COERCED — `Boolean(\"false\")` is `true`
   const ops = can.forTenant(T).forAgent(AG);
   for (const bad of ["false", "true", 0, 1, null, undefined, "", []]) {
     sent.length = 0;
-    const answer = await ops.setAutomationEnabled({ id: AG, enabled: bad });
+    const answer = await ops.setAutomationEnabled({ id: AG, enabled: bad, operation: OP() });
     assert.equal(answer.ok, false, `enabled accepted ${JSON.stringify(bad)}`);
     assert.equal(answer.error, "bad-enabled");
     assert.equal(sent.filter((c) => c.rpc === "set_automation_enabled").length, 0,
       `${JSON.stringify(bad)} reached the database`);
   }
   sent.length = 0;
-  await ops.setAutomationEnabled({ id: AG, enabled: false });
-  assert.equal(sent.filter((c) => c.rpc === "set_automation_enabled").length, 1, "a real false was refused too");
+  await ops.setAutomationEnabled({ id: AG, enabled: false, operation: OP() });
+  // ⚠ THE WRAPPER IS WHAT A WRITE GOES THROUGH NOW, so the control asks for THAT name.
+  assert.equal(sent.filter((c) => c.rpc === "set_automation_enabled_once").length, 1, "a real false was refused too");
 });
 
 test("the caps this side passes are the ones the operations send", async () => {
   const { can, sent } = recorder(() => ({ ok: true }));
   const ops = can.forTenant(T).forAgent(AG);
-  await ops.saveMemory({ name: "a", value: "b" });
+  await ops.saveMemory({ name: "a", value: "b", operation: OP() });
   assert.equal(sent.at(-1).body.p_max, CAP_MEMORIES);
-  await ops.createAutomation({ id: AG, name: "x", steps: [] });
+  await ops.createAutomation({ id: AG, name: "x", steps: [], operation: OP() });
   assert.equal(sent.at(-1).body.p_max, CAP_AUTOMATIONS);
 });
 
@@ -229,10 +241,13 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
   const ops = can.forTenant(T).forAgent(AG);
   const drive = {
     searchKnowledge: [{ query: "x" }], listKnowledge: [], readKnowledge: [{ id: AUTO }],
-    listMemory: [], saveMemory: [{ name: "a", value: "b" }], deleteMemory: [{ name: "a" }],
+    listMemory: [], saveMemory: [{ name: "a", value: "b", operation: OP() }],
+    deleteMemory: [{ name: "a", operation: OP() }],
     listAutomations: [], readAutomation: [{ id: AUTO }],
-    createAutomation: [{ id: AUTO, name: "x", steps: [] }], updateAutomation: [{ id: AUTO, name: "y" }],
-    setAutomationEnabled: [{ id: AUTO, enabled: false }], startAutomation: [{ id: AUTO, runId: AUTO }],
+    createAutomation: [{ id: AUTO, name: "x", steps: [], operation: OP() }],
+    updateAutomation: [{ id: AUTO, name: "y", operation: OP() }],
+    setAutomationEnabled: [{ id: AUTO, enabled: false, operation: OP() }],
+    startAutomation: [{ id: AUTO, runId: AUTO, operation: OP() }],
     listExecutions: [{ automation: AUTO }], readExecution: [{ id: AUTO }],
   };
   // ⚠ CENSUSED AGAINST `CAPABILITIES` BOTH WAYS, so an operation added next month is not
@@ -244,6 +259,18 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
     assert.equal(r.method, "POST", `${r.rpc} is not a POST`);
     assert.equal(r.headers["content-profile"], "agent", `${r.rpc} did not name its schema for a POST`);
     assert.equal(r.headers["accept-profile"], undefined, `${r.rpc} sent the read header on a POST`);
+  }
+  // ⚠ AND EVERY WRITE WENT THROUGH ITS `_once` WRAPPER, WHICH IS THE OTHER HALF OF THE
+  // CENSUS. Derived from `CAPABILITY_WRITES` rather than listed, so a write added next month
+  // is covered by existing; and the reads must NOT have one, or the deduplication would be
+  // claiming to protect something that changes nothing.
+  const asked = new Set(sent.map((r) => r.rpc));
+  for (const w of CAPABILITY_WRITES) {
+    assert.ok(asked.has(`${CAPABILITY_RPC[w]}_once`), `${w} did not go through its operation record`);
+    assert.ok(!asked.has(CAPABILITY_RPC[w]), `${w} reached the plain function, bypassing the record`);
+  }
+  for (const r of CAPABILITIES.filter((c) => !CAPABILITY_WRITES.includes(c))) {
+    assert.ok(!asked.has(`${CAPABILITY_RPC[r]}_once`), `${r} is a read and asked for an operation record`);
   }
 });
 
@@ -393,7 +420,7 @@ test("⚠ `remember` SETS `source: run` ITSELF, and a model cannot claim a perso
   const { can, sent } = recorder(() => ({ ok: true, saved: "created", memory: {} }));
   const ops = can.forTenant(T).forAgent(AG);
   const tool = CAPABILITY_TOOLS.find((t) => t.name === "remember");
-  await tool.run({ name: "tone", value: "plain", source: "person" }, { capabilities: ops });
+  await tool.run({ name: "tone", value: "plain", source: "person" }, { capabilities: ops, operation: OP() });
   assert.equal(sent.at(-1).body.p_source, "run",
     "an argument chose where the fact came from");
   // AND THE SCHEMA DOES NOT OFFER IT, which is the wall in front of that one.
@@ -410,7 +437,7 @@ test("⚠ `run_automation` DERIVES ITS RUN ID FROM THE CALL, so a redelivery is 
 
   const a = mk();
   const out = await tool.run({ id: AG, runId: "chosen-by-the-model" },
-    { capabilities: a.can.forTenant(T).forAgent(AG), operation: "run-7:1:0", newId: () => "ours" });
+    { capabilities: a.can.forTenant(T).forAgent(AG), operation: OP(7, 0), newId: () => "ours" });
   assert.equal(out.ok, true, JSON.stringify(out));
   const first = a.sent.at(-1).body.p_run_id;
   assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -421,11 +448,11 @@ test("⚠ `run_automation` DERIVES ITS RUN ID FROM THE CALL, so a redelivery is 
 
   // THE SAME CALL AGAIN IS THE SAME EXECUTION — which is the whole of the guarantee.
   const b = mk();
-  await tool.run({ id: AG }, { capabilities: b.can.forTenant(T).forAgent(AG), operation: "run-7:1:0" });
+  await tool.run({ id: AG }, { capabilities: b.can.forTenant(T).forAgent(AG), operation: OP(7, 0) });
   assert.equal(b.sent.at(-1).body.p_run_id, first, "a redelivery asked for a different execution");
   // AND A DIFFERENT CALL IS A DIFFERENT ONE, or every call in a run would collide.
   const c = mk();
-  await tool.run({ id: AG }, { capabilities: c.can.forTenant(T).forAgent(AG), operation: "run-7:1:1" });
+  await tool.run({ id: AG }, { capabilities: c.can.forTenant(T).forAgent(AG), operation: OP(7, 1) });
   assert.notEqual(c.sent.at(-1).body.p_run_id, first, "two different calls share one execution");
 
   // ⚠ A DEPLOYMENT THAT CANNOT IDENTIFY THE CALL IS REFUSED, not minted for — minting
@@ -438,7 +465,8 @@ test("⚠ `run_automation` DERIVES ITS RUN ID FROM THE CALL, so a redelivery is 
     assert.equal(none.ok, false, JSON.stringify(none));
     assert.equal(none.error, "no-id");
   }
-  assert.equal(d.sent.filter((x) => x.rpc === "run_automation").length, 0, "a refused call still started one");
+  assert.equal(d.sent.filter((x) => x.rpc.startsWith("accept_automation_run")).length, 0,
+    "a refused call still started one");
 });
 test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thing removed", async () => {
   // MEASURED: a mutant hardcoding `forgot: true` SURVIVED, and the answer it produced was
@@ -446,24 +474,107 @@ test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thin
   // name". Nothing drove a forget of a name that was not there.
   const tool = CAPABILITY_TOOLS.find((t) => t.name === "forget");
   const nothing = recorder(() => ({ ok: true, forgot: false }));
-  const gone = await tool.run({ name: "tone" }, { capabilities: nothing.can.forTenant(T).forAgent(AG) });
+  const gone = await tool.run({ name: "tone" }, { capabilities: nothing.can.forTenant(T).forAgent(AG), operation: OP() });
   assert.equal(gone.ok, true, "a name that was not there is not a failure");
   assert.equal(gone.forgot, false, "forgetting nothing was reported as having removed something");
   assert.match(gone.say, /nothing remembered under that name/);
 
   // THE CONTROL, without which `forgot: false` is satisfied by a tool that always says so.
   const had = recorder(() => ({ ok: true, forgot: true }));
-  const out = await tool.run({ name: "tone" }, { capabilities: had.can.forTenant(T).forAgent(AG) });
+  const out = await tool.run({ name: "tone" }, { capabilities: had.can.forTenant(T).forAgent(AG), operation: OP() });
   assert.equal(out.forgot, true, "a fact really removed was reported as absent");
   assert.equal(out.say, "forgotten");
 });
 
 test("a refusal from the database is passed on as a sentence, never as a success", async () => {
-  const { can } = recorder((fn) => (fn === "save_memory" ? { ok: false, error: "too-many" } : { ok: true }));
+  // ⚠ THE FAKE ANSWERS THE WRAPPER'S NAME, because that is what a write really asks for
+  // now. Answering only `save_memory` made this case read `operation-required` — the fixture
+  // one name behind the request, in the file whose subject is which request goes out.
+  const { can } = recorder((fn) => (fn === "save_memory_once" ? { ok: false, error: "too-many" } : { ok: true }));
   const ops = can.forTenant(T).forAgent(AG);
   const tool = CAPABILITY_TOOLS.find((t) => t.name === "remember");
-  const out = await tool.run({ name: "tone", value: "plain" }, { capabilities: ops });
+  const out = await tool.run({ name: "tone", value: "plain" }, { capabilities: ops, operation: OP() });
   assert.equal(out.ok, false);
   assert.equal(out.error, "too-many");
   assert.match(out.say, /forget something first/);
+});
+
+test("⚠ EVERY WRITE GOES THROUGH ITS OPERATION RECORD, AND A MISSING IDENTITY IS A REFUSAL", async () => {
+  // **FALLING THROUGH TO THE PLAIN FUNCTION WOULD MAKE THE DEDUPLICATION SOMETHING A CALLER
+  // CAN FORGET**, which is the fail-OPEN direction — and what it protects is somebody's
+  // correction not being overwritten by a retry of work that already happened. So a write
+  // with no identity is refused BY NAME, and one with an unreadable identity is refused for
+  // its own reason: a key invented from a malformed one collides with something.
+  // ⚠ THE FIXTURE ANSWERS `read_automation` AS THIS AGENT'S, because two of the six make that
+  // pre-check FIRST — so with a bare `{ok: true}` they refuse `no-automation` and the case
+  // reads as the identity wall being broken. Either order is safe (neither refusal writes
+  // anything), and the fixture has to be the capable one to ask about the identity at all.
+  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true }));
+  const ops = can.forTenant(T).forAgent(AG);
+  const drive = {
+    saveMemory: { name: "a", value: "b" },
+    deleteMemory: { name: "a" },
+    createAutomation: { id: AUTO, name: "x", steps: [] },
+    updateAutomation: { id: AUTO, name: "y" },
+    setAutomationEnabled: { id: AUTO, enabled: false },
+    startAutomation: { id: AUTO, runId: AUTO },
+  };
+  // ⚠ CENSUSED AGAINST `CAPABILITY_WRITES` BOTH WAYS, so a write added next month is not
+  // silently left undriven — the silence would read exactly like coverage.
+  assert.deepEqual(Object.keys(drive).sort(), [...CAPABILITY_WRITES].sort());
+
+  for (const [name, args] of Object.entries(drive)) {
+    sent.length = 0;
+    const none = await ops[name]({ ...args });
+    assert.equal(none.ok, false, `${name} wrote with no identity: ${JSON.stringify(none)}`);
+    assert.equal(none.error, "operation-required", `${name} refused for the wrong reason`);
+    assert.equal(sent.filter((r) => r.rpc.startsWith(CAPABILITY_RPC[name])).length, 0,
+      `${name} reached the database with no identity`);
+
+    sent.length = 0;
+    const junk = await ops[name]({ ...args, operation: "not an identity" });
+    assert.equal(junk.ok, false, `${name} accepted a malformed identity`);
+    assert.equal(junk.error, "operation-unreadable",
+      `${name} did not tell an absent identity from an unreadable one`);
+    assert.equal(sent.filter((r) => r.rpc.startsWith(CAPABILITY_RPC[name])).length, 0,
+      `${name} reached the database with a malformed identity`);
+
+    // THE CONTROL, without which "it refuses" is satisfied by an operation that never works.
+    sent.length = 0;
+    const good = await ops[name]({ ...args, operation: OP() });
+    assert.equal(good.ok, true, `${name} refused a real identity: ${JSON.stringify(good)}`);
+    const req = sent.at(-1);
+    assert.equal(req.rpc, `${CAPABILITY_RPC[name]}_once`, `${name} bypassed its operation record`);
+    // AND THE THREE FIELDS THE RECORD NEEDS ARE ON THE WIRE, split the way the database
+    // stores them: the position under one name and the arguments' hash under another.
+    const id = splitOperation(sent.at(-1).body.p_op_key + ":" + sent.at(-1).body.p_args_hash);
+    assert.ok(id, `${name} sent a key and hash that do not read back as an identity`);
+    assert.equal(req.body.p_op_key.includes(":"), true, `${name}'s key carries no position`);
+    assert.ok(typeof req.body.p_args_hash === "string" && req.body.p_args_hash.length > 0);
+    assert.equal(req.body.p_op_run, RUN, `${name} did not pass the run its identity names`);
+    // ⚠ AND THE TENANT AND THE AGENT ARE STILL THE CLOSURE'S. The record's four arguments
+    // are the one place a new field could have smuggled one in.
+    assert.equal(req.body.p_tenant, T);
+    for (const k of Object.keys(req.body)) {
+      assert.ok(!/^p_(account|owner|uid)$/.test(k), `${name} sends ${k}`);
+    }
+  }
+});
+
+test("⚠ A READ NEVER ASKS FOR AN OPERATION RECORD — it changes nothing to protect", async () => {
+  // The other half of the census. A read routed through a wrapper would be claiming to
+  // protect something that cannot be harmed by repeating, and would need an identity it has
+  // no business requiring.
+  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : []));
+  const ops = can.forTenant(T).forAgent(AG);
+  const reads = {
+    searchKnowledge: { query: "x" }, listKnowledge: {}, readKnowledge: { id: AUTO },
+    listMemory: {}, listAutomations: {}, readAutomation: { id: AUTO },
+    listExecutions: { automation: AUTO }, readExecution: { id: AUTO },
+  };
+  assert.deepEqual(Object.keys(reads).sort(),
+    CAPABILITIES.filter((c) => !CAPABILITY_WRITES.includes(c)).sort());
+  for (const [name, args] of Object.entries(reads)) { try { await ops[name](args); } catch { /* shape */ } }
+  assert.ok(sent.length >= Object.keys(reads).length, `only ${sent.length} requests for ${Object.keys(reads).length} reads`);
+  for (const r of sent) assert.ok(!r.rpc.endsWith("_once"), `${r.rpc} asked for an operation record`);
 });

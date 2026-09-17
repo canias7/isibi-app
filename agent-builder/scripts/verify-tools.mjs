@@ -394,10 +394,28 @@ try {
   check("a second automation of this agent's exists to compare against", m5Second.status === 200,
     JSON.stringify(m5Second.body).slice(0, 120));
   const m5Args2 = { id: m5Second.body.id };
-  const m5Other = await m5RunTool.run(m5Args2, await m5CtxFor(m5Args2));
-  check("⚠ THE CONTROL: a DIFFERENT call at the same position is its own execution",
+  // ⚠ **MOVED TO ITS OWN POSITION — AN EXPECTATION THAT MOVED RATHER THAN BROKE.** This ran
+  // at the SAME position as the first call, and the identity being what it is, that is now
+  // refused `operation-mismatch` by the operation record below. Both properties are real and
+  // they are different ones: THIS is "a different call derives its own execution" (what the
+  // arguments buy inside the id), and the check under it is "the same slot with different
+  // arguments is refused" (what the record buys on top). Reading either as the other is how
+  // one of the two stops being tested.
+  const m5Other = await m5RunTool.run(m5Args2, await m5CtxFor(m5Args2, 4, 1));
+  check("⚠ THE CONTROL: a DIFFERENT call at its own position is its own execution",
     m5Other?.ok === true && m5Other.started === true && m5Other.execution !== m5First.execution,
     JSON.stringify(m5Other));
+
+  // ⚠ **AND THE SAME SLOT RE-FILLED WITH ANOTHER CALL IS REFUSED, NOT SILENTLY A SECOND
+  // OPERATION.** That is the requirement in as many words. The key is the POSITION and the
+  // arguments' hash is a column beside it, so this arrives as the same operation asked with
+  // different arguments — which no retry can explain.
+  const m5RunsMid = Number(q(`select count(*) from agent.automation_runs;`));
+  const m5Clash = await m5RunTool.run(m5Args2, await m5CtxFor(m5Args2, 4, 0));
+  check("⚠ THE SAME SLOT WITH DIFFERENT ARGUMENTS IS REFUSED BY NAME",
+    m5Clash?.ok === false && m5Clash.error === "operation-mismatch", JSON.stringify(m5Clash));
+  check("⚠ ...and it started nothing at all",
+    Number(q(`select count(*) from agent.automation_runs;`)) === m5RunsMid);
 
   // AND A DEPLOYMENT THAT CANNOT IDENTIFY THE CALL REFUSES rather than minting an id,
   // because minting is exactly the behaviour the derivation removes.

@@ -179,13 +179,28 @@ const remember = tool({
   },
   writes: true,
   repeatable: true,
-  run: async (args, can) => {
+  run: async (args, can, ctx) => {
     // ⚠ `source: "run"` IS SET HERE AND IS NOT A FIELD THE MODEL CAN WRITE. It is the one
     // honest answer to "where did this come from" for a fact an agent saved, and leaving
     // it to an argument would let a run's own memory claim a person typed it.
-    const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: "run" });
+    //
+    // ⚠ AND `operation` IS THIS CALL'S OWN IDENTITY, NOT AN ARGUMENT EITHER. It comes from
+    // `ctx`, which the loop built from the run and the position — so the model has nowhere
+    // to write it and cannot make two different calls look like one. A redelivery of THIS
+    // call answers what it answered the first time and writes nothing; a DIFFERENT call in
+    // the same slot is refused rather than becoming a second write. The reasoning that used
+    // to stand here — "an upsert by the fact's own name leaves the same state" — is true of
+    // a world where nothing else wrote in between, and a person correcting the fact is
+    // exactly something else writing in between.
+    const answer = await can.saveMemory({ name: text(args.name), value: text(args.value), source: "run", operation: ctx?.operation });
     if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused", say: sayMemory(answer?.error) };
-    return { ok: true, saved: answer.saved, memory: answer.memory };
+    // ⚠ **A REPEAT IS CARRIED THROUGH, AND THE SENTENCE IS DIFFERENT.** The answer is what
+    // this call did the FIRST time — a historical fact, not a reading of the row as it
+    // stands — so a model told plainly "saved" would believe the value it sent is what is
+    // remembered now, when somebody may have corrected it since. Saying so is the whole
+    // point of having recorded the operation rather than repeating it.
+    return { ok: true, saved: answer.saved, memory: answer.memory,
+      ...(answer.repeat === true ? { repeat: true, say: "that was already saved by this same request; check it if you need what is remembered now" } : {}) };
   },
 });
 
@@ -199,12 +214,19 @@ const forget = tool({
   },
   writes: true,
   repeatable: true,
-  run: async (args, can) => {
-    const answer = await can.deleteMemory({ name: text(args.name) });
+  run: async (args, can, ctx) => {
+    const answer = await can.deleteMemory({ name: text(args.name), operation: ctx?.operation });
     if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused" };
     // ⚠ WHETHER THERE WAS ONE IS SAID. "Forgot" and "there was nothing to forget" are two
     // different things for somebody to act on, and collapsing them is how a name got
     // wrong reads as a thing successfully removed.
+    // ⚠ AND A REPEAT SAYS SO, because the state now may not be the state this call left:
+    // a fact forgotten by this call and written again since is present, and answering a bare
+    // "forgotten" would be a claim about the present made from a record of the past.
+    if (answer.repeat === true) {
+      return { ok: true, forgot: answer.forgot === true, repeat: true,
+        say: "that was already forgotten by this same request; it may have been written again since" };
+    }
     return { ok: true, forgot: answer.forgot === true,
       say: answer.forgot === true ? "forgotten" : "there was nothing remembered under that name" };
   },
@@ -268,13 +290,17 @@ const pauseAutomation = tool({
   // own notes are not gated — they change nothing a person has to be told about, and
   // gating everything is how an approval becomes a thing people click through.
   approval: true,
-  run: async (args, can) => {
-    const answer = await can.setAutomationEnabled({ id: text(args.id), enabled: args.enabled });
+  run: async (args, can, ctx) => {
+    const answer = await can.setAutomationEnabled({ id: text(args.id), enabled: args.enabled, operation: ctx?.operation });
     if (answer?.ok !== true) {
       return { ok: false, error: answer?.error ?? "refused",
         say: answer?.error === "bad-enabled" ? "say true to turn it on or false to turn it off" : "there is no automation of this agent's with that id" };
     }
-    return { ok: true, enabled: answer.enabled, nextRunAt: answer.next_run_at ?? null };
+    // ⚠ A REPEAT IS THIS SAME CALL, ABSORBED — and `enabled` is what it set at the time,
+    // which is not necessarily what the automation is now. Somebody may have switched it
+    // back, and the record deliberately does not overwrite them.
+    return { ok: true, enabled: answer.enabled, nextRunAt: answer.next_run_at ?? null,
+      ...(answer.repeat === true ? { repeat: true, say: "that was already done by this same request; it may have been changed since" } : {}) };
   },
 });
 
@@ -352,7 +378,7 @@ const runAutomation = tool({
     const runId = typeof ctx?.operation === "string" && ctx.operation
       ? await uuidFrom(ctx.operation) : null;
     if (!runId) return { ok: false, error: "no-id", say: "this deployment cannot identify the call, so nothing was started" };
-    const answer = await can.startAutomation({ id: text(args.id), runId, input: args.input ?? {} });
+    const answer = await can.startAutomation({ id: text(args.id), runId, input: args.input ?? {}, operation: ctx.operation });
     if (answer?.ok !== true) {
       return { ok: false, error: answer?.error ?? "refused",
         say: answer?.error === "disabled" ? "that automation is turned off" : "that automation could not be started" };

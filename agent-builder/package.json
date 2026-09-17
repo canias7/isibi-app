@@ -14,6 +14,7 @@
     "verify:chat": "node scripts/verify-agent-chat.mjs",
     "verify:auto": "node scripts/verify-automations.mjs",
     "verify:wf": "node scripts/verify-workflows.mjs",
-    "verify:tools": "node scripts/verify-tools.mjs"
+    "verify:tools": "node scripts/verify-tools.mjs",
+    "verify:ops": "node scripts/verify-operations.mjs"
   }
 }

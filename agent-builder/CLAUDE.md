@@ -4104,6 +4104,11 @@ and `listing the sources is the real list` both `null`. Restored immediately.
   **⚠ AND IT IS NOT THE 632 MILESTONE 5 STAMPED**, which is corrected in that entry's own
   Measured block rather than quietly here — the same drift as the suite count, one check
   wide, and found only by measuring the commit instead of reading the note about it.
+- **Sweep: 402 mutants, 402 killed, 0 survived, 0 never applied, 6 comment-only controls
+  survived — CLEAN ON THE FIRST PASS**, taken after the run, in a detached worktree at
+  `fa861b3` so the main tree held no mutant while it ran. The spec's 408 entries are those
+  402 plus the six controls, which is why the two numbers never have to be reconciled by
+  arithmetic.
 - **Sweep spec 400 → 408 entries.** The six mutants that named a store's own profile line
   were **re-anchored, not appeased** — each property moved from "this store chooses the
   header" to "this store asks the rule" — and the `store: create` mutant lost `write: true`
@@ -4113,3 +4118,145 @@ and `listing the sources is the real list` both `null`. Restored immediately.
   wiring hops** (`work` and `caps` asking the rule about a method they never send). The
   wiring ones are not redundant with the rule's: a store that hands over a constant has
   decided for itself again, one indirection further in, and the rule module cannot see it.
+
+---
+
+## Milestone 7: an operation happens once, however many times it is delivered (2026-09-17)
+
+**THE DEFECT WAS REPRODUCED BEFORE ANYTHING WAS BUILT**, on these migrations, through the
+real capability store:
+
+| step | answer | the row |
+|---|---|---|
+| the agent remembers `tone = formal` | `created` | `formal` v1, by run |
+| **the answer is LOST** — a process dies between the commit and the journal write, which is exactly a PENDING TOOL CALL | — | `formal` v1 |
+| the person corrects it to `casual` | `corrected` | `casual` **v2, by person** |
+| the run is delivered again and the pending call is re-run | **`corrected`** | **`formal` v3, by run** |
+
+**The person's correction is gone, and the retry ANSWERED `saved: "corrected"` — it knew it
+was changing something and nothing was looking.** `remember` is declared `repeatable` on the
+reasoning that *an upsert by the fact's own name leaves the state running it once does*,
+which is true of a world where nothing else wrote in between. **A rule true because of a
+layer below it expires when that layer moves**, and the layer here is *who else may write to
+this row*.
+
+### The identity is the POSITION; the arguments are a column beside it
+
+`ctx.operation` is `<run>:<step>:<index>:<hash>` and `splitOperation` (in `approvals.mjs`,
+the identity module) takes it apart. **Folding the hash into the key would make the table
+unable to state its own rule**: two different argument sets would be two different keys and
+therefore two separate operations, SILENTLY — which is the one outcome the requirement names.
+Kept apart, a slot re-filled with a different call meets the same key with a different hash
+and is refused `operation-mismatch`.
+
+- **SPLIT ON THE LAST COLON, and refused rather than repaired.** A run id is a uuid, a step
+  and an index are numbers, a hash is hex — so only one colon can be last. Fifteen malformed
+  shapes answer `null`, because a key invented from a malformed identity collides with
+  something. `run` is the seed only when it really is a uuid, because that column is one.
+
+### `agent.operations`, and the two helpers every wrapper asks
+
+`(tenant_id, op_key)` primary key; `action`, `args_hash`, `run_id`, `outcome` **not null**,
+`recorded_at`. RLS enabled AND forced, a tenant may SELECT its own and nothing else, and
+**`service_role` holds INSERT and SELECT with UPDATE and DELETE revoked** — an outcome that
+can be rewritten is an outcome a retry cannot be answered from.
+
+`operation_check` answers `fresh` · `repeat` (with the outcome) · `mismatch` ·
+`unfinished`, and **the fourth is unreachable while every caller keeps claim and outcome in
+one transaction** — named rather than read as a repeat with a null answer, because
+cannot-tell must never read as a value. `operation_record` inserts `on conflict do nothing`
+and says whether it won.
+
+### Six wrappers, one shape, and the six functions are UNTOUCHED
+
+`<fn>_once` takes `p_tenant, p_op_key, p_args_hash, p_op_run` plus the plain function's own
+parameters, and calls it **BY NAME**. Wrappers rather than new parameters for two recorded
+reasons: adding `p_operation` to each would re-emit ~700 lines into a fifth file (a second
+copy of the thing deciding what a customer's data becomes), and **a new DEFAULTED parameter
+creates an OVERLOAD rather than replacing anything**, so the old signature would stay
+reachable beside the new one — the bypass door `beat_run` had to have dropped. Every existing
+caller (the site's routes, `tick_automations`, the scheduler) is byte-identical.
+
+### ⚠ THE RECORD ARBITRATES EVERY FAILURE, AND A CONCURRENCY CHECK IS WHAT BOUGHT THAT
+
+The first design caught only its own `AG001`. **MEASURED, by the check written for exactly
+this:** two first attempts both read `fresh`, both call the inner function, and **the INNER
+function's own unique key refuses one** — `duplicate key value violates unique constraint
+"agent_memory_one_per_key"`, HTTP 409, where the caller wanted the twin's answer. *The inner
+functions are not concurrency-safe on their own and were never asked to be.*
+
+So the subtransaction catches **everything**: any failure rolls the work back, and then the
+record decides what it was. A committed twin means we lost a race and its answer is
+authoritative; no twin means the failure is ours and is **RE-RAISED with its own code and
+message** (Postgres's own words, the constraint name included; DETAIL and HINT are lost to
+the re-raise, which is stated rather than glossed). Swallowing it would turn a real refusal
+into a silent `ok: false`, which is the direction that loses work.
+
+**MEASURED on the race**: both answers `ok`, both **agreeing** about what happened, the fact
+written **once** (version 1, not 2), exactly ONE record for that position, and exactly one of
+the two told it was a repeat.
+
+### A repeat is carried to the model, and the sentence is different
+
+`remember`, `forget` and `pause_automation` all say so now. **The answer is what the call did
+the FIRST time — a historical fact, not a reading of the row as it stands** — so a model told
+plainly "saved" would believe the value it sent is what is remembered now, when somebody may
+have corrected it since. `forget`'s says the fact may have been written again since;
+`pause_automation`'s says the automation may have been changed since. That distinction is the
+whole reason for recording the operation rather than repeating it.
+
+**AN IDENTITY IS REQUIRED AND A MISSING ONE IS A REFUSAL** (`operation-required`), with an
+unreadable one its own answer (`operation-unreadable`). Falling through to the plain function
+would make the deduplication something a caller can forget — the fail-OPEN direction, on the
+defect that overwrites somebody's correction.
+
+### Measured
+
+- **Engine suite 408 → 411**, 0 failed, and the arithmetic closes: one in
+  `approvals.test.mjs` (`splitOperation` over its own shapes and the real `argsHash`) and two
+  in `capabilities.test.mjs` (every write censused against `CAPABILITY_WRITES` both ways —
+  refused with no identity, refused with a junk one, and a CONTROL that a real one works; and
+  the other half, that no READ asks for a record).
+- **Real PostgreSQL (`npm run test:pg`): 634 → 658, 0 failed.** The 24 are this migration's
+  own guarantees: the three answers in order, a record that does not move, the mismatch on
+  the arguments AND on the action, the same key in another account, the outcome-less refusal,
+  each shape constraint read for ITS OWN name with a control, the grants asked as
+  PRIVILEGES, RLS forced, all eight functions definer with an empty `search_path`, and the
+  wrapper's whole story — writes, is corrected through the UNCHANGED function, repeats
+  without writing, refuses a different call, and passes a genuine refusal through as itself.
+- **`npm run verify:ops` (new, `scripts/verify-operations.mjs`): 53 checks, 0 failed.** Nine
+  sections through the real routes, the real dispatcher, the real engine and a real
+  PostgreSQL: the reproduction; the mismatch with its control; **deletion and recreation** (a
+  stale `forget` must not take the fact somebody wrote since); **concurrent retries**;
+  **a restart** (a wholly fresh store, so the deduplication is proved to be in the database
+  rather than in this process); **end to end** through `worker.queue`, leaving a record whose
+  `run_id` is that run and whose key starts with it; a census over the writes; the record
+  being the ACCOUNT's; and what none of it left behind.
+- **`verify:tools` 82 → 84, `verify:chat` 112, `verify:auto` 70, `verify:wf` 125** — the
+  three unchanged counts are the control that says this round broke nothing.
+- **Sweep spec 408 → 421 entries** (7 on `splitOperation`, 4 on the store's one rule, 2 on the
+  tools' identity) and **SQL spec 168 → 186** (7 on the table and its grants, 6 on the rule,
+  5 on the wrappers, 1 control).
+
+### ⚠ Five things that went wrong on the way, each worth its own line
+
+1. **THE ROUTE MINTS THE AGENT'S ID AND IGNORES THE BODY'S** — which is the route being
+   right. Written as a constant in the new demonstration, every check failed `no-agent` while
+   the create's own check passed, **because that one only asked for a 200**.
+2. **`get diagnostics v_rows = row_count` NEEDS AN INTEGER.** Declared `boolean` and Postgres
+   refused outright — loud, immediately, the right way round for a type mistake.
+3. **`accept_automation_run` ALREADY HAS A `p_run_id`**, so the wrapper's could not share the
+   name: PL/pgSQL refuses a signature naming one parameter twice. It is `p_op_run` in all six,
+   not only where it collides, so a census can read them as one shape.
+4. **MY OWN APPLY HARNESS TRUNCATED ITS OWN INPUT.** A loop piping each migration's output
+   through `head -5` sent SIGPIPE to `psql` part way through the file that emits six
+   NOTICEs — leaving a half-applied view and two errors that read as broken migrations. *A
+   harness that contaminates its own output reports the product as broken*; the fix was to use
+   `standUp`, which does not.
+5. **TWO SQL ANCHORS WERE AMBIGUOUS SIX WAYS**, because six wrappers share one body. Closed by
+   making the `operation-lost` residue NAME ITS ACTION — a better answer as well as a unique
+   anchor, since a caller told only "lost" cannot say what was lost.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** The migration is prepared locally. When it goes,
+the order is the recorded one — **migration → engine → site** — and here the engine's half is
+the only one that changes: the site's routes call the plain functions and are untouched.

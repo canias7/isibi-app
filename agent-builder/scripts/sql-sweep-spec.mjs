@@ -140,6 +140,12 @@ const mThread = (label, from, to, control = false) =>
  * things only this migration has.
  */
 const AUTOS = lastDefining("create table if not exists agent.automations");
+/**
+ * THE OPERATION RECORD — the table, the one rule, and the six wrappers. Found by what it
+ * defines rather than by position, as everything here is.
+ */
+const OPS = lastDefining("create table if not exists agent.operations");
+const mOps = (label, from, to, control = false) => ({ label, files: [OPS], from, to, control });
 const mAuto = (label, from, to, control = false) => ({ label, files: [AUTOS], from, to, control });
 /**
  * ⚠ **AND THE TRAP ARRIVED A THIRD TIME, THROUGH `mAuto` — found 2026-09-17 by a census
@@ -755,6 +761,71 @@ const spec = [
   mWkm("SQL/wkm/CONTROL (comment only)",
     "-- ⚠ THE SCOPE, IN THE DATABASE. Without this,",
     "-- The scope, in the database. Without this,", true),
+
+  // ── AN OPERATION HAPPENS ONCE ─────────────────────────────────────────────
+  // ⚠ THE DEFECT THESE GUARD WAS REPRODUCED FIRST: a retry of `remember` overwrote a
+  // person's correction, `corrected` v3 over their v2, and ANSWERED that it had changed
+  // something while nothing was looking.
+  mOps("⚠ SQL/ops: the key is not scoped to the account, so one tenant answers another's retry",
+    "  primary key (tenant_id, op_key),", "  primary key (op_key),"),
+  mOps("⚠ SQL/ops: an outcome may be null, so a repeat is answered with nothing",
+    "  outcome     jsonb       not null,", "  outcome     jsonb,"),
+  mOps("⚠ SQL/ops: a record can be REWRITTEN, so a retry cannot be answered from it",
+    "revoke update, delete on agent.operations from service_role;",
+    "grant update, delete on agent.operations to service_role;"),
+  mOps("SQL/ops: a tenant may write its own records",
+    "grant select on agent.operations to authenticated;",
+    "grant select, insert on agent.operations to authenticated;"),
+  mOps("SQL/ops: the records are readable by every account",
+    "  for select to authenticated using (tenant_id = agent.tenant_id());",
+    "  for select to authenticated using (true);"),
+  mOps("SQL/ops: row level security is not forced, so the owner is exempt",
+    "alter table agent.operations force row level security;",
+    "-- not forced"),
+  mOps("SQL/ops: the helpers are callable by a signed-in customer, who could name any account",
+    "grant execute on function agent.operation_check(text, text, text, text) to service_role;",
+    "grant execute on function agent.operation_check(text, text, text, text) to service_role, authenticated;"),
+
+  // ⚠ THE RULE ITSELF. Each of these is one reading of the record going wrong, and the
+  // three answers need three different things done about them.
+  mOps("⚠ SQL/ops: the ARGUMENTS are not compared, so a re-filled slot is answered as a repeat",
+    "  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then",
+    "  if v_row.action <> p_action then"),
+  mOps("⚠ SQL/ops: the ACTION is not compared, so one key answers another kind of work",
+    "  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then",
+    "  if v_row.args_hash <> p_args_hash then"),
+  mOps("SQL/ops: a claim with no outcome is read as a repeat with nothing in it",
+    "  if v_row.outcome is null then\n    return jsonb_build_object('state', 'unfinished');\n  end if;",
+    "  if false then\n    return jsonb_build_object('state', 'unfinished');\n  end if;"),
+  mOps("⚠ SQL/ops: a second record overwrites the first, so the answer moves",
+    "  on conflict (tenant_id, op_key) do nothing;",
+    "  on conflict (tenant_id, op_key) do update set outcome = excluded.outcome;"),
+  mOps("SQL/ops: recording always claims to have won, so a lost race is read as a win",
+    "  get diagnostics v_rows = row_count;\n  return v_rows = 1;",
+    "  get diagnostics v_rows = row_count;\n  return true;"),
+  mOps("SQL/ops: an outcome-less record is written rather than refused",
+    "    raise exception 'operation_record: an outcome is required' using errcode = 'check_violation';",
+    "    p_outcome := '{}'::jsonb;"),
+
+  // ⚠ THE WRAPPERS. All six share one body, so these are aimed at `save_memory_once` by
+  // naming the action beside the line — the one the reproduction is about.
+  mOps("⚠ SQL/ops: a repeat is not answered, so the work is done again",
+    "  v_check := agent.operation_check(p_tenant, p_op_key, 'save_memory', p_args_hash);\n  if v_check ->> 'state' = 'repeat' then",
+    "  v_check := agent.operation_check(p_tenant, p_op_key, 'save_memory', p_args_hash);\n  if false then"),
+  mOps("⚠ SQL/ops: a mismatch is run rather than refused, so a re-filled slot writes",
+    "    v_out := agent.save_memory(p_tenant := p_tenant, p_agent_id := p_agent_id, p_key := p_key, p_value := p_value, p_id := p_id, p_source := p_source, p_max := p_max);\n    if not agent.operation_record(p_tenant, p_op_key, 'save_memory', p_args_hash, p_op_run, v_out) then",
+    "    v_out := agent.save_memory(p_tenant := p_tenant, p_agent_id := p_agent_id, p_key := p_key, p_value := p_value, p_id := p_id, p_source := p_source, p_max := p_max);\n    if false then"),
+  mOps("SQL/ops: the repeat is not marked, so a caller cannot tell it from new work",
+    "'save_memory', p_args_hash);\n  if v_check ->> 'state' = 'repeat' then\n    -- ANSWER WHAT HAPPENED, MARKED AS A REPEAT.",
+    "'save_memory', p_args_hash);\n  if v_check ->> 'state' = 'repeat' then\n    return (v_check -> 'outcome');\n  -- ANSWER WHAT HAPPENED, MARKED AS A REPEAT."),
+  // Aimed at ONE wrapper by its own residue line, which names its action — six wrappers share
+  // the body, so anything above that line occurs six times.
+  mOps("⚠ SQL/ops: a genuine refusal is swallowed as a lost race",
+    "      raise exception '%', v_msg using errcode = v_state;\n    end if;\n    -- `AG001` with no twin to read is the one residue: the record was taken and is gone\n    -- again, which means the twin rolled back after winning the key. Named rather than\n    -- retried here, because a retry belongs to whoever can decide to make one.\n    return jsonb_build_object('ok', false, 'error', 'operation-lost', 'action', 'save_memory');",
+    "    end if;\n    return jsonb_build_object('ok', false, 'error', 'operation-lost', 'action', 'save_memory');"),
+  mOps("SQL/ops/CONTROL (comment only)",
+    "-- ⚠ THE DEFECT THIS CLOSES WAS REPRODUCED FIRST, against these migrations on a real",
+    "-- The defect this closes was reproduced first, against these migrations on a real", true),
 
 ];
 
