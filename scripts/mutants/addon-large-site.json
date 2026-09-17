@@ -1,0 +1,228 @@
+[
+ {
+  "label": "CONTROL: a comment only, above priorPagesSent",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": " * WHICH OF THE SITE'S PAGES FIT IN THIS REQUEST, AND WHICH DID NOT (2026-09-17).",
+  "to": " * WHICH OF THE SITE'S PAGES FIT IN THIS REQUEST, AND WHICH DID NOT (control).",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment only, above the route's keep list",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            // ── WHICH PAGES TO SHOW FIRST ON A SITE TOO LARGE TO SHOW WHOLE ──",
+  "to": "            // ── WHICH PAGES TO SHOW FIRST ON A LARGE SITE (control) ──────────",
+  "control": true
+ },
+ {
+  "label": "the addon falls back to the revise fallback over the window — the reported defect, restored",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  if (mode === \"addon\") {\n    // ONE SELECTION, AND THE ROUTE READS THE SAME FUNCTION.",
+  "to": "  if (mode === \"addon\" && total <= MAX_PRIOR_CHARS) {\n    // ONE SELECTION, AND THE ROUTE READS THE SAME FUNCTION."
+ },
+ {
+  "label": "the pages that did not fit are not named, so the writer reads the site as smaller than it is",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "          \"THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED: \" + unseen.join(\", \") + \". Do NOT \" +",
+  "to": "          \"THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED. Do NOT \" +"
+ },
+ {
+  "label": "a page named and not shown is not forbidden, so returning one replaces a file nobody saw",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "          \"return a file for any of them — you have not been shown what you would be replacing, and a page you do \" +",
+  "to": "          \"return a file for any of them if you like — and a page you do \" +"
+ },
+ {
+  "label": "the withheld branch is never taken, so a large site is announced as shown whole",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "      (unseen.length\n        ? \"Below is the current source of \"",
+  "to": "      (false\n        ? \"Below is the current source of \""
+ },
+ {
+  "label": "every page is sent again whatever the budget said",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "      seen.map((p) => \"--- \" + p.path + \" ---\\n\" + p.source).join(\"\\n\\n\");",
+  "to": "      list.map((p) => \"--- \" + p.path + \" ---\\n\" + p.source).join(\"\\n\\n\");"
+ },
+ {
+  "label": "priorPagesSent has no budget, so the window never binds",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    if (total + p.source.length > max) { withheld.push(p.path); continue; }",
+  "to": "    if (false) { withheld.push(p.path); continue; }"
+ },
+ {
+  "label": "a page too big for what is left STOPS the loop, so one large page withholds the small ones behind it",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    if (total + p.source.length > max) { withheld.push(p.path); continue; }",
+  "to": "    if (total + p.source.length > max) { withheld.push(p.path); break; }"
+ },
+ {
+  "label": "priorPagesSent ignores `keep`, so the page the change is about can be the one dropped",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const order = [\n    ...first.map((k) => list.find((p) => p.path === k)).filter(Boolean),\n    ...list.filter((p) => !first.includes(p.path)),\n  ];",
+  "to": "  const order = list;"
+ },
+ {
+  "label": "the shown pages go out in the budget's order rather than the site's",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  return { shown: list.filter((p) => shown.includes(p)), withheld, names: list.map((p) => p.path), chars: total };",
+  "to": "  return { shown, withheld, names: list.map((p) => p.path), chars: total };"
+ },
+ {
+  "label": "a one-page site over the window is shown nothing at all",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  if (!shown.length && order.length) {\n    shown.push(order[0]);\n    total = order[0].source.length;\n    withheld.splice(withheld.indexOf(order[0].path), 1);\n  }",
+  "to": "  if (false) {\n    shown.push(order[0]);\n    total = order[0].source.length;\n    withheld.splice(withheld.indexOf(order[0].path), 1);\n  }"
+ },
+ {
+  "label": "the one-page fallback names itself as unseen too, so the prompt and the reply disagree about one page",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    withheld.splice(withheld.indexOf(order[0].path), 1);",
+  "to": "    void 0;"
+ },
+ {
+  "label": "pagesPrompt drops `keep` on its way to the block",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    priorPagesBlock(priorPages, mode, target, { keep });",
+  "to": "    priorPagesBlock(priorPages, mode, target);"
+ },
+ {
+  "label": "pagesRequest drops `keep` on its way to the prompt",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target, keep);",
+  "to": "  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target);"
+ },
+ {
+  "label": "generateSitePages drops `keep` on its way to the request",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep });",
+  "to": "  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind });"
+ },
+ {
+  "label": "the Worker's forwarder drops `keep` — the recorded wiring trap, one hop from the module",
+  "files": [
+   "worker.js"
+  ],
+  "from": "  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind, keep);",
+  "to": "  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind);"
+ },
+ {
+  "label": "the addon route never names a page to keep, so the selection is stored order",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (v && typeof v === \"object\" && typeof v.page === \"string\") aWantPage(v.page);\n                if (v && typeof v === \"object\" && typeof v.path === \"string\") aWantPage(v.path);",
+  "to": "                void v;"
+ },
+ {
+  "label": "the home page is not kept, so the nav anchor can be the page that is dropped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            aWantPage(\"/\");\n            // AND WHAT THE WINDOW COULD NOT CARRY IS RECORDED.",
+  "to": "            // AND WHAT THE WINDOW COULD NOT CARRY IS RECORDED."
+ },
+ {
+  "label": "the route hands the page call no keep list at all",
+  "files": [
+   "worker.js"
+  ],
+  "from": "aJob && aJob.budget, undefined, \"\", aKeepPages);",
+  "to": "aJob && aJob.budget, undefined, \"\", []);"
+ },
+ {
+  "label": "nothing records which pages the window could not carry",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            if (aPagesSent.withheld.length) {\n              aUnseenPages = aPagesSent.withheld.slice(0, 12);",
+  "to": "            if (false) {\n              aUnseenPages = aPagesSent.withheld.slice(0, 12);"
+ },
+ {
+  "label": "the window's answer is recomputed with a different keep list, so the mark can disagree with the prompt",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aPagesSent = priorPagesSent(aSrc || [], { keep: aKeepPages });",
+  "to": "            const aPagesSent = priorPagesSent(aSrc || [], { keep: [] });"
+ },
+ {
+  "label": "the unseen pages are not on the reply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                unseenPages: aUnseenPages.length ? aUnseenPages : undefined,",
+  "to": "                unseenPages: undefined,"
+ },
+ {
+  "label": "the unseen pages are not on the stored record",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              unseenPages: aUnseenPages,\n            });",
+  "to": "            });"
+ },
+ {
+  "label": "requirementRecord drops unseenPages again — the shape two older findings were already lost to",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    unseenPages: (Array.isArray(unseenPages) ? unseenPages : []).slice(0, MAX_REQUIREMENTS),",
+  "to": ""
+ },
+ {
+  "label": "requirementRecord drops missingPages again, so a page that did not survive is on the reply and not the record",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    missingPages: (Array.isArray(missingPages) ? missingPages : []).slice(0, MAX_REQUIREMENTS),",
+  "to": ""
+ },
+ {
+  "label": "requirementRecord drops unknownComponents again",
+  "files": [
+   "builder/site-requirements.mjs"
+  ],
+  "from": "    unknownComponents: (Array.isArray(unknownKit) ? unknownKit : []).slice(0, MAX_REQUIREMENTS),",
+  "to": ""
+ },
+ {
+  "label": "the block selects again instead of reading priorPagesSent's one answer, so the prompt and the reply can disagree",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    const { shown: seen, withheld: unseen } = priorPagesSent(list, { keep });",
+  "to": "    const { withheld: unseen } = priorPagesSent(list, { keep });\n    const seen = list.slice(0, 1);"
+ }
+]

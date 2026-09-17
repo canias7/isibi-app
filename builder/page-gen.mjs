@@ -2616,6 +2616,22 @@ export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [] } = {})
     total += p.source.length;
     shown.push(p);
   }
+  // AT LEAST ONE PAGE, WHATEVER THE BUDGET SAYS — and it lives HERE rather than
+  // in the block, which is where the first cut put it. The route reads this
+  // function too, to record what the window could not carry; with the fallback
+  // in the block the two readers disagreed about a one-page site over the
+  // window — the prompt showed the page and the reply reported it as unseen.
+  // Measured through the route. One selection, one answer, two readers.
+  //
+  // WHY THERE IS A FALLBACK AT ALL: a prompt with no source is the revise
+  // fallback wearing the addon's words. One page is worse than all of them and
+  // better than none, and it is the first `keep` names, because that is the one
+  // the change is about.
+  if (!shown.length && order.length) {
+    shown.push(order[0]);
+    total = order[0].source.length;
+    withheld.splice(withheld.indexOf(order[0].path), 1);
+  }
   // IN STORED ORDER ON THE WIRE, whatever `keep` did to the selection: which
   // pages are SHOWN is a budget decision, and the order they are read in is the
   // site's own. A model handed its pages in an order that moves per request
@@ -2681,15 +2697,10 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
   // is — returning it would replace a file nobody has seen, and `keptProse`
   // would refuse the whole change for it.
   if (mode === "addon") {
-    const sent = priorPagesSent(list, { keep });
-    // AT LEAST ONE PAGE, WHATEVER THE BUDGET SAYS. A single page larger than
-    // the whole window would otherwise send an addon prompt with no source at
-    // all, which is the fallback below wearing this branch's words. One page is
-    // worse than all of them and better than none — and the page it falls back
-    // to is the first `keep` names, because that is the one the change is about.
-    const first = (Array.isArray(keep) ? keep : []).map((k) => list.find((p) => p.path === k)).find(Boolean) || list[0];
-    const seen = sent.shown.length ? sent.shown : [first];
-    const unseen = sent.shown.length ? sent.withheld : list.filter((p) => p !== first).map((p) => p.path);
+    // ONE SELECTION, AND THE ROUTE READS THE SAME FUNCTION. The at-least-one
+    // fallback lives inside `priorPagesSent` rather than here, so what the
+    // prompt shows and what the reply reports as unseen cannot disagree.
+    const { shown: seen, withheld: unseen } = priorPagesSent(list, { keep });
     return "\n\nTHE SITE AS IT STANDS — YOU ARE ADDING TO IT\n" +
       (unseen.length
         ? "Below is the current source of " + seen.length + " of this site's " + list.length + " pages, exactly as they " +

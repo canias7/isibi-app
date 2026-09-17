@@ -1235,6 +1235,25 @@ test("the developer record keeps everything the customer is not told", () => {
   assert.deepEqual(rec.counts, { total: 2, covered: 1, elsewhere: 1, unsupported: 0, unreadable: 1,
     delivered: 0, configured: 0, unverified: 0, unknown: 2, missing: 0, blocked: 0, failed: 0 });
   assert.deepEqual(rec.requirements.map((r) => r.state), ["unknown", "unknown"]);
+
+  // ── THREE FINDINGS THAT REACHED THE REPLY AND NOT THE RECORD (2026-09-17) ──
+  //
+  // ⚠ THE FIRST TWO WERE PASSED IN AND DROPPED. The addon route has handed
+  // `missingPages` and `unknownKit` to this function since each was written and
+  // neither was in the destructure — measured, both answered `undefined`. So a
+  // page that did not survive and a kit name that is not in the kit were on the
+  // reply and absent from the thing anybody comes back to. The third is the
+  // pages a large site's prompt window could not carry.
+  const carried = requirementRecord({
+    list: [], missingPages: ["/gallery"], unknownKit: ["not-a-kit-part"], unseenPages: ["src/routes/about.tsx"],
+  });
+  assert.deepEqual(carried.missingPages, ["/gallery"], "a page that did not survive is on the reply and not the record");
+  assert.deepEqual(carried.unknownComponents, ["not-a-kit-part"], "a kit name that is not a kit name never reaches the record");
+  assert.deepEqual(carried.unseenPages, ["src/routes/about.tsx"], "what the prompt window could not carry never reaches the record");
+  // …AND AN ORDINARY CHANGE CARRIES THREE EMPTY LISTS rather than three absent
+  // keys, so a reader can tell "nothing was dropped" from "this record predates
+  // the field".
+  assert.deepEqual([rec.missingPages, rec.unknownComponents, rec.unseenPages], [[], [], []]);
   // …AND THE CONTROL THAT KEEPS `unknown` FROM BEING A NEW DEFAULT: give the
   // same `covered` entry something real to reconcile against and it moves. A
   // record where every state collapses to one is not a reader, it is a stamp.

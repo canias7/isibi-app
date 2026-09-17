@@ -2839,6 +2839,12 @@ test("a site too large for the window keeps the addon contract, shows what fits 
   const chars = stored.reduce((n, p) => n + p.source.length, 0);
   assert.ok(chars > MAX_PRIOR_CHARS, "the fixture is not over the window — " + chars + " against " + MAX_PRIOR_CHARS);
 
+  // THE HOME PAGE IS REAL HERE, so `keep` has something to bind to and the
+  // reply's list is decided by the SAME selection the prompt was built from.
+  // Without it every `keep` entry names a page the site has not got, the two
+  // selections agree by accident, and a mutant that recomputes the window with
+  // a different keep list survives — measured.
+  stored[0] = { ...stored[0], path: "src/routes/index.tsx" };
   const r = await addon("fw-big", "add a page listing our opening hours", {
     kinds: ["page"], publishes: true, storedPages: stored,
     written: [writtenPage("/hours")],
@@ -2863,8 +2869,18 @@ test("a site too large for the window keeps the addon contract, shows what fits 
   const unseen = named[1].split(", ");
   assert.equal(shown.length + unseen.length, stored.length, "shown + named is not the whole site");
   assert.equal(shown.filter((p) => unseen.includes(p)).length, 0, "a page was both shown and named as unseen");
-  assert.match(flat, /Do NOT return a file for any of them/,
+  // THE REASON, NOT THE VERB. "Do NOT" ends the line above the forbidding one,
+  // so a mutant that softened "…for any of them" into "…for any of them if you
+  // like" left the words "Do NOT return a file for any of them" intact across
+  // the join and survived. What cannot survive is the clause that says WHY.
+  assert.match(flat, /you have not been shown what you would be replacing/,
     "a page named and not shown was not forbidden — returning one replaces a file nobody saw");
+  // AND THE PAGES GO OUT IN THE SITE'S OWN ORDER, whatever the budget did to
+  // the selection: which pages are shown is a budget decision, the order they
+  // are read in is the site's, and a model handed its pages in an order that
+  // moves per request reads that order as meaning something.
+  const inSite = stored.map((p) => p.path).filter((p) => shown.includes(p));
+  assert.deepEqual(shown, inSite, "the shown pages are in the budget's order rather than the site's");
 
   // AND IT IS RECORDED. `ok: true` with an empty `problems` and an empty
   // `coverNote` is exactly what this answered before, so the one fact that
@@ -2880,28 +2896,45 @@ test("a site too large for the window keeps the addon contract, shows what fits 
 test("the pages this change is about are the ones shown, whatever their stored order", async () => {
   // `keep` is the whole of this: without it the selection is stored order and
   // the page a section was designed to land on is exactly the one worth the
-  // budget. The target here is DEAD LAST in stored order, so a selection that
-  // ignored `keep` could not show it.
+  // budget.
+  //
+  // ⚠ THE FIRST DRAFT OF THIS CASE WAS VACUOUS AND A SWEEP SAID SO. It targeted
+  // the LAST page in stored order, on the reasoning that stored order would
+  // drop it — and `priorPagesSent` SKIPS a page too big for what is left rather
+  // than stopping, so the last page is small enough to fit in the remainder and
+  // was shown either way. Eight mutants that cut `keep` out of the chain
+  // survived it. A fixture too shallow to separate the two readings, in the
+  // case written for the thing it could not see.
+  //
+  // SO THE CASE CARRIES ITS OWN CONTROL: the same site and the same change
+  // aimed at the HOME page first, which establishes by measurement that the
+  // target really is one the budget drops — and only then is it named.
   const stored = corpusPages(BIG);
   stored[0] = { ...stored[0], path: "src/routes/index.tsx" };
-  const last = stored[stored.length - 1];
-  const target = "/" + last.path.replace("src/routes/", "").replace(/\.tsx$/, "");
 
-  const r = await addon("fw-big-keep", "add a note about parking to " + target, {
+  const run = (slug, route) => addon(slug, "add a note about parking to " + route, {
     kinds: ["component"], publishes: true, storedPages: stored,
-    written: [{ ...last, source: last.source.replace("</main>", "<p>Parking is free.</p></main>") }],
-    answers: { component: { component: [{ page: target, does: "a parking note", components: ["card"] }] } },
+    written: [{ ...stored[0], source: stored[0].source.replace("</main>", "<p>Parking is free.</p></main>") }],
+    answers: { component: { component: [{ page: route, does: "a parking note", components: ["card"] }] } },
   });
+
+  // THE CONTROL: nothing names the target, so it is shown only if the budget
+  // reached it on its own.
+  const without = shownPaths(pagePrompt(await run("fw-keep-ctl", "/")).text);
+  const dropped = stored.map((p) => p.path).filter((p) => !without.includes(p));
+  assert.ok(dropped.length, "the fixture fitted whole, so this case is not about the window");
+  const target = "/" + dropped[0].replace("src/routes/", "").replace(/\.tsx$/, "");
+
+  // …AND NOW IT IS NAMED.
+  const r = await run("fw-big-keep", target);
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   const shown = shownPaths(pagePrompt(r).text);
-  assert.ok(shown.length < stored.length, "the fixture fitted whole, so this case is not about the window");
-  assert.ok(shown.includes(last.path), "the page the change is about was not shown: " + JSON.stringify(shown));
+  assert.ok(shown.includes(dropped[0]),
+    "the page the change is about was not shown, and the budget does not reach it on its own: " + JSON.stringify(shown));
   // AND THE HOME PAGE, which is the nav anchor almost every addon touches —
   // "usually ONE new page, plus the page a visitor would look on to find it".
   assert.ok(shown.includes("src/routes/index.tsx"), "the home page was not shown: " + JSON.stringify(shown));
-  // THE CONTROL that makes both of those about `keep` rather than about luck:
-  // the target is the LAST page stored, so stored order alone would drop it.
-  assert.equal(stored.indexOf(last), stored.length - 1);
+  assert.ok(shown.length < stored.length, "the site fitted whole once the target was named");
 });
 
 test("an ordinary site is byte-identical — the window changes nothing until it binds", async () => {
@@ -2923,4 +2956,24 @@ test("an ordinary site is byte-identical — the window changes nothing until it
   assert.doesNotMatch(t, /ARE UNCHANGED:/, "a site that fits named pages as unseen");
   assert.equal(r.body.unseenPages, undefined, "a site that fits reported a window that did not bind");
   assert.equal(storedAnswer(r, "fw-small").coverage.unseenPages.length, 0, "the record claims a window that did not bind");
+});
+
+test("a one-page site bigger than the whole window is shown that page and names nothing as unseen", async () => {
+  // THE BELT. `MAX_PAGE_CHARS` (48,000) is under `MAX_PRIOR_CHARS` (90,000), so
+  // no page `validatePages` admits can reach here — but a page stored before
+  // those caps can, and an addon prompt with no source at all is the revise
+  // fallback wearing this branch's words. The page it falls back to must not
+  // then be named among the ones it cannot see.
+  const stored = [{ path: "src/routes/index.tsx", source: writtenPage("/").source + "\n// " + "x".repeat(MAX_PRIOR_CHARS + 5000) }];
+  const r = await addon("fw-one-huge", "add a page listing our opening hours", {
+    kinds: ["page"], publishes: true, storedPages: stored,
+    written: [writtenPage("/hours")],
+    answers: { page: { page: [{ path: "/hours", name: "Hours", purpose: "say when we are open", sections: ["a table"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const t = pagePrompt(r).text;
+  assert.deepEqual(shownPaths(t), ["src/routes/index.tsx"], "the only page the site has was not shown");
+  assert.match(t.replace(/\\n/g, " "), /RETURN ONLY WHAT IS NEW OR CHANGED/, "the contract went with the window");
+  assert.doesNotMatch(t, /ARE UNCHANGED:/, "the one page shown was also named as one that could not be shown");
+  assert.equal(r.body.unseenPages, undefined, "the one page shown was reported as unseen");
 });
