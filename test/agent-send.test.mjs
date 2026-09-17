@@ -374,6 +374,14 @@ test("⚠ A RUN SOMEBODY STOPPED IS NOT A RUN THAT FAILED, and it says how far i
   assert.equal(bare.state, "cancelled");
   assert.equal(bare.completedSteps, 0);
   assert.equal(bare.by, "");
+  // ⚠ AND WHO STOPPED IT GOES THROUGH `cleanId`, so whatever else a stop body holds cannot
+  // reach the wire wearing an account's name. `String(["x"])` is `"x"` — this repository's
+  // most repeated value trap — and an unreadable decider is ABSENT rather than guessed,
+  // because the journal is the only thing that could say and it did not.
+  for (const junk of [["someone"], 7, {}, " ", "not an id at all", null]) {
+    const j = runView(row({ run_status: "stopped", run_stop: { reason: "cancelled", cancelledBy: junk } }));
+    assert.equal(j.by, "", `${JSON.stringify(junk)} reached the wire as a decider`);
+  }
   for (const junk of ["4", 1.5, null, {}]) {
     const j = runView(row({ run_status: "stopped", run_stop: { reason: "cancelled", completedSteps: junk } }));
     assert.equal(j.completedSteps, 0, `${JSON.stringify(junk)} became a count`);
@@ -1274,6 +1282,38 @@ test("⚠ THE REQUEST THE STORE REALLY SENDS carries the tenant and the decider"
   await assert.rejects(() => r3.store.listToolApprovals(T, AG), /list tool approvals/);
   const r4 = recorder({ "rpc/decide_tool_approval": { status: 500, body: { message: "boom" } } });
   await assert.rejects(() => r4.store.decideToolApproval(T, { id: "ap-1", verdict: "approved", by: T }));
+});
+
+test("⚠ THE CONVERSATION READ REALLY ASKS FOR THE TWO FACTS, or every state falls back to working", async () => {
+  // ⚠ **THE WIRING HOP, AND A SWEEP SURVIVOR IS WHY THIS EXISTS.** `runView` can be perfect
+  // and the view can carry both columns, and if the SELECT does not name them PostgREST
+  // simply does not send them — so `run_awaiting` is `undefined` and `run_open_calls` is
+  // `undefined`, both readers fail closed, and every waiting or stranded run reads
+  // `working` again. From outside that is indistinguishable from the feature never having
+  // been built, which is exactly the class this repository keeps paying for.
+  //
+  // It is asserted on the WIRE rather than by reading the source, and by NAME rather than by
+  // counting, so a rename is caught as well as a removal.
+  const T = "11111111-1111-4111-8111-111111111111";
+  const AG = "22222222-2222-4222-8222-222222222222";
+  const r = recorder({ agent_thread: { status: 200, body: [] } });
+  await r.store.messages(T, AG, 50);
+  const read = r.seen.at(-1);
+  assert.match(read.url, /agent_thread/);
+  const select = decodeURIComponent(new URL(read.url).searchParams.get("select") || "");
+  for (const col of ["run_open_calls", "run_awaiting"]) {
+    assert.ok(select.split(",").includes(col), `the read did not ask for ${col}: ${select}`);
+  }
+  // THE CONTROL: the columns the reader has always needed are still asked for, so a select
+  // list that had stopped naming ANYTHING would not satisfy the two lines above.
+  for (const col of ["run_status", "run_stop", "run_step", "run_model"]) {
+    assert.ok(select.split(",").includes(col), `the read stopped asking for ${col}: ${select}`);
+  }
+  // ⚠ AND THE READ IS A GET, so its schema header is the READ one — the rule the whole
+  // profile round exists for, which this route is as subject to as any other.
+  assert.equal(read.method ?? "GET", "GET");
+  assert.equal(read.headers["accept-profile"], "agent");
+  assert.equal(read.headers["content-profile"], undefined);
 });
 
 test("⚠ AN AGENT FILTER IS CHECKED, AND A REFUSED DECISION IS NOT-FOUND", async () => {
