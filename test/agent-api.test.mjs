@@ -114,6 +114,36 @@ function fakeStore(over = {}) {
       return { ok: true, repeat: false, run_id: RID, occurrence: null, trigger: "manual", state: "queued" };
     },
     executions: async (...a) => { calls.push({ name: "executions", args: a }); return []; },
+    // ── richer workflows, reference material and memory ────────────────────
+    // ⚠ AND THE SAME RULE AGAIN: `readAutomation` is what the run route asks for the
+    // input DECLARATION, so a fake without it makes the route throw and the census
+    // reads a 502. This file has now paid for that three times, which is why the
+    // answer shapes below are the ones the real store gives rather than invented.
+    readAutomation: async (...a) => {
+      calls.push({ name: "readAutomation", args: a });
+      return { id: A1, agentId: A1, name: "n", inputs: [], steps: [] };
+    },
+    decideApproval: async (...a) => {
+      calls.push({ name: "decideApproval", args: a });
+      return { ok: true, repeat: false, verdict: "approved", step: "s1", queued: "queued" };
+    },
+    listKnowledge: async (...a) => { calls.push({ name: "listKnowledge", args: a }); return []; },
+    countKnowledge: async (...a) => { calls.push({ name: "countKnowledge", args: a }); return 0; },
+    addKnowledge: async (...a) => {
+      calls.push({ name: "addKnowledge", args: a });
+      return { source: { id: A1, title: "Price list", version: 1 } };
+    },
+    updateKnowledge: async (...a) => {
+      calls.push({ name: "updateKnowledge", args: a });
+      return { id: A1, title: "Price list", version: 2 };
+    },
+    removeKnowledge: async (...a) => { calls.push({ name: "removeKnowledge", args: a }); return true; },
+    listMemory: async (...a) => { calls.push({ name: "listMemory", args: a }); return []; },
+    saveMemory: async (...a) => {
+      calls.push({ name: "saveMemory", args: a });
+      return { id: A1, key: "tone", value: "formal", version: 1 };
+    },
+    removeMemory: async (...a) => { calls.push({ name: "removeMemory", args: a }); return true; },
   };
   void note;
   return { calls, store: { ...base, ...over } };
@@ -144,6 +174,10 @@ test("every operation is scoped by the tenant the handler was given", async () =
       body: {
         id: A1, key: A1, name: "N", instructions: "I", body: "hello", messages: [],
         agent: A1, enabled: true, schedule: "manual", steps: [],
+        // ⚠ AND GROWN AGAIN for approvals, reference material and memory, for the same
+        // reason: each of those routes needs its own arguments, and a census that drove
+        // them without would read the 400 they correctly give and prove nothing.
+        run: A1, step: "s1", verdict: "approved", title: "Price list", value: "formal",
       },
       newId: () => A1,
     });
@@ -252,7 +286,15 @@ test("no route reads an account off the body or the query — asserted over the 
   // than coerces.
   const allowed = new Set(["id", "name", "instructions", "body", "at", "messages", "text", "key",
                            "status", "tools",
-                           "agent", "enabled", "schedule", "zone", "steps"]);
+  // ⚠ RE-ANCHORED A THIRD TIME, by NINE fields and still not by an exemption. Every one
+  // is a field of the THING being acted on: what an automation asks for (`inputs`) and the
+  // answers handed to one run (`input`); which run, which step, and how it was answered
+  // (`run`, `step`, `verdict`, `note`); and a source's or a memory's own contents (`title`,
+  // `format`, `value`). The four spellings this census exists to forbid — `tenant`, `uid`,
+  // `owner`, `account` — are still not in it, and the positive case above still drives every
+  // route to prove the tenant reaches the store from the verified token alone.
+                           "agent", "enabled", "schedule", "zone", "steps",
+                           "inputs", "input", "run", "step", "verdict", "note", "title", "format", "value", "source"]);
   const strays = [...new Set(reads)].filter((k) => !allowed.has(k));
   assert.deepEqual(strays, [], `the handler reads ${strays.join(", ")} off the request`);
 });

@@ -740,6 +740,144 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     },
 
     /**
+     * One automation, for the sake of what it asks for.
+     *
+     * **`null` FOR ANOTHER ACCOUNT'S AND FOR ONE THAT IS NOT THERE**, the same answer, so a
+     * caller cannot tell them apart and neither can a stranger through it.
+     */
+    async readAutomation(tenant, id) {
+      const r = await req("GET",
+        `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}` +
+        `&select=id,agent_id,name,enabled,schedule,at_local,zone,steps,inputs,next_run_at,created_at,updated_at&limit=1`);
+      if (!r.ok) throw storeFail("read automation", r);
+      return rows(r).length === 1 ? automationRow(rows(r)[0]) : null;
+    },
+
+    /**
+     * Answer one waiting approval.
+     *
+     * **THE TENANT IS AN ARGUMENT TO THE FUNCTION and the function puts it in the lookup**,
+     * so ownership is enforced inside the transaction that writes rather than in a check
+     * this process makes first — which is the only arrangement with no window between them.
+     */
+    async decideApproval(tenant, { runId, step, verdict, note }) {
+      const r = await req("POST", "rpc/decide_automation_approval", {
+        body: {
+          p_tenant: tenant, p_run_id: runId, p_step: step,
+          p_verdict: verdict, p_note: note ?? null, p_by: null,
+        },
+      });
+      if (!r.ok) throw storeFail("decide approval", r);
+      return answerOf(r, "decide approval");
+    },
+
+    // ── reference material ──────────────────────────────────────────────────
+    //
+    // **PLAIN TABLE WRITES RATHER THAN FUNCTIONS, and the difference from the automation
+    // side is real**: an automation's create has to compute a schedule's next instant and
+    // count what an agent holds, which are decisions; a source is a row, and its version
+    // and its timestamps belong to the column and the trigger. What keeps it safe is the
+    // same thing either way — the tenant is in every filter.
+
+    /** Every source of one agent, A–Z, WITHOUT the material itself. */
+    async listKnowledge(tenant, agentId, limit = MAX_KNOWLEDGE) {
+      // ⚠ THE BODIES ARE NOT SENT TO THE BROWSER. Twenty sources at 200,000 characters is
+      // four megabytes to draw a list of names, and the list is only ever a list of names;
+      // the material is fetched one source at a time when somebody opens it.
+      const r = await req("GET",
+        `agent_knowledge?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}` +
+        `&select=id,title,format,version,created_at,updated_at&limit=${limit}`);
+      if (!r.ok) throw storeFail("list knowledge", r);
+      return rows(r).map(knowledgeRow);
+    },
+
+    /** One source WITH its material, for editing it. */
+    async readKnowledge(tenant, id) {
+      const r = await req("GET",
+        `agent_knowledge?id=eq.${id}&tenant_id=eq.${t(tenant)}` +
+        `&select=id,agent_id,title,body,format,version,created_at,updated_at&limit=1`);
+      if (!r.ok) throw storeFail("read knowledge", r);
+      return rows(r).length === 1 ? { ...knowledgeRow(rows(r)[0]), body: String(rows(r)[0].body ?? "") } : null;
+    },
+
+    async countKnowledge(tenant, agentId) {
+      const r = await req("GET",
+        `agent_knowledge?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}&select=id&limit=${MAX_KNOWLEDGE + 1}`);
+      if (!r.ok) throw storeFail("count knowledge", r);
+      return rows(r).length;
+    },
+
+    async addKnowledge(tenant, { agentId, id, title, body, format }) {
+      const r = await req("POST", "agent_knowledge", {
+        prefer: "return=representation",
+        body: { id, tenant_id: tenant, agent_id: agentId, title, body, format },
+      });
+      // ⚠ ONE SOURCE NAME PER AGENT IS A UNIQUE INDEX, so the refusal is Postgres's and
+      // arrives as a code rather than as something this process checked first. Read as its
+      // own answer, because "there is already one called that" is a sentence somebody can
+      // act on and a 502 is not.
+      if (!r.ok && r.status === 409) return { error: "duplicate" };
+      if (!r.ok) throw storeFail("add knowledge", r);
+      return { source: rows(r).length === 1 ? knowledgeRow(rows(r)[0]) : null };
+    },
+
+    /** Editing the material is what bumps the version, and the trigger is what does it. */
+    async updateKnowledge(tenant, { id, title, body, format }) {
+      const r = await req("PATCH", `agent_knowledge?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
+        prefer: "return=representation",
+        body: { title, body, format },
+      });
+      if (!r.ok) throw storeFail("update knowledge", r);
+      return rows(r).length === 1 ? knowledgeRow(rows(r)[0]) : null;
+    },
+
+    async removeKnowledge(tenant, id) {
+      const r = await req("DELETE", `agent_knowledge?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
+        prefer: "return=representation",
+      });
+      if (!r.ok) throw storeFail("delete knowledge", r);
+      return rows(r).length === 1;
+    },
+
+    // ── memory ──────────────────────────────────────────────────────────────
+
+    /** Everything one agent remembers, by name. Small by construction, so all of it. */
+    async listMemory(tenant, agentId, limit = MAX_MEMORIES) {
+      const r = await req("GET",
+        `agent_memory?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}` +
+        `&select=id,key,value,source,version,created_at,updated_at&limit=${limit}`);
+      if (!r.ok) throw storeFail("list memory", r);
+      return rows(r).map(memoryRow);
+    },
+
+    /**
+     * Set one name to one value.
+     *
+     * **AN UPSERT, BECAUSE THAT IS WHAT SAVING A MEMORY IS.** `resolution=merge-duplicates`
+     * over `(tenant, agent, key)` — the unique index that IS the scope — so a caller never
+     * has to know whether the name exists, which would be doing that index's job in
+     * JavaScript and racing itself while it did.
+     */
+    async saveMemory(tenant, { agentId, id, key, value }) {
+      const r = await req("POST", "agent_memory", {
+        prefer: "return=representation,resolution=merge-duplicates",
+        body: { id, tenant_id: tenant, agent_id: agentId, key, value, source: "person" },
+      });
+      if (!r.ok) throw storeFail("save memory", r);
+      return rows(r).length === 1 ? memoryRow(rows(r)[0]) : null;
+    },
+
+    /** By NAME, because the name is the identity a workflow and a person both use. */
+    async removeMemory(tenant, agentId, key) {
+      const r = await req("DELETE",
+        `agent_memory?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}&key=eq.${encodeURIComponent(key)}`, {
+        prefer: "return=representation",
+      });
+      if (!r.ok) throw storeFail("delete memory", r);
+      return rows(r).length === 1;
+    },
+
+    /**
      * Make one.
      *
      * **THE ID IS OURS AND THE ARITHMETIC IS THE DATABASE'S.** A daily schedule's next
@@ -747,12 +885,12 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * system that owns a time zone database — working it out here would be a second copy
      * of it, in a language whose answer would then decide when somebody's work runs.
      */
-    async createAutomation(tenant, { agentId, id, name, enabled, schedule, at, zone, steps }) {
+    async createAutomation(tenant, { agentId, id, name, enabled, schedule, at, zone, steps, inputs }) {
       const r = await req("POST", "rpc/create_automation", {
         body: {
           p_tenant: tenant, p_agent_id: agentId, p_id: id, p_name: name,
           p_enabled: enabled, p_schedule: schedule, p_at_local: at, p_zone: zone,
-          p_steps: steps, p_max: MAX_AUTOMATIONS,
+          p_steps: steps, p_inputs: inputs ?? [], p_max: MAX_AUTOMATIONS,
         },
       });
       if (!r.ok) throw storeFail("create automation", r);
@@ -760,11 +898,12 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     },
 
     /** Change one. A replace of its settings, and the form always sends all of them. */
-    async updateAutomation(tenant, { id, name, enabled, schedule, at, zone, steps }) {
+    async updateAutomation(tenant, { id, name, enabled, schedule, at, zone, steps, inputs }) {
       const r = await req("POST", "rpc/update_automation", {
         body: {
           p_tenant: tenant, p_id: id, p_name: name, p_enabled: enabled,
           p_schedule: schedule, p_at_local: at, p_zone: zone, p_steps: steps,
+          p_inputs: inputs ?? [],
         },
       });
       if (!r.ok) throw storeFail("update automation", r);
@@ -806,10 +945,11 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * transaction, so a bug in this process cannot change what somebody's automation
      * does even by accident.
      */
-    async runAutomation(tenant, { automationId, runId }) {
+    async runAutomation(tenant, { automationId, runId, input }) {
       const r = await req("POST", "rpc/accept_automation_run", {
         body: {
           p_tenant: tenant, p_automation_id: automationId, p_run_id: runId,
+          p_input: input ?? {},
           p_trigger: "manual", p_occurrence: null,
         },
       });
@@ -828,6 +968,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       const r = await req("GET",
         `automation_history?tenant_id=eq.${t(tenant)}&automation_id=eq.${automationId}` +
         `&select=id,automation_id,trigger,occurrence,steps,outcomes,missed,created_at,finished_at,` +
+        `position,vars,input,waiting,wait_until,decisions,` +
         `run_status,run_stop&order=created_at.desc&limit=${Number(limit) || MAX_EXECUTIONS}`);
       if (!r.ok) throw storeFail("read executions", r);
       return rows(r).map(executionRow);
@@ -872,8 +1013,47 @@ export const AUTOMATION_NAME_MAX = 200;
 /** How many steps one workflow may hold — the column's own check constraint. */
 export const MAX_AUTOMATION_STEPS = 20;
 
-/** How long a note may be — the engine's own `MAX_NOTE`, censused against it. */
+/**
+ * The engine's own bounds, censused against it field by field.
+ *
+ * **EVERY ONE OF THESE IS A COPY, DECLARED AS ONE.** `worker.js`'s module graph is a
+ * container image input, so importing the agent product would pull the whole of it into
+ * the image; a copy with a census both ways is this repository's standard remedy. What
+ * makes it safe is that `test/agent-send.test.mjs` — the one file that may import both
+ * products — compares the two catalogs name by name, field by field and bound by bound.
+ */
 export const MAX_STEP_NOTE = 2000;
+export const MAX_STEP_TEST = 400;
+export const MAX_STEP_QUERY = 200;
+export const MAX_STEP_ASK = 400;
+export const MAX_WAIT_MINUTES = 60 * 24 * 14;
+export const MAX_APPROVAL_HOURS = 24 * 14;
+
+/** How many inputs one automation may declare — the column's own check constraint. */
+export const MAX_AUTOMATION_INPUTS = 8;
+/** And how long each of its parts may be. */
+export const INPUT_LABEL_MAX = 120;
+export const INPUT_DEFAULT_MAX = 2000;
+/** How long a value handed to a run may be, and how long an approval's note may be. */
+export const INPUT_VALUE_MAX = 4000;
+export const DECISION_NOTE_MAX = 1000;
+
+/** What a comparison may be, and what a timeout may be set to mean. */
+export const AUTOMATION_TESTS = Object.freeze(["is", "is not", "contains", "is empty", "is not empty"]);
+export const AUTOMATION_WAIT_MODES = Object.freeze(["for", "until"]);
+export const AUTOMATION_TIMEOUTS = Object.freeze(["approve", "reject", "fail"]);
+/** How an approval may be answered. */
+export const AUTOMATION_VERDICTS = Object.freeze(["approved", "rejected"]);
+
+/**
+ * What a name may be — an input's, a step's `out`, a memory's key.
+ *
+ * **ONE RULE FOR ALL THREE, and it is the engine's `REF_NAME` and the memory column's own
+ * CHECK constraint, in a third language.** A name is what `{{a name}}` refers to, so three
+ * different rules would mean a name that saves in one place and cannot be referred to from
+ * another.
+ */
+export const AGENT_NAME_RE = /^[a-z][a-z0-9_]{0,39}$/;
 
 /**
  * How many executions one history read carries.
@@ -911,20 +1091,100 @@ export const AUTOMATION_DAYS = Object.freeze(["sun", "mon", "tue", "wed", "thu",
  * step's `label` and `does` were written for a person on both sides. They are censused
  * too, so a step described one way in the engine and another way on screen is a red run.
  */
+const F = (o) => Object.freeze(o);
+
+/**
+ * `out` — the name a step's answer is saved under. ONE OBJECT, shared, because the form
+ * draws the same control everywhere and the census has one shape to compare.
+ */
+const OUT = F({ name: "out", kind: "name", required: false });
+
 export const AUTOMATION_STEPS = Object.freeze([
-  Object.freeze({
+  F({
     type: "weekday",
     kind: "condition",
     label: "Only on certain days",
     does: "Carry on only on the days you pick. On any other day the rest of the workflow is skipped.",
-    fields: Object.freeze([Object.freeze({ name: "days", kind: "days", required: true })]),
+    fields: Object.freeze([F({ name: "days", kind: "days", required: true })]),
   }),
-  Object.freeze({
+  F({
+    type: "if",
+    kind: "branch",
+    label: "If …",
+    does: "Compare a value — an input, or an earlier step's answer — and run the steps under it only when the comparison holds. Put an \"Otherwise\" and an \"End\" below it.",
+    fields: Object.freeze([
+      F({ name: "left", kind: "text", required: true, max: MAX_STEP_TEST, refs: true }),
+      F({ name: "op", kind: "choice", required: true, options: AUTOMATION_TESTS }),
+      F({ name: "right", kind: "text", required: true, max: MAX_STEP_TEST, refs: true, when: F({ op: Object.freeze(["is", "is not", "contains"]) }) }),
+    ]),
+  }),
+  F({
+    type: "otherwise",
+    kind: "branch",
+    label: "Otherwise …",
+    does: "Begins the other arm of the \"If\" above it. The steps under this one run only when the comparison did not hold.",
+    fields: Object.freeze([]),
+    configless: true,
+  }),
+  F({
+    type: "end",
+    kind: "branch",
+    label: "End of the if",
+    does: "Closes the \"If\" above it. Everything after this runs either way.",
+    fields: Object.freeze([]),
+    configless: true,
+  }),
+  F({
+    type: "wait",
+    kind: "pause",
+    label: "Wait",
+    does: "Pause here for a while, or until a time of day, and carry on afterwards. Nothing is held open while it waits.",
+    fields: Object.freeze([
+      F({ name: "mode", kind: "choice", required: true, options: AUTOMATION_WAIT_MODES }),
+      F({ name: "minutes", kind: "number", required: true, min: 1, max: MAX_WAIT_MINUTES, when: F({ mode: Object.freeze(["for"]) }) }),
+      F({ name: "at", kind: "time", required: true, when: F({ mode: Object.freeze(["until"]) }) }),
+    ]),
+  }),
+  F({
+    type: "approval",
+    kind: "pause",
+    label: "Wait for approval",
+    does: "Pause and ask to be approved or rejected before carrying on. Say what happens if nobody answers in time.",
+    fields: Object.freeze([
+      F({ name: "ask", kind: "text", required: true, max: MAX_STEP_ASK, refs: true }),
+      F({ name: "hours", kind: "number", required: true, min: 1, max: MAX_APPROVAL_HOURS }),
+      F({ name: "on_timeout", kind: "choice", required: true, options: AUTOMATION_TIMEOUTS }),
+    ]),
+  }),
+  F({
+    type: "knowledge",
+    kind: "lookup",
+    label: "Look something up",
+    does: "Search this agent's reference material and save the passages that match, with the source they came from. Put {{a name}} in the search to use an input.",
+    fields: Object.freeze([
+      F({ name: "query", kind: "text", required: true, max: MAX_STEP_QUERY, refs: true }),
+      F({ ...OUT, required: true }),
+    ]),
+  }),
+  F({
+    type: "memory",
+    kind: "lookup",
+    label: "Use something remembered",
+    does: "Read one of this agent's saved facts or preferences and save it under a name a later step can use.",
+    fields: Object.freeze([
+      F({ name: "key", kind: "name", required: true }),
+      F({ ...OUT, required: true }),
+    ]),
+  }),
+  F({
     type: "note",
     kind: "action",
     label: "Save a note",
-    does: "Write a line into this automation's results, so the run has something to show.",
-    fields: Object.freeze([Object.freeze({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE })]),
+    does: "Write a line into this automation's results, so the run has something to show. Put {{a name}} anywhere to use an input or an earlier step's answer.",
+    fields: Object.freeze([
+      F({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE, refs: true }),
+      OUT,
+    ]),
   }),
 ]);
 
@@ -945,11 +1205,15 @@ export const AUTOMATION_STEP_TYPES = Object.freeze(AUTOMATION_STEPS.map((s) => s
  * **THE ID IS MINTED FROM THE POSITION AND NEVER TAKEN FROM THE CALLER** — the same rule
  * the engine's reader follows, so an outcome's `id` names the same step on both sides.
  */
-export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATION_STEPS) {
+export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATION_STEPS, inputs = []) {
   if (!Array.isArray(v)) return { error: "the steps have to arrive as a list" };
   if (v.length > max) return { error: `that's more steps than one automation can hold (${max})` };
   const byType = new Map(catalog.map((s) => [s.type, s]));
   const steps = [];
+  // WHAT A `{{reference}}` MAY NAME, GROWING AS IT GOES: the declared inputs, plus the
+  // `out` name of every EARLIER step. A forward reference is refused for the same reason a
+  // typo is — nothing produces it at the moment the step runs.
+  const produces = new Set((Array.isArray(inputs) ? inputs : []).filter((n) => typeof n === "string"));
   for (let i = 0; i < v.length; i++) {
     const at = i + 1;
     const raw = v[i];
@@ -960,15 +1224,161 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
     if (!def) return { error: `step ${at}: this platform has no step called ${String(raw.type ?? "(nothing)")}` };
     const one = { id: `s${at}`, type: def.type };
     for (const f of def.fields) {
+      // ⚠ A FIELD THAT DOES NOT APPLY IS NOT READ AND IS NOT STORED. `when` says which
+      // answers make it relevant — a wait's minutes only when it is waiting FOR a while —
+      // and storing the other one would be keeping a value nothing will ever read, which
+      // the form would then draw back as though it mattered.
+      if (!fieldApplies(f, one)) continue;
       const got = readStepField(raw[f.name], f);
       if (got.error) return { error: `step ${at}: ${got.error}` };
       // A FIELD THE CALLER DID NOT NAME IS NOT SENT. `required` is what decides whether
       // that is a refusal; an optional one absent simply is not stored.
       if (got.value !== undefined) one[f.name] = got.value;
+      if (f.refs === true && typeof got.value === "string") {
+        for (const name of refsInText(got.value)) {
+          if (!produces.has(name)) {
+            return { error: `step ${at}: nothing here produces a value called "${name}"` };
+          }
+        }
+      }
     }
+    // ITS OWN `out` IS ADDED AFTER ITS OWN REFERENCES ARE CHECKED, so a step cannot refer
+    // to the answer it is about to produce.
+    if (typeof one.out === "string" && one.out) produces.add(one.out);
     steps.push(one);
   }
-  return { steps };
+  // ⚠ THE BRANCHES HAVE TO BALANCE, and this is the one structural rule that is not about
+  // a single step. Refused HERE, while it is still somebody's form: a stored list whose
+  // `if` has no `end` is one the executor has to fail whole, because running the steps it
+  // can read is running a workflow nobody wrote.
+  const shape = branchShape(steps);
+  if (shape.error) return { error: shape.error };
+  return { steps, produces: [...produces] };
+}
+
+/**
+ * `{{name}}` — the same syntax the engine resolves, in the one place the site needs it.
+ *
+ * **A MALFORMED REFERENCE IS LEFT ALONE, NOT REFUSED.** `{{ }}` and `{{Name}}` match the
+ * braces and not the name rule, so they stay literal text — which is the only reading that
+ * lets somebody write about braces. What is refused is a WELL-FORMED name nothing produces.
+ */
+export function refsInText(text) {
+  const out = [];
+  if (typeof text !== "string") return out;
+  for (const m of text.matchAll(/\{\{\s*([^{}]*?)\s*\}\}/g)) {
+    if (AGENT_NAME_RE.test(m[1]) && !out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+/** Does this field apply, given the answers already read for its own step? */
+function fieldApplies(f, soFar) {
+  if (!f.when) return true;
+  for (const [on, allowed] of Object.entries(f.when)) {
+    if (!allowed.includes(soFar[on])) return false;
+  }
+  return true;
+}
+
+/**
+ * Match every `if` to its `otherwise` and its `end`, by DEPTH.
+ *
+ * **THE SAME ALGORITHM THE ENGINE RUNS, and it is a copy for the same reason the catalog
+ * is.** What keeps them in step is that the answer is structural rather than a matter of
+ * taste: a list of types either balances or does not, and the census drives both sides over
+ * the same shapes.
+ */
+export function branchShape(steps) {
+  const open = [];
+  const list = Array.isArray(steps) ? steps : [];
+  for (let i = 0; i < list.length; i++) {
+    const at = i + 1;
+    const type = list[i]?.type;
+    if (type === "if") open.push({ at: i, elseAt: null });
+    else if (type === "otherwise") {
+      const top = open[open.length - 1];
+      if (!top) return { error: `step ${at}: "Otherwise" has no "If" above it` };
+      if (top.elseAt !== null) return { error: `step ${at}: that "If" already has an "Otherwise"` };
+      top.elseAt = i;
+    } else if (type === "end") {
+      if (!open.pop()) return { error: `step ${at}: "End of the if" has no "If" above it` };
+    }
+  }
+  if (open.length) {
+    return { error: `step ${open[open.length - 1].at + 1}: that "If" has no "End of the if" below it` };
+  }
+  return { ok: true };
+}
+
+/**
+ * What an automation asks for when it is started.
+ *
+ * **A DECLARATION, NOT A VALUE**: a name, the words the form puts beside the box, whether
+ * it has to be answered, and what to use when it is not. **The NAME is what a
+ * `{{reference}}` may say**, so it follows the one identifier rule this product has rather
+ * than a rule of its own.
+ */
+export function cleanInputs(v, max = MAX_AUTOMATION_INPUTS) {
+  if (v === undefined || v === null) return { inputs: [] };
+  if (!Array.isArray(v)) return { error: "the inputs have to arrive as a list" };
+  if (v.length > max) return { error: `that's more things to ask for than one automation can have (${max})` };
+  const inputs = [];
+  const seen = new Set();
+  for (let i = 0; i < v.length; i++) {
+    const at = i + 1;
+    const d = v[i];
+    if (d === null || typeof d !== "object" || Array.isArray(d)) return { error: `input ${at} didn't arrive as an input` };
+    const name = typeof d.name === "string" ? d.name.trim().toLowerCase() : "";
+    if (!name) return { error: `input ${at}: give it a name, so a step can use it` };
+    if (!AGENT_NAME_RE.test(name)) {
+      return { error: `input ${at}: "${d.name}" can't be a name — use lower-case letters, digits and underscores, starting with a letter` };
+    }
+    // TWO INPUTS OF ONE NAME IS A REFERENCE NOBODY CAN RESOLVE — which of them?
+    if (seen.has(name)) return { error: `input ${at}: there is already something called "${name}"` };
+    seen.add(name);
+    const label = typeof d.label === "string" ? d.label.trim() : "";
+    if (label.length > INPUT_LABEL_MAX) return { error: `input ${at}: that label is longer than a label can be (${INPUT_LABEL_MAX} characters)` };
+    const dflt = typeof d.default === "string" ? d.default : "";
+    if (dflt.length > INPUT_DEFAULT_MAX) return { error: `input ${at}: that default is longer than it can be (${INPUT_DEFAULT_MAX} characters)` };
+    // REFUSED, NEVER COERCED: `Boolean("false")` is `true`, and a required flag that came
+    // from a string would make every input required.
+    if (d.required !== undefined && typeof d.required !== "boolean") {
+      return { error: `input ${at}: whether it has to be answered didn't arrive as a yes or no` };
+    }
+    inputs.push({ name, label: label || name, required: d.required === true, default: dflt });
+  }
+  return { inputs };
+}
+
+/**
+ * The values handed to one run, against what the automation asks for.
+ *
+ * **THE SAME THREE REFUSALS `agent.accept_automation_run` MAKES, and that is deliberate
+ * rather than wasteful.** The database's copy is the wall — it reads the declaration out of
+ * the row it has already locked — and this one exists so the answer reaches somebody as a
+ * sentence about the box they filled in rather than as an error code.
+ */
+export function cleanRunInput(v, inputs) {
+  if (v === undefined || v === null) return { input: {} };
+  if (typeof v !== "object" || Array.isArray(v)) return { error: "the answers have to arrive as an object" };
+  const decl = Array.isArray(inputs) ? inputs : [];
+  const out = {};
+  for (const k of Object.keys(v)) {
+    const d = decl.find((one) => one?.name === k);
+    // NAMED, NEVER IGNORED. A filter on somebody's input is a silent drop; a check is the
+    // only thing that tells them the field they filled in went nowhere.
+    if (!d) return { error: `this automation doesn't ask for anything called "${k}"` };
+    if (typeof v[k] !== "string") return { error: `"${k}" didn't arrive as text` };
+    if (v[k].length > INPUT_VALUE_MAX) return { error: `"${k}" is longer than an answer can be (${INPUT_VALUE_MAX} characters)` };
+    out[k] = v[k];
+  }
+  for (const d of decl) {
+    if (d?.required !== true) continue;
+    const given = Object.hasOwn(out, d.name) ? out[d.name] : (typeof d.default === "string" ? d.default : "");
+    if (given.trim() === "") return { error: `${d.label || d.name} has to be filled in` };
+  }
+  return { input: out };
 }
 
 /**
@@ -1002,6 +1412,47 @@ function readStepField(raw, f) {
     // THE WEEK'S OWN ORDER, not the order they were ticked, so saving one selection
     // twice stores the same bytes both times — and matches what the engine stores.
     return { value: AUTOMATION_DAYS.filter((d) => picked.includes(d)) };
+  }
+  if (f.kind === "choice") {
+    // ONE OF A FIXED SET, BY EXACT MATCH, and never the first option as a default: an
+    // unrecognised answer is a control the form drew differently from the one this reads.
+    if (typeof raw !== "string" || !f.options.includes(raw)) {
+      return { error: `${f.name} has to be one of: ${f.options.join(", ")}` };
+    }
+    return { value: raw };
+  }
+  if (f.kind === "number") {
+    if (raw === undefined || raw === null || raw === "") {
+      return f.required ? { error: `${f.name} has to be a whole number` } : { value: undefined };
+    }
+    // REFUSED, NEVER COERCED OR CLAMPED. `Number("")` is 0 and `Number("3 days")` is NaN,
+    // and a clamp would store a bound nobody chose as though they had.
+    if (typeof raw !== "number" || !Number.isInteger(raw)) return { error: `${f.name} has to be a whole number` };
+    if (f.min !== undefined && raw < f.min) return { error: `${f.name} has to be between ${f.min} and ${f.max}` };
+    if (f.max !== undefined && raw > f.max) return { error: `${f.name} has to be between ${f.min} and ${f.max}` };
+    return { value: raw };
+  }
+  if (f.kind === "time") {
+    if (raw === undefined || raw === null || raw === "") {
+      return f.required ? { error: `${f.name} has to be a time like 09:00` } : { value: undefined };
+    }
+    if (typeof raw !== "string") return { error: `${f.name} has to be a time like 09:00` };
+    // WHOLE MINUTES ON THE 24-HOUR CLOCK, which is what the form offers and what the
+    // column stores; a stored 09:00:30 would be a schedule nothing can draw.
+    const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw.trim());
+    if (!m) return { error: `${f.name} has to be a time like 09:00, on the 24-hour clock` };
+    return { value: `${m[1]}:${m[2]}` };
+  }
+  if (f.kind === "name") {
+    if (raw === undefined || raw === null || raw === "") {
+      return f.required ? { error: `${f.name} can't be empty` } : { value: null };
+    }
+    if (typeof raw !== "string") return { error: `${f.name} didn't arrive as a name` };
+    const name = raw.trim().toLowerCase();
+    if (!AGENT_NAME_RE.test(name)) {
+      return { error: `"${raw}" can't be a name — use lower-case letters, digits and underscores, starting with a letter` };
+    }
+    return { value: name };
   }
   // A FIELD KIND THIS DOES NOT KNOW IS A REFUSAL, never a pass. It can only arrive from
   // a catalog entry somebody added without adding its rule, and passing it through would
@@ -1083,7 +1534,45 @@ export function automationRow(r) {
     at: typeof r?.at_local === "string" ? r.at_local.slice(0, 5) : null,
     zone: typeof r?.zone === "string" && r.zone ? r.zone : null,
     steps,
+    // WHAT IT ASKS FOR WHEN IT IS STARTED. `[]` for an automation that asks nothing,
+    // which is a real answer and what every automation made before this had.
+    inputs: Array.isArray(r?.inputs) ? r.inputs : [],
     nextRunAt: typeof r?.next_run_at === "string" ? r.next_run_at : null,
+    updatedAt: typeof r?.updated_at === "string" ? r.updated_at : null,
+  };
+}
+
+/**
+ * One source of reference material, as the browser reads it.
+ *
+ * **WITHOUT ITS MATERIAL, unless the caller asked for one source in particular.** A list of
+ * names is what the list is; sending twenty documents to draw it is four megabytes to
+ * render a few lines.
+ */
+export function knowledgeRow(r) {
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    title: typeof r?.title === "string" ? r.title : "",
+    format: KNOWLEDGE_FORMATS.includes(r?.format) ? r.format : "text",
+    // THE VERSION IS WHAT A RUN QUOTES BACK, so a row whose version cannot be read says
+    // nothing rather than saying 1 — `null` is "we do not know", and 1 is a claim.
+    version: Number.isInteger(r?.version) ? r.version : null,
+    at: typeof r?.created_at === "string" ? r.created_at : null,
+    updatedAt: typeof r?.updated_at === "string" ? r.updated_at : null,
+  };
+}
+
+/** One saved fact, with where it came from and when it last changed. */
+export function memoryRow(r) {
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    key: typeof r?.key === "string" ? r.key : "",
+    value: typeof r?.value === "string" ? r.value : "",
+    // WHERE IT CAME FROM, and an unreadable one is `person` — the only source anything can
+    // write today, so reading it as anything else would invent a provenance.
+    source: MEMORY_SOURCES.includes(r?.source) ? r.source : "person",
+    version: Number.isInteger(r?.version) ? r.version : null,
+    at: typeof r?.created_at === "string" ? r.created_at : null,
     updatedAt: typeof r?.updated_at === "string" ? r.updated_at : null,
   };
 }
@@ -1096,7 +1585,19 @@ export function automationRow(r) {
  * showing it as one would tell a customer their automation is broken when it did exactly
  * what they asked.
  */
-export const AUTOMATION_STATES = Object.freeze(["queued", "done", "skipped", "failed", "missed", "paused"]);
+export const AUTOMATION_STATES = Object.freeze(["queued", "done", "skipped", "failed", "missed", "paused", "waiting", "rejected"]);
+
+/** How many sources one agent may hold, how long each may be, and what a source is. */
+export const MAX_KNOWLEDGE = 20;
+export const KNOWLEDGE_TITLE_MAX = 200;
+export const KNOWLEDGE_BODY_MAX = 200000;
+export const KNOWLEDGE_FORMATS = Object.freeze(["text", "markdown"]);
+
+/** How much one agent may remember, and how long one memory may be. */
+export const MAX_MEMORIES = 100;
+export const MEMORY_VALUE_MAX = 4000;
+/** Where a memory came from. `run` exists for the day extraction does; nothing writes it. */
+export const MEMORY_SOURCES = Object.freeze(["person", "run"]);
 
 /**
  * One execution, as the browser reads it.
@@ -1112,18 +1613,27 @@ export const AUTOMATION_STATES = Object.freeze(["queued", "done", "skipped", "fa
 export function executionRow(r) {
   const stop = r?.run_stop && typeof r.run_stop === "object" && !Array.isArray(r.run_stop) ? r.run_stop : null;
   const reason = typeof stop?.reason === "string" ? stop.reason : "";
+  const waiting = r?.waiting && typeof r.waiting === "object" && !Array.isArray(r.waiting) ? r.waiting : null;
+  // ⚠ **`waiting` IS TOLD FROM `queued` BY THE EXECUTION ROW, not by the run's status.**
+  // A suspended execution has a `started` entry and no `stopped` one, so the run says
+  // `running` — which is true and useless: the difference between "about to be picked up"
+  // and "waiting until Tuesday" is the whole of what somebody looking at it needs.
   const state = r?.run_status !== "stopped"
-    ? "queued"
-    : AUTOMATION_STATES.includes(reason) && reason !== "queued" ? reason : "failed";
+    ? (waiting ? "waiting" : "queued")
+    : AUTOMATION_STATES.includes(reason) && reason !== "queued" && reason !== "waiting" ? reason : "failed";
   return {
     id: typeof r?.id === "string" ? r.id : "",
     automationId: typeof r?.automation_id === "string" ? r.automation_id : "",
     trigger: r?.trigger === "schedule" ? "schedule" : "manual",
     occurrence: typeof r?.occurrence === "string" ? r.occurrence : null,
     state,
-    // WHAT IT SAVED, WHY IT SKIPPED, OR WHAT BROKE — one of the three, never two.
+    // WHAT IT SAVED, WHY IT STOPPED, OR WHAT BROKE — one of the three, never two.
+    // **A REJECTION HAS A `why` AND DELIBERATELY NO `result`**: somebody said no, so the
+    // automation produced nothing it was allowed to produce, and carrying the last note
+    // forward would make a refusal read like a success in every reader that shows the
+    // result first.
     result: state === "done" && typeof stop?.result === "string" ? stop.result : null,
-    why: state === "skipped" && typeof stop?.why === "string" ? stop.why : null,
+    why: (state === "skipped" || state === "rejected") && typeof stop?.why === "string" ? stop.why : null,
     error: state === "failed" && typeof stop?.error === "string" ? stop.error : null,
     on: typeof stop?.on === "string" ? stop.on : null,
     missed: Number.isInteger(r?.missed) ? r.missed : null,
@@ -1131,6 +1641,25 @@ export function executionRow(r) {
     steps: Array.isArray(r?.steps) ? r.steps : [],
     at: typeof r?.created_at === "string" ? r.created_at : null,
     finishedAt: typeof r?.finished_at === "string" ? r.finished_at : null,
+
+    // ── how far it got, what it holds, and what it is waiting for ────────────
+    // **THE VALUES ARE SHOWN, and that is deliberate.** They are the account's own inputs
+    // and its own steps' answers, and showing what a run actually used is the difference
+    // between a history and a list of timestamps.
+    position: Number.isInteger(r?.position) ? r.position : 0,
+    values: r?.vars && typeof r.vars === "object" && !Array.isArray(r.vars) ? r.vars : {},
+    input: r?.input && typeof r.input === "object" && !Array.isArray(r.input) ? r.input : {},
+    waiting: waiting ? {
+      // ONLY WHAT SOMEBODY LOOKING AT IT NEEDS: which step, which kind, what is being
+      // asked, and when it runs out. Never the whole stored object, so a field added to a
+      // pause cannot reach a screen nobody has written yet.
+      kind: waiting.kind === "approval" ? "approval" : "wait",
+      step: typeof waiting.step === "string" ? waiting.step : "",
+      ask: typeof waiting.ask === "string" ? waiting.ask : null,
+      onTimeout: AUTOMATION_TIMEOUTS.includes(waiting.on_timeout) ? waiting.on_timeout : null,
+      until: typeof r?.wait_until === "string" ? r.wait_until : null,
+    } : null,
+    decisions: r?.decisions && typeof r.decisions === "object" && !Array.isArray(r.decisions) ? r.decisions : {},
   };
 }
 
@@ -1154,6 +1683,14 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/automation-delete": "POST",
   "/api/agent/automation-run": "POST",
   "/api/agent/automation-history": "GET",
+  "/api/agent/automation-approve": "POST",
+  // ── reference material and memory ─────────────────────────────────────────
+  "/api/agent/knowledge": "GET",
+  "/api/agent/knowledge-save": "POST",
+  "/api/agent/knowledge-delete": "POST",
+  "/api/agent/memory": "GET",
+  "/api/agent/memory-save": "POST",
+  "/api/agent/memory-delete": "POST",
 });
 
 /** Which routes read a body, so the caller knows whether to parse one. */
@@ -1182,6 +1719,17 @@ const NO_AGENT = () => no(404, "that agent isn't here any more");
 
 /** And its counterpart, for the same reason: not found, never forbidden. */
 const NO_AUTOMATION = () => no(404, "that automation isn't here any more");
+
+/**
+ * The same answer for three more things, and for the same reason every time.
+ *
+ * **NOT FOUND, NEVER FORBIDDEN.** Another account's execution, source or memory and one
+ * that does not exist answer identically, because the difference between them is
+ * information: "you may not touch that" tells a stranger the id they guessed is real.
+ */
+const NO_EXECUTION = () => no(404, "that run isn't here any more");
+const NO_SOURCE = () => no(404, "that source isn't here any more");
+const NO_MEMORY = () => no(404, "that memory isn't here any more");
 
 /**
  * A store failure, as one sentence plus a log line.
@@ -1479,6 +2027,7 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         steps: AUTOMATION_STEPS,
         days: AUTOMATION_DAYS,
         max: MAX_AUTOMATIONS,
+        maxInputs: MAX_AUTOMATION_INPUTS,
       });
     }
 
@@ -1489,7 +2038,14 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
 
       const trigger = cleanSchedule(b);
       if (trigger.error) return no(400, trigger.error);
-      const flow = cleanWorkflow(b.steps);
+      // ⚠ THE INPUTS ARE READ BEFORE THE STEPS, because the steps are checked AGAINST
+      // them: a `{{reference}}` is refused unless something produces it, and the declared
+      // input names are half of what can. Reading them the other way round would make
+      // every reference to an input fail on the one save that introduced it.
+      const declared = cleanInputs(b.inputs);
+      if (declared.error) return no(400, declared.error);
+      const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS,
+        declared.inputs.map((i) => i.name));
       if (flow.error) return no(400, flow.error);
       // **`enabled` IS REFUSED RATHER THAN COERCED.** `Boolean("false")` is `true`, so a
       // string out of a form would turn "off" into "on" — the one direction that starts
@@ -1501,7 +2057,7 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
 
       const shape = {
         name, enabled, schedule: trigger.schedule, at: trigger.at, zone: trigger.zone,
-        steps: flow.steps,
+        steps: flow.steps, inputs: declared.inputs,
       };
 
       if (!editing) {
@@ -1551,8 +2107,25 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
     if (path === "/api/agent/automation-run") {
       const id = cleanId(b.id);
       if (!id) return no(400, "which automation?");
-      const a = await store.runAutomation(who, { automationId: id, runId: mint() });
+      // ⚠ THE ANSWERS ARE CHECKED AGAINST WHAT THIS AUTOMATION ASKS FOR, and the
+      // declaration is read for that — not taken from the request. **The database makes
+      // the same three refusals inside the accepting transaction**, from the row it has
+      // already locked; this copy exists so the answer arrives as a sentence about the box
+      // somebody filled in rather than as a code, and the two are censused against each
+      // other by name.
+      const one = await store.readAutomation(who, id);
+      if (!one) return NO_AUTOMATION();
+      const given = cleanRunInput(b.input, one.inputs);
+      if (given.error) return no(400, given.error);
+      const a = await store.runAutomation(who, { automationId: id, runId: mint(), input: given.input });
       if (a.error === "no-automation") return NO_AUTOMATION();
+      // THE DATABASE'S OWN INPUT REFUSALS, each as its own sentence. They are reachable
+      // even with the check above — a declaration edited between the read and the accept
+      // is exactly the race that check cannot close, and the transaction can.
+      if (a.error === "unknown-input") return no(400, `this automation doesn't ask for anything called "${a.name}"`);
+      if (a.error === "missing-input") return no(400, `"${a.name}" has to be filled in`);
+      if (a.error === "bad-input") return no(400, `"${a.name}" didn't arrive as text`);
+      if (a.error === "bad-inputs") return no(400, "what this automation asks for can't be read — edit it and save it again");
       // ⚠ TWO REFUSALS, TWO SENTENCES, AND NEITHER IS A FAILURE. The transaction wrote
       // nothing at all on either path — no execution, no run — so turning the thing back
       // on and pressing again is a fresh press rather than a retry of a half-written one.
@@ -1577,6 +2150,186 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         catch (e) { if (typeof log === "function") log("automation run: the queue was not rung", String(e?.message ?? e)); }
       }
       return ok({ id, runId, notified, repeat: !!a.repeat });
+    }
+
+    /**
+     * ── AN APPROVAL IS ANSWERED ────────────────────────────────────────────────
+     *
+     * **OWNERSHIP IS THE TENANT IN THE FILTER, INSIDE THE TRANSACTION THAT WRITES.** So
+     * another account's execution and one that does not exist are the same 404, and there
+     * is no window between a check here and the write there.
+     *
+     * **A SECOND PRESS IS ABSORBED AND SAYS SO.** The first decision stands, because the
+     * execution may already have carried on — there would be nothing left to change.
+     */
+    if (path === "/api/agent/automation-approve") {
+      const runId = cleanId(b.run);
+      if (!runId) return no(400, "which run?");
+      const step = cleanText(b.step, 40);
+      if (!step) return no(400, "which step is being answered?");
+      if (!AUTOMATION_VERDICTS.includes(b.verdict)) return no(400, "say whether it is approved or rejected");
+      const note = b.note === undefined || b.note === null ? null : cleanText(b.note, DECISION_NOTE_MAX);
+      if (b.note !== undefined && b.note !== null && typeof b.note !== "string") {
+        return no(400, "that note didn't arrive as text");
+      }
+      const d = await store.decideApproval(who, { runId, step, verdict: b.verdict, note });
+      if (d.error === "no-execution") return NO_EXECUTION();
+      // ⚠ TWO REFUSALS THAT ARE NOT FAILURES, and neither writes anything. A finished
+      // execution has nothing to answer; one that is not waiting at this step would be
+      // given a decision nothing will ever read.
+      if (d.error === "finished") {
+        return no(409, "that run has already finished, so there is nothing left to approve", { finished: true });
+      }
+      if (d.error === "not-waiting") {
+        return no(409, "that run isn't waiting to be approved just now — open its history to see where it is", { notWaiting: true });
+      }
+      if (d.ok !== true) return NO_EXECUTION();
+
+      // THE DOORBELL, AFTER THE COMMIT. The decision is durable by now, so a failed ring
+      // decides how soon it carries on and nothing about whether it does.
+      let notified = false;
+      if (d.queued === "queued" && typeof ring === "function") {
+        try { await ring(runId); notified = true; }
+        catch (e) { if (typeof log === "function") log("approval: the queue was not rung", String(e?.message ?? e)); }
+      }
+      return ok({ runId, step, verdict: d.verdict, repeat: !!d.repeat, notified });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REFERENCE MATERIAL — what an agent has been given to read
+    //
+    // **IT IS NEITHER A CONVERSATION NOR A MEMORY, and the three are kept apart because
+    // they are managed differently**: a conversation is never edited, a memory is
+    // corrected, and this is a document with a name and a version that is replaced.
+    //
+    // ⚠ **WHAT COMES BACK OUT OF A SEARCH IS REFERENCE INFORMATION AND NEVER PERMISSION.**
+    // Nothing on this side reads a stored document as configuration — it is text, bound to
+    // a name by a workflow step and substituted into other text — and an automation
+    // execution has no tool surface at all for it to widen.
+    // ═══════════════════════════════════════════════════════════════════
+
+    if (path === "/api/agent/knowledge") {
+      const agentId = cleanId(q.get("agent"));
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      // ⚠ **ONE SOURCE WHOLE IS ASKED FOR BY NAME, and the list deliberately never carries
+      // the material.** Twenty sources at 200,000 characters is four megabytes to draw a
+      // list of names, so opening one to edit it is its own read — and it is this route with
+      // a `source=` rather than a second route, because the question is the same question.
+      const one = cleanId(q.get("source"));
+      if (one) {
+        const k = await store.readKnowledge(who, one);
+        return k ? ok({ agent: agentId, sources: [k] }) : NO_SOURCE();
+      }
+      return ok({
+        agent: agentId,
+        sources: await store.listKnowledge(who, agentId),
+        max: MAX_KNOWLEDGE, bodyMax: KNOWLEDGE_BODY_MAX, formats: KNOWLEDGE_FORMATS,
+      });
+    }
+
+    if (path === "/api/agent/knowledge-save") {
+      const title = cleanText(b.title, KNOWLEDGE_TITLE_MAX);
+      if (!title) return no(400, "give the source a name, so an answer can say where it came from");
+      // THE BODY IS NOT `cleanText`'d TO A TRIM, because a document's own blank lines are
+      // part of it; what is bounded is its length, and emptiness is refused by name.
+      if (typeof b.body !== "string") return no(400, "the material didn't arrive as text");
+      const body = b.body.replace(/^\s+|\s+$/g, "");
+      if (!body) return no(400, "there is nothing in that source to read");
+      if (body.length > KNOWLEDGE_BODY_MAX) {
+        return no(400, `that source is longer than one source can be (${KNOWLEDGE_BODY_MAX} characters) — split it in two`);
+      }
+      // REFUSED, NEVER DEFAULTED TO ONE OF THEM: what somebody uploaded is a fact about
+      // the upload, and guessing it from the bytes is a guess that changes when the
+      // guesser does.
+      const format = b.format === undefined ? "text" : b.format;
+      if (!KNOWLEDGE_FORMATS.includes(format)) return no(400, `a source is ${KNOWLEDGE_FORMATS.join(" or ")}`);
+
+      const id = cleanId(b.id);
+      if (id) {
+        const k = await store.updateKnowledge(who, { id, title, body, format });
+        return k ? ok({ source: k, saved: "edited" }) : NO_SOURCE();
+      }
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      const held = await store.countKnowledge(who, agentId);
+      if (held >= MAX_KNOWLEDGE) {
+        return no(409, `that's as much reference material as one agent can hold (${MAX_KNOWLEDGE}) — delete a source first`);
+      }
+      const k = await store.addKnowledge(who, { agentId, id: mint(), title, body, format });
+      if (k.error === "duplicate") {
+        return no(409, `there is already a source called "${title}" — edit that one instead, so its version keeps counting`);
+      }
+      if (!k.source) return NO_AGENT();
+      return ok({ source: k.source, saved: "added" });
+    }
+
+    if (path === "/api/agent/knowledge-delete") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which source?");
+      return (await store.removeKnowledge(who, id)) ? ok({ id }) : NO_SOURCE();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MEMORY — facts and preferences that persist between conversations
+    //
+    // **THE SCOPE IS (ACCOUNT, AGENT) AND IT IS THE DATABASE'S**, a unique index rather
+    // than a filter anybody has to remember. Saving is "set this name to this value", so it
+    // is an upsert: a caller that had to know whether the name existed would be doing that
+    // index's job in JavaScript.
+    // ═══════════════════════════════════════════════════════════════════
+
+    if (path === "/api/agent/memory") {
+      const agentId = cleanId(q.get("agent"));
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      return ok({
+        agent: agentId,
+        memories: await store.listMemory(who, agentId),
+        max: MAX_MEMORIES, valueMax: MEMORY_VALUE_MAX,
+      });
+    }
+
+    if (path === "/api/agent/memory-save") {
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      // ⚠ `name`, NOT `key`, AND THAT IS A COLLISION AVOIDED RATHER THAN A PREFERENCE.
+      // `/api/agent/import` already reads `b.key` as the browser's own record id, whose
+      // grammar is nothing like an identifier — so two routes reading `b.key` under two
+      // grammars would be one census away from letting either shape through the other's
+      // door. `name` is also what this really is: the name a step asks for.
+      const key = typeof b.name === "string" ? b.name.trim().toLowerCase() : "";
+      if (!key) return no(400, "give it a name, so a step can ask for it");
+      if (!AGENT_NAME_RE.test(key)) {
+        return no(400, `"${b.name}" can't be a name — use lower-case letters, digits and underscores, starting with a letter`);
+      }
+      if (typeof b.value !== "string") return no(400, "what to remember didn't arrive as text");
+      const value = b.value.trim();
+      if (!value) return no(400, "say what to remember — to forget it, delete it instead");
+      if (value.length > MEMORY_VALUE_MAX) {
+        return no(400, `that's longer than one memory can be (${MEMORY_VALUE_MAX} characters)`);
+      }
+      // THE CEILING IS ASKED ONLY FOR A NAME THIS AGENT DOES NOT ALREADY HOLD, or
+      // correcting the last one would be refused by the cap it is already inside.
+      const held = await store.listMemory(who, agentId);
+      if (!held.some((m) => m.key === key) && held.length >= MAX_MEMORIES) {
+        return no(409, `that's as much as one agent can remember (${MAX_MEMORIES}) — delete something first`);
+      }
+      const m = await store.saveMemory(who, { agentId, id: mint(), key, value });
+      return m ? ok({ memory: m }) : NO_AGENT();
+    }
+
+    if (path === "/api/agent/memory-delete") {
+      const agentId = cleanId(b.agent);
+      const key = typeof b.name === "string" ? b.name.trim().toLowerCase() : "";
+      if (!agentId) return no(400, "which agent?");
+      if (!key) return no(400, "which memory?");
+      // ⚠ **THE AGENT AND THE KEY ARE BOTH IN THE FILTER, with the tenant.** A delete by
+      // id alone would work and would make the id the identity; the name is the identity
+      // here, because that is what a workflow asks for and what a person sees.
+      return (await store.removeMemory(who, agentId, key)) ? ok({ agent: agentId, key }) : NO_MEMORY();
     }
 
     if (path === "/api/agent/automation-history") {

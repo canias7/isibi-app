@@ -5232,6 +5232,19 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .ag-chip-failed { color: #b3261e; border-color: #b3261e; }
 .ag-chip-missed { color: #9a6700; border-color: #9a6700; }
 .ag-chip-paused { color: var(--muted); }
+/* WAITING IS WORK IN PROGRESS, not a failure and not "queued" either — and REJECTED is
+   somebody having looked at it and said no, which is the automation doing what it was
+   asked. Neither is red, because neither is broken. */
+.ag-chip-waiting { color: #1a6bb8; border-color: #1a6bb8; }
+.ag-chip-rejected { color: #9a6700; border-color: #9a6700; }
+
+/* WHAT AN EXECUTION IS WAITING FOR, and the one control that helps. Set apart from the
+   rest of the run because it is the only part of a history somebody can act on. */
+.ag-run-wait {
+  margin-top: .5rem; padding: .55rem .6rem;
+  border: 1px solid #1a6bb8; border-radius: 10px;
+}
+.ag-run-wait .ag-actions { margin-top: .5rem; }
 
 /* ── the form ────────────────────────────────────────────────────────────── */
 
@@ -5247,6 +5260,30 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   padding: .6rem .7rem;
 }
 .ag-step-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+
+/* ⚠ HOW DEEP IN A BRANCH A STEP SITS, as ONE number the row carries. The editor is still
+   an ordered list — the indent is ink and nothing nests — so this is the whole of what
+   makes the two arms of an "If" read as two arms. */
+.ag-step { margin-left: calc(var(--ag-step-d, 0) * 1.1rem); }
+/* A MARKER HAS NOTHING TO CONFIGURE AND SAYS SO, rather than drawing an empty body that
+   reads as a control somebody has not filled in yet. */
+.ag-step-said { color: var(--muted); font-size: .84rem; line-height: 1.5; margin-top: .4rem; }
+/* THE WORDS BESIDE A FIELD'S BOX. A step with four fields and no labels is a form nobody
+   can fill in twice the same way. */
+.ag-step-lbl {
+  margin: .5rem .1rem .25rem; color: var(--muted);
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
+}
+.ag-step-hint { margin: -.1rem .2rem .35rem; }
+.ag-in-num { max-width: 8rem; }
+
+/* WHAT AN AUTOMATION ASKS FOR, drawn like its steps because it is edited like them —
+   added, moved and removed with the same three buttons. */
+.ag-auto-ins { display: flex; flex-direction: column; gap: .55rem; margin-bottom: .7rem; }
+.ag-auto-in {
+  border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel);
+  padding: .6rem .7rem;
+}
 .ag-step-k { color: var(--muted); text-transform: uppercase; font-size: .64rem; letter-spacing: .08em; }
 /* THE ORDER IS THE WORKFLOW, so the controls that change it sit on every step. */
 .ag-step-move { margin-left: auto; display: flex; gap: .25rem; }

@@ -25,6 +25,8 @@ const T2 = "22222222-2222-2222-2222-222222222222";
 const A1 = "aaaaaaaa-1111-2222-3333-444444444444";
 const C1 = "cccccccc-1111-2222-3333-444444444444";
 const R1 = "dddddddd-1111-2222-3333-444444444444";
+const K1 = "eeeeeeee-1111-2222-3333-444444444444";
+const M1 = "ffffffff-1111-2222-3333-444444444444";
 
 function fakeStore(over = {}) {
   const calls = [];
@@ -39,6 +41,20 @@ function fakeStore(over = {}) {
     removeAutomation: of("removeAutomation", true),
     runAutomation: of("runAutomation", { ok: true, repeat: false, run_id: R1, occurrence: null, trigger: "manual", state: "queued" }),
     executions: of("executions", []),
+    // ⚠ THE FAKE HAS TO BE AS CAPABLE AS THE REAL STORE. `readAutomation` is what the run
+    // route asks for the input DECLARATION, so a fake without it makes the route throw and
+    // reports it as a save that failed — five correct cases came back 502 that way. A
+    // fixture less capable than the thing it stands in for manufactures a defect.
+    readAutomation: of("readAutomation", { id: C1, agentId: A1, name: "n", inputs: [], steps: [] }),
+    decideApproval: of("decideApproval", { ok: true, repeat: false, verdict: "approved", step: "s1", queued: "queued" }),
+    listKnowledge: of("listKnowledge", []),
+    countKnowledge: of("countKnowledge", 0),
+    addKnowledge: of("addKnowledge", { source: { id: K1, title: "Price list", version: 1 } }),
+    updateKnowledge: of("updateKnowledge", { id: K1, title: "Price list", version: 2 }),
+    removeKnowledge: of("removeKnowledge", true),
+    listMemory: of("listMemory", []),
+    saveMemory: of("saveMemory", { id: M1, key: "tone", value: "formal", version: 1 }),
+    removeMemory: of("removeMemory", true),
   };
   return { calls, store: { ...base, ...over } };
 }
@@ -54,13 +70,20 @@ test("every automation route is scoped by the tenant the handler was given", asy
   // A CENSUS over the automation routes, not a sample: each is driven and the tenant has
   // to reach the store. A route added later with no tenant fails by existing.
   const paths = Object.keys(AGENT_ROUTES).filter((p) => p.includes("automation"));
-  assert.ok(paths.length >= 7, `the census is looking at only ${paths.length} routes`);
+  assert.ok(paths.length >= 8, `the census is looking at only ${paths.length} routes`);
   for (const p of paths) {
     const f = fakeStore();
+    // ONE BODY THAT SATISFIES EVERY ROUTE'S OWN REQUIRED FIELDS, so the census is about
+    // the TENANT and never about which field a route happens to need. `run` and `verdict`
+    // joined it when approvals did; a route added later with a field nobody sends fails
+    // here on its own 400, which is the census telling you to add it rather than a pass.
     const r = await call(p, {
       store: f.store,
       query: new URLSearchParams({ agent: A1, id: C1 }),
-      body: { id: C1, agent: A1, name: "N", enabled: true, schedule: "manual", steps: [] },
+      body: {
+        id: C1, agent: A1, name: "N", enabled: true, schedule: "manual", steps: [],
+        run: R1, step: "s1", verdict: "approved",
+      },
     });
     assert.equal(r.status, 200, `${p} answered ${r.status}: ${JSON.stringify(r.body)}`);
     assert.ok(f.calls.some((c) => c.args.some((a) => a === T1)), `${p} never handed the tenant to the store`);
@@ -274,10 +297,14 @@ test("a create and an edit send the same configuration, normalised the same way"
   assert.equal(made.name, "Morning");
   assert.equal(made.at, "09:00:00", "seconds are ours, not the caller's");
   assert.equal(made.zone, "Europe/London");
+  // `out: null` IS STORED RATHER THAN OMITTED, so one fact has one representation: a step
+  // that binds nothing says so, instead of leaving a reader to tell an absent key from an
+  // empty one. Re-anchored when steps gained the ability to name their answers.
   assert.deepEqual(made.steps, [
     { id: "s1", type: "weekday", days: ["mon"] },
-    { id: "s2", type: "note", text: "morning" },
+    { id: "s2", type: "note", text: "morning", out: null },
   ]);
+  assert.deepEqual(made.inputs, [], "an automation that asks for nothing says so");
 
   const g = fakeStore();
   await call("/api/agent/automation-update", {
@@ -388,8 +415,15 @@ test("the catalog is a positive list, and its names are derived from it", () => 
   assert.deepEqual([...new Set(AUTOMATION_STEP_TYPES)], AUTOMATION_STEP_TYPES);
   for (const s of AUTOMATION_STEPS) {
     assert.ok(s.label && s.does, `${s.type} has words a person can read`);
-    assert.ok(["condition", "action"].includes(s.kind));
-    assert.ok(Array.isArray(s.fields) && s.fields.length, `${s.type} says what it is configured with`);
+    // ⚠ RE-ANCHORED, NOT APPEASED, TWICE. The kinds were `["condition", "action"]` as a
+    // literal — a list frozen by its contents, which is this repository's own trap and went
+    // red on the first honest addition. And `fields.length` was required of every step,
+    // which is false for a marker: `Otherwise` and `End` have nothing to configure, and the
+    // honest rule is that an EMPTY list must be DECLARED rather than merely allowed.
+    assert.ok(["condition", "action", "lookup", "branch", "pause"].includes(s.kind), `${s.type} has a real kind`);
+    assert.ok(Array.isArray(s.fields), `${s.type} says what it is configured with`);
+    assert.equal(s.fields.length === 0, s.configless === true,
+      `${s.type}: an empty field list has to be deliberate, and a declared one has to be empty`);
   }
   assert.deepEqual(AUTOMATION_DAYS, ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
 });
@@ -434,8 +468,17 @@ test("no automation route reads an account off the body or the query", () => {
   const block = SRC.slice(at, end);
   const reads = [...block.matchAll(/\b[bq]\.(?:get\(")?([A-Za-z_]+)/g)].map((m) => m[1]);
   assert.ok(reads.length >= 6, `the scanner read nothing: ${reads.length}`);
-  const allowed = new Set(["id", "agent", "name", "enabled", "steps", "schedule", "at", "zone", "hasOwn"]);
+  // ⚠ THE ALLOW-LIST GAINED THE NEW FIELDS RATHER THAN AN EXEMPTION, which is the point of
+  // a census: every one of these is a field of the thing being acted on — a run and a step
+  // to approve, a source's title and material, a memory's name and value — and NOT one of
+  // them is an account, a tenant or an owner. The list growing is what a review reads.
+  const allowed = new Set([
+    "id", "agent", "name", "enabled", "steps", "schedule", "at", "zone", "hasOwn",
+    "inputs", "input", "run", "step", "verdict", "note", "title", "body", "format", "key", "value", "source",
+  ]);
   for (const r of reads) assert.ok(allowed.has(r), `an automation route reads ${r} off what somebody sent`);
   // THE OBSERVER, PROVED ALIVE: it can see the reads the block really makes.
-  for (const seen of ["id", "agent", "enabled"]) assert.ok(reads.includes(seen), `the scan missed b.${seen}`);
+  for (const seen of ["id", "agent", "enabled", "verdict", "title", "key"]) {
+    assert.ok(reads.includes(seen), `the scan missed b.${seen}`);
+  }
 });

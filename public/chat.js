@@ -1712,6 +1712,48 @@ const AUTO_WATCH_MS = 1500;
 const AUTO_WATCH_TRIES = 6;
 let agentAutoWatch = null;
 
+/**
+ * ── WHAT AN AUTOMATION IS BEING ASKED FOR BEFORE IT RUNS ──────────────────────
+ *
+ * `null` until Run now is pressed on an automation that declares inputs, then
+ * `{id, values}`. **AN AUTOMATION THAT ASKS FOR NOTHING STILL RUNS STRAIGHT AWAY** — a
+ * form with no boxes in it is a door for the sake of a door.
+ */
+let agentAutoAsk = null;
+
+/**
+ * ── ANSWERING AN APPROVAL ─────────────────────────────────────────────────────
+ *
+ * The note somebody is typing beside a waiting execution, keyed by run id, and which
+ * press is in flight. **KEYED BY RUN**, because a history can show more than one waiting
+ * execution and one string for the screen would put A's words under B.
+ */
+const agentAutoNotes = new Map();
+let agentAutoDeciding = '';
+
+/**
+ * ── REFERENCE MATERIAL AND MEMORY ─────────────────────────────────────────────
+ *
+ * One screen per agent holding both, because they are the two kinds of thing an agent
+ * KNOWS — and a separate door for each would be two places to look for the same question.
+ * `null` for "not asked yet" against `[]` for "this agent has none", which is what makes
+ * loading, empty and failed three screens rather than one.
+ */
+let agentKnow = null;          // which agent's reference material is open
+let agentKnowRows = null;
+let agentKnowErr = '';
+let agentKnowCat = null;       // the bounds the list answered with
+let agentKnowEditing = null;   // a source id, '' for a new one, null for the list
+let agentKnowDraft = null;
+let agentKnowBusy = false;
+let agentKnowActErr = '';
+let agentMemRows = null;
+let agentMemErr = '';
+let agentMemCat = null;
+let agentMemDraft = null;      // {name, value} being added or corrected
+let agentMemBusy = false;
+let agentMemActErr = '';
+
 const AGENT_THREAD_MAX = 200;
 
 // ── automations: reading ────────────────────────────────────────────────────
@@ -1847,7 +1889,7 @@ function agentAutoWatchSoon(id, left) {
 // ── automations: the form's own values ──────────────────────────────────────
 
 /** A blank automation, and the shape every draft has. */
-const autoBlank = () => ({ name: '', enabled: true, schedule: 'manual', at: '09:00', zone: autoGuessZone(), steps: [], gen: 0 });
+const autoBlank = () => ({ name: '', enabled: true, schedule: 'manual', at: '09:00', zone: autoGuessZone(), steps: [], inputs: [], gen: 0 });
 
 /**
  * The browser's own zone, offered as the default.
@@ -1880,6 +1922,17 @@ function agentAutoValues() {
     for (const f of fields) {
       const name = (f.getAttribute && f.getAttribute('data-field')) || '';
       if (!name) continue;
+      const kind = (f.getAttribute && f.getAttribute('data-kind')) || 'text';
+      // ⚠ **A NUMBER BOX ANSWERS A STRING, AND THE SERVER REFUSES ONE.** "Refused, never
+      // coerced" is the server's rule precisely so a bad value cannot slip through; the
+      // form's job is to send what the control MEANS, and reading a number box as a number
+      // is what the box is for. An empty one sends nothing rather than 0, because 0 is a
+      // value somebody could have typed and an empty box is not an answer.
+      if (kind === 'number') {
+        const n = f.value === '' ? null : Number(f.value);
+        if (n !== null && Number.isFinite(n)) st[name] = Math.trunc(n);
+        continue;
+      }
       st[name] = f.value;
     }
     const days = typeof row.querySelectorAll === 'function' ? [...row.querySelectorAll('[data-day]')] : [];
@@ -1890,6 +1943,22 @@ function agentAutoValues() {
     }
     return st;
   });
+  // WHAT IT ASKS FOR WHEN IT IS STARTED, read off its own rows the same way the steps are.
+  const inRows = typeof document.querySelectorAll === 'function'
+    ? [...document.querySelectorAll('[data-input-row]')] : [];
+  const inputs = inRows.map((row) => {
+    const one = (sel) => (typeof row.querySelector === 'function' ? row.querySelector(sel) : null);
+    const nm = one('[data-in="name"]');
+    const lb = one('[data-in="label"]');
+    const df = one('[data-in="default"]');
+    const rq = one('[data-in="required"]');
+    return {
+      name: nm ? String(nm.value || '').trim().toLowerCase() : '',
+      label: lb ? String(lb.value || '').trim() : '',
+      default: df ? String(df.value || '') : '',
+      required: !!(rq && rq.checked),
+    };
+  }).filter((d) => d.name !== '');
   return {
     name: val('agAutoName').trim().slice(0, AGENT_NAME_MAX),
     // OFF is what the box says, so the control and the value cannot disagree.
@@ -1897,7 +1966,7 @@ function agentAutoValues() {
     schedule: val('agAutoSched') === 'daily' ? 'daily' : 'manual',
     at: val('agAutoAt') || '09:00',
     zone: val('agAutoZone').trim(),
-    steps,
+    steps, inputs,
   };
 }
 
@@ -1963,8 +2032,236 @@ function agentAutoForm() {
     name: cur.name, enabled: cur.enabled, schedule: cur.schedule,
     at: cur.at || '09:00', zone: cur.zone || autoGuessZone(),
     steps: (cur.steps || []).map((st) => ({ ...st })),
+    inputs: (cur.inputs || []).map((d) => ({ ...d })),
     gen: 0,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REFERENCE MATERIAL AND MEMORY — two lists, one screen
+//
+// **THE TWO READS ARE SEPARATE AND BOTH ARE STARTED AT ONCE.** One request answering both
+// would make a failure in either hide the other, and they are different things a person
+// manages independently — a failed search corpus should not empty the preferences panel.
+//
+// ⚠ **A FAILED READ IS NOT AN EMPTY AGENT**, in both of them: the rows that were there stay
+// exactly as they were, so an error never reads as everything having been deleted.
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function agentKnowLoad(quiet) {
+  const bound = agentBind();
+  const forAgent = agentKnow;
+  if (!quiet) { agentKnowErr = ''; renderAgents(); }
+  try {
+    const res = await apiFetch('/api/agent/knowledge?agent=' + encodeURIComponent(forAgent));
+    const j = await res.json().catch(() => ({}));
+    if (agentKnow !== forAgent || bound.uid !== agentUid()) return;
+    if (!res.ok || !j.ok) agentKnowErr = (j && j.error) || 'Couldn’t load the reference material.';
+    else {
+      agentKnowRows = Array.isArray(j.sources) ? j.sources : [];
+      agentKnowCat = { max: j.max, bodyMax: j.bodyMax, formats: Array.isArray(j.formats) ? j.formats : ['text'] };
+      agentKnowErr = '';
+    }
+  } catch {
+    if (agentKnow !== forAgent || bound.uid !== agentUid()) return;
+    agentKnowErr = 'Couldn’t reach the server.';
+  }
+  renderAgents();
+}
+
+async function agentMemLoad(quiet) {
+  const bound = agentBind();
+  const forAgent = agentKnow;
+  if (!quiet) { agentMemErr = ''; renderAgents(); }
+  try {
+    const res = await apiFetch('/api/agent/memory?agent=' + encodeURIComponent(forAgent));
+    const j = await res.json().catch(() => ({}));
+    if (agentKnow !== forAgent || bound.uid !== agentUid()) return;
+    if (!res.ok || !j.ok) agentMemErr = (j && j.error) || 'Couldn’t load what it remembers.';
+    else {
+      agentMemRows = Array.isArray(j.memories) ? j.memories : [];
+      agentMemCat = { max: j.max, valueMax: j.valueMax };
+      agentMemErr = '';
+    }
+  } catch {
+    if (agentKnow !== forAgent || bound.uid !== agentUid()) return;
+    agentMemErr = 'Couldn’t reach the server.';
+  }
+  renderAgents();
+}
+
+function agentKnows(id) {
+  agentPollStop(); agentAutoWatchStop();
+  agentKnow = String(id || '');
+  agentKnowRows = null; agentKnowErr = ''; agentKnowEditing = null; agentKnowDraft = null; agentKnowActErr = '';
+  agentMemRows = null; agentMemErr = ''; agentMemDraft = null; agentMemActErr = '';
+  agentKnowLoad();
+  agentMemLoad(true);
+}
+function agentKnowBack() {
+  agentKnow = null; agentKnowRows = null; agentMemRows = null;
+  agentKnowEditing = null; agentKnowDraft = null; renderAgents();
+}
+function agentKnowNew() { agentKnowEditing = ''; agentKnowDraft = null; agentKnowActErr = ''; renderAgents(); }
+function agentKnowCancel() { agentKnowEditing = null; agentKnowDraft = null; agentKnowActErr = ''; renderAgents(); }
+
+/**
+ * Open one source for editing — which needs its MATERIAL, and the list does not carry it.
+ *
+ * **THE LIST DELIBERATELY HAS NO BODIES** (twenty sources at 200,000 characters is four
+ * megabytes to draw a few lines), so opening one is a read. Until it arrives the form shows
+ * what the list knows and says it is loading, rather than an empty box that looks like a
+ * document somebody has lost.
+ */
+async function agentKnowEdit(id) {
+  const target = String(id || '');
+  const bound = agentBind();
+  agentKnowEditing = target; agentKnowActErr = '';
+  const row = (agentKnowRows || []).find((k) => k.id === target) || null;
+  agentKnowDraft = { title: (row && row.title) || '', body: null, format: (row && row.format) || 'text' };
+  renderAgents();
+  try {
+    const res = await apiFetch('/api/agent/knowledge?agent=' + encodeURIComponent(agentKnow) + '&source=' + encodeURIComponent(target));
+    const j = await res.json().catch(() => ({}));
+    if (agentKnowEditing !== target || bound.uid !== agentUid()) return;
+    const one = (Array.isArray(j.sources) ? j.sources : []).find((k) => k.id === target);
+    agentKnowDraft = {
+      title: (one && one.title) || (row && row.title) || '',
+      body: one && typeof one.body === 'string' ? one.body : '',
+      format: (one && one.format) || (row && row.format) || 'text',
+    };
+  } catch {
+    if (agentKnowEditing !== target || bound.uid !== agentUid()) return;
+    agentKnowActErr = 'Couldn’t load that source’s text.';
+  }
+  renderAgents();
+}
+
+/** Read the source form back, so a redraw cannot lose a document somebody is typing. */
+function agentKnowFormRead() {
+  if (agentKnowEditing === null) return;
+  const t = document.getElementById('agKnowTitle');
+  const b = document.getElementById('agKnowBody');
+  const f = document.getElementById('agKnowFormat');
+  if (!t && !b) return;
+  agentKnowDraft = {
+    title: t ? String(t.value || '') : ((agentKnowDraft && agentKnowDraft.title) || ''),
+    body: b ? String(b.value || '') : ((agentKnowDraft && agentKnowDraft.body) || ''),
+    format: f ? String(f.value || 'text') : ((agentKnowDraft && agentKnowDraft.format) || 'text'),
+  };
+}
+
+async function agentKnowSave() {
+  agentKnowFormRead();
+  const d = agentKnowDraft || { title: '', body: '', format: 'text' };
+  const say = (m) => { agentKnowActErr = m; renderAgents(); };
+  if (!String(d.title || '').trim()) { say('Give the source a name, so an answer can say where it came from.'); return; }
+  if (!String(d.body || '').trim()) { say('There’s nothing in that source to read.'); return; }
+  const bound = agentBind();
+  const editing = agentKnowEditing;
+  const forAgent = agentKnow;
+  agentKnowBusy = true; agentKnowActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/knowledge-save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editing
+        ? { id: editing, title: d.title, body: d.body, format: d.format }
+        : { agent: forAgent, title: d.title, body: d.body, format: d.format }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentKnowBusy = false;
+  if (!agentSame(bound) || agentKnow !== forAgent) { renderAgents(); return; }
+  if (failed) { agentKnowActErr = failed; renderAgents(); return; }
+  agentKnowEditing = null; agentKnowDraft = null;
+  await agentKnowLoad(true);
+}
+
+async function agentKnowDelete(id) {
+  const target = String(id || '');
+  const bound = agentBind();
+  agentKnowBusy = true; agentKnowActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/knowledge-delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: target }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t delete that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentKnowBusy = false;
+  if (!agentSame(bound) || agentKnow === null) { renderAgents(); return; }
+  if (failed) { agentKnowActErr = failed; renderAgents(); return; }
+  agentKnowEditing = null; agentKnowDraft = null;
+  await agentKnowLoad(true);
+}
+
+/** Read the memory form back. One row, two boxes, and the same rule as everywhere else. */
+function agentMemFormRead() {
+  const n = document.getElementById('agMemName');
+  const v = document.getElementById('agMemValue');
+  if (!n && !v) return;
+  agentMemDraft = {
+    name: n ? String(n.value || '') : ((agentMemDraft && agentMemDraft.name) || ''),
+    value: v ? String(v.value || '') : ((agentMemDraft && agentMemDraft.value) || ''),
+  };
+}
+
+/** Correcting one puts it in the boxes; saving over the same name is the correction. */
+function agentMemEdit(key, value) {
+  agentMemDraft = { name: String(key || ''), value: String(value || '') };
+  agentMemActErr = '';
+  renderAgents();
+}
+
+async function agentMemSave() {
+  agentMemFormRead();
+  const d = agentMemDraft || { name: '', value: '' };
+  const say = (m) => { agentMemActErr = m; renderAgents(); };
+  if (!String(d.name || '').trim()) { say('Give it a name, so a step can ask for it.'); return; }
+  if (!String(d.value || '').trim()) { say('Say what to remember. To forget it, delete it instead.'); return; }
+  const bound = agentBind();
+  const forAgent = agentKnow;
+  agentMemBusy = true; agentMemActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/memory-save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: forAgent, name: d.name, value: d.value }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentMemBusy = false;
+  if (!agentSame(bound) || agentKnow !== forAgent) { renderAgents(); return; }
+  if (failed) { agentMemActErr = failed; renderAgents(); return; }
+  // SAVED, so the boxes are cleared — they are a new memory's boxes, not this one's.
+  agentMemDraft = null;
+  await agentMemLoad(true);
+}
+
+async function agentMemDelete(key) {
+  const name = String(key || '');
+  const bound = agentBind();
+  const forAgent = agentKnow;
+  agentMemBusy = true; agentMemActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/memory-delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: forAgent, name }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t delete that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentMemBusy = false;
+  if (!agentSame(bound) || agentKnow !== forAgent) { renderAgents(); return; }
+  if (failed) { agentMemActErr = failed; renderAgents(); return; }
+  await agentMemLoad(true);
 }
 
 // ── automations: what the buttons do ────────────────────────────────────────
@@ -2005,11 +2302,23 @@ function agentAutoStepAdd(type) {
       renderAgents();
       return null;
     }
-    // THE CATALOG'S OWN FIELDS, EMPTY — except a weekday, which starts on one day
-    // because an empty day list is a step the server would refuse on the first save.
+    // ⚠ **SEEDED FROM THE CATALOG, NOT FROM A LIST OF TYPES HERE.** This was two `if`s
+    // naming `weekday` and `note`, which is a third copy of the catalog — and a step type
+    // added to it would arrive with none of its fields set, be refused by the first Save,
+    // and read as a broken control. What each kind's blank value IS, is a property of the
+    // kind: a choice starts on its first option because that is what the control draws, a
+    // day list starts on one day because an empty one is refused, and everything else
+    // starts empty.
     const st = { type: String(type || '') };
-    if (st.type === 'weekday') st.days = ['mon'];
-    if (st.type === 'note') st.text = '';
+    const def = ((agentAutoCat && agentAutoCat.steps) || []).find((d) => d.type === st.type);
+    for (const fd of (def && def.fields) || []) {
+      if (fd.kind === 'days') st[fd.name] = ['mon'];
+      else if (fd.kind === 'choice') st[fd.name] = (fd.options || [])[0];
+      else if (fd.kind === 'number') st[fd.name] = fd.min === undefined ? 1 : fd.min;
+      else if (fd.kind === 'time') st[fd.name] = '09:00';
+      else if (fd.kind === 'name') st[fd.name] = '';
+      else st[fd.name] = '';
+    }
     agentAutoActErr = '';
     return { ...draft, steps: [...draft.steps, st] };
   });
@@ -2031,6 +2340,48 @@ function agentAutoStepDrop(at) {
     const i = Number(at);
     if (!(i >= 0 && i < draft.steps.length)) return null;
     return { ...draft, steps: draft.steps.filter((_, n) => n !== i) };
+  });
+}
+
+/**
+ * The same three, for what the automation asks for.
+ *
+ * **THROUGH `agentAutoStructural` TOO**, and that is the whole reason they are here rather
+ * than inline: adding an input is a change to the form's SHAPE, so it has to read what is
+ * typed, apply the change to that, and mark the drawing stale — exactly as adding a step
+ * does. Written any other way it would wipe the row somebody was half way through.
+ */
+function agentAutoInputAdd() {
+  agentAutoStructural((draft) => {
+    const max = (agentAutoCat && agentAutoCat.maxInputs) || 8;
+    const ins = draft.inputs || [];
+    if (ins.length >= max) {
+      agentAutoActErr = 'That’s as many things as one automation can ask for (' + max + ').';
+      renderAgents();
+      return null;
+    }
+    agentAutoActErr = '';
+    return { ...draft, inputs: [...ins, { name: '', label: '', default: '', required: false }] };
+  });
+}
+function agentAutoInputMove(at, by) {
+  agentAutoStructural((draft) => {
+    const ins = draft.inputs || [];
+    const i = Number(at);
+    const to = i + Number(by);
+    if (!(i >= 0 && i < ins.length) || !(to >= 0 && to < ins.length)) return null;
+    const next = [...ins];
+    const [one] = next.splice(i, 1);
+    next.splice(to, 0, one);
+    return { ...draft, inputs: next };
+  });
+}
+function agentAutoInputDrop(at) {
+  agentAutoStructural((draft) => {
+    const ins = draft.inputs || [];
+    const i = Number(at);
+    if (!(i >= 0 && i < ins.length)) return null;
+    return { ...draft, inputs: ins.filter((_, n) => n !== i) };
   });
 }
 
@@ -2112,7 +2463,52 @@ async function agentAutoToggle(id, on) {
 }
 
 /** Run it now — the same workflow the schedule starts, through the same queue. */
-async function agentAutoRun(id) {
+/**
+ * Run one now.
+ *
+ * ⚠ **IT ASKS FIRST WHEN THE AUTOMATION ASKS FOR ANYTHING**, and that is not a
+ * confirmation dialog: the values are part of the execution, snapshotted at acceptance, so
+ * running without them would start something whose inputs are all empty and then report it
+ * as done. An automation that declares nothing runs straight away.
+ */
+function agentAutoRunPress(id) {
+  const target = String(id || '');
+  const row = (agentAutoRows || []).find((a) => a.id === target);
+  const asks = (row && row.inputs) || [];
+  if (!asks.length) { agentAutoRun(target, {}); return; }
+  // ITS DEFAULTS ARE WHAT THE BOXES START WITH, so pressing Run again after one run is
+  // the same press rather than a form to fill in twice.
+  const values = {};
+  for (const d of asks) values[d.name] = typeof d.default === 'string' ? d.default : '';
+  agentAutoAsk = { id: target, values };
+  agentAutoActErr = '';
+  renderAgents();
+}
+
+/** Read the ask-form's boxes back, so a redraw cannot lose what is typed in them. */
+function agentAutoAskRead() {
+  if (!agentAutoAsk) return;
+  const rows = typeof document.querySelectorAll === 'function'
+    ? [...document.querySelectorAll('[data-ask]')] : [];
+  if (!rows.length) return;
+  const values = { ...agentAutoAsk.values };
+  for (const el of rows) {
+    const n = (el.getAttribute && el.getAttribute('data-ask')) || '';
+    if (n) values[n] = String(el.value || '');
+  }
+  agentAutoAsk = { ...agentAutoAsk, values };
+}
+
+function agentAutoAskCancel() { agentAutoAsk = null; agentAutoActErr = ''; renderAgents(); }
+function agentAutoAskGo() {
+  agentAutoAskRead();
+  if (!agentAutoAsk) return;
+  const { id, values } = agentAutoAsk;
+  agentAutoAsk = null;
+  agentAutoRun(id, values);
+}
+
+async function agentAutoRun(id, input) {
   const target = String(id || '');
   const bound = agentBind();
   agentAutoBusy = true; agentAutoActErr = ''; renderAgents();
@@ -2121,7 +2517,7 @@ async function agentAutoRun(id) {
     const res = await apiFetch('/api/agent/automation-run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: target }),
+      body: JSON.stringify({ id: target, input: input || {} }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t start that.';
@@ -2140,6 +2536,47 @@ async function agentAutoRun(id) {
  * Delete. CONFIRMED FIRST, because the history goes with it by the foreign key's own
  * cascade and there is no copy of it anywhere else.
  */
+/**
+ * Approve or reject one waiting execution.
+ *
+ * **THE WORDS ARE KEPT ON EVERY FAILURE**, including the two refusals, because the note is
+ * somebody's own writing and the panel is redrawn to show a sentence. They are cleared only
+ * when the server has the decision.
+ *
+ * **A SECOND PRESS IS ABSORBED BY THE SERVER, and it says so**: the first decision stands,
+ * because by then the execution may already have carried on.
+ */
+async function agentAutoDecide(runId, verdict) {
+  const target = String(runId || '');
+  if (!target || agentAutoDeciding) return;
+  const step = String((((agentAutoRuns || []).find((r) => r.id === target) || {}).waiting || {}).step || '');
+  if (!step) { agentAutoActErr = 'That run isn’t waiting to be approved any more.'; renderAgents(); return; }
+  const note = String(agentAutoNotes.get(target) || '').trim();
+  const bound = agentBind();
+  agentAutoDeciding = target; agentAutoActErr = ''; renderAgents();
+  let failed = '';
+  let said = '';
+  try {
+    const res = await apiFetch('/api/agent/automation-approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run: target, step, verdict, note: note || null }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t send that.';
+    else if (j.repeat) said = 'That was already answered — the first answer stands.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentAutoDeciding = '';
+  if (!agentSame(bound) || agentAuto === null) { renderAgents(); return; }
+  if (failed) { agentAutoActErr = failed; renderAgents(); return; }
+  // THE DECISION IS DURABLE BY NOW, so the note has done its job and the box is cleared.
+  agentAutoNotes.delete(target);
+  agentAutoActErr = said;
+  // WATCH IT BRIEFLY: the doorbell has rung, so the execution carries on in seconds.
+  await agentAutoRunsLoad(agentAutoRunsFor, true);
+  if (agentAutoRunsFor) agentAutoWatchSoon(agentAutoRunsFor, AUTO_WATCH_TRIES);
+}
+
 async function agentAutoDelete(id) {
   const target = String(id || '');
   if (!target) return;
@@ -2191,6 +2628,10 @@ function automationsHtml() {
     '</div>';
 
   if (agentAutoEditing !== null) return '<div class="ag-page ag-thread-page">' + head + automationFormHtml(agent) + '</div>';
+  // ⚠ THE ASK FORM IS ALSO A SCREEN OF ITS OWN, for the same reason the edit form is:
+  // nothing may redraw behind somebody who is typing, and a form drawn INSIDE a list that
+  // a watch is refreshing would be exactly that.
+  if (agentAutoAsk) return '<div class="ag-page ag-thread-page">' + head + automationAskHtml() + '</div>';
 
   // ── the list ─────────────────────────────────────────────────────────────
   let body;
@@ -2265,7 +2706,39 @@ function automationRowHtml(a) {
 const AUTO_STATE_WORDS = {
   queued: 'Queued', done: 'Done', skipped: 'Skipped',
   failed: 'Failed', missed: 'Missed', paused: 'Agent paused',
+  // ⚠ TWO MORE, AND NEITHER IS A FAILURE. `waiting` is work in progress that is holding
+  // nothing open; `rejected` is somebody having looked at it and said no, which is the
+  // automation doing exactly what it was asked.
+  waiting: 'Waiting', rejected: 'Rejected',
 };
+
+/**
+ * The form an automation's inputs are filled in on, before it runs.
+ *
+ * **ITS OWN SCREEN, AND ITS DEFAULTS ARE ALREADY IN THE BOXES** — so an automation run a
+ * second time with the same answers is one press and a confirm rather than a form to fill
+ * in twice.
+ */
+function automationAskHtml() {
+  const row = (agentAutoRows || []).find((a) => a.id === agentAutoAsk.id) || null;
+  const asks = (row && row.inputs) || [];
+  const vals = agentAutoAsk.values || {};
+  return '<div class="ag-form">' +
+    '<div class="ag-auto-n">' + esc((row && row.name) || 'Run it now') + '</div>' +
+    '<div class="ag-hint">These are saved with the run, so what it does is a record of what you asked for.</div>' +
+    asks.map((d) =>
+      '<label class="ag-lbl">' + esc(d.label || d.name) +
+        (d.required ? '' : ' <span class="ag-step-k">optional</span>') + '</label>' +
+      '<input class="ag-in" data-ask="' + esc(d.name) + '" maxlength="4000"' +
+        ' placeholder="' + esc(d.default || '') + '" value="' + esc(vals[d.name] || '') + '">').join('') +
+    '<div class="ag-actions">' +
+      '<button class="ag-save" data-act="agent-auto-ask-go"' + (agentAutoBusy ? ' disabled' : '') + '>' +
+        (agentAutoBusy ? 'Starting…' : 'Run it') + '</button>' +
+      '<button class="ag-cancel" data-act="agent-auto-ask-cancel">Cancel</button>' +
+    '</div>' +
+    '<div class="ag-err">' + esc(agentAutoActErr) + '</div>' +
+  '</div>';
+}
 
 /** One automation's history: what each run did, step by step. */
 /**
@@ -2309,6 +2782,52 @@ function automationRunsHtml() {
           ' went by while nothing was running them.</div>' : '') +
       (r.state === 'paused'
         ? '<div class="ag-run-why">The agent was paused, so this one didn’t start.</div>' : '') +
+      // ⚠ **WHAT IT IS WAITING FOR, AND THE ONE CONTROL THAT HELPS.** A `waiting` execution
+      // is holding nothing open — its worker was released and the row is off the queue — so
+      // this is the only place a person can see that and the only place they can answer it.
+      // **THE BUTTONS ARE DRAWN ONLY FOR AN APPROVAL**: a timed wait resumes itself, and a
+      // control that did nothing would be a dead control on the one screen that must be
+      // trusted about what is happening.
+      (r.state === 'waiting' && r.waiting
+        ? '<div class="ag-run-wait">' +
+            '<div class="ag-run-why">' +
+              (r.waiting.kind === 'approval'
+                ? esc(r.waiting.ask || 'Waiting to be approved.')
+                : 'Waiting, and carrying on by itself.') +
+              (r.waiting.until ? ' <span class="ag-run-when">' +
+                (r.waiting.kind === 'approval' ? 'Runs out ' : 'Carries on ') + esc(autoWhen(r.waiting.until)) +
+                '</span>' : '') +
+            '</div>' +
+            (r.waiting.kind === 'approval'
+              ? '<div class="ag-hint">' +
+                  (r.waiting.onTimeout === 'approve' ? 'If nobody answers, it carries on anyway.'
+                    : r.waiting.onTimeout === 'reject' ? 'If nobody answers, it stops as though it were rejected.'
+                    : 'If nobody answers, it stops as a failure.') +
+                '</div>' +
+                '<input class="ag-in" data-note="' + esc(r.id) + '" maxlength="1000"' +
+                  ' placeholder="Why (optional)" value="' + esc(agentAutoNotes.get(r.id) || '') + '">' +
+                '<div class="ag-actions">' +
+                  '<button class="ag-save" data-act="agent-auto-approve" data-run="' + esc(r.id) + '"' +
+                    (agentAutoDeciding ? ' disabled' : '') + '>' +
+                    (agentAutoDeciding === r.id ? 'Sending…' : 'Approve') + '</button>' +
+                  '<button class="ag-cancel" data-act="agent-auto-reject" data-run="' + esc(r.id) + '"' +
+                    (agentAutoDeciding ? ' disabled' : '') + '>Reject</button>' +
+                '</div>'
+              : '') +
+          '</div>'
+        : '') +
+      // WHO ANSWERED, AND WHAT THEY SAID, once it has been answered. It is the one part of
+      // an execution a person put there, so it is shown rather than summarised.
+      (Object.keys(r.decisions || {}).length
+        ? '<div class="ag-run-steps">' + Object.keys(r.decisions).map((k) => {
+            const d = r.decisions[k] || {};
+            return '<div class="ag-run-step ag-step-' + (d.verdict === 'rejected' ? 'skipped' : 'ran') + '">' +
+              '<span class="ag-step-w">' + esc(k) + '</span>' +
+              '<span class="ag-step-o">' + esc(d.verdict || '') + '</span>' +
+              '<span class="ag-step-d">' + esc(d.note || '') + '</span>' +
+            '</div>';
+          }).join('') + '</div>'
+        : '') +
       // EACH STEP'S OWN OUTCOME. Every step gets a line, including the ones that never
       // ran — a list that stopped short would show a workflow ending for no reason.
       ((r.outcomes || []).length
@@ -2316,8 +2835,21 @@ function automationRunsHtml() {
             '<div class="ag-run-step ag-step-' + esc(o.outcome) + '">' +
               '<span class="ag-step-n">' + (i + 1) + '</span>' +
               '<span class="ag-step-w">' + esc(autoStepLabel(o.type)) + '</span>' +
-              '<span class="ag-step-o">' + esc(o.outcome) + '</span>' +
-              '<span class="ag-step-d">' + esc(o.why || o.error || o.result || '') + '</span>' +
+              '<span class="ag-step-o">' + esc(o.outcome) +
+                // ⚠ **WHICH BRANCH RAN, AS ITS OWN WORD.** An `if` is always `ran` — it did
+                // its job, which was to choose — so without this the history would show two
+                // identical-looking branch steps and leave somebody to work out which arm
+                // was taken from which steps below it were skipped.
+                (autoSaid(o.took) ? ' · ' + esc(o.took === 'first' ? 'first arm' : 'other arm') : '') +
+              '</span>' +
+              '<span class="ag-step-d">' + esc(o.why || o.error || o.result || '') +
+                // WHERE A LOOKUP'S ANSWER CAME FROM, with the version it was at. An excerpt
+                // with no source is an assertion nobody can check.
+                ((o.sources || []).length
+                  ? ' — ' + esc((o.sources || []).map((src) =>
+                      (src.title || src.key || '?') + (src.version ? ' v' + src.version : '')).join(', '))
+                  : '') +
+              '</span>' +
             '</div>').join('') + '</div>'
         : '') +
     '</div>').join('') + '</div>';
@@ -2350,11 +2882,25 @@ function automationFormHtml(agent) {
       '<div class="ag-hint">The time is local to that zone, so it stays at the same clock time when the clocks change.</div>' +
     '</div>' +
 
+    '<label class="ag-lbl">What it asks for</label>' +
+    '<div class="ag-hint">Optional. Anything you name here is filled in when you press Run now, and a step can use it by putting {{the name}} in its own text.</div>' +
+    '<div class="ag-auto-ins">' +
+      ((f.inputs || []).length
+        ? (f.inputs || []).map((d, i) => automationInputHtml(d, i, (f.inputs || []).length)).join('')
+        : '<div class="ag-auto-none">It asks for nothing, so Run now starts it straight away.</div>') +
+    '</div>' +
+    '<div class="ag-step-add">' +
+      '<button class="ag-auto-btn" data-act="agent-auto-input-add"' +
+        (((f.inputs || []).length >= ((agentAutoCat && agentAutoCat.maxInputs) || 8)) ? ' disabled' : '') +
+        '>+ Something to fill in</button>' +
+    '</div>' +
+
     '<label class="ag-lbl">Steps</label>' +
     '<div class="ag-hint">They run in order. A condition that doesn’t match stops the rest — that shows as Skipped, not as a failure.</div>' +
     '<div class="ag-steps">' +
       (f.steps.length
-        ? f.steps.map((st, i) => automationStepHtml(st, i, f.steps.length, cat, days)).join('')
+        ? (() => { const d = autoDepths(f.steps);
+            return f.steps.map((st, i) => automationStepHtml(st, i, f.steps.length, cat, days, d[i])).join(''); })()
         : '<div class="ag-auto-none">No steps yet. Add one below.</div>') +
     '</div>' +
     (cat.length
@@ -2387,11 +2933,98 @@ function automationFormHtml(agent) {
   '</div>';
 }
 
+/**
+ * One thing an automation asks for.
+ *
+ * **THE NAME IS THE CONTRACT AND THE LABEL IS THE WORDS.** A step refers to the NAME, so
+ * it follows the identifier rule; the label is what goes beside the box when somebody
+ * fills it in, and it falls back to the name rather than being compelled — a name is
+ * already readable and demanding a second string for every input is a form nobody finishes.
+ */
+function automationInputHtml(d, i, total) {
+  return '<div class="ag-auto-in" data-input-row="' + i + '">' +
+    '<div class="ag-step-head">' +
+      '<span class="ag-step-n">' + esc(String.fromCharCode(97 + Math.min(i, 25))) + '</span>' +
+      '<span class="ag-step-w">Asks for</span>' +
+      '<span class="ag-step-move">' +
+        '<button class="ag-auto-btn" data-act="agent-auto-input-up" data-at="' + i + '"' +
+          (i === 0 ? ' disabled' : '') + ' aria-label="Move up" title="Move up">↑</button>' +
+        '<button class="ag-auto-btn" data-act="agent-auto-input-down" data-at="' + i + '"' +
+          (i === total - 1 ? ' disabled' : '') + ' aria-label="Move down" title="Move down">↓</button>' +
+        '<button class="ag-auto-btn" data-act="agent-auto-input-del" data-at="' + i + '" aria-label="Remove" title="Remove">✕</button>' +
+      '</span>' +
+    '</div>' +
+    '<div class="ag-step-lbl">Its name, for {{a step}} to use</div>' +
+    '<input class="ag-in ag-step-in" data-in="name" maxlength="40" placeholder="topic" value="' + esc(d.name || '') + '">' +
+    '<div class="ag-step-lbl">What to call it on the form</div>' +
+    '<input class="ag-in ag-step-in" data-in="label" maxlength="120" placeholder="Topic" value="' + esc(d.label || '') + '">' +
+    '<div class="ag-step-lbl">If it is left blank</div>' +
+    '<input class="ag-in ag-step-in" data-in="default" maxlength="2000" placeholder="(nothing)" value="' + esc(d.default || '') + '">' +
+    '<label class="ag-check">' +
+      '<input type="checkbox" data-in="required"' + (d.required ? ' checked' : '') + '>' +
+      '<span class="ag-tool-m"><span class="ag-check-t">It has to be filled in</span></span>' +
+    '</label>' +
+  '</div>';
+}
+
+/**
+ * The words that go beside a field's box.
+ *
+ * **DISPLAY ONLY, AND THE SITE'S OWN**, deliberately not a third censused string per
+ * field: the catalog already carries the words for a STEP, which is what somebody reads
+ * when choosing one, and a field's own name is already readable ("query", "hours",
+ * "ask"). A name with no entry falls back to itself, so a field added to the catalog
+ * draws sensibly before anybody writes a phrase for it.
+ */
+const AUTO_FIELD_WORDS = {
+  days: 'On these days', text: 'The note', out: 'Save the answer as',
+  left: 'Compare', op: 'which', right: 'with', mode: 'Wait',
+  minutes: 'For this many minutes', at: 'Until this time',
+  ask: 'What is being approved', hours: 'Wait this many hours for an answer',
+  on_timeout: 'If nobody answers', query: 'Search for', key: 'The saved fact called',
+};
+const AUTO_FIELD_HINTS = {
+  out: 'Optional. A later step can then put {{that name}} in its own text.',
+  left: 'Usually {{a name}} — an input, or an earlier step’s answer.',
+};
+/** What each choice reads as. A value with no phrase reads as itself. */
+const AUTO_CHOICE_WORDS = {
+  is: 'is', 'is not': 'is not', contains: 'contains',
+  'is empty': 'is empty', 'is not empty': 'is not empty',
+  for: 'for a while', until: 'until a time of day',
+  approve: 'carry on anyway', reject: 'stop, as though it were rejected', fail: 'stop as a failure',
+};
+const autoWords = (n) => AUTO_FIELD_WORDS[n] || n;
+
+/**
+ * How deep in a branch a step sits, one entry per step.
+ *
+ * **THE EDITOR STAYS AN ORDERED LIST AND THE INDENT IS ONLY INK.** `if`/`otherwise`/`end`
+ * are steps like any other — they move and delete with the same buttons — so nothing here
+ * nests; this walks the types once and says how far in to draw each row. A list that does
+ * not balance still draws, at whatever depth it reaches, because the form is where somebody
+ * is in the middle of building one.
+ */
+function autoDepths(steps) {
+  const out = [];
+  let d = 0;
+  for (const st of steps || []) {
+    const t = st && st.type;
+    if (t === 'end') d = Math.max(0, d - 1);
+    // AN `otherwise` SITS AT ITS `if`'s OWN DEPTH, and the steps under it one further in —
+    // which is what makes the two arms read as two arms rather than as one long list.
+    out.push(t === 'otherwise' ? Math.max(0, d - 1) : d);
+    if (t === 'if') d += 1;
+  }
+  return out;
+}
+
 /** One step in the form, with its own fields and its place in the order. */
-function automationStepHtml(st, i, total, cat, days) {
+function automationStepHtml(st, i, total, cat, days, depth) {
   const def = cat.find((d) => d.type === st.type) || null;
   const fields = (def && def.fields) || [];
-  return '<div class="ag-step" data-step-type="' + esc(st.type) + '">' +
+  return '<div class="ag-step" data-step-type="' + esc(st.type) + '"' +
+      ' style="--ag-step-d:' + (Number.isFinite(depth) ? depth : 0) + '">' +
     '<div class="ag-step-head">' +
       '<span class="ag-step-n">' + (i + 1) + '</span>' +
       '<span class="ag-step-w">' + esc((def && def.label) || st.type) + '</span>' +
@@ -2404,19 +3037,226 @@ function automationStepHtml(st, i, total, cat, days) {
         '<button class="ag-auto-btn" data-act="agent-auto-step-del" data-at="' + i + '" aria-label="Remove" title="Remove">✕</button>' +
       '</span>' +
     '</div>' +
-    fields.map((fd) => {
-      if (fd.kind === 'days') {
-        const picked = Array.isArray(st.days) ? st.days : [];
-        return '<div class="ag-step-days">' + days.map((d) =>
-          '<label class="ag-day">' +
-            '<input type="checkbox" data-day="' + esc(d) + '"' + (picked.includes(d) ? ' checked' : '') + '>' +
-            '<span>' + esc(autoDayName(d)) + '</span>' +
-          '</label>').join('') + '</div>';
-      }
-      return '<input class="ag-in ag-step-in" data-field="' + esc(fd.name) + '"' +
-        (fd.max ? ' maxlength="' + fd.max + '"' : '') +
-        ' placeholder="What the note should say" value="' + esc(st[fd.name] || '') + '">';
-    }).join('') +
+    (def && def.configless
+      // A MARKER HAS NOTHING TO CONFIGURE AND SAYS SO, rather than drawing an empty body
+      // that reads as a control somebody has not filled in yet.
+      ? '<div class="ag-step-said">' + esc(def.does) + '</div>'
+      : fields.map((fd) => {
+        // ⚠ A FIELD THAT DOES NOT APPLY IS NOT DRAWN AT ALL, decided from the answers on
+        // the same step. Drawing it would be a control whose value nothing reads — and
+        // `cleanWorkflow` would drop it on the way through, so the screen would be showing
+        // something the save had already thrown away.
+        if (!autoFieldApplies(fd, st, fields)) return '';
+        const lbl = '<div class="ag-step-lbl">' + esc(autoWords(fd.name)) + '</div>';
+        const hint = AUTO_FIELD_HINTS[fd.name]
+          ? '<div class="ag-hint ag-step-hint">' + esc(AUTO_FIELD_HINTS[fd.name]) + '</div>' : '';
+        if (fd.kind === 'days') {
+          const picked = Array.isArray(st.days) ? st.days : [];
+          return lbl + '<div class="ag-step-days">' + days.map((d) =>
+            '<label class="ag-day">' +
+              '<input type="checkbox" data-day="' + esc(d) + '"' + (picked.includes(d) ? ' checked' : '') + '>' +
+              '<span>' + esc(autoDayName(d)) + '</span>' +
+            '</label>').join('') + '</div>';
+        }
+        if (fd.kind === 'choice') {
+          const picked = st[fd.name];
+          // ⚠ NO BLANK OPTION AND NO SILENT DEFAULT: a choice with nothing selected would
+          // save whichever value happened to be first, so the first option is selected when
+          // the step has no answer yet and the control says what it will do.
+          return lbl + '<select class="ag-in ag-step-in" data-field="' + esc(fd.name) + '" data-kind="choice" data-change="agent-auto-step-field">' +
+            (fd.options || []).map((o, n) =>
+              '<option value="' + esc(o) + '"' + (picked === o || (picked === undefined && n === 0) ? ' selected' : '') + '>' +
+              esc(AUTO_CHOICE_WORDS[o] || o) + '</option>').join('') + '</select>' + hint;
+        }
+        if (fd.kind === 'number') {
+          return lbl + '<input class="ag-in ag-step-in ag-in-num" type="number" data-kind="number" data-field="' + esc(fd.name) + '"' +
+            (fd.min !== undefined ? ' min="' + fd.min + '"' : '') +
+            (fd.max !== undefined ? ' max="' + fd.max + '"' : '') +
+            ' value="' + esc(st[fd.name] === undefined || st[fd.name] === null ? '' : String(st[fd.name])) + '">' + hint;
+        }
+        if (fd.kind === 'time') {
+          return lbl + '<input class="ag-in ag-in-time ag-step-in" type="time" data-kind="time" data-field="' + esc(fd.name) + '"' +
+            ' value="' + esc(st[fd.name] || '09:00') + '">' + hint;
+        }
+        if (fd.kind === 'name') {
+          return lbl + '<input class="ag-in ag-step-in" data-field="' + esc(fd.name) + '" maxlength="40"' +
+            ' placeholder="a_name" value="' + esc(st[fd.name] || '') + '">' + hint;
+        }
+        return lbl + '<input class="ag-in ag-step-in" data-field="' + esc(fd.name) + '"' +
+          (fd.max ? ' maxlength="' + fd.max + '"' : '') +
+          ' placeholder="' + esc(autoWords(fd.name)) + '" value="' + esc(st[fd.name] || '') + '">' + hint;
+      }).join('')) +
+  '</div>';
+}
+
+/**
+ * Does this field apply, given what is answered on its own step?
+ *
+ * **ONE READING, SHARED WITH THE SERVER'S `fieldApplies` BY CONSTRUCTION**: both ask the
+ * catalog's own `when`, which is censused against the engine's. A browser deciding this
+ * differently would draw a control the save then dropped, which is the shape of a dead
+ * control that ANSWERS.
+ */
+function autoFieldApplies(fd, st, fields) {
+  if (!fd || !fd.when) return true;
+  for (const on of Object.keys(fd.when)) {
+    const allowed = fd.when[on] || [];
+    // ⚠ THE FIRST OPTION IS WHAT AN UNANSWERED CHOICE WILL BE, because that is what the
+    // control draws as selected — so a step just added shows the conditional fields it is
+    // about to save rather than none of them. Without this a fresh `wait` would draw no
+    // minutes box at all and the first Save would refuse it for a field nobody could see.
+    let got = st ? st[on] : undefined;
+    if (got === undefined) {
+      const sib = (fields || []).find((o) => o && o.name === on);
+      got = sib && Array.isArray(sib.options) ? sib.options[0] : undefined;
+    }
+    if (!allowed.includes(got)) return false;
+  }
+  return true;
+}
+
+/**
+ * ⚠ REFERENCE MATERIAL AND MEMORY — one screen, two panels.
+ *
+ * **THE TWO ARE SIDE BY SIDE BECAUSE THEY ARE THE TWO KINDS OF THING AN AGENT KNOWS, and
+ * apart because they are managed differently**: material is a document with a name and a
+ * version that gets replaced, and a memory is a small named fact that gets corrected.
+ * Collapsing them would make one of the two impossible to manage on its own.
+ */
+function agentKnowsHtml() {
+  const agent = (agentRows || []).find((a) => a.id === agentKnow) || null;
+  const head =
+    '<div class="ag-head ag-thread-head">' +
+      '<button class="ag-back" data-act="agent-know-back" aria-label="Back to the conversation" title="Back">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>' +
+      '</button>' +
+      '<div class="ag-thread-name">What it knows' + (agent ? ' · ' + esc(agent.name) : '') + '</div>' +
+    '</div>';
+
+  // ONE SOURCE OPEN IS A SCREEN OF ITS OWN, over the list, so nothing redraws behind a
+  // document somebody is pasting into.
+  if (agentKnowEditing !== null) {
+    return '<div class="ag-page ag-thread-page">' + head + agentKnowFormHtml() + '</div>';
+  }
+
+  return '<div class="ag-page ag-thread-page">' + head +
+    '<div class="ag-autos">' +
+      // ── reference material ────────────────────────────────────────────────
+      '<div class="ag-lbl">Reference material</div>' +
+      '<div class="ag-hint">What this agent can look things up in. A workflow’s "Look something up" step searches it and quotes the passages that match, with the source they came from. It is never permission to do anything — only something to read.</div>' +
+      (agentKnowErr ? '<div class="ag-err">' + esc(agentKnowErr) + '</div>' : '') +
+      (agentKnowActErr ? '<div class="ag-err">' + esc(agentKnowActErr) + '</div>' : '') +
+      (agentKnowRows === null
+        ? '<div class="ag-auto-none">Loading…</div>'
+        : !agentKnowRows.length
+          ? '<div class="ag-auto-none">Nothing yet. Add a source and a workflow can search it.</div>'
+          : agentKnowRows.map((k) =>
+              '<div class="ag-auto">' +
+                '<div class="ag-auto-top">' +
+                  '<div class="ag-auto-m">' +
+                    '<div class="ag-auto-n">' + esc(k.title) +
+                      // THE VERSION IS WHAT A RUN QUOTES BACK, so it is on the row rather
+                      // than hidden behind an open.
+                      (k.version ? '<span class="ag-chip">v' + esc(String(k.version)) + '</span>' : '') +
+                      (k.format === 'markdown' ? '<span class="ag-chip">Markdown</span>' : '') +
+                    '</div>' +
+                    '<div class="ag-auto-s">' + (k.updatedAt ? 'changed ' + esc(autoWhen(k.updatedAt)) : '') + '</div>' +
+                  '</div>' +
+                  '<div class="ag-auto-acts">' +
+                    '<button class="ag-auto-btn" data-act="agent-know-edit" data-id="' + esc(k.id) + '">Open</button>' +
+                    '<button class="ag-auto-btn" data-act="agent-know-delete" data-id="' + esc(k.id) + '"' +
+                      (agentKnowBusy ? ' disabled' : '') + '>Delete</button>' +
+                  '</div>' +
+                '</div>' +
+              '</div>').join('')) +
+      '<div class="ag-step-add">' +
+        '<button class="ag-auto-btn" data-act="agent-know-new"' +
+          (((agentKnowRows || []).length >= ((agentKnowCat && agentKnowCat.max) || 20)) ? ' disabled' : '') +
+          '>+ A source</button>' +
+      '</div>' +
+
+      // ── memory ────────────────────────────────────────────────────────────
+      '<div class="ag-lbl">What it remembers</div>' +
+      '<div class="ag-hint">Facts and preferences that stay between conversations. A workflow’s "Use something remembered" step reads one by name. You can correct or delete any of them, and a change reaches the next run — never one already going.</div>' +
+      (agentMemErr ? '<div class="ag-err">' + esc(agentMemErr) + '</div>' : '') +
+      (agentMemActErr ? '<div class="ag-err">' + esc(agentMemActErr) + '</div>' : '') +
+      (agentMemRows === null
+        ? '<div class="ag-auto-none">Loading…</div>'
+        : !agentMemRows.length
+          ? '<div class="ag-auto-none">Nothing remembered yet.</div>'
+          : agentMemRows.map((m) =>
+              '<div class="ag-auto">' +
+                '<div class="ag-auto-top">' +
+                  '<div class="ag-auto-m">' +
+                    '<div class="ag-auto-n">' + esc(m.key) +
+                      (m.version && m.version > 1
+                        // HOW OFTEN IT HAS BEEN CORRECTED, which is what a version of a
+                        // memory means — and a run records which one it used.
+                        ? '<span class="ag-chip">corrected ' + esc(String(m.version - 1)) + '×</span>' : '') +
+                    '</div>' +
+                    '<div class="ag-auto-s">' + esc(m.value) + '</div>' +
+                    '<div class="ag-auto-steps"><span class="ag-auto-step">' +
+                      esc(m.source === 'run' ? 'saved by a run' : 'you saved this') +
+                      (m.updatedAt ? ' · ' + esc(autoWhen(m.updatedAt)) : '') +
+                    '</span></div>' +
+                  '</div>' +
+                  '<div class="ag-auto-acts">' +
+                    '<button class="ag-auto-btn" data-act="agent-mem-edit" data-key="' + esc(m.key) + '"' +
+                      ' data-value="' + esc(m.value) + '">Correct</button>' +
+                    '<button class="ag-auto-btn" data-act="agent-mem-delete" data-key="' + esc(m.key) + '"' +
+                      (agentMemBusy ? ' disabled' : '') + '>Forget</button>' +
+                  '</div>' +
+                '</div>' +
+              '</div>').join('')) +
+      '<div class="ag-form">' +
+        '<div class="ag-step-lbl">Its name, for {{a step}} to use</div>' +
+        '<input class="ag-in" id="agMemName" maxlength="40" placeholder="tone"' +
+          ' value="' + esc((agentMemDraft && agentMemDraft.name) || '') + '">' +
+        '<div class="ag-step-lbl">What to remember</div>' +
+        '<input class="ag-in" id="agMemValue" maxlength="' + ((agentMemCat && agentMemCat.valueMax) || 4000) + '"' +
+          ' placeholder="formal" value="' + esc((agentMemDraft && agentMemDraft.value) || '') + '">' +
+        '<div class="ag-actions">' +
+          '<button class="ag-save" data-act="agent-mem-save"' + (agentMemBusy ? ' disabled' : '') + '>' +
+            (agentMemBusy ? 'Saving…' : 'Remember it') + '</button>' +
+        '</div>' +
+        // SAID OUT LOUD: saving over a name is how a memory is corrected, and the version
+        // counting up is the record of it.
+        '<div class="ag-hint">Saving over a name you already have corrects it.</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/** One source, open: its name, what kind of text it is, and the material itself. */
+function agentKnowFormHtml() {
+  const d = agentKnowDraft || { title: '', body: '', format: 'text' };
+  const formats = (agentKnowCat && agentKnowCat.formats) || ['text'];
+  const bodyMax = (agentKnowCat && agentKnowCat.bodyMax) || 200000;
+  return '<div class="ag-form">' +
+    '<label class="ag-lbl" for="agKnowTitle">What it is called</label>' +
+    '<div class="ag-hint">This is the name an answer quotes it under, so it should say what the material is.</div>' +
+    '<input class="ag-in" id="agKnowTitle" maxlength="200" placeholder="Price list" value="' + esc(d.title) + '">' +
+    '<label class="ag-lbl" for="agKnowFormat">What kind of text</label>' +
+    '<select class="ag-in" id="agKnowFormat">' +
+      formats.map((f) => '<option value="' + esc(f) + '"' + (d.format === f ? ' selected' : '') + '>' +
+        esc(f === 'markdown' ? 'Markdown' : 'Plain text') + '</option>').join('') + '</select>' +
+    '<label class="ag-lbl" for="agKnowBody">The material</label>' +
+    // ⚠ `null` IS "NOT LOADED YET" AND IS NOT AN EMPTY DOCUMENT. An empty box for a source
+    // that really has text in it reads as a document somebody has lost — and saving over it
+    // would then lose it for real.
+    (d.body === null
+      ? '<div class="ag-auto-none">Loading the text…</div>'
+      : '<textarea class="ag-in ag-ta" id="agKnowBody" rows="12" maxlength="' + bodyMax + '"' +
+        ' placeholder="Paste or type what this agent should be able to look up.">' + esc(d.body) + '</textarea>') +
+    '<div class="ag-actions">' +
+      '<button class="ag-save" data-act="agent-know-save"' + (agentKnowBusy || d.body === null ? ' disabled' : '') + '>' +
+        (agentKnowBusy ? 'Saving…' : 'Save') + '</button>' +
+      '<button class="ag-cancel" data-act="agent-know-cancel">Back</button>' +
+      (agentKnowEditing
+        ? '<button class="ag-del" data-act="agent-know-delete" data-id="' + esc(agentKnowEditing) + '">Delete</button>'
+        : '') +
+    '</div>' +
+    '<div class="ag-err">' + esc(agentKnowActErr) + '</div>' +
   '</div>';
 }
 
@@ -2441,8 +3281,36 @@ function renderAgents() {
   // gone. Reading it into the draft first is what makes "add a step" keep the note you
   // were half way through writing in the step above it.
   agentAutoFormRead();
+  // ⚠ **AND SO DOES EVERY OTHER FORM ON THIS SCREEN, for exactly that reason.** The
+  // execution history refreshes itself every 1.5 seconds while something is running, so an
+  // approval note being typed beside a waiting run would be wiped between keystrokes; the
+  // reference-material form holds a whole document, which is the most expensive thing on
+  // this screen to lose. Four readers and ONE door, so no caller has to remember.
+  agentAutoAskRead();
+  agentAutoNotesRead();
+  agentKnowFormRead();
+  agentMemFormRead();
   renderAgentsNow();
   agentComposerRestore(held);
+}
+
+/**
+ * Keep every approval note that is being typed.
+ *
+ * **KEYED BY RUN, off the box's own attribute** — the history can show more than one
+ * waiting execution at once, and one string for the screen would put A's words under B.
+ * An empty box DELETES its entry rather than storing `''`, so "nothing typed" and "typed
+ * and cleared" are one state and the map stays the size of what is really being written.
+ */
+function agentAutoNotesRead() {
+  const boxes = typeof document.querySelectorAll === 'function'
+    ? [...document.querySelectorAll('[data-note]')] : [];
+  for (const el of boxes) {
+    const id = (el.getAttribute && el.getAttribute('data-note')) || '';
+    if (!id) continue;
+    const v = String(el.value || '');
+    if (v) agentAutoNotes.set(id, v); else agentAutoNotes.delete(id);
+  }
 }
 function renderAgentsNow() {
   const view = document.getElementById('viewAgents');
@@ -2451,6 +3319,9 @@ function renderAgentsNow() {
   // AUTOMATIONS FIRST, because it is a screen of its own rather than a panel inside
   // one: while it is open, neither the conversation nor the settings form is.
   if (agentAuto !== null) { view.innerHTML = automationsHtml(); wireActions(view); return; }
+  // REFERENCE MATERIAL AND MEMORY, also a screen of its own and for the same reason: it
+  // holds a whole document in a box, and nothing may redraw behind somebody typing one.
+  if (agentKnow !== null) { view.innerHTML = agentKnowsHtml(); wireActions(view); return; }
 
   // The thread. One agent, its messages, and a box to add another.
   if (agentThread !== null && agentEditing === null) {
@@ -2496,6 +3367,14 @@ function renderAgentsNow() {
           '<button class="ag-edit" data-act="agent-automations" data-id="' + esc(a.id) + '" aria-label="Automations" title="Automations">' +
             '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
               '<circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l2.5 1.5"></path>' +
+            '</svg>' +
+          '</button>' +
+          // ITS OWN DOOR, beside the automations and the instructions, because the three
+          // are the three things an agent is: what it is told, what it knows, and what it
+          // does on its own.
+          '<button class="ag-edit" data-act="agent-knows" data-id="' + esc(a.id) + '" aria-label="What it knows" title="What it knows">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"></path><path d="M8 7h7M8 11h7"></path>' +
             '</svg>' +
           '</button>' +
           '<button class="ag-edit" data-act="agent-edit" data-id="' + esc(a.id) + '" aria-label="Edit this agent" title="Instructions">' +
@@ -11721,13 +12600,32 @@ const CLICK_ACTIONS = {
   'agent-auto-save': () => agentAutoSave(),
   'agent-auto-delete': (e, el) => agentAutoDelete(el.dataset.id),
   'agent-auto-toggle': (e, el) => agentAutoToggle(el.dataset.id, el.dataset.on),
-  'agent-auto-run': (e, el) => agentAutoRun(el.dataset.id),
+  'agent-auto-run': (e, el) => agentAutoRunPress(el.dataset.id),
   'agent-auto-history': (e, el) => agentAutoHistory(el.dataset.id),
   'agent-auto-reload': () => agentAutoReload(),
   'agent-auto-step-add': (e, el) => agentAutoStepAdd(el.dataset.type),
   'agent-auto-step-up': (e, el) => agentAutoStepMove(el.dataset.at, -1),
   'agent-auto-step-down': (e, el) => agentAutoStepMove(el.dataset.at, 1),
   'agent-auto-step-del': (e, el) => agentAutoStepDrop(el.dataset.at),
+  'agent-auto-input-add': () => agentAutoInputAdd(),
+  'agent-auto-input-up': (e, el) => agentAutoInputMove(el.dataset.at, -1),
+  'agent-auto-input-down': (e, el) => agentAutoInputMove(el.dataset.at, 1),
+  'agent-auto-input-del': (e, el) => agentAutoInputDrop(el.dataset.at),
+  'agent-auto-ask-go': () => agentAutoAskGo(),
+  'agent-auto-ask-cancel': () => agentAutoAskCancel(),
+  'agent-auto-approve': (e, el) => agentAutoDecide(el.dataset.run, 'approved'),
+  'agent-auto-reject': (e, el) => agentAutoDecide(el.dataset.run, 'rejected'),
+  // ── reference material and memory ─────────────────────────────────────────
+  'agent-knows': (e, el) => agentKnows(el.dataset.id),
+  'agent-know-back': () => agentKnowBack(),
+  'agent-know-new': () => agentKnowNew(),
+  'agent-know-edit': (e, el) => agentKnowEdit(el.dataset.id),
+  'agent-know-cancel': () => agentKnowCancel(),
+  'agent-know-save': () => agentKnowSave(),
+  'agent-know-delete': (e, el) => agentKnowDelete(el.dataset.id),
+  'agent-mem-save': () => agentMemSave(),
+  'agent-mem-edit': (e, el) => agentMemEdit(el.dataset.key, el.dataset.value),
+  'agent-mem-delete': (e, el) => agentMemDelete(el.dataset.key),
   'landing': () => goLanding(),
 };
 // THE MEDIA SIDE'S ACTIONS ARE GONE, AND SO IS THEIR MARKUP. This table used to

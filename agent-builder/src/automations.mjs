@@ -175,13 +175,36 @@ export function defineStep(spec = {}) {
     if (f.kind === "choice" && (!Array.isArray(f.options) || !f.options.length)) {
       throw new TypeError(`defineStep(${type}): field ${f.name} is a choice and must list its options`);
     }
+    // ⚠ A FIELD THAT ONLY APPLIES SOMETIMES SAYS SO, AND SAYS IT ABOUT A SIBLING THAT
+    // REALLY EXISTS. `when: {mode: ["for"]}` is what lets the form hide a control the
+    // answer has made irrelevant and lets a validator refuse a value nothing will read —
+    // and a `when` naming a field that is not there is a condition nothing can satisfy,
+    // so the step would be unfillable with no error anybody could see.
+    if (f.when !== undefined) {
+      if (!f.when || typeof f.when !== "object" || Array.isArray(f.when)) {
+        throw new TypeError(`defineStep(${type}): field ${f.name} has a "when" that is not a condition`);
+      }
+      for (const [on, allowed] of Object.entries(f.when)) {
+        if (!fields.some((o) => o?.name === on)) {
+          throw new TypeError(`defineStep(${type}): field ${f.name} depends on ${on}, which is not one of its fields`);
+        }
+        if (!Array.isArray(allowed) || !allowed.length) {
+          throw new TypeError(`defineStep(${type}): field ${f.name}'s "when" must list the values of ${on} it applies to`);
+        }
+      }
+    }
   }
   if (typeof read !== "function") throw new TypeError(`defineStep(${type}): read must be a function`);
   if (typeof run !== "function") throw new TypeError(`defineStep(${type}): run must be a function`);
   return Object.freeze({
     kind: "step", type, stepKind: kind, label, does,
     configless: configless === true,
-    fields: Object.freeze(fields.map((f) => Object.freeze({ ...f, ...(f.options ? { options: Object.freeze([...f.options]) } : {}) }))),
+    fields: Object.freeze(fields.map((f) => Object.freeze({
+      ...f,
+      ...(f.options ? { options: Object.freeze([...f.options]) } : {}),
+      ...(f.when ? { when: Object.freeze(Object.fromEntries(
+        Object.entries(f.when).map(([k, vs]) => [k, Object.freeze([...vs])]))) } : {}),
+    }))),
     read, run,
   });
 }
@@ -345,7 +368,7 @@ const branchIf = defineStep({
   fields: [
     { name: "left", kind: "text", required: true, max: MAX_TEST, refs: true },
     { name: "op", kind: "choice", required: true, options: TESTS },
-    { name: "right", kind: "text", required: false, max: MAX_TEST, refs: true },
+    { name: "right", kind: "text", required: true, max: MAX_TEST, refs: true, when: { op: ["is", "is not", "contains"] } },
   ],
   read: (raw) => {
     const left = readTextField(raw?.left, { what: "the value being compared", max: MAX_TEST });
@@ -424,8 +447,8 @@ const wait = defineStep({
   does: "Pause here for a while, or until a time of day, and carry on afterwards. Nothing is held open while it waits.",
   fields: [
     { name: "mode", kind: "choice", required: true, options: WAIT_MODES },
-    { name: "minutes", kind: "number", required: false, min: 1, max: MAX_WAIT_MINUTES },
-    { name: "at", kind: "time", required: false },
+    { name: "minutes", kind: "number", required: true, min: 1, max: MAX_WAIT_MINUTES, when: { mode: ["for"] } },
+    { name: "at", kind: "time", required: true, when: { mode: ["until"] } },
   ],
   read: (raw) => {
     const mode = readChoice(raw?.mode, { name: "the kind of wait", options: WAIT_MODES });
