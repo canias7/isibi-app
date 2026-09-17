@@ -2948,6 +2948,24 @@ test("the pages this change is about are the ones shown, whatever their stored o
   // "usually ONE new page, plus the page a visitor would look on to find it".
   assert.ok(shown.includes("src/routes/index.tsx"), "the home page was not shown: " + JSON.stringify(shown));
   assert.ok(shown.length < stored.length, "the site fitted whole once the target was named");
+
+  // AND THE ROUTE'S OWN READER ASKS WITH THE PROMPT'S KEEP LIST, not a second
+  // one. `aUnseenPages` is `priorPagesSent` called AGAIN in the route, so the
+  // report and the prompt can disagree about which pages the writer saw —
+  // and this case is the only one where they would, which is why the
+  // assertion lives here rather than beside the other one. MEASURED on this
+  // fixture: named, the target is shown and printer-products is withheld;
+  // unnamed, exactly that pair swaps, so a reader that dropped `keep` would
+  // report the page the writer was just shown as one it never saw. The case
+  // above cannot see it — its keep list names the home page, which is small
+  // and which the budget reaches on its own in stored order, so both
+  // selections there are the same nine pages to the character.
+  const named = pagePrompt(r).text.replace(/\\n/g, " ").match(/ARE UNCHANGED: (.*?)\. Do NOT/);
+  assert.ok(named, "the pages that did not fit are not named");
+  assert.ok(!named[1].split(", ").includes(dropped[0]),
+    "the prompt names the target as unseen, so this assertion is not about the reader");
+  assert.deepEqual(r.body.unseenPages, named[1].split(", "),
+    "the reply names different pages from the prompt — the route asked the window with another keep list");
 });
 
 test("an ordinary site is byte-identical — the window changes nothing until it binds", async () => {
