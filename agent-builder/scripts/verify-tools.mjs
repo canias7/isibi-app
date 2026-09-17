@@ -503,6 +503,42 @@ try {
     JSON.stringify(pressedTwice.body).slice(0, 160));
 
   // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n7c. AND EVERY ONE OF THOSE REQUESTS NAMED ITS SCHEMA THE WAY PostgREST DEMANDS");
+  // ═════════════════════════════════════════════════════════════════════════
+  // ⚠ **THIS SECTION EXISTS BECAUSE THIS DEMONSTRATION ONCE PASSED 78 CHECKS OVER A STORE
+  // THAT COULD NOT HAVE WORKED.** `Accept-Profile` is honoured on GET and HEAD only, and
+  // every PostgREST RPC is a POST — so ten of the fourteen capability operations named no
+  // schema at all, `read_automation` (the pre-check `pause_automation` and
+  // `run_automation` each make FIRST) among them. The shim read the path and ignored the
+  // headers, so it answered every one of them happily. *A stand-in more permissive than
+  // the thing it stands in for hides a defect exactly as well as one that is less.*
+  //
+  // So the shim enforces the rule now, and this reads its refusal counter — which is a
+  // NEGATIVE assertion, and therefore worth nothing until the gate is proved alive IN THIS
+  // PROCESS. Both probes are below, and the second is the control: a gate that refused
+  // everything would satisfy the first on its own.
+  const askRest = async (method, p2, extra) => {
+    const r = await fetch(`${rest.url}/rest/v1/${p2}`, {
+      method,
+      headers: { apikey: "local-service-role", authorization: "Bearer local-service-role", "content-type": "application/json", ...extra },
+      body: method === "GET" ? undefined : "{}",
+    });
+    let b = null; try { b = JSON.parse(await r.text()); } catch { /* not json */ }
+    return { status: r.status, code: b?.code ?? null };
+  };
+  const refusedBefore = rest.refusedProfiles();
+  check("⚠ every request the whole demonstration made named its schema correctly",
+    refusedBefore === 0, `the gate turned away ${refusedBefore}`);
+  const theDefect = await askRest("POST", "rpc/read_automation", { "accept-profile": "agent" });
+  check("⚠ ...and the gate is ALIVE: the old defect — the read header on a POST — is refused here",
+    theDefect.status === 404 && theDefect.code === "PGRST202", `${theDefect.status} ${theDefect.code}`);
+  const theControl = await askRest("POST", "rpc/read_automation", { "content-profile": "agent" });
+  check("⚠ ...and it is not refusing everything: the same call with the write header passes the gate",
+    theControl.code !== "PGRST202" && theControl.code !== "PGRST205", `${theControl.status} ${theControl.code}`);
+  check("...so the gate turned away exactly the one request this section sent at it",
+    rest.refusedProfiles() === refusedBefore + 1, `${rest.refusedProfiles()}`);
+
+  // ═════════════════════════════════════════════════════════════════════════
   console.log("\n8. WHAT THE WHOLE RUN LEFT BEHIND");
   // ═════════════════════════════════════════════════════════════════════════
   check("every run finished", q(`select count(*) from agent.runs where stop is null;`) === "0");

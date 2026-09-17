@@ -1310,3 +1310,59 @@ immediately, restored, and verified — and I piped that run's output in a way t
 lost the list of what got through. Neither reached anything committed.
 
 **Nothing is applied, deployed or merged.**
+
+---
+
+## 2026-09-17 — a header that was wrong on ten of fourteen calls, and a stand-in that could not see it
+
+You asked me to carry on with the agent's backend and gave me nine things. **This is the
+first, and it is the one that was already broken.**
+
+**What was wrong.** When our engine asks the database to run one of its functions, it has to
+say which part of the database to look in. That instruction goes in a header, and there are
+two of them — one for reading, one for writing. **Ten of our fourteen agent operations used
+the reading one, and every single one of those calls is technically a write as far as the
+database's front door is concerned.** So the header was ignored, no part of the database was
+named, and on the real thing those calls would have been told "no such function". Two of the
+affected ones were the checks that run FIRST when an agent pauses or starts an automation,
+so both of those would have failed before doing anything.
+
+**Why nobody noticed.** Our local stand-in for the database's front door **read the address
+and threw the headers away**. So our end-to-end demonstration passed all 78 of its checks
+over code that could not have worked. That is the third time this has happened to us in this
+product, and it is always the same shape: *a stand-in that is more forgiving than the real
+thing hides a bug exactly as well as one that is less capable.*
+
+**What I changed.**
+
+- **One rule, in one place, and all five of our database-talking modules ask it.** It was
+  decided separately in each of them, behind a flag named for what the *function* does rather
+  than for what the *request* is — which is why it kept being got wrong. There is nothing left
+  for anybody to remember.
+- **The stand-in now enforces the rule**, in the database's own words and error codes, so a
+  wrong header fails on my laptop instead of in production. I checked it refuses the six ways
+  it should and lets the two correct cases through — because a gate that refuses *everything*
+  would have passed all my checks about it refusing.
+- **The demonstration now proves this itself**, rather than relying on me having set the
+  stand-in up right: it counts how many requests the gate turned away across the whole run
+  (zero), then deliberately sends one bad request to show the gate is actually switched on in
+  that very run.
+
+**Two things found on the way, both worth telling you.**
+
+1. **Two of the five modules used the new rule without importing it** — which still *loads*
+   fine and then fails on the first real request. Our small tests caught it immediately: 89 of
+   them went red. The demonstration only reported "a run failed". That is the small tests
+   earning their keep on a class of bug the big one is bad at.
+2. **Two numbers in last milestone's notes were wrong, and low.** I wrote down the test counts
+   and then added seven more tests to close the sweep's findings, and never re-took the
+   measurement — which is the one rule at the top of my own notes. The real numbers are 402
+   tests and 633 database checks, not 395 and 632. I have corrected them where they were
+   written and said why, rather than quietly editing the figures.
+
+**Everything still green**: 408 small tests, 633 database checks, and all four end-to-end
+demonstrations (82 / 112 / 70 / 125 checks) — the three unchanged counts being the proof that
+this round broke nothing, and worth more than before because they now run against a stand-in
+that refuses a header it used to ignore.
+
+**Nothing is applied, deployed or merged. Still no model, still your call, still last.**

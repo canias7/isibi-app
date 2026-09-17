@@ -151,9 +151,22 @@ export function memoryRest({ now = () => Date.now() } = {}) {
     // schema — and the real answer to that is a 404 naming no such function, not a
     // quiet success. The fixture refuses it, because a fixture that is MORE
     // forgiving than the thing it stands in for hides the bug it exists to find.
-    const profile = init.headers?.["content-profile"] ?? init.headers?.["accept-profile"];
-    if (p.includes("/rpc/") && profile !== "agent") {
-      return res(404, { code: "PGRST202", message: `Could not find the function in the schema "${profile ?? "public"}"` });
+    //
+    // ⚠ AND IT READ EITHER HEADER UNTIL 2026-09-17, WHICH IS THAT VERY TRAP IN THE
+    // COMMENT WRITTEN AGAINST IT. PostgREST honours `Accept-Profile` on GET and HEAD
+    // ONLY and `Content-Profile` on every other verb; **the other one is ignored, not
+    // read as a fallback.** So a POST carrying only `accept-profile` had named no
+    // schema at all — and ten of the fourteen capability operations were doing exactly
+    // that while this fake, and the local shim, answered them happily. The rule is
+    // `src/rest-profile.mjs`'s; it is not imported here, because a fake that asks the
+    // product what correct means cannot disagree with it.
+    const wantsRead = init.method === undefined || ["GET", "HEAD"].includes(String(init.method).toUpperCase());
+    const profile = init.headers?.[wantsRead ? "accept-profile" : "content-profile"];
+    if (profile !== "agent") {
+      const fn = p.includes("/rpc/");
+      return res(404, fn
+        ? { code: "PGRST202", message: `Could not find the function in the schema "${profile ?? "public"}"` }
+        : { code: "PGRST205", message: `Could not find the table in the schema "${profile ?? "public"}"` });
     }
 
     const liveLease = (w) => w.claimed_by !== null && w.lease_expires_at > now();

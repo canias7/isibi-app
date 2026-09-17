@@ -3896,9 +3896,18 @@ collapsing those two would be the claim this milestone exists to stop making.
 
 - **Engine suite 393 → 395**, 0 failed (387 before this round). The two are the sweep
   survivors below.
+  **⚠ AND BOTH NUMBERS IN THIS BLOCK ARE LOW — CORRECTED 2026-09-17 by measuring the commit
+  they describe, in a clean worktree at `e09fcf6`: the suite is 402 and `test:pg` is 633.**
+  The cause is this directory's own first rule, met by the entry that quotes it: *stamp
+  measured numbers only AFTER the run.* These were stamped, and then the sweep's eleven
+  survivors were closed with **seven** new cases — 395 + 7 = 402, which is the whole of the
+  difference and is why the arithmetic closes exactly. The `test:pg` one is the same shape
+  one check over. **The stamps are left as they were written and corrected here rather than
+  edited in place**, because the correction is the useful part.
 - **Real PostgreSQL (`npm run test:pg`): 627 → 632, 0 failed.** The five are the repeated
   run id reading as one execution with nothing written twice, and `set_automation_enabled`
-  twice leaving the same state with the same answer, each with its control.
+  twice leaving the same state with the same answer, each with its control. (See the
+  correction above: measured twice on the unchanged tree, it is **633**.)
 - **`npm run verify:tools`: 69 → 78, 0 failed**, section 5b driving the redelivery through
   the REAL capability store: the same call twice is ONE execution naming the same id, a
   DIFFERENT call at the same position is its own (the control that says the arguments are
@@ -3988,3 +3997,119 @@ took files BY EXPLICIT PATH and never `git add -A`.
   `second` were already declared in `verify-tools.mjs`, which is one long function body —
   *a re-anchor lands in a scope it did not write*, met three times in one edit. Every local
   the section declares is prefixed now.
+
+---
+
+## Milestone 6: the schema header is the METHOD's, and five stores ask one rule (2026-09-17)
+
+**THE DEFECT WAS MEASURED BEFORE ANYTHING WAS CHANGED: 10 of the 14 capability operations
+sent `accept-profile` on a POST.** `Accept-Profile` is honoured on `GET` and `HEAD` only and
+`Content-Profile` on everything else; **every PostgREST RPC is a POST**, however purely the
+function behind it reads. So those ten named no schema at all, resolved against the default
+one, and would have been answered out of a schema cache where `agent`'s functions do not
+exist. Among them was the `read_automation` pre-check that `pause_automation` and
+`run_automation` each make FIRST, so on a real PostgREST those two would have failed at
+their own first step.
+
+**IT IS THE SITE BUILDER'S DELETE DEFECT, ONE PRODUCT OVER, AND THE CAUSE IS THE SAME
+SHAPE**: each store decided for itself, behind a flag named for what the FUNCTION does
+(`write`) rather than for what the REQUEST is. `src/rest-profile.mjs` is the one rule now —
+`READ_VERBS`, `profileHeader`, `profileFor` — and all five stores that speak PostgREST ask
+it (`store · work · approvals · capabilities · automation-store`). **A flag a call site can
+forget is a flag a call site will forget**: the four operations that happened to be right
+were right because somebody remembered, and the ten that were wrong are what remembering
+is worth.
+
+- **REFUSE, NEVER COERCE, AND FAIL TOWARD THE WRITE HEADER.** `String(["GET"])` is `"GET"`,
+  and this module's own first draft had exactly that — the most-repeated value trap in this
+  repository, in the four lines written to close another instance of the same class. A
+  non-string is unreadable and answers `content-profile`, which is the cheap way round:
+  `Content-Profile` on a GET is ignored and costs nothing, while `Accept-Profile` on a POST
+  silently loses the schema.
+- **THE METHOD IS FOLDED, because `fetch` does not fold it for you.**
+
+### ⚠ TWO OF THE FIVE STORES USED THE RULE WITHOUT IMPORTING IT
+
+`store.mjs` and `automation-store.mjs`. The reference sits inside a function, so
+`node --check` passes and both modules LOAD — this directory's recorded free-identifier
+trap, where the throw waits for the first request. **What caught it was the unit suite: 89
+of 404 tests red.** What did NOT catch it was the demonstration, which reached it as
+`profileFor is not defined` inside a delivery and reported it as a failed run. *The suite
+is the instrument for this class and the demonstration is not*, and the census in
+`test/rest-profile.test.mjs` now asks for the import as well as the call.
+
+### ⚠ AND THE LOCAL POSTGREST SHIM HAD NO PROFILE HANDLING AT ALL
+
+Which is why `npm run verify:tools` passed **78 checks over a store that could not have
+worked**. `scripts/local-rest.mjs` read the path and ignored the headers, so it answered
+all ten defective requests happily. *A stand-in MORE permissive than the thing it stands in
+for hides a defect exactly as well as one that is less capable* — the third instance of
+that class in this product (after the `run_model` column the view did not have, and the
+fixed column list that hid the dropped `status`).
+
+**IT ENFORCES THE RULE NOW, GATED ONCE ABOVE EVERY ROUTE**, which is stricter than a gate
+per route: a relation added below cannot be reached without naming its schema, because
+there is nowhere to add one that is not already behind it. It is deliberately **not a
+resolver** — nothing looks in `public`, because these relations are only ever in `agent`.
+What it does is refuse in PostgREST's own words, so a store that names the wrong header
+fails there rather than in production. **Measured, all six readings, each for its own
+reason:**
+
+| request | answer |
+|---|---|
+| POST + `accept-profile` (the defect) | **404 `PGRST202`**, naming which header was sent instead |
+| GET + `content-profile` (the mirror) | **404 `PGRST205`** |
+| either verb with no profile at all | the same 404 — which is what "absent means the default schema" amounts to |
+| POST + a schema nobody exposes | **406 `PGRST106`**, naming what would be accepted |
+| POST + `content-profile` (control) | through the gate |
+| GET + `accept-profile` (control) | through the gate |
+
+**THE CONTROLS ARE WHAT MAKE THE FOUR REFUSALS MEAN ANYTHING**: a gate that refused
+everything would satisfy all four. And `test/helpers/memory-rest.mjs` — the in-memory fake
+— read EITHER header until today, **which is that same trap sitting under a comment written
+against it**; it honours the method's own header now, and on table paths as well as RPCs.
+
+### The demonstration carries the claim itself, with its observer alive in that process
+
+`rest.refusedProfiles()` counts what the gate turned away, and `verify:tools` section 7c
+asserts it is **zero across the whole run** — a negative assertion, so the same section
+then probes the gate (the old defect, refused `404 PGRST202`), probes the control (the same
+call with the write header, through), and asserts the counter moved by exactly one. Without
+the probes, "everything passed" and "the gate was never built" read identically.
+
+**AND THE OBSERVER WAS PROVED ALIVE THE EXPENSIVE WAY TOO, before the guard existed**: the
+defect was put back into `capabilities.mjs` (`"accept-profile": schema` hardcoded) and the
+demonstration went RED — `...and it really searched, finding the passage with its source`
+and `listing the sources is the real list` both `null`. Restored immediately.
+
+### Measured
+
+- **Engine suite 402 → 408**, 0 failed, **and the arithmetic closes exactly**: five for
+  `test/rest-profile.test.mjs` (new) and one for `capabilities.test.mjs` (19 → 20). Measured
+  per file and cross-checked against the aggregate, which is how the M5 stamp above was
+  found to be seven low. **The 402 is HEAD's own number, measured in a clean worktree at
+  `e09fcf6`** rather than taken from the entry above it.
+  **ONE CASE MOVED OUT OF `capabilities.test.mjs` RATHER THAN BEING DUPLICATED** — the
+  five-speaker census belongs to the rule, not to one of its speakers, and it was two copies
+  of one check the moment the rule got a file of its own. The note left behind says where it
+  went, because a check that vanishes reads like a check that was dropped.
+- **Four demonstrations, every one through the strict shim: `verify:tools` 78 → 82,
+  `verify:chat` 112, `verify:auto` 70, `verify:wf` 125 — all 0 failed.** The three
+  unchanged counts are the control that says this round broke nothing, and they are
+  *stronger* than before because the shim they ran against now refuses a header it used to
+  ignore.
+- **`npm run test:pg`: 633, 0 failed — UNCHANGED by this round, which is the control.**
+  Nothing here can reach that check: `test/integration/` and `supabase/` are both untouched
+  (`git status` over both is empty), so 633 is HEAD's number as well as this tree's.
+  **⚠ AND IT IS NOT THE 632 MILESTONE 5 STAMPED**, which is corrected in that entry's own
+  Measured block rather than quietly here — the same drift as the suite count, one check
+  wide, and found only by measuring the commit instead of reading the note about it.
+- **Sweep spec 400 → 408 entries.** The six mutants that named a store's own profile line
+  were **re-anchored, not appeased** — each property moved from "this store chooses the
+  header" to "this store asks the rule" — and the `store: create` mutant lost `write: true`
+  because `req` no longer takes the option. **Eight new**: six on `rest-profile.mjs` (the
+  direction inverted, POST admitted to the read set, the case not folded, a non-string
+  coerced, cannot-tell failing the expensive way, the header name not used) and **two
+  wiring hops** (`work` and `caps` asking the rule about a method they never send). The
+  wiring ones are not redundant with the rule's: a store that hands over a constant has
+  decided for itself again, one indirection further in, and the rule module cannot see it.

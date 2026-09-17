@@ -39,6 +39,15 @@ const RPC = Object.freeze({
 /** Postgres's "you may not" — what `accept_run` raises for another tenant's id. */
 const NOT_ALLOWED = "42501";
 
+import { profileFor } from "./rest-profile.mjs";
+
+/**
+ * ⚠ EVERY PostgREST RPC IS A POST, and the profile header follows from that rather than
+ * from what the function does — see `rest-profile.mjs`. Named once here so the request and
+ * the header cannot disagree about it.
+ */
+const METHOD = "POST";
+
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /** The states `accept` and `requeue` can answer. A state not on this list is a bug. */
@@ -79,7 +88,7 @@ export function makeWork(opts = {}) {
 
   async function rpc(name, args) {
     const res = await doFetch(`${base}/rest/v1/rpc/${name}`, {
-      method: "POST",
+      method: METHOD,
       headers: {
         apikey: opts.key,
         authorization: `Bearer ${opts.key}`,
@@ -87,7 +96,7 @@ export function makeWork(opts = {}) {
         // The schema is named per request rather than left to a default, because a
         // default is the thing that silently keeps working while meaning something
         // else.
-        "content-profile": schema,
+        ...profileFor(METHOD, schema),
         accept: "application/json",
       },
       body: JSON.stringify(args),

@@ -16,6 +16,7 @@ import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOM
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
 import { PUBLIC, defineTool } from "../src/define.mjs";
+import { profileHeader } from "../src/rest-profile.mjs";
 
 const T = "tenant-one";
 const AG = "11111111-1111-4111-8111-111111111111";
@@ -23,14 +24,24 @@ const OTHER = "22222222-2222-4222-8222-222222222222";
 const AUTO = "33333333-3333-4333-8333-333333333333";
 const MIGRATIONS = path.join(import.meta.dirname, "..", "supabase", "migrations");
 
-/** A backend that records what went out and answers whatever the case wants back. */
+/**
+ * A backend that records what went out and answers whatever the case wants back.
+ *
+ * ⚠ **IT RECORDS THE WHOLE REQUEST, INCLUDING THE METHOD, and that is not tidiness.**
+ * The first version of this helper kept `{rpc, body, headers}` and dropped `opts.method`
+ * — so `sent.at(-1).method` was `undefined`, and the two cases written to prove that
+ * every RPC is a POST failed against a store that really does send one. *A fake less
+ * capable than the thing it stands in for hides a defect exactly as well as one that is
+ * more*, and here it was the one field the profile rule turns on. Whatever the store
+ * hands `fetch`, this keeps.
+ */
 function recorder(answer = () => ({})) {
   const sent = [];
   const can = makeCapabilities({
     url: "http://local", key: "service-key",
     fetch: async (url, opts) => {
       const body = JSON.parse(opts.body);
-      sent.push({ rpc: url.split("/rpc/")[1], body, headers: opts.headers });
+      sent.push({ ...opts, url, rpc: url.split("/rpc/")[1], body });
       const out = answer(url.split("/rpc/")[1], body);
       return { ok: true, status: 200, text: async () => JSON.stringify(out) };
     },
@@ -188,17 +199,58 @@ test("the caps this side passes are the ones the operations send", async () => {
   assert.equal(sent.at(-1).body.p_max, CAP_AUTOMATIONS);
 });
 
-test("⚠ the profile header is derived from the DIRECTION, not from the call site", async () => {
+test("⚠ THE PROFILE HEADER IS DERIVED FROM THE HTTP METHOD — every RPC is a POST", async () => {
+  // ⚠ **RE-ANCHORED, NOT APPEASED: THIS CASE ASSERTED THE DEFECT AS CORRECT.** It was
+  // called "derived from the DIRECTION" and demanded `accept-profile` on a read — and every
+  // PostgREST RPC is a POST, where that header is not honoured at all. So a read RPC had no
+  // profile as far as PostgREST is concerned and resolved against the default schema, where
+  // these functions do not exist. MEASURED before the fix: **10 of the 14 operations sent
+  // it**, including the `read_automation` pre-check `pause_automation` and `run_automation`
+  // each make first, so on a real PostgREST both would have failed at their own first step.
+  // The same mistake the site builder's DELETE made, recorded there, one product over.
   const { can, sent } = recorder(() => ({ ok: true }));
   const ops = can.forTenant(T).forAgent(AG);
   await ops.listMemory();
-  assert.equal(sent.at(-1).headers["accept-profile"], "agent");
-  assert.equal(sent.at(-1).headers["content-profile"], undefined, "a read carried a write header");
+  assert.equal(sent.at(-1).method, "POST", "a read RPC is not a POST after all");
+  assert.equal(sent.at(-1).headers["content-profile"], "agent",
+    "a read RPC named its schema in the header PostgREST only honours on a GET");
+  assert.equal(sent.at(-1).headers["accept-profile"], undefined);
   await ops.saveMemory({ name: "a", value: "b" });
   assert.equal(sent.at(-1).headers["content-profile"], "agent");
-  assert.equal(sent.at(-1).headers["accept-profile"], undefined,
-    "a write carried the read header — which PostgREST ignores, so it would resolve against `public`");
+  assert.equal(sent.at(-1).headers["accept-profile"], undefined);
 });
+
+test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not two examples", async () => {
+  // A flag a call site can forget is a flag a call site will forget: no call site passed
+  // the old one at all, so the four operations that were right were right by accident of
+  // how they were written. Every operation is driven and every request is read.
+  const AUTO = "22222222-2222-4222-8222-222222222222";
+  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true, id: AUTO }));
+  const ops = can.forTenant(T).forAgent(AG);
+  const drive = {
+    searchKnowledge: [{ query: "x" }], listKnowledge: [], readKnowledge: [{ id: AUTO }],
+    listMemory: [], saveMemory: [{ name: "a", value: "b" }], deleteMemory: [{ name: "a" }],
+    listAutomations: [], readAutomation: [{ id: AUTO }],
+    createAutomation: [{ id: AUTO, name: "x", steps: [] }], updateAutomation: [{ id: AUTO, name: "y" }],
+    setAutomationEnabled: [{ id: AUTO, enabled: false }], startAutomation: [{ id: AUTO, runId: AUTO }],
+    listExecutions: [{ automation: AUTO }], readExecution: [{ id: AUTO }],
+  };
+  // ⚠ CENSUSED AGAINST `CAPABILITIES` BOTH WAYS, so an operation added next month is not
+  // silently left undriven — the silence would read exactly like coverage.
+  assert.deepEqual(Object.keys(drive).sort(), [...CAPABILITIES].sort());
+  for (const [name, args] of Object.entries(drive)) { try { await ops[name](...args); } catch { /* the shape, not the header */ } }
+  assert.ok(sent.length >= CAPABILITIES.length, `only ${sent.length} requests for ${CAPABILITIES.length} operations`);
+  for (const r of sent) {
+    assert.equal(r.method, "POST", `${r.rpc} is not a POST`);
+    assert.equal(r.headers["content-profile"], "agent", `${r.rpc} did not name its schema for a POST`);
+    assert.equal(r.headers["accept-profile"], undefined, `${r.rpc} sent the read header on a POST`);
+  }
+});
+
+// ⚠ THE CENSUS THAT USED TO SIT HERE MOVED TO `test/rest-profile.test.mjs`, WHOLE.
+// It is about the RULE and its five speakers, not about this store — and it was one of two
+// copies of the same check the moment the rule got a file of its own. Two lists of one
+// thing drift, and the one that drifts is the one reporting whether the rule is obeyed.
 
 test("⚠ A BACKEND THAT FAILED IS RAISED, NEVER READ AS AN ANSWER", async () => {
   // **CANNOT-TELL MUST NEVER READ AS A VALUE**, and this is the one reader where the two

@@ -33,6 +33,7 @@ const WR = at("workflow-refs.mjs");
 const CP = at("capabilities.mjs");
 const CT = at("capability-tools.mjs");
 const AP = at("approvals.mjs");
+const RP = at("rest-profile.mjs");
 /**
  * THE TWO FILES OUTSIDE `src/` THAT DECIDE WHETHER A DEPLOYMENT CAN BE IDENTIFIED —
  * the workflow that mints the version id and the script that holds the Worker to it.
@@ -231,8 +232,8 @@ const spec = [
   m("store: a journal ignores where the last one left off", S,
     "let next = Number.isInteger(seq) && seq >= 0 ? seq : 0;", "let next = 0;"),
   m("store: create asserts a status the database is supposed to derive", S,
-    'body: { id: runId, tenant_id: tenant }, write: true, prefer: "return=minimal"',
-    'body: { id: runId, tenant_id: tenant, status: "running" }, write: true, prefer: "return=minimal"'),
+    'body: { id: runId, tenant_id: tenant }, prefer: "return=minimal"',
+    'body: { id: runId, tenant_id: tenant, status: "running" }, prefer: "return=minimal"'),
   m("store: the counter does not advance on a successful append", S,
     'if (answer === "stored") { next = at + 1; return { seq: at, stored: true }; }',
     'if (answer === "stored") { return { seq: at, stored: true }; }'),
@@ -260,7 +261,7 @@ const spec = [
     "        async load(runId) {\n          return readRun(runId);",
     '        async load(runId) {\n          return this.open(runId, { hold: { worker: "r", token: "r" } });'),
   m("store: the non-public schema is never named on the wire", S,
-    '[write ? "content-profile" : "accept-profile"]: schema,', '"x-not-a-profile": schema,'),
+    "    ...profileFor(method, schema),", '    "x-not-a-profile": schema,'),
   m("store: resumable is not scoped to one tenant", S,
     "const q = `${RUNS}?tenant_id=eq.${encodeURIComponent(tenant)}&status=eq.running`",
     "const q = `${RUNS}?status=eq.running`"),
@@ -526,7 +527,13 @@ const spec = [
     "{ p_run_id: runId, p_worker: worker, p_token: token, p_done: done, p_error: error })) === true;",
     "{ p_run_id: runId, p_worker: worker, p_token: null, p_done: done, p_error: error })) === true;"),
   m("work: the schema is not named, so the queue's functions are looked for in public", at("work.mjs"),
-    '        "content-profile": schema,', "        // no profile"),
+    "        ...profileFor(METHOD, schema),", "        // no profile"),
+  // ⚠ AND THE METHOD IT HANDS OVER IS THE HOP THE RULE MODULE CANNOT SEE. A store that
+  // asks `profileFor` with a constant is a store that decides for itself again, one
+  // indirection further in — measured: every RPC here is a POST, so naming "GET" sends
+  // `accept-profile`, which PostgREST ignores on the request it really makes.
+  m("work: the profile is asked about a method this store never sends", at("work.mjs"),
+    "        ...profileFor(METHOD, schema),", '        ...profileFor("GET", schema),'),
 
   // ── runner.mjs: the consumer ──────────────────────────────────────────────
   m("runner: A DUPLICATE DELIVERY EXECUTES THE RUN AGAIN", at("runner.mjs"),
@@ -909,8 +916,7 @@ const spec = [
   // read header on a write, which is how a DELETE in the other product once resolved
   // against `public` and could never have worked.
   m("automation-store: every request sends the READ profile header", AS,
-    '    [write ? "content-profile" : "accept-profile"]: schema,',
-    '    "accept-profile": schema,'),
+    "    ...profileFor(method, schema),", '    "accept-profile": schema,'),
   // THE TENANT IS IN THE FILTER, as the second wall behind the claim.
   m("automation-store: the execution is read without its tenant", AS,
     "        `automation_runs?id=eq.${encodeURIComponent(runId)}&tenant_id=eq.${encodeURIComponent(tenant)}`",
@@ -1013,8 +1019,40 @@ const spec = [
     "const isId = (v) => typeof v === \"string\" && UUID.test(v);",
     "const isId = (v) => typeof v === \"string\";"),
   m("caps: the profile header is the same for a read and a write", CP,
-    "    [write ? \"content-profile\" : \"accept-profile\"]: schema,",
-    "    \"accept-profile\": schema,"),
+    "    ...profileFor(method, schema),", "    \"accept-profile\": schema,"),
+  // THE DEFECT AS IT REALLY SHIPPED: ten of these fourteen operations sent the READ header
+  // on their POST, `read_automation` — the pre-check `pause_automation` and
+  // `run_automation` each make first — among them.
+  m("caps: the profile is asked about a method these RPCs never send", CP,
+    "    ...profileFor(method, schema),", '    ...profileFor("GET", schema),'),
+
+  // ── rest-profile.mjs: THE ONE RULE ────────────────────────────────────────
+  // Five stores ask this, so it is the one place a wrong answer reaches all of them —
+  // and the five wiring mutants above are what stop it becoming the only wall, since a
+  // store that never asks is a breakage this module cannot see.
+  m("profile: the direction is inverted, so every POST names no schema at all", RP,
+    'return READ_VERBS.includes(method.toUpperCase()) ? "accept-profile" : "content-profile";',
+    'return READ_VERBS.includes(method.toUpperCase()) ? "content-profile" : "accept-profile";'),
+  // POST is what every RPC is, so admitting it to the read set is the defect itself.
+  m("profile: POST is treated as a read, which is the defect this module closed", RP,
+    'export const READ_VERBS = Object.freeze(["GET", "HEAD"]);',
+    'export const READ_VERBS = Object.freeze(["GET", "HEAD", "POST"]);'),
+  // A LOWERCASE METHOD IS THE SAME METHOD. `fetch` does not fold it for you.
+  m("profile: the method is compared without folding its case", RP,
+    "return READ_VERBS.includes(method.toUpperCase())", "return READ_VERBS.includes(method)"),
+  // ⚠ REFUSE, NEVER COERCE — `String(["GET"])` is `"GET"`, so a one-element array
+  // answered the READ header on this module's own first draft.
+  m("profile: a method that is not a string is coerced into one", RP,
+    'if (typeof method !== "string") return "content-profile";',
+    "method = String(method ?? \"\");"),
+  // AND CANNOT-TELL FAILS TOWARD THE WRITE HEADER, because `Content-Profile` on a GET is
+  // ignored and costs nothing while `Accept-Profile` on a POST silently loses the schema.
+  m("profile: an unreadable method falls to the read header, the expensive way round", RP,
+    'if (typeof method !== "string") return "content-profile";',
+    'if (typeof method !== "string") return "accept-profile";'),
+  m("profile: the header name is not the one the schema is put under", RP,
+    "  return { [profileHeader(method)]: schema };",
+    "  return { \"accept-profile\": schema };"),
   m("caps: a failed request is read as an answer rather than raised", CP,
     "      const e = new Error(`${name}: HTTP ${res.status}${parsed?.message ? ` — ${parsed.message}` : \"\"}`);\n      e.status = res.status;\n      throw e;",
     "      return null;"),
@@ -1139,7 +1177,7 @@ const spec = [
   m("approvals: the run is not compelled, so a gate can ask about any run", AP,
     'if (!isText(runId)) throw new TypeError("forRun: runId must be a non-empty string");', ""),
   m("approvals: the write carries the READ profile header, which PostgREST ignores", AP,
-    '        "content-profile": schema,', '        "accept-profile": schema,'),
+    "        ...profileFor(METHOD, schema),", '        "accept-profile": schema,'),
   m("approvals: a rejection and a missing approver say the same thing", AP,
     '    return { ok: false, error: "rejected",', '    return { ok: false, error: "no-approver",'),
 

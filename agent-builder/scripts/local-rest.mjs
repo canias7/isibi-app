@@ -203,6 +203,59 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
     return cols.map((c) => `"${c}"`).join(", ");
   }
 
+  /**
+   * ⚠ WHICH SCHEMA A REQUEST NAMED, BY PostgREST'S OWN RULE — and until 2026-09-17 this
+   * shim had no profile handling at all.
+   *
+   * `Accept-Profile` is honoured on `GET` and `HEAD`; `Content-Profile` on every other
+   * verb; **the other one is IGNORED, not read as a fallback.** So a POST carrying only
+   * `accept-profile: agent` has named NO schema, resolves against the default one, and is
+   * answered out of the schema cache where these relations do not exist.
+   *
+   * **THAT IS THE WALL THAT WAS MISSING, AND IT COST A MEASURED DEFECT.** Ten of the
+   * fourteen capability operations sent `accept-profile` on a POST — among them the
+   * `read_automation` pre-check `pause_automation` and `run_automation` each make first —
+   * and this shim answered every one of them happily, because it read the path and ignored
+   * the headers. So `npm run verify:tools` passed 78 checks over a store that could not
+   * have worked against a real PostgREST. *A shim more permissive than the thing it stands
+   * in for hides a defect exactly as well as one that is less capable*, and this is the
+   * third recorded instance of that class in this file's own neighbourhood.
+   *
+   * It is deliberately NOT a resolver: nothing here looks in `public`, because these
+   * relations are only ever in `agent`. What it does is refuse in PostgREST's own words,
+   * so a store that names the wrong header fails HERE rather than in production.
+   */
+  const EXPOSED = new Set(["agent"]);
+  /**
+   * HOW MANY REQUESTS THIS GATE TURNED AWAY. Handed back so a demonstration can assert it
+   * refused NOTHING — which is a negative assertion, so the same demonstration has to probe
+   * the gate itself and prove it alive in that process. Without the counter, "everything
+   * passed" and "the gate was never built" read identically from outside.
+   */
+  let refusedProfiles = 0;
+  const READ_VERBS = new Set(["GET", "HEAD"]);
+  const profileHeaderFor = (method) => (READ_VERBS.has(String(method ?? "").toUpperCase())
+    ? "accept-profile" : "content-profile");
+  /** `{ok: true, schema}`, or `{ok: false, status, body}` in PostgREST's own shape. */
+  function profileOf(req, what) {
+    const wanted = profileHeaderFor(req.method);
+    const named = req.headers[wanted];
+    // ABSENT means the default schema, which is not where any of this lives. PostgREST
+    // answers out of its schema cache, and the code differs by what was asked for:
+    // a relation is PGRST205, a function is PGRST202.
+    if (typeof named !== "string" || !named.trim()) {
+      const other = wanted === "accept-profile" ? "content-profile" : "accept-profile";
+      const sent = typeof req.headers[other] === "string" ? ` (it sent ${other} instead, which PostgREST ignores on ${req.method})` : "";
+      return what.kind === "function"
+        ? { ok: false, status: 404, body: { code: "PGRST202", message: `Could not find the function public.${what.name} in the schema cache${sent}` } }
+        : { ok: false, status: 404, body: { code: "PGRST205", message: `Could not find the table 'public.${what.name}' in the schema cache${sent}` } };
+    }
+    if (!EXPOSED.has(named.trim())) {
+      return { ok: false, status: 406, body: { code: "PGRST106", message: `The schema must be one of the following: ${[...EXPOSED].join(", ")}` } };
+    }
+    return { ok: true, schema: named.trim() };
+  }
+
   const server = http.createServer(async (req, res) => {
     const send = (status, body) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -215,6 +268,18 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
       for await (const chunk of req) raw += chunk;
       const body = raw ? JSON.parse(raw) : undefined;
       if (!quiet) console.log(`  [rest] ${req.method} ${p}`);
+
+      // ⚠ THE PROFILE IS CHECKED ONCE, ABOVE EVERY ROUTE, which is stricter than a check
+      // per route: a relation added below cannot be reached without naming its schema,
+      // because there is nowhere to add one that is not already behind this.
+      if (p.startsWith("/rest/v1/")) {
+        const rest = p.slice("/rest/v1/".length);
+        const asked = rest.startsWith("rpc/")
+          ? { kind: "function", name: rest.slice("rpc/".length) }
+          : { kind: "relation", name: rest };
+        const prof = profileOf(req, asked);
+        if (!prof.ok) { refusedProfiles += 1; return send(prof.status, prof.body); }
+      }
 
       // ── the tables ────────────────────────────────────────────────────────
       if (p === "/rest/v1/runs" && req.method === "POST") {
@@ -531,7 +596,12 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
   return new Promise((resolve) => {
     server.listen(port, "127.0.0.1", () => {
       const { port: got } = server.address();
-      resolve({ url: `http://127.0.0.1:${got}`, port: got, close: () => new Promise((r) => server.close(r)) });
+      resolve({
+        url: `http://127.0.0.1:${got}`, port: got,
+        close: () => new Promise((r) => server.close(r)),
+        /** How many requests the profile gate turned away. See `refusedProfiles`. */
+        refusedProfiles: () => refusedProfiles,
+      });
     });
   });
 }

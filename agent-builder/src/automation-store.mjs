@@ -11,6 +11,8 @@
  * reading the configuration it was accepted with, finishing it, and asking the schedule
  * what is due.
  */
+import { profileFor } from "./rest-profile.mjs";
+
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
@@ -40,21 +42,22 @@ export function makeAutomationStore(opts = {}) {
   const base = opts.url.replace(/\/+$/, "");
   const schema = isText(opts.schema) ? opts.schema : "agent";
 
-  // The profile header names the RELATION and differs by DIRECTION: `content-profile`
-  // for anything that writes, `accept-profile` for a read. PostgREST ignores the read
-  // header on a write, which is how a DELETE in the other product once resolved against
-  // `public` and could never have worked.
-  const headers = (write) => ({
+  // ⚠ THE PROFILE COMES FROM THE METHOD, THROUGH `rest-profile.mjs`. This store was right
+  // in effect and wrong in reasoning: every one of its POST RPCs passed `write: true`,
+  // `search_knowledge` — a read function — included, so the flag was carrying the METHOD
+  // under a name that describes the function. The next read RPC added here would have been
+  // written `false` and broken, which is what happened to `capabilities.mjs`.
+  const headers = (method) => ({
     apikey: opts.key,
     authorization: `Bearer ${opts.key}`,
     "content-type": "application/json",
     accept: "application/json",
-    [write ? "content-profile" : "accept-profile"]: schema,
+    ...profileFor(method, schema),
   });
 
-  async function call(method, path, body, write) {
+  async function call(method, path, body) {
     const res = await doFetch(`${base}/rest/v1/${path}`, {
-      method, headers: headers(write),
+      method, headers: headers(method),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = typeof res.text === "function" ? await res.text() : "";
@@ -143,7 +146,7 @@ export function makeAutomationStore(opts = {}) {
         p_outcomes: outcomes, p_stop: stop,
         p_position: Number.isInteger(position) && position >= 0 ? position : 0,
         p_vars: values && typeof values === "object" ? values : {},
-      }, true);
+      });
       if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
         throw new Error("finish_automation_run: no answer came back");
       }
@@ -166,7 +169,7 @@ export function makeAutomationStore(opts = {}) {
         p_vars: values && typeof values === "object" ? values : {},
         p_outcomes: outcomes,
         p_waiting: waiting ?? null,
-      }, true);
+      });
       if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
         throw new Error("advance_automation_run: no answer came back");
       }
@@ -191,7 +194,7 @@ export function makeAutomationStore(opts = {}) {
       const rows = await call("POST", "rpc/search_knowledge", {
         p_tenant: tenant, p_agent_id: agentId, p_query: query,
         p_limit: Number.isInteger(limit) && limit > 0 ? limit : 5,
-      }, true);
+      });
       const list = Array.isArray(rows) ? rows : [];
       return {
         excerpts: list.map((e) => ({
@@ -211,7 +214,7 @@ export function makeAutomationStore(opts = {}) {
      * doorbell for that is a delivery `claim_run` will refuse.
      */
     async resumeDue({ limit } = {}) {
-      const rows = await call("POST", "rpc/resume_due_automations", { p_limit: limit }, true);
+      const rows = await call("POST", "rpc/resume_due_automations", { p_limit: limit });
       return Array.isArray(rows) ? rows : [];
     },
 
@@ -225,7 +228,7 @@ export function makeAutomationStore(opts = {}) {
     async tick({ catchupS, limit } = {}) {
       const rows = await call("POST", "rpc/tick_automations", {
         p_catchup_s: catchupS, p_limit: limit,
-      }, true);
+      });
       return Array.isArray(rows) ? rows : [];
     },
   };

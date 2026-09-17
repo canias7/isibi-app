@@ -34,6 +34,15 @@
  * function is an agent approving its own request, whatever sentence is in front of it.
  */
 
+import { profileFor } from "./rest-profile.mjs";
+
+/**
+ * ⚠ EVERY PostgREST RPC IS A POST, and the profile header follows from that rather than
+ * from what the function does — see `rest-profile.mjs`. Named once here so the request and
+ * the header cannot disagree about it.
+ */
+const METHOD = "POST";
+
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -185,11 +194,11 @@ export function makeApprovals(opts = {}) {
   // `/rpc/`, so it writes, and PostgREST ignores the read header on a write.
   const call = async (name, body) => {
     const res = await doFetch(`${base}/rest/v1/rpc/${name}`, {
-      method: "POST",
+      method: METHOD,
       headers: {
         apikey: opts.key, authorization: `Bearer ${opts.key}`,
         "content-type": "application/json", accept: "application/json",
-        "content-profile": schema,
+        ...profileFor(METHOD, schema),
       },
       body: JSON.stringify(body),
     });

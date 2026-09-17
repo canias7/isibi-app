@@ -54,6 +54,7 @@
  */
 
 import { replay, limitsFromJson } from "./journal.mjs";
+import { profileFor } from "./rest-profile.mjs";
 
 const RUNS = "runs";
 const ENTRIES = "run_entries";
@@ -113,17 +114,20 @@ export function makeRunStore(opts = {}) {
   // The schema is not `public`, so PostgREST is told which one per request. This
   // is the one deployment detail the store carries: the schema must be in
   // Supabase's exposed-schemas setting for these headers to be honoured.
-  const headers = (write) => ({
+  // ⚠ THE PROFILE COMES FROM THE METHOD, THROUGH `rest-profile.mjs` — one rule for all
+  // five stores. This one was already right (its GETs read and its one POST writes), and
+  // it is here so that no store decides for itself; a census asserts that.
+  const headers = (method) => ({
     "apikey": opts.key,
     "authorization": `Bearer ${opts.key}`,
     "content-type": "application/json",
-    [write ? "content-profile" : "accept-profile"]: schema,
+    ...profileFor(method, schema),
   });
 
-  async function req(method, path, { body, write = false, prefer } = {}) {
+  async function req(method, path, { body, prefer } = {}) {
     const res = await doFetch(`${base}/rest/v1/${path}`, {
       method,
-      headers: prefer ? { ...headers(write), prefer } : headers(write),
+      headers: prefer ? { ...headers(method), prefer } : headers(method),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = typeof res.text === "function" ? await res.text() : "";
@@ -338,7 +342,7 @@ export function makeRunStore(opts = {}) {
          */
         async create(runId) {
           if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("create: runId must be a non-empty string");
-          const r = await req("POST", RUNS, { body: { id: runId, tenant_id: tenant }, write: true, prefer: "return=minimal" });
+          const r = await req("POST", RUNS, { body: { id: runId, tenant_id: tenant }, prefer: "return=minimal" });
           // A REPEATED CREATE IS NOT AN ERROR, for the same reason a repeated
           // append is not: the caller cannot know which side of the commit its
           // connection died on. The primary key makes the second one a no-op.

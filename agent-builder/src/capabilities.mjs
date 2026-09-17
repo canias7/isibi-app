@@ -37,6 +37,8 @@
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
+import { profileFor } from "./rest-profile.mjs";
+
 /** A uuid, refused rather than coerced — `String(["…"])` is `"…"`. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isId = (v) => typeof v === "string" && UUID.test(v);
@@ -115,21 +117,29 @@ export function makeCapabilities(opts = {}) {
   const base = opts.url.replace(/\/+$/, "");
   const schema = isText(opts.schema) ? opts.schema : "agent";
 
-  // The profile header names the RELATION and differs by DIRECTION: `content-profile`
-  // for anything that writes, `accept-profile` for a read. PostgREST ignores the read
-  // header on a write — which is how a DELETE in the other product once resolved against
-  // `public` and could never have worked.
-  const headers = (write) => ({
+  // ⚠ **THE PROFILE COMES FROM THE METHOD, THROUGH `rest-profile.mjs`, AND THIS FILE IS
+  // WHY THAT MODULE EXISTS.** It chose by whether the FUNCTION writes, and every PostgREST
+  // RPC is a POST — so a read RPC named its schema in a header PostgREST only honours on a
+  // GET. MEASURED before the fix: **10 of these 14 operations sent `accept-profile` on a
+  // POST**, among them the `read_automation` pre-check `pause_automation` and
+  // `run_automation` each make first, so on a real PostgREST both would have failed at
+  // their own first step. No call site passed the flag at all, which is why the four that
+  // were right were right by having been written differently rather than by the rule.
+  const headers = (method) => ({
     apikey: opts.key,
     authorization: `Bearer ${opts.key}`,
     "content-type": "application/json",
     accept: "application/json",
-    [write ? "content-profile" : "accept-profile"]: schema,
+    ...profileFor(method, schema),
   });
 
-  async function rpc(name, body, write) {
+  // ⚠ ONE METHOD, NAMED ONCE. `rpc` had a third parameter for the header and nothing to
+  // pass it; the method is the only thing that decides, and it is written here.
+  const RPC_METHOD = "POST";
+
+  async function rpc(name, body) {
     const res = await doFetch(`${base}/rest/v1/rpc/${name}`, {
-      method: "POST", headers: headers(write), body: JSON.stringify(body),
+      method: RPC_METHOD, headers: headers(RPC_METHOD), body: JSON.stringify(body),
     });
     const text = typeof res.text === "function" ? await res.text() : "";
     let parsed = null;
