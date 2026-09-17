@@ -7316,6 +7316,139 @@ line — *read what a mutant really does, not what it was meant to do.*
 
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
 
+### A SITE TOO LARGE TO SHOW WHOLE KEEPS ITS CONTRACT, AND SAYS WHAT IT HID (2026-09-17)
+
+Owner, after the two gaps closed: *"continue with large-site context."*
+
+**MEASURED FIRST, AND THE MEASUREMENT IS WHY THIS IS THE PLATFORM'S FUTURE
+RATHER THAN ITS PRESENT: over the 100-site corpus ZERO sites exceed
+`MAX_PRIOR_CHARS` today** — the largest is 50,646 characters over 6 pages, the
+mean page is 7,744, so the window holds about 11.6 of them. A site reaches the
+wall by GROWING, one addon at a time, which is exactly what this path is for.
+
+**THE DEFECT, REPRODUCED THROUGH THE ROUTE ON 17 REAL PAGES (181,258
+characters).** Over the window `priorPagesBlock` fell through to a branch
+written for a REVISE — page names and *"write them again in full"* — and on a
+path where a returned page REPLACES the stored one that is the opposite
+instruction. Everything this lane means went with the source: no *"RETURN ONLY
+WHAT IS NEW OR CHANGED"*, no `remove` verb (whose own comment records that
+answering a deletion by returning nothing is the revise habit, and that it is
+what really happens when the sentence is missed), no byte-identical rule, no
+*"a page you do not return is KEPT"*. And `ok: true` came back with an empty
+`problems` and an empty `coverNote`: **nobody was told** — not the customer,
+not the record, not the trace.
+
+**THE CONTRACT IS UNCONDITIONAL NOW AND THE SOURCE IS WHAT GIVES.**
+`priorPagesSent` is `partsSent`'s shape one layer over, for the same reason: a
+bound that drops what it cannot carry has to NAME what it dropped, or the
+reader concludes the site does not have it. A page named and not shown is told
+it must not be returned, which is exactly what it is — returning it would
+replace a file nobody saw, and `keptProse` would refuse the whole change for it.
+
+- **`keep` IS THE PAGES THIS CHANGE IS ABOUT, then the HOME page.** Every add
+  kind carries the route it lands on, so the route fills the list from the
+  cleaned answers' own `page`/`path` fields and then adds `/` — the nav anchor
+  almost every addon touches, and the prompt's own *"usually ONE new page, plus
+  the page a visitor would look on to find it"*. Without it the selection is
+  stored order, and the page a section was designed to land on is exactly the
+  one worth the budget.
+- **A PAGE TOO BIG FOR WHAT IS LEFT IS SKIPPED, NEVER A STOP** — `partsSent`'s
+  rule, so one enormous page does not withhold four small ones behind it.
+- **THE WIRE ORDER IS THE SITE'S, WHATEVER `keep` DID TO THE SELECTION.** Which
+  pages are shown is a budget decision; the order they are read in is the
+  site's own, and a model handed its pages in an order that moves per request
+  reads that order as meaning something.
+- **ONE SELECTION, TWO READERS — and a sweep survivor is how that was found.**
+  The at-least-one fallback lived in the BLOCK, so the route's own reader did
+  not know about it: on a one-page site over the window the prompt SHOWED the
+  page and the reply reported it as unseen. It lives inside `priorPagesSent`
+  now, and the block owning a second selection is its own mutant.
+- **THE ONE-PAGE CASE IS A BELT, NOT A PATH, AND IT IS ASSERTED AS ONE.**
+  `MAX_PAGE_CHARS` (48,000) is under `MAX_PRIOR_CHARS` (90,000), so no page
+  `validatePages` admits can reach it; a page stored before those caps can. The
+  guard asserts the inequality, so the day either moves it stops being a belt
+  loudly.
+
+**A REVISE STILL DEGRADES THE OLD WAY, AND THAT IS RIGHT.** There an unreturned
+page is a DELETED page, so *"return only what changed"* really is unfollowable
+without the source in hand. The two modes part company, which is the finding
+rather than an omission.
+
+**…AND TWO OLDER FINDINGS REACHED THE REPLY AND NOT THE RECORD.**
+`requirementRecord` has been HANDED `missingPages` and `unknownKit` since each
+was written and had neither in its destructure — measured:
+`requirementRecord({…, missingPages: ["/gallery"]}).missingPages` answered
+`undefined`. So a page that did not survive generation and a kit name that is
+not in the kit were on the reply and absent from the thing anybody comes back
+to. Both land now, beside this round's `unseenPages`. **A value computed and
+never forwarded, in the record written to stop exactly that** — and nothing was
+watching, which is why each is its own mutant.
+
+**ALSO CHECKED AND NEEDING NO FIX, recorded rather than assumed**: `siteNote`
+is bounded by its OWN SLICES — the route list at 24, the coming-pages list at
+24, each page's kit at 40 and its parts at 20, read off the function — and the
+component block already names what it withholds (8 shown, 12 withheld at 20
+real components). **The page-source block was the one dishonest bound.**
+**⚠ AND THE CHARACTER FIGURE THAT USED TO SIT HERE IS WITHDRAWN RATHER THAN
+RESTATED.** The fix commit stamped *"926 at 1 page, 6,667 at 100"*; three
+attempts to reproduce it measured three different things, because `siteNote`
+takes `pages`, `tables` and `functions` as arrays of NAMES with `columns`,
+`tableInfo` and `builtFrom` keyed beside them, and every hand-built fixture got
+one of those shapes wrong — the first two answered 449 for BOTH sizes, which is
+the list never being read at all. *Derive a fixture from its real producer*, met
+three times in a row inside one check. The slice constants are the claim that
+survives; the number is not being carried forward on the strength of a fixture
+nobody can see.
+
+**⚠ A FREE-IDENTIFIER MISS, CAUGHT BY DRIVING AND BY NOTHING ELSE.**
+`fileOfRoute` was not imported into `worker.js`. `node --check` passes it and
+every source guard finds its landmarks; the route threw at its first call.
+
+**Guards**: `addon-route` 78 → 82 — the window driven end to end on real corpus
+pages (the contract, shown + named equal to the whole site with no overlap, the
+reply AND the stored record), `keep` proved against a target the budget
+provably drops, the route's own reader pinned to the prompt, and an ordinary
+site as the control, byte-identical. `requirement-coverage` 28, with the three
+record fields asserted inside the case that already drives it.
+
+**Sweep: 26 mutants, 26 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — three passes, and **not one survivor at any point was the
+product's**. Pass 1 read 11/14 and every one of the fourteen was a guard gap;
+pass 2 read 25/1; pass 3 is the tally above. Two of those gaps are worth
+keeping as rules:
+
+- **⚠ THE `keep` CASE WAS VACUOUS AND EIGHT MUTANTS SURVIVED IT.** It targeted
+  the LAST page in stored order, on the reasoning that stored order would drop
+  it — and `priorPagesSent` SKIPS a page too big for the remainder rather than
+  stopping, so the last page fits in what is left and was shown either way. It
+  carries its own CONTROL now: the same site and the same change aimed at a
+  page the budget takes anyway, which establishes BY MEASUREMENT which page is
+  dropped, and only then is that page named.
+- **⚠ AND THE FIXTURE COULD NOT TELL THE TWO PAGE ORDERS APART.** Both
+  large-site fixtures had the home page at index 0, so the budget took it
+  whatever `keep` said and three more mutants survived. The home page is LAST
+  in both now, and the order assertion carries its own non-vacuity check.
+- **⚠ THE LAST SURVIVOR WAS THE ROUTE'S OWN READER, AND WHICH CASE CAN SEE IT
+  IS A MEASUREMENT.** `aUnseenPages` comes from `priorPagesSent` called AGAIN
+  in the route, so it must ask with the SAME keep list the prompt was built
+  from. On the FIRST case's fixture the two lists give byte-identical
+  selections — nine pages, 89,403 characters, same order — because the home
+  page is small and stored order reaches it anyway. On the SECOND's they differ
+  by exactly one pair: named, the target `printer-quote` is shown and
+  `printer-products` is withheld; unnamed, that pair swaps. So the assertion
+  lives in the second case, with its own non-vacuity check that the prompt does
+  not already name the target.
+
+**Suite 6,774** — 6,770 + 4, and the four are all `addon-route`'s (78 → 81 for
+the fix, 81 → 82 for pass 1's one-page closure). `requirement-coverage` stays
+28: the record's three fields and pass 3's reader assertion are all inside
+cases that already existed. **The counts are read out of git at each commit
+rather than recalled** — the commit that shipped the fix stamped 6,773 from a
+tree where `addon-route` was 81, and a number stamped before its last case is
+this file's own recorded trap.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
+
 ### THE HAND-OFF AND ITS ANSWER ARE ONE OUTCOME NOW (2026-09-16)
 
 Owner, after run 50: *"Reconcile the original handoff with the receiving

@@ -155,6 +155,83 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-17 — Big sites: the addon stopped telling the writer to retype them
+
+Next on your list after the two gaps. Same rules: **nothing merged, nothing
+deployed, no credits spent.**
+
+### The short version
+
+There is a limit on how much of a site's own code we can put in front of the
+model in one request. No site of yours is anywhere near it — the biggest is
+about half — so this has never happened to a real customer. But sites only ever
+grow, one addon at a time, and I wanted to know what happens on the day one
+crosses it.
+
+What happened was bad. Over the limit, the addon quietly stopped being an addon.
+It fell through to the instructions we use for a **full rebuild**, which say
+*"write every page again in full"* — the exact opposite of what an addon means,
+where a page sent back **replaces** the one that is there. Everything that makes
+an addon safe went with it: no "only send what's new", no way to delete a page,
+no "leave the rest byte-identical". And the reply came back saying it all went
+fine, with nothing in the problems list and nothing said to the customer.
+
+I reproduced it on 17 real pages from your own corpus before changing a line.
+
+### What it does now
+
+The addon instructions are sent **every time**, whatever the size. What gives
+instead is the **source code**: it shows as many pages as fit, and then **names
+the ones it could not show** and says plainly not to touch them — because
+sending back a page you were never shown would overwrite work nobody looked at.
+
+Two details, and they are the difference between this being useful and being
+arbitrary:
+
+* **The pages your change is actually about go in first.** If a section is being
+  added to `/gallery`, `/gallery` is shown even if it is the last page on the
+  site. Then the home page, because that is where the link to a new page almost
+  always goes.
+* **A page too big to fit is skipped, not a full stop.** One enormous page does
+  not push four small ones out behind it.
+
+And whichever pages get shown, they are handed over **in the site's own order**,
+not in the order the budget happened to pick them. An order that moves from one
+request to the next reads, to a model, as if it meant something.
+
+### Two older things that were being thrown away
+
+While I was in there I found two facts we already work out reaching the **reply**
+and not the **record** — the thing anyone comes back to later: which requested
+pages did not survive, and which component names the model made up. Both had
+been computed and then dropped on the floor since the day each was written.
+They are saved now, along with this round's new one (which pages were too big to
+show).
+
+### What I did not change, and why
+
+I checked two other things that could have had the same problem and neither
+does: the site description we hand every designer caps its own lists (24 routes,
+40 components per page), so it flattens out instead of growing with the site,
+and the component list already says out loud what it left out. **The page source
+was the one dishonest limit.** Recording that rather than "I looked and it was
+fine".
+
+One correction while I was checking it: an earlier note of mine put exact
+character counts on that description. I could not reproduce them — three
+attempts measured three different things, because I kept handing the function
+the wrong shape — so I have taken the numbers out rather than repeat them. The
+part that matters is the cap, and that I can point at in the code.
+
+### The honest caveat
+
+None of this can be seen by a customer today, because no site is big enough. It
+is insurance against the first one that is — and it is the kind of insurance
+that only gets tested for real at the worst possible moment, which is why it is
+driven end to end here on real pages rather than argued about.
+
+---
+
 ## 2026-09-17 — Addon milestone 1: the addon now knows what the site is
 
 You asked to keep the work on the whole ADDON path until the milestone is done,
