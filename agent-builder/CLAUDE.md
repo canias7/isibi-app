@@ -3909,6 +3909,60 @@ collapsing those two would be the claim this milestone exists to stop making.
 - **`verify:auto` 70, `verify:wf` 125, `verify:chat` 112 and the site builder's suite
   6,791 — every one unchanged**, which is the control that this round moved nothing else.
 - **Sweep spec 384 → 400 entries; SQL spec 168.**
+
+### ⚠ AND THE SWEEP SAID THIS ROUND'S CENTREPIECE WAS UNGUARDED — 11 survivors, all mine
+
+**394 mutants, 383 killed, 11 survived, 0 never applied, 6 comment-only controls**, and
+**every one of the eleven was in this round's own work.** EIGHT were a single gap:
+**nothing in `test/*.test.mjs` had ever read `ctx.operation` as `run.mjs` BUILDS it, or
+resumed a batch holding two different calls.** The identity was proved end to end by
+`verify:tools`, which `npm run sweep` does not run — *a property proven only by an
+instrument the sweep cannot run is a property no mutant can be caught by*, which this
+directory recorded once already in the richer-workflows round and earned again here.
+
+**SEVEN CASES CLOSE THEM**, each against a named mutant: a tool told its call's own
+identity (the run, the position and the REAL argument hash, with two calls in one batch
+differing); the arguments being part of it, driven as two runs at one position with "the
+same call is the same identity" beside it so *they differ* is not satisfied by randomness;
+no seed meaning NO identity rather than a partial one; unwritable arguments answered and
+named with nothing run and no `unresolved`; a resumed batch giving each call its own
+arguments and identity; a resumed write that threw being unresolved too; and, in the
+RUNNER, the seed being the run's own id.
+
+- **TWO PENDING CALLS IS THE ONLY SHAPE THAT SEPARATES THE TWO READINGS.** With one,
+  `p.args` and `prior.pending[0].args` are the same object — so every earlier resume case
+  passed with the pairing reversed, which is exactly how the mutant survived.
+- **THE RESUME PATH HAS ITS OWN COPY OF THE `unresolved` DECISION**, so the live-path case
+  could not see it. Two paths, two mutants, two cases.
+- **AND THE SEED HOP EXISTS ONLY IN THE RUNNER**: from inside `run.mjs` a seed is just a
+  seed, so a constant one is invisible there and is the difference between two runs having
+  one identity and two.
+
+**TWO MUTANTS WERE INERT AND ARE REPLACED, MEASURED RATHER THAN HUNTED.** One ADDED
+`repeatable: true` to a tool that already declares it — a duplicate key in an object
+literal, the later winning, both `true`; it was written while `run_automation` was
+`repeatable: false` and stopped meaning anything when the tool's own answer changed. It
+mints a FRESH id per call now, which is the defect it was about. The other is
+`operationKey`'s `e instanceof TypeError`, redundant because `storedForm` wraps every
+refusal — mutated as the PAIR that IS observable: the encoder raising something the catch
+does not read.
+
+**AND `canonicalJson`'s `undefined` ARM IS NOW UNREACHABLE FROM THE HASH**, because
+`storedForm` sits in front of it — so its injectivity is asserted DIRECTLY. Kept total
+rather than trimmed (it is a standalone encoder and a caller handing it `undefined` must
+not get `null`'s answer), and asserted where the only remaining observer is.
+
+**⚠ ONE OF THE NEW CASES FAILED FOR A REASON THE PRODUCT IS RIGHT ABOUT.** Its answers
+carried `usage: null`, and an unreported usage against a finite bound is a stop with
+`reason: "unmeasured"` — this engine's own rule. Run one ended after a step and the case
+reported the identity as broken; `[1, 1]` out of the send log is what said so. *A test
+that fails for a reason the product is right about is a test that has to change.*
+
+**All eleven were re-checked one at a time** against the files that can see them — 11
+killed, 0 survived, each by a NAMED test, under the runner's own child environment
+(`MUTATION_SWEEP=1`, no `NODE_TEST_CONTEXT`), which is the re-check this repository has
+already had wrong once. A narrow list can only produce a false SURVIVOR, so the full pass
+is what decides, and **its tally is not stamped here yet.**
 - ⚠ **AND ONE MORE NAME COLLISION, in my own new section**: `before`, `first`, `again` and
   `second` were already declared in `verify-tools.mjs`, which is one long function body —
   *a re-anchor lands in a scope it did not write*, met three times in one edit. Every local
