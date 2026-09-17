@@ -1,10 +1,23 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- AUTOMATIONS: a trigger, a condition, an action, and a saved result.
 --
--- ⚠ THE NAME IS A PLACEHOLDER until this is applied, at which point it must be
--- renamed to the REMOTE VERSION the apply reports back. Lining the two up by name
--- is the only thing that works later; this folder's rule, recorded in
--- `agent-builder/CLAUDE.md`.
+-- APPLIED 2026-09-17 as remote version `20260917003304`, and this file is named for
+-- it. It was written under a placeholder name and renamed the moment the apply
+-- reported that version back, which is this folder's rule: lining the two up by name
+-- is the only thing that works later. Recorded in `agent-builder/CLAUDE.md`.
+--
+-- **WHAT IS LIVE WAS PROVED EQUAL TO THIS FILE RATHER THAN ASSUMED.** The connector
+-- is the only way in from a session, so the SQL had to be authored in a tool call —
+-- so a narrowed census of everything this migration creates (10 function definitions
+-- by md5, every column of both tables and the view plus `run_work.executor`, every
+-- index, both policies, every check constraint, the RLS flags, the trigger, and the
+-- view's own `reloptions`, where `security_invoker` lives) was taken from the live
+-- database and from a throwaway local PostgreSQL that had executed THIS file:
+-- **82 objects, md5 `976acfa04457bc8242958900e51d8284`, identical.** A census over the
+-- whole `agent` schema is the WRONG instrument for that and was tried first — it
+-- counts roles and grants the two environments legitimately differ on (342 rows live
+-- against 357 locally), so it cannot tell a transcription slip from Supabase having
+-- more roles than a fresh cluster.
 --
 -- **AN AUTOMATION EXECUTION IS A RUN, AND THAT IS THE WHOLE REUSE ARGUMENT.** The
 -- durable execution system in this schema is four generic pieces plus one specific
