@@ -40,13 +40,30 @@ import {
   MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
   WEEKDAYS as ENGINE_WEEKDAYS, readWorkflow as engineReadWorkflow,
   AUTOMATION_SCHEDULES as ENGINE_SCHEDULES,
+  VALUE_TYPES as ENGINE_VALUE_TYPES, TYPE_ACCEPTS as ENGINE_TYPE_ACCEPTS,
+  BLOCK_SHAPES as ENGINE_BLOCK_SHAPES,
+  MAX_LOOP_ITERATIONS as ENGINE_MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH as ENGINE_MAX_LOOP_DEPTH,
 } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
   AUTOMATION_DAYS as SITE_DAYS, MAX_AUTOMATION_STEPS as SITE_MAX_STEPS,
   MAX_STEP_NOTE as SITE_MAX_NOTE, cleanWorkflow as siteCleanWorkflow,
   AUTOMATION_SCHEDULES as SITE_SCHEDULES,
+  AUTOMATION_VALUE_TYPES as SITE_VALUE_TYPES, AUTOMATION_TYPE_ACCEPTS as SITE_TYPE_ACCEPTS,
+  AUTOMATION_BLOCK_SHAPES as SITE_BLOCK_SHAPES, AUTOMATION_LOOP_MODES as SITE_LOOP_MODES,
+  MAX_LOOP_ITERATIONS as SITE_MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH as SITE_MAX_LOOP_DEPTH,
 } from "../agent-store.mjs";
+
+/**
+ * What the SITE's catalog says a step produces.
+ *
+ * ⚠ **THE SITE HAS NO `produces` FIELD AND THAT IS NOT A DRIFT — it is the DEFAULT, in the
+ * one place a default can be read.** The engine derives `text` at declaration; the site's
+ * entries are plain frozen objects, so an absent key is the same answer. Written as a
+ * helper rather than inlined so the census compares a VALUE on both sides rather than
+ * comparing a value with an absence, which would pass for the wrong reason.
+ */
+const SITE_PRODUCES = (st) => (SITE_VALUE_TYPES.includes(st?.produces) ? st.produces : "text");
 
 const KEY = "service-key";
 const T1 = "11111111-1111-4111-8111-111111111111";
@@ -1014,7 +1031,26 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
       for (const b of ["min", "max"]) {
         assert.equal(sf[b], ef[b], `${type}.${ef.name}: ${b} drifted`);
       }
+      // ⚠ **AND WHAT KIND OF VALUE A FIELD ACCEPTS, which is silent if it drifts in a way
+      // neither `required` nor `refs` can see.** One side accepting only a list while the
+      // other accepts text is a reference refused at one door and admitted at the other —
+      // and the loop that iterates it would be handed a string, which is
+      // `String(["a"])` territory. `says` rides with it because it is what the refusal
+      // CALLS the field, and a sentence that differs is a customer told two things.
+      assert.equal(sf.accepts, ef.accepts, `${type}.${ef.name}: what it accepts drifted`);
+      assert.equal(sf.says ?? null, ef.says ?? null, `${type}.${ef.name}: what a refusal calls it drifted`);
+      // ⚠ **AND THE SENTENCE A BLANK REQUIRED FIELD GETS, which is the ONE refusal a
+      // person meets by leaving a box alone — the commonest refusal there is.** It
+      // drifted on four steps before this was asserted: the site said "left can't be
+      // empty", naming a key nobody's screen calls anything, where the engine said "say
+      // which value to compare". Declaring it on the FIELD is what makes one sentence
+      // serve both doors; comparing it here is what keeps it that way.
+      assert.equal(sf.empty ?? null, ef.empty ?? null, `${type}.${ef.name}: the empty-field sentence drifted`);
     }
+    // AND WHAT THE STEP PRODUCES, so a step whose answer is a list on one side and text on
+    // the other cannot exist: the site would let a reference through that the engine
+    // refuses, or refuse one it accepts.
+    assert.equal(SITE_PRODUCES(site), engine.produces, `${type}: what it produces drifted`);
     // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: something out there really does
     // declare a `when`, a `refs` and a set of options, or the loop above asserts nothing.
   }
@@ -1023,6 +1059,41 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
   assert.ok(anyField((f) => f.refs === true), "no field takes references");
   assert.ok(anyField((f) => f.options), "no field offers options");
   assert.ok(anyField((f) => f.max !== undefined), "no field declares a bound");
+  assert.ok(anyField((f) => f.accepts !== undefined), "no field says what it accepts");
+  assert.ok(anyField((f) => f.says !== undefined), "no field carries its own word");
+  assert.ok(anyField((f) => f.empty !== undefined), "no field carries its own empty-field sentence");
+});
+
+test("⚠ THE TYPE SYSTEM IS ONE TABLE IN TWO LANGUAGES, censused both ways", () => {
+  // ⚠ **WHAT MAY BE USED WHERE DECIDES WHICH WORKFLOWS SAVE, so a drift is a customer
+  // refused at one door and admitted at the other.** The site's copy is what a save really
+  // goes through and the engine's is what runs it; neither may import the other.
+  assert.deepEqual([...SITE_VALUE_TYPES].sort(), [...ENGINE_VALUE_TYPES].sort());
+  for (const t of ENGINE_VALUE_TYPES) {
+    assert.deepEqual([...(SITE_TYPE_ACCEPTS[t] ?? [])].sort(), [...(ENGINE_TYPE_ACCEPTS[t] ?? [])].sort(),
+      `${t}: what it may be used for drifted`);
+  }
+  // ⚠ AND IT IS ASYMMETRIC, which is the whole point — asserted so a "tidying" that made
+  // every type accept every other would be a red run rather than a silent widening.
+  assert.ok(ENGINE_TYPE_ACCEPTS.text.includes("number"), "a number should read as text");
+  assert.ok(!ENGINE_TYPE_ACCEPTS.number.includes("text"), "text must not read as a number");
+  assert.ok(!ENGINE_TYPE_ACCEPTS.text.includes("list"), "a list must not read as text");
+
+  // THE BLOCK SHAPES, which decide what a closer closes. A list can balance by COUNT and
+  // pair a loop with a branch's end, so both sides must know the same pairs.
+  assert.deepEqual(SITE_BLOCK_SHAPES.map((b) => [b.open, b.middle, b.close]),
+    ENGINE_BLOCK_SHAPES.map((b) => [b.open, b.middle, b.close]));
+  // ...AND THE SAME WORDS FOR THEM, because those words are in the refusal a person reads.
+  assert.deepEqual(SITE_BLOCK_SHAPES.map((b) => [b.opened, b.middled, b.closed]),
+    ENGINE_BLOCK_SHAPES.map((b) => [b.opened, b.middled, b.closed]));
+  // AND THE LOOP'S OWN BOUNDS, each of which is a refusal on one side or the other.
+  assert.equal(SITE_MAX_LOOP_ITERATIONS, ENGINE_MAX_LOOP_ITERATIONS);
+  assert.equal(SITE_MAX_LOOP_DEPTH, ENGINE_MAX_LOOP_DEPTH);
+  // THE MODES THE FORM OFFERS ARE THE MODES THE ENGINE READS, off the step itself rather
+  // than a fourth copy of the list.
+  const modes = (steps) => steps.find((st) => st.type === "repeat").fields.find((f) => f.name === "mode").options;
+  assert.deepEqual([...SITE_LOOP_MODES], [...modes(ENGINE_STEPS)]);
+  assert.deepEqual([...modes(SITE_STEPS)], [...modes(ENGINE_STEPS)]);
 });
 
 test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather than read", () => {
@@ -1082,6 +1153,34 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
 
   let refused = 0;
   let accepted = 0;
+  // ── THE LOOP AND THE TYPES, which is the newest way the two can come apart ────
+  const RPT = (over) => ({ type: "repeat", mode: "each", each: "{{names}}", as: "who", ...over });
+  const NAMES = [{ name: "names", type: "list" }];
+  shapes.push(
+    ["a loop over a list", [RPT(), N("hi {{who}}"), { type: "endrepeat" }], NAMES],
+    ["a loop over TEXT", [RPT(), N("hi {{who}}"), { type: "endrepeat" }], [{ name: "names", type: "text" }]],
+    ["a list in a sentence", [N("the names are {{names}}")], NAMES],
+    ["a number in a sentence", [N("there are {{howmany}}")], [{ name: "howmany", type: "number" }]],
+    ["a repeat with no end", [RPT(), N("hi {{who}}")], NAMES],
+    ["a branch's end closing a repeat", [RPT(), { type: "end" }], NAMES],
+    ["a repeat's end closing a branch", [IF, { type: "endrepeat" }], []],
+    ["an `otherwise` inside a repeat", [RPT(), { type: "otherwise" }, { type: "endrepeat" }], NAMES],
+    ["a value bound inside a loop, used after it",
+      [RPT(), N("x", "draft"), { type: "endrepeat" }, N("{{draft}}")], NAMES],
+    ["the item, used after the loop", [RPT(), { type: "endrepeat" }, N("{{who}}")], NAMES],
+    ["a repeat a fixed number of times",
+      [{ type: "repeat", mode: "times", times: 3 }, N("again"), { type: "endrepeat" }], []],
+    ["a repeat with no list named", [RPT({ each: "" }), { type: "endrepeat" }], NAMES],
+    ["a repeat more times than it may", [{ type: "repeat", mode: "times", times: SITE_MAX_LOOP_ITERATIONS + 1 },
+      { type: "endrepeat" }], []],
+    ["loops nested deeper than they may", [
+      ...Array.from({ length: SITE_MAX_LOOP_DEPTH + 1 }, () => ({ type: "repeat", mode: "times", times: 2 })),
+      ...Array.from({ length: SITE_MAX_LOOP_DEPTH + 1 }, () => ({ type: "endrepeat" })),
+    ], []],
+    ["a branch inside a loop", [RPT(), IF, N("a"), { type: "otherwise" }, N("b"), { type: "end" }, { type: "endrepeat" }], NAMES],
+    ["a loop inside a branch", [IF, RPT(), N("a"), { type: "endrepeat" }, { type: "otherwise" }, N("b"), { type: "end" }], NAMES],
+  );
+
   for (const [what, steps, inputs] of shapes) {
     const site = siteCleanWorkflow(steps, SITE_STEPS, SITE_MAX_STEPS, inputs);
     const engine = engineReadWorkflow(steps, { inputs });

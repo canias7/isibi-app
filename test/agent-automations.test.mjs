@@ -20,6 +20,9 @@ import {
   // ── the workflow half: references, branches and what a run is asked for ────
   refsInText, branchShape, cleanInputs, cleanRunInput,
   MAX_AUTOMATION_INPUTS, INPUT_VALUE_MAX, MAX_APPROVAL_HOURS, MAX_WAIT_MINUTES,
+  // ── typed values, and the loop that makes them load-bearing ────────────────
+  AUTOMATION_VALUE_TYPES, AUTOMATION_TYPE_ACCEPTS, AUTOMATION_BLOCK_SHAPES,
+  AUTOMATION_LOOP_MODES, MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH,
   // ── reference material and memory ──────────────────────────────────────────
   knowledgeRow, memoryRow, MAX_KNOWLEDGE, KNOWLEDGE_BODY_MAX, KNOWLEDGE_FORMATS,
   MAX_MEMORIES, MEMORY_VALUE_MAX, MEMORY_SOURCES,
@@ -338,7 +341,15 @@ test("cleanWorkflow refuses by name, mints ids from the position, and never shor
   assert.match(cleanWorkflow("mon").error, /have to arrive as a list/);
   assert.match(cleanWorkflow([{ type: "nope" }]).error, /no step called nope/);
   assert.match(cleanWorkflow([null]).error, /didn't arrive as a step/);
-  assert.match(cleanWorkflow([{ type: "note" }]).error, /step 1: text can't be empty/);
+  // ⚠ **THE BLANK-REQUIRED REFUSAL NAMES ITS POSITION AND SAYS WHAT TO WRITE.** This
+  // asserted `text can't be empty` — the field's KEY, which nobody's screen calls
+  // anything — and that sentence disagreed with the engine's on four steps. The sentence
+  // is declared on the FIELD now and both validators read it, censused in
+  // `test/agent-send.test.mjs`; what is asserted here is the PROPERTY (the step is named,
+  // and the field's own words are used), not a spelling that lives in one place.
+  const blank = cleanWorkflow([{ type: "note" }]).error;
+  assert.match(blank, /^step 1: /, "a refusal that does not name the step leaves somebody counting rows");
+  assert.match(blank, /say what the note should say/, "the field's own sentence is what the person gets");
   assert.match(cleanWorkflow([{ type: "note", text: "x".repeat(MAX_STEP_NOTE + 1) }]).error, /longer than it can be/);
   assert.match(cleanWorkflow([{ type: "weekday", days: [] }]).error, /at least one day/);
   assert.match(cleanWorkflow([{ type: "weekday", days: ["funday"] }]).error, /no day called funday/);
@@ -640,7 +651,11 @@ test("every step field is REFUSED rather than coerced, one kind at a time", () =
 
 test("what an automation ASKS FOR is a declaration, and the name follows the one rule", () => {
   const good = cleanInputs([{ name: "Topic ", label: " What it is about ", required: true }]);
-  assert.deepEqual(good.inputs, [{ name: "topic", label: "What it is about", required: true, default: "" }]);
+  // ⚠ RE-ANCHORED, NOT APPEASED: the declaration gained a `type`, and an input that does
+  // not name one is `text` — which is what every input stored before it held, so nothing
+  // moves. The shape is asserted WHOLE on purpose, so a field added next month is a red
+  // run rather than something the form draws and nothing reads.
+  assert.deepEqual(good.inputs, [{ name: "topic", label: "What it is about", required: true, default: "", type: "text" }]);
   // THE LABEL FALLS BACK TO THE NAME rather than to nothing: a box with no label beside it
   // is a box nobody can answer.
   assert.equal(cleanInputs([{ name: "topic" }]).inputs[0].label, "topic");
@@ -672,6 +687,34 @@ test("⚠ the answers to a run are checked against the declaration, and a stray 
   assert.equal(cleanRunInput({}, withDefault).error, undefined);
   assert.match(cleanRunInput({ topic: "x".repeat(INPUT_VALUE_MAX + 1) }, decl).error, new RegExp(`${INPUT_VALUE_MAX}`));
   assert.match(cleanRunInput(["boiler"], decl).error, /as an object/);
+
+  // ⚠ **EACH ANSWER IS READ AS ITS DECLARED TYPE**, which is what makes a loop's list a
+  // list rather than a comma-separated string somebody has to split.
+  const listDecl = cleanInputs([{ name: "names", label: "Who", required: true, type: "list" }]).inputs;
+  assert.equal(listDecl[0].type, "list");
+  assert.deepEqual(cleanRunInput({ names: ["ann", "bo"] }, listDecl).input, { names: ["ann", "bo"] });
+  assert.match(cleanRunInput({ names: "ann,bo" }, listDecl).error, /didn't arrive as a list/);
+  assert.match(cleanRunInput({ names: [1, 2] }, listDecl).error, /has to be text/);
+  assert.match(cleanRunInput({ names: [] }, listDecl).error, /Who has to be filled in/, "an empty list is unanswered");
+  // ⚠ A REQUIRED LIST CANNOT BE SATISFIED BY A DEFAULT, because a default is what the form
+  // puts in a text box — reading `""` as a list would be a coercion of exactly the kind
+  // this whole layer refuses.
+  const listDefault = cleanInputs([{ name: "names", required: true, default: "ann", type: "list" }]).inputs;
+  assert.match(cleanRunInput({}, listDefault).error, /has to be filled in/);
+  // A NUMBER IS REFUSED, NEVER COERCED: `Number("")` is 0 and `Number("nine")` is NaN.
+  const numDecl = cleanInputs([{ name: "howmany", required: true, type: "number" }]).inputs;
+  assert.deepEqual(cleanRunInput({ howmany: 3 }, numDecl).input, { howmany: 3 });
+  assert.match(cleanRunInput({ howmany: "3" }, numDecl).error, /didn't arrive as a number/);
+  assert.match(cleanRunInput({ howmany: Infinity }, numDecl).error, /didn't arrive as a number/);
+  // ...AND ZERO IS A REAL ANSWER, which is why emptiness is not asked of a number at all.
+  assert.deepEqual(cleanRunInput({ howmany: 0 }, numDecl).input, { howmany: 0 });
+  // A KIND NOBODY RECOGNISES IS A REFUSAL rather than a quiet fall back to text — a `list`
+  // misspelt would store as text and the loop meaning to iterate it would be refused at
+  // save time for a reason nobody could see on the form.
+  assert.match(cleanInputs([{ name: "x", type: "lsit" }]).error, /isn't a kind of thing/);
+  // AND A LIST LONGER THAN A LOOP CAN GO ROUND IS REFUSED HERE, not days later.
+  const tooMany = Array.from({ length: MAX_LOOP_ITERATIONS + 1 }, (_, k) => `n${k}`);
+  assert.match(cleanRunInput({ names: tooMany }, listDecl).error, new RegExp(`at most ${MAX_LOOP_ITERATIONS}`));
 });
 
 test("the catalog carries every step the engine has, and a `when` names a real sibling", () => {

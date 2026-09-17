@@ -1328,6 +1328,34 @@ export const MAX_EXECUTIONS = 50;
 /** How a trigger starts. `manual` is Run now only; `daily` also fires once a day. */
 export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily"]);
 
+/**
+ * WHAT A NAMED VALUE IS — a DECLARED COPY of the engine's `VALUE_TYPES`, censused both ways.
+ *
+ * It is a different question from what a FIELD is: `AUTOMATION_STEPS`' field kinds are about
+ * a control the form draws, and these are about a thing a step can produce and a later step
+ * can refer to. `text` is the DEFAULT, so every input and every step that existed before
+ * today keeps exactly the meaning it had.
+ */
+export const AUTOMATION_VALUE_TYPES = Object.freeze(["text", "number", "list"]);
+
+/**
+ * ⚠ **WHAT MAY BE USED WHERE — and it is deliberately not symmetric.** A number reads as
+ * text, so `{{count}}` in a sentence is fine. Text does NOT read as a number
+ * (`Number("nine")` is NaN and `Number("")` is 0, the second of which this repository has
+ * recorded as a real defect), and a LIST reads as neither, because `String(["a"])` is
+ * `"a"` and a one-element list would silently become its element.
+ */
+export const AUTOMATION_TYPE_ACCEPTS = Object.freeze({
+  text: Object.freeze(["text", "number"]),
+  number: Object.freeze(["number"]),
+  list: Object.freeze(["list"]),
+});
+
+/** What a repeat goes over, and the bounds on it. Copies of the engine's, censused. */
+export const AUTOMATION_LOOP_MODES = Object.freeze(["each", "times"]);
+export const MAX_LOOP_ITERATIONS = 50;
+export const MAX_LOOP_DEPTH = 2;
+
 /** Sunday first, because that is the order every weekday index in this tree uses. */
 export const AUTOMATION_DAYS = Object.freeze(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
 
@@ -1380,7 +1408,8 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "If …",
     does: "Compare a value — an input, or an earlier step's answer — and run the steps under it only when the comparison holds. Put an \"Otherwise\" and an \"End\" below it.",
     fields: Object.freeze([
-      F({ name: "left", kind: "text", required: true, max: MAX_STEP_TEST, refs: true }),
+      F({ name: "left", kind: "text", required: true, max: MAX_STEP_TEST, refs: true,
+          empty: "say which value to compare — {{a name}} usually" }),
       F({ name: "op", kind: "choice", required: true, options: AUTOMATION_TESTS }),
       F({ name: "right", kind: "text", required: true, max: MAX_STEP_TEST, refs: true, when: F({ op: Object.freeze(["is", "is not", "contains"]) }) }),
     ]),
@@ -1402,6 +1431,33 @@ export const AUTOMATION_STEPS = Object.freeze([
     configless: true,
   }),
   F({
+    type: "repeat",
+    kind: "branch",
+    label: "Repeat …",
+    does: "Runs the steps under it once for each thing in a list, or a fixed number of times. Put an \"End of the repeat\" below it.",
+    fields: Object.freeze([
+      F({ name: "mode", kind: "choice", required: true, options: AUTOMATION_LOOP_MODES }),
+      // ⚠ THE ONE FIELD IN THIS PRODUCT THAT ACCEPTS ONLY A LIST, and it is why the types
+      // above exist: without a field that refuses text, a type is a label nothing reads.
+      F({ name: "each", kind: "text", required: true, max: MAX_STEP_TEST, refs: true,
+          accepts: "list", says: "the list to go through",
+          empty: "say which list to go through — {{a name}}",
+          when: F({ mode: Object.freeze(["each"]) }) }),
+      F({ name: "times", kind: "number", required: true, min: 1, max: MAX_LOOP_ITERATIONS,
+          says: "how many times", when: F({ mode: Object.freeze(["times"]) }) }),
+      F({ name: "as", kind: "name", required: true, says: "what to call each one",
+          when: F({ mode: Object.freeze(["each"]) }) }),
+    ]),
+  }),
+  F({
+    type: "endrepeat",
+    kind: "branch",
+    label: "End of the repeat",
+    does: "Closes the \"Repeat\" above it. Everything after this runs once, when the loop has finished.",
+    fields: Object.freeze([]),
+    configless: true,
+  }),
+  F({
     type: "wait",
     kind: "pause",
     label: "Wait",
@@ -1418,7 +1474,7 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Wait for approval",
     does: "Pause and ask to be approved or rejected before carrying on. Say what happens if nobody answers in time.",
     fields: Object.freeze([
-      F({ name: "ask", kind: "text", required: true, max: MAX_STEP_ASK, refs: true }),
+      F({ name: "ask", kind: "text", required: true, max: MAX_STEP_ASK, refs: true, empty: "say what is being approved" }),
       F({ name: "hours", kind: "number", required: true, min: 1, max: MAX_APPROVAL_HOURS }),
       F({ name: "on_timeout", kind: "choice", required: true, options: AUTOMATION_TIMEOUTS }),
     ]),
@@ -1429,7 +1485,7 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Look something up",
     does: "Search this agent's reference material and save the passages that match, with the source they came from. Put {{a name}} in the search to use an input.",
     fields: Object.freeze([
-      F({ name: "query", kind: "text", required: true, max: MAX_STEP_QUERY, refs: true }),
+      F({ name: "query", kind: "text", required: true, max: MAX_STEP_QUERY, refs: true, empty: "say what to search for" }),
       F({ ...OUT, required: true }),
     ]),
   }),
@@ -1449,7 +1505,8 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Save a note",
     does: "Write a line into this automation's results, so the run has something to show. Put {{a name}} anywhere to use an input or an earlier step's answer.",
     fields: Object.freeze([
-      F({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE, refs: true }),
+      F({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE, refs: true,
+          empty: "say what the note should say" }),
       OUT,
     ]),
   }),
@@ -1496,20 +1553,35 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
   // load both, and it DRIVES the two over the same shapes and requires the same verdict —
   // comparing behaviour rather than source, because these two are written differently and
   // have to agree only about what they accept.
-  const outer = new Set((Array.isArray(inputs) ? inputs : []).filter((n) => typeof n === "string"));
-  /** `{before, first, other, inElse, hasElse}` — `first`/`other` are each arm's own. */
+  // ⚠ **A NAME'S TYPE TRAVELS WITH IT, which is why these are maps rather than sets.** What
+  // a reference may be used FOR is a property of what produced it. An input handed in as a
+  // bare STRING is `text`, which is what every caller that existed before today hands in.
+  const outer = new Map();
+  for (const d of Array.isArray(inputs) ? inputs : []) {
+    if (typeof d === "string") outer.set(d, "text");
+    else if (d && typeof d === "object" && typeof d.name === "string") {
+      outer.set(d.name, AUTOMATION_VALUE_TYPES.includes(d.type) ? d.type : "text");
+    }
+  }
+  /** `{before, first, other, inElse, hasElse, loop}` — `first`/`other` are each arm's own. */
   const frames = [];
   const here = () => (frames.length ? frames[frames.length - 1] : null);
   const visible = () => {
     const f = here();
     if (!f) return outer;
-    return new Set([...f.before, ...(f.inElse ? f.other : f.first)]);
+    return new Map([...f.before, ...(f.inElse ? f.other : f.first)]);
   };
-  const produce = (name) => {
+  const produce = (name, type = "text") => {
     const f = here();
-    if (!f) outer.add(name);
-    else (f.inElse ? f.other : f.first).add(name);
+    if (!f) outer.set(name, type);
+    else (f.inElse ? f.other : f.first).set(name, type);
   };
+  /**
+   * How many blocks of one kind are open — counted from the FRAMES rather than from a
+   * number kept beside them, because the frames are what is really nested and a counter is
+   * a second copy of the same fact.
+   */
+  const depthOf = (loop) => frames.filter((f) => f.loop === loop).length;
   // ⚠ NAMES AN ARM PRODUCED THAT DID NOT SURVIVE ITS REJOIN, remembered for the SENTENCE
   // and never for visibility — nothing below the `end` may name one. Without it the frame
   // is gone by then, so the commonest shape of this mistake (bind under `if`, use after
@@ -1538,8 +1610,23 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
       if (got.value !== undefined) one[f.name] = got.value;
       if (f.refs === true && typeof got.value === "string") {
         const canSee = visible();
+        // WHAT THIS FIELD CAN USE. Absent means `text`, which is every field that existed
+        // before the loop — so the test below is a no-op for all of them.
+        const wants = AUTOMATION_VALUE_TYPES.includes(f.accepts) ? f.accepts : "text";
         for (const name of refsInText(got.value)) {
-          if (!canSee.has(name)) {
+          if (canSee.has(name)) {
+            // ⚠ THE TYPE IS CHECKED WHILE IT IS STILL SOMEBODY'S FORM, and the sentence is
+            // the engine's word for word — the two are censused on their VERDICTS, so a
+            // refusal that differs is a customer told two different things by two doors.
+            const gotType = canSee.get(name) ?? "text";
+            if (!(AUTOMATION_TYPE_ACCEPTS[wants] ?? []).includes(gotType)) {
+              const said = typeof f.says === "string" && f.says ? f.says : f.name;
+              const word = (t) => (t === "list" ? "a list" : t === "number" ? "a number" : "text");
+              return { error: `step ${at}: "${name}" is ${word(gotType)}, and ${said} needs ${word(wants)}` };
+            }
+            continue;
+          }
+          {
             // ⚠ TWO REFUSALS, BECAUSE THEY NEED DIFFERENT THINGS DONE ABOUT THEM. A name
             // nothing anywhere produces is a typo; a name produced on some OTHER path is a
             // real value the customer can see on their own form, and telling them it does
@@ -1558,22 +1645,34 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
     }
     // ITS OWN `out` IS ADDED AFTER ITS OWN REFERENCES ARE CHECKED, so a step cannot refer
     // to the answer it is about to produce.
-    if (typeof one.out === "string" && one.out) produce(one.out);
-    // AND THE FRAMES FOLLOW THE BRANCH. The list is checked for balance below, so a stray
+    // **THE TYPE IS THE STEP'S OWN**, off the catalog entry rather than off the stored row.
+    if (typeof one.out === "string" && one.out) produce(one.out, stepProduces(def));
+    // AND THE FRAMES FOLLOW THE BLOCK. The list is checked for balance below, so a stray
     // `otherwise` or `end` here simply finds no frame and is left to that refusal.
     if (def.type === "if") {
-      frames.push({ before: visible(), first: new Set(), other: new Set(), inElse: false, hasElse: false });
+      frames.push({ before: visible(), first: new Map(), other: new Map(), inElse: false, hasElse: false, loop: false });
+    } else if (def.type === "repeat") {
+      // ⚠ A LOOP IS A SCOPE WITH ONE ARM, AND THE SECOND ARM IS THE ZERO-ITERATIONS PATH:
+      // a list can be empty, so the body may never run — which makes the rejoin below
+      // exactly the rule an `if` with no `otherwise` already has.
+      if (depthOf(true) >= MAX_LOOP_DEPTH) {
+        return { error: `step ${at}: that is more repeats inside each other than one workflow can have (${MAX_LOOP_DEPTH})` };
+      }
+      frames.push({ before: visible(), first: new Map(), other: new Map(), inElse: false, hasElse: false, loop: true });
+      // WHAT EACH ONE IS CALLED IS VISIBLE INSIDE THE BODY AND NOWHERE ELSE, which is the
+      // frame doing the work rather than a rule about the name.
+      if (typeof one.as === "string" && one.as) produce(one.as, "text");
     } else if (def.type === "otherwise") {
       const f = here();
       if (f) { f.inElse = true; f.hasElse = true; }
-    } else if (def.type === "end") {
+    } else if (def.type === "end" || def.type === "endrepeat") {
       const f = frames.pop();
       // ONLY WHAT BOTH ARMS PRODUCE SURVIVES, and an `if` with no `otherwise` has an empty
-      // second arm, so nothing does.
+      // second arm, so nothing does. A LOOP is that shape too.
       if (f) {
-        const both = f.hasElse ? [...f.first].filter((x) => f.other.has(x)) : [];
-        for (const n of both) produce(n);
-        for (const n of [...f.first, ...f.other]) if (!both.includes(n)) armOnly.add(n);
+        const both = f.hasElse ? [...f.first.keys()].filter((x) => f.other.has(x)) : [];
+        for (const n of both) produce(n, f.first.get(n));
+        for (const n of [...f.first.keys(), ...f.other.keys()]) if (!both.includes(n)) armOnly.add(n);
       }
     }
     steps.push(one);
@@ -1584,7 +1683,22 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
   // can read is running a workflow nobody wrote.
   const shape = branchShape(steps);
   if (shape.error) return { error: shape.error };
-  return { steps, produces: [...outer] };
+  // ⚠ `produces` STAYS A LIST OF NAMES, because that is what the cross-product census
+  // compares both ways and what every caller reads; `types` is the same scope read the
+  // other way, for a caller that needs it.
+  return { steps, produces: [...outer.keys()], types: Object.fromEntries(outer) };
+}
+
+/**
+ * What kind of value a step's answer is.
+ *
+ * ⚠ **IT IS THE STEP'S OWN FACT AND IS NEVER TAKEN FROM A STORED ROW.** A row is caller
+ * input; a catalog entry is code. Absent means `text`, which is what every step here
+ * produces — so this reads as a constant today and is the hop that stops being one the
+ * moment a step produces something else.
+ */
+function stepProduces(def) {
+  return AUTOMATION_VALUE_TYPES.includes(def?.produces) ? def.produces : "text";
 }
 
 /**
@@ -1620,24 +1734,51 @@ function fieldApplies(f, soFar) {
  * taste: a list of types either balances or does not, and the census drives both sides over
  * the same shapes.
  */
-export function branchShape(steps) {
+export const AUTOMATION_BLOCK_SHAPES = Object.freeze([
+  Object.freeze({ open: "if", middle: "otherwise", close: "end",
+                  opened: "If", middled: "Otherwise", closed: "End of the if" }),
+  Object.freeze({ open: "repeat", middle: null, close: "endrepeat",
+                  opened: "Repeat", middled: null, closed: "End of the repeat" }),
+]);
+
+export function branchShape(steps, shapes = AUTOMATION_BLOCK_SHAPES) {
   const open = [];
   const list = Array.isArray(steps) ? steps : [];
+  const byOpen = new Map(shapes.map((sh) => [sh.open, sh]));
+  const byMiddle = new Map(shapes.filter((sh) => sh.middle).map((sh) => [sh.middle, sh]));
+  const byClose = new Map(shapes.map((sh) => [sh.close, sh]));
   for (let i = 0; i < list.length; i++) {
     const at = i + 1;
     const type = list[i]?.type;
-    if (type === "if") open.push({ at: i, elseAt: null });
-    else if (type === "otherwise") {
+    if (byOpen.has(type)) open.push({ at: i, elseAt: null, shape: byOpen.get(type) });
+    else if (byMiddle.has(type)) {
+      const sh = byMiddle.get(type);
       const top = open[open.length - 1];
-      if (!top) return { error: `step ${at}: "Otherwise" has no "If" above it` };
-      if (top.elseAt !== null) return { error: `step ${at}: that "If" already has an "Otherwise"` };
+      if (!top) return { error: `step ${at}: "${sh.middled}" has no "${sh.opened}" above it` };
+      // ⚠ A MIDDLE MARKER BELONGS TO ITS OWN OPENER. An `Otherwise` directly inside a
+      // `Repeat` has no `If` to be the other arm of, and reading it as the repeat's would
+      // be a workflow nobody wrote.
+      if (top.shape !== sh) {
+        return { error: `step ${at}: "${sh.middled}" has no "${sh.opened}" above it — the nearest block is a "${top.shape.opened}"` };
+      }
+      if (top.elseAt !== null) return { error: `step ${at}: that "${sh.opened}" already has an "${sh.middled}"` };
       top.elseAt = i;
-    } else if (type === "end") {
-      if (!open.pop()) return { error: `step ${at}: "End of the if" has no "If" above it` };
+    } else if (byClose.has(type)) {
+      const sh = byClose.get(type);
+      const top = open[open.length - 1];
+      if (!top) return { error: `step ${at}: "${sh.closed}" has no "${sh.opened}" above it` };
+      // ⚠ **A CLOSER MUST CLOSE ITS OWN KIND OF BLOCK.** With two shapes a list can balance
+      // by COUNT and pair a loop with a branch's end — a workflow the executor would then
+      // run. Refused by name and by position, at save time.
+      if (top.shape !== sh) {
+        return { error: `step ${at}: "${sh.closed}" closes a "${sh.opened}", and the nearest block above it is a "${top.shape.opened}"` };
+      }
+      open.pop();
     }
   }
   if (open.length) {
-    return { error: `step ${open[open.length - 1].at + 1}: that "If" has no "End of the if" below it` };
+    const top = open[open.length - 1];
+    return { error: `step ${top.at + 1}: that "${top.shape.opened}" has no "${top.shape.closed}" below it` };
   }
   return { ok: true };
 }
@@ -1677,7 +1818,18 @@ export function cleanInputs(v, max = MAX_AUTOMATION_INPUTS) {
     if (d.required !== undefined && typeof d.required !== "boolean") {
       return { error: `input ${at}: whether it has to be answered didn't arrive as a yes or no` };
     }
-    inputs.push({ name, label: label || name, required: d.required === true, default: dflt });
+    // ⚠ **WHAT KIND OF THING IT IS, REFUSED RATHER THAN COERCED, AND ABSENT MEANS `text`.**
+    // Absent is what every input stored before today is, and text is what every one of them
+    // held — so nothing moves. A type nobody recognises is a REFUSAL rather than a fallback
+    // to text: a `list` misspelt `lsit` would be stored as text, and the loop that meant to
+    // iterate it would be refused at save time for a reason nobody could see on the form.
+    if (d.type !== undefined && !AUTOMATION_VALUE_TYPES.includes(d.type)) {
+      return { error: `input ${at}: "${String(d.type)}" isn't a kind of thing — it has to be one of: ${AUTOMATION_VALUE_TYPES.join(", ")}` };
+    }
+    const type = d.type === undefined ? "text" : d.type;
+    // A DEFAULT IS TEXT EVEN FOR A LIST, because it is what the form puts in the box; a
+    // list's default is the empty list, which is what an unanswered one already means.
+    inputs.push({ name, label: label || name, required: d.required === true, default: dflt, type });
   }
   return { inputs };
 }
@@ -1700,14 +1852,53 @@ export function cleanRunInput(v, inputs) {
     // NAMED, NEVER IGNORED. A filter on somebody's input is a silent drop; a check is the
     // only thing that tells them the field they filled in went nowhere.
     if (!d) return { error: `this automation doesn't ask for anything called "${k}"` };
+    // ⚠ **EACH ANSWER IS READ AS ITS DECLARED TYPE**, and `text` is what an input with no
+    // type is — so every automation stored before today reads exactly as it did.
+    const want = AUTOMATION_VALUE_TYPES.includes(d.type) ? d.type : "text";
+    if (want === "list") {
+      if (!Array.isArray(v[k])) return { error: `"${k}" didn't arrive as a list` };
+      if (v[k].length > MAX_LOOP_ITERATIONS) {
+        // THE SAME BOUND A LOOP GOES ROUND, because this is what a loop goes round — a
+        // longer list saved here is one the execution would refuse, which is a refusal
+        // arriving days after the form was filled in.
+        return { error: `"${k}" has ${v[k].length} things in it, and an automation can go through at most ${MAX_LOOP_ITERATIONS}` };
+      }
+      let total = 0;
+      for (const one of v[k]) {
+        if (typeof one !== "string") return { error: `everything in "${k}" has to be text` };
+        total += one.length;
+      }
+      if (total > INPUT_VALUE_MAX) return { error: `"${k}" is longer than an answer can be (${INPUT_VALUE_MAX} characters)` };
+      out[k] = [...v[k]];
+      continue;
+    }
+    if (want === "number") {
+      // ⚠ REFUSED, NEVER COERCED: `Number("")` is 0 and `Number("nine")` is NaN. A number
+      // that arrived as text is a form sending the wrong thing, and reading it as zero is
+      // this repository's own recorded defect.
+      if (typeof v[k] !== "number" || !Number.isFinite(v[k])) return { error: `"${k}" didn't arrive as a number` };
+      out[k] = v[k];
+      continue;
+    }
     if (typeof v[k] !== "string") return { error: `"${k}" didn't arrive as text` };
     if (v[k].length > INPUT_VALUE_MAX) return { error: `"${k}" is longer than an answer can be (${INPUT_VALUE_MAX} characters)` };
     out[k] = v[k];
   }
   for (const d of decl) {
     if (d?.required !== true) continue;
-    const given = Object.hasOwn(out, d.name) ? out[d.name] : (typeof d.default === "string" ? d.default : "");
-    if (given.trim() === "") return { error: `${d.label || d.name} has to be filled in` };
+    const want = AUTOMATION_VALUE_TYPES.includes(d.type) ? d.type : "text";
+    if (!Object.hasOwn(out, d.name)) {
+      // ⚠ A DEFAULT IS TEXT ON THE FORM, so only a TEXT input can be satisfied by one. A
+      // required list or number left out is unanswered whatever the default box holds —
+      // reading `""` as a list would be a coercion, and as a number it would be zero.
+      const given = want === "text" && typeof d.default === "string" ? d.default : "";
+      if (want !== "text" || given.trim() === "") return { error: `${d.label || d.name} has to be filled in` };
+      continue;
+    }
+    // AND AN ANSWER THAT ARRIVED EMPTY IS STILL UNANSWERED, whichever kind it is.
+    const got = out[d.name];
+    const empty = want === "list" ? got.length === 0 : want === "number" ? false : String(got).trim() === "";
+    if (empty) return { error: `${d.label || d.name} has to be filled in` };
   }
   return { input: out };
 }
@@ -1723,13 +1914,20 @@ function readStepField(raw, f) {
   // WHAT A REFUSAL CALLS THIS FIELD. The name is the fallback, so a field with no `says`
   // reads exactly as it always did.
   const said = typeof f.says === "string" && f.says ? f.says : f.name;
+  // ⚠ WHAT TO SAY WHEN A REQUIRED FIELD IS BLANK, off the field's own declaration and the
+  // ENGINE's own words — because that is the sentence a customer reads, and the two doors
+  // used to say different things about the same box: `"left can't be empty"` here against
+  // `"say which value to compare"` there. Found by the cross-product census, which had
+  // never driven an empty required field; `${said} can't be empty` is the fallback, which
+  // is what every field with no sentence of its own already got.
+  const blank = typeof f.empty === "string" && f.empty ? f.empty : `${said} can't be empty`;
   if (f.kind === "text") {
     if (raw === undefined || raw === null) {
-      return f.required ? { error: `${said} can't be empty` } : { value: undefined };
+      return f.required ? { error: blank } : { value: undefined };
     }
     if (typeof raw !== "string") return { error: `${said} didn't arrive as text` };
     const text = raw.trim();
-    if (!text) return f.required ? { error: `${said} can't be empty` } : { value: undefined };
+    if (!text) return f.required ? { error: blank } : { value: undefined };
     if (f.max && text.length > f.max) return { error: `${said} is longer than it can be (${f.max} characters)` };
     return { value: text };
   }
@@ -1779,7 +1977,7 @@ function readStepField(raw, f) {
   }
   if (f.kind === "name") {
     if (raw === undefined || raw === null || raw === "") {
-      return f.required ? { error: `${said} can't be empty` } : { value: null };
+      return f.required ? { error: blank } : { value: null };
     }
     if (typeof raw !== "string") return { error: `${said} didn't arrive as a name` };
     const name = raw.trim().toLowerCase();

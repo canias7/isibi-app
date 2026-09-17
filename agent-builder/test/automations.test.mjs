@@ -15,6 +15,7 @@ import {
   AUTOMATION_STEPS, STEP_TYPES, STEP_KINDS, STEP_OUTCOMES, STOP_REASONS, WEEKDAYS,
   MAX_WORKFLOW_STEPS, MAX_NOTE, defineStep, stepRegistry, readWorkflow, runWorkflow,
   localDate, weekdayOf, executionDay, branchMap,
+  VALUE_TYPES, TYPE_ACCEPTS, BLOCK_SHAPES, MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH, MAX_STEP_RUNS,
 } from "../src/automations.mjs";
 import { refsIn, fillRefs, valueText } from "../src/workflow-refs.mjs";
 import { makeRunner, OUTCOMES } from "../src/runner.mjs";
@@ -1488,3 +1489,300 @@ test("⚠ the execution's own snapshot is what runs — its steps, its memory, i
   assert.equal(done.outcomes[0].ranAt, "earlier", "the first step was run a second time");
   assert.equal(done.position, 3);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// TYPED VALUES, AND THE LOOP THAT MAKES THEM LOAD-BEARING
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The one shape every case below iterates: four names, one note per name. */
+const LOOP = Object.freeze([
+  { type: "repeat", mode: "each", each: "{{names}}", as: "who" },
+  { type: "note", text: "hello {{who}}" },
+  { type: "endrepeat" },
+  { type: "note", text: "all done" },
+]);
+const LIST_INPUT = Object.freeze([{ name: "names", type: "list" }]);
+
+test("⚠ A TYPE IS A PROPERTY OF WHAT PRODUCED A VALUE, and the field says what it can use", () => {
+  // ⚠ **`produces` IS THE STEP'S OWN AND A CALLER MAY NOT SET IT.** A model or a form
+  // guessing is a type that can be WRONG, and a wrong type refuses a legitimate reference
+  // AND accepts an illegitimate one — both silently. Absent means `text`, which is what
+  // every step in this catalog produces.
+  for (const st of AUTOMATION_STEPS) {
+    assert.ok(VALUE_TYPES.includes(st.produces), `${st.type} produces ${st.produces}`);
+  }
+  // AND A FIELD'S `accepts` IS CHECKED AT AUTHOR TIME, because `TYPE_ACCEPTS["lsit"]` is
+  // `undefined` — a lookup nothing can satisfy reads exactly like no wall at all.
+  assert.throws(() => defineStep({
+    type: "junk-accepts", kind: "action", label: "l", does: "d",
+    fields: [{ name: "x", kind: "text", refs: true, accepts: "lsit" }],
+    read: () => ({ config: {} }), run: () => ({}),
+  }), /accepts lsit/);
+  // A FIELD THAT DOES NOT TAKE REFERENCES CANNOT HAVE AN OPINION ABOUT THEM.
+  assert.throws(() => defineStep({
+    type: "junk-pair", kind: "action", label: "l", does: "d",
+    fields: [{ name: "x", kind: "text", accepts: "list" }],
+    read: () => ({ config: {} }), run: () => ({}),
+  }), /does not take references/);
+  assert.throws(() => defineStep({
+    type: "junk-produces", kind: "action", label: "l", does: "d", produces: "thing",
+    fields: [{ name: "x", kind: "text" }],
+    read: () => ({ config: {} }), run: () => ({}),
+  }), /produces thing/);
+  // ⚠ **THE TABLE IS NOT SYMMETRIC AND THAT IS THE POINT.** A number reads as text
+  // (`valueText` renders one); text does NOT read as a number, because `Number("nine")` is
+  // NaN and `Number("")` is 0 — the second of which this repository has recorded as a real
+  // defect. A list reads as neither: `String(["a"])` is `"a"`.
+  assert.deepEqual([...TYPE_ACCEPTS.text].sort(), ["number", "text"]);
+  assert.deepEqual([...TYPE_ACCEPTS.number], ["number"]);
+  assert.deepEqual([...TYPE_ACCEPTS.list], ["list"]);
+});
+
+test("⚠ A REFERENCE OF THE WRONG TYPE IS REFUSED AT SAVE TIME, by name and by position", () => {
+  // THE DEFECT WITHOUT IT: a loop over a TEXT value saves cleanly and fails at the step,
+  // with the steps above it already done and charged for.
+  const wrong = readWorkflow(LOOP, { inputs: [{ name: "names", type: "text" }] });
+  assert.match(String(wrong.error), /"names" is text, and the list to go through needs a list/);
+  assert.equal(wrong.at, 1, "the refusal did not name the step");
+  // AND THE CONTROL, which is what makes that line about the TYPE rather than about the
+  // loop refusing everything: the same workflow with the same name declared as a list.
+  const right = readWorkflow(LOOP, { inputs: LIST_INPUT });
+  assert.equal(right.error, undefined, right.error);
+  assert.deepEqual(right.types, { names: "list" });
+
+  // ⚠ AND A LIST IN A SENTENCE IS REFUSED TOO, which is the other direction. A note's text
+  // is `text`, and `String(["a"])` is `"a"` — a one-element list would silently become its
+  // element and nobody would ever see the difference.
+  const inProse = readWorkflow([{ type: "note", text: "the names are {{names}}" }], { inputs: LIST_INPUT });
+  assert.match(String(inProse.error), /"names" is a list, and text needs text/);
+  // A NUMBER IN A SENTENCE IS FINE, because that direction really is safe.
+  const num = readWorkflow([{ type: "note", text: "there are {{howmany}}" }],
+    { inputs: [{ name: "howmany", type: "number" }] });
+  assert.equal(num.error, undefined, num.error);
+
+  // AN INPUT LIST OF BARE STRINGS IS EVERY EXISTING CALLER, and every one of those is
+  // text — so nothing stored moves and no caller had to change.
+  assert.deepEqual(readWorkflow([{ type: "note", text: "hi {{a}}" }], { inputs: ["a"] }).types, { a: "text" });
+});
+
+test("⚠ A BLOCK CLOSER MUST CLOSE ITS OWN KIND, and a repeat is a block", () => {
+  // ⚠ WITH TWO BLOCK SHAPES A LIST CAN BALANCE BY COUNT AND MEAN SOMETHING NOBODY ASKED
+  // FOR. Matching a closer to whatever is on the stack would pair a loop with a branch's
+  // end, which is a workflow the executor would then run.
+  const crossed = branchMap([{ type: "repeat" }, { type: "end" }]);
+  assert.match(String(crossed.error), /"End of the if" closes a "If", and the nearest block above it is a "Repeat"/);
+  const other = branchMap([{ type: "if" }, { type: "endrepeat" }]);
+  assert.match(String(other.error), /"End of the repeat" closes a "Repeat", and the nearest block above it is a "If"/);
+  // AN `Otherwise` DIRECTLY INSIDE A REPEAT HAS NO `If` TO BE THE OTHER ARM OF.
+  const stray = branchMap([{ type: "repeat" }, { type: "otherwise" }, { type: "endrepeat" }]);
+  assert.match(String(stray.error), /"Otherwise" has no "If" above it — the nearest block is a "Repeat"/);
+  // AN UNCLOSED REPEAT NAMES ITSELF rather than borrowing the branch's words.
+  assert.match(String(branchMap([{ type: "repeat" }]).error), /that "Repeat" has no "End of the repeat" below it/);
+  // AND THE CONTROLS: both shapes nest correctly, and either inside the other balances.
+  for (const ok of [
+    [{ type: "repeat" }, { type: "if" }, { type: "otherwise" }, { type: "end" }, { type: "endrepeat" }],
+    [{ type: "if" }, { type: "repeat" }, { type: "endrepeat" }, { type: "otherwise" }, { type: "end" }],
+  ]) assert.equal(branchMap(ok).error, undefined, JSON.stringify(ok.map((x) => x.type)));
+  // THE SHAPES ARE A TABLE, so a third block kind is an entry rather than a rewrite.
+  assert.ok(BLOCK_SHAPES.length >= 2);
+  for (const sh of BLOCK_SHAPES) assert.ok(sh.open && sh.close && sh.opened && sh.closed, JSON.stringify(sh));
+});
+
+test("⚠ NOTHING BOUND INSIDE A LOOP SURVIVES ITS END — the body may never run", () => {
+  // A list can be EMPTY, so a loop's body is a path that may not be taken — which makes
+  // this exactly the rule an `if` with no `otherwise` already has, rather than a special
+  // case. Without it, `{{greeting}}` after the end saves and resolves to nothing.
+  const after = readWorkflow([
+    { type: "repeat", mode: "each", each: "{{names}}", as: "who" },
+    { type: "note", text: "hello {{who}}", out: "greeting" },
+    { type: "endrepeat" },
+    { type: "note", text: "last was {{greeting}}" },
+  ], { inputs: LIST_INPUT });
+  assert.match(String(after.error), /only produced inside a branch that might not run/);
+  // ...AND NEITHER DOES THE ITEM, which is the same frame doing the work.
+  const item = readWorkflow([
+    { type: "repeat", mode: "each", each: "{{names}}", as: "who" },
+    { type: "endrepeat" },
+    { type: "note", text: "goodbye {{who}}" },
+  ], { inputs: LIST_INPUT });
+  assert.match(String(item.error), /"who"/);
+  // THE CONTROL: inside the body both are fine, which is what makes the two above about
+  // the REJOIN rather than about the names never existing.
+  assert.equal(readWorkflow(LOOP, { inputs: LIST_INPUT }).error, undefined);
+  // AND NESTING IS BOUNDED IN CODE, not described to a model and hoped for.
+  const deep = [];
+  for (let k = 0; k <= MAX_LOOP_DEPTH; k++) deep.push({ type: "repeat", mode: "times", times: 2 });
+  for (let k = 0; k <= MAX_LOOP_DEPTH; k++) deep.push({ type: "endrepeat" });
+  assert.match(String(readWorkflow(deep).error), new RegExp(`more repeats inside each other.*${MAX_LOOP_DEPTH}`));
+});
+
+/**
+ * A registry whose `note` records every time its `run` is really entered.
+ *
+ * ⚠ **AN OUTCOME CANNOT BE THE OBSERVER HERE.** A re-run writes over the same key, so
+ * counting outcomes makes a repeated effect invisible — which is the one thing these cases
+ * are about. This is a mark nothing in the executor can write.
+ */
+function watchNotes() {
+  const fired = [];
+  const real = AUTOMATION_STEPS.find((st) => st.type === "note");
+  const spy = defineStep({
+    type: "note", kind: real.stepKind, label: real.label, does: real.does,
+    fields: [...real.fields], read: real.read,
+    run: async (config, ctx) => { fired.push(config.text); return real.run(config, ctx); },
+  });
+  return { fired, registry: stepRegistry(AUTOMATION_STEPS.map((st) => (st.type === "note" ? spy : st))) };
+}
+
+/** Drive one execution to its end, cutting the Nth checkpoint if asked. */
+async function deliverLoop({ steps, values, cut = null, registry, max = 40 }) {
+  let state = { position: 0, outcomes: [], values: { ...values }, loops: {} };
+  let n = 0;
+  let stop = null;
+  for (let d = 0; d < max; d++) {
+    const out = await runWorkflow({
+      steps, registry, now: () => 1_800_000_000_000,
+      position: state.position, outcomes: state.outcomes, values: state.values, loops: state.loops,
+      record: async (st) => {
+        n += 1;
+        state = {
+          position: st.position, outcomes: st.outcomes, values: st.values,
+          // ⚠ A DEEP COPY, because the caller PERSISTS this: a live reference would let a
+          // later round rewrite the record an earlier one wrote, which is exactly the
+          // thing the durable state exists to make impossible.
+          loops: JSON.parse(JSON.stringify(st.loops ?? {})),
+        };
+        return cut !== null && n === cut ? { ok: false, why: "the lease went" } : { ok: true };
+      },
+    });
+    if (out.stop) { stop = out.stop; break; }
+    if (out.halted === null && !out.waiting) break;
+  }
+  return { stop, checkpoints: n, state };
+}
+
+test("A LOOP GOES ROUND ONCE PER THING, AND EACH ROUND HAS ITS OWN OUTCOME", async () => {
+  const { steps } = readWorkflow(LOOP, { inputs: LIST_INPUT });
+  const w = watchNotes();
+  const out = await runWorkflow({
+    steps, registry: w.registry, values: { names: ["ann", "bo", "cy"] }, now: () => 1_800_000_000_000,
+  });
+  assert.equal(out.stop.reason, "done");
+  assert.deepEqual(w.fired, ["hello ann", "hello bo", "hello cy", "all done"]);
+  // ⚠ **ONE OUTCOME PER ROUND, KEYED BY THE ROUND.** A map keyed by position alone would
+  // hold one outcome for all three, and a resume would read the first round's as the
+  // third's and SKIP a step that has not run.
+  assert.deepEqual(out.outcomes.map((o) => o.id), ["s1", "s2#1.0", "s2#1.1", "s2#1.2", "s3", "s4"]);
+  // A STEP IN NO LOOP KEEPS ITS BARE ID, so every outcome ever written reads back as it did.
+  assert.equal(out.outcomes.at(-1).id, "s4");
+  assert.equal(out.outcomes[0].rounds, 3, "the repeat did not say how many rounds it had");
+  assert.deepEqual(out.loops, {}, "a finished loop left its state behind");
+  // AND THE ITEM IS GONE, which is a second wall beside `readWorkflow`'s own refusal.
+  assert.ok(!Object.hasOwn(out.values, "who"), "the item outlived the loop");
+});
+
+test("⚠ RESTARTING INSIDE A LOOP RESUMES AT THE ROUND IT REACHED — nothing runs twice", async () => {
+  // **THE MILESTONE'S OWN ACCEPTANCE TEST**: *prove that restarting inside a loop resumes
+  // correctly without repeating completed effects.* One counter spans the WHOLE execution,
+  // so cut N is the Nth place a deploy, an eviction or a lost lease could really land.
+  const { steps } = readWorkflow(LOOP, { inputs: LIST_INPUT });
+  const values = { names: ["ann", "bo", "cy", "di"] };
+  const clean = watchNotes();
+  const whole = await deliverLoop({ steps, values, registry: clean.registry });
+  assert.equal(whole.stop.reason, "done");
+  assert.deepEqual(clean.fired, ["hello ann", "hello bo", "hello cy", "hello di", "all done"]);
+  // ⚠ THE BOUNDARY COUNT IS DERIVED FROM THE UNINTERRUPTED CHAIN, so the observer cannot
+  // go quiet as the workflow grows a step.
+  assert.ok(whole.checkpoints >= 8, `only ${whole.checkpoints} boundaries`);
+  for (let cut = 1; cut <= whole.checkpoints; cut++) {
+    const w = watchNotes();
+    const r = await deliverLoop({ steps, values, cut, registry: w.registry });
+    assert.equal(r.stop?.reason, "done", `cut ${cut} ended ${r.stop?.reason}: ${r.stop?.error ?? ""}`);
+    assert.deepEqual(w.fired, clean.fired, `cut ${cut} ran ${w.fired.length} notes: ${w.fired.join(" | ")}`);
+  }
+});
+
+test("...AND THE DURABLE STATE IS WHAT MAKES THAT TRUE, measured by taking it away", async () => {
+  // ⚠ THE OBSERVER PROVED ALIVE. Without this, "every cut resumes identically" could be
+  // true because the executor simply re-runs everything in one delivery — which is the
+  // opposite of the property, and indistinguishable from it in a deduped list.
+  const { steps } = readWorkflow(LOOP, { inputs: LIST_INPUT });
+  const values = { names: ["ann", "bo", "cy", "di"] };
+  let diverged = 0;
+  for (let cut = 2; cut <= 8; cut++) {
+    const w = watchNotes();
+    let state = { position: 0, outcomes: [], values: { ...values } };
+    let n = 0;
+    let stop = null;
+    for (let d = 0; d < 40; d++) {
+      const out = await runWorkflow({
+        steps, registry: w.registry, now: () => 1_800_000_000_000,
+        position: state.position, outcomes: state.outcomes, values: state.values,
+        loops: {},   // ← the state THROWN AWAY between deliveries
+        record: async (st) => {
+          n += 1;
+          state = { position: st.position, outcomes: st.outcomes, values: st.values };
+          return n === cut ? { ok: false, why: "the lease went" } : { ok: true };
+        },
+      });
+      if (out.stop) { stop = out.stop; break; }
+      if (out.halted === null && !out.waiting) break;
+    }
+    if (stop?.reason !== "done" || w.fired.length !== 5) diverged += 1;
+  }
+  assert.ok(diverged >= 5, `only ${diverged} cuts diverged with the loop state dropped`);
+});
+
+test("A LIST WITH NOTHING IN IT RAN, it did not fail and it did not skip the rest", async () => {
+  const { steps } = readWorkflow(LOOP, { inputs: LIST_INPUT });
+  const w = watchNotes();
+  const out = await runWorkflow({ steps, registry: w.registry, values: { names: [] }, now: () => 1_800_000_000_000 });
+  // ⚠ `ran`, NOT `skipped`: the repeat did its job — there was nothing to go through. A
+  // `skipped` here would stop the whole workflow by this executor's own condition rule.
+  assert.equal(out.stop.reason, "done");
+  assert.equal(out.outcomes[0].outcome, "ran");
+  assert.equal(out.outcomes[0].rounds, 0);
+  assert.match(out.outcomes[0].why, /the list was empty/);
+  // AND THE STEP AFTER THE LOOP STILL RAN, which is what "it did not skip the rest" means.
+  assert.deepEqual(w.fired, ["all done"]);
+  assert.equal(out.outcomes.find((o) => o.id === "s2").outcome, "skipped");
+});
+
+test("⚠ A LIST LONGER THAN A LOOP MAY GO ROUND IS REFUSED WHOLE, never truncated", async () => {
+  const { steps } = readWorkflow(LOOP, { inputs: LIST_INPUT });
+  const w = watchNotes();
+  const many = Array.from({ length: MAX_LOOP_ITERATIONS + 1 }, (_, k) => `n${k}`);
+  const out = await runWorkflow({ steps, registry: w.registry, values: { names: many }, now: () => 1_800_000_000_000 });
+  // A loop that quietly did the first fifty of two hundred would report itself DONE having
+  // left three quarters of somebody's work undone — the prefix argument the tool-budget
+  // refusal makes one layer up.
+  assert.equal(out.stop.reason, "failed");
+  assert.match(out.stop.error, new RegExp(`more than one repeat can go through \\(${MAX_LOOP_ITERATIONS}\\)`));
+  assert.deepEqual(w.fired, [], "it went round before refusing");
+  // AND A VALUE THAT IS NOT A LIST AT ALL IS ITS OWN REFUSAL — the second wall behind
+  // `readWorkflow`'s type check, for a row stored by a version that had no types.
+  const notList = await runWorkflow({ steps, registry: w.registry, values: { names: "ann,bo" }, now: () => 1_800_000_000_000 });
+  assert.equal(notList.stop.reason, "failed");
+  assert.match(notList.stop.error, /"names" is not a list/);
+});
+
+test("⚠ THE BUDGET IS STEP RUNS AND IT SURVIVES A RESUME, which is why loops need one", async () => {
+  // `MAX_WORKFLOW_STEPS` bounds the LIST; with loops the resource is RUNS. The count comes
+  // from the RECORD, so an execution cannot spend it again by being restarted — without
+  // that, every delivery would start the budget over and a loop could run for ever.
+  assert.ok(MAX_STEP_RUNS > MAX_WORKFLOW_STEPS, "a run budget at or under the list length bounds nothing");
+  const { steps } = readWorkflow([
+    { type: "repeat", mode: "times", times: MAX_LOOP_ITERATIONS },
+    { type: "repeat", mode: "times", times: MAX_LOOP_ITERATIONS },
+    { type: "note", text: "again" },
+    { type: "endrepeat" },
+    { type: "endrepeat" },
+  ]);
+  const w = watchNotes();
+  const out = await runWorkflow({ steps, registry: w.registry, now: () => 1_800_000_000_000 });
+  assert.equal(out.stop.reason, "failed");
+  assert.match(out.stop.error, new RegExp(`as many as one automation may \\(${MAX_STEP_RUNS}\\)`));
+  // IT STOPPED SOMEWHERE SENSIBLE rather than after two thousand five hundred rounds.
+  assert.ok(w.fired.length <= MAX_STEP_RUNS, `${w.fired.length} notes ran`);
+});
+

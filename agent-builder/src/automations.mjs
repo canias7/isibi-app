@@ -65,6 +65,37 @@ export const STEP_KINDS = Object.freeze(["condition", "action", "lookup", "branc
 export const FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name"]);
 
 /**
+ * WHAT A NAMED VALUE IS, and it is a different question from what a FIELD is.
+ *
+ * `FIELD_KINDS` is about a CONTROL — what the form draws and what `read` will accept in
+ * one box. This is about a VALUE bound to a name and read back later through `{{…}}`, and
+ * the two lists differ on purpose: `days`, `time` and `choice` are ways of filling in a
+ * box, not kinds of thing a step can produce.
+ *
+ * **THREE, AND EACH EARNS ITS PLACE BY SOMETHING REFUSING IT.** `text` is what every
+ * binding has always been and is the DEFAULT, so nothing stored before today moves.
+ * `number` is refused where text is expected and vice versa. `list` is the one a loop can
+ * iterate, and it is why this list exists at all: without a field that accepts ONLY a
+ * list, a type is a label nothing reads.
+ */
+export const VALUE_TYPES = Object.freeze(["text", "number", "list"]);
+
+/**
+ * What a reference of one type may be used where another is wanted.
+ *
+ * **IT IS NOT SYMMETRIC AND THAT IS THE POINT.** A number reads perfectly well as text —
+ * `valueText` already renders one — so a `{{count}}` inside a sentence is fine. Text does
+ * NOT read as a number: `Number("nine")` is NaN and `Number("")` is 0, and this repository
+ * has the second of those recorded as a real defect. A LIST reads as neither, because
+ * `String(["a"])` is `"a"` and a single-element list would silently become its element.
+ */
+export const TYPE_ACCEPTS = Object.freeze({
+  text: Object.freeze(["text", "number"]),
+  number: Object.freeze(["number"]),
+  list: Object.freeze(["list"]),
+});
+
+/**
  * How many steps one workflow may hold.
  *
  * **A COPY OF THE COLUMN'S OWN CHECK CONSTRAINT, DECLARED AS ONE.** A CHECK cannot
@@ -149,6 +180,33 @@ export const MAX_WAIT_MINUTES = 60 * 24 * 14;   // a fortnight
 export const MAX_APPROVAL_HOURS = 24 * 14;      // the same fortnight, in the unit a person picks
 
 /**
+ * How many times one loop may go round, and how deep loops may nest.
+ *
+ * **BOTH ARE ENFORCED IN CODE AND NEITHER IS A NUMBER THE MODEL IS TOLD ABOUT AND
+ * TRUSTED WITH** — this directory's own first rule. `MAX_LOOP_ITERATIONS` bounds a
+ * `times` at save time AND a resolved list at RUN time, because the list comes from a
+ * value and a value comes from outside.
+ */
+export const MAX_LOOP_ITERATIONS = 50;
+export const MAX_LOOP_DEPTH = 2;
+
+/**
+ * ⚠ **HOW MANY STEP RUNS ONE EXECUTION MAY MAKE, and it is the bound loops make
+ * necessary rather than a tidy extra.**
+ *
+ * `MAX_WORKFLOW_STEPS` bounds the LIST. Before loops those were the same number; with
+ * them a twenty-step workflow holding two nested loops of fifty is fifty thousand step
+ * runs, and every one of them is a checkpoint — a transaction, a journal entry, and a
+ * delivery window that cannot hold them. So the real resource is RUNS, and this is what
+ * bounds it.
+ *
+ * **IT IS A CEILING ON THE WHOLE EXECUTION, which is what makes it survive a resume**:
+ * the count is the number of outcomes already recorded plus what this delivery does, so
+ * an execution cannot spend it again by being restarted.
+ */
+export const MAX_STEP_RUNS = 200;
+
+/**
  * Declare a step type.
  *
  * **IT THROWS WHEN A PART IS MISSING**, at import, which is the one moment throwing is
@@ -192,6 +250,39 @@ export function defineStep(spec = {}) {
     // answer has made irrelevant and lets a validator refuse a value nothing will read —
     // and a `when` naming a field that is not there is a condition nothing can satisfy,
     // so the step would be unfillable with no error anybody could see.
+    // ⚠ A FIELD THAT TAKES REFERENCES MAY SAY WHAT KIND OF VALUE IT WANTS, and absent
+    // means `text` — which is what every field that has ever existed here wants, so
+    // nothing moves. It is checked against `VALUE_TYPES` rather than left free, because
+    // an `accepts: "lsit"` would silently accept everything: `TYPE_ACCEPTS[undefined]`
+    // is `undefined`, and a lookup nothing can satisfy reads exactly like no wall at all.
+    // ⚠ **WHAT A REFUSAL SAYS WHEN A REQUIRED FIELD IS BLANK, DECLARED ON THE FIELD.**
+    //
+    // Found by widening the cross-product census to drive an empty required field: the
+    // site's generic reader said `"left can't be empty"` — naming a key nobody's screen
+    // calls anything — while this module's own `read` said `"say which value to compare"`.
+    // FOUR steps diverged that way and nothing had ever compared them, so a customer read
+    // one sentence or the other depending on which door refused. It is written HERE, once,
+    // both products read it, and the census compares it.
+    //
+    // **AND IT ONLY MEANS ANYTHING ON A REQUIRED FIELD.** An optional one absent is not a
+    // refusal at all, so a sentence for it is a rule nothing reads.
+    if (f.empty !== undefined) {
+      if (!isText(f.empty)) throw new TypeError(`defineStep(${type}): field ${f.name}'s empty must be a sentence`);
+      if (f.required !== true) {
+        throw new TypeError(`defineStep(${type}): field ${f.name} says what to say when it is blank but is not required`);
+      }
+    }
+    if (f.accepts !== undefined) {
+      if (!VALUE_TYPES.includes(f.accepts)) {
+        throw new TypeError(`defineStep(${type}): field ${f.name} accepts ${String(f.accepts)}, which is not one of ${VALUE_TYPES.join(", ")}`);
+      }
+      // AND A FIELD THAT DOES NOT TAKE REFERENCES CANNOT HAVE AN OPINION ABOUT THEM. The
+      // pair would be a rule nothing reads, which is a dead declaration rather than a
+      // dead control — cheaper, and still worth refusing at author time.
+      if (f.refs !== true) {
+        throw new TypeError(`defineStep(${type}): field ${f.name} says what it accepts but does not take references`);
+      }
+    }
     if (f.when !== undefined) {
       if (!f.when || typeof f.when !== "object" || Array.isArray(f.when)) {
         throw new TypeError(`defineStep(${type}): field ${f.name} has a "when" that is not a condition`);
@@ -208,9 +299,18 @@ export function defineStep(spec = {}) {
   }
   if (typeof read !== "function") throw new TypeError(`defineStep(${type}): read must be a function`);
   if (typeof run !== "function") throw new TypeError(`defineStep(${type}): run must be a function`);
+  // ⚠ **WHAT A STEP PRODUCES IS THE STEP'S OWN FACT, DERIVED HERE AND NEVER DECLARED BY A
+  // CALLER.** A step knows what kind of thing its answer is; a model or a form guessing is
+  // a type that can be WRONG, and a wrong type is worse than no type — it would refuse a
+  // legitimate reference and accept an illegitimate one, both silently. Absent means `text`,
+  // which is what every step here has always produced.
+  if (spec.produces !== undefined && !VALUE_TYPES.includes(spec.produces)) {
+    throw new TypeError(`defineStep(${type}): produces ${String(spec.produces)}, which is not one of ${VALUE_TYPES.join(", ")}`);
+  }
   return Object.freeze({
     kind: "step", type, stepKind: kind, label, does,
     configless: configless === true,
+    produces: spec.produces ?? "text",
     fields: Object.freeze(fields.map((f) => Object.freeze({
       ...f,
       ...(f.options ? { options: Object.freeze([...f.options]) } : {}),
@@ -230,7 +330,19 @@ export function defineStep(spec = {}) {
  * does. One object, so the form draws the same control everywhere and the census has one
  * shape to compare.
  */
-const OUT_FIELD = Object.freeze({ name: "out", kind: "name", required: false });
+const OUT_FIELD = Object.freeze({
+  name: "out", kind: "name", required: false,
+  /**
+   * ⚠ **WHAT A REFUSAL CALLS IT, AND IT WAS MISSING HERE WHILE THE SITE HAD IT.** Found by
+   * widening the cross-product census to compare `says`, which nothing had ever compared —
+   * so for however long, the two halves described one control with two different words. The
+   * engine's `readOut` writes its own sentences and never reads this, so adding it changes
+   * no behaviour at all; what it fixes is the DECLARATION, which is the thing a form draws
+   * from and the thing the census can see. *A drift nothing compares is a drift nothing
+   * reports.*
+   */
+  says: "the name for this step's answer",
+});
 
 /** Read an `out` name, which is optional everywhere and refused rather than repaired. */
 function readOut(raw) {
@@ -344,7 +456,7 @@ const note = defineStep({
   kind: "action",
   label: "Save a note",
   does: "Write a line into this automation's results, so the run has something to show. Put {{a name}} anywhere to use an input or an earlier step's answer.",
-  fields: [{ name: "text", kind: "text", required: true, max: MAX_NOTE, refs: true }, OUT_FIELD],
+  fields: [{ name: "text", kind: "text", required: true, max: MAX_NOTE, refs: true, empty: "say what the note should say" }, OUT_FIELD],
   read: (raw) => {
     const t = readTextField(raw?.text, { what: "that note", max: MAX_NOTE });
     if (t.error) return { error: t.error };
@@ -378,7 +490,7 @@ const branchIf = defineStep({
   label: "If …",
   does: "Compare a value — an input, or an earlier step's answer — and run the steps under it only when the comparison holds. Put an \"Otherwise\" and an \"End\" below it.",
   fields: [
-    { name: "left", kind: "text", required: true, max: MAX_TEST, refs: true },
+    { name: "left", kind: "text", required: true, max: MAX_TEST, refs: true, empty: "say which value to compare — {{a name}} usually" },
     { name: "op", kind: "choice", required: true, options: TESTS },
     { name: "right", kind: "text", required: true, max: MAX_TEST, refs: true, when: { op: ["is", "is not", "contains"] } },
   ],
@@ -430,6 +542,80 @@ const branchEnd = defineStep({
   kind: "branch",
   label: "End of the if",
   does: "Closes the \"If\" above it. Everything after this runs either way.",
+  fields: [],
+  configless: true,
+  read: () => ({ config: {} }),
+  run: () => ({}),
+});
+
+/**
+ * REPEAT — once for each of a list, or a fixed number of times.
+ *
+ * ⚠ **THE ITERATION IS DURABLE AND THAT IS THE WHOLE REQUIREMENT.** A restart inside
+ * iteration three of five resumes AT THREE: it does not start again (which would repeat
+ * three iterations of completed effects) and it does not skip (which would lose two).
+ * The state lives on the execution row, so it survives a deploy, an eviction and a lost
+ * lease — the same argument the position itself rests on.
+ *
+ * **THE LIST IS SNAPSHOTTED WHEN THE LOOP OPENS**, exactly as an execution's steps are
+ * at acceptance and a child's are at the call. A loop that re-read its source each time
+ * round could iterate a list that changed under it — and on a resume it would iterate
+ * one it had never seen, which is a different workflow from the one that started.
+ *
+ * **TWO MODES, ONE FIELD EACH, AND NEVER BOTH.** `when` hides the one the answer has
+ * made irrelevant and refuses a value nothing will read — the rule `wait` already
+ * follows, for the same reason.
+ */
+const LOOP_MODES = Object.freeze(["each", "times"]);
+
+const repeat = defineStep({
+  type: "repeat",
+  kind: "branch",
+  label: "Repeat …",
+  does: "Runs the steps under it once for each thing in a list, or a fixed number of times. Put an \"End of the repeat\" below it.",
+  fields: [
+    { name: "mode", kind: "choice", required: true, options: LOOP_MODES },
+    // ⚠ THE ONE FIELD IN THIS PRODUCT THAT ACCEPTS ONLY A LIST, and it is why types
+    // exist at all: without it a `type` on a value would be a label nothing reads.
+    { name: "each", kind: "text", required: true, max: MAX_TEST, refs: true, accepts: "list",
+      says: "the list to go through", empty: "say which list to go through — {{a name}}",
+      when: { mode: ["each"] } },
+    { name: "times", kind: "number", required: true, min: 1, max: MAX_LOOP_ITERATIONS,
+      says: "how many times", when: { mode: ["times"] } },
+    // WHAT EACH ONE IS CALLED INSIDE THE LOOP. Compelled for `each`, because a list you
+    // cannot name is a list you cannot use; meaningless for `times`, which counts rather
+    // than iterates anything.
+    { name: "as", kind: "name", required: true, says: "what to call each one", when: { mode: ["each"] } },
+  ],
+  read: (raw) => {
+    const mode = readChoice(raw?.mode, { name: "what this repeats over", options: LOOP_MODES });
+    if (mode.error) return { error: mode.error };
+    if (mode.value === "each") {
+      const each = readTextField(raw?.each, { what: "the list to go through", max: MAX_TEST });
+      if (each.error) return { error: each.error };
+      if (each.empty) return { error: "say which list to go through — {{a name}}" };
+      const as = readOut({ out: raw?.as });
+      if (as.error) return { error: as.error };
+      if (!as.out) return { error: "say what to call each one, so the steps under it can use it" };
+      return { config: { mode: "each", each: each.text, as: as.out, times: null } };
+    }
+    const times = readNumber(raw?.times, { name: "how many times", min: 1, max: MAX_LOOP_ITERATIONS });
+    if (times.error) return { error: times.error };
+    return { config: { mode: "times", each: null, as: null, times: times.value } };
+  },
+  // ⚠ **IT DECIDES NOTHING AND THAT IS DELIBERATE.** A loop is control flow, so the
+  // executor owns it — exactly as `if` computes its comparison here and the JUMP there.
+  // What this cannot do is resolve the list, because `fillConfig` has already turned a
+  // `{{name}}` into TEXT by the time a `run` sees it, and a list rendered as text is the
+  // `String(["a"])` trap. The executor reads the value itself, by name.
+  run: () => ({}),
+});
+
+const repeatEnd = defineStep({
+  type: "endrepeat",
+  kind: "branch",
+  label: "End of the repeat",
+  does: "Closes the \"Repeat\" above it. Everything after this runs once, when the loop has finished.",
   fields: [],
   configless: true,
   read: () => ({ config: {} }),
@@ -512,7 +698,7 @@ const approval = defineStep({
   label: "Wait for approval",
   does: "Pause and ask to be approved or rejected before carrying on. Say what happens if nobody answers in time.",
   fields: [
-    { name: "ask", kind: "text", required: true, max: MAX_ASK, refs: true },
+    { name: "ask", kind: "text", required: true, max: MAX_ASK, refs: true, empty: "say what is being approved" },
     { name: "hours", kind: "number", required: true, min: 1, max: MAX_APPROVAL_HOURS },
     { name: "on_timeout", kind: "choice", required: true, options: TIMEOUT_OUTCOMES },
   ],
@@ -584,7 +770,7 @@ const knowledge = defineStep({
   label: "Look something up",
   does: "Search this agent's reference material and save the passages that match, with the source they came from. Put {{a name}} in the search to use an input.",
   fields: [
-    { name: "query", kind: "text", required: true, max: MAX_QUERY, refs: true },
+    { name: "query", kind: "text", required: true, max: MAX_QUERY, refs: true, empty: "say what to search for" },
     { ...OUT_FIELD, required: true },
   ],
   read: (raw) => {
@@ -685,7 +871,8 @@ const memory = defineStep({
  * markers sit beside the `if` they belong to rather than at the end.
  */
 export const AUTOMATION_STEPS = Object.freeze([
-  weekday, branchIf, branchOtherwise, branchEnd, wait, approval, knowledge, memory, note,
+  weekday, branchIf, branchOtherwise, branchEnd, repeat, repeatEnd,
+  wait, approval, knowledge, memory, note,
 ]);
 
 /** The catalog's type names, DERIVED, so nothing holds a second copy of the list. */
@@ -776,42 +963,80 @@ export function executionDay({ occurrence, zone, now }) {
  * order, so storing it would be a second copy of the step list that a later edit could
  * leave behind. Recomputing it costs one pass over at most twenty entries.
  */
-export function branchMap(steps) {
+export const BLOCK_SHAPES = Object.freeze([
+  Object.freeze({ open: "if", middle: "otherwise", close: "end",
+                  opened: "If", middled: "Otherwise", closed: "End of the if" }),
+  Object.freeze({ open: "repeat", middle: null, close: "endrepeat",
+                  opened: "Repeat", middled: null, closed: "End of the repeat" }),
+]);
+
+export function branchMap(steps, shapes = BLOCK_SHAPES) {
   const map = new Map();
   const open = [];
   const list = Array.isArray(steps) ? steps : [];
+  const byOpen = new Map(shapes.map((sh) => [sh.open, sh]));
+  const byMiddle = new Map(shapes.filter((sh) => sh.middle).map((sh) => [sh.middle, sh]));
+  const byClose = new Map(shapes.map((sh) => [sh.close, sh]));
   for (let i = 0; i < list.length; i++) {
     const type = list[i]?.type;
     const at = i + 1;
-    if (type === "if") {
-      open.push({ at: i, elseAt: null });
-      map.set(i, { kind: "if", elseAt: null, endAt: null });
-    } else if (type === "otherwise") {
+    if (byOpen.has(type)) {
+      const sh = byOpen.get(type);
+      open.push({ at: i, elseAt: null, shape: sh });
+      map.set(i, { kind: type, elseAt: null, endAt: null });
+    } else if (byMiddle.has(type)) {
+      const sh = byMiddle.get(type);
       const top = open[open.length - 1];
-      if (!top) return { error: `step ${at}: "Otherwise" has no "If" above it` };
-      if (top.elseAt !== null) return { error: `step ${at}: that "If" already has an "Otherwise"` };
+      if (!top) return { error: `step ${at}: "${sh.middled}" has no "${sh.opened}" above it` };
+      // ⚠ **A MIDDLE MARKER BELONGS TO ITS OWN OPENER AND NOT TO WHATEVER IS OPEN.** An
+      // `Otherwise` directly inside a `Repeat` has no `If` to be the other arm of, and
+      // reading it as the repeat's would be a workflow nobody wrote — the same reason a
+      // mismatched closer is refused below.
+      if (top.shape !== sh) {
+        return { error: `step ${at}: "${sh.middled}" has no "${sh.opened}" above it — the nearest block is a "${top.shape.opened}"` };
+      }
+      if (top.elseAt !== null) return { error: `step ${at}: that "${sh.opened}" already has an "${sh.middled}"` };
       top.elseAt = i;
       map.get(top.at).elseAt = i;
-      map.set(i, { kind: "otherwise", ifAt: top.at, endAt: null });
-    } else if (type === "end") {
-      const top = open.pop();
-      if (!top) return { error: `step ${at}: "End of the if" has no "If" above it` };
+      map.set(i, { kind: type, ifAt: top.at, endAt: null });
+    } else if (byClose.has(type)) {
+      const sh = byClose.get(type);
+      const top = open[open.length - 1];
+      if (!top) return { error: `step ${at}: "${sh.closed}" has no "${sh.opened}" above it` };
+      // ⚠ **A CLOSER MUST CLOSE ITS OWN KIND OF BLOCK.** With two block shapes an "End of
+      // the if" can be written under a "Repeat", and matching it to whatever is on the
+      // stack would pair a loop with a branch's end — a workflow that balances by count
+      // and means something nobody asked for. Refused by NAME and by POSITION, at save
+      // time, exactly as an unbalanced list already is.
+      if (top.shape !== sh) {
+        return { error: `step ${at}: "${sh.closed}" closes a "${sh.opened}", and the nearest block above it is a "${top.shape.opened}"` };
+      }
+      open.pop();
       map.get(top.at).endAt = i;
       if (top.elseAt !== null) map.get(top.elseAt).endAt = i;
-      map.set(i, { kind: "end", ifAt: top.at });
+      map.set(i, { kind: type, ifAt: top.at });
     }
   }
   if (open.length) {
-    return { error: `step ${open[open.length - 1].at + 1}: that "If" has no "End of the if" below it` };
+    const top = open[open.length - 1];
+    return { error: `step ${top.at + 1}: that "${top.shape.opened}" has no "${top.shape.closed}" below it` };
   }
   return { map };
 }
 
 // ── reading a stored workflow ───────────────────────────────────────────────
 
-/** `s4` → 3. The id is minted from the position, so this is exact and not a guess. */
+/**
+ * `s4` → 3. The id is minted from the position, so this is exact and not a guess.
+ *
+ * ⚠ **AND IT READS AN ITERATION SUFFIX TOO — `s4#2.1` IS STILL POSITION 3.** A step inside
+ * a loop records one outcome per time round, so its id carries which time; the POSITION is
+ * what this answers and it is the same for all of them. Without the second half every
+ * outcome written inside a loop would come back as -1 on a resume and be DROPPED, which is
+ * a resumed execution re-running work it had already done.
+ */
 export function indexOfId(id) {
-  const m = /^s(\d+)$/.exec(String(id ?? ""));
+  const m = /^s(\d+)(?:#[\d.]+)?$/.exec(String(id ?? ""));
   if (!m) return -1;
   return Number(m[1]) - 1;
 }
@@ -859,22 +1084,44 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
    * **A STACK, because branches nest**, and each frame remembers what was available when
    * it opened and what each arm has added since.
    */
-  const outer = new Set();
-  for (const n of Array.isArray(inputs) ? inputs : []) if (typeof n === "string") outer.add(n);
+  /**
+   * ⚠ **A NAME'S TYPE TRAVELS WITH IT, AND THE SETS BECAME MAPS FOR THAT ALONE.** What a
+   * reference may be used FOR is a property of what produced it, so the scope has to
+   * remember both. Every existing caller hands in a list of STRINGS and every one of
+   * those is `text`, which is what they have always been — so nothing stored moves and no
+   * caller has to change.
+   */
+  const declared = new Map();
+  for (const d of Array.isArray(inputs) ? inputs : []) {
+    if (typeof d === "string") declared.set(d, "text");
+    else if (d && typeof d === "object" && typeof d.name === "string") {
+      declared.set(d.name, VALUE_TYPES.includes(d.type) ? d.type : "text");
+    }
+  }
+  const outer = declared;
   /** `{before, first, other, inElse}` — `first`/`other` are each arm's own additions. */
   const frames = [];
   const here = () => (frames.length ? frames[frames.length - 1] : null);
-  /** What a step at this point may refer to: the enclosing set plus this arm's own. */
+  /**
+   * How many blocks of one kind are open right now.
+   *
+   * ⚠ **THE DEPTH IS COUNTED FROM THE FRAMES RATHER THAN FROM A NUMBER SOMEBODY KEEPS**,
+   * because the frames are the thing that is really nested — a counter beside them is a
+   * second copy of the same fact and the copy that drifts is the one deciding whether a
+   * workflow is refused.
+   */
+  const depthOf = (kind) => frames.filter((f) => (kind === "repeat" ? f.loop : !f.loop)).length;
+  /** What a step at this point may refer to: the enclosing scope plus this arm's own. */
   const visible = () => {
     const f = here();
     if (!f) return outer;
-    return new Set([...f.before, ...(f.inElse ? f.other : f.first)]);
+    return new Map([...f.before, ...(f.inElse ? f.other : f.first)]);
   };
-  /** Where a step's own `out` lands: the arm it is in, or the outer set. */
-  const produce = (name) => {
+  /** Where a step's own `out` lands: the arm it is in, or the outer scope. */
+  const produce = (name, type = "text") => {
     const f = here();
-    if (!f) outer.add(name);
-    else (f.inElse ? f.other : f.first).add(name);
+    if (!f) outer.set(name, type);
+    else (f.inElse ? f.other : f.first).set(name, type);
   };
   /**
    * ⚠ NAMES AN ARM PRODUCED THAT DID NOT SURVIVE ITS REJOIN, remembered for the SENTENCE
@@ -904,8 +1151,28 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
     const canSee = visible();
     for (const f of def.fields) {
       if (f.refs !== true) continue;
+      // WHAT THIS FIELD CAN USE. Absent means `text`, which is every field that existed
+      // before loops — so the test below is a no-op for all of them and a real wall for
+      // the one that iterates.
+      const wants = VALUE_TYPES.includes(f.accepts) ? f.accepts : "text";
       for (const name of refsIn(config[f.name])) {
-        if (!canSee.has(name)) {
+        if (canSee.has(name)) {
+          // ⚠ **THE TYPE IS CHECKED WHILE IT IS STILL SOMEBODY'S FORM.** A list in a
+          // sentence is `String(["a"])` — this repository's most repeated value trap —
+          // and text where a number is wanted is `Number("nine")`. Either way the run
+          // fails at the step with the steps above it already done and charged for, so
+          // the refusal belongs here, by NAME and by POSITION.
+          const got = canSee.get(name) ?? "text";
+          if (!(TYPE_ACCEPTS[wants] ?? []).includes(got)) {
+            const said = isText(f.says) ? f.says : f.name;
+            return {
+              error: `step ${at}: "${name}" is ${got === "list" ? "a list" : got === "number" ? "a number" : "text"}, and ${said} needs ${wants === "list" ? "a list" : wants === "number" ? "a number" : "text"}`,
+              at,
+            };
+          }
+          continue;
+        }
+        {
           // ⚠ THE SENTENCE SAYS WHICH OF THE TWO IT IS, because they need different
           // things done about them: a name nothing anywhere produces is a typo, and a
           // name produced only in an arm that may not run is a workflow that has to say
@@ -927,28 +1194,43 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
       }
     }
     // ITS OWN `out` IS ADDED AFTER ITS OWN REFERENCES ARE CHECKED, so a step cannot
-    // refer to the answer it is about to produce.
-    if (isText(config.out)) produce(config.out);
+    // refer to the answer it is about to produce. **THE TYPE IS THE STEP'S OWN**, derived
+    // at declaration and never taken from the stored row.
+    if (isText(config.out)) produce(config.out, def.produces);
 
-    // ── the frame moves with the branch markers ─────────────────────────────
+    // ── the frame moves with the block markers ──────────────────────────────
     if (def.type === "if") {
-      frames.push({ before: visible(), first: new Set(), other: new Set(), inElse: false, hasElse: false });
+      frames.push({ before: visible(), first: new Map(), other: new Map(), inElse: false, hasElse: false, loop: false });
+    } else if (def.type === "repeat") {
+      // ⚠ **A LOOP IS A SCOPE WITH ONE ARM, AND THE SECOND ARM IS THE ZERO-ITERATIONS
+      // PATH.** A list can be empty, so the body may never run — which makes the rejoin
+      // rule below exactly the one an `if` with no `otherwise` already has, rather than a
+      // special case. Nothing bound inside a loop survives its end.
+      if (depthOf("repeat") >= MAX_LOOP_DEPTH) {
+        return { error: `step ${at}: that is more repeats inside each other than one workflow can have (${MAX_LOOP_DEPTH})`, at };
+      }
+      frames.push({ before: visible(), first: new Map(), other: new Map(), inElse: false, hasElse: false, loop: true });
+      // WHAT EACH ONE IS CALLED IS VISIBLE INSIDE THE BODY AND NOWHERE ELSE, which is the
+      // frame doing the work: it goes into this block's own arm, and the arm contributes
+      // nothing past the `endrepeat`.
+      if (isText(config.as)) produce(config.as, "text");
     } else if (def.type === "otherwise") {
       const f = here();
       // A MARKER WITH NO FRAME is `branchMap`'s refusal below, not this one's — it reads
       // the whole list and says which step, which is the better sentence.
       if (f) { f.inElse = true; f.hasElse = true; }
-    } else if (def.type === "end") {
+    } else if (def.type === "end" || def.type === "endrepeat") {
       const f = frames.pop();
       if (f) {
         // ⚠ **ONLY WHAT BOTH ARMS PRODUCE SURVIVES**, and an `if` with no `otherwise`
         // has an empty second arm — so nothing from inside it does, which is the same
-        // rule rather than a special case.
-        const both = f.hasElse ? [...f.first].filter((n) => f.other.has(n)) : [];
-        for (const n of both) produce(n);
+        // rule rather than a special case. A LOOP is that shape too: its second arm is
+        // the path where the list was empty.
+        const both = f.hasElse ? [...f.first.keys()].filter((n) => f.other.has(n)) : [];
+        for (const n of both) produce(n, f.first.get(n));
         // WHAT EACH ARM BOUND AND THE REJOIN DID NOT KEEP. It is remembered for the
         // SENTENCE and never for visibility: nothing below may name these.
-        for (const n of [...f.first, ...f.other]) if (!both.includes(n)) armOnly.add(n);
+        for (const n of [...f.first.keys(), ...f.other.keys()]) if (!both.includes(n)) armOnly.add(n);
       }
     }
 
@@ -956,7 +1238,11 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
   }
   const struct = branchMap(steps);
   if (struct.error) return { error: struct.error };
-  return { steps, produces: [...outer] };
+  // ⚠ **`produces` STAYS A LIST OF NAMES and that is not laziness.** It is what the site
+  // builder's own validator answers and what the cross-product census compares BOTH WAYS,
+  // so changing its shape would change a contract for a fact that fits beside it. `types`
+  // is the same scope read the other way, for a caller that needs it.
+  return { steps, produces: [...outer.keys()], types: Object.fromEntries(outer) };
 }
 
 // ── running one ─────────────────────────────────────────────────────────────
@@ -1027,25 +1313,92 @@ export async function runWorkflow(opts = {}) {
   const pausedOn = plain(opts.waiting);
   const waitUntil = typeof opts.waitUntil === "number" && Number.isFinite(opts.waitUntil) ? opts.waitUntil : null;
 
-  const results = new Map();
-  // A RESUME KEEPS WHAT IS ALREADY RECORDED, matched BY ID rather than by position in
-  // the stored list: the ids are minted from the position of the snapshotted workflow,
-  // so they are the one thing that survives a list being read back.
-  for (const o of Array.isArray(opts.outcomes) ? opts.outcomes : []) {
-    const at = indexOfId(o?.id);
-    if (at >= 0 && at < steps.length) results.set(at, o);
+  /**
+   * ⚠ **THE LOOP STATE, AND IT IS THE WHOLE OF "durable iteration progress".**
+   *
+   * `{ "<the repeat's id>": { at, of, list, as } }`, carried in and out on the execution
+   * row. A restart inside iteration three of five resumes AT THREE — not at one, which
+   * would repeat three iterations of completed effects, and not at four, which would lose
+   * one. Nothing about it lives in this process.
+   *
+   * **THE LIST IS SNAPSHOTTED WHEN THE LOOP OPENS**, which is the same rule an
+   * execution's steps follow at acceptance: a loop that re-read its source each time
+   * round would iterate something that changed under it, and on a resume it would iterate
+   * a list it had never seen.
+   */
+  const loops = new Map();
+  for (const [k, v] of Object.entries(plain(opts.loops))) {
+    if (v && typeof v === "object" && !Array.isArray(v) && Number.isInteger(v.at) && Number.isInteger(v.of)) {
+      loops.set(k, { at: v.at, of: v.of, list: Array.isArray(v.list) ? v.list : [], as: isText(v.as) ? v.as : null });
+    }
   }
 
-  const put = (at, o) => results.set(at, {
-    id: steps[at]?.id ?? `s${at + 1}`, type: steps[at]?.type ?? "", ...o,
-  });
-  const skipRange = (from, to, why) => {
-    for (let k = from; k < to && k < steps.length; k++) if (!results.has(k)) put(k, { outcome: "skipped", why });
+  const results = new Map();
+  /**
+   * ⚠ **WHERE ONE STEP'S OUTCOME LIVES, AND A LOOP IS WHY IT IS NOT JUST THE POSITION.**
+   *
+   * A step inside a loop runs N times, so a map keyed by position alone would hold one
+   * outcome for all of them — and a resume would read iteration one's outcome as iteration
+   * three's and SKIP a step that has not run. The key carries the iteration of every loop
+   * it is inside, and the id it stores carries the same, so the record and the reader agree
+   * without either computing it twice.
+   *
+   * **A STEP IN NO LOOP KEEPS ITS BARE POSITION AND ITS BARE `sN` ID**, so every outcome
+   * this product has ever written reads back exactly as it did.
+   */
+  const trail = () => {
+    const parts = [];
+    for (const [openId, st] of loops) {
+      const openAt = indexOfId(openId);
+      const b = openAt >= 0 ? struct.map?.get(openAt) : null;
+      if (b && Number.isInteger(b.endAt) && openAt < i && i <= b.endAt) parts.push(`${openAt + 1}.${st.at}`);
+    }
+    return parts.length ? `#${parts.join(".")}` : "";
   };
+  const keyAt = (at, suffix) => `${at}${suffix}`;
+  const idAt = (at, suffix) => `${steps[at]?.id ?? `s${at + 1}`}${suffix}`;
+
+  for (const o of Array.isArray(opts.outcomes) ? opts.outcomes : []) {
+    const at = indexOfId(o?.id);
+    if (at < 0 || at >= steps.length) continue;
+    const m = /^s\d+(#[\d.]+)$/.exec(String(o?.id ?? ""));
+    results.set(keyAt(at, m ? m[1] : ""), o);
+  }
+
+  const put = (at, o, suffix = null) => {
+    const sfx = suffix === null ? trail() : suffix;
+    results.set(keyAt(at, sfx), { id: idAt(at, sfx), type: steps[at]?.type ?? "", ...o });
+  };
+  const skipRange = (from, to, why) => {
+    const sfx = trail();
+    for (let k = from; k < to && k < steps.length; k++) {
+      if (!results.has(keyAt(k, sfx))) put(k, { outcome: "skipped", why }, sfx);
+    }
+  };
+  /**
+   * The history, in POSITION order and then in iteration order.
+   *
+   * ⚠ **NOT INSERTION ORDER, although that is execution order and looks like the honest
+   * one.** The final sweep fills in every step that never ran, so insertion order would
+   * put all of those at the END — moving every existing outcome list on every screen. The
+   * sort is what keeps a workflow's history reading down the page.
+   */
   const ordered = () => {
-    const out = [];
-    for (let k = 0; k < steps.length; k++) if (results.has(k)) out.push(results.get(k));
-    return out;
+    const rows = [...results.entries()].map(([k, v]) => {
+      const [pos, ...iters] = k.split("#");
+      return { pos: Number(pos), iters: (iters[0] ?? "").split(".").filter(Boolean).map(Number), v };
+    });
+    rows.sort((a, b) => {
+      if (a.pos !== b.pos) return a.pos - b.pos;
+      const n = Math.max(a.iters.length, b.iters.length);
+      for (let k = 0; k < n; k++) {
+        const x = a.iters[k] ?? -1;
+        const y = b.iters[k] ?? -1;
+        if (x !== y) return x - y;
+      }
+      return 0;
+    });
+    return rows.map((r) => r.v);
   };
   const ctxFor = (resume) => Object.freeze({
     date: day.date, weekday: day.weekday, zone: day.zone, dayFrom: day.from, now,
@@ -1064,6 +1417,13 @@ export async function runWorkflow(opts = {}) {
     try {
       answer = await record({
         position, outcomes: ordered(), values: { ...values }, waiting: pause ?? null,
+        // ⚠ **WHICH TIME ROUND EVERY OPEN LOOP IS ON, ON THE SAME CALL AS THE POSITION.**
+        // One writer of progress, so the two can never be persisted apart — a position
+        // saved without its loop state is a restart that re-enters the body at an
+        // iteration it has already done, which is the defect this whole column exists to
+        // prevent. Rendered fresh each time rather than shared, because the caller stores
+        // it and a live reference would let a later round rewrite an earlier record.
+        loops: Object.fromEntries([...loops].map(([k, v]) => [k, { at: v.at, of: v.of, list: v.list, as: v.as }])),
         // ⚠ THE EXECUTOR'S OWN CLOCK, NOT THE RECORDER'S, and that is what makes a retry
         // inside one delivery replay a BYTE-IDENTICAL journal entry — which is the only
         // thing `agent.append_entry` can read as `already` rather than as a second entry.
@@ -1119,7 +1479,14 @@ export async function runWorkflow(opts = {}) {
   const jumpedToElse = new Set();
   for (let k = 0; k < steps.length; k++) {
     if (steps[k]?.type !== "if") continue;
-    const recorded = results.get(k);
+    // ⚠ **THE KEY IS THE BARE POSITION, WHICH IS AN `if` OUTSIDE ANY LOOP.** An `if` INSIDE
+    // one records a decision per iteration, and the arm it took on iteration two is not
+    // evidence about iteration three — so the loop's own re-entry re-decides it from the
+    // condition, which is correct and is what makes this reader's narrowness deliberate.
+    // (Measured: with the map keyed by string and this line asking for an integer, `get`
+    // answers `undefined` for every `if` and a resumed run re-decides every branch — which
+    // is the defect M2 closed, returning through a key.)
+    const recorded = results.get(keyAt(k, ""));
     if (recorded?.took !== "otherwise") continue;
     // ⚠ THE RECORD MUST AGREE WITH THE STEP IT SITS AT. `took` is a field only an `if`
     // can write, so an outcome recorded against something else carrying one is not
@@ -1170,6 +1537,110 @@ export async function runWorkflow(opts = {}) {
       break;
     }
     const config = filled.config;
+
+    // ── a loop goes round; the executor owns the control flow ───────────────
+    if (type === "repeat" || type === "endrepeat") {
+      const b = struct.map?.get(i) ?? {};
+      if (type === "repeat") {
+        // ⚠ **THE LIST IS READ BY NAME AND NEVER OUT OF THE FILLED CONFIG**, because
+        // `fillConfig` has already rendered `{{names}}` into TEXT by now — and a list
+        // rendered as text is `String(["a"])`, this repository's most repeated value trap.
+        // `readWorkflow` has already refused a reference of the wrong type here, so this
+        // is the second wall and it is declared as one: what it catches is a stored row
+        // from a version that had no types, where the value really is not a list.
+        let list = [];
+        let of = 0;
+        if (config.mode === "each") {
+          const named = refsIn(one.each)[0] ?? null;
+          const raw = named !== null && Object.hasOwn(values, named) ? values[named] : undefined;
+          if (!Array.isArray(raw)) {
+            const error = named === null
+              ? "say which list to go through — {{a name}}"
+              : `"${named}" is not a list, so there is nothing to go through`;
+            put(i, { outcome: "failed", error });
+            stopped = { kind: "failed", at: id, error };
+            break;
+          }
+          if (raw.length > MAX_LOOP_ITERATIONS) {
+            // ⚠ REFUSED WHOLE, NEVER TRUNCATED. A loop that quietly did the first fifty of
+            // two hundred would report itself done having left three quarters of somebody's
+            // work undone — the prefix argument the tool-budget refusal makes one layer up.
+            const error = `"${named}" has ${raw.length} things in it, which is more than one repeat can go through (${MAX_LOOP_ITERATIONS})`;
+            put(i, { outcome: "failed", error });
+            stopped = { kind: "failed", at: id, error };
+            break;
+          }
+          list = [...raw];
+          of = list.length;
+        } else {
+          of = Number.isInteger(config.times) ? config.times : 0;
+        }
+        // THE STATE IS WRITTEN BEFORE THE BODY RUNS, so the checkpoint below carries it and
+        // a restart one step in knows which time round it is.
+        const st = { at: 0, of, list, as: isText(config.as) ? config.as : null };
+        loops.set(id, st);
+        if (of === 0) {
+          // ⚠ `ran`, NOT `skipped`: the repeat did its job — there was nothing to go
+          // through. And the body is skipped at the loop's own trail, which is the trail
+          // BEFORE this loop is entered, so those outcomes read as the ones that never ran.
+          const why = config.mode === "each" ? "the list was empty, so the steps under it didn't run" : "it was set to no times at all";
+          loops.delete(id);
+          put(i, { outcome: "ran", rounds: 0, why });
+          skipRange(i + 1, b.endAt, why);
+          i = b.endAt + 1;
+        } else {
+          if (st.as) values[st.as] = of && config.mode === "each" ? list[0] : "";
+          put(i, { outcome: "ran", rounds: of, why: config.mode === "each" ? `going through ${of} of them` : `going round ${of} times` });
+          i += 1;
+        }
+        if (!(await checkpoint(i, null))) break;
+        continue;
+      }
+      // ── the end of a repeat: go round again, or carry on ─────────────────
+      const openAt = Number.isInteger(b.ifAt) ? b.ifAt : -1;
+      const openId = openAt >= 0 ? (steps[openAt]?.id ?? `s${openAt + 1}`) : null;
+      const st = openId !== null ? loops.get(openId) : null;
+      if (!st) {
+        // A STORED LIST WHOSE LOOP STATE IS GONE. Failed rather than carried on: carrying
+        // on would run the steps after the loop having done an unknown number of rounds.
+        const error = "the repeat this closes has no record of where it got to";
+        put(i, { outcome: "failed", error });
+        stopped = { kind: "failed", at: id, error };
+        break;
+      }
+      // ⚠ **THE BUDGET IS COUNTED IN STEP RUNS AND IS ASKED BEFORE GOING ROUND AGAIN.**
+      // `MAX_WORKFLOW_STEPS` bounds the LIST; with loops the resource is RUNS, and it is
+      // counted from the RECORD so an execution cannot spend it again by being restarted.
+      if (results.size >= MAX_STEP_RUNS) {
+        const error = `this has run ${results.size} steps, which is as many as one automation may (${MAX_STEP_RUNS})`;
+        put(i, { outcome: "failed", error });
+        stopped = { kind: "failed", at: id, error };
+        break;
+      }
+      const next = st.at + 1;
+      if (next < st.of) {
+        st.at = next;
+        if (st.as) values[st.as] = Array.isArray(st.list) && st.list.length ? st.list[next] : "";
+        // ⚠ **THE POSITION GOES BACK TO THE FIRST STEP OF THE BODY, AND THE ITERATION IS
+        // ALREADY ADVANCED** — so the outcomes this round writes are keyed to `next` and
+        // cannot overwrite the last round's. That pair is the whole of "resuming inside a
+        // loop does not repeat completed effects": the record says which round each outcome
+        // belongs to, and the state says which round to re-enter.
+        i = openAt + 1;
+        if (!(await checkpoint(i, null))) break;
+        continue;
+      }
+      // DONE GOING ROUND. The item is unbound, which is a SECOND wall and is declared as
+      // one: `readWorkflow` already refuses a reference to it below the `endrepeat`,
+      // because a loop's arm contributes nothing past its own end. This one covers a
+      // stored row from a version that had no such rule.
+      if (st.as) delete values[st.as];
+      loops.delete(openId);
+      put(i, { outcome: "ran", rounds: st.of, why: `went round ${st.of} time${st.of === 1 ? "" : "s"}` }, "");
+      i += 1;
+      if (!(await checkpoint(i, null))) break;
+      continue;
+    }
 
     // ── a branch picks a path; it never stops the workflow ──────────────────
     if (def.stepKind === "branch") {
@@ -1295,12 +1766,23 @@ export async function runWorkflow(opts = {}) {
     if (!(await checkpoint(i, null))) break;
   }
 
+  /**
+   * ⚠ **THE LOOP STATE COMES BACK ON EVERY ANSWER, INCLUDING THE HALTED ONE.**
+   *
+   * It is the caller that persists it, so an exit that left it out would be an execution
+   * that forgot which time round it was — and the caller would have nothing to write. On a
+   * HALT nothing is written anyway (the claim is gone), and answering it there costs
+   * nothing and keeps one shape for all three exits, which is what stops a reader having
+   * to know which exit it is looking at before it knows what it has.
+   */
+  const loopState = () => Object.fromEntries([...loops].map(([k, v]) => [k, { at: v.at, of: v.of, list: v.list, as: v.as }]));
+
   if (halted !== null) {
-    return { outcomes: ordered(), values, position: i, stop: null, waiting: null, halted };
+    return { outcomes: ordered(), values, position: i, loops: loopState(), stop: null, waiting: null, halted };
   }
 
   if (waiting) {
-    return { outcomes: ordered(), values, position: waitingAt, stop: null, waiting, halted: null };
+    return { outcomes: ordered(), values, position: waitingAt, loops: loopState(), stop: null, waiting, halted: null };
   }
 
   // EVERY REMAINING STEP GETS AN OUTCOME, and the reason says which kind of ending it
@@ -1335,7 +1817,7 @@ export async function runWorkflow(opts = {}) {
   // it isn't Monday" is unanswerable after the fact — the reader would have to work out
   // which day the execution thought it was, in a zone it cannot see.
   return {
-    outcomes, values, position: steps.length, waiting: null, halted: null,
+    outcomes, values, position: steps.length, loops: loopState(), waiting: null, halted: null,
     stop: { ...stop, on: day.date, weekday: day.weekday, zone: day.zone },
   };
 }
