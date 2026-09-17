@@ -4260,3 +4260,117 @@ defect that overwrites somebody's correction.
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED.** The migration is prepared locally. When it goes,
 the order is the recorded one — **migration → engine → site** — and here the engine's half is
 the only one that changes: the site's routes call the plain functions and are untouched.
+
+---
+
+## Milestone 8: an agent can write a workflow, through the reader the screen uses (2026-09-17)
+
+Owner: *"Provide validated tools for creating and editing automations using the same backend
+rules as the screen. An agent must be able to inspect the available actions, assemble a
+workflow, save it, inspect it, and propose changes."*
+
+**FOUR TOOLS, AND THE CATALOG GOES 12 → 16**: `list_actions` · `check_workflow` ·
+`make_automation` · `change_automation`.
+
+### The validation is the SAME FUNCTION, and what reaches the database is ITS output
+
+`checkSteps` is `readWorkflow` — the one the screen's own save goes through. It mints each
+step's id from its POSITION, refuses an unknown type, a note past its cap, a day that is not a
+day, a reference nothing produces (by name AND by position) and a branch that does not
+balance, and **it never SHORTENS**. A model composing steps meets exactly those rules, in
+exactly that function, and the verdict becomes a sentence rather than a throw.
+
+**WHAT GOES TO THE DATABASE IS `readWorkflow`'S OWN `steps`, NEVER THE MODEL'S LIST.** Passing
+the raw list on would put an unvalidated step into the row with a validation having happened
+beside it, which is the shape of every "it was checked" defect this repository records — and
+the row is read back in the demonstration to prove it, against the ids `readWorkflow` itself
+mints rather than against a transcribed `["s0","s1"]`. **That transcription was wrong**: the
+counter is 1-based, so the first draft asserted `s0` and measured `s1`. *An expectation copied
+from a guess about a producer is a guess.*
+
+### ⚠ THE APPROVAL GATE IS ON THE TOOL, NEVER ON ITS ARGUMENTS
+
+The requirement is that *scheduling or enabling persistent work must follow the approval
+policy*, and the obvious reading — gate it only when `enabled` is true or a schedule is set —
+**is a decision made FROM ARGUMENTS A MODEL WROTE**. That is the one thing this surface
+forbids: tool arguments cannot grant capabilities, and a gate a model can turn off by writing
+`enabled: false` and then editing is not a gate.
+
+So both authoring tools are `approval: true`, always. **The cost is stated**: a person
+approves a disabled draft. The alternative is a model choosing whether a person is asked.
+
+### What stays the server's, and it is more than the bounds
+
+- **THE CATALOG.** `list_actions` reads `AUTOMATION_STEPS` — code in this repository — so a
+  step a model invents is not a step, and neither an instruction sheet nor a saved document
+  can add one. It needs no backend at all, which is why it does not go through `withBackend`:
+  it describes what the PLATFORM can do, not what one account holds.
+- **THE CEILING.** `MAX_WORKFLOW_STEPS` rides on the answer, so a model is not told to guess
+  it — and a mutant that tells it 999 is in the sweep.
+- **THE ID.** Derived from `ctx.operation`, so a redelivery asks for the same automation. Never
+  minted, never an argument.
+- **⚠ THE TIME ZONE IS NOT AN ARGUMENT AT ALL.** It belongs to whoever owns the automation; a
+  model choosing it would make "every day at nine" mean nine somewhere nobody lives.
+- **`AUTOMATION_SCHEDULES` IS NOW A DECLARED COPY IN THREE LANGUAGES** — the engine's (so a
+  tool can tell a model which schedules exist), the site's, and the database's own
+  `automations_schedule_known` CHECK. `test/agent-send.test.mjs` compares all three, reading
+  the constraint out of the migration, because a schedule an agent can ask for that the
+  database refuses is a control that answers and then fails at the save.
+
+### Measured
+
+- **Engine suite 411 → 413**, 0 failed: the identity census over all six writes (a forged
+  `operation` among the ARGUMENTS reaches nothing, and no schema offers the field) and the
+  absorbed-answer census with its control.
+- **Site suite: `agent-send` 54 → 55** — the schedule census. The site's catalog gained the
+  four in PERSON-facing words, which is what keeps the cross-product census green.
+- **`verify:tools` 84 → 112, 0 failed.** Section 5c reads the catalog through the tool AND
+  through a real message; refuses a bad reference and an unbalanced branch with the reader's
+  own sentences; saves, reads back the validated ids, refuses a bad create having written
+  nothing, replaces a workflow, refuses a SIBLING's, absorbs a repeated create into one
+  automation, and drives `make_automation` through the loop to prove the approval gate.
+- **`test:pg` 658, `verify:ops` 53, `verify:chat` 112, `verify:auto` 70, `verify:wf` 125** —
+  all unchanged, which is the control.
+- **Sweep spec 421 → 430** (nine on the authoring four).
+
+### ⚠ THE SWEEP FOUND EIGHT SURVIVORS IN M7, AND EVERY ONE WAS THE RECORDED SHAPE
+
+**420 mutants, 412 killed, 8 survived** on the M7 commit — all eight in that round's own work,
+because its properties are proved by `verify:ops`, which `npm run sweep` does not run. *A
+property proven only by an instrument the sweep cannot run is a property no mutant can be
+caught by*, for the third time in this directory.
+
+- **FOUR were "the identity comes from an argument"** — nothing drove a write with `operation`
+  among its ARGUMENTS. Closed by a census over all six writes that forges one and reads the
+  request: the key is `ctx`'s, the forged one reaches nothing, and no schema offers the field.
+- **THREE were the absorbed answers** — nothing drove a capability answering `repeat: true`.
+  Closed with a census over five writes AND its control, because "it says repeat" is otherwise
+  satisfied by a tool that always does.
+- **ONE WAS INERT AND IS DECLARED RATHER THAN RELABELLED.** `cut === operation.length - 1` in
+  `splitOperation` — **measured over 18 shapes, every answer identical**, because the hash
+  charset test already refuses an empty hash. It stays as a deliberate second wall saying "a
+  hash is REQUIRED", the code says so, and the spec says it has no mutant and why. **My first
+  attempt replaced it with the same mutant under a new label** — *a replacement for an inert
+  mutant has to be observable, not relabelled.*
+
+### ⚠ And two more of this file's own recorded traps, in one section
+
+1. **A NAME COLLISION IN ONE LONG FUNCTION BODY**, for the second time in two milestones:
+   `verify-tools.mjs` is a single body and `made` was already declared. Every local the new
+   section declares is prefixed `wf`.
+2. **AND THE BLANKET RENAME REACHED INSIDE A FIELD AND TWO SENTENCES** — `wfActions.actions`
+   became `wfActions.wfActions`, and two check labels read "no automation was wfMade". *A regex
+   over identifiers cannot tell a local from an output key or from the same word in prose.*
+
+### One census widened rather than appeased
+
+The final census in `verify:tools` requires every tool to have been called BY A MODEL, and
+three of the four cannot be: `check_workflow`, `make_automation` and `change_automation` take a
+LIST OF OBJECTS, and the stand-in fills a schema from the words of a request. The set is
+**DECLARED** (`NOT_FROM_THE_STAND_IN`), with the reason, **and their observer is their own
+effect** — the automation section 5c really wrote, read back, plus the model really reaching
+`make_automation` once a person approved it. Every name on the list must be a real tool, so a
+typo cannot exempt one that does not exist and quietly excuse one that does.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and this round adds no SQL at all — the wrappers and
+the plain functions were already there.

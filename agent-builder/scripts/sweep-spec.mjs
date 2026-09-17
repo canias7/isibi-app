@@ -1040,8 +1040,13 @@ const spec = [
     "  if (!/^[0-9a-zA-Z+/=_-]+$/.test(hash)) return null;", "  if (false) return null;"),
   m("identity: a non-string is coerced into one", AP,
     '  if (typeof operation !== "string") return null;', '  operation = String(operation ?? "");'),
-  m("identity: an operation with nothing after the last colon is read as an identity", AP,
-    "  if (cut <= 0 || cut === operation.length - 1) return null;", "  if (cut <= 0) return null;"),
+  // ⚠ **THE TRAILING-COLON CLAUSE HAS NO MUTANT, AND THAT IS DECLARED RATHER THAN FORGOTTEN.**
+  // It survived as `if (cut <= 0)` and was then MEASURED INERT over 18 shapes — every answer
+  // identical — because the hash charset test below already refuses an empty hash. It is a
+  // deliberate second wall, said so in `approvals.mjs`, and the property it is about ("a hash
+  // is REQUIRED") is swept by the charset mutant just below, which IS observable: a hash with
+  // a forbidden character reads as an identity without it.
+  // *A replacement for an inert mutant has to be observable, not relabelled.*
   m("identity: any seed is read as a run, so a non-uuid reaches a uuid column", AP,
     "  return Object.freeze({ key, hash, run: UUID_SHAPE.test(seed) ? seed : null });",
     "  return Object.freeze({ key, hash, run: seed });"),
@@ -1069,6 +1074,36 @@ const spec = [
   m("tools: `run_automation` takes its identity from an argument", CT,
     "input: args.input ?? {}, operation: ctx.operation });",
     "input: args.input ?? {}, operation: args.operation ?? ctx.operation });"),
+
+  // ── capability-tools.mjs: WRITING A WORKFLOW ──────────────────────────────
+  // ⚠ WHAT REACHES THE DATABASE IS `readWorkflow`'S OWN OUTPUT, NEVER THE MODEL'S LIST —
+  // a validation that happens BESIDE the call rather than in front of it is the shape of
+  // every "it was checked" defect this repository records.
+  m("tools: the model's own step list reaches the database, validated beside rather than in front", CT,
+    "  return { ok: true, steps: read.steps, produces: read.produces };",
+    "  return { ok: true, steps: raw, produces: read.produces };"),
+  m("tools: a workflow that does not read is saved anyway", CT,
+    "    const read = checkSteps(args.steps);\n    if (!read.ok) return read;\n    const answer = await can.createAutomation({",
+    "    const read = checkSteps(args.steps);\n    const answer = await can.createAutomation({"),
+  m("tools: creating an automation needs nobody", CT,
+    "  approval: true,\n  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);",
+    "  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);"),
+  m("tools: changing an automation needs nobody", CT,
+    "  approval: true,\n  run: async (args, can, ctx) => {\n    // ⚠ THE SIBLING WALL FIRST",
+    "  run: async (args, can, ctx) => {\n    // ⚠ THE SIBLING WALL FIRST"),
+  m("tools: a SIBLING agent's automation can be rewritten", CT,
+    '    if (!(await can.readAutomation({ id: text(args.id) }))) {\n      return { ok: false, error: "no-automation", say: "there is no automation of this agent\'s with that id" };\n    }',
+    "    // no sibling wall"),
+  m("tools: a created automation's id is minted fresh, so a redelivery makes a second", CT,
+    "      id: await uuidFrom(`automation:${ctx?.operation ?? \"\"}`),",
+    "      id: await uuidFrom(`automation:${Math.random()}`),"),
+  m("tools: the catalog a model reads is not the whole registry", CT,
+    "    actions: AUTOMATION_STEPS.map((d) => ({", "    actions: AUTOMATION_STEPS.slice(1).map((d) => ({"),
+  m("tools: the step ceiling a model is told is not the platform's", CT,
+    "    max: MAX_WORKFLOW_STEPS,", "    max: 999,"),
+  m("tools: checking a workflow secretly writes one", CT,
+    "  input: { type: \"object\", properties: { steps: STEPS_FIELD }, required: [\"steps\"] },\n  repeatable: true,",
+    "  input: { type: \"object\", properties: { steps: STEPS_FIELD }, required: [\"steps\"] },\n  writes: true,\n  repeatable: true,"),
 
   // ── rest-profile.mjs: THE ONE RULE ────────────────────────────────────────
   // Five stores ask this, so it is the one place a wrong answer reaches all of them —

@@ -1426,3 +1426,50 @@ type mistake Postgres refused outright; a parameter name colliding with one alre
 broken**; and two breakage-sweep targets that matched six places instead of one.
 
 **Nothing is applied, deployed or merged. Still no model, still your call, still last.**
+
+---
+
+## 2026-09-17 — an agent can write an automation now, and you approve every one
+
+**Third of the nine.** An agent could read its automations, turn them on and off and start
+them. It could not WRITE one. Now it can, and four things make that safe.
+
+**It gets the real list of actions.** Not a description I wrote for it — the platform's own
+list, the same nine your form draws from, with each one's fields and the limit on how many
+steps an automation may have. A step it invents is not a step, and nothing it reads or
+remembers can add one.
+
+**It can check a workflow before saving it.** That check is free, changes nothing, and can be
+run as many times as it needs. It uses **exactly the same validator your own screen's Save
+button goes through** — so "it passed the check" and "it will save" are the same statement. If
+something is wrong it gets your validator's own sentence back, which is what lets it fix it
+rather than guess.
+
+**What reaches the database is the validator's output, never the agent's list.** That sounds
+like a detail and it is the whole thing: a check that happens *beside* the save rather than in
+*front* of it is how unchecked data gets in with a tick beside it.
+
+**And you approve every create and every change, every time.** I want to be plain about a
+trade here. The obvious design is to ask you only when the automation is actually switched on —
+but "is it switched on" comes from the agent's own request, so an agent could save a switched-off
+one without asking and then switch it on. **A gate the agent can step around is not a gate**, so
+both are gated, always. The cost is that you will be asked about drafts too.
+
+**What it still cannot decide**: the time zone (that is yours — an agent choosing it would make
+"every morning at nine" mean nine somewhere nobody lives), the identity of the automation it is
+writing, and the step limit.
+
+**Checked end to end**: 112 checks in the tools demonstration — the catalog read both directly
+and by a real model through a real message, a bad reference and an unbalanced branch refused
+with your validator's words, a save whose row I read back to confirm it holds the *validated*
+steps, a bad save that wrote nothing at all, a replacement, another agent's automation refused,
+the same create sent twice becoming one automation, and a create through the real loop stopping
+for approval and only running after it.
+
+**⚠ And the breakage sweep found eight gaps in LAST round's work**, every one of them a
+property I had proved end to end and not in a small test — which means no deliberate breakage
+could be caught by it. Seven are closed with new tests; the eighth turned out to be a breakage
+that changes nothing, and I measured that rather than hunting it, and wrote down which line is
+a deliberate second wall so nobody deletes it later.
+
+**Nothing is applied, deployed or merged. Still no model, still your call, still last.**

@@ -37,6 +37,7 @@ import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
 import { OFFERED_NAMES } from "../src/agents.mjs";
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { makeCapabilities } from "../src/capabilities.mjs";
+import { AUTOMATION_STEPS, MAX_WORKFLOW_STEPS, readWorkflow } from "../src/automations.mjs";
 import { argsHash } from "../src/approvals.mjs";
 
 const DB = `agent_tools_${process.pid}`;
@@ -427,6 +428,133 @@ try {
   await drain();
 
   // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n5c. WRITING A WORKFLOW — the same reader the screen's own save goes through");
+  // ═════════════════════════════════════════════════════════════════════════
+  // ⚠ **THE FOUR AUTHORING TOOLS ARE DRIVEN DIRECTLY, AND THE REASON IS THE STAND-IN.**
+  // `make_automation` takes a LIST OF OBJECTS, and the stand-in fills a tool's declared
+  // schema from the words of a request — which cannot produce a nested workflow. So the
+  // steps are composed here and the tool is called with a real `ctx`, exactly as
+  // section 5b does; what that cannot show is the APPROVAL GATE, which lives in the loop, so
+  // the last check below drives `make_automation` through a real message instead.
+  const wfListActionsTool = CAPABILITY_TOOLS.find((t) => t.name === "list_actions");
+  const wfCheckTool = CAPABILITY_TOOLS.find((t) => t.name === "check_workflow");
+  const wfMakeTool = CAPABILITY_TOOLS.find((t) => t.name === "make_automation");
+  const wfChangeTool = CAPABILITY_TOOLS.find((t) => t.name === "change_automation");
+  const wfCtx = async (args, step, index = 0) =>
+    ({ capabilities: m5Ops, operation: `88888888-8888-4888-8888-888888888888:${step}:${index}:${await argsHash(args)}` });
+
+  // ⚠ THE CATALOG IS THE PLATFORM'S OWN, and this reads it through the tool rather than
+  // from the module — a tool that described a step the engine has not got would be a
+  // control that answers and then fails at the first execution.
+  const wfActions = await wfListActionsTool.run({}, await wfCtx({}, 20));
+  check("the agent can read what a workflow may be built from",
+    wfActions?.ok === true && Array.isArray(wfActions.actions) && wfActions.actions.length === AUTOMATION_STEPS.length,
+    `${wfActions?.actions?.length} of ${AUTOMATION_STEPS.length}`);
+  check("⚠ ...and it is the engine's OWN registry, type for type",
+    JSON.stringify(wfActions.actions.map((a) => a.type)) === JSON.stringify(AUTOMATION_STEPS.map((d) => d.type)),
+    wfActions.actions.map((a) => a.type).join(" "));
+  check("⚠ ...with the platform's step ceiling, so a model is not told to guess it",
+    wfActions.max === MAX_WORKFLOW_STEPS, String(wfActions.max));
+  // ⚠ AND THE MODEL REALLY REACHES IT, through a message and the loop — it takes no
+  // arguments, so this is the one authoring tool the stand-in can compose a call to, and
+  // reading the catalog is the first thing an agent writing a workflow has to do.
+  const wfAsked = await ask(AG, "use list_actions");
+  check("⚠ ...and a model really asked for it, through the loop",
+    calledTool(wfAsked.body.runId) === "list_actions", calledTool(wfAsked.body.runId));
+  check("⚠ ...and got the whole catalog back",
+    (toolResult(wfAsked.body.runId)?.actions ?? []).length === AUTOMATION_STEPS.length,
+    String((toolResult(wfAsked.body.runId)?.actions ?? []).length));
+
+  // ⚠ CHECKING IS FREE AND CHANGES NOTHING, which is what makes it usable as often as a
+  // model needs to get a workflow right.
+  const wfBadSteps = [{ type: "note", text: "Today is {{nothing}}" }];
+  const wfWasAutos = Number(q(`select count(*) from agent.automations;`));
+  const wfBadCheck = await wfCheckTool.run({ steps: wfBadSteps }, await wfCtx({ steps: wfBadSteps }, 21));
+  check("a workflow naming a reference nothing produces is refused",
+    wfBadCheck?.ok === false && wfBadCheck.error === "bad-workflow", JSON.stringify(wfBadCheck));
+  check("⚠ ...with the READER'S OWN sentence, so a model is told what to fix",
+    /nothing/.test(wfBadCheck.say ?? ""), wfBadCheck.say);
+  const wfUnbalanced = [{ type: "if", left: "a", test: "is", right: "a" }, { type: "note", text: "x" }];
+  const wfNoEnd = await wfCheckTool.run({ steps: wfUnbalanced }, await wfCtx({ steps: wfUnbalanced }, 22));
+  check("a branch that does not balance is refused", wfNoEnd?.ok === false, JSON.stringify(wfNoEnd));
+  const wfGoodSteps = [
+    { type: "memory", key: "tone", out: "tone" },
+    { type: "note", text: "The tone is {{tone}}." },
+  ];
+  const wfGoodCheck = await wfCheckTool.run({ steps: wfGoodSteps }, await wfCtx({ steps: wfGoodSteps }, 23));
+  check("⚠ THE CONTROL: a workflow that reads goes through, and says what it produces",
+    wfGoodCheck?.ok === true && wfGoodCheck.steps === 2 && wfGoodCheck.produces.includes("tone"),
+    JSON.stringify(wfGoodCheck));
+  check("⚠ ...and checking wrote nothing at all",
+    Number(q(`select count(*) from agent.automations;`)) === wfWasAutos);
+
+  // ⚠ SAVING IT. The steps that reach the database are `readWorkflow`'s OWN output, never
+  // the model's list — and the row is read back to prove it.
+  const wfMkArgs = { name: "Tone note", steps: wfGoodSteps, schedule: "manual" };
+  const wfMade = await wfMakeTool.run(wfMkArgs, await wfCtx(wfMkArgs, 24));
+  check("the agent creates an automation", wfMade?.ok === true && wfMade.steps === 2, JSON.stringify(wfMade));
+  const wfNewAuto = q(`select coalesce(max(id::text), '') from agent.automations where tenant_id = '${A}' and name = 'Tone note';`);
+  check("⚠ ...and THE ROW EXISTS, with this agent as its owner",
+    wfNewAuto !== "" && q(`select agent_id from agent.automations where id = '${wfNewAuto}';`) === AG, wfNewAuto);
+  // ⚠ THE STEP IDS ARE MINTED FROM THEIR POSITIONS BY `readWorkflow`, so reading them back is
+  // how the row proves it holds the VALIDATED list and not the model's.
+  const wfIds = () => (wfNewAuto === "" ? "(no row)"
+    : q(`select jsonb_path_query_array(steps, '$[*].id')::text from agent.automations where id = '${wfNewAuto}';`));
+  const wfWanted = JSON.stringify(readWorkflow(wfGoodSteps).steps.map((x) => x.id));
+  check("⚠ ...holding the VALIDATED steps, with the ids `readWorkflow` itself mints",
+    wfIds().replace(/\s+/g, "") === wfWanted.replace(/\s+/g, ""), `${wfIds()} vs ${wfWanted}`);
+  check("⚠ ...and the agent can read back what it just wrote",
+    (await (CAPABILITY_TOOLS.find((t) => t.name === "read_automation"))
+      .run({ id: wfNewAuto }, await wfCtx({ id: wfNewAuto }, 25)))?.automation?.steps?.length === 2);
+
+  // A REFUSED SAVE WRITES NOTHING — the validation is in front of the call, not beside it.
+  const wfBadMake = { name: "Broken", steps: wfBadSteps };
+  const wfWouldNot = await wfMakeTool.run(wfBadMake, await wfCtx(wfBadMake, 26));
+  check("a create whose workflow does not read is refused whole",
+    wfWouldNot?.ok === false && wfWouldNot.error === "bad-workflow", JSON.stringify(wfWouldNot));
+  check("⚠ ...and no automation was made", q(`select count(*) from agent.automations where name = 'Broken';`) === "0");
+
+  // CHANGING IT. The whole workflow is replaced, and the sibling wall is asked first.
+  const wfChArgs = { id: wfNewAuto, name: "Tone note", steps: [{ type: "note", text: "Simpler." }] };
+  const wfChanged = await wfChangeTool.run(wfChArgs, await wfCtx(wfChArgs, 27));
+  check("the agent changes its own automation", wfChanged?.ok === true && wfChanged.steps === 1, JSON.stringify(wfChanged));
+  check("⚠ ...and the row holds the new workflow rather than both",
+    q(`select jsonb_array_length(steps)::text from agent.automations where id = '${wfNewAuto}';`) === "1");
+  const wfSibChange = { id: sibAuto.body.id, name: "Not mine", steps: [{ type: "note", text: "x" }] };
+  const wfRefusedSib = await wfChangeTool.run(wfSibChange, await wfCtx(wfSibChange, 28));
+  check("⚠ a SIBLING agent's automation cannot be rewritten, and nothing was written",
+    wfRefusedSib?.ok === false && wfRefusedSib.error === "no-automation" &&
+    q(`select name from agent.automations where id = '${sibAuto.body.id}';`) !== "Not mine",
+    JSON.stringify(wfRefusedSib));
+
+  // THE RETRY: the same create wfTwice is ONE automation, by the operation record.
+  const wfTwice = await wfMakeTool.run(wfMkArgs, await wfCtx(wfMkArgs, 24));
+  check("⚠ the same create delivered twice makes ONE automation",
+    wfTwice?.ok === true && q(`select count(*) from agent.automations where name = 'Tone note';`) === "1",
+    JSON.stringify(wfTwice));
+
+  // ⚠ AND THE APPROVAL GATE IS THE LOOP'S, so it is proved through a real message. The
+  // requirement is that scheduling or enabling persistent work follows the approval policy,
+  // and the gate is on the TOOL rather than on its arguments — a gate a model could turn off
+  // by writing `enabled: false` is not a gate.
+  const wfGated = await ask(AG, "use make_automation name=Asked steps=[]");
+  // ⚠ AN `awaiting-approval` RUN HAS NO STOP ENTRY, AND THAT IS THE PRODUCT BEING RIGHT: the
+  // log is left OPEN so the delivery after somebody answers continues it. So the wall is read
+  // where it really is — a pending request for THIS run, naming THIS tool — rather than from a
+  // stop reason that deliberately is not there.
+  check("⚠ a create through the loop STOPS for a person",
+    q(`select coalesce(string_agg(tool, ','), '(none)') from agent.tool_approvals
+        where run_id = '${wfGated.body.runId}' and verdict is null;`) === "make_automation",
+    q(`select coalesce(string_agg(tool || '/' || coalesce(verdict, 'pending'), ','), '(none)')
+        from agent.tool_approvals where run_id = '${wfGated.body.runId}';`));
+  check("⚠ ...and nothing was created while it waited",
+    q(`select count(*) from agent.automations where name = 'Asked';`) === "0");
+  const wfLetIt = await decide(AG, wfGated.body.runId, "approved");
+  check("a person approves it", wfLetIt?.said?.verdict === "approved", JSON.stringify(wfLetIt?.said).slice(0, 120));
+  check("⚠ ...and only THEN does the tool run", calledTool(wfGated.body.runId) === "make_automation",
+    calledTool(wfGated.body.runId));
+
+  // ═════════════════════════════════════════════════════════════════════════
   console.log("\n6. ⚠ A TOOL NOBODY TICKED IS NOT A TOOL THIS AGENT HAS");
   // ═════════════════════════════════════════════════════════════════════════
   const plain = await api("/api/agent/create", { body: { name: "No tools", instructions: "Just talk." } });
@@ -581,9 +709,37 @@ try {
   // called somewhere above — otherwise a tool added next month is demonstrated by nobody
   // and the silence reads exactly like coverage.
   const called = q(`select coalesce(string_agg(distinct body ->> 'name', ','), '') from agent.run_entries where body ->> 'kind' = 'tool';`).split(",").filter(Boolean);
-  const never = TOOLS.filter((n) => !called.includes(n));
-  check("⚠ EVERY capability tool was really called, by a model, against the real database",
+  /**
+   * ⚠ **THREE TOOLS CANNOT BE CALLED BY THE STAND-IN, AND THE SET IS DECLARED RATHER THAN
+   * WORKED AROUND.**
+   *
+   * `make_automation`, `change_automation` and `check_workflow` take a LIST OF OBJECTS. The
+   * stand-in fills a tool's declared schema from the words of a request — which is what makes
+   * it model-LIKE rather than scripted — and it cannot compose a nested workflow from a
+   * sentence. So section 5c drives those three directly against the real store, with a real
+   * `ctx`, and `make_automation` is ALSO driven through a real message to prove the approval
+   * gate (which lives in the loop, not in the tool).
+   *
+   * Naming them here is the point: a tool moved onto this list is a deliberate edit with a
+   * reason, where silently widening the census to "called somehow" would let a tool nobody
+   * demonstrates slip in behind it. And the assertion below still requires each of them to
+   * have really run — through a direct drive, whose evidence is the ROW each one left.
+   */
+  const NOT_FROM_THE_STAND_IN = ["check_workflow", "make_automation", "change_automation"];
+  const never = TOOLS.filter((n) => !called.includes(n) && !NOT_FROM_THE_STAND_IN.includes(n));
+  check("⚠ EVERY capability tool the stand-in can compose was really called by it",
     never.length === 0, never.length ? `never called: ${never.join(", ")}` : `${called.length} of ${TOOLS.length}`);
+  // ⚠ AND THE OBSERVER FOR THE OTHER THREE IS THEIR OWN EFFECT, not a claim that they ran:
+  // the automation section 5c wrote, and the fact that the model really reached
+  // `make_automation` once a person approved it.
+  check("⚠ ...and the three the stand-in cannot compose left their own evidence",
+    q(`select count(*) from agent.automations where name = 'Tone note';`) === "1" &&
+    q(`select jsonb_array_length(steps)::text from agent.automations where name = 'Tone note';`) === "1" &&
+    called.includes("make_automation"),
+    `Tone note steps=${q(`select coalesce(max(jsonb_array_length(steps))::text, '-') from agent.automations where name = 'Tone note';`)}, model reached make_automation: ${called.includes("make_automation")}`);
+  // THE LIST IS NOT A LOOPHOLE: every name on it must be a real tool, so a typo cannot
+  // exempt a tool that does not exist and quietly excuse one that does.
+  for (const n of NOT_FROM_THE_STAND_IN) check(`⚠ ...and "${n}" is a real tool rather than an excuse`, TOOLS.includes(n));
 
   console.log(failed ? `\n${failed} FAILED:\n  ${fails.join("\n  ")}` : "\nall checks passed");
 } finally {

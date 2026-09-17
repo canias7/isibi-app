@@ -39,11 +39,13 @@ import {
   AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
   MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
   WEEKDAYS as ENGINE_WEEKDAYS, readWorkflow as engineReadWorkflow,
+  AUTOMATION_SCHEDULES as ENGINE_SCHEDULES,
 } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
   AUTOMATION_DAYS as SITE_DAYS, MAX_AUTOMATION_STEPS as SITE_MAX_STEPS,
   MAX_STEP_NOTE as SITE_MAX_NOTE, cleanWorkflow as siteCleanWorkflow,
+  AUTOMATION_SCHEDULES as SITE_SCHEDULES,
 } from "../agent-store.mjs";
 
 const KEY = "service-key";
@@ -1288,4 +1290,23 @@ test("⚠ A DECISION RINGS THE ENGINE'S DOORBELL — otherwise Approve does noth
   assert.equal(r3.body.ok, true);
   assert.equal(r3.body.notified, false, "a failed ring was reported as a ring");
   assert.ok(said.some((l) => /not rung/.test(l)), "a failed ring said nothing at all");
+});
+
+test("⚠ WHEN AN AUTOMATION RUNS IS ONE LIST IN THREE LANGUAGES, and this is the only place two can meet", () => {
+  // The engine gained its own `AUTOMATION_SCHEDULES` when `make_automation` shipped: a tool
+  // has to tell a model which schedules exist, and the engine cannot import this file. So it
+  // is a DECLARED copy, and a schedule an agent could ask for that the database refuses is a
+  // control that answers and then fails at the save.
+  assert.deepEqual([...ENGINE_SCHEDULES].sort(), [...SITE_SCHEDULES].sort(),
+    "the schedules the engine offers a model are not the ones the site accepts");
+  assert.ok(SITE_SCHEDULES.length >= 2, "an empty list makes the comparison vacuous");
+  // ⚠ AND THE DATABASE'S OWN CHECK CONSTRAINT IS THE THIRD COPY, read out of the migration
+  // — a CHECK cannot be imported, and this is the one file that can compare the two trees.
+  const migs = readdirSync("agent-builder/supabase/migrations").filter((f) => f.endsWith(".sql")).sort();
+  const sql = migs.map((f) => readFileSync(`agent-builder/supabase/migrations/${f}`, "utf8")).join("\n");
+  const hit = /check \(schedule in \(([^)]*)\)\)/.exec(sql);
+  assert.ok(hit, "no schedule constraint found in any migration — the observer is dead");
+  const inSql = hit[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).sort();
+  assert.deepEqual(inSql, [...SITE_SCHEDULES].sort(),
+    "the database refuses a schedule both products offer, or accepts one neither does");
 });

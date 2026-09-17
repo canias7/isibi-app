@@ -351,7 +351,10 @@ test("which tools are safe to repeat, and why each", () => {
   for (const t of CAPABILITY_TOOLS) {
     assert.equal(t.repeatable, true, `${t.name} is not safe to repeat`);
   }
-  assert.equal(CAPABILITY_TOOLS.length, 12, "the census is looking at the whole catalog");
+  // ⚠ DERIVED RATHER THAN PINNED. This read `=== 12`, which is a second copy of the
+  // catalog's length: it goes red on an honest addition and says nothing about the property.
+  // What the census needs is that it looked at EVERY tool, and that there are some.
+  assert.ok(CAPABILITY_TOOLS.length >= 12, `only ${CAPABILITY_TOOLS.length} tools`);
 });
 
 test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL", async () => {
@@ -381,21 +384,33 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
         return { id: AG };
       };
     }
-    await t.run({ query: "x", id: AG, name: "n", value: "v", enabled: true },
-                { capabilities: can, operation: "run-1:1:0:abc" });
-    // THE OBSERVER MUST BE ALIVE. A tool that reached no operation at all proves nothing
-    // about its flag, and every one of the twelve ends in a database function by design.
+    await t.run({ query: "x", id: AG, name: "n", value: "v", enabled: true, steps: [] },
+                { capabilities: can, operation: OP() });
+    // ⚠ THE OBSERVER MUST BE ALIVE, AND ONE TOOL REACHES NOTHING BY DESIGN. `list_actions`
+    // describes what the PLATFORM can do — `AUTOMATION_STEPS`, code in this repository — so
+    // it has no account to ask and does not go through `withBackend` at all. It is named
+    // here rather than exempted by a truthiness check, because "reached nothing" is exactly
+    // what a broken tool looks like.
+    const DESCRIBES_THE_PLATFORM = ["list_actions", "check_workflow"];
+    if (DESCRIBES_THE_PLATFORM.includes(t.name)) {
+      assert.equal(asked.length, 0, `${t.name} reached a capability, so it is not platform-only`);
+      assert.equal(t.writes, false, `${t.name} describes the platform and claims to write`);
+      continue;
+    }
     assert.equal(asked.length > 0, true, `${t.name} reached no capability, so its flag is unproved`);
     touched.set(t.name, asked);
     const writes = asked.some((op) => CAPABILITY_WRITES.includes(op));
     assert.equal(t.writes, writes,
       `${t.name} touched [${asked.join(", ")}] and declares writes: ${t.writes}`);
   }
-  assert.equal(touched.size, 12, "the census is looking at the whole catalog");
+  // EVERY TOOL WAS LOOKED AT, derived from the catalog rather than pinned to a number.
+  assert.equal(touched.size + 2, CAPABILITY_TOOLS.length,
+    `${touched.size} tools touched a capability out of ${CAPABILITY_TOOLS.length}, with 2 platform-only`);
   // AND BOTH DIRECTIONS ARE REALLY EXERCISED, or the equality above is satisfied by every
   // tool being a read.
   const writers = [...touched.keys()].filter((n) => CAPABILITY_TOOLS.find((t) => t.name === n).writes);
-  assert.deepEqual(writers.sort(), ["forget", "pause_automation", "remember", "run_automation"]);
+  assert.deepEqual(writers.sort(),
+    ["change_automation", "forget", "make_automation", "pause_automation", "remember", "run_automation"]);
 });
 
 test("⚠ A TOOL THAT WRITES MUST BE REPEATABLE — a write that cannot be repeated never finishes", () => {
@@ -577,4 +592,74 @@ test("⚠ A READ NEVER ASKS FOR AN OPERATION RECORD — it changes nothing to pr
   for (const [name, args] of Object.entries(reads)) { try { await ops[name](args); } catch { /* shape */ } }
   assert.ok(sent.length >= Object.keys(reads).length, `only ${sent.length} requests for ${Object.keys(reads).length} reads`);
   for (const r of sent) assert.ok(!r.rpc.endsWith("_once"), `${r.rpc} asked for an operation record`);
+});
+
+test("⚠ A CALL'S IDENTITY COMES FROM `ctx` AND A MODEL CANNOT SUPPLY ONE", async () => {
+  // ⚠ **FOUR SWEEP MUTANTS SURVIVED HERE**, each making a write read `args.operation ??
+  // ctx?.operation` — and nothing drove a tool with `operation` among its ARGUMENTS. That is
+  // the whole hazard: a model writes tool arguments, so an identity it can supply is an
+  // identity it can reuse, which turns two different calls into one absorbed operation and a
+  // person's later correction into something a "retry" overwrites.
+  //
+  // It is also why no schema below offers the field — asserted, because a wall in the code
+  // and a field in the schema is a control that answers and is then ignored.
+  const REAL = OP();
+  const FORGED = `${RUN}:99:0:forged00`;
+  const writes = {
+    remember: { name: "a", value: "b" },
+    forget: { name: "a" },
+    pause_automation: { id: AUTO, enabled: false },
+    run_automation: { id: AUTO },
+    make_automation: { name: "n", steps: [] },
+    change_automation: { id: AUTO, name: "n", steps: [] },
+  };
+  for (const [name, args] of Object.entries(writes)) {
+    const tool = CAPABILITY_TOOLS.find((t) => t.name === name);
+    assert.ok(tool, `${name} is not a tool`);
+    assert.equal(tool.writes, true, `${name} is in this census and does not write`);
+    // THE SCHEMA DOES NOT OFFER IT.
+    assert.equal(tool.input?.properties?.operation, undefined, `${name}'s schema offers an identity`);
+    const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true, id: AUTO }));
+    const ops = can.forTenant(T).forAgent(AG);
+    await tool.run({ ...args, operation: FORGED }, { capabilities: ops, operation: REAL });
+    const req = sent.filter((r) => r.rpc.endsWith("_once")).at(-1);
+    assert.ok(req, `${name} did not reach an operation record: ${JSON.stringify(sent.map((x) => x.rpc))}`);
+    // ⚠ THE KEY IS `ctx`'S, AND THE FORGED ONE REACHED NOTHING.
+    assert.equal(req.body.p_op_key, REAL.slice(0, REAL.lastIndexOf(":")),
+      `${name} took its identity from an argument`);
+    assert.notEqual(req.body.p_op_key, FORGED.slice(0, FORGED.lastIndexOf(":")));
+    assert.notEqual(req.body.p_args_hash, "forged00", `${name} took its arguments' hash from an argument`);
+  }
+});
+
+test("⚠ AN ABSORBED WRITE SAYS SO, AND ITS SENTENCE IS ABOUT THE PAST", async () => {
+  // ⚠ **THREE SWEEP MUTANTS SURVIVED HERE**, each answering an absorbed call as though it had
+  // just happened — because nothing drove a capability answering `repeat: true`. The answer is
+  // what the call did the FIRST time, which is a historical fact and not a reading of the row
+  // as it stands: somebody may have corrected it since, and a model told plainly "saved" would
+  // believe the value it sent is what is remembered now.
+  const absorbed = {
+    remember: [{ name: "tone", value: "formal" }, { ok: true, repeat: true, saved: "created", memory: { version: 1 } }, /already saved/],
+    forget: [{ name: "tone" }, { ok: true, repeat: true, forgot: true }, /written again since/],
+    pause_automation: [{ id: AUTO, enabled: false }, { ok: true, repeat: true, enabled: false }, /changed since/],
+    make_automation: [{ name: "n", steps: [] }, { ok: true, repeat: true, id: AUTO }, /already created/],
+    change_automation: [{ id: AUTO, name: "n", steps: [] }, { ok: true, repeat: true, id: AUTO }, /already changed/],
+  };
+  for (const [name, [args, answer, says]] of Object.entries(absorbed)) {
+    const tool = CAPABILITY_TOOLS.find((t) => t.name === name);
+    const { can } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : answer));
+    const out = await tool.run(args, { capabilities: can.forTenant(T).forAgent(AG), operation: OP() });
+    assert.equal(out.ok, true, `${name}: ${JSON.stringify(out)}`);
+    assert.equal(out.repeat, true, `${name} did not carry the repeat to the model`);
+    assert.match(out.say ?? "", says, `${name} says "${out.say}"`);
+    // ⚠ AND THE CONTROL: the SAME answer without the mark is NOT reported as a repeat, or
+    // "it says repeat" would be satisfied by a tool that always does.
+    const plain = { ...answer };
+    delete plain.repeat;
+    const { can: can2 } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : plain));
+    const fresh = await tool.run(args, { capabilities: can2.forTenant(T).forAgent(AG), operation: OP() });
+    assert.equal(fresh.ok, true, `${name} control: ${JSON.stringify(fresh)}`);
+    assert.notEqual(fresh.repeat, true, `${name} reports every call as a repeat`);
+    assert.ok(!says.test(fresh.say ?? ""), `${name} says the repeat sentence on a first call: "${fresh.say}"`);
+  }
 });

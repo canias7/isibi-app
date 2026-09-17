@@ -72,6 +72,18 @@ export const FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "t
  * guard reads it back out of the migration and compares, which is what turns a drift
  * into a red run rather than into a workflow the database refuses to store.
  */
+/**
+ * ⚠ WHEN AN AUTOMATION RUNS — a DECLARED COPY of the site builder's own list, and of the
+ * database's own check constraint (`automations_schedule_known`).
+ *
+ * Neither product may import the other and a CHECK cannot be read from JavaScript, so this
+ * is the same fact in three languages. `test/agent-send.test.mjs` — the one file that may
+ * load both products — censuses it against the site's `AUTOMATION_SCHEDULES` BOTH WAYS, and
+ * `test/integration/pg-schema.mjs` reads the constraint out of the migration. A schedule an
+ * agent could ask for and the database refuses is a control that answers and then fails.
+ */
+export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily"]);
+
 export const MAX_WORKFLOW_STEPS = 20;
 
 /** Sunday first, because that is what `Date.prototype.getUTCDay` answers. */

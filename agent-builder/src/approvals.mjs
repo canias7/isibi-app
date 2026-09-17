@@ -167,6 +167,11 @@ export async function argsHash(args) {
 export function splitOperation(operation) {
   if (typeof operation !== "string") return null;
   const cut = operation.lastIndexOf(":");
+  // ⚠ `cut === operation.length - 1` IS A DECLARED REDUNDANCY, MEASURED INERT: the hash
+  // charset test below requires at least one character, so a trailing colon is refused there
+  // anyway. Verified over 18 shapes — every answer identical with the clause and without it.
+  // It stays because it says out loud that a hash is REQUIRED, which is the whole reason the
+  // arguments are a separate field; the sweep mutates it as a PAIR with that test.
   if (cut <= 0 || cut === operation.length - 1) return null;
   const key = operation.slice(0, cut);
   const hash = operation.slice(cut + 1);

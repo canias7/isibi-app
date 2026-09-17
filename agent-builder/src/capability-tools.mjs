@@ -71,6 +71,11 @@ import { defineTool, PUBLIC } from "./define.mjs";
 // and `uuidFrom` are both "the same call always reads the same way", and splitting
 // them into two files would be two answers to one question.
 import { uuidFrom } from "./approvals.mjs";
+// ⚠ THE STEP CATALOG AND THE VALIDATOR ARE THE PLATFORM'S OWN, imported rather than
+// described: a model reads what `AUTOMATION_STEPS` really holds and its workflow goes
+// through the same `readWorkflow` a person's save does. Two descriptions of one catalog is
+// how a tool comes to offer a step no executor can run.
+import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, MAX_WORKFLOW_STEPS, readWorkflow } from "./automations.mjs";
 
 /** How long a piece of text a tool may be handed, so a schema states its own bound. */
 export const TOOL_TEXT_MAX = 4000;
@@ -432,21 +437,212 @@ const readExecution = tool({
   },
 });
 
+// ── writing a workflow ──────────────────────────────────────────────────────
+
+/**
+ * ⚠ **THE SAME READER A SAVED WORKFLOW GOES THROUGH, AND THAT IS THE WHOLE DESIGN.**
+ *
+ * `readWorkflow` is what the screen's own save is validated by: it mints each step's id from
+ * its POSITION, refuses an unknown type, a note past its cap, a day that is not a day, a
+ * reference nothing produces (by name AND by position) and a branch that does not balance —
+ * and it never SHORTENS, because a workflow quietly missing the step it could not read is one
+ * that looks saved and does something else. A model composing steps meets exactly those
+ * rules, in exactly that function, and the verdict is turned into a sentence rather than
+ * thrown.
+ *
+ * **WHAT COMES BACK IS `readWorkflow`'S OWN `steps`, NEVER THE MODEL'S LIST.** Passing the
+ * raw list on would put an unvalidated step into the database with a validation having
+ * happened beside it, which is the shape of every "it was checked" defect this repository
+ * records.
+ */
+const checkSteps = (raw) => {
+  const read = readWorkflow(Array.isArray(raw) ? raw : []);
+  if (read.error) return { ok: false, error: "bad-workflow", say: read.error };
+  return { ok: true, steps: read.steps, produces: read.produces };
+};
+
+/** The one description of a step list, so the two authoring tools cannot disagree. */
+const STEPS_FIELD = Object.freeze({
+  type: "array",
+  description:
+    "The steps, in the order they run. Each is an object with a `type` from list_actions " +
+    "and that action's own fields. Use check_workflow first if you are unsure.",
+  items: { type: "object", properties: { type: { type: "string" } }, required: ["type"] },
+});
+/** ...and the one description of when it runs. The ZONE is never the model's — see below. */
+const SCHEDULE_FIELDS = Object.freeze({
+  schedule: { type: "string", description: `When it runs: ${AUTOMATION_SCHEDULES.join(" or ")}.` },
+  atLocal: { type: "string", description: 'For a daily one, the local time as "HH:MM".' },
+});
+
+const listActions = tool({
+  name: "list_actions",
+  description:
+    "The actions a workflow can be built from: each one's type, what it does, and the " +
+    "fields it takes. Read this before writing a workflow — a type that is not here is refused.",
+  input: { type: "object", properties: {} },
+  repeatable: true,
+  // ⚠ THE CATALOG IS THE SERVER'S AND THE MODEL ONLY READS IT. It comes from
+  // `AUTOMATION_STEPS` — code in this repository — so a step a model invents is not a step,
+  // and neither an instruction sheet nor a saved document can add one. **No backend is
+  // needed for it**, which is why this tool does not go through `withBackend`: it describes
+  // what the platform can do, not what one account holds.
+  run: async () => ({
+    ok: true,
+    max: MAX_WORKFLOW_STEPS,
+    actions: AUTOMATION_STEPS.map((d) => ({
+      type: d.type, kind: d.stepKind, label: d.label, does: d.does,
+      fields: d.configless ? [] : d.fields.map((f) => ({
+        name: f.name, kind: f.kind, says: f.does ?? f.label ?? f.name,
+        ...(f.required === true ? { required: true } : {}),
+        ...(f.options ? { options: [...f.options] } : {}),
+        ...(f.when ? { onlyWhen: f.when } : {}),
+        ...(f.refs === true ? { takesReferences: true } : {}),
+      })),
+    })),
+  }),
+});
+
+const checkWorkflow = tool({
+  name: "check_workflow",
+  description:
+    "Check a workflow without saving it: whether every action is real, every field readable, " +
+    "every branch balanced and every {{reference}} produced by a step that has already run. " +
+    "Answers what is wrong, or what the workflow would produce.",
+  input: { type: "object", properties: { steps: STEPS_FIELD }, required: ["steps"] },
+  repeatable: true,
+  // ⚠ IT WRITES NOTHING, so it is not `writes` and needs no operation identity — which is
+  // what makes it usable as many times as a model needs to get a workflow right.
+  run: async (args) => {
+    const read = checkSteps(args.steps);
+    if (!read.ok) return read;
+    return { ok: true, steps: read.steps.length, produces: read.produces,
+      say: `that reads as ${read.steps.length} step${read.steps.length === 1 ? "" : "s"}` };
+  },
+});
+
+const makeAutomation = tool({
+  name: "make_automation",
+  description:
+    "Create a new automation for this agent: a name, when it runs, and the steps. " +
+    "Check the steps with check_workflow first — an unreadable one is refused whole.",
+  input: {
+    type: "object",
+    properties: {
+      name: { type: "string", description: "What to call it." },
+      steps: STEPS_FIELD,
+      ...SCHEDULE_FIELDS,
+      enabled: { type: "boolean", description: "Whether it should start running. Absent means yes." },
+    },
+    required: ["name", "steps"],
+  },
+  writes: true,
+  repeatable: true,
+  /**
+   * ⚠ **A PERSON SAYS YES, AND THE GATE IS ON THE TOOL RATHER THAN ON ITS ARGUMENTS.**
+   *
+   * The requirement is that scheduling or enabling persistent work follows the approval
+   * policy — and the obvious reading, "gate it only when `enabled` is true or a schedule is
+   * set", is a decision made FROM ARGUMENTS A MODEL WROTE. That is the one thing this whole
+   * surface forbids: tool arguments cannot grant capabilities, and a gate a model can turn
+   * off by writing `enabled: false` and then editing is not a gate.
+   *
+   * So both authoring tools are gated, always. The cost is a person approving a disabled
+   * draft; the alternative is a model choosing whether a person is asked.
+   */
+  approval: true,
+  run: async (args, can, ctx) => {
+    const read = checkSteps(args.steps);
+    if (!read.ok) return read;
+    const answer = await can.createAutomation({
+      // ⚠ THE ID IS DERIVED FROM THE CALL, never minted and never an argument — the same
+      // rule `run_automation` follows, for the same reason: a fresh id per call makes a
+      // redelivery a second automation, and a model naming one can point at another's row.
+      id: await uuidFrom(`automation:${ctx?.operation ?? ""}`),
+      name: text(args.name), steps: read.steps,
+      schedule: text(args.schedule) || "manual",
+      atLocal: text(args.atLocal) || null,
+      // ⚠ THE ZONE IS NOT THE MODEL'S AND IS NOT AN ARGUMENT AT ALL. It belongs to whoever
+      // owns the automation; a model choosing it would make "every day at nine" mean nine
+      // somewhere nobody lives. Absent, the database keeps what the row already had — which
+      // for a create is its own default.
+      enabled: args.enabled !== false,
+      operation: ctx?.operation,
+    });
+    if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused", say: sayAutomation(answer?.error) };
+    return { ok: true, automation: answer.automation ?? answer.id ?? null, steps: read.steps.length,
+      ...(answer.repeat === true ? { repeat: true, say: "that was already created by this same request" } : {}) };
+  },
+});
+
+const changeAutomation = tool({
+  name: "change_automation",
+  description:
+    "Change one of this agent's automations: its name, when it runs, or its steps. " +
+    "The whole workflow is replaced, so send every step it should have.",
+  input: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "The automation's id, from list_automations." },
+      name: { type: "string", description: "What to call it." },
+      steps: STEPS_FIELD,
+      ...SCHEDULE_FIELDS,
+      enabled: { type: "boolean", description: "Whether it should run. Absent means yes." },
+    },
+    required: ["id", "name", "steps"],
+  },
+  writes: true,
+  repeatable: true,
+  approval: true,
+  run: async (args, can, ctx) => {
+    // ⚠ THE SIBLING WALL FIRST, so an automation of another agent of the same account is
+    // `no-automation` rather than something this one may rewrite. The account filter is the
+    // database's; this is the one no tenant filter can see.
+    if (!(await can.readAutomation({ id: text(args.id) }))) {
+      return { ok: false, error: "no-automation", say: "there is no automation of this agent's with that id" };
+    }
+    const read = checkSteps(args.steps);
+    if (!read.ok) return read;
+    const answer = await can.updateAutomation({
+      id: text(args.id), name: text(args.name), steps: read.steps,
+      schedule: text(args.schedule) || "manual",
+      atLocal: text(args.atLocal) || null,
+      enabled: args.enabled !== false,
+      operation: ctx?.operation,
+    });
+    if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused", say: sayAutomation(answer?.error) };
+    return { ok: true, automation: answer.automation ?? text(args.id), steps: read.steps.length,
+      ...(answer.repeat === true ? { repeat: true, say: "that was already changed by this same request" } : {}) };
+  },
+});
+
+/** What a refused save means, in words a model can act on. */
+const sayAutomation = (error) => ({
+  "no-agent": "this agent is not one this account has",
+  "no-automation": "there is no automation of this agent's with that id",
+  "too-many": "this agent already has as many automations as it can hold — change one instead",
+  "bad-name": "that automation needs a name",
+  "bad-schedule": "that is not a schedule this platform runs",
+  "bad-time": 'a daily automation needs a local time as "HH:MM"',
+  "bad-zone": "that time zone is not one this platform knows",
+  "operation-mismatch": "a different request already used this slot, so nothing was changed",
+}[error] ?? "that automation could not be saved");
+
 /**
  * ⚠ THE CAPABILITY TOOLS, and this array is what `OFFERED` is built from.
  *
- * `make_automation` and `change_automation` are deliberately NOT here yet: creating a
- * workflow means writing STEPS, and a step list a model composes has to be validated
- * against the same reader a saved workflow goes through — which is the shared
- * `readWorkflow`, in this product, and it is not reachable from a tool argument without
- * the identity work the next milestone does. **Offering a tool that saves a workflow
- * nothing validated would be offering a control that answers and then fails at the first
- * execution**, and the capability store already holds `createAutomation` for the day it
- * is wired, so the gap is one wiring hop rather than a missing feature.
+ * **THE AUTHORING FOUR ARRIVED 2026-09-17**, and the paragraph that used to stand here said
+ * `make_automation` and `change_automation` were deliberately absent because a step list a
+ * model composes has to go through the same reader a saved workflow does. That reason is
+ * satisfied rather than retired: `checkSteps` IS `readWorkflow`, the same function the
+ * screen's save goes through, and what reaches the database is its output and never the
+ * model's list.
  */
 export const CAPABILITY_TOOLS = Object.freeze([
   searchReference, listReference, readReference,
   listMemory, remember, forget,
-  listAutomations, readAutomation, pauseAutomation, runAutomation,
+  listActions, checkWorkflow,
+  listAutomations, readAutomation, makeAutomation, changeAutomation,
+  pauseAutomation, runAutomation,
   listExecutions, readExecution,
 ]);

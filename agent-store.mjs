@@ -178,6 +178,20 @@ export const AGENT_TOOLS = Object.freeze([
     does: "Removes one remembered fact by its name.",
   }),
   // ── what it may do with its automations ───────────────────────────────────
+  // ⚠ THE WORDS HERE ARE FOR A PERSON DECIDING WHETHER TO ALLOW A THING, and the engine's
+  // own `description` for the same tool is written for a MODEL deciding whether to call it.
+  // That is the one thing this copy holds that the engine's does not, and it is why the
+  // census between them is over NAMES rather than over text.
+  Object.freeze({
+    name: "list_actions",
+    label: "See what a workflow can be built from",
+    does: "Reads the list of actions an automation can use — what each does and what it needs. It is this platform's own list; the agent cannot add to it.",
+  }),
+  Object.freeze({
+    name: "check_workflow",
+    label: "Check a workflow before saving it",
+    does: "Tries a set of steps against the same rules your own screen uses and says what is wrong with it. It saves nothing and changes nothing.",
+  }),
   Object.freeze({
     name: "list_automations",
     label: "See its automations",
@@ -187,6 +201,16 @@ export const AGENT_TOOLS = Object.freeze([
     name: "read_automation",
     label: "Read one automation",
     does: "Opens one automation and reads every step in it.",
+  }),
+  Object.freeze({
+    name: "make_automation",
+    label: "Create an automation",
+    does: "Writes a new automation for this agent — a name, when it runs, and its steps. You are asked to approve it before anything is saved, every time.",
+  }),
+  Object.freeze({
+    name: "change_automation",
+    label: "Change an automation",
+    does: "Rewrites one of this agent's automations, steps and all. You are asked to approve it before anything is saved, every time.",
   }),
   Object.freeze({
     name: "pause_automation",

@@ -246,7 +246,14 @@ test("⚠ WHICH TOOLS NEED A PERSON IS DECLARED IN CODE, and the set is pinned b
   // conversation — work that carries on after the conversation is over. Reads and the
   // agent's own notes do not, because gating everything is how an approval becomes a
   // thing people click through without reading.
-  const GATED = ["pause_automation", "run_automation"];
+  // ⚠ RE-ANCHORED, NOT APPEASED. The authoring two joined 2026-09-17, and the reason is
+  // the requirement's own: *scheduling or enabling persistent work must follow the approval
+  // policy*. Both can enable scheduled work, and **the gate is on the TOOL rather than on
+  // its arguments** — gating "only when `enabled` is true" would be a decision made from
+  // arguments a model wrote, which is the one thing this surface forbids. The cost is a
+  // person approving a disabled draft; the alternative is a model choosing whether a person
+  // is asked.
+  const GATED = ["make_automation", "change_automation", "pause_automation", "run_automation"];
   const byName = new Map(CAPABILITY_TOOLS.map((t) => [t.name, t]));
   for (const n of GATED) assert.equal(byName.get(n)?.approval, true, `${n} runs with nobody asked`);
   for (const t of CAPABILITY_TOOLS) {
