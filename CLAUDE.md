@@ -8834,6 +8834,35 @@ everything they gained is an assertion inside a case that already existed.
 files answer `# tests 1`** — one failing "test" is a file that would not LOAD,
 which reads as a baseline of one rather than as a broken command.
 
+**CI HAS READ BOTH NUMBERS, EACH ON ITS OWN SHA.** `unit tests` run **2681** on
+`e48e7ae2` (the capability) — `# tests 6813 / # pass 6809 / # fail 0 /
+# skipped 4`; run **2683** on `7627c71e` (the runner) — `# tests 6816 /
+# pass 6812 / # fail 0 / # skipped 4`, with **all three sweep-runner cases
+present in the CI log** rather than inferred from the total. Both against local
+`… / … / 0 / 0`; the four are the three recorded environment skips plus
+`site-searchpath`'s baseline-commit case, and **the TOTAL is what matches**.
+**⚠ AND THE FIRST READ OF 2683 WAS THE WRONG RUN** — a run id kept from an
+earlier listing was run **2682**, the docs-only stamp commit, which answers
+6,813 correctly. Two shas were in flight and the number that came back was the
+right answer to a question I had not asked. *Re-resolve the run id from the sha
+when more than one push is outstanding.*
+**AND `site build` RUN 1177 IS GREEN ON `e48e7ae2` (21:09:20→21:33:55Z), ALL
+TWENTY STEPS**: `site-build.mjs` **382 passed / 0 failed**, with kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47 beside it and kit-render / kit-a11y / kit-effects / kit-paint each `all
+passed` — the three result SHAPES. Every count bounded landmark-to-landmark,
+**0 result lines before the first marker**. It fired because `builder/site-add.mjs`
+and `worker.js` moved. **The unit step's TAP is `# pass 396 / # fail 0`,
+unchanged from 1171 and 1173** — correct, because this round adds no `page-gen`
+or `publish-pages` case. **No `site build` fired for either later push and none
+was due**: `scripts/**` and `test/sweep-runner.test.mjs` are outside that
+workflow's `paths`.
+**⚠ AND "TWENTY STEPS" NEEDS THE RIGHT FILTER, which is worth one line because
+this file already records the count.** The API answers **23**, and dropping
+everything that `startsWith("Post ")` leaves **21** — the third trailing entry is
+**`Complete job`**, which is GitHub's too and is not named like one. Twenty is
+right; a filter on the name prefix is not what establishes it.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK** — the owner's
 instruction. **NOT PROVEN LIVE**: every measurement here is from driving the real
 route with the provider stubbed, and no real photograph has been generated. The
