@@ -7196,6 +7196,126 @@ NO `site build`** — two documents, which the `paths` filter does not cover.
 instruction for this round. Every measurement here is from driving the real
 route against stubbed seams.
 
+### …AND TWO GAPS IN IT, PLUS A THIRD THE FIRST REPRODUCTION FOUND (2026-09-17)
+
+Owner, on the milestone: *"Component-source read failure bypasses the new
+guard… Distinguish a successfully read empty inventory from an unreadable one.
+Do not permit an unseen replacement because the inventory read failed. Use a
+consistent source snapshot…"* and *"Planned-page dependencies need a final
+check… One publish does not establish that both requested items exist."*
+
+**1. THE ROUTE READ THE COMPONENT STORE TWICE, MINUTES APART, AND THE TWO COULD
+DISAGREE.** Reproduced: the first read THREW, so `partsSent` got `null` — no
+`shown`, no `withheld`, no names — the writer was shown no source AND handed the
+stored DECLARATION under *"Components to build"*, and the wall had nothing to
+refuse; the second read SUCCEEDED, so `mergeParts` replaced the real file with a
+rewrite composed from a one-line description, with no `keptParts` and no
+sentence. **`readSiteParts` answers `{ok, parts, why}`** — three states where
+there was one `null` — and the route reads it ONCE: the same snapshot serves the
+designers' note, the page prompt, the wall and the merge. `loadSiteParts` stays
+as a thin wrapper so its five other callers are byte-identical.
+
+**AND THE THIRD FINDING IS THE EXPENSIVE ONE: with BOTH reads failing,
+`mergeParts(null, [one])` answers `[one]`** — every other component on the site
+deleted, none of them named in the request, nothing anywhere saying so. Driven;
+both survive byte-identical now. **The same shape is live on the EDIT path**
+(`worker.js`'s `pStored` read) and is recorded in the backlog, not fixed here.
+
+- **`ok: false` IS A REFUSAL, NOT AN EMPTY SITE.** While it is false nothing is
+  offered to be built, every returned component is refused, and `parts.json` is
+  not written at all — `null` leaves the spine to re-send the store's own copy,
+  which is exactly what an addon that touched no component does.
+- **A DIFFERENT REFUSAL NEEDS A DIFFERENT SENTENCE.** `keptPartsNote` tells the
+  customer to ask for that one component on its own, which is advice about a
+  SIZE BOUND and is wrong about a store that failed to read. `unseenPartsNote`
+  says what happened and to ask again. Two functions, not one with a flag: the
+  harder branch — a refusal with no name behind it — would be the one nobody
+  reads. They are disjoint by construction, because `partsSent` answers empty
+  lists when it cannot read.
+- **AND A MISSING `parts.json` IS NOW HONESTLY EMPTY.** "There is no such
+  object" is a read that SUCCEEDED, so the designer hears that `tide-chart` is
+  declared and nothing has written it — which is what `look.tsx` means. The old
+  guard asserted the conflation and was re-anchored, not appeased.
+
+**2. A NEW QR CODE OUTLIVED THE PAGE IT OPENS.** `cleanAdd` admits a code
+pointing at a page this same change is adding — correct, and correct *because
+the two go out in one publish* — but **one publish is not proof the page
+survived generation**. Reproduced: plan `/gallery`, have the writer return only
+the home page, and the code was stored pointing at
+`https://<site>/gallery`, published, `moved: ["qr"]`, and the only thing the
+customer heard was that the page had not made it. **A QR is the one thing here
+somebody PRINTS.**
+
+`deadQrs` checks each code THIS change added whose destination is a route THIS
+change planned and lost — before the bill and before the look is stored, which
+is what makes a drop cost nothing and leave nothing behind (the container bakes
+`/qr-<name>.svg` from what is stored when it compiles).
+
+- **THE ORIGIN IS COMPARED, NOT JUST THE PATH**, so another site's URL at our
+  path is never a candidate; and `route()` refuses a `tel:`/`WIFI:`/`mailto:`
+  pathname, so a payload that is not a page cannot be read as one. A code the
+  site already had is never touched, whatever it opens.
+- **…AND IT IS KEPT WHEN A SHIPPED PAGE RENDERS IT.** `cleanAdd` takes `page`
+  for exactly that, so the writer can put `SITE_QRS.gallery` on the home page
+  and fail to write `/gallery`; dropping the code then takes the binding out
+  from under a live page, which is the worse of the two and visible to every
+  visitor rather than to whoever scans. Such a code is `stuck`: kept, on the
+  wire as itself, and said in its own words.
+- **`qrUnplaced` IS THE ONE READER of "does a page show this code"** — its own
+  binding regex, inverted — so there is one copy of that correspondence.
+- **THE MISSING-PAGE LIST MOVED ABOVE THE BILL and is now ONE computation with
+  two readers.** `aMerge` is settled before either, so the answer is the same on
+  both sides of the publish; what the move buys is a check that happens before
+  anything of it is stored.
+
+**MEDIA, VERIFIED RATHER THAN ASSUMED (the owner's correction: *"video-embed is
+already offered through the component path… Verify rendering before deciding
+prompt changes are necessary"*).** It is in `COMPONENT_MENU`, its signature
+reaches the writer (`VideoEmbed(url: string, title?: string = "Video", ratio?:
+string = "16/9")` through `siteComponentApi`), and **it RENDERS** — react-dom/
+server over the real kit file: `youtube.com/watch`, `youtu.be`, `/embed/`,
+`vimeo.com/N` and `vimeo.com/video/N` all produce a correct
+`youtube-nocookie`/`player.vimeo?dnt=1` iframe with the asked-for
+`aspect-ratio`, and two unparseable URLs produce the "Video unavailable" panel.
+**No prompt change is needed.** One finding recorded and NOT fixed: only the
+FALLBACK branch stamps `data-slot`, so a WORKING video is invisible to the
+`data-slot` census and to the css lane, and only a broken one shows up.
+
+**Guards**: `addon-route` **73 → 78** — both gaps and the third finding driven
+end to end through `POST /api/site/<slug>/addon`, asserting the stored component
+BYTES and the customer's own sentence, plus the recovery control (same site,
+same ask, same rewrite, a read that works) and the two the owner asked to keep
+(page + QR both arriving, and an older code untouched). `site-add` **39 → 42**,
+`page-gen` **249 → 250**. **Every new case proved RED against the pre-change
+product first**, by stashing the four product files and running against `HEAD`.
+
+**Four older guards re-anchored, not appeased**: the merge's anchor became *"the
+same snapshot the prompt and the wall were built from, and this key is read
+exactly once"* (strictly stronger than the spelling it pinned); `partsSent`'s
+shape gained its third state; `keptPartsNote`'s composer is read as a property
+because an honest second composer moved the spelling; and the no-`parts.json`
+expectation above.
+
+**Sweep: 36 mutants, 36 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 read 33/3 and **not one survivor was the
+product's**: one was a real gap in my own new guards (`aStoredParts =
+aPartsRead.parts` — the designers' note then reads an EMPTY ARRAY as *"its
+design declares these and nothing has written them"*, about a site whose store
+we could not read: **cannot-tell as a value, in the one input a designer is told
+to copy an existing component from**), and two were MEASURED inert and are
+declared in the code rather than hunted. The filter's `return false` under
+`unreadable` is belted by the merge's own `aPartsRead.ok` gate — driven through
+the route with one read failing and with both, the reply and the stored bytes
+are IDENTICAL; and `!base` in `opens` is belted by the origin comparison — 45
+probes over every payload shape and four address shapes, zero differences. Both
+became PAIR mutants. **And the second one's LABEL was wrong too**: it claimed to
+read a `tel:` payload as a route, which is `route()`'s refusal and not that
+line — *read what a mutant really does, not what it was meant to do.*
+
+**Suite 6,770** — 6,761 + 5 + 3 + 1, and the arithmetic closes exactly.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
+
 ### THE HAND-OFF AND ITS ANSWER ARE ONE OUTCOME NOW (2026-09-16)
 
 Owner, after run 50: *"Reconcile the original handoff with the receiving
@@ -9066,6 +9186,34 @@ rule and the measurement.
   our rule about which tables are seeded — and it can never fire for a table
   nobody asked to seed, because the engine only records a skip against the
   design's own seed keys.
+- **THE EDIT PATH CAN STILL DELETE EVERY COMPONENT A REQUEST NEVER MENTIONED
+  (open, 2026-09-17, found while fixing the addon's copy of it).** `worker.js`'s
+  page rung reads `const pStored = (pValid.parts && pValid.parts.length) ? await
+  loadSiteParts(env, ownerSlug) : null;` and merges into it. `loadSiteParts`
+  answers `null` for a read that FAILED exactly as it does for a site with no
+  components, and `mergeParts(null, [one])` answers `[one]` — so a failed read
+  plus any returned component writes a `parts.json` holding ONE file, and every
+  other component on the site is gone. Driven on the addon path, where the same
+  shape cost the reproduction two components.
+  **The fix is the one the addon has**: `readSiteParts`'s three states, one
+  snapshot per request, and nothing written while `ok` is false. Deliberately
+  NOT done here — the owner's instruction for that round was *"Keep edit-path
+  work … separate"* — and the addon's `readSiteParts` is already exported-shaped
+  for it, so this is a wiring change rather than a design one.
+- **A WORKING `video-embed` IS INVISIBLE TO THE `data-slot` CENSUS (open,
+  2026-09-17, found by verifying the render).** The component stamps
+  `data-slot="video-embed"` on its FALLBACK branch — the "Video unavailable"
+  panel — and on nothing else, so the success branch's wrapper and iframe carry
+  no slot at all. Measured through react-dom/server over the real kit file:
+  five real URL shapes render a correct iframe with no `data-slot`, and only the
+  two unparseable ones are countable. **Two instruments go quiet on it**: `curl
+  --compressed <slug>.gofarther.app | grep -o 'data-slot="[^"]*"'`, which is how
+  "what does this site really use" is answered without auth or a publish; and
+  the css lane, which is required to target by `data-slot`. So a site with a
+  working video reads as a site with none, and a site with a BROKEN one reads as
+  having a video. One attribute on the outer `<div>` of the success branch is
+  the whole fix; it is a kit file, so it is an image input and the deploy rolls
+  the container and wants `site build`.
 - **EXISTING MODEL FUNCTIONS ARE NEVER RE-PINNED (open, 2026-09-16, kept
   SEPARATE at the owner's instruction: *"If upgrading existing functions is
   needed, propose that separately"*).** The `search_path` pin reaches a function

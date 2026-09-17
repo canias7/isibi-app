@@ -269,6 +269,84 @@ requests, media, the backend gaps, and end-to-end verification.
 
 ---
 
+## 2026-09-17 — Your two gaps in that milestone, and a third I found chasing the first
+
+### 1. A failed read of your components let one get overwritten
+
+You were exactly right. The route read the file holding your site's own
+components **twice**, minutes apart, and the two could disagree. I reproduced
+the case you described: the first read fails, so the page writer is shown no
+source at all *and* is handed the old declaration under "Components to build" —
+so it writes the component again, from a one-line description. The second read
+then works, the rewrite replaces the real file, and **nothing tells you.**
+
+Reading it once is the fix. The read now answers three things rather than one —
+*here they are*, *there are none*, and *I could not look* — and the third is a
+refusal: nothing is offered to be written, nothing that comes back is kept, and
+the file is not touched at all.
+
+**And chasing that found a worse one.** When **both** reads failed, the merge was
+handed nothing and wrote back only the one component that came back — **deleting
+every other component on the site**, none of which you had mentioned. Driven
+before and after; they all survive now, byte for byte.
+
+You also get a different sentence, because it is a different problem: the old
+one told you to ask for that component on its own, which is right when it is too
+long to read and wrong when the store is down. Now it says it could not load
+them, left them alone, and to ask again.
+
+**The same shape is still live on the EDIT path** — I have written it down and
+left it, because you said to keep edit-path work separate.
+
+### 2. A QR code outliving the page it opens
+
+Also exactly as you described. Planning `/gallery` and having the writer return
+only the home page left the code stored, published and pointing at nothing, with
+the missing page mentioned afterwards. **A QR code is the one thing here you
+print**, so a dead one outlives every other kind of half-done change.
+
+It is checked now *before* anything is stored: a code this change added, aimed
+at a page this change planned and lost, is not published, and you are told —
+beside the sentence about the page, not instead of it.
+
+**One case I kept rather than dropped.** You can ask for the code to go *on* a
+page. If the writer puts it on the home page and then fails to write `/gallery`,
+taking the code away breaks the home page. So there it is **kept** and you get a
+different sentence: it is on your site, it opens a page that is not there, don't
+print it yet. A broken page everyone sees is worse than a code one person scans.
+
+The successful case is untouched and still tested: both halves arrive, the code
+is published, nothing is said.
+
+### 3. The media correction — you were right, and I checked it renders
+
+`video-embed` is in the component menu, its exact props reach the page writer,
+and **I rendered it** rather than reading the file: YouTube, `youtu.be`, an
+embed URL, and both Vimeo forms all produce a correct privacy-preserving player
+at the right shape, and an unusable URL produces a tidy "Video unavailable"
+panel. **No prompt change is needed.**
+
+One thing I found doing that and did **not** fix: the working player carries no
+`data-slot`, only the broken one does. That is the tag the styling step targets
+and the tag I use to read what a site really uses — so a site with a working
+video reads as having none. One attribute; it is a kit file, so it rolls the
+container. Your call.
+
+### Checks
+
+Suite **6,770** (6,761 + 5 + 3 + 1, closing exactly). Mutation sweep **36
+mutants, 36 killed, 0 survived, 2 controls survived** — pass 1 found three
+survivors and **not one was the product's**: one was a hole in my own new test,
+and two I measured to be harmless belts and wrote that down in the code instead
+of deleting them. Every new test was proved to FAIL against the old code first.
+
+### Not done, by your instruction
+
+No merge, no deploy, no paid run, and no demo site touched. Next, in your order:
+large-site context, then combined page + photo.
+
+---
+
 ## 2026-09-17 — The clocks-going-back bug you found, and a correction to my own prediction
 
 ### You were right, and here is it happening
