@@ -12813,7 +12813,29 @@ reason.
 
 Stubbed the image provider end to end, as you asked, and checked the prompt it
 was really paid for rather than just counting. Eleven older tests re-pointed at
-the property that moved, never softened. Suite 6,809, all green.
+the property that moved, never softened.
+
+**And then the mutation sweep found nine holes — in my tests, not in the
+feature.** That's what the sweep is for: it breaks the code on purpose and asks
+whether anything notices. Four were real gaps, and closing them was more
+interesting than it sounds, because three of the four tests I wrote to close
+them didn't test anything the first time round. One aimed a photograph at the
+very page it was trying to prove gets thrown away — and naming a page in a
+photograph request is exactly what keeps it. One left no room for the wrong
+picture to be bought, so it couldn't tell right from wrong. And one checked the
+browser printed "Made 1 photograph" — which is satisfied by a browser that makes
+that sentence up itself, the one thing that test existed to forbid. I only found
+all three by measuring what each test would do against the broken code, rather
+than reading it and deciding it looked right.
+
+Two more of the nine turned out to be untestable rather than untested: they
+guard a rule about a kind of request that doesn't exist on the platform yet. One
+I made testable (the list it checks is now handed in, so I can hand it a
+pretend world with two kinds in it). The other I couldn't, so I've written into
+the code why it's there and why nothing can see it — otherwise the next person
+along deletes a line that looks like it does nothing.
+
+Suite 6,813, all green.
 
 **Nothing merged, nothing deployed, nothing paid. No real photograph has been
 generated — the first live one is your press.**

@@ -8659,10 +8659,11 @@ that rung's work and its refusals with it.
   That is `imageDirective`'s own list shape, so the shot list crosses to the page
   writer through the build path's reader rather than a second shape beside it.
   **`PLACING_ADDS` is a third group and the partition stays total and disjoint**
-  — a kind that names a layer AND carries a tool — and **`addLayerIn(kind, kinds)`
-  is the ONE reader** all three route asks go through (the escalate, the
-  set-aside list, the loop gate), because two of them disagreeing is a kind
-  designed and then reported as skipped, or set aside and never designed.
+  — a kind that names a layer AND carries a tool — and
+  **`addLayerIn(kind, kinds, placing = PLACING_ADDS)` is the ONE reader** every
+  route ask goes through (**four calls**, pinned by census: the escalate twice,
+  the set-aside list and the loop gate), because two of them disagreeing is a
+  kind designed and then reported as skipped, or set aside and never designed.
   `IMAGE_CAP` and `MAX_PROMPT_CHARS` are IMPORTED: a ceiling retyped here would
   be a wall the tool promises and the spend path does not keep.
   **`DISPATCHED_ADDS` IS EMPTY TODAY**, so its guard loop asserts nothing — which
@@ -8728,18 +8729,41 @@ charge for it reads ~1.
 | set aside (photo alone, or beside a table) | the space sentence + `The photograph is a separate step — ask for it on its own and I'll place it.` |
 | no picture asked for | `✅ Done — added /gallery.` — byte-identical to before |
 
-**Guards**: `addon-route` **101 → 107** — the combined request end to end (the
+**Guards**: `addon-route` **101 → 111** — the combined request end to end (the
 hand-off gone, the exact token, the prompt really paid for, the published page's
 own `src`, the three reply fields and the bill), a photograph ALONE still hopping
 and buying nothing, one beside a table still set aside, a provider that refuses
-costing nothing and sweeping, the destination rule with its control, and the belt
-still firing on a change that buys none. `site-add` **44 → 45** (the tool's shape
-and its cap, the three refusals, the slice, the fold's PAIR dedupe, and that the
-list is NOT on `designed` — storing it would re-buy the same set on the next
-unrelated edit, which is the rule `budgetFor` exists for). `site-addon` **89**,
-with the browser's two sentences driven and their order asserted. **The fixture
-stubs fal in its own two hops, records every prompt paid for, and answers real
-JPEG magic** — `sniffImage` reads the bytes and refuses anything else.
+costing nothing and sweeping, the destination rule with its control, the belt
+still firing on a change that buys none, a photograph beside a SECTION, the
+purchase reading the PUBLICATION rather than the writer's answer, a stored
+component's token left unbought, and the cap. `site-add` **44 → 45** (the tool's
+shape and its cap, the three refusals, the slice, the fold's PAIR dedupe, that
+the list is NOT on `designed` — storing it would re-buy the same set on the next
+unrelated edit, which is the rule `budgetFor` exists for — and the placing group
+driven as a PARAMETER in a two-kind world). `site-addon` **89** and `addon-queue`
+**14**, each gaining assertions inside a case that already existed: the browser's
+two sentences driven, in order, **against `imageNote`'s own output rather than a
+sentence typed in the guard**, and the job path's cost asserted as a CENSUS over
+its own accumulators. **The fixture stubs fal in its own two hops, records every
+prompt paid for, and answers real JPEG magic** — `sniffImage` reads the bytes and
+refuses anything else.
+
+**⚠ AND THREE OF THOSE FOUR CASES WERE VACUOUS IN THEIR FIRST SHAPE, each for a
+different reason and each found by MEASURING rather than by reading.**
+(1) *A picture is bought for what will be published* aimed its photograph at the
+very page it wanted reverted — and a photograph answer NAMES its destination, so
+that page joins `aAskedPages` and the merge KEEPS it. `reverted` came back `[]`
+and the case's own precondition assertion is what said so. The picture is
+designed for `/gallery` now and the writer puts its token on the unasked
+`/prices`, which is the shape where the two lists really differ.
+(2) *A stored component's token is not bought* could not discriminate at all:
+with one shot and one token in the page, `planImages` fills its budget from the
+page and never reaches the component, so handing the stored list in changes
+nothing. Two shots and one token is what leaves the room.
+(3) *The browser keeps its own copy* was pinned to `/Made 1 photograph/`, which
+a browser composing its own sentence from `a.pictures` satisfies exactly — the
+one thing that case exists to forbid. Derived from `imageNote` and asserted
+whole.
 
 **Eleven older guards re-anchored, not appeased**, each naming the property that
 moved: the two-group partition (three now, with the placing group driven in both
