@@ -11776,3 +11776,81 @@ so applying it changes nothing on its own.
 **262.8px to its four buttons and 245.6px to its name, schedule and steps**, and the
 buttons do not drop to their own line. It reads fine and it is tight — say the word and
 they wrap; I have not touched it.
+
+---
+
+## 2026-09-17 — the automations are live, and the order was the whole risk
+
+You said *"Merge carefully"*. Careful here meant one thing above all: **the order**.
+Three pieces had to go out, each first for its own reason, and getting it wrong would
+have shipped exactly the defect the last round was opened to fix.
+
+**migration → engine → site.** The database first, because the engine's cron calls a
+function every minute that did not exist yet and the site's list screen reads a table
+that did not exist yet. Then the engine, because a form that saves a step no executor
+can run is a control that *answers, wrongly* — worse than a dead one. Then the screen.
+
+**The database.** Applied as remote version `20260917003304`, while there were zero
+agents and zero messages on the platform, so nothing of yours was anywhere near it.
+Two things I checked rather than assumed. It redefines a function the LIVE engine was
+calling at that moment, so I read the live version out of the database first and
+confirmed the new one is the same thing plus one extra field — same signature, nothing
+that could surprise the running Worker. And because a session can only reach your
+database through the connector, the SQL had to be re-typed into a tool call; rather
+than trust that, I built two throwaway local databases, gave one the committed file
+and one what I was about to send, and compared **357 objects** — identical. Then I
+read the live result back and compared the **82 objects this migration creates**
+against the file: same md5. What is live is the file.
+
+**The engine.** Deployed and verified: thirteen steps green, **71 checks passed, 0
+failed** over five real runs, its throwaway test customer deleted after.
+
+**And then the part worth your attention: it really ran, on its own.** That 71-check
+suite is the older one and does not touch automations, so I proved the new half
+separately — a throwaway agent, two automations created through the same function the
+screen uses, made due, and then left alone for Cloudflare's own every-minute trigger
+to find them. It found them:
+
+* **"Runs today"** → finished **done**. The day condition ran ("Thursday is one of the
+  days this runs on"), the note ran, and the note it saved is in the results.
+* **"Mondays only"**, on a Thursday → finished **Skipped**. Both steps say why. Not
+  failed — which is the behaviour you asked for in as many words.
+
+Both then advanced themselves to tomorrow's occurrence, one row each, no pile-up. I
+also asked for the same day twice (it answered "already did that" and pointed at the
+first run rather than making a second), asked for a switched-off one (refused, nothing
+written), and asked from a different account (refused as if it did not exist). Then I
+deleted the lot: the platform is back to zero agents, zero automations, zero runs of
+mine.
+
+**One small thing I liked:** your append-only journal refused my cleanup. It would not
+let me delete a run's log on its own — *"delete the run and its log goes with it"*. A
+guard doing its job on me.
+
+**What shipped, and how I checked it was really shipped.** Deploy **2133**, green in
+**2m58s**. Two things I do on every one of these now, and both paid off:
+
+* I worked out the container image's fingerprint *before* pushing — for what main had
+  and for what I was about to push. The deploy's own log then printed both, in a
+  before/after diff, and both matched. So the container that rolled is the one I meant.
+* The page's own file is served from your Worker, so I compared the bytes: `chat.js`
+  is now 705,648 bytes and identical to the code I merged (it was 665,502 before). The
+  cheap tell is one identifier the whole Automations form turns on — **0 occurrences in
+  what the platform served this morning, 2 now.**
+
+**Nothing else moved.** I took a reading of six live sites immediately before pushing
+and again after: byte-for-byte the same, same versions. The interactive half too, not
+just a 200 — `/status` and `/booking-check` both still answer **3**, which is the number
+that actually matters on that site.
+
+**The container rolled at 00:55:20Z, so the usual 15–20 minute settling ran to about
+01:10–01:15Z.** If you press a paid build inside that window it may still be on the old
+image; after it, you are on the new one.
+
+**What is NOT proven, plainly.** Nobody has clicked the new screen as a signed-in
+customer. Doing that needs the service key, which lives only in GitHub Actions — the
+same wall every paid check here meets. What IS proven is each layer on its own: the
+database by reading the migration back, the engine by 71 live checks plus the scheduled
+run above, and the screen by the served bytes matching the code. And the one design call
+from last time is still yours: whether the automation row's four buttons should drop to
+their own line at 560px.

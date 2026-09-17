@@ -2024,6 +2024,69 @@ page scope; nothing is merged or deployed.
   and both watch properties had no case at all; and the generation belt was **INERT** —
   with `|| '0'` already gone, `null !== String(gen)` returns anyway — so it is declared
   in the code and mutated as a PAIR with the default it belts.
+- **AND ALL THREE HALVES ARE LIVE (2026-09-17), IN THE ORDER migration → engine →
+  site, each first for its own reason.** Owner: *"Merge carefully"*, and careful here
+  meant the ORDER above everything: the migration first because the engine's cron calls
+  `tick_automations` every minute and this Worker's list route reads `agent.automations`;
+  the ENGINE before the site because a form that saves a step no executor can run is **a
+  control that ANSWERS, wrongly** — the defect the settings round was opened to fix, one
+  milestone earlier. The engine's half is in `agent-builder/CLAUDE.md`; this is the site's.
+  - **Migration `20260917003304`**, applied while the platform held ZERO agents. Going
+    before the engine was CHECKED: it redefines `agent.claim_run`, which the live engine
+    was calling, and the live body read back byte-for-byte as the new one minus its one
+    new field. Equality with the committed file was proved by EXECUTION (357 objects
+    across two throwaway local databases) and then by a narrowed read-back of the live
+    result — **82 objects, md5 `976acfa04457bc8242958900e51d8284`, identical on all
+    three**. A whole-schema census is the WRONG instrument and was tried first: it counts
+    roles and grants the environments legitimately differ on.
+  - **Engine**: `agent deploy` run 35, thirteen steps green, **71 passed / 0 failed**.
+  - **Site**: **deploy 2133, 00:52:28→00:55:26Z, green in 2m58s**, on `main` `10a6c5d` →
+    `522d00e` (fast-forward). Image step 2m13s, Wrangler 20s.
+  **⚠ AND POSTGREST HAD THE NEW RELATIONS BEFORE THIS WORKER SHIPPED — the check that
+  belongs to THIS side.** `agent.automations`, `automation_runs` and `automation_history`
+  each answer **`42501 permission denied for schema agent`** to the publishable key, not
+  `PGRST205`, with the pre-existing `agents` answering identically as the CONTROL.
+  Without it the agent list would 400 on a relation the schema cache has never seen —
+  the recorded settings-round defect, met from the other direction and closed in advance.
+  **THE IMAGE ID WAS COMPUTED BEFORE THE PUSH AND THE DEPLOY AGREED ON BOTH ENDS — the
+  seventh cross-check of that technique, and the strongest available form of it.**
+  `origin/main` → **`03fd9114aab4c098`** and the candidate → **`7273d2569866364f`** (183
+  inputs each), both hashed before anything moved; the log's own diff then reads
+  `- "image": …03fd9114aab4c098` / `+ "image": …7273d2569866364f`, `EDIT
+  isibi-app-sitebuildcontainer`, `SUCCESS Modified application`, `Applied changes` at
+  **00:55:20.88Z** — read out of the diff rather than inferred from the step's duration.
+  **So the 15–20 minute hold ran to ~01:10–01:15Z.** The ids differ because
+  `agent-store.mjs` is on the Dockerfile's COPY line.
+  **THE SERVED-FILE CHECK IS AVAILABLE AND IT DISCRIMINATES THIS DEPLOY.** `Found 2 new
+  or modified static assets` (`/chat.js`, `/styles.css`), and both are **byte-identical
+  to the merged tree** — `chat.js` 705,648 bytes sha256 `56c3cfa2c177e6a5` (665,502 /
+  `a8b1dc1674cf5bf4` before), `styles.css` 348,527 / `9a72381a99f662b7`. **The cheap
+  discriminator is `agAutoForm`: 0 occurrences in what main served before, 2 now** — the
+  identifier the whole Automations form turns on, absent from every byte the platform
+  had ever served. `env.AGENT_RUN_QUEUE (agent-runs)` and `Producer for agent-runs` are
+  in the deploy's own binding list, so the site's ring to the engine is live.
+  **REGRESSION: BYTE-IDENTICAL, with the baseline taken immediately BEFORE the push and
+  compared after** (the process miss of two rounds ago, not repeated). Six sites 200 at
+  the same sizes (repairbench-1 46,355 · fretwork-1 58,523 · ashgrove-1 31,120 ·
+  northgroup-5 1,641 · washhouse-1 52,404 · ben-crowe-guitar 52,060), and the
+  interactive half because a 200 is an availability check and never a health check:
+  `/status` **200/6,272** and `/booking-check` **200/6,390** on the same
+  `x-site-version 01789551373761-47doj7`, with `count_booked_repairs` and
+  `count_existing_bookings` both **200 answering 3**. Gate discriminator 401/401/401/404.
+  **The merge started exactly one workflow** — deploy 2133 and nothing else.
+  **MEASURED ON THE MERGED TREE: site suite 6,743** (6,741 pass, 2 skipped, 0 fail), and
+  **the arithmetic closes exactly**: this branch's 6,720 plus main's **23**, isolated by
+  running the three test files main touched at both tips (77 at the merged tree against
+  54 at the pre-merge tip, `test/job-delivery.test.mjs` being new) rather than by
+  subtracting. Only `CLAUDE.md` and `docs/owner-notes.md` were touched by both sides of
+  the merge, so there was no clean-but-wrong auto-merge in any code file to hunt.
+  **AND THE SQL SWEEP'S SINGLE CLEAN PASS: 123 mutants, 123 killed, 0 survived, 0 never
+  applied, 6 comment-only controls survived.** The spec holds 129 entries — 123 product
+  mutants and 6 controls — and the runner counts only the product ones, which is why
+  both passes read "123": the two survivors pass 1 found are killed here in one run
+  rather than in a targeted re-run bolted onto a stale tally.
+  **⚠ AND A SWEEP'S RESTORE TRAP MUST NOT FIRE ON A SUCCESSFUL EXIT — it discards your
+  own uncommitted work.** Recorded in THE TRAPS; it cost one restore this round.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose
