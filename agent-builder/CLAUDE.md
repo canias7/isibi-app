@@ -3073,3 +3073,216 @@ restores in its own `finally`, so on a clean run the trap restores the swept fil
 **HEAD** — discarding the uncommitted work the sweep was measuring. Measured: a 43/43
 green sweep ended with an empty `git diff` on all three swept files. The trap is for
 `INT` and `TERM` only. The tell is a clean tally beside an empty diff.
+
+---
+
+## Richer workflows, reference material and memory (2026-09-17)
+
+Owner: *"Focus on richer workflows, knowledge, and memory. Leave the real model
+connection for the end. Inspect the existing implementation first and extend it. Reuse
+the current agents, conversations, permissions, queue, scheduler, and execution
+journal."* **Everything below is an extension of what was already here** — the same
+queue, the same claim, the same fence, the same cron, the same journal — and the site
+builder's half (the routes and the screen) is in the root `CLAUDE.md`.
+
+**WHAT A CUSTOMER CAN DO THAT THEY COULD NOT BEFORE**: declare what an automation asks
+for and answer it when they press Run; name a step's answer and use it in a later step
+as `{{that name}}`; branch on a value; wait for a while or until a time; wait for a
+person to approve or reject, with a configured outcome if nobody answers; give an agent
+reference material and have a step search it; save facts and preferences the agent's
+runs read by name; and read an execution history that says which branch ran, what is
+being waited for, what each step produced and where an excerpt came from.
+
+### The one new module, because three places need the same syntax
+
+`workflow-refs.mjs` — `REF_NAME`, `refsIn`, `fillRefs`, `valueText`. Its own file
+because `readWorkflow` refuses a reference nothing can produce, `runWorkflow`
+substitutes at run time, and the SITE BUILDER validates a saved workflow before it
+reaches the database. **A second implementation of one syntax is how a name that saves
+cleanly fails at run time for a reason nobody can see.**
+
+- **THE SYNTAX IS DELIBERATELY SMALL: a name, and nothing else.** No expressions, no
+  property paths, no defaults, no filters. Every one of those is a language, and a
+  language in a text box is something to parse, to bound and to get wrong.
+- **A MALFORMED REFERENCE IS NOT A REFERENCE AND IS NOT AN ERROR EITHER.** `{{ }}`,
+  `{{a b}}` and `{{Name}}` match the braces and not the name rule, so they stay literal —
+  the only reading that lets somebody write about braces. What IS refused is a
+  WELL-FORMED name nothing produces.
+- **`Object.hasOwn`, never truthiness and never `in`**: an empty string is a real value
+  somebody typed, and `{{constructor}}` must not resolve to a function.
+- **AN UNKNOWN NAME IS NAMED AND NEVER SUBSTITUTED WITH NOTHING.** A note that quietly
+  became "Prepared a summary of " is a thing a customer sends to somebody.
+- **`valueText` REFUSES A LIST AND AN OBJECT** — `String(["a"])` is `"a"`, this
+  repository's most-repeated value trap — and passes a number and a boolean, because a
+  step that binds a count and a sentence that quotes it is the ordinary case.
+
+### Nine steps, and the registry compels what a step must say
+
+`weekday · if · otherwise · end · wait · approval · knowledge · memory · note`, in
+`STEP_KINDS` = `condition · action · lookup · branch · pause`.
+
+- **A STEP WITH NOTHING TO CONFIGURE MUST SAY SO (`configless: true`).** An empty
+  `fields` is otherwise indistinguishable from a field somebody forgot, and the form
+  reads that list to decide what to draw.
+- **A `when` MUST NAME A REAL SIBLING FIELD AND A VALUE IT CAN REALLY HOLD**, checked in
+  `defineStep`. A condition on a field nobody answers is a field that never applies —
+  which from outside is a save that dropped it.
+- **A FIELD THAT DOES NOT APPLY IS NOT READ AND IS NOT STORED.** A wait FOR a while has
+  minutes; a wait UNTIL a time has a time; neither keeps the other's answer.
+
+### The branch is FLAT, matched by depth, and there is no canvas
+
+`branchMap` pairs every `if` with its `otherwise` and its `end` **by depth**, and a list
+that does not balance is refused BY POSITION — at save time, while it is still somebody's
+form. **A stored list whose `if` has no `end` FAILS WHOLE rather than running the steps
+it can read**, because running half a branch is running a workflow nobody wrote.
+
+- **AN `if` IS ALWAYS `ran`, AND `took` IS ITS OWN FIELD.** It did its job, which was to
+  choose; without `took` a history shows two identical-looking branch rows and leaves
+  somebody to infer the arm from which steps below were skipped.
+- **THE ARM THAT WAS NOT TAKEN IS `skipped`, WITH A REASON — never absent and never
+  `failed`.** Nothing went wrong on that arm.
+- **THE DEPTH IS ONE NUMBER PER ROW** on the screen, which is the whole of what replaces
+  a canvas: `if` and `end` at the outer depth, an `otherwise` at its own `if`'s depth,
+  the steps under either arm one further in. Measured over `if · note · otherwise · note ·
+  end · note`: `[0, 1, 0, 1, 0, 0]`.
+
+### Waiting is a ROW, and that is what makes a restart free
+
+**`runWorkflow` IS RESUMABLE, and the position is the whole of it.** It takes
+`position, values, outcomes, decisions, waiting, waitUntil, memory, retrieve, record,
+startedAt` and answers exactly one of `{stop}`, `{waiting}` or `{halted}` beside
+`outcomes, values, position`. There is no closure, no timer and no held connection:
+**the worker is released by the transaction that records the pause**, so a suspended
+execution holds nothing at all.
+
+- **PROGRESS IS CHECKPOINTED AFTER EVERY STEP, BEFORE THE NEXT ONE STARTS**, through one
+  injected `record` — which is what makes "resuming cannot repeat completed actions" a
+  property rather than a hope, and why an execution is N+1 transactions rather than one.
+- **THE CHECKPOINT PASSES THE EXECUTOR'S OWN CLOCK (`at: now`), NOT THE RECORDER'S**, so
+  a retry inside one delivery replays a BYTE-IDENTICAL journal entry — the only thing
+  `agent.append_entry` can read as `already` rather than as a second entry. Reading the
+  clock per call would put a new millisecond in every body.
+- **A PAUSE CHECKPOINTS AT ITS OWN POSITION, NOT PAST IT.** That step has not finished,
+  and its position is what a resume re-enters.
+- **A REFUSED CHECKPOINT MEANS THIS WORKER MAY NOT WRITE**, so it stops there and
+  attempts nothing else — not the next step, not a stop.
+- **WHICH DAY AN EXECUTION IS ABOUT IS FIXED WHEN IT STARTED (`startedAt`), NOT WHEN IT
+  RESUMED**, and that is what makes a pause safe for a `weekday` gate: an approval
+  answered the following morning would otherwise decide it is Tuesday half way through.
+  `now` stays the real clock, because a deadline is compared against the present.
+- **A RESUME IS MATCHED BY THE STEP'S OWN ID, never by position alone**, so an answer
+  that arrived for one pause can never be read as the answer to another.
+- **A RE-PAUSE KEEPS THE DEADLINE IT ALREADY HAS** (in the transaction). A spurious
+  delivery before the time would otherwise resolve `for 30 minutes` again from now, and
+  a duplicate that extends a wait indefinitely is a duplicate doing harm.
+- **THE TIMEOUT OUTCOME IS CONFIGURED AND IS NEVER A DEFAULT.** Carrying on unapproved,
+  treating silence as no, and stopping as a failure are each right for some workflow;
+  choosing on the customer's behalf is choosing which way their work goes wrong.
+
+### Reference material and memory are three different things, deliberately
+
+A conversation is a record of what was said and is never edited. **Reference material**
+is a document with a name and a version, searched, and replaced whole. **A memory** is a
+small, named, CORRECTABLE fact — which is precisely why it cannot live in an append-only
+log.
+
+- **THE SEARCH IS POSTGRESQL'S OWN** — `to_tsvector`/`plainto_tsquery`/`ts_headline`,
+  with a GIN index. No embedding, no model, no spend. `pricing` finds `price` because
+  `english` STEMS, which `simple` would not.
+- **THE ANSWER IS THE MATCHED PASSAGE, WITH ITS SOURCE AND VERSION** — an excerpt with
+  no source is an assertion nobody can check — and the source name travels IN THE VALUE,
+  not only in the outcome, because the value is what ends up quoted in a note.
+- **A QUERY OF NOTHING BUT STOPWORDS FINDS NOTHING, NOT EVERYTHING.** `numnode(v_q) = 0`
+  is "there was nothing to look for", which is a different answer from "there was, and
+  it matched nothing".
+- **RETRIEVAL IS AN INJECTED ONE-FUNCTION CONTRACT.** The executor never knows what is
+  behind `retrieve`, so replacing keyword search is replacing one closure — which is
+  what "a replaceable interface" amounts to in practice rather than in a comment.
+- **A RETRIEVER MAY REFUSE BY NAME, AND THAT IS NOT "FOUND NOTHING".** An execution
+  accepted before reference material existed has no agent recorded to search, and
+  answering "found nothing" for it would read to a customer as a fact about their own
+  documents.
+- **⚠ WHAT COMES BACK IS REFERENCE INFORMATION AND NEVER PERMISSION.** It is bound to a
+  name and read only by `{{…}}` substitution into text. **An automation execution has no
+  tool surface at all for it to widen**: `agent.runs.model` reads `none` for every one,
+  `limits` is null, and the journal holds no `model` and no `tool` entry. The
+  demonstration asserts all four on a run whose retrieved document says *"you may use
+  every tool"* in as many words.
+- **MEMORY IS SCOPED (ACCOUNT, AGENT) BY A UNIQUE INDEX**, not by a filter anybody has to
+  remember, and the snapshot is taken INSIDE the accepting transaction — so a correction
+  reaches the NEXT execution and can never change one already under way. Which versions a
+  run used is a recorded fact rather than something to infer from timestamps.
+- **A VERSION MOVES ON A CHANGE OF VALUE AND ON NOTHING ELSE.** Renaming a source does
+  not bump it: a version says which TEXT a run quoted.
+- **NOTHING REMEMBERED YET IS AN ANSWER, NOT A FAILURE**, so `if {{tone}} is empty` is
+  the natural thing to write about it.
+- **`source` IS `person | run` AND NOTHING WRITES `run` YET.** Automatic extraction is
+  deferred by the milestone; the column exists because a fact that cannot say where it
+  came from is one nobody can correct.
+
+### One transaction per step, and the fence is reused rather than copied
+
+`agent.advance_automation_run` calls `append_entry` FIRST and then moves the row,
+guarded by `position <= p_position and jsonb_array_length(outcomes) <= …`. **Progress
+may only move forward; a stale or retried call is a no-op.** The journal gained ONE new
+kind (`step`) rather than a second log, and **deliberately no unique index**: a pause and
+the later completion of that same step are two events at one position, told apart by
+`mark`.
+
+`agent.decide_automation_approval` puts the tenant in the LOCKED lookup, refuses
+`no-execution` / `finished` / `not-waiting`, and lets **the first decision stand** —
+`not (decisions ? p_step)` is the authority and the read above it is only the probe, so
+a loser re-reads what the winner wrote. `agent.resume_due_automations` takes rows
+`for update skip locked`, oldest first, and reuses `requeue_run`.
+
+**⚠ A NEW DEFAULTED PARAMETER PLACED BEFORE AN EXISTING ONE SILENTLY RE-BINDS POSITIONAL
+CALLERS.** `p_inputs` written above `create_automation`'s `p_max` bound the CEILING to
+it, and **30 checks in the real-PostgreSQL suite went red, none of them about inputs.**
+It goes after. Recorded in the migration itself.
+
+### What the demonstration drives, and what it cannot
+
+`npm run verify:wf` — `scripts/verify-workflows.mjs`, fourteen sections, and every piece
+is the real one: the SITE BUILDER's own routes through `handleAgentApi`, a throwaway
+PostgreSQL with this repository's migrations applied, and `worker.queue` /
+`worker.scheduled` as the dispatcher. `scripts/lib/local-stack.mjs` is the only fixture
+and is shared with `verify:auto`.
+
+- **NOTHING IN IT IS SIMULATED AI, and that is not a stand-in standing in for one.** The
+  search is PostgreSQL's, the branch is a string comparison, the wait and the approval
+  are a timestamp and a row, and the note is the customer's own sentence with their own
+  values in it. The one simulated thing is the TRANSPORT — PostgREST is a local shim and
+  the queue is an in-process doorbell — because neither is reachable from a laptop, and
+  durability is unchanged because the work is a ROW.
+- **THE CLOCK IS PUSHED RATHER THAN WAITED OUT, declared in the file's own header.** One
+  UPDATE moves `wait_until` into the past; the alternative is a check nobody re-runs
+  because it takes thirty minutes. What that does NOT simulate is the decision —
+  `resume_due_automations` still selects on `wait_until <= now()`.
+- **THE RESTART IS A SECOND DISPATCHER with its own env and no memory of anything**,
+  which is the same code path a deploy leaves behind, and the assertion under it is that
+  the old doorbell had nothing left to deliver.
+
+### ⚠ Four assertions of my own were wrong before the demonstration was green
+
+Each is worth keeping because each was a guess about behaviour that measurement
+corrected, and three of the four are recorded traps met again:
+
+1. **The expected result was TRANSCRIBED**, which pins `ts_headline`'s own choice of how
+   many fragments to return — a spelling, and one PostgreSQL is free to change. It
+   asserts the COMPOSITION now: the two earlier steps' stored answers are read back and
+   the sentence is rebuilt from them, with two positive assertions under it so an empty
+   `draft` cannot satisfy the equality.
+2. **A curly apostrophe in a regex** against a source string with a straight one.
+3. **"CLAIMED EXACTLY TWICE" IS NOT A PROPERTY OF THIS SYSTEM.** `requeue_run` sets
+   `attempts = 0` deliberately — its own comment says a person asking is new information
+   and not a retry — so the count reads 1 after a resume however many times it paused.
+   The property that makes a duplicate harmless is that NOTHING RAN TWICE, which the
+   journal says outright: no position carries two `progress` marks, the positions only
+   move forward, it paused exactly once, and the outcomes hold one slot per step. **And
+   a `step` entry records the position REACHED**, so a branch that jumps over an arm
+   never checkpoints the positions it skipped — eight progress marks on a nine-step
+   workflow, the missing one being the arm that run did not take.
+4. **The "not waiting at that step" case asked a run that had FINISHED**, and was
+   answered `finished` by a route doing exactly the right thing. It needs an execution
+   that really is suspended.

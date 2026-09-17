@@ -94,6 +94,14 @@ const mThread = (label, from, to, control = false) =>
 const AUTOS = lastDefining("create table if not exists agent.automations");
 const mAuto = (label, from, to, control = false) => ({ label, files: [AUTOS], from, to, control });
 
+/**
+ * THE WORKFLOW / KNOWLEDGE / MEMORY MIGRATION, found by what only IT defines. Its
+ * guarantees are of three different kinds and they are grouped that way below: what a
+ * SUSPENDED execution may do, what a SEARCH may return, and who a MEMORY belongs to.
+ */
+const WKM = lastDefining("create table if not exists agent.agent_knowledge");
+const mWkm = (label, from, to, control = false) => ({ label, files: [WKM], from, to, control });
+
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
   m("SQL/isolation: the runs policy stops comparing the tenant",
@@ -561,6 +569,112 @@ const spec = [
   m("SQL/CONTROL (comment only)", "-- ============================================================================\n-- AGENT RUNS:",
     "-- ============================================================================\n-- AGENT RUNS (control):", true),
   mWork("SQL/queue/CONTROL (comment only)", "-- THE DURABLE QUEUE.", "-- THE DURABLE QUEUE (control).", true),
+
+  // ── WAITING, APPROVING AND RESUMING ───────────────────────────────────────
+  //
+  // A suspended execution is the one state in this schema where a row is meant to sit
+  // still, off the queue, holding nothing — so every guarantee here is about what may
+  // and may not happen to it while nobody is running it.
+  mWkm("⚠ SQL/wait: progress may go BACKWARDS, so a stale worker rewinds a resumed run",
+    "     and position <= p_position\n     and jsonb_array_length(outcomes) <= jsonb_array_length(p_outcomes);",
+    "     and true;"),
+  mWkm("⚠ SQL/wait: a RE-PAUSE resolves its deadline again, so a duplicate extends the wait for ever",
+    "    if v_exec.wait_until is not null and v_exec.waiting ->> 'step' = p_waiting ->> 'step' then\n      v_until := v_exec.wait_until;",
+    "    if false then\n      v_until := v_exec.wait_until;"),
+  mWkm("⚠ SQL/wait: the worker is NOT released on a pause, so a suspended run holds its claim",
+    "  if p_waiting is not null then\n    v_rel := agent.release_run(p_run_id, p_worker, p_token, true, null);",
+    "  if false then\n    v_rel := agent.release_run(p_run_id, p_worker, p_token, true, null);"),
+  mWkm("SQL/wait: the journal entry is written AFTER the row moves, so a refused write still advances it",
+    "  v_answer := agent.append_entry(p_run_id, v_seq, p_entry, p_worker, p_token);",
+    "  v_answer := jsonb_build_object('ok', true, 'stored', true, 'seq', v_seq);"),
+  mWkm("SQL/wait: a finished execution can be left WAITING, which is a state nothing resumes",
+    "alter table agent.automation_runs add constraint automation_runs_finished_is_not_waiting check (",
+    "alter table agent.automation_runs add constraint automation_runs_finished_is_not_waiting check ( true or"),
+  mWkm("⚠ SQL/approve: a SECOND decision overwrites the first, so an absorbed press changes the answer",
+    "     where id = p_run_id and not (decisions ? p_step);",
+    "     where id = p_run_id;"),
+  mWkm("⚠ SQL/approve: a decision is recorded for a step the execution is NOT waiting at",
+    "  if v_exec.waiting is null\n     or v_exec.waiting ->> 'kind' is distinct from 'approval'\n     or v_exec.waiting ->> 'step' is distinct from p_step then",
+    "  if false then"),
+  mWkm("⚠ SQL/approve: the decision names whoever ASKED rather than the account that answered",
+    "      'by',      coalesce(p_by, p_tenant),", "      'by',      coalesce(p_by, 'someone'),"),
+  mWkm("⚠ SQL/resume: two ticks take the SAME rows, so one execution is rung twice at once",
+    "     for update skip locked", "     for update"),
+  mWkm("SQL/resume: a run that is not yet due is woken anyway", "       and ar.wait_until <= now()", "       and true"),
+  mWkm("SQL/resume: a FINISHED execution is put back on the queue", "       and ar.finished_at is null", "       and true"),
+  mWkm("SQL/resume: the batch is unbounded, so one tick can wake everything at once",
+    "     limit greatest(1, coalesce(p_limit, 25))", "     limit 1000000"),
+
+  // ── REFERENCE MATERIAL ────────────────────────────────────────────────────
+  mWkm("⚠ SQL/knowledge: a SEARCH crosses accounts, so one account reads another's documents",
+    "     where k.tenant_id = p_tenant\n       and k.agent_id = p_agent_id",
+    "     where k.agent_id = p_agent_id"),
+  mWkm("⚠ SQL/knowledge: a search crosses AGENTS within one account",
+    "       and k.agent_id = p_agent_id\n       and to_tsvector('english'", "       and to_tsvector('english'"),
+  mWkm("⚠ SQL/knowledge: a query of nothing but stopwords answers EVERY document",
+    "  if v_q is null or numnode(v_q) = 0 then\n    return;\n  end if;", "  if false then\n    return;\n  end if;"),
+  mWkm("SQL/knowledge: an empty search answers every document rather than none",
+    "  if p_query is null or btrim(p_query) = '' then\n    return;", "  if false then\n    return;"),
+  mWkm("SQL/knowledge: the answer is the START of the document rather than the matched passage",
+    "             'text',    ts_headline('english', k.body, v_q,", "             'text',    left(k.body, 400), 'unused', (("),
+  mWkm("SQL/knowledge: two sources of one name per agent, so a retrieval answer names nothing",
+    "create unique index if not exists agent_knowledge_one_title_per_agent",
+    "create index if not exists agent_knowledge_one_title_per_agent"),
+  mWkm("SQL/knowledge: the title match is case-sensitive, so \"Price List\" is a second \"Price list\"",
+    "  on agent.agent_knowledge (tenant_id, agent_id, lower(btrim(title)));",
+    "  on agent.agent_knowledge (tenant_id, agent_id, title);"),
+  mWkm("⚠ SQL/knowledge: an account reads every account's reference material",
+    "create policy agent_knowledge_own_tenant on agent.agent_knowledge\n  for all\n  using (tenant_id = agent.tenant_id())",
+    "create policy agent_knowledge_own_tenant on agent.agent_knowledge\n  for all\n  using (true)"),
+  mWkm("⚠ SQL/knowledge: a client may WRITE reference material directly",
+    "grant insert, update, delete on agent.agent_knowledge to service_role;",
+    "grant insert, update, delete on agent.agent_knowledge to authenticated, service_role;"),
+
+  // ── MEMORY ────────────────────────────────────────────────────────────────
+  mWkm("⚠ SQL/memory: the scope stops being (account, agent), so two accounts share a name",
+    "create unique index if not exists agent_memory_one_per_key\n  on agent.agent_memory (tenant_id, agent_id, key);",
+    "create unique index if not exists agent_memory_one_per_key\n  on agent.agent_memory (agent_id, key);"),
+  mWkm("SQL/memory: one agent's memories are shared with every agent of the account",
+    "  on agent.agent_memory (tenant_id, agent_id, key);", "  on agent.agent_memory (tenant_id, key);"),
+  mWkm("⚠ SQL/memory: the version does not move on a correction, so a run cannot say which value it used",
+    "  if new.value is distinct from old.value then\n    new.version := old.version + 1;",
+    "  if false then\n    new.version := old.version + 1;"),
+  // ANCHORED WITH ITS OWN NEIGHBOUR: the knowledge touch has the identical line, and a
+  // mutant of THAT one is a different property in a different function.
+  mWkm("SQL/memory: the version moves on any touch, so renaming nothing counts as a correction",
+    "  if new.value is distinct from old.value then\n    new.version := old.version + 1;\n  else\n    new.version := old.version;\n  end if;\n  return new;\nend; $$;\n\ndrop trigger if exists agent_memory_touched",
+    "  new.version := old.version + 1;\n  return new;\nend; $$;\n\ndrop trigger if exists agent_memory_touched"),
+  mWkm("⚠ SQL/memory: the SNAPSHOT crosses accounts, so an execution is given another's facts",
+    "    from agent.agent_memory m\n   where m.tenant_id = p_tenant", "    from agent.agent_memory m\n   where true"),
+  mWkm("SQL/memory: a name need not be an identifier, so {{a name}} can never resolve to it",
+    "  key        text        not null check (key ~ '^[a-z][a-z0-9_]{0,39}$'),",
+    "  key        text        not null check (key is not null),"),
+  mWkm("⚠ SQL/memory: an account reads every account's saved facts",
+    "create policy agent_memory_own_tenant on agent.agent_memory\n  for all\n  using (tenant_id = agent.tenant_id())",
+    "create policy agent_memory_own_tenant on agent.agent_memory\n  for all\n  using (true)"),
+  mWkm("⚠ SQL/memory: a client may WRITE memories directly, past the route that scopes them",
+    "grant insert, update, delete on agent.agent_memory to service_role;",
+    "grant insert, update, delete on agent.agent_memory to authenticated, service_role;"),
+  mWkm("SQL/memory: a source nothing writes is admitted, so provenance can say anything",
+    "  constraint agent_memory_source_known check (source in ('person', 'run'))",
+    "  constraint agent_memory_source_known check (source is not null)"),
+
+  // ── WHAT AN EXECUTION IS GIVEN ────────────────────────────────────────────
+  mWkm("⚠ SQL/inputs: an answer nothing asked for is accepted and silently ignored",
+    "alter table agent.automations add constraint automations_inputs_shaped check (",
+    "alter table agent.automations add constraint automations_inputs_shaped check ( true or"),
+  mWkm("⚠ SQL/history: the execution view runs as its OWNER, past both policies",
+    "  with (security_invoker = true)\nas\n  select ar.id,", "  with (security_invoker = false)\nas\n  select ar.id,"),
+  mWkm("SQL/journal: a `step` entry may name no step, so progress says nothing about where it got to",
+    "    when 'step'    then body ->> 'step' is not null and body ->> 'index' is null",
+    "    when 'step'    then true"),
+  mWkm("SQL/journal: the widened kind list admits a kind nothing writes or reads",
+    "  check (body ->> 'kind' in ('started', 'model', 'tool', 'stopped', 'step'));",
+    "  check (body ->> 'kind' is not null);"),
+  mWkm("SQL/wkm/CONTROL (comment only)",
+    "-- ⚠ THE SCOPE, IN THE DATABASE. Without this,",
+    "-- The scope, in the database. Without this,", true),
+
 ];
 
 // THE PRE-CHECK. Every anchor exactly once IN ITS OWN FILE, and a replacement that

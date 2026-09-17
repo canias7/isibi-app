@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import worker, {
   SETTINGS, OPTIONAL, SENSITIVE, MODELS, SCHEMA, QUEUE_BINDING, SWEEP_GRACE_S, SWEEP_LIMIT,
   AUTOMATION_CATCHUP_S, AUTOMATION_TICK_LIMIT,
+  AUTOMATION_RESUME_LIMIT,
   missingSettings, buildApi, buildRunner,
 } from "../src/worker.mjs";
 import { AGENTS } from "../src/agents.mjs";
@@ -698,4 +699,92 @@ test("THE SWEEP'S GRACE IS AT LEAST ONE BEAT, so a lapsed lease is never handed 
   // And the lease itself must outlast a beat, or a healthy worker loses its own run.
   assert.ok(LEASE_TTL_S * 1000 > BEAT_EVERY_MS,
     `the lease is ${LEASE_TTL_S}s and a beat is ${BEAT_EVERY_MS}ms — a beating worker would still lose its lease`);
+});
+
+// ── the third cron job: releasing work that was waiting ─────────────────────
+
+test("⚠ THE RESUME TICK WAKES WHAT IS DUE, ONE RING EACH, AND ONLY WHAT IT RE-QUEUED", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const auto = seedAutomation(rest, { over: { next_run_at: null, occurrence_for: null, schedule: "manual" } });
+
+    // Three suspended executions: one overdue, one not yet due, and one overdue that
+    // somebody is already holding. Each is a different answer from `resume_due_automations`
+    // and the tick has to read all three differently.
+    const suspend = (id, waitUntil, heldBy = null) => {
+      rest.execs.set(id, {
+        id, automation_id: auto.id, tenant_id: TENANT, agent_id: AGENT, trigger: "manual",
+        occurrence: null, steps: auto.steps, zone: "UTC", finished_at: null, position: 0,
+        vars: {}, input: {}, memory: {}, decisions: {},
+        waiting: { kind: "wait", step: "s1", mode: "for", minutes: 30 },
+        wait_until: new Date(waitUntil).toISOString(), created_at: new Date().toISOString(),
+      });
+      rest.runs.set(id, { id, tenant_id: TENANT, status: "running", stop: null });
+      rest.work.set(id, {
+        run_id: id, tenant_id: TENANT, kind: "start", executor: "automation", attempts: 0,
+        claimed_by: heldBy, claim_token: heldBy ? "tok-other" : null,
+        lease_expires_at: heldBy ? Date.now() + 60_000 : null,
+        done_at: heldBy ? null : Date.now(), enqueued_at: Date.now(), last_error: null,
+      });
+    };
+    suspend("due-1", Date.now() - 120_000);
+    suspend("not-yet", Date.now() + 3_600_000);
+    suspend("held", Date.now() - 60_000, "somebody-else");
+
+    await worker.scheduled({}, env, ctx);
+
+    const rung = env[QUEUE_BINDING].sent.map((m) => m.runId);
+    // ⚠ **ONLY A ROW IT REALLY RE-QUEUED IS RUNG.** An execution somebody is holding
+    // answers `running` — a doorbell for that is a delivery `claim_run` refuses, so it is
+    // latency spent to learn nothing.
+    assert.deepEqual(rung, ["due-1"], `the tick rang ${JSON.stringify(rung)}`);
+    assert.equal(rest.work.get("due-1").kind, "resume", "the due execution was not re-queued");
+    assert.equal(rest.work.get("due-1").done_at, null);
+    // NOT YET DUE IS UNTOUCHED — the deadline is the whole of what decides.
+    assert.equal(rest.work.get("not-yet").kind, "start");
+    assert.notEqual(rest.work.get("not-yet").done_at, null);
+    // AND THE HELD ONE KEEPS ITS HOLDER's claim rather than being taken from under it.
+    assert.equal(rest.work.get("held").claimed_by, "somebody-else");
+
+    // A SECOND TICK RINGS IT AGAIN, AND TWICE OVER — measured rather than predicted, and
+    // harmless by construction. The first tick left the row queued (`done_at` null, nobody
+    // holding it), which is exactly what the SWEEPER is for, so the second invocation rings
+    // it once from the sweeper and once from the resume. `claim_run` is what makes a
+    // duplicate delivery cost nothing, and the property worth asserting is that every ring
+    // names the due row — never the one that is not due, and never the one somebody holds.
+    env[QUEUE_BINDING].sent.length = 0;
+    await worker.scheduled({}, env, ctx);
+    const again = env[QUEUE_BINDING].sent.map((m) => m.runId);
+    assert.ok(again.length >= 1, "the second tick rang nothing");
+    assert.deepEqual([...new Set(again)], ["due-1"], `the second tick rang ${JSON.stringify(again)}`);
+  });
+});
+
+test("the resume tick's batch is bounded, and its failure cannot take the other two down", async () => {
+  // A BOUND IS WHAT STOPS ONE TICK WAKING EVERYTHING AT ONCE after an outage — a cron
+  // invocation has a ceiling, and a burst of deliveries it cannot serve is worse than
+  // a backlog worked through a tick at a time.
+  assert.ok(Number.isInteger(AUTOMATION_RESUME_LIMIT));
+  assert.ok(AUTOMATION_RESUME_LIMIT > 0 && AUTOMATION_RESUME_LIMIT <= 500,
+    `the resume batch is ${AUTOMATION_RESUME_LIMIT}`);
+
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest);
+    const real = rest.fetch;
+    let broke = 0;
+    const patched = async (url, init) => {
+      if (String(url).includes("resume_due_automations")) { broke += 1; throw new Error("the resume went"); }
+      return real(url, init);
+    };
+    patched.calls = real.calls;
+    globalThis.fetch = patched;
+    // THREE JOBS, THREE BLOCKS: a broken resume must not stop the schedule filing what
+    // is due, which is the property the other two already have between them.
+    await assert.doesNotReject(() => worker.scheduled({}, env, ctx));
+    assert.equal(broke, 1, "the resume tick never ran, so this proves nothing");
+    assert.equal(env[QUEUE_BINDING].sent.length, 1, "a broken resume took the scheduler down with it");
+  });
 });
