@@ -81,6 +81,24 @@ export const CAPABILITY_RPC = Object.freeze({
 });
 
 /**
+ * WHICH OF THEM CHANGE SOMETHING, declared beside the list rather than inferred from a
+ * name — `setAutomationEnabled` and `startAutomation` both read as writes and `readExecution`
+ * does not, but a rule built on the words `save`/`set`/`start`/`create`/`delete` is a rule
+ * the next operation's name breaks in silence.
+ *
+ * ⚠ IT IS WHAT MAKES `writes` ON A TOOL A CENSUS RATHER THAN A PROMISE.
+ * `test/capabilities.test.mjs` drives every tool against a RECORDING capability seam and
+ * requires `writes === true` exactly when the tool touched one of these — so a write tool
+ * that forgot the flag, and a read tool that carries it, are both red. Neither list is
+ * derived from the other and both are asserted total against `CAPABILITIES`, so an
+ * operation added to one and not the other fails by existing.
+ */
+export const CAPABILITY_WRITES = Object.freeze([
+  "saveMemory", "deleteMemory",
+  "createAutomation", "updateAutomation", "setAutomationEnabled", "startAutomation",
+]);
+
+/**
  * The caps this side passes in. **They are the PRODUCT's numbers and the database takes
  * them as arguments**, exactly as `create_automation`'s `p_max` already does — so the
  * shape lives in the schema (the columns' own checks) and the count lives with the

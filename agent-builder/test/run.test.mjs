@@ -473,9 +473,32 @@ test("A PENDING NON-REPEATABLE TOOL REFUSES THE RESUME, AND NAMES IT", async () 
     agent: agentWith([again]), send: async () => { calls++; return says("x"); }, from: entries,
   });
   assert.equal(r.stop.reason, "cannot-resume");
-  assert.deepEqual([...r.stop.pending], [{ step: 1, index: 0, name: "charge" }]);
+  // RE-ANCHORED, NOT APPEASED: the refusal now says whether each blocked call is
+  // UNRESOLVED — a `writes` tool that may have changed something outside this run —
+  // because that is what somebody deciding about a stranded run has to know, and the stop
+  // is the only place they can read it. `charge` here declares neither, so it is a call
+  // that blocked the resume and changed nothing outside the run.
+  assert.deepEqual([...r.stop.pending], [{ step: 1, index: 0, name: "charge", unresolved: false }]);
   assert.equal(ran, 0, "a tool that might already have charged somebody was run again");
   assert.equal(calls, 0);
+});
+
+test("⚠ AND A BLOCKED CALL THAT WRITES IS NAMED AS UNRESOLVED", async () => {
+  // `writes` says this tool changes something outside the run, so a pending one may have
+  // done it. A tool that only reads cannot have, and the two are different things for a
+  // person to act on — one needs checking, the other needs nothing.
+  //
+  // It is declared WITH `repeatable: false` by hand rather than through `defineTool`,
+  // because that door refuses the pair: a write that cannot be repeated can never finish
+  // after an interruption. This is the shape a caller can still build, and the stop has
+  // to read correctly for it.
+  const writer = { ...tool("charge", async () => "paid"), writes: true };
+  const entries = await logOfInterruptedRun({
+    tools: [writer], script: [wants("charge"), says("done")], killAfter: 2,
+  });
+  const r = await runAgent({ agent: agentWith([writer]), send: async () => says("x"), from: entries });
+  assert.equal(r.stop.reason, "cannot-resume");
+  assert.deepEqual([...r.stop.pending], [{ step: 1, index: 0, name: "charge", unresolved: true }]);
 });
 
 test("...AND A PENDING REPEATABLE TOOL IS RE-RUN, so the run carries on", async () => {

@@ -1950,6 +1950,20 @@ try {
   check("...so the partial index really is partial",
     jget(`select count(*) from agent.automation_runs where automation_id='${AU1}' and occurrence is null;`) === "2");
 
+  // ⚠ **AND A MANUAL RUN RE-ACCEPTED UNDER THE SAME RUN ID IS A REPEAT — which is the
+  // whole of what makes `run_automation` safe to repeat.** The tool DERIVES its run id
+  // from the call it belongs to (`<run>:<step>:<index>:<the arguments' own hash>`), so a
+  // redelivery asks for the execution it already made rather than a second one. Without
+  // this the two lines above would be the whole story and the tool would need
+  // `repeatable: false`, which is a control that holds, is approved, and then refuses.
+  const manSame = jget(`select agent.accept_automation_run('t1','${AU1}','${R_MAN2}','manual',null)::text;`);
+  check("⚠ the SAME manual run id asked for twice is one execution, not two",
+    /"ok"\s*:\s*true/.test(manSame) && /"repeat"\s*:\s*true/.test(manSame), manSame);
+  check("...answering the execution that was really filed", manSame.includes(R_MAN2), manSame);
+  check("...and the second ask wrote nothing at all",
+    jget(`select count(*) from agent.automation_runs where automation_id='${AU1}' and occurrence is null;`) === "2" &&
+    jget(`select count(*) from agent.run_work where run_id='${R_MAN2}';`) === "1");
+
   const occ1 = jget(`select agent.accept_automation_run('t1','${AU1}','${R_OCC1}','schedule','2026-09-21'::date)::text;`);
   check("a scheduled occurrence is accepted once", /"repeat"\s*:\s*false/.test(occ1), occ1);
   // ⚠ **THE DUPLICATE LOSES IN THE DATABASE.** A second tick, a redelivered tick and a
@@ -2537,6 +2551,16 @@ try {
   check("⚠ the ceiling is asked only for a name this agent does NOT already hold",
     jget(`select agent.save_memory('t1','${AG_ON}','cap_new','v',null,'person',1)->>'error';`) === "too-many" &&
     jget(`select agent.save_memory('t1','${AG_ON}','cap_tone','again',null,'person',1)->>'saved';`) === "corrected");
+  // ⚠ WHAT MAKES `pause_automation` SAFE TO REPEAT: it is a write of the CALLER'S OWN
+  // value to a named row, so the end state does not depend on how many times it ran. The
+  // ANSWER is identical too, which is what lets a redelivery finish the call rather than
+  // having to tell a resumed run apart from a first attempt.
+  const off1 = jget(`select agent.set_automation_enabled('t1','${AU1}',false)::text;`);
+  const off2 = jget(`select agent.set_automation_enabled('t1','${AU1}',false)::text;`);
+  check("⚠ turning an automation off twice leaves it off, with the same answer",
+    /"enabled"\s*:\s*false/.test(off1) && off1 === off2, `${off1} / ${off2}`);
+  check("⚠ THE CONTROL: turning it back on really does change it",
+    /"enabled"\s*:\s*true/.test(jget(`select agent.set_automation_enabled('t1','${AU1}',true)::text;`)));
   check("forgetting says whether there WAS one, rather than failing when there was not",
     jget(`select agent.delete_memory('t1','${AG_ON}','cap_tone')->>'forgot';`) === "true" &&
     jget(`select agent.delete_memory('t1','${AG_ON}','cap_tone')->>'forgot';`) === "false");

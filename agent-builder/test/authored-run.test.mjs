@@ -985,6 +985,14 @@ test("⚠ THE SWEEP SPEC'S ANCHORS ARE ALL STILL THERE", (t) => {
   // BOTH GENERATORS, because both hold anchors and both went stale: the SQL spec had
   // FIVE missing anchors after `send_to_agent` was restructured and `authored_run`'s
   // bounds moved to a later migration, and nothing said so until a sweep was run.
+  //
+  // ⚠ AND THE SQL GENERATOR ALSO ASKS WHETHER EACH ANCHOR IS INSIDE A SUPERSEDED
+  // DEFINITION, which is a LOUDER failure than a missing anchor and was invisible to
+  // every check until 2026-09-17. A mutant aimed at a function a later migration
+  // redefines lands on dead code: the anchor is present and unique, the pre-check is
+  // satisfied, and the mutant survives — reading as a test gap rather than a spec fault.
+  // MEASURED: the workflow migration left EIGHT in that state and no sweep had run
+  // since. So running the generator is the check for that too.
   const gen = (script) => {
     const out = spawnSync(process.execPath,
       [fileURLToPath(new URL(`../scripts/${script}`, import.meta.url)),

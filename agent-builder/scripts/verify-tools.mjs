@@ -36,6 +36,8 @@ import worker from "../src/worker.mjs";
 import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
 import { OFFERED_NAMES } from "../src/agents.mjs";
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
+import { makeCapabilities } from "../src/capabilities.mjs";
+import { argsHash } from "../src/approvals.mjs";
 
 const DB = `agent_tools_${process.pid}`;
 const A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";   // one account
@@ -66,7 +68,7 @@ try {
     newId: () => `00000000-0000-4000-8000-${String(++minted).padStart(12, "0")}`,
     log: () => {},
   });
-  const { drain, ring, tick } = dispatcher({ worker, rest });
+  const { env, drain, ring, tick } = dispatcher({ worker, rest });
 
   /** Send one message and let the consumer run it, the way a person pressing send does. */
   let press = 0;
@@ -339,6 +341,72 @@ try {
   const sibHistory = await ask(AG, `use list_executions automation=${sibAuto.body.id}`);
   check("⚠ ...and a sibling's history is empty rather than refused, which tells a caller nothing",
     toolResult(sibHistory.body.runId)?.count === 0);
+
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n5b. ⚠ THE SAME CALL DELIVERED TWICE IS ONE PIECE OF WORK");
+  // ═════════════════════════════════════════════════════════════════════════
+  // **THIS IS WHAT `repeatable: true` ON `run_automation` RESTS ON, and until 2026-09-17
+  // it rested on a claim that was false.** A process can die between a tool call and the
+  // write that records its result, so a resume runs that call m5Again — and the only thing
+  // that stops a m5Second run of the automation is that the tool asks for the SAME
+  // execution. Its id is derived from `ctx.operation`, which is
+  // `<run>:<step>:<index>:<the arguments' own hash>`.
+  //
+  // Driven through the REAL capability store against the real database, because what is
+  // being proved is what Postgres does with the m5Second ask. `ctx` is built by hand here
+  // rather than through a delivery, deliberately: two deliveries of one message is a
+  // DIFFERENT property (the claim refuses the m5Second, which section 8 reads off
+  // `attempts`), and it could never exercise the case where the m5First attempt's result
+  // was lost.
+  const m5Ops = makeCapabilities({ fetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY })
+    .forTenant(A).forAgent(AG);
+  const m5RunTool = CAPABILITY_TOOLS.find((t) => t.name === "run_automation");
+  const m5CtxFor = async (args, step = 4, index = 0) =>
+    ({ capabilities: m5Ops, operation: `88888888-8888-4888-8888-888888888888:${step}:${index}:${await argsHash(args)}` });
+
+  const runsBefore = Number(q(`select count(*) from agent.automation_runs where automation_id = '${AUTO}';`));
+  const m5Args1 = { id: AUTO };
+  const m5First = await m5RunTool.run(m5Args1, await m5CtxFor(m5Args1));
+  const m5Again = await m5RunTool.run(m5Args1, await m5CtxFor(m5Args1));
+  check("the first ask starts one", m5First?.ok === true && m5First.started === true, JSON.stringify(m5First));
+  check("⚠ ...and the SAME call again is answered rather than refused",
+    m5Again?.ok === true, JSON.stringify(m5Again));
+  check("⚠ ...says it was already started by this same request",
+    m5Again.started === false && /this same request/.test(m5Again.say ?? ""), JSON.stringify(m5Again));
+  check("⚠ ...naming the SAME execution", m5Again.execution === m5First.execution);
+  check("⚠ ...and the database holds exactly ONE more execution, not two",
+    Number(q(`select count(*) from agent.automation_runs where automation_id = '${AUTO}';`)) === runsBefore + 1);
+  check("...with one run and one work row for it",
+    q(`select count(*) from agent.runs where id = '${m5First.execution}';`) === "1" &&
+    q(`select count(*) from agent.run_work where run_id = '${m5First.execution}';`) === "1");
+
+  // ⚠ **THE CONTROL, AND IT IS WHAT THE ARGUMENTS BUY.** A different call at the SAME
+  // position must be a different piece of work. Without the arguments in the identity this
+  // would come back "already running" about the m5First automation — a genuinely different
+  // request absorbed into one nobody asked for.
+  //
+  // It names a SECOND automation OF THIS AGENT, deliberately: the sibling's would be
+  // refused `no-automation` by the agent wall, which is a different refusal and would make
+  // this control pass for a reason that has nothing to do with the identity.
+  const m5Second = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Also mine", schedule: "manual", steps: [{ type: "note", text: "x" }] },
+  });
+  check("a second automation of this agent's exists to compare against", m5Second.status === 200,
+    JSON.stringify(m5Second.body).slice(0, 120));
+  const m5Args2 = { id: m5Second.body.id };
+  const m5Other = await m5RunTool.run(m5Args2, await m5CtxFor(m5Args2));
+  check("⚠ THE CONTROL: a DIFFERENT call at the same position is its own execution",
+    m5Other?.ok === true && m5Other.started === true && m5Other.execution !== m5First.execution,
+    JSON.stringify(m5Other));
+
+  // AND A DEPLOYMENT THAT CANNOT IDENTIFY THE CALL REFUSES rather than minting an id,
+  // because minting is exactly the behaviour the derivation removes.
+  const m5Blind = await m5RunTool.run(m5Args1, { capabilities: m5Ops });
+  check("⚠ ...and with no identity at all it refuses BY NAME and starts nothing",
+    m5Blind?.ok === false && m5Blind.error === "no-id" &&
+    Number(q(`select count(*) from agent.automation_runs where automation_id = '${AUTO}';`)) === runsBefore + 1,
+    JSON.stringify(m5Blind));
+  await drain();
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n6. ⚠ A TOOL NOBODY TICKED IS NOT A TOOL THIS AGENT HAS");

@@ -74,10 +74,24 @@ export const modelEntry = (o) => Object.freeze({
   toolCalls: Object.freeze((o.toolCalls ?? []).map((c) => Object.freeze({ id: c.id ?? null, name: c.name ?? null, args: c.args }))),
   usage: o.usage ?? null, costMicros: o.costMicros ?? null,
 });
+/**
+ * ONE TOOL CALL'S RESULT.
+ *
+ * ⚠ **`unresolved` IS A THIRD ANSWER AND IT IS NOT A KIND OF FAILURE.** `ok: false` says
+ * the work did not happen; `unresolved` says nobody knows whether it did — we asked a
+ * store to change something and never heard back. The two invite opposite next moves: a
+ * failure invites doing it again, and an unknown invites CHECKING first. Recording an
+ * unknown as a failure is a claim nothing here is entitled to make, in the direction that
+ * loses somebody's data.
+ *
+ * It rides only when it is true, so every entry written before this exists and every
+ * resolved entry written after it are byte for byte what they were.
+ */
 export const toolEntry = (o) => Object.freeze({
   kind: "tool", at: o.at, step: o.step, index: o.index, name: o.name ?? null,
   ms: o.ms, ok: !!o.ok, value: o.ok ? o.value : undefined,
   error: o.ok ? undefined : String(o.error ?? ""),
+  ...(o.ok || o.unresolved !== true ? {} : { unresolved: true }),
 });
 export const stoppedEntry = (o) => Object.freeze({ kind: "stopped", at: o.at, stop: o.stop });
 
@@ -92,9 +106,14 @@ export const toolMessage = (results) => ({ role: "tool", content: results });
  * loop and the replay, so a resumed conversation cannot differ from the one the
  * run would have had.
  */
-export const toolResultFor = (call, ok, valueOrError) => ({
+export const toolResultFor = (call, ok, valueOrError, unresolved) => ({
   id: call?.id ?? null, name: call?.name ?? null, ok,
-  result: ok ? valueOrError : String(valueOrError ?? ""),
+  // ⚠ SAID IN THE TEXT, not only in a field beside it. A model reads the result; a flag it
+  // is not shown is a flag that changes nothing about what it does next, and what it does
+  // next is the whole reason to distinguish "did not happen" from "may have happened".
+  result: ok ? valueOrError
+    : `${unresolved === true ? "UNRESOLVED — this may or may not have happened, so check before doing it again: " : ""}${String(valueOrError ?? "")}`,
+  ...(ok || unresolved !== true ? {} : { unresolved: true }),
 });
 
 /**
@@ -235,6 +254,18 @@ export function replay(entries) {
     used.costMicros = addMeter(used.costMicros, m.costMicros ?? null);
     used.wallMs += typeof m.ms === "number" && m.ms >= 0 ? m.ms : 0;
 
+    // ⚠ A STORED `toolCalls` THAT IS NOT A LIST IS NAMED, NEVER ITERATED. MEASURED before
+    // this line existed: `toolCalls: "junk"` came back as FOUR pending calls named `null`
+    // and four tool calls on the meter, with `problems` empty — a string is iterable by
+    // index and `.length` is its character count. So a run resumed from an unreadable log
+    // was billed for calls nobody made and told "cannot resume" about calls that do not
+    // exist. This is the one function whose own documentation says a junk entry is named
+    // rather than skipped.
+    if (m.toolCalls !== undefined && !Array.isArray(m.toolCalls)) {
+      problems.push(`step ${step}: the model entry's tool calls are not a list, so this step's calls are unknown`);
+      messages.push(assistantMessage(m.text ?? ""));
+      continue;
+    }
     const calls = m.toolCalls ?? [];
     messages.push(assistantMessage(m.text ?? "", calls));
     if (!calls.length) continue;
@@ -248,9 +279,29 @@ export function replay(entries) {
     const results = [];
     for (let index = 0; index < calls.length; index++) {
       const t = got.get(index);
-      if (!t) { pending.push({ step, index, name: calls[index]?.name ?? null, id: calls[index]?.id ?? null }); continue; }
+      if (!t) {
+        // ⚠ **THE ARGUMENTS COME FROM THE SLOT THAT IS PENDING, at the moment the slot is
+        // made.** They used to be looked up later, by the call's `id`, which a model is
+        // not obliged to give: `modelEntry` stores `id: c.id ?? null` and a `.find` on
+        // null returns the FIRST null. MEASURED — two writes in one batch, the model
+        // naming no ids, the store dying before the results were written — and on the
+        // resume `forget` ran with `remember`'s arguments: the agent forgot the fact it
+        // had just been told to keep, and the name it was asked to forget was never
+        // touched. For a gated call the wall fails closed instead (the decision is read
+        // at the right position with the wrong arguments, so `matches` is false and it
+        // reads `stale`), which strands a call a person really did approve.
+        //
+        // Taking them HERE, off `calls[index]`, is what kills the class rather than the
+        // instance: the name, the id and the arguments all come out of one object, so
+        // there is no later pairing left to get wrong.
+        pending.push({
+          step, index, name: calls[index]?.name ?? null, id: calls[index]?.id ?? null,
+          args: calls[index]?.args,
+        });
+        continue;
+      }
       used.wallMs += typeof t.ms === "number" && t.ms >= 0 ? t.ms : 0;
-      results.push(toolResultFor(calls[index], t.ok, t.ok ? t.value : t.error));
+      results.push(toolResultFor(calls[index], t.ok, t.ok ? t.value : t.error, t.unresolved === true));
     }
     if (results.length) messages.push(toolMessage(results));
   }

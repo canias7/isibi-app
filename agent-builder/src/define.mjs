@@ -108,6 +108,28 @@ export function defineTool(spec) {
   if (Object.hasOwn(spec, "approval") && typeof spec.approval !== "boolean") {
     throw new TypeError(`${where}: approval must be true or false — Boolean("false") is true, so it is not coerced`);
   }
+  // ⚠ `writes` SAYS THIS TOOL CHANGES SOMETHING OUTSIDE THIS RUN, and it decides what a
+  // FAILURE MEANS rather than whether the tool may run.
+  //
+  // A read that throws did not happen: re-reading is free and nothing moved. A WRITE that
+  // throws may have happened — the store may have committed and the answer been lost —
+  // and recording that as a failure is a claim nothing here can support, in the direction
+  // that loses somebody's data. So a `writes` tool whose call throws is recorded
+  // `unresolved`, and the model is told to CHECK rather than invited to do it again.
+  //
+  // **AND A WRITE MUST BE REPEATABLE**, which is enforced below rather than trusted: a
+  // write that is not safe to repeat has no way to finish after an interruption at all —
+  // the resume refuses it and names it, for ever, so the tool is a control that holds and
+  // never completes. The two flags answer different questions and this is the one pair
+  // where one implies the other.
+  //
+  // Refused if it is not a boolean, for `repeatable`'s own reason.
+  if (Object.hasOwn(spec, "writes") && typeof spec.writes !== "boolean") {
+    throw new TypeError(`${where}: writes must be true or false — Boolean("false") is true, so it is not coerced`);
+  }
+  if (spec.writes === true && spec.repeatable !== true) {
+    throw new TypeError(`${where}: a tool that writes must be repeatable — a write that cannot be repeated can never finish after an interruption`);
+  }
   return Object.freeze({
     kind: "tool",
     name: spec.name,
@@ -116,6 +138,7 @@ export function defineTool(spec) {
     scope: spec.scope,
     repeatable: spec.repeatable === true,
     approval: spec.approval === true,
+    writes: spec.writes === true,
     run: spec.run,
   });
 }

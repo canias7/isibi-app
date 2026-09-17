@@ -12,10 +12,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS } from "../src/capabilities.mjs";
+import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
-import { PUBLIC } from "../src/define.mjs";
+import { PUBLIC, defineTool } from "../src/define.mjs";
 
 const T = "tenant-one";
 const AG = "11111111-1111-4111-8111-111111111111";
@@ -273,6 +273,68 @@ test("which tools are safe to repeat, and why each", () => {
     assert.equal(t.repeatable, true, `${t.name} is not safe to repeat`);
   }
   assert.equal(CAPABILITY_TOOLS.length, 12, "the census is looking at the whole catalog");
+});
+
+test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL", async () => {
+  // Every tool is driven against a capability seam that RECORDS which operation it asked
+  // for, and `writes` must be true exactly when one of those operations is a write. So a
+  // write tool that forgot the flag and a read tool that carries it are both red, and
+  // neither list is derived from the other — `CAPABILITIES` and `CAPABILITY_WRITES` are
+  // both asserted against the surface below.
+  assert.equal(CAPABILITY_WRITES.every((n) => CAPABILITIES.includes(n)), true,
+    "a write is named that is not an operation at all");
+  assert.equal(CAPABILITY_WRITES.length, 6, "the list of writes moved");
+
+  const touched = new Map();
+  for (const t of CAPABILITY_TOOLS) {
+    const asked = [];
+    // Every operation, answering the shape its caller reads, and recording its own name.
+    // A LIST for the listers, a row for the readers, `{ok: true}` for the writers.
+    const can = {};
+    for (const op of CAPABILITIES) {
+      can[op] = async () => {
+        asked.push(op);
+        if (op.startsWith("list") || op === "searchKnowledge") return [];
+        if (op === "saveMemory") return { ok: true, saved: "created", memory: {} };
+        if (op === "deleteMemory") return { ok: true, forgot: true };
+        if (op === "setAutomationEnabled") return { ok: true, enabled: true };
+        if (op === "startAutomation") return { ok: true, id: AG };
+        return { id: AG };
+      };
+    }
+    await t.run({ query: "x", id: AG, name: "n", value: "v", enabled: true },
+                { capabilities: can, operation: "run-1:1:0:abc" });
+    // THE OBSERVER MUST BE ALIVE. A tool that reached no operation at all proves nothing
+    // about its flag, and every one of the twelve ends in a database function by design.
+    assert.equal(asked.length > 0, true, `${t.name} reached no capability, so its flag is unproved`);
+    touched.set(t.name, asked);
+    const writes = asked.some((op) => CAPABILITY_WRITES.includes(op));
+    assert.equal(t.writes, writes,
+      `${t.name} touched [${asked.join(", ")}] and declares writes: ${t.writes}`);
+  }
+  assert.equal(touched.size, 12, "the census is looking at the whole catalog");
+  // AND BOTH DIRECTIONS ARE REALLY EXERCISED, or the equality above is satisfied by every
+  // tool being a read.
+  const writers = [...touched.keys()].filter((n) => CAPABILITY_TOOLS.find((t) => t.name === n).writes);
+  assert.deepEqual(writers.sort(), ["forget", "pause_automation", "remember", "run_automation"]);
+});
+
+test("⚠ A TOOL THAT WRITES MUST BE REPEATABLE — a write that cannot be repeated never finishes", () => {
+  // Enforced at the declaration rather than trusted, because the failure is invisible: a
+  // resume refuses a pending non-repeatable call and names it, for ever, so such a tool
+  // is a control that holds and never completes.
+  for (const t of CAPABILITY_TOOLS) {
+    if (t.writes) assert.equal(t.repeatable, true, `${t.name} writes and is not repeatable`);
+  }
+  const spec = { name: "charge", description: "takes money", input: { type: "object" }, scope: PUBLIC, run: async () => ({}) };
+  assert.throws(() => defineTool({ ...spec, writes: true }), /must be repeatable/);
+  assert.throws(() => defineTool({ ...spec, writes: true, repeatable: false }), /must be repeatable/);
+  // Refused rather than coerced — `Boolean("false")` is `true`.
+  assert.throws(() => defineTool({ ...spec, writes: "false", repeatable: true }), /not coerced/);
+  // AND THE OBSERVER IS ALIVE: the pair that is legal really is accepted, and a tool that
+  // says nothing defaults to not writing.
+  assert.equal(defineTool({ ...spec, writes: true, repeatable: true }).writes, true);
+  assert.equal(defineTool(spec).writes, false);
 });
 
 test("⚠ `remember` SETS `source: run` ITSELF, and a model cannot claim a person typed it", async () => {

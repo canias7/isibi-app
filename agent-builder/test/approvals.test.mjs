@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeApprovals, canonicalJson, argsHash, approvalRefusal, APPROVAL_STATES } from "../src/approvals.mjs";
+import { makeApprovals, canonicalJson, argsHash, storedForm, approvalRefusal, APPROVAL_STATES } from "../src/approvals.mjs";
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { CAPABILITIES, CAPABILITY_RPC } from "../src/capabilities.mjs";
 import { OFFERED } from "../src/agents.mjs";
@@ -59,11 +59,11 @@ test("⚠ THE SAME CALL HASHES THE SAME WAY, AND TWO DIFFERENT CALLS NEVER DO", 
   // ⚠ THE COLLISIONS PLAIN JSON WOULD HAVE, each of which is one approval authorising a
   // different call. `JSON.stringify` cannot tell these pairs apart at all.
   const pairs = [
-    [{ a: undefined }, {}],
     [{ a: 1 }, { a: "1" }],
     [{ a: null }, { a: "null" }],
     [{ a: true }, { a: "true" }],
-    [[undefined], [null]],
+    [{ a: 1 }, { a: [1] }],
+    [[], {}],
   ];
   for (const [x, y] of pairs) {
     assert.notEqual(canonicalJson(x), canonicalJson(y),
@@ -75,6 +75,39 @@ test("⚠ THE SAME CALL HASHES THE SAME WAY, AND TWO DIFFERENT CALLS NEVER DO", 
   assert.equal((await argsHash({})).length, 64);
   // Absent arguments are the empty object, not a crash and not `null`.
   assert.equal(await argsHash(undefined), await argsHash({}));
+});
+
+test("⚠ …AND THE HASH SURVIVES BEING WRITTEN DOWN, or it refuses its own approval", async () => {
+  // RE-ANCHORED, NOT APPEASED. This case used to demand that `{a: undefined}` and `{}`
+  // hash APART, on the reasoning that `JSON.stringify` collapsing them is a collision.
+  // That reasoning is wrong in one direction: the journal stores JSON, so **by the time a
+  // person is shown the call, and by the time a resume reads it back, the two really are
+  // the same call** — and keeping them apart in the hash does not prevent a collision, it
+  // manufactures a MISMATCH. MEASURED before `storedForm` existed: the live path hashed
+  // the model's own object, the resume hashed what came back out of the store, `matches`
+  // was false, and an approval a person really gave read `stale` for ever. The two
+  // objects print identically, because JSON is what prints them.
+  const live = { id: "a-7", note: undefined, tags: ["x"] };
+  const stored = JSON.parse(JSON.stringify(live));
+  assert.equal(JSON.stringify(live), JSON.stringify(stored), "the fixture cannot see the difference either");
+  assert.equal(await argsHash(live), await argsHash(stored), "the hash does not survive the journal");
+  // The other shape JSON rewrites: an undefined array element becomes null.
+  assert.equal(await argsHash({ xs: [1, undefined, 3] }), await argsHash({ xs: [1, null, 3] }));
+  // AND THE OBSERVER IS ALIVE — this is not "everything hashes alike". A real difference
+  // still differs after a round trip.
+  assert.notEqual(await argsHash({ id: "a-7" }), await argsHash({ id: "a-8" }));
+
+  // ⚠ ARGUMENTS JSON CANNOT WRITE AT ALL RAISE, rather than hashing as something else. A
+  // call that cannot be recorded cannot be resumed, approved or identified, and `run.mjs`
+  // answers the model about it as a readable tool result.
+  const cycle = {}; cycle.self = cycle;
+  await assert.rejects(() => argsHash(cycle), TypeError);
+  await assert.rejects(() => argsHash({ n: 1n }), TypeError);
+  // `storedForm` is the one normaliser and it is exported, because `run.mjs` needs to
+  // tell "cannot be written down" from any other failure.
+  assert.deepEqual(storedForm({ a: undefined, b: 1 }), { b: 1 });
+  assert.equal(storedForm(undefined), undefined);
+  assert.throws(() => storedForm(cycle), TypeError);
 });
 
 // ── the store ────────────────────────────────────────────────────────────────

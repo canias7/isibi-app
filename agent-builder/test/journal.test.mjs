@@ -112,10 +112,63 @@ test("an unreported usage makes the replayed total UNMEASURED, not smaller", () 
 test("A TOOL CALL WITH NO RESULT IS PENDING, and is named", () => {
   const calls = [call("c0", "look"), call("c1", "charge")];
   const r = replay([started(), model({ toolCalls: calls }), toolOk({ index: 0, name: "look" })]);
-  assert.deepEqual([...r.pending], [{ step: 1, index: 1, name: "charge", id: "c1" }]);
+  // RE-ANCHORED, NOT APPEASED: the slot carries its OWN arguments now, which is a
+  // strictly stronger claim than the four fields this used to assert. They are taken off
+  // `calls[index]` at the moment the slot is made, so nothing later can pair a slot with
+  // another slot's arguments — see the case below, which is the defect that bought this.
+  assert.deepEqual([...r.pending], [{ step: 1, index: 1, name: "charge", id: "c1", args: { q: "c1" } }]);
   // The results we DO have are still in the conversation — a partial batch is not
   // a lost batch.
   assert.deepEqual(r.messages[2], toolMessage([toolResultFor(calls[0], true, { hit: 1 })]));
+});
+
+test("⚠ EACH PENDING SLOT CARRIES ITS OWN ARGUMENTS, and an absent call id cannot mix them", () => {
+  // MEASURED as a real defect before this: the arguments were looked up LATER, by the
+  // call's `id` — and a model is not obliged to give one. `modelEntry` stores
+  // `id: c.id ?? null`, so with two ids null a `.find` answered the FIRST call's
+  // arguments for both, and on a resume `forget` ran with `remember`'s arguments: the
+  // agent forgot the fact it had just been told to keep, and the name it was asked to
+  // forget was never touched.
+  const calls = [
+    { id: null, name: "remember", args: { name: "tone", value: "warm" } },
+    { id: null, name: "forget", args: { name: "old_note" } },
+  ];
+  const r = replay([started(), model({ toolCalls: calls })]);
+  assert.deepEqual([...r.pending], [
+    { step: 1, index: 0, name: "remember", id: null, args: { name: "tone", value: "warm" } },
+    { step: 1, index: 1, name: "forget", id: null, args: { name: "old_note" } },
+  ]);
+  // A call that legitimately takes no arguments keeps that answer — `undefined` here is
+  // "this tool takes none", not "we could not recover them".
+  const none = replay([started(), model({ toolCalls: [{ id: "c0", name: "list_memory" }] })]);
+  assert.equal(none.pending[0].args, undefined);
+});
+
+test("⚠ A STORED `toolCalls` THAT IS NOT A LIST IS NAMED, and invents no slots", () => {
+  // MEASURED before this: `toolCalls: "junk"` came back as FOUR pending calls named
+  // `null` and four tool calls on the meter, with `problems` EMPTY — a string is
+  // iterable by index and `.length` is its character count. A run resumed from such a
+  // log was billed for calls nobody made and told "cannot resume" about calls that do
+  // not exist. This is the function whose own documentation says a junk entry is named.
+  // ⚠ WRITTEN AS A RAW ENTRY, because `modelEntry` CANNOT PRODUCE THIS SHAPE — it maps
+  // the list and throws on a string. That is the producer being right, and it is exactly
+  // why the reader still has to be checked: this log came back from STORAGE, which means
+  // it came from outside, and nothing outside goes through the producer.
+  const junkEntry = { kind: "model", at: 1, step: 1, ms: 1, text: "thinking", toolCalls: "junk" };
+  assert.throws(() => model({ toolCalls: "junk" }), TypeError, "the producer can build this after all");
+  const r = replay([started(), junkEntry]);
+  assert.equal(r.pending.length, 0);
+  assert.equal(r.used.toolCalls, 0);
+  assert.equal(r.problems.length, 1, "an unreadable tool-call list was accepted");
+  assert.match(r.problems[0], /step 1: the model entry's tool calls are not a list/);
+  // The step itself is still counted and its text still reaches the conversation — the
+  // answer was paid for, and dropping it would rebuild a shorter run than really happened.
+  assert.equal(r.used.steps, 1);
+  assert.deepEqual(r.messages.at(-1), { role: "assistant", content: "thinking" });
+  // AND THE OBSERVER IS ALIVE: a real list is still read.
+  const ok = replay([started(), model({ toolCalls: [call("c0", "look")] })]);
+  assert.deepEqual(ok.problems, []);
+  assert.equal(ok.pending.length, 1);
 });
 
 test("nothing is pending when every call has an answer", () => {

@@ -44,6 +44,48 @@ if (files.length < 1) { console.error(`no migrations in ${DIR}`); process.exit(1
  * and the moment a third migration arrived, every mutant aimed at "the latest" was
  * pointing at a file that does not contain them. Derived, it cannot go stale.
  */
+/**
+ * WHICH FUNCTION BODY A POSITION SITS INSIDE, or null.
+ *
+ * Between a `create or replace function agent.X(` header at the start of a line and the
+ * `$$;` that closes its body. **INSIDE, not merely after** — the first draft of this only
+ * took the nearest preceding header, so every index and constraint mutant that happened to
+ * come after the last function in a file was attributed to it, and eight correct entries
+ * were reported as superseded. *A preceding landmark is not an enclosing one.*
+ *
+ * It is not a SQL parser and does not pretend to be: `$$` is the only dollar tag these
+ * migrations use (measured while the automations migration was applied), and the headers
+ * are written at the start of a line by this file's own convention.
+ *
+ * **VIEWS ARE DELIBERATELY NOT COVERED**, and that is stated rather than glossed: a view's
+ * body has no delimiter as unambiguous as `$$;`, and inventing one is the "flat scans where
+ * depth matters" trap. There are four views; `agent.automation_history` was the one
+ * instance of this class among them and was re-pointed by hand.
+ */
+const enclosing = (src, at) => {
+  if (at < 0) return null;
+  const re = /^create or replace function (agent\.[a-z_]+)\(/gm;
+  let found = null, m;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > at) break;
+    found = { name: m[1], from: m.index };
+  }
+  if (!found) return null;
+  // ⚠ **THE TERMINATOR IS `$$;` WHEREVER IT SITS ON THE LINE, which is measured rather
+  // than assumed.** The first draft looked for `\n$$;` — the tag at the start of a line —
+  // and MEASURED over these migrations that is the minority form: 40 bodies end `end; $$;`,
+  // 22 end `$$;` alone, 2 end `end $$;`. So every function whose body closes on the same
+  // line as its `end` answered "no close", `enclosing` returned null, and the census was a
+  // DEAD OBSERVER — it passed with all eight known-bad entries put back. Found by proving
+  // it alive rather than by trusting a green run.
+  const ends = /^.*\$\$;/m.exec(src.slice(found.from));
+  // A header with no close is a file this reader does not understand; say nothing rather
+  // than guessing, because a wrong claim here reports a correct mutant as broken.
+  if (!ends) return null;
+  if (at > found.from + ends.index + ends[0].length) return null;
+  return found;
+};
+
 const lastDefining = (needle) => {
   const hit = [...files].reverse().find((f) => fs.readFileSync(path.join(DIR, f), "utf8").includes(needle));
   if (!hit) { console.error(`no migration defines ${needle}`); process.exit(1); }
@@ -93,6 +135,25 @@ const mThread = (label, from, to, control = false) =>
  */
 const AUTOS = lastDefining("create table if not exists agent.automations");
 const mAuto = (label, from, to, control = false) => ({ label, files: [AUTOS], from, to, control });
+/**
+ * ⚠ **AND THE TRAP ARRIVED A THIRD TIME, THROUGH `mAuto` — found 2026-09-17 by a census
+ * rather than by a survivor, because the SQL sweep had not run since.**
+ *
+ * `AUTOS`' own comment above says "these are the things only this migration has", and the
+ * workflow migration made that false: it REDEFINES `accept_automation_run`,
+ * `finish_automation_run` and `agent.automation_history`. So eight mutants were still
+ * aimed at this file's superseded copies of them — **inert by construction**, and the
+ * pre-check could not see it, because each anchor really does occur exactly once in the
+ * file it was pointed at.
+ *
+ * The answer is the one already here: ask the files which definition is IN FORCE, per
+ * object. `mAuto` keeps the table's own indexes, constraints and columns, which nothing
+ * else redefines.
+ */
+const mAcceptAuto = mFn("accept_automation_run");
+const mFinishAuto = mFn("finish_automation_run");
+const mHistory = (label, from, to, control = false) =>
+  ({ label, files: [lastDefining("create or replace view agent.automation_history")], from, to, control });
 
 /**
  * THE WORKFLOW / KNOWLEDGE / MEMORY MIGRATION, found by what only IT defines. Its
@@ -515,21 +576,35 @@ const spec = [
     "add constraint run_work_executor_known check (executor in ('agent', 'automation'));",
     "add constraint run_work_executor_known check (executor is not null);"),
 
-  mAuto("⚠ SQL/accept: a DISABLED automation starts work anyway",
+  mAcceptAuto("⚠ SQL/accept: a DISABLED automation starts work anyway",
     "    if not v_enabled then", "    if false then"),
-  mAuto("⚠ SQL/accept: a PAUSED agent's automations start work anyway",
+  mAcceptAuto("⚠ SQL/accept: a PAUSED agent's automations start work anyway",
     "    if v_status is distinct from 'active' then", "    if false then"),
-  mAuto("⚠ SQL/accept: the tenant leaves the lookup, so a stranger can start it",
+  mAcceptAuto("⚠ SQL/accept: the tenant leaves the lookup, so a stranger can start it",
     "   where a.id = p_automation_id and a.tenant_id = p_tenant;",
     "   where a.id = p_automation_id;"),
-  mAuto("⚠ SQL/accept: the work row is never told which executor wants it",
+  mAcceptAuto("⚠ SQL/accept: the work row is never told which executor wants it",
     "  update agent.run_work set executor = 'automation' where run_id = p_run_id;",
     "  perform 1;"),
-  mAuto("⚠ SQL/accept: a duplicate occurrence is treated as a new execution",
+  mAcceptAuto("⚠ SQL/accept: a duplicate occurrence is treated as a new execution",
     "    v_new := v_exec.id is not null;", "    v_new := true;"),
-  mAuto("⚠ SQL/accept: the execution is filed with no configuration, so an edit reaches it",
-    "      (p_run_id, p_automation_id, p_tenant, p_trigger, p_occurrence, v_steps, v_zone)",
-    "      (p_run_id, p_automation_id, p_tenant, p_trigger, p_occurrence, '[]'::jsonb, v_zone)"),
+  mAcceptAuto("⚠ SQL/accept: the execution is filed with no configuration, so an edit reaches it",
+    "      (p_run_id, p_automation_id, v_agent, p_tenant, p_trigger, p_occurrence, v_steps, v_zone,",
+    "      (p_run_id, p_automation_id, v_agent, p_tenant, p_trigger, p_occurrence, '[]'::jsonb, v_zone,"),
+
+  // ── M5: a derived identity is only an identity if the database absorbs it ──
+  mAcceptAuto("⚠ SQL/accept: a duplicate RUN ID raises instead of reading as a repeat",
+    "  if v_exec.id is null then\n    select * into v_exec from agent.automation_runs\n     where automation_id = p_automation_id and id = p_run_id;\n  end if;",
+    "  if false then\n    select * into v_exec from agent.automation_runs\n     where automation_id = p_automation_id and id = p_run_id;\n  end if;"),
+  mAcceptAuto("⚠ SQL/accept: the insert absorbs only the occurrence, so a redelivery raises",
+    "    on conflict do nothing\n    returning * into v_exec;",
+    "    on conflict (automation_id, occurrence) where occurrence is not null\n    do nothing\n    returning * into v_exec;"),
+  mAcceptAuto("⚠ SQL/accept: a run id belonging to ANOTHER automation reads as this one's repeat",
+    "     where automation_id = p_automation_id and id = p_run_id;\n  end if;\n",
+    "     where id = p_run_id;\n  end if;\n"),
+  mAcceptAuto("SQL/accept: the racing re-read forgets the run id, so the raise is reached",
+    "      if v_exec.id is null then\n        select * into v_exec from agent.automation_runs\n         where automation_id = p_automation_id and id = p_run_id;\n      end if;",
+    "      if false then\n        select * into v_exec from agent.automation_runs\n         where automation_id = p_automation_id and id = p_run_id;\n      end if;"),
 
   mAuto("⚠ SQL/tick: the catch-up window becomes unbounded, so downtime IS a burst",
     "           <= make_interval(secs => greatest(0, coalesce(p_catchup_s, 3600))) then",
@@ -543,13 +618,13 @@ const spec = [
   mAuto("SQL/record: an occurrence recorded unrun is left unfinished, so no history shows it",
     "     p_missed, now())", "     p_missed, null)"),
 
-  mAuto("⚠ SQL/finish: the outcomes are written even when the fence refused",
+  mFinishAuto("⚠ SQL/finish: the outcomes are written even when the fence refused",
     "  if coalesce((v_answer -> 'ok')::boolean, false) is not true then\n    return v_answer;\n  end if;\n\n  -- `finished_at is null` IS WHAT MAKES A RETRY KEEP THE FIRST WRITER'S OUTCOMES.",
     "  if false then\n    return v_answer;\n  end if;\n\n  -- `finished_at is null` IS WHAT MAKES A RETRY KEEP THE FIRST WRITER'S OUTCOMES."),
-  mAuto("⚠ SQL/finish: the work is never released, so it is claimed again for ever",
+  mFinishAuto("⚠ SQL/finish: the work is never released, so it is claimed again for ever",
     "  perform agent.release_run(p_run_id, p_worker, p_token, true, null);", "  perform 1;"),
 
-  mAuto("⚠ SQL/automations: the history view runs as its OWNER, past both policies",
+  mHistory("⚠ SQL/automations: the history view runs as its OWNER, past both policies",
     "  with (security_invoker = true)", "  with (security_invoker = false)"),
   mAuto("⚠ SQL/automations: an account reads every account's automations",
     "create policy automations_own_tenant on agent.automations\n  for all\n  using (tenant_id = agent.tenant_id())",
@@ -689,6 +764,33 @@ for (const s of spec) {
   const n = text.get(f).split(s.from).length - 1;
   if (n !== 1) { console.error(`ANCHOR ${n === 0 ? "NOT FOUND" : `AMBIGUOUS (${n})`}: ${s.label}`); bad++; }
   if (s.from === s.to) { console.error(`REPLACEMENT IS THE ANCHOR: ${s.label}`); bad++; }
+  // ⚠ **AND THE OBJECT THE ANCHOR SITS INSIDE MUST BE DEFINED FOR THE LAST TIME IN THIS
+  // FILE, which is the only thing that catches a mutant aimed at a SUPERSEDED
+  // definition.** The check above is satisfied by such a mutant — the anchor really does
+  // occur exactly once in the file it was pointed at — so it lands on dead code and
+  // survives, and its survival reads as a test gap rather than as a spec fault.
+  //
+  // This trap has arrived THREE TIMES here: the fence's four queue functions, `tenant_id()`,
+  // and the workflow migration's eight (found 2026-09-17 by a census, not by a survivor,
+  // because no sweep had run in between). `lastDefining` is the fix per object; this is
+  // what notices when a FILE-level maker is used for something a later file replaces.
+  //
+  // **FUNCTIONS AND VIEWS ONLY, and the narrowness is measured rather than cautious.**
+  // `create or replace` is what silently supersedes, and it applies to exactly those two.
+  // The first draft of this check asked only whether the ANCHOR TEXT occurs later, and it
+  // reported SIX correct entries as broken: `using (tenant_id = agent.tenant_id())` is
+  // ordinary policy text that a later file writes for a DIFFERENT table, and
+  // `return jsonb_build_object('ok', false, 'error', 'no-agent');` is a sentence four
+  // functions share. *The anchor's text cannot say which object it belongs to; its
+  // POSITION can.*
+  const encl = enclosing(text.get(f), text.get(f).indexOf(s.from));
+  if (encl && !s.control) {
+    const owner = lastDefining(`function ${encl.name}(`);
+    if (owner !== f) {
+      console.error(`SUPERSEDED: ${s.label}\n    its anchor is inside ${encl.name}, which ${path.basename(owner)} defines last`);
+      bad++;
+    }
+  }
 }
 if (bad) { console.error(`\n${bad} anchor problems — spec NOT written.`); process.exit(1); }
 fs.writeFileSync(process.argv[2], JSON.stringify(spec, null, 1));

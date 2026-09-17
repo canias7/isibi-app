@@ -32,7 +32,10 @@
  *   * the reads are pure, so they are repeatable by construction;
  *   * `remember` is an upsert keyed by the fact's own name and `forget` is a delete of
  *     one — running either twice leaves exactly the state running it once does, which is
- *     what the word means here even though `forget`'s ANSWER differs the second time;
+ *     what the word means here even though `forget`'s ANSWER differs the second time.
+ *     **And `remember`'s version does not move either**, which is the database's own rule
+ *     rather than this module's care: `agent.save_memory` answers `unchanged` for the same
+ *     words, so a retry is absorbed instead of counted;
  *   * `pause_automation` is a write to a named row with the caller's own values, so the
  *     end state does not depend on how many times it ran;
  *   * **`run_automation` is repeatable BECAUSE ITS IDENTITY IS DERIVED, and that is the
@@ -40,9 +43,21 @@
  *     fresh id per call, so a redelivery made a SECOND execution and `false` was the
  *     honest answer — but `false` also made it unusable the moment it was gated: the run
  *     holds, a person approves, and the resume refuses a pending non-repeatable call.
- *     MEASURED, in the live demonstration. Its id now comes from `ctx.operation`
- *     (`<run>:<step>:<index>`), so running it again asks the database for the same
- *     execution and there is nothing left for the flag to protect.
+ *     MEASURED, in the live demonstration. Its id now comes from `ctx.operation`, so
+ *     running it again asks the database for the same execution and there is nothing left
+ *     for the flag to protect.
+ *
+ * ── AND `writes` SAYS WHAT A FAILURE MEANS, WHICH IS A DIFFERENT QUESTION ───
+ *
+ * Four of the twelve change something outside the run: `remember`, `forget`,
+ * `pause_automation`, `run_automation`. A read that throws did not happen; one of those
+ * four that throws MAY have, because the store can commit and the answer be lost — so its
+ * result is recorded `unresolved` and the model is told to CHECK rather than invited to do
+ * it again. **It is a CENSUS, not a label**: `test/capabilities.test.mjs` drives every
+ * tool against a recording capability seam and requires the flag to be true exactly when
+ * one of `CAPABILITY_WRITES` was touched, so neither a forgotten flag nor a spurious one
+ * survives. `defineTool` also refuses a write that is not `repeatable`, because a write
+ * that cannot be repeated can never finish after an interruption at all.
  *
  * ⚠ THIS LIST ONCE NAMED `make_automation` AND `change_automation`, WHICH DO NOT EXIST.
  * Creating and editing an automation are `CAPABILITIES` a person's screen reaches; no
@@ -162,6 +177,7 @@ const remember = tool({
     },
     required: ["name", "value"],
   },
+  writes: true,
   repeatable: true,
   run: async (args, can) => {
     // ⚠ `source: "run"` IS SET HERE AND IS NOT A FIELD THE MODEL CAN WRITE. It is the one
@@ -181,6 +197,7 @@ const forget = tool({
     properties: { name: { type: "string", description: "The name it was remembered under." } },
     required: ["name"],
   },
+  writes: true,
   repeatable: true,
   run: async (args, can) => {
     const answer = await can.deleteMemory({ name: text(args.name) });
@@ -243,6 +260,7 @@ const pauseAutomation = tool({
     },
     required: ["id", "enabled"],
   },
+  writes: true,
   repeatable: true,
   // ⚠ A PERSON SAYS YES FIRST. The line is what the call changes OUTSIDE this
   // conversation: this one turns scheduled work on or off, which keeps happening after
@@ -306,13 +324,27 @@ const runAutomation = tool({
   // With the id derived from the CALL, running it again asks the database for the same
   // execution and `accept_automation_run` answers `repeat` — so there is nothing left for
   // `repeatable: false` to protect.
+  //
+  // ⚠ **AND THAT LAST SENTENCE WAS FALSE WHEN IT WAS WRITTEN — corrected 2026-09-17.**
+  // `accept_automation_run` named the partial occurrence index as its conflict target, and
+  // a manual execution has no occurrence, so a duplicate run id met the PRIMARY KEY and
+  // RAISED. MEASURED on a real PostgreSQL: `duplicate key value violates unique constraint
+  // "automation_runs_pkey"`, with one execution, one run and one work row — so no second
+  // execution was ever possible and the guarantee held, while the ANSWER was an exception.
+  // A redelivered call therefore came back a FAILURE about work that really is queued.
+  // The flag was right and the reason under it was not; the function absorbs either
+  // identity now, and the repeat is proved in `test/integration/pg-schema.mjs`.
+  writes: true,
   repeatable: true,
   run: async (args, can, ctx) => {
     // ⚠ THE RUN ID IS DERIVED FROM THIS CALL, NEVER MINTED AND NEVER TAKEN FROM AN
     // ARGUMENT. A model naming the id of a run is a model that can point one execution's
     // record at another; a FRESH id per call is a redelivery becoming a second execution.
-    // `ctx.operation` is `<run>:<step>:<index>` — the same three facts an approval is
-    // bound to — so the same call always asks for the same execution.
+    // `ctx.operation` is `<run>:<step>:<index>:<the arguments' own hash>` — the position
+    // AND the arguments, so the same call always asks for the same execution **and a
+    // different call never does**. Without the arguments in it, a slot re-filled with some
+    // other request would inherit this one's identity and come back "already running"
+    // about work that is not what was asked for.
     //
     // **A DEPLOYMENT THAT CANNOT IDENTIFY THE CALL IS REFUSED, not quietly minted for.**
     // Minting here would restore exactly the behaviour this removes, in the one case
@@ -325,8 +357,15 @@ const runAutomation = tool({
       return { ok: false, error: answer?.error ?? "refused",
         say: answer?.error === "disabled" ? "that automation is turned off" : "that automation could not be started" };
     }
+    // ⚠ A REPEAT HERE IS THIS SAME CALL, and the sentence says so rather than implying
+    // somebody else started it. The id is derived from the call, so the only way this
+    // answer comes back is a redelivery of this very request — which is exactly what
+    // `repeatable: true` is for, and telling the model "that was already running" would
+    // invite it to go looking for who did.
     return { ok: true, execution: answer.id ?? runId, started: answer.repeat !== true,
-      say: answer.repeat === true ? "that was already running" : "queued — it begins within the minute" };
+      say: answer.repeat === true
+        ? "that was already started by this same request, and is running"
+        : "queued — it begins within the minute" };
   },
 });
 

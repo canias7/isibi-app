@@ -45,11 +45,48 @@ const isText = (v) => typeof v === "string" && v.trim() !== "";
  * is the value.
  *
  * ⚠ EVERY SCALAR CARRIES ITS TYPE, and that is not decoration. `JSON.stringify` cannot
- * tell `{a: undefined}` from `{}` (it drops the key) or `1` from `"1"` once both are in a
- * string, so a canonical form built out of plain JSON has collisions in it — two different
- * asks hashing alike, which is one person's approval authorising the other. Tagging makes
- * the encoding injective, with no sentinel string a real value could collide with.
+ * tell `1` from `"1"`, or `null` from `"null"`, or `[]` from `{}` once each is in a string,
+ * so a canonical form built out of plain JSON has collisions in it — two different asks
+ * hashing alike, which is one person's approval authorising the other. Tagging makes the
+ * encoding injective, with no sentinel string a real value could collide with.
+ *
+ * ⚠ IT IS FED `storedForm`, NOT THE RAW ARGUMENTS, and that is the difference between a
+ * hash and a hash that survives being written down. See below.
  */
+/**
+ * THE ARGUMENTS AS THEY WILL BE WRITTEN DOWN — and every hash here is taken over this.
+ *
+ * ⚠ **A HASH THAT DOES NOT SURVIVE STORAGE IS A HASH THAT REFUSES ITS OWN APPROVAL.**
+ * MEASURED: `{id: "a-7", note: undefined}` and the same object after a round trip through
+ * the journal hashed DIFFERENTLY, because JSON drops an `undefined` property and rewrites
+ * an `undefined` array element as `null`. The live path hashes the model's own object and
+ * the resume path hashes what came back out of the store, so an approval on such a call
+ * was asked about one hash and re-read at another: `matches` false, the decision `stale`,
+ * and a call a person really did approve refused for ever. The two objects PRINT
+ * identically — JSON is what prints them — which is why this was invisible to reading.
+ *
+ * So the normalisation is JSON's own, done by JSON, once, in front of every hash. Nothing
+ * that survives storage is collapsed: `1` and `"1"` still differ, and so do `null` and
+ * `"null"` and `[]` and `{}`. What is collapsed is only what storage collapses anyway —
+ * and preserving a distinction the store cannot keep does not prevent a collision, it
+ * manufactures one.
+ *
+ * **A VALUE JSON CANNOT WRITE AT ALL RAISES**, rather than hashing as something else. A
+ * cycle, a BigInt or a `toJSON` that throws is a call that cannot be recorded, so it
+ * cannot be resumed and cannot be approved; `run.mjs` answers the model about it as a
+ * readable tool result, exactly as it answers a tool that does not exist.
+ */
+export function storedForm(value) {
+  if (value === undefined) return undefined;
+  let text;
+  try { text = JSON.stringify(value); }
+  catch (e) { throw new TypeError(`storedForm: these arguments cannot be written down (${String(e?.message ?? e)})`); }
+  // `JSON.stringify` answers `undefined` — not the string — for a value it has no
+  // representation for at the top level: a function, a symbol, or `undefined` itself.
+  if (text === undefined) return undefined;
+  return JSON.parse(text);
+}
+
 export function canonicalJson(value) {
   const walk = (v) => {
     if (v === undefined) return ["u"];
@@ -87,9 +124,12 @@ export async function uuidFrom(text) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** The arguments, as one stable hex string. */
+/**
+ * The arguments, as one stable hex string — stable across a redelivery, a resume, and the
+ * journal in between, which is what `storedForm` is in front of it for.
+ */
 export async function argsHash(args) {
-  const bytes = new TextEncoder().encode(canonicalJson(args ?? {}));
+  const bytes = new TextEncoder().encode(canonicalJson(storedForm(args) ?? {}));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

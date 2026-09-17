@@ -599,8 +599,8 @@ end; $$;
 -- and both are between "may this start" and anything being written:
 --
 --   1. is this automation this tenant's?      → no  : `no-automation`
---   2. has this occurrence already been filed? → yes : the repeat, whatever the
---                                                      configuration says now
+--   2. has this execution already been filed? → yes : the repeat, whatever the
+--      (by its occurrence, or by its run id)         configuration says now
 --   3. is the automation disabled?             → yes : `disabled`, nothing written
 --   4. is its agent paused?                    → yes : `paused`,   nothing written
 --   5. ⚠ is the input what this automation asks for? → no : named, nothing written
@@ -680,10 +680,30 @@ begin
     return jsonb_build_object('ok', false, 'error', 'no-automation');
   end if;
 
-  -- ── has this occurrence already been filed ───────────────────────────────
+  -- ── has this execution already been filed ────────────────────────────────
+  -- Asked TWO WAYS, because an execution has two identities and which one applies
+  -- depends on who asked for it.
   if p_occurrence is not null then
     select * into v_exec from agent.automation_runs
      where automation_id = p_automation_id and occurrence = p_occurrence;
+  end if;
+  -- ⚠ **AND BY THE RUN ID, WHICH IS THE IDENTITY A MANUAL EXECUTION HAS (2026-09-17).**
+  -- A manual run has no occurrence, so the partial index above does not cover it — and
+  -- `run_automation`, the agent's own tool, DERIVES its run id from the call it belongs to
+  -- precisely so that a redelivery asks for the execution it already made. MEASURED before
+  -- this existed: the second ask raised `duplicate key value violates unique constraint
+  -- "automation_runs_pkey"`. Nothing extra was written, so the guarantee held — there was
+  -- never a second execution — but the ANSWER was an exception, so a redelivered tool call
+  -- came back a failure about work that really is queued and will run. The tool's own note
+  -- claimed this function answered `repeat`; it did not.
+  --
+  -- **A RUN ID BELONGING TO ANOTHER AUTOMATION IS DELIBERATELY NOT FOUND HERE.** The probe
+  -- is scoped to this automation, so such a call still meets the primary key and raises —
+  -- which is right: that is a caller pointing one execution's record at another, and
+  -- answering `repeat` would hand it somebody else's execution.
+  if v_exec.id is null then
+    select * into v_exec from agent.automation_runs
+     where automation_id = p_automation_id and id = p_run_id;
   end if;
 
   if v_exec.id is null then
@@ -750,17 +770,29 @@ begin
     values
       (p_run_id, p_automation_id, v_agent, p_tenant, p_trigger, p_occurrence, v_steps, v_zone,
        v_given, v_vars, v_mem)
-    on conflict (automation_id, occurrence) where occurrence is not null
-    do nothing
+    -- ⚠ **NO TARGET, SO IT ABSORBS EITHER IDENTITY.** This table has exactly two unique
+    -- things — the primary key on `id` and the partial index on `(automation_id,
+    -- occurrence)` — and both of them mean the same fact: this execution is already
+    -- filed. Naming only the occurrence left a duplicate RUN ID raising instead, which is
+    -- the defect the probe above records. A bare clause absorbs no check constraint and no
+    -- foreign key, so nothing that means something else is swallowed with them.
+    on conflict do nothing
     returning * into v_exec;
     v_new := v_exec.id is not null;
 
     if not v_new then
-      -- A SECOND TICK RACING THIS ONE, in another transaction. Read what it filed.
-      select * into v_exec from agent.automation_runs
-       where automation_id = p_automation_id and occurrence = p_occurrence;
+      -- A SECOND TICK RACING THIS ONE, in another transaction. Read what it filed — by
+      -- whichever of the two identities conflicted, in the same order the probe asks.
+      if p_occurrence is not null then
+        select * into v_exec from agent.automation_runs
+         where automation_id = p_automation_id and occurrence = p_occurrence;
+      end if;
       if v_exec.id is null then
-        raise exception 'accept_automation_run: the occurrence conflicted with a row that is not there';
+        select * into v_exec from agent.automation_runs
+         where automation_id = p_automation_id and id = p_run_id;
+      end if;
+      if v_exec.id is null then
+        raise exception 'accept_automation_run: the execution conflicted with a row that is not there';
       end if;
     end if;
   end if;
@@ -793,7 +825,7 @@ begin
 end; $$;
 
 comment on function agent.accept_automation_run(text, uuid, uuid, text, date, jsonb) is
-  'One transaction: accept an execution of an owned, enabled automation whose agent is active, snapshotting its steps, its input and its agent''s memories, and queue it for the automation executor. Idempotent per (automation, occurrence); every refusal writes nothing.';
+  'One transaction: accept an execution of an owned, enabled automation whose agent is active, snapshotting its steps, its input and its agent''s memories, and queue it for the automation executor. Idempotent per (automation, occurrence) AND per run id, so a derived identity makes a redelivery a repeat rather than an exception; every refusal writes nothing.';
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- 8. ONE STEP DONE — the append and the progress, in one transaction

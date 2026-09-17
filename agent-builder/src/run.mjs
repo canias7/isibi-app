@@ -28,7 +28,7 @@
 import { planLimits, narrowLimits, stoppedBy, leftOf, capMs } from "./limits.mjs";
 import { toolsFor, wireTools } from "./define.mjs";
 import { runFanout } from "./fanout.mjs";
-import { approvalRefusal } from "./approvals.mjs";
+import { approvalRefusal, argsHash } from "./approvals.mjs";
 import { addMeter, usageTokens } from "./meters.mjs";
 import {
   replay, startedEntry, modelEntry, toolEntry, stoppedEntry,
@@ -251,7 +251,7 @@ export async function runAgent(opts = {}) {
     const decided = new Map();
     for (const [slot, p] of prior.pending.entries()) {
       if (!callable.get(p.name)?.approval) continue;
-      try { decided.set(slot, await decideOne(p.step, p.index, p.name, findArgs(prior, p))); }
+      try { decided.set(slot, await decideOne(p.step, p.index, p.name, p.args)); }
       catch (e) {
         // NOWHERE TO ASK IS NOT A VERDICT. The log is left open with no stop, so a later
         // delivery tries again rather than the run being closed over an outage.
@@ -279,8 +279,17 @@ export async function runAgent(opts = {}) {
       // FAILS CLOSED, and names every tool that blocked it. Refusing strands the
       // run, which is bad; running a payment twice is worse, and only one of the
       // two is reversible by a person who has been told.
+      //
+      // ⚠ **AND IT SAYS WHICH OF THEM ARE UNRESOLVED RATHER THAN MERELY UNSTARTED.**
+      // `unresolved` is a `writes` tool that may have changed something outside this run;
+      // a non-writing tool that blocked the resume changed nothing, and somebody deciding
+      // what to do about a stranded run needs to know which they have. Both are named,
+      // because the stop is the only place a person can read this.
       return record(ended("cannot-resume", {
-        pending: unsafe.map((p) => ({ step: p.step, index: p.index, name: p.name })),
+        pending: unsafe.map((p) => ({
+          step: p.step, index: p.index, name: p.name,
+          unresolved: callable.get(p.name)?.writes === true,
+        })),
       }));
     }
 
@@ -308,10 +317,15 @@ export async function runAgent(opts = {}) {
       const at = now();
       let done;
       try {
-        const value = await tool.run(findArgs(prior, p), toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed }));
+        // ⚠ THE SAME ARGUMENTS THE DECISION WAS READ WITH, off the slot itself — and the
+        // identity below is derived from them, so a redelivery of this call asks the
+        // database for the row it already made rather than making a second one.
+        const value = await tool.run(p.args, toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed, argsKey: await operationKey(p.args) }));
         done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: true, value });
       } catch (error) {
-        done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: false, error: String(error?.message ?? error) });
+        // ⚠ A WRITE THAT THREW IS UNRESOLVED, NOT FAILED. See `defineTool`'s `writes`.
+        done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: false,
+                           error: String(error?.message ?? error), unresolved: tool.writes === true });
       }
       entries.push(done);
       if (!(await write(done))) return record(ended("journal-failed", { error: journalError, step: p.step }));
@@ -477,7 +491,17 @@ export async function runAgent(opts = {}) {
       // state that reaches the tool.
       const verdict = decided.get(i);
       if (verdict && verdict.state !== "approved") return approvalRefusal(verdict);
-      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, index: i, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed }));
+      // ⚠ ARGUMENTS THAT CANNOT BE WRITTEN DOWN ARE ANSWERED, NOT RUN — the same wall
+      // shape as "no such tool" one branch up, and for the same reason: this is a model's
+      // output, so it must come back as a readable tool RESULT the model can correct
+      // itself from. A call whose arguments cannot be recorded cannot be resumed, cannot
+      // be approved and cannot be identified, so running it would be running the one call
+      // none of this product's guarantees apply to.
+      const argsKey = await operationKey(call?.args);
+      if (argsKey === null) {
+        throw new Error(`${String(call?.name ?? "(unnamed)")}: these arguments cannot be recorded, so the call was not made — send plain JSON values`);
+      }
+      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, index: i, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed, argsKey }));
     }, { limit: limits.parallelTools, now });
 
     // EACH RESULT IS RECORDED AS IT LANDS, which is what makes a half-finished
@@ -488,6 +512,12 @@ export async function runAgent(opts = {}) {
       const e = toolEntry({
         at: r.startedAt, step: stepNo, index: r.index, name: call?.name ?? null,
         ms: r.ms, ok: r.ok, value: r.value, error: r.ok ? undefined : String(r.error?.message ?? r.error),
+        // ⚠ ONLY A `writes` TOOL CAN BE UNRESOLVED, and only when it really threw. A read
+        // that fails did not happen — re-reading is free and nothing moved. **And the
+        // tool is found by the call's own name rather than taken from the dispatch**,
+        // because a name that resolved to nothing never reached a tool at all and its
+        // failure is "no such tool", which is resolved.
+        unresolved: !r.ok && callable.get(call?.name)?.writes === true,
       });
       if (entries) entries.push(e);
       if (!(await write(e))) return record(ended("journal-failed", { error: journalError, step: stepNo }));
@@ -500,15 +530,36 @@ export async function runAgent(opts = {}) {
       index: r.index, name: asked[r.index]?.name ?? null, ms: r.ms,
       ok: r.ok, value: r.ok ? r.value : undefined,
       error: r.ok ? undefined : String(r.error?.message ?? r.error),
+      ...(r.ok || callable.get(asked[r.index]?.name)?.writes !== true ? {} : { unresolved: true }),
     }));
     steps.push(Object.freeze(step));
 
     messages.push(assistantMessage(text, asked));
-    messages.push(toolMessage(results.map((r) => toolResultFor(asked[r.index], r.ok, r.ok ? r.value : String(r.error?.message ?? r.error)))));
+    messages.push(toolMessage(results.map((r) => toolResultFor(
+      asked[r.index], r.ok, r.ok ? r.value : String(r.error?.message ?? r.error),
+      !r.ok && callable.get(asked[r.index]?.name)?.writes === true))));
   }
 }
 
 // ── small shared pieces ──────────────────────────────────────────────────────
+
+/**
+ * THIS CALL'S ARGUMENTS AS ONE STABLE KEY, or `null` if they cannot be written down.
+ *
+ * `argsHash` RAISES for a value JSON has no representation for — a cycle, a BigInt, a
+ * `toJSON` that throws — because a call that cannot be recorded cannot be hashed into an
+ * identity either. Here that is not an exception to propagate: it is an answer, and the
+ * two call sites do different things with it. The live dispatch refuses the call and
+ * tells the model; the resume hands `null` through, and every tool that needs an identity
+ * refuses BY NAME rather than minting one.
+ *
+ * **NOTHING ELSE IS CAUGHT.** A rejection from anywhere but the encoder would be a bug in
+ * this module, and swallowing it here would turn it into a silently unidentified call.
+ */
+async function operationKey(args) {
+  try { return await argsHash(args); }
+  catch (e) { if (e instanceof TypeError) return null; throw e; }
+}
 
 function requireEntries(from) {
   if (!Array.isArray(from)) throw new TypeError("runAgent: from must be an array of journal entries");
@@ -516,7 +567,7 @@ function requireEntries(from) {
 }
 
 /** What a tool is told. One builder, so the live path and the resume path agree. */
-function toolContext({ tenant, agent, limits, step, id, room, capabilities, newId, operationSeed, index }) {
+function toolContext({ tenant, agent, limits, step, id, room, capabilities, newId, operationSeed, index, argsKey }) {
   return Object.freeze({
     tenant: tenant ?? null, agent: agent.name, step, toolCallId: id,
     toolMs: capMs(limits.toolMs, room()),
@@ -538,14 +589,30 @@ function toolContext({ tenant, agent, limits, step, id, room, capabilities, newI
     /**
      * ⚠ THE IDENTITY OF THIS CALL, or `null` where the caller could not give one.
      *
-     * `<run>:<step>:<index>` — the same three facts an approval is bound to, and for the
-     * same reason: they name ONE call and they are the same on every redelivery of it.
-     * A tool that starts work derives its work's id from this, so running it twice asks
-     * the database for the same row rather than making a second one.
+     * `<run>:<step>:<index>:<the arguments' own hash>` — **the position AND the
+     * arguments, and each half answers a different question.**
+     *
+     * The POSITION says *one slot is one operation*: it is the same on every redelivery
+     * of one call, which is what lets a tool ask the database for the row it already
+     * made rather than making a second one. The ARGUMENTS say *a different call is never
+     * the same operation*: without them a slot re-filled with some other call would
+     * inherit its predecessor's identity, and for `run_automation` that is a genuinely
+     * different request coming back as "that was already running" while the first one
+     * is what is really running.
+     *
+     * **KEYED ON ARGUMENTS BECAUSE THE POSITION'S SUFFICIENCY IS SOMEBODY ELSE'S
+     * PROPERTY.** It is sufficient today only because the model entry is written before
+     * the dispatch and `replay` reads the arguments back out of it — a fact about the
+     * loop below, not about identity. *A rule true because of a layer below it expires
+     * when that layer moves*, and the layer here is a retry policy or a repair away.
+     * With the hash in it there is nothing left to depend on.
+     *
+     * `null` where the arguments could not be written down at all; the wall for that is
+     * at the dispatch, which answers the model rather than letting a tool improvise.
      */
-    operation: operationSeed === null || !Number.isInteger(step) || !Number.isInteger(index)
+    operation: operationSeed === null || !Number.isInteger(step) || !Number.isInteger(index) || typeof argsKey !== "string"
       ? null
-      : `${operationSeed}:${step}:${index}`,
+      : `${operationSeed}:${step}:${index}:${argsKey}`,
     /**
      * A fresh identifier, for the one tool that starts work. **It is injected because
      * nothing below this line may reach a global**, and it is the reason a model cannot
@@ -555,8 +622,3 @@ function toolContext({ tenant, agent, limits, step, id, room, capabilities, newI
   });
 }
 
-/** The args a pending call was originally made with, out of the log. */
-function findArgs(prior, p) {
-  const m = prior.messages.find((x) => x.role === "assistant" && x.toolCalls?.some((c) => (c.id ?? null) === p.id));
-  return m?.toolCalls?.find((c) => (c.id ?? null) === p.id)?.args;
-}
