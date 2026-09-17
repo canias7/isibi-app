@@ -7275,6 +7275,30 @@ git at `origin/main`, not recalled):
 millisecond**, which is what makes it a prediction rather than an observation
 waiting to be explained.
 
+**⚠ AND WHAT THAT SECOND ROW MEANS FOR A DEPLOY IS NOT "IT WAITS FOR 23:00" —
+CORRECTED 2026-09-17 (owner: *"with an unserved previous occurrence, deploying
+during the day can make the job immediately eligible as overdue"*).** The 16th's
+22:00Z occurrence is in the PAST and was never served — Run now stamped
+19:29:36Z, two and a half hours before it, and the deployed selector has not
+come round — so the corrected rule finds an occurrence behind `now` with nothing
+after it and the job is **due at the first tick after the deploy, whatever time
+of day that is**. Measured at 2026-09-17T03:41Z on the real row: `lastDueAt`
+answers `2026-09-16T22:00:00Z` and the anchor is `2026-09-16T19:29:36Z`, so the
+gate opens.
+**THE FIRST RUN AFTER A DAYTIME DEPLOY IS THEREFORE A CATCH-UP, NOT THE NIGHTLY
+ONE, and only the second proves the time.** It then runs again that night: the
+catch-up stamps `last_run` in the daytime, the 17th's own occurrence
+(`2026-09-17T22:00:00Z`) is still ahead of it, and the gate opens a second time
+at 23:00 London. Two runs on deploy day, both correct — one serving a missed
+occurrence, one at the asked-for time — and reading the first as "the nightly
+schedule fired" would be reading a catch-up as the thing under test.
+**AND THE PREDICTION IS CONDITIONAL ON WHEN THE DEPLOY LANDS.** If it lands
+after **2026-09-17T19:29:06Z** the DEPLOYED selector may have fired the job
+first; `last_run` then sits past the 16th's occurrence, the catch-up is gone,
+and the corrected rule waits for 22:00Z that night. So a deploy before ~19:29Z
+and a deploy after it produce two different first observations, which is the
+whole reason the baseline has to be READ rather than assumed.
+
 **THE CORRECTED SCHEDULE CANNOT BECOME DUE UNTIL THIS IS DEPLOYED**, and a
 WORKER deploy is enough: `dueJobs` runs in the Worker's cron handler, not in a
 container, so the 15–20 minute container hold does not gate this particular
@@ -7283,7 +7307,19 @@ observation (the merge still rolls the container, because `builder/` moved).
 **THE PANEL CANNOT BE READ FROM A SESSION** — `GET /api/site/<slug>/jobs` is
 owner-gated and no `SUPABASE_*` or `OWNER_*` credential exists in this
 environment, checked rather than assumed (the names were enumerated and their
-lengths printed; nothing was).
+lengths printed; nothing was). **Re-checked 2026-09-17 and the environment is
+still empty**; the route answers **401** to an unauthenticated read, which is
+the control that it is the gate and not the route. So *"read a fresh baseline"*
+is the owner's read — the Jobs panel, or a `lane sweep` with `run_job` left at
+`none`, which prints the row and presses nothing.
+
+**WHAT CAN BE ESTABLISHED FROM HERE, AND IT IS WORTH HAVING BEFORE THE READ.**
+`lane sweep` run **50 is still the latest** (asked of the Actions API, not
+recalled), so nothing has pressed Run now again; and the deployed selector's
+first selection, `2026-09-17T19:29:06Z`, is **still ahead** of the clock as this
+is written (03:41Z). Both point at the row being exactly as run 50 left it —
+which is a reason to expect a particular baseline, never a substitute for
+reading one.
 
 **AND A TIMESTAMP DOES NOT IDENTIFY AN INVOCATION** (the owner's own correction).
 The row records the time and the result and nothing about what fired it. The one
@@ -7292,6 +7328,128 @@ was done, not an inference from the row. A stamp within seconds of the due
 instant is CONSISTENT WITH the cron and is not proof of it; and **a two-minute
 cron is a cadence, not a deadline**, so a job that has not run by 22:02 has not
 thereby established that nothing fired it.
+
+### …AND THE OCCURRENCE RULE EXPOSED A DAYLIGHT-SAVING BUG UNDER IT (2026-09-17)
+
+Owner, reviewing the two fixes above: *"The new daily occurrence rule exposes a
+daylight-saving bug in `lastDueAt` … it uses the offset at 'now,' so its
+calculated occurrence shifts when the clocks change. Correct that calculation
+without restoring the elapsed-time gate that caused Run now to move the nightly
+schedule."*
+
+**REPRODUCED AGAINST THE COMMITTED SCHEDULER BEFORE ANYTHING WAS TOUCHED**, on
+the owner's own row — `everyMinutes 1440`, `at "00:30"`, `tz "Europe/London"`,
+`last_run "2026-10-24T23:30:05Z"`, which is 00:30:05 BST on the 25th and so has
+SERVED that day's occurrence. London goes back at `2026-10-25T01:00:00Z`.
+
+```
+                  lastDueAt("00:30","Europe/London")        anchor 23:30:05Z
+BEFORE  00:58:00Z  -> 2026-10-24T23:30:00Z   not due    ← correct
+        01:00:00Z  -> 2026-10-25T00:30:00Z   DUE        ← the defect
+        23:00:00Z  -> 2026-10-25T00:30:00Z   DUE        ← and all day
+AFTER   00:58:00Z  -> 2026-10-24T23:30:00Z   not due
+        01:00:00Z  -> 2026-10-24T23:30:00Z   not due
+        23:00:00Z  -> 2026-10-24T23:30:00Z   not due
+        26th 00:29Z                          not due
+        26th 00:30Z                          DUE        ← the following day, 25 hours on
+```
+
+**`2026-10-25T00:30:00Z` IS 01:30 BST, WHICH IS NOT A 00:30 READING AT ALL** —
+that is the whole of the defect. The offset was read at `now`, so the instant
+the zone moved, "today's 00:30" was computed under the new offset and landed an
+hour past the one already served. **And the owner's two readings only sample
+it**: the wrong occurrence stood for the rest of that local day, so every tick
+from 01:00Z to the next day's occurrence would have run the job.
+
+**THE DOC COMMENT CONCEDED THE APPROXIMATION AND NAMED THE RULE THAT COVERED
+IT** — *"the interval rule that runs beside this in `dueJobs` means never
+twice"* — which is exactly the rule the previous entry took off for daily jobs.
+**A rule true because of a layer below it expires when that layer moves**, fifth
+recorded instance, and the second in a row where the layer moved because we
+moved it.
+
+**THE FIX READS THE OFFSET AT THE TARGET MINUTE.** The two offsets in force a
+day either side of the target are the only two that can apply to it, so
+`wall - before` and `wall - after` are the only candidate instants; each is
+VERIFIED by formatting it back, because only the read-back can tell a real
+clock reading from one the zone skips over. Two local days are asked and the
+latest answer at or before `now` wins — **two, and that is complete rather than
+a sample**: an occurrence carries the local date it belongs to and `now`'s local
+date is today, so yesterday's is always behind `now` and the day before it can
+never be needed. **The elapsed-time gate is NOT restored.**
+
+**THE TWO POLICIES, STATED IN THE CODE AND DRIVEN** (the owner's *"an explicit
+policy for nonexistent or repeated local times"*):
+
+| the local time | the occurrence | why |
+|---|---|---|
+| **repeats** (autumn) | the **FIRST** reading | one local day stays one run — `anchor >= due` then refuses the second, where taking the later one leaves the earlier reading unserved for an hour |
+| **never happens** (spring) | the **LATER** candidate — the instant it would have had under the offset in force before the change | the job is NOT skipped; for a daily job it is exactly 24 h after yesterday's run, one hour later by the clock for that one day. A reminder that silently does not go out once a year is the failure nobody notices, and running after the time asked for is the safe side of running before it |
+
+**AND THE ARITHMETIC IS THE ZONE'S, NOT AN HOUR'S — proven on a half-hour
+transition.** `Australia/Lord_Howe` shifts by **thirty minutes**: a nonexistent
+02:15 resolves to **02:45 local** and a repeated 01:45 has its two readings half
+an hour apart. A fix that hardcoded an hour passes every London case and fails
+both of those.
+
+**THE MIRROR FAILURE IS FIXED BY THE SAME LINE, and it strands a run rather than
+duplicating one**: a job at 01:30 London on the fall-back morning answered
+`2026-10-24T01:30:00Z` at 01:00Z — a whole DAY back — because today's 01:30
+computed under the new offset was still ahead of `now`. It answers
+`2026-10-25T00:30:00Z`, half an hour ago.
+
+**Guards**: `test/job-delivery.test.mjs` **13 → 14** (the owner's exact sequence,
+the whole day it held, the following day running at the right minute, and the
+mirror failure) and `test/site-jobs.test.mjs` **47 → 48** (both policies driven
+at `lastDueAt` AND through `dueJobs`, the half-hour zone, **a time falling AFTER
+the transition on the transition day** — the only shape that resolves under the
+offset after the change, without which half of `occurrenceOn`'s candidate pair
+is never the answer and could be deleted with the suite green — and ordinary
+days on both sides of both transitions as the control). **Both proved RED
+against the committed scheduler and green after; the other 59 cases in those two
+files are green on BOTH trees**, which is what says the fix breaks nothing and
+the cases are genuinely about it.
+
+**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 3 comment-only
+controls survived — and all nine new ones died on the FIRST pass.** The offset
+read at `now` again (the reported defect, the committed arithmetic restored
+verbatim); the repeat policy flipped to the later reading; the gap policy
+flipped to the earlier candidate; the gap SKIPPED; the read-back verification
+dropped; only the offset before the target tried; the offsets probed at the
+target itself rather than a day either side; only today's local date asked; and
+an occurrence still ahead of `now` accepted. Every anchor was checked to occur
+exactly once before the run, and the tree was verified restored afterwards.
+
+**ONE DECLARED BELT, measured rather than reasoned about.** `zoneOffsetAt`
+floors its instant to the minute, and every caller now passes a whole minute
+(`Date.UTC` at minute precision), so a mutant on that floor is INERT by
+construction. It stays because the function's contract is "the offset at an
+instant" and a sub-minute error in a scheduler is the kind nobody sees; it is
+said here because a sweep cannot say it and the next session deletes what
+nothing appears to need. The same applies to `best == null || x > best`: with
+two days asked in calendar order, "the latest at or before `now`" and "the first
+found" cannot differ, and the comment says so.
+
+**MAIN MERGED INTO THE CANDIDATE** (owner: *"The branch was nine commits behind
+main when reviewed"*). Nine commits, the `agent-builder` automations work plus
+`agent-store.mjs`, `public/`, guards and documents — **no product-code overlap
+with this branch at all**, so the merge cannot change what the sweep proved:
+the only two files both sides touch are `CLAUDE.md` and `docs/owner-notes.md`,
+and both merged clean with each side's sections checked present afterwards.
+
+**SUITE 6,749 ON THE MERGED TREE, AND THE ARITHMETIC CLOSES ON THREE MEASURED
+NUMBERS RATHER THAN TWO.** The merge base is 6,703; this branch measured
+**6,709** (6,703 + round 13's 4 + this round's 2) and `origin/main` measured
+**6,743** in a detached worktree at its own tip — **which is the number main's
+own CLAUDE.md stamps, so that is two independent measurements agreeing** — and
+6,703 + 40 + 6 = **6,749**, measured on the merged tree. **The worktree run
+reads 1 fail and 2 skips a repo-root run does not**, and it was identified
+rather than glossed: `render-sandbox`'s *"THE DROP IS PROVEN BY A REFUSED
+WRITE"*, which is about writing outside the repository root and is the recorded
+environment case. The TOTAL is what carries across.
+
+**NOT MERGED TO MAIN AND NOT DEPLOYED** — the owner's instruction for this round,
+as for the last four. No paid call was made and no demo site was touched.
 
 
 ## Data, auth, payments, mail

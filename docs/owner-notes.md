@@ -155,6 +155,116 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-17 — The clocks-going-back bug you found, and a correction to my own prediction
+
+### You were right, and here is it happening
+
+Your case, run against the code as it stands, before I touched anything. A job
+at **00:30 Europe/London**, daily, that already ran at **00:30:05 BST on 25
+October** — it has done that day. London puts its clocks back at 01:00Z that
+morning.
+
+|  | 00:58Z | 01:00Z | 23:00Z that night | next day 00:30Z |
+|---|---|---|---|---|
+| **before** | not due ✓ | **DUE** ✗ | **DUE** ✗ | DUE ✓ |
+| **after** | not due ✓ | not due ✓ | not due ✓ | DUE ✓ |
+
+**And it was worse than the two moments you named.** The wrong answer stood for
+the **rest of that day**, so every two-minute tick from 01:00Z until the next
+morning would have run it. Your two readings are the start of the window, not
+the window.
+
+**What went wrong, in one sentence.** To work out "when was the last 00:30 in
+London", the code asked the zone for its offset **at the current moment** rather
+than at the minute it was asking about. The moment London went back, "today's
+00:30" got computed an hour later than the 00:30 it had already served — and an
+hour later than 00:30 BST is **01:30 BST**, which is not a 00:30 at all.
+
+**And the code's own comment admitted it.** It said the offset was read at "now"
+rather than at the target minute, could be an hour out twice a year, and that
+this was harmless *"because the interval rule beside it means never twice"*.
+That is exactly the rule I took off for daily jobs in the last fix. **A rule
+that is only true because of something underneath it stops being true when that
+something moves** — and this time the something moved because I moved it. That
+is the fifth time this has been written down here and the second in a row.
+
+### What I changed, and the two decisions inside it
+
+The offset is now read **at the minute being asked about**. For a given day, the
+only two offsets that can apply are the ones in force a day either side, so
+there are only two possible answers — and each is **checked by reading the clock
+back**, because only that can tell a real reading from one the zone skips over.
+
+Two days a year a local time is not one moment, and each needed a decision:
+
+- **The hour that happens twice** (autumn). The job runs at the **first** one.
+  The second is then refused, so one day is still one run.
+- **The hour that never happens** (spring). The job is **not skipped** — it runs
+  at the moment that time would have had before the clocks moved, which for a
+  daily job is exactly 24 hours after yesterday and one hour later by the clock
+  for that one day. A reminder that quietly doesn't go out once a year is the
+  kind of failure nobody notices, and running after the time you asked for is
+  safer than running before it.
+
+**I did not put the elapsed-time rule back** — the Run now fix you approved is
+untouched.
+
+**And it is the zone's arithmetic, not "an hour".** Lord Howe Island shifts by
+**thirty minutes**, so there a missing 02:15 becomes 02:45 and a repeated 01:45
+has its two readings half an hour apart. A fix that assumed an hour passes every
+London test and fails both of those, so both are in the guards.
+
+**Also fixed by the same line, in the other direction**: a job at 01:30 London
+on that morning was being told its last run was **a whole day ago**, which
+strands a run instead of duplicating one.
+
+### Checks
+
+- Both new cases **proved red against the current code and green after**. The 59
+  other scheduler cases pass on **both**, which is what says I broke nothing.
+- **Mutation sweep: 25 changes introduced, 25 caught, none survived** — including
+  the exact defect put back, both policies flipped, the missing hour skipped, and
+  the read-back removed. All nine new ones were caught first time.
+- **Full suite 6,709** on the branch, and **6,749** once main was merged in.
+- **Main merged into the branch**, as you asked — nine commits, all of it the
+  agent-builder work. **Nothing it touches overlaps this fix**; the only shared
+  files are the two documents.
+
+### The correction you asked for: it will not wait until 23:00
+
+You were right about this too. I had said the next 23:00 London would be the
+first occurrence the fix picks up. **It isn't.**
+
+**Last night's 23:00 was never served.** Run now stamped the job at 19:29, two
+and a half hours before it, and the drifted schedule doesn't come round until
+**tonight at 20:29**. So the corrected rule looks back, finds an occurrence
+behind it that nobody served, and the job is **due at the first tick after the
+deploy — whatever time of day that is**.
+
+**Which means the first run you'd see is a catch-up, not the nightly one.** It
+would then run **again** that night at 23:00, because the catch-up stamps a
+daytime time and tonight's own occurrence is still ahead of it. Two runs on
+deploy day, both correct — and only the second one proves the schedule.
+
+**One thing changes that.** If the deploy lands **after 20:29 tonight**, the
+code that is live now may have fired the job first; the catch-up then disappears
+and the fix waits for 23:00 as I originally said. So the answer genuinely
+depends on when you press, which is why the baseline has to be read first.
+
+**I still can't read the Jobs panel** — re-checked, not recalled: there is no key
+for it in this session and the route answers 401 without one. What I *can* tell
+you is that **lane sweep run 50 is still the most recent** (asked of GitHub), so
+nothing has pressed Run now again, and the live schedule's next selection is
+still ahead of the clock. Both point at the row being exactly as run 50 left it —
+but that is a reason to expect a baseline, not a substitute for reading one.
+
+### Not done, by your instruction
+
+No merge to main, no deploy, no paid run, no reporting changes. The fix, the
+before-and-after, and the CI results are what this round is.
+
+---
+
 ## 2026-09-16 — Agent settings: pause it, and choose what it may use
 
 **What you can do now.** Open an agent's settings (the pencil in a conversation)
@@ -933,10 +1043,14 @@ arithmetic closes on the second.
 **So the corrected schedule cannot become due until this is merged and
 deployed** — and a Worker deploy is enough for this one, because the selection
 happens in the Worker and not in a container. **That is your call and I have not
-made it.** If you do merge it, the deploy takes about three minutes and the next
-23:00 London is the first occurrence the corrected code would pick up; leave it
-un-merged and what fires tonight is the drifted 20:29, which is the defect
-running rather than the fix.
+made it.** Leave it un-merged and what fires tonight is the drifted 20:29, which
+is the defect running rather than the fix.
+
+> **⚠ CORRECTED 2026-09-17, and you spotted it: this paragraph used to end "the
+> next 23:00 London is the first occurrence the corrected code would pick up",
+> which is wrong.** Last night's 23:00 was never served, so once the fix is live
+> the job is **overdue** and runs at the first tick after the deploy, whatever
+> time of day that is. The full correction is in the 17 September entry above.
 
 **And I cannot read the Jobs panel from here.** That route is owner-gated and
 this session holds no key for it — checked, not assumed. So the read is yours,
