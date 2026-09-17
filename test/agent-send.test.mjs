@@ -906,7 +906,36 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
     // is what decides whether what it collected means anything.
     assert.deepEqual(site.fields.map((f) => f.name), engine.fields.map((f) => f.name), `${type}: the fields drifted`);
     assert.deepEqual(site.fields.map((f) => f.kind), engine.fields.map((f) => f.kind), `${type}: the field kinds drifted`);
+    // ⚠ AND FOUR PROPERTIES THAT DECIDE WHETHER A VALUE IS STORED AT ALL, each silent if it
+    // drifts. `required` one way is a form that refuses what the engine accepts (or accepts
+    // what it refuses); `when` one way is a field the form hides and the engine still reads,
+    // or one the form collects and the engine's reader throws away — a control that answers
+    // and is discarded, this repository's worst shape; `refs` one way is a `{{name}}` checked
+    // on one side only, so a typo either reaches an execution or a valid name is refused;
+    // and a `choice`'s OPTIONS one way is a control offering an answer the other side cannot
+    // read. All four are compared as the shape each really holds.
+    for (let i = 0; i < engine.fields.length; i++) {
+      const [sf, ef] = [site.fields[i], engine.fields[i]];
+      assert.equal(sf.required === true, ef.required === true, `${type}.${ef.name}: required drifted`);
+      assert.equal(sf.refs === true, ef.refs === true, `${type}.${ef.name}: whether it takes references drifted`);
+      assert.deepEqual(sf.when ? JSON.parse(JSON.stringify(sf.when)) : null,
+        ef.when ? JSON.parse(JSON.stringify(ef.when)) : null, `${type}.${ef.name}: when it applies drifted`);
+      assert.deepEqual(sf.options ? [...sf.options] : null, ef.options ? [...ef.options] : null,
+        `${type}.${ef.name}: the options drifted`);
+      // THE BOUNDS TOO, where either side declares one: a form that accepts 20,161 minutes
+      // and an engine that refuses it is a save that fails after the person has left.
+      for (const b of ["min", "max"]) {
+        assert.equal(sf[b], ef[b], `${type}.${ef.name}: ${b} drifted`);
+      }
+    }
+    // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: something out there really does
+    // declare a `when`, a `refs` and a set of options, or the loop above asserts nothing.
   }
+  const anyField = (pick) => ENGINE_STEPS.some((s) => s.fields.some(pick));
+  assert.ok(anyField((f) => f.when), "no field declares `when`, so that comparison is vacuous");
+  assert.ok(anyField((f) => f.refs === true), "no field takes references");
+  assert.ok(anyField((f) => f.options), "no field offers options");
+  assert.ok(anyField((f) => f.max !== undefined), "no field declares a bound");
 });
 
 test("the two caps and the week are the same number and the same order on both sides", () => {

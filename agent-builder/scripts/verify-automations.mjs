@@ -28,20 +28,19 @@
  * ⚠ NOT A STATEMENT ABOUT THE DEPLOYMENT. Nothing here has touched the hosted project.
  */
 
-import { execFileSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { handleAgentApi, makeAgentStore } from "../../agent-store.mjs";
 import worker, { AUTOMATION_CATCHUP_S } from "../src/worker.mjs";
 import { localDate, weekdayOf, WEEKDAYS } from "../src/automations.mjs";
+import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
 
-const DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+void path; void fileURLToPath;
+
 const DB = `agent_auto_${process.pid}`;
 const A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";   // one account
 const B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";   // the account next door
-const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 let failed = 0;
 const fails = [];
@@ -49,38 +48,16 @@ const check = (what, cond, detail = "") => {
   if (!cond) { failed++; fails.push(what + (detail ? ` — ${detail}` : "")); }
   console.log(`  ${cond ? "ok  " : "FAIL"}  ${what}${detail ? ` — ${detail}` : ""}`);
 };
-const su = (cmd) => execFileSync("su", ["postgres", "-c", cmd], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-const q = (sql) => su(`psql -X -q -t -A -v ON_ERROR_STOP=1 -d ${DB} -c ${shq(sql)}`).trim();
 
-try { su("psql -X -tAc 'select 1'"); } catch {
+if (!haveCluster()) {
   // A MISSING CLUSTER IS SAID AND EXITS 0. "No database here" is not a failing product.
   console.log("No local PostgreSQL that `su postgres` can reach — nothing to verify against.");
   console.log("  start one with:  pg_ctlcluster 16 main start");
   process.exit(0);
 }
 
-console.log(`\nsetting up ${DB} from the real migrations`);
-su(`psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)} -c ${shq(`create database ${DB};`)}`);
-su(`psql -X -q -d ${DB} -c ${shq(`do $$ begin
-  if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated; end if;
-  if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role; end if;
-  if not exists (select 1 from pg_roles where rolname='anon') then create role anon; end if;
-end $$;
-alter role authenticated nologin nobypassrls;
-alter role service_role  nologin bypassrls;
-alter role anon          nologin nobypassrls;`)}`);
-for (const f of fs.readdirSync(path.join(DIR, "supabase", "migrations")).filter((x) => x.endsWith(".sql")).sort()) {
-  const tmp = path.join("/tmp", `agent-auto-${process.pid}-${f}`);
-  fs.copyFileSync(path.join(DIR, "supabase", "migrations", f), tmp);
-  fs.chmodSync(tmp, 0o644);
-  su(`psql -X -q -v ON_ERROR_STOP=1 -d ${DB} -f ${tmp}`);
-  fs.rmSync(tmp, { force: true });
-}
-console.log("  migrations applied");
-
-const { startLocalRest } = await import("./local-rest.mjs");
-const rest = await startLocalRest({ db: DB });
-console.log(`  local rest on ${rest.url}`);
+const stack = await standUp({ db: DB });
+const { q, rest } = stack;
 
 try {
   // ── the site builder's routes ────────────────────────────────────────────
@@ -95,30 +72,10 @@ try {
 
   // ── ⚠ THE DISPATCHER: the Worker's own handlers ──────────────────────────
   //
-  // The queue binding records what it was rung with AND delivers it, which is the one
-  // thing a laptop cannot have: Cloudflare Queues is not reachable from here, so the
-  // transport is in-process and everything it carries — the claim, the lease, the fence,
-  // the routing — is the database's and the runner's.
-  const rung = [];
-  const delivered = [];
-  const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
-  const env = {
-    SUPABASE_URL: rest.url,
-    SUPABASE_SERVICE_KEY: "local-service-role",
-    SUPABASE_PUBLISHABLE_KEY: "local-publishable",
-    MODEL: "stand-in",
-    RUN_QUEUE: { send: async ({ runId }) => { rung.push(runId); } },
-  };
-  /** Hand one run id to the REAL consumer handler, the way a delivery does. */
-  const deliver = async (runId) => {
-    let acked = 0;
-    await worker.queue({ messages: [{ body: { runId }, ack: () => { acked++; }, retry: () => {} }] }, env, ctx);
-    delivered.push(runId);
-    return acked;
-  };
-  /** Drain everything the doorbell has collected, exactly as the queue would. */
-  const drain = async () => { const ids = rung.splice(0); for (const id of ids) await deliver(id); return ids; };
-  const ring = async (runId) => { await env.RUN_QUEUE.send({ runId }); };
+  // `scripts/lib/local-stack.mjs` owns it, so the two verifications in this directory
+  // cannot stand up two different stacks and both report green about different things.
+  const { env, ctx, rung, delivered, deliver, drain, ring } = dispatcher({ worker, rest });
+  void delivered; void deliver;
 
   // Today, where these automations live, and a weekday list that does and does not match.
   const ZONE = "UTC";
@@ -403,8 +360,7 @@ try {
   check("and attempts never went above 1 anywhere",
     q(`select coalesce(max(attempts)::text,'0') from agent.run_work w join agent.automation_runs a on a.id=w.run_id;`) === "1");
 } finally {
-  await rest.close?.();
-  su(`psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`);
+  await stack.tearDown();
 }
 
 console.log(`\n${failed ? `${failed} FAILED` : "all checks passed"}`);

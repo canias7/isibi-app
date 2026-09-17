@@ -1096,8 +1096,14 @@ const F = (o) => Object.freeze(o);
 /**
  * `out` — the name a step's answer is saved under. ONE OBJECT, shared, because the form
  * draws the same control everywhere and the census has one shape to compare.
+ *
+ * **`says` IS WHAT A REFUSAL CALLS IT, and `out` needs one where the others do not.** Every
+ * other field is named the way the form labels it (`days`, `text`, `query`, `ask`), so the
+ * field name is already the customer's word; "out can't be empty" is about a key nothing on
+ * their screen is called. Optional, and absent means the name — so no existing sentence
+ * moves, which is why this is a field's own word rather than a second table of labels.
  */
-const OUT = F({ name: "out", kind: "name", required: false });
+const OUT = F({ name: "out", kind: "name", required: false, says: "the name for this step's answer" });
 
 export const AUTOMATION_STEPS = Object.freeze([
   F({
@@ -1389,14 +1395,17 @@ export function cleanRunInput(v, inputs) {
  * kind below asks the type first.
  */
 function readStepField(raw, f) {
+  // WHAT A REFUSAL CALLS THIS FIELD. The name is the fallback, so a field with no `says`
+  // reads exactly as it always did.
+  const said = typeof f.says === "string" && f.says ? f.says : f.name;
   if (f.kind === "text") {
     if (raw === undefined || raw === null) {
-      return f.required ? { error: `${f.name} can't be empty` } : { value: undefined };
+      return f.required ? { error: `${said} can't be empty` } : { value: undefined };
     }
-    if (typeof raw !== "string") return { error: `${f.name} didn't arrive as text` };
+    if (typeof raw !== "string") return { error: `${said} didn't arrive as text` };
     const text = raw.trim();
-    if (!text) return f.required ? { error: `${f.name} can't be empty` } : { value: undefined };
-    if (f.max && text.length > f.max) return { error: `${f.name} is longer than it can be (${f.max} characters)` };
+    if (!text) return f.required ? { error: `${said} can't be empty` } : { value: undefined };
+    if (f.max && text.length > f.max) return { error: `${said} is longer than it can be (${f.max} characters)` };
     return { value: text };
   }
   if (f.kind === "days") {
@@ -1417,37 +1426,37 @@ function readStepField(raw, f) {
     // ONE OF A FIXED SET, BY EXACT MATCH, and never the first option as a default: an
     // unrecognised answer is a control the form drew differently from the one this reads.
     if (typeof raw !== "string" || !f.options.includes(raw)) {
-      return { error: `${f.name} has to be one of: ${f.options.join(", ")}` };
+      return { error: `${said} has to be one of: ${f.options.join(", ")}` };
     }
     return { value: raw };
   }
   if (f.kind === "number") {
     if (raw === undefined || raw === null || raw === "") {
-      return f.required ? { error: `${f.name} has to be a whole number` } : { value: undefined };
+      return f.required ? { error: `${said} has to be a whole number` } : { value: undefined };
     }
     // REFUSED, NEVER COERCED OR CLAMPED. `Number("")` is 0 and `Number("3 days")` is NaN,
     // and a clamp would store a bound nobody chose as though they had.
-    if (typeof raw !== "number" || !Number.isInteger(raw)) return { error: `${f.name} has to be a whole number` };
-    if (f.min !== undefined && raw < f.min) return { error: `${f.name} has to be between ${f.min} and ${f.max}` };
-    if (f.max !== undefined && raw > f.max) return { error: `${f.name} has to be between ${f.min} and ${f.max}` };
+    if (typeof raw !== "number" || !Number.isInteger(raw)) return { error: `${said} has to be a whole number` };
+    if (f.min !== undefined && raw < f.min) return { error: `${said} has to be between ${f.min} and ${f.max}` };
+    if (f.max !== undefined && raw > f.max) return { error: `${said} has to be between ${f.min} and ${f.max}` };
     return { value: raw };
   }
   if (f.kind === "time") {
     if (raw === undefined || raw === null || raw === "") {
-      return f.required ? { error: `${f.name} has to be a time like 09:00` } : { value: undefined };
+      return f.required ? { error: `${said} has to be a time like 09:00` } : { value: undefined };
     }
-    if (typeof raw !== "string") return { error: `${f.name} has to be a time like 09:00` };
+    if (typeof raw !== "string") return { error: `${said} has to be a time like 09:00` };
     // WHOLE MINUTES ON THE 24-HOUR CLOCK, which is what the form offers and what the
     // column stores; a stored 09:00:30 would be a schedule nothing can draw.
     const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw.trim());
-    if (!m) return { error: `${f.name} has to be a time like 09:00, on the 24-hour clock` };
+    if (!m) return { error: `${said} has to be a time like 09:00, on the 24-hour clock` };
     return { value: `${m[1]}:${m[2]}` };
   }
   if (f.kind === "name") {
     if (raw === undefined || raw === null || raw === "") {
-      return f.required ? { error: `${f.name} can't be empty` } : { value: null };
+      return f.required ? { error: `${said} can't be empty` } : { value: null };
     }
-    if (typeof raw !== "string") return { error: `${f.name} didn't arrive as a name` };
+    if (typeof raw !== "string") return { error: `${said} didn't arrive as a name` };
     const name = raw.trim().toLowerCase();
     if (!AGENT_NAME_RE.test(name)) {
       return { error: `"${raw}" can't be a name — use lower-case letters, digits and underscores, starting with a letter` };
@@ -1457,7 +1466,7 @@ function readStepField(raw, f) {
   // A FIELD KIND THIS DOES NOT KNOW IS A REFUSAL, never a pass. It can only arrive from
   // a catalog entry somebody added without adding its rule, and passing it through would
   // store whatever the caller sent under a name the form invented.
-  return { error: `${f.name} is configured in a way this can't read` };
+  return { error: `${said} is configured in a way this can't read` };
 }
 
 /** `HH:MM`, whole minutes, nothing else. The one shape the schedule stores. */

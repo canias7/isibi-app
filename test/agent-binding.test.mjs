@@ -284,6 +284,20 @@ function hydrateAuto(w) {
       value: m[2].replace(/&#39;|&#x27;/g, "'").replace(/&amp;/g, "&"),
       getAttribute: (k) => (k === "data-field" ? m[1] : null),
     }));
+    // ⚠ **A `<select>` HAS NO `value=` ATTRIBUTE, so the regex above could never see one —
+    // and every choice field on this form is a select.** That is a fixture LESS capable than
+    // a browser, in the controls that decide which other controls exist: with it, no case
+    // could read the wait's kind, the comparison's operator or the timeout outcome, so all
+    // three read as absent and a save that dropped them looked correct. The chosen option is
+    // the value, exactly as `.value` reflects it in a browser.
+    for (const m of body.matchAll(/<select[^>]*data-field="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
+      const picked = /<option value="([^"]*)" selected>/.exec(m[2]);
+      const el = {
+        value: picked ? picked[1] : "",
+        getAttribute: (k) => (k === "data-field" ? m[1] : k === "data-kind" ? "choice" : null),
+      };
+      fields.push(el);
+    }
     const days = [...body.matchAll(/data-day="([^"]+)"([^>]*)>/g)].map((m) => ({
       checked: / checked/.test(m[2]),
       getAttribute: (k) => (k === "data-day" ? m[1] : null),
@@ -299,16 +313,25 @@ function hydrateAuto(w) {
 }
 
 /** The step catalog as the server sends it, derived from what the engine really has. */
-const STEP_CATALOG = [
-  { type: "weekday", kind: "condition", label: "Only on certain days", does: "Carry on only on the days you pick.",
-    fields: [{ name: "days", kind: "days", required: true }] },
-  { type: "note", kind: "action", label: "Save a note", does: "Write a line into this automation's results.",
-    fields: [{ name: "text", kind: "text", required: true, max: 2000 }] },
-];
-const DAY_LIST = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+/**
+ * THE CATALOG THE ROUTE REALLY SENDS, not a hand-typed pair of steps.
+ *
+ * ⚠ **A HAND-TYPED CATALOG WENT STALE AND TOOK EVERY NEW CONTROL WITH IT.** This held two
+ * steps — a weekday and a note — written when there were two, so once the catalog grew to
+ * nine the form under test could not draw a branch, a wait, an approval, a lookup or a
+ * memory read AT ALL, and every case about them would have passed against a screen with no
+ * such control on it. Derived from `agent-store.mjs`, which is the object `/api/agent/list`
+ * puts on the wire, so a step added next month arrives here by existing. `JSON` round-trips
+ * it because that is what a real answer is: frozen objects with no prototype from this realm.
+ */
+const { AUTOMATION_STEPS, AUTOMATION_DAYS } = await import("../agent-store.mjs");
+const STEP_CATALOG = JSON.parse(JSON.stringify(AUTOMATION_STEPS));
+assert.ok(STEP_CATALOG.length >= 9, `the catalog read as ${STEP_CATALOG.length} steps`);
+const DAY_LIST = [...AUTOMATION_DAYS];
 
 /** One agent with one automation, and the screen opened on it. */
-function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false, onPost = () => {} } = {}) {
+function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false, history = [],
+  fail = {}, onPost = () => {} } = {}) {
   return (path, init) => {
     const body = init?.body ? JSON.parse(init.body) : {};
     if (path.startsWith("/api/agent/list")) {
@@ -319,8 +342,18 @@ function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false,
       if (listFails) return { ok: false, body: { error: "the store is away" } };
       return { ok: true, body: { ok: true, agent: "A", automations, steps, days: DAY_LIST, max: 20 } };
     }
-    if (path.startsWith("/api/agent/automation-history")) return { ok: true, body: { ok: true, id: body.id, executions: [] } };
+    // THE HISTORY IS THE FIXTURE'S, so a case about a WAITING execution has one to look at.
+    // It held `executions: []` and that is what made every waiting-and-approving case below
+    // impossible to write: the panel drew nothing and nothing was wrong with it.
+    if (path.startsWith("/api/agent/automation-history")) {
+      return { ok: true, body: { ok: true, id: body.id, executions: history } };
+    }
     onPost(path, body);
+    // ONE ROUTE MADE TO FAIL, BY PATH. A refusal is a first-class outcome on this screen —
+    // two of the approval route's three refusals are 409s that are not failures — so a
+    // fixture that can only succeed cannot ask what the screen does with one.
+    const said = Object.keys(fail).find((k) => path.startsWith(k));
+    if (said) return { ok: false, body: { error: fail[said] } };
     return { ok: true, body: { ok: true, id: "AU1", runId: "R1", notified: true, automation: { ...(automations[0] ?? {}), enabled: body.enabled } } };
   };
 }
@@ -1724,6 +1757,8 @@ test("⚠ A SEND REFUSED FOR A PAUSE KEEPS THE WORDS AND THE KEY", async () => {
 /** Open one agent's automations, with the catalog the server sends. */
 async function withAutomations(opts = {}) {
   const posts = [];
+  // EVERY OPTION IS FORWARDED, including `history` and `fail`, so a case does not have to
+  // rebuild `loadScreen` by hand to look at one execution.
   const answer = autoAnswer({ ...opts, onPost: (p, b) => posts.push({ path: p, body: b }) });
   const w = loadScreen({
     answer: (p, init) => {
@@ -1847,7 +1882,14 @@ test("⚠ the save sends the steps and the schedule the form really shows", asyn
   await w.ev('agentAutoStepAdd("weekday")');
   await w.ev('agentAutoStepAdd("note")');
   const f = hydrateAuto(w);
-  f.rows[1].fields[0].value = "shop opens at 9";
+  const fieldOf = (row, name) => f.rows[row].fields.find((x) => x.getAttribute("data-field") === name);
+  fieldOf(1, "text").value = "shop opens at 9";
+  // ⚠ AND THE NOTE'S ANSWER IS NAMED, in the box the form now draws for it — a step output
+  // is the whole of what makes a later `{{opening}}` resolvable, so a box that existed and
+  // never travelled would be a control that answers nothing.
+  const outBox = fieldOf(1, "out");
+  assert.ok(outBox, "the note step drew no box for naming its answer");
+  outBox.value = "opening";
   for (const d of f.rows[0].days) d.checked = ["mon", "tue"].includes(d.getAttribute("data-day"));
   await w.ev("agentAutoSave()");
   const sent = posts.find((x) => x.path === "/api/agent/automation-create");
@@ -1857,9 +1899,14 @@ test("⚠ the save sends the steps and the schedule the form really shows", asyn
   assert.equal(sent.body.schedule, "daily");
   assert.equal(sent.body.at, "09:00");
   assert.equal(sent.body.zone, "Europe/London");
+  // ⚠ RE-ANCHORED, NOT APPEASED: the note now carries an `out` box, because a step's answer
+  // can be NAMED and a later step can use it — so an empty box really is part of what the
+  // form shows. `""` is the server's "no name", which it stores as `null`; what must not
+  // happen is the box existing and never being sent, which is a control that answers
+  // nothing. The assertion is the whole body, so a field appearing or vanishing is red.
   assert.deepEqual(sent.body.steps, [
     { type: "weekday", days: ["mon", "tue"] },
-    { type: "note", text: "shop opens at 9" },
+    { type: "note", text: "shop opens at 9", out: "opening" },
   ]);
   // ⚠ THE SCREEN'S OWN BOOKKEEPING DOES NOT GO ON THE WIRE. `gen` says which drawing a
   // draft is, which is a fact about a browser; a body should say what it means.
@@ -2191,4 +2238,308 @@ test("⚠ THE WATCH IS BOUNDED AND COUNTS DOWN", async () => {
   await watch.fire();
   assert.equal(watch.armed, false, "the watch re-armed itself for ever");
   assert.equal(w.val("agentAutoWatch"), null, "and it left a timer behind");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE RICHER FORM IN A REAL PAGE SCOPE — inputs, branches, waits and approvals
+//
+// Every case below needs a catalog with nine steps in it, which is why the fixture is
+// DERIVED from `agent-store.mjs` at the top of this file rather than typed. With the two-step
+// catalog it replaced, none of these controls could be drawn at all.
+// ════════════════════════════════════════════════════════════════════════════
+
+test("every step in the catalog can be added, and each draws its OWN fields", async () => {
+  // A CENSUS, not a sample: the form is built from the catalog, so a step added next month
+  // is drawn by existing — and one whose fields the form cannot draw fails here.
+  const { w } = await withAutomations({ automations: [] });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  for (const step of STEP_CATALOG) {
+    await w.ev(`agentAutoStepAdd(${JSON.stringify(step.type)})`);
+  }
+  const f = hydrateAuto(w);
+  assert.equal(f.rows.length, STEP_CATALOG.length, "the form drew a different number of steps");
+  for (let i = 0; i < STEP_CATALOG.length; i++) {
+    const def = STEP_CATALOG[i];
+    assert.equal(f.rows[i].getAttribute("data-step-type"), def.type, `row ${i + 1} is not ${def.type}`);
+    // ⚠ A FIELD THAT APPLIES MUST HAVE A CONTROL. One that does not apply has none — that is
+    // what `when` is for — so the comparison is against the fields the answers make relevant.
+    const applies = (fd) => !fd.when || Object.entries(fd.when)
+      .every(([on, allowed]) => allowed.includes(w.val("agentAutoDraft").steps[i][on]));
+    const drawn = new Set([
+      ...f.rows[i].fields.map((x) => x.getAttribute("data-field")),
+      ...(f.rows[i].days.length ? ["days"] : []),
+    ]);
+    for (const fd of def.fields) {
+      if (fd.kind === "choice") continue;   // a select, read by its own hook rather than a box
+      if (!applies(fd)) { assert.ok(!drawn.has(fd.name), `${def.type}.${fd.name} was drawn and does not apply`); continue; }
+      assert.ok(drawn.has(fd.name), `${def.type}.${fd.name} has no control`);
+    }
+    // AND A STEP WITH NO CONFIGURATION DRAWS NO BOXES, which is the `configless` half.
+    if (def.configless) assert.equal(f.rows[i].fields.length + f.rows[i].days.length, 0, `${def.type} drew a box`);
+  }
+  // EVERY ROW CARRIES ITS DEPTH AS ONE NUMBER, which is what makes a branch readable with
+  // no canvas. The catalog's own order puts `otherwise` straight after `if`, so nothing in
+  // THIS list is inside a branch — the indent is asserted on a shape that has one, below.
+  assert.match(f.html, /--ag-step-d:\s*0/, "the rows carry no depth at all");
+});
+
+test("⚠ the branch reads as two arms, because each row carries its own depth", async () => {
+  // NO CANVAS, and this is the whole of what replaces one: `if` and `end` sit at the outer
+  // depth, an `otherwise` sits at its own `if`'s depth, and the steps under either arm sit
+  // one further in. A flat list of nine rows with no indent is unreadable as a branch.
+  const { w } = await withAutomations({ automations: [] });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  for (const t of ["if", "note", "otherwise", "note", "end", "note"]) await w.ev(`agentAutoStepAdd(${JSON.stringify(t)})`);
+  const f = hydrateAuto(w);
+  const depths = [...f.html.matchAll(/--ag-step-d:(\d+)/g)].map((m) => Number(m[1]));
+  assert.deepEqual(depths, [0, 1, 0, 1, 0, 0],
+    "if · note · otherwise · note · end · note did not read as a branch with two arms");
+});
+
+test("⚠ a wait draws minutes OR a time, never both, and switching redraws it", async () => {
+  // `when` decides, and this is the one case where a control appearing is the whole feature:
+  // a wait FOR a while and a wait UNTIL a time are two different questions.
+  const { w, posts } = await withAutomations({ automations: [] });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Patient";
+  await w.ev('agentAutoStepAdd("wait")');
+  let f = hydrateAuto(w);
+  const names = () => new Set(f.rows[0].fields.map((x) => x.getAttribute("data-field")));
+  assert.ok(names().has("minutes"), "a new wait does not ask how long");
+  assert.ok(!names().has("at"), "it asks for a time as well, which nothing will read");
+
+  // ⚠ CHANGED THROUGH THE SELECT AND ITS OWN CHANGE HOOK, which is how a person does it —
+  // and that hook was BOUND TO NOTHING until this round: `data-change="agent-auto-step-field"`
+  // was in the markup and absent from `CHANGE_ACTIONS`, so picking "until a time" redrew
+  // nothing, no time box appeared, and the save was refused naming a control that was not on
+  // the screen. A dead control that ANSWERS, in the feature this milestone is about.
+  const modeBox = f.rows[0].fields.find((x) => x.getAttribute("data-field") === "mode");
+  assert.ok(modeBox, "the wait drew no control for which kind of wait it is");
+  assert.equal(modeBox.value, "for", "a new wait does not start as a wait for a while");
+  modeBox.value = "until";
+  await w.ev("CHANGE_ACTIONS['agent-auto-step-field']()");
+  f = hydrateAuto(w);
+  assert.ok(names().has("at") && !names().has("minutes"), "the controls did not follow the kind of wait");
+  f.rows[0].fields.find((x) => x.getAttribute("data-field") === "at").value = "09:00";
+  await w.ev("agentAutoSave()");
+  const sent = posts.find((x) => x.path === "/api/agent/automation-create");
+  assert.deepEqual(sent.body.steps, [{ type: "wait", mode: "until", at: "09:00" }],
+    "the wait carried the answer for the kind it is not");
+});
+
+test("what an automation asks for is edited on the same form, and travels with it", async () => {
+  const { w, posts } = await withAutomations({ automations: [] });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Quote reply";
+  await w.ev("agentAutoInputAdd()");
+  await w.ev("agentAutoInputAdd()");
+  let html = w.s.document.getElementById("viewAgents").innerHTML;
+  const rows = [...html.matchAll(/data-input-row="(\d+)"/g)].map((m) => Number(m[1]));
+  assert.deepEqual(rows, [0, 1], "the form drew a different number of things to ask for");
+  // THE BOXES ARE READ BACK BY THEIR OWN HOOK, the same way a step's are — so a redraw
+  // between typing and saving cannot lose them.
+  const inputEls = [0, 1].map((i) => {
+    const chunk = html.split(`data-input-row="${i}"`)[1].split("data-input-row=")[0];
+    return [...chunk.matchAll(/data-in="([a-z]+)"/g)].map((m) => m[1]);
+  });
+  for (const got of inputEls) {
+    for (const want of ["name", "label", "default", "required"]) assert.ok(got.includes(want), `${want} has no control`);
+  }
+  // FILL THE FIRST IN AND TAKE THE SECOND OUT, which is the ordinary thing somebody does.
+  w.ev(`agentAutoDraft = { ...agentAutoDraft, inputs: [
+    { name: "topic", label: "What it is about", required: true, default: "" },
+    { name: "spare", label: "", required: false, default: "" },
+  ] };`);
+  await w.ev("agentAutoInputDrop(1)");
+  assert.deepEqual(w.val("agentAutoDraft").inputs.map((d) => d.name), ["topic"]);
+  await w.ev("agentAutoSave()");
+  const sent = posts.find((x) => x.path === "/api/agent/automation-create");
+  assert.deepEqual(sent.body.inputs, [{ name: "topic", label: "What it is about", required: true, default: "" }]);
+});
+
+test("⚠ Run now ASKS for what the automation asks for, and sends what was typed", async () => {
+  // AND THE DEFAULTS ARE WHAT THE BOXES START WITH, so pressing Run twice is the same press
+  // rather than a form to fill in again from nothing.
+  const asking = {
+    ...ONE, steps: [{ id: "s1", type: "note", text: "about {{topic}}" }],
+    inputs: [{ name: "topic", label: "What it is about", required: true, default: "boiler service" }],
+  };
+  const { w, posts } = await withAutomations({ automations: [asking] });
+  await w.ev('agentAutoRunPress("AU1")');
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /What it is about/, "the form does not say what it is asking for");
+  assert.match(html, /data-ask="topic"/, "there is no box to answer it in");
+  assert.match(html, /value="boiler service"/, "the default is not in the box");
+  assert.equal(posts.filter((x) => x.path === "/api/agent/automation-run").length, 0,
+    "it ran before anybody answered");
+
+  // ANSWER IT AND GO. The box is read by its own hook, off the element the form drew.
+  w.ev(`agentAutoAsk = { ...agentAutoAsk, values: { topic: "gutter clean" } };`);
+  await w.ev("agentAutoAskGo()"); await settle();
+  const ran = posts.find((x) => x.path === "/api/agent/automation-run");
+  assert.deepEqual(ran.body, { id: "AU1", input: { topic: "gutter clean" } });
+  assert.equal(w.val("agentAutoAsk"), null, "the form stayed open over a run that started");
+
+  // AND CANCELLING RUNS NOTHING — the one thing a dialog must be able to do.
+  await w.ev('agentAutoRunPress("AU1")');
+  await w.ev("agentAutoAskCancel()");
+  assert.equal(w.val("agentAutoAsk"), null);
+  assert.equal(posts.filter((x) => x.path === "/api/agent/automation-run").length, 1);
+
+  // AN AUTOMATION THAT ASKS FOR NOTHING STILL RUNS ON ONE PRESS, which is the control that
+  // makes the dialog about the inputs rather than about pressing Run.
+  const { w: w2, posts: p2 } = await withAutomations({ automations: [{ ...ONE, inputs: [] }] });
+  await w2.ev('agentAutoRunPress("AU1")'); await settle();
+  assert.equal(w2.val("agentAutoAsk"), null);
+  assert.equal(p2.filter((x) => x.path === "/api/agent/automation-run").length, 1);
+});
+
+test("⚠ a WAITING execution offers the one thing that helps, and says what is being asked", async () => {
+  const waiting = {
+    id: "R9", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    position: 7, values: { draft: "Dear customer" }, input: { topic: "boiler service" },
+    waiting: { kind: "approval", step: "s8", ask: "Send this to the customer?", onTimeout: "reject", until: "2026-09-18T09:00:00Z" },
+    outcomes: [], steps: [], decisions: {},
+  };
+  const { w, posts } = await withAutomations({
+    automations: [ONE],
+    history: [waiting],
+  });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Send this to the customer\?/, "it does not say what is being approved");
+  assert.match(html, /agent-auto-approve/, "there is nothing to approve with");
+  assert.match(html, /agent-auto-reject/, "there is nothing to reject with");
+  // ⚠ AND WHAT HAPPENS IF NOBODY ANSWERS, because that is the part somebody cannot guess.
+  assert.match(html, /if nobody answers/i);
+
+  // A NOTE IS KEPT PER EXECUTION, so typing under one waiting run cannot reach another.
+  w.ev(`agentAutoNotes.set("R9", " prices look right ");`);
+  await w.ev('agentAutoDecide("R9", "approved")'); await settle();
+  const sent = posts.find((x) => x.path === "/api/agent/automation-approve");
+  assert.deepEqual(sent.body, { run: "R9", step: "s8", verdict: "approved", note: "prices look right" });
+});
+
+test("⚠ a decision that FAILS keeps the words, and a refused one says what to do", async () => {
+  const waiting = {
+    id: "R9", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    waiting: { kind: "approval", step: "s8", ask: "Send it?", onTimeout: "reject", until: null },
+    values: {}, input: {}, outcomes: [], steps: [], decisions: {},
+  };
+  // THE NOTE IS SOMEBODY'S OWN WRITING. A failure redraws the panel to show a sentence, and
+  // a redraw that dropped the note would take it with it.
+  const { w } = await withAutomations({
+    automations: [ONE], history: [waiting],
+    fail: { "/api/agent/automation-approve": "that run isn’t waiting to be approved just now" },
+  });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  w.ev(`agentAutoNotes.set("R9", "keep me");`);
+  await w.ev('agentAutoDecide("R9", "approved")'); await settle();
+  // A `Map` DOES NOT SURVIVE `JSON.stringify`, so it is asked for the one value rather than
+  // carried across the boundary — the recorded reason `val` round-trips JSON at all.
+  assert.equal(w.val('agentAutoNotes.get("R9")'), "keep me", "a failed decision threw the note away");
+  assert.match(w.val("agentAutoActErr"), /waiting to be approved/, "the refusal was not said");
+
+  // AND A RUN THAT IS NO LONGER WAITING IS REFUSED HERE, before a request: the step comes
+  // off the row, so with nothing to answer there is nothing to send.
+  w.ev(`agentAutoRuns = [{ id: "R9", state: "done", waiting: null }];`);
+  await w.ev('agentAutoDecide("R9", "approved")');
+  assert.match(w.val("agentAutoActErr"), /isn’t waiting/);
+});
+
+test("the history says which branch ran, what it is waiting for, and what it saved", async () => {
+  // THE THREE THINGS THE MILESTONE ASKS A HISTORY TO SHOW, in one execution's own row.
+  const done = {
+    id: "R1", automationId: "AU1", trigger: "manual", state: "done", at: "2026-09-17T09:00:00Z",
+    finishedAt: "2026-09-17T09:01:00Z", result: "SENT: Dear customer",
+    position: 9, values: { draft: "Dear customer", facts: "Price list: £95" }, input: { topic: "boiler service" },
+    waiting: null, decisions: { s8: { verdict: "approved", note: "fine", by: "u1" } },
+    steps: [
+      { id: "s1", type: "knowledge", query: "{{topic}}", out: "facts" },
+      { id: "s2", type: "if", left: "{{tone}}", op: "is", right: "formal" },
+      { id: "s3", type: "note", text: "Dear customer" },
+      { id: "s4", type: "otherwise" },
+      { id: "s5", type: "note", text: "Hi!" },
+      { id: "s6", type: "end" },
+    ],
+    outcomes: [
+      { id: "s1", outcome: "ran", why: "searched and found 1 passage", sources: [{ title: "Price list", version: 2 }] },
+      { id: "s2", outcome: "ran", took: "first", why: "it matched" },
+      { id: "s3", outcome: "ran", result: "Dear customer" },
+      { id: "s4", outcome: "skipped", why: "the steps under \"If\" ran, so this arm didn't" },
+      { id: "s5", outcome: "skipped", why: "the steps under \"If\" ran, so this arm didn't" },
+      { id: "s6", outcome: "ran", why: "both arms rejoin here" },
+    ],
+  };
+  const { w } = await withAutomations({ automations: [ONE], history: [done] });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  // ⚠ WHICH ARM RAN, AS WORDS A PERSON READS. An `if` is always `ran` — it did its job,
+  // which was to choose — so without this the history shows two identical-looking branch
+  // rows and leaves somebody to work it out from which steps below were skipped.
+  assert.match(html, /first arm/, "the branch does not say which arm it took");
+  // WHERE AN ANSWER CAME FROM, with its version — an excerpt with no source is an assertion
+  // nobody can check.
+  assert.match(html, /Price list/);
+  assert.match(html, /v2|version 2/i, "the source's version is not shown");
+  // AND A SKIP READS AS A SKIP, never as a failure: nothing went wrong on that arm.
+  assert.match(html, /didn/, "the skipped arm does not say why");
+  assert.match(html, /SENT: Dear customer/, "what it saved is not shown");
+});
+
+test("⚠ EVERY HOOK THE MARKUP DECLARES IS BOUND TO SOMETHING — the census that was missing", () => {
+  // ⚠ **THIS IS THE GUARD THE DEAD `agent-auto-step-field` HOOK NEEDED, and no case
+  // anywhere was it.** The agent screen's markup declares its behaviour by name
+  // (`data-act`, `data-change`, `data-input`, `data-keydown`) and four tables answer those
+  // names; a name in the markup with no entry is a control that ANSWERS and is discarded —
+  // the worst shape this repository records, because from outside it is indistinguishable
+  // from the feature not working and there is nothing to read in the console.
+  //
+  // MEASURED before the fix: `agent-auto-step-field` occurred ONCE in the file, in the
+  // markup, and never in `CHANGE_ACTIONS` — so picking "until a time" on a wait changed the
+  // select, redrew nothing, and the save was refused naming a box that was not on screen.
+  //
+  // A CENSUS OVER THE SOURCE rather than over a rendered page, because a hook only
+  // reachable from a state no fixture happens to draw is exactly the one that rots.
+  // ⚠ **THE PAIRING IS DERIVED FROM THE `bind(...)` CALLS, never listed here.** Those calls
+  // are the one place the page really says which attribute is answered by which table, so a
+  // fifth attribute added next month is covered by existing — and a hand-kept list would go
+  // stale in the direction that reports nothing, which is the failure this census is for.
+  const tables = Object.fromEntries([...CHAT.matchAll(/bind\('(data-[a-z]+)',\s*'[a-z]+',\s*([A-Z_]+)\)/g)]
+    .map((m) => [m[1], m[2]]));
+  assert.ok(Object.keys(tables).length >= 4, `the bind census read ${Object.keys(tables).length} tables`);
+  // The tables' own keys, read as declared — each is an object literal of `'name': fn`.
+  const keysOf = (name) => {
+    const at = CHAT.indexOf(`const ${name} = {`);
+    assert.ok(at > 0, `${name} is not declared in chat.js — retarget this census`);
+    // TO ITS OWN CLOSING BRACE, found at column zero, because the bodies contain braces.
+    const end = CHAT.indexOf("\n};", at);
+    assert.ok(end > at, `${name}'s closing brace moved`);
+    return new Set([...CHAT.slice(at, end).matchAll(/^\s{2}'([a-z0-9-]+)':/gm)].map((m) => m[1]));
+  };
+  // ⚠ **SCOPED TO THE `agent-` FAMILY, AND THE REASON IS MEASURED RATHER THAN ASSUMED.**
+  // `data-act` is answered by TWO dispatchers in this file: these tables, and the site
+  // builder's own delegated handler, which reads `b.dataset.act` directly (`data-act="data"`
+  // is that one's, handled and not dead). So "every name is in the table" is false for the
+  // site builder's half and true for this screen's, and a census that claimed the wider
+  // thing would be red about correct code. This screen owns every `agent-` name, which is
+  // exactly the family this milestone added nineteen hooks to.
+  let checked = 0;
+  for (const [attr, table] of Object.entries(tables)) {
+    const declared = [...CHAT.matchAll(new RegExp(`${attr}="(agent-[a-z0-9-]+)"`, "g"))].map((m) => m[1]);
+    if (!declared.length) continue;          // an attribute this screen does not use
+    const bound = keysOf(table);
+    assert.ok(bound.size >= 1, `${table} answers nothing`);
+    for (const name of new Set(declared)) {
+      assert.ok(bound.has(name), `the markup declares ${attr}="${name}" and ${table} has no entry for it`);
+      checked++;
+    }
+  }
+  // THE OBSERVER, PROVED ALIVE: it really read the hooks, including the one this is about.
+  assert.ok(checked >= 30, `the census only looked at ${checked} hooks`);
+  assert.ok(CHAT.includes('data-change="agent-auto-step-field"'), "the hook this census exists for is gone");
 });

@@ -17,6 +17,12 @@ import {
   AUTOMATION_STEPS, AUTOMATION_STEP_TYPES, AUTOMATION_DAYS, AUTOMATION_SCHEDULES,
   AUTOMATION_STATES, MAX_AUTOMATIONS, MAX_AUTOMATION_STEPS, MAX_STEP_NOTE, MAX_EXECUTIONS,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
+  // ── the workflow half: references, branches and what a run is asked for ────
+  refsInText, branchShape, cleanInputs, cleanRunInput,
+  MAX_AUTOMATION_INPUTS, INPUT_VALUE_MAX, MAX_APPROVAL_HOURS, MAX_WAIT_MINUTES,
+  // ── reference material and memory ──────────────────────────────────────────
+  knowledgeRow, memoryRow, MAX_KNOWLEDGE, KNOWLEDGE_BODY_MAX, KNOWLEDGE_FORMATS,
+  MAX_MEMORIES, MEMORY_VALUE_MAX, MEMORY_SOURCES,
 } from "../agent-store.mjs";
 
 const SRC = fs.readFileSync(path.join(import.meta.dirname, "..", "agent-store.mjs"), "utf8");
@@ -48,6 +54,10 @@ function fakeStore(over = {}) {
     readAutomation: of("readAutomation", { id: C1, agentId: A1, name: "n", inputs: [], steps: [] }),
     decideApproval: of("decideApproval", { ok: true, repeat: false, verdict: "approved", step: "s1", queued: "queued" }),
     listKnowledge: of("listKnowledge", []),
+    // ⚠ AS CAPABLE AS THE REAL STORE, AGAIN. `readKnowledge` is what a `source=` read asks
+    // for — the one read that carries a document's material — and a fake without it throws
+    // where the route is correct, which reads from outside as the feature being broken.
+    readKnowledge: of("readKnowledge", { id: K1, title: "Price list", version: 1, body: "£95" }),
     countKnowledge: of("countKnowledge", 0),
     addKnowledge: of("addKnowledge", { source: { id: K1, title: "Price list", version: 1 } }),
     updateKnowledge: of("updateKnowledge", { id: K1, title: "Price list", version: 2 }),
@@ -480,5 +490,497 @@ test("no automation route reads an account off the body or the query", () => {
   // THE OBSERVER, PROVED ALIVE: it can see the reads the block really makes.
   for (const seen of ["id", "agent", "enabled", "verdict", "title", "key"]) {
     assert.ok(reads.includes(seen), `the scan missed b.${seen}`);
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// RICHER WORKFLOWS: named inputs, references, branches, waits and approvals
+// ════════════════════════════════════════════════════════════════════════════
+
+test("⚠ a {{reference}} may only name something that EXISTS BY THEN", () => {
+  // THE WHOLE POINT OF CHECKING IT AT SAVE TIME: a name nothing produces is a sentence on
+  // somebody's form, where it can be fixed, rather than an execution that fails days later
+  // having already charged for the steps above it.
+  const ins = ["topic"];
+  const good = cleanWorkflow([
+    { type: "knowledge", query: "{{topic}}", out: "facts" },
+    { type: "note", text: "about {{topic}}: {{facts}}" },
+  ], AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, ins);
+  assert.equal(good.error, undefined, good.error);
+  // AND THE ANSWER SAYS WHAT IS AVAILABLE, so the form can offer it rather than guess.
+  assert.deepEqual(good.produces, ["topic", "facts"]);
+
+  const typo = cleanWorkflow([{ type: "note", text: "about {{topik}}" }], AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, ins);
+  assert.match(typo.error, /step 1/);
+  assert.match(typo.error, /"topik"/);
+
+  // ⚠ A FORWARD REFERENCE IS REFUSED TOO, and for the same reason rather than a different
+  // one: at the moment step 1 runs, nothing has produced `later`.
+  const forward = cleanWorkflow([
+    { type: "note", text: "{{later}}" },
+    { type: "note", text: "hello", out: "later" },
+  ], AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, ins);
+  assert.match(forward.error, /step 1/);
+  assert.match(forward.error, /"later"/);
+
+  // AND A STEP CANNOT NAME ITS OWN ANSWER — the `out` is added after its own refs are read.
+  const itself = cleanWorkflow([{ type: "note", text: "{{mine}}", out: "mine" }], AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, ins);
+  assert.match(itself.error, /"mine"/);
+});
+
+test("a malformed reference is LEFT ALONE, and only a well-formed one is checked", () => {
+  // Somebody has to be able to write about braces. `{{ }}` and `{{Topic}}` match the
+  // braces and not the name rule, so they are text — where refusing them would make the
+  // literal characters unwritable, and reading them as names would refuse a sentence.
+  assert.deepEqual(refsInText("{{topic}} and {{ facts }}"), ["topic", "facts"]);
+  assert.deepEqual(refsInText("{{ }} {{Topic}} {{a-b}} {{1st}}"), []);
+  assert.deepEqual(refsInText("{{topic}} {{topic}}"), ["topic"], "a name is listed once");
+  for (const junk of [null, undefined, 42, ["{{topic}}"], { t: 1 }]) {
+    assert.deepEqual(refsInText(junk), [], `refsInText coerced ${JSON.stringify(junk)}`);
+  }
+  const ok = cleanWorkflow([{ type: "note", text: "type {{ }} for a blank" }], AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, []);
+  assert.equal(ok.error, undefined, ok.error);
+});
+
+test("⚠ the branches have to balance, and the refusal says WHICH step", () => {
+  const IF = { type: "if", left: "x", op: "is empty" };
+  // THE SAME ALGORITHM THE ENGINE RUNS, driven over the shapes a form can really produce.
+  assert.deepEqual(branchShape([IF, { type: "note", text: "a" }, { type: "end" }]), { ok: true });
+  assert.deepEqual(branchShape([IF, { type: "otherwise" }, { type: "end" }]), { ok: true });
+  // NESTED, because depth is what the algorithm is about and one level would not show it.
+  assert.deepEqual(branchShape([IF, IF, { type: "end" }, { type: "otherwise" }, { type: "end" }]), { ok: true });
+  assert.deepEqual(branchShape([]), { ok: true }, "a workflow with no branch balances");
+
+  // ⚠ BY POSITION, NEVER "SOMETHING IS WRONG": the step number is the only part of this a
+  // person can act on, and it is the OPENING `if` that is named for an unclosed branch —
+  // the end of the list is where the problem shows and not where it is.
+  assert.match(branchShape([{ type: "note", text: "a" }, IF]).error, /step 2/);
+  assert.match(branchShape([{ type: "otherwise" }]).error, /step 1/);
+  assert.match(branchShape([{ type: "end" }]).error, /step 1/);
+  assert.match(branchShape([IF, { type: "otherwise" }, { type: "otherwise" }, { type: "end" }]).error, /step 3/);
+  // AND IT IS REFUSED BY `cleanWorkflow` ITSELF, not only by the helper — the structural
+  // rule is the one thing in there that is not about a single step, so a version that read
+  // every step correctly and never asked this would store a workflow nobody wrote.
+  assert.match(cleanWorkflow([IF]).error, /step 1/);
+});
+
+test("⚠ a field that does not apply is not read and is not STORED", () => {
+  // `when` is what decides, and the stakes are a value nothing will ever read being drawn
+  // back into the form as though it mattered. A wait FOR a while has minutes; a wait UNTIL
+  // a time has a time; neither carries the other's answer even when the caller sends both.
+  const forAwhile = cleanWorkflow([{ type: "wait", mode: "for", minutes: 30, at: "09:00" }]);
+  assert.equal(forAwhile.error, undefined, forAwhile.error);
+  assert.deepEqual(forAwhile.steps[0], { id: "s1", type: "wait", mode: "for", minutes: 30 });
+
+  const untilThen = cleanWorkflow([{ type: "wait", mode: "until", at: "09:00", minutes: 30 }]);
+  assert.deepEqual(untilThen.steps[0], { id: "s1", type: "wait", mode: "until", at: "09:00" });
+
+  // AND THE FIELD THAT DOES APPLY IS STILL REQUIRED: a wait with no answer at all is a
+  // step that would never end, so it is refused rather than defaulted.
+  assert.match(cleanWorkflow([{ type: "wait", mode: "until" }]).error, /step 1/);
+});
+
+test("every step field is REFUSED rather than coerced, one kind at a time", () => {
+  // `String(["mon"])` is `"mon"` and `Boolean("false")` is `true`, so a coercing reader
+  // stores a nested list as a day and a string as a yes. Each kind asks the type first.
+  const cases = [
+    [{ type: "approval", ask: ["yes"], hours: 1, on_timeout: "reject" }, /didn't arrive as text/],
+    [{ type: "approval", ask: "ok?", hours: "24", on_timeout: "reject" }, /whole number/],
+    [{ type: "approval", ask: "ok?", hours: 1.5, on_timeout: "reject" }, /whole number/],
+    [{ type: "approval", ask: "ok?", hours: 0, on_timeout: "reject" }, /between/],
+    [{ type: "approval", ask: "ok?", hours: MAX_APPROVAL_HOURS + 1, on_timeout: "reject" }, /between/],
+    [{ type: "approval", ask: "ok?", hours: 1, on_timeout: "maybe" }, /one of/],
+    [{ type: "wait", mode: "until", at: "9am" }, /24-hour clock/],
+    [{ type: "wait", mode: "until", at: "24:00" }, /24-hour clock/],
+    [{ type: "wait", mode: "for", minutes: MAX_WAIT_MINUTES + 1 }, /between/],
+    [{ type: "memory", key: "a-b", out: "t" }, /can't be a name/],
+    [{ type: "memory", key: "tone" }, /the name for this step's answer/],
+    // ⚠ AND THE REFUSAL NAMES IT AS THE FORM DOES. `out` is the one field whose KEY is not
+    // a word on anybody's screen, so it carries its own `says`; every other field's name is
+    // already the label, which is why this is a field's own word and not a table of labels.
+    [{ type: "knowledge", query: "x" }, /the name for this step's answer/],
+    [{ type: "weekday", days: [["mon"]] }, /didn't arrive as a day/],
+    [{ type: "weekday", days: [] }, /at least one day/],
+    [{ type: "note", text: "x", out: "my draft" }, /can't be a name/],
+  ];
+  for (const [step, words] of cases) {
+    const r = cleanWorkflow([step]);
+    assert.match(r.error ?? "(accepted)", words, JSON.stringify(step));
+  }
+  // ⚠ AND A NAME IS FOLDED RATHER THAN REFUSED, which is the opposite direction and is
+  // what makes the rows above about the GRAMMAR. This guard's first draft expected `Tone`
+  // to be turned away; it is stored as `tone`, the same fold `cleanInputs` and the memory
+  // route apply — so `{{Tone}}` and `{{tone}}` cannot become two different values.
+  const folded = cleanWorkflow([{ type: "memory", key: " Tone ", out: " Draft2 " }]);
+  assert.equal(folded.error, undefined, folded.error);
+  assert.deepEqual(folded.steps[0], { id: "s1", type: "memory", key: "tone", out: "draft2" });
+
+  // AND AN HOUR AT EACH BOUND IS ACCEPTED, so the refusals above are about the type and
+  // the range rather than about the field being unusable.
+  for (const hours of [1, MAX_APPROVAL_HOURS]) {
+    const r = cleanWorkflow([{ type: "approval", ask: "ok?", hours, on_timeout: "approve" }]);
+    assert.equal(r.error, undefined, `${hours} hours: ${r.error}`);
+  }
+});
+
+test("what an automation ASKS FOR is a declaration, and the name follows the one rule", () => {
+  const good = cleanInputs([{ name: "Topic ", label: " What it is about ", required: true }]);
+  assert.deepEqual(good.inputs, [{ name: "topic", label: "What it is about", required: true, default: "" }]);
+  // THE LABEL FALLS BACK TO THE NAME rather than to nothing: a box with no label beside it
+  // is a box nobody can answer.
+  assert.equal(cleanInputs([{ name: "topic" }]).inputs[0].label, "topic");
+  assert.deepEqual(cleanInputs(undefined).inputs, [], "no inputs is a real answer");
+  assert.match(cleanInputs([{ name: "a-b" }]).error, /can't be a name/);
+  assert.match(cleanInputs([{ name: "" }]).error, /give it a name/);
+  // TWO OF ONE NAME IS A REFERENCE NOBODY CAN RESOLVE — which of them?
+  assert.match(cleanInputs([{ name: "topic" }, { name: "TOPIC" }]).error, /already something called/);
+  // REFUSED, NEVER COERCED: `Boolean("false")` is true, so a coerced flag makes everything
+  // required and the form starts refusing answers nobody has to give.
+  assert.match(cleanInputs([{ name: "topic", required: "false" }]).error, /yes or no/);
+  assert.match(cleanInputs("topic").error, /as a list/);
+  assert.match(cleanInputs(Array.from({ length: MAX_AUTOMATION_INPUTS + 1 }, (_, i) => ({ name: `a${i}` }))).error,
+    new RegExp(`${MAX_AUTOMATION_INPUTS}`));
+});
+
+test("⚠ the answers to a run are checked against the declaration, and a stray one is NAMED", () => {
+  const decl = cleanInputs([{ name: "topic", label: "What it is about", required: true }]).inputs;
+  assert.deepEqual(cleanRunInput({ topic: "boiler" }, decl).input, { topic: "boiler" });
+  // NAMED, NEVER DROPPED. A filter on somebody's input is silent; a check is the only thing
+  // that tells them the box they filled in went nowhere.
+  assert.match(cleanRunInput({ nonsense: "x" }, decl).error, /"nonsense"/);
+  assert.match(cleanRunInput({ topic: 7 }, decl).error, /as text/);
+  assert.match(cleanRunInput({}, decl).error, /What it is about/);
+  assert.match(cleanRunInput({ topic: "   " }, decl).error, /What it is about/, "blank is not an answer");
+  // A DEFAULT SATISFIES A REQUIRED INPUT, which is what a default is for.
+  const withDefault = cleanInputs([{ name: "topic", required: true, default: "anything" }]).inputs;
+  assert.deepEqual(cleanRunInput({}, withDefault).input, {}, "the transaction fills it in, not this");
+  assert.equal(cleanRunInput({}, withDefault).error, undefined);
+  assert.match(cleanRunInput({ topic: "x".repeat(INPUT_VALUE_MAX + 1) }, decl).error, new RegExp(`${INPUT_VALUE_MAX}`));
+  assert.match(cleanRunInput(["boiler"], decl).error, /as an object/);
+});
+
+test("the catalog carries every step the engine has, and a `when` names a real sibling", () => {
+  // THE CENSUS THAT MAKES THIS A COPY RATHER THAN A SECOND OPINION lives in
+  // `test/agent-send.test.mjs`, the one file that may import both products. What is asked
+  // here is that the copy is internally honest, which that census cannot see.
+  assert.deepEqual(AUTOMATION_STEP_TYPES, AUTOMATION_STEPS.map((s) => s.type));
+  assert.equal(new Set(AUTOMATION_STEP_TYPES).size, AUTOMATION_STEP_TYPES.length, "two steps of one type");
+  for (const s of AUTOMATION_STEPS) {
+    assert.ok(s.label && s.does, `${s.type} has no words for a person`);
+    assert.ok(Array.isArray(s.fields), `${s.type} has no field list`);
+    // A STEP WITH NO CONFIGURATION SAYS SO OUT LOUD, so an empty list is a decision rather
+    // than a field somebody forgot — which is what the form reads to draw a bare row.
+    if (!s.fields.length) assert.equal(s.configless, true, `${s.type} has no fields and does not say so`);
+    const names = new Set(s.fields.map((f) => f.name));
+    for (const f of s.fields) {
+      if (f.kind === "choice") assert.ok(f.options?.length >= 2, `${s.type}.${f.name} offers nothing to choose`);
+      if (!f.when) continue;
+      // ⚠ A CONDITION ON A FIELD NOBODY ANSWERS IS A FIELD THAT NEVER APPLIES — it would
+      // silently never be stored, which reads from outside exactly like a save that dropped it.
+      for (const [on, allowed] of Object.entries(f.when)) {
+        assert.ok(names.has(on), `${s.type}.${f.name} waits on ${on}, which is not one of its fields`);
+        const opts = s.fields.find((x) => x.name === on)?.options ?? [];
+        for (const v of allowed) assert.ok(opts.includes(v), `${s.type}.${f.name} waits on ${on}=${v}, which ${on} cannot be`);
+      }
+    }
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// WAITING, APPROVING, AND WHAT THE HISTORY SAYS
+// ════════════════════════════════════════════════════════════════════════════
+
+test("⚠ `waiting` is told from `queued` by the EXECUTION ROW, not by the run's status", () => {
+  // A suspended execution has a `started` entry and no `stopped` one, so the run says
+  // `running` — true, and useless. The difference between "about to be picked up" and
+  // "waiting until Tuesday" is the whole of what somebody looking at it needs.
+  const suspended = executionRow({
+    id: R1, run_status: "running", position: 7, vars: { draft: "Dear customer" },
+    waiting: { kind: "approval", step: "s8", ask: "Send this?", on_timeout: "reject" },
+    wait_until: "2026-09-18T09:00:00Z",
+  });
+  assert.equal(suspended.state, "waiting");
+  assert.deepEqual(suspended.waiting, {
+    kind: "approval", step: "s8", ask: "Send this?", onTimeout: "reject", until: "2026-09-18T09:00:00Z",
+  });
+  assert.equal(suspended.position, 7);
+  assert.deepEqual(suspended.values, { draft: "Dear customer" });
+  // THE SAME ROW WITH NOTHING TO WAIT FOR IS `queued`, which is the control that makes the
+  // line above about the pause rather than about the status.
+  assert.equal(executionRow({ id: R1, run_status: "running" }).state, "queued");
+
+  // ⚠ ONLY WHAT A SCREEN NEEDS: a field added to a stored pause must not reach a reader
+  // nobody has written, so the projection is a fixed shape rather than the whole object.
+  const extra = executionRow({ run_status: "running", waiting: { kind: "wait", step: "s2", secret: "x", mode: "for" } });
+  assert.ok(!JSON.stringify(extra.waiting).includes("secret"));
+  assert.equal(extra.waiting.kind, "wait");
+  // AND A PAUSE OF A KIND IT CANNOT READ IS A WAIT, never an approval: drawing an Approve
+  // button for something no decision will ever be read from is a dead control that answers.
+  assert.equal(executionRow({ run_status: "running", waiting: { kind: "nonsense", step: "s2" } }).waiting.kind, "wait");
+  assert.equal(executionRow({ run_status: "running", waiting: { kind: "approval", step: "s8", on_timeout: "maybe" } })
+    .waiting.onTimeout, null, "a timeout outcome this cannot read is not invented");
+});
+
+test("⚠ a REJECTED execution has a reason and deliberately NO result", () => {
+  const r = executionRow({
+    id: R1, run_status: "stopped",
+    run_stop: { reason: "rejected", why: "somebody said no: wrong customer", result: "SENT: ..." },
+  });
+  assert.equal(r.state, "rejected");
+  assert.match(r.why, /wrong customer/);
+  // THE ONE THAT MATTERS: carrying the last note forward would make a refusal read like a
+  // success in every reader that shows the result first.
+  assert.equal(r.result, null);
+  assert.equal(r.error, null);
+  // AND THE CONTROL — the same shape, approved, really does carry its result.
+  assert.equal(executionRow({ run_status: "stopped", run_stop: { reason: "done", result: "SENT: ..." } }).result, "SENT: ...");
+  // `rejected` and `waiting` are in the word list; `queued` and `waiting` may never be
+  // READ OUT of a stop, because a stopped run is not queued and is not waiting.
+  assert.ok(AUTOMATION_STATES.includes("rejected") && AUTOMATION_STATES.includes("waiting"));
+  for (const reason of ["queued", "waiting"]) {
+    assert.equal(executionRow({ run_status: "stopped", run_stop: { reason } }).state, "failed", reason);
+  }
+});
+
+test("an approval is answered by run AND step, and the two not-now refusals carry their own flag", async () => {
+  const f = fakeStore();
+  const good = await call("/api/agent/automation-approve", {
+    store: f.store, ring: async () => {}, body: { run: R1, step: "s8", verdict: "approved", note: " looks right " },
+  });
+  assert.equal(good.status, 200);
+  assert.equal(good.body.notified, true, "the doorbell is rung after the commit");
+  const sent = f.calls.find((c) => c.name === "decideApproval");
+  assert.equal(sent.args[0], T1);
+  assert.deepEqual(sent.args[1], { runId: R1, step: "s8", verdict: "approved", note: "looks right" });
+
+  // ⚠ TWO 409s, NEITHER A FAILURE AND NEITHER THE MISSING-RUN 404. The request was well
+  // formed and nothing is broken, so the flag is what lets a screen offer the one thing
+  // that helps rather than parsing our prose for it.
+  for (const [error, flag] of [["finished", "finished"], ["not-waiting", "notWaiting"]]) {
+    const g = fakeStore({ decideApproval: async () => ({ ok: false, error }) });
+    const r = await call("/api/agent/automation-approve", { store: g.store, body: { run: R1, step: "s8", verdict: "approved" } });
+    assert.equal(r.status, 409, error);
+    assert.equal(r.body[flag], true);
+    assert.equal(r.body.ok, undefined);
+  }
+  // AND ANOTHER ACCOUNT'S RUN IS THE ORDINARY 404 — not found, never forbidden.
+  const nope = fakeStore({ decideApproval: async () => ({ ok: false, error: "no-execution" }) });
+  const miss = await call("/api/agent/automation-approve", { store: nope.store, body: { run: R1, step: "s8", verdict: "approved" } });
+  assert.equal(miss.status, 404);
+
+  // A VERDICT THIS CANNOT READ IS REFUSED, never defaulted: "approved" as a default would
+  // send something nobody agreed to, and "rejected" would throw work away.
+  for (const body of [{ run: R1, step: "s8" }, { run: R1, step: "s8", verdict: "maybe" }, { run: R1, step: "s8", verdict: true }]) {
+    const h = fakeStore();
+    const r = await call("/api/agent/automation-approve", { store: h.store, body });
+    assert.equal(r.status, 400, JSON.stringify(body));
+    assert.equal(h.calls.length, 0, "a refused decision reached the database");
+  }
+  // AND A DECISION WITH NO STEP IS REFUSED: a run can be waiting at only one step, but
+  // answering "the one it is at" would be this side guessing at what somebody pressed.
+  const k = fakeStore();
+  assert.equal((await call("/api/agent/automation-approve", { store: k.store, body: { run: R1, verdict: "approved" } })).status, 400);
+  assert.equal(k.calls.length, 0);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// REFERENCE MATERIAL AND MEMORY
+// ════════════════════════════════════════════════════════════════════════════
+
+test("a source keeps its name and its version, and cannot-tell is not a claim", () => {
+  const k = knowledgeRow({ id: K1, title: "Price list", format: "markdown", version: 3, created_at: "a", updated_at: "b" });
+  assert.deepEqual(k, { id: K1, title: "Price list", format: "markdown", version: 3, at: "a", updatedAt: "b" });
+  // ⚠ THE VERSION IS WHAT A RUN QUOTES BACK, so a row whose version cannot be read says
+  // NOTHING rather than 1 — `null` is "we do not know" and 1 is an assertion.
+  assert.equal(knowledgeRow({ id: K1, version: "3" }).version, null);
+  assert.equal(knowledgeRow({ id: K1, version: 1.5 }).version, null);
+  // A FORMAT IT CANNOT READ IS `text`, which is the format that renders anything.
+  assert.equal(knowledgeRow({ format: "pdf" }).format, "text");
+  assert.equal(knowledgeRow(null).title, "");
+  // AND THE ROW CARRIES NO MATERIAL AT ALL: twenty sources at the body ceiling is four
+  // megabytes to draw a list of names, so the list and the document are two reads.
+  assert.ok(!Object.hasOwn(knowledgeRow({ id: K1, body: "secret" }), "body"));
+});
+
+test("a memory says where it came from and when it changed, and fails closed on both", () => {
+  const m = memoryRow({ id: M1, key: "tone", value: "formal", source: "run", version: 2, created_at: "a", updated_at: "b" });
+  assert.deepEqual(m, { id: M1, key: "tone", value: "formal", source: "run", version: 2, at: "a", updatedAt: "b" });
+  // AN UNREADABLE SOURCE IS `person`, the only thing anything can write today — reading it
+  // as anything else would invent a provenance for a fact somebody typed.
+  assert.equal(memoryRow({ source: "somewhere" }).source, "person");
+  assert.equal(memoryRow({ version: null }).version, null);
+  assert.equal(memoryRow(undefined).value, "");
+  // AND `run` IS IN THE LIST BEFORE ANYTHING WRITES IT, which is deliberate: extraction is
+  // deferred, and a column that cannot say where a fact came from is one nobody can correct.
+  assert.deepEqual(MEMORY_SOURCES, ["person", "run"]);
+});
+
+test("saving a source refuses by name, and its material keeps its own blank lines", async () => {
+  const f = fakeStore();
+  const r = await call("/api/agent/knowledge-save", {
+    store: f.store, body: { agent: A1, title: " Price list ", body: "\n\nline one\n\nline two\n\n" },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.saved, "added");
+  const put = f.calls.find((c) => c.name === "addKnowledge");
+  // THE BODY IS NOT `cleanText`'d: a document's own blank lines are part of it, and only
+  // the ends are trimmed. A collapsed document is one somebody has to write again.
+  assert.equal(put.args[1].body, "line one\n\nline two");
+  assert.equal(put.args[1].title, "Price list");
+  assert.equal(put.args[1].format, "text", "absent is text, and it is not guessed from the bytes");
+
+  for (const [body, words] of [
+    [{ agent: A1, body: "x" }, /give the source a name/],
+    [{ agent: A1, title: "T" }, /didn't arrive as text/],
+    [{ agent: A1, title: "T", body: ["x"] }, /didn't arrive as text/],
+    [{ agent: A1, title: "T", body: "   \n " }, /nothing in that source/],
+    [{ agent: A1, title: "T", body: "x", format: "pdf" }, /text or markdown/],
+    [{ agent: A1, title: "T", body: "x".repeat(KNOWLEDGE_BODY_MAX + 1) }, new RegExp(`${KNOWLEDGE_BODY_MAX}`)],
+    [{ title: "T", body: "x" }, /which agent/],
+  ]) {
+    const g = fakeStore();
+    const bad = await call("/api/agent/knowledge-save", { store: g.store, body });
+    assert.equal(bad.status, 400, JSON.stringify(body));
+    assert.ok(!g.calls.some((c) => c.name === "addKnowledge"), "a refused save reached the database");
+  }
+
+  // ⚠ AN ID MAKES IT AN EDIT, AND AN EDIT NEVER ASKS THE CEILING — correcting the
+  // twentieth source would otherwise be refused by the cap it is already inside.
+  const e = fakeStore();
+  const edit = await call("/api/agent/knowledge-save", { store: e.store, body: { id: K1, title: "T", body: "x" } });
+  assert.equal(edit.body.saved, "edited");
+  assert.ok(!e.calls.some((c) => c.name === "countKnowledge"));
+  assert.ok(!e.calls.some((c) => c.name === "addKnowledge"));
+
+  // A SECOND SOURCE OF ONE NAME IS A 409 THAT SAYS WHAT TO DO INSTEAD, because the point
+  // of the unique name is that a version keeps counting for the same document.
+  const dup = fakeStore({ addKnowledge: async () => ({ error: "duplicate" }) });
+  const clash = await call("/api/agent/knowledge-save", { store: dup.store, body: { agent: A1, title: "Price list", body: "x" } });
+  assert.equal(clash.status, 409);
+  assert.match(clash.body.error, /edit that one instead/);
+
+  // AND THE CEILING IS THE ROUTE'S, asked before anything is written.
+  const full = fakeStore({ countKnowledge: async () => MAX_KNOWLEDGE });
+  const over = await call("/api/agent/knowledge-save", { store: full.store, body: { agent: A1, title: "T", body: "x" } });
+  assert.equal(over.status, 409);
+  assert.match(over.body.error, new RegExp(`${MAX_KNOWLEDGE}`));
+});
+
+test("⚠ a memory is named `name` on the wire, never `key`, and the collision is the reason", () => {
+  // `/api/agent/import` reads `b.key` as the BROWSER's own record id, whose grammar is
+  // `String(Date.now()) + Math.random().toString(16)` — nothing like an identifier. Two
+  // routes reading `b.key` under two grammars is one census away from letting either shape
+  // through the other's door, so this one reads `b.name`.
+  const at = SRC.indexOf('if (path === "/api/agent/memory-save")');
+  const end = SRC.indexOf('if (path === "/api/agent/automation-history")', at);
+  assert.ok(at > 0 && end > at, "the memory block's landmarks moved");
+  // ⚠ THE COMMENTS ARE BLANKED FIRST, and this guard's first draft is why: the block's own
+  // prose EXPLAINS the collision by naming `b.key`, so the scan found the thing it forbids
+  // inside the sentence forbidding it. Length-preserving, so an offset stays an offset.
+  const block = SRC.slice(at, end).replace(/^(\s*)\/\/.*$/gm, (m, i) => i + " ".repeat(m.length - i.length));
+  assert.ok(block.includes("b.name"), "memory-save stopped reading the name off `name`");
+  assert.ok(!/\bb\.key\b/.test(block), "a memory route reads `b.key`, which import owns");
+  // THE OBSERVER, PROVED ALIVE: the blanking must not have erased the code it scans.
+  assert.ok(/b\.name/.test(block) && /store\.saveMemory/.test(block), "the blanking ate the block");
+});
+
+test("a memory is set by name, and the ceiling is asked only for a name it does not hold", async () => {
+  const f = fakeStore();
+  const r = await call("/api/agent/memory-save", { store: f.store, body: { agent: A1, name: " Tone ", value: "formal" } });
+  assert.equal(r.status, 200);
+  const put = f.calls.find((c) => c.name === "saveMemory");
+  assert.equal(put.args[1].key, "tone", "the name is folded, because a reference is folded");
+  assert.equal(put.args[1].value, "formal");
+
+  for (const body of [{ agent: A1, value: "x" }, { agent: A1, name: "a-b", value: "x" }, { agent: A1, name: "tone" },
+    { agent: A1, name: "tone", value: 7 }, { name: "tone", value: "x" },
+    { agent: A1, name: "tone", value: "x".repeat(MEMORY_VALUE_MAX + 1) }]) {
+    const g = fakeStore();
+    const bad = await call("/api/agent/memory-save", { store: g.store, body });
+    assert.equal(bad.status, 400, JSON.stringify(body));
+    assert.ok(!g.calls.some((c) => c.name === "saveMemory"), "a refused memory reached the database");
+  }
+
+  // ⚠ CORRECTING WHAT IS ALREADY THERE IS NEVER REFUSED BY THE CAP. At the ceiling, a new
+  // name is a 409 and an existing one still saves — which is the whole difference between
+  // a limit on how much is remembered and a limit on changing your mind.
+  const held = Array.from({ length: MAX_MEMORIES }, (_, i) => ({ key: `k${i}`, value: "v" }));
+  const full = fakeStore({ listMemory: async () => held });
+  const over = await call("/api/agent/memory-save", { store: full.store, body: { agent: A1, name: "brandnew", value: "x" } });
+  assert.equal(over.status, 409);
+  assert.match(over.body.error, new RegExp(`${MAX_MEMORIES}`));
+  const same = fakeStore({ listMemory: async () => held });
+  const again = await call("/api/agent/memory-save", { store: same.store, body: { agent: A1, name: "k0", value: "corrected" } });
+  assert.equal(again.status, 200, "a correction was refused by the cap it is already inside");
+
+  // AND A DELETE TAKES THE NAME AS THE IDENTITY, because that is what a step asks for.
+  const d = fakeStore();
+  const gone = await call("/api/agent/memory-delete", { store: d.store, body: { agent: A1, name: "Tone" } });
+  assert.deepEqual({ ...gone.body }, { ok: true, agent: A1, key: "tone" });
+  assert.deepEqual(d.calls.find((c) => c.name === "removeMemory").args, [T1, A1, "tone"]);
+  // A DELETE WITH NO AGENT IS REFUSED: the scope is (account, agent, name), and dropping
+  // the agent would delete one name across every agent the account has.
+  const e = fakeStore();
+  assert.equal((await call("/api/agent/memory-delete", { store: e.store, body: { name: "tone" } })).status, 400);
+  assert.equal(e.calls.length, 0);
+});
+
+test("one source whole is asked for BY NAME on the list route, and it is still scoped", async () => {
+  // ⚠ THE BASE FAKE, NOT AN OVERRIDE: an override here is a plain function that never
+  // reaches the recorder, so `calls` is empty and the assertion below reads as the route
+  // never having asked — a fixture quietly making a correct route look broken.
+  const f = fakeStore();
+  const one = await call("/api/agent/knowledge", { store: f.store, query: new URLSearchParams({ agent: A1, source: K1 }) });
+  assert.equal(one.status, 200);
+  assert.equal(one.body.sources.length, 1);
+  assert.equal(one.body.sources[0].body, "£95", "the document is what a `source=` read is for");
+  assert.deepEqual(f.calls.find((c) => c.name === "readKnowledge").args, [T1, K1]);
+
+  // THE LIST CARRIES THE BOUNDS WITH IT, so the form can say what it may accept rather
+  // than keeping a second copy of the numbers.
+  const g = fakeStore();
+  const list = await call("/api/agent/knowledge", { store: g.store, query: new URLSearchParams({ agent: A1 }) });
+  assert.equal(list.body.max, MAX_KNOWLEDGE);
+  assert.equal(list.body.bodyMax, KNOWLEDGE_BODY_MAX);
+  assert.deepEqual(list.body.formats, KNOWLEDGE_FORMATS);
+  const mem = await call("/api/agent/memory", { store: fakeStore().store, query: new URLSearchParams({ agent: A1 }) });
+  assert.equal(mem.body.max, MAX_MEMORIES);
+  assert.equal(mem.body.valueMax, MEMORY_VALUE_MAX);
+
+  // AND A SOURCE THAT IS NOT THIS ACCOUNT'S IS THE SAME 404 AS ONE THAT DOES NOT EXIST.
+  const nope = fakeStore({ readKnowledge: async () => null, removeKnowledge: async () => false });
+  assert.equal((await call("/api/agent/knowledge", {
+    store: nope.store, query: new URLSearchParams({ agent: A1, source: K1 }) })).status, 404);
+  assert.equal((await call("/api/agent/knowledge-delete", { store: nope.store, body: { id: K1 } })).status, 404);
+});
+
+test("every knowledge and memory route is scoped by the tenant, and none reads an account", async () => {
+  // THE SAME CENSUS THE AUTOMATION ROUTES GET, over the family that arrived with them: a
+  // route added here with no tenant fails by existing.
+  const paths = Object.keys(AGENT_ROUTES).filter((p) => /knowledge|memory/.test(p));
+  assert.equal(paths.length, 6, `the census is looking at ${paths.length} routes`);
+  for (const p of paths) {
+    const f = fakeStore();
+    const r = await call(p, {
+      store: f.store,
+      query: new URLSearchParams({ agent: A1 }),
+      body: { agent: A1, id: K1, title: "T", body: "x", name: "tone", value: "v" },
+    });
+    assert.equal(r.status, 200, `${p} answered ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(f.calls.some((c) => c.args.some((a) => a === T1)), `${p} never handed the tenant to the store`);
+    assert.ok(!JSON.stringify(f.calls).includes(T2), `${p} carried an account nobody sent`);
+  }
+  // AND EVERY ONE OF THEM GOES THROUGH THE OWNERSHIP GATE OR A SCOPED WRITE: an agent
+  // that is not ours is the 404 a missing one gets, on each door that takes an agent.
+  const notMine = fakeStore({ ownsAgent: async () => false });
+  for (const [p, opts] of [
+    ["/api/agent/knowledge", { query: new URLSearchParams({ agent: A1 }) }],
+    ["/api/agent/memory", { query: new URLSearchParams({ agent: A1 }) }],
+    ["/api/agent/knowledge-save", { body: { agent: A1, title: "T", body: "x" } }],
+    ["/api/agent/memory-save", { body: { agent: A1, name: "tone", value: "v" } }],
+  ]) {
+    const r = await call(p, { store: notMine.store, ...opts });
+    assert.equal(r.status, 404, p);
+    assert.match(r.body.error, /isn't here any more/);
   }
 });

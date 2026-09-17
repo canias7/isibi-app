@@ -29,6 +29,7 @@ const RN = at("runner.mjs");
 const ST = at("model-standin.mjs");
 const AU = at("automations.mjs");
 const AS = at("automation-store.mjs");
+const WR = at("workflow-refs.mjs");
 /**
  * THE TWO FILES OUTSIDE `src/` THAT DECIDE WHETHER A DEPLOYMENT CAN BE IDENTIFIED —
  * the workflow that mints the version id and the script that holds the Worker to it.
@@ -972,6 +973,129 @@ const spec = [
   m("worker: the runner is built with no automation executor", W,
     "    work, store, automations, send, agents: AGENTS, now,",
     "    work, store, send, agents: AGENTS, now,"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // workflow-refs.mjs — the `{{name}}` syntax, in the ONE place all three
+  // consumers read it from. A second copy is how a name that saves cleanly
+  // fails at run time for a reason nobody can see.
+  // ══════════════════════════════════════════════════════════════════════════
+  m("refs: a malformed reference is READ as a name, so `{{ }}` becomes a value", WR,
+    "    if (REF_NAME.test(name) && !out.includes(name)) out.push(name);",
+    "    if (!out.includes(name)) out.push(name);"),
+  m("refs: fillRefs asks TRUTHINESS, so an empty string reads as missing", WR,
+    "    if (!Object.hasOwn(bag, name)) {", "    if (!bag[name]) {"),
+  m("refs: fillRefs substitutes NOTHING for an unknown name instead of naming it", WR,
+    "      if (!missing.includes(name)) missing.push(name);\n      return whole;",
+    '      return "";'),
+  m("refs: fillRefs resolves an inherited property, so {{constructor}} is a value", WR,
+    "  const bag = values && typeof values === \"object\" && !Array.isArray(values) ? values : {};",
+    "  const bag = values && typeof values === \"object\" && !Array.isArray(values) ? values : Object.create({});"),
+  m("refs: valueText COERCES, so a list reads as its first element", WR,
+    '  if (typeof v === "string") return v;', "  if (v !== null && v !== undefined) return String(v);"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // automations.mjs — branches, waits, approvals, knowledge and memory
+  // ══════════════════════════════════════════════════════════════════════════
+  m("steps: a step with no fields need not say so, so an empty list is a typo", AU,
+    "  if (!fields.length && configless !== true) {", "  if (false) {"),
+  m("branch: `otherwise` is matched by POSITION rather than by depth", AU,
+    "      const top = open[open.length - 1];\n      if (!top) return { error: `step ${at}: \"Otherwise\" has no \"If\" above it` };",
+    "      const top = open[0];\n      if (!top) return { error: `step ${at}: \"Otherwise\" has no \"If\" above it` };"),
+  m("branch: an `if` with no `end` is accepted, so half a branch runs", AU,
+    "  if (open.length) {\n    return { error: `step ${open[open.length - 1].at + 1}: that \"If\" has no \"End of the if\" below it` };\n  }\n  return { map };",
+    "  return { map };"),
+  m("branch: the arm that was NOT taken is left with no outcome at all", AU,
+    '          skipRange(i + 1, target, "the comparison didn\'t hold, so this step was skipped");',
+    "          void target;"),
+  m("branch: an `if` that did not match is reported as FAILED, not as a choice", AU,
+    '        put(i, { outcome: "ran", took: met ? "first" : "otherwise", why:',
+    '        put(i, { outcome: met ? "ran" : "failed", took: met ? "first" : "otherwise", why:'),
+  m("resume: the stored position is ignored, so a resume runs the whole thing again", AU,
+    "  let i = Number.isInteger(opts.position) && opts.position > 0 ? opts.position : 0;",
+    "  let i = 0;"),
+  m("resume: the day is taken from the RESUME rather than from when it started", AU,
+    "  const asOf = typeof opts.startedAt === \"number\" && Number.isFinite(opts.startedAt) ? opts.startedAt : now;",
+    "  const asOf = now;"),
+  m("resume: a decision is matched by POSITION, so one pause's answer resumes another", AU,
+    "    const resume = pausedOn.step === id", "    const resume = pausedOn.step !== undefined"),
+  m("checkpoint: the clock is re-read per call, so a retry writes a SECOND journal entry", AU,
+    "        at: now,", "        at: Date.now(),"),
+  m("pause: the position ADVANCES past the step that is waiting", AU,
+    "        if (!(await checkpoint(waitingAt, waiting))) { waiting = null; break; }",
+    "        if (!(await checkpoint(waitingAt + 1, waiting))) { waiting = null; break; }"),
+  m("pause: a refused checkpoint carries on rather than stopping the worker", AU,
+    "    if (answer?.ok !== true) {\n      halted = isText(answer?.why) ? answer.why : \"the progress could not be recorded\";\n      return false;",
+    "    if (false) {\n      halted = isText(answer?.why) ? answer.why : \"the progress could not be recorded\";\n      return false;"),
+  m("approval: the timeout outcome is ignored and silence always rejects", AU,
+    '    if (config.on_timeout === "approve") {', "    if (false) {"),
+  m("approval: it carries on BEFORE its deadline, so a spurious delivery decides it", AU,
+    "    if (ctx.now < until) return { waiting, why: `waiting to be approved: ${config.ask}` };",
+    "    if (false) return { waiting, why: `waiting to be approved: ${config.ask}` };"),
+  m("approval: an approval with no recorded deadline runs on rather than refusing", AU,
+    '      return { failed: "this approval has no deadline recorded, so it cannot be told whether it has run out of time" };',
+    "      return { done: true };"),
+  m("knowledge: a retriever that REFUSED BY NAME reads as having found nothing", AU,
+    "    if (isText(found?.error)) return { failed: found.error };",
+    "    if (false) return { failed: found.error };"),
+  m("knowledge: the excerpt travels without the source it came from", AU,
+    "      .map((e, i) => `${sources[i].title}: ${isText(e?.text) ? e.text.trim() : \"\"}`)",
+    "      .map((e) => (isText(e?.text) ? e.text.trim() : \"\"))"),
+  m("knowledge: a deployment with no retriever answers EMPTY instead of saying so", AU,
+    '      return { failed: "this deployment has no way to search reference material" };',
+    '      return { value: "", sources: [] };'),
+  m("memory: a fact nobody has saved yet is a FAILURE rather than an answer", AU,
+    '      return { value: "", note: `nothing is remembered under "${config.key}" yet`, sources: [] };',
+    '      return { failed: `nothing is remembered under "${config.key}"` };'),
+  m("memory: the snapshot is bypassed and the bag is read by truthiness", AU,
+    "    if (!Object.hasOwn(bag, config.key)) {", "    if (!bag[config.key]) {"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // automation-store.mjs — the seam between the executor and the transaction
+  // ══════════════════════════════════════════════════════════════════════════
+  m("store: a pause it cannot read becomes `{}`, which is a pause with no step", AS,
+    "        waiting: plainObject(row.waiting, null),", "        waiting: plainObject(row.waiting),"),
+  m("store: a timestamp it cannot read becomes NOW rather than nothing", AS,
+    "  return Number.isFinite(t) ? t : null;", "  return Number.isFinite(t) ? t : Date.now();"),
+  m("store: the pause is dropped on the way to the transaction, so nothing waits", AS,
+    "        p_waiting: waiting ?? null,", "        p_waiting: null,"),
+  m("store: the position is dropped from the advance, so a resume starts again", AS,
+    "        p_entry: entry, p_position: position,", "        p_entry: entry, p_position: 0,"),
+  m("store: an answer that is not an object is read as a success", AS,
+    '        throw new Error("advance_automation_run: no answer came back");',
+    "        return { ok: true };"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // runner.mjs — where an automation's own execution is driven
+  // ══════════════════════════════════════════════════════════════════════════
+  m("runner: an execution with NO AGENT searches nothing and reports 'found nothing'", RN,
+    "        if (!exec.agentId) {\n          return { error:",
+    "        if (false) {\n          return { error:"),
+  m("runner: the search is scoped to the agent and NOT to the account", RN,
+    "        return await automations.search({ tenant: claim.tenant, agentId: exec.agentId, query, limit });",
+    "        return await automations.search({ tenant: null, agentId: exec.agentId, query, limit });"),
+  m("runner: a refused checkpoint is read as a FAILURE rather than a lost claim", RN,
+    "      if (halted !== null) {\n        stopBeating();",
+    "      if (false) {\n        stopBeating();"),
+  m("runner: a WAITING execution is finished instead of left suspended", RN,
+    '      if (waiting) {\n        stopBeating();\n        onEvent({ at: "waiting", runId, why: "waiting", done: false, kind: waiting.kind, step: waiting.step });',
+    '      if (false) {\n        stopBeating();\n        onEvent({ at: "waiting", runId, why: "waiting", done: false, kind: waiting.kind, step: waiting.step });'),
+  m("runner: a pause keeps BEATING, so a released claim is still being renewed", RN,
+    '      if (waiting) {\n        stopBeating();', "      if (waiting) {\n        void 0;"),
+  m("runner: the execution's own snapshot is ignored and the LIVE workflow is run", RN,
+    "        steps: exec.steps,\n        zone: exec.zone,", "        steps: exec.live?.steps ?? exec.steps,\n        zone: exec.zone,"),
+  m("runner: the memory snapshot never reaches the executor", RN,
+    "        memory: exec.memory,\n        retrieve,", "        memory: {},\n        retrieve,"),
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // worker.mjs — the tick that releases waiting work
+  // ══════════════════════════════════════════════════════════════════════════
+  m("worker: the resume tick rings EVERY due row, including ones somebody holds", W,
+    '        if (action === "queued" && isText(runId)) {', "        if (isText(runId)) {"),
+  m("worker: the resume tick is unbounded, so one tick can wake everything at once", W,
+    "export const AUTOMATION_RESUME_LIMIT = 50;", "export const AUTOMATION_RESUME_LIMIT = 100000;"),
+  m("worker: a failed ring stops the whole tick rather than the one row", W,
+    '          catch (e) { console.error("agent-resume", JSON.stringify({ runId, ring: String(e?.message ?? e) })); }',
+    "          catch (e) { throw e; }"),
 
 ];
 

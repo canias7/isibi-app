@@ -12643,6 +12643,20 @@ const CHANGE_ACTIONS = {
   // the zone. Everything else in this form is read at Save — a redraw per keystroke is
   // the twitch the read-first door exists to remove.
   'agent-auto-sched': () => agentAutoStructural((draft) => draft),
+  // ⚠ **A STEP'S CHOICE REDRAWS TOO, AND WITHOUT THIS LINE IT WAS A DEAD CONTROL THAT
+  // ANSWERED.** The markup has carried `data-change="agent-auto-step-field"` since the
+  // choice fields were written and NOTHING WAS BOUND TO THAT NAME — measured, one
+  // occurrence in the file and none in this table — so picking "until a time" on a wait
+  // changed the select and redrew nothing: no time box appeared, Save then sent a `mode`
+  // with no `at`, and the server refused it naming a control that was not on the screen.
+  // Every field whose `when` names a choice is in this position, which is the wait's two
+  // and the comparison's third box.
+  //
+  // STRUCTURAL, because that is exactly what it is: which controls EXIST changes, so the
+  // read-first door has to run before the redraw or the answer just picked is read back off
+  // the older form. `agentAutoValues` reads the select itself, so nothing has to be passed
+  // in — the mutation is the identity and the generation bump is the whole of the work.
+  'agent-auto-step-field': () => agentAutoStructural((draft) => draft),
 };
 const INPUT_ACTIONS = {
   // TYPED WORDS ARE THE DRAFT, IMMEDIATELY — not on Send. A poll re-render reads the
