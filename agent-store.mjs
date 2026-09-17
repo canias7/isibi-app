@@ -1216,10 +1216,45 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
   if (v.length > max) return { error: `that's more steps than one automation can hold (${max})` };
   const byType = new Map(catalog.map((s) => [s.type, s]));
   const steps = [];
-  // WHAT A `{{reference}}` MAY NAME, GROWING AS IT GOES: the declared inputs, plus the
-  // `out` name of every EARLIER step. A forward reference is refused for the same reason a
-  // typo is — nothing produces it at the moment the step runs.
-  const produces = new Set((Array.isArray(inputs) ? inputs : []).filter((n) => typeof n === "string"));
+  // ⚠ WHAT A `{{reference}}` MAY NAME, ALONG THE PATH THAT REALLY REACHES IT — not a flat
+  // list of every `out` written above it. A forward reference is refused for the same
+  // reason a typo is (nothing produces it at the moment the step runs), and so is a value
+  // produced only inside a branch that might not run: the first draft of this collected
+  // every `out` into ONE set, so a name bound under `if` was "available" to the
+  // `otherwise` arm and to every step past the `end`. It saved cleanly and resolved to
+  // nothing at run time, on whichever path did not produce it.
+  //
+  // **A FRAME PER OPEN `if`, EACH ARM KEEPING ITS OWN ADDITIONS**, and only what BOTH arms
+  // produce survives the rejoin — which is the one set of names every path out of the
+  // branch really has. An `if` with no `otherwise` contributes nothing at all, because the
+  // empty arm is a real path through the workflow.
+  //
+  // ⚠ IT IS A DECLARED COPY of the engine's `readWorkflow`, for the reason every copy in
+  // this file is one: `worker.js`'s module graph is a container image input, so nothing
+  // here may import `agent-builder/`. `test/agent-send.test.mjs` is the one file that may
+  // load both, and it DRIVES the two over the same shapes and requires the same verdict —
+  // comparing behaviour rather than source, because these two are written differently and
+  // have to agree only about what they accept.
+  const outer = new Set((Array.isArray(inputs) ? inputs : []).filter((n) => typeof n === "string"));
+  /** `{before, first, other, inElse, hasElse}` — `first`/`other` are each arm's own. */
+  const frames = [];
+  const here = () => (frames.length ? frames[frames.length - 1] : null);
+  const visible = () => {
+    const f = here();
+    if (!f) return outer;
+    return new Set([...f.before, ...(f.inElse ? f.other : f.first)]);
+  };
+  const produce = (name) => {
+    const f = here();
+    if (!f) outer.add(name);
+    else (f.inElse ? f.other : f.first).add(name);
+  };
+  // ⚠ NAMES AN ARM PRODUCED THAT DID NOT SURVIVE ITS REJOIN, remembered for the SENTENCE
+  // and never for visibility — nothing below the `end` may name one. Without it the frame
+  // is gone by then, so the commonest shape of this mistake (bind under `if`, use after
+  // the branch) gets the one sentence that sends somebody hunting a misspelling that is
+  // not there.
+  const armOnly = new Set();
   for (let i = 0; i < v.length; i++) {
     const at = i + 1;
     const raw = v[i];
@@ -1241,16 +1276,45 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
       // that is a refusal; an optional one absent simply is not stored.
       if (got.value !== undefined) one[f.name] = got.value;
       if (f.refs === true && typeof got.value === "string") {
+        const canSee = visible();
         for (const name of refsInText(got.value)) {
-          if (!produces.has(name)) {
-            return { error: `step ${at}: nothing here produces a value called "${name}"` };
+          if (!canSee.has(name)) {
+            // ⚠ TWO REFUSALS, BECAUSE THEY NEED DIFFERENT THINGS DONE ABOUT THEM. A name
+            // nothing anywhere produces is a typo; a name produced on some OTHER path is a
+            // real value the customer can see on their own form, and telling them it does
+            // not exist would send them looking for a misspelling that is not there.
+            // The open frames cover a reference still INSIDE the branch; `armOnly` covers
+            // one below it. `here()` is itself in `frames`, so a third test for the arm
+            // being stood in would be dead code.
+            const onlyInAnArm = frames.some((fr) => fr.first.has(name) || fr.other.has(name))
+              || armOnly.has(name);
+            return { error: onlyInAnArm
+              ? `step ${at}: "${name}" is only produced inside a branch that might not run — produce it in both arms, or move the step that uses it inside`
+              : `step ${at}: nothing here produces a value called "${name}"` };
           }
         }
       }
     }
     // ITS OWN `out` IS ADDED AFTER ITS OWN REFERENCES ARE CHECKED, so a step cannot refer
     // to the answer it is about to produce.
-    if (typeof one.out === "string" && one.out) produces.add(one.out);
+    if (typeof one.out === "string" && one.out) produce(one.out);
+    // AND THE FRAMES FOLLOW THE BRANCH. The list is checked for balance below, so a stray
+    // `otherwise` or `end` here simply finds no frame and is left to that refusal.
+    if (def.type === "if") {
+      frames.push({ before: visible(), first: new Set(), other: new Set(), inElse: false, hasElse: false });
+    } else if (def.type === "otherwise") {
+      const f = here();
+      if (f) { f.inElse = true; f.hasElse = true; }
+    } else if (def.type === "end") {
+      const f = frames.pop();
+      // ONLY WHAT BOTH ARMS PRODUCE SURVIVES, and an `if` with no `otherwise` has an empty
+      // second arm, so nothing does.
+      if (f) {
+        const both = f.hasElse ? [...f.first].filter((x) => f.other.has(x)) : [];
+        for (const n of both) produce(n);
+        for (const n of [...f.first, ...f.other]) if (!both.includes(n)) armOnly.add(n);
+      }
+    }
     steps.push(one);
   }
   // ⚠ THE BRANCHES HAVE TO BALANCE, and this is the one structural rule that is not about
@@ -1259,7 +1323,7 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
   // can read is running a workflow nobody wrote.
   const shape = branchShape(steps);
   if (shape.error) return { error: shape.error };
-  return { steps, produces: [...produces] };
+  return { steps, produces: [...outer] };
 }
 
 /**

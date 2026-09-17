@@ -2432,7 +2432,7 @@ test("⚠ a decision that FAILS keeps the words, and a refused one says what to 
   };
   // THE NOTE IS SOMEBODY'S OWN WRITING. A failure redraws the panel to show a sentence, and
   // a redraw that dropped the note would take it with it.
-  const { w } = await withAutomations({
+  const { w, posts } = await withAutomations({
     automations: [ONE], history: [waiting],
     fail: { "/api/agent/automation-approve": "that run isn’t waiting to be approved just now" },
   });
@@ -2444,11 +2444,69 @@ test("⚠ a decision that FAILS keeps the words, and a refused one says what to 
   assert.equal(w.val('agentAutoNotes.get("R9")'), "keep me", "a failed decision threw the note away");
   assert.match(w.val("agentAutoActErr"), /waiting to be approved/, "the refusal was not said");
 
-  // AND A RUN THAT IS NO LONGER WAITING IS REFUSED HERE, before a request: the step comes
-  // off the row, so with nothing to answer there is nothing to send.
-  w.ev(`agentAutoRuns = [{ id: "R9", state: "done", waiting: null }];`);
-  await w.ev('agentAutoDecide("R9", "approved")');
+  // ⚠ AND A RUN THAT IS NO LONGER WAITING IS REFUSED HERE, BEFORE A REQUEST — asserted as
+  // "nothing was sent", never as the words. The first version of this matched the sentence,
+  // and the FIXTURE's own refusal says the same thing: so a screen that sent the request
+  // anyway and printed the server's answer passed it. Measured, by a sweep mutant that cut
+  // the local guard and survived. The step comes off the row; with nothing to answer there
+  // is nothing to send.
+  const before = posts.filter((x) => x.path === "/api/agent/automation-approve").length;
+  w.ev(`agentAutoRuns = [{ id: "R9", state: "done", waiting: null }]; agentAutoDeciding = "";`);
+  await w.ev('agentAutoDecide("R9", "approved")'); await settle();
+  assert.equal(posts.filter((x) => x.path === "/api/agent/automation-approve").length, before,
+    "a decision was sent for a run that is not waiting");
   assert.match(w.val("agentAutoActErr"), /isn’t waiting/);
+});
+
+test("⚠ a TIMED wait offers nothing to press — it resumes itself", async () => {
+  // A control that did nothing would be a dead control on the one screen that has to be
+  // trusted about what is happening, and no decision is ever read from a timed wait.
+  const ticking = {
+    id: "R6", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    waiting: { kind: "wait", step: "s2", ask: null, onTimeout: null, until: "2026-09-17T09:30:00Z" },
+    values: {}, input: {}, outcomes: [], steps: [], decisions: {},
+  };
+  const { w } = await withAutomations({ automations: [ONE], history: [ticking] });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Waiting, and carrying on by itself/, "it does not say it resumes itself");
+  assert.match(html, /Carries on/, "it does not say when");
+  assert.equal(/agent-auto-approve/.test(html), false, "a timed wait drew an Approve button");
+  assert.equal(/agent-auto-reject/.test(html), false, "a timed wait drew a Reject button");
+  assert.equal(/data-note="R6"/.test(html), false, "a timed wait drew a box for a reason nobody will read");
+  // THE CONTROL, in the same fixture shape: an APPROVAL really does draw all three.
+  const { w: w2 } = await withAutomations({
+    automations: [ONE],
+    history: [{ ...ticking, id: "R7", waiting: { kind: "approval", step: "s8", ask: "Send it?", onTimeout: "reject", until: null } }],
+  });
+  await w2.ev('agentAutoHistory("AU1")'); await settle();
+  const h2 = w2.s.document.getElementById("viewAgents").innerHTML;
+  for (const want of ["agent-auto-approve", "agent-auto-reject", 'data-note="R7"']) {
+    assert.ok(h2.includes(want), `the control is not drawing ${want} for an approval either`);
+  }
+});
+
+test("⚠ the approval note is read back on every redraw, so a poll cannot eat it", async () => {
+  // The history refreshes itself every 1.5 seconds while something is running, so a note
+  // being typed beside a waiting run would be wiped between keystrokes. `renderAgents` is
+  // the ONE door and it reads all four forms back before it draws.
+  const waiting = {
+    id: "R9", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    waiting: { kind: "approval", step: "s8", ask: "Send it?", onTimeout: "reject", until: null },
+    values: {}, input: {}, outcomes: [], steps: [], decisions: {},
+  };
+  const { w } = await withAutomations({ automations: [ONE], history: [waiting] });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  // TYPE INTO THE BOX THE SCREEN REALLY DREW, then make it redraw for an unrelated reason.
+  const box = w.s.document.getElementById("__note");
+  assert.ok(box, "the fake DOM has no note box");
+  box.setAttribute("data-note", "R9");
+  box.value = "half a sentence";
+  w.ev(`document.querySelectorAll = (sel) => (sel === "[data-note]" ? [document.getElementById("__note")] : []);`);
+  await w.ev("renderAgents()");
+  assert.equal(w.val('agentAutoNotes.get("R9")'), "half a sentence", "a redraw ate the note being typed");
+  // AND IT IS DRAWN BACK INTO THE BOX, which is the half a state assertion cannot see.
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /value="half a sentence"/);
 });
 
 test("the history says which branch ran, what it is waiting for, and what it saved", async () => {

@@ -673,6 +673,261 @@ test("⚠ a branch picks an arm, SAYS which, and skips the other with a reason",
   assert.equal(r.stop.result, "after", "an unmet `if` stopped the workflow instead of skipping its arm");
 });
 
+// ── milestone 2: the two findings from `6f72e31`, each reproduced before it was fixed ──
+
+test("⚠ RESTARTING AFTER A FALSE `if` KEEPS THE `otherwise` ARM — the decision is read from the RECORD", async () => {
+  // THE FINDING: `jumpedToElse` was a bare `new Set()`, so the decision to enter
+  // `otherwise` lived only in the process that made it. A restart at exactly the
+  // checkpoint that follows a false `if` arrived at the `otherwise` with an empty set,
+  // read it as "the first arm ran", SKIPPED the whole else arm and reported `done`.
+  // The customer's workflow silently ran neither arm.
+  const steps = readWorkflow([
+    { type: "if", left: "no", op: "is", right: "yes" },
+    { type: "note", text: "FIRST ARM", out: "draft" },
+    { type: "otherwise" },
+    { type: "note", text: "OTHERWISE ARM", out: "draft" },
+    { type: "end" },
+    { type: "note", text: "SENT: {{draft}}" },
+  ]).steps;
+
+  const whole = await runWorkflow({ steps, occurrence: WED });
+  assert.equal(whole.stop.result, "SENT: OTHERWISE ARM", "the uninterrupted run did not take the else arm");
+
+  // THE RESTART IS AT THE CHECKPOINT THE `if` ITSELF WRITES, which is the one instant
+  // the in-memory decision existed and the row did not say so. `record` refuses there,
+  // so what the next delivery gets is exactly what was persisted: a position and a list
+  // of outcomes, and no closure of any kind.
+  let seen = 0;
+  const cut = await runWorkflow({
+    steps, occurrence: WED,
+    record: async () => (++seen === 1 ? { ok: false } : { ok: true }),
+  });
+  assert.match(cut.halted, /could not be recorded/, "the interruption did not halt the run");
+  assert.equal(cut.position, 2, "the if did not checkpoint at its else arm");
+  assert.equal(cut.outcomes[0].took, "otherwise", "the RECORD does not say which arm was chosen");
+
+  const again = await runWorkflow({
+    steps, occurrence: WED,
+    position: cut.position, values: cut.values, outcomes: cut.outcomes,
+  });
+  assert.equal(again.stop.reason, "done");
+  assert.equal(again.stop.result, "SENT: OTHERWISE ARM", "the resumed run skipped the arm it had chosen");
+  assert.deepEqual(again.outcomes.map((o) => o.outcome), whole.outcomes.map((o) => o.outcome),
+    "the resumed run followed a different path from the uninterrupted one");
+
+  // ⚠ AND THE CONTROL, without which this passes over a reader that enters `otherwise`
+  // for ANY resume: the TRUE arm, interrupted the same way, must still skip it.
+  const tSteps = readWorkflow([
+    { type: "if", left: "yes", op: "is", right: "yes" },
+    { type: "note", text: "FIRST ARM", out: "draft" },
+    { type: "otherwise" },
+    { type: "note", text: "OTHERWISE ARM", out: "draft" },
+    { type: "end" },
+    { type: "note", text: "SENT: {{draft}}" },
+  ]).steps;
+  let tSeen = 0;
+  const tCut = await runWorkflow({
+    steps: tSteps, occurrence: WED,
+    record: async () => (++tSeen === 1 ? { ok: false } : { ok: true }),
+  });
+  assert.equal(tCut.outcomes[0].took, "first");
+  const tAgain = await runWorkflow({
+    steps: tSteps, occurrence: WED,
+    position: tCut.position, values: tCut.values, outcomes: tCut.outcomes,
+  });
+  assert.equal(tAgain.stop.result, "SENT: FIRST ARM", "a resume entered the arm the if did not choose");
+
+  // AND A STORED OUTCOME THAT NO LONGER MATCHES THE WORKFLOW POINTS AT NO ARM AT ALL,
+  // rather than at whatever sits at that index now — the lookup is `if` index → its own
+  // `elseAt`, so a `took` recorded against a step that is not an `if` is ignored.
+  const junk = await runWorkflow({
+    steps, occurrence: WED, position: 2,
+    outcomes: [{ id: "s1", type: "note", outcome: "ran", took: "otherwise" }],
+  });
+  assert.equal(junk.outcomes[2].outcome, "skipped",
+    "a `took` on a step that is not an `if` opened an arm");
+});
+
+test("⚠ A REFERENCE PRODUCED ONLY INSIDE ONE ARM IS REFUSED AT SAVE TIME", () => {
+  // THE FINDING: `readWorkflow` collected every `out` into one flat Set, so a value
+  // produced under `if` was "available" to every step after it — including steps the
+  // `otherwise` arm runs, and every step past the `end`. Saved cleanly; at run time the
+  // reference resolved to nothing on whichever path did not produce it.
+  const IF = { type: "if", left: "a", op: "is", right: "b" };
+  const only = (arm) => (arm === "first"
+    ? [IF, { type: "note", text: "x", out: "draft" }, { type: "otherwise" }, { type: "note", text: "y" }, { type: "end" }]
+    : [IF, { type: "note", text: "x" }, { type: "otherwise" }, { type: "note", text: "y", out: "draft" }, { type: "end" }]);
+
+  // ⚠ AND THE SENTENCE IS PART OF THE PROPERTY, not decoration. A sweep survivor is what
+  // said so: asserting only that it refused was satisfied by the TYPO refusal, which for
+  // the commonest shape of this mistake — bind under `if`, use it after the branch — sends
+  // somebody looking for a misspelling that is not there. The frame is popped by then, so
+  // saying the true thing takes a record of what the rejoin did not keep.
+  for (const arm of ["first", "otherwise"]) {
+    const after = readWorkflow([...only(arm), { type: "note", text: "{{draft}}" }]);
+    assert.match(after.error, /draft/, `a value produced only in the ${arm} arm was visible after the end`);
+    assert.match(after.error, /step 6/);
+    assert.match(after.error, /only produced inside a branch that might not run/,
+      `a value from the ${arm} arm, used after the end, is reported as a typo`);
+  }
+  // ACROSS THE ARMS, which is the same defect one step earlier and reads differently to
+  // whoever has to fix it — the value exists, on the other path.
+  const across = readWorkflow([IF, { type: "note", text: "x", out: "draft" },
+    { type: "otherwise" }, { type: "note", text: "{{draft}}" }, { type: "end" }]);
+  assert.match(across.error, /only produced inside a branch that might not run/);
+  assert.match(across.error, /produce it in both arms, or move the step that uses it inside/);
+  // NESTED, because "along the actual paths" is not a claim one level can make.
+  const nested = readWorkflow([IF, IF, { type: "note", text: "x", out: "draft" },
+    { type: "end" }, { type: "end" }, { type: "note", text: "{{draft}}" }]);
+  assert.match(nested.error, /only produced inside a branch that might not run/);
+
+  // ⚠ AND THE CONTROLS — what must STILL be accepted, or this is a check that refuses
+  // everything and says nothing about paths.
+  const both = readWorkflow([IF, { type: "note", text: "x", out: "draft" },
+    { type: "otherwise" }, { type: "note", text: "y", out: "draft" },
+    { type: "end" }, { type: "note", text: "{{draft}}" }]);
+  assert.equal(both.error, undefined, both.error);
+  assert.ok(both.produces.includes("draft"), "a value produced on BOTH arms did not survive the rejoin");
+
+  const before = readWorkflow([{ type: "note", text: "x", out: "draft" },
+    IF, { type: "note", text: "{{draft}}" }, { type: "end" }]);
+  assert.equal(before.error, undefined, before.error);
+
+  const inside = readWorkflow([IF, { type: "note", text: "x", out: "draft" },
+    { type: "note", text: "{{draft}}" }, { type: "end" }]);
+  assert.equal(inside.error, undefined, inside.error);
+
+  // AND AN `if` WITH NO `otherwise` PRODUCES NOTHING AT ITS REJOIN, because the empty
+  // arm is a real path through the workflow.
+  assert.match(readWorkflow([IF, { type: "note", text: "x", out: "draft" },
+    { type: "end" }, { type: "note", text: "{{draft}}" }]).error,
+    /only produced inside a branch that might not run/);
+  // ⚠ THE CONTROL FOR THAT SENTENCE: a name nothing anywhere produces is still reported as
+  // a typo, or "the arm sentence" would just be what every refusal says.
+  assert.match(readWorkflow([{ type: "note", text: "{{nowhere}}" }]).error,
+    /nothing here produces a value called "nowhere"/);
+  assert.match(readWorkflow([IF, { type: "note", text: "{{nowhere}}" }, { type: "end" }]).error,
+    /nothing here produces a value called "nowhere"/);
+});
+
+test("⚠ AN INTERRUPTION AT EVERY BOUNDARY RESUMES THE SAME RUN — branches, waits and approvals", async () => {
+  // The owner's requirement in one case: *a resumed execution must follow its original
+  // decisions and preserve completed work*. Every checkpoint is a place a deploy, an
+  // eviction or a lost lease can land, so the interruption is walked across ALL of them
+  // rather than demonstrated at one.
+  const steps = readWorkflow([
+    { type: "note", text: "opened", out: "state" },
+    { type: "if", left: "{{state}}", op: "is", right: "shut" },
+    { type: "note", text: "NEVER", out: "draft" },
+    { type: "otherwise" },
+    { type: "note", text: "chosen", out: "draft" },
+    { type: "end" },
+    { type: "wait", mode: "for", minutes: 30 },
+    { type: "approval", ask: "Send {{draft}}?", hours: 24, on_timeout: "reject" },
+    { type: "note", text: "SENT: {{draft}}" },
+  ]).steps;
+
+  const T0 = Date.parse("2026-09-16T09:00:00Z");
+  const LATER = Date.parse("2026-09-17T08:00:00Z");
+  // ⚠ THE DEADLINE BELONGS TO THE PAUSE, and the two are opposite by the time we resume:
+  // the wait's is behind us (so it carries on) and the approval's is still ahead (so it
+  // waits to be decided rather than timing out). One shared number would make half this
+  // case about a timeout nobody asked for.
+  const deadline = (w) => (w?.kind === "approval" ? LATER + 3_600_000 : T0);
+  const approve = (w) => (w?.kind === "approval" ? { [w.step]: { verdict: "approved" } } : undefined);
+  // The delivery that carries a run forward from whatever the row holds, and nothing
+  // else — no closure, no memory of the process before it.
+  const go = async (from, over = {}) => runWorkflow({
+    steps, occurrence: WED, now: () => LATER,
+    position: from.position, values: from.values, outcomes: from.outcomes,
+    waiting: from.waiting, waitUntil: from.waiting ? deadline(from.waiting) : undefined,
+    decisions: from.decisions, ...over,
+  });
+
+  // THE CHAIN, UNINTERRUPTED, AND ITS CHECKPOINT COUNT — which is what the interruption
+  // is then walked across. Counting them rather than guessing a number is what keeps
+  // this covering every boundary as the workflow grows a step.
+  const chain = async (record, decide = approve) => {
+    let at = await runWorkflow({ steps, occurrence: WED, now: () => T0, record });
+    let guard = 0;
+    while (at.stop === null && at.halted === null && guard++ < 8) {
+      const w = at.waiting;
+      at = await runWorkflow({
+        steps, occurrence: WED, now: () => LATER, record,
+        position: at.position, values: at.values, outcomes: at.outcomes,
+        waiting: w, waitUntil: w ? deadline(w) : undefined,
+        decisions: decide(w) ?? at.decisions,
+      });
+    }
+    return at;
+  };
+
+  let checkpoints = 0;
+  const done = await chain(async () => { checkpoints++; return { ok: true }; });
+  assert.equal(done.stop.reason, "done", "the uninterrupted chain did not finish");
+  assert.equal(done.stop.result, "SENT: chosen", "the uninterrupted path is not what this case thinks it is");
+  assert.ok(checkpoints >= 9, `only ${checkpoints} checkpoints in a nine-step workflow`);
+
+  // ⚠ EVERY CHECKPOINT OF THE WHOLE EXECUTION, ONE AT A TIME — not of its first delivery,
+  // which was this case's own first mistake and left the wait and the approval boundaries
+  // untouched. One counter spans the chain, so cut N is the Nth place a deploy, an
+  // eviction or a lost lease could really land.
+  let boundaries = 0;
+  for (let cutAt = 1; cutAt <= checkpoints; cutAt++) {
+    let seen = 0;
+    // ⚠ A MARK NOTHING IN THE EXECUTOR CAN WRITE, stamped on each outcome the FIRST time
+    // it is seen and carried through every later delivery. It is the only way a
+    // byte-identical re-run of a `note` is visible at all. `waiting` is deliberately left
+    // unstamped: it is the step the next delivery re-enters, not completed work.
+    const seenAt = new Map();
+    const stamp = (list) => list.map((o, n) => {
+      if (!o || o.outcome === "waiting") return o;
+      if (!seenAt.has(n)) seenAt.set(n, `cut${cutAt}.${n}`);
+      return { ...o, ranAt: o.ranAt ?? seenAt.get(n) };
+    });
+
+    // ⚠ THE SAME `record` GOES TO EVERY DELIVERY IN THE CHAIN, or the counter only ever
+    // reaches the first one's checkpoints — which is what left the wait and the approval
+    // boundaries untested until the derived floor below said so out loud.
+    const record = async () => (++seen === cutAt ? { ok: false } : { ok: true });
+    let at = await runWorkflow({ steps, occurrence: WED, now: () => T0, record });
+    let guard = 0;
+    let halts = 0;
+    while (at.stop === null && guard++ < 12) {
+      if (at.halted !== null) {
+        halts++;
+        // A HALT WRITES NO STOP AND NO ANSWER, so the row is exactly as the next holder
+        // needs to find it.
+        assert.equal(at.stop, null, `a halted run at cut ${cutAt} wrote a stop`);
+      }
+      const w = at.waiting;
+      at = await runWorkflow({
+        steps, occurrence: WED, now: () => LATER, record,
+        position: at.position, values: at.values, outcomes: stamp(at.outcomes),
+        waiting: w, waitUntil: w ? deadline(w) : undefined,
+        decisions: approve(w) ?? at.decisions,
+      });
+    }
+    if (halts === 0) continue;                  // this checkpoint was never reached
+    boundaries++;
+    assert.equal(at.stop?.reason, "done", `cut ${cutAt} did not finish: ${JSON.stringify(at.halted ?? at.waiting)}`);
+    assert.equal(at.stop.result, "SENT: chosen", `cut ${cutAt} followed a different path`);
+    assert.deepEqual(at.outcomes.map((o) => o.outcome), done.outcomes.map((o) => o.outcome),
+      `cut ${cutAt} produced different outcomes`);
+    // NOTHING THAT HAD BEEN RECORDED RAN A SECOND TIME, at any point in the chain.
+    assert.ok(seenAt.size > 0, `cut ${cutAt} carried no completed work forward`);
+    for (const [n, mark] of seenAt) {
+      assert.equal(at.outcomes[n]?.ranAt, mark,
+        `cut ${cutAt} ran step ${n + 1} again after it had been recorded`);
+    }
+  }
+  // THE OBSERVER, PROVED ALIVE, AND ITS FLOOR IS DERIVED: every checkpoint the
+  // uninterrupted chain took was interrupted, which walks the branch boundary, both
+  // sides of the wait and both sides of the approval. A loop that cut nothing would
+  // otherwise be a green case asserting nothing at all.
+  assert.equal(boundaries, checkpoints, `only ${boundaries} of ${checkpoints} boundaries were interrupted`);
+});
+
 test("⚠ a pause records its position and STOPS — it does not advance past itself", async () => {
   const steps = readWorkflow([
     { type: "note", text: "before", out: "first" },

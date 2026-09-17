@@ -827,8 +827,55 @@ export function indexOfId(id) {
 export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLOW_STEPS, inputs = [] } = {}) {
   if (!Array.isArray(raw)) return { error: "the steps have to arrive as a list" };
   if (raw.length > max) return { error: `that's more steps than one automation can hold (${max})` };
-  const available = new Set();
-  for (const n of Array.isArray(inputs) ? inputs : []) if (typeof n === "string") available.add(n);
+  /**
+   * ⚠ **WHAT A REFERENCE MAY NAME IS A PROPERTY OF THE PATH, NOT OF THE LIST.**
+   *
+   * **THE DEFECT THIS FIXES, REPRODUCED FOUR WAYS BEFORE IT WAS TOUCHED.** This was one
+   * flat Set that only ever grew — so a value produced inside an arm stayed "available"
+   * after that arm, and `{{draft}}` after an `end` was accepted although the only step
+   * that produces `draft` may never run. Measured on `6f72e31`: only-under-`if`,
+   * only-under-`otherwise`, one arm reading the other's value, and a value from a NESTED
+   * arm used after the outer `end` — all four ACCEPTED, and every one of them is a run
+   * that fails at the step, with the steps above it already done and charged for.
+   *
+   * **THE RULE, AND IT IS THE ONE A READER WOULD GUESS**: inside an arm you may use what
+   * was available before the branch plus what that arm has produced so far; after the
+   * `end` you may use what was available before, plus only what BOTH arms produce —
+   * because either arm may be the one that runs. An `if` with no `otherwise` therefore
+   * contributes NOTHING past its `end`, which is the same rule with one arm empty.
+   *
+   * **A STACK, because branches nest**, and each frame remembers what was available when
+   * it opened and what each arm has added since.
+   */
+  const outer = new Set();
+  for (const n of Array.isArray(inputs) ? inputs : []) if (typeof n === "string") outer.add(n);
+  /** `{before, first, other, inElse}` — `first`/`other` are each arm's own additions. */
+  const frames = [];
+  const here = () => (frames.length ? frames[frames.length - 1] : null);
+  /** What a step at this point may refer to: the enclosing set plus this arm's own. */
+  const visible = () => {
+    const f = here();
+    if (!f) return outer;
+    return new Set([...f.before, ...(f.inElse ? f.other : f.first)]);
+  };
+  /** Where a step's own `out` lands: the arm it is in, or the outer set. */
+  const produce = (name) => {
+    const f = here();
+    if (!f) outer.add(name);
+    else (f.inElse ? f.other : f.first).add(name);
+  };
+  /**
+   * ⚠ NAMES AN ARM PRODUCED THAT DID NOT SURVIVE ITS REJOIN, remembered for the SENTENCE
+   * and never for visibility — nothing below the `end` may name one.
+   *
+   * Without it the frame is already popped by the time a later step refers to such a
+   * name, so "produced on one path only" comes back as "nothing here produces it" — and
+   * that is the commonest shape of this mistake (bind something under `if`, use it after
+   * the branch) getting the one sentence that sends somebody hunting a misspelling that
+   * is not there. **Found by a sweep survivor**, which measured what the refusal really
+   * SAID rather than that it refused.
+   */
+  const armOnly = new Set();
   const steps = [];
   for (let i = 0; i < raw.length; i++) {
     const at = i + 1;
@@ -842,23 +889,62 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
     if (readIt?.error) return { error: `step ${at}: ${readIt.error}`, at };
     const config = readIt.config ?? {};
 
+    const canSee = visible();
     for (const f of def.fields) {
       if (f.refs !== true) continue;
       for (const name of refsIn(config[f.name])) {
-        if (!available.has(name)) {
-          return { error: `step ${at}: nothing here produces a value called "${name}"`, at };
+        if (!canSee.has(name)) {
+          // ⚠ THE SENTENCE SAYS WHICH OF THE TWO IT IS, because they need different
+          // things done about them: a name nothing anywhere produces is a typo, and a
+          // name produced only in an arm that may not run is a workflow that has to say
+          // what to do otherwise.
+          // ⚠ THE CURRENT FRAMES COVER A REFERENCE STILL INSIDE THE BRANCH; `armOnly`
+          // covers one BELOW it, where the frame is already gone. `here()` is itself in
+          // `frames`, so a third test for the arm being stood in would be dead code —
+          // measured identical over nine shapes, and deleted rather than left to read
+          // as a wall.
+          const onlyInAnArm = frames.some((fr) => fr.first.has(name) || fr.other.has(name))
+            || armOnly.has(name);
+          return {
+            error: onlyInAnArm
+              ? `step ${at}: "${name}" is only produced inside a branch that might not run — produce it in both arms, or move the step that uses it inside`
+              : `step ${at}: nothing here produces a value called "${name}"`,
+            at,
+          };
         }
       }
     }
     // ITS OWN `out` IS ADDED AFTER ITS OWN REFERENCES ARE CHECKED, so a step cannot
     // refer to the answer it is about to produce.
-    if (isText(config.out)) available.add(config.out);
+    if (isText(config.out)) produce(config.out);
+
+    // ── the frame moves with the branch markers ─────────────────────────────
+    if (def.type === "if") {
+      frames.push({ before: visible(), first: new Set(), other: new Set(), inElse: false, hasElse: false });
+    } else if (def.type === "otherwise") {
+      const f = here();
+      // A MARKER WITH NO FRAME is `branchMap`'s refusal below, not this one's — it reads
+      // the whole list and says which step, which is the better sentence.
+      if (f) { f.inElse = true; f.hasElse = true; }
+    } else if (def.type === "end") {
+      const f = frames.pop();
+      if (f) {
+        // ⚠ **ONLY WHAT BOTH ARMS PRODUCE SURVIVES**, and an `if` with no `otherwise`
+        // has an empty second arm — so nothing from inside it does, which is the same
+        // rule rather than a special case.
+        const both = f.hasElse ? [...f.first].filter((n) => f.other.has(n)) : [];
+        for (const n of both) produce(n);
+        // WHAT EACH ARM BOUND AND THE REJOIN DID NOT KEEP. It is remembered for the
+        // SENTENCE and never for visibility: nothing below may name these.
+        for (const n of [...f.first, ...f.other]) if (!both.includes(n)) armOnly.add(n);
+      }
+    }
 
     steps.push(Object.freeze({ id: `s${at}`, type: def.type, ...config }));
   }
   const struct = branchMap(steps);
   if (struct.error) return { error: struct.error };
-  return { steps, produces: [...available] };
+  return { steps, produces: [...outer] };
 }
 
 // ── running one ─────────────────────────────────────────────────────────────
@@ -997,7 +1083,41 @@ export async function runWorkflow(opts = {}) {
     i = steps.length;
   }
 
+  /**
+   * ⚠ **WHICH ARM A BRANCH TOOK IS RECOVERED FROM THE RECORD, NEVER HELD IN MEMORY.**
+   *
+   * **THE DEFECT THIS FIXES, REPRODUCED BEFORE IT WAS TOUCHED.** This was a bare `new
+   * Set()` filled only by the `if` step as it ran. A delivery that checkpointed a FALSE
+   * `if` and then died — which is the ordinary shape, because the checkpoint is the last
+   * thing that step does — came back with the set EMPTY. The resumed run re-entered at
+   * the `otherwise`, found nothing saying it had been jumped to, read that as "the first
+   * arm ran, so this one didn't", skipped the whole arm and **stopped with `done`.**
+   * Measured on `6f72e31`: uninterrupted the run answered `"TOLD THEM IN PLAIN WORDS"`,
+   * resumed it answered `null` — and called itself successful both times.
+   *
+   * **THE DECISION WAS ALREADY PERSISTED; nothing was reading it.** Every `if` records
+   * `took: "first" | "otherwise"` in its own outcome, for the history to show — and a
+   * resume is handed those outcomes. So the arm is derived from the record rather than
+   * from a variable this process happens to hold, which is what makes it survive a
+   * restart at any point.
+   *
+   * **BY THE `if`'s OWN INDEX, THEN THROUGH `struct.map`**, so a stored outcome list that
+   * no longer matches the workflow cannot point at an arm that is not there.
+   */
   const jumpedToElse = new Set();
+  for (let k = 0; k < steps.length; k++) {
+    if (steps[k]?.type !== "if") continue;
+    const recorded = results.get(k);
+    if (recorded?.took !== "otherwise") continue;
+    // ⚠ THE RECORD MUST AGREE WITH THE STEP IT SITS AT. `took` is a field only an `if`
+    // can write, so an outcome recorded against something else carrying one is not
+    // evidence about this branch — it is a list that no longer matches this workflow.
+    // Refuse rather than coerce: the cost of ignoring it is one arm re-decided from the
+    // condition, and the cost of trusting it is an arm opened by a stale row.
+    if (recorded.type !== "if") continue;
+    const elseAt = struct.map?.get(k)?.elseAt;
+    if (Number.isInteger(elseAt)) jumpedToElse.add(elseAt);
+  }
 
   while (i < steps.length && !stopped && !waiting && halted === null) {
     const one = steps[i] ?? {};

@@ -30,24 +30,24 @@
   "files": [
    "agent-store.mjs"
   ],
-  "from": "            return { error: `step ${at}: nothing here produces a value called \"${name}\"` };",
-  "to": "            continue;"
+  "from": "            return { error: onlyInAnArm",
+  "to": "            continue; return { error: onlyInAnArm"
  },
  {
-  "label": "refs: a step's own `out` is added BEFORE its references are read, so it can name itself",
+  "label": "refs: a step's own `out` is available to its OWN references, so it can name itself",
   "files": [
    "agent-store.mjs"
   ],
-  "from": "    if (typeof one.out === \"string\" && one.out) produces.add(one.out);\n    steps.push(one);",
-  "to": "    steps.push(one);\n    if (typeof one.out === \"string\" && one.out) produces.add(one.out);"
+  "from": "    const one = { id: `s${at}`, type: def.type };\n    for (const f of def.fields) {",
+  "to": "    const one = { id: `s${at}`, type: def.type };\n    if (typeof raw.out === \"string\" && raw.out) produces.add(raw.out.trim().toLowerCase());\n    for (const f of def.fields) {"
  },
  {
   "label": "refs: the declared inputs never reach the reader, so every input reference is a typo",
   "files": [
    "agent-store.mjs"
   ],
-  "from": "  const produces = new Set((Array.isArray(inputs) ? inputs : []).filter((n) => typeof n === \"string\"));",
-  "to": "  const produces = new Set();"
+  "from": "  const outer = new Set((Array.isArray(inputs) ? inputs : []).filter((n) => typeof n === \"string\"));",
+  "to": "  const outer = new Set();"
  },
  {
   "label": "branch: an unbalanced workflow is SAVED, and the engine has to fail it whole",
@@ -234,12 +234,12 @@
   "to": "        catch (e) { throw e; }"
  },
  {
-  "label": "knowledge: the LIST carries the material, four megabytes to draw a list of names",
+  "label": "knowledge: the list row carries the whole record, material included",
   "files": [
    "agent-store.mjs"
   ],
-  "from": "        sources: await store.listKnowledge(who, agentId),",
-  "to": "        sources: await store.listKnowledge(who, agentId, { withBody: true }),"
+  "from": "export function knowledgeRow(r) {\n  return {",
+  "to": "export function knowledgeRow(r) {\n  return { ...r,"
  },
  {
   "label": "knowledge: the material is trimmed like a field, so a document loses its blank lines",
@@ -370,12 +370,12 @@
   "to": "  'agent-auto-step-field': () => {},"
  },
  {
-  "label": "screen: a step's choice redraws WITHOUT reading the form, eating what was typed",
+  "label": "screen: the approval note is not read back, so a redraw eats what somebody typed",
   "files": [
    "public/chat.js"
   ],
-  "from": "  'agent-auto-step-field': () => agentAutoStructural((draft) => draft),\n};",
-  "to": "  'agent-auto-step-field': () => renderAgents(),\n};"
+  "from": "  agentAutoAskRead();\n  agentAutoNotesRead();",
+  "to": "  void 0;\n  agentAutoNotesRead();"
  },
  {
   "label": "screen: the branch depth is dropped, so a workflow is a flat list of nine rows",
@@ -440,5 +440,61 @@
   ],
   "from": "                ((o.sources || []).length\n                  ? ' \u2014 ' + esc((o.sources || []).map((src) =>",
   "to": "                (false\n                  ? ' \u2014 ' + esc((o.sources || []).map((src) =>"
+ },
+ {
+  "label": "refs: a value produced inside an arm is visible OUTSIDE it, so a path that skips it saves",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const visible = () => {\n    const f = here();\n    if (!f) return outer;",
+  "to": "  const visible = () => {\n    const f = here();\n    if (true) return outer;"
+ },
+ {
+  "label": "refs: an arm's value is produced into the OUTER set, so the other arm can name it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const produce = (name) => {\n    const f = here();\n    if (!f) outer.add(name);",
+  "to": "  const produce = (name) => {\n    const f = here();\n    if (true) { outer.add(name); return; }"
+ },
+ {
+  "label": "refs: an `if` with no `otherwise` hands its arm's values on anyway, past the rejoin",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        const both = f.hasElse ? [...f.first].filter((x) => f.other.has(x)) : [];",
+  "to": "        const both = [...f.first];"
+ },
+ {
+  "label": "refs: what BOTH arms produce is dropped at the rejoin, so a correct workflow is refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        for (const n of both) produce(n);\n        for (const n of [...f.first, ...f.other])",
+  "to": "        void both;\n        for (const n of [...f.first, ...f.other])"
+ },
+ {
+  "label": "refs: the rejoin FORGETS what an arm bound, so a use below the `end` reads as a typo",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        for (const n of [...f.first, ...f.other]) if (!both.includes(n)) armOnly.add(n);",
+  "to": "        void f;"
+ },
+ {
+  "label": "refs: a cross-arm reference is reported as a typo, sending somebody after a misspelling",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "            const onlyInAnArm = frames.some((fr) => fr.first.has(name) || fr.other.has(name))",
+  "to": "            const onlyInAnArm = false && frames.some((fr) => fr.first.has(name) || fr.other.has(name))"
+ },
+ {
+  "label": "refs: what an arm bound is made VISIBLE below the `end`, not merely explainable",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        const canSee = visible();",
+  "to": "        const canSee = new Set([...visible(), ...armOnly]);"
  }
 ]

@@ -50,6 +50,9 @@
 import { handleAgentApi, makeAgentStore } from "../../agent-store.mjs";
 import worker from "../src/worker.mjs";
 import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
+// ⚠ THE EXECUTOR ITSELF, for section 15 alone — which replays a state read back OUT OF
+// POSTGRES rather than one built in memory. Nothing else here imports it.
+import { runWorkflow } from "../src/automations.mjs";
 
 const DB = `agent_wf_${process.pid}`;
 const A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";   // one account
@@ -595,6 +598,116 @@ try {
     q(`select (steps = (select steps from agent.automations where id='${AUTO}'))::text from agent.automation_runs where id='${RUN8}';`) === "true");
   check("...and the text is in a VALUE, which is the only place it can be",
     /may use every tool/.test(JSON.parse(q(`select vars::text from agent.automation_runs where id='${RUN8}';`)).facts));
+
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n15. ⚠ THE BRANCH BOUNDARY IS A COMMITTED CHECKPOINT, and the arm is in the ROW");
+  // ═════════════════════════════════════════════════════════════════════════
+  // MILESTONE 2'S FIRST FINDING, ON THE REAL STORE. The executor's half is proved at the
+  // module, red against the defect; what only a database can say is that the decision
+  // SURVIVES — `took` is written by `advance_automation_run` into `automation_runs.outcomes`
+  // as jsonb and read back, and the `if`'s own checkpoint really is one of the positions a
+  // restart can land on. If that field were stripped anywhere on that round trip, every
+  // unit case would stay green and a restart at the branch would run neither arm.
+  const BR = [
+    { type: "if", left: "{{mood}}", op: "is", right: "formal" },
+    { type: "note", text: "FIRST ARM", out: "draft" },
+    { type: "otherwise" },
+    { type: "note", text: "OTHERWISE ARM", out: "draft" },
+    { type: "end" },
+    { type: "wait", mode: "for", minutes: 30 },
+    { type: "note", text: "SENT: {{draft}}" },
+  ];
+  const brMade = await api("/api/agent/automation-create", {
+    body: {
+      agent: AG, name: "Branch boundary", enabled: true, schedule: "manual", zone: "UTC",
+      steps: BR, inputs: [{ name: "mood", label: "Mood", required: true }],
+    },
+  });
+  check("a workflow whose FIRST step is the branch is accepted", brMade.status === 200, JSON.stringify(brMade.body));
+  const BRAUTO = brMade.body.id;
+  const brPress = await api("/api/agent/automation-run", { body: { id: BRAUTO, input: { mood: "chatty" } }, ring });
+  const BRRUN = brPress.body.runId;
+  await drain();
+
+  const brOut = outcomes(BRRUN);
+  check("it took the second arm and is waiting after the branch",
+    brOut[0].took === "otherwise" && brOut[1].outcome === "skipped" && brOut[3].result === "OTHERWISE ARM" &&
+    row(BRRUN, `(waiting->>'step')`) === "s6", JSON.stringify(brOut.map((o) => o.outcome)));
+  // ⚠ THE DECISION IS IN THE ROW, read straight back out of Postgres — which is the half a
+  // test holding objects in memory cannot make a claim about.
+  check("⚠ ...and the chosen arm is a FIELD in the stored row, not something to infer",
+    q(`select outcomes->0->>'took' from agent.automation_runs where id='${BRRUN}';`) === "otherwise");
+
+  // THE `if`'s OWN CHECKPOINT IS A REAL COMMITTED POSITION, named by the journal: the entry
+  // at the `otherwise`'s index, with `done` saying how many outcomes were recorded at that
+  // instant. Those two facts ARE the state a restart there would read.
+  const atBranch = JSON.parse(q(
+    `select coalesce((select body::text from agent.run_entries
+        where run_id='${BRRUN}' and body->>'kind'='step' and (body->>'step')::int = 2
+          and body->>'mark'='progress' order by seq limit 1), 'null');`));
+  // `done` IS DERIVED, NOT TRANSCRIBED: at this instant the recorded outcomes are the `if`
+  // and every step it skipped on the way to the arm — which is exactly the position it
+  // jumped to. Writing the number out would pin the workflow's own shape instead.
+  check("⚠ the branch's own checkpoint was committed, at the position the arm begins",
+    atBranch !== null && atBranch.done === atBranch.step, JSON.stringify(atBranch));
+
+  // AND A PROCESS THAT KNOWS NOTHING ELSE RESUMES FROM EXACTLY THAT STATE. The steps, the
+  // outcomes and the values all come out of the database; the position and how much of the
+  // list had been recorded come out of the journal entry above. Nothing is constructed.
+  const brSteps = JSON.parse(q(`select steps::text from agent.automation_runs where id='${BRRUN}';`));
+  const committed = brOut.slice(0, atBranch.done);
+  const resumed = await runWorkflow({
+    steps: brSteps, occurrence: "2026-09-16", position: 2,
+    values: values(BRRUN), outcomes: committed,
+  });
+  check("⚠ a restart AT the branch boundary follows the arm the `if` chose",
+    resumed.outcomes[2].outcome === "ran" && resumed.outcomes[3].result === "OTHERWISE ARM",
+    JSON.stringify(resumed.outcomes.map((o) => o.outcome)));
+  // ⚠ THE OBSERVER, PROVED ALIVE: the same replay with the decision taken out of the record
+  // is what the defect produced — neither arm runs. Without it, "the arm survived" would be
+  // satisfied by an executor that enters `otherwise` for any resume at all.
+  const blind = await runWorkflow({
+    steps: brSteps, occurrence: "2026-09-16", position: 2,
+    values: values(BRRUN), outcomes: committed.map(({ took, ...rest }) => rest),
+  });
+  check("⚠ ...and with that field gone from the record it runs NEITHER arm, which is the defect",
+    blind.outcomes[2].outcome === "skipped" && blind.outcomes[3].outcome === "skipped",
+    JSON.stringify(blind.outcomes.map((o) => o.outcome)));
+
+  // MILESTONE 2'S SECOND FINDING, AT THE CUSTOMER'S OWN DOOR: a reference that only one arm
+  // produces is refused while it is still a form, not at run time on whichever path did not
+  // produce it.
+  const crossArm = await api("/api/agent/automation-create", {
+    body: {
+      agent: AG, name: "Cross arm", schedule: "manual",
+      steps: [{ type: "if", left: "a", op: "is", right: "b" }, { type: "note", text: "x", out: "draft" },
+        { type: "otherwise" }, { type: "note", text: "{{draft}}" }, { type: "end" }],
+    },
+  });
+  check("a value from one arm, used in the other, is refused with what to do about it",
+    crossArm.status === 400 && /only produced inside a branch that might not run/.test(crossArm.body.error),
+    JSON.stringify(crossArm.body));
+  const afterEnd = await api("/api/agent/automation-create", {
+    body: {
+      agent: AG, name: "After end", schedule: "manual",
+      steps: [{ type: "if", left: "a", op: "is", right: "b" }, { type: "note", text: "x", out: "draft" },
+        { type: "end" }, { type: "note", text: "{{draft}}" }],
+    },
+  });
+  check("...and one produced only inside a branch, used after it rejoins, is refused too",
+    afterEnd.status === 400 && /draft/.test(afterEnd.body.error), JSON.stringify(afterEnd.body));
+  // THE CONTROL, without which both of those are satisfied by a route that refuses every
+  // branching workflow there is.
+  const bothArms = await api("/api/agent/automation-create", {
+    body: {
+      agent: AG, name: "Both arms", schedule: "manual",
+      steps: [{ type: "if", left: "a", op: "is", right: "b" }, { type: "note", text: "x", out: "draft" },
+        { type: "otherwise" }, { type: "note", text: "y", out: "draft" }, { type: "end" },
+        { type: "note", text: "{{draft}}" }],
+    },
+  });
+  check("...while a value produced on BOTH arms is accepted, and saved", bothArms.status === 200,
+    JSON.stringify(bothArms.body));
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n14. WHAT THE WHOLE RUN LEFT BEHIND");

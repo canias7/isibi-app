@@ -549,6 +549,15 @@ test("⚠ the branches have to balance, and the refusal says WHICH step", () => 
   assert.deepEqual(branchShape([IF, { type: "otherwise" }, { type: "end" }]), { ok: true });
   // NESTED, because depth is what the algorithm is about and one level would not show it.
   assert.deepEqual(branchShape([IF, IF, { type: "end" }, { type: "otherwise" }, { type: "end" }]), { ok: true });
+  // ⚠ AND THE SHAPE THAT SEPARATES DEPTH FROM POSITION: an `otherwise` reached while TWO
+  // `if`s are open. In the line above the inner one is already CLOSED, so the innermost
+  // and the outermost open entry are the same and a reader taking either passes —
+  // measured, by a sweep mutant that took `open[0]` and survived it.
+  assert.deepEqual(branchShape([IF, IF, { type: "otherwise" }, { type: "end" }, { type: "end" }]), { ok: true });
+  // A SECOND `otherwise` ON THE INNER ONE IS REFUSED, which is what a reader taking the
+  // OUTERMOST would let through — the inner if is the one that already has one.
+  assert.match(branchShape([IF, IF, { type: "otherwise" }, { type: "otherwise" },
+    { type: "end" }, { type: "end" }]).error, /step 4/);
   assert.deepEqual(branchShape([]), { ok: true }, "a workflow with no branch balances");
 
   // ⚠ BY POSITION, NEVER "SOMETHING IS WRONG": the step number is the only part of this a
@@ -763,6 +772,33 @@ test("an approval is answered by run AND step, and the two not-now refusals carr
     assert.equal(r.body[flag], true);
     assert.equal(r.body.ok, undefined);
   }
+  // ⚠ THE DOORBELL IS RUNG ONLY FOR WORK THAT WAS REALLY RE-QUEUED. An absorbed second
+  // press answers `queued: "running"` — somebody is already holding it — and a doorbell
+  // for that is a delivery `claim_run` refuses, which is latency spent to learn nothing.
+  const held = fakeStore({ decideApproval: async () => ({ ok: true, repeat: true, verdict: "approved", step: "s8", queued: "running" }) });
+  let rang = 0;
+  const absorbed = await call("/api/agent/automation-approve", {
+    store: held.store, ring: async () => { rang += 1; }, body: { run: R1, step: "s8", verdict: "approved" },
+  });
+  assert.equal(absorbed.status, 200);
+  assert.equal(rang, 0, "a doorbell was rung for work nobody re-queued");
+  assert.equal(absorbed.body.notified, false, "it claimed to have told the engine");
+  assert.equal(absorbed.body.repeat, true);
+
+  // ⚠ A FAILED RING IS SAID AND NEVER RAISED. The decision is committed by the time the
+  // doorbell is rung, so a failed ring decides how SOON it carries on and never whether
+  // it does — and answering an error would tell somebody their answer failed when it is
+  // recorded and the run will resume on the next tick.
+  const deaf = fakeStore();
+  const broke = await call("/api/agent/automation-approve", {
+    store: deaf.store, ring: async () => { throw new Error("the queue hiccuped"); },
+    body: { run: R1, step: "s8", verdict: "approved" },
+  });
+  assert.equal(broke.status, 200, "a failed doorbell was raised as a failure");
+  assert.equal(broke.body.ok, true);
+  assert.equal(broke.body.notified, false, "it claimed to have told the engine");
+  assert.ok(deaf.calls.some((c) => c.name === "decideApproval"), "the decision never reached the database");
+
   // AND ANOTHER ACCOUNT'S RUN IS THE ORDINARY 404 — not found, never forbidden.
   const nope = fakeStore({ decideApproval: async () => ({ ok: false, error: "no-execution" }) });
   const miss = await call("/api/agent/automation-approve", { store: nope.store, body: { run: R1, step: "s8", verdict: "approved" } });
@@ -797,9 +833,17 @@ test("a source keeps its name and its version, and cannot-tell is not a claim", 
   // A FORMAT IT CANNOT READ IS `text`, which is the format that renders anything.
   assert.equal(knowledgeRow({ format: "pdf" }).format, "text");
   assert.equal(knowledgeRow(null).title, "");
-  // AND THE ROW CARRIES NO MATERIAL AT ALL: twenty sources at the body ceiling is four
-  // megabytes to draw a list of names, so the list and the document are two reads.
+  // ⚠ AND THE ROW IS A FIXED PROJECTION, NOT THE RECORD. Twenty sources at the body
+  // ceiling is four megabytes to draw a list of names — so the list and the document are
+  // two reads, and a row that spread whatever the database answered would put the whole
+  // document back in the list the moment a column is added. Asked as the EXACT key set,
+  // because `!hasOwn("body")` alone passes for a row that carries every other column.
+  assert.deepEqual(Object.keys(knowledgeRow({ id: K1, body: "secret", tenant_id: "t1", agent_id: "a1" })).sort(),
+    ["at", "format", "id", "title", "updatedAt", "version"]);
   assert.ok(!Object.hasOwn(knowledgeRow({ id: K1, body: "secret" }), "body"));
+  // AND THE SAME OF A MEMORY, which carries its value deliberately and nothing else.
+  assert.deepEqual(Object.keys(memoryRow({ id: M1, key: "t", value: "v", tenant_id: "t1" })).sort(),
+    ["at", "id", "key", "source", "updatedAt", "value", "version"]);
 });
 
 test("a memory says where it came from and when it changed, and fails closed on both", () => {

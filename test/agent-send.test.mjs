@@ -36,12 +36,12 @@ import { OFFERED, OFFERED_NAMES } from "../agent-builder/src/agents.mjs";
 import {
   AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
   MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
-  WEEKDAYS as ENGINE_WEEKDAYS,
+  WEEKDAYS as ENGINE_WEEKDAYS, readWorkflow as engineReadWorkflow,
 } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
   AUTOMATION_DAYS as SITE_DAYS, MAX_AUTOMATION_STEPS as SITE_MAX_STEPS,
-  MAX_STEP_NOTE as SITE_MAX_NOTE,
+  MAX_STEP_NOTE as SITE_MAX_NOTE, cleanWorkflow as siteCleanWorkflow,
 } from "../agent-store.mjs";
 
 const KEY = "service-key";
@@ -936,6 +936,80 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
   assert.ok(anyField((f) => f.refs === true), "no field takes references");
   assert.ok(anyField((f) => f.options), "no field offers options");
   assert.ok(anyField((f) => f.max !== undefined), "no field declares a bound");
+});
+
+test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather than read", () => {
+  // ⚠ THE CENSUS THAT WOULD HAVE CAUGHT A REAL GAP, AND DID NOT EXIST UNTIL IT DIDN'T.
+  // The two readers share a SYNTAX (`{{name}}`, one module) and each holds its OWN copy of
+  // what a reference may name along a path — because `worker.js`'s module graph is a
+  // container image input, so the site may not import the engine. When the engine learned
+  // to refuse a value produced only inside one arm, the site's copy did not, and the door a
+  // customer really saves through went on accepting workflows the executor would fail.
+  // Comparing SOURCE could never see that: the two are written differently on purpose.
+  // What they have to agree about is the VERDICT, so the verdict is what is compared.
+  const IF = { type: "if", left: "a", op: "is", right: "b" };
+  const N = (text, out) => (out ? { type: "note", text, out } : { type: "note", text });
+  const shapes = [
+    ["nothing at all", [], []],
+    ["a plain step", [N("hello")], []],
+    ["an input, used", [N("{{topic}}")], ["topic"]],
+    ["an input nobody declared", [N("{{topic}}")], []],
+    ["a forward reference", [N("{{later}}"), N("x", "later")], []],
+    ["a step naming its own answer", [N("{{mine}}", "mine")], []],
+    ["produced then used", [N("x", "draft"), N("{{draft}}")], []],
+    ["a balanced branch", [IF, N("x"), { type: "otherwise" }, N("y"), { type: "end" }], []],
+    ["an `if` with no `end`", [IF, N("x")], []],
+    ["a stray `otherwise`", [{ type: "otherwise" }], []],
+    ["a stray `end`", [{ type: "end" }], []],
+    ["two `otherwise`s", [IF, { type: "otherwise" }, { type: "otherwise" }, { type: "end" }], []],
+    // ── THE PATHS, which is what this case was added for ──────────────────────
+    ["one arm's value, used after the end",
+      [IF, N("x", "draft"), { type: "otherwise" }, N("y"), { type: "end" }, N("{{draft}}")], []],
+    ["the other arm's value, used after the end",
+      [IF, N("x"), { type: "otherwise" }, N("y", "draft"), { type: "end" }, N("{{draft}}")], []],
+    ["one arm's value, used in the other",
+      [IF, N("x", "draft"), { type: "otherwise" }, N("{{draft}}"), { type: "end" }], []],
+    ["BOTH arms' value, used after the end",
+      [IF, N("x", "draft"), { type: "otherwise" }, N("y", "draft"), { type: "end" }, N("{{draft}}")], []],
+    ["produced before the branch, used inside",
+      [N("x", "draft"), IF, N("{{draft}}"), { type: "end" }], []],
+    ["produced and used inside one arm",
+      [IF, N("x", "draft"), N("{{draft}}"), { type: "end" }], []],
+    ["an `if` with no `otherwise`, used after the end",
+      [IF, N("x", "draft"), { type: "end" }, N("{{draft}}")], []],
+    ["nested, used after the OUTER end",
+      [IF, IF, N("x", "draft"), { type: "end" }, { type: "end" }, N("{{draft}}")], []],
+    ["nested, both arms of the inner one, used after the inner end",
+      [IF, IF, N("x", "draft"), { type: "otherwise" }, N("y", "draft"), { type: "end" },
+        N("{{draft}}"), { type: "end" }], []],
+  ];
+
+  let refused = 0;
+  let accepted = 0;
+  for (const [what, steps, inputs] of shapes) {
+    const site = siteCleanWorkflow(steps, SITE_STEPS, SITE_MAX_STEPS, inputs);
+    const engine = engineReadWorkflow(steps, { inputs });
+    assert.equal(!!site.error, !!engine.error,
+      `${what}: the site says ${site.error ?? "ok"} and the engine says ${engine.error ?? "ok"}`);
+    if (site.error) {
+      refused++;
+      // AND THE SAME SENTENCE, because it is what a customer reads and the two have no
+      // other way to stay in step about which of the two refusals this is.
+      assert.equal(site.error, engine.error, `${what}: the two refuse it differently`);
+    } else {
+      accepted++;
+      // ⚠ AND WHAT A LATER STEP MAY NAME HAS TO MATCH TOO. Agreeing to accept a workflow
+      // while disagreeing about what it produces is the same defect one step along.
+      assert.deepEqual([...site.produces].sort(), [...engine.produces].sort(),
+        `${what}: the two disagree about what it produces`);
+      assert.deepEqual(site.steps.map((x) => x.id), engine.steps.map((x) => x.id),
+        `${what}: the ids drifted`);
+    }
+  }
+  // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: a census where everything is refused,
+  // or everything accepted, agrees perfectly and says nothing.
+  assert.ok(refused >= 8, `only ${refused} of these shapes are refused`);
+  assert.ok(accepted >= 8, `only ${accepted} of these shapes are accepted`);
 });
 
 test("the two caps and the week are the same number and the same order on both sides", () => {
