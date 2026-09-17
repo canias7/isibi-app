@@ -33,6 +33,7 @@ import { makeVerifier } from "./auth.mjs";
 import { makeRunStore } from "./store.mjs";
 import { makeAutomationStore } from "./automation-store.mjs";
 import { makeCapabilities } from "./capabilities.mjs";
+import { makeApprovals } from "./approvals.mjs";
 import { makeWork } from "./work.mjs";
 import { makeApi } from "./api.mjs";
 import { makeRunner } from "./runner.mjs";
@@ -200,7 +201,12 @@ function parts(env, { notify, fetchImpl } = {}) {
   // which is the one point where both are known and neither has been through a model.
   const capabilities = makeCapabilities(wire);
 
-  return { store, work, automations, capabilities, send: make(), ring, doFetch, modelName };
+  // ⚠ WHERE A CALL THAT NEEDS A PERSON GOES TO ASK — the same wire again, and unscoped
+  // here for the same reason: the runner binds it to the account from the claim and to
+  // the run being delivered, which is the one point where both are known.
+  const approvals = makeApprovals(wire);
+
+  return { store, work, automations, capabilities, approvals, send: make(), ring, doFetch, modelName };
 }
 
 /**
@@ -239,9 +245,9 @@ export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryM
   // that sends a message is the sweeper, and that is a different handler.
   const missing = missingFor(env, "consume");
   if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
-  const { store, work, automations, capabilities, send } = parts(env, { notify, fetchImpl });
+  const { store, work, automations, capabilities, approvals, send } = parts(env, { notify, fetchImpl });
   return makeRunner({
-    work, store, automations, capabilities, send, agents: AGENTS, now,
+    work, store, automations, capabilities, approvals, send, agents: AGENTS, now,
     // Passed through for a LOCAL driver only. The deployed Worker hands in neither,
     // so both fall back to `runner.mjs`'s own constants — and a test asserts that
     // this file never names a number of its own for them.

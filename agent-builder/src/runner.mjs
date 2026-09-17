@@ -109,7 +109,8 @@ export const MAX_ATTEMPTS = 5;
  */
 export const OUTCOMES = Object.freeze([
   "ran", "waiting", "not-claimable", "already-finished", "unreadable", "no-agent", "no-executor",
-  "cannot-resume", "too-many-attempts", "lease-lost", "beat-failed", "conflict", "failed",
+  "cannot-resume", "awaiting-approval", "too-many-attempts", "lease-lost", "beat-failed",
+  "conflict", "failed",
 ]);
 
 /**
@@ -176,6 +177,18 @@ export function makeRunner(opts = {}) {
    */
   const capabilities = opts.capabilities && typeof opts.capabilities.forTenant === "function"
     ? opts.capabilities
+    : null;
+  /**
+   * ⚠ WHERE A CALL THAT NEEDS A PERSON GOES TO ASK — UNSCOPED HERE, for `capabilities`'
+   * own reason. The gate only exists once `forTenant(t).forRun({runId})` has been
+   * applied, and both come from the claim, per delivery, below.
+   *
+   * **A deployment that hands in nothing REFUSES every gated call by name.** That is the
+   * safe direction and it is not the same as one that runs them: the model is told that
+   * nobody could be asked, which is a different sentence from "somebody said no".
+   */
+  const approvals = opts.approvals && typeof opts.approvals.forTenant === "function"
+    ? opts.approvals
     : null;
   /** Where a tool that starts work gets an identifier. Injected; never a global. */
   const newId = typeof opts.newId === "function" ? opts.newId : () => crypto.randomUUID();
@@ -611,11 +624,20 @@ export function makeRunner(opts = {}) {
       const canDo = capabilities && authoredAgent
         ? capabilities.forTenant(claim.tenant).forAgent(authoredAgent)
         : null;
+      // ⚠ THE GATE IS BOUND TO THE RUN AND THE ACCOUNT HERE, from the claim — and unlike
+      // the capability backend it does NOT need an authored agent. Every run can have a
+      // call that needs a person; the agent id only decides whether a screen can show
+      // what is waiting without reading the journal, so it rides as null where there is
+      // none, exactly as the column allows.
+      const mayCall = approvals
+        ? approvals.forTenant(claim.tenant).forRun({ runId, agentId: authoredAgent })
+        : null;
 
       const record = await runAgent({
         agent,
         tenant: { id: claim.tenant },
         capabilities: canDo,
+        approvals: mayCall,
         newId,
         from: open.entries,
         // **OWNERSHIP BEFORE ANY NEW WORK, ASKED OF THE DATABASE.** Before each model
@@ -693,6 +715,23 @@ export function makeRunner(opts = {}) {
       // running with its pending calls visible.
       if (reason === "cannot-resume") {
         return await finish(true, "cannot-resume", JSON.stringify(record.stop.pending ?? []), record.stop);
+      }
+
+      // ⚠ WAITING FOR A PERSON, AND IT IS NEITHER A FAILURE NOR `ran`. The work row is
+      // marked DONE — there is nothing to redeliver until somebody answers — and the log
+      // is deliberately left with no stop, so the run still reads as in progress with
+      // its calls pending. `agent.decide_tool_approval` puts it back on the queue through
+      // `requeue_run`, which is the durable wait this product already had rather than a
+      // second one built beside it.
+      if (reason === "awaiting-approval") {
+        return await finish(true, "awaiting-approval", JSON.stringify(record.stop.waiting ?? []), record.stop);
+      }
+
+      // NOWHERE TO ASK IS RETRYABLE, exactly as a broken journal is: the run is left
+      // open and a later delivery asks again, rather than a customer's work being closed
+      // over an outage in the approval store.
+      if (reason === "approval-failed") {
+        return await finish(false, "failed", `approval-failed: ${record.stop.error ?? ""}`, record.stop);
       }
 
       // The journal broke for a real reason. Retryable, up to the ceiling.

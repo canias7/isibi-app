@@ -28,6 +28,7 @@
 import { planLimits, narrowLimits, stoppedBy, leftOf, capMs } from "./limits.mjs";
 import { toolsFor, wireTools } from "./define.mjs";
 import { runFanout } from "./fanout.mjs";
+import { approvalRefusal } from "./approvals.mjs";
 import { addMeter, usageTokens } from "./meters.mjs";
 import {
   replay, startedEntry, modelEntry, toolEntry, stoppedEntry,
@@ -103,6 +104,21 @@ export async function runAgent(opts = {}) {
   if (capabilities !== null && typeof capabilities !== "object") {
     throw new TypeError("runAgent: capabilities must be an object of operations, already scoped");
   }
+  /**
+   * ⚠ WHERE A CALL THAT NEEDS A PERSON GOES TO ASK — already bound to THIS run.
+   *
+   * Handed in for the same reason `capabilities` is: a loop that could open a database is
+   * a loop nobody can drive. It arrives bound to the run and the account by the caller,
+   * which read both from the claim, so nothing below this line can ask about another
+   * run's approval and no tool argument can reach past it.
+   *
+   * **`null` IS A REAL ANSWER and is the default.** A deployment with nowhere to ask
+   * REFUSES a gated call and says so, which is not the same as one that quietly runs it.
+   */
+  const approvals = opts.approvals ?? null;
+  if (approvals !== null && typeof approvals?.ask !== "function") {
+    throw new TypeError("runAgent: approvals must be an object with an ask(), already bound to this run");
+  }
   /** Where a tool that starts work gets its identifier. Injected; never a global. */
   const newId = typeof opts.newId === "function" ? opts.newId : null;
   const mayStart = async (what, step) => { if (checkpoint) await checkpoint({ what, step }); };
@@ -118,6 +134,36 @@ export async function runAgent(opts = {}) {
   // on the record so the caller can say why the agent could not do a thing.
   const { allowed, withheld } = toolsFor(agent, tenant?.grants);
   const callable = new Map(allowed.map((t) => [t.name, t]));
+
+  // ── the approval gate ──────────────────────────────────────────────────────
+  //
+  // **WHICH CALLS NEED A PERSON IS READ OFF THE TOOL, and the tool is looked up in
+  // `callable`** — the list the tenancy wall already narrowed. So a model naming a tool
+  // it was not given never reaches this at all: it is refused below as "no such tool",
+  // which is a stronger answer than an approval request nobody can grant.
+  //
+  // **NOTHING A MODEL WRITES DECIDES ANYTHING HERE.** The step and the position come
+  // from this loop's own counters, the tool name from the narrowed list, and the account
+  // and the run from a store the caller bound before `runAgent` was called. The only
+  // model-written value in the whole exchange is the ARGUMENTS — and those are what is
+  // being asked about.
+  const decideOne = async (step, index, tool, args) => {
+    // A DEPLOYMENT WITH NOWHERE TO ASK REFUSES, and says which of the two it is: the
+    // model is told nobody could be asked, rather than that somebody said no.
+    if (!approvals) return { state: "unavailable", index, tool, id: null };
+    return { ...(await approvals.ask({ step, index, tool, args })), index, tool };
+  };
+  /** Every gated call in one batch, asked in order, keyed by its position in it. */
+  const decideBatch = async (calls, step) => {
+    const out = new Map();
+    for (let i = 0; i < calls.length; i++) {
+      const name = typeof calls[i]?.name === "string" ? calls[i].name : null;
+      const tool = name === null ? undefined : callable.get(name);
+      if (!tool?.approval) continue;
+      out.set(i, await decideOne(step, i, tool.name, calls[i]?.args));
+    }
+    return out;
+  };
 
   // ── the journal ────────────────────────────────────────────────────────────
   // A FAILED WRITE STOPS THE RUN AND SAYS SO. A caller who passed a journal asked
@@ -176,7 +222,45 @@ export async function runAgent(opts = {}) {
     // — the log cannot tell, because the process died before it could say. So the
     // question is not "did it run" but "is running it again safe", which is what
     // `repeatable` answers.
-    const unsafe = prior.pending.filter((p) => !callable.get(p.name)?.repeatable);
+    // ⚠ ASKED BEFORE `repeatable`, AND THE ORDER IS THE WHOLE POINT. A call still waiting
+    // for a person has definitively NOT run — the gate below sits in front of the
+    // dispatch — so answering `cannot-resume` about it would strand a run on a hazard
+    // that does not exist, for ever, since every later delivery would refuse the same
+    // way. The two questions are different: `repeatable` asks *might this have run*, and
+    // this asks *was it ever allowed to*.
+    //
+    // ⚠ EACH IS ASKED AT ITS OWN `(step, index)`, taken off the pending entry, because a
+    // decision is BOUND to that position and it is the call a person was shown. A batch
+    // that half-finished leaves a GAPPED pending list — calls 0 and 2 answered, 1 and 3
+    // not — so numbering them 0..n afresh here would ask about calls that do not exist
+    // and answer about ones that do.
+    const decided = new Map();
+    for (const [slot, p] of prior.pending.entries()) {
+      if (!callable.get(p.name)?.approval) continue;
+      try { decided.set(slot, await decideOne(p.step, p.index, p.name, findArgs(prior, p))); }
+      catch (e) {
+        // NOWHERE TO ASK IS NOT A VERDICT. The log is left open with no stop, so a later
+        // delivery tries again rather than the run being closed over an outage.
+        return record(ended("approval-failed", { error: String(e?.message ?? e) }));
+      }
+    }
+    const stillWaiting = [...decided.entries()].filter(([, d]) => d.state === "pending");
+    if (stillWaiting.length) {
+      // NOTHING RAN AND NOTHING WAS SPENT. Recorded rather than finished, so the log
+      // still reads as a run in progress with its calls pending — which is exactly what
+      // the delivery after the decision resumes from.
+      return record(ended("awaiting-approval", {
+        waiting: stillWaiting.map(([i, d]) => ({
+          id: d.id, tool: d.tool, step: prior.pending[i].step, index: prior.pending[i].index,
+        })),
+      }));
+    }
+
+    // A call a person REFUSED, or one nobody could be asked about, never ran — so it is
+    // not a resume hazard and is left out of the question below.
+    const refusedHere = new Set([...decided.entries()]
+      .filter(([, d]) => d.state !== "approved").map(([i]) => i));
+    const unsafe = prior.pending.filter((p, i) => !refusedHere.has(i) && !callable.get(p.name)?.repeatable);
     if (unsafe.length) {
       // FAILS CLOSED, and names every tool that blocked it. Refusing strands the
       // run, which is bad; running a payment twice is worse, and only one of the
@@ -190,7 +274,18 @@ export async function runAgent(opts = {}) {
     // REPLAY AGAIN. Re-replaying rather than patching the message list is what
     // keeps ONE composer of the conversation: the gaps are filled in the log and
     // the log is the thing that builds the messages.
-    for (const p of prior.pending) {
+    for (const [i, p] of prior.pending.entries()) {
+      // A CALL A PERSON REFUSED IS ANSWERED, NOT RUN. Its result is a refusal the model
+      // can read and act on — `ok: true` because the tool did not fail, with the refusal
+      // INSIDE the value, which is the shape every other wall in this product uses.
+      const verdict = decided.get(i);
+      if (verdict && verdict.state !== "approved") {
+        const said = toolEntry({ at: now(), step: p.step, index: p.index, name: p.name,
+                                 ms: 0, ok: true, value: approvalRefusal(verdict) });
+        entries.push(said);
+        if (!(await write(said))) return record(ended("journal-failed", { error: journalError, step: p.step }));
+        continue;
+      }
       // ASKED BEFORE THE TOOL RUNS, not after. These are the pending calls of a run
       // somebody else may now own, and they are `repeatable` — which makes running
       // them safe to REPEAT, not safe to run twice at once.
@@ -320,9 +415,37 @@ export async function runAgent(opts = {}) {
     // outside world.
     await mayStart("tools", stepNo);
 
+    // ── the approval gate, IN FRONT OF THE DISPATCH AND IN FRONT OF THE METER ──
+    //
+    // A call waiting for a person has not happened: it must not be billed as a tool
+    // call, and it must not be dispatched beside its neighbours. **THE BATCH IS HELD
+    // WHOLE**, for the reason the budget refusal above it is — a prefix performs real
+    // side effects whose results nobody ever reads, because the run stops either way.
+    let decided;
+    try { decided = await decideBatch(asked, stepNo); }
+    catch (e) {
+      // NOWHERE TO ASK IS NOT A VERDICT, and is not the end of the run either: the log
+      // is left open with no stop, so a later delivery asks again.
+      steps.push(Object.freeze(step));
+      return record(ended("approval-failed", { step: stepNo, error: String(e?.message ?? e) }));
+    }
+    const waitingOn = [...decided.values()].filter((d) => d.state === "pending");
+    if (waitingOn.length) {
+      steps.push(Object.freeze(step));
+      // ⚠ RECORDED, NOT FINISHED — no `stopped` entry. The log still reads as a run in
+      // progress with its tool calls pending, which is what the delivery after the
+      // decision resumes from; `agent.decide_tool_approval` puts the run back on the
+      // queue through `requeue_run`, the same function a person pressing "try again"
+      // already uses. There is no second queue and no poller.
+      return record(ended("awaiting-approval", {
+        step: stepNo,
+        waiting: waitingOn.map((d) => ({ id: d.id, tool: d.tool, step: stepNo, index: d.index })),
+      }));
+    }
+
     used.toolCalls += asked.length;
 
-    const results = await runFanout(asked, async (call) => {
+    const results = await runFanout(asked, async (call, i) => {
       const tool = typeof call?.name === "string" ? callable.get(call.name) : undefined;
       // FAILS CLOSED, and it is not redundant with `toolsFor`: a model can name a
       // tool that was never offered — a withheld one, or one it invented — and
@@ -332,6 +455,14 @@ export async function runAgent(opts = {}) {
         const why = withheld.some((w) => w.name === call?.name) ? "not permitted for this tenant" : "no such tool";
         throw new Error(`${String(call?.name ?? "(unnamed)")}: ${why}`);
       }
+      // **THE WALL IS HERE AND NOT IN THE TOOL.** A tool that checked its own approval
+      // would be a wall each of thirteen authors has to remember, and the one forgotten
+      // is the one that matters; and a tool cannot see its own position in the batch,
+      // which is half of what a decision is bound to. Every gated call has a decision by
+      // now — the batch was held above until they all did — so `approved` is the only
+      // state that reaches the tool.
+      const verdict = decided.get(i);
+      if (verdict && verdict.state !== "approved") return approvalRefusal(verdict);
       return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId }));
     }, { limit: limits.parallelTools, now });
 

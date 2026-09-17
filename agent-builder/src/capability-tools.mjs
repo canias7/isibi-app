@@ -231,6 +231,12 @@ const pauseAutomation = tool({
     required: ["id", "enabled"],
   },
   repeatable: true,
+  // ⚠ A PERSON SAYS YES FIRST. The line is what the call changes OUTSIDE this
+  // conversation: this one turns scheduled work on or off, which keeps happening after
+  // the conversation is over and which nobody may be watching. The reads and the agent's
+  // own notes are not gated — they change nothing a person has to be told about, and
+  // gating everything is how an approval becomes a thing people click through.
+  approval: true,
   run: async (args, can) => {
     const answer = await can.setAutomationEnabled({ id: text(args.id), enabled: args.enabled });
     if (answer?.ok !== true) {
@@ -272,6 +278,9 @@ const runAutomation = tool({
     },
     required: ["id"],
   },
+  // A PERSON SAYS YES FIRST, for the reason above: this starts work that goes on after
+  // the conversation ends.
+  approval: true,
   run: async (args, can, ctx) => {
     // THE RUN ID IS MINTED HERE AND NEVER TAKEN FROM AN ARGUMENT. A model naming the id
     // of a run is a model that can point one execution's record at another.

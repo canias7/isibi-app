@@ -93,6 +93,21 @@ export function defineTool(spec) {
   if (Object.hasOwn(spec, "repeatable") && typeof spec.repeatable !== "boolean") {
     throw new TypeError(`${where}: repeatable must be true or false — Boolean("false") is true, so it is not coerced`);
   }
+  // ⚠ `approval` SAYS A PERSON HAS TO SAY YES BEFORE THIS RUNS, and **it is declared
+  // HERE, in code, and nowhere else**. Not in an instruction, not in a retrieved
+  // document, not in a memory, not in a tool result — because none of those may grant a
+  // capability, and a requirement that DATA can set is one data can unset. What a
+  // customer ticks on a screen can only ever take a tool AWAY; it cannot make a gated
+  // one ungated.
+  //
+  // LIKE `repeatable` AND UNLIKE `scope`, the default is simply safe rather than wrong:
+  // a tool that asks for nothing outside this conversation needs no person, and the ones
+  // that do say so. Refused if it is not a boolean, for `repeatable`'s own reason —
+  // `Boolean("false")` is true, and a string out of a config file must not be the thing
+  // that makes a gated tool ungated.
+  if (Object.hasOwn(spec, "approval") && typeof spec.approval !== "boolean") {
+    throw new TypeError(`${where}: approval must be true or false — Boolean("false") is true, so it is not coerced`);
+  }
   return Object.freeze({
     kind: "tool",
     name: spec.name,
@@ -100,6 +115,7 @@ export function defineTool(spec) {
     input: spec.input,
     scope: spec.scope,
     repeatable: spec.repeatable === true,
+    approval: spec.approval === true,
     run: spec.run,
   });
 }

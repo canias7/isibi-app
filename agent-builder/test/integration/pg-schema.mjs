@@ -2601,6 +2601,130 @@ try {
               and p.prosecdef and 'search_path=""' = any(p.proconfig);`) === "11");
 
 
+
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log("\n── a tool call a person has to say yes to ──");
+  // ══════════════════════════════════════════════════════════════════════════
+  // ⚠ EVERY DIRECT READ OF THE TABLE BELOW IS `asOwner`, and that is the table's own
+  // guarantee rather than a workaround: `force row level security` filters `service_role`
+  // as well, so `jget`'s default reader answers NO ROWS — indistinguishable from a row
+  // that was never written. MEASURED: six checks reported the schema as broken that way
+  // before the reader was named.
+  //
+  // ⚠ THE PROPERTIES HERE ARE POSTGRES'S OWN and are not checkable anywhere else: a
+  // partial unique key on `(run_id, step, idx)`, a CHECK that a decision is whole, a
+  // `for update` lock deciding a race, and a grant surface where a client may READ its
+  // own and write none of it.
+  const AP_RUN = "ee000000-0000-0000-0000-0000000000e1";
+  const AP_T2 = "ee000000-0000-0000-0000-0000000000e2";
+  allowed("two runs to ask about, one per account",
+    `insert into agent.runs (id, tenant_id, status) values
+       ('${AP_RUN}','t1','running'), ('${AP_T2}','t2','running');`, asOwner);
+
+  const askedOnce = jget(`select agent.request_tool_approval('t1','${AP_RUN}','${AG_ON}',1,0,
+    'run_automation','{"id":"a-7"}'::jsonb,'hash-one')::text;`);
+  check("a request is recorded and answers pending, with nothing decided",
+    /"ok"\s*:\s*true/.test(askedOnce) && /"verdict"\s*:\s*null/.test(askedOnce)
+    && /"matches"\s*:\s*true/.test(askedOnce), askedOnce);
+  const apId = jget(`select id::text from agent.tool_approvals where run_id='${AP_RUN}' and step=1 and idx=0;`, asOwner);
+
+  // ⚠ ASKING AGAIN FINDS THE FIRST REQUEST. A redelivery must not make a second thing
+  // for somebody to answer twice — and the identity is the POSITION, so this is the
+  // partial unique key doing the work rather than the caller remembering.
+  const askedTwice = jget(`select agent.request_tool_approval('t1','${AP_RUN}','${AG_ON}',1,0,
+    'run_automation','{"id":"a-7"}'::jsonb,'hash-one')::text;`);
+  check("⚠ asking again finds the FIRST request rather than making a second",
+    askedTwice.includes(apId) &&
+    jget(`select count(*) from agent.tool_approvals where run_id='${AP_RUN}';`, asOwner) === "1", askedTwice);
+
+  // ⚠ DIFFERENT ARGUMENTS ARE REPORTED, NEVER WRITTEN OVER. The stored row is what a
+  // person was shown and may already have answered.
+  const drifted = jget(`select agent.request_tool_approval('t1','${AP_RUN}','${AG_ON}',1,0,
+    'run_automation','{"id":"SOMETHING-ELSE"}'::jsonb,'hash-two')::text;`);
+  check("⚠ a call whose arguments moved reads as NOT matching, and the row is untouched",
+    /"matches"\s*:\s*false/.test(drifted) &&
+    jget(`select args_hash from agent.tool_approvals where id='${apId}';`, asOwner) === "hash-one", drifted);
+  check("...and two calls at DIFFERENT positions are two requests",
+    /"ok"\s*:\s*true/.test(jget(`select agent.request_tool_approval('t1','${AP_RUN}','${AG_ON}',1,1,
+      'pause_automation','{}'::jsonb,'hash-three')::text;`)) &&
+    jget(`select count(*) from agent.tool_approvals where run_id='${AP_RUN}';`, asOwner) === "2");
+
+  check("⚠ a run that is not this account's reads as absent, and writes nothing",
+    jget(`select agent.request_tool_approval('t2','${AP_RUN}','${AG_ON}',9,0,
+      'run_automation','{}'::jsonb,'h')->>'error';`) === "no-run" &&
+    jget(`select count(*) from agent.tool_approvals where step=9;`, asOwner) === "0");
+
+  // ── deciding ──────────────────────────────────────────────────────────────
+  check("⚠ a verdict that is not a verdict is refused, and nothing is written",
+    jget(`select agent.decide_tool_approval('t1','${apId}','maybe','','someone')->>'error';`) === "bad-verdict" &&
+    jget(`select coalesce(verdict,'NULL') from agent.tool_approvals where id='${apId}';`, asOwner) === "NULL");
+  check("⚠ a decision nobody can be tied to is refused — this is what 'an authorized user' rests on",
+    jget(`select agent.decide_tool_approval('t1','${apId}','approved','','   ')->>'error';`) === "no-decider" &&
+    jget(`select coalesce(verdict,'NULL') from agent.tool_approvals where id='${apId}';`, asOwner) === "NULL");
+  check("⚠ the account next door cannot decide this account's request",
+    jget(`select agent.decide_tool_approval('t2','${apId}','approved','','them')->>'error';`) === "no-request" &&
+    jget(`select coalesce(verdict,'NULL') from agent.tool_approvals where id='${apId}';`, asOwner) === "NULL");
+
+  // THE CONTROL, without which every refusal above is satisfied by a function that
+  // refuses everything.
+  psql(`update agent.run_work set done_at = now(), claimed_by = null
+          where run_id = '${AP_RUN}';`);
+  psql(`insert into agent.run_work (run_id, tenant_id, kind, done_at)
+        select '${AP_RUN}','t1','start', now()
+        where not exists (select 1 from agent.run_work where run_id='${AP_RUN}');`);
+  const approvedIt = jget(`select agent.decide_tool_approval('t1','${apId}','approved','go on','owner@example.test')::text;`);
+  check("THE CONTROL: the owner really can approve, and the row is whole",
+    /"ok"\s*:\s*true/.test(approvedIt) && /"repeat"\s*:\s*false/.test(approvedIt) &&
+    jget(`select verdict || '|' || decided_by || '|' || (decided_at is not null)::text
+            from agent.tool_approvals where id='${apId}';`, asOwner) === "approved|owner@example.test|true", approvedIt);
+  // ⚠ AND IT PUT THE RUN BACK ON THE QUEUE — through `requeue_run`, which is the
+  // function a person pressing "try again" already uses. This is the whole of the
+  // durable wait: there is no second queue anywhere in this schema.
+  check("⚠ ...and the run went back on the queue, unclaimed, as a resume",
+    jget(`select coalesce(done_at::text,'NULL') || '|' || kind || '|' || coalesce(claimed_by,'NULL')
+            from agent.run_work where run_id='${AP_RUN}';`, asOwner) === "NULL|resume|NULL");
+
+  check("⚠ THE FIRST DECISION STANDS — a second press re-reads the winner's answer",
+    /"repeat"\s*:\s*true/.test(jget(`select agent.decide_tool_approval('t1','${apId}','rejected','no','someone-else')::text;`)) &&
+    jget(`select verdict || '|' || decided_by from agent.tool_approvals where id='${apId}';`, asOwner) === "approved|owner@example.test");
+
+  refused("⚠ a HALF decision is refused by the check constraint, not by us",
+    `update agent.tool_approvals set verdict = 'rejected', decided_at = null, decided_by = null where id='${apId}';`,
+    "tool_approvals_decision_is_whole", asOwner);
+
+  // ── reading ───────────────────────────────────────────────────────────────
+  check("what is waiting is this account's, oldest first, and a decided one is gone from it",
+    jget(`select count(*) from agent.pending_approvals('t1','${AG_ON}',20) t;`) === "1" &&
+    jget(`select count(*) from agent.pending_approvals('t2','${AG_ON}',20) t;`) === "0");
+  check("one run's list carries the verdict and the hash the decision is bound to",
+    jget(`select count(*) from agent.run_approvals('t1','${AP_RUN}') t;`) === "2" &&
+    jget(`select count(*) from agent.run_approvals('t2','${AP_RUN}') t;`) === "0");
+
+  // ── the grants ────────────────────────────────────────────────────────────
+  check("⚠ a client may READ its own waiting calls and WRITE none of it",
+    jget(`select has_table_privilege('authenticated','agent.tool_approvals','select')::text || '|'
+            || has_table_privilege('authenticated','agent.tool_approvals','insert')::text || '|'
+            || has_table_privilege('authenticated','agent.tool_approvals','update')::text || '|'
+            || has_table_privilege('anon','agent.tool_approvals','select')::text;`, asOwner) === "true|false|false|false");
+  for (const fn of ["agent.request_tool_approval(text, uuid, uuid, integer, integer, text, jsonb, text, uuid)",
+                    "agent.decide_tool_approval(text, uuid, text, text, text)",
+                    "agent.pending_approvals(text, uuid, integer)",
+                    "agent.run_approvals(text, uuid)"]) {
+    check(`⚠ only the backend may call ${fn.split("(")[0]}`,
+      jget(`select has_function_privilege('service_role','${fn}','execute')::text || '|'
+              || has_function_privilege('authenticated','${fn}','execute')::text || '|'
+              || has_function_privilege('anon','${fn}','execute')::text;`) === "true|false|false");
+  }
+  check("⚠ and RLS is FORCED, so even the table's owner is filtered",
+    jget(`select relrowsecurity::text || '|' || relforcerowsecurity::text
+            from pg_class where oid = 'agent.tool_approvals'::regclass;`, asOwner) === "true|true");
+  check("⚠ every one of the four pins an empty search_path and runs as its owner",
+    jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname='agent'
+              and p.proname in ('request_tool_approval','decide_tool_approval',
+                                'pending_approvals','run_approvals')
+              and p.prosecdef and 'search_path=""' = any(p.proconfig);`) === "4");
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

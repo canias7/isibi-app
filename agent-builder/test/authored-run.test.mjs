@@ -221,7 +221,8 @@ test("THE CONVERSATION A RUN WAS GIVEN COSTS IT NOTHING", () => {
  * run executes under is the one a deployment would use, placeholder instructions
  * and all.
  */
-function bench({ answers = [], agents = AGENTS } = {}) {
+function bench({ answers = [], agents = AGENTS, verdict = () => ({ state: "approved", id: "ap-1" }) } = {}) {
+  const asked = [];
   let clock = NOW;
   const { rest, store, work } = liveStore({ now: () => clock });
   // A timer a case fires by hand, so the heartbeat — and therefore the lease — is
@@ -250,8 +251,20 @@ function bench({ answers = [], agents = AGENTS } = {}) {
       forAgent: (agentId) => { scopings.push({ tenant, agentId }); return { marker: `${tenant}/${agentId}` }; },
     }),
   };
+  // ⚠ AND A RECORDING GATE, for the same reason and with one difference that is the
+  // point: it is bound to the RUN as well as the account, and it needs NO authored agent
+  // — every run can have a call that has to be put to a person.
+  const gatings = [];
+  const approvals = {
+    forTenant: (tenant) => ({
+      forRun: ({ runId, agentId }) => {
+        gatings.push({ tenant, runId, agentId });
+        return { ask: async (q) => { asked.push({ runId, ...q }); return { ...verdict(q), tool: q.tool }; } };
+      },
+    }),
+  };
   const runner = makeRunner({
-    work, store, send, agents, timer, capabilities,
+    work, store, send, agents, timer, capabilities, approvals,
     now: () => clock, nameWorker: () => `worker-${++w}`, onError: () => {},
   });
   const accept = async (entry) => {
@@ -259,7 +272,8 @@ function bench({ answers = [], agents = AGENTS } = {}) {
     await work.accept({ runId, tenant: "t1", entry });
     return runId;
   };
-  return { rest, store, work, runner, calls, accept, timer, scopings, advance: (ms) => { clock += ms; },
+  return { rest, store, work, runner, calls, accept, timer, scopings, gatings, asked,
+           advance: (ms) => { clock += ms; },
            kinds: (runId) => [...rest.entries.get(runId).values()].map((e) => e.kind) };
 }
 
@@ -983,4 +997,93 @@ test("⚠ THE SWEEP SPEC'S ANCHORS ARE ALL STILL THERE", (t) => {
   };
   gen("sweep-spec.mjs");
   gen("sql-sweep-spec.mjs");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// A CALL THAT NEEDS A PERSON, THROUGH A REAL DELIVERY
+// ════════════════════════════════════════════════════════════════════════════
+
+const asksFor = (name, args = {}) => ({
+  text: "", usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 1,
+  toolCalls: [{ id: "c0", name, args }],
+});
+
+test("⚠ A DELIVERY THAT IS WAITING FOR A PERSON IS DONE, AND THE RUN IS LEFT OPEN", async () => {
+  // **THE DURABLE WAIT IS THE ONE THIS PRODUCT ALREADY HAD.** There is no second queue
+  // and no poller: the work row is marked done — there is nothing to redeliver until
+  // somebody answers — and the log is left with no stop, so the run still reads as in
+  // progress with its call pending. `agent.decide_tool_approval` puts it back through
+  // `requeue_run`, the function a person pressing "try again" already uses.
+  const b = bench({ answers: [asksFor("pause_automation", { id: AUTHORED_AGENT, enabled: false })],
+                    verdict: () => ({ state: "pending", id: "ap-1" }) });
+  const runId = await b.accept(start({
+    instructions: WROTE, history: [], authoredAgent: "a-1", message: "m-1",
+    tools: ["pause_automation"],
+  }));
+
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "awaiting-approval", out.error);
+  // `ran` IS THE COARSE BOOLEAN AND IS `why === "ran"`, exactly as it is for
+  // `cannot-resume`: the word is what a caller reads, and both of these mean the same
+  // thing to a caller — stop, do not redeliver, somebody has to act.
+  assert.equal(out.ran, false);
+
+  // THE WORK IS OFF THE QUEUE — nothing to redeliver until somebody answers.
+  assert.notEqual(b.rest.work.get(runId).done_at, null, "the delivery was left claimable");
+  // AND THE RUN IS STILL RUNNING, with its call pending. A `stopped` entry here would be
+  // a conversation nobody could ever carry on.
+  assert.equal(b.rest.runs.get(runId).status, "running");
+  assert.deepEqual(b.kinds(runId), ["started", "model"]);
+
+  // ⚠ THE GATE WAS BOUND TO THIS RUN AND THIS ACCOUNT, from the claim — and to the
+  // authored agent, so a screen can show what is waiting without reading the journal.
+  assert.deepEqual(b.gatings, [{ tenant: "t1", runId, agentId: "a-1" }]);
+  assert.equal(b.asked.length, 1);
+  assert.deepEqual(
+    { runId: b.asked[0].runId, step: b.asked[0].step, index: b.asked[0].index, tool: b.asked[0].tool },
+    { runId, step: 1, index: 0, tool: "pause_automation" });
+  assert.deepEqual(b.asked[0].args, { id: AUTHORED_AGENT, enabled: false },
+    "the arguments a person is answering about are not the ones the model wrote");
+});
+
+test("...AND THE DELIVERY AFTER THE DECISION CARRIES ON FROM THE SAME LOG", async () => {
+  // The decision put the run back on the queue; this is that delivery. The call is still
+  // pending in the log, the gate now says yes, and the run finishes — WITHOUT asking the
+  // model again for a step that was already paid for.
+  let answered = false;
+  const b = bench({
+    answers: [asksFor("pause_automation", { id: AUTHORED_AGENT, enabled: false })],
+    verdict: () => (answered ? { state: "approved", id: "ap-1" } : { state: "pending", id: "ap-1" }),
+  });
+  const runId = await b.accept(start({
+    instructions: WROTE, history: [], authoredAgent: "a-1", message: "m-1",
+    tools: ["pause_automation"],
+  }));
+  assert.equal((await b.runner.deliver(runId)).why, "awaiting-approval");
+  const spentBefore = b.calls.length;
+
+  // ⚠ `requeue_run` IS WHAT `agent.decide_tool_approval` CALLS, and it is the same
+  // function a person pressing "try again" already uses. That is the whole of the durable
+  // wait: no second queue, no poller, no timer.
+  answered = true;
+  const back = await b.rest.fetch("https://p.supabase.co/rest/v1/rpc/requeue_run", {
+    method: "POST", headers: { "content-profile": "agent" },
+    body: JSON.stringify({ p_run_id: runId, p_tenant: "t1" }),
+  });
+  assert.equal(back.status, 200, await back.text());
+  assert.equal(b.rest.work.get(runId).done_at, null, "the decision did not put the work back");
+
+  const second = await b.runner.deliver(runId);
+  assert.equal(second.why, "ran", second.error);
+  // ⚠ THE MODEL WAS ASKED ONCE MORE AND ONLY ONCE — for the step AFTER the tool answer,
+  // never again for the one whose answer was already in the log.
+  assert.equal(b.calls.length, spentBefore + 1,
+    "the resumed delivery re-ran a model call that had already been paid for");
+  assert.equal(b.rest.runs.get(runId).status, "stopped");
+  // The tool really ran this time: the log has its answer.
+  assert.deepEqual(b.kinds(runId), ["started", "model", "tool", "model", "stopped"]);
+  // AND THE SAME CALL WAS PUT TO A PERSON BOTH TIMES, at the same position — which is
+  // what makes the second ask find the first request rather than make a second one.
+  assert.deepEqual(b.asked.map((a) => `${a.step}:${a.index}:${a.tool}`),
+    ["1:0:pause_automation", "1:0:pause_automation"]);
 });
