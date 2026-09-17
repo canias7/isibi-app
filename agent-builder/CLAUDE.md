@@ -3962,7 +3962,28 @@ that fails for a reason the product is right about is a test that has to change.
 killed, 0 survived, each by a NAMED test, under the runner's own child environment
 (`MUTATION_SWEEP=1`, no `NODE_TEST_CONTEXT`), which is the re-check this repository has
 already had wrong once. A narrow list can only produce a false SURVIVOR, so the full pass
-is what decides, and **its tally is not stamped here yet.**
+is what decides — and it did: **394 mutants, 394 killed, 0 survived, 0 never applied, 6
+comment-only controls survived**, with the tree proved restored against git and both spec
+generators' anchor censuses green afterwards, which is the only check that can say no
+mutant is still applied.
+
+**⚠ AND THE FIRST ATTEMPT AT THAT PASS HIT THIS DIRECTORY'S OWN RECORDED TRAP.** It was
+started as `nohup npm run sweep &` inside a backgrounded call, so the tracked wrapper was
+reaped the instant `&` returned, the runner became an orphan nobody owned, and it was
+killed without reaching its `finally` — **leaving a live mutant in `src/auth.mjs` and five
+orphaned `node --test` processes holding files.** Caught by `git status`, restored from git,
+and both anchor censuses run to confirm nothing else was left applied. The rule is already
+written down: *run the sweep as the background call's own command.* And its output was
+piped through `tail -30`, which nearly cost the survivor names — they survived only because
+the runner prints a SURVIVORS list last. **A tally with survivors you cannot name is not
+actionable**, so the second pass was written unpiped to a file.
+
+**AND A TREE READING DURING A SWEEP IS WORTHLESS, MEASURED TWICE HERE RATHER THAN QUOTED.**
+`git status` showed a mutant in `src/approvals.mjs` one command and a clean file the next;
+later readings named `define.mjs`, then `meters.mjs`, then `worker.mjs`, then `runner.mjs`
+as the runner walked its spec. Anything committed on the strength of such a reading is a
+deliberate breakage shipped as source, which is why this round's commits during the pass
+took files BY EXPLICIT PATH and never `git add -A`.
 - ⚠ **AND ONE MORE NAME COLLISION, in my own new section**: `before`, `first`, `again` and
   `second` were already declared in `verify-tools.mjs`, which is one long function body —
   *a re-anchor lands in a scope it did not write*, met three times in one edit. Every local

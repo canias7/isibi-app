@@ -1289,8 +1289,24 @@ because that sweep had not been run since the copy moved. The generator asks now
 took three attempts to get the question right; the first two reported correct checks as
 broken, and the third was a check that could not fail at all.
 
-**Measured**: the engine suite 395, the real-PostgreSQL checks 632, and the tools
+**Measured**: the engine suite 402, the real-PostgreSQL checks 633, and the tools
 demonstration 78 — all green. The three other demonstrations (70, 125, 112) and the site
-builder's own 6,791 are unchanged, which is how I know this round moved nothing else.
+builder's own 6,791 are unchanged, which is how I know this round moved nothing else. The
+deliberate-breakage sweep is **394 of 394 caught**, with all six do-nothing controls
+surviving.
+
+**And that sweep is the part worth telling you about.** Its first pass caught 383 of 394
+and let **eleven** through — every one of them in this round's own work, and eight of them
+the same hole: the thing this milestone is *about* had no small test at all. It was proved
+by the end-to-end demonstration, which the breakage sweep does not run, so no breakage
+could be caught by it. Seven new tests close them and the second pass caught everything.
+Two of the eleven turned out to be breakages that had quietly stopped breaking anything;
+both are replaced with ones that do.
+
+I also made two process mistakes worth naming, since both are written down in this
+directory as things not to do. I started the first sweep in a way that let it be orphaned
+half way through, which left one deliberate breakage sitting in the working files — caught
+immediately, restored, and verified — and I piped that run's output in a way that nearly
+lost the list of what got through. Neither reached anything committed.
 
 **Nothing is applied, deployed or merged.**
