@@ -1,0 +1,156 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the component loop's needs test",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    // ⚠ AND A COMPONENT IS WITHHELD FOR IMPORTING ONE TOO, not only for showing",
+    "to": "    // ⚠ AND A COMPONENT IS WITHHELD FOR IMPORTING ONE TOO (control), not only for showing",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment only, above importsPart",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  // DOES THIS SOURCE IMPORT THAT COMPONENT — and WHICH spellings count depends",
+    "to": "  // DOES THIS SOURCE IMPORT THAT COMPONENT (control) — and WHICH spellings depend",
+    "control": true
+  },
+  {
+    "label": "the reported defect: the component loop asks only what it RENDERS, so a chain breaks at its first hop",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));",
+    "to": "      const needs = false;"
+  },
+  {
+    "label": "every component this change wrote is withheld, whatever it shows or imports",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));\n      if (!(shows || needs)) continue;",
+    "to": "      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));\n      if (false) continue;"
+  },
+  {
+    "label": "the component loop stops asking what it RENDERS, so the chain has no first link",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const shows = renders(p).some((n) => dead.has(n));\n      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));",
+    "to": "      const shows = false;\n      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));"
+  },
+  {
+    "label": "the component loop asks the PAGE's spelling set, so a sibling import is missed",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));",
+    "to": "      const needs = [...goneParts].some((n) => importsPart(p.source, n));"
+  },
+  {
+    "label": "a component already decided is decided again, so it is named twice",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    for (const p of parts) {\n      if (heldParts.has(p.name)) continue;",
+    "to": "    for (const p of parts) {\n      if (false) continue;"
+  },
+  {
+    "label": "the PAGE loop gains the sibling spelling, so a page importing its own sibling ROUTE is withheld",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const needs = [...goneParts].some((n) => importsPart(p.source, n));\n      if (held.has(p.path) || !(shows || needs)) continue;",
+    "to": "      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));\n      if (held.has(p.path) || !(shows || needs)) continue;"
+  },
+  {
+    "label": "the sibling spelling is admitted from anywhere, so `inPart` decides nothing",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);",
+    "to": "    return new RegExp(\"[\\\"']\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);"
+  },
+  {
+    "label": "the sibling spelling is never admitted, so the widening is decorative",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);",
+    "to": "    return false;"
+  },
+  {
+    "label": "the sibling test loses its right boundary, so ./qr-card-2 reads as ./qr-card",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);",
+    "to": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(name)).test(s);"
+  },
+  {
+    "label": "the sibling test loses its quote anchor, so any text ending in ./name reads as an import",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);",
+    "to": "    return inPart === true && new RegExp(\"\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);"
+  },
+  {
+    "label": "the sibling test drops its dot, so a deep path ending in /name reads as a sibling",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);",
+    "to": "    return inPart === true && new RegExp(\"/\" + esc(name) + \"(?![\\\\w-])\").test(s);"
+  },
+  {
+    "label": "the taught `-parts/` path stops counting, so only siblings propagate",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (new RegExp(\"(^|[\\\"'/])\" + esc(PART_DIR) + esc(name) + \"(?![\\\\w-])\").test(s)) return true;",
+    "to": "    if (false) return true;"
+  },
+  {
+    "label": "the name is not escaped, so a component name is read as a pattern",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(name) + \"(?![\\\\w-])\").test(s);",
+    "to": "    return inPart === true && new RegExp(\"[\\\"']\\\\./\" + String(name) + \"(?![\\\\w-])\").test(s);"
+  },
+  {
+    "label": "the bound loses the components, so a reversed chain stops one link in",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  for (let round = 0; round <= codes.length + parts.length + 1; round++) {",
+    "to": "  for (let round = 0; round <= codes.length + 1; round++) {"
+  },
+  {
+    "label": "the loop is one pass, so nothing cascades at all",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  for (let round = 0; round <= codes.length + parts.length + 1; round++) {",
+    "to": "  for (let round = 0; round <= 0; round++) {"
+  },
+  {
+    "label": "a withheld component that this change INVENTED no longer takes its module with it",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (entry.added) goneParts.add(p.name);",
+    "to": "      if (false) goneParts.add(p.name);"
+  },
+  {
+    "label": "a component that merely REVERTS is treated as one that will not exist",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (entry.added) goneParts.add(p.name);",
+    "to": "      goneParts.add(p.name);"
+  }
+]

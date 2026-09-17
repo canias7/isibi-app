@@ -1703,6 +1703,130 @@ test("a CUSTOM COMPONENT that renders a dropped code is withheld too, and the pa
     "the cascade stopped before the third link: " + JSON.stringify(deep.withheld));
 });
 
+test("deadQrs follows component-to-component imports, in both spellings and to any depth", () => {
+  // ⚠ THE OWNER'S REPORTED CHAIN AT THE MODULE (2026-09-17): *"Propagate
+  // withholding through component-to-component imports as well as
+  // page-to-component imports. Continue until dependencies settle."*
+  //
+  // The page loop has asked "does this import a component that will not exist"
+  // since the cascade shipped; the component loop asked only "does this render
+  // a dead code", so a component ONE HOP from the binding was published
+  // importing a module nothing would write. The route case has the end-to-end
+  // measurement; this is the property on its own, where the depth and the two
+  // spellings can be driven at all.
+  const SITE = "https://fretwork-1.gofarther.app";
+  const qr = [{ name: "gallery", points: SITE + "/gallery", label: "Our gallery" }];
+  const dead = { qr, prior: [], missing: ["/gallery"], url: SITE + "/" };
+  const card = { name: "qr-card", source: "<img src={SITE_QRS.gallery.src}/>", added: true };
+
+  // ── THE TWO SPELLINGS A COMPONENT REALLY USES ────────────────────────────
+  // `@/routes/-parts/x` is the one every prompt teaches. `./x` is what a
+  // SIBLING is, with no `-parts/` in it at all, and both resolve — so a
+  // propagation that admits only the taught one is incomplete by exactly the
+  // spelling a model is most likely to reach for between two files in one
+  // directory.
+  for (const [what, src] of [
+    ["the taught path", "import { QrCard } from '@/routes/-parts/qr-card'\n<QrCard/>"],
+    ["a sibling relative", "import { QrCard } from './qr-card'\n<QrCard/>"],
+    ["a sibling with its extension", "import { QrCard } from './qr-card.tsx'\n<QrCard/>"],
+  ]) {
+    const r = deadQrs({ ...dead, wrote: [], wroteParts: [card, { name: "panel", source: src, added: true }] });
+    assert.deepEqual(r.withheldParts.map((w) => w.name).sort(), ["panel", "qr-card"],
+      "a component importing the withheld one by " + what + " shipped: " + JSON.stringify(r.withheldParts));
+  }
+
+  // …AND THE SIBLING FORM IS ASKED OF COMPONENTS AND OF NOTHING ELSE, which is
+  // what keeps admitting it safe. From a PAGE, `./qr-card` means
+  // `src/routes/qr-card.tsx` — another PAGE — so reading it as a part import
+  // would withhold a page for a file it never mentioned. MEASURED both ways
+  // round, because the discriminator is the whole argument.
+  const pageSib = deadQrs({ ...dead, wroteParts: [card],
+    wrote: [{ path: "posters.tsx", source: "import { X } from './qr-card'\n<X/>", added: true }] });
+  assert.deepEqual(pageSib.withheld, [],
+    "a page importing its own sibling route was read as importing a component: " + JSON.stringify(pageSib.withheld));
+  const pageDir = deadQrs({ ...dead, wroteParts: [card],
+    wrote: [{ path: "posters.tsx", source: "import { X } from './-parts/qr-card'\n<X/>", added: true }] });
+  assert.deepEqual(pageDir.withheld.map((w) => w.path), ["posters.tsx"],
+    "the control: a page that really does import the component still goes with it");
+
+  // …AND THE THREE THINGS THAT ARE NOT AN IMPORT, each a shape a real component
+  // carries and each the discriminator for one wall in that regex. Measured:
+  // all four ship as they are and are withheld with the wall removed.
+  const part = (source) => deadQrs({ ...dead, wrote: [],
+    wroteParts: [card, { name: "panel", source, added: true }] }).withheldParts.map((w) => w.name);
+  assert.deepEqual(part("import { X } from './qr-card-2'\n<X/>"), ["qr-card"],
+    "a longer component name matched as a prefix on the sibling spelling");
+  assert.deepEqual(part("// the card is in ./qr-card\n<div/>"), ["qr-card"],
+    "a COMMENT naming the sibling was read as an import — the quote is what separates them");
+  assert.deepEqual(part('<a href="https://x.test/qr-card">the card</a>'), ["qr-card"],
+    "a link ending in the component's name was read as an import — the `./` is what separates them");
+  assert.deepEqual(part("import { X } from \"@/components/ui/qr-card\"\n<X/>"), ["qr-card"],
+    "a KIT component of the same name was read as this site's own");
+
+  // …AND THE NAME IS A NAME, NEVER A PATTERN. `validatePages` refuses anything
+  // but kebab-case, so this cannot arrive through the route — and `deadQrs` is
+  // exported and takes what it is handed, so the wall is DRIVEN here rather
+  // than left as one nobody can reach. Unescaped, `qr.card` matches `qrxcard`.
+  const meta = deadQrs({ ...dead, wrote: [],
+    wroteParts: [
+      { name: "qr.card", source: "<img src={SITE_QRS.gallery.src}/>", added: true },
+      { name: "panel", source: "import { X } from './qrxcard'\n<X/>", added: true },
+    ] });
+  assert.deepEqual(meta.withheldParts.map((w) => w.name), ["qr.card"],
+    "a component name was read as a regex, so an unrelated file matched it: " + JSON.stringify(meta.withheldParts));
+
+  // ── DEPTH, IN THE ORDER THAT COSTS THE MOST ROUNDS ───────────────────────
+  // A chain of five components listed BACKWARDS: each round the loop walks the
+  // whole list, so a forward chain settles in one pass and a reversed one needs
+  // a round per link. That is what the bound is for, and a bound that is short
+  // does not hang — it returns with the fixed point unsettled, which is the
+  // same dangling import one round later.
+  const linkPart = (n, to) => ({ name: n, source: "import { X } from '@/routes/-parts/" + to + "'\n<X/>", added: true });
+  const chain = deadQrs({ ...dead, wrote: [],
+    wroteParts: [linkPart("p5", "p4"), linkPart("p4", "p3"), linkPart("p3", "p2"), linkPart("p2", "qr-card"), card] });
+  assert.deepEqual(chain.withheldParts.map((w) => w.name).sort(), ["p2", "p3", "p4", "p5", "qr-card"],
+    "the chain settled short: " + JSON.stringify(chain.withheldParts.map((w) => w.name)));
+
+  // ── RESTORE THE EXISTING, WITHHOLD THE NEW TOGETHER ──────────────────────
+  // Owner's own sentence, and it is one rule rather than two branches: an
+  // existing component withheld REVERTS to the source the site is serving, so
+  // its importers can go on importing it and it never joins the "will not
+  // exist" set. MEASURED at depth, which is where the two could come apart: a
+  // NEW card, an EXISTING panel that this change rewrote to use it, and a page
+  // importing the panel.
+  const revert = deadQrs({ ...dead,
+    wroteParts: [card, { name: "panel", source: "import { QrCard } from './qr-card'\n<QrCard/>", added: false }],
+    wrote: [{ path: "posters.tsx", source: "import { Panel } from '@/routes/-parts/panel'\n<Panel/>", added: true }],
+  });
+  assert.deepEqual(revert.withheldParts.map((w) => w.name).sort(), ["panel", "qr-card"],
+    "the rewritten component kept an import of a file that will not exist: " + JSON.stringify(revert.withheldParts));
+  assert.deepEqual(revert.withheldParts.find((w) => w.name === "panel").added, false,
+    "an existing component was marked as one this change invented");
+  assert.deepEqual(revert.withheld, [],
+    "a page was withheld for importing a component that merely reverts: " + JSON.stringify(revert.withheld));
+
+  // …AND THE CONTROL, so that last assertion is about `added` and not about the
+  // page's import being unreadable: the same page, the same import, with the
+  // panel marked as one this change invented.
+  const gone = deadQrs({ ...dead,
+    wroteParts: [card, { name: "panel", source: "import { QrCard } from './qr-card'\n<QrCard/>", added: true }],
+    wrote: [{ path: "posters.tsx", source: "import { Panel } from '@/routes/-parts/panel'\n<Panel/>", added: true }],
+  });
+  assert.deepEqual(gone.withheld.map((w) => w.path), ["posters.tsx"],
+    "a page importing a component that will NOT exist shipped: " + JSON.stringify(gone.withheld));
+
+  // ── AND A CLEAN CHAIN IS UNTOUCHED ───────────────────────────────────────
+  // The same three files with the page present: nothing dropped, nothing
+  // withheld. Without this the whole case is satisfied by withholding
+  // everything always.
+  const ok = deadQrs({ qr, prior: [], missing: [], url: SITE + "/",
+    wroteParts: [card, { name: "panel", source: "import { QrCard } from './qr-card'\n<QrCard/>", added: true }],
+    wrote: [{ path: "posters.tsx", source: "import { Panel } from '@/routes/-parts/panel'\n<Panel/>", added: true }],
+  });
+  assert.deepEqual([ok.dropped, ok.withheld, ok.withheldParts], [[], [], []],
+    "a chain whose page is present was withheld anyway: " + JSON.stringify(ok));
+});
+
 test("deadQrNote says the two outcomes apart, and says nothing when there is nothing to say", () => {
   assert.equal(deadQrNote(), "");
   assert.equal(deadQrNote({ dropped: [], withheld: [] }), "");

@@ -8399,6 +8399,96 @@ line it replaces, and red against the pre-change product for the right reason**
 than subtracted from a paragraph. `site-apply` and `site-picture` stay where
 they were: both gained assertions inside cases that already existed.
 
+### …AND THE CHAIN BROKE AT ITS FIRST HOP: COMPONENT → COMPONENT (2026-09-17)
+
+Owner: *"homepage → panel → qr-card → QR targeting missing /gallery. The route
+withholds qr-card but retains panel and the homepage. The actual compiler
+payload contains panel importing the missing qr-card module."*
+
+**REPRODUCED THROUGH `POST /api/site/<slug>/addon` BEFORE ANYTHING WAS
+TOUCHED**, exactly as reported: `heldParts ["qr-card"]`, `heldPages undefined`,
+`changed ["index.tsx"]`, `ok: true` — and the container payload's `parts`
+carrying `panel` with `import { QrCard } from '@/routes/-parts/qr-card'`, a
+module nothing would write. `vite` refuses that build, which is this
+repository's own most expensive measured class, published on purpose.
+
+**THE CAUSE WAS ONE MISSING TEST, NOT A MISSING IDEA.** The PAGE loop has asked
+*"does this import a component that will not exist"* since the cascade shipped;
+the COMPONENT loop asked only *"does this render a dead code"*. So the chain
+broke at its first hop and everything past it read as unrelated — the fix
+shipped one file kind short of its own argument, for the second round running.
+The component loop asks both questions now, in the same shape the page loop
+does, and the whole set settles together: **restore an existing component to the
+source the site is serving, withhold a new one and every file that depends on
+it.** One rule rather than two branches, because a reverted component still
+exists and therefore never joins the *will-not-exist* set.
+
+**⚠ AND A SIBLING IS `./x`, WITH NO `-parts/` IN IT AT ALL.** That is the one
+place this edge differs from the page edge, and it was decided by measurement
+rather than by preference: the only spelling ANY prompt teaches is
+`@/routes/-parts/<name>` (`page-gen.mjs`, twice), and **the 100-site corpus
+holds ZERO `-parts/` files — it predates components entirely** — so there is no
+evidence either way about what a model writes between two siblings. What
+decides it is the asymmetry: a relative `./x` from inside `-parts/` can resolve
+to NOTHING BUT `-parts/x.tsx`, so admitting it has a false-alarm rate of **zero
+by construction**, while missing it hands the compiler a dangling import.
+**`inPart` is the discriminator that keeps it safe** — from a PAGE, `./x` means
+`src/routes/x.tsx`, another page — and the three walls inside that regex are
+each measured against a shape a real component carries: without the quote a
+COMMENT saying *"the card is in ./qr-card"* reads as an import; without the
+`./` any path ending in `/qr-card` does, which is a link, a kit module of the
+same name, or a sentence about a print file. All four ship as they are.
+
+**⚠ AND THE BOUND WAS WIDENED, MEASURED INERT, AND PUT BACK — with a proof
+instead of a term.** `+ written.length` was added on the reasoning that
+withholding an ADDED page returns its route to `gone` and can kill a second
+code. **A/B over 6,000 random chain shapes (2,621 with something really
+withheld) found ZERO differences**, and the reason is structural rather than a
+sample: a round that changes neither `dead` nor `goneParts` cannot withhold a
+page it did not already withhold last round, because the page loop walks the
+WHOLE list every round against exactly those two sets. So **no round is ever
+productive on pages alone** and `codes + parts` bounds the productive rounds
+however the three chains interleave. The bound is what it was; what is new is
+that it is now written down why.
+
+**`esc(name)` CANNOT FIRE THROUGH THE ROUTE AND IS DRIVEN ANYWAY.**
+`validatePages` refuses any component name but
+`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`, so no name reaching `deadQrs` can hold a
+regex metacharacter — and the function is exported and takes what it is handed,
+where `qr.card` unescaped matches `qrxcard`. *A wall nobody can drive is a wall
+nobody is guarding*, answered by driving it at the module rather than by
+declaring it a belt.
+
+**Guards**: `addon-route` **96 → 98** — the owner's chain end to end, plus the
+matching successful control where `/gallery` exists. **The compiler inputs are
+read from a DERIVED check**, `danglingParts`, which walks BOTH payload halves
+(pages arrive in `files`, components in `parts`) and answers "does anything here
+import a file that is not here" — a hardcoded expectation stops being that
+property the moment a fixture gains a file, and a check reading only `files`
+would report a component importing a missing component as clean, which is the
+defect itself. **One unrelated `/prices` is declared scaffolding**: the chain
+alone leaves nothing to publish, and a 422's compiler inputs are the empty set
+— a true assertion and a weak one. `site-add` **43 → 44**, where the three
+spellings, the discriminator both ways round, a five-link chain listed
+BACKWARDS, the existing-component revert at depth and its `added` control all
+live. Both new cases proved RED against the pre-change product, and **the
+control passes on BOTH trees**, which is what makes it a control rather than a
+second copy of the case.
+
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-nested-parts.json`). Pass 1 read
+18/14/4 and **not one survivor was the product's**: three were gaps in the new
+guards (the quote, the dot, and `esc` — each closed by a measured real shape
+rather than by a contrived one) and the fourth was the inert bound above, which
+was removed with its proof instead of being hunted.
+
+**Suite 6,798** — 6,795 + 2 (`addon-route`) + 1 (`site-add`), and the arithmetic
+closes exactly.
+
+**COMBINED PAGE + PHOTOGRAPH REMAINS INCOMPLETE**, in the owner's words: it
+still skips photo and publishes a placeholder, and the same request does not yet
+place the picture.
+
 
 ## Data, auth, payments, mail
 

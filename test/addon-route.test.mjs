@@ -3121,6 +3121,172 @@ test("page + QR where both arrive publishes the code and says nothing — and an
   assert.deepEqual((storedLook(prior, "fw-qr-prior").qr || []).map((q) => q.name), ["gallery"], "the site's own code did not survive");
 });
 
+/**
+ * EVERY COMPONENT THE CONTAINER PAYLOAD IMPORTS, AND WHETHER THE PAYLOAD HAS
+ * IT — derived from the payload itself rather than compared against a list a
+ * case typed out, because the property is "nothing here imports a file that is
+ * not here" and a hardcoded expectation stops being that the moment a fixture
+ * gains a file.
+ *
+ * IT READS BOTH PAYLOAD HALVES, which is the whole point: pages arrive in
+ * `files` and components in `parts`, so a check that read only one of them
+ * would report a component importing a missing component as clean — which is
+ * exactly the defect this pair of cases is about.
+ */
+function danglingParts(r) {
+  const body = (r && r.compiles && r.compiles[0] && r.compiles[0].body) || null;
+  if (!body) return [];
+  const have = new Set((Array.isArray(body.parts) ? body.parts : []).map((p) => p && p.name).filter(Boolean));
+  const sources = [
+    ...Object.entries(body.files || {}).map(([k, v]) => [k, String(v)]),
+    ...(Array.isArray(body.parts) ? body.parts : []).map((p) => ["-parts/" + (p && p.name), String((p && p.source) || "")]),
+  ];
+  const out = [];
+  for (const [where, src] of sources) {
+    for (const hit of src.match(/-parts\/[\w-]+/g) || []) {
+      const want = hit.slice("-parts/".length);
+      if (!have.has(want)) out.push(where + " imports " + want);
+    }
+  }
+  return out;
+}
+
+test("a component that imports the withheld component goes with it, however deep the chain", async () => {
+  // ⚠ THE OWNER'S OWN CHAIN, REPRODUCED THROUGH THIS ROUTE BEFORE THE FIX
+  // (2026-09-17): *"homepage → panel → qr-card → QR targeting missing
+  // /gallery. The route withholds qr-card but retains panel and the homepage.
+  // The actual compiler payload contains panel importing the missing qr-card
+  // module."*
+  //
+  // MEASURED, exactly that: `heldParts ["qr-card"]`, `heldPages undefined`,
+  // `changed ["index.tsx"]`, and the container payload's `parts` carrying
+  // `panel` with `import { QrCard } from '@/routes/-parts/qr-card'` — a module
+  // nothing would write. `vite` refuses that build, which is this repository's
+  // own most expensive measured class.
+  //
+  // THE CAUSE WAS ONE MISSING TEST, not a missing idea. The PAGE loop has asked
+  // "does this import a component that will not exist" since the cascade
+  // shipped; the COMPONENT loop asked only "does this render a dead code", so
+  // the chain broke at its first hop and everything past it read as unrelated.
+  //
+  // ⚠ AND THE INDEPENDENT `/prices` IS DELIBERATE SCAFFOLDING. The owner's ask
+  // is to *"assert the actual compiler inputs"*, and the chain on its own
+  // leaves nothing to publish — a 422 whose compiler inputs are the empty set,
+  // which is a true assertion and a weak one. One unrelated page keeps the
+  // compile alive so the payload can be read directly, and the chain under test
+  // is untouched by it.
+  const QR_CARD = { name: "qr-card", source: "export function QrCard(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" };
+  const PANEL = { name: "panel", source: "import { QrCard } from '@/routes/-parts/qr-card'\nexport function Panel(){return <section><QrCard /></section>}" };
+  const home = addedTo("/", '<Panel /><Link to="/prices">Prices</Link>');
+  const uses = { ...home, source: home.source.replace("import { createFileRoute", "import { Panel } from '@/routes/-parts/panel'\nimport { createFileRoute") };
+  const r = await addon("fw-nest", "add a gallery page, a prices page, a panel section with a QR card in it, and a code that opens the gallery", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [uses, writtenPage("/prices")],
+    writtenParts: [QR_CARD, PANEL],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/prices", name: "Prices", purpose: "what it costs", sections: ["a table"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/", does: "a panel with a QR card", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITIONS, ASSERTED RATHER THAN ASSUMED: the page really did not
+  // survive, so the code really is dead. Without these a run where the writer
+  // returned `/gallery` passes this case with the fix deleted.
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+
+  // ── THE CHAIN SETTLES, ALL THREE HOPS ────────────────────────────────────
+  // `qr-card` for showing the code, `panel` for importing `qr-card`, the home
+  // page for importing `panel`. The second of those three is the fix.
+  assert.deepEqual(r.body.heldParts, ["qr-card", "panel"],
+    "the chain stopped short — a component importing the withheld one shipped: " + JSON.stringify(r.body.heldParts));
+  assert.deepEqual(r.body.heldPages, ["index.tsx"],
+    "the page at the end of the chain shipped: " + JSON.stringify(r.body.heldPages));
+
+  // ── THE ACTUAL COMPILER INPUTS ───────────────────────────────────────────
+  // What the route SAYS it withheld and what it HANDED the thing that builds
+  // the site are two claims, and only the second one is the defect. A route
+  // that named both components and sent them anyway satisfies every assertion
+  // above.
+  assert.equal(r.compiles.length, 1, "the independent page did not reach the compiler");
+  const body = r.compiles[0].body;
+  assert.deepEqual(danglingParts(r), [],
+    "the compiler was handed a file importing a module the payload does not contain: " + JSON.stringify(danglingParts(r)));
+  assert.deepEqual((body.parts || []).map((p) => p.name), [],
+    "a withheld component was handed to the compiler: " + JSON.stringify((body.parts || []).map((p) => p.name)));
+  // …AND THE HOME PAGE IN THAT PAYLOAD IS THE SITE'S OWN, not the rewrite. It
+  // is still SENT — a compile carries the whole site — so "withheld" has to be
+  // read off its bytes rather than off its absence.
+  const sent = compiledPages(r).find((p) => p.path === "index.tsx");
+  assert.ok(sent, "the home page was not sent at all: " + JSON.stringify(compiledPages(r).map((p) => p.path)));
+  assert.doesNotMatch(sent.source, /Panel/, "the reverted home page still carries the withheld component: " + sent.source);
+
+  // ── THE PRESERVED STORED FILES ───────────────────────────────────────────
+  // Nothing was written, because this change's only two components were both
+  // withheld — and a `parts.json` holding one of them is the store disagreeing
+  // with the payload.
+  assert.equal(r.store.store.get("source/fw-nest/parts.json"), undefined,
+    "a component list was written for a change whose every component was withheld: " + r.store.store.get("source/fw-nest/parts.json"));
+  // …AND THE INDEPENDENT HALF STILL SHIPS, so this is withholding a dependency
+  // set rather than refusing the request.
+  assert.deepEqual(r.body.added, ["prices.tsx"], "the independent half of the change did not ship: " + JSON.stringify(r.body.added));
+  assert.deepEqual(r.body.changed, [], "the reverted page is reported as changed: " + JSON.stringify(r.body.changed));
+
+  // ── THE CUSTOMER RESPONSE ────────────────────────────────────────────────
+  // Both components by name, the page in its own sentence, and the code in
+  // its own — three things they can act on separately.
+  assert.match(r.body.coverNote, /I haven't written the qr-card, panel sections/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I've left \/ as it was/, r.body.coverNote);
+});
+
+test("the same nested chain with its page present ships whole — the control", async () => {
+  // THE CONTROL THE OWNER ASKED TO KEEP, and it is what makes the case above
+  // about the MISSING PAGE rather than about nesting. Same site, same chain,
+  // same three files, the writer returning `/gallery` this time: nothing is
+  // dropped, nothing is withheld, both components reach the compiler and the
+  // customer hears nothing at all.
+  const QR_CARD = { name: "qr-card", source: "export function QrCard(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" };
+  const PANEL = { name: "panel", source: "import { QrCard } from '@/routes/-parts/qr-card'\nexport function Panel(){return <section><QrCard /></section>}" };
+  const home = addedTo("/", '<Panel /><Link to="/gallery">Gallery</Link>');
+  const uses = { ...home, source: home.source.replace("import { createFileRoute", "import { Panel } from '@/routes/-parts/panel'\nimport { createFileRoute") };
+  const ok = await addon("fw-nest-ok", "add a gallery page, a panel section with a QR card in it, and a code that opens the gallery", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [uses, writtenPage("/gallery")],
+    writtenParts: [QR_CARD, PANEL],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/", does: "a panel with a QR card", components: ["card"] }] },
+    },
+  });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  assert.equal(ok.body.missingPages, undefined, "a page went missing, so this is not the control it claims to be");
+  assert.equal(ok.body.droppedQrs, undefined, "a code whose page shipped was dropped");
+  assert.equal(ok.body.heldParts, undefined, "a clean change withheld a component: " + JSON.stringify(ok.body.heldParts));
+  assert.equal(ok.body.heldPages, undefined, "a clean change withheld a page: " + JSON.stringify(ok.body.heldPages));
+
+  // THE COMPILER INPUTS, read the same way as above — which is what proves that
+  // reader is alive in both directions rather than answering `[]` for its own
+  // reasons.
+  const body = ok.compiles[0].body;
+  assert.deepEqual((body.parts || []).map((p) => p.name), ["qr-card", "panel"],
+    "the chain's own components did not reach the compiler: " + JSON.stringify((body.parts || []).map((p) => p.name)));
+  assert.deepEqual(danglingParts(ok), [], "the clean control has a dangling import, so the reader is measuring something else");
+  const sent = compiledPages(ok).find((p) => p.path === "index.tsx");
+  assert.match(sent.source, /Panel/, "the home page's own change did not ship: " + sent.source);
+
+  // THE STORED FILES AND THE SENTENCE.
+  assert.deepEqual(JSON.parse(ok.store.store.get("source/fw-nest-ok/parts.json") || "null"), [QR_CARD, PANEL],
+    "the components the site now holds are not the ones it was sent");
+  assert.deepEqual(ok.body.moved, ["qr"], "the reply does not say the site gained a QR code");
+  assert.equal(ok.body.coverNote, "", "a clean change said something: " + ok.body.coverNote);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // A SITE TOO LARGE TO SHOW WHOLE (2026-09-17)
 //

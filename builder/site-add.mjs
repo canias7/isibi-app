@@ -2881,17 +2881,69 @@ export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
     const off = new Set(qrUnplaced(codes, [p]));
     return codes.map((c) => c.name).filter((n) => n && !off.has(n));
   };
-  // DOES THIS SOURCE IMPORT THAT COMPONENT. `PART_DIR` is the one definition
-  // of where a component lives, and the leading `(^|["'/])` is what keeps a
-  // PAGE called `my-parts/x.tsx` from reading as an import of `x` — the trap
-  // `partNameOf`'s own guard records. It matches both spellings that reach a
-  // compiler: the `@/routes/-parts/x` every prompt teaches, and the relative
-  // `./-parts/x` TypeScript also resolves.
+  // DOES THIS SOURCE IMPORT THAT COMPONENT — and WHICH spellings count depends
+  // on where the source itself lives.
+  //
+  // FROM A PAGE (`src/routes/<x>.tsx`) it is the `-parts/` form. `PART_DIR` is
+  // the one definition of where a component lives, and the leading `(^|["'/])`
+  // is what keeps a PAGE called `my-parts/x.tsx` from reading as an import of
+  // `x` — the trap `partNameOf`'s own guard records. It matches both spellings
+  // that reach a compiler: the `@/routes/-parts/x` every prompt teaches, and
+  // the relative `./-parts/x` TypeScript also resolves.
+  //
+  // ⚠ FROM A COMPONENT A SIBLING IS ALSO `./x`, WITH NO `-parts/` IN IT AT ALL,
+  // and that is the natural spelling for the one edge this test was widened to
+  // cover. MEASURED before deciding: the only spelling ANY prompt teaches is
+  // `@/routes/-parts/<name>` (`page-gen.mjs`, twice), and the 100-site corpus
+  // contains ZERO `-parts/` files at all — it predates components — so there is
+  // no evidence either way about what a model really writes between two
+  // siblings. What decides it is the asymmetry, not a guess: a relative `./x`
+  // from inside `-parts/` can resolve to NOTHING BUT `-parts/x.tsx`, so
+  // admitting it has a false-alarm rate of zero BY CONSTRUCTION, while missing
+  // it hands the compiler a component importing a module that will not exist.
+  //
+  // AND `inPart` IS THE DISCRIMINATOR THAT KEEPS IT SAFE: from a PAGE, `./x`
+  // means `src/routes/x.tsx` — another page — so the sibling form is asked of
+  // component sources and of nothing else.
+  //
+  // THE QUOTE AND THE DOT ARE BOTH WALLS, measured against the shapes a real
+  // component carries: without the quote a COMMENT saying "the card is in
+  // ./qr-card" reads as an import, and without the `./` any path ending in
+  // `/qr-card` does — a link, a kit module of the same name, a sentence about a
+  // print file. All four ship with them and are withheld without them.
+  //
+  // `esc` CANNOT FIRE THROUGH THE ROUTE and is kept anyway: `validatePages`
+  // refuses any component name that is not `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`,
+  // so no name reaching this call can hold a regex metacharacter. This function
+  // is exported and takes whatever it is handed, and a name arriving unvalidated
+  // would become a PATTERN — `qr.card` matching `qrxcard` — so the guard drives
+  // it rather than leaving it a wall nobody can.
   const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const importsPart = (src, name) =>
-    new RegExp("(^|[\"'/])" + esc(PART_DIR) + esc(name) + "(?![\\w-])").test(String(src || ""));
+  const importsPart = (src, name, inPart) => {
+    const s = String(src || "");
+    if (new RegExp("(^|[\"'/])" + esc(PART_DIR) + esc(name) + "(?![\\w-])").test(s)) return true;
+    return inPart === true && new RegExp("[\"']\\./" + esc(name) + "(?![\\w-])").test(s);
+  };
   const dead = new Set(), held = new Map(), heldParts = new Map(), goneParts = new Set();
   const dropped = [], withheld = [], withheldParts = [];
+  // THE BOUND IS ONE ROUND PER CODE AND PER COMPONENT, plus the round that
+  // finds nothing and breaks — and `!moved` is what really ends it. A chain of
+  // K components listed in REVERSE order is what makes the rounds real: the
+  // loop walks the list forwards, so a forward chain settles in one pass and a
+  // reversed one needs a round per link. A bound that is SHORT does not hang —
+  // it exits with the fixed point UNSETTLED, which is the same dangling import
+  // one round later.
+  //
+  // ⚠ THE PAGES ARE DELIBERATELY NOT IN IT, and that is a proof rather than a
+  // guess. Widening it to `+ written.length` was tried first, on the reasoning
+  // that withholding an ADDED page returns its route to `gone` and can kill a
+  // second code; A/B over 6,000 random chain shapes (2,621 with something
+  // really withheld) found ZERO differences, and the reason is structural: a
+  // round that changes neither `dead` nor `goneParts` cannot withhold a page it
+  // did not already withhold last round, because the page loop walks the WHOLE
+  // list every round against exactly those two sets. So no round is ever
+  // productive on pages alone, and `codes + parts` bounds the productive rounds
+  // however the three chains interleave.
   for (let round = 0; round <= codes.length + parts.length + 1; round++) {
     let moved = false;
     for (const c of codes) {
@@ -2903,12 +2955,30 @@ export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
     // THE COMPONENTS FIRST, so a page withheld for importing one is decided in
     // the same round rather than the next — a nicety for the bound, and the
     // fixed point is the same either way.
+    //
+    // ⚠ AND A COMPONENT IS WITHHELD FOR IMPORTING ONE TOO, not only for showing
+    // a code (owner, 2026-09-17: *"Propagate withholding through
+    // component-to-component imports as well as page-to-component imports."*).
+    // MEASURED through the route before this line existed, on the owner's own
+    // chain — homepage → panel → qr-card → a code opening a missing `/gallery`:
+    // `heldParts` was `["qr-card"]` alone, and the CONTAINER PAYLOAD carried
+    // `panel` importing `@/routes/-parts/qr-card`, a module nothing would
+    // write. The page loop had this test from the day the cascade shipped; the
+    // component loop asked only `renders`, so the chain broke at its first hop
+    // and `deadQrs` published a build that cannot compile.
     for (const p of parts) {
-      if (heldParts.has(p.name) || !renders(p).some((n) => dead.has(n))) continue;
+      if (heldParts.has(p.name)) continue;
+      const shows = renders(p).some((n) => dead.has(n));
+      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));
+      if (!(shows || needs)) continue;
       const entry = { name: p.name, added: p.added === true };
       heldParts.set(p.name, entry); withheldParts.push(entry); moved = true;
       // AND ONE THIS CHANGE INVENTED TAKES ITS MODULE WITH IT: nothing may
-      // import a file that will not be written.
+      // import a file that will not be written. One it merely CHANGED reverts
+      // to the source the site is already serving, which its importers can go
+      // on importing — so it never joins this set, and that is what makes
+      // "restore the existing, withhold the new together" one rule rather than
+      // two branches.
       if (entry.added) goneParts.add(p.name);
     }
     for (const p of written) {

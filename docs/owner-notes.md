@@ -12637,3 +12637,54 @@ saying so — the day it changes, this one starts mattering and somebody finds o
 from a red run rather than from a customer.
 
 **Nothing merged, nothing deployed, nothing paid, and no edit-path work.**
+
+---
+
+## 2026-09-17 — the chain broke one hop in: a section that holds the section
+
+**You reported it and it reproduced exactly.** Home page → `panel` → `qr-card` →
+a QR code pointing at a `/gallery` that never got written. The route dropped the
+code and held back `qr-card`, and then published `panel` anyway — a file whose
+first line imports `qr-card`. Nothing would have written that file, so the build
+would not have compiled at all. Measured off the real request before I touched
+anything: the payload handed to the builder carried `panel` with that import in
+it.
+
+**One missing question, not a missing idea.** The PAGE half has asked *"does this
+import a section that will not exist?"* since the day the cascade shipped. The
+SECTION half only asked *"does this show the dead code?"*, so the chain stopped
+at its first link and everything past it looked unrelated. It asks both now, and
+the whole set goes or stays together: **a section the site already had goes back
+to the version it is serving, a brand-new one is not written, and anything that
+depends on a brand-new one goes with it.**
+
+**One thing I had to decide with no evidence, so I decided it by which way being
+wrong hurts.** Two sections sitting in the same folder can refer to each other
+the short way — `./qr-card` — with none of the usual path in it. No prompt
+teaches that spelling and the 100-site sample has no sections in it at all, so
+there is genuinely nothing to measure. What settled it: the short form can only
+ever mean the file next door, so counting it can never hold something back by
+mistake, while ignoring it ships a broken build. Counted, and only ever from
+inside a section — from a page the same words mean a different file, and I check
+that both ways round.
+
+**And I put something back that I had added.** I widened a safety limit on the
+loop, then tested whether it changed anything: **6,000 random shapes, 2,621 of
+them with something really held back, zero differences.** It was doing nothing,
+for a reason I can state rather than guess, so the limit is what it was and the
+reason is now written beside it. Better a short proof than a spare part.
+
+**Checks**: 6,798 tests green, up 3. Both new tests were run against the old code
+first — one failed there, and the successful control passed on both, which is
+what makes it a control instead of a second copy of the same test.
+
+**Sabotage run: 17 out of 17 caught.** The first pass let four through and **not
+one was a hole in the fix** — three were shapes no test had pushed on (a comment
+mentioning the file, a link that ends in its name, a kit part with the same
+name), all three now covered by real examples rather than invented ones; the
+fourth was the spare part above.
+
+**Combined page + photo is still incomplete**, as you said: the same request
+still hands the photograph on rather than placing it.
+
+**Nothing merged, nothing deployed, nothing paid, and no edit-path work.**
