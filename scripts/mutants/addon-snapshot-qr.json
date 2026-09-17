@@ -1,0 +1,308 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the route's one parts read",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            // ── THE SITE'S OWN COMPONENTS, READ ONCE (2026-09-17) ──────────",
+  "to": "            // ── THE SITE'S OWN COMPONENTS, READ ONCE (control) ─────────────",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment only, above deadQrs",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": " * A NEW QR CODE THAT WOULD OPEN A PAGE THIS CHANGE FAILED TO MAKE.",
+  "to": " * A NEW QR CODE THAT WOULD OPEN A PAGE THIS CHANGE FAILED TO MAKE (control).",
+  "control": true
+ },
+ {
+  "label": "a read that threw is an empty site again — the reported defect, restored",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aStoredParts = aPartsRead.ok ? aPartsRead.parts : null;",
+  "to": "            const aStoredParts = aPartsRead.parts;"
+ },
+ {
+  "label": "readSiteParts answers ok for a read that threw",
+  "files": [
+   "worker.js"
+  ],
+  "from": "  } catch (e) { console.error(\"parts read failed:\", slug, e && e.message); return { ok: false, parts: [], why: \"read\" }; }",
+  "to": "  } catch (e) { console.error(\"parts read failed:\", slug, e && e.message); return { ok: true, parts: [], why: \"read\" }; }"
+ },
+ {
+  "label": "a missing parts object is read as a failure rather than as a site with none",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (!o) return { ok: true, parts: [] };",
+  "to": "    if (!o) return { ok: false, parts: [], why: \"read\" };"
+ },
+ {
+  "label": "the prompt is not told the store was unreadable, so the writer is offered the declarations",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                tsx: aMerged.tsx, parts: aStoredParts, partsUnreadable: !aPartsRead.ok,",
+  "to": "                tsx: aMerged.tsx, parts: aStoredParts,"
+ },
+ {
+  "label": "the wall is not told the store was unreadable, so it refuses nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aSentParts = partsSent(aStoredParts, { unreadable: !aPartsRead.ok });",
+  "to": "            const aSentParts = partsSent(aStoredParts);"
+ },
+ {
+  "label": "PAIR (the filter's refusal is MEASURED inert alone — driven through the route with one read failing and with both, the reply and the stored bytes are identical): an unreadable store keeps every returned component AND writes it back",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (aSentParts.unreadable) { aUnseenParts.push(p && p.name); return false; }\n              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;\n              aKeptParts.push(p.name);\n              return false;\n            });\n            if (aKeptParts.length || aUnseenParts.length) aMark(\"parts\", \"kept\", { kept: aKeptParts.length, unseen: aUnseenParts.length, shown: aSentParts.shown.length, withheld: aSentParts.withheld.length });\n            // AND THE MERGE READS THE SAME SNAPSHOT, NEVER A SECOND READ.\n            // `mergeParts` replaces by name and keeps everything else — but\n            // only what it is HANDED: `mergeParts(null, [one])` answers\n            // `[one]`, so a second read that failed where the first succeeded\n            // would delete every component this change never mentioned.\n            // `aPartsRead.parts` is the list the prompt and the wall were both\n            // built from, and while `ok` is false nothing is written at all:\n            // `null` leaves the spine to re-send the store's own copy, which\n            // is exactly what an addon that touched no component does.\n            const aParts = (aFreshParts.length && aPartsRead.ok)\n              ? mergeParts(aPartsRead.parts, aFreshParts)\n              : null;",
+  "to": "              if (aSentParts.unreadable) { aUnseenParts.push(p && p.name); return true; }\n              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;\n              aKeptParts.push(p.name);\n              return false;\n            });\n            if (aKeptParts.length || aUnseenParts.length) aMark(\"parts\", \"kept\", { kept: aKeptParts.length, unseen: aUnseenParts.length, shown: aSentParts.shown.length, withheld: aSentParts.withheld.length });\n            // AND THE MERGE READS THE SAME SNAPSHOT, NEVER A SECOND READ.\n            // `mergeParts` replaces by name and keeps everything else — but\n            // only what it is HANDED: `mergeParts(null, [one])` answers\n            // `[one]`, so a second read that failed where the first succeeded\n            // would delete every component this change never mentioned.\n            // `aPartsRead.parts` is the list the prompt and the wall were both\n            // built from, and while `ok` is false nothing is written at all:\n            // `null` leaves the spine to re-send the store's own copy, which\n            // is exactly what an addon that touched no component does.\n            const aParts = (aFreshParts.length)\n              ? mergeParts(aPartsRead.parts, aFreshParts)\n              : null;"
+ },
+ {
+  "label": "the merge reads the store a SECOND time — the defect's own mechanism",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aParts = (aFreshParts.length && aPartsRead.ok)\n              ? mergeParts(aPartsRead.parts, aFreshParts)",
+  "to": "            const aParts = (aFreshParts.length)\n              ? mergeParts(await loadSiteParts(env, ownerSlug), aFreshParts)"
+ },
+ {
+  "label": "the parts list is written back although the store could not be read",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aParts = (aFreshParts.length && aPartsRead.ok)",
+  "to": "            const aParts = (aFreshParts.length || !aPartsRead.ok)"
+ },
+ {
+  "label": "the refused components are not named on the wire",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              unseenParts: aUnseenParts.length ? aUnseenParts.slice(0, 6) : undefined,",
+  "to": "              unseenParts: undefined,"
+ },
+ {
+  "label": "an unreadable store borrows the too-long refusal's sentence",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              keptPartsNote: (keptPartsNote(aKeptParts) || unseenPartsNote(aUnseenParts)) || undefined,",
+  "to": "              keptPartsNote: (keptPartsNote(aKeptParts) || keptPartsNote(aUnseenParts)) || undefined,"
+ },
+ {
+  "label": "the unreadable store says nothing at all to the customer",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              keptPartsNote: (keptPartsNote(aKeptParts) || unseenPartsNote(aUnseenParts)) || undefined,",
+  "to": "              keptPartsNote: keptPartsNote(aKeptParts) || undefined,"
+ },
+ {
+  "label": "partsSent reads the list anyway when it could not be read",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const list = unreadable ? [] : (Array.isArray(parts) ? parts : [])",
+  "to": "  const list = (Array.isArray(parts) ? parts : [])"
+ },
+ {
+  "label": "partsSent never reports the third state, so every reader sees an empty site",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  return { shown, withheld, names, unreadable };",
+  "to": "  return { shown, withheld, names, unreadable: false };"
+ },
+ {
+  "label": "the unreadable block is not sent, so the writer concludes the site has no components",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  if (s.unreadable) {\n    return [",
+  "to": "  if (false) {\n    return ["
+ },
+ {
+  "label": "the unreadable block stops short of forbidding a returned component",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "      \"So: do NOT return anything in `parts` at all. A file you return there would replace a real component you\",",
+  "to": "      \"So: return whatever you think best.\","
+ },
+ {
+  "label": "components are still offered to be built while the store is unreadable",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const built = sent.unreadable ? \"\" : tsxDirective(tsx, sent.names);",
+  "to": "  const built = tsxDirective(tsx, sent.names);"
+ },
+ {
+  "label": "briefWithLayout drops the unreadable flag on its way to partsSent",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const sent = partsSent(parts, { unreadable: partsUnreadable });",
+  "to": "  const sent = partsSent(parts);"
+ },
+ {
+  "label": "unseenPartsNote says nothing, so a refusal is silent",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "  return \"I couldn't load the components your site already has, so I left every one of them alone rather than \" +",
+  "to": "  return \"\" + \"\" +"
+ },
+ {
+  "label": "a new QR outlives the page it opens — the reported defect, restored",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            if (aDeadQr.dropped.length) {\n              aMerged.qr = aDeadQr.qr;",
+  "to": "            if (false) {\n              aMerged.qr = aDeadQr.qr;"
+ },
+ {
+  "label": "the look patch is not re-asked, so the reply still claims it gave the site a code",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              // dropping the only field this change moved makes the whole\n              // look store a no-op, and `moved` has to stop claiming it.\n              aReadLook();",
+  "to": "              // dropping the only field this change moved makes the whole\n              // look store a no-op, and `moved` has to stop claiming it.\n              void 0;"
+ },
+ {
+  "label": "the dependency is checked against the planned pages rather than the ones that shipped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            aDeadQr = deadQrs({ qr: aMerged.qr, prior: aLook.qr, missing: aGone, pages: aMerge.pages, url: aUrl });",
+  "to": "            aDeadQr = deadQrs({ qr: aMerged.qr, prior: aLook.qr, missing: [], pages: aMerge.pages, url: aUrl });"
+ },
+ {
+  "label": "the check is told the site had no codes before, so one it already had is dropped too",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            aDeadQr = deadQrs({ qr: aMerged.qr, prior: aLook.qr, missing: aGone, pages: aMerge.pages, url: aUrl });",
+  "to": "            aDeadQr = deadQrs({ qr: aMerged.qr, prior: [], missing: aGone, pages: aMerge.pages, url: aUrl });"
+ },
+ {
+  "label": "the check is shown no pages, so a code a live page renders is pulled out from under it",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            aDeadQr = deadQrs({ qr: aMerged.qr, prior: aLook.qr, missing: aGone, pages: aMerge.pages, url: aUrl });",
+  "to": "            aDeadQr = deadQrs({ qr: aMerged.qr, prior: aLook.qr, missing: aGone, pages: [], url: aUrl });"
+ },
+ {
+  "label": "neither outcome reaches the wire",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                droppedQrs: aDeadQr.dropped.length ? aDeadQr.dropped.slice(0, 6) : undefined,\n                stuckQrs: aDeadQr.stuck.length ? aDeadQr.stuck.slice(0, 6) : undefined,",
+  "to": "                droppedQrs: undefined,\n                stuckQrs: undefined,"
+ },
+ {
+  "label": "the customer is never told the code went with the page",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  deadQrNote(aDeadQr),",
+  "to": "                  \"\","
+ },
+ {
+  "label": "the missing pages are recomputed below the publish instead of shared, so the two readers can disagree",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aGone = missingPages(aWanted, aFilesOut);",
+  "to": "            const aGone = [];"
+ },
+ {
+  "label": "deadQrs takes the caller's order rather than dropping, so nothing is ever removed",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (shows.has(c.name)) { keep.push(c); stuck.push({ name: c.name, route: r }); continue; }\n    dropped.push({ name: c.name, route: r });",
+  "to": "    if (shows.has(c.name)) { keep.push(c); stuck.push({ name: c.name, route: r }); continue; }\n    keep.push(c); dropped.push({ name: c.name, route: r });"
+ },
+ {
+  "label": "a code a shipped page renders is dropped anyway",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (shows.has(c.name)) { keep.push(c); stuck.push({ name: c.name, route: r }); continue; }",
+  "to": "    if (false) { keep.push(c); stuck.push({ name: c.name, route: r }); continue; }"
+ },
+ {
+  "label": "a code the site already had is a candidate too",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const r = had.has(c.name) ? \"\" : opens(c.points);",
+  "to": "    const r = opens(c.points);"
+ },
+ {
+  "label": "the origin is not compared, so another site's URL with our path is dropped",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      if (u.origin !== new URL(base).origin) return \"\";",
+  "to": "      if (false) return \"\";"
+ },
+ {
+  "label": "PAIR (`!base` is MEASURED inert alone — 45 probes, 0 differ, because the origin comparison already fails with no origin): the address check goes AND the origin comparison with it, so another site's URL at our path is dropped",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (!base || typeof points !== \"string\" || !points) return \"\";\n    try {\n      const u = new URL(points);\n      if (u.origin !== new URL(base).origin) return \"\";\n",
+  "to": "    if (typeof points !== \"string\" || !points) return \"\";\n    try {\n      const u = new URL(points);\n"
+ },
+ {
+  "label": "the reference reader is inverted, so a code NOTHING shows is the one kept",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const shows = new Set(codes.map((c) => c.name));\n  for (const n of qrUnplaced(codes, pages)) shows.delete(n);",
+  "to": "  const shows = new Set(qrUnplaced(codes, pages));"
+ },
+ {
+  "label": "deadQrs answers an empty list rather than the codes it kept",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return { qr: keep, dropped, stuck };",
+  "to": "  return { qr: [], dropped, stuck };"
+ },
+ {
+  "label": "the early return hands back nothing, so a change with no missing page loses every code",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (!gone.size || !codes.length) return { qr: codes, dropped: [], stuck: [] };",
+  "to": "  if (!gone.size || !codes.length) return { qr: [], dropped: [], stuck: [] };"
+ },
+ {
+  "label": "deadQrNote uses the dropped wording for a code that is on the site",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    out.push(\"The QR code\" + (keptOn.length === 1 ? \" \" : \"s \") + names(keptOn) +",
+  "to": "    out.push(\"I didn't add the QR code\" + (keptOn.length === 1 ? \" \" : \"s \") + names(keptOn) +"
+ },
+ {
+  "label": "deadQrNote never says a code was dropped",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (drop.length) {\n    out.push(\"I didn't add the QR code\"",
+  "to": "  if (false) {\n    out.push(\"I didn't add the QR code\""
+ }
+]

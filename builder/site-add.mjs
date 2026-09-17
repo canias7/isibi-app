@@ -2798,9 +2798,20 @@ export function deadQrs({ qr, prior, missing, pages, url } = {}) {
   const had = new Set(qrList(prior).map((c) => c.name));
   // WHICH ROUTE OF OURS THIS CODE OPENS, or "" for anything else. The exact
   // inverse of `cleanAdd`'s `new URL(own, base).href`, and deliberately no
-  // wider: a `tel:` or a `WIFI:` payload parses as a URL with a pathname, and
-  // reading one of those as a route is how a code nobody asked about gets
-  // dropped. With no address we can compare nothing and nothing is dropped.
+  // wider. THREE THINGS REFUSE, each with its own job: `new URL` throws on
+  // anything unparseable; the ORIGIN comparison refuses another site's address;
+  // and `route` refuses a pathname that is not one of ours — which is what
+  // turns a `tel:` or `WIFI:` payload away, since those parse and their
+  // pathname is not a route.
+  //
+  // ⚠ `!base` IS A DECLARED BELT AND IS MEASURED INERT: with no address,
+  // `new URL("")` throws inside the try and the answer is "" anyway — 45 probes
+  // over every payload shape and four address shapes, zero differences with the
+  // check and without it. It stays because it STATES the rule (with no address
+  // we compare nothing, so nothing is dropped) where the throw states it only
+  // by accident, and because a code removed on a guess cannot be put back by
+  // the customer. The sweep mutates it as a PAIR with the origin comparison it
+  // belts.
   const opens = (points) => {
     if (!base || typeof points !== "string" || !points) return "";
     try {

@@ -2647,6 +2647,17 @@ test("a component store that could not be read replaces nothing, and the next re
   assert.match(fail.body.keptPartsNote, /Ask me for that bit again/, "the sentence does not say what to do about it");
   assert.doesNotMatch(fail.body.keptPartsNote, /too long/, "the wrong refusal's sentence was used");
 
+  // AND THE DESIGNERS' NOTE DOES NOT CLAIM THE SITE HAS NONE. `siteNote` reads
+  // `parts: null` as "not asked" and keeps the sentence it has always had; an
+  // empty ARRAY there is a claim — "its design declares these and nothing has
+  // written them" — which is false of a site whose store we could not read, and
+  // is what a sweep survivor found. Cannot-tell must never read as a value, in
+  // the one input a designer is told to copy an existing component from.
+  const said = promptFor(fail, "component");
+  assert.match(said.text, /parts written for it: tide-chart/, "the designer was told which components the site has: " + said.text.slice(0, 900));
+  assert.doesNotMatch(said.text, /nothing has written yet/, "a store that could not be read was reported as a site with no components");
+  assert.doesNotMatch(said.text, /already written/, "a store that could not be read was reported as a site with components");
+
   // ── AND THE RECOVERY, WHICH IS THE CONTROL ───────────────────────────────
   //
   // The same site, the same ask, the same returned rewrite — with the read

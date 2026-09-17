@@ -24830,6 +24830,19 @@ async function handleRequest(request, env, ctx) {
             // replacement would destroy. The two can never both fire —
             // `partsSent` answers empty lists when it cannot read — and that
             // is by construction rather than by care here.
+            //
+            // ⚠ THIS `return false` IS A DECLARED REDUNDANCY, AND IT IS
+            // MEASURED RATHER THAN REASONED ABOUT. The merge below refuses to
+            // write anything at all while `aPartsRead.ok` is false, so keeping
+            // a returned component here changes no observable: driven through
+            // the route with one read failing and with both failing, the reply
+            // and the stored bytes are IDENTICAL either way. It stays because
+            // the two say different things — this one is "which returned
+            // components may be kept", that one is "may we write at all" — and
+            // because `aUnseenParts` is filled on this line, which is what the
+            // customer hears. The sweep mutates the PAIR, since neither half
+            // can be killed alone; said here because a sweep cannot say it and
+            // the next session deletes what nothing appears to need.
             const aKeptParts = [], aUnseenParts = [];
             const aFreshParts = (Array.isArray(aValid.parts) ? aValid.parts : []).filter((p) => {
               const n = String((p && p.name) || "").toLowerCase();
