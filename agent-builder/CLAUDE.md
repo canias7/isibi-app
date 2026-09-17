@@ -2970,3 +2970,106 @@ named them:
   survived, 6 controls. **Both survivors were this file's own gaps and both were real**
   — see the probe's own comments — and closing them took the real-Postgres check from
   487 to **495**.
+
+### AND IT IS ALL LIVE — the scheduled path ran through the real cron (2026-09-17)
+
+Owner: *"Merge carefully"*. **THE ORDER WAS THE WHOLE RISK, and it is
+migration → engine → site**, each first for its own reason: the migration because the
+engine's cron calls `tick_automations` every minute and the site's list route reads
+`agent.automations`, and the engine because a form that saves a step no executor can
+run is *a control that ANSWERS, wrongly* — the exact defect the settings round was
+opened to fix. The site's half is in the root `CLAUDE.md`.
+
+**1. THE MIGRATION — remote version `20260917003304`, and the file is renamed for it.**
+Applied while `agent.agents` held ZERO rows, so no customer's data was anywhere near it.
+
+- **GOING BEFORE THE ENGINE WAS CHECKED, NOT ASSUMED.** This migration redefines
+  `agent.claim_run`, which the LIVE engine was calling at the time. Read back with
+  `pg_get_functiondef` first: the live body was byte-for-byte the new one MINUS the
+  `'executor', v_row.executor` line and its comment. Same signature, one field more —
+  so the deployed engine could not notice, and the ordering question had an answer
+  instead of a hope.
+- **WHAT IS LIVE WAS PROVED EQUAL TO THE FILE, BY EXECUTION.** The connector is the
+  only way in from a session, so 57KB of SQL had to be authored in a tool call. The
+  whole-line comments OUTSIDE dollar-quoted bodies were stripped mechanically
+  (Postgres stores none of them) and the result was proved equivalent by giving two
+  throwaway local databases one version each and comparing **357 objects — identical**.
+  The strip's toggle is valid because it was MEASURED: the only tag in the file is
+  `$$`, it occurs 20 times on 20 distinct lines, and no comment inside a body carries
+  a `$`. A hand-rolled dollar-quote parser is this repository's "flat scans where
+  depth matters" trap, and the first attempt at one failed exactly that way.
+- **THE READ-BACK GATE IS NARROW ON PURPOSE.** 10 function definitions by md5, every
+  column of both tables and the view plus `run_work.executor`, every index, both
+  policies, every check constraint, the RLS flags, the trigger, and the view's
+  `reloptions` where `security_invoker` lives: **82 objects, md5
+  `976acfa04457bc8242958900e51d8284`, identical on all three** — the committed file
+  locally, the stripped file locally, and the live database.
+  **A census over the WHOLE `agent` schema is the WRONG instrument and was tried
+  first**: it counts roles and grants the two environments legitimately differ on (342
+  rows live against 357 locally), so it cannot tell a transcription slip from Supabase
+  holding more roles than a fresh cluster. Narrow, or it says nothing.
+- All 24 existing `run_work` rows read `executor='agent'` after it, which is what they
+  already meant, and `tick_automations(3600, 25)` answered 0 rows rather than raising
+  — a live smoke of the function the cron was about to call every minute.
+- **PostgREST resolved all four relations before the site shipped**: `agent.automations`,
+  `automation_runs`, `automation_history` and `agents` each answer **`42501 permission
+  denied for schema agent`** to the publishable key — the schema-grant wall, NOT
+  `PGRST205`, with the pre-existing `agents` as the control. That is the check that
+  says the site's routes will not 400 on a relation the cache has never seen.
+
+**2. THE ENGINE — `agent deploy` run 35 on `31efcc7`, all thirteen steps green.**
+Version `ef0645d7-fa33-4bf9-afb5-f319b95af51d`, `deployedAt 00:36:32.643217Z`, which
+lands inside the run's own re-deploy step (00:36:30→00:36:34Z). The live verification
+ran 00:36:45→00:44:06 (**7m21s**) and read **71 passed, 0 failed** over five real runs
+(long, exclusive, handover, guarded, fence); the throwaway customer was deleted and the
+cleanup read `13 users listed, 0 left by a verification`.
+**THAT SUITE DOES NOT TOUCH AUTOMATIONS**, which is said rather than glossed — it is the
+pre-existing fencing verification. What proves the automation half is below.
+
+**3. THE SCHEDULED PATH RAN LIVE, THROUGH THE REAL CRON AND THE REAL QUEUE.** A
+throwaway tenant, two automations created through the REAL `agent.create_automation`
+(not inserts of our own) and made due, then left alone for Cloudflare's own
+`* * * * *` trigger to find. Both came back `run_status: stopped`, `finished`, with
+`executor: automation` on their work rows:
+
+| automation | stop | outcomes |
+|---|---|---|
+| `Runs today` (all seven days) | `done` | `weekday: ran` — *"Thursday is one of the days this runs on"*; `note: ran`, result *"the live scheduled path reached the note step"* |
+| `Mondays only` (on a Thursday) | **`skipped`** | `weekday: skipped` — *"Thursday isn't one of the days this runs on"*; `note: skipped` — *"an earlier condition didn't match, so this one didn't run"* |
+
+- **A CONDITION THAT DOES NOT MATCH READS `skipped`, NOT `failed`** — the owner's
+  requirement 4, live, in the customer-facing view.
+- **THE JOURNAL IS A RUN'S**: `started` at seq 0 (`agent: automation`, **`model:
+  none`** — not `stand-in`, so nothing wears a "simulated" label) and `stopped` at seq
+  1, one stopped entry each. That is the measurement that says an automation execution
+  really IS a run.
+- **NO BURST**: both advanced to `2026-09-18 00:44:00+00` — tomorrow's occurrence,
+  exactly one local day on (01:44 Europe/London is 00:44Z under BST), one row each.
+- **DUPLICATE DELIVERY, live**: the same occurrence asked for a second time answered
+  `ok: true, repeat: true` with **the original run id** and left the execution count at 1.
+- **BOTH REFUSAL WALLS, live, writing nothing**: a disabled automation answers
+  `disabled` and a stranger's account answers `no-automation` (so another tenant's
+  automation and one that does not exist are one answer), with executions, runs and
+  work rows all `2 -> 2` across both calls.
+- **AND THE CRON SIMPLY NEVER SELECTS A DISABLED ROW** — `tick_automations` filters on
+  `a.enabled`, so "disabling prevents new executions" is a negative reading, which is
+  why an enabled control was stood up in the same window rather than trusting a zero.
+
+**MEASURED ON THE MERGED TREE** (main merged in first; only the two documents
+overlapped, so no code file was touched by both sides):
+
+- Engine suite **306**, 0 failed. Real PostgreSQL **495 passed, 0 failed**.
+  `verify:auto` **68 checks, 0 failed**.
+- **SQL sweep over the migrations, a single clean run: 123 mutants, 123 killed, 0
+  survived, 0 never applied, 6 comment-only controls survived.** The spec holds 129
+  entries — 123 product mutants and 6 controls — and the runner counts only the
+  product ones, which is why both passes read "123": the two survivors pass 1 found
+  are killed here in one run rather than in a targeted re-run bolted onto a stale
+  tally.
+
+**⚠ AND THE SWEEP'S RESTORE TRAP COST A FIX, which is now a recorded rule.** A
+`trap … EXIT` around a sweep reads as belt-and-braces and is not: the runner already
+restores in its own `finally`, so on a clean run the trap restores the swept files to
+**HEAD** — discarding the uncommitted work the sweep was measuring. Measured: a 43/43
+green sweep ended with an empty `git diff` on all three swept files. The trap is for
+`INT` and `TERM` only. The tell is a clean tally beside an empty diff.
