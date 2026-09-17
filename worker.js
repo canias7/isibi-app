@@ -159,7 +159,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -186,7 +186,7 @@ import { readCss, cssNote, MAX_CSS } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
-import { runPictureEdit } from "./builder/site-picture.mjs";
+import { runPictureEdit, newEmptySlots } from "./builder/site-picture.mjs";
 import { runTweak, keptProse } from "./builder/site-tweak.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
 // single `{path, source}` list, and the way back. The cheap rungs key on `path`
@@ -24608,7 +24608,27 @@ async function handleRequest(request, env, ctx) {
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
                 plan: aPlanComponents.length ? { components: aPlanComponents } : null,
-                images: 0,
+                // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
+                // CLAIM ABOUT THE SITE (2026-09-17) ──────────────────────────
+                //
+                // This was a bare `0`, and `imageDirective` says a bare zero as
+                // *"PHOTOGRAPHS: none on this site"* — false on every site that
+                // has any, measured through this route on one showing two. The
+                // budget is unchanged and must be: this step may never re-buy a
+                // set the owner already has (`budgetFor`'s rule). What moves is
+                // that the zero is now stated as OURS, and what the site really
+                // shows is READ rather than assumed — three-state, so a source
+                // we could not read claims nothing either way.
+                //
+                // AND `place` IS WHAT MAKES THE HAND-OFF KEEPABLE. A photograph
+                // asked for beside another kind is set aside with "ask for it
+                // on its own and I'll place it" — and the picture rung fills a
+                // slot by rewriting a `src` attribute, so the `<SafeImage>`
+                // with NO src the old sentence asked for is invisible to it.
+                // `aSkipped` is that exact list, so the directive asks for an
+                // empty src precisely when the next rung is the one being
+                // promised.
+                images: { buy: 0, shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes("photo") },
                 // THE SITE'S OWN COMPONENTS, WITH THEIR REAL SOURCE. Until
                 // today the writer was shown `tsx` — the DECLARATIONS — under
                 // a heading telling it to write them, so a page importing a
@@ -24671,7 +24691,24 @@ async function handleRequest(request, env, ctx) {
             // the one file an addon most often writes was the one file nothing
             // swept. A token stored there publishes as a literal
             // `src="@@IMG:…@@"` and the page draws its alt text.
-            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts));
+            // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
+            //
+            // `countImageSlots` counts `@@IMG:` TOKENS, and this step's own
+            // directive forbids tokens — so on the addon path it has always
+            // answered 0 and `photoNote` has never once fired. Its own comment
+            // is the reason that matters: *"a NEW page that wants one publishes
+            // with a placeholder and said nothing about it. The customer is
+            // left looking at an empty frame with no way to know it is theirs
+            // to fill."* Written for the build path, and the path that ADDS
+            // pages is the one it never reached.
+            //
+            // THE TWO READERS ARE DISJOINT HERE, which is why adding them
+            // cannot double-count: this runs BEFORE the sweep below, so a token
+            // is still `src="@@IMG:…@@"` — counted by the first reader and NOT
+            // empty to the second. After the sweep the same token becomes
+            // `src=""`; counting there would be one frame reported twice.
+            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts))
+              + newEmptySlots(aSrc, imageSources(aValid.pages, aValid.parts));
             aValid.pages = applyImages(aValid.pages, {});
             aValid.parts = applyImages(aValid.parts, {});
             // AND LINTED. `validatePages` checks the SHAPE — a path, a Route

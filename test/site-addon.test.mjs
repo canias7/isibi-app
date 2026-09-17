@@ -550,10 +550,29 @@ test("neither lane can publish an unbought image token", async () => {
     assert.ok(callAt > 0, name + " no longer composes its brief through briefWithLayout");
     const call = b.slice(callAt, b.indexOf("})", callAt));
     assert.match(call, /^briefWithLayout\(\{\s*brief: \w+/, name + " does not lead the call with the brief");
-    assert.match(call, /\bimages: 0\b/, name + " does not tell the model there are no photographs");
+    // A ZERO BUDGET, IN WHATEVER SPELLING — re-anchored 2026-09-17, not
+    // appeased. This was `/\bimages: 0\b/`, and the addon's zero is now stated
+    // as `{ buy: 0, … }` so that the sentence can say what the SITE has
+    // separately from what the CHANGE buys — the bare zero was rendered as
+    // *"PHOTOGRAPHS: none on this site"*, false on every site that has any.
+    // The budget did not move and must not; the spelling did. This guard's own
+    // note already records being re-anchored twice for exactly this reason.
+    assert.match(call, /\bimages: (0\b|\{ ?buy: 0\b)/, name + " does not tell the model there is nothing to buy");
     assert.match(b, /applyImages\(\w+\.pages, \{\}\)/,
       name + " does not sweep an unbought token before publishing");
   }
+
+  // AND THE DIRECTIVE REALLY FORBIDS THE TOKEN IN BOTH SPELLINGS, driven
+  // rather than read: a source match on `images: { buy: 0` proves a shape was
+  // passed and says nothing about what the model is then told. The whole point
+  // of this guard is the sentence, so the sentence is what gets asserted.
+  const { imageDirective } = await import("../builder/site-images.mjs");
+  for (const [label, value] of [
+    ["the bare zero", 0],
+    ["the addon's own zero", { buy: 0, shown: { known: true, count: 2 }, place: true }],
+    ["…and on a site we could not read", { buy: 0, shown: { known: false, count: 0 }, place: false }],
+  ]) assert.match(imageDirective(value), /do not write any @@IMG:@@ token/i,
+    label + " stopped telling the model not to write one");
 
   // And the sweep really does clear one, so the assertion above is not just
   // matching a call that does nothing.

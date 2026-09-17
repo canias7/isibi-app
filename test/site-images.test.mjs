@@ -14,7 +14,7 @@ import {
   IMAGE_CAP, IMAGE_ASPECT, MAX_PROMPT_CHARS,
   imagesAffordable,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
-  budgetFor, planBudget, hasBoughtPhotos, imageBrief,
+  budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos,
 } from "../builder/site-images.mjs";
 import { uploadUrl } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
@@ -876,4 +876,78 @@ test("…and worker.js actually asks budgetFor, rather than keeping the old rule
   // ReferenceError on the build path — the `OWN_ZONES` failure, one file over.
   assert.match(w, /import \{[^}]*\bbudgetFor\b[^}]*\} from "\.\/builder\/site-images\.mjs"/,
     "budgetFor is called but never imported");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A BUDGET OF OURS IS NOT A FACT ABOUT THE SITE (2026-09-17)
+//
+// The addon passes a literal `images: 0` — correct, and the rule `budgetFor`
+// exists to keep. It was SAID as *"PHOTOGRAPHS: none on this site"*, which is
+// false on every site that has any; measured through the real addon route on a
+// site showing two.
+// ─────────────────────────────────────────────────────────────────────────────
+test("shownPhotos is three-state, because unknown must not pick a side", () => {
+  const withTwo = [
+    { source: '<SafeImage src="/u/fw/a.jpg" /><SafeImage src="/u/fw/b.jpg" />' },
+    { source: '<SafeImage src="/u/fw/a.jpg" />' },   // the SAME picture twice
+  ];
+  assert.deepEqual(shownPhotos(withTwo, "fw"), { known: true, count: 2 },
+    "a repeated photograph was counted twice");
+  assert.deepEqual(shownPhotos([{ source: '<SafeImage alt="x" />' }], "fw"), { known: true, count: 0 });
+
+  // UNKNOWN IS ITS OWN ANSWER, and it is the whole reason this is not
+  // `hasBoughtPhotos`. That reader answers TRUE when it cannot tell, because
+  // not knowing must cost nothing — the right direction for SPENDING and the
+  // wrong one for DESCRIBING, where it becomes "this site has photographs"
+  // over a source nobody read.
+  assert.deepEqual(shownPhotos(null, "fw"), { known: false, count: 0 });
+  assert.deepEqual(shownPhotos([{ source: "x" }], ""), { known: false, count: 0 });
+  assert.equal(hasBoughtPhotos(null, "fw"), true, "the control moved: the spending reader no longer fails closed");
+
+  // ANOTHER SITE'S UPLOAD IS NOT THIS SITE'S PHOTOGRAPH.
+  assert.deepEqual(shownPhotos([{ source: '<SafeImage src="/u/other/a.jpg" />' }], "fw"), { known: true, count: 0 });
+});
+
+test("imageDirective says a zero budget as ours, and the build path is byte-identical", () => {
+  // THE CONTROL FIRST: every site on the platform generates through the number
+  // and list forms, so a change here that moved them would be a change to every
+  // build there has ever been.
+  assert.equal(imageDirective(0), "PHOTOGRAPHS: none on this site. Do not write any @@IMG:@@ token. Every picture is " +
+    "<SafeImage> with no src, which renders this theme's own placeholder — that is the intended look here.");
+  assert.match(imageDirective(3), /^PHOTOGRAPHS: this site gets 3 real photographs\./);
+  assert.match(imageDirective([{ page: "/", describe: "the bench" }]), /^PHOTOGRAPHS: this site gets 1 real photograph, and they are ALREADY CHOSEN\./);
+
+  const said = (o) => imageDirective(o);
+  // THE SITE'S OWN PHOTOGRAPHS ARE NAMED AND PROTECTED.
+  const two = said({ buy: 0, shown: { known: true, count: 2 }, place: false });
+  assert.match(two, /this change buys none/);
+  assert.match(two, /already shows 2 real photographs/);
+  assert.doesNotMatch(two, /none on this site/, "the false claim survived on a site that has two");
+
+  // A SITE WITH NONE IS TOLD SO — a different sentence from "we buy none",
+  // because collapsing them is the defect.
+  assert.match(said({ buy: 0, shown: { known: true, count: 0 }, place: false }), /shows no real photographs yet/);
+
+  // AND A SOURCE NOBODY READ CLAIMS NEITHER WAY.
+  const unknown = said({ buy: 0, shown: { known: false, count: 0 }, place: false });
+  assert.doesNotMatch(unknown, /already shows/, "an unread source was described as having photographs");
+  assert.doesNotMatch(unknown, /no real photographs yet/, "an unread source was described as having none");
+  assert.match(unknown, /Leave every picture already on this site exactly as it is/);
+
+  // `place` ASKS FOR THE SLOT SHAPE THE NEXT RUNG CAN FILL. `imageSlots`
+  // rewrites a `src` attribute, so an element with none is invisible to it —
+  // and "ask for the photograph on its own and I'll place it" is the promise
+  // this clause makes keepable.
+  const placing = said({ buy: 0, shown: { known: true, count: 0 }, place: true });
+  assert.match(placing, /an EMPTY src, never a missing one/);
+  assert.match(placing, /src=""/, "the directive did not spell the shape it is asking for");
+  assert.doesNotMatch(said({ buy: 0, shown: { known: true, count: 0 }, place: false }), /EMPTY src, never a missing one/,
+    "the slot instruction was sent to a change nobody asked a photograph of");
+
+  // EVERY FORM FORBIDS THE TOKEN, which is what keeps the budget at zero
+  // whatever else the sentence says.
+  for (const o of [{ buy: 0, shown: { known: true, count: 2 }, place: true },
+                   { buy: 0, shown: { known: false, count: 0 }, place: false }]) {
+    assert.match(said(o), /do not write any @@IMG:@@ token/i, "a form of the directive stopped forbidding the token");
+  }
 });

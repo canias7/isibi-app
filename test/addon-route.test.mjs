@@ -3008,3 +3008,108 @@ test("a one-page site bigger than the whole window is shown that page and names 
   assert.doesNotMatch(t, /ARE UNCHANGED:/, "the one page shown was also named as one that could not be shown");
   assert.equal(r.body.unseenPages, undefined, "the one page shown was reported as unseen");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A COMBINED PAGE + PHOTOGRAPH ASK (2026-09-17)
+//
+// "add a gallery page showing photos of our work" picks `page` AND `photo`.
+// `photo` is the one DISPATCHED kind, so it is set aside with a sentence —
+// *"ask for it on its own and I'll place it"* — and the page is built and
+// published. Three things were wrong with that, all measured through this
+// route before anything was touched:
+//
+//   1. The writer was told *"PHOTOGRAPHS: none on this site"* whatever the site
+//      really had. On a site showing two, identically.
+//   2. It asked for `<SafeImage>` with NO src — and the picture rung, the rung
+//      being promised, fills a slot by rewriting a `src` attribute. Measured:
+//      that shape reads as ZERO slots, and `src=""` as one. So the addon wrote
+//      the one shape its own next step cannot fill.
+//   3. `photos` counts `@@IMG:` tokens, which this step forbids, so the
+//      customer was never told the new page has empty frames they can fill.
+// ─────────────────────────────────────────────────────────────────────────────
+const PHOTO_SITE = [{
+  path: "src/routes/index.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + "export const Route = createFileRoute('/')({ component: Home })\n"
+    + "function Home(){ return <main><h1>Fretwork</h1>\n"
+    + '  <SafeImage src="/u/fw-photo/a1b2c3d4.jpg" alt="the workshop bench" />\n'
+    + '  <SafeImage src="/u/fw-photo/e5f6a7b8.jpg" alt="a guitar being refretted" />\n'
+    + "</main> }\n",
+}];
+const galleryWith = (imgs) => ({
+  path: "src/routes/gallery.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + "export const Route = createFileRoute('/gallery')({ component: P })\n"
+    + "function P(){ return <main><h1>Gallery</h1>" + imgs + "</main> }\n",
+});
+const photoAsk = (slug, opts) => addon(slug, "add a gallery page showing photos of our work", {
+  publishes: true,
+  answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+    sections: ["a grid of photographs"], components: ["card"] }] } },
+  ...opts,
+});
+
+test("a page added to a site that has photographs is not told the site has none", async () => {
+  const r = await photoAsk("fw-photo", {
+    kinds: ["page", "photo"], storedPages: PHOTO_SITE, written: [galleryWith("")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.skipped, ["photo"], "the photograph was not set aside, so this case is not about that hand-off");
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+  assert.doesNotMatch(flat, /PHOTOGRAPHS: none on this site/,
+    "the writer was told this site has no photographs, on a site showing two — the reported defect");
+  assert.match(flat, /already shows 2 real photographs/, "the writer was not told what the site really has");
+  assert.match(flat, /this change buys none/, "the zero budget stopped being stated as ours");
+  // THE BUDGET IS UNCHANGED AND MUST BE: this step may never re-buy a set the
+  // owner already has, which is what `budgetFor`'s zero exists for.
+  assert.match(flat, /do not write any @@IMG:@@ token/i, "the addon started inviting a purchase");
+
+  // AND THE CONTROL, so the assertion above is about the SITE and not about the
+  // wording moving for everyone: the same ask on a site with no photographs
+  // gets the other sentence, and still not the false one.
+  const none = await photoAsk("fw-photo-none", { kinds: ["page", "photo"], written: [galleryWith("")] });
+  const flatNone = pagePrompt(none).text.replace(/\\n/g, " ");
+  assert.match(flatNone, /shows no real photographs yet/, "a site with none was not told so");
+  assert.doesNotMatch(flatNone, /already shows/, "a site with none was told it has some");
+});
+
+test("a photograph set aside leaves a slot the picture rung can actually fill", async () => {
+  const r = await photoAsk("fw-photo-slot", { kinds: ["page", "photo"], written: [galleryWith("")] });
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+  assert.match(flat, /an EMPTY src, never a missing one/,
+    "the writer was not asked for a fillable slot, so the hand-off promised cannot be kept in one hop");
+  assert.match(flat, /the slot the picture step fills/, "the reason was dropped, which is the half a model reads past");
+
+  // THE CONTROL: an ask that names no photograph gets no slot instruction, so
+  // the clause above is about the hand-off rather than about every addon.
+  const plain = await photoAsk("fw-photo-plain", { kinds: ["page"], written: [galleryWith("")] });
+  assert.deepEqual(plain.body.skipped, [], "the control set a photograph aside after all");
+  assert.doesNotMatch(pagePrompt(plain).text.replace(/\\n/g, " "), /an EMPTY src, never a missing one/,
+    "a change nobody asked a photograph of was told to leave picture slots");
+});
+
+test("the empty frames a new page really has are counted and said", async () => {
+  const two = '<SafeImage src="" alt="a refret on the bench" /><SafeImage src="" alt="the finished guitar" />';
+  const r = await photoAsk("fw-photo-count", { kinds: ["page", "photo"], written: [galleryWith(two)] });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.photos, 2, "the two empty frames on the new page were not counted");
+
+  // THE CONTROL THAT NAMES THE CAUSE: the same page written the way the OLD
+  // directive asked for — `<SafeImage>` with no src — is zero, because that is
+  // not a frame the picture rung can fill and promising it would be a space
+  // nobody can use.
+  const srcless = galleryWith(two.replace(/src="" /g, ""));
+  const none = await photoAsk("fw-photo-srcless", { kinds: ["page", "photo"], written: [srcless] });
+  assert.equal(none.body.photos, 0, "a src-less SafeImage was reported to the customer as a space for a photo");
+
+  // AND AN UNTOUCHED PAGE'S OWN EMPTY FRAMES ARE NOT THIS CHANGE'S. The site
+  // here already carries two filled ones; a site carrying empty ones must not
+  // have them reported as spaces this change made.
+  const already = [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace(/src="\/u\/[^"]*"/g, 'src=""') }];
+  const kept = await photoAsk("fw-photo-kept", {
+    kinds: ["page", "photo"], storedPages: already, written: [galleryWith("")],
+  });
+  assert.equal(kept.body.photos, 0, "the home page's existing empty frames were reported as new spaces");
+});

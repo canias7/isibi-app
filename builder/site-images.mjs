@@ -237,6 +237,41 @@ export function hasBoughtPhotos(pages, slug) {
 }
 
 /**
+ * HOW MANY PHOTOGRAPHS THIS SITE REALLY SHOWS — AND WHETHER WE CAN TELL
+ * (2026-09-17).
+ *
+ * `hasBoughtPhotos` answers the SPENDING question and its unknown case is
+ * deliberately `true` — not knowing must cost nothing. That direction is
+ * exactly wrong for DESCRIBING the site to a model: read as a description,
+ * "unknown" would become "this site has photographs" when nothing was read.
+ * And the reverse is worse, which is what this exists for: the addon told
+ * every page writer *"PHOTOGRAPHS: none on this site"* whatever the site had —
+ * measured through the real route on a site showing two — so a page added to a
+ * photographed site was written by a model that believed there were none, on a
+ * step whose own `ADD_DESIGN_RULE` says to keep the site's design system.
+ *
+ * SO IT IS THREE-STATE, and `known` is the whole point: a caller that cannot
+ * tell must say nothing rather than pick a side. The same reason
+ * `readSiteParts` answers `{ok, parts, why}` rather than `null`.
+ *
+ * DISTINCT URLs, not occurrences: the same photograph repeated in two bands is
+ * one photograph, and counting the repeats would tell a designer the site is
+ * richer than it is.
+ */
+export function shownPhotos(pages, slug) {
+  if (!Array.isArray(pages) || !slug) return { known: false, count: 0 };
+  const mark = sitePhotoUrl(slug);
+  const seen = new Set();
+  for (const p of pages) {
+    if (!p || typeof p.source !== "string") continue;
+    for (const m of p.source.matchAll(/["'](\/u\/[^"']+)["']/g)) {
+      if (m[1].toLowerCase().startsWith(mark)) seen.add(m[1]);
+    }
+  }
+  return { known: true, count: seen.size };
+}
+
+/**
  * What a build may spend on pictures, once it is known whether this is the first.
  *
  * ONE PLACE, so the two cases cannot drift: a first build gets the family's
@@ -653,6 +688,52 @@ export function imageDirective(n) {
       "Put each one where that page's arrangement calls for it, and write your own `alt`. " +
       "Do NOT invent an extra token: any other picture stays a <SafeImage> with no src, which renders this " +
       "theme's own placeholder — that is the intended look for the rest of the site.";
+  }
+  // ── THE FORM FOR A CHANGE THAT BUYS NONE (2026-09-17) ────────────────────
+  //
+  // A BUDGET OF OURS IS NOT A FACT ABOUT THE SITE, and until today the two were
+  // one sentence. The addon passes a literal `images: 0` — correct, and the
+  // rule `budgetFor` exists to keep: this step must never re-buy a set the
+  // owner already has. But it was SAID as *"PHOTOGRAPHS: none on this site"*,
+  // which is false on every site that has any. Measured through the real route
+  // on a site showing two bought photographs: identical sentence.
+  //
+  // AND IT ASKS FOR THE SLOT SHAPE THE PLATFORM ALREADY SHIPS. The zero form
+  // below says "a <SafeImage> with NO src", and the picture rung — the rung
+  // this step hands a photograph request to — fills a slot by rewriting its
+  // `src` attribute, so an element that has none is invisible to it.
+  // MEASURED, both directions: a build whose token was not bought comes out of
+  // `applyImages` as `src=""` and the picture rung sees ONE slot; the shape the
+  // addon asks for reads as ZERO. So the addon was writing the one shape its
+  // own next step cannot fill, and the customer was told to "ask for it on its
+  // own and I'll place it" — a promise the next rung could not keep in one hop.
+  // An EMPTY src and a missing one render identically (`SafeImage` branches on
+  // `!src`), so this costs nothing a visitor can see.
+  if (n && typeof n === "object" && !Array.isArray(n)) {
+    const shown = n.shown && typeof n.shown === "object" ? n.shown : null;
+    const has = shown && shown.known ? Math.max(0, Math.floor(Number(shown.count)) || 0) : null;
+    const lines = ["PHOTOGRAPHS: this change buys none, so do not write any @@IMG:@@ token."];
+    // WHAT THE SITE HAS, said only when it was really read. `null` is "nobody
+    // looked", and the one thing that must not happen there is a claim either
+    // way — the recorded "cannot-tell must never read as a value".
+    if (has === null) {
+      lines.push("Leave every picture already on this site exactly as it is.");
+    } else if (has > 0) {
+      lines.push("This site already shows " + has + " real " + (has === 1 ? "photograph" : "photographs") +
+        ", and they stay exactly as they are — do not replace one, and do not remove it.");
+    } else {
+      lines.push("This site shows no real photographs yet; every picture on it is a placeholder.");
+    }
+    // AND A SLOT THE NEXT STEP CAN FILL, when the customer asked for a picture.
+    if (n.place) {
+      lines.push("Where this change wants a photograph, write `<SafeImage src=\"\" alt=\"what will be here\" />` — " +
+        "an EMPTY src, never a missing one. That renders this theme's own placeholder now, and it is the slot " +
+        "the picture step fills when they ask for the photograph itself.");
+    } else {
+      lines.push("Any picture this change adds stays a <SafeImage> with an empty src, which renders this theme's " +
+        "own placeholder.");
+    }
+    return lines.join(" ");
   }
   const k = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(n)) || 0));
   if (!k) {
