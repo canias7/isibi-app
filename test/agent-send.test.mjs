@@ -1247,6 +1247,16 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
     ["an error path on a pause, which does not fail",
       [{ type: "approval", ask: "ok?", hours: 1, on_timeout: "reject", on_error: "continue" }], []],
     ["an empty error path, which means the default", [N("hi", null, { on_error: "" })], []],
+    // ⚠ **THE STEP'S OWN FIELDS ARE REFUSED FIRST, AND THIS IS THE SHAPE THAT SAYS SO.** A
+    // person filled those in; only a tool can put an error path on a branch, so their own
+    // refusal has to win — and a reader asking about the stray path first answers "has no
+    // failures to handle" about a step whose real problem is the number they typed. Found by
+    // a sweep survivor: every other shape here has one thing wrong with it, and one thing
+    // wrong cannot tell an order.
+    ["a bad field AND a stray error path", [{ type: "repeat", mode: "times", times: 0, on_error: "continue" },
+      { type: "endrepeat" }], []],
+    ["a bad list AND a stray error path", [{ type: "repeat", mode: "each", each: "", on_error: "continue" },
+      { type: "endrepeat" }], []],
   );
 
   for (const [what, steps, inputs] of shapes) {
