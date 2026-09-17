@@ -436,6 +436,34 @@ export function keptPartsNote(names) {
     (one ? "it" : "them") + " directly.";
 }
 
+/**
+ * …AND THE SAME REFUSAL FOR A REASON THE CUSTOMER CAN ACT ON DIFFERENTLY.
+ *
+ * `keptPartsNote` is about ONE component that is too long to carry, and it
+ * tells the customer to ask for that component on its own — which is real
+ * advice, and which would be WRONG here. This is the store of components
+ * failing to read at all: nothing was shown, so nothing may be replaced, and
+ * asking for the same thing on its own changes nothing about the store. What
+ * helps is asking again, because the next request reads it afresh.
+ *
+ * TWO SENTENCES BECAUSE THEY ARE TWO FACTS. Collapsing them into one with a
+ * `why` flag would put both wordings in one function and make the harder one —
+ * a refusal with no name behind it — the branch nobody reads.
+ *
+ * NAMES WHAT THE WRITER TRIED TO WRITE, never what the site has: with the read
+ * failed we do not know what the site has, and this sentence must not imply we
+ * do. `""` for an empty list, so an ordinary addon says nothing.
+ */
+export function unseenPartsNote(names) {
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "I couldn't load the components your site already has, so I left every one of them alone rather than " +
+    "write over something I hadn't seen — " + list.join(", ") + " " + (one ? "was" : "were") +
+    " part of this and " + (one ? "hasn't" : "haven't") + " changed. Everything else here is done. " +
+    "Ask me for that bit again and I'll have another go.";
+}
+
 export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));

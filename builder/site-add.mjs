@@ -124,7 +124,7 @@ import { SERIOUS } from "./site-render.mjs";
 import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
 // kind ADDS one beside the others and refuses only a duplicate.
-import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
+import { qrList, qrName, qrUnplaced, readQrText, MAX_QRS } from "./site-qr-list.mjs";
 // THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
@@ -2755,6 +2755,102 @@ export function missingPagesNote(routes) {
   return list.length === 1
     ? "One page I set out to add isn't there — " + named + " didn't make it through, so nothing on your site links to it yet. Ask me for it again on its own and I'll have another go."
     : list.length + " pages I set out to add aren't there — " + named + rest + " didn't make it through. Ask me for them again and I'll have another go.";
+}
+
+/**
+ * A NEW QR CODE THAT WOULD OPEN A PAGE THIS CHANGE FAILED TO MAKE.
+ *
+ * Owner, 2026-09-17: *"Check the QR's planned destination against the actual
+ * pages surviving generation and merging before publishing that dependency.
+ * Prevent a new QR from pointing at the missing page."*
+ *
+ * `cleanAdd` resolves a bare route against the site's own address, and since
+ * 2026-09-17 it counts a page THIS SAME CHANGE is adding — which is right, and
+ * right only because the page and the code go out in one publish. **One
+ * publish is not proof that both halves of it exist.** Reproduced through the
+ * route: plan `/gallery`, have the writer return only the home page, and the
+ * code was stored pointing at `https://<site>/gallery`, published, and the
+ * missing page reported afterwards. A QR is the one thing here a customer
+ * PRINTS, so a dead one outlives every other kind of partial.
+ *
+ * ONLY A CODE THIS CHANGE ADDED, and only one whose destination is a route
+ * this change PLANNED and lost. A code the site already had is never touched —
+ * whatever it points at, it is not this change's to remove — and a code
+ * pointing somewhere else entirely (a phone number, a wifi network, another
+ * site) is not a candidate at all, which is why the origin is compared and not
+ * just the path.
+ *
+ * …AND IT IS KEPT WHEN A PAGE THAT REALLY SHIPPED SHOWS IT. Dropping it then
+ * takes `SITE_QRS.<name>` out from under a page that renders it, which is a
+ * live page breaking to spare a code that 404s — the worse of the two by a
+ * distance, and visible to every visitor rather than to whoever scans. Such a
+ * code is `stuck`: kept, and said.
+ *
+ * `qrUnplaced` IS THE ONE READER OF "does a page show this code" — its own
+ * binding regex, already written, already guarded — so this asks it and
+ * inverts the answer rather than owning a second copy of that correspondence.
+ */
+export function deadQrs({ qr, prior, missing, pages, url } = {}) {
+  const codes = qrList(qr);
+  const gone = new Set((Array.isArray(missing) ? missing : []).map(route).filter(Boolean));
+  if (!gone.size || !codes.length) return { qr: codes, dropped: [], stuck: [] };
+  const base = siteAddress(url);
+  const had = new Set(qrList(prior).map((c) => c.name));
+  // WHICH ROUTE OF OURS THIS CODE OPENS, or "" for anything else. The exact
+  // inverse of `cleanAdd`'s `new URL(own, base).href`, and deliberately no
+  // wider: a `tel:` or a `WIFI:` payload parses as a URL with a pathname, and
+  // reading one of those as a route is how a code nobody asked about gets
+  // dropped. With no address we can compare nothing and nothing is dropped.
+  const opens = (points) => {
+    if (!base || typeof points !== "string" || !points) return "";
+    try {
+      const u = new URL(points);
+      if (u.origin !== new URL(base).origin) return "";
+      return route(u.pathname);
+    } catch { return ""; }
+  };
+  const shows = new Set(codes.map((c) => c.name));
+  for (const n of qrUnplaced(codes, pages)) shows.delete(n);
+  const keep = [], dropped = [], stuck = [];
+  for (const c of codes) {
+    const r = had.has(c.name) ? "" : opens(c.points);
+    if (!r || !gone.has(r)) { keep.push(c); continue; }
+    if (shows.has(c.name)) { keep.push(c); stuck.push({ name: c.name, route: r }); continue; }
+    dropped.push({ name: c.name, route: r });
+  }
+  return { qr: keep, dropped, stuck };
+}
+
+/**
+ * The sentence for a code that was going to open a page that is not there.
+ *
+ * SAID BESIDE `missingPagesNote`, never instead of it: that one says the page
+ * did not make it, this one says what else went with it. A customer who asked
+ * for both and hears only about the page is left to discover the code's state
+ * by scanning it.
+ *
+ * TWO OUTCOMES, TWO SENTENCES, because only one of them is actionable in the
+ * same way: a dropped code is simply not there and comes back with the page; a
+ * `stuck` one IS on the site, on a page that shows it, and scanning it today
+ * lands on nothing — which they may want to know before they print it.
+ */
+export function deadQrNote({ dropped = [], stuck = [] } = {}) {
+  const out = [];
+  const names = (l) => l.slice(0, 3).map((d) => d && d.name).filter(Boolean).join(", ");
+  const drop = (Array.isArray(dropped) ? dropped : []).filter((d) => d && d.name);
+  const keptOn = (Array.isArray(stuck) ? stuck : []).filter((d) => d && d.name);
+  if (drop.length) {
+    out.push("I didn't add the QR code" + (drop.length === 1 ? " " : "s ") + names(drop) +
+      " — " + (drop.length === 1 ? "it was" : "they were") + " going to open that page, and a code that opens nothing " +
+      "is worse than no code at all. Ask me for the page again and I'll add " + (drop.length === 1 ? "it" : "them") + " with it.");
+  }
+  if (keptOn.length) {
+    out.push("The QR code" + (keptOn.length === 1 ? " " : "s ") + names(keptOn) +
+      " " + (keptOn.length === 1 ? "is" : "are") + " on your site because a page shows " +
+      (keptOn.length === 1 ? "it" : "them") + ", but " + (keptOn.length === 1 ? "it opens" : "they open") +
+      " that missing page — don't print " + (keptOn.length === 1 ? "it" : "them") + " until the page is there.");
+  }
+  return out.join(" ");
 }
 
 /**

@@ -2112,7 +2112,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, parts, theme, css, gif, qr, three } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, theme, css, gif, qr, three } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2164,10 +2164,17 @@ export function briefWithLayout({ brief, plan, images, tsx, parts, theme, css, g
   // it. There is deliberately no second shape to pass here: the addon route
   // calls `partsSent` on the SAME array for its own wall, and one pure
   // function over one input cannot disagree with itself.
-  const sent = partsSent(parts);
+  // `partsUnreadable` IS A THIRD ANSWER FOR `parts`, not a falsy one. A caller
+  // that could not read the store passes it, and BOTH blocks change: the
+  // writer is told it has been shown nothing and must return nothing, and
+  // nothing is offered to be built — because a declaration we cannot check
+  // against the store might name a component that already exists, and asking
+  // for it is asking for the rewrite the wall then has to refuse. A dead
+  // control that ANSWERS, which this repository has paid for before.
+  const sent = partsSent(parts, { unreadable: partsUnreadable });
   const already = partsDirective(sent);
   if (already) out.push(already);
-  const built = tsxDirective(tsx, sent.names);
+  const built = sent.unreadable ? "" : tsxDirective(tsx, sent.names);
   if (built) out.push(built);
   // AND THE LOOK IT IS ALREADY WEARING — the theme and the site's own
   // stylesheet, which the addon designers are told to preserve and no caller
@@ -2360,8 +2367,23 @@ export const MAX_PARTS_CHARS = 36000;
  * which component is shown depend on the others, so a customer's unrelated
  * addition could silently withdraw a component from the next request.
  */
-export function partsSent(parts) {
-  const list = (Array.isArray(parts) ? parts : [])
+export function partsSent(parts, opts) {
+  // ── AN INVENTORY WE COULD NOT READ IS ITS OWN ANSWER (2026-09-17) ────────
+  //
+  // `{ unreadable: true }` — the store threw rather than answering. It is NOT
+  // an empty site and it is NOT a size refusal, and collapsing it into either
+  // is what let a component be rewritten from its own description: with
+  // nothing shown and nothing withheld, the "to build" block offered every
+  // stored declaration and the wall refused nothing.
+  //
+  // THE ANSWER IS EMPTY IN EVERY LIST, AND THAT IS DELIBERATE. We cannot
+  // enumerate what is at risk — a site can hold a component whose name is on
+  // no declaration list at all (a band-split part, a declaration since
+  // removed) — so naming the ones we happen to know would be a wall with a
+  // hole in it. The caller's rule is the whole answer: while `unreadable` is
+  // true, nothing is offered to be built and no returned component is kept.
+  const unreadable = !!(opts && opts.unreadable);
+  const list = unreadable ? [] : (Array.isArray(parts) ? parts : [])
     .filter((p) => p && typeof p === "object" && typeof p.name === "string" && typeof p.source === "string" && p.name.trim() && p.source);
   const shown = [], withheld = [], names = [];
   let total = 0;
@@ -2373,7 +2395,7 @@ export function partsSent(parts) {
     total += p.source.length;
     shown.push({ name, source: p.source });
   }
-  return { shown, withheld, names };
+  return { shown, withheld, names, unreadable };
 }
 
 /**
@@ -2401,6 +2423,22 @@ export function partsSent(parts) {
  */
 export function partsDirective(sent) {
   const s = sent && typeof sent === "object" ? sent : {};
+  // AN UNREADABLE INVENTORY IS SAID IN ITS OWN WORDS, and they are not the
+  // size sentence: "too long to include here" names components we can see and
+  // chose not to send, which would be a lie about a store that would not
+  // answer. Nothing may be returned either way, and the reason differs.
+  if (s.unreadable) {
+    return [
+      "## Components this site already has",
+      "",
+      "This site has components of its own, written for it and living in this project — and they could not be",
+      "loaded for this request. You have not been shown any of them and you do not know their names.",
+      "",
+      "So: do NOT return anything in `parts` at all. A file you return there would replace a real component you",
+      "have never seen. Edit the pages you were asked about, calling whatever they already import exactly as they",
+      "already call it, and leave every component alone.",
+    ].join("\n");
+  }
   const shown = (Array.isArray(s.shown) ? s.shown : [])
     .filter((p) => p && typeof p.name === "string" && typeof p.source === "string" && p.name && p.source);
   const withheld = (Array.isArray(s.withheld) ? s.withheld : []).filter((n) => typeof n === "string" && n.trim());

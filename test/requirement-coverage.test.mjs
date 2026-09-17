@@ -592,6 +592,11 @@ test("HOP 6b: the browser prints the server's sentence and composes none of its 
   // server fills, and the server is still the only composer.
   assert.match(W, /coverNote: \[\n\s*requirementNote\(/, "the server sends a field the browser does not read");
   assert.match(W, /missingPagesNote\(aMissing\),/, "the missing-page sentence never reaches the field the browser prints");
+  // …AND A THIRD, 2026-09-17: what went WITH a missing page. A new QR code
+  // pointing at a page that did not survive is dropped before anything is
+  // stored, and the customer hears it beside the page's own sentence rather
+  // than discovering it by scanning the code.
+  assert.match(W, /deadQrNote\(aDeadQr\),/, "the dead-QR sentence never reaches the field the browser prints");
   // ── AND THE SECOND SENTENCE THAT FOLLOWS THIS RULE (2026-09-17) ──────────
   //
   // A component the page writer was not shown and would have replaced: the
@@ -603,8 +608,19 @@ test("HOP 6b: the browser prints the server's sentence and composes none of its 
   // prints verbatim.
   assert.match(C, /if \(typeof a\.keptPartsNote === 'string' && a\.keptPartsNote\) out \+= ' ' \+ a\.keptPartsNote;/,
     "the addon reply does not say a component was kept rather than replaced");
-  assert.match(W, /keptPartsNote: keptPartsNote\(aKeptParts\) \|\| undefined,/, "the server sends no sentence for the field the browser prints");
+  // RE-ANCHORED 2026-09-17 onto the PROPERTY, because an honest second
+  // composer moved the spelling. There are two reasons a returned component is
+  // refused and they need different sentences — one named component too long
+  // to carry, and a component store that could not be read at all — so the
+  // field the browser prints is filled from either. Read as the composers
+  // reaching that one field, never as one call's exact text.
+  const kn = W.match(/keptPartsNote: ([^\n]*),\n/);
+  assert.ok(kn, "the server sends no sentence for the field the browser prints");
+  assert.ok(kn[1].includes("keptPartsNote(aKeptParts)"), "the too-long sentence is not composed: " + kn[1]);
+  assert.ok(kn[1].includes("unseenPartsNote(aUnseenParts)"), "a store that could not be read gets no sentence of its own: " + kn[1]);
   assert.doesNotMatch(C, /too long for me to read in one go/, "the browser composes its own kept-component sentence");
+  assert.doesNotMatch(C, /couldn't load the components/, "the browser composes its own unreadable-store sentence");
+  assert.doesNotMatch(C, /a code that opens nothing/, "the browser composes its own dead-QR sentence");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

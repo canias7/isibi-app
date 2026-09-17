@@ -2525,12 +2525,14 @@ test("the page writer is shown the theme, the site's own stylesheet and the kit 
   };
   const r = await addon("fw-look", "add a note under the hero", {
     kinds: ["component"], publishes: true, storedPages: [HOME],
-    // A DECLARATION AND NO STORED FILE, which is also this case's control for
-    // the three-state parts read: the site has NO `parts.json`, so
-    // `loadSiteParts` answers `null` — "not asked" — and the note must keep the
-    // sentence it has always had rather than announce that nothing was written.
-    // Cannot-tell must never read as a value, and here the value would be a
-    // claim about somebody's own components.
+    // A DECLARATION AND NO STORED FILE — RE-ANCHORED 2026-09-17, and the old
+    // expectation was the conflation this round removes. It read: the site has
+    // no `parts.json`, `loadSiteParts` answers `null`, and the note keeps its
+    // old sentence. But "there is no such object" is a read that SUCCEEDED and
+    // found nothing, which is a fact about the site and not a cannot-tell — so
+    // the honest answer is that `tide-chart` is declared and nothing has
+    // written it, which is exactly what `look.tsx` means. The cannot-tell case
+    // is a read that THROWS, and it has its own case below.
     look: { theme: "harbour-slate", tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] }, css: SHEET,
     answers: { component: { component: [{ page: "/", does: "a note saying when we are open", components: ["open-now"] }] } },
   });
@@ -2553,8 +2555,233 @@ test("the page writer is shown the theme, the site's own stylesheet and the kit 
   const seen = promptFor(r, "component");
   assert.match(seen.text, /theme is harbour-slate/, "the designer was not told the theme: " + seen.text.slice(0, 900));
   assert.match(seen.text, /stylesheet written for it/, "the designer was not told the site carries its own stylesheet");
-  assert.match(seen.text, /parts written for it: tide-chart/,
-    "a site whose components could not be read was reported as one with none: " + seen.text.slice(0, 900));
-  assert.doesNotMatch(seen.text, /nothing has written yet/,
-    "an unreadable parts list was said to be an empty one");
+  assert.match(seen.text, /components its design declares and nothing has written yet: tide-chart/,
+    "a declaration with no file was reported as a component the site has: " + seen.text.slice(0, 900));
+  assert.doesNotMatch(seen.text, /already written/,
+    "a site with no stored component was said to have one");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TWO GAPS IN MILESTONE 1, EACH REPRODUCED THROUGH THIS ROUTE FIRST (2026-09-17)
+//
+// Owner, on the milestone: *"Component-source read failure bypasses the new
+// guard … Distinguish a successfully read empty inventory from an unreadable
+// one. Do not permit an unseen replacement because the inventory read failed.
+// Use a consistent source snapshot and demonstrate failure followed by recovery
+// through the route, asserting stored component bytes and the customer
+// response."* And: *"Planned-page dependencies need a final check … One publish
+// does not establish that both requested items exist."*
+//
+// Both were reproduced before either was touched, and a third came out of the
+// first reproduction: with BOTH reads failing, `mergeParts(null, [one])`
+// answers `[one]`, so every other component on the site was deleted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The real component's bytes, so "was this replaced" is an exact question. */
+const REAL_TIDE = "export default function TideChart({ rows }: { rows: number[] }) { return <svg data-slot=\"tide\">{rows.length}</svg> }";
+const REAL_LOG = "export default function CatchLog() { return <ul data-slot=\"log\" /> }";
+const REWRITE = "export default function TideChart(){ return <p>rewritten from a one-line description</p> }";
+const TWO_PARTS = [{ name: "tide-chart", source: REAL_TIDE }, { name: "catch-log", source: REAL_LOG }];
+/** What `source/<slug>/parts.json` really holds after a run, by name. */
+const storedParts = (r, slug) => {
+  const raw = r.store.store.get("source/" + slug + "/parts.json");
+  return Object.fromEntries(JSON.parse(raw || "[]").map((p) => [p.name, p.source]));
+};
+/** The stored look, as `patchSiteConfig` left it. */
+const storedLook = (r, slug) => {
+  const raw = r.store.store.get("config/" + slug + ".json");
+  try { return JSON.parse(raw).look; } catch { return null; }
+};
+
+test("a component store that could not be read replaces nothing, and the next request recovers", async () => {
+  // ── THE REPRODUCTION ─────────────────────────────────────────────────────
+  //
+  // The first read throws. Before the fix: `partsSent` got `null`, so `shown`
+  // and `withheld` were both empty; the writer was shown no source AND handed
+  // the stored DECLARATION under "Components to build"; the wall had nothing
+  // to refuse; and the merge's own second read — minutes later, and it
+  // succeeded — let the rewrite replace the real file with no `keptParts` and
+  // no sentence.
+  const fail = await addon("fw-unreadable", "change the tide chart's caption", {
+    kinds: ["component"], publishes: true, partsFail: 1, parts: TWO_PARTS,
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] },
+    writtenParts: [{ name: "tide-chart", source: REWRITE }],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(fail.body.ok, true, JSON.stringify(fail.body));
+
+  // THE BYTES, WHICH IS THE ASSERTION THAT MATTERS. The customer's own
+  // component is on disk exactly as it was, and so is the one this request
+  // never mentioned.
+  const after = storedParts(fail, "fw-unreadable");
+  assert.equal(after["tide-chart"], REAL_TIDE, "a component the writer was never shown was replaced");
+  assert.equal(after["catch-log"], REAL_LOG, "a component nobody asked about was changed");
+
+  // AND THE WRITER WAS NOT INVITED TO WRITE IT. This is the half a bytes check
+  // cannot see: the wall could refuse the rewrite and the prompt could still be
+  // telling the model that a component the site already has does not exist.
+  const page = pagePrompt(fail);
+  assert.ok(!page.text.includes("data-slot=\\\"tide\\\"") && !page.text.includes("rows.length"),
+    "source we could not read was shown anyway");
+  const build = page.text.indexOf("Components to build");
+  assert.ok(build < 0 || !page.text.slice(build).includes("tide-chart"),
+    "a component the site already has was offered to be written: " + page.text.slice(Math.max(0, build), build + 400));
+  // LINE BREAKS COLLAPSED BEFORE MATCHING, because a prompt is hand-wrapped and
+  // where a line breaks is spelling. The first draft of this assertion looked
+  // for "could not be loaded for this request" and went red on correct output:
+  // the wrap falls between "could not be" and "loaded". Assert the property,
+  // not the spelling — including the invisible half of it. `page.text` is the
+  // JSON BODY of the request, so a newline in the prompt is the two characters
+  // `\` and `n` here and `\s` does not touch it.
+  const flat = page.text.replace(/\\n/g, " ").replace(/\s+/g, " ");
+  assert.match(flat, /could not be loaded for this request/, "the writer was not told the components exist and were not loaded");
+  assert.match(flat, /You have not been shown any of them and you do not know their names/, "the writer was not told it is missing the names");
+  assert.match(flat, /do NOT return anything in `parts` at all/, "the writer was not told to return no components");
+
+  // AND THE CUSTOMER HEARS IT, IN ITS OWN WORDS. Not the too-long sentence —
+  // that one tells them to ask for the component on its own, which is advice
+  // about a bound and is wrong about a store that failed to read.
+  assert.deepEqual(fail.body.unseenParts, ["tide-chart"], "the refused component is not named on the wire");
+  assert.equal(fail.body.keptParts, undefined, "a store that could not be read was reported as a component too long to carry");
+  assert.match(fail.body.keptPartsNote || "", /^I couldn't load the components your site already has/, fail.body.keptPartsNote);
+  assert.match(fail.body.keptPartsNote, /Ask me for that bit again/, "the sentence does not say what to do about it");
+  assert.doesNotMatch(fail.body.keptPartsNote, /too long/, "the wrong refusal's sentence was used");
+
+  // ── AND THE RECOVERY, WHICH IS THE CONTROL ───────────────────────────────
+  //
+  // The same site, the same ask, the same returned rewrite — with the read
+  // working. Without this the fix could be "never accept a component" and every
+  // assertion above would still pass.
+  const ok = await addon("fw-unreadable", "change the tide chart's caption", {
+    kinds: ["component"], publishes: true, parts: TWO_PARTS,
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] },
+    writtenParts: [{ name: "tide-chart", source: REWRITE }],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  const back = storedParts(ok, "fw-unreadable");
+  assert.equal(back["tide-chart"], REWRITE, "the rewrite was refused although the store read fine");
+  assert.equal(back["catch-log"], REAL_LOG, "the component nobody mentioned did not survive the merge");
+  assert.equal(ok.body.unseenParts, undefined, "a working read reported a refusal");
+  assert.equal(ok.body.keptPartsNote, undefined, "a working read said something to the customer");
+  assert.ok(pagePrompt(ok).text.includes("rows.length"), "the writer was not shown the component it was asked to change");
+});
+
+test("a component store that fails BOTH times keeps every component the request never mentioned", async () => {
+  // THE THIRD FINDING, and it is the expensive one: `mergeParts(null, [one])`
+  // answers `[one]`, so before the fix a second failed read plus any returned
+  // component DELETED every other component on the site — none of them named
+  // in the request, and nothing anywhere saying so.
+  const r = await addon("fw-unreadable2", "change the tide chart's caption", {
+    kinds: ["component"], publishes: true, partsFail: 9, parts: TWO_PARTS,
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] },
+    writtenParts: [{ name: "tide-chart", source: REWRITE }],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const after = storedParts(r, "fw-unreadable2");
+  assert.deepEqual(Object.keys(after).sort(), ["catch-log", "tide-chart"], "a component the request never mentioned was deleted");
+  assert.equal(after["tide-chart"], REAL_TIDE, "the unseen component was replaced");
+  assert.equal(after["catch-log"], REAL_LOG, "the bystander component's bytes moved");
+});
+
+test("a new QR code that would open a page the writer did not return is not published, and is said", async () => {
+  // Owner: *"With page + QR, plan /gallery but have the writer return only the
+  // homepage. The route currently persists the QR targeting /gallery,
+  // publishes, and reports the page missing afterward."* Reproduced exactly:
+  // the code was stored pointing at `https://<site>/gallery`, `moved` claimed
+  // `qr`, and the only thing the customer heard was that the page had not made
+  // it. A QR is the one thing here somebody PRINTS.
+  const r = await addon("fw-qr-gone", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true,
+    written: [writtenPage("/")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, ASSERTED RATHER THAN ASSUMED: the page really did not
+  // survive. Without it a run where the writer quietly returned both pages
+  // would pass this case with the fix deleted.
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+
+  // NOTHING IS STORED. The look is written before the compile — the container
+  // bakes `/qr-gallery.svg` from it — so a code dropped here never becomes a
+  // file, never becomes a binding, and never reaches a printer.
+  const look = storedLook(r, "fw-qr-gone");
+  assert.ok(!look || !(look.qr && look.qr.length), "a QR code opening a page that is not there was published: " + JSON.stringify(look && look.qr));
+  assert.deepEqual(r.body.moved, [], "the reply claims it gave the site a QR code it did not");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  assert.equal(r.body.stuckQrs, undefined, "a code nothing shows was reported as one a page depends on");
+
+  // AND BOTH SENTENCES, beside each other: the page, and what went with it.
+  assert.match(r.body.coverNote, /\/gallery didn't make it through/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
+  assert.match(r.body.coverNote, /a code that opens nothing is worse than no code at all/, r.body.coverNote);
+});
+
+test("a QR code a shipped page really renders is kept and warned about, never pulled out from under it", async () => {
+  // THE OTHER HALF, and it is why this is not a one-line drop. The customer
+  // can ask for the code to go ON a page — `cleanAdd` takes `page` for exactly
+  // that — so the writer can put `SITE_QRS.gallery` on the home page while
+  // failing to write `/gallery`. Dropping the code then takes the binding out
+  // from under a page that renders it: a live page breaking to spare a code
+  // that 404s, which is the worse of the two and visible to every visitor.
+  const shows = (p) => ({ ...p, source: p.source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") });
+  const r = await addon("fw-qr-stuck", "add a gallery page and a QR code on the home page that opens it", {
+    kinds: ["page", "qr"], publishes: true,
+    written: [shows(writtenPage("/"))],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery", page: "/" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  const look = storedLook(r, "fw-qr-stuck");
+  assert.deepEqual((look.qr || []).map((q) => q.name), ["gallery"], "the code a live page renders was taken away from it");
+  assert.equal(r.body.droppedQrs, undefined, "a code a page depends on was dropped");
+  assert.deepEqual(r.body.stuckQrs, [{ name: "gallery", route: "/gallery" }], "the kept code is not on the wire");
+  // ITS OWN SENTENCE, not the dropped one — the two need different words
+  // because only one of them is on the site.
+  assert.match(r.body.coverNote, /is on your site because a page shows it/, r.body.coverNote);
+  assert.match(r.body.coverNote, /don't print it until the page is there/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I didn't add the QR code/, "a kept code was described as one that was not added");
+});
+
+test("page + QR where both arrive publishes the code and says nothing — and an older code is never touched", async () => {
+  // THE CONTROL the owner asked to keep. Same ask, same shapes, the writer
+  // returning both pages: the code is stored, `moved` says so, and the
+  // customer hears nothing at all.
+  const ok = await addon("fw-qr-ok", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  assert.deepEqual(ok.body.added, ["index.tsx", "gallery.tsx"], JSON.stringify(ok.body.added));
+  assert.equal(ok.body.missingPages, undefined, "a page went missing, so this is not the control it claims to be");
+  assert.deepEqual((storedLook(ok, "fw-qr-ok").qr || []).map((q) => q.name), ["gallery"], "the code was not published");
+  assert.deepEqual(ok.body.moved, ["qr"], "the reply does not say the site gained a QR code");
+  assert.equal(ok.body.droppedQrs, undefined, "a code whose page shipped was dropped");
+  assert.equal(ok.body.coverNote, "", "a clean change said something: " + ok.body.coverNote);
+
+  // …AND A CODE THE SITE ALREADY HAD IS NOT THIS CHANGE'S TO REMOVE, whatever
+  // it points at. The same missing page, and a stored code aimed straight at
+  // it: untouched, unnamed, unmentioned.
+  const prior = await addon("fw-qr-prior", "add a gallery page", {
+    kinds: ["page"], publishes: true,
+    written: [writtenPage("/")],
+    look: { qr: [{ name: "gallery", points: "https://fw-qr-prior.gofarther.app/gallery", label: "Our gallery" }] },
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] } },
+  });
+  assert.equal(prior.body.ok, true, JSON.stringify(prior.body));
+  assert.deepEqual(prior.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.equal(prior.body.droppedQrs, undefined, "a code the site already had was dropped by a change that did not add it");
+  assert.equal(prior.body.stuckQrs, undefined, "a code the site already had was reported");
+  assert.deepEqual((storedLook(prior, "fw-qr-prior").qr || []).map((q) => q.name), ["gallery"], "the site's own code did not survive");
 });

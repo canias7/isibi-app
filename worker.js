@@ -206,7 +206,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -244,7 +244,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -8498,14 +8498,41 @@ async function saveSiteParts(env, slug, parts) {
   } catch (e) { console.error("parts save failed:", slug, e && e.message); return false; }
 }
 
-async function loadSiteParts(env, slug) {
-  if (!env.SITES_BUCKET) return null;
+/**
+ * THE SITE'S OWN COMPONENTS, AND WHETHER WE COULD SEE THEM (2026-09-17).
+ *
+ * `{ ok, parts, why }` — three states, where there was one `null`:
+ *
+ *   ok: true,  parts: []      the read SUCCEEDED and the site has none
+ *   ok: true,  parts: [...]   the read succeeded and these are the components
+ *   ok: false, why: "read"    the read or the parse threw — we cannot see
+ *   ok: false, why: "no-store" there is no bucket to read
+ *
+ * WHY THE DISTINCTION IS LOAD-BEARING, measured through the addon route: with
+ * the two collapsed, a failed read gave `partsSent` nothing, the page writer
+ * was shown no source and told to WRITE a component that already existed, and
+ * the wall had an empty `withheld` so it refused nothing. The rewrite — composed
+ * from a one-line description — then replaced the real file, with no
+ * `keptParts` and no sentence. And when BOTH reads failed, `mergeParts(null,
+ * [one])` answered `[one]`: every OTHER component on the site was deleted, none
+ * of them mentioned in the request.
+ *
+ * `loadSiteParts` STAYS, as a thin wrapper, so its five other callers read
+ * exactly as they did. There is one reader underneath, so the two cannot drift.
+ */
+async function readSiteParts(env, slug) {
+  if (!env.SITES_BUCKET) return { ok: false, parts: [], why: "no-store" };
   try {
     const o = await env.SITES_BUCKET.get(PARTS_KEY(slug));
-    if (!o) return null;
+    if (!o) return { ok: true, parts: [] };
     const v = JSON.parse(await o.text());
-    return Array.isArray(v) && v.length ? v : null;
-  } catch (e) { console.error("parts read failed:", slug, e && e.message); return null; }
+    return { ok: true, parts: Array.isArray(v) ? v : [] };
+  } catch (e) { console.error("parts read failed:", slug, e && e.message); return { ok: false, parts: [], why: "read" }; }
+}
+
+async function loadSiteParts(env, slug) {
+  const r = await readSiteParts(env, slug);
+  return r.ok && r.parts.length ? r.parts : null;
 }
 
 /**
@@ -23188,14 +23215,32 @@ async function handleRequest(request, env, ctx) {
             // cannot tell which new page is "the gallery" cannot place a
             // section on it any better than one that never heard of it.
             const aNewPages = [];
-            // THE COMPONENTS THE SITE REALLY HAS A FILE FOR — `look.tsx` is
-            // the cumulative DECLARATION list and says nothing about whether
-            // anything was ever written. Read once, here, because the note
-            // and the page call both need it and a second read could answer
-            // differently. A read that fails is `null`, which `siteNote`
-            // reads as "not asked" and leaves the old sentence: cannot-tell
-            // must not read as "this site has no components of its own".
-            const aStoredParts = await loadSiteParts(env, ownerSlug);
+            // ── THE SITE'S OWN COMPONENTS, READ ONCE (2026-09-17) ──────────
+            //
+            // `look.tsx` is the cumulative DECLARATION list and says nothing
+            // about whether anything was ever written; this is what has a
+            // FILE. Read once, here, and the same snapshot serves the
+            // designers' note, the page call's prompt, the wall that decides
+            // whether a returned component may replace a stored one, and the
+            // merge that writes the list back.
+            //
+            // ONE SNAPSHOT IS THE FIX, NOT A TIDY-UP. The route read this key
+            // TWICE — here and again at the merge, minutes apart — so the two
+            // could disagree, and the state that mattered is exactly the one
+            // that happened: the first read threw, so the writer was shown
+            // nothing and told to WRITE a component that already existed; the
+            // second succeeded, so `mergeParts` replaced the real file with a
+            // rewrite composed from a one-line description. No `keptParts`, no
+            // sentence. And with BOTH reads failing, `mergeParts(null, [one])`
+            // answers `[one]`: every other component on the site is deleted,
+            // none of them named in the request.
+            //
+            // `ok: false` IS A REFUSAL, NOT AN EMPTY SITE. Everything below
+            // reads `aPartsRead.ok`, and while it is false nothing is offered
+            // to be built, no returned component is kept, and `parts.json` is
+            // not written at all.
+            const aPartsRead = await readSiteParts(env, ownerSlug);
+            const aStoredParts = aPartsRead.ok ? aPartsRead.parts : null;
             const siteFacts = (spec) => ({
               name: aLook.brand || ownerSlug,
               url: aUrl,
@@ -23396,6 +23441,14 @@ async function handleRequest(request, env, ctx) {
             // really survived, so a planned file is never mistaken for a
             // delivered page.
             let aMissing = [];
+            // …AND THE QR CODES THAT WOULD HAVE OPENED ONE OF THEM (2026-09-17).
+            // Declared HERE, well above `aCoverage`'s first possible call,
+            // because that closure reads it and this route has the temporal
+            // dead zone recorded against it three times already: a `let` beside
+            // the code it belongs to is four hundred lines below a refusal that
+            // composes the coverage, and a refusal there throws `ReferenceError`
+            // that no source scan and no `node --check` can see.
+            let aDeadQr = { dropped: [], stuck: [] };
             // …THE SEED ROWS THAT WERE ASKED FOR AND NOT PUT IN (2026-09-15).
             // `seedSiteRows` has answered `{seeded, skipped}` all along and the
             // skip list went into the migration record and REACHED NOBODY:
@@ -23592,6 +23645,13 @@ async function handleRequest(request, env, ctx) {
                   // writer is a fact about this change whether or not anybody
                   // wrote a requirement for it.
                   missingPagesNote(aMissing),
+                  // …AND WHAT WENT WITH THEM. Beside the sentence above,
+                  // never instead of it: one says the page is not there, this
+                  // says a code that was going to open it was not added — or,
+                  // where a live page shows it, that it IS there and opens
+                  // nothing yet. A customer who hears only about the page
+                  // finds out about the code by scanning it.
+                  deadQrNote(aDeadQr),
                   // THE SEED SKIPS, SAID (2026-09-15). Joined here for exactly
                   // the reason the missing-page sentence is: it is a fact about
                   // what this change did, not a claim the designers made, and
@@ -23626,6 +23686,13 @@ async function handleRequest(request, env, ctx) {
                 // a route is the one thing about a missing page a customer can
                 // do something with.
                 missingPages: aMissing.length ? aMissing : undefined,
+                // …AND THE CODES THAT DEPENDED ON THEM, both outcomes on the
+                // wire as themselves: a `dropped` code is not on the site, a
+                // `stuck` one is and opens nothing. Folding them into one list
+                // with a flag would be two findings in one field, which is the
+                // shape this route has already had to unpick twice.
+                droppedQrs: aDeadQr.dropped.length ? aDeadQr.dropped.slice(0, 6) : undefined,
+                stuckQrs: aDeadQr.stuck.length ? aDeadQr.stuck.slice(0, 6) : undefined,
                 // THE DEVELOPER'S COPY OF THE TWO NEW FINDINGS. `seedSkips`
                 // carries the engine's own sentences, which name the rule the
                 // customer's clause deliberately leaves out; `noPopulation` is
@@ -24382,12 +24449,25 @@ async function handleRequest(request, env, ctx) {
             // `css` follows the look lane's rule too: replaced when usable,
             // never merged, never stripped by an empty answer.
             const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });
-            const aLookMoved = movedFields(aLook, aMerged);
             const aCssAsk = readCss(aDesigned && aDesigned.css);
             const aNextCss = aCssAsk.usable ? aCssAsk.css : aCss;
-            const aLookPatch = (aLookMoved.length || aNextCss !== aCss)
-              ? (aNextCss !== aCss ? { look: aMerged, css: aNextCss } : { look: aMerged })
-              : null;
+            // WHAT GETS STORED, AND WHAT THE REPLY CALLS MOVED — ASKED ONCE
+            // AND READ TWICE (2026-09-17). Below the publish, `deadQrs` can
+            // take a QR code back OFF `aMerged`: one this change added that
+            // opens a page the writer then failed to write. Both answers have
+            // to follow it — a patch storing a code that is not wanted, or a
+            // reply still saying `moved: ["qr"]` about one that is not there,
+            // is a second copy of this decision disagreeing with the first.
+            // So the expression has one home and is re-asked rather than
+            // written out again.
+            let aLookMoved = [], aLookPatch = null;
+            const aReadLook = () => {
+              aLookMoved = movedFields(aLook, aMerged);
+              aLookPatch = (aLookMoved.length || aNextCss !== aCss)
+                ? (aNextCss !== aCss ? { look: aMerged, css: aNextCss } : { look: aMerged })
+                : null;
+            };
+            aReadLook();
 
             // ONE PAGE CALL, in addon mode. `priorPages` is the whole site so
             // the model can edit a nav entry; `mode` is what makes it return
@@ -24413,7 +24493,14 @@ async function handleRequest(request, env, ctx) {
             // the block the writer reads and the wall below cannot disagree
             // about what it was shown — and the wall is the reason this is a
             // `const` here rather than a value computed inside the call.
-            const aSentParts = partsSent(aStoredParts);
+            //
+            // AND AN UNREADABLE STORE IS NOT AN EMPTY ONE. `unreadable` is the
+            // third state `readSiteParts` answers, and it has to reach both
+            // readers as itself: to the prompt it is a paragraph saying the
+            // components exist and were not loaded, and to the wall below it
+            // is a refusal of every returned component — because the names we
+            // could not read are exactly the names we cannot check against.
+            const aSentParts = partsSent(aStoredParts, { unreadable: !aPartsRead.ok });
             // THE KIT SIGNATURES THIS REQUEST NEEDS: what the addition
             // declares, plus what the pages being edited already import.
             // `modules`, NEVER `kit` — the first is `seat-map` and the second
@@ -24465,7 +24552,8 @@ async function handleRequest(request, env, ctx) {
                 // replaced the real file by name. `aSentParts` is computed
                 // ONCE and read twice: here, and by the wall below that
                 // decides whether a returned part may replace a stored one.
-                tsx: aMerged.tsx, parts: aStoredParts, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
+                tsx: aMerged.tsx, parts: aStoredParts, partsUnreadable: !aPartsRead.ok,
+                gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
                 // AND THE LOOK IT IS WEARING. The stylesheet is sent as
                 // ALREADY APPLIED, never as something to reproduce: it is
                 // appended last at build time so it wins on source order, and
@@ -24629,6 +24717,49 @@ async function handleRequest(request, env, ctx) {
             const aGatePub = aJob ? aJob.gate("build") : null;
             if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: "build", trace: editTrace, ctx });
 
+            // ── WHICH REQUESTED PAGES ARE REALLY GOING OUT ────────────────
+            //
+            // Computed HERE rather than below the publish, which is where it
+            // was, and the move is the whole of the second fix. `aMerge` is
+            // settled — it is what will be compiled and shipped — so a page
+            // the writer never returned, one salvage will replace and one the
+            // merge refused all read as missing already, and the answer is the
+            // same on both sides of the publish. What it buys is a check that
+            // happens BEFORE anything of it is stored.
+            //
+            // ONE COMPUTATION, TWO READERS: `aMissing` below is this list, so
+            // the dependency check and the customer's own sentence cannot
+            // disagree about which pages made it.
+            const aFilesOut = [...(aMerge.added || []), ...(aMerge.changed || [])];
+            const aWanted = aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : []));
+            const aGone = missingPages(aWanted, aFilesOut);
+
+            // ── AND NO NEW QR CODE OPENS A PAGE THAT IS NOT THERE ─────────
+            //
+            // Owner, 2026-09-17: *"One publish does not establish that both
+            // requested items exist."* `cleanAdd` admits a code pointing at a
+            // page this same change is adding — correct, and correct because
+            // the two go out in ONE publish — but the publish is not proof the
+            // page survived generation. Reproduced: plan `/gallery`, return
+            // only the home page, and the code was stored, published, and the
+            // missing page reported afterwards; the customer prints it.
+            //
+            // BEFORE THE BILL AND BEFORE THE STORE, so a dropped code costs
+            // nothing and leaves nothing behind. `deadQrs` says why in full,
+            // including why a code a live page really shows is KEPT and named
+            // instead.
+            aDeadQr = deadQrs({ qr: aMerged.qr, prior: aLook.qr, missing: aGone, pages: aMerge.pages, url: aUrl });
+            if (aDeadQr.dropped.length || aDeadQr.stuck.length) {
+              aMark("qr", aDeadQr.dropped.length ? "dropped" : "stuck", { dropped: aDeadQr.dropped.length, stuck: aDeadQr.stuck.length, missing: aGone.length });
+            }
+            if (aDeadQr.dropped.length) {
+              aMerged.qr = aDeadQr.qr;
+              // AND THE TWO ANSWERS FOLLOW IT. Re-asked rather than patched:
+              // dropping the only field this change moved makes the whole
+              // look store a no-op, and `moved` has to stop claiming it.
+              aReadLook();
+            }
+
             // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
             //
             // `aCharge` above says when and why. Every usage is known by this
@@ -24690,16 +24821,35 @@ async function handleRequest(request, env, ctx) {
             // five shapes, including a name given twice at both sizes and a
             // list that overruns the whole-request bound. A sweep mutant
             // cutting that line survived everything, which is what said so.
-            const aKeptParts = [];
+            //
+            // …AND AN UNREADABLE STORE REFUSES EVERY ONE OF THEM, which is a
+            // SEPARATE list because it is a separate sentence. `withheld`
+            // names components we read and chose not to send; `unreadable`
+            // means we never learned a single name, so there is nothing to
+            // check a returned component against and no way to know what a
+            // replacement would destroy. The two can never both fire —
+            // `partsSent` answers empty lists when it cannot read — and that
+            // is by construction rather than by care here.
+            const aKeptParts = [], aUnseenParts = [];
             const aFreshParts = (Array.isArray(aValid.parts) ? aValid.parts : []).filter((p) => {
               const n = String((p && p.name) || "").toLowerCase();
+              if (aSentParts.unreadable) { aUnseenParts.push(p && p.name); return false; }
               if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;
               aKeptParts.push(p.name);
               return false;
             });
-            if (aKeptParts.length) aMark("parts", "kept", { kept: aKeptParts.length, shown: aSentParts.shown.length, withheld: aSentParts.withheld.length });
-            const aParts = aFreshParts.length
-              ? mergeParts(await loadSiteParts(env, ownerSlug), aFreshParts)
+            if (aKeptParts.length || aUnseenParts.length) aMark("parts", "kept", { kept: aKeptParts.length, unseen: aUnseenParts.length, shown: aSentParts.shown.length, withheld: aSentParts.withheld.length });
+            // AND THE MERGE READS THE SAME SNAPSHOT, NEVER A SECOND READ.
+            // `mergeParts` replaces by name and keeps everything else — but
+            // only what it is HANDED: `mergeParts(null, [one])` answers
+            // `[one]`, so a second read that failed where the first succeeded
+            // would delete every component this change never mentioned.
+            // `aPartsRead.parts` is the list the prompt and the wall were both
+            // built from, and while `ok` is false nothing is written at all:
+            // `null` leaves the spine to re-send the store's own copy, which
+            // is exactly what an addon that touched no component does.
+            const aParts = (aFreshParts.length && aPartsRead.ok)
+              ? mergeParts(aPartsRead.parts, aFreshParts)
               : null;
             // ── THE ADD STEP'S OWN REPAIR ROUND, handed to the spine's seam ──
             //
@@ -24886,9 +25036,14 @@ async function handleRequest(request, env, ctx) {
             // reconcile can answer `absent` for — before this line `aShipped`
             // is null and a requirement handed to `page` reads `unverified`,
             // which is the honest answer while nothing has been published.
-            const aFilesOut = [...(aMerge.added || []), ...(aMerge.changed || [])];
-            const aWanted = aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : []));
-            aMissing = missingPages(aWanted, aFilesOut);
+            //
+            // …AND IT IS THE LIST `aGone`, COMPUTED ABOVE THE BILL (2026-09-17)
+            // rather than a second call here. `aMerge` is settled before
+            // either line, so the two can only ever be the same answer — and
+            // the QR dependency check needs it before anything is stored,
+            // where this needs it after the publish for `aShipped`. One
+            // computation with two readers, never one computation each.
+            aMissing = aGone;
             // ROUTES, NOT FILES, AND DERIVED FROM THE ONE READER THAT ALREADY
             // KNOWS BOTH (2026-09-15). The merge answers FILE names and a
             // requirement names a ROUTE — the customer's word, and the word
@@ -24978,11 +25133,17 @@ async function handleRequest(request, env, ctx) {
               // rather than dropped in silence, and absent when nothing was
               // refused, so an ordinary addon's response is byte-identical.
               keptParts: aKeptParts.length ? aKeptParts.slice(0, 6) : undefined,
+              // …OR ONE WE COULD NOT READ THE STORE FOR AT ALL. A separate
+              // field because it is a separate fact and a separate sentence:
+              // above, one named component was too long to carry; here nothing
+              // was read, so nothing may be replaced and we do not even know
+              // what the site has. The two are disjoint by construction.
+              unseenParts: aUnseenParts.length ? aUnseenParts.slice(0, 6) : undefined,
               // …AND THE SENTENCE, composed here and printed VERBATIM by the
               // browser — `coverNote`'s rule, for `coverNote`'s reason: the
               // decision is entirely the server's, since it is the only thing
               // that knows which sources fitted in the request.
-              keptPartsNote: keptPartsNote(aKeptParts) || undefined,
+              keptPartsNote: (keptPartsNote(aKeptParts) || unseenPartsNote(aUnseenParts)) || undefined,
               problems: aProblems.slice(0, 4),
               // THE RENDER SENTENCE IS THE FINAL BUILD'S — the repaired one
               // when the round held — and the round's own sentence rides

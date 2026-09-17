@@ -149,17 +149,30 @@ test("the addon merges the designed look, tells the page call the bindings, stor
   assert.match(b.slice(b.lastIndexOf("if (", revert), revert), /^if \(aStored\) \{/, "the revert is not gated on the look having been stored");
   // PARTS RIDE THE PUBLISH, and the reply says what was added.
   assert.match(b.slice(publish, b.indexOf("});", publish)), /parts: aParts \|\| undefined/, "the addon's parts are not handed to the spine");
-  // RE-ANCHORED 2026-09-17: the merge is still over the stored list and the
-  // list it merges is no longer `aValid.parts` raw — a returned component that
-  // would replace a stored one the writer was never shown is filtered out
-  // first. The property is "merged over what is stored", so the second
-  // argument is read as a name rather than pinned to one spelling, and the
-  // filter it comes from is asserted separately.
-  const mp = b.match(/mergeParts\(await loadSiteParts\(env, ownerSlug\), ([A-Za-z]+)\)/);
+  // RE-ANCHORED TWICE, AND THE SECOND IS A STRICTLY STRONGER CLAIM
+  // (2026-09-17). It pinned `mergeParts(await loadSiteParts(env, ownerSlug),
+  // …)` — a SECOND read of the parts store, minutes after the one the prompt
+  // was built from, which is the defect: the first read threw, the writer was
+  // shown nothing and told to write a component that already existed, and this
+  // read succeeded and let the rewrite replace the real file. The property is
+  // now "merged over the SAME snapshot the prompt and the wall were built
+  // from", so both arguments are read as names and the route is asserted to
+  // read that key exactly once.
+  const mp = b.match(/mergeParts\(([A-Za-z.]+), ([A-Za-z]+)\)/);
   assert.ok(mp, "the addon's parts are not merged over the stored ones");
-  assert.match(b, new RegExp("const " + mp[1] + " = \\(Array\\.isArray\\(aValid\\.parts\\)"),
+  assert.equal(mp[1], "aPartsRead.parts", "the merge reads something other than the snapshot the prompt was built from: " + mp[1]);
+  assert.match(b, new RegExp("const " + mp[2] + " = \\(Array\\.isArray\\(aValid\\.parts\\)"),
     "the merged list is not derived from what the page call returned");
+  // ONE READ, WHOLE STOP. A `loadSiteParts` anywhere in this block is a second
+  // snapshot, whatever it is spelled as, and two snapshots is the defect.
+  const block = b.slice(b.indexOf("const aPartsRead = await readSiteParts"), revert);
+  assert.ok(!/loadSiteParts\(env, ownerSlug\)/.test(block),
+    "the addon route reads the parts store a second time — one snapshot is the whole fix");
   assert.match(b, /aSentParts\.withheld\.some/, "a returned component is merged without asking whether the writer was shown the one it replaces");
+  assert.match(b, /if \(aSentParts\.unreadable\) \{ aUnseenParts\.push/,
+    "a store that could not be read does not refuse every returned component");
+  assert.match(b, /\(aFreshParts\.length && aPartsRead\.ok\)/,
+    "the parts list is written back although the store could not be read");
   assert.match(b, /moved: aLookMoved,/, "the reply does not say which design fields the addon gave the site");
 });
 

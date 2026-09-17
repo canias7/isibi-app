@@ -5266,7 +5266,12 @@ test("partsSent bounds one component and the whole block, and names what it coul
   // `names`, whichever list carried it, and that is what `tsxDirective` filters
   // on — a component withheld for size is still one that EXISTS.
   assert.deepEqual(many.names, ["a", "b", "c", "d"]);
-  assert.deepEqual(api.partsSent(null), { shown: [], withheld: [], names: [] });
+  // RE-ANCHORED 2026-09-17: the answer carries a third state. `unreadable`
+  // separates a store that was read and held nothing from one that could not be
+  // read at all, and a `null` list is the FIRST of those — the shape every
+  // caller that has no components hands in. Asserted whole rather than by the
+  // three keys, so a fourth cannot appear here unnoticed.
+  assert.deepEqual(api.partsSent(null), { shown: [], withheld: [], names: [], unreadable: false });
   assert.deepEqual(api.partsSent([{ name: "a", source: "x" }, { name: "a", source: "y" }]).names, ["a"], "one name, twice");
   // IN STORED ORDER AND NEVER SORTED BY SIZE, or which component is shown would
   // depend on the others and an unrelated addition could withdraw one silently.
@@ -5290,6 +5295,49 @@ test("the components a request could not carry are named, and told apart from th
   const build = api.tsxDirective(tsx, sent.names);
   assert.ok(build.includes("new"), build);
   assert.ok(!build.includes("small") && !build.includes("huge"), "a component the site already has was offered to be written again: " + build);
+});
+
+test("a component store that could not be read is a third state, and it offers nothing to build", () => {
+  // Owner, 2026-09-17: *"Distinguish a successfully read empty inventory from
+  // an unreadable one."* Both answer no components; only one of them means the
+  // site has none, and the difference decides whether a returned component may
+  // replace a real file nobody has seen.
+  const read = api.partsSent([]);
+  const blind = api.partsSent([], { unreadable: true });
+  assert.equal(read.unreadable, false, "a site that really has none was reported as unreadable");
+  assert.equal(blind.unreadable, true);
+
+  // NOTHING IS ENUMERATED, and that is deliberate rather than a shortcut: a
+  // site can hold a component whose name is on no declaration list, so naming
+  // what we think it has would invite the writer to replace everything else.
+  const held = api.partsSent([{ name: "tide-chart", source: "export default () => null" }], { unreadable: true });
+  assert.deepEqual(held, { shown: [], withheld: [], names: [], unreadable: true },
+    "a list handed in beside an unreadable flag was read anyway");
+
+  // THE BLOCK SAYS THE COMPONENTS EXIST AND WERE NOT LOADED, which is the one
+  // thing that stops the writer concluding they do not exist — and it must be
+  // a different block from the empty one, which sends nothing at all.
+  assert.equal(api.partsDirective(read), "", "a site with no components sent a block anyway");
+  const block = api.partsDirective(blind);
+  assert.match(block, /could not be[\s\S]{0,4}loaded for this request/, block);
+  assert.match(block, /do NOT return anything in `parts` at all/, block);
+  assert.doesNotMatch(block, /too long to include here/, "the size bound's wording leaked into the unreadable block");
+
+  // AND NOTHING IS OFFERED TO BE BUILT WHILE THE STORE IS UNREADABLE. This is
+  // the half the wall cannot cover: the wall refuses a returned component, and
+  // this stops the writer being invited to return one in the first place.
+  // `tsxDirective` filters on `names`, which is EMPTY here — so a declaration
+  // would sail past it unless `briefWithLayout` asks the question itself.
+  const tsx = [{ name: "tide-chart", does: "draws the tide", props: "rows" }];
+  const brief = api.briefWithLayout({ brief: "do a thing", tsx, parts: [{ name: "tide-chart", source: "x" }], partsUnreadable: true });
+  assert.ok(!brief.includes("Components to build"), "a component the site may already have was offered to be written: " + brief);
+  assert.match(brief, /could not be[\s\S]{0,4}loaded for this request/, brief);
+
+  // THE CONTROL, and without it the assertion above is satisfied by a
+  // `tsxDirective` that never fires at all: the same declaration, the same
+  // brief, a store that read fine and holds nothing.
+  const ok = api.briefWithLayout({ brief: "do a thing", tsx, parts: [] });
+  assert.ok(ok.includes("Components to build"), "a genuinely new component was not offered to be written: " + ok);
 });
 
 test("the stylesheet is sent as already applied, and a cut one says it was cut", () => {

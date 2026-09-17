@@ -82,7 +82,7 @@ function neonRows(rows, cols) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function bucket(slug, stored, look, parts, css) {
+function bucket(slug, stored, look, parts, css, partsFail) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
@@ -107,9 +107,30 @@ function bucket(slug, stored, look, parts, css) {
   // a missing key, which is what every site in every earlier case here is, so
   // those read exactly as they did.
   if (Array.isArray(parts) && parts.length) store.set("source/" + slug + "/parts.json", JSON.stringify(parts));
+  // ── A READ THAT FAILS AND THEN RECOVERS (2026-09-17) ─────────────────────
+  //
+  // `partsFail: N` throws on the FIRST N reads of `source/<slug>/parts.json`
+  // and answers normally after that — which is the shape the owner's first
+  // reproduction needs and which no other seam here can produce. The route
+  // used to read that key TWICE, minutes apart, so "the first read failed and
+  // the second succeeded" is a real state of the world and the one in which an
+  // unseen component was replaced.
+  //
+  // A THROW, NOT A `null`. R2 answers `null` for a key that is not there and
+  // THROWS for a read it could not perform, and the whole finding is that
+  // those two were being collapsed — a fixture that answered `null` would be
+  // testing the honestly-empty case under the unreadable case's name.
+  const partsKey = "source/" + slug + "/parts.json";
+  let partsReads = 0;
   return {
     store,
-    async get(k) { const v = store.get(k); return v === undefined ? null : { text: async () => v, json: async () => JSON.parse(v) }; },
+    async get(k) {
+      if (k === partsKey) {
+        partsReads += 1;
+        if (partsFail && partsReads <= Number(partsFail)) throw new Error("R2 GetObject: connection reset");
+      }
+      const v = store.get(k); return v === undefined ? null : { text: async () => v, json: async () => JSON.parse(v) };
+    },
     async put(k, v) { store.set(k, String(v)); },
     async delete(k) { store.delete(k); },
     async list() { return { objects: [], truncated: false }; },
@@ -422,7 +443,7 @@ export async function addon(slug, instruction, opts) {
     // to be able to say "this page calls <Accordion>".
     const store = bucket(slug,
       (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null),
-      opts && opts.look, opts && opts.parts, opts && opts.css);
+      opts && opts.look, opts && opts.parts, opts && opts.css, opts && opts.partsFail);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },

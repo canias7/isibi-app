@@ -37,7 +37,7 @@ import {
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
-  REQUIREMENT_ADDS, tableFacts,
+  REQUIREMENT_ADDS, tableFacts, deadQrs, deadQrNote,
 } from "../builder/site-add.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -1431,4 +1431,102 @@ test("the note says a planned page is coming, never that it is there, and tells 
   assert.match(look, /stylesheet written for it/, look);
   assert.doesNotMatch(siteNote({ name: "F", pages: ["/"] }), /Its theme is/);
   assert.doesNotMatch(siteNote({ name: "F", pages: ["/"], theme: "harbour-slate" }), /stylesheet written for it/);
+});
+
+// ── A NEW QR CODE OUTLIVING THE PAGE IT OPENS (2026-09-17) ──────────────────
+test("deadQrs drops only a code THIS change added that opens a page THIS change lost", () => {
+  const URL_ = "https://fretwork-1.gofarther.app";
+  const code = (name, path) => ({ name, points: URL_ + path, label: name });
+  const at = (...codes) => ({ qr: codes, url: URL_ + "/" });
+
+  // THE CASE ITSELF: a code added by this change, pointing at a route this
+  // change planned and did not ship.
+  const gone = deadQrs({ ...at(code("gallery", "/gallery")), prior: [], missing: ["/gallery"], pages: [] });
+  assert.deepEqual(gone.qr, [], "the dead code was published");
+  assert.deepEqual(gone.dropped, [{ name: "gallery", route: "/gallery" }]);
+  assert.deepEqual(gone.stuck, []);
+
+  // A CODE THE SITE ALREADY HAD IS NOT THIS CHANGE'S TO REMOVE, whatever it
+  // opens. `prior` is the whole of that test, and it is by NAME because that is
+  // what identifies a code — `cleanAdd` refuses a second code of the same name.
+  const old = deadQrs({ ...at(code("gallery", "/gallery")), prior: [code("gallery", "/gallery")], missing: ["/gallery"], pages: [] });
+  assert.deepEqual(old.qr.map((c) => c.name), ["gallery"], "a code the site already had was taken away");
+  assert.deepEqual(old.dropped, []);
+
+  // A CODE OPENING A PAGE THAT SHIPPED, and one opening a page nobody planned
+  // — neither is a candidate, and the second is the control that `missing` is
+  // really what decides rather than "this change added a code".
+  assert.deepEqual(deadQrs({ ...at(code("menu", "/menu")), prior: [], missing: ["/gallery"], pages: [] }).dropped, []);
+  assert.deepEqual(deadQrs({ ...at(code("gallery", "/gallery")), prior: [], missing: [], pages: [] }).dropped, []);
+
+  // ANOTHER SITE'S ADDRESS IS NOT OUR ROUTE. The path matches and the origin
+  // does not, so nothing is dropped — which is why the origin is compared and
+  // not just the pathname.
+  const away = deadQrs({ qr: [{ name: "gallery", points: "https://example.com/gallery", label: "x" }], prior: [], missing: ["/gallery"], pages: [], url: URL_ + "/" });
+  assert.deepEqual(away.dropped, [], "a code pointing at somebody else's site was dropped");
+
+  // AND A PAYLOAD THAT IS NOT A PAGE AT ALL. `tel:` and `WIFI:` parse as URLs
+  // with a pathname, and reading one of those as a route is how a code nobody
+  // asked about disappears.
+  for (const points of ["tel:+441234567890", "WIFI:S:Fretwork;T:WPA;P:hello;;", "mailto:hi@fretwork.test", "not a url"]) {
+    const r = deadQrs({ qr: [{ name: "c", points, label: "x" }], prior: [], missing: ["/gallery", "/c"], pages: [], url: URL_ + "/" });
+    assert.deepEqual(r.dropped, [], "a " + points.slice(0, 8) + " code was read as a route");
+    assert.deepEqual(r.qr.map((c) => c.name), ["c"]);
+  }
+
+  // WITH NO ADDRESS NOTHING IS DROPPED, which is the fail-safe direction: we
+  // cannot tell whose page a URL names without knowing our own origin, and a
+  // code removed on a guess cannot be put back by the customer.
+  assert.deepEqual(deadQrs({ qr: [code("gallery", "/gallery")], prior: [], missing: ["/gallery"], pages: [] }).dropped, []);
+
+  // NOTHING TO DO IS THE ORDINARY ANSWER, and it hands the list straight back.
+  assert.deepEqual(deadQrs().qr, []);
+  assert.deepEqual(deadQrs({ ...at(code("a", "/a")), missing: [] }).qr.map((c) => c.name), ["a"]);
+});
+
+test("deadQrs keeps a code a shipped page really renders, and says so instead", () => {
+  const URL_ = "https://fretwork-1.gofarther.app";
+  const qr = [{ name: "gallery", points: URL_ + "/gallery", label: "Our gallery" }];
+  const shows = [{ path: "src/routes/index.tsx", source: "export default () => <img src={SITE_QRS.gallery.src} />" }];
+  const blank = [{ path: "src/routes/index.tsx", source: "export default () => <main/>" }];
+
+  // KEPT, because dropping it takes `SITE_QRS.gallery` out from under a page
+  // that renders it — a live page breaking to spare a code that 404s.
+  const stuck = deadQrs({ qr, prior: [], missing: ["/gallery"], pages: shows, url: URL_ + "/" });
+  assert.deepEqual(stuck.qr.map((c) => c.name), ["gallery"]);
+  assert.deepEqual(stuck.stuck, [{ name: "gallery", route: "/gallery" }]);
+  assert.deepEqual(stuck.dropped, []);
+
+  // AND THE CONTROL, which is what makes the line above about the reference
+  // rather than about the code: same code, same missing page, a page that does
+  // not mention it.
+  const drop = deadQrs({ qr, prior: [], missing: ["/gallery"], pages: blank, url: URL_ + "/" });
+  assert.deepEqual(drop.dropped, [{ name: "gallery", route: "/gallery" }]);
+  assert.deepEqual(drop.stuck, []);
+
+  // THE REFERENCE READER IS `qrUnplaced`'s, INVERTED — one binding regex on the
+  // platform, not two — so the bracket form counts exactly as the dot form does.
+  const bracket = [{ path: "src/routes/index.tsx", source: "export default () => <img src={SITE_QRS['gallery'].src} />" }];
+  assert.deepEqual(deadQrs({ qr, prior: [], missing: ["/gallery"], pages: bracket, url: URL_ + "/" }).stuck.length, 1);
+});
+
+test("deadQrNote says the two outcomes apart, and says nothing when there is nothing to say", () => {
+  assert.equal(deadQrNote(), "");
+  assert.equal(deadQrNote({ dropped: [], stuck: [] }), "");
+
+  const drop = deadQrNote({ dropped: [{ name: "gallery", route: "/gallery" }] });
+  assert.match(drop, /I didn't add the QR code gallery/, drop);
+  assert.match(drop, /Ask me for the page again/, "the sentence does not say what to do about it");
+
+  // THE KEPT ONE IS THE OPPOSITE FACT AND MUST NOT BORROW THE OTHER'S WORDS: it
+  // IS on the site, and what the customer needs to know is not to print it.
+  const keep = deadQrNote({ stuck: [{ name: "gallery", route: "/gallery" }] });
+  assert.match(keep, /is on your site because a page shows it/, keep);
+  assert.match(keep, /don't print it until the page is there/, keep);
+  assert.doesNotMatch(keep, /didn't add/, "a kept code was described as one that was not added");
+
+  // BOTH AT ONCE ARE BOTH SAID, and plurals hold.
+  const two = deadQrNote({ dropped: [{ name: "a" }, { name: "b" }], stuck: [{ name: "c" }] });
+  assert.match(two, /QR codes a, b/, two);
+  assert.match(two, /The QR code c is on your site/, two);
 });
