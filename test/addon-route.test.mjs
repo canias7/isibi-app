@@ -33,6 +33,11 @@ import { MAX_PART_CHARS, MAX_PRIOR_CHARS, validatePages } from "../builder/page-
 // `routeOf` IS THE PRODUCT'S OWN, so a case naming a page's route derives it
 // the way every reader does rather than spelling it beside the file name.
 import { routeOf, addonReply } from "../builder/site-addon.mjs";
+// THE PLATFORM'S OWN PHOTOGRAPH CEILING and the add step's own cleaner, so a
+// case about "more pictures than we will buy" derives the number from the spend
+// path rather than restating it.
+import { IMAGE_CAP } from "../builder/site-images.mjs";
+import { cleanAdd } from "../builder/site-add.mjs";
 // REAL GENERATED PAGES, so "a site too large to show whole" is real source
 // rather than padding — the same corpus a dozen false-alarm checks measure
 // against, and the one place these files are reached from.
@@ -3950,6 +3955,105 @@ test("THE COMBINED REQUEST: one ask buys the photograph and puts it on the page 
   //    against the few tokens that placed it, so the picture is nearly all of
   //    this bill and a run that forgot to charge for it would be ~1.
   assert.ok(r.body.cost >= 18, "the photograph was not billed: cost " + r.body.cost);
+});
+
+test("a photograph beside a SECTION is designed here too, and lands on the page the section did", async () => {
+  // `MAKES_PAGES` IS TWO KINDS AND BOTH HAVE TO BE DRIVEN. A component rewrites
+  // a page, so it makes a place for a picture exactly as a new page does — and
+  // with only the `page` half driven, narrowing the list to ["page"] passes
+  // every other case here.
+  const r = await addon("fw-photo-sec", "add a gallery strip to the home page with a photo of the workshop in it", {
+    kinds: ["component", "photo"], credits: 400, publishes: true, sitePages: ["/"],
+    written: [addedTo("/", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />')],
+    answers: {
+      component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
+      photo: { photo: [{ page: "/", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.skipped, [], "a photograph beside a section was handed off");
+  assert.equal(r.shots.length, 1, "a photograph beside a section was not bought");
+  const home = compiledPages(r).find((p) => p.path.includes("index"));
+  assert.match(home.source, /src="\/u\/fw-photo-sec\/[0-9a-f]{32}\.jpg"/,
+    "the section's picture never reached the page: " + home.source);
+});
+
+test("a picture is bought for what will be PUBLISHED, never for what the writer returned", async () => {
+  // ⚠ THE TWO LISTS PART COMPANY, AND ONLY ONE OF THEM IS THE SITE. The
+  // picture was designed for `/gallery` and the writer put its token on
+  // `/prices` instead — a page nobody asked about, carrying no link to the
+  // added route, so `mergeAddonPages` REVERTS it. Buying from `aValid.pages`
+  // spends $0.15 on a file no visitor will ever be served; buying from
+  // `aMerge.pages` does not.
+  //
+  // THE DESTINATION IS `/gallery` AND NOT `/prices` ON PURPOSE: a photograph
+  // answer naming a page puts that page on `aAskedPages`, and an asked page is
+  // KEPT — which is right, and would make this case about a page that shipped.
+  // MEASURED: written the other way round, `reverted` comes back `[]`.
+  const r = await photoAsk("fw-photo-revert", {
+    kinds: ["page", "photo"], credits: 400, sitePages: ["/", "/prices"],
+    written: [
+      // The added page, correct and with no picture on it.
+      writtenPage("/gallery"),
+      // The rewrite nobody asked for, carrying the only token in the answer.
+      { ...storedPage("/prices"), source: storedPage("/prices").source.replace(
+        "</main>", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="x" /></main>') },
+    ],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, MEASURED rather than assumed: the rewrite really was
+  // reverted, so this case is about a withheld page and not about a page that
+  // shipped.
+  assert.ok((r.body.reverted || []).some((p) => String(p).includes("prices")),
+    "the unasked rewrite was published after all — this case tests nothing: " + JSON.stringify(r.body.reverted));
+  assert.deepEqual(r.shots, [], "a photograph was bought for a page nobody will be served");
+  assert.equal(r.body.pictures, undefined);
+  const prices = compiledPages(r).find((p) => p.path.includes("prices"));
+  assert.doesNotMatch(prices.source, /@@IMG:|\/u\//, "the reverted page is not the stored one: " + prices.source);
+});
+
+test("a token in a component this change never touched is not bought", async () => {
+  // A STORED COMPONENT'S SOURCE IS NOT THIS CHANGE'S TO SWEEP OR TO PAY FOR.
+  // `aParts` is `null` when no component was written, and handing the STORED
+  // list to the purchase instead would plan from a file nobody asked about —
+  // money spent on a page this change is not writing, and a write-back over a
+  // component it never saw. A token can really be there: a site published
+  // before the sweep existed carries one.
+  //
+  // ⚠ TWO SHOTS AND ONE TOKEN, BECAUSE THE BUDGET IS WHAT DISCRIMINATES.
+  // MEASURED: with one shot and one token in the page, `planImages` fills its
+  // budget from the page and stops, so the stranger's token is never reached
+  // and the stored list could be handed in with nothing to show for it. With
+  // room left over, buying from the stored components buys it — the honest
+  // half of the case is the picture that IS bought, and the wall is the one
+  // that is not.
+  const r = await boughtAsk("fw-photo-stored", [
+    { page: "/gallery", describe: BENCH },
+    { page: "/gallery", describe: "the lathe with its belt guard open" },
+  ], {
+    parts: [{ name: "old-strip", source: 'export default function S(){ return <SafeImage src="@@IMG:a stranger\'s picture@@" alt="x" /> }' }],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.shots.length, 1, "a stored component's token was paid for: " + JSON.stringify(r.shots));
+  assert.ok(r.shots[0].startsWith(BENCH), "the wrong picture was bought");
+  assert.ok(!r.shots.some((s) => s.includes("stranger")), "a stranger's picture was bought: " + JSON.stringify(r.shots));
+});
+
+test("more pictures than the platform will buy are refused at the cleaner, by the platform's own cap", async () => {
+  // THE CEILING IS `IMAGE_CAP` AND IT IS THE SPEND PATH'S, not a number of the
+  // add step's: `planImages` slices there too, so a wider cap here would clean
+  // an entry nothing downstream will ever buy — and the customer would be told
+  // it was added.
+  const SITE_P = { name: "x", kind: "shopfront", pages: ["/"], tables: [], hasDatabase: false, qr: null, three: null, tsx: [] };
+  const many = Array.from({ length: IMAGE_CAP + 1 }, (_, i) => ({ page: "/", describe: "picture number " + i }));
+  const c = cleanAdd("photo", many, SITE_P);
+  assert.equal(c.value.length, IMAGE_CAP, "the cleaner kept " + c.value.length + " pictures against a cap of " + IMAGE_CAP);
+  assert.deepEqual(c.skipped, [{ why: "over-cap", name: "" }], "the ones left out were not named");
 });
 
 test("a photograph ALONE is still the picture rung's, and buys nothing here", async () => {

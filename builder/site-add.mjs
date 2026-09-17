@@ -942,6 +942,18 @@ export const OWN_ADDS = ADD_KINDS.filter((k) => !ADDS[k].elsewhere);
  * DERIVED FROM THE TABLE, never typed: a kind is here when it names a layer AND
  * carries a tool of its own, which is exactly "it can be answered here and it
  * has somewhere else to go". `photo` alone today.
+ *
+ * ⚠ `&& ADDS[k].shape` IS MEASURED INERT AND IS KEPT — DECLARED, because a
+ * sweep cannot say so and the next session deletes what nothing appears to
+ * need. `photo` is the only kind with an `elsewhere` today, so
+ * `DISPATCHED_ADDS` is `[]` and both filters answer `["photo"]` with the clause
+ * and without it. What makes it inert is a NEIGHBOUR'S state — which kinds the
+ * table happens to hold — and not this expression, so it comes back the day a
+ * kind dispatches with no tool of its own: that kind would otherwise join the
+ * placing group, be asked for an answer it has no tool to give, and be dropped
+ * in exactly the messages this group exists for. Its PAIR is the load-time
+ * partition below (`DISPATCHED_ADDS` must carry no `requirements`, and a
+ * placing kind must have a rule), which is what states the same division twice.
  */
 export const PLACING_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && ADDS[k].shape);
 
@@ -1004,10 +1016,21 @@ export function addLayer(kind) {
  * FAIL-CLOSED ON A MALFORMED LIST: anything that is not an array of strings
  * carries no page-writing kind, so the answer is the dispatch — which is what
  * the platform did before this existed.
+ *
+ * ⚠ `placing` IS A PARAMETER, AND THAT IS THE RECORDED FIX FOR AN UNDRIVABLE
+ * WALL — `cleanTools(v, catalog)`'s own reason, met again. `photo` is the only
+ * kind on the platform that names a layer, so `DISPATCHED_ADDS` is `[]` and the
+ * membership test cannot change an answer: MEASURED over every kind against
+ * nine company shapes, 81 probes and ZERO differences with it and without it.
+ * A wall nobody can drive is a wall nobody is guarding, and the rule it states
+ * is real — a kind that dispatches with NO tool of its own has nothing to
+ * answer here, whatever company it keeps, so it must keep its layer. The
+ * default is the module's own group; the argument exists so that rule can be
+ * driven in a two-kind world today rather than discovered in a live one later.
  */
-export function addLayerIn(kind, kinds) {
+export function addLayerIn(kind, kinds, placing = PLACING_ADDS) {
   const layer = addLayer(kind);
-  if (!layer || !PLACING_ADDS.includes(kind)) return layer;
+  if (!layer || !placing.includes(kind)) return layer;
   const all = Array.isArray(kinds) ? kinds : [];
   return all.some((k) => MAKES_PAGES.includes(k)) ? null : layer;
 }

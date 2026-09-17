@@ -12772,3 +12772,48 @@ too. A changed page is **updated** now, always — nothing left to guess wrong. 
 Three tests expected the false claim, including one I'd just written. All three
 now check the stronger thing: no reply claims a link at all. No new machinery,
 and the test count didn't move.
+
+**Same day — page + photo in one request, done.** You asked for the capability
+rather than the preparation: *"Placeholders and asking the customer to repeat the
+photo request do not complete that capability."*
+
+I measured what it did first. *"Add a gallery page with a photograph of the
+workshop on it"* built the page, set the photograph aside, published a gallery of
+empty frames, and told the customer the photograph was a separate step.
+
+**The line I drew is who makes the space for the picture.** The picture rung
+fills a frame that already exists — it prices one against your real balance and
+refuses honestly, and none of that moves. But a photograph asked for beside a
+page or a section is a frame *this* change is writing, so this is the only step
+that can make it and fill it in one go. A photograph asked for on its own still
+goes to the picture rung exactly as before, and so does one asked for beside a
+table.
+
+So now: the picture is designed here, the balance decides how many we can afford
+before the page writer is even told about them, the writer is handed the exact
+description to place, and the photograph is bought and dropped into the page
+before it publishes. One request, one publish. Billed on what actually arrived,
+never on what was asked for.
+
+**Two things worth telling you about.**
+
+The first is a trap this codebase has recorded four times and I walked into
+anyway. There was a safety line that wiped any photograph marker out of the page
+before publishing — correct for years, because this step never bought pictures.
+It was quietly deleting the very markers the new purchase was looking for. A rule
+that's only true because of the layer beneath it stops being true when that layer
+moves, and this time *we* were the layer. The safety line still runs on every
+change that buys nothing, so nothing can leak.
+
+The second is a test that was already there going red and being right. It caught
+that when somebody asks for a photograph they can't afford, my change left the
+page with nowhere to put one later — worse than before. Fixed, and it now leaves
+a fillable space whenever a picture was asked for and not bought, whatever the
+reason.
+
+Stubbed the image provider end to end, as you asked, and checked the prompt it
+was really paid for rather than just counting. Eleven older tests re-pointed at
+the property that moved, never softened. Suite 6,809, all green.
+
+**Nothing merged, nothing deployed, nothing paid. No real photograph has been
+generated — the first live one is your press.**

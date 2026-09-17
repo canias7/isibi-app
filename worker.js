@@ -25286,6 +25286,14 @@ async function handleRequest(request, env, ctx) {
             // let a sweep write back over a file this change never touched.
             let aPhotos = null;
             let aPhotoCharged = 0;
+            // WHAT THE PICTURES COST, ONE EXPRESSION, TWO CONSUMERS: the job's
+            // reserve below and the synchronous collect after the publish.
+            // `made`, NEVER `planned` — a photograph that did not arrive costs
+            // the customer nothing, which is the build path's own rule and the
+            // picture rung's. Written once so the two roads cannot come to
+            // disagree about the number, which is how one of them ends up
+            // billing for a picture nobody got.
+            let aPhotoBill = null;
             if (aShots.length) {
               try {
                 aPhotos = await buySitePhotos(env, {
@@ -25325,8 +25333,9 @@ async function handleRequest(request, env, ctx) {
               // SYNCHRONOUSLY IT JOINS THE ONE COLLECT AFTER THE PUBLISH, so a
               // route with no job still bills once and rounds once, which is the
               // whole reason that line is a single `pageCredits(...)`.
-              if (aJob && aPhotos && aPhotos.made) {
-                aPhotoCharged = Number(await aCharge(pageCredits({ images: aPhotos.made }), 5)) || 0;
+              aPhotoBill = aPhotos && aPhotos.made ? { images: aPhotos.made } : null;
+              if (aJob && aPhotoBill) {
+                aPhotoCharged = Number(await aCharge(pageCredits(aPhotoBill), 5)) || 0;
               }
             }
             // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
@@ -25615,12 +25624,13 @@ async function handleRequest(request, env, ctx) {
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding
             // synchronously, the spine's own reserve (#3) under a job.
-            // THE PHOTOGRAPHS JOIN THE SYNCHRONOUS BILL AND RIDE THEIR OWN
+            // THE PHOTOGRAPHS JOIN THE SYNCHRONOUS BILL AND RODE THEIR OWN
             // RESERVE UNDER A JOB (2026-09-17) — `pageCost` prices `images` at
             // the flat `IMAGE_USD`, so a picture and the tokens that placed it
-            // round together exactly once here, and the job's own reserve was
-            // placed before the publish gate.
-            const aPhotoBill = aPhotos && aPhotos.made ? { images: aPhotos.made } : null;
+            // round together exactly once here. `aPhotoBill` is the SAME
+            // expression the job's reserve used, computed once beside the
+            // purchase: two copies of "what the pictures cost" is how one road
+            // ends up billing for a picture nobody got.
             if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill));
             else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
             return Response.json({

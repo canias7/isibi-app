@@ -8328,12 +8328,14 @@ boundary refused was still counted.
   is **0**, and the control — the same component gaining a second frame — is
   **1**, where before the fix they read 1 and 2.
 
-**⚠ AND COMBINED PAGE + PHOTOGRAPH IS STILL INCOMPLETE** (the owner's own
-words): *"it still skips photo and publishes a placeholder. The current work
-prepares a later request; it does not fulfil both parts in one request."* What
-this round and the last one bought is that the placeholder is now a slot the
-picture rung can really fill and the customer is told it is there. The
-hand-off remains a hand-off.
+**⚠ AND COMBINED PAGE + PHOTOGRAPH WAS STILL INCOMPLETE WHEN THIS WAS WRITTEN**
+(the owner's own words): *"it still skips photo and publishes a placeholder. The
+current work prepares a later request; it does not fulfil both parts in one
+request."* What this round and the one before it bought is that the placeholder
+is now a slot the picture rung can really fill and the customer is told it is
+there. **CLOSED by the section below (2026-09-17): the picture is bought and
+placed in the same request, and the hand-off survives only where it is still
+the right answer.**
 
 **Guards**: `addon-route` **91 → 96** (the component that shows the dead code,
 with its cascade and the 422; **a component the site ALREADY HAS reverting while
@@ -8628,9 +8630,143 @@ NO reply claims a link, with the paired and unpaired shapes driven on both
 composers. No new reporting machinery, and the suite is unmoved at 6,802
 because all of it is assertions inside cases that already existed.
 
-**COMBINED PAGE + PHOTO REMAINS THE NEXT INCOMPLETE CAPABILITY**, in the owner's
-words: the same request does not yet place the photo, and a placeholder plus an
-invitation to ask again is not that capability.
+**COMBINED PAGE + PHOTO WAS THE NEXT INCOMPLETE CAPABILITY** when this was
+written, in the owner's words: the same request did not yet place the photo, and
+a placeholder plus an invitation to ask again is not that capability. **CLOSED by
+the section below.**
+
+### PAGE + PHOTOGRAPH IN ONE REQUEST: IT BUYS THE PICTURE AND PLACES IT (2026-09-17)
+
+Owner: *"proceed to completing page + photo in one request. Placeholders and
+asking the customer to repeat the photo request do not complete that capability.
+Start with stubbed-provider verification."*
+
+**MEASURED THROUGH THE ROUTE BEFORE ANY OF THIS**, on *"add a gallery page with a
+photograph of the workshop on it"*: `kinds: ["page"] / skipped: ["photo"]`, a
+gallery page whose every picture was `<SafeImage src="">`, nothing bought, and
+the customer told *"The photograph is a separate step — ask for it on its own."*
+
+**THE LINE IS WHO MAKES THE SLOT, and it is the same line `runPictureEdit`
+already draws with `needs-place`.** That rung fills a `<SafeImage>` that EXISTS
+and escalates when there is none; a photograph asked for beside a page or a
+component is a slot THIS change is writing, so this is the only step that can
+create it and fill it in one request. **A photograph ALONE is still the picture
+rung's, unchanged** — it prices one against the real balance and refuses
+honestly, and a change that designed a picture for every `photo` ask would take
+that rung's work and its refusals with it.
+
+- **`photo` GAINS A TOOL ANSWERING `{page, describe}` AND KEEPS `elsewhere`.**
+  That is `imageDirective`'s own list shape, so the shot list crosses to the page
+  writer through the build path's reader rather than a second shape beside it.
+  **`PLACING_ADDS` is a third group and the partition stays total and disjoint**
+  — a kind that names a layer AND carries a tool — and **`addLayerIn(kind, kinds)`
+  is the ONE reader** all three route asks go through (the escalate, the
+  set-aside list, the loop gate), because two of them disagreeing is a kind
+  designed and then reported as skipped, or set aside and never designed.
+  `IMAGE_CAP` and `MAX_PROMPT_CHARS` are IMPORTED: a ceiling retyped here would
+  be a wall the tool promises and the spend path does not keep.
+  **`DISPATCHED_ADDS` IS EMPTY TODAY**, so its guard loop asserts nothing — which
+  is why the placing group is driven in both directions instead.
+- **THE BALANCE CUTS THE LIST BEFORE THE WRITER SEES IT**, which is the build
+  path's own rule in as many words: *"printing all of them would invite a page
+  writer to spend money the account has not got."* `imagesAffordable` is the same
+  reader `buySitePhotos` asks at the moment of spend, so the writer is never
+  shown a token the purchase will refuse.
+- **BOUGHT AFTER THE MERGE AND THE PARTS WALL, BEFORE `newEmptySlots`.** A page
+  the QR dependency withheld, one the merge boundary refused and a component the
+  writer was never shown are all gone by that line, so nothing is paid for on a
+  file nobody will be served; and a slot this change FILLED is not an empty frame
+  to warn the customer about. `buySitePhotos` is the build path's own function,
+  unchanged.
+- **BILLED ON `made`, NEVER `planned`** — the build path's rule and the picture
+  rung's. Its own reserve (**#5**) under a job, placed before the publish gate;
+  one more term in the one synchronous collect, which rounds once.
+- **`pictures` AND `pictureNote` ON THE REPLY.** `pictures`, never `photos`: that
+  field has meant "empty frames left over" since it was written and the browser's
+  `photoNote` reads it as one. The sentence is `imageNote`'s — the build path's
+  own composer, and the only thing that can tell four identical-looking blank
+  frames apart — printed verbatim, before the empty-frame sentence, because what
+  the customer asked for comes first.
+
+**⚠ AND THE SWEEP BELT WAS STRIPPING THE VERY TOKENS THE PURCHASE IS FOR.**
+`applyImages(aValid.pages, {})` ran unconditionally, which was right for every
+addon before today — the step bought nothing, so a token could only be a model
+writing one against the ban. *A rule true because of a layer below it expires
+when that layer moves*, and here **we are the layer**. MEASURED through the
+route: `plan.shots` came back **0** on a run whose directive named the picture
+and whose writer wrote the token exactly as asked. It waits for the buying
+branch now; the property is unchanged, because `buySitePhotos` ALWAYS sweeps
+(its own comment records the live broken image that bought that guarantee) and
+nothing between the two publishes.
+
+**⚠ AND AN EXISTING GUARD GOING RED FOUND A REAL GAP IN THE CHANGE.** `place` —
+*leave an empty `src` the picture rung can fill* — was keyed on `aSkipped`,
+which is **empty on exactly the asks that clause was written for** once a
+photograph is designed here. So a picture the BALANCE refused, or one its
+designer could not describe, would have published a page with no slot at all
+while the customer was told the pictures are placeholders. It asks
+`aKinds.includes("photo")` as well: the trigger is *a picture was asked for and
+is not being bought*, which is wider than the hand-off it replaced.
+
+**MEASURED, end to end through `POST /api/site/<slug>/addon` with the provider
+stubbed in its own two hops** (`genSitePhoto` POSTs to fal and then FETCHES the
+url fal answers): `kinds ["page","photo"]`, `skipped []`, the writer handed
+`/gallery — <SafeImage src="@@IMG:the workshop bench under the window, warm
+afternoon light@@" …>`, **exactly one prompt paid for**, the compiled gallery
+page carrying `src="/u/<slug>/<32 hex>.jpg"` and no token, `pictures: 1`,
+`photos: 0`, and **cost 19** — a photograph is `IMAGE_USD` / `CREDIT_USD` ≈ 18.75
+credits, so the picture is nearly all of that bill and a run that forgot to
+charge for it reads ~1.
+
+**What the customer hears**, driven through the browser's own `addonReplyText`:
+
+| state | the sentence |
+|---|---|
+| bought | `✅ Done — added /gallery, updated /. Made 1 photograph for the site.` |
+| unaffordable | `…Not enough credits left over for photographs, so the pictures are placeholders for now. There is a space for a photo — upload yours in the Data panel and it'll fill in.` |
+| provider refused | `…Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.` + the space sentence |
+| set aside (photo alone, or beside a table) | the space sentence + `The photograph is a separate step — ask for it on its own and I'll place it.` |
+| no picture asked for | `✅ Done — added /gallery.` — byte-identical to before |
+
+**Guards**: `addon-route` **101 → 107** — the combined request end to end (the
+hand-off gone, the exact token, the prompt really paid for, the published page's
+own `src`, the three reply fields and the bill), a photograph ALONE still hopping
+and buying nothing, one beside a table still set aside, a provider that refuses
+costing nothing and sweeping, the destination rule with its control, and the belt
+still firing on a change that buys none. `site-add` **44 → 45** (the tool's shape
+and its cap, the three refusals, the slice, the fold's PAIR dedupe, and that the
+list is NOT on `designed` — storing it would re-buy the same set on the next
+unrelated edit, which is the rule `budgetFor` exists for). `site-addon` **89**,
+with the browser's two sentences driven and their order asserted. **The fixture
+stubs fal in its own two hops, records every prompt paid for, and answers real
+JPEG magic** — `sniffImage` reads the bytes and refuses anything else.
+
+**Eleven older guards re-anchored, not appeased**, each naming the property that
+moved: the two-group partition (three now, with the placing group driven in both
+directions); the `addTool`/`addRule` refusal (the property is *no shape*, not
+*dispatches*); `cleanAdd`'s `no-kind`; `LIST_ADDS`; the four-part rule census;
+`foldAdds`' empty shape; the route's `addLayer(` census (now `addLayerIn(`, with
+the count of asks pinned at 4 and the bare reader forbidden); the parts-sweep
+pairing — **`/\bparts\b/` cannot match `aParts`**, so a real part sweep read as a
+page sweep and the census reported the product unpaired over correct code; the
+hop census (`DISPATCHED_ADDS ∪ PLACING_ADDS`, because each harness case posts one
+ask); the unbought-token guard (the property was never *neither lane buys*, it is
+that an unbought token never publishes); and four bill lines whose tail is now
+open because a picture is a non-spread `{images: n}` term.
+
+**Suite 6,813** — 6,802 + 10 (`addon-route` 101 → 111) + 1 (`site-add` 44 → 45),
+and the arithmetic closes exactly. **Both sides measured**, the baselines in a
+detached worktree at `0f873e2c` rather than subtracted from a paragraph —
+`site-addon` and `addon-queue` stay where they were (89 and 14), because
+everything they gained is an assertion inside a case that already existed.
+**And a worktree needs `node_modules` linked into it or three of those four
+files answer `# tests 1`** — one failing "test" is a file that would not LOAD,
+which reads as a baseline of one rather than as a broken command.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK** — the owner's
+instruction. **NOT PROVEN LIVE**: every measurement here is from driving the real
+route with the provider stubbed, and no real photograph has been generated. The
+first live proof is a paid addon run, which is the owner's press.
 
 
 ## Data, auth, payments, mail

@@ -15,6 +15,10 @@ import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_T
 import { EDIT_RULE } from "../builder/site-edit.mjs";
 // THE ADD STEP'S OWN RULE (2026-09-02) — the addon no longer reads EDIT_RULE.
 import { addRule } from "../builder/site-add.mjs";
+// THE PICTURE SENTENCE'S OWN COMPOSER (2026-09-17) — the browser prints what
+// the server said, so the fixture below is that composer's output rather than
+// a second copy of it typed here.
+import { imageNote } from "../builder/site-images.mjs";
 
 const page = (path, source) => ({ path: "src/routes/" + path, source });
 const SITE = [
@@ -985,12 +989,24 @@ test("the addon reply is DRIVEN, not grepped", () => {
   // outcomes render the same blank frame and only one of them is a bug — so
   // this prints it verbatim rather than keeping a second copy of those five
   // sentences in the browser.
+  //
+  // ⚠ AND THE FIXTURE IS `imageNote`'s OWN OUTPUT, NOT A SENTENCE TYPED HERE.
+  // A hand-typed note is a second copy of the composer, and a substring of it
+  // (`/Made 1 photograph/`) is satisfied by a browser that composed its own
+  // from `a.pictures` — which is the one thing this case exists to forbid. The
+  // whole string is asserted, and the whole string is the server's.
+  const noteMade = imageNote({ made: 1, planned: 1, budget: 1, overflow: 0 });
+  const noteBoth = imageNote({ made: 1, planned: 2, budget: 2, overflow: 1 });
+  assert.ok(noteMade && noteBoth && noteBoth !== noteMade,
+    "the two picture outcomes read the same, so nothing below can tell a local copy from the server's: " + noteMade);
   const made = reply({ added: ["src/routes/g.tsx"], changed: [], pictures: 1, photos: 0,
-    pictureNote: "Made 1 photograph for the site." });
-  assert.match(made, /Made 1 photograph for the site\./, "the browser drops the picture sentence the server composed");
+    pictureNote: noteMade });
+  assert.ok(made.includes(noteMade), "the browser drops the picture sentence the server composed: " + made);
   assert.doesNotMatch(made, /space for a photo/, "a frame that was FILLED was reported as an empty space");
   const both = reply({ added: ["src/routes/g.tsx"], changed: [], pictures: 1, photos: 1,
-    pictureNote: "Made 1 photograph for the site; the other 1 picture is a placeholder." });
+    pictureNote: noteBoth });
+  assert.ok(both.includes(noteBoth),
+    "the browser said something of its own about pictures instead of the server's sentence: " + both);
   assert.ok(both.indexOf("Made 1 photograph") < both.indexOf("space for a photo"),
     "what is still empty is said before what was made: " + both);
   // AND THE HAND-OFF SENTENCE IS THE SERVER'S DECISION, NOT THE BROWSER'S.
@@ -998,7 +1014,7 @@ test("the addon reply is DRIVEN, not grepped", () => {
   // this line only prints what `skipped` was told.
   assert.match(reply({ added: [], changed: [], skipped: ["photo"] }), /The photograph is a separate step/);
   assert.doesNotMatch(reply({ added: [], changed: [], skipped: [], pictures: 1,
-    pictureNote: "Made 1 photograph for the site." }), /separate step/,
+    pictureNote: noteMade }), /separate step/,
     "a photograph this change really bought was also announced as a separate step");
   // A REPLY THAT SAYS NOTHING ABOUT PICTURES IS BYTE-IDENTICAL TO BEFORE — the
   // control that makes every assertion above about the fields rather than about

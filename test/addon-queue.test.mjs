@@ -281,6 +281,23 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // the same sum; the landmark is the round's charge joining the job's cost.)
   const jobAdd = at(b, "else aCost += (Number(aRepairRound && aRepairRound.charged) || 0)", "the job path's repair charge");
   assert.ok(jobAdd > collectCall, "the job path adds the repair charge before the collect line — the two paths are not two branches of one decision");
+  // ⚠ AND EVERY RESERVE THIS ROUTE TAKES JOINS THAT SUM — A CENSUS, NOT A LIST
+  // (2026-09-17). Under a job each reserve is its own `aCharge(..., n)` call
+  // whose answer is kept in an accumulator; the reply's `cost` is this line and
+  // nothing else, so an accumulator that does not join it is money the customer
+  // paid and was never told about. The names are DERIVED from their own
+  // declarations rather than typed, so a sixth reserve added next month fails
+  // by existing. The job branch cannot be driven from a route guard (it needs a
+  // real queue delivery), which is why the property is read here — and reading
+  // it is what makes the reserve a wall rather than a line nobody checks.
+  const jobLine = b.slice(jobAdd, b.indexOf("\n", jobAdd));
+  const accumulators = [...b.matchAll(/let (a\w+Charged) = 0;/g)].map((m) => m[1]);
+  assert.ok(accumulators.length >= 2,
+    "no reserve accumulators found — this census is asserting nothing: " + JSON.stringify(accumulators));
+  for (const name of accumulators) {
+    assert.ok(new RegExp("\\+ " + name + "\\b").test(jobLine),
+      `the job path's cost does not add ${name}, so a customer under a job is told a price that is missing it: ${jobLine}`);
+  }
   // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE — after
   // the schema apply and before the page call. RE-ANCHORED 2026-09-05 (stage
   // 1a-ii): the closure is declared ABOVE the apply now, because the apply is

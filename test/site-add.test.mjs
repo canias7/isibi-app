@@ -120,10 +120,28 @@ test("the kinds are two disjoint groups that cover the list, and a dispatched ki
       assert.equal(addLayerIn(k, junk), layer, `${k} with a malformed kind list must dispatch`);
     }
   }
-  // AND AN OWN KIND IS UNTOUCHED BY THE COMPANY IT KEEPS — the control without
-  // which "beside a page it is null" is satisfied by a reader that answers null
-  // for everything.
+  // AND AN OWN KIND IS UNTOUCHED BY THE COMPANY IT KEEPS: it names no layer, so
+  // there is nothing for the company to change and the answer is this module in
+  // every case. (The control that stops "beside a page it is null" being
+  // satisfied by a reader answering null for everything is above — a placing
+  // kind ALONE, and beside every kind that writes no page source, answers its
+  // layer.)
   for (const k of OWN_ADDS) for (const m of MAKES_PAGES) assert.equal(addLayerIn(k, [m, k]), null);
+  // ⚠ AND THE GROUP ITSELF IS A WALL, DRIVEN IN A TWO-KIND WORLD (2026-09-17).
+  // `DISPATCHED_ADDS` is empty on the real platform, so the membership test in
+  // `addLayerIn` cannot change an answer here — MEASURED: 81 probes over every
+  // kind and nine company shapes, zero differences with it and without it. A
+  // wall nobody can drive is a wall nobody is guarding, so the group is a
+  // PARAMETER (`cleanTools(v, catalog)`'s own reason) and the rule is driven
+  // against a world where a kind dispatches and is NOT placed here: it keeps
+  // its layer whatever company it keeps, because it has no tool to answer with.
+  for (const k of PLACING_ADDS) {
+    const layer = addLayer(k);
+    assert.equal(addLayerIn(k, ["page", k], []), layer,
+      `${k} was designed here although nothing says it can be — a kind with no tool of its own would be asked for an answer and dropped`);
+    assert.equal(addLayerIn(k, ["page", k], [k]), null,
+      `${k} is in the placing group and was dispatched anyway — the observer is dead and the line above proves nothing`);
+  }
   // The intent router promises these by name; a section, a form and a map
   // are components (owner, 2026-09-02: "section is just adding a new
   // component, so its a tsx step that adds components").
