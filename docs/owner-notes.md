@@ -12841,7 +12841,23 @@ changes that must survive, the sweep's own check on its honesty — both survive
 That second run is the number worth having; the first one only told me where my
 tests were thin.
 
-Suite 6,813, all green.
+**And writing that number down caught something about the tool itself.** I went
+to record which tests the sweep ran against and found the answer wasn't written
+anywhere — the tool takes that list when you start it and then never mentions it
+again, so its log opens with "checking" and closes with a score. That matters
+more than it sounds: running a sweep against a short list of tests is what makes
+it cheap, and a short list can only ever make a broken thing *look* fine, never
+make a fine thing look broken. So "forty out of forty" and "forty out of forty
+against these nine files" are different claims, and only the second one can be
+checked later. I'd written the first into our notes with a file count from
+memory, which is exactly the thing this codebase keeps telling me not to do.
+
+The tool now says what it's about to do before it does it, and says "the whole
+suite" out loud when you give it no list — otherwise a blank line and a
+forgotten one look the same. Three tests for it, each checked against the old
+version first to be sure they'd have caught this.
+
+Suite 6,816, all green — 6,813 for the photograph work and three for the tool.
 
 **Nothing merged, nothing deployed, nothing paid. No real photograph has been
 generated — the first live one is your press.**

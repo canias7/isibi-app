@@ -8779,8 +8779,31 @@ that an unbought token never publishes); and four bill lines whose tail is now
 open because a picture is a non-spread `{images: n}` term.
 
 **Sweep: 40 mutants, 40 killed, 0 survived, 0 never applied, 2 comment-only
-controls survived** (`scripts/mutants/addon-page-photo-buys.json`, over
-`worker.js`, `builder/site-add.mjs` and `public/chat.js`, against 9 test files).
+controls survived** (`scripts/mutants/addon-page-photo-buys.json` — 42 entries,
+40 product and 2 controls, read back out of the spec — over `worker.js`,
+`builder/site-add.mjs` and `public/chat.js`).
+**⚠ AND THE TEST LIST THIS RAN AGAINST IS NOT RECORDED ANYWHERE, so it is not
+being stamped.** A first draft of this line said "against 9 test files" from
+memory; the runner took its list on argv and printed the spec's name nowhere,
+opening on `baseline…` and closing on a count — **so a clean tally could not be
+checked for its own SCOPE**, which is exactly the claim that matters here,
+because a narrow list is what makes a narrow sweep cheap and **a narrow list can
+only produce a false SURVIVOR, never a false kill**. `40/40/0` and `40/40/0
+against these nine files` are different claims and only the second is auditable.
+Fixed at the instrument: `scripts/mutate.mjs` now opens with the spec, the two
+counts, the files it mutates and the test list — **before the baseline**, so a
+sweep that dies in its baseline still says what it was trying to do — and an
+empty list is SAID (`(the whole suite)`), because an empty list and a forgotten
+one are identical in a log. `test/sweep-runner.test.mjs` **4 → 7**, all three
+driven as a real process in a temp directory and all three proved RED against
+the pre-change runner with the existing four green on both.
+**AND THE HEADER'S CONTROL COUNT IS THE TALLY'S, one binding**: two `filter`s of
+one predicate is a sweep arguing with itself about what it just did. It was
+written as two on the first pass, and hoisting the computation while leaving the
+old `const` in place threw `Identifier 'controls' has already been declared` at
+LOAD — `.mjs` is parsed as a module, so **driving the runner caught what a source
+read would not have**, which is this file's own recorded re-anchor trap in the
+instrument that measures re-anchors.
 **Pass 1 read 39/30/9 and NOT ONE SURVIVOR WAS THE PRODUCT'S**: seven were gaps
 in this change's own guards and two were measured INERT. The seven are the three
 vacuous cases above plus four walls nobody drove — the photo tool's cap read as
@@ -8800,8 +8823,10 @@ and the answer is to build the world rather than to declare the wall. The second
 has nowhere to stand, so it is DECLARED in the code with its pair named (the
 load-time partition below it) and given an observable replacement mutant.
 
-**Suite 6,813** — 6,802 + 10 (`addon-route` 101 → 111) + 1 (`site-add` 44 → 45),
-and the arithmetic closes exactly. **Both sides measured**, the baselines in a
+**Suite 6,816, and it is TWO changes**: 6,813 for the capability — 6,802 + 10
+(`addon-route` 101 → 111) + 1 (`site-add` 44 → 45) — then **+ 3** for the sweep
+runner's own scope line (`sweep-runner` 4 → 7). **Both arithmetics close exactly
+and both were measured, never derived**; the baselines are from a
 detached worktree at `0f873e2c` rather than subtracted from a paragraph —
 `site-addon` and `addon-queue` stay where they were (89 and 14), because
 everything they gained is an assertion inside a case that already existed.
@@ -9753,6 +9778,15 @@ rule and the measurement.
   mutants × the full suite is ~70 minutes; the files that can see the change are
   32 seconds. **A SURVIVOR is re-checked against the whole suite before it is
   believed** — a narrow list can only produce a false survivor, never a false kill.
+  **AND THE LIST IS PART OF THE RESULT, SO THE RUNNER PRINTS IT** (2026-09-17):
+  it took the list on argv and recorded it NOWHERE, opening on `baseline…` and
+  closing on a count, so a clean tally read back later could not be checked for
+  its own SCOPE. `40/40/0` and `40/40/0 against these nine files` are different
+  claims and only the second is auditable; it cost a file count stamped here from
+  memory, which is a claim ahead of its evidence in the one instrument whose whole
+  job is evidence. The scope line goes **before the baseline** (a sweep that dies
+  in its baseline still says what it was trying to do) and an empty list is SAID —
+  an empty list and a forgotten one are identical in a log.
 - **AN AD-HOC CHECK CAN FAIL TO APPLY ITS OWN MUTATION.** An inline `node -e` whose
   quote escaping silently no-op'd the replace compared the original against itself
   and answered INERT. **Any hand-rolled mutation check must REFUSE to run when the
