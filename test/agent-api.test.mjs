@@ -28,7 +28,7 @@ import {
   cleanText, cleanId, cleanAt, readTenant,
   AGENT_ROUTES, AGENT_POST_ROUTES, AGENT_SCHEMA, agentBodyMax,
   AGENT_NAME_MAX, AGENT_INSTRUCTIONS_MAX, AGENT_BODY_MAX,
-  MAX_AGENTS, MAX_THREAD, MAX_IMPORT_MESSAGES, MAX_IMPORT_BODY,
+  MAX_AGENTS, MAX_THREAD, MAX_IMPORT_MESSAGES, MAX_IMPORT_BODY, AGENT_TOOLS,
 } from "../agent-store.mjs";
 
 const SRC = fs.readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8");
@@ -947,4 +947,157 @@ test("this milestone stores and runs nothing", () => {
   // And it never touches the execution journal, which is the other half of the
   // schema and has no foreign key to this one.
   assert.ok(!/\brun_entries\b/.test(SRC.replace(/\/\*[\s\S]*?\*\//g, "")), "the store reaches into the journal");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 11. TAKING A PERMISSION AWAY, AND STOPPING A RUN
+// ────────────────────────────────────────────────────────────────────────────
+//
+// ⚠ **TEN OF TWELVE SITE MUTANTS SURVIVED THE FIRST SWEEP OF THESE ROUTES, AND EVERY ONE WAS
+// A GAP HERE RATHER THAN THE PRODUCT'S.** Their properties are proved end to end by
+// `agent-builder`'s `npm run verify:controls`, which the SITE's sweep cannot run — *a property
+// proven only by an instrument the sweep cannot run is a property no mutant can be caught by*,
+// which this repository has now recorded several times. These close them where a mutant can be
+// seen: against the real handler, with a recording store and a recording doorbell.
+
+/** The handler, with a doorbell that records what it was rung with. */
+const rang = () => { const ids = []; return { ids, ring: async (id) => { ids.push(id); } }; };
+
+test("⚠ A CALL THAT HAS ALREADY RUN CANNOT BE TAKEN BACK, and is not reported as never waiting", async () => {
+  // A database cannot recall a tool call. "That request isn't waiting any more" about a call
+  // that HAS RUN implies it did not happen, which is the one thing a withdrawal must not say.
+  const f = fakeStore({ revokeToolApproval: async () => ({ ok: false, error: "already-ran" }) });
+  const r = await call("/api/agent/tool-withdraw", { store: f.store, body: { id: A1 } });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.match(r.body.error, /already run/);
+  // THE CONTROL: any other refusal really is the missing-request answer, so the 409 is about
+  // this case and not about every failure.
+  const g = fakeStore({ revokeToolApproval: async () => ({ ok: false, error: "no-request" }) });
+  assert.equal((await call("/api/agent/tool-withdraw", { store: g.store, body: { id: A1 } })).status, 404);
+});
+
+test("⚠ A WITHDRAWAL RINGS THE RUN IT ANSWERED, and a failed ring is said rather than raised", async () => {
+  // `revoke_tool_approval` puts the run back inside its own transaction — but a SQL function
+  // cannot ring a Cloudflare queue, so without the doorbell nothing visibly happens until the
+  // next cron tick.
+  const bell = rang();
+  const f = fakeStore({ revokeToolApproval: async () => ({ ok: true, id: A1, run: A1 }) });
+  const r = await call("/api/agent/tool-withdraw", { store: f.store, body: { id: A1 }, ring: bell.ring });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(bell.ids, [A1]);
+  assert.equal(r.body.notified, true);
+  // A FAILED RING IS SAID AND NEVER RAISED: the work is durable either way, and answering an
+  // error would tell somebody their withdrawal failed when it is committed.
+  const g = fakeStore({ revokeToolApproval: async () => ({ ok: true, id: A1, run: A1 }) });
+  const bad = await call("/api/agent/tool-withdraw", {
+    store: g.store, body: { id: A1 }, ring: async () => { throw new Error("the queue went"); }, log: () => {},
+  });
+  assert.equal(bad.status, 200);
+  assert.equal(bad.body.notified, false);
+});
+
+test("⚠ A TOOL NAME NO TOOL HAS IS REFUSED, so a revocation cannot be a row that does nothing", async () => {
+  // Checked against `AGENT_TOOLS` — the platform's own catalog, in code — and not only against
+  // the grammar, because such a row would sit on a screen looking like a withdrawn permission.
+  for (const tool of ["teleport", "", "  ", "remember!", 7, ["remember"], null]) {
+    const f = fakeStore();
+    const r = await call("/api/agent/tool-revoke", { store: f.store, body: { agent: A1, tool } });
+    assert.equal(r.status, 400, `${JSON.stringify(tool)} was accepted`);
+    assert.deepEqual(f.calls.filter((c) => c.name === "revokeAgentTool"), [],
+      `${JSON.stringify(tool)} reached the store`);
+  }
+  // THE CONTROL: a real catalog name goes through, so the refusals are about the name.
+  const ok = fakeStore();
+  assert.equal((await call("/api/agent/tool-revoke", {
+    store: ok.store, body: { agent: A1, tool: AGENT_TOOLS[0].name },
+  })).status, 200);
+});
+
+test("⚠ ONLY THIS ACCOUNT MAY TAKE ITS OWN AGENT'S TOOL AWAY, or lift one, or read what is revoked", async () => {
+  for (const path of ["/api/agent/tool-revoke", "/api/agent/tool-restore"]) {
+    const f = fakeStore({ ownsAgent: async () => false });
+    const r = await call(path, { store: f.store, body: { agent: A1, tool: AGENT_TOOLS[0].name } });
+    // NOT FOUND, NEVER FORBIDDEN — another account's agent and one that does not exist answer
+    // the same, because the difference between them is information.
+    assert.equal(r.status, 404, `${path} answered ${r.status}`);
+    assert.deepEqual(f.calls.filter((c) => /revokeAgentTool|restoreAgentTool/.test(c.name)), [],
+      `${path} wrote something`);
+  }
+  const g = fakeStore({ ownsAgent: async () => false });
+  assert.equal((await call("/api/agent/revoked-tools", {
+    store: g.store, query: new URLSearchParams({ agent: A1 }),
+  })).status, 404);
+  assert.deepEqual(g.calls.filter((c) => c.name === "listRevokedTools"), []);
+});
+
+test("⚠ A REVOCATION RINGS EVERY RUN IT ANSWERED, rather than leaving them stranded", async () => {
+  // The revocation has answered those requests INSTEAD of a person, so their work rows were
+  // un-done inside the function's own transaction — and a run nobody rings waits for the cron.
+  const bell = rang();
+  const f = fakeStore({
+    revokeAgentTool: async () => ({ ok: true, tool: AGENT_TOOLS[0].name, withdrew: 2, runs: [A1, T1] }),
+  });
+  const r = await call("/api/agent/tool-revoke", {
+    store: f.store, body: { agent: A1, tool: AGENT_TOOLS[0].name }, ring: bell.ring,
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(bell.ids, [A1, T1]);
+  assert.equal(r.body.notified, 2);
+  assert.equal(r.body.withdrew, 2);
+  // AND IT SAYS WHAT HAPPENED TO THE REQUESTS, because that is the half a customer cannot see.
+  assert.match(r.body.say, /taken back/);
+  // ⚠ LIFTING ONE SAYS THE OPPOSITE, and must: those requests were answered by the revocation
+  // and re-opening them would put a decision in front of somebody who has already made one.
+  const g = fakeStore();
+  const back = await call("/api/agent/tool-restore", {
+    store: g.store, body: { agent: A1, tool: AGENT_TOOLS[0].name },
+  });
+  assert.match(back.body.say, /stays withdrawn/);
+  assert.ok(!/waiting again/.test(back.body.say), back.body.say);
+});
+
+test("⚠ A CANCELLATION REPORTS WHAT COMPLETED AND NEVER CLAIMS IT WAS UNDONE", async () => {
+  const f = fakeStore({
+    cancelRun: async () => ({
+      ok: true, repeat: false, run: A1, completedSteps: 3, completedCalls: 2,
+      withdrewApprovals: 1, releasedWait: true, say: "stopped — what had already run has already run and was not undone",
+    }),
+  });
+  const r = await call("/api/agent/run-cancel", { store: f.store, body: { run: A1, reason: "changed my mind" } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  // ⚠ THE COUNTS ARE THE FUNCTION'S, NOT ZERO. A cancellation is the work stopping, not the
+  // work coming back, and how far it got is the one honest thing to say about it.
+  assert.equal(r.body.completedSteps, 3);
+  assert.equal(r.body.completedCalls, 2);
+  assert.equal(r.body.withdrewApprovals, 1);
+  assert.equal(r.body.releasedWait, true);
+  // ⚠ AND THE SENTENCE. *Don't claim completed effects were undone* — the one thing this whole
+  // feature must get right, asserted in both directions.
+  assert.match(r.body.say, /was not undone/);
+  assert.ok(!/rolled back|undone\b(?!\s)/.test(r.body.say.replace("was not undone", "")), r.body.say);
+  // THE FALLBACK SENTENCE SAYS THE SAME THING, for a function that answered none.
+  const g = fakeStore({ cancelRun: async () => ({ ok: true, run: A1 }) });
+  const bare = await call("/api/agent/run-cancel", { store: g.store, body: { run: A1 } });
+  assert.match(bare.body.say, /was not undone/);
+  // AND A RUN THAT IS NOT THIS ACCOUNT'S IS THE SAME 404 A MISSING ONE GETS.
+  const h = fakeStore({ cancelRun: async () => ({ ok: false, error: "no-run" }) });
+  assert.equal((await call("/api/agent/run-cancel", { store: h.store, body: { run: A1 } })).status, 404);
+});
+
+test("⚠ A MALFORMED REVOKED-TOOLS ANSWER IS NOT READ AS ONE TOOL NAME", async () => {
+  // `revoked_tools` is set-returning, so the answer is a bare list of strings. `String(["x"])`
+  // is `"x"`, and a malformed answer coerced would tell a customer a tool is revoked that is
+  // not — or hide one that is.
+  const store = makeAgentStore({
+    url: "https://p.supabase.co", key: "svc",
+    fetch: async () => new Response(JSON.stringify(["remember", 7, null, { tool: "forget" }, "forget"]),
+      { status: 200, headers: { "content-type": "application/json" } }),
+  });
+  assert.deepEqual(await store.listRevokedTools(T1, A1), ["remember", "forget"]);
+  const junk = makeAgentStore({
+    url: "https://p.supabase.co", key: "svc",
+    fetch: async () => new Response(JSON.stringify({ ok: true }),
+      { status: 200, headers: { "content-type": "application/json" } }),
+  });
+  assert.deepEqual(await junk.listRevokedTools(T1, A1), []);
 });

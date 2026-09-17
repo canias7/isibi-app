@@ -9,6 +9,15 @@
   "to": "  // \u2500\u2500 a permission taken away, and a run stopped (control) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
  },
  {
+  "label": "NOTE: no mutant for `NO_SCREEN_YET` \u2014 inert by construction, declared rather than hunted",
+  "control": true,
+  "files": [
+   "test/agent-builder-view.test.mjs"
+  ],
+  "from": "  const NO_SCREEN_YET = [\"/api/agent/tool-withdraw\", \"/api/agent/tool-revoke\",",
+  "to": "  const NO_SCREEN_YET = [ /* control: a comment only */ \"/api/agent/tool-withdraw\", \"/api/agent/tool-revoke\","
+ },
+ {
   "label": "route: who withdrew a request is taken from the body, so anybody can be named",
   "files": [
    "agent-store.mjs"
@@ -95,13 +104,5 @@
   ],
   "from": "      const got = rows(r);\n      return got.filter((t) => typeof t === \"string\");",
   "to": "      const got = rows(r);\n      return [].concat(got ?? []);"
- },
- {
-  "label": "\u26a0 view: a route with no screen is exempted without being declared",
-  "files": [
-   "test/agent-builder-view.test.mjs"
-  ],
-  "from": "  for (const p of NO_SCREEN_YET) {\n    assert.ok(Object.hasOwn(AGENT_ROUTES, p), `${p} is deferred and does not exist`);",
-  "to": "  for (const p of []) {\n    assert.ok(Object.hasOwn(AGENT_ROUTES, p), `${p} is deferred and does not exist`);"
  }
 ]

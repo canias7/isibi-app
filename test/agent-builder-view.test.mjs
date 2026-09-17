@@ -468,6 +468,14 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
    * **AND THE LIST IS AUDITABLE, WHICH IS THE WHOLE POINT**: every name has to be a real
    * route, so a typo cannot quietly exempt one that does exist, and the list SHRINKS as the
    * screen arrives rather than being forgotten.
+   *
+   * ⚠ **NO MUTANT GUARDS THIS LIST, and that is declared rather than left to be discovered.**
+   * A mutation of it is a mutation of a TEST FILE, and nothing outside `scripts/mutants/`
+   * reads this file — so every shape of it is INERT BY CONSTRUCTION: emptying the loop, or
+   * exempting these routes by a regex instead of by the list, changes no other test's result.
+   * The recorded answer is to give a property an observable half and mutate THAT, and there
+   * is none here: the property is about which names a guard exempts. What stands in its place
+   * is the two assertions below being present and this paragraph saying so.
    */
   const NO_SCREEN_YET = ["/api/agent/tool-withdraw", "/api/agent/tool-revoke",
                          "/api/agent/tool-restore", "/api/agent/revoked-tools",

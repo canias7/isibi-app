@@ -4374,3 +4374,200 @@ typo cannot exempt one that does not exist and quietly excuse one that does.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and this round adds no SQL at all — the wrappers and
 the plain functions were already there.
+
+---
+
+## Milestone 4, finished: a window that closes, a permission withdrawn, a run stopped (2026-09-17)
+
+Owner: *"Finish approvals and execution controls: approval expiry, explicit revocation,
+cancellation. Approval must identify the exact action and arguments. Changed actions require
+fresh approval. Expired, rejected, or revoked approvals cannot execute. Keep accepted runs'
+recorded configuration stable, but define explicit permission revocation separately and
+enforce it before subsequent actions. Cancellation must stop pending work and future steps,
+release waits, and record what already completed. Don't claim completed effects were
+undone."*
+
+**FOUR SEPARATE FACTS, AND THE WHOLE POINT IS THAT THEY STAY SEPARATE.** Nobody answered in
+time; somebody took a decision back; somebody took a TOOL away; somebody stopped the RUN.
+Each needs its own sentence, because a model told the wrong one tells a customer the wrong
+one — and a fifth thing is true of all four: **an effect that already happened stays
+happened.** Nothing here undoes anything, and every answer says what had already completed
+rather than implying a rollback.
+
+### Expiry is DERIVED, and it is not a verdict
+
+`agent.tool_approvals.expires_at`, stamped at request time from `agent.approval_window()` —
+24 hours, **the server's function and never a caller's argument**, because a window a caller
+chooses is a window a model can widen and this is the wall that closes a request nobody
+answered.
+
+- **A VERDICT IS SOMETHING A PERSON DID; A WINDOW CLOSING IS SOMETHING THAT HAPPENED.**
+  Writing `expired` into the verdict column would mean a background job going round stamping
+  rows — a second writer on a fact the clock already states. So `verdict` stays null and
+  every reader compares `expires_at` against `now()` itself.
+- **A ROW FROM BEFORE THIS MIGRATION HAS NO WINDOW, AND THAT READS AS *NO WINDOW*** rather
+  than as expired. The only safe direction: the other reading refuses every request in flight
+  the moment this ships.
+- **`expired` ANSWERS `false`, NEVER `null` — measured.** `v_state = 'expired'` is NULL for an
+  undecided request inside its window, so every pending request answered `"expired": null`
+  before the `coalesce` — cannot-tell wearing a value's clothes, in the one field a caller
+  asks to find out whether the window closed.
+- **A DECISION ALREADY MADE STANDS, however long ago the window closed.** The repeat check is
+  asked BEFORE the window deliberately: it was made in time.
+- **`pending_approvals` AND `run_approvals` ANSWER DIFFERENTLY ON PURPOSE.** A closed window
+  is not waiting for anybody, so the screen stops offering it — and `decide_tool_approval`
+  really does refuse it, so the screen and the wall agree. A run's own list PROJECTS it as
+  `expired`, because that is exactly what explains the run.
+
+### ⚠ TWO DEFECTS, BOTH THE SAME SHAPE, BOTH FOUND BY DRIVING IT
+
+**A run waiting for a person has its work row marked DONE** — there is nothing to redeliver
+until somebody answers — and `agent.decide_tool_approval` is what puts it back. **So anything
+that answers a request INSTEAD of a person has to put it back too**, and neither of these
+did:
+
+1. **NOBODY ANSWERING.** MEASURED: a redelivery came back `not-claimable` and the run sat for
+   ever reading as `running`, with a refusal that was correct and unreachable.
+   `agent.requeue_expired_approvals` is the cron's new **fourth job**, and it only offers a
+   run whose windows have **ALL** closed — one holding a live request too would be requeued
+   every minute for ever, hold again on the live one, and be requeued again. A run that has
+   already ended is not offered either.
+2. **A REVOCATION ANSWERING.** `revoke_agent_tool` withdrew every pending request for the tool
+   — which it must, or somebody could approve a call whose permission has just been taken away
+   — and left their runs in exactly that state. It requeues them now and **hands the run ids
+   back so the CALLER can ring them**, because a SQL function cannot ring a Cloudflare queue.
+
+### ⚠ AND THE CANCELLATION'S ENTRY SHAPE WAS WRONG IN A WAY `status` HID
+
+`agent.project_entry` reads `new.body -> 'stop'`. The first draft of `cancel_run` wrote the
+reason and the counts at the TOP level of the body: the status arm (which only looks at
+`kind`) went to `stopped` while `agent.runs.stop` stayed **NULL** — a run reading as ended
+with nothing saying how. **This function is a SECOND producer of `stoppedEntry`'s shape and
+has to MATCH it rather than resemble it.**
+
+`agent.cancel_run` is the declared second door into the journal, and the narrowness is the
+safety argument: it writes exactly one kind of entry, only for a run that has none, and it is
+`service_role`-only. It releases the work row (so nothing is delivered again and whoever holds
+it fails its next checkpoint — the fence doing the stopping), clears any wait, withdraws
+anything still waiting for a person, and reports `completedSteps`/`completedCalls`. Cancelling
+twice answers what really happened and writes no second ending.
+
+### A permission taken away is NOT the settings tick, and the distinction is the requirement
+
+`agent.tool_revocations` — its own table, its own verb, its own reader, and **no UPDATE grant
+for anybody**, because a revocation is added or lifted and never edited.
+
+- **THE TOOL TICK IS THE AGENT'S CONFIGURATION**: a run records what it was accepted with, and
+  that snapshot is deliberately stable — a customer unticking a tool changes what the NEXT run
+  may call, because a run that loses a tool half way through is a run whose plan no longer
+  works.
+- **A REVOCATION IS THE OPPOSITE ACT.** It says *stop doing this now*, so the runner reads it
+  **LIVE on every delivery**, past the snapshot. Two acts, two readers; collapsing them would
+  mean either that an ordinary settings edit silently re-permissions a live run, or that a
+  withdrawal cannot stop one.
+- **IT SUBTRACTS, which is the whole mechanism** — the rule `narrowTools` and `narrowLimits`
+  follow. A revoked tool is not offered to the model (no tokens spent on a plan that cannot
+  run) and is not in `callable` (cannot be dispatched however it is named).
+- **THREE POINTS IN THE LOOP NEEDED IT.** The live dispatch answers the real reason, asked
+  BEFORE the "no such tool" branch — which is false about a tool that exists. A **PENDING**
+  call of a revoked tool is answered rather than re-run: that is the half `callable` alone
+  cannot carry, since a `repeatable` non-gated write (which `remember` and `forget` both are)
+  would otherwise be dispatched again under a withdrawn permission. And it is **not** a resume
+  hazard, because we are not going to run it — `cannot-resume` would strand the run for ever.
+- **`toolRevoked` SAYS BOTH HALVES OF THE TRUTH.** A withdrawal is not a rejection, and for a
+  WRITING tool the earlier attempt may already have landed — a revocation does not reach back
+  and undo it.
+- **LIFTING ONE DOES NOT RE-OPEN WHAT IT WITHDREW.** Those were answered, by the revocation,
+  and re-opening them would put a decision in front of somebody who has already made one.
+- **SCOPED TO THE AGENT, which is the wall no tenant filter can see**: both agents share an
+  owner, so only the agent id tells them apart.
+
+### The engine's own shapes
+
+- **`revoked` IS REFUSED, NOT COERCED.** A caller with nothing revoked passes `[]` or omits
+  it; `null` or a string is a caller whose READ FAILED, and reading that as "nothing is
+  revoked" is the one direction that lets a withdrawn tool run. The runner's read RAISES for
+  the same reason.
+- **THE RECORD CARRIES `revoked` BESIDE `withheld`, never folded into it.** "This tenant was
+  never granted it" and "somebody took it away" are different facts with different remedies.
+- **`revokedHere` IS WHAT WAS REALLY TAKEN AWAY**, not what was asked for: a revocation naming
+  a tool this agent has not got removes nothing, and reporting it as removed would be a record
+  saying a run was narrowed when it was not.
+- **`expiredApprovals` TAKES NO TENANT, and that is not a hole in the closure rule.** The rule
+  is that no OPERATION takes a tenant as an argument; this is a PLATFORM SWEEP like
+  `reclaimable` and the scheduler's tick, reachable only from `worker.scheduled`.
+- **FOUR CRON JOBS, FOUR `try` BLOCKS**, and none may silence another. The expiry sweep is
+  last because it is the newest and least load-bearing: a throw there must not cost the
+  deployment its sweeper.
+
+### The site's half, and what is deliberately not built
+
+Five routes: `tool-withdraw`, `tool-revoke`, `tool-restore`, `revoked-tools`, `run-cancel`.
+`who` comes from the verified session and **there is no `by` on any wire**. The tool name is
+checked against `AGENT_TOOLS` — the platform's own catalog, in code — so a revocation of a
+name no tool has is refused rather than becoming a row that can never do anything.
+
+**THERE IS NO SCREEN FOR THEM YET, and that is declared rather than disguised.** The standing
+instruction is that the frontend is fine as it is, so the backend landed first;
+`test/agent-builder-view.test.mjs` gained a **`NO_SCREEN_YET`** list kept SEPARATE from
+`SERVER_ONLY`, because they are separate facts — a person is exactly who takes a tool away or
+stops a run, so calling these server-only would record a design decision nobody made. Every
+name on it must be a real route AND must not already be called, so it shrinks when the screen
+arrives rather than being forgotten.
+
+### What the demonstration drives, and the three findings it produced
+
+`npm run verify:controls` — the real routes, the real dispatcher, `worker.queue` and
+`worker.scheduled`, and a real PostgreSQL. **What is simulated is three things and they are
+named in the file's own header**: the model, the transport, and **THE CLOCK in exactly one
+place** — a window is 24 hours, so one UPDATE moves `expires_at` into the past. What that does
+not simulate is the DECISION: every reader still compares against `now()` itself.
+
+**THE CHECK WORTH NAMING IS THE DISTINCTION THE REQUIREMENT ASKS FOR, side by side in one
+database**: unticking a tool leaves a run already accepted able to use it, while revoking it
+does not. Three more findings are recorded where they happened:
+
+- **A WITHDRAWN REQUEST ANSWERS THE WITHDRAWAL rather than a 404** when somebody presses
+  Approve late — the first decision stands, and the withdrawal was one. A 404 was my guess and
+  the product is right. An EXPIRED request IS a 404, because nothing was decided at all: two
+  facts, two answers.
+- **THE NEXT RUN IS OFFERED A DIFFERENT TOOL rather than none**, so `ranTool === 0` was the
+  wrong assertion and would have been red about a run behaving perfectly. It asks about the
+  revoked tool BY NAME now.
+- **A CANCELLED EXECUTION CANNOT BE GIVEN A DEADLINE BACK WITHOUT A WAIT** —
+  `automation_runs_wait_is_whole` refuses it. That refusal is stronger evidence than "this tick
+  did not wake it": the row cannot be put into the selectable state at all.
+
+### Measured
+
+- **`npm run verify:controls`: 71 checks, 0 failed.**
+- **Real PostgreSQL (`npm run test:pg`): 658 → 734, 0 failed.** Every refusal read for ITS OWN
+  gate with a control beside it, the grants asked as PRIVILEGES, and the two requeues driven.
+  **One of its own checks was VACUOUS and is recorded**: an `||` satisfied by `S1` having no
+  stop entry, which it did not — the run is really ended there now and the assertion is
+  unconditional.
+- **Engine suite 429 → 432**, 0 failed. (413 at the start of this round; the sixteen before
+  these three are M8's closed survivors and the revocation's own cases.)
+- **Site suite 6,792**, 0 failed, 2 skipped — **unchanged, which is the control**: the site's
+  changes grew three censuses and a fake rather than adding a case. Measured with `npm test`
+  from the repository root, not with `--test-timeout=20000`, which cuts `css-reachable` off at
+  20 s and reads 6,788.
+- **`verify:tools` 112 · `verify:chat` 112 · `verify:auto` 70 · `verify:wf` 125 ·
+  `verify:ops` 53 — every one unchanged and green**, which is the control that this round
+  broke nothing.
+- **Four censuses re-anchored, not appeased**, each by fields of the thing being acted on
+  (`tool`, checked against the catalog, and `reason`, a person's own words) rather than by an
+  exemption.
+- **Two fakes had to get as capable as the real store, and the second would have hidden the
+  whole feature**: `bench`'s approvals fake gained `revokedTools` (and a `revoke()` so a case
+  can withdraw a tool BETWEEN two deliveries of one run), and the in-memory REST fake gained
+  `revoked_tools`, `revoke_agent_tool`, `restore_agent_tool` and `requeue_expired_approvals`
+  — including the requeue, because a fake that withdrew the request and left the row is
+  exactly the defect the real function had.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** `20260918030000_agent_approval_controls.sql` is
+prepared locally, and the round-number name is this folder's own tell for an unapplied file.
+When it goes, the order is the recorded one — **migration → engine → site** — and here the
+reason is sharper than usual: the migration adds `expires_at`, which the live
+`request_tool_approval` does not write, so an engine shipped first would stamp no windows; and
+a site shipped first would offer routes for functions that do not exist.
