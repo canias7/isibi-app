@@ -7454,13 +7454,26 @@ green (2026-09-17 03:49:22→03:51:22Z) — `# tests 6749 / # pass 6745 / # fail
 recorded environment skips plus `site-searchpath`'s baseline-commit case, and
 **the TOTAL is what matches**. Run **2656** is green on the docs-only tip
 `6c55bc57`, and that push started **no** `site build` — `paths` covers neither
-document, which is the filter behaving. And `site build` run **1163**
-(03:49:17→04:08:47Z, job `105068654802`) green, **all twenty steps**:
-`site-build.mjs` **382 passed / 0 failed** in **14m19s** (03:50:56→04:05:15Z),
-with kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
-site-routing 14, site-runtime 47 beside it. **It fired because `site-jobs.mjs`
-is in that workflow's `paths`** — the change moves product code the container
-carries. **1163 joins the `382` scan list.**
+document, which is the filter behaving.
+
+**AND `site build` RAN TWICE ON THIS BRANCH, BOTH GREEN, BOTH READ — 1162 IS
+THE MERGE COMMIT ITSELF, which is the stronger of the two.** 1163 is a
+comment-only child of it, so 1162 covers the merged tree directly rather than by
+the ancestor rule. Both fired because **`site-jobs.mjs` is in that workflow's
+`paths`** — this change moves product code the container carries. **Both join
+the `382` scan list.**
+
+| run | sha | all twenty steps | `site-build.mjs` |
+|---|---|---|---|
+| **1162** | `75e5f9a9` (the merge) | green | **382 passed / 0 failed**, 17m38s |
+| **1163** | `91fec70a` | green | **382 passed / 0 failed**, 14m19s |
+
+**Every other count is identical across the two**: kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47, and the unit step's TAP `pass 390 / fail 0`. **The two harness timings differ
+by 3m19s on trees that differ by a COMMENT** — the runner decides, exactly as the
+image-step band records, and no inference from the diff to the duration is
+available in either direction.
 
 - **⚠ AND THE `##[group]` BOUNDING DOES ATTACH — the run-1152 note said it does
   not, and what was wrong was WHERE the window is drawn.** GitHub wraps only a
@@ -7468,17 +7481,19 @@ carries. **1163 joins the `382` scan list.**
   `##[endgroup]`, so reading *inside* the groups finds **zero** counts and reads
   as "this log format has no groups". The honest window is landmark to
   landmark — one `##[group]Run …` marker to the NEXT one — which is this file's
-  own windowing rule, met on a log instead of on source. Measured: 31 markers,
-  7 counts, every one inside the window of the step that produced it, **0 before
+  own windowing rule, met on a log instead of on source. Measured on both runs:
+  every result inside the window of the step that produced it, and **0 before
   the first marker**. So attribution is bounded here rather than read in step
   order, which is what 1152 had to settle for.
-- **AND FOUR OF THE TWENTY STEPS PRINT NO `N passed` LINE AT ALL** — `kit-render`,
-  `kit-a11y`, `kit-effects` and `kit-paint` end in **`all passed`**, and the unit
-  step in this job (`page-gen` + `publish-pages`) prints TAP (`# pass 390 /
-  # fail 0 / # skipped 0`). **A census that counts only `N passed` lines finds
-  seven and silently reports four steps as having no result** — the recorded
-  "a negative assertion must prove its observer is alive", in the reader for it.
-  Ask for all three forms, or say which steps the number does not cover.
+- **A RESULT COMES IN THREE SHAPES AND ONLY SEVEN OF THE TWELVE TEST STEPS USE
+  THE NUMBER.** `kit-render`, `kit-a11y`, `kit-effects` and `kit-paint` end in
+  **`all passed`** with no count at all, and the unit step (`page-gen` +
+  `publish-pages`) prints **TAP**. **A census that counts only `N passed` lines
+  finds seven results and silently reports the other five as absent** — the
+  recorded "a negative assertion must prove its observer is alive", in the
+  reader for it. Ask for all three forms, or say which steps the number does not
+  cover. (The remaining eight of the twenty are setup: checkout, setup-node, two
+  `npm ci`s, the two playwright steps and the artifact upload.)
 - **The two `##[error]` lines in the log are the harness's own fixtures**, both
   inside the `site-build.mjs` window: `[build-service] typecheck failed,
   shipping anyway`, each followed immediately by its own `ok` line (*"A TYPE

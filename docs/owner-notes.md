@@ -231,15 +231,21 @@ strands a run instead of duplicating one.
   files are the two documents.
 - **CI has read the merged result, both workflows, green.** The unit suite ran on
   GitHub's own machine and answered **6,749 tests, 0 failed** — the same total I
-  measured here. And the container harness ran too (it does when scheduler code
-  moves): **all twenty steps green**, the big one **382 checks passed, 0 failed**
-  in 14m19s, with the six smaller ones beside it at their usual numbers.
-- **Two things in that log are worth a word, because both look worse than they
-  are.** Two lines are stamped as errors — they are the harness deliberately
-  compiling a page with a type error to prove the site still ships, each followed
-  immediately by the check that says so. And four of the twenty steps print "all
-  passed" instead of a number, so a count of the numbers alone finds seven
-  results for twenty steps; I read all three shapes rather than the one.
+  measured here.
+- **And the container harness ran twice, both green.** It runs when scheduler
+  code moves, and one of the two is **the merge commit itself**, so it covers
+  the merged tree directly rather than by inference: **all twenty steps green**,
+  the big one **382 checks passed, 0 failed**, and every smaller number
+  identical across the two runs. The two took 17m38s and 14m19s on trees that
+  differ by a comment — that is the runner having a good or bad day, nothing
+  about the change.
+- **Two things in those logs look worse than they are, so I am naming them.**
+  Two lines are stamped as errors — they are the harness deliberately compiling
+  a page with a type error to prove the site still ships, each followed
+  immediately by the check that says so. And five of the twelve test steps
+  report without a number at all ("all passed", or a different format), so
+  counting the numbers alone finds seven results and quietly loses five; I read
+  all three shapes rather than the one.
 
 ### The correction you asked for: it will not wait until 23:00
 
