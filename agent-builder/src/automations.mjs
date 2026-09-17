@@ -207,6 +207,113 @@ export const MAX_LOOP_DEPTH = 2;
 export const MAX_STEP_RUNS = 200;
 
 /**
+ * ⚠ **WHAT HAPPENS WHEN A STEP DOES NOT WORK, AND `stop` IS THE DEFAULT BECAUSE IT IS
+ * WHAT EVERY WORKFLOW SAVED BEFORE THIS ALREADY DOES.**
+ *
+ * Absent means `stop`, so nothing anybody has stored changes meaning and nothing is
+ * migrated. The other two are opt-in per step, and each is right for some workflow and
+ * wrong for others — which is exactly why it is the customer's answer rather than ours:
+ * a lookup that found nothing may be fine to carry past, and a lookup whose store was
+ * down may be worth one more attempt.
+ *
+ * **`continue` DOES NOT MAKE A FAILURE A SUCCESS.** The step's outcome stays `failed`
+ * with its own error; what changes is only whether the steps below it run. Recording it
+ * as `ran` would be a workflow that says it worked, which is the one thing a history
+ * exists to prevent.
+ */
+export const ERROR_PATHS = Object.freeze(["stop", "continue", "retry"]);
+
+/**
+ * How many EXTRA attempts a step may be given, over and above its first.
+ *
+ * Bounded in code, and bounded again by `MAX_STEP_RUNS` — a retry IS a step run, so a
+ * workflow cannot buy itself more work by asking for retries. Three is chosen rather
+ * than measured: it is enough for a store that is briefly down and few enough that a
+ * failing step does not hold a delivery window open on its own.
+ */
+export const MAX_STEP_RETRIES = 3;
+
+/**
+ * ⚠ **WHICH KINDS OF STEP MAY DECLARE AN ERROR PATH, AND THE TWO THAT MAY NOT ARE THE
+ * INTERESTING HALF.**
+ *
+ * A `branch` is always `ran` — it did its job, which was to choose — and carrying on
+ * past an `if` that could not decide would leave the branch map pointing at arms nobody
+ * picked. A `pause` does not fail: a `wait` waits, and a REJECTION is a person saying
+ * no, so `continue` there would be a workflow ignoring them. Both stay hard stops, and
+ * the form never offers the choice, so there is no control to be surprised by.
+ */
+export const FAILABLE_KINDS = Object.freeze(["condition", "action", "lookup"]);
+
+/**
+ * ⚠ **THE ERROR-PATH FIELDS ARE APPENDED BY `defineStep`, NOT TYPED INTO EACH STEP.**
+ *
+ * They are the same two controls with the same meaning on every step that can fail, and
+ * a step author who forgot them would ship a step whose failures cannot be handled — so
+ * they are DERIVED from the kind, which means a fifth failable step next month gets
+ * them by existing. `retries` is appended only where a retry is really available, or it
+ * is a control that answers and is then refused.
+ */
+function errorPathFields(retryable) {
+  const paths = retryable ? ERROR_PATHS : ERROR_PATHS.filter((p) => p !== "retry");
+  const out = [{
+    name: "on_error", kind: "choice", options: paths,
+    says: "what to do if this step doesn't work",
+  }];
+  if (retryable) {
+    out.push({
+      name: "retries", kind: "number", required: true, min: 1, max: MAX_STEP_RETRIES,
+      when: { on_error: ["retry"] }, says: "how many more times to try",
+    });
+  }
+  return out;
+}
+
+/**
+ * Read a stored step's error path.
+ *
+ * **ONE READER, CALLED BY BOTH DOORS** — the validator that answers a person and the
+ * executor that acts on the answer — because a step whose path saves one way and runs
+ * another is a workflow that does something nobody asked for.
+ *
+ * **ABSENT IS `stop` AND STORES NOTHING**, so a workflow saved before this exists round
+ * trips byte for byte. A value it cannot read is REFUSED BY NAME rather than falling
+ * back to the default: a typo read as `stop` is a customer's `continue` silently
+ * dropped, and reading an unknown word as `continue` would carry on past a failure
+ * nobody agreed to carry on past.
+ */
+export function readErrorPath(raw, def) {
+  const has = raw && typeof raw === "object" && !Array.isArray(raw);
+  const given = has ? raw.on_error : undefined;
+  const blank = given === undefined || given === null || given === "";
+  const onF = (def?.fields ?? []).find((f) => f?.name === "on_error") ?? null;
+  // ⚠ **A STEP THAT CANNOT FAIL REFUSES AN ERROR PATH RATHER THAN DROPPING IT.** The form
+  // never offers one, so this can only arrive from an agent's tool or a hand-written
+  // request — and a key quietly dropped is a control that saves, draws back and does
+  // nothing. "A filter is a silent drop; a check is a sentence."
+  if (!onF) return blank ? { config: {} } : { error: `${def?.label ?? "that step"} has no failures to handle` };
+  if (blank) return { config: {} };
+  // ⚠ **THE OPTIONS ARE THE WALL, AND THEY ARE THE FIELD'S OWN.** `retry` is simply absent
+  // from a step that is not retryable, so "there is no such path" and "that path is not
+  // available here" are ONE refusal derived from one declaration — rather than a second
+  // rule beside the list, which is the copy that drifts. The sentence is derived too, from
+  // the field's own `says` and `options`, so the site builder's generic reader produces it
+  // word for word from the same frozen field.
+  if (!isText(given) || !onF.options.includes(given)) {
+    return { error: `${onF.says} has to be one of: ${onF.options.join(", ")}` };
+  }
+  if (given !== "retry") return { config: { on_error: given } };
+  const rF = (def?.fields ?? []).find((f) => f?.name === "retries") ?? null;
+  if (!rF) return { error: `${onF.says} has to be one of: ${onF.options.join(", ")}` };
+  const n = has ? raw.retries : undefined;
+  // REFUSED, NEVER COERCED OR CLAMPED. `Number("")` is 0 and a clamp would store a bound
+  // nobody chose as though they had.
+  if (typeof n !== "number" || !Number.isInteger(n)) return { error: `${rF.says} has to be a whole number` };
+  if (n < rF.min || n > rF.max) return { error: `${rF.says} has to be between ${rF.min} and ${rF.max}` };
+  return { config: { on_error: "retry", retries: n } };
+}
+
+/**
  * Declare a step type.
  *
  * **IT THROWS WHEN A PART IS MISSING**, at import, which is the one moment throwing is
@@ -224,7 +331,7 @@ export const MAX_STEP_RUNS = 200;
  * step that forgot them still throws.
  */
 export function defineStep(spec = {}) {
-  const { type, kind, label, does, fields, read, run, configless } = spec;
+  const { type, kind, label, does, fields, read, run, configless, retryable } = spec;
   if (!isText(type)) throw new TypeError("defineStep: type must be a non-empty string");
   if (!STEP_KINDS.includes(kind)) throw new TypeError(`defineStep(${type}): kind must be one of ${STEP_KINDS.join(", ")}`);
   if (!isText(label)) throw new TypeError(`defineStep(${type}): label must be a non-empty string`);
@@ -236,7 +343,30 @@ export function defineStep(spec = {}) {
   if (fields.length && configless === true) {
     throw new TypeError(`defineStep(${type}): configless says there is nothing to configure, so it cannot also declare fields`);
   }
-  for (const f of fields) {
+  // ⚠ **WHETHER A SECOND ATTEMPT COULD ANSWER DIFFERENTLY IS THE STEP AUTHOR'S FACT.**
+  // Refused rather than coerced — `Boolean("false")` is `true`, and a string out of a
+  // config file must not be what makes a step retryable — and refused on a kind that
+  // cannot fail, because there it is a declaration nothing reads.
+  if (retryable !== undefined) {
+    if (typeof retryable !== "boolean") {
+      throw new TypeError(`defineStep(${type}): retryable must be true or false, so it cannot be set by accident`);
+    }
+    if (!FAILABLE_KINDS.includes(kind)) {
+      throw new TypeError(`defineStep(${type}): a ${kind} cannot fail, so saying whether it may be retried reads nothing`);
+    }
+  }
+  const failable = FAILABLE_KINDS.includes(kind);
+  // A STEP THAT CAN FAIL ALWAYS HAS AN ERROR PATH TO CONFIGURE, so it cannot also say
+  // there is nothing to configure — the form would draw no controls and the appended
+  // pair would be dead.
+  if (failable && configless === true) {
+    throw new TypeError(`defineStep(${type}): a ${kind} carries an error path, so it is not configless`);
+  }
+  // THE AUTHOR'S OWN FIELDS PLUS THE ERROR PATH, validated and frozen as one list — so
+  // the appended pair meets every rule below, `when` can name its sibling, and the form
+  // draws them exactly as it draws the rest.
+  const all = failable ? [...fields, ...errorPathFields(retryable === true)] : fields;
+  for (const f of all) {
     if (!isText(f?.name)) throw new TypeError(`defineStep(${type}): every field needs a name`);
     if (!FIELD_KINDS.includes(f?.kind)) throw new TypeError(`defineStep(${type}): field ${f?.name} must be one of ${FIELD_KINDS.join(", ")}`);
     // A CHOICE WITH NO OPTIONS IS A SELECT WITH NOTHING IN IT — a dead control the form
@@ -288,7 +418,7 @@ export function defineStep(spec = {}) {
         throw new TypeError(`defineStep(${type}): field ${f.name} has a "when" that is not a condition`);
       }
       for (const [on, allowed] of Object.entries(f.when)) {
-        if (!fields.some((o) => o?.name === on)) {
+        if (!all.some((o) => o?.name === on)) {
           throw new TypeError(`defineStep(${type}): field ${f.name} depends on ${on}, which is not one of its fields`);
         }
         if (!Array.isArray(allowed) || !allowed.length) {
@@ -311,7 +441,8 @@ export function defineStep(spec = {}) {
     kind: "step", type, stepKind: kind, label, does,
     configless: configless === true,
     produces: spec.produces ?? "text",
-    fields: Object.freeze(fields.map((f) => Object.freeze({
+    failable, retryable: retryable === true,
+    fields: Object.freeze(all.map((f) => Object.freeze({
       ...f,
       ...(f.options ? { options: Object.freeze([...f.options]) } : {}),
       ...(f.when ? { when: Object.freeze(Object.fromEntries(
@@ -768,6 +899,14 @@ const knowledge = defineStep({
   type: "knowledge",
   kind: "lookup",
   label: "Look something up",
+  // ⚠ **THE ONE STEP A SECOND ATTEMPT COULD ANSWER DIFFERENTLY, and it is the only one
+  // here that reaches outside this process.** Its `retrieve` is an injected seam to the
+  // database, so a refusal can be an outage rather than an answer — which is precisely
+  // what a retry is for. Every other step is deterministic given its configuration:
+  // `memory` reads a snapshot taken at acceptance, `note` substitutes a string, and
+  // `weekday` compares a date that is fixed for the whole execution. Trying any of those
+  // again spends a step run to reach the same answer, so `readErrorPath` refuses it.
+  retryable: true,
   does: "Search this agent's reference material and save the passages that match, with the source they came from. Put {{a name}} in the search to use an input.",
   fields: [
     { name: "query", kind: "text", required: true, max: MAX_QUERY, refs: true, empty: "say what to search for" },
@@ -1146,7 +1285,14 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
     if (!def) return { error: `there is no step called ${String(one.type ?? "(nothing)")}`, at };
     const readIt = def.read(one);
     if (readIt?.error) return { error: `step ${at}: ${readIt.error}`, at };
-    const config = readIt.config ?? {};
+    // ⚠ **THE ERROR PATH IS READ BY ONE SHARED READER AND NEVER BY THE STEP'S OWN
+    // `read`.** Four steps' readers would be four copies of one rule, and a step author
+    // who forgot to read it would ship a control the form draws, the customer answers and
+    // nothing acts on — this repository's own dead-control-that-ANSWERS finding. Merged
+    // into the stored config here, so the executor reads what was validated.
+    const ep = readErrorPath(one, def);
+    if (ep.error) return { error: `step ${at}: ${ep.error}`, at };
+    const config = { ...(readIt.config ?? {}), ...ep.config };
 
     const canSee = visible();
     for (const f of def.fields) {
@@ -1333,6 +1479,22 @@ export async function runWorkflow(opts = {}) {
     }
   }
 
+  /**
+   * ⚠ **HOW MANY TIMES EACH STEP HAS ALREADY BEEN TRIED AND FAILED, and it is durable for
+   * the same reason the loop's iteration is.**
+   *
+   * A counter living in this process gives UNBOUNDED retries across restarts: every
+   * delivery would start at attempt one, so a step failing for a whole afternoon would be
+   * tried three times a minute for ever and the bound would be a description rather than
+   * a wall. Carried in and out on the execution row, keyed exactly as an outcome is — so a
+   * step inside a loop gets its own count PER ROUND, because round three failing is not
+   * evidence about round one and must not inherit its exhausted budget.
+   */
+  const tried = new Map();
+  for (const [k, v] of Object.entries(plain(opts.tries))) {
+    if (Number.isInteger(v) && v > 0) tried.set(k, v);
+  }
+
   const results = new Map();
   /**
    * ⚠ **WHERE ONE STEP'S OUTCOME LIVES, AND A LOOP IS WHY IT IS NOT JUST THE POSITION.**
@@ -1367,7 +1529,15 @@ export async function runWorkflow(opts = {}) {
 
   const put = (at, o, suffix = null) => {
     const sfx = suffix === null ? trail() : suffix;
-    results.set(keyAt(at, sfx), { id: idAt(at, sfx), type: steps[at]?.type ?? "", ...o });
+    // ⚠ **HOW MANY ATTEMPTS IT TOOK RIDES ON THE OUTCOME, and it is written HERE so no
+    // caller has to remember.** A step that worked on the second try and one that worked
+    // first time are different histories, and a step that failed three times and one that
+    // failed once are different problems — so the count is on the row rather than
+    // inferrable from a log nothing on a screen reads. Absent means one attempt, which is
+    // every outcome this product has ever written.
+    const before = tried.get(keyAt(at, sfx)) ?? 0;
+    const extra = before > 0 ? { tries: before + 1 } : {};
+    results.set(keyAt(at, sfx), { id: idAt(at, sfx), type: steps[at]?.type ?? "", ...extra, ...o });
   };
   const skipRange = (from, to, why) => {
     const sfx = trail();
@@ -1424,6 +1594,10 @@ export async function runWorkflow(opts = {}) {
         // prevent. Rendered fresh each time rather than shared, because the caller stores
         // it and a live reference would let a later round rewrite an earlier record.
         loops: Object.fromEntries([...loops].map(([k, v]) => [k, { at: v.at, of: v.of, list: v.list, as: v.as }])),
+        // ⚠ **AND HOW MANY TIMES EACH STEP HAS FAILED, ON THE SAME CALL.** A position
+        // persisted without its attempt counts is a restart that starts every retry budget
+        // again — bounded retries, unbounded in practice.
+        tries: Object.fromEntries(tried),
         // ⚠ THE EXECUTOR'S OWN CLOCK, NOT THE RECORDER'S, and that is what makes a retry
         // inside one delivery replay a BYTE-IDENTICAL journal entry — which is the only
         // thing `agent.append_entry` can read as `already` rather than as a second entry.
@@ -1442,6 +1616,60 @@ export async function runWorkflow(opts = {}) {
       return false;
     }
     return true;
+  };
+
+  /**
+   * ⚠ **WHAT THIS EXECUTION HAS REALLY RUN, WHICH IS NOT THE NUMBER OF OUTCOMES.**
+   *
+   * A retry overwrites its step's outcome row, so counting rows alone would make retries
+   * free against the budget — a workflow could buy itself unbounded work by asking for
+   * them. Each failed attempt is one run beyond the row it will end up as, and `tried` is
+   * durable, so the count survives a restart exactly as the rows do.
+   */
+  const runsSpent = () => {
+    let extra = 0;
+    for (const v of tried.values()) extra += v;
+    return results.size + extra;
+  };
+
+  /**
+   * ⚠ **THE ONE PLACE A STEP'S OWN FAILURE DECIDES WHAT HAPPENS NEXT.**
+   *
+   * It governs the TWO ways a step says it failed — it threw, or it answered `failed` —
+   * and NOTHING ELSE. A row this deployment cannot read, a reference that resolves to
+   * nothing, a branch that does not balance: those are not failing steps, they are a
+   * workflow that does not match what somebody saved, and carrying on past one would run a
+   * different workflow while reporting the one they wrote. That line is the whole of why
+   * this is a helper with two call sites rather than a wrapper round the loop.
+   *
+   * It records the outcome and either arms a retry or ends the run; the CALLER moves the
+   * position and checkpoints, which is the idiom every other branch of the loop follows.
+   */
+  const failStep = (at, id, error, path, retries) => {
+    const key = keyAt(at, trail());
+    const already = tried.get(key) ?? 0;
+    const wantsRetry = path === "retry" && already < retries;
+    // ⚠ **THE BUDGET IS ASKED BEFORE ARMING A RETRY, NEVER AFTER.** A retry that cannot
+    // be afforded is SAID rather than quietly skipped: a customer who asked for three
+    // attempts and got one needs to know it was the budget and not their configuration.
+    const room = runsSpent() < MAX_STEP_RUNS;
+    const why = path !== "retry" ? undefined
+      : wantsRetry && room ? `that attempt didn't work, trying again`
+      : wantsRetry ? `there was no room left to try again (${MAX_STEP_RUNS} step runs)`
+      : `it didn't work after ${retries + 1} attempts`;
+    // RECORDED BEFORE THE COUNT MOVES, so the row says which attempt failed rather than
+    // which one is about to start.
+    put(at, { outcome: "failed", error, ...(why ? { why } : {}) });
+    if (wantsRetry && room) {
+      tried.set(key, already + 1);
+      return "retry";
+    }
+    // ⚠ **`continue` LEAVES THE OUTCOME `failed`.** What it changes is whether the steps
+    // below run, and nothing else — a workflow that recorded a carried-past failure as
+    // `ran` would be one that says it worked.
+    if (path === "continue") return "continue";
+    stopped = { kind: "failed", at: id, error };
+    return "stop";
   };
 
   const struct = branchMap(steps);
@@ -1524,6 +1752,19 @@ export async function runWorkflow(opts = {}) {
       stopped = { kind: "failed", at: id, error: readIt.error };
       break;
     }
+
+    // ⚠ **THE ERROR PATH IS READ WITH THE SAME READER THE VALIDATOR USED**, so a stored
+    // row cannot mean one thing when it was saved and another when it runs. A row this
+    // reader REFUSES is a malformed row, which is a hard stop exactly as `read`'s refusal
+    // above is — never the step's own error path, because we do not know what it says.
+    const epRun = readErrorPath(one, def);
+    if (epRun.error) {
+      put(i, { outcome: "failed", error: epRun.error });
+      stopped = { kind: "failed", at: id, error: epRun.error };
+      break;
+    }
+    const onError = epRun.config.on_error ?? "stop";
+    const retries = Number.isInteger(epRun.config.retries) ? epRun.config.retries : 0;
 
     const filled = fillConfig(def, readIt.config ?? {}, values);
     if (filled.missing.length) {
@@ -1611,8 +1852,8 @@ export async function runWorkflow(opts = {}) {
       // ⚠ **THE BUDGET IS COUNTED IN STEP RUNS AND IS ASKED BEFORE GOING ROUND AGAIN.**
       // `MAX_WORKFLOW_STEPS` bounds the LIST; with loops the resource is RUNS, and it is
       // counted from the RECORD so an execution cannot spend it again by being restarted.
-      if (results.size >= MAX_STEP_RUNS) {
-        const error = `this has run ${results.size} steps, which is as many as one automation may (${MAX_STEP_RUNS})`;
+      if (runsSpent() >= MAX_STEP_RUNS) {
+        const error = `this has run ${runsSpent()} steps, which is as many as one automation may (${MAX_STEP_RUNS})`;
         put(i, { outcome: "failed", error });
         stopped = { kind: "failed", at: id, error };
         break;
@@ -1693,19 +1934,28 @@ export async function runWorkflow(opts = {}) {
       : null;
 
     let answer;
+    let threw = null;
     try { answer = await def.run(config, ctxFor(resume)); }
-    catch (e) {
-      const error = String(e?.message ?? e);
-      put(i, { outcome: "failed", error });
-      stopped = { kind: "failed", at: id, error };
-      break;
-    }
+    catch (e) { threw = String(e?.message ?? e); }
 
-    // A STEP MAY REFUSE WITHOUT THROWING, and `failed` is how it says so — one reading
-    // for every kind, so a refusal cannot be mistaken for an answer.
-    if (isText(answer?.failed)) {
-      put(i, { outcome: "failed", error: answer.failed });
-      stopped = { kind: "failed", at: id, error: answer.failed };
+    // ⚠ THE TWO WAYS A STEP SAYS IT FAILED, AND THEY TAKE THE SAME PATH. It threw, or it
+    // answered `failed` without throwing — one reading for every kind, so a refusal cannot
+    // be mistaken for an answer, and one decision, so a step's declared error path cannot
+    // apply to one and not the other.
+    const failure = threw !== null ? threw : (isText(answer?.failed) ? answer.failed : null);
+    if (failure !== null) {
+      const verdict = failStep(i, id, failure, onError, retries);
+      if (verdict === "retry") {
+        // THE POSITION DOES NOT MOVE: the next attempt re-enters this step, and the
+        // checkpoint is what makes the attempt count durable rather than this process's.
+        if (!(await checkpoint(i, null))) break;
+        continue;
+      }
+      if (verdict === "continue") {
+        i += 1;
+        if (!(await checkpoint(i, null))) break;
+        continue;
+      }
       break;
     }
 
@@ -1776,13 +2026,14 @@ export async function runWorkflow(opts = {}) {
    * to know which exit it is looking at before it knows what it has.
    */
   const loopState = () => Object.fromEntries([...loops].map(([k, v]) => [k, { at: v.at, of: v.of, list: v.list, as: v.as }]));
+  const triesState = () => Object.fromEntries(tried);
 
   if (halted !== null) {
-    return { outcomes: ordered(), values, position: i, loops: loopState(), stop: null, waiting: null, halted };
+    return { outcomes: ordered(), values, position: i, loops: loopState(), tries: triesState(), stop: null, waiting: null, halted };
   }
 
   if (waiting) {
-    return { outcomes: ordered(), values, position: waitingAt, loops: loopState(), stop: null, waiting, halted: null };
+    return { outcomes: ordered(), values, position: waitingAt, loops: loopState(), tries: triesState(), stop: null, waiting, halted: null };
   }
 
   // EVERY REMAINING STEP GETS AN OUTCOME, and the reason says which kind of ending it
@@ -1801,8 +2052,18 @@ export async function runWorkflow(opts = {}) {
   let result = null;
   for (const o of outcomes) if (typeof o?.result === "string") result = o.result;
 
+  // ⚠ **A RUN THAT CARRIED PAST A FAILURE IS STILL `done`, AND IT SAYS HOW MANY.**
+  //
+  // The workflow ran to its end exactly as its author configured it, so inventing a
+  // fourth reason would make every reader treat a deliberate `continue` as a fault. But
+  // `done` alone would be a run reporting success with a failed step in it that nobody
+  // reads — so the COUNT rides on the stop, where a screen meets it, rather than being
+  // something to derive by walking the outcomes.
+  let carried = 0;
+  for (const o of outcomes) if (o?.outcome === "failed") carried += 1;
+
   const stop = stopped === null
-    ? { reason: "done", result }
+    ? { reason: "done", result, ...(carried > 0 ? { carried } : {}) }
     : stopped.kind === "skipped"
       ? { reason: "skipped", at: stopped.at, why: stopped.why }
       : stopped.kind === "rejected"
@@ -1817,7 +2078,7 @@ export async function runWorkflow(opts = {}) {
   // it isn't Monday" is unanswerable after the fact — the reader would have to work out
   // which day the execution thought it was, in a zone it cannot see.
   return {
-    outcomes, values, position: steps.length, loops: loopState(), waiting: null, halted: null,
+    outcomes, values, position: steps.length, loops: loopState(), tries: triesState(), waiting: null, halted: null,
     stop: { ...stop, on: day.date, weekday: day.weekday, zone: day.zone },
   };
 }

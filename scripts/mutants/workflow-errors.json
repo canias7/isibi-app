@@ -1,0 +1,91 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the error-path table",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": " * ⚠ **WHAT HAPPENS WHEN A STEP DOES NOT WORK, and `stop` is the default because it is what",
+  "to": " * What happens when a step does not work (control).",
+  "control": true
+ },
+ {
+  "label": "⚠ store: a step whose answer cannot change is offered a retry anyway",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const paths = retryable ? AUTOMATION_ERROR_PATHS : AUTOMATION_ERROR_PATHS.filter((p) => p !== \"retry\");",
+  "to": "  const paths = AUTOMATION_ERROR_PATHS;"
+ },
+ {
+  "label": "store: the retry count is never drawn, so a retry has nothing to bound it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (retryable) {\n    out.push(F({ name: \"retries\", kind: \"number\", required: true, min: 1, max: MAX_STEP_RETRIES,",
+  "to": "  if (false) {\n    out.push(F({ name: \"retries\", kind: \"number\", required: true, min: 1, max: MAX_STEP_RETRIES,"
+ },
+ {
+  "label": "⚠ store: the error path is never appended, so the form draws no such control at all",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    fields: failable ? Object.freeze([...one.fields, ...errorPathFields(retryable)]) : one.fields,",
+  "to": "    fields: one.fields,"
+ },
+ {
+  "label": "store: the one step a retry could help stops offering it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    // same answer, and `retry` is not among the options they offer.\n    retryable: true,",
+  "to": "    // same answer, and `retry` is not among the options they offer.\n    retryable: false,"
+ },
+ {
+  "label": "⚠ store: an error path on a step that cannot fail is dropped rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!def.failable && raw.on_error !== undefined && raw.on_error !== null && raw.on_error !== \"\") {\n      return { error: `step ${at}: ${def.label} has no failures to handle` };\n    }",
+  "to": "    if (false) {\n      return { error: `step ${at}: ${def.label} has no failures to handle` };\n    }"
+ },
+ {
+  "label": "⚠ store: an optional choice absent is a refusal, so no step without an error path can be saved",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (raw === undefined || raw === null || raw === \"\") {\n      if (f.required !== true) return { value: undefined };\n    }",
+  "to": "    if (false) {\n      if (f.required !== true) return { value: undefined };\n    }"
+ },
+ {
+  "label": "store: the stray-path refusal is asked BEFORE the step's own fields, so the two doors refuse differently",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    for (const f of def.fields) {\n      // ⚠ A FIELD THAT DOES NOT APPLY IS NOT READ AND IS NOT STORED.",
+  "to": "    if (!def.failable && raw.on_error) return { error: `step ${at}: ${def.label} has no failures to handle` };\n    for (const f of def.fields) {\n      // ⚠ A FIELD THAT DOES NOT APPLY IS NOT READ AND IS NOT STORED."
+ },
+ {
+  "label": "⚠ store: a finished execution says nothing about the failures it carried past",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    carried: state === \"done\" && Number.isInteger(stop?.carried) && stop.carried > 0 ? stop.carried : 0,",
+  "to": "    carried: 0,"
+ },
+ {
+  "label": "store: the carried count is read on every state, so a failed run reports one too",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    carried: state === \"done\" && Number.isInteger(stop?.carried) && stop.carried > 0 ? stop.carried : 0,",
+  "to": "    carried: Number.isInteger(stop?.carried) && stop.carried > 0 ? stop.carried : 0,"
+ },
+ {
+  "label": "store: a carried count that is not a whole number is coerced",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    carried: state === \"done\" && Number.isInteger(stop?.carried) && stop.carried > 0 ? stop.carried : 0,",
+  "to": "    carried: state === \"done\" && stop?.carried > 0 ? stop.carried : 0,"
+ }
+]

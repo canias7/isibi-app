@@ -16,6 +16,7 @@ import {
   MAX_WORKFLOW_STEPS, MAX_NOTE, defineStep, stepRegistry, readWorkflow, runWorkflow,
   localDate, weekdayOf, executionDay, branchMap,
   VALUE_TYPES, TYPE_ACCEPTS, BLOCK_SHAPES, MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH, MAX_STEP_RUNS,
+  ERROR_PATHS, FAILABLE_KINDS, MAX_STEP_RETRIES, readErrorPath,
 } from "../src/automations.mjs";
 import { refsIn, fillRefs, valueText } from "../src/workflow-refs.mjs";
 import { makeRunner, OUTCOMES } from "../src/runner.mjs";
@@ -1635,14 +1636,20 @@ function watchNotes() {
 }
 
 /** Drive one execution to its end, cutting the Nth checkpoint if asked. */
-async function deliverLoop({ steps, values, cut = null, registry, max = 40 }) {
-  let state = { position: 0, outcomes: [], values: { ...values }, loops: {} };
+async function deliverLoop({ steps, values, cut = null, registry, max = 40, keepTries = true, retrieve = null }) {
+  let state = { position: 0, outcomes: [], values: { ...values }, loops: {}, tries: {} };
   let n = 0;
   let stop = null;
   for (let d = 0; d < max; d++) {
     const out = await runWorkflow({
-      steps, registry, now: () => 1_800_000_000_000,
+      steps, registry, now: () => 1_800_000_000_000, ...(retrieve ? { retrieve } : {}),
       position: state.position, outcomes: state.outcomes, values: state.values, loops: state.loops,
+      // ⚠ **THE FIXTURE HAD TO GAIN THE ATTEMPT COUNT, or the restart matrix would prove
+      // nothing whatever about bounded retries** — every delivery would hand the executor an
+      // empty count and each one would get a whole fresh budget, which is the unbounded
+      // behaviour this state exists to prevent. `keepTries: false` is the CONTROL that says
+      // so, and it is a case rather than a comment.
+      tries: keepTries ? state.tries : {},
       record: async (st) => {
         n += 1;
         state = {
@@ -1651,6 +1658,7 @@ async function deliverLoop({ steps, values, cut = null, registry, max = 40 }) {
           // later round rewrite the record an earlier one wrote, which is exactly the
           // thing the durable state exists to make impossible.
           loops: JSON.parse(JSON.stringify(st.loops ?? {})),
+          tries: JSON.parse(JSON.stringify(st.tries ?? {})),
         };
         return cut !== null && n === cut ? { ok: false, why: "the lease went" } : { ok: true };
       },
@@ -1786,3 +1794,261 @@ test("⚠ THE BUDGET IS STEP RUNS AND IT SURVIVES A RESUME, which is why loops n
   assert.ok(w.fired.length <= MAX_STEP_RUNS, `${w.fired.length} notes ran`);
 });
 
+
+// ── error paths and bounded retries ─────────────────────────────────────────
+
+/**
+ * A retriever that refuses the first `failFor` times and then works, COUNTING ITS CALLS —
+ * which is the observer for every retry case here. An outcome cannot be the observer: a
+ * later attempt overwrites its row, so a step tried three times and one tried once leave
+ * records that differ only in a field, while the call count cannot be rewritten.
+ */
+function flakyStore(failFor) {
+  const calls = { n: 0 };
+  return {
+    calls,
+    retrieve: async () => {
+      calls.n += 1;
+      if (calls.n <= failFor) return { error: "the store is down" };
+      return { excerpts: [{ title: "Rates", text: "twenty pounds", version: 3 }] };
+    },
+  };
+}
+
+const LOOKUP = (over) => ({ type: "knowledge", query: "rates", out: "found", ...over });
+
+test("⚠ A FAILURE'S PATH IS THE STEP'S OWN, AND ABSENT MEANS STOP", () => {
+  // EVERY WORKFLOW SAVED BEFORE THIS EXISTS NAMES NO PATH, so absent has to mean what it
+  // already did — and it must store NOTHING, or every stored row changes bytes for a
+  // default nobody chose.
+  const plain = readWorkflow([{ type: "note", text: "hi" }]).steps[0];
+  assert.equal(Object.hasOwn(plain, "on_error"), false, "an absent path is stored as a value");
+  assert.deepEqual([...ERROR_PATHS], ["stop", "continue", "retry"]);
+  assert.equal(ERROR_PATHS[0], "stop", "the default is no longer the one that stops");
+  assert.deepEqual([...FAILABLE_KINDS], ["condition", "action", "lookup"]);
+
+  // ⚠ THE OPTIONS ARE THE WALL AND THEY ARE THE FIELD'S OWN, so "there is no such path" and
+  // "that path is not available on this step" are ONE refusal derived from one declaration.
+  const reg = stepRegistry();
+  const onError = (type) => reg.get(type).fields.find((f) => f.name === "on_error");
+  assert.deepEqual([...onError("knowledge").options], ["stop", "continue", "retry"]);
+  assert.deepEqual([...onError("note").options], ["stop", "continue"]);
+  assert.equal(reg.get("if").fields.find((f) => f.name === "on_error"), undefined,
+    "a branch is offered a path it cannot have");
+  assert.equal(reg.get("knowledge").retryable, true);
+  assert.equal(reg.get("note").retryable, false);
+
+  // AND THE REFUSALS, EACH READ FOR ITS OWN REASON.
+  const no = (steps) => String(readWorkflow(steps).error);
+  assert.match(no([{ type: "note", text: "hi", on_error: "retry", retries: 2 }]), /has to be one of: stop, continue$/);
+  assert.match(no([{ type: "note", text: "hi", on_error: "nope" }]), /has to be one of: stop, continue$/);
+  assert.match(no([LOOKUP({ on_error: "retry" })]), /how many more times to try has to be a whole number/);
+  assert.match(no([LOOKUP({ on_error: "retry", retries: 1.5 })]), /has to be a whole number/);
+  assert.match(no([LOOKUP({ on_error: "retry", retries: 0 })]), new RegExp(`between 1 and ${MAX_STEP_RETRIES}`));
+  assert.match(no([LOOKUP({ on_error: "retry", retries: MAX_STEP_RETRIES + 1 })]), new RegExp(`between 1 and ${MAX_STEP_RETRIES}`));
+  // ⚠ A STEP THAT CANNOT FAIL REFUSES A PATH RATHER THAN DROPPING IT — the form never
+  // offers one there, so this can only arrive from a tool, and a dropped key is a control
+  // that saves and does nothing.
+  assert.match(no([{ type: "if", left: "a", op: "is empty", on_error: "continue" }, { type: "end" }]),
+    /If … has no failures to handle/);
+  // AND THE CONTROLS: the same steps without the path are accepted.
+  assert.equal(readWorkflow([{ type: "note", text: "hi", on_error: "continue" }]).error, undefined);
+  assert.equal(readWorkflow([LOOKUP({ on_error: "retry", retries: 2 })]).error, undefined);
+  assert.equal(readWorkflow([{ type: "if", left: "a", op: "is empty" }, { type: "end" }]).error, undefined);
+  // AN EMPTY ANSWER IS ABSENT AND NOT A REFUSAL, which is what an untouched select sends.
+  assert.equal(readWorkflow([{ type: "note", text: "hi", on_error: "" }]).error, undefined);
+});
+
+test("⚠ `defineStep` REFUSES A RETRY FLAG THAT CANNOT MEAN ANYTHING", () => {
+  const base = { type: "x", label: "X", does: "d", fields: [], configless: true, read: () => ({ config: {} }), run: () => ({}) };
+  // REFUSED, NEVER COERCED: `Boolean("false")` is `true`, and a string out of a config file
+  // must not be what makes a step retryable.
+  assert.throws(() => defineStep({ ...base, kind: "lookup", configless: false, fields: [{ name: "a", kind: "text" }], retryable: "yes" }), TypeError);
+  // ON A KIND THAT CANNOT FAIL IT READS NOTHING, so it is an author-time refusal.
+  assert.throws(() => defineStep({ ...base, kind: "branch", retryable: true }), TypeError);
+  // AND A STEP THAT CAN FAIL ALWAYS HAS AN ERROR PATH TO CONFIGURE, so it is not configless.
+  assert.throws(() => defineStep({ ...base, kind: "action" }), TypeError);
+  // THE CONTROL: the same declarations without the offending part are accepted.
+  assert.equal(defineStep({ ...base, kind: "branch" }).failable, false);
+  const ok = defineStep({ ...base, kind: "lookup", configless: false, fields: [{ name: "a", kind: "text" }], retryable: true });
+  assert.equal(ok.retryable, true);
+  assert.deepEqual(ok.fields.map((f) => f.name), ["a", "on_error", "retries"]);
+});
+
+test("⚠ A RETRY IS BOUNDED, AND THE BOUND SURVIVES A RESTART", async () => {
+  const steps = readWorkflow([LOOKUP({ on_error: "retry", retries: 2 })]).steps;
+
+  // IT WORKS ON THE SECOND ATTEMPT, and the row says how many it took.
+  let f = flakyStore(1);
+  let r = await runWorkflow({ steps, retrieve: f.retrieve });
+  assert.equal(r.stop.reason, "done");
+  assert.equal(f.calls.n, 2);
+  assert.equal(r.outcomes[0].tries, 2, "a step that took two attempts reads as one");
+  assert.equal(r.outcomes[0].outcome, "ran");
+
+  // AND THE BUDGET REALLY ENDS: three attempts for `retries: 2`, then the run stops.
+  f = flakyStore(99);
+  r = await runWorkflow({ steps, retrieve: f.retrieve });
+  assert.equal(r.stop.reason, "failed");
+  assert.equal(r.stop.error, "the store is down");
+  assert.equal(f.calls.n, MAX_STEP_RETRIES, "three attempts is retries + 1");
+  assert.equal(r.outcomes[0].tries, 3);
+  assert.match(r.outcomes[0].why, /didn't work after 3 attempts/);
+
+  // ⚠ THE COUNT IS DURABLE, WHICH IS THE WHOLE OF "bounded" UNDER INTERRUPTION. A first
+  // delivery is cut after its first failure is persisted; a WHOLLY FRESH executor then
+  // resumes from that row and gets the REMAINDER of the budget, not a new one.
+  f = flakyStore(99);
+  let saved = null;
+  let n = 0;
+  const first = await runWorkflow({
+    steps, retrieve: f.retrieve,
+    record: async (st) => { saved = JSON.parse(JSON.stringify(st)); return ++n >= 1 ? { ok: false, why: "the lease went" } : { ok: true }; },
+  });
+  assert.equal(first.halted, "the lease went");
+  assert.equal(f.calls.n, 1, "one attempt before the cut");
+  assert.deepEqual(saved.tries, { 0: 1 }, "the attempt count is not persisted");
+  assert.equal(saved.position, 0, "the position moved past a step that has not finished");
+
+  const resume = (tries) => runWorkflow({
+    steps, retrieve: f.retrieve, record: async () => ({ ok: true }),
+    position: saved.position, outcomes: saved.outcomes, values: saved.values, loops: saved.loops, tries,
+  });
+  f.calls.n = 0;
+  await resume(saved.tries);
+  assert.equal(f.calls.n, 2, "a resume with the count spends only what is left of the budget");
+  // THE CONTROL, and it is what makes the assertion above about the count rather than about
+  // the retriever: the SAME row with the count dropped gets a whole fresh budget, which
+  // across deliveries is unbounded.
+  f.calls.n = 0;
+  await resume({});
+  assert.equal(f.calls.n, 3, "the count dropped is indistinguishable from keeping it");
+});
+
+test("⚠ CARRYING ON PAST A FAILURE LEAVES IT RECORDED AS A FAILURE", async () => {
+  const steps = readWorkflow([
+    LOOKUP({ on_error: "continue" }),
+    { type: "note", text: "the rest of the workflow ran" },
+  ]).steps;
+  const f = flakyStore(99);
+  const r = await runWorkflow({ steps, retrieve: f.retrieve });
+  assert.equal(f.calls.n, 1, "`continue` is not a retry");
+  // ⚠ THE OUTCOME STAYS `failed` WITH ITS OWN ERROR. Recording it as `ran` would be a
+  // workflow that says it worked.
+  assert.equal(r.outcomes[0].outcome, "failed");
+  assert.equal(r.outcomes[0].error, "the store is down");
+  assert.equal(r.outcomes[1].outcome, "ran", "the step below it did not run");
+  // AND THE RUN IS `done` — it ran to its end exactly as configured — BUT IT SAYS HOW MANY
+  // STEPS FAILED, because `done` alone is a success reported over a failure nobody reads.
+  assert.equal(r.stop.reason, "done");
+  assert.equal(r.stop.carried, 1);
+  assert.equal(r.stop.result, "the rest of the workflow ran");
+
+  // THE CONTROL: the same two steps with the store working carry no count at all.
+  const ok = await runWorkflow({ steps, retrieve: flakyStore(0).retrieve });
+  assert.equal(ok.stop.reason, "done");
+  assert.equal(Object.hasOwn(ok.stop, "carried"), false, "a run where nothing failed says it carried something");
+
+  // AND `stop` REALLY STOPS, which is what makes the two paths different rather than the
+  // same code under two names.
+  const stops = readWorkflow([LOOKUP({ on_error: "stop" }), { type: "note", text: "never" }]).steps;
+  const s = await runWorkflow({ steps: stops, retrieve: flakyStore(99).retrieve });
+  assert.equal(s.stop.reason, "failed");
+  assert.equal(s.outcomes[1].outcome, "skipped");
+});
+
+test("⚠ A RETRY IS A STEP RUN, AND EACH ROUND OF A LOOP GETS ITS OWN BUDGET", async () => {
+  // ⚠ **THE COUNT IS PER OUTCOME KEY, WHICH INSIDE A LOOP MEANS PER ROUND.** Round three
+  // failing is not evidence about round one and must not inherit its exhausted budget —
+  // measured as the call count, because the rows are one per round and cannot say it.
+  const steps = readWorkflow([
+    { type: "repeat", mode: "times", times: 3 },
+    LOOKUP({ on_error: "retry", retries: 1 }),
+    { type: "endrepeat" },
+  ]).steps;
+  const f = flakyStore(99);
+  const r = await runWorkflow({ steps, retrieve: f.retrieve });
+  assert.equal(r.stop.reason, "failed", "the first round's exhausted retry ends the run");
+  assert.equal(f.calls.n, 2, "round one gets its two attempts and no more");
+
+  // ONE THAT RECOVERS EVERY TIME: three rounds, each failing once and then working, so the
+  // per-round budget is spent three times over and the loop still finishes.
+  let n = 0;
+  const everyOther = async () => (++n % 2 === 1 ? { error: "down" } : { excerpts: [{ title: "T", text: "x", version: 1 }] });
+  const r2 = await runWorkflow({ steps, retrieve: everyOther });
+  assert.equal(r2.stop.reason, "done");
+  assert.equal(n, 6, "each round retried once");
+
+  // ⚠ AND A RETRY COSTS THE STEP-RUN BUDGET, or a workflow could buy itself unbounded work
+  // by asking for retries: the outcome row is overwritten by each attempt, so counting rows
+  // alone would make them free. Driven at the bound rather than reasoned about.
+  const spent = {};
+  for (let k = 0; k < MAX_STEP_RUNS; k++) spent[k] = 1;
+  const atBound = await runWorkflow({
+    steps: readWorkflow([LOOKUP({ on_error: "retry", retries: 2 })]).steps,
+    retrieve: flakyStore(99).retrieve, tries: spent,
+  });
+  assert.equal(atBound.stop.reason, "failed");
+  assert.match(atBound.outcomes[0].why, new RegExp(`no room left to try again \\(${MAX_STEP_RUNS} step runs\\)`));
+});
+
+test("⚠ A STORED ERROR PATH THIS DEPLOYMENT CANNOT READ IS A HARD STOP", async () => {
+  // A ROW THAT CAME BACK FROM A DATABASE CAME FROM OUTSIDE, so the executor reads the path
+  // again with the same reader the validator used — and a refusal there is a malformed row,
+  // never the step's own error path, because we do not know what that path says.
+  const reg = stepRegistry();
+  const bad = [{ id: "s1", type: "note", text: "hi", on_error: "carry on regardless" }];
+  const r = await runWorkflow({ steps: bad, registry: reg });
+  assert.equal(r.stop.reason, "failed");
+  assert.match(r.stop.error, /has to be one of: stop, continue$/);
+  // AND `readErrorPath` IS THE ONE READER, driven directly over a def it cannot handle.
+  assert.deepEqual(readErrorPath({}, reg.get("note")), { config: {} });
+  assert.deepEqual(readErrorPath({ on_error: "continue" }, reg.get("note")), { config: { on_error: "continue" } });
+  assert.match(String(readErrorPath({ on_error: "continue" }, reg.get("end")).error), /has no failures to handle/);
+  assert.deepEqual(readErrorPath(null, reg.get("note")), { config: {} });
+  assert.deepEqual(readErrorPath("nope", reg.get("note")), { config: {} });
+});
+
+test("⚠ RESTARTING MID-RETRY RESUMES MID-RETRY, at every boundary there is", async () => {
+  // **THE ACCEPTANCE TEST FOR THE RETRY HALF**, and it is the loop matrix's shape with one
+  // difference: what must not be repeated here is not a completed effect but the BUDGET. A
+  // step that keeps failing has to be tried the number of times its author allowed, whether
+  // the execution ran straight through or was cut apart at every checkpoint in it.
+  //
+  // ⚠ **THE STORE NEVER RECOVERS, AND THAT IS WHAT MAKES THE OBSERVER ALIVE.** A retriever
+  // that fails twice and then works answers its THIRD CALL successfully whichever delivery
+  // that call lands in — so the total is three either way and dropping the count changes
+  // nothing. Measured: the first draft of this case asserted the observer and it was dead.
+  const steps = readWorkflow([
+    LOOKUP({ on_error: "retry", retries: 2 }),
+    { type: "note", text: "after: {{found}}" },
+  ]).steps;
+  const down = () => { const seen = { n: 0 }; return { seen, retrieve: async () => { seen.n += 1; return { error: "the store is down" }; } }; };
+
+  const straight = down();
+  const whole = await deliverLoop({ steps, retrieve: straight.retrieve, registry: stepRegistry() });
+  assert.equal(whole.stop.reason, "failed");
+  assert.equal(straight.seen.n, 3, "three attempts uninterrupted, which is retries + 1");
+  // ⚠ THE BOUNDARY COUNT IS DERIVED, so the observer cannot go quiet as the workflow grows:
+  // every ARMED retry checkpoints (that is what makes the count durable) and the last
+  // failure does not, because it ends the run — so a two-retry step has two boundaries.
+  assert.ok(whole.checkpoints >= 2, `only ${whole.checkpoints} boundaries`);
+
+  for (let cut = 1; cut <= whole.checkpoints; cut++) {
+    const f = down();
+    const r = await deliverLoop({ steps, cut, retrieve: f.retrieve, registry: stepRegistry() });
+    assert.equal(r.stop?.reason, "failed", `cut ${cut} ended ${r.stop?.reason}`);
+    assert.equal(f.seen.n, 3, `cut ${cut} made ${f.seen.n} attempts rather than 3`);
+  }
+
+  // ⚠ THE OBSERVER PROVED ALIVE, and it is the whole point of the case: with the attempt
+  // count thrown away between deliveries, a cut mid-retry starts the budget again — so the
+  // step is tried MORE times than its author allowed, which across restarts is unbounded.
+  let diverged = 0;
+  for (let cut = 1; cut <= whole.checkpoints; cut++) {
+    const f = down();
+    await deliverLoop({ steps, cut, retrieve: f.retrieve, registry: stepRegistry(), keepTries: false });
+    if (f.seen.n !== 3) diverged += 1;
+  }
+  assert.ok(diverged >= 1, "dropping the attempt count changed nothing, so the matrix proves nothing");
+});

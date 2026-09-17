@@ -427,6 +427,20 @@ test("⚠ an execution's state comes off the run's stop, and cannot-tell is not 
   assert.equal(done.why, null);
   assert.equal(done.error, null);
   for (const s of AUTOMATION_STATES) assert.equal(typeof s, "string");
+  // ⚠ **HOW MANY STEPS FAILED AND WERE CARRIED PAST, and it is why `done` alone is not
+  // "everything worked".** A step declaring `continue` keeps its own `failed` outcome and the
+  // workflow runs on, so a finished execution can hold one — and a screen reading `done`
+  // without this would report a success over a failure nobody looks at.
+  assert.equal(of("stopped", { reason: "done", result: "hi", carried: 2 }).carried, 2);
+  // ONLY ON `done`: every other state's reason already says what happened, and a count beside
+  // it would invite drawing both.
+  assert.equal(of("stopped", { reason: "failed", error: "boom", carried: 2 }).carried, 0);
+  // REFUSED, NEVER COERCED — and absent is 0 rather than null, because "none" is a number a
+  // screen can add up and cannot-tell is not.
+  assert.equal(of("stopped", { reason: "done", result: "hi" }).carried, 0);
+  assert.equal(of("stopped", { reason: "done", result: "hi", carried: "two" }).carried, 0);
+  assert.equal(of("stopped", { reason: "done", result: "hi", carried: 1.5 }).carried, 0);
+  assert.equal(of("stopped", { reason: "done", result: "hi", carried: -1 }).carried, 0);
 });
 
 // ── the shape of the surface ────────────────────────────────────────────────

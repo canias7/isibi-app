@@ -1275,6 +1275,26 @@ export const AUTOMATION_NAME_MAX = 200;
 export const MAX_AUTOMATION_STEPS = 20;
 
 /**
+ * ⚠ **WHAT HAPPENS WHEN A STEP DOES NOT WORK, and `stop` is the default because it is what
+ * every workflow saved before this already does.** A DECLARED COPY of the engine's
+ * `ERROR_PATHS`, censused both ways in `test/agent-send.test.mjs` — the one file that may
+ * load both products.
+ *
+ * `continue` does NOT make a failure a success: the step's outcome stays `failed` with its
+ * own error, and what changes is only whether the steps below it run.
+ */
+export const AUTOMATION_ERROR_PATHS = Object.freeze(["stop", "continue", "retry"]);
+/** How many EXTRA attempts one step may be given. A copy of the engine's `MAX_STEP_RETRIES`. */
+export const MAX_STEP_RETRIES = 3;
+/**
+ * ⚠ **WHICH KINDS OF STEP MAY DECLARE AN ERROR PATH, and the two that may not are the
+ * interesting half.** A `branch` is always `ran` — it did its job, which was to choose —
+ * and a `pause` does not fail: a REJECTION is a person saying no, so carrying on past one
+ * would be a workflow ignoring them. A copy of the engine's `FAILABLE_KINDS`.
+ */
+export const AUTOMATION_FAILABLE_KINDS = Object.freeze(["condition", "action", "lookup"]);
+
+/**
  * The engine's own bounds, censused against it field by field.
  *
  * **EVERY ONE OF THESE IS A COPY, DECLARED AS ONE.** `worker.js`'s module graph is a
@@ -1394,6 +1414,40 @@ const F = (o) => Object.freeze(o);
  */
 const OUT = F({ name: "out", kind: "name", required: false, says: "the name for this step's answer" });
 
+/**
+ * ⚠ **THE ERROR-PATH CONTROLS ARE APPENDED RATHER THAN TYPED INTO EACH STEP.**
+ *
+ * They are the same two controls with the same meaning on every step that can fail, so
+ * deriving them from the kind is what makes a fifth failable step next month carry them by
+ * existing — and it is the engine's own `errorPathFields`, so the two lists cannot drift in
+ * their order, their bounds or their words. `retries` is appended only where a retry is
+ * really available, or it is a control that answers and is then refused.
+ *
+ * **THE OPTIONS ARE THE WALL:** `retry` is simply absent from a step whose answer a second
+ * attempt could not change, so the generic reader's own refusal covers it and there is no
+ * second rule beside the list.
+ */
+const errorPathFields = (retryable) => {
+  const paths = retryable ? AUTOMATION_ERROR_PATHS : AUTOMATION_ERROR_PATHS.filter((p) => p !== "retry");
+  const out = [F({ name: "on_error", kind: "choice", options: Object.freeze(paths),
+    says: "what to do if this step doesn't work" })];
+  if (retryable) {
+    out.push(F({ name: "retries", kind: "number", required: true, min: 1, max: MAX_STEP_RETRIES,
+      when: F({ on_error: Object.freeze(["retry"]) }), says: "how many more times to try" }));
+  }
+  return out;
+};
+
+/** A catalog entry, with its error path appended where its kind can fail. */
+const withErrorPath = (one) => {
+  const failable = AUTOMATION_FAILABLE_KINDS.includes(one.kind);
+  const retryable = one.retryable === true;
+  return F({
+    ...one, failable, retryable,
+    fields: failable ? Object.freeze([...one.fields, ...errorPathFields(retryable)]) : one.fields,
+  });
+};
+
 export const AUTOMATION_STEPS = Object.freeze([
   F({
     type: "weekday",
@@ -1483,6 +1537,12 @@ export const AUTOMATION_STEPS = Object.freeze([
     type: "knowledge",
     kind: "lookup",
     label: "Look something up",
+    // ⚠ THE ONE STEP A SECOND ATTEMPT COULD ANSWER DIFFERENTLY, because it is the only one
+    // that reaches the database. `memory` reads a snapshot taken when the execution was
+    // accepted, `note` substitutes a string and `weekday` compares a date that is fixed for
+    // the whole execution — so trying any of those again spends a step run to reach the
+    // same answer, and `retry` is not among the options they offer.
+    retryable: true,
     does: "Search this agent's reference material and save the passages that match, with the source they came from. Put {{a name}} in the search to use an input.",
     fields: Object.freeze([
       F({ name: "query", kind: "text", required: true, max: MAX_STEP_QUERY, refs: true, empty: "say what to search for" }),
@@ -1510,7 +1570,7 @@ export const AUTOMATION_STEPS = Object.freeze([
       OUT,
     ]),
   }),
-]);
+].map(withErrorPath));
 
 /** The catalog's type names, DERIVED, so nothing holds a second copy of the list. */
 export const AUTOMATION_STEP_TYPES = Object.freeze(AUTOMATION_STEPS.map((s) => s.type));
@@ -1642,6 +1702,18 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
           }
         }
       }
+    }
+    // ⚠ **A STEP THAT CANNOT FAIL REFUSES AN ERROR PATH RATHER THAN DROPPING IT.** The form
+    // never offers one on a branch or a pause, so this can only arrive from an agent's tool
+    // or a hand-written request — and a key quietly dropped is a control that saves, draws
+    // back and does nothing. The sentence is the engine's, word for word.
+    //
+    // **ASKED AFTER THE STEP'S OWN FIELDS, and the order is the engine's.** A person filled
+    // those in; only a tool can produce this one, so a refusal about their own answer has to
+    // win — otherwise a step with a bad field AND a stray error path is refused for
+    // different reasons by the two doors, which a census over both caught.
+    if (!def.failable && raw.on_error !== undefined && raw.on_error !== null && raw.on_error !== "") {
+      return { error: `step ${at}: ${def.label} has no failures to handle` };
     }
     // ITS OWN `out` IS ADDED AFTER ITS OWN REFERENCES ARE CHECKED, so a step cannot refer
     // to the answer it is about to produce.
@@ -1946,6 +2018,13 @@ function readStepField(raw, f) {
     return { value: AUTOMATION_DAYS.filter((d) => picked.includes(d)) };
   }
   if (f.kind === "choice") {
+    // ⚠ **AN OPTIONAL CHOICE ABSENT IS NOT A REFUSAL**, which every other kind here already
+    // knew and this one did not — every choice was required until an error path became one
+    // that is not. Without it, a step naming no `on_error` is refused for leaving alone a
+    // control whose whole point is that absent means the default.
+    if (raw === undefined || raw === null || raw === "") {
+      if (f.required !== true) return { value: undefined };
+    }
     // ONE OF A FIXED SET, BY EXACT MATCH, and never the first option as a default: an
     // unrecognised answer is a control the form drew differently from the one this reads.
     if (typeof raw !== "string" || !f.options.includes(raw)) {
@@ -2181,6 +2260,12 @@ export function executionRow(r) {
     why: (state === "skipped" || state === "rejected") && typeof stop?.why === "string" ? stop.why : null,
     error: state === "failed" && typeof stop?.error === "string" ? stop.error : null,
     on: typeof stop?.on === "string" ? stop.on : null,
+    // ⚠ **HOW MANY STEPS FAILED AND WERE CARRIED PAST, and it is why a finished run is not
+    // automatically a run where everything worked.** A step declaring `continue` keeps its
+    // own `failed` outcome and the workflow runs on, so `done` alone would be a success
+    // reported over a failure nobody reads. Only on `done`: on any other state the reason
+    // already says what happened, and a count beside it would invite drawing both.
+    carried: state === "done" && Number.isInteger(stop?.carried) && stop.carried > 0 ? stop.carried : 0,
     missed: Number.isInteger(r?.missed) ? r.missed : null,
     outcomes: Array.isArray(r?.outcomes) ? r.outcomes : [],
     steps: Array.isArray(r?.steps) ? r.steps : [],

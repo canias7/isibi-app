@@ -43,6 +43,8 @@ import {
   VALUE_TYPES as ENGINE_VALUE_TYPES, TYPE_ACCEPTS as ENGINE_TYPE_ACCEPTS,
   BLOCK_SHAPES as ENGINE_BLOCK_SHAPES,
   MAX_LOOP_ITERATIONS as ENGINE_MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH as ENGINE_MAX_LOOP_DEPTH,
+  ERROR_PATHS as ENGINE_ERROR_PATHS, FAILABLE_KINDS as ENGINE_FAILABLE_KINDS,
+  MAX_STEP_RETRIES as ENGINE_MAX_STEP_RETRIES,
 } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
@@ -52,6 +54,8 @@ import {
   AUTOMATION_VALUE_TYPES as SITE_VALUE_TYPES, AUTOMATION_TYPE_ACCEPTS as SITE_TYPE_ACCEPTS,
   AUTOMATION_BLOCK_SHAPES as SITE_BLOCK_SHAPES, AUTOMATION_LOOP_MODES as SITE_LOOP_MODES,
   MAX_LOOP_ITERATIONS as SITE_MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH as SITE_MAX_LOOP_DEPTH,
+  AUTOMATION_ERROR_PATHS as SITE_ERROR_PATHS, AUTOMATION_FAILABLE_KINDS as SITE_FAILABLE_KINDS,
+  MAX_STEP_RETRIES as SITE_MAX_STEP_RETRIES,
 } from "../agent-store.mjs";
 
 /**
@@ -1051,6 +1055,13 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
     // the other cannot exist: the site would let a reference through that the engine
     // refuses, or refuse one it accepts.
     assert.equal(SITE_PRODUCES(site), engine.produces, `${type}: what it produces drifted`);
+    // ⚠ **AND WHETHER IT CAN FAIL AT ALL, AND WHETHER A SECOND ATTEMPT COULD ANSWER
+    // DIFFERENTLY.** Both decide which error-path OPTIONS the step offers, so a drift is a
+    // control one door draws and the other refuses — and `retryable` drifting the other way
+    // is a retry saved on a step whose answer cannot change, spending the step-run budget
+    // to reach the same refusal.
+    assert.equal(site.failable === true, engine.failable === true, `${type}: whether it can fail drifted`);
+    assert.equal(site.retryable === true, engine.retryable === true, `${type}: whether it may be retried drifted`);
     // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: something out there really does
     // declare a `when`, a `refs` and a set of options, or the loop above asserts nothing.
   }
@@ -1062,6 +1073,40 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
   assert.ok(anyField((f) => f.accepts !== undefined), "no field says what it accepts");
   assert.ok(anyField((f) => f.says !== undefined), "no field carries its own word");
   assert.ok(anyField((f) => f.empty !== undefined), "no field carries its own empty-field sentence");
+  assert.ok(ENGINE_STEPS.some((s) => s.failable === true), "nothing can fail, so that comparison is vacuous");
+  assert.ok(ENGINE_STEPS.some((s) => s.retryable === true), "nothing may be retried, so that comparison is vacuous");
+  assert.ok(ENGINE_STEPS.some((s) => s.failable !== true), "everything can fail, so the other half is vacuous");
+});
+
+test("⚠ WHAT HAPPENS WHEN A STEP FAILS IS ONE TABLE IN TWO LANGUAGES, censused both ways", () => {
+  // ⚠ **A DRIFT HERE IS A CUSTOMER'S ANSWER MEANING TWO THINGS.** The paths decide whether a
+  // failure ends the workflow; the failable kinds decide which steps are even offered the
+  // choice; the retry bound decides what one step may ask for. Every one is enforced in code
+  // on BOTH sides, so neither can be read off the other at run time — and a copy that is not
+  // censused is a copy that drifts.
+  assert.deepEqual([...SITE_ERROR_PATHS], [...ENGINE_ERROR_PATHS],
+    "the ways of handling a failure the screen offers are not the ones the engine runs");
+  assert.deepEqual([...SITE_FAILABLE_KINDS], [...ENGINE_FAILABLE_KINDS],
+    "the kinds of step that may declare an error path differ, so one door offers a control the other refuses");
+  assert.equal(SITE_MAX_STEP_RETRIES, ENGINE_MAX_STEP_RETRIES,
+    "a number of retries the screen accepts and the engine refuses");
+  // THE ORDER IS PART OF IT, because both sides render the options into the SAME refusal
+  // sentence — so a reordered list is two different sentences for one refusal.
+  assert.equal(SITE_ERROR_PATHS.join(","), ENGINE_ERROR_PATHS.join(","), "the paths are in a different order");
+  // AND `stop` IS THE DEFAULT ON BOTH, which is what makes an absent path mean what every
+  // workflow saved before this already does. Asserted as the first entry because that is
+  // where both catalogs take it from.
+  assert.equal(ENGINE_ERROR_PATHS[0], "stop", "the default is no longer the one that stops");
+  // ⚠ THE OBSERVER: `retry` really is withheld somewhere, or the options-are-the-wall rule
+  // is a claim about nothing. Read off the catalogs rather than off the tables.
+  const onErrorOf = (list, type) => (list.find((x) => x.type === type)?.fields ?? []).find((f) => f.name === "on_error");
+  for (const [type, want] of [["knowledge", 3], ["note", 2], ["memory", 2], ["weekday", 2]]) {
+    assert.equal(onErrorOf(ENGINE_STEPS, type)?.options.length, want, `${type} offers the wrong number of paths`);
+    assert.deepEqual([...(onErrorOf(SITE_STEPS, type)?.options ?? [])], [...(onErrorOf(ENGINE_STEPS, type)?.options ?? [])],
+      `${type}: the paths the two doors offer differ`);
+  }
+  assert.equal(onErrorOf(ENGINE_STEPS, "if"), undefined, "a branch is offered an error path it cannot have");
+  assert.equal(onErrorOf(SITE_STEPS, "if"), undefined, "a branch is offered an error path it cannot have");
 });
 
 test("⚠ THE TYPE SYSTEM IS ONE TABLE IN TWO LANGUAGES, censused both ways", () => {
@@ -1106,7 +1151,7 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
   // Comparing SOURCE could never see that: the two are written differently on purpose.
   // What they have to agree about is the VERDICT, so the verdict is what is compared.
   const IF = { type: "if", left: "a", op: "is", right: "b" };
-  const N = (text, out) => (out ? { type: "note", text, out } : { type: "note", text });
+  const N = (text, out, over) => ({ type: "note", text, ...(out ? { out } : {}), ...(over ?? {}) });
   const shapes = [
     ["nothing at all", [], []],
     ["a plain step", [N("hello")], []],
@@ -1179,6 +1224,29 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
     ], []],
     ["a branch inside a loop", [RPT(), IF, N("a"), { type: "otherwise" }, N("b"), { type: "end" }, { type: "endrepeat" }], NAMES],
     ["a loop inside a branch", [IF, RPT(), N("a"), { type: "endrepeat" }, { type: "otherwise" }, N("b"), { type: "end" }], NAMES],
+  );
+  // ── THE ERROR PATHS ───────────────────────────────────────────────────────────
+  // ⚠ EVERY REFUSAL HERE IS DERIVED FROM THE FIELD ON BOTH SIDES — its `says`, its
+  // `options`, its bounds — so these shapes are what proves the derivation really produces
+  // the same sentence rather than two templates that happen to read alike today.
+  const K = (over) => ({ type: "knowledge", query: "x", out: "found", ...over });
+  shapes.push(
+    ["no error path at all (the default)", [N("hi")], []],
+    ["carrying on past a failure", [N("hi", null, { on_error: "continue" })], []],
+    ["stopping, said out loud", [N("hi", null, { on_error: "stop" })], []],
+    ["a retry on the one step that may", [K({ on_error: "retry", retries: 2 })], []],
+    ["a retry on a step whose answer cannot change", [N("hi", null, { on_error: "retry", retries: 2 })], []],
+    ["a path nobody offers", [N("hi", null, { on_error: "carry on regardless" })], []],
+    ["a path that is not a string", [N("hi", null, { on_error: ["continue"] })], []],
+    ["a retry with no count", [K({ on_error: "retry" })], []],
+    ["a retry counted in words", [K({ on_error: "retry", retries: "two" })], []],
+    ["a retry counted at nought", [K({ on_error: "retry", retries: 0 })], []],
+    ["more retries than one step may ask for", [K({ on_error: "retry", retries: SITE_MAX_STEP_RETRIES + 1 })], []],
+    ["a count without a retry, which nothing reads", [K({ on_error: "continue", retries: 2 })], []],
+    ["an error path on a branch, which cannot fail", [{ ...IF, on_error: "continue" }, { type: "end" }], []],
+    ["an error path on a pause, which does not fail",
+      [{ type: "approval", ask: "ok?", hours: 1, on_timeout: "reject", on_error: "continue" }], []],
+    ["an empty error path, which means the default", [N("hi", null, { on_error: "" })], []],
   );
 
   for (const [what, steps, inputs] of shapes) {
