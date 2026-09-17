@@ -9156,6 +9156,22 @@ until the run answered rather than published and corrected. *Measure the
 baseline; never subtract from a paragraph* — this file's own rule, in the round
 that records it.
 
+**CI HAS READ BOTH, ON `bb7b4214`.** `unit tests` run **2691**, green
+(2026-09-17 23:27:57→23:29:50Z) — `# tests 6833 / # pass 6829 / # fail 0 /
+# skipped 4`, against local `6833 / 6833 / 0 / 0`; the four are the three
+recorded environment skips plus `site-searchpath`'s baseline-commit case, and
+**the TOTAL is what matches**. And `site build` run **1183**
+(23:27:57→23:51:56Z), **all twenty steps green**: `site-build.mjs` **382 passed
+/ 0 failed**, with kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47 beside it, and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` with no count — the three
+result SHAPES a census has to ask for. Every count bounded landmark-to-landmark
+(`##[group]Run …` to the next), **0 result lines before the first marker**. It
+fired because `worker.js` moved. **The unit step's TAP is `# pass 396 /
+# fail 0`, unchanged from runs 1171, 1173 and 1177** — correct, because this
+round adds no `page-gen` or `publish-pages` case. **THE REFUSAL-ORDER DEFECT IS
+CLOSED.**
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK.**
 
 
