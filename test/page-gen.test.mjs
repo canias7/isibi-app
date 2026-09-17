@@ -4402,6 +4402,104 @@ test("the full build's rewrite is unchanged by the knownRoutes option", () => {
   assert.match(v.pages[0].source, /to="\/">Back to booking/, "the full-build rewrite of a dangling link stopped working");
 });
 
+test("pageId is the one definition of which page a string names", () => {
+  // ⚠ IT IS THE IDENTITY EVERY READER ON THIS PATH ASKS AND IT HAD NO CASE AT
+  // ALL — driven from a shell while the fix was written and never written down,
+  // which a sweep said out loud: a mutant making it case-sensitive survived
+  // everything. The defect it replaces was two spellings of one page compared
+  // with `===`, which fails silently and reads as "this site has no such page".
+  //
+  // A FILE REDUCES THROUGH `routeOf`, which already accepts the `src/routes/`
+  // prefix and its absence, so one identity covers what a MODEL writes and what
+  // a SITE stores alike.
+  assert.equal(api.pageId("index.tsx"), "/");
+  assert.equal(api.pageId("src/routes/index.tsx"), "/");
+  assert.equal(api.pageId("gallery.tsx"), "/gallery");
+  assert.equal(api.pageId("src/routes/gallery.tsx"), "/gallery");
+  assert.equal(api.pageId("src/routes/about.team.tsx"), "/about/team", "the flat-route convention is routeOf's, not a second copy");
+
+  // A ROUTE IS LOWER-CASED AND LOSES A TRAILING SLASH, and THE HOME ROUTE IS
+  // ONE SLASH AND STAYS ONE — `site-add.mjs`'s own rule, because stripping it
+  // leaves "" and a section on a one-page site then has nowhere to land.
+  assert.equal(api.pageId("/"), "/");
+  assert.equal(api.pageId("/gallery"), "/gallery");
+  assert.equal(api.pageId("/gallery/"), "/gallery");
+  assert.equal(api.pageId("/Gallery/"), "/gallery");
+  assert.equal(api.pageId("gallery"), "/gallery", "a route without its slash is repaired, not refused");
+
+  // …AND THE TWO SPELLINGS MEET, which is the whole of it.
+  assert.equal(api.pageId("src/routes/gallery.tsx"), api.pageId("/gallery"));
+  assert.equal(api.pageId("index.tsx"), api.pageId("/"));
+
+  // CANNOT-TELL IS "", NEVER A ROUTE. `String(["/x"])` is "/x", so a non-string
+  // is refused rather than coerced — the recorded trap.
+  for (const junk of ["", "   ", null, undefined, 7, ["/x"], {}]) {
+    assert.equal(api.pageId(junk), "", "a non-string was coerced into a page: " + JSON.stringify(junk));
+  }
+  assert.equal(api.pageId("_layout.tsx"), "", "a file routeOf refuses is not a page");
+});
+
+test("priorPagesSent resolves a keep entry in ANY spelling, which is the one wall on that side", () => {
+  // ⚠ THE MODULE PROMISED THIS IN PROSE AND NOTHING DROVE IT. Its own comment
+  // says "`routeOf` already tolerates either file spelling", and a sweep mutant
+  // cutting the keep side's normalisation (`first = keep`) SURVIVED everything:
+  // every case anywhere hands `keep` an already-exact route, so the map that
+  // makes the promise true was never asked a question it could fail. A promise
+  // to a caller that nothing ever tested is this repository's own recorded
+  // "a wall nobody can drive is a wall nobody is guarding".
+  //
+  // AND IT IS THE ONE WALL, MEASURED RATHER THAN ASSUMED. The route applies
+  // `pageId` to its own entries before pushing them, so the two could read as a
+  // redundant pair; they are not. Driven over four spellings against three ~40k
+  // pages: with this map, every spelling selects `target.tsx`; without it, only
+  // the already-exact route does — the prefixed file, the bare file and a
+  // mixed-case route all fall back to stored order and show `middle.tsx`. So
+  // the caller's own `pageId` is what is absorbed here, not the reverse.
+  const body = (tag) => "// " + tag + "\n" + "x".repeat(40000);
+  const stored = [
+    { path: "index.tsx", source: body("index") },
+    { path: "middle.tsx", source: body("middle") },
+    { path: "target.tsx", source: body("target") },
+  ];
+  // THE OBSERVER IS ALIVE IN BOTH DIRECTIONS, and that is what makes the rows
+  // below about the keep list rather than about the budget: with no keep list
+  // at all the window really does take the first two in stored order, so
+  // `target.tsx` is withheld and each spelling below has something to prove.
+  const none = api.priorPagesSent(stored, {});
+  assert.deepEqual(none.shown.map((p) => p.path), ["index.tsx", "middle.tsx"]);
+  assert.deepEqual(none.withheld, ["target.tsx"], "stored order already shows the target, so nothing here is about keep");
+
+  for (const keep of [
+    ["/target", "/"],                              // what the route produces today
+    ["src/routes/target.tsx", "src/routes/index.tsx"], // the prefixed spelling the reported defect built
+    ["target.tsx", "index.tsx"],                   // what the site really stores, after cleanPath
+    ["/Target/", "/"],                             // a route as a MODEL may write it
+  ]) {
+    const r = api.priorPagesSent(stored, { keep });
+    assert.deepEqual(r.shown.map((p) => p.path), ["index.tsx", "target.tsx"],
+      "a keep entry spelled " + JSON.stringify(keep[0]) + " did not find its page");
+    assert.deepEqual(r.withheld, ["middle.tsx"]);
+    // IN STORED ORDER ON THE WIRE whatever keep did to the selection — the
+    // module's other rule, asserted here because this is the case that moves
+    // the selection away from stored order in the first place.
+    assert.deepEqual(r.names, ["index.tsx", "middle.tsx", "target.tsx"]);
+  }
+
+  // A KEEP ENTRY NAMING NO PAGE IS NOT AN ERROR AND TAKES NO SLOT — the
+  // ordinary case on a change whose destination is a page this same change is
+  // adding, which by construction the site does not have yet.
+  const absent = api.priorPagesSent(stored, { keep: ["/gallery", "/target"] });
+  assert.deepEqual(absent.shown.map((p) => p.path), ["index.tsx", "target.tsx"],
+    "a keep entry for a page that does not exist consumed the budget");
+
+  // AND JUNK IN THE KEEP LIST IS DROPPED RATHER THAN MATCHED. `pageId` answers
+  // "" for a non-string, and "" must never find a page — `String(["/x"])` is
+  // "/x", so the filter is what stops an array being read as a route.
+  const junk = api.priorPagesSent(stored, { keep: [null, 7, "", "   ", {}, "/target"] });
+  assert.deepEqual(junk.shown.map((p) => p.path), ["index.tsx", "target.tsx"],
+    "junk in the keep list took a slot: " + JSON.stringify(junk.shown.map((p) => p.path)));
+});
+
 test("both partial lanes hand validate the stored site's routes", () => {
   // The module fix is nothing if the lanes do not pass what they know — the
   // wiring layer, this repo's most-recorded failure. Both call sites must carry
@@ -4415,7 +4513,15 @@ test("both partial lanes hand validate the stored site's routes", () => {
     const win = worker.slice(i, i + 400);
     if (/partial:\s*true/.test(win)) wins.push(win);
   }
-  assert.equal(wins.length, 2, "expected the two partial lanes, found " + wins.length);
+  // RE-ANCHORED 2026-09-17, and the count is kept rather than loosened to a
+  // floor: it is a CENSUS — a partial lane added without `knownRoutes` must
+  // fail by existing, and `>= 2` would let a deleted call site pass. The third
+  // is the addon's REPAIR pass, which re-asks validate over what survives when
+  // a page is withheld with a dead QR code, so a link into a withheld route is
+  // rewritten rather than published dangling. It carries the same two things
+  // for the same reason, which is why it belongs in this census rather than
+  // beside it as an exemption.
+  assert.equal(wins.length, 3, "expected the two partial lanes plus the addon's withholding repair, found " + wins.length);
   for (const c of wins) {
     assert.match(c, /knownRoutes:/, "a partial lane calls validate without the site's own routes:\n" + c.slice(0, 200));
     assert.match(c, /routeOf\(/, "knownRoutes is not derived from the stored pages:\n" + c.slice(0, 200));

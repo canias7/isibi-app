@@ -12443,3 +12443,94 @@ database by reading the migration back, the engine by 71 live checks plus the sc
 run above, and the screen by the served bytes matching the code. And the one design call
 from last time is still yours: whether the automation row's four buttons should drop to
 their own line at 560px.
+
+## 2026-09-17 — both corrections done, and the second one was hiding behind a test fixture
+
+You gave me two. I reproduced each one first, exactly as you described it, before
+touching anything.
+
+### 1. The QR exception is gone — the dependency is completed or withheld, never warned about
+
+You were right that a warning is not a fix. What I had built published a printed
+QR code that opens nothing, next to a sentence asking you please not to print it.
+I reproduced it: the broken destination really was saved, and the reply claimed
+the site had gained a code.
+
+**What happens now**: the code is dropped, *and* the page whose only change was
+showing it goes out as the version already on your site. Nothing breaks, because
+that version is already live — the binding is never deleted from a working page,
+it is simply never added. If the page was one this change invented, it is not
+added at all, and it says so in different words, because "I've left it as it was"
+is false about a page that has never existed.
+
+**Two things I want to flag, because I nearly got them wrong.**
+
+* If withholding leaves nothing at all to publish, it now **refuses** — free,
+  nothing stored — rather than compiling a site identical to itself and charging
+  you for it.
+* My own fix reintroduced an old and expensive bug for about ten minutes: a home
+  page linking to a page I had just withheld shipped with that link intact, which
+  is a dead link for anyone who clicks it. I measured it, and the repair for that
+  already exists in the platform, so I ask it again over what survives. The link
+  points home and you are told it moved.
+
+**Your successful case is kept**: a page and a QR that both arrive publishes the
+code and says nothing.
+
+### 2. Large sites: the page you asked about was the one being dropped
+
+Your reproduction was exact. Three big pages, "change /target" — and /target was
+the page held back. The cause is one line: the selection built file names with a
+`src/routes/` prefix, and the platform stores them without it. So the list of
+"pages this change is about" matched **nothing**, on every real site, and the
+selection was just stored order.
+
+**And it survived because of a test fixture.** Every "the site already has this
+page" test here wrote the stored page with that same prefix, so both sides agreed
+by accident. I measured what that really does with real code: a prefixed stored
+page and a normal returned one leave the site with **two home pages**, reported as
+an addition. Which means one of your walls — the one that refuses a change that
+lost the words already on a page — **had never once fired in any of those tests.**
+The fixtures are now produced by the real validator, so it fires, and one test
+went red immediately and needed a real fix.
+
+**A page now has one identity everywhere**: stored source, selection, generation
+and merge all ask the same question, and it is "which page is this, by its
+address" rather than "which file has this name".
+
+### 3. And a page nobody showed the model can't be replaced by it
+
+You said prompt wording and the words-preserved check don't establish that an
+unseen rewrite is safe, and both halves are right: the prompt does name every
+page it couldn't fit and tell the model not to touch them, which a model reads
+past; and the words check would pass a rewrite that quietly dropped a form or a
+link. So it is a wall now — a returned file for a page we couldn't show is
+refused, your stored one is kept, and you are told which, because a page silently
+dropped looks exactly like a page nobody touched.
+
+**Checks**: 6,788 tests green, up 8. Six of the new tests were run against the old code
+first and all six failed there — including two that only start failing once the
+fixtures are honest. Seven older tests were re-anchored onto what really moved
+rather than nudged until they passed.
+
+**And the deliberate-sabotage run came back clean: 43 out of 43 caught.** The
+useful part is what the first pass found. Nine sabotages survived it and **not
+one of them was a real hole in the two fixes** — six were gaps in the new tests,
+and three were more interesting:
+
+- **Two of them looked like the same safety check written twice**, which is
+  usually a sign one can go. I measured it instead of arguing about it, over four
+  different ways a page can be named, and they are not a pair: one of the two is
+  the only thing holding the whole fix up and the other genuinely does nothing.
+  The one that does nothing stays — it says what the list holds, which is worth
+  something to the next person reading it — but it is now labelled in the code as
+  doing nothing, so nobody wastes a day "fixing" it again. **The one that matters
+  now has a test.** It never had one, because every test in the codebase happened
+  to hand it the one input it could not fail on.
+- **The third was a genuine trap and the other codebase already records it**:
+  `"a"` and `["a"]` are the same string to JavaScript, so a page whose contents
+  arrived in the wrong shape read as a page showing a QR code, and would have had
+  its change withheld for nothing.
+
+**Nothing merged, nothing deployed, nothing paid.** Next is the combined page +
+photo work you paused this for.

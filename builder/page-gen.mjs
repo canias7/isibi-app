@@ -2598,17 +2598,59 @@ export const MAX_PRIOR_CHARS = 90000;
  * the route fills it from the cleaned answers' own `page` fields plus the home
  * page, which is the nav anchor every addon touches.
  *
+ * ⚠ `keep` NAMES ROUTES, NOT FILES, and that is the fix for a defect that made
+ * it do nothing at all (owner, 2026-09-17). It used to be matched as a file
+ * path — `list.find((p) => p.path === k)` — and the route built each entry as
+ * `"src/routes/" + fileOfRoute(r)`, on a comment asserting "that is what
+ * `priorPages` really carries". It is not. `cleanPath` STRIPS `src/routes/` on
+ * the way in, so `validatePages` answers `target.tsx` and `saveSiteSource`
+ * keeps exactly that; MEASURED through the validator, every persisted path is
+ * bare. So no keep entry could ever match a real site's page and the whole
+ * selection was stored order. Reproduced through the route on three valid ~40k
+ * pages: asking to change `/target` showed `index.tsx` and `middle.tsx` and
+ * withheld `target.tsx`.
+ *
+ * A ROUTE IS THE IDENTITY BOTH SIDES REALLY SHARE, and `pageId` is the ONE
+ * definition of it — applied to the keep entries AND to the stored paths, so
+ * there is no side that can be normalised and a side that is not. `routeOf`
+ * already tolerates either file spelling; its own comment records the same
+ * prefix bug costing the whole `page` edit layer.
+ *
  * A PAGE TOO BIG FOR WHAT IS LEFT IS SKIPPED, NOT A STOP — `partsSent`'s rule,
  * so one enormous page does not withhold four small ones behind it.
  */
+/**
+ * WHICH PAGE A STRING NAMES, whether it is a route or a file.
+ *
+ * ONE DEFINITION, ASKED OF BOTH SIDES OF EVERY COMPARISON. The defect this
+ * replaces was not a wrong conversion; it was TWO spellings of one identity
+ * being compared with `===`, which fails silently and reads as "this site does
+ * not have that page". A file is reduced through `routeOf` (which already
+ * accepts the `src/routes/` prefix and its absence); a route is lower-cased and
+ * stripped of a trailing slash, with a lone `/` kept as itself — the home route
+ * is one slash and stays one, the rule `site-add.mjs`'s own `route` records.
+ */
+export function pageId(v) {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return "";
+  if (/\.tsx$/i.test(s)) return routeOf(s);
+  const low = s.toLowerCase();
+  const cut = low === "/" ? "/" : low.replace(/\/+$/, "");
+  if (!cut) return "";
+  return cut.startsWith("/") ? cut : "/" + cut;
+}
+
 export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [] } = {}) {
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
-  const first = (Array.isArray(keep) ? keep : []).filter((k) => typeof k === "string" && k);
-  const order = [
-    ...first.map((k) => list.find((p) => p.path === k)).filter(Boolean),
-    ...list.filter((p) => !first.includes(p.path)),
-  ];
+  const first = (Array.isArray(keep) ? keep : []).map(pageId).filter(Boolean);
+  const kept = new Set();
+  const order = [];
+  for (const k of first) {
+    const p = list.find((q) => pageId(q.path) === k && !kept.has(q.path));
+    if (p) { kept.add(p.path); order.push(p); }
+  }
+  for (const p of list) if (!kept.has(p.path)) order.push(p);
   const shown = [], withheld = [];
   let total = 0;
   for (const p of order) {

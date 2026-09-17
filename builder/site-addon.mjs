@@ -464,6 +464,36 @@ export function unseenPartsNote(names) {
     "Ask me for that bit again and I'll have another go.";
 }
 
+/**
+ * A PAGE THE PROMPT WINDOW COULD NOT CARRY, RETURNED ANYWAY.
+ *
+ * Owner, 2026-09-17: *"Enforce preservation of withheld existing pages at the
+ * merge boundary. Prompt wording and `keptProse` do not establish that an
+ * unseen rewrite preserves behavior."*
+ *
+ * THIS IS `unseenPartsNote` ONE LAYER OVER and the reasoning is identical: the
+ * pages we could not SHOW are exactly the pages we cannot CHECK. The prompt
+ * names them and forbids returning one, which is wording; `keptProse` asks
+ * whether the WORDS survived, which a rewrite that quietly loses a form, a
+ * link or a hook passes cleanly. So the file is refused and the stored version
+ * kept — and SAID, because a withheld page dropped in silence reads exactly
+ * like a page the model never touched.
+ *
+ * NAMES ROUTES, NOT FILES, and the advice is the one thing that really helps:
+ * ask for that page on its own, where it is the whole of the request and fits.
+ */
+export function unseenPagesNote(paths) {
+  const list = (Array.isArray(paths) ? paths : []).map((p) => routeOf(p) || p)
+    .filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "Your site is big enough now that I can't hold every page at once, so " + list.join(", ") + " " +
+    (one ? "wasn't" : "weren't") + " in front of me — and I won't write over a page I haven't read. " +
+    (one ? "It is" : "They are") + " exactly as " + (one ? "it was" : "they were") + ". " +
+    "Ask me for " + (one ? "that page" : "those pages") + " on " + (one ? "its" : "their") +
+    " own and I'll have the whole thing in view.";
+}
+
 export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));

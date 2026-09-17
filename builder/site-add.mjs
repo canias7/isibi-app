@@ -2780,20 +2780,43 @@ export function missingPagesNote(routes) {
  * site) is not a candidate at all, which is why the origin is compared and not
  * just the path.
  *
- * …AND IT IS KEPT WHEN A PAGE THAT REALLY SHIPPED SHOWS IT. Dropping it then
- * takes `SITE_QRS.<name>` out from under a page that renders it, which is a
- * live page breaking to spare a code that 404s — the worse of the two by a
- * distance, and visible to every visitor rather than to whoever scans. Such a
- * code is `stuck`: kept, and said.
+ * ⚠ AND A PAGE THAT RENDERS IT IS WITHHELD WITH IT — it is not a reason to
+ * publish it (owner, 2026-09-17: *"Remove the exception that publishes a newly
+ * added QR pointing to a missing planned page merely because a generated page
+ * renders it… A warning does not complete the dependency."*).
+ *
+ * The first cut KEPT such a code, on the reasoning that dropping it takes
+ * `SITE_QRS.<name>` out from under a page that renders it. That reasoning is
+ * sound and the conclusion was wrong: it saved the page by shipping a code
+ * that opens nothing, and told the customer to please not print the thing we
+ * had just made for them. The dependency was never completed — a sentence
+ * stood in for it.
+ *
+ * SO THE DEPENDENT CHANGES ARE WITHHELD TOGETHER. The code is dropped, and
+ * every page THIS CHANGE WROTE that renders it is withheld: an existing page
+ * goes out as its previous version, a page this change invented does not go
+ * out at all. Nothing breaks, because the version that ships is one that
+ * shipped before — the binding is never deleted from a live page, it is simply
+ * never introduced. The customer hears both halves and can ask again.
+ *
+ * IT IS A FIXED POINT, NOT A PASS, and that is not decoration: withholding an
+ * ADDED page takes its route away, which can kill a second code pointing at
+ * it, which can withhold a third page. `MAX_QRS` is 6, so a chain that long is
+ * constructible rather than hypothetical. The loop settles when a round drops
+ * nothing new, and it terminates because every round that continues adds to a
+ * set bounded by the codes and the pages.
  *
  * `qrUnplaced` IS THE ONE READER OF "does a page show this code" — its own
  * binding regex, already written, already guarded — so this asks it and
  * inverts the answer rather than owning a second copy of that correspondence.
+ * It is asked ONE PAGE AT A TIME against the WHOLE code list, because its
+ * legacy `SITE_QR` arm keys on a code's INDEX: handing it a one-element list
+ * would make every code look like the first.
  */
-export function deadQrs({ qr, prior, missing, pages, url } = {}) {
+export function deadQrs({ qr, prior, missing, wrote, url } = {}) {
   const codes = qrList(qr);
   const gone = new Set((Array.isArray(missing) ? missing : []).map(route).filter(Boolean));
-  if (!gone.size || !codes.length) return { qr: codes, dropped: [], stuck: [] };
+  if (!gone.size || !codes.length) return { qr: codes, dropped: [], withheld: [] };
   const base = siteAddress(url);
   const had = new Set(qrList(prior).map((c) => c.name));
   // WHICH ROUTE OF OURS THIS CODE OPENS, or "" for anything else. The exact
@@ -2820,16 +2843,39 @@ export function deadQrs({ qr, prior, missing, pages, url } = {}) {
       return route(u.pathname);
     } catch { return ""; }
   };
-  const shows = new Set(codes.map((c) => c.name));
-  for (const n of qrUnplaced(codes, pages)) shows.delete(n);
-  const keep = [], dropped = [], stuck = [];
-  for (const c of codes) {
-    const r = had.has(c.name) ? "" : opens(c.points);
-    if (!r || !gone.has(r)) { keep.push(c); continue; }
-    if (shows.has(c.name)) { keep.push(c); stuck.push({ name: c.name, route: r }); continue; }
-    dropped.push({ name: c.name, route: r });
+  // THE PAGES THIS CHANGE WROTE, and only those. A page the change did not
+  // touch cannot render a code the change just invented — it would not have
+  // compiled — and it is not ours to withhold in any case.
+  const written = (Array.isArray(wrote) ? wrote : []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string");
+  // WHICH CODES A GIVEN PAGE RENDERS: `qrUnplaced` inverted, per page, against
+  // the whole list so its index-keyed legacy arm still means what it means.
+  const renders = (p) => {
+    const off = new Set(qrUnplaced(codes, [p]));
+    return codes.map((c) => c.name).filter((n) => n && !off.has(n));
+  };
+  const dead = new Set(), held = new Map();
+  const dropped = [], withheld = [];
+  for (let round = 0; round <= codes.length + 1; round++) {
+    let moved = false;
+    for (const c of codes) {
+      if (dead.has(c.name)) continue;
+      const r = had.has(c.name) ? "" : opens(c.points);
+      if (!r || !gone.has(r)) continue;
+      dead.add(c.name); dropped.push({ name: c.name, route: r }); moved = true;
+    }
+    for (const p of written) {
+      if (held.has(p.path) || !renders(p).some((n) => dead.has(n))) continue;
+      const entry = { path: p.path, added: p.added === true };
+      held.set(p.path, entry); withheld.push(entry); moved = true;
+      // AND A PAGE THIS CHANGE INVENTED TAKES ITS ROUTE WITH IT — that is what
+      // makes the cascade real. One it merely CHANGED keeps its route, because
+      // the version that ships is the one the site is already serving.
+      const back = entry.added ? routeOf(p.path) : "";
+      if (back) gone.add(back);
+    }
+    if (!moved) break;
   }
-  return { qr: keep, dropped, stuck };
+  return { qr: codes.filter((c) => !dead.has(c.name)), dropped, withheld };
 }
 
 /**
@@ -2840,26 +2886,39 @@ export function deadQrs({ qr, prior, missing, pages, url } = {}) {
  * for both and hears only about the page is left to discover the code's state
  * by scanning it.
  *
- * TWO OUTCOMES, TWO SENTENCES, because only one of them is actionable in the
- * same way: a dropped code is simply not there and comes back with the page; a
- * `stuck` one IS on the site, on a page that shows it, and scanning it today
- * lands on nothing — which they may want to know before they print it.
+ * TWO OUTCOMES, TWO SENTENCES, because they are about different things and a
+ * customer can act on each separately: the code is not there, and a page they
+ * expected to change did not change. Saying only the first would leave them
+ * looking for a section on a page that is exactly as it was.
+ *
+ * AND THE SECOND SENTENCE NAMES ROUTES, not file names: `/` is what they see
+ * in the address bar, `index.tsx` is ours.
  */
-export function deadQrNote({ dropped = [], stuck = [] } = {}) {
+export function deadQrNote({ dropped = [], withheld = [] } = {}) {
   const out = [];
   const names = (l) => l.slice(0, 3).map((d) => d && d.name).filter(Boolean).join(", ");
   const drop = (Array.isArray(dropped) ? dropped : []).filter((d) => d && d.name);
-  const keptOn = (Array.isArray(stuck) ? stuck : []).filter((d) => d && d.name);
+  const held = (Array.isArray(withheld) ? withheld : []).filter((d) => d && d.path);
   if (drop.length) {
     out.push("I didn't add the QR code" + (drop.length === 1 ? " " : "s ") + names(drop) +
       " — " + (drop.length === 1 ? "it was" : "they were") + " going to open that page, and a code that opens nothing " +
       "is worse than no code at all. Ask me for the page again and I'll add " + (drop.length === 1 ? "it" : "them") + " with it.");
   }
-  if (keptOn.length) {
-    out.push("The QR code" + (keptOn.length === 1 ? " " : "s ") + names(keptOn) +
-      " " + (keptOn.length === 1 ? "is" : "are") + " on your site because a page shows " +
-      (keptOn.length === 1 ? "it" : "them") + ", but " + (keptOn.length === 1 ? "it opens" : "they open") +
-      " that missing page — don't print " + (keptOn.length === 1 ? "it" : "them") + " until the page is there.");
+  // TWO SENTENCES FOR TWO KINDS OF WITHHOLDING, because "I left it as it was"
+  // is FALSE of a page this change invented — there was no "as it was" — and a
+  // customer reading it would go looking for a page that has never existed.
+  const where = (l) => l.slice(0, 3).map((d) => routeOf(d.path) || d.path).join(", ");
+  const kept = held.filter((d) => d.added !== true);
+  const never = held.filter((d) => d.added === true);
+  if (kept.length) {
+    out.push("I've left " + where(kept) + " as " + (kept.length === 1 ? "it was" : "they were") +
+      ", because the only change " + (kept.length === 1 ? "it" : "they") + " had was showing that code — putting " +
+      (kept.length === 1 ? "it" : "them") + " live would have printed a code that opens nothing.");
+  }
+  if (never.length) {
+    out.push("I haven't added " + where(never) + " either — " + (never.length === 1 ? "it was" : "they were") +
+      " there to show that code, so on " + (never.length === 1 ? "its" : "their") + " own " +
+      (never.length === 1 ? "it" : "they") + " would have been a page pointing at nothing.");
   }
   return out.join(" ");
 }

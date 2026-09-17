@@ -8039,6 +8039,179 @@ available in either direction.
 **NOT MERGED TO MAIN AND NOT DEPLOYED** — the owner's instruction for this round,
 as for the last four. No paid call was made and no demo site was touched.
 
+### A DEPENDENCY IS COMPLETED OR WITHHELD, NEVER WARNED ABOUT — AND A PAGE HAS ONE IDENTITY (2026-09-17)
+
+Owner, on the two rounds above: *"Remove the exception that publishes a newly
+added QR pointing to a missing planned page merely because a generated page
+renders it… A warning does not complete the dependency."* And: *"Fix large-site
+selection using the actual persisted page format… Match page identities
+consistently across stored source, selection, generation and merging."*
+
+**BOTH REPRODUCED THROUGH THE REAL ROUTE BEFORE ANYTHING WAS TOUCHED**, and the
+second one exactly as the owner gave it.
+
+**1. THE `stuck` EXCEPTION IS GONE, AND THE DEPENDENT SET IS WITHHELD TOGETHER.**
+The previous round kept a code a shipped page renders, reasoning that dropping it
+takes `SITE_QRS.<name>` out from under that page. The reasoning is sound and the
+conclusion was wrong: it published a printed thing that opens nothing beside a
+sentence asking the customer please not to print it. Reproduced: `STORED QR:
+[{"name":"gallery","points":"https://<site>/gallery"}]`, `moved: ["qr"]`, `ok:
+true`. **The whole dependent set now goes together** — the code is dropped and
+every page THIS CHANGE WROTE that renders it is withheld, an existing one going
+out as its PREVIOUS version and an invented one not at all. Nothing breaks
+because what ships already shipped: the binding is never deleted from a live
+page, it is never introduced.
+
+- **IT IS A FIXED POINT, NOT A PASS**, and that is not decoration: withholding an
+  ADDED page takes its route away, which can kill a second code pointing at it,
+  which withholds a third page. `MAX_QRS` is 6, so a chain that long is
+  constructible. A CHANGED page does not break the chain — it reverts to a
+  version the site is already serving, so its route stays.
+- **RE-MERGED, NEVER PATCHED.** The route takes the withheld files out of what
+  the writer RETURNED and asks `mergeAddonPages` again, because that function
+  owns "a changed page keeps its change only if it carries a link to a route
+  this change added" and a hand-edited answer satisfies none of it. `aMerge`
+  became a `let` for this; **five older guards were anchored on the `const`**.
+- **⚠ AND THE FIX REINTRODUCED THIS REPOSITORY'S OWN MOST EXPENSIVE CLASS UNTIL
+  IT WAS MEASURED.** A home page carrying `<Link to="/posters">` for a withheld
+  `/posters` published with that link intact — `TS2322` on the typecheck, a 404
+  for whoever clicks it. `validatePages` owns that repair and its own comment
+  records the history (a cap dropped `/account` and the two pages linking to it
+  took the build down), so it is asked AGAIN over what survives: the link is
+  rewritten to "/" and REPORTED. Measured both ways.
+- **NOTHING LEFT TO PUBLISH IS A REFUSAL** — `qr-dependency`, 422, cost 0,
+  nothing stored, both sentences — because a compile and a version for a site
+  byte-identical to itself costs a build and moves nothing. Asked by
+  `mergeAddonPages` itself rather than by counting.
+- **TWO SENTENCES FOR TWO KINDS OF WITHHOLDING.** *"I've left / as it was"* is
+  FALSE of a page this change invented, and a customer reading it would go
+  looking for something that never existed.
+
+**2. A PAGE HAS ONE IDENTITY, AND `keep` HAD NEVER MATCHED ANYTHING.**
+`aKeepPages` built `"src/routes/" + fileOfRoute(r)` on a comment asserting *"that
+is what `priorPages` really carries"*. **MEASURED through the validator: it is
+not.** `cleanPath` strips the prefix, so `validatePages` answers `target.tsx` and
+`saveSiteSource` keeps exactly that — every persisted path is bare, no keep entry
+could ever match, and the large-site selection was stored order on every real
+site. The owner's reproduction, driven: three valid ~40k pages, asking to change
+`/target` showed `index.tsx` and `middle.tsx` and **withheld `target.tsx`**.
+After: shown `index.tsx` and `target.tsx`, withheld `middle.tsx`.
+
+- **`pageId` IS THE ONE DEFINITION AND IS ASKED OF BOTH SIDES.** The defect was
+  not a wrong conversion; it was two spellings of one identity compared with
+  `===`, which fails silently and reads as *"this site does not have that page"*.
+  `keep` names ROUTES now and the route passes them straight through, which
+  removes a conversion rather than fixing one.
+- **⚠ AND THE FIXTURE WAS THE WHOLE REASON IT SURVIVED.** Every stored-page
+  fixture in `test/addon-route.test.mjs` was `writtenPage`, whose path carries
+  the prefix — so the guard's two sides agreed by accident. **MEASURED through
+  the real `mergeAddonPages`: a prefixed stored page beside a bare returned one
+  answers `added: ["index.tsx"]` and leaves BOTH files in the site**, where the
+  real shapes answer `changed` and one. So every *"the site already has this
+  page"* case here was exercising a duplicate ADD, and **`keptProse` — the wall
+  that refuses an addition which lost the page's words — had never fired in any
+  of them.** `storedPage` is validator-produced and `addedTo` is what an addon
+  really returns; five route fixtures were re-anchored onto them and the wall
+  now arms on every such case. `routeOf`'s own comment already records this exact
+  trap costing the whole `page` edit layer.
+
+**3. THE MERGE BOUNDARY ENFORCES IT, because wording does not.** Owner: *"Prompt
+wording and keptProse do not establish that an unseen rewrite preserves
+behavior."* Both halves exact — the prompt NAMES every withheld page and forbids
+returning one, and `keptProse` asks only whether the WORDS survived, which a
+rewrite that drops a form, a link or a hook passes cleanly. A returned file for a
+withheld path is refused, the stored one kept, and **said** (`keptPages`,
+`unseenPagesNote`): a withheld page dropped in silence is indistinguishable from
+one the model never touched. **This is `partsSent`'s wall one layer over, for the
+same reason in the same words** — the pages we could not SHOW are the pages we
+cannot CHECK — and a change that was ONLY that rewrite refuses rather than
+climbing to the ~25-credit revise.
+
+**Guards**: `addon-route` **85 → 91** — the three QR withholding cases (the
+narrow drop, the withheld page with an independent page shipping beside it, the
+invented page, and the empty-change refusal), **THE LIFECYCLE** (validator-
+produced pages, hop by hop: the validator strips the prefix → the selection finds
+the target → the merge reports `changed` and not a second file), and the merge
+boundary with its control. `site-add` **42** (the `stuck` case REPLACED by its
+opposite, the other two re-anchored, plus the cascade and both sentences).
+**Every new case was proved RED against the pre-change product** — six of them,
+including two that had passed only because the fixture was prefixed on both
+sides: `["index.tsx","middle.tsx"]` for the lifecycle and *"a page nobody was
+shown was replaced by a rewrite of it"* for the boundary.
+
+**Seven older guards re-anchored, not appeased**, each naming the property that
+moved: `page-gen`'s partial-lane census (2 → 3, kept as a COUNT rather than
+loosened to a floor — it is a census, and `>= 2` would let a deleted call site
+pass); `publish-pages`' repair census (the subject is a lane validating what a
+MODEL wrote, so the re-validation is told apart by what it is HANDED and censused
+both ways); `requirement-coverage`'s HOP 6b (a third composer made the field an
+array join, so the window is landmark-to-landmark rather than one line); the
+three `site-addon` merge anchors and `add-second-one`'s merge-to-gate window
+(`const` → `let`).
+
+**Sweep: 43 mutants, 43 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-qr-and-identity.json`, over
+`worker.js`, `builder/site-add.mjs`, `builder/page-gen.mjs` and
+`builder/site-addon.mjs`, against 12 test files — a narrow list can only produce
+a false SURVIVOR, never a false kill). **Pass 1 read 44/35/9 and NOT ONE
+SURVIVOR WAS THE PRODUCT'S**: six were gaps in this change's own guards, two
+were mutants of mine that measured INERT, and one was a wall nobody had driven.
+Four are worth keeping as rules:
+
+- **⚠ THE "REDUNDANT PAIR" WAS NOT ONE, AND MEASURING IT IS WHAT SAID SO.** Two
+  survivors both cut a `pageId` on the keep side — the route's own
+  (`aKeepPages.push(pageId(r))`) and the module's (`keep.map(pageId)`) — which
+  reads exactly like the recorded *"two redundant defences cannot be killed one
+  at a time"*. **Driven over four spellings against three ~40k pages, it is one
+  wall and one absorbed line**: with the module's map, a prefixed file, a bare
+  file, a mixed-case route and an exact route all select the same two pages;
+  without it, only the already-exact route does and the other three fall back to
+  stored order. So the ROUTE's call is what is absorbed and the MODULE's map is
+  the wall — **guarded now, where nothing had ever asked it a question it could
+  fail**, because every case anywhere hands `keep` an exact route. The module's
+  own prose promised this (*"`routeOf` already tolerates either spelling"*) and
+  that promise had no reader: this repository's own *"a wall nobody can drive is
+  a wall nobody is guarding"*. The absorbed line is KEPT — it says the list holds
+  page identities rather than raw model strings, which is what makes its
+  `includes` a real de-duplication, and `aKeepPages` has no other consumer that
+  could tell the two apart — and it is **declared absorbed in the code**, so the
+  next sweep reads a survivor there as the record rather than as a gap.
+- **⚠ AND A MUTANT WRITTEN AS A PAIR IS NOT A PAIR MUTANT.** The first repair
+  appended the two halves as TWO spec entries, which is the inertness being fixed
+  wearing a different hat; and `scripts/mutate.mjs` applies ONE `from`/`to` per
+  entry against `m.files[0]`, so a genuine two-file pair cannot be expressed at
+  all. **Read the runner before writing a mutant shape it has to support.**
+- **`qrUnplaced` IS ASKED WITH THE WHOLE LIST, ONE PAGE AT A TIME** — never one
+  code at a time — because its legacy `SITE_QR` arm is keyed on a code's INDEX,
+  so a one-element list makes every code look like the first. MEASURED on a page
+  carrying a bare `SITE_QR`: the real reading answers `["gallery"]` and the
+  one-at-a-time reading `["gallery","posters"]`, so a second code reads as
+  rendered and its page is withheld over a binding that is not its. Closed with
+  its CONTROL — the same page with the FIRST code dropped — so the case is about
+  the index and not about the legacy form being unreadable.
+- **`String(["a"]) === "a"`, IN THE READER FOR WHAT A PAGE RENDERS.**
+  `qrUnplaced` reads `String((p && p.source) || "")`, so an entry whose `source`
+  is an ARRAY reads as a page rendering the code and its page is withheld for
+  nothing. The `typeof p.source === "string"` filter is what stops it; measured
+  over six shapes, five agree and that one does not.
+
+**Suite 6,788** — 6,780 + 6 (`addon-route` **85 → 91**) + 2 (`page-gen`
+**250 → 252**: `pageId`'s own case, and the keep-spelling contract above).
+`site-add` is **42 → 42**: the `stuck` case was REPLACED by its opposite and both
+closers are assertions inside cases that already existed, so it adds none.
+
+**⚠ AND THE FIRST STAMP OF THAT NUMBER WAS DERIVED AND WRONG — 6,785, by
+arithmetic off two remembered baselines.** The suite measured **6,788**, and the
+three baselines measured in a detached worktree at `86c45695` are what closed it:
+`addon-route` 85, `site-add` 42, `page-gen` **250** — not the 89 and 251 the
+derivation assumed. This file's own rule is *stamp measured numbers only AFTER
+the run*, and the failure mode it is warning about is exactly this: an arithmetic
+that closes against itself and against nothing else. **Measure the baseline in a
+worktree; never subtract from a number in a paragraph.**
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK** — the owner's
+instruction for this round.
+
 
 ## Data, auth, payments, mail
 

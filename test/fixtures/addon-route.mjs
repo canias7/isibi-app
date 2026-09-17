@@ -26,10 +26,11 @@
 import { loadWorker, makeCtx } from "./worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./cf-containers.mjs";
 import { CONFIG_KEY } from "../../site-config.mjs";
+import { validatePages } from "../../builder/page-gen.mjs";
 
 export const USER = { id: "u-addon-route", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
-const PAGES = [{ path: "src/routes/index.tsx", source: "export default function Home(){return <h1>Fretwork</h1>}" }];
+const PAGES = [{ path: "index.tsx", source: "export default function Home(){return <h1>Fretwork</h1>}" }];
 // WHAT THE PAGE CALL ANSWERS on a case that is not pageless. A generated page
 // must export a Route — `validatePages` refuses one that does not, by
 // `createFileRoute(`, which is why this is a real page rather than the stored
@@ -46,6 +47,12 @@ const WRITTEN_PAGES = [{
  * A generated page at a route, in the shape `validatePages` accepts — so a case
  * can say "the writer returned /gallery and not /prices" without retyping the
  * route export every time.
+ *
+ * ⚠ THE `src/routes/` PREFIX IS DELIBERATE AND IS ONLY RIGHT ON THIS SIDE. It
+ * is what a MODEL really writes, and `cleanPath` strips it on the way in. What
+ * a site STORES is the stripped form, so this producer must never stand in for
+ * a stored page — `storedPage` below is that one, and it is validator-produced
+ * rather than hand-spelled.
  */
 export function writtenPage(routePath) {
   const file = routePath === "/" ? "index" : routePath.replace(/^\//, "").replace(/\//g, "-");
@@ -55,6 +62,62 @@ export function writtenPage(routePath) {
       + "export const Route = createFileRoute('" + routePath + "')({ component: Page })\n"
       + "function Page(){ return <main><h1>" + file + "</h1><p>Words for " + file + ".</p></main> }\n",
   };
+}
+
+/**
+ * THE SAME PAGE AS A SITE REALLY HOLDS IT — run through the real validator.
+ *
+ * ⚠ THIS EXISTS BECAUSE ITS ABSENCE WAS LOAD-BEARING (owner, 2026-09-17).
+ * Every stored-page fixture here was `writtenPage`, whose path carries the
+ * `src/routes/` prefix — and `cleanPath` strips it, so the site's stored
+ * `src/routes/index.tsx` and the writer's returned `index.tsx` are two
+ * different pages to every reader on the path. MEASURED through the real
+ * `mergeAddonPages`: a prefixed stored page beside a bare returned one answers
+ * `added: ["index.tsx"]` and leaves BOTH files in the site, where the real
+ * shapes answer `changed` and one. So every "the site already has this page"
+ * case in this suite was exercising a duplicate ADD, `keptProse` never fired
+ * on any of them, and the page window's `keep` list could never match.
+ *
+ * DERIVED FROM ITS REAL PRODUCER rather than spelled bare by hand: the
+ * identity is whatever `validatePages` answers, so the day that changes these
+ * fixtures change with it instead of drifting from it.
+ */
+export function storedPage(routePath) {
+  const w = writtenPage(routePath);
+  const v = validatePages({ pages: [w] }, { partial: true });
+  if (!v.pages.length) throw new Error("storedPage: the validator refused " + routePath + " — " + v.problems.join("; "));
+  return v.pages[0];
+}
+
+/**
+ * WHAT AN ADDON REALLY RETURNS FOR A PAGE THE SITE ALREADY HAS: everything the
+ * page said, plus the new thing.
+ *
+ * ⚠ AND IT IS ONLY NEEDED NOW THAT THE STORED PAGES ARE REAL. `keptProse` — the
+ * route's "an addition may only ADD" wall — reads `aMerge.changed`, which no
+ * case in this suite could ever reach while the stored path carried a prefix
+ * the returned path did not: every one of them was an ADD, so the wall was
+ * never armed. With the identities lined up it arms on every such case, which
+ * is the wall working rather than a fixture to appease.
+ */
+export function addedTo(routePath, extra) {
+  const p = storedPage(routePath);
+  return { ...p, source: p.source.replace("</main>", extra + "</main>") };
+}
+
+/**
+ * THE PAGES THAT REALLY WENT TO THE COMPILER, as `[{path, source}]`.
+ *
+ * READ OFF THE CONTAINER PAYLOAD, never off a reply field, because the two are
+ * different claims: `changed` is what the route SAYS it published, and this is
+ * what it HANDED to the thing that builds the site. A case about a page being
+ * withheld has to read the second — a route that kept the file on its list and
+ * sent it anyway satisfies every assertion about the first.
+ */
+export function compiledPages(r) {
+  const files = r && r.compiles && r.compiles[0] && r.compiles[0].body && r.compiles[0].body.files;
+  if (!files || typeof files !== "object") return [];
+  return Object.entries(files).map(([path, source]) => ({ path, source: String(source) }));
 }
 
 /**
@@ -442,7 +505,7 @@ export async function addon(slug, instruction, opts) {
     // imports nothing. A case about the kit signatures the writer is shown has
     // to be able to say "this page calls <Accordion>".
     const store = bucket(slug,
-      (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null),
+      (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(storedPage) : null),
       opts && opts.look, opts && opts.parts, opts && opts.css, opts && opts.partsFail);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",

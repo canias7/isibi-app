@@ -941,7 +941,11 @@ test("the route hands a considered refusal to the customer, not to the build lan
   // refusal routed through it rebuilds the site for ~25 credits in answer to
   // "remove the home page". The branch must sit BEFORE the escalation.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("const aMerge = mergeAddonPages(");
+  // RE-ANCHORED 2026-09-17: `const` became `let`, because a dead QR code can
+  // withhold a page and the route then RE-MERGES what survives rather than
+  // hand-editing the answer. The property is the merge that the refusals below
+  // are scoped to, not which keyword declares it.
+  const at = w.indexOf("aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove)");
   assert.ok(at > 0, "the addon merge call moved");
   // TO A LANDMARK, NOT A BYTE COUNT. This read `at + 1400` and went red on a
   // correct change the moment a documented branch was added between the two
@@ -1472,7 +1476,8 @@ test("the addon reports the model's own note instead of escalating", () => {
   // it covered our merge's refusals and not the model's, which is the commonest
   // case of it by far.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);");
+  // RE-ANCHORED 2026-09-17: `const` → `let`, the withholding re-merge.
+  const at = w.indexOf("aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove)");
   assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
 
@@ -1495,7 +1500,9 @@ test("NOTHING SAID WHY STILL ESCALATES, which is what keeps the recovery", () =>
   // note is what separates the two, so a branch that fired without one would
   // turn every generator failure into a dead end.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);");
+  // RE-ANCHORED 2026-09-17: `const` → `let`, the withholding re-merge.
+  const at = w.indexOf("aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove)");
+  assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
   assert.match(win, /if \(!aMerge\.ok\) return aEscalate\(aMerge\.reason/,
     "the unexplained-failure path no longer escalates");

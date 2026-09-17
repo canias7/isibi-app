@@ -135,7 +135,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -206,7 +206,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -244,7 +244,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, fileOfRoute, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -23452,7 +23452,7 @@ async function handleRequest(request, env, ctx) {
             // the code it belongs to is four hundred lines below a refusal that
             // composes the coverage, and a refusal there throws `ReferenceError`
             // that no source scan and no `node --check` can see.
-            let aDeadQr = { dropped: [], stuck: [] };
+            let aDeadQr = { dropped: [], withheld: [] };
             // …AND THE PAGES THE PROMPT WINDOW COULD NOT CARRY (2026-09-17).
             // Declared here for the reason above it: `aCoverage` reads it, and
             // this route's first possible call to that closure is a refusal
@@ -23695,13 +23695,14 @@ async function handleRequest(request, env, ctx) {
                 // a route is the one thing about a missing page a customer can
                 // do something with.
                 missingPages: aMissing.length ? aMissing : undefined,
-                // …AND THE CODES THAT DEPENDED ON THEM, both outcomes on the
-                // wire as themselves: a `dropped` code is not on the site, a
-                // `stuck` one is and opens nothing. Folding them into one list
-                // with a flag would be two findings in one field, which is the
-                // shape this route has already had to unpick twice.
+                // …AND THE CODES THAT DEPENDED ON THEM, beside the pages that
+                // went with them. Two fields rather than one flagged list: a
+                // dropped CODE and a withheld PAGE are different things about
+                // different objects, and folding them would be two findings in
+                // one field — the shape this route has already had to unpick
+                // twice.
                 droppedQrs: aDeadQr.dropped.length ? aDeadQr.dropped.slice(0, 6) : undefined,
-                stuckQrs: aDeadQr.stuck.length ? aDeadQr.stuck.slice(0, 6) : undefined,
+                heldPages: aDeadQr.withheld.length ? aDeadQr.withheld.map((w) => w.path).slice(0, 6) : undefined,
                 // THE DEVELOPER'S COPY OF THE TWO NEW FINDINGS. `seedSkips`
                 // carries the engine's own sentences, which name the rule the
                 // customer's clause deliberately leaves out; `noPopulation` is
@@ -24546,12 +24547,36 @@ async function handleRequest(request, env, ctx) {
             // touches ("usually that is ONE new page, plus the page a visitor
             // would look on to find it"). Everything else keeps stored order.
             //
-            // BY FILE PATH, because that is what `priorPages` really carries;
-            // `fileOfRoute` is the one converter and is the producer's own.
+            // ⚠ BY ROUTE, and this line used to say "by file path, because that
+            // is what `priorPages` really carries" and build each entry as
+            // `"src/routes/" + fileOfRoute(r)`. MEASURED through the validator:
+            // `cleanPath` strips that prefix, so every persisted path is BARE
+            // and no entry could ever match — `keep` did nothing at all and the
+            // selection was stored order on every real site. A route is the
+            // identity the stored source, the selection, the generation and the
+            // merge all really share; `priorPagesSent` resolves it through
+            // `routeOf`, which tolerates either spelling.
+            //
+            // ⚠ AND `pageId` HERE IS A SECOND APPLICATION WHOSE EFFECT THE
+            // MODULE ABSORBS — measured, and declared rather than left for the
+            // next sweep to read as a gap. `priorPagesSent` maps `pageId` over
+            // the keep list itself, so the spelling this line produces cannot
+            // change which pages are selected: driven over four spellings
+            // against three ~40k pages, the prefixed file, the bare file, a
+            // mixed-case route and an exact route all select the same two. It
+            // is kept because it says what this list HOLDS — page identities,
+            // not raw model strings — which is what makes `includes` a real
+            // de-duplication rather than a string comparison, and `aKeepPages`
+            // has no other consumer that could tell the two apart (it reaches
+            // `priorPagesSent` twice, once here and once through
+            // `priorPagesBlock`, and nothing else). THE WALL IS THE MODULE'S
+            // MAP, and it is guarded there — `test/page-gen.test.mjs`, "any
+            // spelling". Do not read a surviving mutant of this line as a gap;
+            // read the module's.
             const aKeepPages = [];
             const aWantPage = (r) => {
-              const f = fileOfRoute(r);
-              if (f && !aKeepPages.includes("src/routes/" + f)) aKeepPages.push("src/routes/" + f);
+              const f = pageId(r);
+              if (f && !aKeepPages.includes(f)) aKeepPages.push(f);
             };
             for (const ans of aAnswers) {
               for (const v of (Array.isArray(ans.value) ? ans.value : [ans.value])) {
@@ -24738,7 +24763,52 @@ async function handleRequest(request, env, ctx) {
             // it, so no build request changes shape. Only the addon prompt
             // explains it, and only this lane reads it.
             const aRemove = (aGen && aGen.input && Array.isArray(aGen.input.remove)) ? aGen.input.remove : [];
-            const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);
+
+            // ── A PAGE NOBODY WAS SHOWN CANNOT BE REPLACED ────────────────
+            //
+            // Owner, 2026-09-17: *"Enforce preservation of withheld existing
+            // pages at the merge boundary. Prompt wording and `keptProse` do
+            // not establish that an unseen rewrite preserves behavior."* Both
+            // halves of that are exact. The prompt names every withheld page
+            // and says not to return one — wording, which a model reads past —
+            // and `keptProse` asks only whether the WORDS survived, which a
+            // rewrite that drops a form, a link or a hook satisfies perfectly.
+            //
+            // THIS IS `partsSent`'s WALL ONE LAYER OVER, and for the same
+            // reason in the same words: the pages we could not SHOW are
+            // exactly the pages we cannot CHECK, so a returned file for one of
+            // them replaces source nobody saw. It is refused, the stored
+            // version is kept, and the customer is told which — because a
+            // withheld page silently dropped is indistinguishable from a page
+            // the model never touched.
+            //
+            // BY THE SAME IDENTITY THE SELECTION USED. `aPagesSent.withheld`
+            // carries stored paths and `aValid.pages` carries the validator's;
+            // both go through `pageId`, so the wall cannot come apart from the
+            // window that decided what to withhold.
+            const aUnseen = new Set(aPagesSent.withheld.map(pageId).filter(Boolean));
+            const aRewrote = aUnseen.size
+              ? (aValid.pages || []).filter((p) => p && aUnseen.has(pageId(p.path))).map((p) => p.path)
+              : [];
+            if (aRewrote.length) {
+              const aBlocked = new Set(aRewrote);
+              aValid.pages = (aValid.pages || []).filter((p) => !aBlocked.has(p.path));
+              aMark("pages", "unseen-rewrite", { refused: aRewrote.length, withheld: aPagesSent.withheld.length });
+            }
+
+            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);
+            // …AND A CHANGE THAT WAS ONLY THAT REWRITE IS A REFUSAL, NEVER A
+            // CLIMB. Falling through would escalate `nothing-returned` to the
+            // ~25-credit revise — rewriting a customer's whole site because we
+            // refused the one file it returned — which is this route's own
+            // recorded "a considered refusal does not climb the ladder", met
+            // from the refusing side.
+            if (!aMerge.ok && aRewrote.length) {
+              return Response.json({
+                ok: false, error: "unseen-rewrite", cost: 0, keptPages: aRewrote.slice(0, 6),
+                msg: unseenPagesNote(aRewrote),
+              }, { status: 422 });
+            }
             // A CONSIDERED REFUSAL DOES NOT CLIMB THE LADDER. Escalation is for
             // "this lane could not answer" — the rung above rewrites the whole
             // site, which is expensive and does work. "Remove the home page" has
@@ -24834,7 +24904,7 @@ async function handleRequest(request, env, ctx) {
             // disagree about which pages made it.
             const aFilesOut = [...(aMerge.added || []), ...(aMerge.changed || [])];
             const aWanted = aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : []));
-            const aGone = missingPages(aWanted, aFilesOut);
+            let aGone = missingPages(aWanted, aFilesOut);
 
             // ── AND NO NEW QR CODE OPENS A PAGE THAT IS NOT THERE ─────────
             //
@@ -24847,19 +24917,88 @@ async function handleRequest(request, env, ctx) {
             // missing page reported afterwards; the customer prints it.
             //
             // BEFORE THE BILL AND BEFORE THE STORE, so a dropped code costs
-            // nothing and leaves nothing behind. `deadQrs` says why in full,
-            // including why a code a live page really shows is KEPT and named
-            // instead.
-            aDeadQr = deadQrs({ qr: aMerged.qr, prior: aLook.qr, missing: aGone, pages: aMerge.pages, url: aUrl });
-            if (aDeadQr.dropped.length || aDeadQr.stuck.length) {
-              aMark("qr", aDeadQr.dropped.length ? "dropped" : "stuck", { dropped: aDeadQr.dropped.length, stuck: aDeadQr.stuck.length, missing: aGone.length });
-            }
+            // nothing and leaves nothing behind.
+            //
+            // ⚠ AND THE DEPENDENT PAGES GO WITH IT (owner, 2026-09-17: *"A
+            // warning does not complete the dependency."*). The first cut KEPT
+            // a code a shipped page renders, so as not to pull `SITE_QRS.<name>`
+            // out from under it — and published a code that opens nothing
+            // beside a sentence asking the customer not to print it. Now the
+            // whole dependent set is withheld together: the code is dropped,
+            // and every page THIS CHANGE WROTE that renders it goes out as its
+            // PREVIOUS version (or not at all, if this change invented it).
+            // Nothing breaks, because what ships is a version that already
+            // shipped — the binding is never deleted from a live page, it is
+            // never introduced.
+            aDeadQr = deadQrs({
+              qr: aMerged.qr, prior: aLook.qr, missing: aGone, url: aUrl,
+              // THE PAGES THIS CHANGE WROTE, each carrying whether it is new,
+              // because that decides what withholding it means — an added page
+              // disappears and takes its route with it, a changed one reverts.
+              wrote: (aMerge.pages || []).filter((p) => p && aFilesOut.includes(p.path))
+                .map((p) => ({ path: p.path, source: p.source, added: (aMerge.added || []).includes(p.path) })),
+            });
             if (aDeadQr.dropped.length) {
+              aMark("qr", "dropped", { dropped: aDeadQr.dropped.length, withheld: aDeadQr.withheld.length, missing: aGone.length });
               aMerged.qr = aDeadQr.qr;
               // AND THE TWO ANSWERS FOLLOW IT. Re-asked rather than patched:
               // dropping the only field this change moved makes the whole
               // look store a no-op, and `moved` has to stop claiming it.
               aReadLook();
+            }
+            if (aDeadQr.withheld.length) {
+              // RE-MERGED, NEVER PATCHED. Taking the withheld files out of what
+              // the writer RETURNED and asking `mergeAddonPages` again is the
+              // only way to get a merge that is internally consistent: that
+              // function owns "a changed page keeps its change only if it
+              // carries a link to a route this change added", and a hand-edited
+              // `aMerge` would satisfy none of it. A changed page reverts to the
+              // source the site is serving and an added one disappears, both as
+              // a consequence rather than as two more branches here.
+              //
+              // ONE RE-RUN, NOT A LOOP: `deadQrs` already settled its own fixed
+              // point over the codes and the pages, so the second merge cannot
+              // produce a third.
+              const aHold = new Set(aDeadQr.withheld.map((w) => w.path));
+              // ⚠ AND A LINK TO A PAGE WE JUST WITHHELD IS A DEAD BUILD — this
+              // repository's own most expensive measured class, reintroduced by
+              // its own fix if this is not here. MEASURED before it was: a home
+              // page carrying `<Link to="/posters">` for a withheld `/posters`
+              // published with that link intact, which is `TS2322` on the
+              // typecheck and a 404 for the visitor who clicks it.
+              //
+              // `validatePages` IS THE ONE OWNER OF THAT REPAIR and its own
+              // comment records the history (a cap dropped `/account` and the
+              // two pages linking to it took the build down). Asked again over
+              // what SURVIVES, so a link into a withheld route is rewritten to
+              // "/" and REPORTED — the same second chance the cap gets. It
+              // cannot refuse anything new: every page here has already been
+              // through it once.
+              const aSurvive = (aValid.pages || []).filter((p) => p && !aHold.has(p.path));
+              const aRepaired = validatePages({ pages: aSurvive }, {
+                partial: true,
+                knownRoutes: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+              });
+              for (const q of aRepaired.problems) if (!aProblems.includes(q)) aProblems.push(q);
+              const aHeld = mergeAddonPages(aSrc, aRepaired.pages, aRemove);
+              // NOTHING LEFT TO PUBLISH IS A REFUSAL, NOT AN EMPTY PUBLISH. A
+              // compile and a version for a site byte-identical to itself costs
+              // the customer a build and moves nothing — and `mergeAddonPages`
+              // answering `no-change` or `nothing-returned` is exactly that,
+              // asked by the one function that can tell.
+              if (!aHeld.ok) {
+                return Response.json({
+                  ok: false, error: "qr-dependency", cost: 0,
+                  droppedQrs: aDeadQr.dropped.slice(0, 6),
+                  heldPages: aDeadQr.withheld.map((w) => w.path).slice(0, 6),
+                  msg: deadQrNote(aDeadQr).trim(),
+                }, { status: 422 });
+              }
+              aMerge = aHeld;
+              // AND WHAT IS STILL GOING OUT IS RE-ASKED, never patched — the
+              // customer's own missing-page sentence is composed from it, and a
+              // page withheld here really did not make it.
+              aGone = missingPages(aWanted, [...aMerge.added, ...aMerge.changed]);
             }
 
             // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
@@ -25254,11 +25393,20 @@ async function handleRequest(request, env, ctx) {
               // was read, so nothing may be replaced and we do not even know
               // what the site has. The two are disjoint by construction.
               unseenParts: aUnseenParts.length ? aUnseenParts.slice(0, 6) : undefined,
+              // …AND THE SAME WALL FOR A PAGE (2026-09-17). A returned file for
+              // a page the window could not carry is refused and the stored
+              // one kept — the pages we could not SHOW are the pages we cannot
+              // CHECK. Its own field beside the component one, because a page
+              // and a component are different objects with different advice.
+              keptPages: aRewrote.length ? aRewrote.slice(0, 6) : undefined,
               // …AND THE SENTENCE, composed here and printed VERBATIM by the
               // browser — `coverNote`'s rule, for `coverNote`'s reason: the
               // decision is entirely the server's, since it is the only thing
               // that knows which sources fitted in the request.
-              keptPartsNote: (keptPartsNote(aKeptParts) || unseenPartsNote(aUnseenParts)) || undefined,
+              keptPartsNote: [
+                (keptPartsNote(aKeptParts) || unseenPartsNote(aUnseenParts)),
+                unseenPagesNote(aRewrote),
+              ].filter(Boolean).join(" ") || undefined,
               problems: aProblems.slice(0, 4),
               // THE RENDER SENTENCE IS THE FINAL BUILD'S — the repaired one
               // when the round held — and the round's own sentence rides

@@ -614,13 +614,23 @@ test("HOP 6b: the browser prints the server's sentence and composes none of its 
   // to carry, and a component store that could not be read at all — so the
   // field the browser prints is filled from either. Read as the composers
   // reaching that one field, never as one call's exact text.
-  const kn = W.match(/keptPartsNote: ([^\n]*),\n/);
-  assert.ok(kn, "the server sends no sentence for the field the browser prints");
-  assert.ok(kn[1].includes("keptPartsNote(aKeptParts)"), "the too-long sentence is not composed: " + kn[1]);
-  assert.ok(kn[1].includes("unseenPartsNote(aUnseenParts)"), "a store that could not be read gets no sentence of its own: " + kn[1]);
+  // …AND RE-ANCHORED AGAIN 2026-09-17, for the same reason one turn later: a
+  // THIRD composer joined it — a PAGE the window could not carry and would
+  // therefore have been replaced unseen — so the field is an array join rather
+  // than one line and a single-line window could not see it. WINDOWED TO THE
+  // NEXT SIBLING, never sized, and the three composers are asserted by name.
+  const knAt = W.indexOf("keptPartsNote: [");
+  assert.ok(knAt > 0, "the server sends no sentence for the field the browser prints");
+  const knEnd = W.indexOf("problems:", knAt);
+  assert.ok(knEnd > knAt, "the sentence block runs past the field that follows it — rescope this");
+  const kn = W.slice(knAt, knEnd);
+  assert.ok(kn.includes("keptPartsNote(aKeptParts)"), "the too-long sentence is not composed: " + kn);
+  assert.ok(kn.includes("unseenPartsNote(aUnseenParts)"), "a store that could not be read gets no sentence of its own: " + kn);
+  assert.ok(kn.includes("unseenPagesNote(aRewrote)"), "a page nobody was shown gets no sentence of its own: " + kn);
   assert.doesNotMatch(C, /too long for me to read in one go/, "the browser composes its own kept-component sentence");
   assert.doesNotMatch(C, /couldn't load the components/, "the browser composes its own unreadable-store sentence");
   assert.doesNotMatch(C, /a code that opens nothing/, "the browser composes its own dead-QR sentence");
+  assert.doesNotMatch(C, /won't write over a page I haven't read/, "the browser composes its own unseen-page sentence");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

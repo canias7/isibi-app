@@ -25,11 +25,14 @@
 // `fixtures/addon-route.mjs`.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, storedPage, addedTo, compiledPages, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
 // THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
 // a case that hardcoded "12001 characters is too big" would be a second copy of
 // `MAX_PART_CHARS` and would pass silently the day the real one moved.
-import { MAX_PART_CHARS, MAX_PRIOR_CHARS } from "../builder/page-gen.mjs";
+import { MAX_PART_CHARS, MAX_PRIOR_CHARS, validatePages } from "../builder/page-gen.mjs";
+// `routeOf` IS THE PRODUCT'S OWN, so a case naming a page's route derives it
+// the way every reader does rather than spelling it beside the file name.
+import { routeOf } from "../builder/site-addon.mjs";
 // REAL GENERATED PAGES, so "a site too large to show whole" is real source
 // rather than padding — the same corpus a dozen false-alarm checks measure
 // against, and the one place these files are reached from.
@@ -1433,8 +1436,15 @@ test("a kind this layer cannot see is UNKNOWN, never missing and never 'set up' 
   // about where it lands, so the site is given the page it names rather than
   // the destination being quietly changed — an appeasement that keeps a check
   // green while saying something other than what it meant.
+  // …AND RE-ANCHORED AGAIN 2026-09-17, for the second half of the same trap.
+  // With the stored pages in the shape a site really holds, this case's page
+  // is `changed` rather than a duplicate ADD — so `keptProse` arms, and the
+  // DEFAULT written page (a different site's words) loses everything the
+  // stored one said. `addedTo` is what an addon really returns: the page as it
+  // stands, plus the new thing.
   const r = await addon("fw-unseeable", "add a note under the booking total", {
     kinds: ["function", "component"], publishes: true, sitePages: ["/", "/status"],
+    written: [addedTo("/status", "<p>Where the total comes from.</p>")],
     answers: {
       function: { function: [{ ...COUNT_FN, internal: true, body: "BEGIN RETURN 1; END;" }], requirements: [NEEDS_SECTION] },
       component: { component: [{ page: "/status", does: "a line saying where the total comes from", components: ["card"] }] },
@@ -2523,7 +2533,7 @@ test("the page writer is shown the theme, the site's own stylesheet and the kit 
   // vacuous assertion, caught by running the case against the pre-change
   // product rather than by reading it.
   const HOME = {
-    path: "src/routes/index.tsx",
+    path: "index.tsx",
     source: "import { createFileRoute } from '@tanstack/react-router'\n"
       + "import { SeatMap } from '@/components/ui/seat-map'\n"
       + "export const Route = createFileRoute('/')({ component: Home })\n"
@@ -2709,9 +2719,15 @@ test("a new QR code that would open a page the writer did not return is not publ
   // the code was stored pointing at `https://<site>/gallery`, `moved` claimed
   // `qr`, and the only thing the customer heard was that the page had not made
   // it. A QR is the one thing here somebody PRINTS.
+  //
+  // RE-ANCHORED 2026-09-17: with the stored pages in the shape a site really
+  // holds, the home page here is `changed` rather than a duplicate ADD, so
+  // `keptProse` arms and a returned page carrying another site's words is
+  // refused before any of this is reached. `addedTo` is what an addon really
+  // returns for a page that already exists.
   const r = await addon("fw-qr-gone", "add a gallery page and a QR code that opens it", {
-    kinds: ["page", "qr"], publishes: true,
-    written: [writtenPage("/")],
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", "<p>See our gallery.</p>")],
     answers: {
       page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
       qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
@@ -2730,25 +2746,44 @@ test("a new QR code that would open a page the writer did not return is not publ
   assert.ok(!look || !(look.qr && look.qr.length), "a QR code opening a page that is not there was published: " + JSON.stringify(look && look.qr));
   assert.deepEqual(r.body.moved, [], "the reply claims it gave the site a QR code it did not");
   assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
-  assert.equal(r.body.stuckQrs, undefined, "a code nothing shows was reported as one a page depends on");
+  // AND NO PAGE WAS WITHHELD, which is what makes this the NARROW case: the
+  // home page does not render the code, so the only dependent thing is the
+  // code itself and the rest of the change ships. Without this the case cannot
+  // be told apart from the withholding one below.
+  assert.equal(r.body.heldPages, undefined, "a page that does not show the code was withheld anyway");
+  assert.deepEqual(r.body.changed, ["index.tsx"], "the independent half of the change did not ship: " + JSON.stringify(r.body.changed));
 
   // AND BOTH SENTENCES, beside each other: the page, and what went with it.
   assert.match(r.body.coverNote, /\/gallery didn't make it through/, r.body.coverNote);
   assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
   assert.match(r.body.coverNote, /a code that opens nothing is worse than no code at all/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I've left/, "a page nobody withheld was reported as withheld");
 });
 
-test("a QR code a shipped page really renders is kept and warned about, never pulled out from under it", async () => {
-  // THE OTHER HALF, and it is why this is not a one-line drop. The customer
-  // can ask for the code to go ON a page — `cleanAdd` takes `page` for exactly
-  // that — so the writer can put `SITE_QRS.gallery` on the home page while
-  // failing to write `/gallery`. Dropping the code then takes the binding out
-  // from under a page that renders it: a live page breaking to spare a code
-  // that 404s, which is the worse of the two and visible to every visitor.
+test("a page whose only change was showing that code is withheld with it, and neither is published", async () => {
+  // ⚠ THIS CASE IS THE OPPOSITE OF THE ONE IT REPLACES, AND THAT IS THE POINT.
+  // It used to read "a QR code a shipped page really renders is kept and
+  // warned about" and it ASSERTED THE DEFECT AS CORRECT (owner, 2026-09-17:
+  // *"Remove the exception that publishes a newly added QR pointing to a
+  // missing planned page merely because a generated page renders it… A warning
+  // does not complete the dependency."*).
+  //
+  // The reasoning behind the old behaviour was sound and its conclusion was
+  // not: dropping the code alone WOULD take `SITE_QRS.gallery` out from under
+  // a page that renders it. The answer is not to ship the broken code — it is
+  // to withhold the page too, so what goes out is the version already serving.
+  // Nothing is deleted from a live page; the binding is never introduced.
+  //
+  // PROVED RED AGAINST THE PRE-CHANGE PRODUCT: before the fix this ran
+  // `ok: true` with the code stored pointing at `https://<site>/gallery`.
   const shows = (p) => ({ ...p, source: p.source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") });
-  const r = await addon("fw-qr-stuck", "add a gallery page and a QR code on the home page that opens it", {
-    kinds: ["page", "qr"], publishes: true,
-    written: [shows(writtenPage("/"))],
+  const r = await addon("fw-qr-held", "add a gallery page and a QR code on the home page that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/", "/about"],
+    // THE HOME PAGE SHOWS THE CODE AND `/about` DOES NOT, so the withholding
+    // can be seen to be PER PAGE rather than a whole-change refusal — which is
+    // the difference between "withhold the dependent changes together" and
+    // "throw the customer's other work away".
+    written: [shows(addedTo("/", "<p>Scan for the gallery.</p>")), addedTo("/about", "<p>Since 1998.</p>")],
     answers: {
       page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
       qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery", page: "/" } },
@@ -2756,50 +2791,187 @@ test("a QR code a shipped page really renders is kept and warned about, never pu
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
-  const look = storedLook(r, "fw-qr-stuck");
-  assert.deepEqual((look.qr || []).map((q) => q.name), ["gallery"], "the code a live page renders was taken away from it");
-  assert.equal(r.body.droppedQrs, undefined, "a code a page depends on was dropped");
-  assert.deepEqual(r.body.stuckQrs, [{ name: "gallery", route: "/gallery" }], "the kept code is not on the wire");
-  // ITS OWN SENTENCE, not the dropped one — the two need different words
-  // because only one of them is on the site.
-  assert.match(r.body.coverNote, /is on your site because a page shows it/, r.body.coverNote);
-  assert.match(r.body.coverNote, /don't print it until the page is there/, r.body.coverNote);
-  assert.doesNotMatch(r.body.coverNote, /I didn't add the QR code/, "a kept code was described as one that was not added");
+
+  // THE CODE IS NOT PUBLISHED. The look is written before the compile — the
+  // container bakes `/qr-gallery.svg` from it — so nothing reaches a printer.
+  const look = storedLook(r, "fw-qr-held");
+  assert.ok(!look || !(look.qr && look.qr.length), "the broken destination was saved: " + JSON.stringify(look && look.qr));
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  assert.deepEqual(r.body.moved, [], "the reply claims it gave the site a QR code it did not");
+
+  // …AND THE HOME PAGE IS NOT BROKEN, because what ships is the version that
+  // was already serving. Read off what really went to the compiler, never off
+  // a field: `SITE_QRS` must appear nowhere in it.
+  assert.deepEqual(r.body.heldPages, ["index.tsx"], "the page that renders the dropped code was published anyway");
+  assert.ok(!(r.body.changed || []).includes("index.tsx"), "the withheld page is still reported as changed");
+  const out = compiledPages(r);
+  const home = out.find((p) => p.path === "index.tsx");
+  assert.ok(home, "the home page is not in the published site at all: " + JSON.stringify(out.map((p) => p.path)));
+  assert.doesNotMatch(home.source, /SITE_QRS/, "the published home page carries a binding for a code that does not exist");
+  assert.equal(home.source, storedPage("/").source, "the home page is not the version the site was already serving");
+
+  // …AND THE INDEPENDENT HALF STILL SHIPS. Withholding is per page, not a
+  // refusal of the whole change: `/about` never mentioned the code.
+  assert.ok((r.body.changed || []).includes("about.tsx"), "an unrelated page was withheld too: " + JSON.stringify(r.body.changed));
+  const about = out.find((p) => p.path === "about.tsx");
+  assert.match(about.source, /Since 1998/, "the independent change did not reach the published site");
+
+  // AND ALL THREE SENTENCES, because they are three facts: the page did not
+  // make it, the code went with it, and a page they expected to change did not.
+  assert.match(r.body.coverNote, /\/gallery didn't make it through/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I've left \/ as it was/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /don't print it until the page is there/,
+    "the customer was told to please not print a code we had just made — the reported defect");
+});
+
+test("a page this change never touched is not withheld, however its source reads", async () => {
+  // ⚠ `wrote` IS THE PAGES THIS CHANGE WROTE, and nothing else. A sweep mutant
+  // widening it to the whole site survived every other case, because no fixture
+  // had a STORED page mentioning a binding — and this platform really can leave
+  // one: `qr forget` and the edit lanes can take a code off a site while a page
+  // keeps the binding it was written with.
+  //
+  // Under the mutant that untouched page is withheld and NAMED, so the customer
+  // is told "I've left /flyer as it was" about a page nobody proposed to change.
+  const stale = { path: "flyer.tsx", source: storedPage("/flyer").source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") };
+  const r = await addon("fw-qr-untouched", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, storedPages: [storedPage("/"), stale],
+    written: [addedTo("/", "<p>See our gallery.</p>")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the code was published anyway");
+  // THE PRECONDITION, ASSERTED: the stale page really does carry the binding,
+  // so the only thing keeping it out of `withheld` is the scope.
+  assert.match(stale.source, /SITE_QRS\s*\.\s*gallery/, "the fixture does not render the code, so the scope is untested");
+  assert.equal(r.body.heldPages, undefined, "a page this change never touched was withheld: " + JSON.stringify(r.body.heldPages));
+  assert.doesNotMatch(r.body.coverNote, /I've left/, "a page nobody proposed to change was reported as left as it was");
+  // …AND IT IS STILL IN THE SITE, exactly as it was.
+  const live = compiledPages(r).find((p) => p.path === "flyer.tsx");
+  assert.equal(live && live.source, stale.source, "an untouched page's bytes moved");
+});
+
+test("a page this change invented to carry the code is not added at all, and says so in its own words", async () => {
+  // THE OTHER SHAPE OF THE SAME WITHHOLDING, and it needs its own sentence:
+  // "I've left it as it was" is FALSE of a page that has never existed, and a
+  // customer reading it would go looking for something that was never there.
+  const shows = (p) => ({ ...p, source: p.source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") });
+  const r = await addon("fw-qr-new-page", "add a gallery page, a posters page and a QR code on it that opens the gallery", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    // The writer returns `/posters` (which shows the code) and the home page,
+    // and never writes `/gallery`.
+    written: [shows(writtenPage("/posters")), addedTo("/", '<Link to="/posters">Posters</Link>')],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/posters", name: "Posters", purpose: "the printable code", sections: ["the code"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery", page: "/posters" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  assert.deepEqual(r.body.heldPages, ["posters.tsx"], "the invented page carrying the code was published anyway");
+  // IT IS NOT IN THE SITE AT ALL — an added page withheld is not a page.
+  const out = compiledPages(r);
+  assert.ok(!out.some((p) => p.path === "posters.tsx"), "a page whose only content was a dead code was published");
+  assert.ok(!(r.body.added || []).includes("posters.tsx"), "the reply says it added a page it did not");
+  // …AND IT IS REPORTED AS ONE THAT DID NOT MAKE IT, because it was asked for.
+  assert.ok((r.body.missingPages || []).includes("/posters"),
+    "a requested page that did not ship was not reported: " + JSON.stringify(r.body.missingPages));
+  // THE OTHER SENTENCE, and not the reverting one.
+  assert.match(r.body.coverNote, /I haven't added \/posters either/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I've left \/posters as it was/,
+    "a page that never existed was described as left as it was");
+  // AND THE HOME PAGE, which never mentioned the code, still ships its change.
+  assert.ok((r.body.changed || []).includes("index.tsx"), "an unrelated page was withheld: " + JSON.stringify(r.body.changed));
+  // ⚠ …AND ITS LINK TO THE WITHHELD PAGE IS REPAIRED, not shipped dangling.
+  // MEASURED before this was: the published home page carried
+  // `<Link to="/posters">` for a route that no longer exists, which is
+  // `TS2322` on the typecheck and a 404 for whoever clicks it — this
+  // repository's own most expensive recorded class, reintroduced by its own
+  // fix. `validatePages` owns that repair and is asked again over what
+  // survives, so the link points home and the rewrite is REPORTED.
+  const home = out.find((p) => p.path === "index.tsx");
+  assert.doesNotMatch(home.source, /\/posters/, "a link to the withheld page shipped: " + home.source.slice(-160));
+  assert.ok((r.body.problems || []).some((q) => /linked to and do not exist.*\/posters/.test(q)),
+    "the rewritten link was not reported: " + JSON.stringify(r.body.problems));
+});
+
+test("a change that was ONLY the dead code's page publishes nothing and costs nothing", async () => {
+  // THE THIRD OUTCOME: withholding can leave the change empty. Publishing then
+  // would compile a site byte-identical to itself and charge for it, so it is
+  // a refusal — cost 0, nothing stored, both sentences.
+  const shows = (p) => ({ ...p, source: p.source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") });
+  const r = await addon("fw-qr-empty", "add a gallery page and a QR code on the home page that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [shows(addedTo("/", "<p>Scan for the gallery.</p>"))],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery", page: "/" } },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "qr-dependency", JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0, "a change that published nothing was charged for");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  const look = storedLook(r, "fw-qr-empty");
+  assert.ok(!look || !(look.qr && look.qr.length), "a refused change stored the broken code anyway");
+  assert.match(r.body.msg, /I didn't add the QR code gallery/, r.body.msg);
+  assert.match(r.body.msg, /I've left \/ as it was/, r.body.msg);
+  // NOTHING WAS COMPILED. The refusal is before the bill and before the
+  // container, so the site is exactly as it was in every respect.
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
 });
 
 test("page + QR where both arrive publishes the code and says nothing — and an older code is never touched", async () => {
   // THE CONTROL the owner asked to keep. Same ask, same shapes, the writer
   // returning both pages: the code is stored, `moved` says so, and the
   // customer hears nothing at all.
+  // RE-ANCHORED 2026-09-17: the home page is the site's own now, so what the
+  // writer returns for it has to be that page PLUS the link — which is what an
+  // addon really returns, and what `mergeAddonPages`' own reachability rule
+  // requires of a changed page beside an added route.
   const ok = await addon("fw-qr-ok", "add a gallery page and a QR code that opens it", {
-    kinds: ["page", "qr"], publishes: true,
-    written: [writtenPage("/"), writtenPage("/gallery")],
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", '<Link to="/gallery">Gallery</Link>'), writtenPage("/gallery")],
     answers: {
       page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
       qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
     },
   });
   assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
-  assert.deepEqual(ok.body.added, ["index.tsx", "gallery.tsx"], JSON.stringify(ok.body.added));
+  // RE-ANCHORED 2026-09-17, and this expectation MOVED rather than broke: with
+  // the stored pages in the shape a site really holds, the home page is the
+  // site's own and `/gallery` is the one thing added. It used to read
+  // `["index.tsx", "gallery.tsx"]`, which was the duplicate-ADD the prefixed
+  // fixture produced — the site ending up with TWO home pages.
+  assert.deepEqual(ok.body.added, ["gallery.tsx"], JSON.stringify(ok.body.added));
   assert.equal(ok.body.missingPages, undefined, "a page went missing, so this is not the control it claims to be");
   assert.deepEqual((storedLook(ok, "fw-qr-ok").qr || []).map((q) => q.name), ["gallery"], "the code was not published");
   assert.deepEqual(ok.body.moved, ["qr"], "the reply does not say the site gained a QR code");
   assert.equal(ok.body.droppedQrs, undefined, "a code whose page shipped was dropped");
+  assert.equal(ok.body.heldPages, undefined, "a clean change withheld a page");
   assert.equal(ok.body.coverNote, "", "a clean change said something: " + ok.body.coverNote);
 
   // …AND A CODE THE SITE ALREADY HAD IS NOT THIS CHANGE'S TO REMOVE, whatever
   // it points at. The same missing page, and a stored code aimed straight at
   // it: untouched, unnamed, unmentioned.
   const prior = await addon("fw-qr-prior", "add a gallery page", {
-    kinds: ["page"], publishes: true,
-    written: [writtenPage("/")],
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", "<p>Our gallery is coming.</p>")],
     look: { qr: [{ name: "gallery", points: "https://fw-qr-prior.gofarther.app/gallery", label: "Our gallery" }] },
     answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] } },
   });
   assert.equal(prior.body.ok, true, JSON.stringify(prior.body));
   assert.deepEqual(prior.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
   assert.equal(prior.body.droppedQrs, undefined, "a code the site already had was dropped by a change that did not add it");
-  assert.equal(prior.body.stuckQrs, undefined, "a code the site already had was reported");
+  assert.equal(prior.body.heldPages, undefined, "a change that added no code withheld a page");
   assert.deepEqual((storedLook(prior, "fw-qr-prior").qr || []).map((q) => q.name), ["gallery"], "the site's own code did not survive");
 });
 
@@ -2818,13 +2990,20 @@ test("page + QR where both arrive publishes the code and says nothing — and an
 // rather than a state anything is in now.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Real generated pages, several sites' worth, so "too large" is real source. */
+/**
+ * Real generated pages, several sites' worth, so "too large" is real source.
+ *
+ * ⚠ IN THE SHAPE A SITE STORES THEM — bare, no `src/routes/` — because that is
+ * what `cleanPath` leaves and what `saveSiteSource` keeps. The prefixed
+ * spelling this used to produce is what made the page window's `keep` list
+ * match nothing on every real site while matching perfectly here.
+ */
 function corpusPages(sites) {
   const out = [];
   for (const s of sites) {
     for (const f of fs.readdirSync(path.join(CORPUS_DIR, s)).filter((x) => x.endsWith(".tsx"))) {
       out.push({
-        path: "src/routes/" + (s + "-" + f.replace(/\.tsx$/, "")).toLowerCase() + ".tsx",
+        path: (s + "-" + f.replace(/\.tsx$/, "")).toLowerCase() + ".tsx",
         source: fs.readFileSync(path.join(CORPUS_DIR, s, f), "utf8"),
       });
     }
@@ -2832,7 +3011,7 @@ function corpusPages(sites) {
   return out;
 }
 const BIG = ["salon", "printer", "restaurant", "music-school"];
-const shownPaths = (t) => [...t.matchAll(/--- (src\/routes\/[a-z0-9.\-]+\.tsx) ---/g)].map((m) => m[1]);
+const shownPaths = (t) => [...t.matchAll(/--- ([a-z0-9.\-]+\.tsx) ---/g)].map((m) => m[1]);
 
 test("a site too large for the window keeps the addon contract, shows what fits and names the rest", async () => {
   const stored = corpusPages(BIG);
@@ -2846,7 +3025,7 @@ test("a site too large for the window keeps the addon contract, shows what fits 
   // MEASURED: with the home page at index 0 three mutants survived (the keep
   // order dropped, the home page unkept, the route's own reader recomputed with
   // a different keep list), because `stored[0]` fits first either way.
-  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "src/routes/index.tsx" };
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
   const r = await addon("fw-big", "add a page listing our opening hours", {
     kinds: ["page"], publishes: true, storedPages: stored,
     written: [writtenPage("/hours")],
@@ -2886,8 +3065,8 @@ test("a site too large for the window keeps the addon contract, shows what fits 
   // AND THE ASSERTION ABOVE IS NOT VACUOUS, which it would be if `keep` named
   // the page the site's order puts first: the home page is LAST here, so the
   // budget's order and the site's really are different lists.
-  assert.notEqual(inSite[0], "src/routes/index.tsx", "the fixture cannot tell the two orders apart");
-  assert.ok(shown.includes("src/routes/index.tsx"), "the home page was not kept: " + JSON.stringify(shown));
+  assert.notEqual(inSite[0], "index.tsx", "the fixture cannot tell the two orders apart");
+  assert.ok(shown.includes("index.tsx"), "the home page was not kept: " + JSON.stringify(shown));
 
   // AND IT IS RECORDED. `ok: true` with an empty `problems` and an empty
   // `coverNote` is exactly what this answered before, so the one fact that
@@ -2919,11 +3098,16 @@ test("the pages this change is about are the ones shown, whatever their stored o
   const stored = corpusPages(BIG);
   // THE HOME PAGE IS LAST, deliberately: at index 0 it is shown whatever `keep`
   // says, and the assertion below stops being about `keep` at all.
-  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "src/routes/index.tsx" };
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
 
   const run = (slug, route) => addon(slug, "add a note about parking to " + route, {
     kinds: ["component"], publishes: true, storedPages: stored,
-    written: [{ ...stored[0], source: stored[0].source.replace("</main>", "<p>Parking is free.</p></main>") }],
+    // ⚠ APPENDED, NOT `replace`d ON A NEEDLE THE SOURCE MAY NOT HAVE. With the
+    // stored paths in the site's own spelling these really MERGE, so a returned
+    // page byte-identical to the stored one is `no-change` and the whole case
+    // escalates — which is the merge being right about a fixture that changed
+    // nothing. A corpus page need not contain `</main>` at all.
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }],
     answers: { component: { component: [{ page: route, does: "a parking note", components: ["card"] }] } },
   });
 
@@ -2932,11 +3116,11 @@ test("the pages this change is about are the ones shown, whatever their stored o
   // THE CONTROL NAMES THE FIRST STORED PAGE, which the budget takes anyway, so
   // `keep` adds nothing and the answer is the budget's own. Naming "/" here
   // would keep the HOME page and change the very selection being measured.
-  const firstRoute = "/" + stored[0].path.replace("src/routes/", "").replace(/\.tsx$/, "");
+  const firstRoute = "/" + stored[0].path.replace(/\.tsx$/, "");
   const without = shownPaths(pagePrompt(await run("fw-keep-ctl", firstRoute)).text);
   const dropped = stored.map((p) => p.path).filter((p) => !without.includes(p));
   assert.ok(dropped.length, "the fixture fitted whole, so this case is not about the window");
-  const target = "/" + dropped[0].replace("src/routes/", "").replace(/\.tsx$/, "");
+  const target = "/" + dropped[0].replace(/\.tsx$/, "");
 
   // …AND NOW IT IS NAMED.
   const r = await run("fw-big-keep", target);
@@ -2946,7 +3130,7 @@ test("the pages this change is about are the ones shown, whatever their stored o
     "the page the change is about was not shown, and the budget does not reach it on its own: " + JSON.stringify(shown));
   // AND THE HOME PAGE, which is the nav anchor almost every addon touches —
   // "usually ONE new page, plus the page a visitor would look on to find it".
-  assert.ok(shown.includes("src/routes/index.tsx"), "the home page was not shown: " + JSON.stringify(shown));
+  assert.ok(shown.includes("index.tsx"), "the home page was not shown: " + JSON.stringify(shown));
   assert.ok(shown.length < stored.length, "the site fitted whole once the target was named");
 
   // AND THE ROUTE'S OWN READER ASKS WITH THE PROMPT'S KEEP LIST, not a second
@@ -2966,6 +3150,177 @@ test("the pages this change is about are the ones shown, whatever their stored o
     "the prompt names the target as unseen, so this assertion is not about the reader");
   assert.deepEqual(r.body.unseenPages, named[1].split(", "),
     "the reply names different pages from the prompt — the route asked the window with another keep list");
+});
+
+test("THE LIFECYCLE: one page identity from what a model writes to what the merge reports", async () => {
+  // Owner, 2026-09-17: *"aKeepPages constructs src/routes/target.tsx, but
+  // validatePages produces target.tsx and saveSiteSource preserves that path…
+  // Match page identities consistently across stored source, selection,
+  // generation and merging. Add a lifecycle case using validator-produced or
+  // previously persisted pages, not only manually prefixed fixtures."*
+  //
+  // THE REPRODUCTION, AS THE OWNER GAVE IT: three valid ~40k pages, asking to
+  // change `/target`. Before the fix it showed `index.tsx` and `middle.tsx`,
+  // WITHHELD `target.tsx` — the one page the change was about — and then
+  // accepted a returned replacement for it.
+  //
+  // ⚠ AND EVERY HOP IS THE REAL PRODUCER'S. The stored pages are not typed:
+  // they are what `validatePages` answers for pages in the shape a MODEL
+  // writes them, which is the one thing `saveSiteSource` ever stores. A
+  // hand-spelled fixture is exactly what hid this for as long as it was hidden.
+  const big = (route, n) => {
+    const name = route === "/" ? "Index" : route.slice(1).replace(/[^a-z]/g, "");
+    return {
+      // AS A MODEL WRITES IT — with the prefix, which is why the prefix is not
+      // wrong anywhere; it is wrong as a claim about what is STORED.
+      path: "src/routes/" + (route === "/" ? "index" : route.slice(1)) + ".tsx",
+      source: 'import { createFileRoute } from "@tanstack/react-router";\n'
+        + 'export const Route = createFileRoute("' + route + '")({ component: ' + name + ' });\n'
+        + "function " + name + "() {\n  return (\n    <main>\n"
+        + ("      {/* " + "x".repeat(96) + " */}\n").repeat(380)
+        + "    </main>\n  );\n}\n",
+    };
+  };
+  const born = validatePages({ pages: [big("/", 380), big("/middle", 380), big("/target", 380)] }, { partial: true });
+  assert.deepEqual(born.problems, [], "the lifecycle fixture does not survive the real validator");
+  const stored = born.pages;
+
+  // HOP 1 — THE VALIDATOR STRIPS THE PREFIX. This is the fact the defect
+  // denied, asserted here rather than assumed anywhere else.
+  assert.deepEqual(stored.map((p) => p.path), ["index.tsx", "middle.tsx", "target.tsx"],
+    "the validator no longer answers the persisted spelling: " + JSON.stringify(stored.map((p) => p.path)));
+  const chars = stored.reduce((n, p) => n + p.source.length, 0);
+  assert.ok(chars > MAX_PRIOR_CHARS, "the fixture is not over the window — " + chars + " against " + MAX_PRIOR_CHARS);
+  // …AND THE BUDGET REALLY DROPS ONE OF THE THREE, or the selection is not
+  // being tested at all.
+  assert.ok(stored[0].source.length + stored[1].source.length + stored[2].source.length > MAX_PRIOR_CHARS
+    && stored[0].source.length + stored[2].source.length <= MAX_PRIOR_CHARS,
+    "the window does not bind at exactly one page here, so the case measures nothing");
+
+  const r = await addon("fw-life", "add a note about parking to /target", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[2], source: stored[2].source + "\n// Parking is free.\n" }],
+    answers: { component: { component: [{ page: "/target", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // HOP 2 — THE SELECTION FINDS IT. The page the change is about is shown, and
+  // the one dropped is the one it is not about.
+  const shown = shownPaths(pagePrompt(r).text);
+  assert.ok(shown.includes("target.tsx"),
+    "the page the change is about was withheld — the reported defect: " + JSON.stringify(shown));
+  assert.ok(shown.includes("index.tsx"), "the home page was not kept: " + JSON.stringify(shown));
+  assert.deepEqual(r.body.unseenPages, ["middle.tsx"],
+    "the window dropped something other than the page nobody named: " + JSON.stringify(r.body.unseenPages));
+
+  // HOP 3 — GENERATION AND MERGE AGREE WITH BOTH. The returned page merges
+  // onto the stored one rather than sitting beside it as a second file.
+  assert.deepEqual(r.body.changed, ["target.tsx"], JSON.stringify(r.body.changed));
+  assert.deepEqual(r.body.added, [], "the returned page was added beside the stored one instead of replacing it");
+  const out = compiledPages(r);
+  assert.deepEqual(out.map((p) => p.path).sort(), ["index.tsx", "middle.tsx", "target.tsx"],
+    "the published site is not the three pages it started with: " + JSON.stringify(out.map((p) => p.path)));
+  assert.match(out.find((p) => p.path === "target.tsx").source, /Parking is free/, "the change did not reach the site");
+});
+
+test("a page the window could not carry is not replaced by a returned rewrite of it", async () => {
+  // Owner, 2026-09-17: *"Also enforce preservation of withheld existing pages
+  // at the merge boundary. Prompt wording and keptProse do not establish that
+  // an unseen rewrite preserves behavior."* Both halves are exact — the prompt
+  // NAMES every withheld page and forbids returning one, which is wording, and
+  // `keptProse` asks only whether the WORDS survived, which a rewrite that
+  // drops a form, a link or a hook passes cleanly.
+  //
+  // THIS IS `partsSent`'s WALL ONE LAYER OVER: the pages we could not SHOW are
+  // exactly the pages we cannot CHECK.
+  const stored = corpusPages(BIG);
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
+
+  // WHICH PAGE THE BUDGET REALLY DROPS IS MEASURED, NEVER ASSUMED — the same
+  // control the keep-order case needs, for the same reason.
+  const probe = await addon("fw-unseen-ctl", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  const unseen = probe.body.unseenPages || [];
+  assert.ok(unseen.length, "the fixture fitted whole, so nothing here is about the window");
+  const victim = stored.find((p) => p.path === unseen[0]);
+  assert.ok(victim, "the withheld name is not one of the site's pages: " + unseen[0]);
+
+  // …AND NOW THE WRITER RETURNS A REWRITE OF EXACTLY THAT PAGE, keeping its
+  // words — so `keptProse` is satisfied and only the new wall can refuse it.
+  const rewrite = { path: victim.path, source: victim.source + "\n// rewritten from a description\n" };
+  const r = await addon("fw-unseen-page", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }, rewrite],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE STORED FILE IS WHAT SHIPS, read off the container payload rather than a
+  // reply field: a route that kept the file on its list and sent it anyway
+  // satisfies every assertion about `changed`.
+  const out = compiledPages(r);
+  const live = out.find((p) => p.path === victim.path);
+  assert.ok(live, "the withheld page left the site altogether");
+  assert.equal(live.source, victim.source, "a page nobody was shown was replaced by a rewrite of it");
+  assert.ok(!(r.body.changed || []).includes(victim.path), "the reply says it changed a page it refused: " + JSON.stringify(r.body.changed));
+
+  // …AND IT IS SAID. A withheld page dropped in silence is indistinguishable
+  // from a page the model never touched.
+  assert.deepEqual(r.body.keptPages, [victim.path], "the refusal is not on the wire: " + JSON.stringify(r.body.keptPages));
+  assert.match(r.body.keptPartsNote, /I won't write over a page I haven't read/, r.body.keptPartsNote);
+  assert.match(r.body.keptPartsNote, new RegExp(routeOf(victim.path)), r.body.keptPartsNote);
+  // THE REASON, NOT ONLY THE RULE. "I won't write over a page I haven't read"
+  // survives a sentence that has borrowed the COMPONENT wall's opening — and
+  // that opening is different advice for a different problem: there you ask for
+  // the one component on its own because it fits alone, here the SITE has
+  // outgrown one request.
+  assert.match(r.body.keptPartsNote, /big enough now that I can't hold every page at once/, r.body.keptPartsNote);
+  assert.doesNotMatch(r.body.keptPartsNote, /too long for me to read in one go/,
+    "the page sentence borrowed the component one's size-bound advice");
+
+  // THE CONTROL: the page the writer WAS shown is changed exactly as asked, so
+  // the refusal above is about the window and not about refusing everything.
+  assert.ok((r.body.changed || []).includes(stored[0].path),
+    "the shown page's own change was refused too: " + JSON.stringify(r.body.changed));
+  assert.match(out.find((p) => p.path === stored[0].path).source, /Parking is free/,
+    "the change the customer asked for did not reach the site");
+});
+
+test("a change that was ONLY a rewrite of a page nobody was shown refuses, and does not climb", async () => {
+  // THE BRANCH THE CASE ABOVE CANNOT REACH: there the home page's own change
+  // survives, so the merge is fine and this never fires. Here the writer returns
+  // NOTHING BUT the withheld page — so once it is refused the merge answers
+  // `nothing-returned`, and falling through would escalate to the ~25-credit
+  // revise: rewriting a customer's whole site because WE refused the one file it
+  // sent. This route's own "a considered refusal does not climb the ladder",
+  // met from the refusing side.
+  const stored = corpusPages(BIG);
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
+  const probe = await addon("fw-only-ctl", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  const unseen = probe.body.unseenPages || [];
+  assert.ok(unseen.length, "the fixture fitted whole, so nothing here is about the window");
+  const victim = stored.find((p) => p.path === unseen[0]);
+
+  const r = await addon("fw-only-unseen", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ path: victim.path, source: victim.source + "\n// rewritten from a description\n" }],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "unseen-rewrite", JSON.stringify(r.body));
+  assert.notEqual(r.body.escalate, true, "a refusal we made ourselves was sent up the ladder to the full revise");
+  assert.equal(r.body.cost, 0, "a change that published nothing was charged for");
+  assert.deepEqual(r.body.keptPages, [victim.path], "the refused page is not on the wire");
+  assert.match(r.body.msg, /I won't write over a page I haven't read/, r.body.msg);
+  assert.match(r.body.msg, /big enough now that I can't hold every page at once/, r.body.msg);
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
 });
 
 test("an ordinary site is byte-identical — the window changes nothing until it binds", async () => {
@@ -2995,7 +3350,7 @@ test("a one-page site bigger than the whole window is shown that page and names 
   // those caps can, and an addon prompt with no source at all is the revise
   // fallback wearing this branch's words. The page it falls back to must not
   // then be named among the ones it cannot see.
-  const stored = [{ path: "src/routes/index.tsx", source: writtenPage("/").source + "\n// " + "x".repeat(MAX_PRIOR_CHARS + 5000) }];
+  const stored = [{ path: "index.tsx", source: writtenPage("/").source + "\n// " + "x".repeat(MAX_PRIOR_CHARS + 5000) }];
   const r = await addon("fw-one-huge", "add a page listing our opening hours", {
     kinds: ["page"], publishes: true, storedPages: stored,
     written: [writtenPage("/hours")],
@@ -3003,7 +3358,7 @@ test("a one-page site bigger than the whole window is shown that page and names 
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   const t = pagePrompt(r).text;
-  assert.deepEqual(shownPaths(t), ["src/routes/index.tsx"], "the only page the site has was not shown");
+  assert.deepEqual(shownPaths(t), ["index.tsx"], "the only page the site has was not shown");
   assert.match(t.replace(/\\n/g, " "), /RETURN ONLY WHAT IS NEW OR CHANGED/, "the contract went with the window");
   assert.doesNotMatch(t, /ARE UNCHANGED:/, "the one page shown was also named as one that could not be shown");
   assert.equal(r.body.unseenPages, undefined, "the one page shown was reported as unseen");
@@ -3028,7 +3383,7 @@ test("a one-page site bigger than the whole window is shown that page and names 
 //      customer was never told the new page has empty frames they can fill.
 // ─────────────────────────────────────────────────────────────────────────────
 const PHOTO_SITE = [{
-  path: "src/routes/index.tsx",
+  path: "index.tsx",
   source: "import { createFileRoute } from '@tanstack/react-router'\n"
     + "import { SafeImage } from '@/components/ui/safe-image'\n"
     + "export const Route = createFileRoute('/')({ component: Home })\n"
