@@ -142,15 +142,22 @@ test("the reply names the pages, including the one they did not ask about", () =
   // which is how a legitimate change reads as the site being altered behind them.
   const r = addonReply({ added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"] });
   assert.match(r, /\/gallery/);
-  assert.match(r, /linked it from \//);
+  // ⚠ RE-ANCHORED 2026-09-17, AND IT ASSERTED THE DEFECT AS CORRECT. This read
+  // `/linked it from \//` — the run-35 inference from "a page was added" to
+  // "this changed page carries the link to it", which was the only reason a page
+  // could legitimately change beside an addition when it was written and is
+  // false now that a page a designer NAMED keeps its change too. Owner: *"a
+  // changed page does not establish that a link was added."*
+  assert.match(r, /updated \//, r);
   assert.ok(!/undefined/.test(r));
-  // A CHANGED PAGE WITH NO PAGE ADDED IS THE PAGE THE ADDITION LANDED ON (run
-  // 35, 2026-09-04): a section, a code, a scene or a hand-written component
-  // changes the home page and adds nothing, and "linked it from /" then names
-  // a link that does not exist.
+  // A CHANGED PAGE IS "UPDATED" WHATEVER ELSE HAPPENED, which is strictly
+  // stronger than the two-branch rule it replaces: there is no inference left
+  // that could be wrong. Driven with a page added and without one.
   const section = addonReply({ added: [], changed: ["src/routes/index.tsx"] });
   assert.match(section, /^✅ Done — updated \/\./, section);
-  assert.doesNotMatch(section, /linked/, section);
+  for (const [what, out] of [["beside an addition", r], ["on its own", section]]) {
+    assert.doesNotMatch(out, /linked/, "the reply claims a link " + what + ": " + out);
+  }
 });
 
 test("an unreachable page is said plainly, with the fix", () => {
@@ -927,14 +934,18 @@ test("the addon reply is DRIVEN, not grepped", () => {
   assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^✅ Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
   const plain = reply({ added: ["src/routes/g.tsx"], changed: [] });
   assert.ok(!/function|connected|scheduled|database|Secrets/.test(plain), "an ordinary addition mentions the backend: " + plain);
-  // A CHANGED PAGE WITH NO PAGE ADDED (run 35, 2026-09-04): the page the
-  // addition landed on, not a link to a page that does not exist — the same
-  // rule the server's `addonReply` follows, driven on both.
+  // ⚠ A CHANGED PAGE IS "UPDATED" WHATEVER ELSE HAPPENED, and this asserted the
+  // opposite for the paired case — the run-35 inference from "a page was added"
+  // to "this changed page carries the link to it". Owner, 2026-09-17: *"a
+  // changed page does not establish that a link was added."* The browser's
+  // `addonReplyText` and the server's `addonReply` say the same, driven on both.
   const section = reply({ added: [], changed: ["src/routes/index.tsx"] });
   assert.match(section, /^✅ Done — updated \/\./, section);
-  assert.doesNotMatch(section, /linked/, section);
   const pair = reply({ added: ["src/routes/g.tsx"], changed: ["src/routes/index.tsx"] });
-  assert.match(pair, /added \/g, linked it from \//, pair);
+  assert.match(pair, /added \/g, updated \//, pair);
+  for (const [what, out] of [["on its own", section], ["beside an addition", pair]]) {
+    assert.doesNotMatch(out, /linked/, "the browser claims a link " + what + ": " + out);
+  }
 });
 
 test("a removed page leaves the picker", () => {

@@ -537,11 +537,26 @@ export function addonReply({ added = [], changed = [], removed = [], kept = [], 
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));
   if (removed.length) bits.push("removed " + removed.map(routeOf).filter(Boolean).join(", "));
-  // WHAT A CHANGED PAGE MEANS DEPENDS ON WHETHER A PAGE WAS ADDED (run 35,
-  // 2026-09-04): beside a new page it is the nav link; on its own it is the
-  // page the addition landed on, and "linked it from /" names a link that does
-  // not exist. The browser's `addonReplyText` says the same, by the same rule.
-  if (changed.length) bits.push((added.length ? "linked it from " : "updated ") + changed.map(routeOf).filter(Boolean).join(", "));
+  // ⚠ A CHANGED PAGE IS "UPDATED", ALWAYS (owner, 2026-09-17: *"a changed page
+  // does not establish that a link was added"*).
+  //
+  // THIS READ `added.length ? "linked it from " : "updated "` — an INFERENCE
+  // from "a page was added in the same change" to "this changed page is the one
+  // carrying the link to it", written for run 35 when that was the only reason
+  // a page could legitimately change beside an addition. Since the preservation
+  // policy learned its second reason it is simply false: a page changed because
+  // somebody NAMED it has nothing to do with the new route.
+  //
+  // AND IT CONTRADICTED ITSELF IN ONE SENTENCE. The parking-note case produced
+  // *"added /gallery, linked it from /. Nothing links to /gallery yet…"* — the
+  // link claim and the no-link warning, four words apart, and the composer had
+  // both facts in hand while saying them.
+  //
+  // "updated /" is true of every changed page whatever else happened, so there
+  // is no inference left to be wrong. `unlinked` below is the one that really
+  // knows about links, and it is measured rather than guessed. The browser's
+  // `addonReplyText` says the same, by the same rule.
+  if (changed.length) bits.push("updated " + changed.map(routeOf).filter(Boolean).join(", "));
   let head = bits.length ? "✅ Done — " + bits.join(", ") + "." : "✅ Done.";
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY, with the reason. Silently
   // keeping it is the silent partial this lane already had once: the owner asks

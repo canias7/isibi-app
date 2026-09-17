@@ -8605,8 +8605,32 @@ asserted the negative would have "passed".
 
 **Suite 6,802** — 6,798 + 3 + 1, and the arithmetic closes exactly.
 
+**⚠ AND THE REPLY CLAIMED A LINK IT HAD NOT MADE — corrected the same day**
+(owner: *"a changed page does not establish that a link was added"*).
+`addonReply` and the browser's `addonReplyText` both read
+`added.length ? "linked it from " : "updated "` — an INFERENCE from *a page was
+added in this change* to *this changed page carries the link to it*, written for
+run 35 when that was the only reason a page could legitimately change beside an
+addition, and false the moment the preservation policy above learned its second.
+
+**IT CONTRADICTED ITSELF IN ONE SENTENCE**, which is how it was caught: the
+parking-note case produced *"added /gallery, linked it from /. Nothing links to
+/gallery yet…"* — the link claim and the no-link warning four words apart, from
+a composer holding both facts. It reads *"added /gallery, updated /. Nothing
+links to /gallery yet — say where you want the link and I'll add it."* now.
+
+**"updated" IS TRUE OF EVERY CHANGED PAGE WHATEVER ELSE HAPPENED**, so there is
+no inference left to be wrong; `unlinked` is the one field that really knows
+about links and it is measured rather than guessed. **THREE ASSERTIONS EXPECTED
+THE FALSE CLAIM** — two older guards and the new route case — and each is
+re-anchored onto the property rather than appeased: every one now asserts that
+NO reply claims a link, with the paired and unpaired shapes driven on both
+composers. No new reporting machinery, and the suite is unmoved at 6,802
+because all of it is assertions inside cases that already existed.
+
 **COMBINED PAGE + PHOTO REMAINS THE NEXT INCOMPLETE CAPABILITY**, in the owner's
-words: the same request does not yet place the photo.
+words: the same request does not yet place the photo, and a placeholder plus an
+invitation to ask again is not that capability.
 
 
 ## Data, auth, payments, mail

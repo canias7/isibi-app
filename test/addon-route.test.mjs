@@ -3345,7 +3345,15 @@ test("a new page beside a requested homepage addition keeps both, with no link b
   assert.match(storedSource(r, "fw-park", "index.tsx"), /free parking/, "the store never saw the requested addition");
   assert.doesNotMatch(said(r), /nothing there needed to change/,
     "the reply says nothing needed changing about a page the request named: " + said(r));
-  assert.match(said(r), /linked it from \//, said(r));
+  // ⚠ CORRECTED 2026-09-17, and this is the case that produced the wrong
+  // sentence: *"added /gallery, linked it from /. Nothing links to /gallery
+  // yet…"* — a link claim and a no-link warning four words apart. A changed page
+  // does not establish that a link was added, and here it certainly was not.
+  assert.match(said(r), /added \/gallery, updated \//, said(r));
+  assert.doesNotMatch(said(r), /linked it from/, said(r));
+  // …AND THE `unlinked` SENTENCE IS STILL THERE, because it is the one that
+  // really knows about links and it is measured rather than inferred.
+  assert.match(said(r), /Nothing links to \/gallery yet/, said(r));
 });
 
 test("a rewrite of a page nobody named is still reverted, and still said", async () => {

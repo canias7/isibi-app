@@ -12759,3 +12759,16 @@ happened" would have sailed through.
 **Combined page + photo is still the next incomplete thing.**
 
 **Nothing merged, nothing deployed, nothing paid, and no edit-path work.**
+
+**Same day, one wording fix.** You spotted that the reply claimed a link it
+hadn't made — and it contradicted itself in the same breath: *"added /gallery,
+linked it from /. Nothing links to /gallery yet…"*. It was guessing "this changed
+page must be the one carrying the link" from the fact that a page had been added,
+which was the only reason a page could change beside an addition when that line
+was written, and stopped being true the moment a page you'd named could change
+too. A changed page is **updated** now, always — nothing left to guess wrong. The
+"nothing links to it yet" sentence stays, because that one actually checks.
+
+Three tests expected the false claim, including one I'd just written. All three
+now check the stronger thing: no reply claims a link at all. No new machinery,
+and the test count didn't move.

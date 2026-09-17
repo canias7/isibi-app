@@ -9582,12 +9582,14 @@ function addonReplyText(a) {
   const bits = [];
   if (added.length) bits.push('added ' + added.join(', '));
   if (removed.length) bits.push('removed ' + removed.join(', '));
-  // WHAT A CHANGED PAGE MEANS DEPENDS ON WHETHER A PAGE WAS ADDED (run 35,
-  // 2026-09-04). Beside a new page it is the nav link — "linked it from /" —
-  // and on its own it is the page the addition landed on: a section, a code,
-  // a scene or a hand-written component changes the page it sits on and adds
-  // no page, and "linked it from /" then names a link that does not exist.
-  if (changed.length) bits.push((added.length ? 'linked it from ' : 'updated ') + changed.join(', '));
+  // ⚠ A CHANGED PAGE IS "UPDATED", ALWAYS (owner, 2026-09-17: *"a changed page
+  // does not establish that a link was added"*). This inferred the nav link
+  // from "a page was added in the same change", which was the only reason a
+  // page could legitimately change beside an addition when it was written and
+  // is false now that a page NAMED by a designer keeps its change too. It also
+  // contradicted itself: "added /gallery, linked it from /. Nothing links to
+  // /gallery yet…". The server's `addonReply` says the same, by the same rule.
+  if (changed.length) bits.push('updated ' + changed.join(', '));
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
   // THE OTHER THREE TIERS OF THE BACKEND (2026-09-03): what the engine
   // really made, by name — a function a page can call, an outside service
