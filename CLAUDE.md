@@ -9047,6 +9047,117 @@ the BUILD path and both out of this round's scope:**
    the inventory threaded into the build path's call, which is where the object
    form already knows how to say it.
 
+### …AND A REFUSAL STORED THE DESIGN ON ITS WAY OUT (2026-09-17)
+
+Owner: *"`patchSiteConfig` runs before `keptImages`. A combined gallery + photo
++ QR request that fails with `lost-photos` leaves the QR persisted, although the
+gallery was never published."*
+
+**REPRODUCED THROUGH `POST /api/site/<slug>/addon` BEFORE ANYTHING WAS TOUCHED**,
+on exactly that ask: **422 `lost-photos`, `cost: 0`, nothing compiled, nothing
+bought, `source/<slug>/pages.json` untouched** — and `look.qr` left holding
+`{name: "gallery", points: "https://<slug>.gofarther.app/gallery"}` for a route
+that will never exist. **A QR is the one thing here somebody PRINTS**, which is
+what the `qr-dependency` refusal one block up exists to prevent; it arrived
+through the refusal path instead.
+
+**THE REACH IS ONE DAY, MEASURED RATHER THAN ASSUMED.** `lost-photos` is the
+ONLY refusal that was ever below the store — `rewrote` and `qr-dependency` are
+both ABOVE the old position — so the defect is the previous entry's own sibling,
+shipped the same day. *A rule true because of the layer below it expires when
+that layer moves*, met from the other direction: **the rule stood still and a
+refusal was added underneath it.** The store's own comment read *"every refusal
+above leaves the site exactly as it was"*, which was TRUE when written, which
+nothing tested, and which is why nobody looked.
+
+**MOVED RATHER THAN COMPENSATED FOR** — the other option the owner offered, and
+the weaker one: a restore-on-refusal is a second repair path that can itself
+fail, and a failed restore leaves the site wrong with nothing left to try.
+Moving the write below every refusal keeps ONE rule — *a refusal changes
+nothing* — instead of a rule plus an exception. **And the move makes the
+store-to-publish window strictly SMALLER**, so it cannot have introduced an
+unreverted refusal of its own: measured, the only `return` in that window is the
+write's own failure, which stored nothing.
+
+**THE WHOLE CONFIG IS THE ASSERTION, NOT THE ONE FIELD.** `look.qr` is what the
+report named, and pinning only that passes again the day some other field is
+written above a wall; `deepEqual` over the entire stored object answers *did this
+refusal write ANYTHING* in one claim. Before the move it answered a 22-key merged
+look; after, the seeded two.
+
+**AND THE SWEEP ASKED FOR THREE MORE CASES — every one a branch of the block
+that moved, and not one of them drivable.** The fixture's every `put` succeeded
+and its compiler always answered `ok`, so three of the store's four behaviours
+had no seam at all:
+
+- **A change with nothing to store must not rewrite the config.**
+  `withConfig(cur, undefined)` NORMALISES — measured, it answers a seven-key
+  config where the site had two — so `if (aLookPatch)` is what keeps five
+  settings off a site that never asked for them. A page-only addon publishes
+  with the config byte-identical.
+- **A refused write is said out loud**: 503, `error: "config"`, `cost: 0`,
+  nothing compiled, and the site really as it was — the claim its own sentence
+  makes.
+- **⚠ AND A FAILED PUBLISH PUTS THE OLD LOOK BACK, WHICH IS THE CLAIM THIS
+  CHANGE'S OWN COMMENT MAKES.** An invariant asserted in a comment and tested
+  nowhere is exactly how the defect above shipped. Leaving it undrivable would
+  repeat that mistake inside the fix for it, so the fixture gained two knobs
+  (`configFail` throws on the config key alone, `compileFail` refuses the build)
+  rather than the survivors gaining a paragraph.
+
+**THE REVERT IS NOT BYTE-IDENTICAL AND THE CASE SAYS SO** rather than asserting
+something false: it writes the look as the route READ it, which `markOf` has
+already normalised, so `favicon` and `wordmark` come back as forms the seeded
+object never carried. What must be true is that nothing this change DESIGNED
+survived (`qr`, `three` absent) and nothing the site had was lost (`theme`,
+`description` intact).
+
+**⚠ TWO OF MY OWN MUTANTS WERE BADLY WRITTEN AND BOTH WERE CAUGHT BY MEASURING
+THEM, NOT BY READING THEM.** One set `aStored = true` above a `return`, so the
+503 still went out and nothing about the request changed — **inert by
+construction**. The other read `cost: aCost`, and `let aCost = 0` has its ONE
+assignment under `if (aJob)`, which the route's synchronous path never takes —
+so it *was* `cost: 0` on every path a test can reach, while being a real
+difference on the job path. Both replaced with observable forms (`if (false &&
+!w.ok)`, `cost: 1`). *Read what a mutant really does, not what it was meant to
+do.*
+
+**AND THE PRE-RUN ANCHOR CENSUS PAID FOR ITSELF**: `if (!w.ok) {` occurs **four
+times** in `worker.js`, so that mutant would have silently mutated the wrong
+site. Anchored with its neighbour — the recorded *check every anchor occurs
+exactly once BEFORE the run, rather than reading NOT APPLIED afterwards*.
+
+**Guards**: `addon-route` **118 → 123** — the regression the owner asked for
+(the whole prior configuration, its pages and its components, with no purchase
+and no compile), its control (the same request succeeding), and the three the
+sweep asked for. The regression and the control were proved RED/green against
+the pre-change product, and **the control passes on BOTH trees**, which is what
+makes it a control rather than a second copy of the case.
+
+**⚠ AND THE CONTROL FAILED FIRST ON A FIXTURE THAT NAMED A THING THE PRODUCT
+DOES NOT HAVE.** The prior look invented the theme `kraft`; `FIELD_KEEPS.theme`
+judges a stored theme against all 500 registry ids, so `mergeLook` dropped it to
+`null` and the case reported the successful store as losing the site's theme.
+It is `THEME_IDS[0]` now **with the reason written beside it** — a quiet name
+swap would have appeased the check without recording why.
+
+**Sweep: 8 mutants, 8 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-refusal-order.json`, over
+`worker.js`, against 11 test files — a narrow list can only produce a false
+SURVIVOR, never a false kill). Pass 1 read 4/4 and **not one survivor was the
+product's**: two were the badly-written mutants above and two were the undriven
+branches the three new cases now cover.
+
+**Suite 6,833** — 6,830 + 3 (`addon-route` **120 → 123**), and the arithmetic
+closes exactly. **⚠ AND THE FIRST STAMP OF IT WAS DERIVED AND WRONG**: 6,835,
+from "118 → 123, so five" — but the 6,830 reading was already taken with two of
+those five in the file, so the delta is the THREE added since. Held as PENDING
+until the run answered rather than published and corrected. *Measure the
+baseline; never subtract from a paragraph* — this file's own rule, in the round
+that records it.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK.**
+
 
 ## Data, auth, payments, mail
 
@@ -9940,6 +10051,16 @@ rule and the measurement.
 - **INERT MUTANTS.** Sixteen-plus recorded. A mutation that changes no behaviour
   reads exactly like a test gap. **Prove it inert by MEASURING both versions over
   the real corpus** before hunting.
+- **…AND A MUTANT YOU WROTE CAN BE INERT TOO — read what it DOES, not what it
+  was meant to do (2026-09-17, two in one spec).** Two shapes, both found by
+  measuring rather than by reading: a change **undone by the line after it** (it
+  set a flag above a `return`, so the same refusal went out and nothing about
+  the request moved), and a change to a value that is **provably constant on
+  every path a test can reach** (`cost: aCost` where `let aCost = 0` has its one
+  assignment under a branch the synchronous path never takes — so it *was*
+  `cost: 0` there, while being a real difference on the job path). Both read as
+  guard gaps and neither was one. **A survivor is a question about the mutant
+  first and the guards second.**
 - **TWO REDUNDANT DEFENCES CANNOT BE KILLED ONE AT A TIME.** A survivor is not
   always a missing check; sometimes it is a second wall. Measure both versions,
   then mutate the PAIR, which must die — and **say in the code that the redundancy

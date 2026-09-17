@@ -25175,20 +25175,6 @@ async function handleRequest(request, env, ctx) {
             if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);
             if (aJob && aCharges.refused() > 0) return unbilledReply(aCharges);
 
-            // STORED NOW, NOT EARLIER: every refusal above leaves the site
-            // exactly as it was, and the publish below is the only thing that
-            // needs the new look — the container bakes `/qr.svg` from what is
-            // stored when it compiles. The one failure after this point puts
-            // the old look back.
-            let aStored = false;
-            if (aLookPatch) {
-              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
-              if (!w.ok) {
-                console.error("addon look store failed:", ownerSlug, w.error);
-                return Response.json({ ok: false, error: "config", cost: 0, msg: "That addition couldn't be saved, so your site is untouched — try again in a moment." }, { status: 503 });
-              }
-              aStored = true;
-            }
             // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
             // stored list by name — the page rung's own fix, one rung up.
             //
@@ -25312,6 +25298,60 @@ async function handleRequest(request, env, ctx) {
                 ok: false, error: "lost-photos", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),
                 msg: lostPhotosMsg(aKeptPics.lost),
               }, { status: 422 });
+            }
+
+            // ── AND ONLY NOW IS THE DESIGN STORED ───────────────────────────
+            //
+            // STORED HERE, NOT EARLIER: every refusal above leaves the site
+            // exactly as it was, and the publish below is the only thing that
+            // needs the new look — the container bakes `/qr-<name>.svg` from
+            // what is stored when it compiles. The one failure after this
+            // point puts the old look back: `aStored` has exactly ONE reader,
+            // the publish's own `if (!aPub.ok)` branch, and the only other
+            // `return` between here and it is this write's own failure, which
+            // stored nothing. Measured over that window, not reasoned about.
+            //
+            // ⚠ IT SAT ABOVE `keptImages` UNTIL 2026-09-17, and the sentence
+            // it carried already claimed this invariant while being one block
+            // too high to keep it. MEASURED: `lost-photos` is the ONLY refusal
+            // that was ever below it — `rewrote` and `qr-dependency` were both
+            // above the old position — so the defect is exactly one day old
+            // and is this change's own sibling. *A rule true because of the
+            // layer below it expires when that layer moves*, met from the
+            // other direction: the rule stood still and a refusal was added
+            // underneath it. Owner: *"A combined gallery + photo + QR request
+            // that fails with lost-photos leaves the QR persisted, although
+            // the gallery was never published."*
+            // REPRODUCED through this route on exactly that ask: 422,
+            // `cost: 0`, nothing compiled, nothing bought, `source/<slug>/
+            // pages.json` untouched — and `look.qr` left holding
+            // `{name:"gallery", points:"https://<slug>.gofarther.app/gallery"}`
+            // for a route that will never exist. A QR is the one thing here
+            // somebody PRINTS, so that is the artifact the `qr-dependency`
+            // refusal one block up exists to prevent, arriving through the
+            // refusal path instead.
+            //
+            // MOVED RATHER THAN COMPENSATED FOR, which was the other option
+            // offered and is the weaker one: a restore-on-refusal is a second
+            // repair path that can itself fail, and a failed restore leaves
+            // the site wrong with nothing left to try. Moving the write below
+            // every refusal that has no restore keeps ONE rule — *a refusal
+            // changes nothing* — instead of a rule plus an exception.
+            //
+            // NOTHING BETWEEN THE OLD POSITION AND THIS ONE READS IT: the
+            // parts wall and `keptImages` read `aSrc`, `aPartsRead`, `aMerge`
+            // and `aParts`; `aStored` is read only below. Checked rather than
+            // assumed — and the move makes the store-to-publish window
+            // strictly SMALLER, so it cannot have introduced an unreverted
+            // refusal of its own.
+            let aStored = false;
+            if (aLookPatch) {
+              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
+              if (!w.ok) {
+                console.error("addon look store failed:", ownerSlug, w.error);
+                return Response.json({ ok: false, error: "config", cost: 0, msg: "That addition couldn't be saved, so your site is untouched — try again in a moment." }, { status: 503 });
+              }
+              aStored = true;
             }
             // ── THE PHOTOGRAPHS ARE BOUGHT AND PLACED, IN THIS SAME REQUEST ──
             //

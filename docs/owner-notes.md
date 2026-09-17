@@ -12934,3 +12934,71 @@ for and both change the first-build prompt, which wants its own testing.
 
 **Nothing merged, nothing deployed, nothing paid, and I haven't been near the
 edit path.**
+
+## A refused change was still saving your design settings (2026-09-17)
+
+You were right, and it's the same shape as the one before it. I reproduced it
+first — actually ran the combined "gallery page + photo + QR code" request and
+watched it go wrong — before touching anything.
+
+**What happened.** The change is refused because it would have taken one of your
+existing photographs off the site. Nothing is published, nothing is charged, your
+pages are untouched — and the QR code it had designed was already saved, pointing
+at a gallery page that does not exist and never will. A QR code is the one thing
+here somebody *prints*, so that is exactly the artifact we go to lengths to
+prevent elsewhere, arriving through the back door.
+
+**The cause was one block sitting in the wrong place, and it was mine, from
+yesterday.** The design settings were saved just after the bill, and every
+refusal that existed at the time was above that line — so the comment sitting
+right on top of it said "every refusal above leaves the site exactly as it was",
+and that was *true when it was written*. Yesterday's photograph wall is a new
+refusal, and it went in below. Nothing announced that; the sentence just quietly
+stopped being true. It is the fifth time this codebase has been bitten by a rule
+that was true because of something underneath it, and the first time I did it in
+the same day.
+
+**You offered two fixes and I took the first one, on purpose.** Moving the save
+below the wall keeps one rule — *a refusal changes nothing* — where restoring the
+old settings after a refusal would be a rule plus an exception, and the exception
+is a second repair step that can itself fail. If that restore failed there would
+be nothing left to try.
+
+**The test asserts the whole of your configuration, not the QR code.** Pinning
+just the field you named would pass again the day something else gets written
+above a wall. It now compares the entire stored settings object against what the
+site had before, so the question it answers is "did this refusal write
+*anything*". Before the fix it came back with a 22-field merged design; after, the
+two the site started with. Same for the pages and your hand-written sections, and
+it checks that no photograph was bought and the builder was never called. The
+matching successful request sits beside it as a control and passes either way.
+
+**Then the sweep asked for three more tests, and one of them is the useful
+lesson.** The block I moved does four things and only one had a test. Two of the
+others were impossible to test at all — the fake site storage always succeeded
+and the fake builder always worked — so I added two switches and wrote them:
+
+- a change with no design in it must not rewrite your settings (measured: without
+  that check it would quietly give the site five settings it never had);
+- a save that fails says so and publishes nothing;
+- and a publish that fails puts your old design back.
+
+That last one is the claim my own comment was making. An invariant written in a
+comment and tested nowhere is *precisely* how this defect shipped in the first
+place — so leaving it untested would have been the same mistake, inside the fix
+for it.
+
+**Two mistakes of mine worth recording.** Two of the deliberate breakages I wrote
+for the sweep were broken themselves: one changed nothing because the line after
+it returned anyway, and one was identical to the original on every path a test
+can reach. Both were caught by measuring what they did rather than reading what
+they were meant to do. And one test fixture invented a theme name the product
+does not have — 500 real ones exist and `kraft` is not one — so the control
+reported a working save as losing your theme. It uses a real one now, with the
+reason written beside it rather than quietly swapped.
+
+**The sweep then ran clean: eight deliberate breakages, eight caught, both decoys
+survived as they should.**
+
+**Nothing merged, nothing deployed, nothing paid, and I haven't been near the
+edit path.**

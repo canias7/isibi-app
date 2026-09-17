@@ -145,7 +145,7 @@ function neonRows(rows, cols) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function bucket(slug, stored, look, parts, css, partsFail) {
+function bucket(slug, stored, look, parts, css, partsFail, configFail) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
@@ -194,7 +194,16 @@ function bucket(slug, stored, look, parts, css, partsFail) {
       }
       const v = store.get(k); return v === undefined ? null : { text: async () => v, json: async () => JSON.parse(v) };
     },
-    async put(k, v) { store.set(k, String(v)); },
+    // `configFail` REFUSES THE CONFIG WRITE AND NOTHING ELSE. The route's
+    // store block answers a 503 on a refused write and arms the look revert on
+    // a successful one, and neither branch had a seam to drive: a fixture whose
+    // every `put` succeeds cannot tell "the write failed and we said so" from
+    // "the write failed and we carried on". A THROW, because that is what R2
+    // does when it cannot write — `saveConfig` reads a throw, not a falsy.
+    async put(k, v) {
+      if (configFail && k === "config/" + slug + ".json") throw new Error("R2 PutObject: connection reset");
+      store.set(k, String(v));
+    },
     async delete(k) { store.delete(k); },
     async list() { return { objects: [], truncated: false }; },
   };
@@ -540,7 +549,14 @@ export async function addon(slug, instruction, opts) {
   // test that silently compiled there would be asserting about a shape it never
   // meant to produce. `publishes: true` opts in — for the two kinds that CANNOT
   // be pageless, a connection and a public function.
-  const c = (opts && opts.publishes) ? installCompiler() : null;
+  // `compileFail: true` MAKES THE PUBLISH FAIL, which is the only way to reach
+  // the look revert: the route stores the design, publishes, and puts the old
+  // look back when the publish did not land. Without a seam here that branch
+  // is a claim in a comment — which is exactly the shape of the defect the
+  // ordering fix corrects, so leaving it undrivable would repeat it.
+  const c = (opts && opts.publishes)
+    ? installCompiler(opts.compileFail ? { ok: false, error: "compile failed" } : {})
+    : null;
   try {
     const worker = await loadWorker();
     // `sitePages` NAMES ROUTES AND `storedPages` CARRIES WHOLE FILES, and the
@@ -550,7 +566,8 @@ export async function addon(slug, instruction, opts) {
     // to be able to say "this page calls <Accordion>".
     const store = bucket(slug,
       (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(storedPage) : null),
-      opts && opts.look, opts && opts.parts, opts && opts.css, opts && opts.partsFail);
+      opts && opts.look, opts && opts.parts, opts && opts.css, opts && opts.partsFail,
+      opts && opts.configFail);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },

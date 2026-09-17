@@ -37,6 +37,7 @@ import { routeOf, addonReply } from "../builder/site-addon.mjs";
 // case about "more pictures than we will buy" derives the number from the spend
 // path rather than restating it.
 import { IMAGE_CAP } from "../builder/site-images.mjs";
+import { THEME_IDS } from "../builder/site-theme-registry.mjs";
 import { cleanAdd } from "../builder/site-add.mjs";
 // REAL GENERATED PAGES, so "a site too large to show whole" is real source
 // rather than padding — the same corpus a dozen false-alarm checks measure
@@ -4718,4 +4719,242 @@ test("nothing affordable at all: the placeholder is claimed only where one survi
   assert.doesNotMatch(note, /placeholder/,
     "a placeholder was promised on a page that has no frame at all: " + note);
   assert.match(note, /there's no picture there/, "the honest answer was not given: " + note);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   A REFUSAL CHANGES NOTHING — INCLUDING THE DESIGN SETTINGS (2026-09-17)
+
+   Owner: *"patchSiteConfig runs before keptImages. A combined gallery + photo
+   + QR request that fails with lost-photos leaves the QR persisted, although
+   the gallery was never published."*
+
+   REPRODUCED THROUGH THIS ROUTE BEFORE ANYTHING MOVED, on exactly that ask:
+   422, `cost: 0`, nothing compiled, nothing bought, `source/<slug>/pages.json`
+   untouched — and the stored look left holding
+
+       qr: [{ name: "gallery", points: "https://<slug>.gofarther.app/gallery" }]
+
+   for a route that would never exist. A QR is the one thing here somebody
+   PRINTS, so a refusal was leaving behind precisely the artifact the
+   `qr-dependency` refusal one block above exists to prevent.
+
+   THE STORE MOVED BELOW THE WALL rather than the refusal gaining a restore,
+   which was the other option and is the weaker one: a restore-on-refusal is a
+   second repair path that can itself fail, and a failed restore leaves the
+   site wrong with nothing left to try. The route's own comment already
+   claimed the invariant this keeps — *"every refusal above leaves the site
+   exactly as it was"* — while sitting one block too high to hold it.
+
+   THE WHOLE CONFIG IS THE ASSERTION, not the one field. `look.qr` was what the
+   report named, and pinning only that would pass again the day some other
+   field is written above a wall; `deepEqual` over the entire stored object
+   answers "did this refusal write ANYTHING" in one claim.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** The exact object `addon()` seeds into `config/<slug>.json`, by construction. */
+const seededConfig = (look, css) => ({
+  look: { brand: "Fretwork", pages: [], ...(look || {}) },
+  css: typeof css === "string" ? css : "",
+});
+/** The stored config WHOLE — the prior configuration, not one field of it. */
+const storedConfig = (r, slug) => {
+  try { return JSON.parse(r.store.store.get("config/" + slug + ".json")); } catch { return null; }
+};
+/** A component the request never mentions, so "parts are preserved" is real. */
+const BYSTANDER = "export default function Hours(){ return <p data-slot=\"hours\">Mon-Fri</p> }";
+/**
+ * The prior look, carrying fields a partial write would disturb.
+ *
+ * ⚠ THE THEME IS A REAL REGISTRY ID AND HAS TO BE. The first draft invented
+ * `kraft`, and `FIELD_KEEPS.theme` judges a stored theme against all 500 — so
+ * `mergeLook` dropped it to `null` and the CONTROL below failed, reporting the
+ * successful store as losing the site's theme. That is this file's own
+ * recorded trap (*a fixture naming a thing the product does not have passes
+ * until the product starts checking*), and the honest repair is a name the
+ * registry holds with the reason written down, never a quiet swap.
+ */
+const PRIOR_LOOK = { theme: THEME_IDS[0], description: "A guitar workshop in Sheffield." };
+
+/** gallery + photo + QR in one message, on a site with two photographs and a component. */
+const orderAsk = (slug, home) => addon(slug,
+  "add a gallery page with a photo of the bench, and a QR code that opens it", {
+    kinds: ["page", "photo", "qr"], publishes: true, credits: 400,
+    look: PRIOR_LOOK,
+    parts: [{ name: "hours", source: BYSTANDER }],
+    storedPages: [photoHome(slug)],
+    written: [galleryToken(BENCH), home],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+
+test("a refused addition leaves the whole prior configuration, its pages and its components exactly as they were", async () => {
+  // The writer strips one of the two photographs the site already paid for.
+  const r = await orderAsk("fw-order",
+    linkHome("fw-order", '<SafeImage src="" alt="the workshop bench" />'));
+
+  // 1. THE REFUSAL ITSELF, unchanged.
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, "a refused change reported itself as done");
+  assert.equal(r.body.error, "lost-photos");
+  assert.equal(r.body.cost, 0, "a refused change was charged");
+
+  // 2. NON-VACUITY, AND IT IS THE WHOLE POINT OF THE CASE. A QR really was
+  //    designed in this request — so "the config carries no QR" below means
+  //    "a designed QR was not persisted" rather than "nothing designed one".
+  //    Without this the case passes against a route that never ran the kind.
+  assert.ok(promptFor(r, "qr"), "no QR was designed, so this case cannot see the defect at all");
+
+  // 3. THE ENTIRE PRIOR CONFIGURATION, byte for byte. Before the move this
+  //    answered a 22-key merged look carrying the new `qr`; the seeded object
+  //    has two fields plus the fixture's own pair.
+  assert.deepEqual(storedConfig(r, "fw-order"), seededConfig(PRIOR_LOOK),
+    "a refused change wrote the design settings: "
+    + JSON.stringify(storedConfig(r, "fw-order")));
+  // AND THE REPORTED FIELD BY NAME, because a `deepEqual` that drifts with the
+  // fixture would stop saying anything about the QR in particular.
+  assert.equal((storedConfig(r, "fw-order").look || {}).qr, undefined,
+    "the QR for a page that was never published is on the site");
+
+  // 4. THE PAGES — both photographs still shown, and no new route stored.
+  assert.match(storedSource(r, "fw-order", "index.tsx"), /a1b2c3d4\.jpg/,
+    "the stored home page lost the photograph on a request that was refused");
+  assert.equal(storedSource(r, "fw-order", "gallery.tsx"), "",
+    "a page the customer was told was refused is in the store");
+
+  // 5. THE COMPONENTS — the bystander is exactly as it was, and nothing new.
+  assert.deepEqual(storedParts(r, "fw-order"), { hours: BYSTANDER },
+    "a refused change rewrote the site's components");
+
+  // 6. NO PURCHASE AND NO COMPILE. `compiles.length` rather than the page list:
+  //    an empty file list is also what a compile of nothing looks like, and the
+  //    claim is that the container was never asked.
+  assert.deepEqual(r.shots, [], "a refused change bought its photograph anyway");
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
+});
+
+test("the same request, succeeding, does store the QR, the pages, the components and the photograph", async () => {
+  // THE CONTROL — identical in every respect but the one line the writer
+  // returns, so what separates the two is the answer and not the setup. It
+  // passes on BOTH trees, which is what makes it a control rather than a
+  // second copy of the case above.
+  const r = await orderAsk("fw-order-ok", linkHome("fw-order-ok",
+    '<SafeImage src="/u/fw-order-ok/a1b2c3d4.jpg" alt="the workshop bench" />'));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // The QR reaches the store, which is what the refusal above must not do.
+  const look = (storedConfig(r, "fw-order-ok") || {}).look || {};
+  assert.equal(Array.isArray(look.qr) && look.qr.length, 1,
+    "the control stored no QR, so the refusal proves nothing: " + JSON.stringify(look.qr));
+  assert.match(String(look.qr[0].points), /^https:\/\/fw-order-ok\.gofarther\.app\/gallery$/);
+  // AND THE PRIOR FIELDS SURVIVE THE MERGE — a store that replaced the look
+  // wholesale would satisfy the line above and lose the site's own theme.
+  assert.equal(look.theme, THEME_IDS[0], "the successful store dropped the prior theme");
+
+  // The page, the component and the photograph all landed.
+  assert.match(storedSource(r, "fw-order-ok", "gallery.tsx"), /\/u\/fw-order-ok\/[0-9a-f]{32}\.jpg/,
+    "the control published no photograph, so the refusal's empty `shots` proves nothing");
+  assert.deepEqual(storedParts(r, "fw-order-ok"), { hours: BYSTANDER },
+    "the control disturbed a component nobody mentioned");
+  assert.equal(r.shots.length, 1, "the control bought nothing");
+  assert.equal(r.compiles.length, 1, "the control never compiled");
+});
+
+/* ═════════════════════════════════════════════════════════════════════════
+   …AND THE OTHER TWO THINGS THAT BLOCK DOES (2026-09-17)
+
+   THE SWEEP IS WHAT ASKED FOR THESE. Moving the store left three mutants
+   alive — the write running for a change with nothing to store, a refused
+   write read as a successful one, and the write forgetting it happened so a
+   failed publish never puts the old look back — and every one is a branch of
+   the block that moved. None had a seam to drive: the fixture's every `put`
+   succeeded and its compiler always answered ok.
+
+   ⚠ THE THIRD ONE IS THE CLAIM THIS CHANGE'S OWN COMMENT MAKES. *"The one
+   failure after this point puts the old look back."* An invariant asserted in
+   a comment and tested nowhere is exactly how the defect above shipped — the
+   store's old comment claimed *"every refusal above leaves the site as it
+   was"* while sitting above a refusal. Leaving it undrivable would repeat the
+   mistake inside the fix for it, so the fixture gained two knobs rather than
+   the survivors gaining a paragraph.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** A page-only ask: it publishes and has no design to store. */
+const plainPage = (slug, extra) => addon(slug, "add a gallery page", {
+  kinds: ["page"], publishes: true, credits: 400, look: PRIOR_LOOK,
+  storedPages: [storedPage("/")],
+  written: [writtenPage("/gallery"), addedTo("/", '<p>Also see the <a href="/gallery">gallery</a>.</p>')],
+  answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+    sections: ["a grid of photographs"], components: ["card"] }] } },
+  ...extra,
+});
+
+test("a change with no design in it does not rewrite the design settings", async () => {
+  const r = await plainPage("fw-nolook");
+  // NON-VACUITY: it really published, so "the config is untouched" is about a
+  // change that happened rather than one that was refused on the way.
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.added, ["gallery.tsx"], "no page was added, so nothing ran");
+
+  // THE WHOLE STORED OBJECT, because the way this goes wrong is a write that
+  // NORMALISES rather than one that sets a field: `withConfig(cur, undefined)`
+  // answers a seven-key config where the site had two, so a change carrying no
+  // design would silently give the site five settings it never had. Measured
+  // — that is what the store's `if (aLookPatch)` is keeping out.
+  assert.deepEqual(storedConfig(r, "fw-nolook"), seededConfig(PRIOR_LOOK),
+    "a change with nothing to store rewrote the config: "
+    + JSON.stringify(storedConfig(r, "fw-nolook")));
+});
+
+test("a refused design write is said out loud, and nothing is published", async () => {
+  const r = await plainPage("fw-cfgfail", {
+    // A QR is what gives this change something to store at all.
+    kinds: ["page", "qr"], configFail: true,
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } } },
+  });
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, "a refused write reported itself as done");
+  assert.equal(r.body.error, "config");
+  assert.equal(r.body.cost, 0, "a change that stored nothing was charged");
+  assert.match(String(r.body.msg), /your site is untouched/,
+    "the customer is not told the site is as it was: " + r.body.msg);
+
+  // AND THE SITE REALLY IS UNTOUCHED — the claim the sentence makes.
+  assert.deepEqual(storedConfig(r, "fw-cfgfail"), seededConfig(PRIOR_LOOK),
+    "the refused write landed after all: " + JSON.stringify(storedConfig(r, "fw-cfgfail")));
+  assert.equal(r.compiles.length, 0, "a change whose design could not be saved reached the compiler");
+});
+
+test("a failed publish puts the old look back", async () => {
+  const r = await plainPage("fw-pubfail", {
+    kinds: ["page", "qr"], compileFail: true,
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } } },
+  });
+  assert.equal(r.body.ok, false, JSON.stringify(r.body));
+  assert.equal(r.body.error, "compile");
+
+  // NON-VACUITY: the store really ran, so the revert has something to undo.
+  // Without this the case passes against a route that never stored at all.
+  assert.equal(r.compiles.length, 1, "nothing compiled, so no publish failed and nothing was reverted");
+
+  const look = (storedConfig(r, "fw-pubfail") || {}).look || {};
+  assert.equal(look.qr, undefined,
+    "a QR for a site that never published is in the stored look: " + JSON.stringify(look.qr));
+  // AND THE SITE'S OWN SETTINGS SURVIVE THE REVERT — a revert that wiped the
+  // look would satisfy the line above and lose the theme with it.
+  assert.equal(look.theme, THEME_IDS[0], "the revert dropped the site's own theme");
+  assert.equal(look.description, PRIOR_LOOK.description, "the revert dropped the site's own description");
+  // NOT byte-identical, and saying so beats asserting something false: the
+  // revert writes the look as the route READ it, which `markOf` has already
+  // normalised — so `favicon` and `wordmark` come back as forms the seeded
+  // object did not carry. What must be true is that nothing this change
+  // DESIGNED survived, and that nothing the site had was lost.
+  assert.equal(look.three, undefined, "a scene this change designed survived a failed publish");
 });
