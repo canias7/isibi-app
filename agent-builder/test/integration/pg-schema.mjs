@@ -1950,6 +1950,22 @@ try {
   check("...so the partial index really is partial",
     jget(`select count(*) from agent.automation_runs where automation_id='${AU1}' and occurrence is null;`) === "2");
 
+  // ⚠ **AND A BARE `on conflict do nothing` IS ONLY SAFE WHILE THIS IS THE WHOLE LIST.**
+  // `accept_automation_run` names no conflict target, because both of this table's unique
+  // things mean the same fact — already filed — and a check constraint and a foreign key
+  // are not absorbed by such a clause at all. **A THIRD unique thing added later would be
+  // absorbed too, silently**, so the list is asserted rather than left in a comment.
+  const uniques = jget(`select coalesce(string_agg(c.conname, ',' order by c.conname), '(none)')
+                          from pg_constraint c
+                         where c.conrelid = 'agent.automation_runs'::regclass
+                           and c.contype in ('p','u','x');`);
+  const uIx = jget(`select coalesce(string_agg(i.relname, ',' order by i.relname), '(none)')
+                      from pg_index x join pg_class i on i.oid = x.indexrelid
+                     where x.indrelid = 'agent.automation_runs'::regclass and x.indisunique;`);
+  check("⚠ automation_runs has exactly TWO unique things, and both mean already-filed",
+    uniques === "automation_runs_pkey" && uIx === "automation_runs_one_per_occurrence,automation_runs_pkey",
+    `${uniques} / ${uIx}`);
+
   // ⚠ **AND A MANUAL RUN RE-ACCEPTED UNDER THE SAME RUN ID IS A REPEAT — which is the
   // whole of what makes `run_automation` safe to repeat.** The tool DERIVES its run id
   // from the call it belongs to (`<run>:<step>:<index>:<the arguments' own hash>`), so a
@@ -2555,6 +2571,11 @@ try {
   // value to a named row, so the end state does not depend on how many times it ran. The
   // ANSWER is identical too, which is what lets a redelivery finish the call rather than
   // having to tell a resumed run apart from a first attempt.
+  //
+  // ⚠ IT SITS HERE, PAST THE AUTOMATION SECTION, ON PURPOSE. It toggles `AU1`'s own
+  // `enabled`, and doing that mid-scenario up there would change the state the disabled
+  // and paused refusals are asked in — a check that alters what a later one is about. It
+  // leaves the row exactly as it found it, and nothing after this reads it.
   const off1 = jget(`select agent.set_automation_enabled('t1','${AU1}',false)::text;`);
   const off2 = jget(`select agent.set_automation_enabled('t1','${AU1}',false)::text;`);
   check("⚠ turning an automation off twice leaves it off, with the same answer",

@@ -3810,6 +3810,12 @@ loses somebody's data.
 - **AND A WRITE MUST BE REPEATABLE, ENFORCED IN `defineTool`** rather than trusted: a write
   that cannot be repeated can never finish after an interruption at all — the resume refuses
   it and names it, for ever, so the tool is a control that holds and never completes.
+- **AND THE HASH HAS NO SITE-SIDE TWIN, checked rather than assumed.** `agent-store.mjs`
+  and `public/chat.js` contain no `argsHash`, no `canonicalJson` and no `storedForm`: the
+  site reads an approval's stored `args` to DRAW them and never computes or compares a
+  fingerprint. So there is nothing to census across the two products here, unlike
+  `AGENT_TOOLS`, `AUTOMATION_STEPS` and `cleanWorkflow` — and saying so beats a reader
+  going looking for the copy.
 - **IT IS A CENSUS, NOT A LABEL.** `test/capabilities.test.mjs` drives every tool against a
   RECORDING capability seam and requires `writes` to be true exactly when one of
   `CAPABILITY_WRITES` was touched — with the observer proved alive (a tool that reached no
@@ -3869,9 +3875,27 @@ delimiter as unambiguous as `$$;`, and inventing one is the "flat scans where de
 matters" trap. There are four; `automation_history` was the one instance and was
 re-pointed by hand.
 
+### OPEN, and it is a decision rather than an oversight
+
+**A STRANDED RUN READS AS "WORKING" TO A CUSTOMER, FOR EVER.** `cannot-resume` and
+`awaiting-approval` are RECORDED rather than finished — no `stopped` entry, deliberately,
+because the log has to stay open for the delivery after somebody answers — so
+`agent.runs.status` is `running` and the site's `runView` answers `working`. For an
+approval the screen has the banner, which is the thing to act on. For a `cannot-resume`
+there is no row anywhere for a person to see: the pending call lives in the journal, which
+nothing on the site reads.
+
+**NOT BUILT, and the reason is scope rather than difficulty.** Surfacing it means a route
+that reads a run's pending calls and a piece of screen for them — customer-facing work the
+owner directs — and the stop already names every blocked call and now says which are
+unresolved, so the fact is recorded and readable by anyone with the run. Written down
+because "the state is explicit" is true of the RECORD and not yet of the SCREEN, and
+collapsing those two would be the claim this milestone exists to stop making.
+
 ### Measured
 
-- **Engine suite 393**, 0 failed (391 before the capability census, 387 before this round).
+- **Engine suite 393 → 395**, 0 failed (387 before this round). The two are the sweep
+  survivors below.
 - **Real PostgreSQL (`npm run test:pg`): 627 → 632, 0 failed.** The five are the repeated
   run id reading as one execution with nothing written twice, and `set_automation_enabled`
   twice leaving the same state with the same answer, each with its control.

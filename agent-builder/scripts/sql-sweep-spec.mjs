@@ -81,6 +81,12 @@ const enclosing = (src, at) => {
   const ends = /^.*\$\$;/m.exec(src.slice(found.from));
   // A header with no close is a file this reader does not understand; say nothing rather
   // than guessing, because a wrong claim here reports a correct mutant as broken.
+  //
+  // ⚠ AND EVERY WAY THIS CAN BE WRONG FAILS SILENT, which is the direction to be wrong in.
+  // A `$$;` inside a body's own string would shorten that body, so a position past it
+  // answers `null` and no claim is made — a MISSED detection, never a false alarm. The one
+  // odd form in these files is a whole function on one line (`as $$ select 20 $$;`), which
+  // this reads correctly.
   if (!ends) return null;
   if (at > found.from + ends.index + ends[0].length) return null;
   return found;

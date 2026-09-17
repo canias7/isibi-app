@@ -1236,3 +1236,61 @@ which model really ran so a real provider stops them automatically.
 accepts a run, nothing rings this Worker's queue — the two are separate Workers — so the
 sweeper picks it up on its own minute-by-minute cron. That is correct and slow; a
 doorbell is the obvious next piece.
+
+## An operation's identity is its position AND its arguments (2026-09-17)
+
+This was the "make actions safe across retries and interruptions" milestone. It turned up
+**four real defects**, every one reproduced before it was fixed, and none of them visible
+by reading the code.
+
+**1. A resumed call ran with another call's arguments.** When a process dies between a
+tool call and the write that records its answer, the run resumes and finishes that call.
+It was finding the call's arguments by the call's *id* — and a model is not obliged to give
+one. With two ids missing, both calls got the FIRST one's arguments. Measured: an agent
+asked to remember one thing and forget another, interrupted, resumed — and it forgot the
+thing it had just been told to keep, while the thing it was asked to forget was untouched.
+For a call waiting on your approval it failed the safe way instead, but "safe" there means
+the call you approved can never run.
+
+The fix is not a repair, it is a rearrangement: the arguments now travel with the call
+from the moment it is recorded, so there is no later lookup left to get wrong.
+
+**2. The fingerprint an approval is bound to did not survive being written down.** An
+approval is tied to the exact arguments you saw, by a hash. Two objects that print
+identically — because JSON is what prints them — hashed differently once one had been
+through the database. So an approval could be asked about one fingerprint and re-read at
+another, and a call you really did approve would be refused for ever. Fixed by taking the
+fingerprint of the arguments *as they will be stored*, which is the only form anybody ever
+sees.
+
+**3. An unreadable record was counted as four tool calls that never existed.** A stored
+list that is not a list came back as four pending calls and four calls on the meter, with
+nothing reporting a problem — in the one function whose job is to report problems. It says
+so now and invents nothing.
+
+**4. Starting the same automation twice raised an error instead of saying "already
+running".** When an agent starts one of your automations, it derives the work's identity
+from the call so that a redelivery asks for the same piece of work rather than making a
+second one. The database refused the second ask with a key violation instead of absorbing
+it — so no duplicate was ever possible, but a redelivery came back as a FAILURE about work
+that is queued and will run. Measured on a real PostgreSQL, fixed, and proved both ways.
+
+**And there is a new third answer: "unresolved".** "It failed" and "nobody knows whether it
+happened" are different facts and they want opposite next moves — one invites trying again,
+the other invites checking first. A tool that only reads cannot be unresolved; one that
+writes can, and it now says so to the model in words rather than in a field nobody reads.
+Which tools write is derived by driving each one and watching what it touches, not by a
+label somebody could forget.
+
+**One thing worth knowing about my own tooling.** Eight of the deliberate-breakage checks
+for the database had been aimed at an older copy of a function that a later migration
+replaces — so they were testing dead code, and their passing meant nothing. Nobody noticed
+because that sweep had not been run since the copy moved. The generator asks now, and it
+took three attempts to get the question right; the first two reported correct checks as
+broken, and the third was a check that could not fail at all.
+
+**Measured**: the engine suite 395, the real-PostgreSQL checks 632, and the tools
+demonstration 78 — all green. The three other demonstrations (70, 125, 112) and the site
+builder's own 6,791 are unchanged, which is how I know this round moved nothing else.
+
+**Nothing is applied, deployed or merged.**
