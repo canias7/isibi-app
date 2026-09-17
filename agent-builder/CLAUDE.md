@@ -4563,6 +4563,28 @@ does not. Three more findings are recorded where they happened:
 - **`verify:tools` 112 · `verify:chat` 112 · `verify:auto` 70 · `verify:wf` 125 ·
   `verify:ops` 53 — every one unchanged and green**, which is the control that this round
   broke nothing.
+- **Engine sweep: 450 mutants, 450 killed, 0 survived, 0 never applied, 7 comment-only
+  controls survived** (457 spec entries, being those 450 plus the seven controls), taken
+  after the run in a detached worktree so the main tree held no mutant while it ran, and
+  the worktree proved restored against git afterwards.
+  **⚠ FIVE SURVIVED THE FIRST PASS AND EVERY ONE WAS IN `runner.mjs` OR `worker.mjs`** —
+  every property proved end to end by `verify:controls`, which `npm run sweep` does not
+  run. *A property proven only by an instrument the sweep cannot run is a property no
+  mutant can be caught by*, for the FOURTH time in this directory. Closed with three
+  engine cases (a withdrawn tool not running and the withdrawal SAID; the read happening
+  live on every delivery, driven by revoking a tool BETWEEN two deliveries of one run
+  with the first delivery's empty answer as the control), one store case (the expiry
+  sweep's answer is a list or it is nothing, with a real answer coming through WHOLE as
+  its control), and assertions inside the cron's own case.
+  **AND ONE OF THE FIVE WAS A WALL NOBODY COULD DRIVE, which is a product change rather
+  than a guard one.** `worker.scheduled` rings only an `action === "requeued"` row, and
+  `requeue_expired_approvals` never answered anything else — so nothing anywhere handed
+  it a row to skip, and the log line beside it carried two numbers (`closed` and `rung`)
+  that were always equal. The function reports a `held` row now: the filter is
+  load-bearing, an operator can see what a tick LOOKED AT against what it could act on,
+  and a run left alone because somebody is on it stops being silent. Its SQL mutant was
+  re-anchored from *is a held row reported at all* to *does its action say which it was*,
+  which is strictly stronger.
 - **Four censuses re-anchored, not appeased**, each by fields of the thing being acted on
   (`tool`, checked against the catalog, and `reason`, a person's own words) rather than by an
   exemption.
@@ -4703,7 +4725,19 @@ the database says `running`.
   it, for the second time after M5's own correction. **A worktree run reads one extra FAILURE**
   (`render-sandbox`'s privilege-drop case, which is about writing outside the repository root),
   so the TOTAL is what carries across and the pass count does not.
-- Sweep specs: SQL 223 → 231 entries, the site's 13 → 24.
+- **Site sweep: 22 mutants, 22 killed, 0 survived, 0 never applied, 2 comment-only controls
+  survived** (the spec 13 → 24 entries). Two survived the first pass and **neither was the
+  product's**: nothing drove a junk `cancelledBy` (six shapes now), and — the recorded
+  WIRING HOP — nothing asserted that the conversation read really ASKS for the two columns.
+  `runView` can be perfect and the view can carry both, and if the `&select=` does not NAME
+  them PostgREST does not send them, both readers fail closed, and every waiting or stranded
+  run reads `working` again. Asserted on the wire and by NAME rather than by counting, with
+  a control that a select list which had stopped naming anything would not satisfy it.
+- **The SQL sweep is 231 entries (9 controls) and is RUNNING as this is written**, over
+  M4's own migration and this one — neither of which has ever been swept. Its tally is
+  deliberately NOT stamped here yet: *a count nobody re-measured is a claim ahead of its
+  evidence*, and the two SQL mutants this round adds to the expiry sweep's answer are
+  exactly the ones a stale tally would say nothing about.
 
 ### ⚠ TWO FIXTURE FAULTS OF MY OWN, both recorded shapes
 
