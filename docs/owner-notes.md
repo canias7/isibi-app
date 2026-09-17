@@ -155,6 +155,111 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-17 — Addon milestone 1: the addon now knows what the site is
+
+You asked to keep the work on the whole ADDON path until the milestone is done,
+and to start with frontend context and hand-offs. Here is that, addon only.
+**Nothing is merged, nothing is deployed, and no credits were spent.**
+
+### Your two reproductions, and what they both were
+
+You reported these separately; they turned out to be one thing. Inside an addon,
+the steps run in a fixed order — pages first, then sections, QR codes and 3D
+scenes — and until today **nothing a later step needed to know crossed from an
+earlier one**. The backend half has worked that way since the 14th (a scheduled
+job can name a function designed a moment earlier in the same request); the
+frontend half never did.
+
+Measured on the code as it stood, before I touched anything:
+
+| what you ask for | what happened |
+|---|---|
+| a gallery page, and a caption block on it — one-page site | the block was built **on the front page**, and you were told it was added |
+| the same, on a three-page site | refused: "I couldn't tell which page that goes on" |
+| a gallery page, and a QR code that opens it | refused: "that page doesn't exist" — about the page in the same sentence |
+
+The first one is the bad one, and it is the one you called out: *"Do not
+silently substitute another destination."* The section really was built,
+somewhere you did not ask for, and the reply said done.
+
+**Fixed.** A page the same change is adding is now a real destination
+everywhere — a section may sit on it, a code may open it — and every step that
+is told about it is also told it does not exist yet, so nothing goes looking for
+a page that has not been written.
+
+**And a rule underneath it expired.** There was a shortcut: on a site with one
+page, a section with no stated destination goes on that page, because there is
+nowhere else. That is true right up until the same request adds a second page —
+and then it is a guess. It reads the site as it will be now, so it only fires
+when there really is one place to go.
+
+### The page writer had never seen your own components
+
+When a site has a component written specially for it — a tide chart, a chord
+diagram — that file lives in the project and gets compiled into every build. But
+the model that edits your pages was only ever shown its **name and a one-line
+description**, under a heading telling it to write them.
+
+So it wrote them again, from the summary, and the new version replaced the real
+one. Silently.
+
+**Fixed, and in two halves.** The writer is shown the real source of your own
+components and told to call them, not rewrite them. And if a component is too
+long to fit in one request, it is **named and ruled out** rather than left
+unmentioned — because saying nothing about it is exactly what makes a model
+write it from scratch. If it returns a rewrite of one it was never shown, we
+keep the real file and tell you:
+
+> I left tide-chart exactly as it is — that component is too long for me to read
+> in one go, so I won't rewrite it from a description. Ask me to change it on its
+> own and I'll work on it directly.
+
+### And it now knows what the site looks like
+
+Every rule the addon follows says "keep the site's design system" — and nothing
+in what it was shown said what that system *is*. It gets the theme name now, and
+the page writer gets your site's own stylesheet, marked as **already applied**
+so it uses those classes rather than writing the same rules inline. It also gets
+the exact props of the kit components on the page it is editing, which it only
+got by luck before.
+
+### Two mistakes of mine, both caught by checking rather than reading
+
+Worth saying, because both would have shipped looking fine:
+
+- One of my own fixes was **wired to nothing**. Two parts of the code name kit
+  components differently — one says `SeatMap`, the other says `seat-map` — so
+  the list I built was handed to something that answered nothing for every entry.
+  From outside it looks exactly like a site that imports no components at all.
+- One of my new tests **could not fail**. It checked for two component names
+  that happen to be mentioned elsewhere in the prompt anyway, so it passed with
+  the fix removed.
+
+Both were found by running each new test against the *old* code and requiring it
+to go red. That is the step I would skip if I were in a hurry, and it paid for
+itself twice here.
+
+### Checks
+
+- **Full suite: 6,761, all green** (6,749 + 7 new route cases + 2 + 3 module
+  cases — the arithmetic closes exactly).
+- **Mutation sweep: 36 mutants, 36 killed, 0 survived**, with the two
+  comment-only controls surviving as they must. Three passes: the first two
+  found gaps in my own new tests and **two pieces of my own code that could not
+  possibly do anything** — both measured inert rather than guessed at, and
+  deleted.
+- Every one of the seven new tests drives the real addon request end to end and
+  checks four things: what each designer was really shown, what instruction the
+  page writer was really given, what got stored, and what you would be told.
+
+### Not done, by your instruction
+
+No merge, no deploy, no paid run. **The remaining addon work, in the order you
+asked for it, is at the end of my reply** — large-site context, page-plus-photo
+requests, media, the backend gaps, and end-to-end verification.
+
+---
+
 ## 2026-09-17 — The clocks-going-back bug you found, and a correction to my own prediction
 
 ### You were right, and here is it happening

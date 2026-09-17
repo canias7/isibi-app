@@ -7030,6 +7030,149 @@ internal function by a LATER job (hop 2) is its own follow-up, not bought here.
 
 
 
+### THE ADDON KNOWS WHAT THE SITE IS, AND ITS OWN STEPS TELL EACH OTHER (2026-09-17)
+
+Owner: *"We're keeping the work on the entire ADDON path until that milestone is
+complete. Edit comes afterwards."* Milestone 1, frontend context and hand-offs,
+addon only — and the instruction that shaped every case: ***"Demonstrate those
+through the real addon route with mocked external dependencies, checking
+designer inputs, generated directives, stored results, and the response."***
+
+**1. A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION.** The backend
+tiers have crossed between kinds since 2026-09-14 — a job may name a function
+designed one call earlier — and the frontend never did. `page` runs before
+`component`, `qr` and `three` in `ADD_KINDS`, so the owner's two reproductions
+had ONE cause. **MEASURED at the cleaner before the fix:**
+
+| ask | before |
+|---|---|
+| component on a new `/gallery`, one-page site | **ACCEPTED, page `/`** |
+| component on a new `/gallery`, three-page site | refused `no-page` |
+| QR pointing at a new `/gallery`, either | refused `no-such-page` |
+
+**The first is the silent substitution the owner named**: the section was built
+on the FRONT page and the customer was told it had been added.
+`site.planned` carries `{path, name}`; **`going = have ∪ planned` is the ONE
+list** both "where may this go" and "where may a code point" are answered from,
+so they cannot come apart. `siteNote` prints the planned pages on their OWN
+line, saying they do not exist yet — folding them into "Its pages are:" would
+send a designer looking for source to copy that has not been written.
+**`SPEC_OF_KIND` HAS NO `page` ENTRY AND MUST NOT GAIN ONE** — it names the four
+SCHEMA tiers and `proposedSpec` writes into a spec list, which a page is not.
+
+**AND THE ONE-PAGE SHORTCUT NOW READS THE POST-CHANGE SITE.** Its whole
+justification is *"a site with exactly one page has exactly one place a
+component can go"*, which expires the instant this same change adds a second —
+the recorded *"a rule true because of a layer below it expires when that layer
+moves"*, where the layer is this message's own earlier designer. **A NAMED
+route also resolves to that route or to nothing**, where it used to fall through
+to the shortcut: two guards asserted THAT as correct and were re-anchored.
+
+**2. AN EXISTING COMPONENT IS NOT ONE TO BUILD.** `look.tsx` is the cumulative
+DECLARATION list — a name, a sentence and a props line, true of a component
+nobody ever wrote and kept for ever either way — and the page writer was handed
+it under *"the kit does not have these and this site needs them, so you write
+them"*. So a page importing a component this platform wrote months ago was
+edited by a model that had never seen it, and `mergeParts` replaced the real
+file by name: **a rewrite of working code from its own summary, with nothing
+anywhere saying it had happened.**
+
+- **`partsSent` DECIDES ONCE AND IS READ TWICE.** `{shown, withheld, names}`
+  over `source/<slug>/parts.json`. `partsDirective` shows the source of what
+  fits and **NAMES what does not, with an instruction** — a withheld component
+  said nothing about is indistinguishable from one that does not exist, which
+  is what makes a model write it again. `tsxDirective(tsx, names)` is filtered
+  by **every** name the site has a file for, not only the shown ones, so no
+  component is in both blocks and none is missing from both.
+- **TWO BOUNDS, NOT ONE**: `MAX_PART_CHARS` **12,000** for one component and
+  `MAX_PARTS_CHARS` **36,000** for the block, sized against `MAX_PRIOR_CHARS`
+  (90,000, the site's own PAGE source, which keeps the larger share). In stored
+  order and **never sorted by size**, or which component is shown would depend
+  on the others and an unrelated addition could withdraw one silently.
+- **THE WALL READS THE SAME OBJECT.** A returned component may replace one the
+  writer was shown and may not replace one it was not; the refusal rides
+  `keptParts` and `keptPartsNote` — composed server-side and printed VERBATIM,
+  `coverNote`'s rule, because the server is the only thing that knows which
+  sources fitted.
+- **AND THE WALL'S OBVIOUS SECOND HALF WAS DEAD BY CONSTRUCTION.** *"…unless it
+  was shown"* reads as a belt and cannot ever fire: `partsSent` sends each
+  component down exactly one branch and dedupes names first, so `shown` and
+  `withheld` are disjoint — **MEASURED over five shapes, including a name given
+  twice at both sizes and a list that overruns the block bound: zero overlap.**
+  Deleted rather than kept.
+
+**3. THE LOOK IT IS WEARING, AND THE SIGNATURES IT NEEDS.** Every add rule
+tells the designer to keep the site's design system and nothing in its inputs
+said what that system IS. The page writer gets the theme and the site's own
+stylesheet **as ALREADY APPLIED** — it is appended last at build time so it
+wins on source order, and a model shown one with no such sentence restates its
+rules inline, where editing the stylesheet can no longer reach them; a sheet
+over `MAX_STYLE_CHARS` (**16,000**) is cut and **the cut is announced**. The
+designers get the theme by NAME, which is `siteNote`'s own standing rule.
+`plan.components` gains the kit modules the pages being edited already import.
+
+**⚠ AND ONE WIRING DEFECT IN MY OWN CHANGE, caught by running the case against
+the pre-change product rather than by reading it.** `pageComponents` answers
+EXPORT names (`SeatMap`) and `siteComponentApi` is keyed on MODULE names
+(`seat-map`) — **measured, handing it the export names answers `""` for every
+one**, a value computed and never forwarded, which from outside is
+indistinguishable from the site importing nothing. One walk answers both now
+(`modules`), so a second parser of import lines cannot drift from it. **The
+first draft of that case used `accordion` and `card`, and BOTH are among the 72
+standard shadcn primitives whose props the signature scan cannot read** — so
+every assertion passed with the fix reverted. A vacuous assertion, found by the
+red-check and not by reading.
+
+**`siteNote` SEPARATES CURRENT IMPLEMENTATION FROM PLAN IN THREE PLACES NOW**
+(owner: *"Clearly separate current implementation from the original design
+plan"*): live pages against planned ones, components that have a FILE against
+declarations nothing has written, and the theme/stylesheet line. **`null` is a
+third state throughout** — a parts read that FAILED keeps the old sentence,
+because cannot-tell must never read as *"this site has no components of its
+own"*.
+
+**Guards**: `test/addon-route.test.mjs` **66 → 73**, every case driven through
+`POST /api/site/<slug>/addon` and asserted on the designer's real request, the
+generated directive, the stored result and the reply — **and every one proved
+RED against the pre-change product first, one fix reverted at a time**, which
+is what caught the vacuous assertion and the wiring defect above.
+`site-add` **37 → 39**, `page-gen` **246 → 249**, plus assertions inside
+`copy-design` and `requirement-coverage`. The fixture gains `parts`, `css`,
+`storedPages`, `writtenParts` and `pagePrompt` — **by TOOL NAME, never by the
+property key**, since the writer's tool answers `pages` and the page DESIGNER
+answers `page`.
+
+**Six older guards re-anchored, not appeased**, each naming the property that
+moved: two `site-add` expectations that **asserted the defect as correct** (a
+NAMED route swallowed by the one-page shortcut, for a component and for a QR);
+the page call's plan (pinned to `aFold.components`, now asserted as both
+sources reaching it); the parts merge (pinned to `aValid.parts`, now the
+property plus the wall); `pageComponents`' shape; and one route fixture that
+placed a section on a page its site did not have — **given the page rather than
+the destination quietly changed**, since a fixture change that appeases a check
+without asserting what changed is the same thing as deleting the check.
+
+**Sweep: 36 mutants, 36 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-frontend-context.json`, over
+`worker.js`, `builder/page-gen.mjs`, `builder/site-add.mjs`,
+`builder/site-addon.mjs` and `public/chat.js`, against 17 test files — a narrow
+list can only produce a false SURVIVOR, never a false kill). **Three passes.**
+Pass 1 read 25/11 and **not one survivor was the product's**: ten were gaps in
+the new guards and the eleventh was the dead wall above. Pass 2 read 34/2 and
+**both of those were INERT, measured rather than hunted** — the stylesheet's
+code-block ternary (`cut ? sheet.slice(0, N) : sheet` cannot differ from
+`sheet.slice(0, N)`, since the slice is already a no-op at or under N; five
+shapes, zero bytes different) and the route's three-state parts read, which had
+a module case and no route case. Both were replaced with observable mutants of
+the same property.
+
+**Suite 6,761** — 6,749 + 7 (`addon-route`) + 2 (`site-add`) + 3 (`page-gen`),
+and the arithmetic closes exactly.
+
+**NOT MERGED AND NOT DEPLOYED, and no paid call was made** — the owner's
+instruction for this round. Every measurement here is from driving the real
+route against stubbed seams.
+
 ### THE HAND-OFF AND ITS ANSWER ARE ONE OUTCOME NOW (2026-09-16)
 
 Owner, after run 50: *"Reconcile the original handoff with the receiving
