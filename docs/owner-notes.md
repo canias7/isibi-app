@@ -12389,3 +12389,69 @@ they finish rather than before.
 
 **Still nothing merged, nothing deployed, nothing applied to the live database. Still no real
 model — still last, still your call.**
+
+---
+
+## 2026-09-18 — the breakage sweep said the whole triggers round was unguarded, and it was right
+
+The sweep over the triggers work came back **560 mutants, 549 killed, 11 survived**. Every one of
+the eleven is closed now, and two of them were worth more than the closures.
+
+**The sweep's own honesty check fired.** One of its ten deliberately-harmless controls came back
+"killed", which is the runner saying it does not trust its own numbers. It was a real
+intermittent failure: a check I had written read two answers **by position**, and the engine
+deliberately does not promise an order there — two tool calls in one batch each hash their own
+arguments, and whichever hash finishes first is invoked first. About one run in thirty. That
+matters more here than anywhere: inside a sweep an intermittent failure reads as a *kill*, which
+says a property is guarded when nothing asked. **250 consecutive runs of the whole suite since
+the fix: zero failures.**
+
+**And one of the new checks found the test stand-in refusing something the real database
+accepts.** The in-memory stand-in for PostgREST had invented a rule for one kind of journal entry
+that the real function has not got, so it answered "conflict" where PostgreSQL simply writes the
+row — but only when two entries landed in the same millisecond, which a loop produces every time
+round. The run it broke stopped half way through a loop still holding its claim. A stand-in
+*stricter* than the thing it stands in for reports the product as broken, and that is the
+expensive direction.
+
+The other nine were ordinary gaps, and five of them were the same shape this directory has
+recorded six times: a property proved only by one of the end-to-end demonstrations, which the
+sweep does not run. Five new checks over the in-memory project close them.
+
+## …and reference material and memory are bounded and honest about deletion
+
+Your line was *define how forgetting a memory affects future retrieval and existing run
+snapshots, and report those semantics clearly rather than implying deletion erases historical
+records.* So it is defined, on a real PostgreSQL, as **three readings of one delete**:
+
+- **the row is gone**, so nothing an agent does from now on sees it;
+- **a job already accepted still has it**, at the version it was given — on purpose, because a
+  job runs what it was started with;
+- **the history still quotes it**, because the journal is append-only.
+
+Both places that report a delete — an agent's own `forget` and the screen's route — read those
+three facts **from the database function's own answer** rather than writing a sentence of their
+own, so what they say cannot drift from what a delete does. And the sentence says all three,
+because the fields are gone the moment somebody shows the note and nothing else.
+
+Three more things in the same round:
+
+- **Whose fact it is now travels.** A fact you confirmed and a note the agent wrote itself are
+  different things, and a snapshot taken before that was tracked is a third thing — *unknown* —
+  rather than being rounded up to "you said so".
+- **A search is bounded on the way IN as well as out.** It already asked for five passages; it
+  now also refuses to take more than five if something answers with fifty. That seam is meant to
+  be replaceable (a different kind of search one day), and a limit enforced only by the thing
+  being replaced is not a limit.
+- **One claim in my own notes was false and is corrected where it was written.** It said the
+  memory scope had been proved by "two accounts sharing an agent id". Two accounts *cannot* share
+  an agent id — the table forbids it — so I wrote a check on that premise and watched it fail.
+  Both layers are proved now, each in the shape the schema really allows.
+
+**Measured**: the real-database check 877 → 899, the engine suite 508 → 516, the site's agent
+files 260, and every one of the seven end-to-end demonstrations green at its recorded count —
+which is the control that says none of this broke anything.
+
+**The two breakage sweeps are running as I write this** and their numbers go in when they finish,
+not before. **Still nothing merged, nothing deployed, nothing applied to the live database, and
+still no real model — that stays last and stays your call.**

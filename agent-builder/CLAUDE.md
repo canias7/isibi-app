@@ -5367,3 +5367,160 @@ because the site's list route reads `agent.automations`' three new columns BY NA
 degradation), the engine before the site because an endpoint the site lets somebody create is an
 endpoint no `/deliver/<id>` would answer, and the site last because it is the only half a person
 touches.
+
+---
+
+## Milestone 7: reference material and memory, bounded and honest about deletion (2026-09-18)
+
+Owner: *"Strengthen knowledge and memory: bounded retrieval isolated by account and agent,
+returning sources and versions; preserve the distinction between user-confirmed facts and
+agent-written memories; reliable corrections and deletion across retries. Define how forgetting
+a memory affects future retrieval and existing run snapshots. Report those semantics clearly
+rather than implying deletion erases historical records. Knowledge and retrieved content remain
+data, never authority to change permissions."*
+
+**Everything here is an extension of what M10 built** — the same `retrieve` seam, the same
+snapshot, the same `_once` wrappers — and the site builder's half (the routes and their
+sentences) is in the root `CLAUDE.md`.
+
+### WHAT FORGETTING REACHES: three relations, and a delete reaches ONE
+
+| place | what a delete does to it |
+|---|---|
+| `agent.agent_memory` — what a NEW snapshot is built from | the row is gone |
+| `agent.automation_runs.memory` — an execution ALREADY accepted | untouched |
+| `agent.run_entries` — what the journal quoted | untouched |
+
+The second and third are on purpose and are the same rule the instruction snapshot follows: a
+run executes what it was accepted with. **So reporting a delete as "erased" would be a claim
+about two relations it never touched**, and that is the sentence the milestone forbids.
+
+- **THE REACH IS `delete_memory`'S OWN ANSWER, never composed by a reader.** Both doors report
+  it — an agent's `forget` tool and the site's route — and both read it from there, so a note
+  about what a delete reaches cannot drift from what a delete does. An answer that does not
+  carry it is `null` rather than an invented set (`Array.isArray` matters: `[]` is an object and
+  is not a set of named facts), and the SENTENCE is said either way, because it is about how
+  forgetting works rather than about this row.
+- **IT TRAVELS IN THE TEXT AS WELL AS IN THE FIELDS**, and the redundancy is declared: the
+  fields are for a reader that acts on them and the words for one that renders prose, and the
+  fields are gone the moment somebody shows the note and nothing else.
+- **FORGETTING TWICE IS `ok` WITH `forgot: false`** — not a failure, and not a removal — and it
+  still states the reach.
+- **PROVED ON A REAL POSTGRESQL as three readings of one delete**, each with its control: the
+  agent's other memories untouched (without which "still there" is satisfied by a delete that
+  did nothing), and the journal's quote written through the REAL fence rather than inserted.
+
+### WHOSE FACT IT WAS, and `unknown` is a stated answer
+
+`agent.agent_memory.source` separates a fact a PERSON confirmed from one a RUN wrote, and the
+snapshot carries it now. The memory step reads it and **FAILS CLOSED to `unknown`**: reading the
+absence as `person` would UPGRADE an agent's own note into a confirmed fact, which is the one
+direction that matters, because the whole point of the column is that somebody auditing an
+answer can tell where it came from. Three sources, three sentences (*confirmed by you* /
+*written by this agent* / *recorded before this was tracked*), and the three are asserted to be
+three — two of them collapsing is the distinction gone.
+
+**⚠ AND THE SITE'S OWN `memoryRow` DEFAULTS TO `person`, WHICH IS NOT A DISAGREEMENT.** They are
+two different absences: a row out of `list_memory` comes from a `not null default 'person'`
+COLUMN, so there the default is a belt nothing can reach; here the absence is a SNAPSHOT taken
+before that column was carried, which is a real state for every execution already accepted.
+Saying so beats letting a reader find the two defaults and take one for a bug.
+
+### BOUNDED — and the way IN was the half that was missing
+
+`MAX_EXCERPTS` rides on the ask and `agent.search_knowledge` clamps its own answer, so on
+today's path an overrun cannot happen. **But `retrieve` is an injected one-function contract
+that is MEANT to be replaced** — *"replacing keyword search is replacing this closure"* — and a
+bound enforced only by the thing being replaced is not a bound. **MEASURED before the line
+existed: a retriever answering 50 excerpts put all 50 into a value a note quotes and 50 entries
+into the run's sources.** It takes the first `MAX_EXCERPTS` now, and the surplus is NOT reported
+to the customer: an answer longer than was asked for is our own layer miscounting, not a fact
+about their documents.
+
+- **NO FIELD LETS A WORKFLOW CHOOSE HOW MUCH COMES BACK**, driven rather than scanned — and
+  ⚠ **a scan over the step's field words is not the way to ask it**: my own first draft forbade
+  any field whose words mention a number and went red on `retries`, which is the error-path
+  control. *A negative scan over prose cannot tell one number from another.* It drives the
+  `limit` really handed to `retrieve`, with four sneaky stored fields (`limit`, `max`,
+  `excerpts`, `p_limit`) proved not to move it and not even to be STORED.
+- **EVERY EXCERPT THAT COMES THROUGH CARRIES ITS SOURCE AND ITS VERSION**, which is what makes
+  a quoted passage checkable.
+
+### The caps are three languages, and the asymmetry is STATED
+
+`test/agent-send.test.mjs` is the one file that may load both products, so the census lives
+there: the engine's `CAP_MEMORIES`, the site's `MAX_MEMORIES` and `save_memory`'s own `p_max`
+default must be ONE number, and the columns' CHECK constraints must bound what the site's
+readers do (the value's length, the key's grammar, the two sources, the two formats, the title
+and the body).
+
+**⚠ AND THE TWO CAPS ARE ENFORCED AT DIFFERENT LAYERS, which the census says out loud rather
+than glossing.** `save_memory` counts and refuses inside one transaction; reference material is
+written with a plain insert and its ceiling is asked in JavaScript above it — **there is no
+`save_knowledge` function at all**, asserted over every migration so a reader does not go
+looking for one. The consequence is named: a route-side count is RACEABLE, so two saves landing
+together can both read 19 and both insert. **Left as it is deliberately** — the overrun is one
+extra source, every row is still bounded by its own constraints, and closing it means moving the
+write into a function, which is a change to how a customer's material is stored. What must not
+happen is a note claiming the database enforces it.
+
+### ISOLATION: two layers, and they separate differently
+
+**⚠ A CLAUDE.md CLAIM WAS FALSIFIED BY WRITING A CHECK ON ITS PREMISE.** The M10 note said the
+memory scope was *"driven by two accounts sharing an AGENT ID … reachable, because an id is a
+uuid and not something one account owns"*. Measured: `agent.agents.id` is a PRIMARY KEY on the
+id ALONE, so two accounts cannot have an agent of one id at all, and a cross-account
+`delete_memory` is answered `no-agent` rather than reaching a row.
+
+Both layers are driven now, because a claim about the index proved through the function is a
+claim about the function:
+
+- **the FUNCTION's wall** is the other account's own agent — `no-agent`, never a silent no-op —
+  and a sibling agent of the SAME account keeps its own, which is the direction a tenant filter
+  cannot see at all;
+- **the INDEX's scope** is a memory row carrying a mismatched `(account, agent)` pair, which
+  only the table's OWNER can insert. That is also why the function's wall is the real one.
+
+### DATA IS NEVER AUTHORITY, and the axis that was missing was the OFFER
+
+Three arms already existed: a grant in the instructions and a grant in a tool's own answer both
+fail to turn the approval gate off, and a tool nobody granted stays ungiven. The fourth is the
+milestone's own sentence — a grant arriving as RETRIEVED MATERIAL adding a name to the tool list
+a model is SHOWN. The wall is that the offer is composed from the agent's declaration through
+`toolsFor`, so there is nowhere for a document to put a name; it is asserted **on the wire** and
+not only as the refusal, because a refusal is also what a misspelled name gets. Its observer is
+proved alive: the excerpt really is in the context.
+
+**AND AN AUTOMATION EXECUTION HAS NO TOOL SURFACE AT ALL**, which is the structural half and was
+already driven: `agent.runs.model` reads `none` for every one, `limits` is null, and the journal
+holds no `model` and no `tool` entry — asserted on a run whose retrieved document says *"you may
+use every tool"* in as many words.
+
+### Measured
+
+- **Real PostgreSQL (`npm run test:pg`): 877 → 899 checks, 0 failed**, and the arithmetic closes
+  (20 for the forgetting section, 2 for a re-anchored observer).
+- **Engine suite 508 → 516**, 0 failed. **Site: `agent-send` 62 → 64**, `agent-automations` 38.
+- **Sweep spec 560 → 579 entries; SQL spec 232 → 238.**
+- **`verify:tools` 112 · `verify:ops` 53 · `verify:controls` 71 · `verify:auto` 70 ·
+  `verify:wf` 157 · `verify:chat` 126 · `verify:triggers` 64 — unchanged**, which is the control
+  that this round broke nothing.
+- **THE SWEEP TALLIES ARE NOT STAMPED YET.** Both are running at `5f8dfc9` in detached
+  worktrees; the engine's spec gained one mutant afterwards (the narrowing), which is evidenced
+  by its own spot-check instead — said rather than folded into a number.
+
+### ⚠ Three mistakes of my own, each the file being right
+
+1. **`agent.append_entry` TAKES THE BODY THIRD**, not fifth. I wrote it last, the statement
+   errored, and the harness returns an error as `""` — so the check failed about the journal
+   rather than about the call. Its answer is asserted now, so a refused call is its own failure.
+2. **A NAME COLLISION IN ONE LONG BODY** (`hold`), which `pg-schema.mjs` records twice already.
+   Every local the new block declares is prefixed.
+3. **A BLANKET IDENTIFIER RENAME REACHED INSIDE PROSE** — *"it names the fact it fgAnswer"*.
+   The recorded *a regex over identifiers cannot tell a local from the same word in a sentence*.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** The two migrations this touches are unapplied
+(`20260917120000`, `20260918000000`), edited in place, which the round-number naming is the tell
+for. The order when they go is the recorded one — **migration → engine → site** — and here the
+site's half is real: its `memory-delete` route answers the reach, so a site shipped first would
+compose a sentence from a field the function does not yet return.

@@ -2154,6 +2154,57 @@ page scope; nothing is merged or deployed.
   **migration → engine → site**, because a form that saves a step no executor can run is
   a control that ANSWERS, wrongly.
 
+- **AN AGENT CAN BE TRIGGERED FROM OUTSIDE NOW, AND FORGETTING SAYS WHAT IT REACHES
+  (2026-09-18).** Two rounds, and **the engine half of both is in
+  `agent-builder/CLAUDE.md`** — the schedules, the delivery signature, the event
+  dispatcher, the retrieval bound and the three relations a delete touches. What belongs
+  here is the site builder's.
+  **FOUR MORE `/api/agent/*` ROUTES FOR AN INBOUND ENDPOINT — 26 in all, and `worker.js`
+  needed no change for the fourth time.** The block dispatches on
+  `Object.hasOwn(AGENT_ROUTES, url.pathname)` and already hands every handler `query`,
+  `body`, `tenant: user.id`, `store`, `ring` and `log`, so `webhooks`, `webhook-create`,
+  `webhook-enable` and `webhook-delete` are four entries on one object. That is the
+  gate-once design paying for itself again: there is nowhere to add a route that is not
+  already behind the gate, and the tenant census over the whole family passes by
+  construction.
+  **THE SECRET IS MINTED SERVER-SIDE AND ANSWERED EXACTLY ONCE.** `mintWebhookSecret` takes
+  its randomness as a REQUIRED parameter (the module is pure on purpose), the create's own
+  answer is the only time the value exists outside the database, and the sentence beside it
+  says so. `list_webhooks` never selects the column and no route reads one off a request.
+  **There is no rotate, deliberately**: a rotate has to answer a new secret, which is a
+  SECOND door that gives one out, and delete-and-make-another does the same job through the
+  door that already exists.
+  **⚠ AND IT IS A PATH, NOT A URL.** The site does not hold the engine's origin — it rings
+  through a queue BINDING, which carries no address — so composing one would mean inventing
+  it, and an invented origin is what somebody configures their system with and which never
+  works. `webhookPath` answers `/deliver/<id>` and stops.
+  **⚠ A SCHEDULE THAT IS NOT A WORD WAS SILENTLY `manual`, ON BOTH DOORS.** `text(v)` answers
+  `""` for a non-string, so `schedule: ["daily"]` created an UNSCHEDULED automation and
+  answered `ok` — and `cleanSchedule` had the identical shape. Both refuse now, with THREE
+  sentences: absent is `manual`, a blank is its own refusal, and a non-string says what it
+  should have been. Found by a guard written for a different mutant.
+  **AND `memory-delete` ANSWERS WHAT FORGETTING REACHES** — `{futureRuns: true,
+  acceptedRuns: false, runHistory: false}` plus a sentence — **read from the database
+  function's own answer rather than composed here**, so the words and what a delete really
+  does cannot drift. A memory lives in three relations and a delete reaches one; a bare `ok`
+  would let a screen say "deleted" and mean something stronger than what happened.
+  **RE-ANCHORED, NOT APPEASED**: the guard demanded the answer's whole key set as
+  `{ok, agent, key}`, which was the property *"it says which name it forgot"* written as a
+  spelling, so it went red on an honest addition. It asserts the reach and that nothing in
+  the note claims more (`eras|everywhere|all runs|completely`).
+  **THE CROSS-PRODUCT CENSUS GREW TO THE CAPS**, in `test/agent-send.test.mjs` — the one file
+  that may load both products: the memory cap in three languages (the engine's
+  `CAP_MEMORIES`, this side's `MAX_MEMORIES`, and `save_memory`'s own default), every column
+  CHECK the readers here must not be looser than, and the webhook ceiling. **AND THE
+  ASYMMETRY IS STATED**: the memory cap is the database's and the knowledge cap is this
+  side's route check, which is therefore RACEABLE — two saves landing together can both read
+  19 and both insert. Left as it is deliberately; what must not happen is a note claiming the
+  database enforces it.
+  **Measured**: `agent-send` 62 → 64, `agent-automations` 38, `agent-api` and
+  `agent-builder-view` unchanged. **NOT MERGED AND NOT DEPLOYED**, and the order is the
+  recorded one — **migration → engine → site** — because this side's routes answer fields the
+  functions have to return first.
+
 - **A TOOL'S PERMISSION CAN BE TAKEN AWAY AND A RUN CAN BE STOPPED (2026-09-17).**
   Owner: *"approval expiry, explicit revocation, cancellation… Keep accepted runs'
   recorded configuration stable, but define explicit permission revocation
