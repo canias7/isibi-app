@@ -5770,7 +5770,7 @@ It is one line, below the comment, and re-throwing is the same property.
 
 ### Measured
 
-- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 → 976 → 980 → 986 checks, 0 failed**, and the
+- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 → 976 → 980 → 986 → 997 → 1,001 checks, 0 failed**, and the
   arithmetic closes exactly at each step: 61 for the connections migration, 7 for the re-anchored
   operations block (two checks became nine), **9 for the credential's PRIVILEGES** (the fourth
   defect below — three read off `has_column_privilege`, six driven AS `service_role` with three
@@ -5911,7 +5911,7 @@ having shipped once already.
 
 ### ⚠ The full SQL sweep's survivors, and what each one turned out to be
 
-**EIGHT survivors through 162 of 268, and NOT ONE was the product's.** They fall into four
+**FOURTEEN survivors through 201 of 268, and NOT ONE was the product's.** They fall into five
 classes, and the classes are the finding — a survivor is a question, and these had four
 different answers.
 
@@ -5920,7 +5920,34 @@ different answers.
 | mis-aimed anchor | 3 | aimed at a constraint a later migration drops and re-adds |
 | declared redundancy | 4 | two routes to one answer, each inert alone |
 | false label | 2 | inert AND claiming a consequence Postgres refuses |
+| **provable only elsewhere** | 6 | true properties, driven by an instrument this sweep does not run |
 | genuine guard gap | **0** | — |
+
+**AND THE FIFTH CLASS IS THE ONE THAT MATTERS MOST GOING FORWARD.** Five mutants over
+`operation_begin` and `operation_settle` — the money path's idempotency, which decides whether a
+second caller ALSO sends — survived because that contract is proved by `verify:ops` (53 checks)
+and by the engine's own suite, and **the SQL sweep runs neither**: it runs `pg-schema.mjs` and
+`authored-run.test.mjs`. This file mentioned those two functions FOUR times in total, all about
+settling a row that already exists. That is the trap stated in the sweep runner's own comment —
+*a property proven only by an instrument the sweep cannot run is a property no mutant can be
+caught by* — arriving in the one path where the consequence is a customer's message going out
+twice. **Eleven checks added here and all five mutants now die: 5 killed, 0 survived, the control
+survived.** A sixth of the same class followed one function over — a `_once` wrapper's re-raise,
+where a genuine refusal from the inner call must reach the caller instead of reading as a lost
+race, because swallowing it turns a real refusal into a silent `ok: false`. Four more checks.
+**AND THE FIRST DRAFT OF THAT ONE WENT RED, which is the useful part**: it used a value past the
+column's 4000 cap, and `save_memory` asks the length ITSELF and RETURNS `too-long`, so the
+wrapper records that as an ordinary outcome and nothing raises. Every sentence-shaped refusal in
+that function is the same. The raise has to come from something the function does NOT
+pre-validate — a `p_id` already belonging to a different memory, because the lookup is BY KEY.
+*The reasoning is written into the test, because the next reader reaches for the length cap
+first, as I did.*
+**AND THE ASYMMETRY IS RECORDED RATHER THAN IMPLIED COVERED: five of the six `_once` wrappers
+carry that identical block and have NO mutant at all** — measured, exactly one re-raise mutant
+exists. So one breakage is caught and five stay unswept until the spec grows mutants for them.
+
+The rule to carry: when a property matters, ask which instrument can PROVE it, not merely which
+one happens to cover it today.
 
 **1–3. THE MIS-AIMED ANCHORS** are the recorded superseded-definition trap arriving a fifth
 time, through a door the pre-check did not model: `create or replace` supersedes a function or
