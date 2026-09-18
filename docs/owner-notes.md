@@ -13178,3 +13178,113 @@ numbers. Worth doing once, because that windowing has been wrong before and it i
 the thing every one of these reports rests on.
 
 **Still nothing merged, nothing deployed, nothing paid.**
+
+---
+
+## The last correction — and the harness is finished (2026-09-18)
+
+You found it: the report ran the *success* formatter on refusals. A reply saying
+`{ok:false, error:"lost-photos", msg:"Nothing was published and nothing was
+charged."}` came back on the report as **"✅ Done."** — a refusal that published
+nothing, shown as the change having landed. I reproduced it on your exact body
+before touching anything.
+
+**The cause is the fix before this one stopping one layer short.** Last round I
+made the report stop writing its own version of the reply and start running the
+browser's real formatter. That was right, and the thing I reached for —
+`addonReplyText` — is the *success* formatter. The browser decides **which**
+screen a reply gets before it composes anything: an escalate hops sideways, a
+reply that would not parse falls back to the full rewrite, a failing status or an
+`ok: false` shows the warning and the message, and only the last case reaches the
+success formatter. So I fixed the writing and left the *choosing* re-implemented
+as "always the success one" — the same two-copies mistake one level up from where
+I had just closed it.
+
+It runs the browser's real chooser now, so all four outcomes are the browser's.
+
+**The HTTP status is part of that choice, and it is carried rather than guessed.**
+A 200 and a 422 carrying the same body are two different screens. Interestingly
+your example alone cannot show that — a body saying `ok: false` gets the warning
+at *any* status — so the case that proves the status is really read is a body
+claiming **success** at a **failing** status: at 200 it composes "Done — added
+/gallery", at 422 it composes nothing and falls. Both driven.
+
+**And a status the harness did not record is a third answer, not a coin toss.**
+If it cannot tell, it says **NOT COMPOSED** rather than picking. Reading it as a
+success is the bug you just found; reading it as a failure would report a refusal
+screen over a change that worked.
+
+**Nothing external can happen from a read, and that is built in rather than
+careful.** Two of the browser's four outcomes don't print — they *act*: one posts
+a **second paid request** to the edit route, the other starts the **~25-credit
+full rewrite**. Both are replaced with recorders, so they are written down as
+things the browser *would* do and neither happens; the browser's own site-list
+write is unreachable by construction. And they are now **reported**, because a
+report that showed only the text would be silent about the expensive half.
+
+**Eight deliberate breakages became twenty-five; all twenty-five caught, both
+decoys survived.** The first pass left one survivor and it was not a bug — a line
+that cannot change the outcome today, because every non-success path in the
+browser ends the same way. I measured that rather than assuming it (32 probes,
+zero differences), kept the line because it matches what the browser really hands
+over, and wrote down why, so nobody deletes it later as dead.
+
+**Unit suite 6,843**, one more than last time and the arithmetic closes exactly.
+
+**Harness preparation is closed.** Nothing further is going into the instrument.
+
+### What you need for the live test
+
+**The order is merge → deploy → press**, and the reason is your own instruction
+from last round: the harness refuses to spend if it cannot confirm it read the
+site's stores completely, and the live Worker does not yet say so. So it has to
+go out first.
+
+**The two expectations to type into the form** (they are what stop the run
+testing the wrong build, and the run refuses before spending a credit if either
+is wrong):
+
+| field | value |
+|---|---|
+| `expect_deploy` | **the merge commit's sha** — the branch is a clean fast-forward of main, so it is this branch's tip |
+| `expect_image` | **`3b93a9cae43bac41`** |
+
+`3b93a9cae43bac41` is computed from the tree before anything has moved, the way
+every deploy here has been cross-checked lately. Main is on **`7273d2569866364f`**
+today, which is exactly the image deploy 2133 rolled to — so the arithmetic is
+checked against reality and not only against itself. **The container will roll**
+(this touches `worker.js` and the builder modules), so the usual **15–20 minute
+hold** applies before pressing.
+
+**The run itself** — `lane sweep`, dispatch only, your press:
+
+| field | value |
+|---|---|
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `site` | `fretwork-1` |
+| `ask` | *Add a gallery page with a photograph of the workshop on it, and a QR code that opens it.* |
+| `picker` | `grok` |
+| `budget` | `40` |
+| `expect_deploy` | the merged sha |
+| `expect_image` | `3b93a9cae43bac41` |
+| `run_job` | `none` |
+| `lanes` | leave as `all` — the `ask` replaces the case list |
+
+**Two things to know before you press, and neither is a reason not to.**
+
+**`fretwork-1` has no photographs on its pages**, so the "a new picture does not
+lose the old ones" half is **vacuous there** — that check short-circuits on a site
+with none. It is the strongest site for the **QR** half (it already has two
+codes, so "a new one does not disturb the existing ones" is a real question
+there). No site on the account is strong on both halves; the four with
+photographs are your older sites and have no codes. Which trade to take is yours.
+
+**And the balance and fal's readiness are both unreadable from here** — no
+credential for either exists in my environment, re-checked rather than assumed. A
+fal account with nothing in it is a *graceful* outcome: the run spends the
+addon's credits, publishes placeholders and reads as a complete result, proving
+nothing about placement. So it is worth confirming both before the press rather
+than absorbing it afterwards.
+
+**Nothing merged, nothing deployed, nothing paid.**
