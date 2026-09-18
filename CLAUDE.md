@@ -9260,6 +9260,29 @@ measured INERT and is declared in the code (an empty reference matrix cannot
 happen through `qrcode-generator`: the finder patterns are always drawn, and
 even the EMPTY payload gives 21×21 with **234 dark modules**).
 
+**CI HAS READ BOTH, ON `361ae0fb`.** `unit tests` run **2698**, green
+(2026-09-18 00:58:59→01:00:52Z, the suite step 94.9 s) — `# tests 6839 /
+# pass 6835 / # fail 0 / # skipped 4`, against local `6839 / 6839 / 0 / 0`; the
+four are the three recorded environment skips plus `site-searchpath`'s
+baseline-commit case, and **the TOTAL is what matches**. And `site build` run
+**1187** (00:59:00→01:24:00Z), **all twenty steps green** — the API answers 23
+and three are GitHub's own (`Post` ×2 and `Complete job`): `site-build.mjs`
+**382 passed / 0 failed**, the step 01:01:15→01:19:20Z (18m05s), with
+kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47 beside it and kit-render / kit-a11y /
+kit-effects / kit-paint each `all passed` with no count — the three result
+SHAPES a census has to ask for. Every count bounded landmark-to-landmark
+(`##[group]Run …` to the next), **0 result lines before the first marker**.
+It fired because `builder/site-qr.mjs` is under `builder/**` — this round moves
+product code the container carries, which the harness one is not.
+**The unit step's TAP is `# pass 396 / # fail 0`, unchanged from runs 1171,
+1173, 1177 and 1183** — correct, because this round adds no `page-gen` or
+`publish-pages` case. **The two `##[error]` lines are the harness's own
+typecheck fixtures** (`TS2322` on `index.tsx`, `TS2339` on `menu.tsx`), both
+inside the `site-build.mjs` window and each followed immediately by its own
+`ok` line — the recorded "the typecheck REPORTS; only `vite build` refuses",
+visible in CI in a green job.
+
 #### …AND THE MEASUREMENT KILLED MY OWN RECOMMENDATION
 
 **`ashgrove-1` SHOWS NO PHOTOGRAPH, and the claim that it was the only suitable

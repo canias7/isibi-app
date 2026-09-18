@@ -216,6 +216,14 @@ Nothing is merged, deployed or pressed. I also cannot read your credit balance
 or whether fal has money in it — no keys in this environment, checked rather
 than assumed — so both are a thirty-second look on your side before pressing.
 
+**CI has read it, both checks green.** The full test suite: **6,839 tests, 0
+failed** (4 skipped, all of them cases that need something this machine has not
+got). And the container harness, which builds and serves a real site end to
+end: **all twenty steps green, 382 passed / 0 failed**, plus the six render and
+routing checks beside it. That one ran because this change touches the QR
+drawing code, which the container carries — so it is the real check, not just
+the fast one.
+
 ---
 
 ## 2026-09-17 — Before the photograph test: a note in the file was wrong
