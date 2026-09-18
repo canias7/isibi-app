@@ -3773,13 +3773,38 @@ try {
       'w-e','${TOK6}');`, asWriter);
 
   // ── 14 & 15: AN OPERATION RECORD SAYS WHAT HAPPENED, AND IS THE ACCOUNT'S ──
-  refused("⚠ an operation record with no outcome is refused — a repeat answered with nothing is not an answer",
-    `insert into agent.operations (tenant_id, op_key, action, args_hash, run_id, outcome)
-     values ('${SW_T}','k1','remember','h1','${SW_R1}',null);`,
-    "outcome", asWriter);
-  allowed("THE CONTROL: the same record with an outcome is stored",
-    `insert into agent.operations (tenant_id, op_key, action, args_hash, run_id, outcome)
-     values ('${SW_T}','k1','remember','h1','${SW_R1}','{"saved":"created"}'::jsonb);`, asWriter);
+  // ⚠ **RE-ANCHORED 2026-09-18, NOT APPEASED: `outcome` WAS `not null` AND IS NULLABLE NOW.**
+  // This check used to insert a null outcome and require the COLUMN to refuse it, on the
+  // reasoning that "a row exists only once its outcome is known, because claim and outcome
+  // are one transaction". True of every caller then, and false of the one item 8 adds: an
+  // OUTBOUND call cannot be in the caller's transaction, so *sent, outcome unknown* is a
+  // real state and `outcome is null` IS it. The property it was really about — **a repeat
+  // answered with nothing is not an answer** — is unchanged and is asserted here against
+  // the two things that now carry it.
+  //
+  // (1) THE ONE-TRANSACTION DOOR STILL REFUSES IT, so a caller that has an answer cannot
+  // reach the in-flight state by forgetting to pass one. Asked of the FUNCTION, because
+  // that is where the wall moved to.
+  refused("⚠ `operation_record` still refuses a null outcome — the in-flight state has its own door",
+    `select agent.operation_record('${SW_T}','k1','remember','h1','${SW_R1}',null);`,
+    "an outcome is required", asWriter);
+  // (2) AND THE NULL IS NAMED RATHER THAN READ AS A REPEAT. Without this the relaxation
+  // would let a retry be answered with nothing at all, which is the defect the `not null`
+  // was standing in front of.
+  allowed("THE CONTROL: an in-flight row is claimed through `operation_begin`",
+    `select agent.operation_begin('${SW_T}','k1','remember','h1','${SW_R1}');`, asWriter);
+  check("⚠ ...and an outcome-less row reads `unfinished`, never a repeat with nothing in it",
+    jget(`select agent.operation_check('${SW_T}','k1','remember','h1') ->> 'state';`) === "unfinished");
+  check("...and it carries NO outcome key rather than a null one",
+    jget(`select (agent.operation_check('${SW_T}','k1','remember','h1') ? 'outcome')::text;`) === "false");
+  allowed("...and settling it fills the answer in",
+    `select agent.operation_settle('${SW_T}','k1','remember','h1','{"saved":"created"}'::jsonb);`, asWriter);
+  check("⚠ ...after which it reads `repeat` and answers what happened",
+    jget(`select agent.operation_check('${SW_T}','k1','remember','h1') -> 'outcome' ->> 'saved';`) === "created");
+  check("⚠ ...and a second settle CANNOT rewrite it — write-once by `outcome is null` in the WHERE",
+    jget(`select agent.operation_settle('${SW_T}','k1','remember','h1','{"saved":"corrected"}'::jsonb) ->> 'settled';`) === "false");
+  check("...so the FIRST answer still stands",
+    jget(`select outcome ->> 'saved' from agent.operations where tenant_id='${SW_T}' and op_key='k1';`) === "created");
   check("the owning account reads its own operation record",
     psql(`select count(*) from agent.operations where op_key='k1';`,
       { role: "authenticated", claims: `{"tenant_id":"${SW_T}"}` }).out === "1");
@@ -4088,6 +4113,285 @@ try {
       jget(`select count(*) from agent.tick_automations(3600, 25);`);
       return jget(`select next_run_at is null from agent.automations where id='${AU_ONCE}';`) === "t";
     })(), jget(`select next_run_at from agent.automations where id='${AU_ONCE}';`));
+}
+
+// ── CONNECTIONS: ownership, scopes, and a credential with one door ───────────
+//
+// ⚠ **THE POINT OF DRIVING THIS ON A REAL DATABASE is that the credential's protection is a
+// PRIVILEGE and a VIEW's column list, neither of which a unit test can see.** The engine's
+// own store can be perfect and still hand a secret to a screen if `connection_list` selects
+// it, or if `authenticated` holds a grant on the table.
+{
+  console.log("\n── CONNECTIONS: whose it is, what it may reach, and the one door ──");
+  const CX_T = "cx1", CX_T2 = "cx2";
+  const CX_A1 = "ee000000-0000-0000-0000-0000000000a1";
+  const CX_A2 = "ee000000-0000-0000-0000-0000000000a2";  // a SIBLING of CX_A1, same account
+  const CX_B1 = "ee000000-0000-0000-0000-0000000000b1";  // the other account's agent
+  const CX_1 = "ee000000-0000-0000-0000-0000000000c1";
+  const CX_2 = "ee000000-0000-0000-0000-0000000000c2";
+  const CX_3 = "ee000000-0000-0000-0000-0000000000c3";
+  const CX_4 = "ee000000-0000-0000-0000-0000000000c4";
+  const CX_5 = "ee000000-0000-0000-0000-0000000000c5";
+  const CX_6 = "ee000000-0000-0000-0000-0000000000c6";
+  const SECRET = "fake-token-do-not-use-0001";
+
+  // ⚠ THE IDS ARE ITS OWN, AND THAT IS ASSERTED RATHER THAN HOPED. This file is one long
+  // body sharing one database, and a fixture id reused from five hundred lines up has
+  // already cost it a whole section reporting correct behaviour as broken — twice. A census
+  // here makes a future collision one sentence instead of a cascade.
+  check("⚠ this section's fixture ids are unused before it starts",
+    jget(`select count(*) from (
+            select id from agent.agents where id in ('${CX_A1}','${CX_A2}','${CX_B1}')
+            union all select id from agent.connections) x;`) === "0");
+
+  jget(`insert into agent.agents (id, tenant_id, name, instructions) values
+          ('${CX_A1}','${CX_T}','post','mail'),
+          ('${CX_A2}','${CX_T}','other','mail'),
+          ('${CX_B1}','${CX_T2}','theirs','mail');`);
+
+  // ── whose agent it is ──
+  check("a connection is stored for this account's own agent",
+    jget(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_1}','fakemail','Work mail',
+            'someone@example.test', array['read','send'], '${SECRET}', 'fake-refresh-0001',
+            now() + interval '1 hour') ->> 'ok';`) === "true");
+  check("⚠ ...and the answer NEVER carries the credential",
+    !jget(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_1}','fakemail','Work mail',
+            'someone@example.test', array['read','send'], '${SECRET}')::text;`).includes(SECRET));
+  check("⚠ another account's agent is `no-agent` — the same answer a missing one gets",
+    jget(`select agent.connect_provider('${CX_T}','${CX_B1}','${CX_2}','fakemail','x','a@b.test',
+            '{}'::text[], '${SECRET}') ->> 'error';`) === "no-agent");
+  check("...and so is an agent that is not there at all",
+    jget(`select agent.connect_provider('${CX_T}','ee000000-0000-0000-0000-00000000dead','${CX_2}',
+            'fakemail','x','a@b.test','{}'::text[],'${SECRET}') ->> 'error';`) === "no-agent");
+  refused("a connection with no credential is refused rather than stored empty",
+    `select agent.connect_provider('${CX_T}','${CX_A1}','${CX_2}','fakemail','x','a@b.test',
+       '{}'::text[], '  ');`,
+    "a credential is required", asWriter);
+
+  // ── ONE LIVE ROW PER PROVIDER ACCOUNT, and the old one is the RECORD ──
+  check("⚠ reconnecting the same provider account replaces the live row",
+    jget(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_3}','fakemail','Work mail',
+            'someone@example.test', array['read'], 'fake-token-do-not-use-0002', 'fake-refresh-0001',
+            now() + interval '1 hour') ->> 'ok';`) === "true");
+  check("...so exactly one row is active for that (agent, provider, account)",
+    jget(`select count(*) from agent.connections where tenant_id='${CX_T}' and agent_id='${CX_A1}'
+            and provider='fakemail' and account='someone@example.test' and status='active';`) === "1");
+  check("⚠ ...and the OLD row is kept as `disconnected` with its reason, not deleted",
+    jget(`select status || '/' || stopped_why from agent.connections where id='${CX_1}';`)
+      === "disconnected/replaced by a new connection");
+  // THE CONTROL for the partial index: a second ACTIVE row for one provider account is the
+  // thing that must be impossible, and it is the INDEX rather than the function that says so.
+  refused("⚠ two ACTIVE rows for one (agent, provider, account) are impossible",
+    `insert into agent.connections (id, tenant_id, agent_id, provider, label, account, secret)
+     values ('${CX_4}','${CX_T}','${CX_A1}','fakemail','again','someone@example.test','s');`,
+    "connections_one_live_per_account", { role: "postgres" });
+  check("...while a disconnected row alongside it is fine, which is what makes it the record",
+    jget(`select count(*) from agent.connections where tenant_id='${CX_T}'
+            and agent_id='${CX_A1}' and account='someone@example.test';`) === "2");
+  // ⚠ **A REPEATED PRESS MUST LEAVE ITS OWN CONNECTION ALIVE, AND THIS IS THE DEFECT IT WAS
+  // WRITTEN FOR.** `connect_provider` disconnects the live row for that provider account
+  // before inserting, and without `id <> p_id` that row IS the one a retry is about:
+  // measured, press then press again answered `{ok: true, repeat: true}` with the connection
+  // `disconnected / replaced by a new connection` and the lease refusing it. The caller is
+  // told "already connected" about a credential it has just destroyed — so `repeat: true`
+  // alone is NOT the property, and asserting only that is what let it through.
+  check("a repeated press under the same id is absorbed and answers that row",
+    jget(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_3}','fakemail','Work mail',
+            'someone@example.test', array['read'], 'x') ->> 'repeat';`) === "true");
+  check("⚠ ...and the connection is STILL ACTIVE, not replaced by itself",
+    jget(`select status from agent.connections where id='${CX_3}';`) === "active");
+  check("⚠ ...and it can still be leased, which is what a caller told `repeat` believes",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'ok';`) === "true");
+
+  // ── THE SHAPE CONSTRAINTS, each read for ITS OWN name, with a control ──
+  const rawRow = (id, extra) =>
+    `insert into agent.connections (id, tenant_id, agent_id, provider, label, account, secret${extra.cols})
+     values ('${id}','${CX_T}','${CX_A2}',${extra.vals});`;
+  refused("a provider that is not an identifier is refused",
+    rawRow(CX_5, { cols: "", vals: `'Fake Mail','l','a@b.test','s'` }),
+    "connections_provider_check", { role: "postgres" });
+  refused("a label that is only whitespace is refused",
+    rawRow(CX_5, { cols: "", vals: `'fakemail','   ','a@b.test','s'` }),
+    "connections_label_check", { role: "postgres" });
+  refused("a label with untrimmed edges is refused, so two labels cannot differ by a space",
+    rawRow(CX_5, { cols: "", vals: `'fakemail',' l ','a@b.test','s'` }),
+    "connections_label_shaped", { role: "postgres" });
+  refused("a scope with a space in it is refused",
+    rawRow(CX_5, { cols: ", scopes", vals: `'fakemail','l','a@b.test','s', array['read all']` }),
+    "connections_scopes_shaped", { role: "postgres" });
+  refused("a NULL among the scopes is refused",
+    rawRow(CX_5, { cols: ", scopes", vals: `'fakemail','l','a@b.test','s', array['read',null]` }),
+    "connections_scopes_shaped", { role: "postgres" });
+  refused("a status this schema does not know is refused",
+    rawRow(CX_5, { cols: ", status", vals: `'fakemail','l','a@b.test','s','wobbly'` }),
+    "connections_status_known", { role: "postgres" });
+  allowed("THE CONTROL: the same row within every constraint is stored",
+    rawRow(CX_5, { cols: ", scopes", vals: `'fakemail','l','a@b.test','s', array['read']` }),
+    { role: "postgres" });
+
+  // ── THE ONE DOOR, AND THE FOUR REFUSALS EACH BY ITS OWN NAME ──
+  check("⚠ leasing a live connection hands back the credential — the one place it is selected",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'secret';`)
+      === "fake-token-do-not-use-0002");
+  check("⚠ a SIBLING agent of the same account cannot lease it — the wall no tenant filter sees",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A2}','${CX_3}') ->> 'error';`) === "no-connection");
+  check("...and neither can the account next door",
+    jget(`select agent.lease_connection('${CX_T2}','${CX_A1}','${CX_3}') ->> 'error';`) === "no-connection");
+  check("⚠ a scope it was not granted is refused BY NAME, never sent with less permission",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}', array['read','send'])
+            -> 'missing' ->> 0;`) === "send");
+  check("...and the refusal says what WAS granted, so the fix is readable",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}', array['send']) ->> 'error';`)
+      === "scope-missing");
+  check("THE CONTROL: a scope it really holds leases",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}', array['read']) ->> 'ok';`) === "true");
+
+  // EXPIRED IS THE CLOCK'S, AND IS DERIVED RATHER THAN STAMPED.
+  jget(`update agent.connections set expires_at = now() - interval '1 minute' where id='${CX_3}';`);
+  check("⚠ an expired credential is refused BY NAME, with whether a refresh could fix it",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'error';`) === "expired");
+  check("...and the row is still marked `active`, because nothing goes round stamping it",
+    jget(`select status from agent.connections where id='${CX_3}';`) === "active");
+  check("⚠ ...while the VIEW folds the clock in, so a reader sees `expired` with no writer",
+    jget(`select status from agent.connection_list where id='${CX_3}';`) === "expired");
+  check("...and the view says a refresh is possible without handing over the means",
+    jget(`select refreshable from agent.connection_list where id='${CX_3}';`) === "t");
+  check("⚠ ...because `refreshable` is a GENERATED column, so it cannot disagree with the secret",
+    jget(`select count(*) from information_schema.columns
+           where table_schema='agent' and table_name='connections'
+             and column_name='refreshable' and is_generated='ALWAYS';`) === "1");
+
+  // A REFRESH IS THE CLOCK'S ANSWER.
+  check("refreshing rotates the credential and the expiry",
+    jget(`select agent.refresh_connection('${CX_T}','${CX_A1}','${CX_3}','fake-token-do-not-use-0003',
+            null, now() + interval '1 hour') ->> 'ok';`) === "true");
+  check("...and the lease hands back the NEW credential",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'secret';`)
+      === "fake-token-do-not-use-0003");
+  check("⚠ ...and a provider that does not rotate its refresh credential keeps the one it had",
+    jget(`select refresh_secret from agent.connections where id='${CX_3}';`) === "fake-refresh-0001");
+  refused("a refresh with no credential is refused rather than blanking the one that works",
+    `select agent.refresh_connection('${CX_T}','${CX_A1}','${CX_3}','');`,
+    "a credential is required", asWriter);
+
+  // ── DISCONNECTED AND REVOKED ARE TWO STATES BECAUSE THEY NEED TWO SENTENCES ──
+  check("a person disconnecting says so, in their own words",
+    jget(`select agent.disconnect_connection('${CX_T}','${CX_A1}','${CX_3}','I do not use it') ->> 'status';`)
+      === "disconnected");
+  check("⚠ ...and the CREDENTIAL IS DESTROYED, not merely flagged",
+    jget(`select (secret <> 'fake-token-do-not-use-0003' and refresh_secret is null)
+            from agent.connections where id='${CX_3}';`) === "t");
+  check("⚠ ...so the one door refuses it by name and carries their reason",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'why';`) === "I do not use it");
+  check("disconnecting twice is a success that says so, never somebody else's connection",
+    jget(`select agent.disconnect_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'repeat';`) === "true");
+  check("⚠ ...and a refresh CANNOT revive it — only granting again can",
+    jget(`select agent.refresh_connection('${CX_T}','${CX_A1}','${CX_3}','new') ->> 'error';`)
+      === "disconnected");
+
+  jget(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_6}','fakenote','Notes','n@example.test',
+          array['write'], 'fake-token-do-not-use-0004');`);
+  check("a provider withdrawing the grant is `revoked`, which is a different fact",
+    jget(`select agent.revoke_connection('${CX_T}','${CX_A1}','${CX_6}','they withdrew it') ->> 'status';`)
+      === "revoked");
+  check("⚠ ...and the one door tells the two apart, because the remedies differ",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_6}') ->> 'error';`) === "revoked");
+  check("...and a revocation destroys the credential too",
+    jget(`select (secret <> 'fake-token-do-not-use-0004') from agent.connections where id='${CX_6}';`) === "t");
+  check("a status nothing recognises is refused rather than leased",
+    (() => {
+      jget(`update agent.connections set status='revoked' where id='${CX_5}';`);
+      jget(`update agent.connections set status='active' where id='${CX_5}';`);
+      // The enum is a CHECK, so an unknown status cannot be written at all — which is the
+      // stronger wall and is why the `not-usable` branch is a belt. Asserted as the refusal
+      // rather than by forcing a state the database will not hold.
+      const r = psql(`update agent.connections set status='half' where id='${CX_5}';`,
+        { role: "postgres", expectFail: true });
+      return !r.ok && r.err.includes("connections_status_known");
+    })());
+
+  // ── THE CREDENTIAL'S PROTECTION IS A PRIVILEGE AND A COLUMN LIST ──
+  //
+  // ⚠ ASKED AS PRIVILEGES, NEVER AS REFUSALS. `authenticated` holds no USAGE on this schema
+  // in a fresh cluster, so every read as that role answers `permission denied for schema
+  // agent` whatever the table grants are — this file has already recorded a check that
+  // passed for exactly that wrong reason.
+  check("⚠ `authenticated` CANNOT read either credential column",
+    jget(`select coalesce(bool_or(has_column_privilege('authenticated','agent.connections',c,'select')), false)
+            from unnest(array['secret','refresh_secret']) c;`) === "f");
+  check("...and cannot write the table at all",
+    jget(`select coalesce(bool_or(has_table_privilege('authenticated','agent.connections',p)), false)
+            from unnest(array['insert','update','delete']) p;`) === "f");
+  // ⚠ **THE GRANT IT DOES HOLD IS WHAT MAKES THE VIEW WORK, and leaving it out was a real
+  // defect my own check passed over.** A `security_invoker` view runs as the CALLER, so with
+  // no column grant here `authenticated` reading the view is refused `permission denied for
+  // table connections` — the screen shows nothing. The first version of this check asked
+  // `count <> '0'`, which an EMPTY answer satisfies, so it was green over a broken view.
+  check("⚠ ...but it CAN read every non-secret column, or the view is unreadable",
+    jget(`select count(*) from information_schema.columns c
+           where c.table_schema='agent' and c.table_name='connections'
+             and c.column_name not in ('secret','refresh_secret')
+             and not has_column_privilege('authenticated','agent.connections',c.column_name,'select');`)
+      === "0");
+  check("...and the view itself", 
+    jget(`select has_table_privilege('authenticated','agent.connection_list','select');`) === "t");
+  check("⚠ the view selects NEITHER secret, so there is nothing for a reader to widen",
+    jget(`select count(*) from information_schema.columns
+           where table_schema='agent' and table_name='connection_list'
+             and column_name in ('secret','refresh_secret');`) === "0");
+  // ⚠ **A CENSUS OVER WHICH BODIES READ A STORED CREDENTIAL AT ALL, so a sixth function that
+  // gains one fails by existing.** Exactly two do, and each for its own reason: the LEASE
+  // reads it out (that is the one door) and the REFRESH reads it to keep a rotation token a
+  // provider did not replace. The others write the column and never read the row's value
+  // back, which is why they are not on this list — and what they ANSWER is checked below,
+  // because writing a secret and handing one out are different things.
+  check("⚠ ...and exactly TWO bodies read a stored credential: the one door, and the refresh",
+    jget(`select coalesce(string_agg(p.proname, ',' order by p.proname), '') from pg_proc p
+            join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname='agent' and (p.prosrc like '%v_row.secret%' or p.prosrc like '%.refresh_secret%');`)
+      === "lease_connection,refresh_connection");
+  // THE OBSERVER, ALIVE: the four besides the lease WRITE the column and never select it into
+  // an answer, which is what the sentence above is really about. Asked of what they ANSWER.
+  for (const [fn, call] of [
+    ["connect_provider", `agent.connect_provider('${CX_T}','${CX_A1}','${CX_2}','fakemail','l',
+       'probe@example.test','{}'::text[],'${SECRET}')`],
+    ["refresh_connection", `agent.refresh_connection('${CX_T}','${CX_A1}','${CX_2}','${SECRET}')`],
+    ["disconnect_connection", `agent.disconnect_connection('${CX_T}','${CX_A1}','${CX_2}')`],
+    ["revoke_connection", `agent.revoke_connection('${CX_T}','${CX_A1}','${CX_2}')`],
+  ]) {
+    check(`...and ${fn}'s own answer carries no credential`,
+      !jget(`select ${call}::text;`).includes(SECRET));
+  }
+  // THE OBSERVER, ALIVE: without this the four checks above are satisfied by a probe that
+  // never reaches a credential at all. `CX_5` is the sibling agent's row, so the call names
+  // `CX_A2` — the agent that really owns it.
+  check("...with the observer alive: `lease_connection`'s answer really does carry one",
+    jget(`select agent.lease_connection('${CX_T}','${CX_A2}','${CX_5}') ->> 'secret';`) === "s");
+
+  // ── RLS, AND WHAT THE ACCOUNT NEXT DOOR SEES ──
+  check("row level security is enabled AND forced on agent.connections",
+    jget(`select relrowsecurity and relforcerowsecurity from pg_class
+           where oid = 'agent.connections'::regclass;`) === "t");
+  check("every connection function is `security definer` with an empty search_path",
+    jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname='agent' and p.proname in ('connect_provider','disconnect_connection',
+             'revoke_connection','lease_connection','refresh_connection')
+             and p.prosecdef and p.proconfig @> array['search_path=""'];`) === "5");
+  // ⚠ **THE OBSERVER IS THE OWNER'S OWN READ, AND IT IS ASSERTED AS A NUMBER RATHER THAN AS
+  // `<> '0'`.** A read that is REFUSED answers the empty string, which satisfies `<> '0'` —
+  // so the loose form is green both when the view works and when nothing can read it, which
+  // is exactly how the missing column grant above got this far.
+  const cxMine = psql(`select count(*) from agent.connection_list;`,
+    { role: "authenticated", claims: `{"tenant_id":"${CX_T}"}` }).out;
+  const cxHeld = jget(`select count(*) from agent.connections where tenant_id='${CX_T}';`);
+  check("the owning account reads its own connections through the view, and ALL of them",
+    cxMine === cxHeld && /^[1-9][0-9]*$/.test(cxMine), `${cxMine} of ${cxHeld}`);
+  check("⚠ ...and the account next door reads none of them",
+    psql(`select count(*) from agent.connection_list;`,
+      { role: "authenticated", claims: `{"tenant_id":"${CX_T2}"}` }).out === "0");
+  check("⚠ ...and `select *` on the table is refused for that role — the grant is a LIST",
+    !psql(`select * from agent.connections;`,
+      { role: "authenticated", claims: `{"tenant_id":"${CX_T}"}`, expectFail: true }).ok);
 }
 
 // ── EVERY `_once` WRAPPER TAKES ITS INNER FUNCTION'S PARAMETERS ───────────────

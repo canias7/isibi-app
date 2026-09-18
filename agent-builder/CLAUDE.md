@@ -5505,9 +5505,15 @@ use every tool"* in as many words.
 - **`verify:tools` 112 · `verify:ops` 53 · `verify:controls` 71 · `verify:auto` 70 ·
   `verify:wf` 157 · `verify:chat` 126 · `verify:triggers` 64 — unchanged**, which is the control
   that this round broke nothing.
-- **THE SWEEP TALLIES ARE NOT STAMPED YET.** Both are running at `5f8dfc9` in detached
-  worktrees; the engine's spec gained one mutant afterwards (the narrowing), which is evidenced
-  by its own spot-check instead — said rather than folded into a number.
+- **Engine sweep: 568 mutants, 568 killed, 0 survived, 0 never applied, 10 comment-only
+  controls survived — CLEAN ON THE FIRST PASS**, taken after the run in a detached worktree at
+  `5f8dfc9` so the main tree held no mutant while it ran, and that worktree proved clean
+  against git afterwards. **578 of the spec's 579 entries**, and the missing one is said rather
+  than rounded away: the narrowing mutant was added AFTER the run started, so it is evidenced
+  by its own spot-check and not by this tally. (568 product + 10 controls = 578.)
+- **The SQL sweep is still running at that commit**, over 238 entries; every mutant creates a
+  database and applies every migration, which is what it costs to prove a guarantee against
+  the engine that enforces it. Its tally is deliberately not stamped until it ends.
 
 ### ⚠ Three mistakes of my own, each the file being right
 

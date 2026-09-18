@@ -1473,3 +1473,81 @@ that changes nothing, and I measured that rather than hunting it, and wrote down
 a deliberate second wall so nobody deletes it later.
 
 **Nothing is applied, deployed or merged. Still no model, still your call, still last.**
+
+## 2026-09-18 — five more milestones, and the ones my own tests could not see
+
+Catching this log up. Five rounds landed since the last entry and each is written up in full in
+`agent-builder/CLAUDE.md`; here is what changed for you and what it cost.
+
+**Approvals now close, can be taken back, and a run can be stopped.** An approval request
+expires after 24 hours — a window the server owns, not something a caller can widen — and when
+one closes, the run that was waiting is put back on the queue rather than sitting there for
+ever. You can withdraw a permission from an agent *while a run is going*, which is deliberately
+a different act from unticking a tool in its settings: the tick decides what the NEXT run may
+do, because a run that loses a tool half way through is a run whose plan no longer works;
+withdrawing says *stop doing this now* and is read live on every delivery. And you can cancel a
+run: pending work stops, waits are released, and it records what had already finished. **It
+does not claim to undo anything that already happened**, and I was careful never to write a
+sentence that implies it did.
+
+**A stranded run no longer reads as "working".** This was the honest gap I had written down
+myself and not fixed. A run waiting for you, a run genuinely thinking, and a run nothing will
+ever pick up again all showed the same word. There are seven states on the wire now —
+queued, working, waiting, unresolved, answered, cancelled, completed — and a run that somebody
+stopped reads `cancelled` rather than `failed`, because nothing went wrong: you asked.
+
+**Workflows got richer.** Typed values, so a list handed to a box that wants a sentence is
+refused while it is still your form rather than turning into nonsense when it runs; bounded
+loops whose progress survives a restart; subworkflows, which are copied in at the moment they
+are used and stamped with the version they came from; explicit error paths (stop, carry on, or
+try again a bounded number of times); and I proved a restart *inside* a loop, a branch and a
+subworkflow resumes without doing completed work twice.
+
+**Triggers: one-off and weekly schedules, an inbound endpoint, and internal events.** The
+endpoint is signed — the account comes from the endpoint I verified, never from anything in the
+payload — and its secret is answered exactly once, when you create it, because a second way to
+read one out is a second way to leak it. There is no rotate button for that reason; delete it
+and make another.
+
+**Reference material and memory: bounded, isolated, and honest about deletion.** This is the
+one I want to be precise about, because it is easy to say the wrong thing. **Forgetting a
+memory reaches one place: what a NEW run will be built from.** A run already under way keeps
+what it was started with, and the journal keeps what it quoted. That is on purpose — a run
+executes what it was accepted with — so I do not say "erased", I say what it reaches, and the
+answer carries that in its own words as well as in its fields.
+
+### The three things worth telling you about, because each was my own mistake
+
+**A retry could destroy the connection it was retrying.** Found today, driving the new
+credential storage on a real database rather than reading it. Storing a connection replaces any
+live one for the same account — right — but it did not exclude *the row the retry is about*, so
+pressing once and then again answered *"already connected"* and left the connection dead and
+unusable. One clause. It is now reproduced in the checks, and the check asserts the connection
+is still usable afterwards rather than just that the answer said "already", which is what let
+it through the first time.
+
+**One of my own checks was green over a broken view.** It asked "does the owner read a count
+that is not zero" — and a read that is *refused* answers nothing at all, which is also not
+zero. The underlying problem was real: the list view runs as whoever is reading it, so it
+needed a grant I had deliberately left out, and with no grant nobody could read their
+connections at all. Fixed both: the grant names every column except the two credentials, and
+whether a connection *can* be refreshed is now a column of its own so that answering it never
+requires reading the credential.
+
+**And a guard of mine asserted a rule I then changed on purpose.** A check demanded the
+database refuse an operation record with no outcome. That was right while every such record was
+written in one go — and wrong the moment something has to say *"sent, and I do not yet know what
+happened"*, which is exactly what a provider with no retry protection needs. So the record can
+say that now, it is named rather than read as an answer, and it can only ever be filled in
+once. I replaced the check rather than deleting it, and wrote down which property it is really
+about.
+
+**Measured:** 967 checks against a real PostgreSQL, 0 failed. The breakage sweep over the
+engine came back 568 of 568 caught, clean on the first pass. The seven end-to-end
+demonstrations are all still green at their recorded counts, which is how I know none of this
+broke anything already working.
+
+**Nothing is applied, deployed or merged, no model is connected, and no real outside account is
+touched — the credential work runs against a fake provider that says so in its own name.** The
+connection and action work is half built: the storage is done and proved, the engine side is
+next.

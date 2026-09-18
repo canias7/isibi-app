@@ -48,9 +48,21 @@ create table if not exists agent.operations (
   -- does that today; the column does not refuse it, because a person's own press is the
   -- obvious next caller and its identity is not a run).
   run_id      uuid,
-  -- WHAT TO ANSWER ON A RETRY. Not null: a row exists only once its outcome is known,
-  -- because claim and outcome are one transaction.
-  outcome     jsonb       not null,
+  -- WHAT TO ANSWER ON A RETRY.
+  --
+  -- ⚠ **NULLABLE SINCE 2026-09-18, AND THE NULL IS A STATE RATHER THAN A GAP.** It was `not
+  -- null` on the reasoning that "a row exists only once its outcome is known, because claim
+  -- and outcome are one transaction" — true of every caller then, and false of the one item 8
+  -- adds. **AN OUTBOUND CALL CANNOT BE IN THE CALLER'S TRANSACTION**: you claim, you send, and
+  -- you may never learn what happened. So the in-flight moment is real, and `outcome is null`
+  -- IS that moment — which `operation_check` has read as `unfinished` since it was written,
+  -- with its own comment calling the state unreachable. It is reachable now.
+  --
+  -- **ONE FACT, ONE COLUMN.** A `state` column beside this would be a second copy of the same
+  -- thing, and the copy that drifts is the one deciding whether a payment may be sent again.
+  -- `operation_record` still REFUSES a null outcome, so the one-transaction callers cannot
+  -- reach the new state by forgetting; `operation_begin` is the only door into it.
+  outcome     jsonb,
   recorded_at timestamptz not null default now(),
   primary key (tenant_id, op_key),
   constraint operations_key_shaped    check (op_key ~ '^[^\s]{1,200}$'),
@@ -156,6 +168,118 @@ revoke all on function agent.operation_check(text, text, text, text) from public
 revoke all on function agent.operation_record(text, text, text, text, uuid, jsonb) from public;
 grant execute on function agent.operation_check(text, text, text, text) to service_role;
 grant execute on function agent.operation_record(text, text, text, text, uuid, jsonb) to service_role;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- AN OUTBOUND ACTION THAT MAY OR MAY NOT HAVE LANDED
+--
+-- ⚠ **`agent.operations` ALREADY HAD THE STATE THIS NEEDS, AND ITS OWN COMMENT CALLED IT
+-- UNREACHABLE.** `operation_check` answers `unfinished` when `outcome is null`, which was
+-- impossible while every caller wrote claim and outcome in one transaction. An OUTBOUND
+-- call cannot: you claim, you send, and you may never learn. So the column is nullable now
+-- (see its own note) and these two functions are the door into and out of the in-flight
+-- state.
+--
+-- **WHAT THIS BUYS IS THE MILESTONE'S OWN SENTENCE**: a provider with no idempotency needs
+-- RECONCILIATION rather than a blind retry. A redelivery that finds `unfinished` asks the
+-- provider what it sees and settles the record from the answer. It never re-sends.
+-- ══════════════════════════════════════════════════════════════════════════════
+
+create or replace function agent.operation_begin(
+  p_tenant    text,
+  p_op_key    text,
+  p_action    text,
+  p_args_hash text,
+  p_run_id    uuid default null
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_rows integer;
+  v_row  agent.operations%rowtype;
+begin
+  if p_tenant is null or btrim(p_tenant) = '' then
+    raise exception 'operation_begin: tenant must be a non-empty string';
+  end if;
+  -- CLAIM THE SLOT WITH NO OUTCOME. The primary key is the race, exactly as
+  -- `operation_record`'s is: two deliveries both reading `fresh` cannot both claim.
+  insert into agent.operations (tenant_id, op_key, action, args_hash, run_id, outcome)
+  values (p_tenant, p_op_key, p_action, p_args_hash, p_run_id, null)
+  on conflict (tenant_id, op_key) do nothing;
+  get diagnostics v_rows = row_count;
+  if v_rows = 1 then
+    return jsonb_build_object('ok', true, 'began', true);
+  end if;
+  -- SOMEBODY ELSE HAS IT. Answer what they left, so the caller reconciles or repeats rather
+  -- than sending. The three readings are the same three `operation_check` gives.
+  select * into v_row from agent.operations
+   where tenant_id = p_tenant and op_key = p_op_key;
+  if v_row.op_key is null then
+    -- A row that was there and is not: nothing here deletes one, so this is a state this
+    -- function cannot explain and must not guess about.
+    return jsonb_build_object('ok', false, 'error', 'lost', 'action', p_action);
+  end if;
+  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then
+    return jsonb_build_object('ok', false, 'error', 'mismatch', 'action', v_row.action);
+  end if;
+  if v_row.outcome is null then
+    return jsonb_build_object('ok', true, 'began', false, 'state', 'unfinished');
+  end if;
+  return jsonb_build_object('ok', true, 'began', false, 'state', 'repeat', 'outcome', v_row.outcome);
+end $$;
+
+comment on function agent.operation_begin(text, text, text, text, uuid) is
+  'Claim an operation BEFORE the outbound call, with no outcome. The primary key is the race. A caller that does not win is told what is there — unfinished, so reconcile; or a recorded outcome, so answer it — and in neither case does it send.';
+
+create or replace function agent.operation_settle(
+  p_tenant    text,
+  p_op_key    text,
+  p_action    text,
+  p_args_hash text,
+  p_outcome   jsonb
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare v_row agent.operations%rowtype;
+begin
+  if p_tenant is null or btrim(p_tenant) = '' then
+    raise exception 'operation_settle: tenant must be a non-empty string';
+  end if;
+  if p_outcome is null then
+    raise exception 'operation_settle: an outcome is required' using errcode = 'check_violation';
+  end if;
+  -- ⚠ **ONLY AN IN-FLIGHT ROW MAY BE SETTLED, AND ONLY WITH ITS OWN IDENTITY.**
+  -- `outcome is null` in the WHERE is what makes this write-once: a settled operation can
+  -- never be rewritten, which is the same property `agent.operations` has no UPDATE grant
+  -- for. The action and the hash are there because a key belonging to different work must
+  -- not be settled by this call's answer.
+  update agent.operations
+     set outcome = p_outcome, recorded_at = now()
+   where tenant_id = p_tenant and op_key = p_op_key
+     and action = p_action and args_hash = p_args_hash
+     and outcome is null
+  returning * into v_row;
+  if v_row.op_key is not null then
+    return jsonb_build_object('ok', true, 'settled', true);
+  end if;
+  -- NOT SETTLED, AND WHY IS THREE DIFFERENT THINGS.
+  select * into v_row from agent.operations
+   where tenant_id = p_tenant and op_key = p_op_key;
+  if v_row.op_key is null then
+    return jsonb_build_object('ok', false, 'error', 'no-operation');
+  end if;
+  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then
+    return jsonb_build_object('ok', false, 'error', 'mismatch', 'action', v_row.action);
+  end if;
+  -- ALREADY SETTLED IS NOT A FAILURE: a retry that reconciled to the same answer is the
+  -- ordinary case, and the answer that STANDS is the one that was written first.
+  return jsonb_build_object('ok', true, 'settled', false, 'outcome', v_row.outcome);
+end $$;
+
+comment on function agent.operation_settle(text, text, text, text, jsonb) is
+  'Fill in an in-flight operation''s outcome. Write-once by `outcome is null` in the WHERE, so a settled operation can never be rewritten; already-settled answers what stands rather than failing.';
+
+revoke all on function agent.operation_begin(text, text, text, text, uuid) from public;
+revoke all on function agent.operation_settle(text, text, text, text, jsonb) from public;
+grant execute on function agent.operation_begin(text, text, text, text, uuid) to service_role;
+grant execute on function agent.operation_settle(text, text, text, text, jsonb) to service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SIX WRAPPERS, ONE SHAPE — the mutating operations, performed once
