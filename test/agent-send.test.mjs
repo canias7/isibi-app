@@ -37,6 +37,9 @@ import {
 // copy each of them holds is kept honest by a census in a test, which is the one
 // place that may read both.
 import { OFFERED, OFFERED_NAMES } from "../agent-builder/src/agents.mjs";
+// ⚠ THE ENGINE'S OWN LIST OF WHICH TOOLS REACH OUTSIDE THE PLATFORM, so the two cases below
+// cannot be exempted by a misspelling and a fourth such tool carries them by existing.
+import { CONNECTION_TOOLS as CONNECTION_TOOL_NAMES } from "../agent-builder/src/capability-tools.mjs";
 import { CAPABILITY_RPC, CAP_MEMORIES as ENGINE_CAP_MEMORIES } from "../agent-builder/src/capabilities.mjs";
 import { MAX_EXCERPTS as ENGINE_MAX_EXCERPTS } from "../agent-builder/src/automations.mjs";
 import {
@@ -726,6 +729,72 @@ test("⚠ THE CATALOG AND THE ENGINE'S OWN TOOLS ARE THE SAME SET, BOTH WAYS", (
     assert.ok(t.does && t.does.length > 20, `${t.name} has no sentence saying what it does`);
     const engine = OFFERED.find((o) => o.name === t.name);
     assert.notEqual(t.does, engine.description, `${t.name}'s customer words are the model's prompt`);
+  }
+});
+
+test("⚠ A CONNECTION IS SOMETHING A PERSON MAKES, AND THE CATALOG'S WORDS SAY SO", () => {
+  // ⚠ **THE HONEST GAP THIS PINS, stated rather than glossed: the three tools that reach
+  // outside are tickable and there is no screen for making a connection yet.** That is not the
+  // dead-control defect this repository records — the tools really run, really reach the store
+  // and truthfully answer *"this agent is not connected to anything yet"* — but the WORDS are
+  // what stop it becoming one, because a sentence implying the agent can connect something
+  // would be promising a thing no tool does and no route offers.
+  //
+  // So each of the three has to say the account is one the PERSON connected, and
+  // `send_message`'s has to say a person approves every send. The list is the engine's own, so
+  // a fourth such tool carries this by existing.
+  const outside = AGENT_TOOLS.filter((t) => CONNECTION_TOOL_NAMES.includes(t.name));
+  assert.equal(outside.length, CONNECTION_TOOL_NAMES.length,
+    "a tool that reaches outside is not in the customer's catalog at all");
+  for (const t of outside) {
+    assert.match(t.does, /you have connected|you connected/i,
+      `${t.name}'s words do not say the person connected the account`);
+  }
+  assert.match(AGENT_TOOLS.find((t) => t.name === "send_message").does, /approve/i,
+    "the one tool a person has to approve does not say so");
+  // ⚠ AND NO TOOL IN THE CATALOG CLAIMS THE AGENT CAN CONNECT SOMETHING, which is the
+  // promise that would be false: storing a credential is not a tool and must not become one.
+  for (const t of AGENT_TOOLS) {
+    assert.ok(!/\bconnect (an|a|your|the) account\b/i.test(t.does),
+      `${t.name} offers to connect an account`);
+  }
+});
+
+test("⚠ NO ROUTE OF THE SITE'S STORES A CREDENTIAL — an agent must never be able to", () => {
+  // The engine's `connect` exists and is a PERSON's door; there is no site route for it yet,
+  // and when one arrives it must be a deliberate addition rather than something that appeared.
+  // **Asked of the route table itself**, so a route added below cannot slip in — and the
+  // comments are blanked first, because this file and that one both discuss credentials.
+  const blank = (t) => t.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  const store = blank(readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8"));
+  assert.ok(store.includes("AGENT_ROUTES"), "the scanner cannot see the route table at all");
+  // ⚠ **NAMED BY FUNCTION, NOT BY THE WORD "SECRET" — measured, because the first draft of
+  // this case forbade `p_secret` and went red on correct code.** The site MINTS a credential
+  // of its own already: `agent.create_webhook` takes `p_secret`, which is the signing secret
+  // for an inbound endpoint a person creates. So "this file never names a secret" is false and
+  // would have to be appeased rather than fixed; what is true, and what matters, is that it
+  // never reaches the four functions that store or hand out a PROVIDER's credential. *A needle
+  // that matches a name two features share cannot prove a class.*
+  for (const bad of ["connect_provider", "lease_connection", "refresh_connection",
+                     "disconnect_connection"]) {
+    assert.ok(!store.includes(bad), `agent-store.mjs names ${bad}`);
+  }
+  // ⚠ THE OBSERVER, ALIVE — and getting it right took a measurement rather than a guess.
+  // `agent-store.mjs` names every function as a PATH (`rpc/<name>`), so a needle for a bare
+  // `save_memory` found nothing and reported a correct file as unreadable. It is asked for the
+  // shape the file really uses, and counted, so the absences above are about these four and not
+  // about a scanner that could not see the file at all.
+  const calls = store.match(/rpc\/[a-z_]+/g) ?? [];
+  assert.ok(calls.length > 10, `the scanner found ${calls.length} database calls`);
+  // `rpc/send_to_agent` rather than a memory function: MEASURED, the 17 calls this file makes
+  // hold neither `save_memory` nor its `_once` wrapper — the memory routes reach the table
+  // directly — so a needle for one found nothing and reported the file as unreadable. The
+  // observer has to be something the file really calls.
+  assert.ok(calls.includes("rpc/send_to_agent"), `no send_to_agent among ${calls.length} calls`);
+  // AND THE FOUR ARE ASKED IN THE SAME SHAPE, so a call added in that shape is really covered.
+  for (const bad of ["connect_provider", "lease_connection", "refresh_connection",
+                     "disconnect_connection"]) {
+    assert.ok(!calls.includes(`rpc/${bad}`), `agent-store.mjs calls ${bad}`);
   }
 });
 
