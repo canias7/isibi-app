@@ -9530,6 +9530,102 @@ every `SUPABASE_*`, `OWNER_*` and `FAL_*` name is ABSENT from this
 environment — so both are the owner's read, and the estimate below is an
 estimate and not a cap.
 
+#### …AND THE SUCCESS COMPOSER RAN ON REFUSALS: SELECTION IS A LAYER TOO (2026-09-18)
+
+Owner: *"`browserReply` invokes the success formatter on refusals. For
+`{ok:false, error:"lost-photos", msg:"Nothing was published and nothing was
+charged."}`, the harness labels '✅ Done.' as the customer's screen. The
+browser's `addonAnswer` instead displays the warning plus `msg`. Respect the
+browser's actual response selection, including HTTP status."*
+
+**REPRODUCED BEFORE ANYTHING WAS TOUCHED, on the owner's exact body: the harness
+answered `"✅ Done."` where the browser shows `"⚠️ Nothing was published and
+nothing was charged."`** — a refusal that published nothing, reported as the
+change having landed, on the run bought to read what the product says.
+
+**THE CAUSE IS THE ROUND BEFORE THIS ONE FIXING THE LAYER ABOVE IT.** That round
+stopped the harness re-composing the reply and made it EXECUTE `addonReplyText`
+out of `public/chat.js` — correct, and `addonReplyText` is the SUCCESS composer.
+The browser SELECTS first: `addonAnswer` has four answers (an escalate hops
+sideways or falls, a null body falls, a non-2xx **or** `ok:false` shows `'⚠️ ' +
+msg` or falls, and only the last reaches `applyAddonResult` and the composer).
+So COMPOSITION was fixed and SELECTION was left re-implemented as *"always the
+success one"* — **the recorded two-copies trap one layer up from where it had
+just been closed.**
+
+**`addonAnswer` IS EXECUTED NOW, with `applyAddonResult` and `alsoTail` beside
+it**, so the real call site runs rather than two-thirds of it. `alsoTail(d)` gets
+`d: undefined` and that is honest rather than a hole: `d` is the ROUTING
+decision (`/api/site/route`'s answer) and carries `alsoAsked` alone, the harness
+posts straight to the addon route, and `alsoTail(undefined)` is `''`.
+
+**`httpOk` IS `Response.ok` AND IS NOT DERIVABLE FROM THE BODY — and the pair
+that proves it is not the reported one.** `{ok:false}` reaches the refusal branch
+at ANY status, so the owner's body cannot show the status being read. A body that
+claims success at a FAILING status is where they disagree, and it is the real
+shape: measured, `{ok:true, added:[…]}` at 200 composes `✅ Done — added
+/gallery` and the same body at 422 composes nothing and falls. The status is
+carried from the POST (`extra.status = p.status`) rather than guessed at.
+
+**`httpOkOf(status)` HAS THREE STATES AND THE THIRD REFUSES.** `null` for a
+status nobody recorded — an answer the browser never has and this harness can —
+and `browserReply` then answers `NOT COMPOSED` rather than picking a branch:
+reading it as `false` reports a refusal screen over a successful change, as
+`true` it is the reported defect.
+
+**NO EXTERNAL ACTION CAN OCCUR, AND THAT IS STRUCTURAL RATHER THAN CAREFUL.** The
+two arms that reach outside are INJECTED recorders — `siteEdit` (the sideways
+hop, a SECOND PAID POST) and `o.fallback` (the ~25-credit full rewrite) — so each
+is reported as a thing the browser WOULD do and none of them happens; `siteById`
+answers `null`, so the whole local-record mutation block is skipped and
+`sitesSave` is **unreachable**; `scheduleCreditRefresh` is recorded and does
+nothing. **And they are REPORTED**, because a run that printed only the text
+would be silent about the expensive half of what the browser would do.
+`o.instruction` and `o.fallback` are both real, because `canFall` reads them and
+the browser has both on every post this harness makes — handing in neither would
+drive the lost-the-original-message branch, a screen these posts can never
+produce, which is a fixture LESS capable than reality in the one field the
+selection turns on.
+
+**Guards**: `addon-sweep` **48 → 49**, the new case driving all four branches
+plus the status pair, the cannot-tell refusal, the recorded actions and the
+entry-point census. **PROVED RED against the real pre-change shape** — the
+success composer restored surgically so the module still loads: `"✅ Done."`
+against `"⚠️ Nothing was published and nothing was charged."`, and **two** cases
+go red, the new one and the re-anchored refusal case.
+
+**Three older guards re-anchored, not appeased.** The refusal-reader case gained
+the refusal SCREEN (it is the case about that outcome, so it is where that screen
+belongs); the free-text verdict case moved onto `addonAnswer` **with the status
+it was handed asserted** — a hardcoded 200 inside `customerLines` satisfies the
+label alone; and the wiring assertion became `customerLines(r, x && x.status)`,
+with `extra = { status: p && p.status }` asserted beside it, because a reader
+handed nothing answers NOT COMPOSED on every case of a paid run.
+
+**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/browser-selection.json`, over
+`scripts/addon-sweep.mjs`, against `test/addon-sweep.test.mjs`).
+**Pass 1 read 24/23/1 and the one survivor was MEASURED INERT, not a guard
+gap**: the `: null` coercion. **32 probes over sixteen bodies × both statuses ×
+three coercions found ZERO differences**, because every non-success branch of
+`addonAnswer` converges on the fall. **It is KEPT, and the rule decided it**: the
+deadness is a property of a NEIGHBOUR (chat.js's convergence) rather than of the
+expression, and the line is what the page's own reader hands in — so it is
+declared with its measurement and given a READER, the browser's own
+`r.json().catch(() => null)` asserted beside it, so the two cannot drift
+silently. **A two-file pair is not expressible** — `scripts/mutate.mjs` applies
+one `from`/`to` per entry against `files[0]`, which this file already records —
+so the replacement is an observable mutant of the same line (hand on nothing at
+all) with the correspondence mutant beside it. Both killed on pass 2.
+
+**Suite 6,843** — 6,842 + 1, and the arithmetic closes exactly against a baseline
+**measured in a detached worktree** (`addon-sweep` 48) rather than subtracted
+from a paragraph.
+
+**AND HARNESS PREPARATION IS CLOSED HERE.** Nothing further is added to the
+instrument; the deployment identifiers and the live-test inputs are in
+`docs/owner-notes.md`. **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH.**
+
 
 ## Data, auth, payments, mail
 
