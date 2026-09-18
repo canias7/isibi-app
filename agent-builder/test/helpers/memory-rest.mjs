@@ -34,6 +34,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const agents = new Map();                // id -> { id, tenant_id, status }
   const autos = new Map();                 // id -> the automations row
   const execs = new Map();                 // run id -> the automation_runs row
+  const events = new Map();                // id -> the events row, for the two dispatch halves
   // ── reference material and memory ─────────────────────────────────────────
   // **AND HERE IT IS DELIBERATELY LESS CAPABLE TOO, NAMED RATHER THAN DISCOVERED: the
   // SEARCH is a substring match, not `to_tsvector`/`ts_headline`.** Stemming, ranking and
@@ -529,6 +530,107 @@ export function memoryRest({ now = () => Date.now() } = {}) {
     }
 
     /**
+     * `agent.emit_event` — one event, absorbed by its key.
+     *
+     * **THE FAKE IS AS CAPABLE AS THE FUNCTION IN THE ONE THING THE PRODUCT TURNS ON**: the key
+     * is what makes a retried delivery one event, so the absorb is here and answers the WINNER's
+     * id. What is deliberately NOT here is the depth arithmetic off the emitting run's own row —
+     * that is proved on a real PostgreSQL, and a JavaScript copy of it would be a second version
+     * of the one thing the database is the authority on.
+     */
+    if (p.endsWith("/rpc/emit_event") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent_id: agentId, p_id: id, p_name: name,
+        p_payload: payload, p_source: source, p_key: key } = body;
+      if (typeof key === "string" && key !== "") {
+        const twin = [...events.values()].find((e) =>
+          e.tenant_id === tenant && e.name === name && e.event_key === key);
+        if (twin) return res(200, { ok: true, repeat: true, event_id: twin.id, name, depth: twin.depth ?? 0 });
+      }
+      events.set(id, {
+        id, tenant_id: tenant, agent_id: agentId ?? null, name,
+        payload: payload ?? {}, source: source ?? "person", event_key: key ?? null,
+        depth: 0, at: now(), handled_at: null,
+      });
+      return res(200, { ok: true, repeat: false, event_id: id, name, depth: 0 });
+    }
+
+    /**
+     * `agent.dispatch_events` — file what an event triggers, and wake what waited for it.
+     *
+     * ONE ANSWER PER EVENT, carrying `ring` — every run the event touched — because an event can
+     * file a trigger AND wake a waiter, and a caller ringing only the first would leave the other
+     * for the sweeper.
+     */
+    if (p.endsWith("/rpc/dispatch_events") && init.method === "POST") {
+      const limit = Number.isInteger(body?.p_limit) ? body.p_limit : 25;
+      const out = [];
+      for (const e of [...events.values()].filter((x) => x.handled_at === null).slice(0, limit)) {
+        const ring = [];
+        let filed = 0, woke = 0;
+        for (const a of [...autos.values()].filter((x) =>
+          x.tenant_id === e.tenant_id && x.agent_id === e.agent_id && x.enabled && x.on_event === e.name)) {
+          const runId = `ev-${e.id}-${a.id}`;
+          if (![...execs.values()].some((x) => x.automation_id === a.id && x.event_id === e.id)) {
+            runs.set(runId, { id: runId, tenant_id: e.tenant_id });
+            execs.set(runId, {
+              id: runId, tenant_id: e.tenant_id, automation_id: a.id, agent_id: a.agent_id,
+              trigger: "event", occurrence: null, steps: a.steps ?? [], zone: a.zone ?? "UTC",
+              finished_at: null, position: 0, vars: {}, input: {}, memory: {}, outcomes: [],
+              waiting: null, wait_until: null, decisions: {}, loops: {}, tries: {}, uses: [],
+              heard: {}, event_id: e.id, event_depth: e.depth ?? 0, created_at: now(),
+            });
+            work.set(runId, {
+              run_id: runId, tenant_id: e.tenant_id, kind: "start", executor: "automation",
+              claimed_by: null, claimed_at: null, lease_expires_at: null, claim_token: null,
+              attempts: 0, done_at: null,
+            });
+            filed += 1; ring.push(runId);
+          }
+        }
+        // ⚠ AND WHAT WAS WAITING: `heard ? step` is what makes it exactly once, and the re-queue
+        // is what makes it reach anybody — a `heard` written with the work row left done is the
+        // stranding the real function had to be corrected for.
+        for (const x of [...execs.values()].filter((v) =>
+          v.tenant_id === e.tenant_id && v.agent_id === e.agent_id && v.finished_at === null
+          && v.waiting?.kind === "event" && v.waiting?.name === e.name
+          && !Object.hasOwn(v.heard ?? {}, v.waiting?.step))) {
+          x.heard = { ...(x.heard ?? {}), [x.waiting.step]: { event_id: e.id, name: e.name, payload: e.payload, at: e.at } };
+          const w = work.get(x.id);
+          if (w) { w.done_at = null; w.claimed_by = null; w.claim_token = null; w.lease_expires_at = null; w.attempts = 0; }
+          woke += 1; ring.push(x.id);
+        }
+        e.handled_at = now();
+        out.push({ event_id: e.id, name: e.name, filed, woke, ring });
+      }
+      return res(200, out);
+    }
+
+    /**
+     * `agent.hear_pending_event` — the arrival race's other half.
+     *
+     * **IT PUTS THE WORK BACK, in the same answer**, because that is the half the real function
+     * was missing: a `heard` written against a run whose work row is done reaches nobody.
+     */
+    if (p.endsWith("/rpc/hear_pending_event") && init.method === "POST") {
+      const { p_run_id: id, p_tenant: tenant } = body;
+      const x = execs.get(id);
+      if (!x || x.tenant_id !== tenant) return res(200, { ok: false, error: "no-execution" });
+      if (x.finished_at !== null) return res(200, { ok: true, heard: false, why: "finished" });
+      if (x.waiting?.kind !== "event") return res(200, { ok: true, heard: false, why: "not-waiting-for-an-event" });
+      if (Object.hasOwn(x.heard ?? {}, x.waiting.step)) return res(200, { ok: true, heard: false, why: "already" });
+      const since = Date.parse(x.waiting.since ?? x.created_at ?? 0);
+      const found = [...events.values()]
+        .filter((e) => e.tenant_id === tenant && e.agent_id === x.agent_id && e.name === x.waiting.name
+          && Date.parse(e.at) >= since)
+        .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))[0];
+      if (!found) return res(200, { ok: true, heard: false, why: "nothing-yet" });
+      x.heard = { ...(x.heard ?? {}), [x.waiting.step]: { event_id: found.id, name: found.name, payload: found.payload, at: found.at } };
+      const w = work.get(id);
+      if (w) { w.done_at = null; w.claimed_by = null; w.claim_token = null; w.lease_expires_at = null; w.attempts = 0; }
+      return res(200, { ok: true, heard: true, event_id: found.id, name: found.name, queued: "queued" });
+    }
+
+    /**
      * `agent.automation_children` — every automation of ONE agent, as a parent copies it in.
      *
      * **THE SCOPE IS THE WALL AND IT IS THE QUERY'S**, so both filters are here: the tenant
@@ -859,7 +961,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const calls = [];
   const counted = async (url, init) => { calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined }); return fetch(url, init); };
   counted.calls = calls;
-  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem, approvals };
+  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem, approvals, events };
 }
 
 /**

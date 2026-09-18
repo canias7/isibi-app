@@ -493,9 +493,44 @@ const STEPS_FIELD = Object.freeze({
     "and that action's own fields. Use check_workflow first if you are unsure.",
   items: { type: "object", properties: { type: { type: "string" } }, required: ["type"] },
 });
+/**
+ * WHICH SCHEDULES A TOOL MAY ASK FOR, and it is a SUBSET of what the platform has.
+ *
+ * ⚠ **A SCHEDULE A TOOL CAN NAME AND CANNOT FULLY DESCRIBE IS A DEAD CONTROL THAT ANSWERS.**
+ * `weekly` needs a day list and `once` needs a date; this tool has `schedule` and `atLocal`
+ * and nothing else, so a model told "weekly or once" would save a schedule the database's own
+ * wholeness check then refuses — a Postgres exception where a customer wanted a sentence. The
+ * platform gained both the day this file did not, which is exactly how that happens.
+ *
+ * **IT IS CENSUSED AS A SUBSET rather than listed twice**: every name here must be a real
+ * platform schedule, so a typo cannot quietly offer one that does not exist, and a name the
+ * platform drops fails by existing. Widening it means giving the tool the fields first.
+ */
+export const AUTHORABLE_SCHEDULES = Object.freeze(["manual", "daily"]);
+
+/**
+ * ⚠ **THE WALL, BECAUSE A DESCRIPTION IS NOT ONE.** `SCHEDULE_FIELDS` tells a model which
+ * schedules exist for it; nothing stops a model writing one that does not, and a tool
+ * argument is a model's own output. Refused BY NAME and with the list, so the answer is
+ * something the model can act on rather than a Postgres exception several layers down.
+ *
+ * `manual` for an absent one is the same default the site's own reader has: making an
+ * automation is not asking for it to be scheduled.
+ */
+function authorableSchedule(raw) {
+  const asked = text(raw) || "manual";
+  if (!AUTHORABLE_SCHEDULES.includes(asked)) {
+    return {
+      error: "bad-schedule",
+      say: `this tool can set ${AUTHORABLE_SCHEDULES.join(" or ")}; ${asked} has to be set on the screen, which asks for the rest of what it needs`,
+    };
+  }
+  return { schedule: asked };
+}
+
 /** ...and the one description of when it runs. The ZONE is never the model's — see below. */
 const SCHEDULE_FIELDS = Object.freeze({
-  schedule: { type: "string", description: `When it runs: ${AUTOMATION_SCHEDULES.join(" or ")}.` },
+  schedule: { type: "string", description: `When it runs: ${AUTHORABLE_SCHEDULES.join(" or ")}.` },
   atLocal: { type: "string", description: 'For a daily one, the local time as "HH:MM".' },
 });
 
@@ -578,13 +613,15 @@ const makeAutomation = tool({
   run: async (args, can, ctx) => {
     const read = checkSteps(args.steps);
     if (!read.ok) return read;
+    const when = authorableSchedule(args.schedule);
+    if (when.error) return { ok: false, error: when.error, say: when.say };
     const answer = await can.createAutomation({
       // ⚠ THE ID IS DERIVED FROM THE CALL, never minted and never an argument — the same
       // rule `run_automation` follows, for the same reason: a fresh id per call makes a
       // redelivery a second automation, and a model naming one can point at another's row.
       id: await uuidFrom(`automation:${ctx?.operation ?? ""}`),
       name: text(args.name), steps: read.steps,
-      schedule: text(args.schedule) || "manual",
+      schedule: when.schedule,
       atLocal: text(args.atLocal) || null,
       // ⚠ THE ZONE IS NOT THE MODEL'S AND IS NOT AN ARGUMENT AT ALL. It belongs to whoever
       // owns the automation; a model choosing it would make "every day at nine" mean nine
@@ -627,9 +664,11 @@ const changeAutomation = tool({
     }
     const read = checkSteps(args.steps);
     if (!read.ok) return read;
+    const when = authorableSchedule(args.schedule);
+    if (when.error) return { ok: false, error: when.error, say: when.say };
     const answer = await can.updateAutomation({
       id: text(args.id), name: text(args.name), steps: read.steps,
-      schedule: text(args.schedule) || "manual",
+      schedule: when.schedule,
       atLocal: text(args.atLocal) || null,
       enabled: args.enabled !== false,
       operation: ctx?.operation,

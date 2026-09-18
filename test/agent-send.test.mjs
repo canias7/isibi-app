@@ -1720,8 +1720,17 @@ test("⚠ WHEN AN AUTOMATION RUNS IS ONE LIST IN THREE LANGUAGES, and this is th
   // — a CHECK cannot be imported, and this is the one file that can compare the two trees.
   const migs = readdirSync("agent-builder/supabase/migrations").filter((f) => f.endsWith(".sql")).sort();
   const sql = migs.map((f) => readFileSync(`agent-builder/supabase/migrations/${f}`, "utf8")).join("\n");
-  const hit = /check \(schedule in \(([^)]*)\)\)/.exec(sql);
-  assert.ok(hit, "no schedule constraint found in any migration — the observer is dead");
+  /**
+   * ⚠ **THE LAST DEFINITION WINS, so this takes the LAST match and not the first.** `exec`
+   * answers the first, which is the copy in whichever migration defined the constraint
+   * EARLIEST — and a later migration that widens it leaves that one superseded and still in the
+   * file. Measured: this read `manual, daily` off a file two migrations back and reported the
+   * database as refusing two schedules it accepts. *A position is not an identity*, in the
+   * census written to stop two copies drifting.
+   */
+  const all = [...sql.matchAll(/check \(\s*schedule in \(([^)]*)\)\s*\)/g)];
+  assert.ok(all.length, "no schedule constraint found in any migration — the observer is dead");
+  const hit = all[all.length - 1];
   const inSql = hit[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).sort();
   assert.deepEqual(inSql, [...SITE_SCHEDULES].sort(),
     "the database refuses a schedule both products offer, or accepts one neither does");

@@ -1152,9 +1152,20 @@ const spec = [
   m("tools: the model's own step list reaches the database, validated beside rather than in front", CT,
     "  return { ok: true, steps: read.steps, produces: read.produces };",
     "  return { ok: true, steps: raw, produces: read.produces };"),
+  // ⚠ RE-ANCHORED, NOT APPEASED: the schedule wall was inserted between the check and the
+  // call, so the three-line anchor no longer matched. The property is unchanged — a workflow
+  // that does not read must not be saved — and it is pinned on the check plus its own refusal,
+  // which is the shortest window that is still unique.
   m("tools: a workflow that does not read is saved anyway", CT,
-    "    const read = checkSteps(args.steps);\n    if (!read.ok) return read;\n    const answer = await can.createAutomation({",
-    "    const read = checkSteps(args.steps);\n    const answer = await can.createAutomation({"),
+    "    const read = checkSteps(args.steps);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n    const answer = await can.createAutomation({",
+    "    const read = checkSteps(args.steps);\n    const when = authorableSchedule(args.schedule);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n    const answer = await can.createAutomation({"),
+  // ⚠ AND THE WALL ITSELF: a description is not a wall, so a model may write a schedule this
+  // tool has no fields for and the DATABASE's wholeness check would refuse it as an exception.
+  m("tools: a schedule this tool cannot describe is passed on anyway", CT,
+    "  if (!AUTHORABLE_SCHEDULES.includes(asked)) {", "  if (false) {"),
+  m("tools: the authorable set becomes every schedule the platform has", CT,
+    'export const AUTHORABLE_SCHEDULES = Object.freeze(["manual", "daily"]);',
+    "export const AUTHORABLE_SCHEDULES = AUTOMATION_SCHEDULES;"),
   m("tools: creating an automation needs nobody", CT,
     "  approval: true,\n  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);",
     "  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);"),

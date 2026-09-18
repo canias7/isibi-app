@@ -73,11 +73,66 @@ alter table agent.automations add constraint automations_schedule_is_whole check
     when 'daily'  then at_local is not null and zone is not null and next_run_at is not null
                        and days = '{}' and on_date is null
     when 'weekly' then at_local is not null and zone is not null and next_run_at is not null
-                       and array_length(days, 1) between 1 and 7 and on_date is null
+                       -- ⚠ **`cardinality`, NEVER `array_length(days, 1)` — and a real PostgreSQL
+                       -- is what said so.** `array_length('{}', 1)` is NULL, `NULL between 1 and 7`
+                       -- is NULL, and **a CHECK constraint is SATISFIED by NULL** — so a weekly
+                       -- schedule with no days at all was ALLOWED, which is a schedule that can
+                       -- never come due wearing a validated row's clothes. `cardinality` answers 0
+                       -- for an empty array, which is a value the comparison can refuse.
+                       and cardinality(days) between 1 and 7 and on_date is null
     when 'once'   then at_local is not null and zone is not null and days = '{}'
                        and on_date is not null
     else false
   end
+);
+
+/**
+ * ⚠ **AN EVENT-TRIGGERED EXECUTION HAS NO OCCURRENCE, and the constraint that says which
+ * triggers may have one predates events entirely.** It listed `manual` and `schedule` and
+ * nothing else, so `else false` refused every event execution — MEASURED: the insert was
+ * refused by `automation_runs_occurrence_matches_trigger`, several checks away from anything
+ * about occurrences. An event's identity is the EVENT, held by
+ * `automation_runs_one_per_event`, which is a different index for a different fact.
+ */
+/**
+ * ⚠ **AND THE TRIGGER VOCABULARY ITSELF — the THIRD constraint of this class, and finding
+ * them one at a time is what said to census them instead.** `automation_runs_trigger_known`,
+ * `automation_runs_occurrence_matches_trigger` and `automation_runs_wait_is_whole` were all
+ * written before an event could start anything, and each refused an event execution from a
+ * different direction with a message about something else. A grep for every constraint naming
+ * the vocabulary is the check that finds the set; the function's own `p_trigger not in (...)`
+ * is a fourth place and is widened where it lives.
+ */
+alter table agent.automation_runs drop constraint if exists automation_runs_trigger_known;
+alter table agent.automation_runs add constraint automation_runs_trigger_known check (
+  trigger in ('manual', 'schedule', 'event')
+);
+
+alter table agent.automation_runs drop constraint if exists automation_runs_occurrence_matches_trigger;
+alter table agent.automation_runs add constraint automation_runs_occurrence_matches_trigger check (
+  (trigger = 'manual'   and occurrence is null)
+  or (trigger = 'schedule' and occurrence is not null)
+  or (trigger = 'event'    and occurrence is null)
+);
+
+/**
+ * ⚠ **AN EVENT WAIT HAS NO DEADLINE, AND THAT IS THE POINT OF IT.** The pause constraint was
+ * written when every wait had one — a timed wait has its instant and an approval has its
+ * window — so it demanded `wait_until is not null` for any pause at all and refused every
+ * event wait outright. An event wait that timed out would need a second configured outcome
+ * and a second reader; what a customer wants instead is a `wait` beside it, which this
+ * product already has. So the pair is: a pause of any other kind still needs its deadline,
+ * and an event pause is the one that may have none.
+ *
+ * **IT IS STILL A PAIR RATHER THAN A RELAXATION** — a `wait_until` with no `waiting` is as
+ * broken as it ever was, and a pause that is not an event and has no deadline is a wait
+ * nothing will ever wake.
+ */
+alter table agent.automation_runs drop constraint if exists automation_runs_wait_is_whole;
+alter table agent.automation_runs add constraint automation_runs_wait_is_whole check (
+  (waiting is null and wait_until is null)
+  or (waiting is not null and jsonb_typeof(waiting) = 'object'
+      and (wait_until is not null or waiting ->> 'kind' = 'event'))
 );
 
 -- THE DAY NAMES ARE A CLOSED SET, and it is the `weekday` step's own. A day nothing
@@ -960,3 +1015,203 @@ grant execute on function agent.emit_event(text, uuid, uuid, text, jsonb, text, 
 grant execute on function agent.dispatch_events(integer) to service_role;
 grant execute on function agent.hear_pending_event(uuid, text) to service_role;
 grant execute on function agent.accept_automation_run(text, uuid, uuid, text, date, jsonb, uuid, integer) to service_role;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 10. SAVING A TRIGGER — the two writers, widened
+--
+-- ⚠ **REDEFINED HERE RATHER THAN EDITED WHERE THEY WERE, and the reason is that this is
+-- where the three columns are added.** A reader asking "how does a weekly schedule get
+-- saved" finds the columns and their writers in one place, and `lastDefining` in the sweep
+-- spec asks the files which definition is in force, so nothing goes stale by position.
+--
+-- **THE THREE NEW PARAMETERS GO LAST AND DEFAULT, which is this schema's own recorded rule
+-- paid for with a run**: `p_inputs` was once written above `p_max` and a positional
+-- ten-argument call bound the CEILING to it, failing thirty checks about nothing to do with
+-- inputs. Defaulting them is also what keeps the `_once` wrappers in
+-- `20260918020000_agent_operation_records.sql` calling these unchanged — an agent authoring a
+-- workflow cannot ask for a weekly schedule (its tool has no day list), which is enforced in
+-- `capability-tools.mjs` rather than left to a constraint violation several layers down.
+--
+-- **AND THE ARITHMETIC IS `automation_next_run`'S, not `automation_next_at`'S.** That one
+-- answers the next occurrence of a DAILY time; a weekly schedule has to walk forward to the
+-- next chosen day and a one-off has exactly one instant and then none. Calling the old one
+-- for a weekly schedule would file it every single day, which is the defect this whole
+-- section exists to make impossible rather than merely unlikely.
+
+create or replace function agent.create_automation(
+  p_tenant     text,
+  p_agent_id   uuid,
+  p_id         uuid,
+  p_name       text,
+  p_enabled    boolean,
+  p_schedule   text,
+  p_at_local   time,
+  p_zone       text,
+  p_steps      jsonb,
+  p_max        integer default 20,
+  p_inputs     jsonb default '[]'::jsonb,
+  -- ⚠ **AN OMITTED DAY LIST AND AN EXPLICIT `null` ARE ONE ANSWER — "no days" — and the
+  -- INSERT coalesces rather than the default doing it.** `automations.days` is `not null
+  -- default '{}'` and `automations_schedule_is_whole` compares it with `'{}'` for every
+  -- schedule that is not weekly, so empty is what "not applicable" means here; passing the
+  -- null straight through violated the column and MEASURED 49 failing checks, whose first
+  -- readable symptom was `no-automation` about a row whose CREATE had been refused two checks
+  -- earlier. One rule, at the write, so a caller that omits it and one that says `null`
+  -- cannot differ — which is exactly what the `_once` wrappers do.
+  p_days       text[] default null,
+  p_on_date    date default null,
+  p_on_event   text default null
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_agent agent.agents;
+  v_next  timestamptz := null;
+  v_row   agent.automations;
+  v_held  integer;
+  v_calls jsonb;
+begin
+  if p_tenant is null or btrim(p_tenant) = '' then
+    raise exception 'create_automation: tenant must be a non-empty string';
+  end if;
+
+  -- WHOSE AGENT IS THIS. Answered as a VALUE rather than raised: another account's agent and
+  -- an agent that is not there are the same answer, because the difference is information.
+  select * into v_agent from agent.agents
+   where id = p_agent_id and tenant_id = p_tenant;
+  if v_agent.id is null then
+    return jsonb_build_object('ok', false, 'error', 'no-agent');
+  end if;
+
+  select count(*) into v_held from agent.automations
+   where agent_id = p_agent_id and tenant_id = p_tenant;
+  if v_held >= greatest(1, coalesce(p_max, 20)) then
+    return jsonb_build_object('ok', false, 'error', 'too-many', 'held', v_held);
+  end if;
+
+  -- ⚠ WHAT IT SAYS IT RUNS, before anything is written. A new automation cannot name ITSELF —
+  -- it has no rows yet, so `p_id` names nothing — and passing it anyway is what makes the two
+  -- call sites one shape rather than two.
+  v_calls := agent.automation_calls(p_tenant, p_agent_id, p_id, p_steps);
+  if (v_calls ->> 'ok')::boolean is not true then return v_calls; end if;
+
+  -- THE ARITHMETIC, ONCE, FOR EVERY TIMED SCHEDULE. A manual one has no instant, and the
+  -- constraint refuses a row that says otherwise.
+  if coalesce(p_schedule, 'manual') <> 'manual' then
+    v_next := agent.automation_next_run(p_schedule, p_at_local, p_zone, p_days, p_on_date, now());
+  end if;
+
+  insert into agent.automations
+    (id, tenant_id, agent_id, name, enabled, schedule, at_local, zone, steps, inputs,
+     days, on_date, on_event, next_run_at)
+  values
+    (p_id, p_tenant, p_agent_id, p_name, coalesce(p_enabled, true),
+     coalesce(p_schedule, 'manual'), p_at_local, p_zone,
+     coalesce(p_steps, '[]'::jsonb), coalesce(p_inputs, '[]'::jsonb),
+     coalesce(p_days, '{}'::text[]), p_on_date, p_on_event, v_next)
+  returning * into v_row;
+
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'version', v_row.version,
+                            'next_run_at', v_row.next_run_at);
+end; $$;
+
+create or replace function agent.update_automation(
+  p_tenant   text,
+  p_id       uuid,
+  p_name     text,
+  p_enabled  boolean,
+  p_schedule text,
+  p_at_local time,
+  p_zone     text,
+  p_steps    jsonb,
+  p_inputs   jsonb default '[]'::jsonb,
+  p_days     text[] default null,
+  p_on_date  date default null,
+  p_on_event text default null
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_row   agent.automations;
+  v_next  timestamptz := null;
+  v_calls jsonb;
+  v_ver   integer;
+begin
+  if p_tenant is null or btrim(p_tenant) = '' then
+    raise exception 'update_automation: tenant must be a non-empty string';
+  end if;
+
+  -- LOCKED, so the scheduler cannot advance `next_run_at` between this read and the write
+  -- below and have its advance thrown away.
+  select * into v_row from agent.automations
+   where id = p_id and tenant_id = p_tenant
+     for update;
+  if v_row.id is null then
+    return jsonb_build_object('ok', false, 'error', 'no-automation');
+  end if;
+
+  -- ⚠ WHAT IT SAYS IT RUNS, asked against the agent this row really belongs to — never an
+  -- agent id from the call, which this function is not given and must not be.
+  v_calls := agent.automation_calls(p_tenant, v_row.agent_id, p_id, p_steps);
+  if (v_calls ->> 'ok')::boolean is not true then return v_calls; end if;
+
+  -- ⚠ **THE VERSION MOVES ON A CHANGE OF STEPS AND ON NOTHING ELSE**, which is the rule
+  -- `agent.save_memory` already follows one table over: a version says which WORKFLOW a parent
+  -- copied in, so renaming an automation, moving its time or adding a day must not move it.
+  v_ver := case when v_row.steps is distinct from coalesce(p_steps, '[]'::jsonb)
+                then v_row.version + 1 else v_row.version end;
+
+  if coalesce(p_schedule, 'manual') <> 'manual' then
+    -- **RECOMPUTED FROM NOW, NOT CARRIED OVER, and that is deliberate.** A person who changes
+    -- the time means the new time, and keeping the stored instant would leave the automation
+    -- firing at the old one once more. The cost is stated: moving the time forward past
+    -- today's occurrence skips today, which is what changing a schedule means.
+    v_next := agent.automation_next_run(p_schedule, p_at_local, p_zone, p_days, p_on_date, now());
+  end if;
+
+  update agent.automations
+     set name        = p_name,
+         enabled     = coalesce(p_enabled, true),
+         schedule    = coalesce(p_schedule, 'manual'),
+         at_local    = p_at_local,
+         zone        = p_zone,
+         steps       = coalesce(p_steps, '[]'::jsonb),
+         inputs      = coalesce(p_inputs, '[]'::jsonb),
+         days        = coalesce(p_days, '{}'::text[]),
+         on_date     = p_on_date,
+         on_event    = p_on_event,
+         version     = v_ver,
+         next_run_at = v_next
+   where id = p_id
+  returning * into v_row;
+
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'version', v_row.version,
+                            'next_run_at', v_row.next_run_at);
+end; $$;
+
+/**
+ * ⚠ **THE NARROWER ONES ARE DROPPED, AND LEAVING THEM COST A WHOLE `test:pg` RUN.**
+ *
+ * `create or replace function` matches on the argument TYPE LIST, so a wider signature is a
+ * SECOND function rather than a replacement — and then a call with the old arity matches both
+ * and Postgres refuses it `is not unique`. MEASURED: 49 checks failed, and the first one to
+ * look at said `no-automation` about an automation whose CREATE had been refused two checks
+ * earlier, which is the misleading half — the cause reads as a missing row.
+ *
+ * So they go, for the same reason the 6-argument `accept_automation_run` goes below: an
+ * overload that cannot express the new thing is a door somebody reaches by accident. The
+ * `_once` wrappers in `20260918020000_agent_operation_records.sql` call these by NAME and
+ * resolve at run time, so they reach the wide ones with the three new parameters defaulting —
+ * which is what makes an agent-authored automation still work while being unable to ask for a
+ * weekly schedule it has no day list for.
+ */
+drop function if exists agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb);
+drop function if exists agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb);
+-- ...and the ones from before `p_inputs`, which the workflow migration left behind for the
+-- same reason and which are equally reachable by a shorter call.
+drop function if exists agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer);
+drop function if exists agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb);
+
+-- THE WIDENED SIGNATURES ARE THEIR OWN OBJECTS, so they need their own revokes and grants.
+revoke all on function agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb, text[], date, text) from public;
+revoke all on function agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb, text[], date, text) from public;
+grant execute on function agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb, text[], date, text) to service_role;
+grant execute on function agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb, text[], date, text) to service_role;

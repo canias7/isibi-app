@@ -3657,6 +3657,308 @@ try {
       { role: "authenticated", claims: `{"tenant_id":"${SW_T2}"}` }).out === "0");
 }
 
+// ── TRIGGERS: a weekly schedule, a one-off, and an event ─────────────────────
+{
+  console.log("\n── TRIGGERS: weekly, once, and an event that both files and wakes ──");
+  const TG = "tg1", TG2 = "tg2";
+  const A_TG = "dd000000-0000-0000-0000-00000000ff01";
+  const A_TG2 = "dd000000-0000-0000-0000-00000000ff02";
+  const AU_WK = "dd000000-0000-0000-0000-00000000ff11";
+  const AU_ONCE = "dd000000-0000-0000-0000-00000000ff12";
+  const AU_EV = "dd000000-0000-0000-0000-00000000ff13";
+  const EV1 = "dd000000-0000-0000-0000-00000000ff21";
+  const EV2 = "dd000000-0000-0000-0000-00000000ff22";
+  const R_EV = "dd000000-0000-0000-0000-00000000ff31";
+  const WH1 = "dd000000-0000-0000-0000-00000000ff41";
+  // ⚠ ITS OWN IDS, AND PROVED UNUSED FIRST. This file is one long body whose fixtures share a
+  // database, and a collision has cost it three sections already — the last one reported
+  // thirteen correct behaviours as broken on `agents_pkey`.
+  check("the trigger fixtures' ids are unused before this section",
+    psql(`select count(*) from agent.agents where id in ('${A_TG}','${A_TG2}');`, asOwner).out === "0"
+    && psql(`select count(*) from agent.automations where id in ('${AU_WK}','${AU_ONCE}','${AU_EV}');`, asOwner).out === "0"
+    && psql(`select count(*) from agent.events;`, asOwner).out === "0");
+
+  /**
+   * ⚠ **THE ENGINE REACHES EVENTS ONLY THROUGH FUNCTIONS, and that is asserted rather than
+   * discovered.** `service_role` holds no SELECT on `agent.events` or `agent.webhooks` — it has
+   * `BYPASSRLS`, which is about policies and not about grants — so every read it makes goes
+   * through a `security definer` function whose own filter decides what it sees. That is
+   * `run_work`'s posture, and it is why the direct reads in this section are the OWNER's.
+   *
+   * It was found the expensive way: the first draft of this section read the tables as the
+   * writer and six checks failed saying nothing, which reads exactly like a broken dispatcher.
+   */
+  check("⚠ `service_role` holds no direct read on the events table — only the functions",
+    psql(`select has_table_privilege('service_role','agent.events','select')::text;`, asOwner).out === "false");
+  check("⚠ ...nor on the endpoints table, which holds a secret in a column",
+    psql(`select has_table_privilege('service_role','agent.webhooks','select')::text;`, asOwner).out === "false");
+  check("THE CONTROL: it can execute the functions that read them for it",
+    psql(`select has_function_privilege('service_role','agent.dispatch_events(integer)','execute')::text;`, asOwner).out === "true"
+    && psql(`select has_function_privilege('service_role','agent.emit_event(text,uuid,uuid,text,jsonb,text,text,uuid,integer)','execute')::text;`, asOwner).out === "true");
+
+  allowed("two accounts' agents to hang triggers on",
+    `insert into agent.agents (id, tenant_id, name, instructions, status) values
+       ('${A_TG}','${TG}','Shop','help','active'),
+       ('${A_TG2}','${TG2}','Theirs','help','active');`, asOwner);
+
+  // ── the two new schedules ──────────────────────────────────────────────────
+  const wk = jget(`select agent.create_automation('${TG}','${A_TG}','${AU_WK}','Mondays and Fridays',
+    true, 'weekly', '09:00'::time, 'Europe/London', '[]'::jsonb, 20, '[]'::jsonb,
+    array['mon','fri']::text[])::text;`);
+  check("a WEEKLY automation is created and answers its own id", /"ok"\s*:\s*true/.test(wk) && wk.includes(AU_WK), wk);
+  // ⚠ THE NEXT INSTANT IS COMPUTED BY `automation_next_run` AND NOT BY `automation_next_at`.
+  // The old one answers the next occurrence of a DAILY time, so a weekly schedule would be
+  // filed every single day — which is the whole reason the new function exists. What proves it
+  // is that the instant really lands on a chosen day, in the automation's own zone.
+  check("⚠ ...and its next instant is on one of the days it names",
+    ["mon", "fri"].includes(jget(
+      `select lower(to_char(next_run_at at time zone 'Europe/London', 'Dy')) from agent.automations where id='${AU_WK}';`)),
+    jget(`select next_run_at at time zone 'Europe/London' from agent.automations where id='${AU_WK}';`));
+  check("...and the day list is stored in the week's own order",
+    jget(`select days::text from agent.automations where id='${AU_WK}';`) === "{mon,fri}");
+
+  refused("a weekly schedule with NO days is refused, because it would never come due",
+    `update agent.automations set days='{}'::text[] where id='${AU_WK}';`,
+    "automations_schedule_is_whole", asOwner);
+  refused("a day nothing recognises is refused rather than ignored",
+    `update agent.automations set days=array['mon','funday']::text[] where id='${AU_WK}';`,
+    "automations_days_known", asOwner);
+
+  const once = jget(`select agent.create_automation('${TG}','${A_TG}','${AU_ONCE}','One report',
+    true, 'once', '09:00'::time, 'UTC', '[]'::jsonb, 20, '[]'::jsonb, null, '2099-12-25'::date)::text;`);
+  check("a ONE-OFF automation is created", /"ok"\s*:\s*true/.test(once) && once.includes(AU_ONCE), once);
+  check("...and its instant is that day in its own zone",
+    jget(`select to_char(next_run_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI') from agent.automations where id='${AU_ONCE}';`)
+      === "2099-12-25 09:00");
+  // ⚠ **A ONE-OFF THAT HAS FIRED HAS NO NEXT INSTANT, AND THAT ABSENCE IS HOW IT SAYS SO** —
+  // which is why `once` is the one schedule whose `next_run_at` the wholeness check leaves
+  // alone. A constraint demanding one would make a fired one-off an unrepresentable row.
+  allowed("...and a fired one-off may have none, which is how it says it is done",
+    `update agent.automations set next_run_at=null where id='${AU_ONCE}';`, asOwner);
+  check("⚠ a one-off whose day has passed answers NO next instant at all",
+    jget(`select agent.automation_next_run('once','09:00'::time,'UTC',null,'2020-01-01'::date, now()) is null;`) === "t");
+  // THE CONTROL: the same call before the day really does answer one, so the null above is
+  // about the day having passed rather than about the function answering nothing.
+  check("THE CONTROL: before its day, a one-off answers an instant",
+    jget(`select agent.automation_next_run('once','09:00'::time,'UTC',null,'2099-01-01'::date, now()) is not null;`) === "t");
+
+  // ── an event both FILES and WAKES, in one transaction ──────────────────────
+  const ev = jget(`select agent.create_automation('${TG}','${A_TG}','${AU_EV}','On a payment',
+    true, 'manual', null, 'UTC', '[]'::jsonb, 20, '[]'::jsonb, null, null, 'order.paid')::text;`);
+  check("an automation may listen for an EVENT while still being run by hand",
+    /"ok"\s*:\s*true/.test(ev), ev);
+  refused("an event name that is not an identifier is refused",
+    `update agent.automations set on_event='Order Paid!' where id='${AU_EV}';`,
+    "automations_on_event_shaped", asOwner);
+
+  const emitted = jget(`select agent.emit_event('${TG}','${A_TG}','${EV1}','order.paid',
+    '{"amount":42}'::jsonb,'person','k-1')::text;`);
+  check("an event is emitted and answers its own id", /"ok"\s*:\s*true/.test(emitted), emitted);
+  const twice = jget(`select agent.emit_event('${TG}','${A_TG}','${EV2}','order.paid',
+    '{"amount":42}'::jsonb,'person','k-1')::text;`);
+  // ⚠ **THE SAME KEY IS THE SAME EVENT, which is what makes a retried webhook delivery safe.**
+  check("⚠ the same key twice is ONE event, and the second says so",
+    /"repeat"\s*:\s*true/.test(twice) && twice.includes(EV1),
+    twice);
+  // ⚠ ...AND THE SECOND EVENT'S OWN ID IS NOT IN THE TABLE, which is the property rather than
+  // a count: a count is a claim about every fixture this section has, and the id is a claim
+  // about the absorb.
+  check("...and the id the second call minted was never written",
+    psql(`select count(*) from agent.events where id='${EV2}';`, asOwner).out === "0");
+
+  const fired = jget(`select agent.dispatch_events(25)::text;`);
+  check("dispatching it FILES an execution for the automation that listens",
+    /"filed"\s*:\s*1/.test(fired), fired);
+  check("...and the execution's trigger says an event started it",
+    jget(`select trigger from agent.automation_runs where automation_id='${AU_EV}';`) === "event");
+  check("...and it carries the event it came from",
+    jget(`select event_id from agent.automation_runs where automation_id='${AU_EV}';`) === EV1);
+  check("...and the event is stamped handled, which is what makes it exactly once",
+    psql(`select handled_at is not null from agent.events where id='${EV1}';`, asOwner).out === "t");
+  check("⚠ a second dispatch files nothing, because the stamp is the gate",
+    jget(`select count(*) from agent.dispatch_events(25);`) === "0");
+  check("...and there is still exactly one execution of it",
+    jget(`select count(*) from agent.automation_runs where automation_id='${AU_EV}';`) === "1");
+  // AND ONE PER EVENT, enforced by the index rather than by the stamp alone.
+  refused("⚠ two executions of one automation for one event are refused by the index",
+    `insert into agent.automation_runs (id, tenant_id, automation_id, agent_id, trigger, steps, zone, event_id)
+     values ('${R_EV}','${TG}','${AU_EV}','${A_TG}','event','[]'::jsonb,'UTC','${EV1}');`,
+    "automation_runs_one_per_event", asOwner);
+
+  // ── the arrival race, both halves ──────────────────────────────────────────
+  const R_WAIT = "dd000000-0000-0000-0000-00000000ff51";
+  // ⚠ AN EXECUTION'S ID IS A RUN'S ID (`automation_runs_id_fkey`), and `run_work.kind` is
+  // `start | resume` — both found by driving this rather than by reading, and both are the
+  // schema being right. A hand-built pause has to stand up the same three rows a real accept
+  // does, or it is testing a shape the platform cannot hold.
+  allowed("an execution suspended on an event wait",
+    `insert into agent.runs (id, tenant_id) values ('${R_WAIT}','${TG}');
+     insert into agent.automation_runs
+       (id, tenant_id, automation_id, agent_id, trigger, steps, zone, position, waiting)
+     values ('${R_WAIT}','${TG}','${AU_EV}','${A_TG}','manual','[]'::jsonb,'UTC',0,
+       jsonb_build_object('kind','event','name','order.shipped','step','s1',
+                          'since', (now() - interval '1 minute')::text));`, asOwner);
+  allowed("...and a work row for it, marked done the way a pause leaves one",
+    `insert into agent.run_work (run_id, tenant_id, kind, executor, done_at)
+     values ('${R_WAIT}','${TG}','start','automation', now());`, asOwner);
+
+  const EV3 = "dd000000-0000-0000-0000-00000000ff23";
+  jget(`select agent.emit_event('${TG}','${A_TG}','${EV3}','order.shipped','{"who":"dpd"}'::jsonb)::text;`);
+  const woke = jget(`select agent.dispatch_events(25)::text;`);
+  check("⚠ dispatching WAKES an execution that was already waiting", /"woke"\s*:\s*1/.test(woke), woke);
+  check("...and what it heard is on the row, under the step that was waiting",
+    jget(`select heard -> 's1' ->> 'name' from agent.automation_runs where id='${R_WAIT}';`) === "order.shipped");
+  check("...and the payload came with it, which is what the step binds",
+    jget(`select heard -> 's1' -> 'payload' ->> 'who' from agent.automation_runs where id='${R_WAIT}';`) === "dpd");
+  // ⚠ **AND THE WORK IS BACK ON THE QUEUE**, without which the event would be recorded against
+  // a run nothing will ever deliver — a stranding, which is what milestone 9 exists to stop.
+  check("⚠ ...AND THE WORK ROW IS BACK ON THE QUEUE, or the event reaches nobody",
+    jget(`select done_at is null from agent.run_work where run_id='${R_WAIT}';`) === "t");
+  check("⚠ a second event of the same name does not apply twice",
+    (() => {
+      const EV4 = "dd000000-0000-0000-0000-00000000ff24";
+      jget(`select agent.emit_event('${TG}','${A_TG}','${EV4}','order.shipped','{"who":"other"}'::jsonb)::text;`);
+      jget(`select count(*) from agent.dispatch_events(25);`);
+      return jget(`select heard -> 's1' ->> 'name' from agent.automation_runs where id='${R_WAIT}';`) === "order.shipped"
+        && jget(`select heard -> 's1' -> 'payload' ->> 'who' from agent.automation_runs where id='${R_WAIT}';`) === "dpd";
+    })());
+
+  // THE OTHER HALF: an event that arrived BEFORE the pause was recorded.
+  const R_RACE = "dd000000-0000-0000-0000-00000000ff52";
+  const EV5 = "dd000000-0000-0000-0000-00000000ff25";
+  jget(`select agent.emit_event('${TG}','${A_TG}','${EV5}','order.refunded','{"n":1}'::jsonb)::text;`);
+  jget(`select count(*) from agent.dispatch_events(25);`);   // dispatched with nobody waiting
+  allowed("an execution that reaches its wait AFTER the event was dispatched",
+    `insert into agent.runs (id, tenant_id) values ('${R_RACE}','${TG}');
+     insert into agent.automation_runs
+       (id, tenant_id, automation_id, agent_id, trigger, steps, zone, position, waiting)
+     values ('${R_RACE}','${TG}','${AU_EV}','${A_TG}','manual','[]'::jsonb,'UTC',0,
+       jsonb_build_object('kind','event','name','order.refunded','step','s1',
+                          'since', (now() - interval '1 hour')::text));`, asOwner);
+  allowed("...and its work row, released by the pause",
+    `insert into agent.run_work (run_id, tenant_id, kind, executor, done_at)
+     values ('${R_RACE}','${TG}','start','automation', now());`, asOwner);
+  const heard = jget(`select agent.hear_pending_event('${R_RACE}','${TG}')::text;`);
+  check("⚠ THE RACE'S OTHER HALF: an event that got there first is still heard",
+    /"heard"\s*:\s*true/.test(heard), heard);
+  check("⚠ ...AND IT PUTS THE WORK BACK, in the same transaction as the hearing",
+    jget(`select done_at is null from agent.run_work where run_id='${R_RACE}';`) === "t", heard);
+  check("...and asking again is `already`, so one event is applied once",
+    /"already"/.test(jget(`select agent.hear_pending_event('${R_RACE}','${TG}')::text;`)));
+  // ⚠ BOUNDED BY WHEN THE PAUSE BEGAN, or an event from last week would satisfy a wait set up
+  // this morning — a workflow resuming on news it was never waiting for.
+  const R_LATE = "dd000000-0000-0000-0000-00000000ff53";
+  allowed("an execution whose wait began AFTER every event of that name",
+    `insert into agent.runs (id, tenant_id) values ('${R_LATE}','${TG}');
+     insert into agent.automation_runs
+       (id, tenant_id, automation_id, agent_id, trigger, steps, zone, position, waiting)
+     values ('${R_LATE}','${TG}','${AU_EV}','${A_TG}','manual','[]'::jsonb,'UTC',0,
+       jsonb_build_object('kind','event','name','order.refunded','step','s1',
+                          'since', (now() + interval '1 hour')::text));`, asOwner);
+  check("⚠ an event OLDER than the pause is not heard",
+    /"nothing-yet"/.test(jget(`select agent.hear_pending_event('${R_LATE}','${TG}')::text;`)));
+  check("an account cannot hear another account's execution",
+    /"no-execution"/.test(jget(`select agent.hear_pending_event('${R_RACE}','${TG2}')::text;`)));
+
+  // ── a chain of events is bounded ──────────────────────────────────────────
+  /**
+   * ⚠ **THE DEPTH COMES FROM THE EMITTING RUN AND NOT FROM THE CALL, which is what makes the
+   * bound one a caller cannot widen — and my own first fixture got it the other way round.** It
+   * passed `p_max_depth := 0` with no `p_from_run` and expected a refusal; with no emitting run
+   * the depth is 0, `0 > 0` is false, and the emit was correctly ACCEPTED. So the fixture has to
+   * stand up an execution already at the bound and emit FROM it.
+   */
+  const R_DEEP = "dd000000-0000-0000-0000-00000000ff61";
+  allowed("an execution already as deep as a chain may go",
+    `insert into agent.runs (id, tenant_id) values ('${R_DEEP}','${TG}');
+     insert into agent.automation_runs
+       (id, tenant_id, automation_id, agent_id, trigger, steps, zone, event_depth)
+     values ('${R_DEEP}','${TG}','${AU_EV}','${A_TG}','manual','[]'::jsonb,'UTC',4);`, asOwner);
+  const deep = jget(`select agent.emit_event('${TG}','${A_TG}',gen_random_uuid(),'loop.step',
+    '{}'::jsonb,'run',null,'${R_DEEP}')::text;`);
+  check("⚠ an event emitted FROM a run at the bound is refused BY NAME",
+    /"too-deep"/.test(deep), deep);
+  // THE CONTROL: the same emit from a shallower run really is accepted, so the refusal above is
+  // about the depth and not about the call.
+  const R_SHALLOW = "dd000000-0000-0000-0000-00000000ff62";
+  allowed("...and one with room left",
+    `insert into agent.runs (id, tenant_id) values ('${R_SHALLOW}','${TG}');
+     insert into agent.automation_runs
+       (id, tenant_id, automation_id, agent_id, trigger, steps, zone, event_depth)
+     values ('${R_SHALLOW}','${TG}','${AU_EV}','${A_TG}','manual','[]'::jsonb,'UTC',1);`, asOwner);
+  const shallow = jget(`select agent.emit_event('${TG}','${A_TG}',gen_random_uuid(),'loop.step',
+    '{}'::jsonb,'run',null,'${R_SHALLOW}')::text;`);
+  check("THE CONTROL: with depth left, the same emit is accepted and says how deep it is",
+    /"ok"\s*:\s*true/.test(shallow) && /"depth"\s*:\s*2/.test(shallow), shallow);
+
+  // ── the endpoint's secret has exactly one reader ───────────────────────────
+  const made = jget(`select agent.create_webhook('${TG}','${A_TG}','${WH1}','Payments','order.paid','a-signing-secret-of-a-real-length-32+')::text;`);
+  check("an endpoint is created", /"ok"\s*:\s*true/.test(made), made);
+  check("⚠ the DELIVERY reader answers the secret and the account it belongs to",
+    /a-signing-secret-of-a-real-length/.test(jget(`select agent.webhook_for_delivery('${WH1}')::text;`))
+    && jget(`select agent.webhook_for_delivery('${WH1}') ->> 'tenant_id';`) === TG);
+  check("⚠ ...and the LIST reader never does, so the secret has one reader and not two",
+    !/a-signing-secret-of-a-real-length/.test(jget(`select agent.list_webhooks('${TG}','${A_TG}')::text;`)),
+    jget(`select agent.list_webhooks('${TG}','${A_TG}')::text;`));
+  check("a disabled endpoint answers nothing at all, so turning one off really stops it",
+    (() => {
+      jget(`select agent.set_webhook_enabled('${TG}','${WH1}',false)::text;`);
+      const off = jget(`select agent.webhook_for_delivery('${WH1}')::text;`);
+      jget(`select agent.set_webhook_enabled('${TG}','${WH1}',true)::text;`);
+      return off === "" || off === "\\N" || /^null$/i.test(off);
+    })());
+  check("⚠ `authenticated` holds NOTHING on the endpoints table, because the secret is a column of it",
+    jget(`select has_table_privilege('authenticated','agent.webhooks','select')::text;`) === "false");
+  check("⚠ ...and cannot execute the one function that answers a secret",
+    jget(`select has_function_privilege('authenticated','agent.webhook_for_delivery(uuid)','execute')::text;`) === "false");
+  check("THE CONTROL: `service_role` can, because that is the caller a delivery runs as",
+    jget(`select has_function_privilege('service_role','agent.webhook_for_delivery(uuid)','execute')::text;`) === "true");
+  check("an account cannot delete another account's endpoint",
+    /"no-webhook"/.test(jget(`select agent.delete_webhook('${TG2}','${WH1}')::text;`)));
+  check("THE CONTROL: its owner can",
+    /"ok"\s*:\s*true/.test(jget(`select agent.delete_webhook('${TG}','${WH1}')::text;`)));
+
+  // ── the tick knows the two new schedules are due ───────────────────────────
+  check("⚠ the tick considers every schedule that is not manual",
+    (() => {
+      jget(`update agent.automations set next_run_at = now() - interval '1 minute'
+             where id in ('${AU_WK}','${AU_ONCE}');`);
+      jget(`update agent.automations set days=array['mon','fri']::text[] where id='${AU_WK}';`);
+      const rows = jget(`select count(*) from agent.tick_automations(3600, 25);`);
+      return Number(rows) >= 2;
+    })(), jget(`select count(*) from agent.tick_automations(3600, 25);`));
+  /**
+   * ⚠ **A ONE-OFF IS NEVER DUE AGAIN ONCE ITS DAY HAS GONE — and my first assertion here was
+   * about a state the platform cannot produce.** It forced `AU_ONCE`'s `next_run_at` into the
+   * past while its DATE was still 2099, ticked, and expected no next instant: the function
+   * correctly answered that date again, because it has not happened yet. A real one-off is due
+   * AT its instant, so the honest fixture is a date that really has gone by.
+   */
+  const AU_GONE = "dd000000-0000-0000-0000-00000000ff14";
+  const gone = jget(`select agent.create_automation('${TG}','${A_TG}','${AU_GONE}','Yesterday',
+    true, 'once', '09:00'::time, 'UTC', '[]'::jsonb, 20, '[]'::jsonb, null,
+    (current_date - 1)::date)::text;`);
+  check("a one-off on a day that has gone is created with no next instant at all",
+    /"ok"\s*:\s*true/.test(gone)
+    && jget(`select next_run_at is null from agent.automations where id='${AU_GONE}';`) === "t", gone);
+  check("⚠ ...so the tick never considers it, which is the whole of what `once` means",
+    (() => {
+      const before = jget(`select count(*) from agent.automation_runs where automation_id='${AU_GONE}';`);
+      jget(`select count(*) from agent.tick_automations(3600, 25);`);
+      return before === "0"
+        && jget(`select count(*) from agent.automation_runs where automation_id='${AU_GONE}';`) === "0";
+    })());
+  // AND THE ONE THAT REALLY FIRES LOSES ITS INSTANT, driven by making its date today and its
+  // instant due — which is the state a real one-off is in at the moment it runs.
+  check("⚠ a one-off that FIRES has no next instant afterwards",
+    (() => {
+      jget(`update agent.automations set on_date = current_date, at_local = '00:01'::time,
+             next_run_at = now() - interval '1 minute' where id='${AU_ONCE}';`);
+      jget(`select count(*) from agent.tick_automations(3600, 25);`);
+      return jget(`select next_run_at is null from agent.automations where id='${AU_ONCE}';`) === "t";
+    })(), jget(`select next_run_at from agent.automations where id='${AU_ONCE}';`));
+}
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],

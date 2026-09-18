@@ -324,6 +324,14 @@ test("no route reads an account off the body or the query — asserted over the 
   // route to prove the tenant reaches the store from the verified token alone.
                            "agent", "enabled", "schedule", "zone", "steps",
                            "inputs", "input", "run", "step", "verdict", "note", "title", "format", "value", "source",
+  // ⚠ RE-ANCHORED A FIFTH TIME, by THREE TRIGGER fields and still not by an exemption. `days`,
+  // `on_date` and `on_event` say WHEN an automation runs, exactly as `schedule`, `at` and `zone`
+  // already do — and each goes through `cleanSchedule`, which refuses a day that is not a day, a
+  // date that is not a day in the calendar and a name that is not an identifier, rather than
+  // coercing any of them. None can name an account: the four spellings this census forbids
+  // (`tenant`, `uid`, `owner`, `account`) are still not in the list, and the positive case above
+  // still drives every route to prove the tenant reaches the store from the verified token alone.
+                           "days", "on_date", "on_event",
   // ⚠ RE-ANCHORED A FOURTH TIME, by TWO fields and still not by an exemption. `tool` is WHICH
   // TOOL of one agent a revocation is about, and it is checked against `AGENT_TOOLS` — the
   // platform's own catalog, in code — so it cannot name an account and cannot name a capability

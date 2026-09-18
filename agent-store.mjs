@@ -1146,12 +1146,17 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * system that owns a time zone database — working it out here would be a second copy
      * of it, in a language whose answer would then decide when somebody's work runs.
      */
-    async createAutomation(tenant, { agentId, id, name, enabled, schedule, at, zone, steps, inputs }) {
+    async createAutomation(tenant, { agentId, id, name, enabled, schedule, at, zone, steps, inputs, days, onDate, onEvent }) {
       const r = await req("POST", "rpc/create_automation", {
         body: {
           p_tenant: tenant, p_agent_id: agentId, p_id: id, p_name: name,
           p_enabled: enabled, p_schedule: schedule, p_at_local: at, p_zone: zone,
           p_steps: steps, p_inputs: inputs ?? [], p_max: MAX_AUTOMATIONS,
+          // ⚠ `null` RATHER THAN OMITTED, so a save that clears a day list really clears it.
+          // These are a REPLACE like every other field on this form, and a key left off is a
+          // field PostgREST fills from the parameter's default — which for an edit that turned
+          // a weekly schedule into a daily one would leave the old days behind.
+          p_days: days ?? [], p_on_date: onDate ?? null, p_on_event: onEvent ?? null,
         },
       });
       if (!r.ok) throw storeFail("create automation", r);
@@ -1159,12 +1164,15 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     },
 
     /** Change one. A replace of its settings, and the form always sends all of them. */
-    async updateAutomation(tenant, { id, name, enabled, schedule, at, zone, steps, inputs }) {
+    async updateAutomation(tenant, { id, name, enabled, schedule, at, zone, steps, inputs, days, onDate, onEvent }) {
       const r = await req("POST", "rpc/update_automation", {
         body: {
           p_tenant: tenant, p_id: id, p_name: name, p_enabled: enabled,
           p_schedule: schedule, p_at_local: at, p_zone: zone, p_steps: steps,
           p_inputs: inputs ?? [],
+          // `null` RATHER THAN OMITTED — see the create, and it matters more here: this is
+          // the path that turns one schedule into another.
+          p_days: days ?? [], p_on_date: onDate ?? null, p_on_event: onEvent ?? null,
         },
       });
       if (!r.ok) throw storeFail("update automation", r);
@@ -1346,7 +1354,21 @@ export const AGENT_NAME_RE = /^[a-z][a-z0-9_]{0,39}$/;
 export const MAX_EXECUTIONS = 50;
 
 /** How a trigger starts. `manual` is Run now only; `daily` also fires once a day. */
-export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily"]);
+export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily", "weekly", "once"]);
+
+/** `YYYY-MM-DD`, which is what a one-off schedule names and what the column holds. */
+const ON_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * WHAT AN EVENT NAME LOOKS LIKE — the DATABASE's grammar (`agent.events_name_shaped`),
+ * pinned here as an external constraint rather than invented.
+ *
+ * ⚠ **IT IS WIDER THAN `AGENT_NAME_RE` AND THAT IS THE WHOLE REASON THE `event` FIELD KIND
+ * EXISTS.** An event name may carry dots and dashes (`order.paid`), which the `name` kind
+ * refuses — so a shape enforced anywhere but in a field kind would mean this door refusing
+ * what the engine accepts, measured, with both halves reading as correct.
+ */
+export const AGENT_EVENT_RE = /^[a-z][a-z0-9_.-]{0,63}$/;
 
 /**
  * WHAT A NAMED VALUE IS — a DECLARED COPY of the engine's `VALUE_TYPES`, censused both ways.
@@ -1391,7 +1413,7 @@ export const AUTOMATION_DAYS = Object.freeze(["sun", "mon", "tue", "wed", "thu",
  * nor pauses — it names another automation, whose steps are copied in before the run starts.
  */
 export const AUTOMATION_STEP_KINDS = Object.freeze(["condition", "action", "lookup", "branch", "pause", "call"]);
-export const AUTOMATION_FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name", "id"]);
+export const AUTOMATION_FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name", "id", "event"]);
 
 /**
  * ⚠ **HOW DEEP ONE AUTOMATION MAY RUN ANOTHER, AND HOW LONG THE FLATTENED LIST MAY BE.**
@@ -1556,6 +1578,22 @@ export const AUTOMATION_STEPS = Object.freeze([
       F({ name: "minutes", kind: "number", required: true, min: 1, max: MAX_WAIT_MINUTES, when: F({ mode: Object.freeze(["for"]) }),
           says: "the number of minutes to wait" }),
       F({ name: "at", kind: "time", required: true, when: F({ mode: Object.freeze(["until"]) }), says: "the time to wait until" }),
+    ]),
+  }),
+  F({
+    type: "event",
+    kind: "pause",
+    // ⚠ ITS RESUME IS KEYED BY THIS STEP'S ID AND THE FIRST ARRIVAL STANDS — `heard` is a map
+    // keyed by step, accumulated and never cleared, exactly as `decisions` is. So it carries the
+    // approval's own loop wall for the approval's own reason. A DECLARED COPY of the engine's
+    // flag, censused both ways.
+    decided: true,
+    label: "Wait for something to happen",
+    does: "Pause until an event of a given name reaches this agent, then carry on with what it carried.",
+    fields: Object.freeze([
+      F({ name: "name", kind: "event", required: true, says: "the name of the event to wait for",
+          empty: "say which event to wait for" }),
+      OUT,
     ]),
   }),
   F({
@@ -2137,6 +2175,25 @@ function readStepField(raw, f) {
     if (!AUTOMATION_ID.test(id)) return { error: `${said} didn't arrive as an automation` };
     return { value: id };
   }
+  /**
+   * AN EVENT NAME, and it is its own kind rather than a `name` with a pattern on top.
+   *
+   * ⚠ **`AGENT_NAME_RE` REFUSES A DOT AND AN EVENT NAME CARRIES ONE** (`order.paid`), so a shape
+   * enforced anywhere but here would mean this door refusing what the engine accepts — measured,
+   * with both halves reading as correct. This reader is generic over the KIND and knows nothing
+   * about one step's own `read`, which is exactly why the shape has to live on a kind.
+   */
+  if (f.kind === "event") {
+    if (raw === undefined || raw === null || raw === "") {
+      return f.required ? { error: blank } : { value: null };
+    }
+    if (typeof raw !== "string") return { error: `${said} didn't arrive as a name` };
+    const name = raw.trim().toLowerCase();
+    if (!AGENT_EVENT_RE.test(name)) {
+      return { error: `${said} has to be a short name: lower-case letters, digits, dots, dashes and underscores, starting with a letter` };
+    }
+    return { value: name };
+  }
   if (f.kind === "name") {
     if (raw === undefined || raw === null || raw === "") {
       return f.required ? { error: blank } : { value: null };
@@ -2190,23 +2247,91 @@ export function validTimeZone(v) {
 export function cleanSchedule(b) {
   const schedule = typeof b?.schedule === "string" ? b.schedule.trim() : "manual";
   if (!AUTOMATION_SCHEDULES.includes(schedule)) {
-    return { error: "an automation is started by hand or on a daily schedule" };
+    return { error: "an automation runs by hand, every day, on chosen days of the week, or once on a date" };
   }
   const zone = b?.zone === undefined || b?.zone === null || b?.zone === ""
     ? null
     : validTimeZone(b.zone);
   if (b?.zone && !zone) return { error: "that isn't a time zone this can use" };
 
+  /**
+   * WHICH EVENT STARTS IT, and it is answered for EVERY schedule rather than being a fifth
+   * one.
+   *
+   * ⚠ **AN EVENT IS NOT A SCHEDULE — it is a second, independent way in.** "Every morning AND
+   * whenever a payment lands" is a thing somebody wants, and folding the two into one field
+   * would make it unsayable; a manual automation that also listens is the ordinary shape of
+   * "I can run this myself, and it runs itself when something happens".
+   */
+  const onEvent = b?.on_event === undefined || b?.on_event === null || b?.on_event === ""
+    ? null
+    : (typeof b.on_event === "string" ? b.on_event.trim().toLowerCase() : null);
+  if (b?.on_event && (!onEvent || !AGENT_EVENT_RE.test(onEvent))) {
+    return { error: "an event's name is lower-case letters, digits, dots, dashes and underscores, starting with a letter" };
+  }
+
   if (schedule === "manual") {
     // A TIME WITH NO SCHEDULE IS A CONTROL SOMEBODY SET THAT NOTHING READS, so it is
     // dropped rather than stored — and the column's constraint refuses it anyway.
-    return { schedule, at: null, zone };
+    return { schedule, at: null, zone, days: [], onDate: null, onEvent };
   }
+
   const at = typeof b?.at === "string" ? b.at.trim() : "";
   if (!AT_SHAPE.test(at)) return { error: "say what time of day it should run, as HH:MM" };
-  if (!zone) return { error: "a daily schedule needs a time zone, so the time means somewhere" };
+  // EVERY TIMED SCHEDULE NEEDS A ZONE, and the sentence names the schedule that was asked
+  // for: "a daily schedule needs a time zone" about a weekly one sends somebody to the wrong
+  // control. One reader, one sentence per schedule.
+  if (!zone) return { error: `a ${schedule} schedule needs a time zone, so the time means somewhere` };
+  /**
+   * ⚠ **`[]` RATHER THAN `null` FOR A SCHEDULE WITH NO DAYS, because that is what the COLUMN
+   * means.** `agent.automations.days` is `not null default '{}'` and
+   * `automations_schedule_is_whole` compares it with `'{}'` for every schedule but weekly — so
+   * empty IS "not applicable" here, and the first draft of this reader answered `null`, which
+   * the column refused outright. One shape leaves this reader, and it is the store's.
+   */
+  const when = { schedule, at: `${at}:00`, zone, days: [], onDate: null, onEvent };
+
+  if (schedule === "weekly") {
+    const raw = Array.isArray(b?.days) ? b.days : null;
+    if (!raw || !raw.length) return { error: "pick at least one day of the week" };
+    // REFUSED BY NAME, NEVER SHORTENED: a selection quietly missing the day it could not read
+    // is a schedule that looks saved and runs on other days.
+    const bad = raw.find((d) => typeof d !== "string" || !AUTOMATION_DAYS.includes(d.trim().toLowerCase()));
+    if (bad !== undefined) return { error: `"${String(bad)}" isn't a day of the week` };
+    const picked = new Set(raw.map((d) => d.trim().toLowerCase()));
+    /**
+     * ⚠ **`AUTOMATION_DAYS`' OWN ORDER, which is the ENGINE's `WEEKDAYS` — Sunday first,
+     * because `Date.getDay()` is.** Two saves of one selection are byte-identical because the
+     * order is this list's rather than the ticking order, which is what makes a stored value
+     * comparable at all.
+     *
+     * AND IT IS THE LIST THAT WAS ALREADY HERE. My first draft declared a Monday-first one
+     * beside it and the module refused to load — *a re-anchor lands in a scope it did not
+     * write*, and the collision is what said the ordering question already had an answer.
+     */
+    return { ...when, days: AUTOMATION_DAYS.filter((d) => picked.has(d)) };
+  }
+
+  if (schedule === "once") {
+    const on = typeof b?.on_date === "string" ? b.on_date.trim() : "";
+    if (!ON_DATE_SHAPE.test(on)) return { error: "say which day it should run, as YYYY-MM-DD" };
+    /**
+     * ⚠ **THE DATE IS CHECKED AS A REAL CALENDAR DAY, not just as a shape** — `2026-02-30`
+     * matches `ON_DATE_SHAPE` and is not a day, and Postgres would refuse the insert with its
+     * own message about a date somebody typed. The arithmetic is done rather than handed to
+     * `Date`, because `new Date("2026-02-30")` rolls forward to March and would store a day
+     * nobody chose.
+     */
+    const [y, mo, d] = on.split("-").map(Number);
+    const days = [31, (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (mo < 1 || mo > 12 || d < 1 || d > days[mo - 1]) return { error: `${on} isn't a day in the calendar` };
+    // A DATE IN THE PAST IS DELIBERATELY NOT REFUSED HERE. `tick_automations` answers a
+    // one-off whose day has gone as MISSED and records it, which is a fact somebody can read;
+    // refusing it at the door would instead depend on which side of midnight the save landed.
+    return { ...when, onDate: on };
+  }
   // SECONDS ARE OURS, NOT THE CALLER'S. The screen offers a time, not a stopwatch.
-  return { schedule, at: `${at}:00`, zone };
+  return when;
 }
 
 /**
@@ -2227,6 +2352,13 @@ export function automationRow(r) {
     // `HH:MM:SS` out of Postgres, `HH:MM` on screen. One shape leaves this file.
     at: typeof r?.at_local === "string" ? r.at_local.slice(0, 5) : null,
     zone: typeof r?.zone === "string" && r.zone ? r.zone : null,
+    // ⚠ FAILS CLOSED, EACH IN ITS OWN DIRECTION. A `days` that cannot be read is `[]` rather
+    // than every day — a weekly schedule showing no days is a screen somebody fixes, and one
+    // showing seven is a claim the row does not make. An unreadable date or event is `null`,
+    // which reads as "not on a date" and "not on an event".
+    days: Array.isArray(r?.days) ? AUTOMATION_DAYS.filter((d) => r.days.includes(d)) : [],
+    onDate: typeof r?.on_date === "string" && r.on_date ? r.on_date.slice(0, 10) : null,
+    onEvent: typeof r?.on_event === "string" && r.on_event ? r.on_event : null,
     steps,
     // WHAT IT ASKS FOR WHEN IT IS STARTED. `[]` for an automation that asks nothing,
     // which is a real answer and what every automation made before this had.
@@ -2366,7 +2498,13 @@ export function executionRow(r) {
       // ONLY WHAT SOMEBODY LOOKING AT IT NEEDS: which step, which kind, what is being
       // asked, and when it runs out. Never the whole stored object, so a field added to a
       // pause cannot reach a screen nobody has written yet.
-      kind: waiting.kind === "approval" ? "approval" : "wait",
+      // ⚠ **A FIXED SET RATHER THAN A FALL-THROUGH, so an event pause is not drawn as a timed
+      // wait with no deadline.** The old shape read "approval or else wait", which was right
+      // while those were the only two and would have shown "waiting until —" for an event.
+      kind: waiting.kind === "approval" ? "approval" : (waiting.kind === "event" ? "event" : "wait"),
+      // WHICH EVENT, for an event pause only. A screen that cannot say what is being waited for
+      // is a screen that says a run is stuck.
+      event: typeof waiting.name === "string" && waiting.kind === "event" ? waiting.name : null,
       step: typeof waiting.step === "string" ? waiting.step : "",
       ask: typeof waiting.ask === "string" ? waiting.ask : null,
       onTimeout: AUTOMATION_TIMEOUTS.includes(waiting.on_timeout) ? waiting.on_timeout : null,
@@ -2818,6 +2956,10 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
 
       const shape = {
         name, enabled, schedule: trigger.schedule, at: trigger.at, zone: trigger.zone,
+        // ⚠ THE THREE NEW TRIGGER FIELDS GO IN THE SHARED SHAPE, so the create and the edit
+        // cannot carry different ones — which is the wiring defect this object exists to
+        // prevent and which a screen saving a weekly schedule that stores no days would be.
+        days: trigger.days, onDate: trigger.onDate, onEvent: trigger.onEvent,
         steps: flow.steps, inputs: declared.inputs,
       };
 

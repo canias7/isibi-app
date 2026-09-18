@@ -369,31 +369,60 @@ test("cleanWorkflow refuses by name, mints ids from the position, and never shor
 });
 
 test("cleanSchedule keeps a schedule whole, and the zone belongs to the automation", () => {
+  // ⚠ RE-ANCHORED, NOT APPEASED: the answer gained three trigger fields when weekly, one-off
+  // and event triggers shipped, so a whole-object comparison moved. `days: []` rather than
+  // `null` is the property worth keeping here — `agent.automations.days` is `not null default
+  // '{}'` and its wholeness check compares with `'{}'`, so empty IS "not applicable" and a null
+  // is a row the column refuses.
   assert.deepEqual(cleanSchedule({ schedule: "daily", at: "09:00", zone: "Europe/London" }),
-    { schedule: "daily", at: "09:00:00", zone: "Europe/London" });
+    { schedule: "daily", at: "09:00:00", zone: "Europe/London", days: [], onDate: null, onEvent: null });
   // ⚠ A MANUAL AUTOMATION MAY HAVE A ZONE: a weekday condition asks which day it is
   // somewhere, and without this it would mean the day in UTC for every Run-now one.
   assert.deepEqual(cleanSchedule({ schedule: "manual", zone: "Europe/London" }),
-    { schedule: "manual", at: null, zone: "Europe/London" });
+    { schedule: "manual", at: null, zone: "Europe/London", days: [], onDate: null, onEvent: null });
   // A time with no schedule is a control somebody set that nothing reads.
   assert.equal(cleanSchedule({ schedule: "manual", at: "09:00" }).at, null);
   assert.match(cleanSchedule({ schedule: "daily", at: "9:00", zone: "UTC" }).error, /HH:MM/);
   assert.match(cleanSchedule({ schedule: "daily", at: "24:00", zone: "UTC" }).error, /HH:MM/);
   assert.match(cleanSchedule({ schedule: "daily", at: "09:00" }).error, /needs a time zone/);
-  assert.match(cleanSchedule({ schedule: "weekly" }).error, /by hand or on a daily schedule/);
+  // ⚠ AND THIS EXPECTATION MOVED RATHER THAN BROKE: `weekly` is a real schedule now, so it is
+  // no longer refused for not existing — it is refused for having no time, which is the honest
+  // sentence. The unknown-schedule refusal is driven below on a name that really is not one.
+  assert.match(cleanSchedule({ schedule: "weekly" }).error, /what time of day/);
+  assert.match(cleanSchedule({ schedule: "hourly" }).error, /by hand, every day, on chosen days/);
+  // AND THE TWO NEW SCHEDULES ARE WHOLE OR REFUSED, each by its own missing part.
+  assert.match(cleanSchedule({ schedule: "weekly", at: "09:00", zone: "UTC" }).error, /at least one day/);
+  assert.match(cleanSchedule({ schedule: "weekly", at: "09:00", zone: "UTC", days: ["mon", "funday"] }).error, /isn't a day/);
+  assert.match(cleanSchedule({ schedule: "once", at: "09:00", zone: "UTC" }).error, /YYYY-MM-DD/);
+  assert.match(cleanSchedule({ schedule: "once", at: "09:00", zone: "UTC", on_date: "2026-02-30" }).error, /isn't a day in the calendar/);
+  assert.deepEqual(cleanSchedule({ schedule: "weekly", at: "09:00", zone: "UTC", days: ["fri", "mon"] }).days,
+    ["mon", "fri"], "the stored day list takes the week's own order, not the ticking order");
+  // AN EVENT IS A SECOND WAY IN RATHER THAN A FIFTH SCHEDULE, so a manual automation may have
+  // one — "I can run this myself, and it runs itself when something happens".
+  assert.equal(cleanSchedule({ schedule: "manual", on_event: "Order.Paid" }).onEvent, "order.paid");
+  assert.match(cleanSchedule({ schedule: "manual", on_event: "Order Paid!" }).error, /lower-case letters/);
   assert.match(cleanSchedule({ zone: "Nowhere/Fake" }).error, /isn't a time zone/);
   // ASKED OF `Intl`, NEVER OF A LIST.
   assert.equal(validTimeZone("Europe/London"), "Europe/London");
   assert.equal(validTimeZone("Nowhere/Fake"), null);
   assert.equal(validTimeZone(["UTC"]), null, "refused, never coerced");
   assert.equal(validTimeZone(""), null);
-  for (const s of AUTOMATION_SCHEDULES) assert.ok(cleanSchedule({ schedule: s, at: "09:00", zone: "UTC" }).schedule === s);
+  // EVERY SCHEDULE THE PLATFORM HAS IS READABLE, each given what it needs — derived from the
+  // list, so one added next month is covered by existing.
+  const enough = { weekly: { days: ["mon"] }, once: { on_date: "2099-01-01" } };
+  for (const s of AUTOMATION_SCHEDULES) {
+    const r = cleanSchedule({ schedule: s, at: "09:00", zone: "UTC", ...(enough[s] ?? {}) });
+    assert.equal(r.schedule, s, `${s}: ${r.error ?? "no schedule came back"}`);
+  }
 });
 
 // ── the readers ─────────────────────────────────────────────────────────────
 
 test("automationRow fails closed on every field it cannot read", () => {
-  const junk = automationRow({ id: 1, enabled: "true", schedule: "weekly", at_local: 9, steps: "x" });
+  // ⚠ RE-ANCHORED: `weekly` is a real schedule now, so it is no longer an unreadable one. The
+  // property is that a schedule this deployment does not know fails CLOSED to `manual` — an
+  // automation that runs by hand — rather than to something that runs on its own.
+  const junk = automationRow({ id: 1, enabled: "true", schedule: "hourly", at_local: 9, steps: "x" });
   // BEING WRONG ABOUT `enabled` COSTS A PRESS OF THE TOGGLE ONE WAY, and an automation
   // running that somebody believes is stopped the other. It fails to OFF.
   assert.equal(junk.enabled, false);
@@ -783,8 +812,12 @@ test("⚠ `waiting` is told from `queued` by the EXECUTION ROW, not by the run's
     wait_until: "2026-09-18T09:00:00Z",
   });
   assert.equal(suspended.state, "waiting");
+  // ⚠ RE-ANCHORED: the projection gained `event`, which is `null` for every pause that is not
+  // one. A fixed shape is the property — a field added to a stored pause must not reach a reader
+  // nobody has written — so the comparison stays whole rather than becoming a subset.
   assert.deepEqual(suspended.waiting, {
     kind: "approval", step: "s8", ask: "Send this?", onTimeout: "reject", until: "2026-09-18T09:00:00Z",
+    event: null,
   });
   assert.equal(suspended.position, 7);
   assert.deepEqual(suspended.values, { draft: "Dear customer" });
@@ -797,6 +830,24 @@ test("⚠ `waiting` is told from `queued` by the EXECUTION ROW, not by the run's
   const extra = executionRow({ run_status: "running", waiting: { kind: "wait", step: "s2", secret: "x", mode: "for" } });
   assert.ok(!JSON.stringify(extra.waiting).includes("secret"));
   assert.equal(extra.waiting.kind, "wait");
+  // ⚠ AND AN EVENT PAUSE IS ITS OWN KIND, which is what stops it being drawn as a timed wait
+  // with no deadline: the projection used to read "approval or else wait", which was right while
+  // those were the only two. It says WHICH event, because a screen that cannot say what is being
+  // waited for is a screen that says a run is stuck.
+  const onEvent = executionRow({
+    run_status: "running",
+    waiting: { kind: "event", step: "s3", name: "order.paid", since: "2026-09-18T01:00:00Z" },
+  });
+  assert.equal(onEvent.state, "waiting");
+  assert.equal(onEvent.waiting.kind, "event");
+  assert.equal(onEvent.waiting.event, "order.paid");
+  assert.equal(onEvent.waiting.until, null, "an event wait has no deadline, and that is the point of it");
+  // AND IT CARRIES NOTHING ELSE OF THE STORED PAUSE — `since` is the executor's own bookkeeping.
+  assert.ok(!JSON.stringify(onEvent.waiting).includes("since"));
+  // A TIMED WAIT STILL SAYS NO EVENT, which is the control that makes the line above about the
+  // kind rather than about the field existing.
+  assert.equal(executionRow({ run_status: "running", waiting: { kind: "wait", step: "s2" } }).waiting.event, null);
+
   // AND A PAUSE OF A KIND IT CANNOT READ IS A WAIT, never an approval: drawing an Approve
   // button for something no decision will ever be read from is a dead control that answers.
   assert.equal(executionRow({ run_status: "running", waiting: { kind: "nonsense", step: "s2" } }).waiting.kind, "wait");
