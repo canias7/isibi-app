@@ -5770,12 +5770,14 @@ It is one line, below the comment, and re-throwing is the same property.
 
 ### Measured
 
-- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 → 976 → 980 checks, 0 failed**, and the
+- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 → 976 → 980 → 986 checks, 0 failed**, and the
   arithmetic closes exactly at each step: 61 for the connections migration, 7 for the re-anchored
   operations block (two checks became nine), **9 for the credential's PRIVILEGES** (the fourth
   defect below — three read off `has_column_privilege`, six driven AS `service_role` with three
   of those the controls), and **4 for the two sweep survivors** (a reachable stored `expired`, a
-  row with no refresh credential, and an observer-alive control for each). Every refusal read for
+  row with no refresh credential, and an observer-alive control for each), and **6 for the
+  racing approval press** (a second decision cannot overwrite the first, which kills the PAIR
+  mutant below and nothing less than the pair). Every refusal read for
   ITS OWN gate with a control beside it; the credential's protection asked as PRIVILEGES and as
   the view's column list, never as a refusal, because `authenticated` holds no schema USAGE in a
   fresh cluster.
@@ -5906,6 +5908,59 @@ query) and removed altogether (the `security_invoker` view becomes unreadable an
 shows nothing). **The two failures need opposite fixes, so a single mutant would leave one of
 them unguarded**, and the removal direction is the one the migration's own comment records
 having shipped once already.
+
+### ⚠ The full SQL sweep's survivors, and what each one turned out to be
+
+**EIGHT survivors through 162 of 268, and NOT ONE was the product's.** They fall into four
+classes, and the classes are the finding — a survivor is a question, and these had four
+different answers.
+
+| class | n | what it was |
+|---|---|---|
+| mis-aimed anchor | 3 | aimed at a constraint a later migration drops and re-adds |
+| declared redundancy | 4 | two routes to one answer, each inert alone |
+| false label | 2 | inert AND claiming a consequence Postgres refuses |
+| genuine guard gap | **0** | — |
+
+**1–3. THE MIS-AIMED ANCHORS** are the recorded superseded-definition trap arriving a fifth
+time, through a door the pre-check did not model: `create or replace` supersedes a function or
+a view, and a CONSTRAINT is superseded by `drop constraint … add constraint`. **18 constraints
+and indexes in this directory are redefined that way.** All three re-aimed at the definition in
+force and **killed**. The pre-check now asks POSITIONALLY — its first version asked whether the
+anchor TEXT names a constraint, which misses one aimed at a clause inside the body, and a third
+survivor is what said so. **One of the three had been "killed" by a PARSE ERROR** rather than by
+its property (`check (…) and not (` is invalid in a `create table` column list), which reads as
+coverage and, unlike a survivor, nobody investigates.
+
+**4–5 AND 7–8. THE DECLARED REDUNDANCIES**, both measured rather than argued:
+- **A duplicate run id** is turned into `repeat` by a probe before the insert AND by a re-read
+  inside the exception handler. Three variants on throwaway databases answered byte-identically.
+  The handler is the only thing that can see a row another transaction committed between the
+  probe and the insert, so both stay; recorded as a comment-only control over the paragraph that
+  says so, because the halves are too far apart for a one-edit runner.
+- **A decision's write-once** is the same shape, and this one corrected me. The predicate
+  `and not (decisions ? p_step)` survived, so a racing-press test was written for it — **and it
+  survived that too.** Reproduced by hand, printing both callers' answers: identical with the
+  predicate and without. **The wall is the function's opening `select … for update`**, which
+  blocks the second press until the first commits, so the two cannot interleave and the write
+  block is never re-entered. Here the pair IS expressible — both halves sit in one contiguous
+  31-line region — so the mutant cuts BOTH, is **DERIVED from the migration** rather than pasted,
+  and **is killed by that racing test**: 1 mutant, 1 killed, 0 survived, control survived.
+  *The test earns its place; what was wrong was my account of what it proved.*
+
+**6. THE FALSE LABELS**, which are the most interesting failure mode here. Two knowledge-search
+mutants claimed a stopword-only or empty query would answer EVERY document. **Measured with the
+very `plainto_tsquery` the function uses: both give a 0-node tsquery and `@@` against that is
+FALSE**, so the search answers none either way and both mutants are inert. The code's own
+comment already said it — *"NOTHING SEARCHED FOR IS NOTHING FOUND, and it is not every
+document"* — so the labels contradicted the line they sat on. **A false label is worse than a
+survivor: nobody re-derives it, and the label is what a reader ends up believing.** The thing
+that IS the wall, `@@ v_q`, had **no mutant at all**; one points there now, with the consequence
+those two were borrowing.
+
+**THE REUSABLE PART: a survivor is a question with four possible answers, and only one of them
+is "the product is unguarded".** Asking which — by measurement, not by reading — is what
+separated a real correction from three instrument faults and two false claims here.
 
 ### ⚠ The two SQL survivors, and the first is a wrong claim in a guard rather than a missing one
 

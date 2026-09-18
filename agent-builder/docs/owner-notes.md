@@ -1751,3 +1751,43 @@ fix**, and I am recording them so nobody repeats the search:
 
 **Nothing is applied, deployed or merged, no model is connected, no real account is touched, and
 no credential of anybody's exists anywhere in this work.**
+
+
+## 2026-09-18 — what the deliberate-breakage run of the whole database found
+
+The long run over every deliberate breakage in the database is about two thirds through. **Eight
+of them were not caught, and not one of those eight is a fault in the product.** They are worth
+telling you about because each was a different kind of mistake *in my own checking*, and one of
+them corrected something I had told you an hour earlier.
+
+- **Three were aimed at the wrong copy of a rule.** Some rules are replaced by a later database
+  change, and those three were still pointed at the old copy, so they were breaking code nothing
+  runs. Re-aimed, and all three are now caught. **One of the three had been "caught" for the
+  wrong reason entirely** — the broken version did not even parse, so what failed was the
+  database refusing the file, not the rule doing its job. That is worse than an uncaught one,
+  because an uncaught one gets investigated and this looked like success.
+- **Four were a second lock on the same door.** Two independent mechanisms each prevent the same
+  thing, so removing either changes nothing — which I verified by running both versions against
+  real databases and comparing the answers, rather than by reading the code. Both are kept and the
+  reason is now written where the next person will meet it.
+- **⚠ And one of those four is a correction to what I told you.** I reported a real gap: that two
+  people approving something at the same instant could have the second silently overwrite the
+  first. I wrote a test for it. **The test passes and the breakage is still not caught, so my
+  report was wrong** — there is a row lock earlier in the operation that makes the two presses
+  wait for each other, so they cannot collide in the first place. The test is worth keeping
+  because it proves *that* lock works, which nothing else checked; what was wrong was my account
+  of what it proved. The breakage is now expressed as removing BOTH locks at once, and that the
+  test does catch.
+- **Two were claiming something the database does not do.** They said an empty search would
+  return every document; measured, it returns none. The code's own note already said so, and the
+  breakage descriptions contradicted the line they sat on. A wrong description is worse than a
+  missed breakage, because nobody checks it and it is what a reader believes. They now point at
+  the check that really does hold that line.
+
+**The useful part is the shape:** an uncaught breakage is a question, and it has four possible
+answers — my aim was wrong, there is a second lock, my description was wrong, or the product is
+unguarded. Only the last one is a defect, and it has not come up yet. Telling them apart takes a
+measurement, not a read.
+
+**Measured:** 986 checks against a real PostgreSQL, 0 failed. Nothing is applied, deployed or
+merged; no model is connected and no real account is touched.
