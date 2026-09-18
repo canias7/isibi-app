@@ -13,7 +13,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
-import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, SCHEDULE_NEEDS, CONNECTION_TOOLS } from "../src/capability-tools.mjs";
+import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, SCHEDULE_NEEDS, CONNECTION_TOOLS,
+         MAX_TOOL_INPUTS } from "../src/capability-tools.mjs";
 import { CONNECTION_OPS, CONNECTION_WRITES } from "../src/connections.mjs";
 import { FAKE_WRITES } from "../src/fake-provider.mjs";
 import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
@@ -1718,4 +1719,129 @@ test("⚠ AN AGENT MAY ONLY AUTHOR A SCHEDULE ITS OWN TOOL CAN DESCRIBE", async 
       }
     }
   }
+});
+
+test("⚠ A DECLARATION IS REFUSED RATHER THAN REPAIRED, and nothing is written", async () => {
+  /**
+   * ⚠ **FOUND BY THE SWEEP, AND THE SWEEP IS THE ONLY THING THAT COULD HAVE FOUND IT.** Every
+   * rule in `readInputs` was correct and NOT ONE of them was driven by anything the sweep
+   * judges by: four mutants cut four walls out and all four survived. Measured, with each
+   * mutation applied in turn against the real tool: an unknown type `lsit` was STORED as a
+   * type, `required: "false"` became an input, two inputs called `a` were both kept, and nine
+   * declarations went to a column whose own check refuses more than eight.
+   *
+   * The walls exist because the input came from a MODEL. `readWorkflow` normalises an unknown
+   * type to `text` internally, which is right for a stored row it must not reject; here a
+   * `list` misspelt `lsit` silently stored as text is a loop refused days later for a reason
+   * nobody can see. So each of these is a REFUSAL, and this case is what says so.
+   *
+   * ⚠ **AND IT IS DRIVEN THROUGH THE TOOL, NEVER THROUGH THE READER.** `readInputs` is
+   * exported and calling it directly would prove the rule and not the hop — which is the
+   * defect this round already paid for once, one product over, where the site's route dropped
+   * every declaration's TYPE between two correct readers. What must hold is that a refusal
+   * reaches the model AND that nothing reaches the database, so both are asserted.
+   */
+  const make = CAPABILITY_TOOLS.find((t) => t.name === "make_automation");
+  const steps = [{ type: "note", text: "hello" }];
+  const named = (n) => Array.from({ length: n }, (_, i) => ({ name: `a${i}` }));
+
+  const refused = {
+    "an unknown kind of thing": [{ name: "lines", type: "lsit" }],
+    "a required flag out of a string": [{ name: "a", required: "false" }],
+    "two inputs of one name": [{ name: "a" }, { name: "a" }],
+    // DERIVED FROM THE CEILING, never a hand-typed nine: the number is the column's and a
+    // second copy of it here is one that drifts the day the column moves.
+    "more than the column can hold": named(MAX_TOOL_INPUTS + 1),
+  };
+  for (const [said, inputs] of Object.entries(refused)) {
+    const w = recorder(() => ({ ok: true, id: AUTO }));
+    const out = await make.run({ name: "n", steps, inputs },
+      { capabilities: w.can.forTenant(T).forAgent(AG), operation: OP() });
+    assert.equal(out.ok, false, `${said} was accepted: ${JSON.stringify(out)}`);
+    assert.equal(out.error, "bad-inputs", `${said} refused as ${out.error}`);
+    assert.ok(typeof out.say === "string" && out.say.length > 0, `${said} refused without saying why`);
+    assert.deepEqual(w.sent.filter((r) => r.rpc.endsWith("_once")), [], `${said} reached the database`);
+  }
+  // ⚠ AND THE SENTENCE SAYS WHICH DECLARATION AND WHAT IS WRONG WITH IT, because "bad-inputs"
+  // is not something a model can act on. The type refusal names the type and the kinds it
+  // could have been; the ceiling names the ceiling.
+  const typed = await make.run({ name: "n", steps, inputs: [{ name: "lines", type: "lsit" }] },
+    { capabilities: recorder(() => ({ ok: true })).can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.match(typed.say, /lsit/, typed.say);
+  assert.match(typed.say, /list/, `the refusal does not say what it could have been: ${typed.say}`);
+  const over = await make.run({ name: "n", steps, inputs: named(MAX_TOOL_INPUTS + 1) },
+    { capabilities: recorder(() => ({ ok: true })).can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.match(over.say, new RegExp(String(MAX_TOOL_INPUTS)), over.say);
+
+  /**
+   * ⚠ **THE CONTROL, AND IT IS WHAT MAKES THE FOUR REFUSALS ABOVE WORTH ANYTHING**: a reader
+   * that refused everything would satisfy every assertion in this case. Exactly at the
+   * ceiling, with a real type and a real boolean, it goes through and the declarations reach
+   * the store in the shape the column holds.
+   */
+  const ok = recorder(() => ({ ok: true, id: AUTO }));
+  const good = await make.run(
+    { name: "n", steps, inputs: [{ name: "lines", type: "list", required: true },
+                                ...named(MAX_TOOL_INPUTS - 1)] },
+    { capabilities: ok.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(good.ok, true, JSON.stringify(good));
+  const wrote = ok.sent.find((r) => r.rpc === "create_automation_once");
+  assert.equal(wrote.body.p_inputs.length, MAX_TOOL_INPUTS, "the ceiling itself was refused");
+  assert.deepEqual(wrote.body.p_inputs[0],
+    { name: "lines", label: "lines", required: true, default: "", type: "list" },
+    "a declaration the tool accepted did not reach the store as it was declared");
+});
+
+test("⚠ MOVING AN AUTOMATION TO MANUAL CLEARS THE TIME IT NO LONGER HAS", async () => {
+  /**
+   * ⚠ **`automations_schedule_is_whole` REFUSES `manual` WITH A TIME**, so a call carrying
+   * both is a Postgres exception several layers below the model that can act on it — and
+   * "stop running it on a schedule" is the ordinary way somebody says that.
+   *
+   * FOUND BY THE SWEEP: a mutant reading `atLocal` straight off the call rather than from the
+   * fields the schedule NEEDS survived, on both tools. Measured with it applied — the create
+   * sent `p_at_local: "09:00"` beside `p_schedule: "manual"`, and the edit's patch the same —
+   * and nothing anywhere failed.
+   *
+   * THE KEY IS PRESENT AND NULL RATHER THAN ABSENT, and on the EDIT that distinction is the
+   * whole feature: absent means preserve, so a patch that merely omitted the time would leave
+   * a manual automation wearing the time it used to run at. Clearing it takes saying so.
+   */
+  const steps = [{ type: "note", text: "hello" }];
+  const held = { id: AUTO, agent: AG, name: "P", enabled: true, schedule: "daily",
+    atLocal: "09:00", zone: "Europe/London", version: 1, steps, inputs: [] };
+
+  const w = recorder((fn) => (fn === "read_agent_settings" ? { ok: true, zone: "Europe/London" }
+    : { ok: true, id: AUTO }));
+  const made = await CAPABILITY_TOOLS.find((t) => t.name === "make_automation")
+    .run({ name: "n", steps, schedule: "manual", atLocal: "09:00" },
+         { capabilities: w.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(made.ok, true, JSON.stringify(made));
+  const created = w.sent.find((r) => r.rpc === "create_automation_once").body;
+  assert.equal(created.p_schedule, "manual");
+  assert.equal(created.p_at_local, null,
+    `a manual automation was created carrying a time: ${JSON.stringify(created.p_at_local)}`);
+
+  const w2 = recorder((fn) => (fn === "read_automation" ? held
+    : fn === "read_agent_settings" ? { ok: true, zone: "Europe/London" } : { ok: true, id: AUTO, version: 2 }));
+  const moved = await CAPABILITY_TOOLS.find((t) => t.name === "change_automation")
+    .run({ id: AUTO, schedule: "manual", atLocal: "09:00" },
+         { capabilities: w2.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(moved.ok, true, JSON.stringify(moved));
+  const patch = w2.sent.find((r) => r.rpc === "patch_automation_once").body.p_patch;
+  assert.equal(patch.schedule, "manual");
+  assert.equal(Object.hasOwn(patch, "atLocal"), true,
+    "a move to manual left the stored time alone, because absent means preserve");
+  assert.equal(patch.atLocal, null, `the patch kept a time: ${JSON.stringify(patch.atLocal)}`);
+
+  // ⚠ THE CONTROL: a schedule that really NEEDS a time still gets the one the call gave it, so
+  // this is about the schedule's own needs and not about `atLocal` being ignored everywhere.
+  const w3 = recorder((fn) => (fn === "read_automation" ? held
+    : fn === "read_agent_settings" ? { ok: true, zone: "Europe/London" } : { ok: true, id: AUTO, version: 2 }));
+  const daily = await CAPABILITY_TOOLS.find((t) => t.name === "change_automation")
+    .run({ id: AUTO, schedule: "daily", atLocal: "07:30" },
+         { capabilities: w3.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(daily.ok, true, JSON.stringify(daily));
+  assert.equal(w3.sent.find((r) => r.rpc === "patch_automation_once").body.p_patch.atLocal, "07:30",
+    "a daily schedule lost the time it was given");
 });

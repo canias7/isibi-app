@@ -1234,9 +1234,14 @@ const spec = [
   m("tools: creating an automation needs nobody", CT,
     "  approval: true,\n  run: async (args, can, ctx) => {\n    const asked = readInputs(args.inputs);",
     "  run: async (args, can, ctx) => {\n    const asked = readInputs(args.inputs);"),
+  // ⚠ **THIS ONE WAS A MUTANT THAT CHANGED NOTHING BUT A COMMENT, and it was tallied as a
+  // product mutant for a whole round.** Its `to` inserted `// no approval` into the run body
+  // and left `approval: true` exactly where it was — `from` and `to` are IDENTICAL once
+  // comments are stripped, which is the definition of a control, so it survived every pass
+  // and read as a test gap. The gate is on the TOOL, so that is where the anchor has to be.
   m("tools: changing an automation needs nobody", CT,
-    "  run: async (args, can, ctx) => {\n    // ⚠ THE SIBLING WALL FIRST",
-    "  run: async (args, can, ctx) => {\n    // no approval\n    // ⚠ THE SIBLING WALL FIRST"),
+    "  approval: true,\n  /**\n   * ⚠ **AN EDIT CHANGES ONLY WHAT IT NAMES",
+    "  /**\n   * ⚠ **AN EDIT CHANGES ONLY WHAT IT NAMES"),
   m("tools: a SIBLING agent's automation can be rewritten", CT,
     '    const held = await can.readAutomation({ id: text(args.id) });\n    if (!held) {\n      return { ok: false, error: "no-automation", say: "there is no automation of this agent\'s with that id" };\n    }',
     "    const held = (await can.readAutomation({ id: text(args.id) })) ?? {};"),
@@ -1246,9 +1251,14 @@ const spec = [
   // guessed zone makes a schedule fire at the wrong hour while every reader agrees it is
   // right, and an edit that carries a field it was not asked about resets a live automation
   // while answering `ok`.
+  // ⚠ **AND THIS ONE WAS INERT, MEASURED RATHER THAN REASONED ABOUT.** It added
+  // `zone: "UTC"` to the object `zoneFor` REFUSES with — and every caller asks `zone.error`
+  // before it reads `zone.zone`, so a refusal carrying a zone is still a refusal and no
+  // observable answer moved. The defect the label names is the FALLBACK: a setting that is
+  // absent resolving to a guessed zone instead of a question.
   m("tools: a missing zone is guessed instead of asked for", CT,
-    '      say: "a scheduled automation needs to know which time zone its time is in, and this " +',
-    '      zone: "UTC", say: "a scheduled automation needs to know which time zone its time is in, and this " +'),
+    "    ? settings.zone.trim() : null;",
+    '    ? settings.zone.trim() : "UTC";'),
   m("tools: a daily schedule is saved with no zone at all", CT,
     '  if (!NEEDS_A_ZONE.includes(schedule)) return { zone: null };',
     '  return { zone: null };'),
@@ -1300,9 +1310,17 @@ const spec = [
   m("tools: a stored time with real seconds is accepted and the column refuses it", CT,
     "  return AT_SHAPE.test(t) ? t.slice(0, 5) : \"\";",
     "  return t.slice(0, 5);"),
+  // ⚠ **A DECLARED REDUNDANCY, MUTATED AS A PAIR — because the shape test alone cannot be
+  // killed.** MEASURED over twelve real spellings: NOT ONE is refused by `DATE_SHAPE` alone.
+  // Everything it rejects, `Date.parse` or the round-trip rejects too, so cutting the shape
+  // test out moves no answer and reads as a test gap. The two are kept because they refuse
+  // different things — the shape says the ask is not a date at all, the round-trip says it is
+  // not a real day (`2027-02-29`) — and `"4 July"` is why the shape is not decoration:
+  // `Date.parse("4 JulyT00:00:00Z")` is NOT NaN, so without the round-trip behind it the
+  // lenient fallback would take it. This mutant removes BOTH walls, which must die.
   m("tools: a date that is not a date is stored anyway", CT,
-    "    if (!DATE_SHAPE.test(on) || Number.isNaN(Date.parse(`${on}T00:00:00Z`))",
-    "    if (false || Number.isNaN(Date.parse(`${on}T00:00:00Z`))"),
+    "    if (!DATE_SHAPE.test(on) || Number.isNaN(Date.parse(`${on}T00:00:00Z`))\n        || new Date(`${on}T00:00:00Z`).toISOString().slice(0, 10) !== on) {",
+    "    if (Number.isNaN(Date.parse(`${on}T00:00:00Z`))) {"),
   m("tools: an impossible calendar date passes because only the shape is asked", CT,
     '        || new Date(`${on}T00:00:00Z`).toISOString().slice(0, 10) !== on) {',
     "        || false) {"),

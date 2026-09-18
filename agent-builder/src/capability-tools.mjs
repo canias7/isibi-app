@@ -825,6 +825,14 @@ function readTrigger(args, { at: storedAt = null, days: storedDays = null,
     const on = Object.hasOwn(args, "onDate") ? text(args.onDate) : (storedDate === null ? "" : text(storedDate));
     // SHAPED, THEN A REAL DATE. `2026-13-45` matches the shape and is not a date, and the
     // cast's own refusal several layers down is not a sentence.
+    //
+    // ⚠ **THE SHAPE TEST IS A DELIBERATE REDUNDANCY AND MUST NOT BE TIDIED AWAY.**
+    // MEASURED over twelve real spellings: not one is refused by `DATE_SHAPE` alone, so
+    // cutting it moves no answer and a sweep reads it as an untested line. It is kept because
+    // the two refuse different things — the shape says the ask is not a date at all, the
+    // round-trip says it is not a real day (`2027-02-29` passes both the shape and the parse)
+    // — and because `Date.parse` has a LENIENT FALLBACK: `Date.parse("4 JulyT00:00:00Z")` is
+    // not NaN. The sweep mutates the PAIR for exactly this reason.
     if (!DATE_SHAPE.test(on) || Number.isNaN(Date.parse(`${on}T00:00:00Z`))
         || new Date(`${on}T00:00:00Z`).toISOString().slice(0, 10) !== on) {
       return { error: "bad-date", say: "a one-off schedule needs the date to run, as YYYY-MM-DD" };
