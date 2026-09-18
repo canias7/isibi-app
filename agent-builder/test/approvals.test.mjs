@@ -253,7 +253,14 @@ test("⚠ WHICH TOOLS NEED A PERSON IS DECLARED IN CODE, and the set is pinned b
   // arguments a model wrote, which is the one thing this surface forbids. The cost is a
   // person approving a disabled draft; the alternative is a model choosing whether a person
   // is asked.
-  const GATED = ["make_automation", "change_automation", "pause_automation", "run_automation"];
+  // ⚠ RE-ANCHORED AGAIN 2026-09-18: `send_message` joined, and it is the FIRST gated tool
+  // whose effect leaves the platform entirely. The line above says "outside this
+  // conversation"; this one is outside the product — a message at a provider cannot be
+  // recalled by anything here, which is the strongest case there is for asking a person.
+  // Its neighbour `read_messages` is deliberately NOT gated, and the pair is what keeps the
+  // rule about EFFECT rather than about which seam a tool happens to use.
+  const GATED = ["make_automation", "change_automation", "pause_automation", "run_automation",
+    "send_message"];
   const byName = new Map(CAPABILITY_TOOLS.map((t) => [t.name, t]));
   for (const n of GATED) assert.equal(byName.get(n)?.approval, true, `${n} runs with nobody asked`);
   for (const t of CAPABILITY_TOOLS) {
@@ -262,6 +269,14 @@ test("⚠ WHICH TOOLS NEED A PERSON IS DECLARED IN CODE, and the set is pinned b
   // A tool added to the catalog later is either on that list or is not gated — asserted
   // both ways, so a gated tool cannot quietly stop being one.
   assert.equal(CAPABILITY_TOOLS.filter((t) => t.approval).length, GATED.length);
+  // ⚠ AND THE PAIR THAT PROVES THE RULE IS ABOUT EFFECT AND NOT ABOUT THE SEAM: both of
+  // these reach outside the platform through the same object, and only the one that CHANGES
+  // something there is gated. Without this, "everything that touches a connection is gated"
+  // would satisfy the census above.
+  assert.equal(byName.get("send_message")?.approval, true);
+  assert.equal(byName.get("read_messages")?.approval, false,
+    "a read through a connection is gated, so the rule has become about the seam");
+  assert.equal(byName.get("list_connections")?.approval, false);
 });
 
 test("⚠ `approval` IS REFUSED, NEVER COERCED — `Boolean(\"false\")` is `true`", () => {

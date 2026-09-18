@@ -738,6 +738,119 @@ const sayAutomation = (error) => ({
  * screen's save goes through, and what reaches the database is its output and never the
  * model's list.
  */
+// ── acting through a connection to something outside ────────────────────────
+//
+// ⚠ **THE CONNECTION SEAM IS ITS OWN, AND THAT IS NOT TIDINESS.** `ctx.capabilities` is
+// what an agent may do to its OWN account's records; `ctx.connections` is what it may do to
+// somebody else's system. They fail differently (a record is ours to fix, an outbound call
+// may have landed and cannot be recalled), they are configured differently (one needs a
+// credential per connection), and a deployment can honestly have one and not the other — so
+// a tool that asked `capabilities` for a connection would answer `no-backend` for a reason
+// that has nothing to do with what is missing.
+const NO_CONNECTIONS = Object.freeze({
+  ok: false, error: "no-connections",
+  say: "this deployment cannot reach anything outside, so that could not be done",
+});
+
+const acting = (fn) => async (args, ctx) => {
+  const via = ctx?.connections;
+  if (!via || typeof via !== "object") return NO_CONNECTIONS;
+  return fn(args && typeof args === "object" ? args : {}, via, ctx);
+};
+
+const actTool = (spec) => defineTool({ ...spec, scope: PUBLIC, run: acting(spec.run) });
+
+const listConnections = actTool({
+  name: "list_connections",
+  description:
+    "List the outside accounts this agent is connected to — what each one is called, which " +
+    "account it is, what it is allowed to do, and whether it is usable right now. It never " +
+    "returns any credential.",
+  input: { type: "object", properties: {} },
+  repeatable: true,
+  run: async (_args, via) => {
+    const rows = await via.list();
+    return { ok: true, count: rows.length, connections: rows,
+      say: rows.length ? `${rows.length} connection(s)` : "this agent is not connected to anything yet" };
+  },
+});
+
+const readMessages = actTool({
+  name: "read_messages",
+  description:
+    "Read what is in one connected account. Give the id of a connection from " +
+    "list_connections. This only reads — it changes nothing.",
+  input: {
+    type: "object",
+    properties: {
+      connection: { type: "string", description: "The connection's id, from list_connections." },
+    },
+    required: ["connection"],
+  },
+  // A READ IS REPEATABLE BY CONSTRUCTION: running it twice leaves the provider as it was.
+  repeatable: true,
+  run: async (args, via) => via.perform({ connection: text(args.connection), action: "read_messages" }),
+});
+
+const sendMessage = actTool({
+  name: "send_message",
+  description:
+    "Send a message from one connected account. Give the id of a connection from " +
+    "list_connections, who it is to, and what it says. A person has to approve this before " +
+    "it goes out.",
+  input: {
+    type: "object",
+    properties: {
+      connection: { type: "string", description: "The connection's id, from list_connections." },
+      to: { type: "string", description: "Who it is for." },
+      body: { type: "string", description: "What it says." },
+    },
+    required: ["connection", "to", "body"],
+  },
+  /**
+   * ⚠ **A PERSON APPROVES THIS, AND THE REQUIREMENT IS DECLARED HERE — IN CODE, ON THE
+   * TOOL.** Not in an instruction, a retrieved document, a memory or a tool result, because
+   * a requirement DATA can set is one data can unset. It is gated on the TOOL and never on
+   * its arguments: a gate that read `to` or `body` to decide would be a gate a model turns
+   * off by writing something innocuous.
+   *
+   * The line is what the call changes OUTSIDE this conversation, and this leaves the
+   * platform entirely — which is exactly why `read_messages` beside it is not gated.
+   */
+  approval: true,
+  /**
+   * ⚠ **`writes` SAYS WHAT A FAILURE MEANS**: the provider may have sent it and we may not
+   * have heard. So a failure here is `unresolved` rather than `ok: false`, and the model is
+   * told to CHECK rather than invited to try again.
+   */
+  writes: true,
+  /**
+   * ⚠ **AND IT IS REPEATABLE BECAUSE `perform` RECONCILES RATHER THAN RE-SENDING, which is
+   * a property of the platform and not of the provider.** The fake provider has no
+   * idempotency key at all — a second call is a second message — so `false` would be the
+   * honest reading of the PROVIDER. What makes `true` true is the operation record: a
+   * redelivery finds the slot already claimed and either reads the outcome or asks the
+   * provider what it has, and in neither case does it send. `defineTool` requires this of
+   * a write anyway, because a write that cannot be repeated can never finish after an
+   * interruption — the resume refuses it and names it, for ever.
+   */
+  repeatable: true,
+  run: async (args, via, ctx) => {
+    const to = text(args.to), body = text(args.body);
+    if (!to) return { ok: false, error: "no-recipient", say: "say who it is for" };
+    if (!body) return { ok: false, error: "no-body", say: "say what it should say" };
+    if (body.length > TOOL_TEXT_MAX) {
+      return { ok: false, error: "too-long", say: `keep it under ${TOOL_TEXT_MAX} characters` };
+    }
+    return via.perform({
+      connection: text(args.connection), action: "send_message", args: { to, body },
+      // ⚠ THE IDENTITY IS THE CALL'S OWN AND IS NEVER AN ARGUMENT — see `run.mjs`. It is
+      // what makes a redelivery ask about the same send instead of making a second one.
+      operation: ctx?.operation,
+    });
+  },
+});
+
 export const CAPABILITY_TOOLS = Object.freeze([
   searchReference, listReference, readReference,
   listMemory, remember, forget,
@@ -745,4 +858,17 @@ export const CAPABILITY_TOOLS = Object.freeze([
   listAutomations, readAutomation, makeAutomation, changeAutomation,
   pauseAutomation, runAutomation,
   listExecutions, readExecution,
+  listConnections, readMessages, sendMessage,
 ]);
+
+/**
+ * ⚠ **THE THREE THAT REACH OUTSIDE, DECLARED AS A LIST so a census can tell them from the
+ * rest.** They need `ctx.connections` rather than `ctx.capabilities`, and a guard that
+ * drove them against the wrong seam would report the refusal as working.
+ *
+ * **AND STORING A CREDENTIAL IS NOT ON IT, DELIBERATELY.** `connect` exists in
+ * `connections.mjs` and is not offered as a tool at all: an agent that could store a
+ * credential is an agent that could store one it wrote, and a connection a person did not
+ * make is a connection nobody granted. Connecting is a PERSON's act, through the site.
+ */
+export const CONNECTION_TOOLS = Object.freeze(["list_connections", "read_messages", "send_message"]);

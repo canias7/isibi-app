@@ -24,6 +24,15 @@ const S = at("store.mjs");
 const A = at("auth.mjs");
 const H = at("api.mjs");
 const W = at("worker.mjs");
+
+/**
+ * The one line four mutants cut a dependency out of — written ONCE, because four copies of a
+ * spelling is four chances for a fifth dependency to leave three of them silently stale. The
+ * generator's anchor census is what turns a moved line into a refusal rather than a mutant
+ * that lands on nothing, and it is how this one was caught.
+ */
+const NEW_RUNNER_LINE =
+  "    work, store, automations, capabilities, connections, approvals, send, agents: AGENTS, now,";
 const A2 = at("agents.mjs");
 const RN = at("runner.mjs");
 const ST = at("model-standin.mjs");
@@ -34,6 +43,8 @@ const CP = at("capabilities.mjs");
 const CT = at("capability-tools.mjs");
 const AP = at("approvals.mjs");
 const RP = at("rest-profile.mjs");
+const CN = at("connections.mjs");
+const FP = at("fake-provider.mjs");
 /** The inbound delivery surface: who a delivery belongs to, and whether it is one at all. */
 const WH = at("webhooks.mjs");
 /**
@@ -1370,15 +1381,21 @@ const spec = [
   m("runner: a run with no authored agent is given a backend anyway", RN,
     "      const canDo = capabilities && authoredAgent", "      const canDo = capabilities"),
   // RE-ANCHORED, NOT APPEASED: the argument list gained `approvals`.
-  m("worker: the runner is built with no automation executor", W,
-    "    work, store, automations, capabilities, approvals, send, agents: AGENTS, now,",
-    "    work, store, capabilities, approvals, send, agents: AGENTS, now,"),
-  m("worker: the runner is built with no backend for its tools to reach", W,
-    "    work, store, automations, capabilities, approvals, send, agents: AGENTS, now,",
-    "    work, store, automations, approvals, send, agents: AGENTS, now,"),
-  m("worker: the runner is built with nowhere to ask a person", W,
-    "    work, store, automations, capabilities, approvals, send, agents: AGENTS, now,",
-    "    work, store, automations, capabilities, send, agents: AGENTS, now,"),
+  // ⚠ RE-ANCHORED 2026-09-18, NOT APPEASED: `connections` joined that line, so every one of
+  // these four names what it takes AWAY from the same current spelling. The properties are
+  // unchanged; only the line they cut from moved.
+  m("worker: the runner is built with no automation executor", W, NEW_RUNNER_LINE,
+    "    work, store, capabilities, connections, approvals, send, agents: AGENTS, now,"),
+  m("worker: the runner is built with no backend for its tools to reach", W, NEW_RUNNER_LINE,
+    "    work, store, automations, connections, approvals, send, agents: AGENTS, now,"),
+  m("worker: the runner is built with nowhere to ask a person", W, NEW_RUNNER_LINE,
+    "    work, store, automations, capabilities, connections, send, agents: AGENTS, now,"),
+  // ⚠ AND THE NEW HOP, which is the one this round adds: a seam built and never handed over
+  // makes every connection tool answer `no-connections` while the run completes, the queue
+  // acks and the customer is told the agent cannot reach anything. The wiring layer, for the
+  // fourteenth-odd time in this repository.
+  m("worker: the runner is built with nothing to reach outside", W, NEW_RUNNER_LINE,
+    "    work, store, automations, capabilities, approvals, send, agents: AGENTS, now,"),
   m("worker: the approval store is never built at all", W,
     "  const approvals = makeApprovals(wire);",
     "  const approvals = null;"),
@@ -2029,6 +2046,90 @@ const spec = [
     "    { name: \"name\", kind: \"name\", required: true, says: \"the name of the event to wait for\","),
   m("automations: an event name's shape is not checked", AU,
     "  if (!EVENT_NAME.test(name)) {", "  if (false) {"),
+
+  // ── connections.mjs and fake-provider.mjs — acting outside the platform ────
+  //
+  // ⚠ **THE RULE THIS DIRECTORY HAS EARNED FIVE TIMES: every property below is also proved
+  // end to end by `verify:connections`, which `npm run sweep` does not run.** So each one has
+  // a case in `test/connections.test.mjs` — a property proven only by an instrument the sweep
+  // cannot run is a property no mutant can be caught by.
+  m("connections: the record's action name is TRUNCATED rather than refused", CN,
+    "  return ACTION_NAME.test(name) ? name : null;", "  return name.slice(0, 64);"),
+  m("connections: the trace is minted per attempt, so a retry cannot find its own send", CN,
+    "export const traceFor = (operation) => (isText(operation) ? operation.trim() : null);",
+    "export const traceFor = (operation) => (isText(operation) ? `${operation}-${Math.random()}` : null);"),
+  m("connections: the tenant is coerced rather than refused", CN,
+    '      if (!isText(tenant)) throw new TypeError("forTenant: tenant must be a non-empty string");',
+    "      tenant = String(tenant ?? \"\");"),
+  m("connections: the agent is not checked, so any string scopes a connection", CN,
+    '          if (!isId(agentId)) throw new TypeError("forAgent: agent must be a uuid");',
+    "          if (false) { /* anything */ }"),
+  m("⚠ connections: the adapter is chosen by an ARGUMENT rather than by the lease", CN,
+    "            const adapter = Object.hasOwn(adapters, held.provider) ? adapters[held.provider] : null;",
+    "            const adapter = adapters[args?.provider ?? held.provider] ?? null;"),
+  m("connections: an action the adapter does not offer is passed to it anyway", CN,
+    "            if (!adapter.actions.includes(act)) {", "            if (false) {"),
+  m("⚠ connections: a write runs with no identity, so a retry does it twice", CN,
+    "            const opId = splitOperation(operation);\n            if (!opId) {",
+    "            const opId = splitOperation(operation) ?? { key: \"k\", hash: \"h\", run: null };\n            if (false) {"),
+  m("⚠ connections: a claimed slot is sent to anyway, so a repeat sends a second message", CN,
+    "            if (begun.began === false && begun.state === \"repeat\") {",
+    "            if (false) {"),
+  m("⚠ connections: an in-flight slot is RE-SENT rather than reconciled", CN,
+    "            if (begun.began === false && begun.state === \"unfinished\") {",
+    "            if (false) {"),
+  m("⚠ connections: an uncertain failure is read as a plain failure, so nobody checks", CN,
+    "              if (e?.uncertain) {", "              if (false) {"),
+  m("connections: a definite refusal is left in flight rather than settled", CN,
+    '              await settleRecord(opId, recorded, { ok: false, error: "refused", why: e?.why ?? "refused" });',
+    "              // not settled"),
+  m("connections: a successful send is never recorded, so a redelivery sends again", CN,
+    "            await settleRecord(opId, recorded, { ok: true, result: out });",
+    "            // not recorded"),
+  m("⚠ connections: an unresolved outcome is SETTLED as done, so an unknown reads as sent", CN,
+    "            if (!seen || seen.known !== true) {", "            if (false) {"),
+  m("connections: a reconciliation that cannot be made reads as not-done", CN,
+    '              return { ...unresolved(e?.why ?? "the check itself could not be made"), reconcilable: true };',
+    '              return { ok: false, error: "action-failed", action: act };'),
+  m("⚠ connections: an action nobody can check afterwards is retried rather than reported", CN,
+    "            if (typeof adapter.reconcile !== \"function\" ||\n                (typeof adapter.reconcilable === \"function\" && !adapter.reconcilable(act))) {",
+    "            if (false) {"),
+  m("connections: a read is recorded as an operation, so every lookup takes a row", CN,
+    "            if (!writes) {", "            if (false) {"),
+  m("⚠ connections: a READ that failed is reported as uncertain", CN,
+    '                return { ok: false, error: "action-failed", action: act,\n                  why: e?.why ?? "the provider could not be reached", say: "that could not be read" };',
+    '                return { ok: false, error: "unresolved", uncertain: true, action: act };'),
+  m("connections: the action's own scope is never asked for", CN,
+    "            const scoped = isText(needs) ? await lease(id, [needs]) : held;",
+    "            const scoped = held;"),
+  m("connections: the list is not scoped to the agent, so a sibling's connections show", CN,
+    "            return readRows(`connection_list?tenant_id=eq.${encodeURIComponent(tenant)}` +\n              `&agent_id=eq.${encodeURIComponent(agentId)}&order=created_at.desc`);",
+    "            return readRows(`connection_list?tenant_id=eq.${encodeURIComponent(tenant)}&order=created_at.desc`);"),
+  m("connections: the list reads the TABLE, which holds the credentials", CN,
+    "            return readRows(`connection_list?tenant_id=", "            return readRows(`connections?tenant_id="),
+  m("connections: the profile header is chosen here instead of asked of the rule", CN,
+    "    ...profileFor(method, schema),", '    "accept-profile": schema,'),
+  m("⚠ fake-provider: the fake absorbs a duplicate, so the whole problem disappears", FP,
+    "    minted += 1;\n    const id = `fake-msg-${minted}`;",
+    "    const id = `fake-msg-1`;"),
+  m("fake-provider: the credential is not checked, so 'it reached the provider' is unprovable", FP,
+    "  const bad = (lease) => !isText(lease?.secret) || (expect !== null && lease.secret !== expect);",
+    "  const bad = () => false;"),
+  m("⚠ fake-provider: a timed-out WRITE is reported as certain, so nobody reconciles", FP,
+    "        { uncertain: FAKE_WRITES.includes(action), status: 0 });",
+    "        { uncertain: false, status: 0 });"),
+  m("fake-provider: a definite refusal is reported as uncertain", FP,
+    '      throw new FakeProviderError("the provider refused the request", { uncertain: false, status: 400 });',
+    '      throw new FakeProviderError("the provider refused the request", { uncertain: true, status: 400 });'),
+  m("fake-provider: reconciliation answers `known` with nothing to match on", FP,
+    '    if (!isText(args?.trace)) return { simulated: true, known: false, why: "nothing to match on" };',
+    "    if (!isText(args?.trace)) return { simulated: true, known: true, done: false };"),
+  m("fake-provider: nothing says it is simulated", FP,
+    "      return { simulated: true, provider: FAKE_PROVIDER, account: lease.account,\n               count: rows.length, messages: rows };",
+    "      return { provider: FAKE_PROVIDER, account: lease.account, count: rows.length, messages: rows };"),
+  m("connections/CONTROL (comment only)", CN,
+    " * ── ⚠ THE CREDENTIAL NEVER COMES BACK OUT OF THIS MODULE ",
+    " * ── The credential never comes back out of this module   ", true),
 
 ];
 

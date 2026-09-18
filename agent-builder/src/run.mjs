@@ -105,6 +105,23 @@ export async function runAgent(opts = {}) {
     throw new TypeError("runAgent: capabilities must be an object of operations, already scoped");
   }
   /**
+   * ⚠ WHAT THIS RUN MAY REACH OUTSIDE THE PLATFORM — a SECOND seam, and the separation is
+   * the point rather than tidiness.
+   *
+   * `capabilities` is what an agent may do to its own account's records; this is what it may
+   * do to somebody else's system. They fail differently — a record is ours to correct, an
+   * outbound call may have landed and cannot be recalled — and a deployment can honestly
+   * have one and not the other, so folding them into one object would make "there is no
+   * store" and "there is nothing outside" the same refusal about two different absences.
+   *
+   * Scoped by the caller exactly as `capabilities` is, from the claim and the run's own
+   * journal snapshot, so no operation on it takes a tenant or an agent id.
+   */
+  const connections = opts.connections ?? null;
+  if (connections !== null && typeof connections !== "object") {
+    throw new TypeError("runAgent: connections must be an object of operations, already scoped");
+  }
+  /**
    * ⚠ WHERE A CALL THAT NEEDS A PERSON GOES TO ASK — already bound to THIS run.
    *
    * Handed in for the same reason `capabilities` is: a loop that could open a database is
@@ -385,7 +402,7 @@ export async function runAgent(opts = {}) {
         // ⚠ THE SAME ARGUMENTS THE DECISION WAS READ WITH, off the slot itself — and the
         // identity below is derived from them, so a redelivery of this call asks the
         // database for the row it already made rather than making a second one.
-        const value = await tool.run(p.args, toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed, argsKey: await operationKey(p.args) }));
+        const value = await tool.run(p.args, toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, connections, newId, operationSeed, argsKey: await operationKey(p.args) }));
         done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: true, value });
       } catch (error) {
         // ⚠ A WRITE THAT THREW IS UNRESOLVED, NOT FAILED. See `defineTool`'s `writes`.
@@ -571,7 +588,7 @@ export async function runAgent(opts = {}) {
       if (argsKey === null) {
         throw new Error(`${String(call?.name ?? "(unnamed)")}: these arguments cannot be recorded, so the call was not made — send plain JSON values`);
       }
-      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, index: i, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, newId, operationSeed, argsKey }));
+      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, index: i, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, connections, newId, operationSeed, argsKey }));
     }, { limit: limits.parallelTools, now });
 
     // EACH RESULT IS RECORDED AS IT LANDS, which is what makes a half-finished
@@ -637,7 +654,7 @@ function requireEntries(from) {
 }
 
 /** What a tool is told. One builder, so the live path and the resume path agree. */
-function toolContext({ tenant, agent, limits, step, id, room, capabilities, newId, operationSeed, index, argsKey }) {
+function toolContext({ tenant, agent, limits, step, id, room, capabilities, connections, newId, operationSeed, index, argsKey }) {
   return Object.freeze({
     tenant: tenant ?? null, agent: agent.name, step, toolCallId: id,
     toolMs: capMs(limits.toolMs, room()),
@@ -656,6 +673,16 @@ function toolContext({ tenant, agent, limits, step, id, room, capabilities, newI
      * done the work.
      */
     capabilities: capabilities ?? null,
+    /**
+     * ⚠ WHAT THIS RUN MAY REACH OUTSIDE, already scoped — and `null` is a real answer.
+     *
+     * Every tool that acts through a connection refuses BY NAME without it
+     * (`no-connections`, which is not `no-backend`), so a deployment that can reach its own
+     * database and nothing outside says which of the two is missing. The credential is not
+     * here and cannot be: what this object offers is `perform`, and the lease it takes out
+     * lives and dies inside that call.
+     */
+    connections: connections ?? null,
     /**
      * ⚠ THE IDENTITY OF THIS CALL, or `null` where the caller could not give one.
      *

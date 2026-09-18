@@ -33,6 +33,8 @@ import { makeVerifier } from "./auth.mjs";
 import { makeRunStore } from "./store.mjs";
 import { makeAutomationStore } from "./automation-store.mjs";
 import { makeCapabilities } from "./capabilities.mjs";
+import { makeConnections } from "./connections.mjs";
+import { makeFakeProvider, FAKE_PROVIDER } from "./fake-provider.mjs";
 import { makeApprovals } from "./approvals.mjs";
 import { makeWork } from "./work.mjs";
 import { makeApi } from "./api.mjs";
@@ -232,7 +234,23 @@ function parts(env, { notify, fetchImpl } = {}) {
   // the run being delivered, which is the one point where both are known.
   const approvals = makeApprovals(wire);
 
-  return { store, work, automations, capabilities, approvals, send: make(), ring, doFetch, modelName };
+  /**
+   * ⚠ WHAT AN AGENT CAN REACH OUTSIDE THE PLATFORM, and the ADAPTER REGISTRY IS CODE.
+   *
+   * A provider name in a customer's connection row resolves against this object or resolves
+   * to nothing (`no-adapter`), so a row cannot name code that is not here — the same
+   * division `agents.mjs` makes between a customer's instructions and its tools. Adding a
+   * real provider is one entry here plus its adapter, and no migration.
+   *
+   * **TODAY THE REGISTRY HOLDS ONE FAKE PROVIDER AND THAT IS THE HONEST STATE OF IT.** It is
+   * called `fakemail`, every answer it gives carries `simulated: true`, and nothing it does
+   * leaves this process. Two things follow and are said rather than left to be discovered:
+   * its mailbox is a Map, so it does not survive an isolate, and a customer would have to
+   * connect `fakemail` deliberately — there is no way for a real provider's name to reach it.
+   */
+  const connections = makeConnections({ ...wire, adapters: { [FAKE_PROVIDER]: makeFakeProvider() } });
+
+  return { store, work, automations, capabilities, connections, approvals, send: make(), ring, doFetch, modelName };
 }
 
 /**
@@ -271,9 +289,9 @@ export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryM
   // that sends a message is the sweeper, and that is a different handler.
   const missing = missingFor(env, "consume");
   if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
-  const { store, work, automations, capabilities, approvals, send } = parts(env, { notify, fetchImpl });
+  const { store, work, automations, capabilities, connections, approvals, send } = parts(env, { notify, fetchImpl });
   return makeRunner({
-    work, store, automations, capabilities, approvals, send, agents: AGENTS, now,
+    work, store, automations, capabilities, connections, approvals, send, agents: AGENTS, now,
     // Passed through for a LOCAL driver only. The deployed Worker hands in neither,
     // so both fall back to `runner.mjs`'s own constants — and a test asserts that
     // this file never names a number of its own for them.

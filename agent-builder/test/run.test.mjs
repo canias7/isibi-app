@@ -840,6 +840,46 @@ test("⚠ THE SCOPED BACKEND REACHES THE TOOL — the hop a capability dies at i
   assert.deepEqual(reached, ["listMemory"], "a run with no backend reached one anyway");
 });
 
+test("⚠ AND SO DOES THE ONE THAT REACHES OUTSIDE — a SECOND seam, a second hop to lose", async () => {
+  // The same wiring layer one seam over, and the one place it can be correct and dead. This
+  // is the fourteenth-odd instance of the class in this repository, so it gets its own case
+  // rather than being assumed to ride along with `capabilities`: they are two assignments
+  // and cutting either leaves the run completing, answering and reading as success.
+  const reached = [];
+  const via = { perform: async (a) => { reached.push(a.action); return { ok: true, result: { sent: true } }; } };
+  const t = defineTool({
+    name: "post", description: "post", input: { type: "object" }, scope: PUBLIC,
+    run: async (_args, ctx) => {
+      if (!ctx?.connections) return { ok: false, error: "no-connections" };
+      return ctx.connections.perform({ connection: "c", action: "send_message" });
+    },
+  });
+  const r = await runAgent({
+    agent: agentWith([t]), prompt: "send it", connections: via,
+    send: scripted([wants("post"), says("sent")]),
+  });
+  assert.equal(r.ok, true, r.stop?.reason);
+  assert.deepEqual(reached, ["send_message"], "the tool never reached the connection seam");
+
+  // ⚠ THE CONTROL, AND IT IS THE ONE THAT MATTERS HERE: the same run with `capabilities` and
+  // NO `connections` must still refuse. Without it, "it reached a seam" is satisfied by a
+  // tool that read whichever object happened to be on the context.
+  const wrong = await runAgent({
+    agent: agentWith([t]), prompt: "send it", capabilities: { listMemory: async () => [] },
+    send: scripted([wants("post"), says("no")]),
+  });
+  assert.deepEqual(wrong.steps[0].results[0].value, { ok: false, error: "no-connections" });
+  assert.deepEqual(reached, ["send_message"], "a run with no connections reached one anyway");
+
+  // AND A JUNK SEAM IS REFUSED AT THE DOOR rather than becoming a context a tool calls a
+  // method on, which is a TypeError in front of a customer instead of a sentence.
+  for (const bad of ["ops", 4, true]) {
+    await assert.rejects(
+      () => runAgent({ agent: agentWith(), prompt: "go", send: scripted([says("ok")]), connections: bad }),
+      /already scoped/, `connections of ${JSON.stringify(bad)} was accepted`);
+  }
+});
+
 test("capabilities that are not operations are refused at the door, not at the tool", async () => {
   // A junk backend must not become a tool context a tool then calls a method on — that is
   // a TypeError in front of a customer instead of a sentence.

@@ -47,6 +47,14 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const mem = new Map();                   // id -> the agent_memory row
   const approvals = new Map();             // id -> the tool_approvals row
   const revocations = new Set();           // `<agent>\u0000<tool>` — one tool_revocations row each
+  const conns = new Map();                 // id -> the connections row
+  /**
+   * ⚠ `agent.operations`, and the fake carries the IN-FLIGHT state rather than only the
+   * settled one. A fake whose `operation_begin` wrote an outcome would make "sent, outcome
+   * unknown" unreachable — which is the one state milestone 8's reconciliation exists for, so
+   * a fake less capable than the database would hide exactly the feature under test.
+   */
+  const ops = new Map();                   // `<tenant>\u0000<key>` -> the operations row
   let tokens = 0;                          // claim tokens, minted per claim
   /** Canonical JSON: what `jsonb` equality amounts to here — key order normalised. */
   const canon = (v) => JSON.stringify(v, (_k, x) =>
@@ -917,6 +925,145 @@ export function memoryRest({ now = () => Date.now() } = {}) {
      * be MORE forgiving than the thing it stands in for, and the wall this serves as the
      * far end of is the one a capability tool is entirely made of.
      */
+    /**
+     * `agent.connection_list` — the VIEW, which is what a reader sees.
+     *
+     * ⚠ **IT SELECTS NEITHER CREDENTIAL, exactly as the view does, and that is the property
+     * rather than a convenience.** A fake that answered the row whole would let a reader
+     * receive a secret it can never receive in production, and the code that consumed it
+     * would look correct here and leak there. The clock is folded into `status` for the same
+     * reason — the view does it so that nothing has to go round stamping rows.
+     */
+    if (p.endsWith("/connection_list") && init.method === "GET") {
+      const tenant = eq("tenant_id"), agentId = eq("agent_id");
+      const rows = [...conns.values()]
+        .filter((c) => (tenant === null || c.tenant_id === tenant)
+                    && (agentId === null || c.agent_id === agentId))
+        .map((c) => ({
+          id: c.id, tenant_id: c.tenant_id, agent_id: c.agent_id, provider: c.provider,
+          label: c.label, account: c.account, scopes: c.scopes,
+          status: c.status !== "active" ? c.status
+            : (c.expires_at !== null && Date.parse(c.expires_at) <= now()) ? "expired" : "active",
+          expires_at: c.expires_at, stopped_why: c.stopped_why,
+          created_at: c.created_at, updated_at: c.created_at, refreshable: c.refreshable,
+        }));
+      return res(200, rows);
+    }
+
+    /** `agent.connect_provider` — a PERSON storing a credential. Never a tool's. */
+    if (p.endsWith("/rpc/connect_provider") && init.method === "POST") {
+      const b = body ?? {};
+      const a = agents.get(b.p_agent_id);
+      if (!a || a.tenant_id !== b.p_tenant) return res(200, { ok: false, error: "no-agent" });
+      if (conns.has(b.p_id)) return res(200, { ok: true, repeat: true, connection: b.p_id });
+      // ⚠ THE REPLACE EXCLUDES THE ROW THIS CALL IS ABOUT — `id <> p_id`, mirrored from the
+      // migration, because without it a retried press disconnects its own connection and
+      // answers `repeat: true` about a credential it has just destroyed. Measured on a real
+      // PostgreSQL before it was fixed.
+      for (const c of conns.values()) {
+        if (c.tenant_id === b.p_tenant && c.agent_id === b.p_agent_id && c.provider === b.p_provider
+            && c.account === b.p_account && c.status === "active" && c.id !== b.p_id) {
+          c.status = "disconnected"; c.stopped_why = "replaced by a new connection";
+        }
+      }
+      conns.set(b.p_id, { id: b.p_id, tenant_id: b.p_tenant, agent_id: b.p_agent_id,
+        provider: b.p_provider, label: b.p_label, account: b.p_account,
+        scopes: b.p_scopes ?? [], status: "active", secret: b.p_secret,
+        refresh_secret: b.p_refresh ?? null, refreshable: b.p_refresh != null,
+        expires_at: b.p_expires ?? null, stopped_why: null, created_at: new Date(now()).toISOString() });
+      return res(200, { ok: true, connection: b.p_id, scopes: b.p_scopes ?? [] });
+    }
+
+    /**
+     * `agent.lease_connection` — THE ONE DOOR, and the four refusals are mirrored by name
+     * because each is a different thing for a caller to do about it.
+     */
+    if (p.endsWith("/rpc/lease_connection") && init.method === "POST") {
+      const b = body ?? {};
+      const c = conns.get(b.p_id);
+      if (!c || c.tenant_id !== b.p_tenant || c.agent_id !== b.p_agent_id) {
+        return res(200, { ok: false, error: "no-connection" });
+      }
+      if (c.status === "disconnected") return res(200, { ok: false, error: "disconnected", why: c.stopped_why });
+      if (c.status === "revoked") return res(200, { ok: false, error: "revoked", why: c.stopped_why });
+      if (c.expires_at !== null && Date.parse(c.expires_at) <= now()) {
+        return res(200, { ok: false, error: "expired", expiredAt: c.expires_at, refreshable: c.refreshable });
+      }
+      if (c.status !== "active") return res(200, { ok: false, error: "not-usable", status: c.status });
+      const missing = (b.p_scopes ?? []).filter((x) => !c.scopes.includes(x));
+      if (missing.length) {
+        return res(200, { ok: false, error: "scope-missing", missing, granted: c.scopes });
+      }
+      return res(200, { ok: true, connection: c.id, provider: c.provider, account: c.account,
+        scopes: c.scopes, expiresAt: c.expires_at, secret: c.secret });
+    }
+
+    /** `agent.disconnect_connection` / `revoke_connection` — the credential is DESTROYED. */
+    for (const [suffix, status, fallback] of [
+      ["/rpc/disconnect_connection", "disconnected", "disconnected"],
+      ["/rpc/revoke_connection", "revoked", "revoked by the provider"],
+    ]) {
+      if (p.endsWith(suffix) && init.method === "POST") {
+        const b = body ?? {};
+        const c = conns.get(b.p_id);
+        if (!c || c.tenant_id !== b.p_tenant || c.agent_id !== b.p_agent_id) {
+          return res(200, { ok: false, error: "no-connection" });
+        }
+        if (c.status === status) return res(200, { ok: true, repeat: true, status });
+        c.status = status; c.secret = "-"; c.refresh_secret = null; c.refreshable = false;
+        c.stopped_why = (b.p_why ?? "").trim() || fallback;
+        return res(200, { ok: true, status });
+      }
+    }
+
+    /** `agent.refresh_connection` — and it cannot revive what somebody stopped. */
+    if (p.endsWith("/rpc/refresh_connection") && init.method === "POST") {
+      const b = body ?? {};
+      const c = conns.get(b.p_id);
+      if (!c || c.tenant_id !== b.p_tenant || c.agent_id !== b.p_agent_id) {
+        return res(200, { ok: false, error: "no-connection" });
+      }
+      if (c.status !== "active") return res(200, { ok: false, error: c.status, why: c.stopped_why });
+      if (c.refresh_secret === null) return res(200, { ok: false, error: "not-refreshable" });
+      c.secret = b.p_secret;
+      c.refresh_secret = b.p_refresh ?? c.refresh_secret;
+      c.refreshable = c.refresh_secret !== null;
+      c.expires_at = b.p_expires ?? null;
+      return res(200, { ok: true, connection: c.id, expiresAt: c.expires_at });
+    }
+
+    /**
+     * `agent.operation_begin` — claim a slot with NO outcome, the primary key being the race.
+     */
+    if (p.endsWith("/rpc/operation_begin") && init.method === "POST") {
+      const b = body ?? {};
+      const k = `${b.p_tenant}\u0000${b.p_op_key}`;
+      if (!ops.has(k)) {
+        ops.set(k, { action: b.p_action, args_hash: b.p_args_hash, run_id: b.p_op_run ?? null, outcome: null });
+        return res(200, { ok: true, began: true });
+      }
+      const row = ops.get(k);
+      if (row.action !== b.p_action || row.args_hash !== b.p_args_hash) {
+        return res(200, { ok: false, error: "mismatch", action: row.action });
+      }
+      if (row.outcome === null) return res(200, { ok: true, began: false, state: "unfinished" });
+      return res(200, { ok: true, began: false, state: "repeat", outcome: row.outcome });
+    }
+
+    /** `agent.operation_settle` — write-once, by `outcome is null` in the WHERE. */
+    if (p.endsWith("/rpc/operation_settle") && init.method === "POST") {
+      const b = body ?? {};
+      const k = `${b.p_tenant}\u0000${b.p_op_key}`;
+      const row = ops.get(k);
+      if (!row) return res(200, { ok: false, error: "no-operation" });
+      if (row.action !== b.p_action || row.args_hash !== b.p_args_hash) {
+        return res(200, { ok: false, error: "mismatch", action: row.action });
+      }
+      if (row.outcome !== null) return res(200, { ok: true, settled: false, outcome: row.outcome });
+      row.outcome = b.p_outcome;
+      return res(200, { ok: true, settled: true });
+    }
+
     if (p.endsWith("/rpc/list_memory") && init.method === "POST") {
       const { p_tenant: tenant, p_agent_id: agentId } = body;
       const a = agents.get(agentId);
@@ -990,7 +1137,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const calls = [];
   const counted = async (url, init) => { calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined }); return fetch(url, init); };
   counted.calls = calls;
-  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem, approvals, events };
+  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem, approvals, events, conns, ops };
 }
 
 /**

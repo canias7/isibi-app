@@ -13,7 +13,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
-import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES } from "../src/capability-tools.mjs";
+import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, CONNECTION_TOOLS } from "../src/capability-tools.mjs";
+import { CONNECTION_OPS, CONNECTION_WRITES } from "../src/connections.mjs";
+import { FAKE_WRITES } from "../src/fake-provider.mjs";
 import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
 import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
 import { PUBLIC, defineTool } from "../src/define.mjs";
@@ -337,6 +339,14 @@ test("every capability tool is in the catalog, and every one is PUBLIC", () => {
  */
 const NEEDS_NO_BACKEND = Object.freeze(["list_actions", "check_workflow"]);
 
+/**
+ * The two absences, named here so the census can assert they are DIFFERENT words. "This
+ * deployment has no store" and "this deployment cannot reach anything outside" are two facts
+ * with two remedies, and one error covering both sends a reader to the wrong one.
+ */
+const NO_STORE = "no-backend";
+const NO_OUTSIDE = "no-connections";
+
 test("⚠ A TOOL WITH NO BACKEND REFUSES BY NAME — it does not answer as though it worked", async () => {
   // RE-ANCHORED, NOT APPEASED. This once ran over every capability tool, which was the
   // property while all twelve read an account's rows. `list_actions` and `check_workflow`
@@ -348,19 +358,35 @@ test("⚠ A TOOL WITH NO BACKEND REFUSES BY NAME — it does not answer as thoug
   for (const name of NEEDS_NO_BACKEND) {
     assert.ok(CAPABILITY_TOOLS.some((t) => t.name === name), `${name} is not a tool`);
   }
-  let asked = 0;
+  // ⚠ RE-ANCHORED AGAIN 2026-09-18: THERE ARE TWO SEAMS NOW, AND THE TWO REFUSALS MUST BE
+  // DIFFERENT WORDS. `ctx.capabilities` is an account's own records and `ctx.connections` is
+  // somebody else's system; a deployment can honestly have one and not the other, so a single
+  // refusal would say "there is no store" about a missing PROVIDER and send whoever reads it
+  // to look at the wrong thing. The three tools that reach outside are declared in the engine
+  // (`CONNECTION_TOOLS`) rather than listed here, so a fourth carries this by existing.
+  for (const name of CONNECTION_TOOLS) {
+    assert.ok(CAPABILITY_TOOLS.some((t) => t.name === name), `${name} is not a tool`);
+  }
+  assert.notEqual(NO_STORE, NO_OUTSIDE, "the two absences answer the same error");
+  let asked = 0, outside = 0;
   for (const t of CAPABILITY_TOOLS) {
     if (NEEDS_NO_BACKEND.includes(t.name)) continue;
-    asked++;
-    for (const ctx of [undefined, {}, { capabilities: null }, { capabilities: "nope" }]) {
-      const out = await t.run({ query: "x", id: AG, name: "n", value: "v", automation: AG, enabled: true }, ctx);
+    const reachesOut = CONNECTION_TOOLS.includes(t.name);
+    if (reachesOut) outside++; else asked++;
+    // ⚠ THE LAST TWO SHAPES ARE THE ONES THAT MATTER: a tool given the OTHER seam and not
+    // its own must still refuse, or it is reading whichever object happens to be there.
+    for (const ctx of [undefined, {}, { capabilities: null, connections: null },
+                       { capabilities: "nope", connections: "nope" },
+                       reachesOut ? { capabilities: {} } : { connections: {} }]) {
+      const out = await t.run({ query: "x", id: AG, name: "n", value: "v", automation: AG,
+        enabled: true, connection: AG, to: "a@b.test", body: "hello" }, ctx);
       assert.equal(out.ok, false, `${t.name} answered ok with no backend`);
-      assert.equal(out.error, "no-backend", `${t.name}: ${JSON.stringify(out)}`);
-      assert.match(out.say, /no store behind it/);
+      assert.equal(out.error, reachesOut ? NO_OUTSIDE : NO_STORE, `${t.name}: ${JSON.stringify(out)}`);
+      assert.match(out.say, reachesOut ? /cannot reach anything outside/ : /no store behind it/);
     }
   }
-  assert.equal(asked, CAPABILITY_TOOLS.length - NEEDS_NO_BACKEND.length);
-  assert.ok(asked > 0, "the census asked about nothing");
+  assert.equal(asked + outside, CAPABILITY_TOOLS.length - NEEDS_NO_BACKEND.length);
+  assert.ok(asked > 0 && outside > 0, `the census asked about ${asked} and ${outside}`);
   // ⚠ AND THE OTHER HALF, which is what makes the exemption a property rather than a hole:
   // the two really DO work with no backend, so a `pureTool` that quietly went back through
   // `withBackend` is a red run rather than a silently refused catalog.
@@ -399,8 +425,11 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
   assert.equal(CAPABILITY_WRITES.every((n) => CAPABILITIES.includes(n)), true,
     "a write is named that is not an operation at all");
   assert.equal(CAPABILITY_WRITES.length, 6, "the list of writes moved");
+  assert.equal(CONNECTION_WRITES.every((n) => CONNECTION_OPS.includes(n)), true,
+    "a connection write is named that is not an operation at all");
 
   const touched = new Map();
+  const outsideSeen = new Map();
   for (const t of CAPABILITY_TOOLS) {
     const asked = [];
     // Every operation, answering the shape its caller reads, and recording its own name.
@@ -430,6 +459,30 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
       assert.equal(t.writes, false, `${t.name} describes the platform and claims to write`);
       continue;
     }
+    // ⚠ **THE THREE THAT REACH OUTSIDE ARE CENSUSED THE SAME WAY AGAINST THE OTHER SEAM, and
+    // `perform` is the one operation whose flag cannot come from its NAME.** `read_messages`
+    // and `send_message` both call `perform`; only the second changes anything at the
+    // provider. So the flag is compared against whether the ACTION the tool really asked for
+    // is in the ADAPTER's own `writes` list — derived from `fake-provider.mjs` rather than
+    // typed, because a hand-written list here is a second copy of the adapter's.
+    if (CONNECTION_TOOLS.includes(t.name)) {
+      assert.equal(asked.length, 0, `${t.name} reached a capability, so it is on the wrong seam`);
+      const reached = [];
+      const via = {
+        list: async () => { reached.push({ op: "list" }); return []; },
+        perform: async (a) => { reached.push({ op: "perform", action: a?.action ?? null }); return { ok: true }; },
+      };
+      await t.run({ connection: AG, to: "a@b.test", body: "hello" },
+                  { connections: via, operation: OP() });
+      assert.equal(reached.length > 0, true, `${t.name} reached no connection operation`);
+      const wrote = reached.some((r) => r.op === "perform"
+        ? FAKE_WRITES.includes(r.action)
+        : CONNECTION_WRITES.includes(r.op));
+      assert.equal(t.writes, wrote,
+        `${t.name} reached ${JSON.stringify(reached)} and declares writes: ${t.writes}`);
+      outsideSeen.set(t.name, reached);
+      continue;
+    }
     assert.equal(asked.length > 0, true, `${t.name} reached no capability, so its flag is unproved`);
     touched.set(t.name, asked);
     const writes = asked.some((op) => CAPABILITY_WRITES.includes(op));
@@ -437,13 +490,18 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
       `${t.name} touched [${asked.join(", ")}] and declares writes: ${t.writes}`);
   }
   // EVERY TOOL WAS LOOKED AT, derived from the catalog rather than pinned to a number.
-  assert.equal(touched.size + 2, CAPABILITY_TOOLS.length,
-    `${touched.size} tools touched a capability out of ${CAPABILITY_TOOLS.length}, with 2 platform-only`);
+  assert.equal(touched.size + outsideSeen.size + 2, CAPABILITY_TOOLS.length,
+    `${touched.size} + ${outsideSeen.size} out of ${CAPABILITY_TOOLS.length}, with 2 platform-only`);
+  assert.equal(outsideSeen.size, CONNECTION_TOOLS.length, "a connection tool was not censused");
   // AND BOTH DIRECTIONS ARE REALLY EXERCISED, or the equality above is satisfied by every
   // tool being a read.
   const writers = [...touched.keys()].filter((n) => CAPABILITY_TOOLS.find((t) => t.name === n).writes);
   assert.deepEqual(writers.sort(),
     ["change_automation", "forget", "make_automation", "pause_automation", "remember", "run_automation"]);
+  // ⚠ AND ON THE OTHER SEAM TOO, which is what stops "one `perform` tool writes" being
+  // satisfied by all three claiming it or none of them doing.
+  const outWriters = [...outsideSeen.keys()].filter((n) => CAPABILITY_TOOLS.find((t) => t.name === n).writes);
+  assert.deepEqual(outWriters.sort(), ["send_message"]);
 });
 
 test("⚠ A TOOL THAT WRITES MUST BE REPEATABLE — a write that cannot be repeated never finishes", () => {

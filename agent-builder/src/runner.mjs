@@ -179,6 +179,15 @@ export function makeRunner(opts = {}) {
     ? opts.capabilities
     : null;
   /**
+   * ⚠ WHAT A RUN MAY REACH OUTSIDE THE PLATFORM — UNSCOPED HERE, for `capabilities`' own
+   * reason: it is scoped per delivery from the claim and the run's own snapshot, which is
+   * where the two identities come from. A seam scoped at construction would be one scoped
+   * before anybody knew whose run it was.
+   */
+  const connections = opts.connections && typeof opts.connections.forTenant === "function"
+    ? opts.connections
+    : null;
+  /**
    * ⚠ WHERE A CALL THAT NEEDS A PERSON GOES TO ASK — UNSCOPED HERE, for `capabilities`'
    * own reason. The gate only exists once `forTenant(t).forRun({runId})` has been
    * applied, and both come from the claim, per delivery, below.
@@ -786,6 +795,12 @@ export function makeRunner(opts = {}) {
       const canDo = capabilities && authoredAgent
         ? capabilities.forTenant(claim.tenant).forAgent(authoredAgent)
         : null;
+      // ⚠ THE SAME TWO FACTS, FOR THE SAME REASON. A run with no authored agent reaches
+      // nothing outside either: a connection belongs to `(account, agent)`, so choosing an
+      // agent for such a run here would be choosing whose mailbox it may open.
+      const canReach = connections && authoredAgent
+        ? connections.forTenant(claim.tenant).forAgent(authoredAgent)
+        : null;
       // ⚠ THE GATE IS BOUND TO THE RUN AND THE ACCOUNT HERE, from the claim — and unlike
       // the capability backend it does NOT need an authored agent. Every run can have a
       // call that needs a person; the agent id only decides whether a screen can show
@@ -829,6 +844,7 @@ export function makeRunner(opts = {}) {
         agent,
         tenant: { id: claim.tenant },
         capabilities: canDo,
+        connections: canReach,
         approvals: mayCall,
         // ⚠ THE RUN IS THE HALF THE LOOP CANNOT KNOW, and it is the claim's own id — so a
         // tool that starts work derives an identity from the CALL rather than minting one,

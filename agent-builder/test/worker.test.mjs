@@ -895,6 +895,111 @@ test("⚠ A DELIVERY'S TOOLS REACH THE REAL STORE — the hop between the Worker
   });
 });
 
+const CX_AGENT = "66666666-6666-4666-8666-666666666666";
+const CX_ID = "77777777-7777-4777-8777-777777777777";
+
+test("⚠ A DELIVERY'S TOOLS REACH OUTSIDE TOO — the same hop, the other seam", async () => {
+  // **THE WIRING LAYER at the only place both halves exist at once**, and this is the second
+  // of two seams `parts` builds and `buildRunner` hands over. Drop the ONE key and every
+  // connection tool answers `no-connections`, the run completes, the queue acks, and the
+  // customer is told the agent cannot reach anything. The same mutant survived for
+  // `capabilities` until a case like this existed, which is why this one is written now
+  // rather than assumed to ride along.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    rest.agents.set(CX_AGENT, { id: CX_AGENT, tenant_id: "t1", status: "active" });
+    // A connection stored the way a PERSON stores one — through the real function, so the
+    // credential is in the row rather than invented by the case.
+    const made = await rest.fetch("https://p.supabase.co/rest/v1/rpc/connect_provider", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({ p_tenant: "t1", p_agent_id: CX_AGENT, p_id: CX_ID,
+        p_provider: "fakemail", p_label: "Work mail", p_account: "someone@example.test",
+        p_scopes: ["read", "send"], p_secret: "fake-token-in-a-test" }),
+    });
+    assert.equal(made.status, 200, await made.text());
+
+    const runId = "run-cx-1";
+    const accepted = await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({
+        p_run_id: runId, p_tenant: "t1", p_kind: "start",
+        p_entry: startedEntry({
+          at: "2026-09-18T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+          prompt: "use list_connections and tell me what you can reach",
+          limits: limitsToJson({ steps: 2 }),
+          instructions: "You answer about the shop.", history: [],
+          authoredAgent: CX_AGENT, message: "msg-cx", tools: ["list_connections"],
+        }),
+      }),
+    });
+    assert.equal(accepted.status, 200, await accepted.text());
+
+    const batch = batchOf([{ runId }]);
+    await worker.queue(batch, env, ctx);
+    assert.deepEqual(batch.acked, [0], "the delivery was retried rather than finished");
+
+    // ⚠ THE ASSERTION IS ON WHAT THE TOOL GOT BACK. A run with no seam finishes just as
+    // happily, with `no-connections` in the tool result — which is what the mutant produces.
+    const log = [...rest.entries.get(runId).values()];
+    const tools = log.filter((e) => e.kind === "tool");
+    assert.equal(tools.length, 1, JSON.stringify(log.map((e) => e.kind)));
+    assert.equal(tools[0].name, "list_connections");
+    assert.equal(tools[0].value?.ok, true, `the tool refused: ${JSON.stringify(tools[0].value)}`);
+    assert.equal(tools[0].value.count, 1, JSON.stringify(tools[0].value));
+    assert.equal(tools[0].value.connections[0].label, "Work mail");
+    // ⚠ AND THE CREDENTIAL IS NOT IN THE JOURNAL, which is where a leak would be permanent:
+    // the log is append-only, so a secret written into a tool result can never be taken out.
+    assert.ok(!JSON.stringify(log).includes("fake-token-in-a-test"),
+      "the run's own log holds the credential");
+
+    // AND IT WAS SCOPED TO THE AUTHORED AGENT — the tenant from the claim, the agent from the
+    // run's own snapshot, neither ever through a model.
+    const asked = rest.fetch.calls.filter((c) => c.url.includes("/connection_list"));
+    assert.equal(asked.length, 1);
+    assert.ok(asked[0].url.includes("tenant_id=eq.t1"), asked[0].url);
+    assert.ok(asked[0].url.includes(`agent_id=eq.${CX_AGENT}`), asked[0].url);
+  });
+});
+
+test("...AND A SIBLING'S CONNECTION IS NOT THIS AGENT'S, through the real delivery", async () => {
+  // THE CONTROL that makes the case above about the wiring rather than about the fake: the
+  // same run under an agent that owns nothing answers an empty list, so "it came back with a
+  // connection" cannot be satisfied by a store that answers everything.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const sibling = "88888888-8888-4888-8888-888888888888";
+    rest.agents.set(CX_AGENT, { id: CX_AGENT, tenant_id: "t1", status: "active" });
+    rest.agents.set(sibling, { id: sibling, tenant_id: "t1", status: "active" });
+    await rest.fetch("https://p.supabase.co/rest/v1/rpc/connect_provider", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({ p_tenant: "t1", p_agent_id: CX_AGENT, p_id: CX_ID,
+        p_provider: "fakemail", p_label: "Work mail", p_account: "someone@example.test",
+        p_scopes: ["read"], p_secret: "fake-token-in-a-test" }),
+    });
+    const runId = "run-cx-2";
+    await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({
+        p_run_id: runId, p_tenant: "t1", p_kind: "start",
+        p_entry: startedEntry({
+          at: "2026-09-18T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+          prompt: "use list_connections and tell me what you can reach",
+          limits: limitsToJson({ steps: 2 }), instructions: "x", history: [],
+          authoredAgent: sibling, message: "msg-cx2", tools: ["list_connections"],
+        }),
+      }),
+    });
+    const batch = batchOf([{ runId }]);
+    await worker.queue(batch, env, ctx);
+    const tools = [...rest.entries.get(runId).values()].filter((e) => e.kind === "tool");
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].value?.ok, true, JSON.stringify(tools[0].value));
+    assert.equal(tools[0].value.count, 0, "a sibling agent's connection was listed");
+  });
+});
+
 test("...AND A SIBLING'S MEMORY IS NOT THIS AGENT'S, through the real delivery", async () => {
   // THE CONTROL that makes the case above about the wiring rather than about the fake:
   // the same run against an agent that owns nothing answers an empty list, so "it came

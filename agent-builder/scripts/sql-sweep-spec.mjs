@@ -832,8 +832,16 @@ const spec = [
   // something while nothing was looking.
   mOps("⚠ SQL/ops: the key is not scoped to the account, so one tenant answers another's retry",
     "  primary key (tenant_id, op_key),", "  primary key (op_key),"),
-  mOps("⚠ SQL/ops: an outcome may be null, so a repeat is answered with nothing",
-    "  outcome     jsonb       not null,", "  outcome     jsonb,"),
+  // ⚠ **REPLACED 2026-09-18, NOT APPEASED: this mutant REMOVED `outcome … not null` and the
+  // column is nullable now, on purpose.** It was the column-level half of "a repeat is
+  // answered with nothing", which two mutants below already carry at the reader
+  // (`operation_check` answering `unfinished`) and at the writer (`operation_record` refusing
+  // a null) — so putting the constraint back is no longer available and asserting it would be
+  // a guard demanding the defect. What the `not null` also half-carried is *an answer that
+  // cannot move*, and that now lives in `operation_settle`'s WHERE, which is where the
+  // replacement points.
+  mOps("⚠ SQL/ops: a settled operation can be RE-SETTLED, so its answer moves",
+    "     and outcome is null\n  returning * into v_row;", "\n  returning * into v_row;"),
   mOps("⚠ SQL/ops: a record can be REWRITTEN, so a retry cannot be answered from it",
     "revoke update, delete on agent.operations from service_role;",
     "grant update, delete on agent.operations to service_role;"),
@@ -852,18 +860,52 @@ const spec = [
 
   // ⚠ THE RULE ITSELF. Each of these is one reading of the record going wrong, and the
   // three answers need three different things done about them.
+  // ⚠ **RE-ANCHORED 2026-09-18: `operation_begin` and `operation_settle` joined this file and
+  // each makes the same comparison, so the bare line now occurs THREE times.** The generator
+  // refused rather than pointing these at whichever came first — the pre-check working, and
+  // the recorded "an anchor can be a substring of its own neighbour" one file over. They are
+  // pinned to `operation_check`'s own answer below the test, which no other function writes.
   mOps("⚠ SQL/ops: the ARGUMENTS are not compared, so a re-filled slot is answered as a repeat",
-    "  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then",
-    "  if v_row.action <> p_action then"),
+    "  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then\n    return jsonb_build_object('state', 'mismatch'",
+    "  if v_row.action <> p_action then\n    return jsonb_build_object('state', 'mismatch'"),
   mOps("⚠ SQL/ops: the ACTION is not compared, so one key answers another kind of work",
-    "  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then",
-    "  if v_row.args_hash <> p_args_hash then"),
+    "  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then\n    return jsonb_build_object('state', 'mismatch'",
+    "  if v_row.args_hash <> p_args_hash then\n    return jsonb_build_object('state', 'mismatch'"),
   mOps("SQL/ops: a claim with no outcome is read as a repeat with nothing in it",
     "  if v_row.outcome is null then\n    return jsonb_build_object('state', 'unfinished');\n  end if;",
     "  if false then\n    return jsonb_build_object('state', 'unfinished');\n  end if;"),
+  // ⚠ RE-ANCHORED for the same reason: `operation_begin` claims its slot with the same clause.
+  // Pinned by the line above it, which is `operation_record`'s own outcome parameter.
   mOps("⚠ SQL/ops: a second record overwrites the first, so the answer moves",
-    "  on conflict (tenant_id, op_key) do nothing;",
-    "  on conflict (tenant_id, op_key) do update set outcome = excluded.outcome;"),
+    "  values (p_tenant, p_op_key, p_action, p_args_hash, p_run_id, p_outcome)\n  on conflict (tenant_id, op_key) do nothing;",
+    "  values (p_tenant, p_op_key, p_action, p_args_hash, p_run_id, p_outcome)\n  on conflict (tenant_id, op_key) do update set outcome = excluded.outcome;"),
+
+  // ── ⚠ THE IN-FLIGHT DOOR, which is this round's own product code ──────────────
+  //
+  // `operation_begin` claims a slot BEFORE an outbound call and `operation_settle` fills it
+  // in afterwards. Neither existed when the mutants above were written, and between them they
+  // are what makes "sent, outcome unknown" a state rather than a gap.
+  mOps("⚠ SQL/ops: beginning an operation records its outcome, so nothing is ever in flight",
+    "  values (p_tenant, p_op_key, p_action, p_args_hash, p_run_id, null)",
+    "  values (p_tenant, p_op_key, p_action, p_args_hash, p_run_id, '{}'::jsonb)"),
+  mOps("⚠ SQL/ops: a slot somebody else holds is claimed anyway, so two callers both send",
+    "  on conflict (tenant_id, op_key) do nothing;\n  get diagnostics v_rows = row_count;\n  if v_rows = 1 then\n    return jsonb_build_object('ok', true, 'began', true);",
+    "  on conflict (tenant_id, op_key) do nothing;\n  get diagnostics v_rows = row_count;\n  if true then\n    return jsonb_build_object('ok', true, 'began', true);"),
+  mOps("⚠ SQL/ops: an in-flight slot is read as a plain repeat, so a caller answers nothing",
+    "  if v_row.outcome is null then\n    return jsonb_build_object('ok', true, 'began', false, 'state', 'unfinished');",
+    "  if false then\n    return jsonb_build_object('ok', true, 'began', false, 'state', 'unfinished');"),
+  mOps("⚠ SQL/ops: beginning does not compare the identity, so one slot serves other work",
+    "  if v_row.action <> p_action or v_row.args_hash <> p_args_hash then\n    return jsonb_build_object('ok', false, 'error', 'mismatch', 'action', v_row.action);\n  end if;\n  if v_row.outcome is null then\n    return jsonb_build_object('ok', true, 'began', false, 'state', 'unfinished');",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', 'mismatch', 'action', v_row.action);\n  end if;\n  if v_row.outcome is null then\n    return jsonb_build_object('ok', true, 'began', false, 'state', 'unfinished');"),
+  mOps("⚠ SQL/ops: settling does not compare the identity, so another call's answer lands",
+    "   where tenant_id = p_tenant and op_key = p_op_key\n     and action = p_action and args_hash = p_args_hash",
+    "   where tenant_id = p_tenant and op_key = p_op_key\n     and action = p_action"),
+  mOps("SQL/ops: settling with no outcome is accepted, so an answer of nothing is stored",
+    "    raise exception 'operation_settle: an outcome is required' using errcode = 'check_violation';",
+    "    p_outcome := '{}'::jsonb;"),
+  mOps("SQL/ops: an already-settled operation reads as a FAILURE rather than as what stands",
+    "  return jsonb_build_object('ok', true, 'settled', false, 'outcome', v_row.outcome);",
+    "  return jsonb_build_object('ok', false, 'error', 'already');"),
   mOps("SQL/ops: recording always claims to have won, so a lost race is read as a win",
     "  get diagnostics v_rows = row_count;\n  return v_rows = 1;",
     "  get diagnostics v_rows = row_count;\n  return true;"),
