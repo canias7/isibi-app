@@ -12244,3 +12244,148 @@ rather than being buried in this one.
 
 **Still nothing merged, nothing deployed, nothing applied. Still no model — still last, still
 your call.**
+
+---
+
+## 2026-09-18 — the piece I said was not wired up is wired, and connecting it found two real faults
+
+Yesterday I wrote that one part was finished and not connected, and said so on purpose. It is
+connected now, and hooking it up through the real screens, the real queue and a real database
+found **two things that were genuinely broken** — neither of which any test I already had
+could see, because both only exist while a run is going round a loop.
+
+**What it does now.** One automation can run another. You pick it from a list of that agent's
+own automations, and when the run starts the other one's steps are copied straight in, so it
+is one run with one history rather than two things to watch. What was copied, and which
+version of it, is written down — so editing the smaller one afterwards changes the next run
+and can never change one already going.
+
+**The first fault: a loop's second time round was not being saved.** The database had a rule
+that a run's progress may only move forward, which is obviously right and is wrong for a
+loop — going round again means going back to the top of the body. So every step after the
+first round quietly failed to record, and a run that paused halfway through round two ended up
+sitting there for ever: not waiting, not finished, just stopped. I measured that happening
+before fixing it. What really only moves forward is the COUNT of steps done, which keeps going
+up whether it is round one or round five, so that is the rule now — and the runner says out
+loud when a save did not land, because that silence is how this hid.
+
+**The second fault: "wait five minutes" inside a loop waited once.** After the first pause the
+run remembered which step it was waiting at, and on the next round it recognised the same step
+and decided the wait was already over. So a loop asked to pause between each round paused once
+and then ran straight through. Fixed: a pause is used up by the run that was waiting for it,
+and each round asks again.
+
+**And one thing I stopped people doing rather than half-fixing it.** "Wait for approval" cannot
+go inside a loop. The reason is the same shape as the fault above: an answer is stored against
+the step, so the second time round would silently reuse the first round's yes — somebody's
+approval applied to something they were never shown. The form refuses it now, on both sides,
+with the same sentence. Making it work per round is a database change and it can have its own
+turn.
+
+**A test's fake was less capable than a real browser, and it hid something.** A dropdown with
+nothing selected shows its first option — that is how browsers work — and my stand-in for one
+answered "nothing". So a deliberate breakage I introduced to check my own tests slipped past.
+Fixed, and the same test that caught yesterday's dropdown mistake catches it now.
+
+**The checking machine found fifteen gaps in itself.** I broke the database in fifteen ways on
+purpose and nothing went red — because those fifteen things are proved by the long end-to-end
+demonstrations, and the breakage-checker does not run those. They are checked directly against
+a real database now (twenty-nine new checks), including one I had written in my own notes as
+covered and which was not. That is the notes being wrong and being corrected by measuring
+rather than by re-reading.
+
+**Where it stands.** Real database: 792 checks, none failing. The engine's own tests: 470. The
+big end-to-end run: 157 checks, up from 125. Everything else unchanged, which is how I know I
+have not broken anything else. **Still nothing merged, nothing deployed, nothing applied to
+the live database. Still no real model — still last, still your call.**
+
+---
+
+## 2026-09-18 — an agent can now be set off from outside, and hooking that up found five real faults
+
+An agent could already run on a timer or when somebody pressed a button. Now there are four
+ways in, and the new ones are the two people actually ask for.
+
+**What you can do that you could not yesterday.**
+
+- **Once, on a date.** "Chase this on the 14th." It runs that day and then has no next time,
+  rather than being a daily one you have to remember to switch off.
+- **On chosen days of the week.** "Every Monday and Friday at nine." Nine in the agent's own
+  time zone, which means nine in summer and nine in winter — the hour the clocks change is
+  handled by the database rather than by anything I wrote.
+- **From somebody else's system.** You can create an address for one of your agents and hand
+  it to whatever you already use. When that thing posts to the address, your agent's
+  automations that listen for it run.
+- **From inside.** One thing finishing can be what starts another, and a workflow can PAUSE
+  until something happens rather than only until a time.
+
+**The address comes with a secret, and you only ever see it once.** I mint it on the server —
+it is 64 characters of randomness, nothing you or a browser chooses — and it is shown exactly
+once, on the screen that creates the address. Nothing can read it back afterwards: the
+function that lists your addresses does not even select that column. If it is lost, you delete
+the address and make another. **I deliberately did not build a "show it again" or a "rotate"
+button**, because either one is a second door that hands a secret out, and the whole point is
+that there is one.
+
+**Whose account a delivery belongs to is never taken from the delivery.** I test this by
+posting a message that explicitly claims to be from a different account and asks for a
+different event: the event is recorded under the address's OWN account with the address's OWN
+event name, and the message's contents go in the payload and nowhere else. Every way of
+getting it wrong — wrong secret, old timestamp, timestamp in the future, an address that does
+not exist — gets the same one sentence back, so the address cannot be used to work out which
+addresses are real.
+
+**The five faults, all found by hooking it up rather than by reading it.**
+
+1. **A missing column read as "nothing happened".** My local stand-in for the database quietly
+   dropped a column it had not been told about, and answered success without it. The engine
+   asked "has this run heard the thing it is waiting for?", got back an empty answer instead of
+   an error, and read that as "no" — **for ever**. So a run waiting for an event that really
+   HAD arrived would have sat there permanently. The stand-in's own notes, two lines above the
+   list, warn about exactly this. It refuses now, loudly, the way the real database does.
+2. **Three helper functions had gone out of step with the functions they wrap.** I widened
+   three database functions and not their three wrappers, so the program started sending more
+   information than the database would accept. **Three separate end-to-end demonstrations went
+   red at once** on pieces that were each correct on their own. Fixed, and there is now a check
+   that compares all six pairs against the real database, so the next time one grows a field
+   the mismatch is caught by a test rather than by a demonstration.
+3. **The event log said the same thing whatever happened.** The scheduled job printed a tally
+   of a field the function does not answer, so every minute read identically whether it had
+   started ten automations or none. **A log whose numbers cannot move is not a log.** It now
+   says how many automations an event started and how many waiting runs it released, kept
+   apart, because those are different things.
+4. **Four database functions had nothing calling them.** The ones for making, listing, turning
+   off and deleting an address existed and were unreachable. They have screens' worth of routes
+   now.
+5. **Asking for a daily schedule the wrong way gave you an automation that never runs.** If the
+   "when" arrived as anything other than a plain word, both halves of the system quietly read it
+   as "by hand" and answered success. So something asking for a daily run got one that runs
+   never, and was told it worked. Both are fixed, with three different answers instead of one:
+   saying nothing means by hand, leaving it blank is an error, and sending the wrong kind of
+   thing tells you what it should have been. I found this while writing a test for something
+   else.
+
+**And the breakage-checker said this whole round was unguarded.** I broke the new code
+thirty-two ways on purpose and nothing went red — because everything it does is proved by the
+long end-to-end demonstration, and the breakage-checker does not run that. Fourteen new
+direct tests fix it. **This is the fifth time I have written that sentence in this project**,
+which is the part worth noticing: a demonstration passing is not the same as a change being
+guarded.
+
+**Six of my own test expectations were wrong before I believed them** — I asked for the wrong
+field name, left out a required field so a step ran when it should have paused, asked for an
+internal shape instead of the one the function really returns, wrote a "bad name" test that
+was quietly passing a good name, used a status code that cannot tell two different refusals
+apart, and counted a legitimate read as a write. And **one of my "controls" tested nothing at
+all** — a tangle of syntax that never actually ran the thing it claimed to check. Each of
+those is written down where it happened.
+
+**Where it stands.** The new demonstration: 64 checks, none failing. The other six
+demonstrations: 112, 53, 71, 70, 157 and 126 — all unchanged, which is how I know this did not
+break anything, and all of them now run against a stand-in that refuses what it used to drop.
+Real database: 877 checks, up from 853. The engine's own tests: 508. The website's: 6,807.
+The two breakage sweeps are still running as I write this and I will put their numbers in when
+they finish rather than before.
+
+**Still nothing merged, nothing deployed, nothing applied to the live database. Still no real
+model — still last, still your call.**

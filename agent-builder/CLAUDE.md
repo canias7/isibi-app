@@ -5124,3 +5124,238 @@ When it goes, the order is the recorded one — **migration → engine → site*
 site's half is real: `automation-create` and `automation-update` answer two new refusals in
 their own words, so a site shipped first would show *"that agent isn't here any more"* about a
 workflow, which is false and sends somebody to look at the wrong thing.
+
+---
+
+## Milestone 6: triggers — a one-off, a weekly schedule, an inbound endpoint, an event (2026-09-18)
+
+Owner: *"Expand triggers: one-time and weekly schedules, authenticated webhooks, and internal
+events through the existing durable dispatcher. Verify event deduplication, timezone/DST,
+missed occurrences, disabled automations, paused agents, cancellation. Bound recursive event
+chains. For event waits, handle an event arriving around the moment the workflow starts waiting
+without losing it or applying it twice."*
+
+**FOUR TRIGGERS NOW, AND `AUTOMATION_SCHEDULES` IS A DECLARED COPY IN THREE LANGUAGES** — the
+engine's, the site's, and the database's own `automations_schedule_known` CHECK, censused in
+`test/agent-send.test.mjs` (the one file that may load both products) with the constraint read
+out of the migration. A schedule an agent or a screen can ask for that the database refuses is a
+control that answers and then fails at the save.
+
+| trigger | what it is |
+|---|---|
+| `manual` | a person presses Run |
+| `daily` | a local time in the automation's own zone |
+| `weekly` | a local time on chosen DAYS — `days text[]`, stored in the week's own order |
+| `once` | a local time on one DATE, and no next instant afterwards |
+| `on_event` | **not a schedule at all — a second, independent way in** |
+
+**AN EVENT IS NOT A FIFTH SCHEDULE AND THAT IS THE ONE DESIGN DECISION WORTH ARGUING.**
+"Every morning AND whenever a payment lands" is a thing somebody wants, so folding the two into
+one field would make it unsayable; `on_event` is answered for every schedule, and a `manual`
+automation that also listens is the ordinary shape of *"I can run this myself, and it runs
+itself when something happens"*.
+
+### The day arithmetic is the database's, and DST is one function
+
+`automation_next_run` is the only place it lives, so a 09:00 London schedule is 08:00Z in
+summer and 09:00Z in winter **from one stored row** — measured both ways in the demonstration.
+A weekly one walks forward to its next named day; a one-off answers its date's instant and then
+`null` for ever, which is what makes it one-off rather than a daily with a stop somebody has to
+remember. A calendar date that is not a day (`2026-02-30`) is refused rather than rolled
+forward, and a weekly schedule with NO days is refused because it would never come due.
+
+**MISSED OCCURRENCES STAY ONE RECORD, not a burst**, on a weekly schedule as on a daily: a week
+behind produces one `missed` row counting the occurrences that went by, **counted in LOCAL
+DATES** rather than by dividing an interval, because a local day is 23 or 25 hours long twice a
+year — and a week of Mondays and Fridays is not seven days, which is the reading a daily
+schedule's arithmetic would get wrong here.
+
+### An inbound endpoint: the account is what a delivery ANSWERS
+
+`src/webhooks.mjs`. `POST /deliver/<id>`, and it is the ONE other route with no bearer token.
+
+- **THE SIGNATURE IS HMAC-SHA256 OVER `${timestamp}.${rawBody}`**, compared with a
+  constant-time `sameSignature` that checks the LENGTH first. The window is two-sided
+  (`DELIVERY_WINDOW_MS`, 5 min), so a replay from last week and a clock far ahead are both
+  refused.
+- **⚠ THE ACCOUNT COMES FROM THE VERIFIED ENDPOINT ROW AND NEVER FROM THE PAYLOAD.** The
+  demonstration posts a body carrying `tenant`, `tenant_id` and a `name` of its own; the event
+  is recorded under the ENDPOINT's account with the ENDPOINT's event name, and the body reaches
+  `payload` and nowhere else. **The event a delivery raises is fixed at creation**, which is the
+  difference between an endpoint and a way to run any automation.
+- **ONE SENTENCE FOR EVERY REFUSAL**, so the route is not an oracle: a wrong secret, a stale
+  timestamp, one far in the future and an endpoint that does not exist all answer
+  `401 this delivery was not accepted`. Measured — all four bodies identical.
+- **THE SIGNATURE AND THE TIMESTAMP ARE ASKED BEFORE ANY SECRET IS READ**, so an unsigned
+  delivery costs no database round trip and cannot be used to probe which ids exist.
+- **`503` IS OURS AND `401` IS THEIRS.** Our own outage is not a refusal of their delivery, and
+  `too-deep` is a 503 too — the chain is our bound, not their fault.
+- **A RETRIED DELIVERY IS ONE EVENT AND SAYS SO** (`repeat: true`), keyed on the delivery id
+  through `agent.events`' own `events_one_per_key`.
+
+**THE SECRET IS MINTED SERVER-SIDE AND ANSWERED EXACTLY ONCE.** `agent.create_webhook` takes it
+and does not hand it back; `agent.list_webhooks` never selects the column; no route reads one
+off a request. So the create's own answer is the only time it exists outside the database, and
+the sentence beside it says so. **There is no rotate**, deliberately: a rotate has to answer the
+new secret, which is a SECOND door that gives one out, and delete-and-make-another does the same
+job through the door that already exists.
+
+**⚠ AND IT IS A PATH, NOT A URL.** This product does not hold the engine's origin — the site
+rings it through a queue BINDING, which carries no address — so composing one would mean
+inventing it, and an invented origin is a URL somebody configures their system with and which
+never works. `webhookPath` answers `/deliver/<id>` and stops there.
+
+### An event files what it triggers AND wakes what waited for it, in one transaction
+
+`agent.dispatch_events`, on the cron's **fifth** job. The stamp (`handled_at`) is what makes
+both happen exactly once, so doing them in two transactions would leave a window in which one
+had happened and the other had not. `for update skip locked`, so two ticks cannot dispatch the
+same event and a slow one does not block the rest.
+
+- **FIVE CRON JOBS, FIVE `try` BLOCKS**, and none may silence another. The event job is last
+  because it is the newest and least load-bearing: a throw there must not cost the deployment
+  its sweeper.
+- **THE RING IS SEPARATE FROM THE DISPATCH**, exactly as the scheduler's is: the work is
+  committed by the time a run id comes back, so a failed ring costs latency and never work.
+  Every row carries a LIST (`ring`) because one event can file a trigger AND wake a waiter.
+- **THE DEPTH BOUND IS THE DATABASE'S AND IS TAKEN FROM THE EMITTING RUN, never from the
+  caller.** `MAX_EVENT_DEPTH` is 4, `p_max_depth` is the function's own default and nothing
+  sends one — a caller-supplied depth is a bound a caller can reset. Past the ceiling the emit
+  is refused BY NAME with both numbers and nothing written, because a chain that stops silently
+  is one nobody can debug and a chain that does not stop is a platform one workflow can occupy.
+
+### The arrival race, and it really is two halves
+
+**AN EVENT CAN ARRIVE IN THE INSTANT BETWEEN A WORKFLOW DECIDING TO WAIT AND THE ROW SAYING SO,
+and neither side alone closes it.** `dispatch_events` wakes what is ALREADY suspended;
+`hear_pending_event` asks, for a run that is waiting NOW, whether an event it wants arrived
+while it was not yet visible. Both take the row lock, which is what makes the pair exhaustive
+rather than two attempts. `heard ? step` is what stops one event being applied twice.
+
+- **THE CLOCK BOUNDS THE SECOND HALF AND NOT THE FIRST, and the demonstration's first draft
+  conflated them.** `dispatch_events` compares no clocks at all and is right not to: an event is
+  NEWS until it is stamped `handled_at`, so an old undelivered event reaching a waiter is the
+  dispatcher doing its job. `hear_pending_event` looks at events ALREADY dispatched, and without
+  the pause's own `since` a pause would consume any event of that name from last week. The two
+  arms are each other's control: an already-dispatched event dated BEFORE a pause is not
+  consumed; one dated after it is.
+- **IT IS THE DATABASE THAT PUTS THE WORK BACK.** The consumer never produces — that is this
+  Worker's own rule and why its configuration asks for no queue binding — so
+  `hear_pending_event` calls `requeue_run` in the same transaction as the `heard` write and the
+  cron's sweep is the belt. **The cost is one tick, said out loud**, and the demonstration asserts
+  it by ticking rather than by draining a doorbell nobody here may ring.
+- **ASKED ONLY FOR AN EVENT PAUSE.** A timed wait has its deadline and an approval has a person;
+  asking either would be a round trip that can only answer "no".
+- **A FAILED HEARING IS LOGGED AND NEVER RAISED.** The pause is committed, so the worst case is
+  the recorded wait taking a tick longer — raising would report a committed pause as a failed
+  run, take it off the queue and tell a customer it broke.
+
+**AND AN EVENT WAIT CANNOT GO INSIDE A LOOP**, for the reason an approval cannot: `heard` is
+keyed by STEP and accumulated, so round two would read round one's event and carry on with no
+second event. `EVENT_WAIT` carries `decided: true` and the wall is DERIVED from that flag rather
+than from a list of names, so a third such step next month carries it by existing.
+
+### What the demonstration drives, and what it cannot
+
+`npm run verify:triggers` — **64 checks, 0 failed**, nine sections, and every piece is the real
+one: the SITE's own routes through `handleAgentApi`, `worker.fetch` for a delivery,
+`worker.queue` and `worker.scheduled` as the dispatcher with all five cron jobs in one call, and
+a throwaway PostgreSQL with this repository's migrations applied. **NOT ONE EXECUTION ANYWHERE
+CALLED A MODEL**, asserted outright.
+
+**WHAT IS SIMULATED, in one place and named in the file's own header**: the transport (PostgREST
+is a local shim, the queue an in-process doorbell) and **TWO CLOCKS PUSHED rather than waited
+out** — a schedule's `next_run_at` moved into the past, and an event's `at` set relative to a
+pause. What that does NOT simulate is any DECISION: `tick_automations` still selects on
+`next_run_at <= now()`, `automation_next_run` still does its own zone arithmetic, and
+`hear_pending_event` still compares against the pause's own `since`.
+
+### ⚠ Five things it found, and not one by reading
+
+1. **THE LOCAL SHIM'S COLUMN FILTER WAS SILENT, AND ITS OWN NEIGHBOUR'S COMMENT SAID SO.**
+   `selectOf` filtered the asked-for columns against an allow-list and carried on with whatever
+   survived — so `heard`, which that set had not been extended with, was absent from every
+   execution read, `plainObject(undefined)` answered `{}`, and an event wait read that as
+   "nothing heard yet" and **RE-PAUSED FOR EVER** with the engine, the store and the migration
+   all correct. The set's own comment two lines above says *"or — worse, if the filter were
+   silent — answer a restart that a loop is at its beginning"*, and the filter was silent.
+   It REFUSES now, in PostgREST's own words (`400 42703`, naming the column and the relation),
+   and **a filter-shaped query parameter on an unknown column is refused too** — that one comes
+   back WIDER than was asked for, so a read scoped to one account could answer another's.
+   *A shim MORE forgiving than the thing it stands in for hides a defect exactly as well as one
+   that is less capable* — the fourth instance in this product.
+2. **THREE `_once` WRAPPERS DID NOT FOLLOW THEIR INNER FUNCTIONS.** This migration widened
+   `accept_automation_run`, `create_automation` and `update_automation`; the wrappers in
+   `20260918020000` were written against the old arity, and the shim DERIVES each wrapper's
+   argument list from its inner function. So it sent more arguments than the database would take
+   and `run_automation` answered `HTTP 400 … does not exist` — **THREE demonstrations red at
+   once, on a wrapper, an inner function and a shim that were each correct alone.** All three
+   are widened here beside the functions they wrap, the narrow overloads dropped, and a census
+   in `test/integration/pg-schema.mjs` asks the rule of all six off `pg_proc` **with its
+   comparator proved to discriminate** — a wrapper one parameter short must not satisfy it.
+   **A door narrower than the thing behind it has to be widened eventually anyway**, and the day
+   it is, the drift is found by whoever is least expecting it.
+3. **THE CRON'S EVENT LOG TALLIED A FIELD THAT DOES NOT EXIST.** `dispatch_events` answers
+   `{event_id, name, filed, woke, ring}` and the job counted an `action`, so every tick printed
+   `{"events":1,"rung":0,"?":1}` whatever it had done — **a log whose numbers cannot move is not
+   an instrument**, which is this product's own `requeue_expired_approvals` finding one job over.
+   It reports `filed` and `woke` now, kept APART: ten automations triggered and ten waiters
+   released are different facts.
+4. **FOUR SQL FUNCTIONS HAD NO CALLER.** `create_webhook`, `list_webhooks`,
+   `set_webhook_enabled` and `delete_webhook` are reached by four site routes now. *A value
+   computed and never forwarded* is this repository's most-recorded defect, in DDL.
+5. **A SCHEDULE THAT IS NOT A WORD WAS SILENTLY `manual`, ON BOTH DOORS.** `text(v)` answers
+   `""` for a non-string, so `schedule: ["daily"]` created an UNSCHEDULED automation and
+   answered `ok` — and the site's own `cleanSchedule` had the identical shape. Both refuse now,
+   with THREE sentences: absent is `manual`, a blank is its own refusal, and a non-string says
+   what it should have been. Found by a guard written for a different mutant.
+
+### ⚠ THE SWEEP SAID THE WHOLE ROUND WAS UNGUARDED — 32 survivors, none of them the product's
+
+Every property above is proved by `verify:triggers`, which `npm run sweep` does not run. *A
+property proven only by an instrument the sweep cannot run is a property no mutant can be caught
+by* — **the FIFTH recorded instance in this directory, and the first where a whole round's worth
+arrived at once.** Fourteen module cases close them, and the one worth naming is **the request
+the store really sends**: a census over all four event operations with its own count asserted,
+because ten of the survivors live inside those bodies and the ANSWERS cannot see any of them.
+It also asserts what is NOT on the wire — `p_max_depth`, because a caller-resettable bound is no
+bound.
+
+**SIX OF MY OWN ASSERTIONS WERE WRONG BEFORE THEY WERE BELIEVED**, and each is a recorded shape:
+the endpoint reader answers `tenantId` and I asked for `tenant`; an approval needs `hours` and
+without it the step RAN rather than suspending; `readWorkflow` answers FLAT steps and I asked for
+the executor's internal `{config}`; an event name FOLDS case, so my "bad name" case was passing a
+good one (asserted positively now, beside names no fold can rescue); a GET to `/deliver/…` is a
+401 from the TOKEN GATE, so the status could not tell it from the delivery handler's — the
+sentence can; and counting REQUESTS read `change_automation`'s legitimate pre-check READ as a
+write.
+
+**AND ONE CONTROL OF MINE ASSERTED NOTHING** — a tangle of `?.` and `??` that never called
+`deliver` at all. A negative assertion is only worth what its observer is worth.
+
+**THE RUNNER HARNESS HAD TO GAIN THE EVENT SIDE**, because the runner really calls
+`hearPendingEvent`: a fake without it makes that hop throw, which the runner logs and never
+raises, so every case would have passed over a hop that does not work.
+
+### Measured
+
+- **`npm run verify:triggers`: 64 checks, 0 failed** (new).
+- **`verify:tools` 112 · `verify:ops` 53 · `verify:controls` 71 · `verify:auto` 70 ·
+  `verify:wf` 157 · `verify:chat` 126** — every one green at its recorded count, which is the
+  control that this round broke nothing, and every one of them now runs against a shim that
+  REFUSES a column it used to drop.
+- **Real PostgreSQL (`npm run test:pg`): 853 → 877 checks, 0 failed** — 59 for the triggers
+  section itself and 18 for the wrapper census, whose comparator is proved to discriminate.
+- **Engine suite 490 → 508.** Site suite **6,807** (6,805 pass, 2 skipped, 0 fail).
+- **THE SWEEP TALLIES ARE DELIBERATELY NOT STAMPED HERE UNTIL THE RUNS END** — *a count nobody
+  re-measured is a claim ahead of its evidence*, and this directory's first rule is to stamp
+  only afterwards. Both are running at this commit, in detached worktrees, so the main tree
+  holds no mutant while they do.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** The migration is prepared locally and the
+round-number name is this folder's own tell for that. When it goes, the order is the recorded
+one — **migration → engine → site** — and here every link has its own reason: the migration
+because the site's list route reads `agent.automations`' three new columns BY NAME (a 400, not a
+degradation), the engine before the site because an endpoint the site lets somebody create is an
+endpoint no `/deliver/<id>` would answer, and the site last because it is the only half a person
+touches.

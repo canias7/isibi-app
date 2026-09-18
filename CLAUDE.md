@@ -2216,6 +2216,79 @@ page scope; nothing is merged or deployed.
   `agent-builder/supabase/migrations/`, and when it goes the order is the recorded
   one — **migration → engine → site** — because the migration adds the column the
   engine writes and the functions these routes call.
+
+- **AN AGENT CAN BE TRIGGERED FROM OUTSIDE NOW: FOUR SITE ROUTES FOR AN INBOUND
+  ENDPOINT (2026-09-18).** Owner: *"Expand triggers: one-time and weekly schedules,
+  authenticated webhooks, and internal events through the existing durable
+  dispatcher."* **The engine half — the signature, the dispatcher's fifth job, the
+  arrival race and the depth bound — is in `agent-builder/CLAUDE.md`**; what belongs
+  here is the site's.
+  **FOUR ROUTES AND `worker.js` NEEDED NO CHANGE AGAIN** — the `/api/agent/*` block
+  dispatches on `Object.hasOwn(AGENT_ROUTES, url.pathname)` and hands every handler
+  what it needs, so `webhooks`, `webhook-create`, `webhook-enable` and
+  `webhook-delete` are four entries on one object, **26 in all**. That is the
+  gate-once design paying for itself a fourth time: there is nowhere to add a route
+  that is not already behind the gate, and the tenant census over the whole family
+  passes by construction.
+  **⚠ THE SECRET IS MINTED HERE AND ANSWERED EXACTLY ONCE, and every half of that is
+  load-bearing.** `mintWebhookSecret` takes its randomness INJECTED and REQUIRED — a
+  minter that quietly falls back to something weaker is the one failure nobody would
+  see — `WEBHOOK_SECRET_BYTES` is 32 (64 hex characters, well past the column's own
+  32 floor, and deliberately not AT it, because a secret at the minimum is one the
+  next person to raise the floor breaks), `agent.list_webhooks` never selects the
+  column, and **no route reads a secret off a request: there is nowhere to put one.**
+  A caller-chosen signing key is a browser deciding how strong it is. **There is no
+  `webhook-rotate`**, deliberately: a rotate has to hand back the new secret, which
+  is a SECOND door that gives one out, and delete-and-make-another does the same job
+  through the door that already exists.
+  **AND THE ANSWER IS A PATH, NEVER A URL.** This product rings the engine through a
+  queue BINDING, which carries no address, so composing one would mean inventing it —
+  and an invented origin is a URL somebody configures their system with and which
+  never works. `webhookPath` answers `/deliver/<id>` and stops.
+  **THE EVENT NAME GOES THROUGH `AGENT_EVENT_RE`, THE SAME SHAPE THE TRIGGER READS.**
+  An endpoint emitting a name no automation can listen for is a dead control that
+  ANSWERS: it takes deliveries, records events, and nothing ever runs. All three
+  doors FOLD case (this route, `cleanSchedule`'s `on_event`, and the engine's own
+  reader), so `Order.Paid` stores `order.paid` everywhere and a trigger really
+  matches.
+  **⚠ A SCHEDULE THAT IS NOT A WORD WAS SILENTLY `by hand`, AND BOTH DOORS HAD IT.**
+  `typeof x === "string" ? … : "manual"` read a non-string as ABSENT, so a request
+  asking for `["daily"]` saved an automation that runs by HAND and answered `ok` — the
+  daily run it asked for would never have fired, and nothing said so. `String(["daily"])`
+  territory. `cleanSchedule` and the engine's `authorableSchedule` are fixed together,
+  because the two doors have to agree about what may be stored, and both answer THREE
+  refusals now: absent is `manual` (making an automation is not asking for it to be
+  scheduled), a blank is its own sentence, and a non-string says what it should have
+  been. **Found by a guard written for a different mutant.**
+  **THE TRIGGER FIELDS RIDE IN THE SHARED SHAPE**, so the create and the edit cannot
+  carry different ones — `days`, `onDate`, `onEvent` sent as `null` rather than
+  omitted, because these are a REPLACE like every other field on that form and a key
+  left off is one PostgREST fills from the parameter's default, which on an edit that
+  turned a weekly schedule into a daily one would leave the old days behind.
+  **FOUR CENSUSES WENT RED AND EVERY ONE WAS RIGHT**, which is the point of having
+  them: the tenant census needed the four operations on its fake store (a fake missing
+  one makes the route throw and the census reads a 502 — this file has paid for that
+  four times now); both body censuses needed `event` on their allow-lists, which is a
+  field of the endpoint and never an account — **and `secret` is deliberately absent
+  from both and must stay so**; and the client census needed the four routes on
+  `NO_SCREEN_YET`, since a person is exactly who makes an endpoint and copies its
+  secret, so calling them `SERVER_ONLY` would record a design decision nobody made.
+  **⚠ AND THE BODY CENSUS SCANNED RAW SOURCE, which its own premise could not
+  survive.** It states that `b` names the request body and nothing else in
+  `agent-store.mjs` — and a `b` that was a BYTE inside `mintWebhookSecret` made it
+  read `b.toString` as a body field and report a correct file as broken. Two fixes,
+  because the premise and the scan are different things: the byte is `byte` now, and
+  **the census blanks comments first, length-preserving, with the offsets asserted
+  unchanged** — it had no blanking at all, so any sentence in that module writing a
+  body read was a match, including one explaining that very rule. *Prose contains the
+  thing it forbids*, in the census whose premise is about names.
+  **MEASURED: site suite 6,799 → 6,807** (6,805 pass, 2 skipped, 0 failed) — run with
+  `npm test`, never with `--test-timeout=20000`. `agent-automations` 37 → 38.
+  **NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and the order when it goes is the
+  recorded one — **migration → engine → site** — with the site's own reason sharper
+  than usual: its list route reads `agent.automations`' three new columns BY NAME, so
+  against a view that has not got them PostgREST answers 400 and every account's
+  automation list fails to load. Not degraded — refused.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose
