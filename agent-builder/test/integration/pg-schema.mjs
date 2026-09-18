@@ -4138,6 +4138,14 @@ try {
   // rather than whatever the checks above left `CX_1` in.
   const CX_R = "ee000000-0000-0000-0000-0000000000c7";
   const R_SECRET = "fake-token-do-not-use-0009";
+  // ⚠ **AND TWO MORE FOR THE TWO SWEEP SURVIVORS, EACH ITS OWN ROW — because reusing `CX_5`
+  // for them is the very trap the census below exists for, and it cost this pass.** `CX_5` is
+  // the SIBLING agent's row (`rawRow` writes it under `CX_A2`), so a lease or refresh named
+  // under `CX_A1` finds nothing and answers `no-connection`: three new checks reported correct
+  // behaviour as broken, for the fixture's reason rather than the product's. *An id is not a
+  // scratch value; it carries an owner and a state.*
+  const CX_EXP = "ee000000-0000-0000-0000-0000000000c8";
+  const CX_NR = "ee000000-0000-0000-0000-0000000000c9";
   // ⚠ **WHAT IS IN THE ROW IS AN OWNER QUESTION, AND SAYING SO IS THIS SECTION'S OWN
   // FINDING.** `jget` defaults to `asWriter` (`service_role`), and four checks below read a
   // credential column or forced a clock with it — green only because the Worker's role could
@@ -4294,6 +4302,25 @@ try {
   refused("a refresh with no credential is refused rather than blanking the one that works",
     `select agent.refresh_connection('${CX_T}','${CX_A1}','${CX_3}','');`,
     "a credential is required", asWriter);
+  // ⚠ **AND A PROVIDER WITH NOTHING TO REFRESH WITH IS ITS OWN REFUSAL — a sweep survivor, and
+  // the two are easy to conflate.** The case above is the CALLER sending no new credential; this
+  // is the ROW holding no refresh credential, which is a real provider shape (`refresh_secret`
+  // is nullable precisely because some providers have none). Nothing drove it, so removing the
+  // branch answered `ok` and rotated the secret of a connection that can never be refreshed
+  // again — a control that reports success and changes the wrong thing.
+  check("⚠ a connection with no refresh credential is refused `not-refreshable`",
+    (() => {
+      // ITS OWN ROW, MADE THROUGH THE REAL DOOR with no refresh credential — which is the
+      // provider shape being tested, not a column blanked behind the function's back.
+      jget(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_NR}','fakemail',
+              'No refresh','nr@example.test',array['read'],'fake-token-do-not-use-0010') ->> 'ok';`);
+      const out = jget(`select agent.refresh_connection('${CX_T}','${CX_A1}','${CX_NR}','rotated-0001')::text;`);
+      // THE WALL IS THAT NOTHING WAS WRITTEN, not merely that the answer says so.
+      const kept = jget(`select secret from agent.connections where id='${CX_NR}';`, asRowOwner);
+      return /"error"\s*:\s*"not-refreshable"/.test(out) && kept === "fake-token-do-not-use-0010";
+    })());
+  check("...and `refreshable` says so too, without anyone reading the credential",
+    jget(`select refreshable::text from agent.connection_list where id='${CX_NR}';`) === "false");
 
   // ── DISCONNECTED AND REVOKED ARE TWO STATES BECAUSE THEY NEED TWO SENTENCES ──
   check("a person disconnecting says so, in their own words",
@@ -4320,16 +4347,40 @@ try {
   check("...and a revocation destroys the credential too",
     jget(`select (secret <> 'fake-token-do-not-use-0004') from agent.connections where id='${CX_6}';`,
          asRowOwner) === "t");
-  check("a status nothing recognises is refused rather than leased",
+  check("a status nothing recognises cannot be stored at all — the CHECK is the wall",
     (() => {
       jget(`update agent.connections set status='revoked' where id='${CX_5}';`, asRowOwner);
       jget(`update agent.connections set status='active' where id='${CX_5}';`, asRowOwner);
-      // The enum is a CHECK, so an unknown status cannot be written at all — which is the
-      // stronger wall and is why the `not-usable` branch is a belt. Asserted as the refusal
-      // rather than by forcing a state the database will not hold.
       const r = psql(`update agent.connections set status='half' where id='${CX_5}';`,
         { role: "postgres", expectFail: true });
       return !r.ok && r.err.includes("connections_status_known");
+    })());
+  // ⚠ **AND THE `not-usable` BRANCH IS NOT A BELT — IT IS REACHABLE, AND A SWEEP SURVIVOR IS
+  // HOW THAT WAS FOUND.** The comment that used to sit here said the CHECK made that branch
+  // unreachable, so the refusal was asserted by proving an unknown status cannot be WRITTEN.
+  // That reasoning covers a status nothing recognises and **misses `'expired'`, which is one of
+  // the four the CHECK admits** — a legal value, not `'active'`, and with no clock set it walks
+  // past the disconnected, revoked and expires_at arms to land on exactly this one. With the
+  // branch removed the door LEASES it: a credential handed out for a connection whose own row
+  // says it is expired. *A wall nobody can drive is a wall nobody is guarding* — and the reason
+  // nobody could drive it was a wrong claim about which states are reachable, in the comment.
+  check("⚠ a STORED `expired` with no clock is refused by name, not leased",
+    (() => {
+      jget(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_EXP}','fakemail',
+              'Stored expired','exp@example.test',array['read'],'fake-token-do-not-use-0011') ->> 'ok';`);
+      // `'expired'` is a status the CHECK ADMITS, so the owner can really put a row in it —
+      // which is the whole point: this is a legal state, not a forced impossibility.
+      jget(`update agent.connections set status='expired', expires_at = null where id='${CX_EXP}';`,
+           asRowOwner);
+      const out = jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_EXP}')::text;`);
+      // BOTH halves: the refusal by name, and that no credential came back with it.
+      return /"error"\s*:\s*"not-usable"/.test(out) && /"status"\s*:\s*"expired"/.test(out)
+        && !out.includes("fake-token");
+    })());
+  check("...with the observer alive: the same row leases cleanly once it is active again",
+    (() => {
+      jget(`update agent.connections set status='active' where id='${CX_EXP}';`, asRowOwner);
+      return jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_EXP}') ->> 'ok';`) === "true";
     })());
 
   // ── THE CREDENTIAL'S PROTECTION IS A PRIVILEGE AND A COLUMN LIST ──
