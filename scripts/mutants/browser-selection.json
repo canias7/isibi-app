@@ -202,11 +202,19 @@
     "to": "      shown: true,"
   },
   {
-    "label": "a reply the browser could not parse is handed on as an object",
+    "label": "the reply is never handed on at all, so every case falls to the rewrite",
     "files": [
       "scripts/addon-sweep.mjs"
     ],
     "from": "    answer(httpOk, (reply && typeof reply === \"object\") ? reply : null, {",
-    "to": "    answer(httpOk, (reply && typeof reply === \"object\") ? reply : {}, {"
+    "to": "    answer(httpOk, null, {"
+  },
+  {
+    "label": "the coercion stops matching the page's own reader (measured inert behaviourally; the correspondence is the claim)",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "(reply && typeof reply === \"object\") ? reply : null, {",
+    "to": "(reply && typeof reply === \"object\") ? reply : {}, {"
   }
 ]

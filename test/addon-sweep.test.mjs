@@ -991,6 +991,15 @@ test("the browser's own selection decides which screen a reply gets, status incl
   // site, so the harness's `httpOk` is the same thing the page's is.
   assert.match(chatSrc, /return addonAnswer\(r && r\.ok, a, \{/,
     "the browser's addon call no longer hands addonAnswer its response's own ok — the harness's status is modelling something else");
+  // AND A BODY THAT WOULD NOT PARSE IS `null` THERE, which is why it is `null`
+  // here. That coercion is MEASURED INERT today — every non-success branch of
+  // `addonAnswer` converges on the fall — so this is what pins it to the page's
+  // own reader rather than to a choice somebody made: the correspondence is the
+  // claim, and the sweep mutates the line as a pair with it.
+  assert.match(chatSrc, /const a = await r\.json\(\)\.catch\(\(\) => null\);/,
+    "the browser no longer reads an unparseable body as null — the harness is modelling something else");
+  assert.match(CODE, /\(reply && typeof reply === "object"\) \? reply : null/,
+    "the harness no longer hands on what the browser's own reader would");
 
   // ── 7. AND THE STATUS IS REALLY PUT ON THE WIRE ────────────────────────────
   //

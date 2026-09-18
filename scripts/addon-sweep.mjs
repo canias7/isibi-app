@@ -667,6 +667,16 @@ export function browserReply(reply, httpOk) {
       () => { actions.push("write the browser's own stored site list"); },
     );
     let text = null;
+    // `null` IS WHAT THE BROWSER'S OWN READER HANDS IN — `r.json().catch(() =>
+    // null)` at the call site — so a body that would not parse takes the branch
+    // it really takes. ⚠ AND IT IS MEASURED INERT TODAY, declared rather than
+    // deleted: every non-success branch of `addonAnswer` converges on `fall()`,
+    // so `null`, `{}` and the raw value are indistinguishable — 32 probes over
+    // sixteen bodies × both statuses × three coercions, ZERO differences. That
+    // deadness is a property of a NEIGHBOUR (chat.js's convergence), not of this
+    // expression, so the line stays: the day an escalate or an applied branch
+    // learns to read a non-object it stops being documentation and starts being
+    // a wall. The guard pins it to the page's own reader instead.
     answer(httpOk, (reply && typeof reply === "object") ? reply : null, {
       site: null,
       d: undefined,
