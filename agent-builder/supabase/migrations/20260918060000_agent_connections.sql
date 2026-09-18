@@ -438,7 +438,23 @@ revoke all on table agent.connections from authenticated;
 grant select (id, tenant_id, agent_id, provider, label, account, scopes, status,
               refreshable, expires_at, stopped_why, created_at, updated_at)
   on table agent.connections to authenticated;
-grant select, insert, update on table agent.connections to service_role;
+-- ⚠ **AND THE SAME POSITIVE LIST FOR `service_role`, WHICH IS THE ROLE THIS ENGINE RUNS AS —
+-- MEASURED, after a version of this file granted it the whole table.** The header above says
+-- the credential has ONE DOOR and it is not a read; that was true of the SCHEMA and false of
+-- the PRIVILEGES, because `grant select on table` includes `secret`. Measured before the fix:
+-- `has_column_privilege('service_role','agent.connections','secret','select')` answered TRUE
+-- and the ACL read `service_role=arw/postgres` — so the Worker could have asked PostgREST for
+-- every customer's credential with one query. This is the treatment `agent.run_entries`
+-- already has (`revoke insert … from service_role`, so a direct write is refused by a
+-- privilege rather than by our own good intentions), applied to a READ.
+--
+-- **INSERT AND UPDATE GO ENTIRELY**, because all five functions are `security definer` and
+-- therefore run as the OWNER: the role calling them needs no table grant at all. What it does
+-- need is SELECT on the columns `agent.connection_list` names, because that view is
+-- `security_invoker` and its query runs as whoever reads it — including this role.
+grant select (id, tenant_id, agent_id, provider, label, account, scopes, status,
+              refreshable, expires_at, stopped_why, created_at, updated_at)
+  on table agent.connections to service_role;
 
 revoke all on agent.connection_list from public;
 revoke all on agent.connection_list from anon;

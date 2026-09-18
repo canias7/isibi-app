@@ -221,6 +221,26 @@ const mDecide = mFn("decide_tool_approval");
 const mPending = mFn("pending_approvals");
 const mRunApprovals = mFn("run_approvals");
 
+/**
+ * ⚠ **THE CONNECTIONS MIGRATION, AND IT SHIPPED WITH NO SQL MUTANTS AT ALL — found
+ * 2026-09-18 by counting the spec per file rather than by a survivor.** Every other
+ * migration here had between 2 and 40; the newest one, the one carrying the credential,
+ * had none. So the whole of M8's storage argument — that the secret has exactly one door,
+ * that neither grant is a table grant, that the view names neither secret, that a
+ * revocation destroys the credential — rested on `pg-schema.mjs` alone, with nothing
+ * checking that those checks can FAIL. *A count per file is the census that sees this; a
+ * sweep tally cannot, because a migration with no mutants contributes no survivors.*
+ *
+ * Found by what only it defines, as everything here is.
+ */
+const CONNS = lastDefining("create table if not exists agent.connections");
+const mConn = (label, from, to, control = false) => ({ label, files: [CONNS], from, to, control });
+const mLease = mFn("lease_connection");
+const mConnect = mFn("connect_provider");
+const mRefreshConn = mFn("refresh_connection");
+const mRevokeConn = mFn("revoke_connection");
+const mDisconnect = mFn("disconnect_connection");
+
 const spec = [
   // ── TENANT ISOLATION ──────────────────────────────────────────────────────
   m("SQL/isolation: the runs policy stops comparing the tenant",
@@ -1102,6 +1122,95 @@ const spec = [
   mCtrl("SQL/controls/CONTROL (comment only)",
     "-- ⚠ **THREE THINGS, AND COLLAPSING ANY TWO LOSES A REAL DISTINCTION.**",
     "-- Three things, and collapsing any two loses a real distinction (control).", true),
+  /**
+   * ⚠ **THE CREDENTIAL'S PRIVILEGES, BOTH ROLES AND BOTH DIRECTIONS — the fourth defect of
+   * this milestone, in the one shape a source read cannot settle.** A positive column list
+   * and a table grant read identically in a diff; what tells them apart is Postgres, which
+   * checks the columns a query NAMES. So each grant is mutated TWICE: widened to the table
+   * (the credential becomes readable with one query) and removed altogether (the
+   * `security_invoker` view becomes unreadable and the screen shows nothing). The two
+   * failures need opposite fixes, and a single mutant would leave one of them unguarded.
+   */
+  mConn("⚠ SQL/connections: `service_role`'s grant is the whole TABLE, so the Worker can read every credential",
+    "grant select (id, tenant_id, agent_id, provider, label, account, scopes, status,\n              refreshable, expires_at, stopped_why, created_at, updated_at)\n  on table agent.connections to service_role;",
+    "grant select on table agent.connections to service_role;"),
+  mConn("⚠ SQL/connections: `service_role` gets nothing, so the Worker's own list is unreadable",
+    "grant select (id, tenant_id, agent_id, provider, label, account, scopes, status,\n              refreshable, expires_at, stopped_why, created_at, updated_at)\n  on table agent.connections to service_role;",
+    "-- no grant for service_role"),
+  mConn("⚠ SQL/connections: `authenticated`'s grant is the whole TABLE, so a customer can read a credential",
+    "grant select (id, tenant_id, agent_id, provider, label, account, scopes, status,\n              refreshable, expires_at, stopped_why, created_at, updated_at)\n  on table agent.connections to authenticated;",
+    "grant select on table agent.connections to authenticated;"),
+  mConn("⚠ SQL/connections: `authenticated` gets nothing, so the view it must read is refused",
+    "grant select (id, tenant_id, agent_id, provider, label, account, scopes, status,\n              refreshable, expires_at, stopped_why, created_at, updated_at)\n  on table agent.connections to authenticated;",
+    "-- no grant for authenticated"),
+  mConn("⚠ SQL/connections: the view selects the credential, so every reader of the list has it",
+    "  select c.id, c.tenant_id, c.agent_id, c.provider, c.label, c.account, c.scopes,",
+    "  select c.id, c.tenant_id, c.agent_id, c.provider, c.label, c.account, c.scopes, c.secret,"),
+  /**
+   * ⚠ WHETHER THERE IS A WAY TO REFRESH, AS A GENERATED COLUMN. The point of generating it
+   * is that a screen can learn the fact WITHOUT a grant on `refresh_secret` — so a mutant
+   * that makes it an ordinary default is not a cosmetic change: it makes the column lie for
+   * every row written before the refresh credential arrives.
+   */
+  mConn("⚠ SQL/connections: `refreshable` is no longer derived, so it can disagree with the credential",
+    "  refreshable     boolean     not null generated always as (refresh_secret is not null) stored,",
+    "  refreshable     boolean     not null default false,"),
+  mConn("SQL/connections: row level security is enabled but not FORCED, so the owner's own reads bypass it",
+    "alter table agent.connections force row level security;", "-- not forced"),
+  mConn("⚠ SQL/connections: the policy keys on nothing, so every account reads every connection",
+    "  using (tenant_id = agent.tenant_id());", "  using (true);"),
+  mConn("SQL/connections: a status nothing recognises may be stored",
+    "  constraint connections_status_known check (status in ('active', 'expired', 'revoked', 'disconnected')),",
+    "  constraint connections_status_known check (status is not null),"),
+  /**
+   * THE FOUR REFUSALS OF THE ONE DOOR, one mutant each, because each is a different sentence
+   * to whoever has to act on it — and the last of them is the branch where being wrong hands
+   * out a credential.
+   */
+  mLease("⚠ SQL/connections: a DISCONNECTED connection is leased, handing out what a person took away",
+    "  if v_row.status = 'disconnected' then\n    return jsonb_build_object('ok', false, 'error', 'disconnected', 'why', v_row.stopped_why);\n  end if;",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', 'disconnected', 'why', v_row.stopped_why);\n  end if;"),
+  mLease("⚠ SQL/connections: a REVOKED connection is leased, so the engine keeps using a withdrawn grant",
+    "  if v_row.status = 'revoked' then\n    return jsonb_build_object('ok', false, 'error', 'revoked', 'why', v_row.stopped_why);\n  end if;",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', 'revoked', 'why', v_row.stopped_why);\n  end if;"),
+  mLease("⚠ SQL/connections: an EXPIRED credential is leased, and the clock is what decides that",
+    "  if v_row.expires_at is not null and v_row.expires_at <= now() then",
+    "  if false then"),
+  mLease("⚠ SQL/connections: a status the door does not know is leased rather than refused",
+    "  if v_row.status <> 'active' then\n    -- A status this function does not know: refused rather than leased. Cannot-tell must",
+    "  if false then\n    -- A status this function does not know: refused rather than leased. Cannot-tell must"),
+  mLease("⚠ SQL/connections: a scope that was never granted is sent anyway, silently",
+    "  if coalesce(array_length(v_missing, 1), 0) > 0 then",
+    "  if false then"),
+  mLease("SQL/connections: the missing scopes are filtered rather than named, so the drop is silent",
+    "   where not (s = any (v_row.scopes));", "   where false;"),
+  mLease("SQL/connections: the one door answers no credential at all, so nothing can act",
+    "    'secret', v_row.secret);", "    'secret', null);"),
+  /**
+   * ⚠ WHAT A STOP DOES TO THE CREDENTIAL. A row kept as the record of what happened is the
+   * point of not deleting it — and a row that keeps its secret is a credential still
+   * readable through the one door, past the moment somebody took it away.
+   */
+  mRevokeConn("⚠ SQL/connections: a revocation leaves the credential in the row",
+    "     set status = 'revoked', secret = '-', refresh_secret = null,",
+    "     set status = 'revoked',"),
+  mDisconnect("⚠ SQL/connections: a disconnect leaves the credential in the row",
+    "     set status = 'disconnected', secret = '-', refresh_secret = null,",
+    "     set status = 'disconnected',"),
+  mRefreshConn("⚠ SQL/connections: a refresh REVIVES what a person stopped, putting back what they took away",
+    "  if v_row.status <> 'active' then\n    return jsonb_build_object('ok', false, 'error', v_row.status, 'why', v_row.stopped_why);\n  end if;",
+    "  if false then\n    return jsonb_build_object('ok', false, 'error', v_row.status, 'why', v_row.stopped_why);\n  end if;"),
+  mRefreshConn("SQL/connections: a provider with no refresh credential is answered `ok`, a control that does nothing",
+    "  if v_row.refresh_secret is null then", "  if false then"),
+  mConnect("⚠ SQL/connections: connecting answers the credential back, so it reaches a caller that never needed it",
+    "  return jsonb_build_object('ok', true, 'connection', v_row.id, 'scopes', to_jsonb(v_row.scopes));",
+    "  return jsonb_build_object('ok', true, 'connection', v_row.id, 'scopes', to_jsonb(v_row.scopes), 'secret', v_row.secret);"),
+  mConnect("SQL/connections: reconnecting leaves the old row live, so a reader has two to choose between",
+    "     set status = 'disconnected', stopped_why = 'replaced by a new connection', updated_at = now()",
+    "     set stopped_why = 'replaced by a new connection', updated_at = now()"),
+  mConn("SQL/connections/CONTROL (comment only)",
+    "-- ⚠ FOUR STATES, AND THEY ARE FOUR BECAUSE EACH NEEDS A DIFFERENT SENTENCE.",
+    "-- Four states, and they are four because each needs a different sentence (control).", true),
 ];
 
 // THE PRE-CHECK. Every anchor exactly once IN ITS OWN FILE, and a replacement that

@@ -4134,6 +4134,25 @@ try {
   const CX_5 = "ee000000-0000-0000-0000-0000000000c5";
   const CX_6 = "ee000000-0000-0000-0000-0000000000c6";
   const SECRET = "fake-token-do-not-use-0001";
+  // THE ROLE PROBE'S OWN ROW AND CREDENTIAL, so what it leases is in a state it set itself
+  // rather than whatever the checks above left `CX_1` in.
+  const CX_R = "ee000000-0000-0000-0000-0000000000c7";
+  const R_SECRET = "fake-token-do-not-use-0009";
+  // ⚠ **WHAT IS IN THE ROW IS AN OWNER QUESTION, AND SAYING SO IS THIS SECTION'S OWN
+  // FINDING.** `jget` defaults to `asWriter` (`service_role`), and four checks below read a
+  // credential column or forced a clock with it — green only because the Worker's role could
+  // `select secret` and `update` the table. That is exactly the privilege the block at the end
+  // of this section closes, so those checks were EXERCISING A DOOR THAT SHOULD NOT EXIST.
+  // They ask the owner now, which is the honest instrument for "what does the row hold" and
+  // for putting a row into a state on purpose; the refusals below then mean something.
+  //
+  // ⚠ **AND IT IS NOT CALLED `asOwner`, DELIBERATELY: THIS FILE ALREADY HAS ONE.** The fence
+  // section near the top declares `const asOwner = {}` — no `set role` at all, which reaches
+  // the owner because `psql` runs `su postgres`. The two would be the same role by two
+  // spellings, and a second `asOwner` in a nested scope SHADOWS it: legal, silent, and a
+  // reader who carried either definition into the other's block would be reasoning about the
+  // wrong handle. Named apart, there is nothing to carry.
+  const asRowOwner = { role: "postgres" };
 
   // ⚠ THE IDS ARE ITS OWN, AND THAT IS ASSERTED RATHER THAN HOPED. This file is one long
   // body sharing one database, and a fixture id reused from five hundred lines up has
@@ -4247,7 +4266,8 @@ try {
     jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}', array['read']) ->> 'ok';`) === "true");
 
   // EXPIRED IS THE CLOCK'S, AND IS DERIVED RATHER THAN STAMPED.
-  jget(`update agent.connections set expires_at = now() - interval '1 minute' where id='${CX_3}';`);
+  jget(`update agent.connections set expires_at = now() - interval '1 minute' where id='${CX_3}';`,
+       asRowOwner);
   check("⚠ an expired credential is refused BY NAME, with whether a refresh could fix it",
     jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'error';`) === "expired");
   check("...and the row is still marked `active`, because nothing goes round stamping it",
@@ -4269,7 +4289,8 @@ try {
     jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'secret';`)
       === "fake-token-do-not-use-0003");
   check("⚠ ...and a provider that does not rotate its refresh credential keeps the one it had",
-    jget(`select refresh_secret from agent.connections where id='${CX_3}';`) === "fake-refresh-0001");
+    jget(`select refresh_secret from agent.connections where id='${CX_3}';`, asRowOwner)
+      === "fake-refresh-0001");
   refused("a refresh with no credential is refused rather than blanking the one that works",
     `select agent.refresh_connection('${CX_T}','${CX_A1}','${CX_3}','');`,
     "a credential is required", asWriter);
@@ -4280,7 +4301,7 @@ try {
       === "disconnected");
   check("⚠ ...and the CREDENTIAL IS DESTROYED, not merely flagged",
     jget(`select (secret <> 'fake-token-do-not-use-0003' and refresh_secret is null)
-            from agent.connections where id='${CX_3}';`) === "t");
+            from agent.connections where id='${CX_3}';`, asRowOwner) === "t");
   check("⚠ ...so the one door refuses it by name and carries their reason",
     jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_3}') ->> 'why';`) === "I do not use it");
   check("disconnecting twice is a success that says so, never somebody else's connection",
@@ -4297,11 +4318,12 @@ try {
   check("⚠ ...and the one door tells the two apart, because the remedies differ",
     jget(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_6}') ->> 'error';`) === "revoked");
   check("...and a revocation destroys the credential too",
-    jget(`select (secret <> 'fake-token-do-not-use-0004') from agent.connections where id='${CX_6}';`) === "t");
+    jget(`select (secret <> 'fake-token-do-not-use-0004') from agent.connections where id='${CX_6}';`,
+         asRowOwner) === "t");
   check("a status nothing recognises is refused rather than leased",
     (() => {
-      jget(`update agent.connections set status='revoked' where id='${CX_5}';`);
-      jget(`update agent.connections set status='active' where id='${CX_5}';`);
+      jget(`update agent.connections set status='revoked' where id='${CX_5}';`, asRowOwner);
+      jget(`update agent.connections set status='active' where id='${CX_5}';`, asRowOwner);
       // The enum is a CHECK, so an unknown status cannot be written at all — which is the
       // stronger wall and is why the `not-usable` branch is a belt. Asserted as the refusal
       // rather than by forcing a state the database will not hold.
@@ -4339,6 +4361,63 @@ try {
     jget(`select count(*) from information_schema.columns
            where table_schema='agent' and table_name='connection_list'
              and column_name in ('secret','refresh_secret');`) === "0");
+  // ⚠ **AND THE SAME QUESTIONS OF `service_role`, WHICH IS THE ROLE THIS ENGINE RUNS AS — a
+  // real finding, measured rather than reviewed.** The migration's own header says the
+  // credential has ONE DOOR and it is not a read; that was true of the SCHEMA and false of
+  // the PRIVILEGES, because `grant select on table` includes `secret`. Measured before the
+  // fix: `has_column_privilege('service_role',…,'secret','select')` answered TRUE and the
+  // ACL read `service_role=arw/postgres`, so the Worker could have asked PostgREST for every
+  // customer's credential in one query. All five functions are `security definer`, so the
+  // CALLING role needs no table grant to use them — which is what makes closing it free.
+  check("⚠ `service_role` CANNOT read either credential column either",
+    jget(`select coalesce(bool_or(has_column_privilege('service_role','agent.connections',c,'select')), false)
+            from unnest(array['secret','refresh_secret']) c;`) === "f");
+  check("...and cannot write the table at all",
+    jget(`select coalesce(bool_or(has_table_privilege('service_role','agent.connections',p)), false)
+            from unnest(array['insert','update','delete']) p;`) === "f");
+  check("⚠ ...but CAN read every non-secret column, or the Worker's own list is unreadable",
+    jget(`select count(*) from information_schema.columns c
+           where c.table_schema='agent' and c.table_name='connections'
+             and c.column_name not in ('secret','refresh_secret')
+             and not has_column_privilege('service_role','agent.connections',c.column_name,'select');`) === "0");
+  // ⚠ **DRIVEN AS THAT ROLE, and the three CONTROLS are what make the refusals mean
+  // something**: a wall that also closed the one door would satisfy every negative below.
+  check("⚠ ...and connecting still works AS that role — `security definer`, so no grant needed",
+    (() => {
+      const r = psql(`select agent.connect_provider('${CX_T}','${CX_A1}','${CX_R}','fakemail',`
+        + `'Role probe','role@example.test',array['read'],'${R_SECRET}') ->> 'ok';`,
+        { role: "service_role" });
+      return r.ok && r.out === "true";
+    })());
+  check("⚠ ...and the ONE DOOR still opens for it — the lease answers the credential",
+    (() => {
+      const r = psql(`select agent.lease_connection('${CX_T}','${CX_A1}','${CX_R}') ->> 'secret';`,
+        { role: "service_role" });
+      return r.ok && r.out === R_SECRET;
+    })());
+  check("...and so does the view it really reads",
+    (() => {
+      const r = psql(`select count(*) > 0 from agent.connection_list where tenant_id='${CX_T}';`,
+        { role: "service_role" });
+      return r.ok && r.out === "t";
+    })());
+  check("⚠ ...while a DIRECT read of the credential is refused by the column grant",
+    (() => {
+      const r = psql(`select secret from agent.connections;`,
+        { role: "service_role", expectFail: true });
+      return !r.ok && /permission denied for (table|column|relation) connections/.test(r.err);
+    })());
+  check("⚠ ...and so is `select *`, because Postgres checks the columns a query NAMES",
+    (() => {
+      const r = psql(`select * from agent.connections;`, { role: "service_role", expectFail: true });
+      return !r.ok && /permission denied/.test(r.err);
+    })());
+  check("...and a direct write of one",
+    (() => {
+      const r = psql(`update agent.connections set secret='mine' where id='${CX_R}';`,
+        { role: "service_role", expectFail: true });
+      return !r.ok && /permission denied/.test(r.err);
+    })());
   // ⚠ **A CENSUS OVER WHICH BODIES READ A STORED CREDENTIAL AT ALL, so a sixth function that
   // gains one fails by existing.** Exactly two do, and each for its own reason: the LEASE
   // reads it out (that is the one door) and the REFRESH reads it to keep a rotation token a
