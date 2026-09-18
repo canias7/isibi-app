@@ -1608,6 +1608,33 @@ platform has no tool called that". A check that compares the two lists caught it
 the engine's tests, which is the rule I already know: *a change to a list both sides hold puts
 both sides' tests in scope.*
 
+### And then I read the sending code again, and found three more things wrong with it
+
+All three only happen when something goes wrong at the wrong moment — which is why the
+demonstration was green and every test passed. I reproduced each one before fixing it.
+
+**A bug in the sending code was treated as proof the message had not gone.** If the part that
+talks to the provider crashed in a way it did not recognise — an ordinary programming error — we
+recorded "this did not happen" and never asked the provider again. So a message that really went
+out would be lost to us for good, because of a crash on our side. We now treat anything we
+cannot classify as *we do not know*, which costs one question to the provider and saves the
+message.
+
+**We wrote our own note of what happened and never checked the note landed.** The send was fine;
+what was missing is that a failed note said nothing to anybody. It now rides on the answer, in
+its own field, so it cannot be mistaken for something being wrong with the message itself.
+
+**And the worst of the three: a hiccup writing that note reported the message as FAILED.** The
+message had gone out. The note could not be written. The error escaped, and the agent was told
+the send failed — so its next move is to send it again. That is the exact duplicate this whole
+design exists to prevent, caused by our own bookkeeping rather than by the provider. Writing the
+note can no longer change what we say about the message.
+
+**One more thing worth telling you, because it is about how I check my own work.** The mutation
+test for the first of these was pinned to the broken line — it *required* the bug to be there.
+That is a test asserting a defect as correct, which I have hit before in this project, and it is
+why I re-anchor those on the property rather than on the exact words.
+
 ### What is honest to say about where this leaves you
 
 **There is no screen for making a connection yet.** The three tools are tickable, and with
@@ -1615,10 +1642,18 @@ nothing connected they truthfully say "this agent is not connected to anything y
 lies, but nothing is usable either until that screen exists. I have pinned the wording so it
 cannot drift into implying the agent can connect something itself.
 
-**Measured:** 967 checks against a real PostgreSQL, 0 failed. 61 checks in the new
+**Measured:** 967 checks against a real PostgreSQL, 0 failed. **65** checks in the new
 demonstration, which goes through your own routes, the real queue, the real approval step and a
-real database. The other six demonstrations are all still green at exactly their previous
-counts, which is how I know none of this disturbed what was already working.
+real database — the four extra ask the database itself what it answers when somebody has already
+recorded an outcome, rather than my taking my own word for it. The engine's own tests are 555, 0
+failed. The other six demonstrations are all still green at exactly their previous counts, which
+is how I know none of this disturbed what was already working.
+
+**And the mutation sweep of the engine came back clean first time: 597 deliberate breakages, all
+597 caught.** It ran against the code as it stood *before* those last three fixes, which I am
+saying rather than letting a clean number read as covering them — the three have their own
+checks, each proved to go red against the bug it forbids, and the nine mutation tests around
+them were run on their own and all nine caught. The database sweep is still running.
 
 **Nothing is applied, deployed or merged, no model is connected, no real account is touched, and
 no credential of anybody's exists anywhere in this work.**
