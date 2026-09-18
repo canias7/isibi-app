@@ -3899,6 +3899,40 @@ try {
     jget(`select outcome ->> 'sent' from agent.operations
            where tenant_id='${SW_T}' and op_key='${OPK}';`) === "right");
 
+  // ⚠ **AND A GENUINE REFUSAL FROM THE INNER CALL MUST COME OUT AS ITSELF, not as a lost race.**
+  // Every `_once` wrapper runs its inner function inside a subtransaction that catches
+  // EVERYTHING, because the race can be lost in two places — the record's own key, and the inner
+  // function's. What decides which it was is whether a committed twin exists: one does, so the
+  // twin's answer stands; none does, so the failure is ours and is RE-RAISED with its own code.
+  // **Swallowing it turns a real refusal into a silent `ok: false`, which is the direction that
+  // loses work** — and that is what the mutant over the re-raise does. Undriven until now, and
+  // undriven here for the same reason as the rest of this block: it is proved by `verify:ops`,
+  // which the SQL sweep does not run.
+  // ⚠ **AND FINDING A FAILURE THE INNER CALL REALLY RAISES TOOK A MEASUREMENT.** The obvious
+  // one — a value past the column's 4000 cap — does NOT raise: `save_memory` asks the length
+  // ITSELF and returns `{ok: false, error: 'too-long'}`, so the wrapper records that as an
+  // ordinary outcome and the call succeeds. Measured, after a first draft of this check went red
+  // saying "it was ALLOWED". Every sentence-shaped refusal in that function is the same: the
+  // name's grammar, an empty value, the length, the source, the cap. **So the raise has to come
+  // from something the function does NOT pre-validate**, and a `p_id` that already belongs to a
+  // different memory is exactly that: the lookup is BY KEY, finds nothing for a new name, and
+  // the insert then meets the primary key.
+  const DUP_ID = "ffff0000-0000-0000-0000-00000000d001";
+  check("a memory exists under a known id, for the raise to collide with",
+    jget(`select agent.save_memory('${SW_T}','${SW_AG}','holder','mine','${DUP_ID}','person',100) ->> 'ok';`) === "true");
+  refused("⚠ a refusal from INSIDE `save_memory_once` is re-raised, not reported as a lost race",
+    `select agent.save_memory_once('${SW_T}','ops-raise-1','hR',null,'${SW_AG}','collider','v','${DUP_ID}','person',100);`,
+    "duplicate key value violates unique constraint", asWriter);
+  check("...and no operation record was left claiming that slot",
+    jget(`select count(*) from agent.operations where tenant_id='${SW_T}' and op_key='ops-raise-1';`) === "0");
+  check("...and THE CONTROL: the same call with a value the column accepts succeeds",
+    jget(`select agent.save_memory_once('${SW_T}','ops-raise-2','hR',null,'${SW_AG}','reraise','short',null,'person',100) ->> 'ok';`) === "true");
+  // ⚠ **FIVE OF THE SIX `_once` WRAPPERS CARRY THIS SAME BLOCK AND HAVE NO MUTANT AT ALL** —
+  // `accept_automation_run_once`, `create_automation_once`, `update_automation_once`,
+  // `set_automation_enabled_once`, `delete_memory_once`. Measured: one re-raise mutant exists in
+  // the spec, for `save_memory_once`. So this check covers the one breakage that can be caught
+  // and the asymmetry is recorded rather than implied to be covered.
+
   check("the owning account reads its own operation record",
     psql(`select count(*) from agent.operations where op_key='k1';`,
       { role: "authenticated", claims: `{"tenant_id":"${SW_T}"}` }).out === "1");
