@@ -13246,8 +13246,8 @@ is wrong):
 
 | field | value |
 |---|---|
-| `expect_deploy` | **the merge commit's sha** — the branch is a clean fast-forward of main, so it is this branch's tip |
-| `expect_image` | **`3b93a9cae43bac41`** |
+| `expect_deploy` | **the branch tip at merge time.** The branch is a clean fast-forward of main, so the merge commit *is* the tip — `git rev-parse origin/claude/help-needed-ehlwlj`, or just read the sha off the green deploy run. It was `b98af6db` when I wrote this; a further note added here would move it, which is why the rule is given rather than a number to copy |
+| `expect_image` | **`3b93a9cae43bac41`** — and this one does **not** move for a documentation commit, because it is hashed from the files the image is built from |
 
 `3b93a9cae43bac41` is computed from the tree before anything has moved, the way
 every deploy here has been cross-checked lately. Main is on **`7273d2569866364f`**
