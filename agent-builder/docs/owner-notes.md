@@ -1657,3 +1657,65 @@ them were run on their own and all nine caught. The database sweep is still runn
 
 **Nothing is applied, deployed or merged, no model is connected, no real account is touched, and
 no credential of anybody's exists anywhere in this work.**
+
+## 2026-09-18 — a fourth defect in the same work, and it was the widest of them
+
+The three above were found by re-reading the sending code. This one is not in that code at all,
+so no amount of re-reading it would have got there: it is a **database permission**.
+
+**The role this engine runs as could read every stored credential directly.** The design says a
+credential has exactly one door and that door is not a read — and that was true of the tables and
+false of the permissions, because the line granting the engine access granted it the *whole
+table*, and the whole table includes the secret column. So the engine could have asked the
+database for every customer's credential in a single query, going round the one door, round its
+four refusals, round the scope check — every one of which was correct and none of which sits on
+that path.
+
+**I measured it rather than reading the line**: asked the database outright whether that role may
+read the secret column, and it answered yes. After the fix it answers no, and the role holds no
+write on that table at all.
+
+**Closing it cost nothing, which is why it is worth saying how it works.** The five operations on
+connections all run as the table's owner, not as the caller — so the engine needs no access to
+the table to use them. What it does need is to read the *non-secret* columns, because the list a
+screen shows is built by a view that runs as whoever reads it. So the fix is a named list of
+columns rather than the whole table, and the secret is not on the list.
+
+**And I proved it as that role rather than trusting the permission line**, with three checks that
+must still WORK beside the three that must now FAIL — connecting still works, the one door still
+answers the credential, the list is still readable, while reading the secret, asking for "all
+columns", and writing are each refused. Without those three working checks, a mistake that
+bricked the whole thing would have looked like a success.
+
+**⚠ AND MY OWN CHECKS HAD BEEN USING THAT PERMISSION, which is how something this wide sat
+through nine hundred passing checks.** Five of them read a credential column, or forced a clock
+by writing one, *as the engine's role* — the very access the fix removes. They were passing for
+the wrong reason, and the fix turned them red. They ask the database owner now, which is the
+honest way to ask "what is actually in this row". *A test that holds the permission it is
+checking cannot check it.*
+
+**One more finding, about coverage rather than about the product.** Every other database
+migration in this work has between 2 and 40 deliberate-breakage tests aimed at it. This one — the
+newest, the one holding the credential — had **none**. I found that by counting the tests per
+file, and it is the only way it could have been found: a clean sweep result looks identical
+whether a file is fully covered or not covered at all, because a file with no breakages
+contributes no failures. There are 23 now, including the permission broken in **both**
+directions — granted too widely, and removed altogether — because those two go wrong in opposite
+ways and one test would only have caught one of them.
+
+**Measured:** 976 checks against a real PostgreSQL, 0 failed (967 before; the nine new ones are
+this permission, six of them driven as the engine's own role). Deliberate-breakage tests for the
+database: 245 → 268.
+
+**And I went looking for more of the same, which is the part I would want to know about.** A
+permission that contradicts what the design says is a *kind* of mistake, not a one-off, so I
+checked every other place a secret is stored. There is exactly one — the signing key for the
+webhook endpoints — and **it was already done correctly**: the engine holds no access to that
+table at all, everything goes through the operations, and there was already a check saying so.
+I also re-examined one line in the sending code that *looked* like the first defect wearing a
+different hat, and it is not: it is correct for a documented reason, and changing it would have
+broken something that works. **Both of those are findings with nothing to fix, and I am recording
+them so nobody has to do that search again.**
+
+**Nothing is applied, deployed or merged, no model is connected, no real account is touched, and
+no credential of anybody's exists anywhere in this work.**

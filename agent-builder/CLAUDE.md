@@ -5770,9 +5770,11 @@ It is one line, below the comment, and re-throwing is the same property.
 
 ### Measured
 
-- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 checks, 0 failed** — 61 for the
-  connections migration and 7 for the re-anchored operations block (two checks became nine), and
-  the arithmetic closes exactly. Every refusal read for ITS OWN gate with a control beside it;
+- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 → 976 checks, 0 failed** — 61 for the
+  connections migration and 7 for the re-anchored operations block (two checks became nine),
+  then **9 for the credential's PRIVILEGES** (the fourth defect below: three read off
+  `has_column_privilege`, six driven AS `service_role` with three of them controls), and the
+  arithmetic closes exactly at each step. Every refusal read for ITS OWN gate with a control beside it;
   the credential's protection asked as PRIVILEGES and as the view's column list, never as a
   refusal, because `authenticated` holds no schema USAGE in a fresh cluster.
 - **`npm run verify:connections`: 61 → 65 checks, 0 failed** (new) — nine sections through the
@@ -5786,7 +5788,8 @@ It is one line, below the comment, and re-throwing is the same property.
 - **`verify:tools` 112 → 115** (the three handed-over names) and **`verify:ops` 53 ·
   `verify:controls` 71 · `verify:auto` 70 · `verify:wf` 157 · `verify:triggers` 64 ·
   `verify:chat` 126 — every one unchanged**, which is the control that this round broke nothing.
-- **Sweep spec 579 → 614 entries (11 controls, 603 product mutants); SQL spec 238 → 245.** The
+- **Sweep spec 579 → 614 entries (11 controls, 603 product mutants); SQL spec 238 → 245 →
+  268** (10 controls, 258 product), the last step being the connections migration's own 23. The
   six beyond 608 are the three defects' own, including BOTH directions of the new wall and the
   two wiring hops where a call site hands the helper a fabricated landed answer; three older
   anchors were re-anchored, not appeased.
@@ -5812,9 +5815,112 @@ It is one line, below the comment, and re-throwing is the same property.
   away**: their evidence is the nine-mutant spot-check and their own red-proofs, not this
   tally. *Saying which commit a tally covers is the difference between a measurement and a
   stamp.*
-- **The SQL sweep is still running at that commit**, over 245 entries; every mutant creates a
-  database and applies every migration, which is what it costs to prove a guarantee against the
-  engine that enforces it. Its tally is deliberately not stamped until it ends.
+- **THE SQL SWEEP OF THE 245 PRE-EXISTING ENTRIES IS OUTSTANDING, and that is stated rather
+  than rounded into a pass.** Every mutant creates a database and applies every migration, so
+  **one costs ~75 seconds measured** and the whole 268 is ~5.5 hours; the run at `1ae72ef` was
+  killed by a container restart before it ended, and its worktree is proved restored two ways
+  (clean `git status`, and the generator's anchor census green — 608 unique, which it cannot be
+  while a mutant is applied). **No tally is stamped for those 245 and none is implied.**
+- **THE CONNECTIONS MIGRATION'S OWN 23 ARE RUNNING AS THIS IS WRITTEN, and the tally is
+  deliberately absent until they end** — the rule is that a measured number is stamped AFTER the
+  run, and a sweep two thirds through has killed nothing it cannot still be surprised by. They go
+  against the same two checks the full sweep uses, in the same detached worktree, at the commit
+  that carries them. **A narrow list can only produce a false SURVIVOR, never a false kill**, so
+  whatever it answers is evidence for these 23 and for nothing else.
+- **Measured while it ran: ~75 seconds per mutant** (a baseline plus 7 mutants in 8m50s), which
+  is where the ~7 hours for the whole 268 comes from — and it is the reason the full set is a
+  background job rather than a step in a change.
+
+### ⚠ AND A FOURTH, WHICH IS A PRIVILEGE RATHER THAN A BRANCH: the Worker's own role could read every credential
+
+The three above were found by re-reading the write path. This one could not be: it is not in
+the write path at all, and no amount of reading `connections.mjs` reaches it. **The migration's
+own header says the credential has ONE DOOR and it is not a read. That was true of the SCHEMA
+and false of the PRIVILEGES**, because the grant was
+`grant select, insert, update on table agent.connections to service_role` and a TABLE grant
+includes `secret`.
+
+**MEASURED BEFORE THE FIX, because a grant is a fact to ask Postgres rather than to read off a
+line**: `has_column_privilege('service_role','agent.connections','secret','select')` answered
+**TRUE**, and the ACL read `{postgres=arwdDxt/postgres,service_role=arw/postgres}`. So the role
+this engine runs as could have asked PostgREST for **every customer's credential in one
+query** — past the one door, past the lease's four refusals, past the scope check, all of which
+were correct and none of which is on that path.
+
+**THE FIX IS THE POSITIVE COLUMN LIST `authenticated` ALREADY HAD, AND INSERT AND UPDATE GO
+ENTIRELY.** All five functions are `security definer` and therefore run as the OWNER, so the
+calling role needs no table grant to use them — which is what makes closing this free rather
+than a trade. What it does need is SELECT on the columns `agent.connection_list` names, because
+that view is `security_invoker` and its query runs as whoever reads it, this role included.
+After: table-level select/insert/update/delete all **false**, ACL
+`{postgres=arwdDxt/postgres}`.
+
+**AND IT IS PROVED AS THAT ROLE, NOT READ OFF THE ACL — with three CONTROLS, because a wall
+that also closed the one door would satisfy every negative on its own.** Connecting works
+(`security definer`, so no grant needed), the lease answers the credential, the view is
+readable; `select secret`, `select *` and a direct write are each refused.
+**`select *` is the one worth stating**: Postgres checks the columns a query really NAMES, so a
+positive list refuses the star rather than widening to it — which is the whole reason a column
+grant is not merely a tidier table grant.
+
+**⚠ THE HARNESS WAS READING THROUGH THE VERY GRANT BEING REMOVED, and that is how a privilege
+this wide survived 899 checks.** Five checks used `jget`'s default — `asWriter`, which is
+`service_role` — to read a credential column or force a clock with a direct UPDATE. They were
+**exercising a door that should not exist**, so they were green for the wrong reason and the
+fix turned them red. They ask the owner now, which is the honest instrument for *what does the
+row hold* and for putting a row into a state on purpose; the refusals below them then mean
+something. *A harness that holds a privilege the product is about cannot measure it.*
+
+**⚠ AND ITS HANDLE IS `asRowOwner`, NOT `asOwner`, BECAUSE THIS FILE ALREADY HAS ONE.** The
+fence section near the top declares `const asOwner = {}` — no `set role` at all, which reaches
+the owner because `psql` runs `su postgres`. A second `asOwner` in a nested scope is legal and
+SHADOWS it silently, so the two would be one role under two spellings with a reader in either
+block liable to carry the wrong definition into the other. Named apart, there is nothing to
+carry.
+
+### ⚠ AND THE CONNECTIONS MIGRATION HAD NO SQL MUTANTS AT ALL
+
+**Found by counting the spec PER FILE, not by a survivor** — and that is the only instrument
+that could have. Every other migration here carries between 2 and 40 mutants; the newest one,
+the one holding the credential, carried **none**. So the whole of this milestone's storage
+argument — the credential's one door, both grants being column lists, the view naming neither
+secret, `refreshable` being generated, a revocation destroying the credential, the lease's four
+refusals — rested on `pg-schema.mjs` alone, with nothing proving those checks can FAIL.
+
+**A SWEEP TALLY CANNOT SEE THIS, WHICH IS THE REUSABLE PART: a migration with no mutants
+contributes no survivors.** A clean `245 of 245 killed` is the same sentence whether the spec
+covers every migration or leaves one out entirely — the tally is a statement about the mutants
+that exist, and the missing ones are missing from the denominator too. **The instrument that can
+see it is a count per FILE**, and it is one command over the generated spec.
+
+**23 added (245 → 268, one of them the comment-only control), and both grants are mutated in
+BOTH DIRECTIONS** — widened to the whole table (the credential becomes readable with one
+query) and removed altogether (the `security_invoker` view becomes unreadable and the screen
+shows nothing). **The two failures need opposite fixes, so a single mutant would leave one of
+them unguarded**, and the removal direction is the one the migration's own comment records
+having shipped once already.
+
+### ⚠ And the fourth defect's CLASS was then looked for everywhere — two findings, both negative
+
+A privilege that contradicts a prose guarantee is a class, not an incident, so the obvious next
+question is where else it could be. **Both answers are negative and both are recorded, because a
+measured non-defect is the only thing that stops the same audit being run again from scratch.**
+
+1. **THE ONLY OTHER STORED SECRET IS THE WEBHOOK SIGNING KEY, AND IT WAS ALREADY RIGHT.** Every
+   secret-bearing column in every migration, found by scanning the declarations rather than by
+   recalling them: `agent.webhooks.secret`, and `agent.connections`' two. `agent.webhooks` holds
+   **no table grant to `service_role` at all** — every access is through `security definer`
+   functions, which is exactly the shape the connections fix now matches — and
+   `pg-schema.mjs` already asserts `has_table_privilege('service_role','agent.webhooks','select')`
+   is false. So that half was done correctly and is guarded; nothing to fix.
+2. **`seen.done` IS TRUTHY-CHECKED WHERE `seen.known` REQUIRES AN EXPLICIT `true`, AND THAT
+   ASYMMETRY IS CORRECT.** It looks like the first defect's shape — cannot-tell reading as a
+   value — and it is not: `done` carries the FOUND RECORD by contract, not a boolean (a guard
+   passes `done: { message: "it-landed" }` and the fake provider answers `done: true`/`false`),
+   and it is reached only once the adapter has explicitly claimed `known === true`, which is
+   where the fail-closed question is asked. **Requiring a boolean there would break the
+   documented shape**, so it is deliberately left alone — checked against the contract and the
+   existing guard rather than "tightened" on the strength of a resemblance.
 
 ### ⚠ Two instruments were less capable than what they stand in for
 
