@@ -881,10 +881,25 @@ const spec = [
     "     where k.agent_id = p_agent_id"),
   mWkm("⚠ SQL/knowledge: a search crosses AGENTS within one account",
     "       and k.agent_id = p_agent_id\n       and to_tsvector('english'", "       and to_tsvector('english'"),
-  mWkm("⚠ SQL/knowledge: a query of nothing but stopwords answers EVERY document",
-    "  if v_q is null or numnode(v_q) = 0 then\n    return;\n  end if;", "  if false then\n    return;\n  end if;"),
-  mWkm("SQL/knowledge: an empty search answers every document rather than none",
-    "  if p_query is null or btrim(p_query) = '' then\n    return;", "  if false then\n    return;"),
+  // ⚠ **THE WALL IS THE `@@` FILTER, AND THE TWO EARLY RETURNS THAT USED TO BE MUTATED HERE ARE
+  // NOT WALLS AT ALL — measured, after both survived and both labels turned out to be false.**
+  // They read `a query of nothing but stopwords answers EVERY document` and `an empty search
+  // answers every document rather than none`, and Postgres does neither: MEASURED with the very
+  // `plainto_tsquery` this function uses, an empty query AND a stopword-only query both give a
+  // tsquery of **0 nodes**, and `to_tsvector(…) @@` a 0-node tsquery is **false** — so with
+  // either guard cut the filter answers NO rows, which is the same answer the guard gives.
+  //
+  // **THE CODE ALREADY SAID SO and the labels contradicted it**: the first guard's own comment
+  // reads "NOTHING SEARCHED FOR IS NOTHING FOUND, and it is not every document." *A mutant's
+  // label is a claim about a consequence, and these two asserted one the database refuses to
+  // produce* — which is worse than a survivor, because the label is what a reader believes.
+  //
+  // What the guards really buy is an explicit early return: no pointless scan, and no Postgres
+  // NOTICE about a query with no lexemes. Worth keeping, not a wall, and not mutable.
+  // So the mutant is aimed at the thing that IS the wall, with the label those two wanted.
+  mWkm("⚠ SQL/knowledge: the match filter is gone, so a search answers EVERY document of that agent",
+    "       and to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.body, '')) @@ v_q",
+    "       and true"),
   mWkm("SQL/knowledge: the answer is the START of the document rather than the matched passage",
     "             'text',    ts_headline('english', k.body, v_q,", "             'text',    left(k.body, 400), 'unused', (("),
   mWkm("SQL/knowledge: two sources of one name per agent, so a retrieval answer names nothing",
