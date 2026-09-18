@@ -3862,6 +3862,43 @@ try {
     jget(`select agent.operation_settle('${SW_T}','k1','remember','h1','{"saved":"corrected"}'::jsonb) ->> 'settled';`) === "false");
   check("...so the FIRST answer still stands",
     jget(`select outcome ->> 'saved' from agent.operations where tenant_id='${SW_T}' and op_key='k1';`) === "created");
+  // ⚠ **THE FIVE PROPERTIES `operation_begin` AND `operation_settle` REST ON, DRIVEN HERE —
+  // because they were driven ONLY where a SQL sweep cannot see them.** Every one of them is
+  // proved by `verify:ops` and by the engine's own suite, and the SQL sweep runs NEITHER: it runs
+  // this file and `authored-run` alone. Five mutants over these two functions survived a full
+  // run for exactly that reason — this file mentioned them four times in total, all about
+  // settling an existing row. *A property proven only by an instrument the sweep cannot run is a
+  // property no mutant can be caught by*, and this directory records that trap; here it is, in
+  // the money path's own idempotency.
+  const OPK = "ops-drive-1";
+  allowed("a slot is claimed once", `select agent.operation_begin('${SW_T}','${OPK}','send','hA');`, asWriter);
+  check("⚠ ...and beginning it AGAIN does not claim it — a second caller must not also send",
+    jget(`select agent.operation_begin('${SW_T}','${OPK}','send','hA') ->> 'began';`) === "false");
+  check("⚠ ...and the second caller is told it is UNFINISHED rather than a repeat with no answer",
+    jget(`select agent.operation_begin('${SW_T}','${OPK}','send','hA') ->> 'state';`) === "unfinished");
+  // THE IDENTITY IS THE ACTION AND THE ARGUMENTS, so one slot cannot serve different work.
+  check("⚠ a DIFFERENT action on the same key is a mismatch, not a claim",
+    jget(`select agent.operation_begin('${SW_T}','${OPK}','cancel','hA') ->> 'error';`) === "mismatch");
+  check("⚠ ...and so are different ARGUMENTS under the same action",
+    jget(`select agent.operation_begin('${SW_T}','${OPK}','send','hB') ->> 'error';`) === "mismatch");
+  check("...and neither of those wrote anything over the slot",
+    jget(`select action || '|' || args_hash || '|' || coalesce(outcome::text,'-')
+            from agent.operations where tenant_id='${SW_T}' and op_key='${OPK}';`) === "send|hA|-");
+  // SETTLING COMPARES THE IDENTITY TOO, or another call's answer lands on this slot.
+  check("⚠ settling under different ARGUMENTS settles nothing",
+    jget(`select agent.operation_settle('${SW_T}','${OPK}','send','hB','{"sent":"wrong"}'::jsonb) ->> 'ok';`) === "false");
+  check("...and the slot is still unanswered",
+    jget(`select coalesce(outcome::text,'-') from agent.operations
+           where tenant_id='${SW_T}' and op_key='${OPK}';`) === "-");
+  refused("⚠ settling with NO outcome is refused, so an answer of nothing cannot be stored",
+    `select agent.operation_settle('${SW_T}','${OPK}','send','hA',null);`,
+    "an outcome is required", asWriter);
+  check("...and THE CONTROL: the matching identity really does settle it",
+    jget(`select agent.operation_settle('${SW_T}','${OPK}','send','hA','{"sent":"right"}'::jsonb) ->> 'settled';`) === "true");
+  check("...leaving the answer that was really given",
+    jget(`select outcome ->> 'sent' from agent.operations
+           where tenant_id='${SW_T}' and op_key='${OPK}';`) === "right");
+
   check("the owning account reads its own operation record",
     psql(`select count(*) from agent.operations where op_key='k1';`,
       { role: "authenticated", claims: `{"tenant_id":"${SW_T}"}` }).out === "1");
