@@ -1,0 +1,212 @@
+[
+  {
+    "label": "CONTROL: the executed-handling heading comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": " * THE REPLY AS THE BROWSER REALLY HANDLES IT — `addonAnswer`, EXECUTED.",
+    "to": " * THE REPLY AS THE BROWSER REALLY HANDLES IT (control) — `addonAnswer`."
+  },
+  {
+    "label": "CONTROL: httpOkOf's own heading comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": " * `Response.ok`, and `null` FOR A STATUS NOBODY RECORDED.",
+    "to": " * `Response.ok`, and `null` FOR A STATUS NOBODY RECORDED (control)."
+  },
+  {
+    "label": "THE REPORTED DEFECT: the success composer runs unconditionally, with no selection at all",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    BROWSER_SOURCE = { ok: true, src: BROWSER_FNS.map(cut).join(\"\\n\") + \"\\nreturn addonAnswer;\" };",
+    "to": "    BROWSER_SOURCE = { ok: true, src: BROWSER_FNS.map(cut).join(\"\\n\") + \"\\nreturn function (h, a, o) { o.finish(addonReplyText(a || {}) + renderTail(a || {})); };\" };"
+  },
+  {
+    "label": "the status is thrown away and every reply is read as a 2xx",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    answer(httpOk, (reply && typeof reply === \"object\") ? reply : null, {",
+    "to": "    answer(true, (reply && typeof reply === \"object\") ? reply : null, {"
+  },
+  {
+    "label": "the status is thrown away and every reply is read as a failure",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    answer(httpOk, (reply && typeof reply === \"object\") ? reply : null, {",
+    "to": "    answer(false, (reply && typeof reply === \"object\") ? reply : null, {"
+  },
+  {
+    "label": "cannot-tell is read as a 2xx rather than refused",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "export function httpOkOf(status) {\n  return Number.isFinite(status) ? (status >= 200 && status < 300) : null;",
+    "to": "export function httpOkOf(status) {\n  return Number.isFinite(status) ? (status >= 200 && status < 300) : true;"
+  },
+  {
+    "label": "cannot-tell is read as a refusal rather than refused",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  return Number.isFinite(status) ? (status >= 200 && status < 300) : null;",
+    "to": "  return status ? (status >= 200 && status < 300) : null;"
+  },
+  {
+    "label": "a non-numeric status is coerced instead of answering cannot-tell",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  return Number.isFinite(status) ? (status >= 200 && status < 300) : null;",
+    "to": "  return status == null ? null : (Number(status) >= 200 && Number(status) < 300);"
+  },
+  {
+    "label": "the 2xx band's upper edge moves, so a 300 reads as a success",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "(status >= 200 && status < 300) : null;",
+    "to": "(status >= 200 && status <= 300) : null;"
+  },
+  {
+    "label": "the refusal to compose is dropped and a status-less reply is composed anyway",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (httpOk !== true && httpOk !== false) {\n    return {\n      ok: false, text: \"\", actions: [],",
+    "to": "  if (false) {\n    return {\n      ok: false, text: \"\", actions: [],"
+  },
+  {
+    "label": "the refusal to compose carries text, so a guess reads as an answer",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      ok: false, text: \"\", actions: [],\n      why: \"the response status was not recorded",
+    "to": "      ok: true, text: \"✅ Done.\", actions: [],\n      why: \"the response status was not recorded"
+  },
+  {
+    "label": "the reader is never handed the status, so every case reads NOT COMPOSED",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const told = customerLines(r, x && x.status).join(\"\\n      \");",
+    "to": "  const told = customerLines(r).join(\"\\n      \");"
+  },
+  {
+    "label": "the status never reaches the check from the POST",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const extra = { status: p && p.status };",
+    "to": "    const extra = {};"
+  },
+  {
+    "label": "customerLines hardcodes a success rather than reading what it was handed",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const b = browserReply(r, httpOkOf(status));",
+    "to": "  const b = browserReply(r, true);"
+  },
+  {
+    "label": "the label claims the success composer over a reply the browser refused",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    out.push(`the customer's screen (the browser's own addonAnswer, executed, HTTP ${Number.isFinite(status) ? status : \"?\"}), ${lines.length} line(s):`);",
+    "to": "    out.push(`the customer's screen (the browser's own addonReplyText, executed, HTTP ${Number.isFinite(status) ? status : \"?\"}), ${lines.length} line(s):`);"
+  },
+  {
+    "label": "the selection is dropped from the executed set, so the success composer is the entry again",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  \"addonReplyText\", \"renderTail\", \"alsoTail\", \"applyAddonResult\", \"addonAnswer\",",
+    "to": "  \"addonReplyText\", \"renderTail\", \"alsoTail\", \"applyAddonResult\","
+  },
+  {
+    "label": "the real call site's third term is dropped from the executed set",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  \"addonReplyText\", \"renderTail\", \"alsoTail\", \"applyAddonResult\", \"addonAnswer\",",
+    "to": "  \"addonReplyText\", \"renderTail\", \"applyAddonResult\", \"addonAnswer\","
+  },
+  {
+    "label": "the applied branch is dropped from the executed set",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  \"addonReplyText\", \"renderTail\", \"alsoTail\", \"applyAddonResult\", \"addonAnswer\",",
+    "to": "  \"addonReplyText\", \"renderTail\", \"alsoTail\", \"addonAnswer\","
+  },
+  {
+    "label": "THE HOP IS REALLY TAKEN: the sideways post is no longer a recorder",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      (site, d) => {\n        const layer = d && typeof d.layer === \"string\" ? d.layer : \"\";\n        actions.push(\"post a SECOND, PAID request to the edit route\" + (layer ? ` (layer ${JSON.stringify(layer)})` : \"\"));\n      },",
+    "to": "      (site, d) => { void d; },"
+  },
+  {
+    "label": "THE REWRITE IS REALLY STARTED: the fallback is no longer a recorder",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      fallback: () => { actions.push(\"start the FULL ~25-credit rewrite (the browser's `fallback`)\"); },",
+    "to": "      fallback: () => {},"
+  },
+  {
+    "label": "the browser's own stored site list is written from a harness read",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      () => null,\n      () => { actions.push(\"write the browser's own stored site list\"); },",
+    "to": "      () => ({ pages: [], tables: [] }),\n      () => { actions.push(\"write the browser's own stored site list\"); },"
+  },
+  {
+    "label": "the recorded actions never reach the report",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (acts.length) {\n    out.push(`   and the browser would then (NOT done here — recorded only), ${acts.length}:`);",
+    "to": "  if (false) {\n    out.push(`   and the browser would then (NOT done here — recorded only), ${acts.length}:`);"
+  },
+  {
+    "label": "the actions are reported as having happened",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    out.push(`   and the browser would then (NOT done here — recorded only), ${acts.length}:`);",
+    "to": "    out.push(`   and the browser then did, ${acts.length}:`);"
+  },
+  {
+    "label": "the instruction is dropped, so every fall becomes the lost-the-message screen",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      instruction: \"the ask this run posted\",",
+    "to": "      instruction: \"\","
+  },
+  {
+    "label": "a branch that shows nothing is reported as a composer answering an empty string",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      shown: typeof text === \"string\",",
+    "to": "      shown: true,"
+  },
+  {
+    "label": "a reply the browser could not parse is handed on as an object",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    answer(httpOk, (reply && typeof reply === \"object\") ? reply : null, {",
+    "to": "    answer(httpOk, (reply && typeof reply === \"object\") ? reply : {}, {"
+  }
+]

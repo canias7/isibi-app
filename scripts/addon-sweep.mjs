@@ -552,49 +552,79 @@ export function photoLines(reply) {
 }
 
 /**
- * THE REPLY AS THE BROWSER REALLY COMPOSES IT — `addonReplyText`, EXECUTED.
+ * THE REPLY AS THE BROWSER REALLY HANDLES IT — `addonAnswer`, EXECUTED.
  *
- * Owner, 2026-09-18: *"Capture the actual browser-composed customer reply.
- * `customerLines` currently reports 'NOTHING' for a response whose browser
- * formatter produces the success sentence, placeholder explanation and missing-
- * link warning. Reuse or execute the existing formatter; don't create another
- * composition."*
+ * Owner, 2026-09-18: *"`browserReply` invokes the success formatter on
+ * refusals. For `{ok:false, error:"lost-photos", msg:"…"}` the harness labels
+ * '✅ Done.' as the customer's screen. The browser's `addonAnswer` instead
+ * displays the warning plus `msg`. Respect the browser's actual response
+ * selection, including HTTP status."*
  *
- * THE GAP WAS REAL AND ITS CAUSE IS WORTH NAMING. The per-field reader below
- * finds `msg` and every `*Note`, and its census proves that rule reaches every
- * sentence the browser prints VERBATIM — which is true and is not the whole
- * reply. Most of what a customer reads on a success is COMPOSED rather than
- * quoted: *"✅ Done — added /gallery, updated /."* is built from `added` and
- * `changed`, the placeholder explanation from `pictures`/`photos`, the
- * *"Nothing links to /gallery yet"* warning from `unlinked`. A reply carrying
- * those and no `coverNote` has no verbatim sentence at all, so the honest
- * answer to "what was the customer told" was *NOTHING* while the screen showed
- * three sentences. **A census that proves its rule complete for one class of
- * field says nothing about a class it never asked about.**
+ * THE DEFECT AND ITS CAUSE. The first cut of this executed `addonReplyText` —
+ * the SUCCESS composer — unconditionally, which is right for the branch it
+ * belongs to and is a whole layer short of the browser. `addonAnswer` SELECTS
+ * before anything is composed, and it has four answers: an escalate hops
+ * sideways or falls, a non-2xx or `ok:false` shows `'⚠️ ' + msg` (or falls), a
+ * null body falls, and only the last branch reaches `applyAddonResult` and the
+ * success composer. So the round before this fixed COMPOSITION and left
+ * SELECTION re-implemented as "always the success one" — the same two-copies
+ * trap one layer up, and it reported `✅ Done.` over a refusal that published
+ * nothing.
  *
- * EXECUTED, NEVER RE-WRITTEN. `public/chat.js` is a classic script, so the
- * function and the five it calls are cut out and evaluated — the pattern
- * `test/site-addon.test.mjs` already drives it with, and `EditPoll` is the real
- * module rather than a stub so the recovered branch is the browser's own. A
- * second composition here would be the recorded two-copies trap in the one
- * place it matters most: a harness reporting a sentence the product does not
- * say, on the run bought to read what the product says.
+ * `httpOk` IS `Response.ok` AND IS NOT DERIVABLE FROM THE BODY. A 422 carrying
+ * `{ok:false, msg}` and a 200 carrying the same body are two different screens
+ * in the real browser, and only the status tells them apart — so the status is
+ * carried from the POST (`p.status`) rather than guessed at here.
+ * `httpOkOf(status)` answers `null` for a status nobody recorded, and a `null`
+ * REFUSES to compose: picking either branch would be a guess, and the wrong
+ * guess is the defect above wearing a different hat.
  *
- * `renderTail` IS INCLUDED AND `alsoTail` IS NOT, and the line is which
- * argument they take. The browser finishes with `addonReplyText(a) +
- * renderTail(a) + alsoTail(d)`; the first two read the SAME reply this is
- * handed, and `alsoTail(d)` reads the leftover of a second request the harness
- * makes separately and reports on its own (`hopNote`). Gluing an unrelated
- * object in would be composing rather than executing.
+ * NO EXTERNAL ACTION CAN OCCUR, and that is structural rather than careful.
+ * The two arms that reach outside are INJECTED as recorders — `siteEdit` (the
+ * sideways hop, a second paid POST) and `o.fallback` (the ~25-credit full
+ * rewrite) — so each is reported as a thing the browser WOULD do and none of
+ * them happens; `siteById` answers `null`, so the whole local-record mutation
+ * block is skipped and `sitesSave` is unreachable; `scheduleCreditRefresh` is
+ * recorded and does nothing. The seams are per call, so one reply's recording
+ * can never be read as another's.
+ *
+ * `o.instruction` AND `o.fallback` ARE BOTH REAL, because `canFall` reads them
+ * and the browser really has both on every post this harness makes. Handing in
+ * neither would drive the lost-the-original-message branch — a screen the
+ * harness's own posts can never produce — which is a fixture LESS capable than
+ * reality in the one field the selection turns on.
+ *
+ * `alsoTail(d)` IS NOW EXECUTED, with `d` UNDEFINED, and that is honest rather
+ * than a hole: `d` is the ROUTING decision (`/api/site/route`'s answer) and
+ * carries `alsoAsked` alone, the harness posts straight to the addon route and
+ * has no routing call, so there is no `d` — and `alsoTail(undefined)` is `''`.
+ * The real call site is executed rather than two-thirds of it.
  *
  * IT CANNOT THROW OUT. A reader that killed a paid run because a cut moved
  * would be an instrument more fragile than the thing it measures, so a failure
  * is `{ok: false, why}` and says so in the log — and the per-field breakdown
  * below still prints, which is what makes this additive.
  */
-let BROWSER_COMPOSER = null;
-function browserComposer() {
-  if (BROWSER_COMPOSER) return BROWSER_COMPOSER;
+export const BROWSER_FNS = Object.freeze([
+  "problemNote", "photoNote", "sitePathOf", "browserTimeZone", "jobWords",
+  "addonReplyText", "renderTail", "alsoTail", "applyAddonResult", "addonAnswer",
+]);
+
+/**
+ * `Response.ok`, and `null` FOR A STATUS NOBODY RECORDED.
+ *
+ * Three states, not two. `undefined` here is cannot-tell — an answer the
+ * browser never has and this harness can — and it must never read as either
+ * branch: `false` would report a refusal screen over a successful change and
+ * `true` the defect this round exists to fix.
+ */
+export function httpOkOf(status) {
+  return Number.isFinite(status) ? (status >= 200 && status < 300) : null;
+}
+
+let BROWSER_SOURCE = null;
+function browserSource() {
+  if (BROWSER_SOURCE) return BROWSER_SOURCE;
   try {
     const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
     const cut = (name) => {
@@ -604,25 +634,60 @@ function browserComposer() {
       if (end < 0) throw new Error(name + " has no end in chat.js");
       return chat.slice(at, end + 2);
     };
-    const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
-    const fn = new Function("EditPoll",
-      ["problemNote", "photoNote", "sitePathOf", "browserTimeZone", "jobWords", "addonReplyText", "renderTail"].map(cut).join("\n") +
-      "\nreturn (a) => addonReplyText(a) + renderTail(a);")(EditPoll);
-    BROWSER_COMPOSER = { ok: true, fn };
+    BROWSER_SOURCE = { ok: true, src: BROWSER_FNS.map(cut).join("\n") + "\nreturn addonAnswer;" };
   } catch (e) {
-    BROWSER_COMPOSER = { ok: false, why: String((e && e.message) || e).split("\n")[0].slice(0, 120) };
+    BROWSER_SOURCE = { ok: false, why: String((e && e.message) || e).split("\n")[0].slice(0, 120) };
   }
-  return BROWSER_COMPOSER;
+  return BROWSER_SOURCE;
 }
 
-export function browserReply(reply) {
-  const c = browserComposer();
-  if (!c.ok) return { ok: false, text: "", why: "the browser's own composer could not be loaded — " + c.why };
+export function browserReply(reply, httpOk) {
+  const s = browserSource();
+  if (!s.ok) return { ok: false, text: "", actions: [], why: "the browser's own handling could not be loaded — " + s.why };
+  // CANNOT-TELL REFUSES. The browser's first question about a reply is its HTTP
+  // status, so a harness that does not know it cannot say what the screen said.
+  if (httpOk !== true && httpOk !== false) {
+    return {
+      ok: false, text: "", actions: [],
+      why: "the response status was not recorded, and the browser's own selection reads it — composing either branch would be a guess",
+    };
+  }
+  const actions = [];
   try {
-    const text = c.fn((reply && typeof reply === "object") ? reply : {});
-    return { ok: true, text: typeof text === "string" ? text : String(text), why: "" };
+    const answer = new Function(
+      "EditPoll", "siteEdit", "scheduleCreditRefresh", "siteById", "sitesSave", s.src,
+    )(
+      createRequire(import.meta.url)("../public/edit-poll.js"),
+      (site, d) => {
+        const layer = d && typeof d.layer === "string" ? d.layer : "";
+        actions.push("post a SECOND, PAID request to the edit route" + (layer ? ` (layer ${JSON.stringify(layer)})` : ""));
+      },
+      () => { actions.push("refresh the credit balance"); },
+      () => null,
+      () => { actions.push("write the browser's own stored site list"); },
+    );
+    let text = null;
+    answer(httpOk, (reply && typeof reply === "object") ? reply : null, {
+      site: null,
+      d: undefined,
+      origin: "",
+      slug: "",
+      instruction: "the ask this run posted",
+      finish: (t) => { text = String(t); },
+      fallback: () => { actions.push("start the FULL ~25-credit rewrite (the browser's `fallback`)"); },
+    });
+    return {
+      ok: true,
+      text: typeof text === "string" ? text : "",
+      shown: typeof text === "string",
+      actions,
+      why: "",
+    };
   } catch (e) {
-    return { ok: false, text: "", why: "the browser's own composer threw on this reply — " + String((e && e.message) || e).split("\n")[0].slice(0, 120) };
+    return {
+      ok: false, text: "", actions,
+      why: "the browser's own handling threw on this reply — " + String((e && e.message) || e).split("\n")[0].slice(0, 120),
+    };
   }
 }
 
@@ -647,23 +712,38 @@ export function browserReply(reply) {
  * is the thing its own guard forbids. Each sentence labelled and whole is
  * strictly more than the glued string and loses nothing.
  */
-export function customerLines(reply) {
+export function customerLines(reply, status) {
   const r = (reply && typeof reply === "object") ? reply : {};
   const str = (v) => (typeof v === "string" && v.trim() ? v : "");
   const out = [];
   // ── WHAT THE SCREEN REALLY SAYS, FIRST ────────────────────────────────────
   //
-  // The browser's own `addonReplyText`, run on this reply. It is first because
-  // it is the thing a person reads; the per-field breakdown under it is the
-  // developer's half and is strictly more rather than instead.
-  const b = browserReply(r);
+  // The browser's own `addonAnswer`, run on this reply AND its status. It is
+  // first because it is the thing a person reads; the per-field breakdown under
+  // it is the developer's half and is strictly more rather than instead.
+  const b = browserReply(r, httpOkOf(status));
   if (b.ok) {
     const lines = b.text.split("\n").map((s) => s.trim()).filter(Boolean);
-    out.push(`the customer's screen (the browser's own addonReplyText, executed), ${lines.length} line(s):`);
+    out.push(`the customer's screen (the browser's own addonAnswer, executed, HTTP ${Number.isFinite(status) ? status : "?"}), ${lines.length} line(s):`);
     for (const line of lines) out.push(`     ▸ ${line}`);
-    if (!lines.length) out.push(`     ▸ (the composer answered an empty string — the screen shows nothing)`);
+    // A BROWSER THAT SHOWS NOTHING AND A BROWSER THAT SHOWS AN EMPTY STRING ARE
+    // TWO DIFFERENT ANSWERS: the escalate and fall branches never call `finish`
+    // at all, and the action line below is where that outcome really lives.
+    if (!lines.length) {
+      out.push(b.shown
+        ? `     ▸ (the composer answered an empty string — the screen shows nothing)`
+        : `     ▸ (nothing was shown — this reply takes a branch that acts instead of printing)`);
+    }
   } else {
-    out.push(`the customer's screen: COULD NOT BE COMPOSED — ${b.why}`);
+    out.push(`the customer's screen: NOT COMPOSED — ${b.why}`);
+  }
+  // WHAT THE REAL BROWSER WOULD DO BESIDE PRINTING, recorded and never done: a
+  // sideways hop is a second PAID post and a fall is the ~25-credit rewrite, so
+  // a run that reported only the text would be silent about the expensive half.
+  const acts = (b && Array.isArray(b.actions)) ? b.actions : [];
+  if (acts.length) {
+    out.push(`   and the browser would then (NOT done here — recorded only), ${acts.length}:`);
+    for (const a of acts) out.push(`     ↳ ${a}`);
   }
   // `msg` FIRST here too, because on a refusal it IS the whole reply — and a
   // refusal is exactly the outcome whose sentence used to be dropped on the
@@ -1332,7 +1412,10 @@ export function askCase(ask) {
       // behind `r.ok` — is what makes a 422's own sentence and its `lostPhotos`
       // list readable at all.
       const pics = photoLines(r).join("\n      ");
-      const told = customerLines(r).join("\n      ");
+      // THE STATUS IS CARRIED, NEVER DERIVED FROM THE BODY. The browser's first
+      // question about a reply is `Response.ok`, and a 422 with `{ok:false,msg}`
+      // and a 200 with the same body are two different screens.
+      const told = customerLines(r, x && x.status).join("\n      ");
       const props = bad.length ? `; asked for ${bad.length} guarantee(s) the tool does not offer: ${JSON.stringify(bad.slice(0, 6))}` : "";
       const refused = r && r.error ? String(r.error) : "";
       const claimed = r && r.ok === true;
@@ -1710,7 +1793,11 @@ async function main() {
       console.log(`   the job answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
     }
     const body = (p && p.json) || {};
-    const extra = {};
+    // THE STATUS TRAVELS WITH THE BODY, because the browser's own selection
+    // reads it (`Response.ok`) before it reads anything in the reply — and for
+    // a queued case `p` is the STORED reply's status by then, which is the one
+    // the browser's poll hands to the very same reader.
+    const extra = { status: p && p.status };
     // ── THE HOP ───────────────────────────────────────────────────────────
     //
     // A photograph is the picture rung's: the add step escalates naming that
