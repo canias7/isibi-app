@@ -378,6 +378,10 @@ export function memoryRest({ now = () => Date.now() } = {}) {
           steps: a.steps, zone: a.zone, outcomes: [], missed: null, finished_at: null,
           position: 0, vars, input: given ?? {}, memory: snap,
           waiting: null, wait_until: null, decisions: {},
+          // ⚠ THE COLUMNS' OWN DEFAULTS, and they are here because a fake that answered
+          // `undefined` for them would let a store which had stopped reading them look
+          // correct — the row read as a loop at its beginning either way.
+          loops: {}, tries: {}, uses: [],
           created_at: new Date(now()).toISOString(),
         };
         execs.set(runId, exec);
@@ -408,6 +412,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         occurrence: occ, steps: a?.steps ?? [], zone: a?.zone ?? null, outcomes: [], missed: missed ?? null,
         finished_at: new Date(now()).toISOString(),
         position: 0, vars: {}, input: {}, memory: {}, waiting: null, wait_until: null, decisions: {},
+        loops: {}, tries: {}, uses: [],
         created_at: new Date(now()).toISOString() });
       runs.set(runId, { id: runId, tenant_id: tenant, status: "stopped", agent_name: "automation", model: "none",
         limits: null, stop, created_at: "2026-09-15T00:00:00Z" });
@@ -462,13 +467,23 @@ export function memoryRest({ now = () => Date.now() } = {}) {
      */
     if (p.endsWith("/rpc/advance_automation_run") && init.method === "POST") {
       const { p_run_id: id, p_worker: worker, p_token: token, p_entry: entry,
-              p_position: pos, p_vars: vars, p_outcomes: outcomes, p_waiting: waiting = null } = body;
+              p_position: pos, p_vars: vars, p_outcomes: outcomes, p_waiting: waiting = null,
+              p_loops: loops = {}, p_tries: tries = {} } = body;
       if (!entry || entry.kind !== "step") return res(400, { message: 'advance_automation_run: a step\'s progress is recorded as a "step" entry' });
       if (!Array.isArray(outcomes)) return res(400, { message: "advance_automation_run: the outcomes must be a list, one per step attempted" });
       if (!vars || typeof vars !== "object" || Array.isArray(vars)) return res(400, { message: "advance_automation_run: the values must be an object of name to value" });
       if (!Number.isInteger(pos) || pos < 0) return res(400, { message: "advance_automation_run: the position must be a whole number of steps" });
       if (waiting !== null && (typeof waiting !== "object" || typeof waiting.step !== "string")) {
         return res(400, { message: "advance_automation_run: a pause has to say which step it is waiting at" });
+      }
+      // ⚠ CANNOT-TELL MUST NEVER READ AS A VALUE, exactly as the function refuses it: a null
+      // loop state is a caller that did not say, and writing `{}` for it would tell the next
+      // delivery that a loop half way through its rounds is at its beginning.
+      if (!loops || typeof loops !== "object" || Array.isArray(loops)) {
+        return res(400, { message: "advance_automation_run: the loop state must be an object of step id to progress" });
+      }
+      if (!tries || typeof tries !== "object" || Array.isArray(tries)) {
+        return res(400, { message: "advance_automation_run: the attempt counts must be an object of step key to count" });
       }
       const log = entries.get(id) ?? new Map();
       const seq = log.size === 0 ? 0 : Math.max(...log.keys()) + 1;
@@ -492,13 +507,15 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         else until = new Date(now() + Math.max(1, Number(waiting.minutes) || 1) * 60e3).toISOString();
       }
 
-      // PROGRESS MAY ONLY MOVE FORWARD, measured the same two ways the real guard uses.
+      // ⚠ **THE OUTCOME COUNT IS WHAT MAY ONLY GROW, and the POSITION is free** — a `repeat`
+      // moves it backwards by design, and a guard on it made every checkpoint inside round two
+      // a silent no-op. The real function's own condition, mirrored.
       const moved = exec.finished_at === null
-        && (exec.position ?? 0) <= pos
         && (Array.isArray(exec.outcomes) ? exec.outcomes.length : 0) <= outcomes.length;
       if (moved) {
         exec.position = pos; exec.vars = vars; exec.outcomes = outcomes;
         exec.waiting = waiting; exec.wait_until = until;
+        exec.loops = loops; exec.tries = tries;
       }
       let released = null;
       if (waiting !== null) {
@@ -509,6 +526,47 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         }
       }
       return res(200, { ...answer, advanced: moved, position: pos, waiting: waiting !== null, wait_until: until, released });
+    }
+
+    /**
+     * `agent.automation_children` — every automation of ONE agent, as a parent copies it in.
+     *
+     * **THE SCOPE IS THE WALL AND IT IS THE QUERY'S**, so both filters are here: the tenant
+     * AND the agent. Two agents of one owner share a tenant, so a tenant filter alone would
+     * let one agent's workflow run the other's.
+     */
+    if (p.endsWith("/rpc/automation_children") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent_id: agentId } = body;
+      const rows = [...autos.values()]
+        .filter((a) => a.tenant_id === tenant && a.agent_id === agentId)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        .map((a) => ({ id: a.id, name: a.name, version: a.version ?? 1, steps: a.steps ?? [], inputs: a.inputs ?? [] }));
+      return res(200, rows);
+    }
+
+    /**
+     * `agent.set_automation_plan` — the flattened plan, once, before the first step.
+     *
+     * **THE SAME FENCE EVERY WRITE PRESENTS**, refusal for refusal, and `set: false` is NOT
+     * one of them: a redelivery whose first attempt already expanded finds the position
+     * moved, which is the ordinary case rather than a fault.
+     */
+    if (p.endsWith("/rpc/set_automation_plan") && init.method === "POST") {
+      const { p_run_id: id, p_worker: worker, p_token: token, p_steps: steps, p_uses: uses } = body;
+      if (!Array.isArray(steps)) return res(400, { message: "set_automation_plan: the flattened steps must be a list" });
+      if (!Array.isArray(uses)) return res(400, { message: "set_automation_plan: what was copied in must be a list" });
+      const w = work.get(id);
+      if (!w) return res(200, { ok: false, error: "no-work" });
+      if (w.done_at !== null) return res(200, { ok: false, error: "finished" });
+      if (w.claimed_by !== worker) return res(200, { ok: false, error: "not-holder" });
+      if (w.claim_token !== token) return res(200, { ok: false, error: "bad-token" });
+      if (w.lease_expires_at === null || w.lease_expires_at <= now()) {
+        return res(200, { ok: false, error: "lease-expired" });
+      }
+      const exec = execs.get(id);
+      const ok = !!exec && exec.finished_at === null && (exec.position ?? 0) === 0;
+      if (ok) { exec.steps = steps; exec.uses = uses; }
+      return res(200, { ok: true, set: ok, steps: steps.length });
     }
 
     /**

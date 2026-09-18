@@ -1561,6 +1561,9 @@ export const AUTOMATION_STEPS = Object.freeze([
   F({
     type: "approval",
     kind: "pause",
+    // ITS RESUME IS A DECISION STORED UNDER THIS STEP'S ID, which is why it cannot go in a
+    // loop. A DECLARED COPY of the engine's own flag, censused both ways.
+    decided: true,
     label: "Wait for approval",
     does: "Pause and ask to be approved or rejected before carrying on. Say what happens if nobody answers in time.",
     fields: Object.freeze([
@@ -1707,6 +1710,21 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
     }
     const def = byType.get(typeof raw.type === "string" ? raw.type : "");
     if (!def) return { error: `step ${at}: this platform has no step called ${String(raw.type ?? "(nothing)")}` };
+    /**
+     * ⚠ **A STEP WHOSE RESUME IS A STORED DECISION MAY NOT GO IN A LOOP.**
+     *
+     * `agent.automation_runs.decisions` is keyed by the STEP'S ID and the first decision at a
+     * key stands, so inside a `repeat` the same id comes round again with an answer already
+     * recorded — every round after the first would take the first round's verdict with
+     * nobody asked, which is an approval nobody gave rather than a run that gets stuck.
+     *
+     * DERIVED FROM THE CATALOG'S OWN FLAG, and the sentence is the engine's word for word:
+     * the two doors refuse the same shape with the same words or a customer gets a different
+     * answer depending on which one turned them away.
+     */
+    if (def.decided === true && depthOf(true) > 0) {
+      return { error: `step ${at}: "${def.label}" cannot go inside a "Repeat" — one answer would stand for every time round` };
+    }
     const one = { id: `s${at}`, type: def.type };
     for (const f of def.fields) {
       // ⚠ A FIELD THAT DOES NOT APPLY IS NOT READ AND IS NOT STORED. `when` says which
@@ -2803,6 +2821,25 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         steps: flow.steps, inputs: declared.inputs,
       };
 
+      /**
+       * ⚠ **WHAT A `workflow` STEP MAY NAME IS THE TRANSACTION'S ANSWER, and it needs its own
+       * sentences.** Both refusals used to fall through to "that agent isn't here any more",
+       * which is false and sends somebody to look at the wrong thing — measured, on the run
+       * that introduced them.
+       *
+       * `no-child` is 400 rather than 404 **because the workflow is what is wrong**, not the
+       * thing being saved, and because it is ONE answer for "not there" and "another agent's":
+       * naming the difference would tell a caller that an automation they cannot see exists.
+       * ONE reader, so the create and the edit cannot say it differently.
+       */
+      const callRefusal = (e) => {
+        if (e === "no-child") {
+          return no(400, "one of the automations this runs isn't one of this agent's — pick another");
+        }
+        if (e === "runs-itself") return no(400, "an automation can't run itself");
+        return null;
+      };
+
       if (!editing) {
         const agentId = cleanId(b.agent);
         if (!agentId) return no(400, "which agent?");
@@ -2812,6 +2849,7 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         // pointing at nothing.
         const a = await store.createAutomation(who, { agentId, id: mint(), ...shape });
         if (a.error === "no-agent") return NO_AGENT();
+        { const r = callRefusal(a.error); if (r) return r; }
         if (a.error === "too-many") {
           return no(409, `that's as many automations as one agent can hold (${MAX_AUTOMATIONS}) — delete one first`);
         }
@@ -2822,6 +2860,7 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       const id = cleanId(b.id);
       if (!id) return no(400, "which automation?");
       const a = await store.updateAutomation(who, { id, ...shape });
+      { const r = callRefusal(a.error); if (r) return r; }
       if (a.ok !== true) return NO_AUTOMATION();
       // ⚠ AN EDIT REACHES THE NEXT EXECUTION AND CAN NEVER REACH AN ACCEPTED ONE. What a
       // run executes was copied into its own record when it was accepted, so this

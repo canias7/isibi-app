@@ -63,7 +63,7 @@
 import { runAgent } from "./run.mjs";
 import { stoppedEntry } from "./journal.mjs";
 import { withInstructions, narrowTools } from "./define.mjs";
-import { runWorkflow } from "./automations.mjs";
+import { runWorkflow, expandWorkflow } from "./automations.mjs";
 
 /**
  * How long a claim is good for without a beat. **A LIVENESS CHECK, NOT A DURATION
@@ -365,6 +365,110 @@ export function makeRunner(opts = {}) {
       }
 
       /**
+       * ⚠ **THE SUBWORKFLOWS ARE COPIED IN BEFORE THE FIRST STEP, AND ONLY THERE.**
+       *
+       * `expandWorkflow` replaces a `workflow` step with the child's own steps, so from here
+       * down there is ONE list, one position, one budget and one set of outcomes — which is
+       * what makes the shared execution budget a property of the shape rather than a check.
+       *
+       * **PAST POSITION 0 THE LIST IS LEFT EXACTLY AS IT IS, and that is not an
+       * optimisation.** Expanding then would RENUMBER every position, and the outcomes
+       * already recorded would point at steps they are not about; `set_automation_plan`
+       * refuses the write, so the flattened list would run against a row that still holds
+       * the unflattened one. A `workflow` step that reaches the executor fails BY NAME — the
+       * step's own `run` says it was supposed to be copied in and was not — which is the
+       * honest reading of a row in that state.
+       *
+       * **NO FLAG SAYS WHETHER IT HAS BEEN EXPANDED, AND NONE IS NEEDED**: a flattened list
+       * holds no `workflow` step, so the absence of one IS the flag, in the only place that
+       * can see it. A redelivery whose first attempt expanded and then died finds the plan
+       * written and skips this whole block.
+       */
+      let steps = exec.steps;
+      if (exec.position === 0 && steps.some((st) => st && typeof st === "object" && st.type === "workflow")) {
+        // AN EXECUTION WITH NO AGENT RECORDED CANNOT LOOK ONE UP, and that is a refusal
+        // rather than an empty list: "this agent has no other automations" and "we cannot
+        // tell whose automations to look at" are opposite facts, and the second must not
+        // read as a workflow naming something that is not there.
+        if (!exec.agentId) {
+          return await finish(true, "unreadable",
+            "this execution has no agent recorded, so the automations it runs cannot be found");
+        }
+        let children;
+        try {
+          children = await automations.children({ tenant: claim.tenant, agentId: exec.agentId });
+        } catch (e) {
+          // COULD NOT ASK. Nothing is decided and nothing is written, so the run is released
+          // UNFINISHED and the sweeper offers it again — the same reading the read failing gets.
+          onError({ at: "automation-children", runId, error: String(e?.message ?? e) });
+          return await finish(false, "failed", String(e?.message ?? e));
+        }
+        const found = expandWorkflow({
+          steps,
+          // THE LOOKUP IS THE WALL. `expandWorkflow` is handed data and answers one refusal
+          // for "not there" and "not this agent's", because naming the difference would tell
+          // a caller that another account's automation exists.
+          lookup: (id) => children.find((c) => c && c.id === id) ?? null,
+        });
+        if (found.error) {
+          /**
+           * ⚠ **A WORKFLOW THAT CANNOT BE ASSEMBLED IS A FAILED EXECUTION WITH ITS REASON, not
+           * an unreadable one.** `unreadable` takes the run off the queue and says nothing a
+           * customer can act on; this is a workflow naming an automation that is not theirs,
+           * or running itself, or too deep — each of which somebody can fix, and each of which
+           * reads differently. So it stops the way a failed step stops, and the reason travels
+           * to the history where they will meet it.
+           */
+          const stop = { reason: "failed", at: null, error: found.error };
+          let answer;
+          try {
+            answer = await automations.finish({
+              runId, worker, token: hold.token, outcomes: [], stop, position: 0, values: {},
+            });
+          } catch (e) {
+            onError({ at: "automation-finish", runId, error: String(e?.message ?? e) });
+            return await finish(false, "failed", String(e?.message ?? e));
+          }
+          if (answer?.ok !== true) {
+            const why = typeof answer?.why === "string" ? answer.why : "unknown";
+            if (CLAIM_GONE.includes(why)) { held = false; lostBecause = "lease-lost"; }
+            return await finish(false, CLAIM_GONE.includes(why) ? "lease-lost" : "failed", why);
+          }
+          // ALREADY RELEASED BY THE TRANSACTION THAT FINISHED IT, exactly as an ordinary stop is.
+          stopBeating();
+          onEvent({ at: "done", runId, why: "ran", done: true, reason: "failed" });
+          return { ran: true, why: "ran", runId, stop, error: null };
+        }
+        let set;
+        try {
+          set = await automations.setPlan({
+            runId, worker, token: hold.token, steps: found.steps, uses: found.uses,
+          });
+        } catch (e) {
+          onError({ at: "automation-plan", runId, error: String(e?.message ?? e) });
+          return await finish(false, "failed", String(e?.message ?? e));
+        }
+        // A FENCED REFUSAL MEANS THIS WORKER MAY NOT WRITE, so it stops here and attempts
+        // nothing else — the same reading a refused checkpoint gets. `set: false` is NOT one
+        // of these: that is a plan somebody else already wrote, and the position it wrote is
+        // what the next delivery reads.
+        if (set?.ok !== true) {
+          const why = typeof set?.error === "string" ? set.error : "unknown";
+          if (CLAIM_GONE.includes(why)) { held = false; lostBecause = "lease-lost"; }
+          return await finish(false, CLAIM_GONE.includes(why) ? "lease-lost" : "failed",
+            `set_automation_plan: ${why}`);
+        }
+        // ⚠ **THE EXPANDED LIST IS ONLY RUN WHEN IT IS THE LIST THAT WAS STORED.** `set:
+        // false` means another worker's plan is in the row and the position may have moved,
+        // so running ours would execute a list the record does not hold. Released unfinished:
+        // the next delivery reads what is really there, which terminates.
+        if (set.set !== true) {
+          return await finish(false, "conflict", "this execution's plan was written by another worker");
+        }
+        steps = found.steps;
+      }
+
+      /**
        * ⚠ RETRIEVAL IS INJECTED, AND THIS IS THE ONE PLACE IT IS CHOSEN. The executor takes
        * a one-function contract and never knows what is behind it, so replacing keyword
        * search is replacing this closure. **An execution with no agent recorded REFUSES BY
@@ -390,7 +494,7 @@ export function makeRunner(opts = {}) {
        * reads it** — it stops there and attempts nothing else, which is exactly right: a
        * worker whose claim is gone must not write a stop either.
        */
-      const record = async ({ position, outcomes, values, waiting, at }) => {
+      const record = async ({ position, outcomes, values, waiting, at, loops, tries }) => {
         const entry = {
           kind: "step",
           // THE POSITION REACHED, which is what this entry is about. A pause records the
@@ -408,6 +512,12 @@ export function makeRunner(opts = {}) {
         try {
           answer = await automations.advance({
             runId, worker, token: hold.token, entry, position, values, outcomes, waiting,
+            // ⚠ **FORWARDED, because a value computed and never forwarded is this
+            // repository's most-recorded defect.** The executor renders both fresh on every
+            // checkpoint; dropping either here would leave a restart re-entering a loop at
+            // a round it has already done, or giving each delivery a fresh retry budget,
+            // with the executor and the database both perfectly correct.
+            loops, tries,
           });
         } catch (e) {
           onError({ at: "automation-advance", runId, error: String(e?.message ?? e) });
@@ -420,6 +530,17 @@ export function makeRunner(opts = {}) {
           if (CLAIM_GONE.includes(why)) { held = false; lostBecause = "lease-lost"; }
           return { ok: false, why };
         }
+        // ⚠ **A CHECKPOINT THAT WAS ACCEPTED AND DID NOT LAND IS SAID, never swallowed.** The
+        // fence answered `ok`, so this worker may write — and the row still refused the move,
+        // which now means one thing only: it already holds at least as many outcomes as we
+        // offered. That is the ordinary answer to a redelivery replaying work already
+        // recorded, and it is ALSO what a genuine disagreement looks like, so it goes in the
+        // log rather than being inferred later from a position that does not add up. **This is
+        // the line the loop defect hid behind**: for every round after the first the answer
+        // was `ok: true, advanced: false` and nothing anywhere looked at it.
+        if (answer?.advanced === false) {
+          onError({ at: "automation-stale", runId, error: `the row did not move to ${position}` });
+        }
         return { ok: true };
       };
 
@@ -427,7 +548,8 @@ export function makeRunner(opts = {}) {
       // `agent.automations`. That is what makes an edit reach the next execution and never
       // this one — the same rule the instruction snapshot follows one executor over.
       const walked = await runWorkflow({
-        steps: exec.steps,
+        // THE FLATTENED LIST, which is `exec.steps` unless this delivery expanded it.
+        steps,
         zone: exec.zone,
         occurrence: exec.occurrence,
         now,
@@ -439,6 +561,8 @@ export function makeRunner(opts = {}) {
         decisions: exec.decisions,
         waiting: exec.waiting,
         waitUntil: exec.waitUntil,
+        loops: exec.loops,
+        tries: exec.tries,
         memory: exec.memory,
         retrieve,
         record,

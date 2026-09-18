@@ -475,6 +475,70 @@ create index if not exists automation_runs_waiting
 drop function if exists agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer);
 drop function if exists agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb);
 
+-- ══════════════════════════════════════════════════════════════════════════
+-- 6b. WHAT A `workflow` STEP MAY NAME — checked where the workflow is WRITTEN
+--
+-- ⚠ **THIS IS THE WALL AT SAVE TIME, AND IT IS NOT THE SAME WALL AS THE EXPANSION'S.**
+-- `expandWorkflow` refuses an unknown child when a run starts, which is correct and is too
+-- late to be useful: the customer is gone and the answer is an execution that failed. This
+-- one refuses while it is still somebody's form, where it can be fixed.
+--
+-- **IT IS IN THE TRANSACTION RATHER THAN IN THE ROUTE, and that is the reason it is SQL.**
+-- A check outside the write can be raced — the child deleted between the check and the
+-- insert — and this repository already says exactly that about agent ownership two
+-- functions down. Here it is asked against rows this statement's own transaction can see.
+--
+-- **NOT FOUND AND NOT THIS AGENT'S ARE ONE ANSWER**, which is the same rule the run-time
+-- lookup follows and for the same reason: naming the difference would tell a caller that
+-- another account's automation exists.
+--
+-- **ONE STATED LIMIT: A DIRECT LOOP IS REFUSED AND AN INDIRECT ONE IS NOT.** `A runs A` is
+-- visible from this row alone; `A runs B` and `B runs A` is a walk of the graph, and the
+-- honest place for it is the expansion, which does it and refuses by name with the chain.
+-- So a cycle longer than one is a failed EXECUTION rather than a refused save, and saying
+-- so beats a half-check nobody can read the scope of.
+-- ══════════════════════════════════════════════════════════════════════════
+
+create or replace function agent.automation_calls(
+  p_tenant   text,
+  p_agent_id uuid,
+  p_self     uuid,
+  p_steps    jsonb
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_id   uuid;
+  v_step jsonb;
+begin
+  if p_steps is null or jsonb_typeof(p_steps) <> 'array' then
+    return jsonb_build_object('ok', true);
+  end if;
+  for v_step in select * from jsonb_array_elements(p_steps) loop
+    if v_step ->> 'type' is distinct from 'workflow' then continue; end if;
+    -- A `runs` THAT IS NOT AN ID IS THE READER'S REFUSAL, NOT THIS ONE'S. The step's own
+    -- field says an automation must be named; answering `no-child` here would send somebody
+    -- looking for a missing automation when what is missing is the answer.
+    begin
+      v_id := (v_step ->> 'runs')::uuid;
+    exception when others then
+      return jsonb_build_object('ok', false, 'error', 'no-child');
+    end;
+    if v_id = p_self then
+      return jsonb_build_object('ok', false, 'error', 'runs-itself');
+    end if;
+    if not exists (
+      select 1 from agent.automations
+       where id = v_id and tenant_id = p_tenant and agent_id = p_agent_id
+    ) then
+      return jsonb_build_object('ok', false, 'error', 'no-child');
+    end if;
+  end loop;
+  return jsonb_build_object('ok', true);
+end; $$;
+
+comment on function agent.automation_calls(text, uuid, uuid, jsonb) is
+  'Every automation a workflow says it runs must be one of the SAME agent''s, and must not be itself. Asked in the transaction that writes the workflow, because a check outside it can be raced. A cycle longer than one is the expansion''s to find.';
+
 create or replace function agent.create_automation(
   p_tenant     text,
   p_agent_id   uuid,
@@ -502,6 +566,7 @@ declare
   v_next  timestamptz := null;
   v_row   agent.automations;
   v_held  integer;
+  v_calls jsonb;
 begin
   if p_tenant is null or btrim(p_tenant) = '' then
     raise exception 'create_automation: tenant must be a non-empty string';
@@ -522,6 +587,12 @@ begin
     return jsonb_build_object('ok', false, 'error', 'too-many', 'held', v_held);
   end if;
 
+  -- ⚠ WHAT IT SAYS IT RUNS, before anything is written. A new automation cannot name
+  -- ITSELF — it has no rows yet, so `p_id` names nothing — and passing it anyway is what
+  -- makes the two call sites one shape rather than two.
+  v_calls := agent.automation_calls(p_tenant, p_agent_id, p_id, p_steps);
+  if (v_calls ->> 'ok')::boolean is not true then return v_calls; end if;
+
   -- THE ARITHMETIC, ONCE. A daily schedule gets its instant here; a manual one has
   -- none, and the constraint refuses a row that says otherwise.
   if p_schedule = 'daily' then
@@ -536,7 +607,8 @@ begin
      coalesce(p_steps, '[]'::jsonb), coalesce(p_inputs, '[]'::jsonb), v_next)
   returning * into v_row;
 
-  return jsonb_build_object('ok', true, 'id', v_row.id, 'next_run_at', v_row.next_run_at);
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'version', v_row.version,
+                            'next_run_at', v_row.next_run_at);
 end; $$;
 
 create or replace function agent.update_automation(
@@ -552,8 +624,10 @@ create or replace function agent.update_automation(
 ) returns jsonb
   language plpgsql security definer set search_path = '' as $$
 declare
-  v_row  agent.automations;
-  v_next timestamptz := null;
+  v_row   agent.automations;
+  v_next  timestamptz := null;
+  v_calls jsonb;
+  v_ver   integer;
 begin
   if p_tenant is null or btrim(p_tenant) = '' then
     raise exception 'update_automation: tenant must be a non-empty string';
@@ -567,6 +641,18 @@ begin
   if v_row.id is null then
     return jsonb_build_object('ok', false, 'error', 'no-automation');
   end if;
+
+  -- ⚠ WHAT IT SAYS IT RUNS, asked against the agent this row really belongs to — never an
+  -- agent id from the call, which this function is not given and must not be.
+  v_calls := agent.automation_calls(p_tenant, v_row.agent_id, p_id, p_steps);
+  if (v_calls ->> 'ok')::boolean is not true then return v_calls; end if;
+
+  -- ⚠ **THE VERSION MOVES ON A CHANGE OF STEPS AND ON NOTHING ELSE**, which is the rule
+  -- `agent.save_memory` already follows one table over: a version says which WORKFLOW a
+  -- parent copied in, so renaming an automation or moving its time must not move it. A
+  -- parent's snapshot then stays honest across every edit that is not an edit of the work.
+  v_ver := case when v_row.steps is distinct from coalesce(p_steps, '[]'::jsonb)
+                then v_row.version + 1 else v_row.version end;
 
   if p_schedule = 'daily' then
     -- **RECOMPUTED FROM NOW, NOT CARRIED OVER, and that is deliberate.** A person who
@@ -585,11 +671,13 @@ begin
          zone        = p_zone,
          steps       = coalesce(p_steps, '[]'::jsonb),
          inputs      = coalesce(p_inputs, '[]'::jsonb),
+         version     = v_ver,
          next_run_at = v_next
    where id = p_id
   returning * into v_row;
 
-  return jsonb_build_object('ok', true, 'id', v_row.id, 'next_run_at', v_row.next_run_at);
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'version', v_row.version,
+                            'next_run_at', v_row.next_run_at);
 end; $$;
 
 -- ══════════════════════════════════════════════════════════════════════════
@@ -859,7 +947,14 @@ create or replace function agent.advance_automation_run(
   p_position integer,
   p_vars     jsonb,
   p_outcomes jsonb,
-  p_waiting  jsonb default null
+  p_waiting  jsonb default null,
+  -- ⚠ **THE TWO LOOP/RETRY PARAMETERS GO LAST, and this file already records why** (see
+  -- `create_automation`'s own note): a defaulted parameter placed BEFORE an existing one
+  -- silently re-binds every positional caller. They default to the empty object, so a
+  -- caller written before loops existed behaves exactly as it did, and a workflow with no
+  -- loop and no retry writes the same two empty objects it already holds.
+  p_loops    jsonb default '{}'::jsonb,
+  p_tries    jsonb default '{}'::jsonb
 ) returns jsonb
   language plpgsql security definer set search_path = '' as $$
 declare
@@ -884,6 +979,15 @@ begin
   end if;
   if p_waiting is not null and (jsonb_typeof(p_waiting) <> 'object' or p_waiting ->> 'step' is null) then
     raise exception 'advance_automation_run: a pause has to say which step it is waiting at';
+  end if;
+  -- ⚠ CANNOT-TELL MUST NEVER READ AS A VALUE. A null loop state is not "no loops": it is a
+  -- caller that did not say, and writing `{}` for it would tell the next delivery that a
+  -- loop half way through its rounds is at its beginning.
+  if p_loops is null or jsonb_typeof(p_loops) <> 'object' then
+    raise exception 'advance_automation_run: the loop state must be an object of step id to progress';
+  end if;
+  if p_tries is null or jsonb_typeof(p_tries) <> 'object' then
+    raise exception 'advance_automation_run: the attempt counts must be an object of step key to count';
   end if;
 
   -- THE POSITION IS READ RATHER THAN ASSUMED. "The started entry is at seq 0" is
@@ -933,10 +1037,28 @@ begin
          vars       = p_vars,
          outcomes   = p_outcomes,
          waiting    = p_waiting,
-         wait_until = v_until
+         wait_until = v_until,
+         loops      = p_loops,
+         tries      = p_tries
    where id = p_run_id
      and finished_at is null
-     and position <= p_position
+     -- ⚠ **WHAT IS MONOTONIC IS THE NUMBER OF OUTCOMES, NOT THE POSITION — AND A LOOP IS
+     -- WHAT PROVED IT.** This carried `position <= p_position` as well, on the reading that
+     -- progress only ever moves forward. A `repeat` moves it BACKWARDS by design: round two
+     -- re-enters the body below the high-water mark round one reached, so every checkpoint
+     -- inside it failed this condition and was a silent no-op. MEASURED end to end, through
+     -- this function: a two-round loop holding a wait recorded round one, advanced past the
+     -- wait, jumped back, paused again — and the pause was never written, leaving the
+     -- execution at the position after the wait with nothing waiting and nothing finished. A
+     -- STRANDED RUN, and the answer was `ok: true, advanced: false`, which every caller read
+     -- as "already recorded, a retry, and safe".
+     --
+     -- The outcome count IS monotonic and stays so with loops and retries both: a new round
+     -- appends its own keys, and a retry overwrites the key it already has. So a stale call
+     -- carrying fewer outcomes than the row holds is still refused, which is what this guard
+     -- was ever for. **The position is no longer a progress measure at all** — it is where in
+     -- the list the next step is — and the wall against a displaced worker is the FENCE, which
+     -- `append_entry` above has already applied by the time this runs.
      and jsonb_array_length(outcomes) <= jsonb_array_length(p_outcomes);
   v_moved := found;
 
@@ -952,8 +1074,8 @@ begin
     'waiting', p_waiting is not null, 'wait_until', v_until, 'released', v_rel);
 end; $$;
 
-comment on function agent.advance_automation_run(uuid, text, uuid, jsonb, integer, jsonb, jsonb, jsonb) is
-  'One transaction: record one workflow step''s outcome as a journal entry through the same fence every write goes through, move the execution''s position and values forward, and — for a pause — resolve its deadline and release the work. Progress may only move forward; a stale or retried call is a no-op.';
+comment on function agent.advance_automation_run(uuid, text, uuid, jsonb, integer, jsonb, jsonb, jsonb, jsonb, jsonb) is
+  'One transaction: record one workflow step''s outcome as a journal entry through the same fence every write goes through, move the execution''s position, values, loop state and attempt counts forward, and — for a pause — resolve its deadline and release the work. Progress may only move forward; a stale or retried call is a no-op.';
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- 9. THE STOP — unchanged in shape, and now recording the final state too
@@ -1291,20 +1413,168 @@ revoke all on function agent.search_knowledge(text, uuid, text, integer) from pu
 revoke all on function agent.agent_memory_snapshot(text, uuid) from public;
 revoke all on function agent.agent_knowledge_touch() from public;
 revoke all on function agent.agent_memory_touch() from public;
+revoke all on function agent.automation_calls(text, uuid, uuid, jsonb) from public;
 revoke all on function agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb) from public;
 revoke all on function agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb) from public;
 revoke all on function agent.accept_automation_run(text, uuid, uuid, text, date, jsonb) from public;
-revoke all on function agent.advance_automation_run(uuid, text, uuid, jsonb, integer, jsonb, jsonb, jsonb) from public;
+revoke all on function agent.advance_automation_run(uuid, text, uuid, jsonb, integer, jsonb, jsonb, jsonb, jsonb, jsonb) from public;
 revoke all on function agent.finish_automation_run(uuid, text, uuid, jsonb, jsonb, integer, jsonb) from public;
 revoke all on function agent.decide_automation_approval(text, uuid, text, text, text, text) from public;
 revoke all on function agent.resume_due_automations(integer) from public;
 
 grant execute on function agent.search_knowledge(text, uuid, text, integer) to service_role;
 grant execute on function agent.agent_memory_snapshot(text, uuid) to service_role;
+grant execute on function agent.automation_calls(text, uuid, uuid, jsonb) to service_role;
 grant execute on function agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb) to service_role;
 grant execute on function agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb) to service_role;
 grant execute on function agent.accept_automation_run(text, uuid, uuid, text, date, jsonb) to service_role;
-grant execute on function agent.advance_automation_run(uuid, text, uuid, jsonb, integer, jsonb, jsonb, jsonb) to service_role;
+grant execute on function agent.advance_automation_run(uuid, text, uuid, jsonb, integer, jsonb, jsonb, jsonb, jsonb, jsonb) to service_role;
 grant execute on function agent.finish_automation_run(uuid, text, uuid, jsonb, jsonb, integer, jsonb) to service_role;
 grant execute on function agent.decide_automation_approval(text, uuid, text, text, text, text) to service_role;
 grant execute on function agent.resume_due_automations(integer) to service_role;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 14. LOOPS, RETRIES AND SUBWORKFLOWS — the state the executor cannot hold
+--
+-- Every column here exists because the executor is SEVERAL DELIVERIES and the thing that
+-- must survive between them cannot live in a process. Which time round a loop is on, how
+-- many attempts a failing step has already had, and which automations were copied in: a
+-- counter kept in memory gives every restart a fresh budget, and a loop that forgets its
+-- iteration repeats work already done.
+-- ══════════════════════════════════════════════════════════════════════════
+
+alter table agent.automation_runs
+  -- ⚠ WHICH TIME ROUND EVERY OPEN LOOP IS ON, and the list it is going through. Written on
+  -- the SAME call as the position, because a position saved without its loop state is a
+  -- restart that re-enters the body at an iteration it has already done.
+  --
+  -- `{"<the repeat's step id>": {"at": 2, "of": 5, "list": [...], "as": "who"}}`. The list is
+  -- snapshotted when the loop opens — the same rule the steps follow at acceptance — because
+  -- a loop re-reading its source each round would iterate something that changed under it.
+  add column if not exists loops jsonb not null default '{}'::jsonb,
+
+  -- ⚠ HOW MANY TIMES EACH STEP HAS ALREADY FAILED AND ARMED A RETRY, keyed exactly as an
+  -- outcome is — so a step inside a loop has its own count PER ROUND. Round three failing is
+  -- not evidence about round one and must not inherit its exhausted budget.
+  --
+  -- **THIS IS WHAT MAKES "bounded retries" TRUE UNDER INTERRUPTION.** A counter in the
+  -- process would give every delivery a whole fresh budget: three tries would quietly
+  -- become three tries a minute, for as long as the step kept failing.
+  add column if not exists tries jsonb not null default '{}'::jsonb,
+
+  -- ⚠ WHICH OTHER AUTOMATIONS WERE COPIED INTO THIS ONE, AND AT WHICH VERSION.
+  -- `[{"id": "…", "version": 4}]` — the version snapshot, as a recorded fact rather than
+  -- something to infer from timestamps. Empty for every execution that runs no subworkflow,
+  -- which is every execution written before this column.
+  add column if not exists uses jsonb not null default '[]'::jsonb;
+
+alter table agent.automation_runs drop constraint if exists automation_runs_loops_shaped;
+alter table agent.automation_runs add constraint automation_runs_loops_shaped check (
+  jsonb_typeof(loops) = 'object' and jsonb_typeof(tries) = 'object' and jsonb_typeof(uses) = 'array'
+);
+
+-- ⚠ **AN AUTOMATION HAS A VERSION, AND IT MOVES ON A CHANGE OF STEPS AND NOTHING ELSE.**
+--
+-- A version says WHICH STEPS a run copied in. Renaming an automation, turning it off, or
+-- moving its schedule changes nothing a parent execution would have run — so bumping on
+-- those would make the recorded version say a run used something it did not, which is the
+-- same defect the knowledge version already avoids by moving on the BODY and not the title.
+alter table agent.automations
+  add column if not exists version integer not null default 1;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 15. WHICH AUTOMATIONS A PARENT MAY COPY IN
+--
+-- ⚠ **THE WALL IS THE AGENT, NOT ONLY THE ACCOUNT, and only saying so keeps them apart.**
+-- A person is entitled to their whole account; an AGENT is entitled to its own. Both
+-- automations of one owner share a tenant, so the tenant filter cannot tell them apart and
+-- the agent id is the whole of that wall.
+-- ══════════════════════════════════════════════════════════════════════════
+
+create or replace function agent.automation_children(
+  p_tenant   text,
+  p_agent_id uuid
+) returns jsonb
+  language sql security definer set search_path = '' as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', a.id, 'name', a.name, 'version', a.version,
+           'steps', a.steps, 'inputs', a.inputs
+         ) order by a.name), '[]'::jsonb)
+    from agent.automations a
+   where a.tenant_id = p_tenant and a.agent_id = p_agent_id;
+$$;
+
+comment on function agent.automation_children(text, uuid) is
+  'Every automation of ONE agent, with the steps and version a parent would copy in. Scoped to the tenant AND the agent, because both automations of one owner share a tenant and only the agent id tells them apart.';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 16. THE FLATTENED PLAN, WRITTEN ONCE, BY THE WORKER THAT HOLDS THE RUN
+--
+-- The expansion itself is the ENGINE's — a recursive walk with a depth bound and a cycle
+-- refusal, written in one language and tested there rather than in two. This is where its
+-- answer is persisted, and the FENCE is what makes it safe: the claim and its token, the
+-- same pair every journal write presents.
+--
+-- ⚠ **IT MAY ONLY BE WRITTEN BEFORE THE FIRST STEP.** `position = 0` is the whole of that
+-- guard: past it, replacing the step list would renumber outcomes that already exist and a
+-- resume would re-enter somewhere else entirely. A later call is a no-op and says so.
+--
+-- **NO FLAG SAYS WHETHER IT HAS BEEN EXPANDED, and none is needed**: a flattened list holds
+-- no `workflow` step, so the absence of one IS the flag, in the only place that can see it.
+-- ══════════════════════════════════════════════════════════════════════════
+
+create or replace function agent.set_automation_plan(
+  p_run_id uuid,
+  p_worker text,
+  p_token  uuid,
+  p_steps  jsonb,
+  p_uses   jsonb
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_work agent.run_work;
+  v_ok   boolean;
+begin
+  if p_steps is null or jsonb_typeof(p_steps) <> 'array' then
+    raise exception 'set_automation_plan: the flattened steps must be a list';
+  end if;
+  if p_uses is null or jsonb_typeof(p_uses) <> 'array' then
+    raise exception 'set_automation_plan: what was copied in must be a list';
+  end if;
+
+  -- THE SAME FENCE EVERY WRITE PRESENTS, and it is asked with the row LOCKED so a reclaim
+  -- cannot land between the check and the update.
+  select * into v_work from agent.run_work where run_id = p_run_id for update;
+  if v_work.run_id is null then return jsonb_build_object('ok', false, 'error', 'no-work'); end if;
+  if v_work.done_at is not null then return jsonb_build_object('ok', false, 'error', 'finished'); end if;
+  if v_work.claimed_by is distinct from p_worker then
+    return jsonb_build_object('ok', false, 'error', 'not-holder');
+  end if;
+  if v_work.claim_token is distinct from p_token then
+    return jsonb_build_object('ok', false, 'error', 'bad-token');
+  end if;
+  if v_work.lease_expires_at is null or v_work.lease_expires_at <= now() then
+    return jsonb_build_object('ok', false, 'error', 'lease-expired');
+  end if;
+
+  update agent.automation_runs
+     set steps = p_steps, uses = p_uses
+   where id = p_run_id and finished_at is null and position = 0;
+  v_ok := found;
+
+  -- ⚠ NOT AN ERROR. A redelivery whose first attempt already expanded finds the plan
+  -- written and the position moved, and carries on from the log — which is the ordinary
+  -- case, not a fault. It is SAID rather than silent, because "the plan is mine" and "the
+  -- plan was already set" are different things for an operator reading a log.
+  return jsonb_build_object('ok', true, 'set', v_ok, 'steps', jsonb_array_length(p_steps));
+end; $$;
+
+comment on function agent.set_automation_plan(uuid, text, uuid, jsonb, jsonb) is
+  'Persist a flattened workflow — its subworkflows copied in — and the versions that were copied, fenced by the caller''s own claim. Only before the first step: past that, replacing the list would renumber outcomes that already exist.';
+
+
+revoke all on function agent.automation_children(text, uuid) from public;
+revoke all on function agent.set_automation_plan(uuid, text, uuid, jsonb, jsonb) from public;
+
+grant execute on function agent.automation_children(text, uuid) to service_role;
+grant execute on function agent.set_automation_plan(uuid, text, uuid, jsonb, jsonb) to service_role;

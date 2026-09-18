@@ -292,8 +292,17 @@ function hydrateAuto(w) {
     // the value, exactly as `.value` reflects it in a browser.
     for (const m of body.matchAll(/<select[^>]*data-field="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
       const picked = /<option value="([^"]*)" selected>/.exec(m[2]);
+      // ⚠ **A `<select>` WITH NOTHING SELECTED ANSWERS ITS FIRST OPTION, NEVER THE EMPTY
+      // STRING.** HTML's own selectedness algorithm picks the first enabled option when no
+      // `selected` attribute is present, so `.value` is that option's value — and answering
+      // `""` here made this fake LESS capable than a browser in exactly the field it is
+      // about. A sweep mutant that removed the blank option from every OPTIONAL choice
+      // SURVIVED because of it: the form drew a select with no blank and no `selected`, a
+      // real browser would have read back the first option and stored a default nobody
+      // chose, and this fixture read back nothing at all and called it correct.
+      const firstOpt = /<option value="([^"]*)"/.exec(m[2]);
       const el = {
-        value: picked ? picked[1] : "",
+        value: picked ? picked[1] : firstOpt ? firstOpt[1] : "",
         getAttribute: (k) => (k === "data-field" ? m[1] : k === "data-kind" ? "choice" : null),
       };
       fields.push(el);

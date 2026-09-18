@@ -90,7 +90,8 @@ export function makeAutomationStore(opts = {}) {
       const rows = await call("GET",
         `automation_runs?id=eq.${encodeURIComponent(runId)}&tenant_id=eq.${encodeURIComponent(tenant)}`
         + `&select=id,automation_id,agent_id,tenant_id,trigger,occurrence,steps,zone,finished_at`
-        + `,position,vars,input,memory,waiting,wait_until,decisions,outcomes,created_at&limit=1`,
+        + `,position,vars,input,memory,waiting,wait_until,decisions,outcomes,created_at`
+        + `,loops,tries&limit=1`,
         undefined, false);
       const row = Array.isArray(rows) ? rows[0] : null;
       if (!row) return null;
@@ -128,6 +129,16 @@ export function makeAutomationStore(opts = {}) {
         // would be this process inventing a state the schema forbids.
         waiting: plainObject(row.waiting, null),
         waitUntil: msOf(row.wait_until),
+        // ⚠ **WHICH ROUND EVERY OPEN LOOP IS ON, AND HOW MANY TIMES EACH STEP HAS FAILED.**
+        // Both are read back for the same reason the position is: a counter that lives only
+        // in the process gives every delivery a fresh one — a restart that re-enters a loop
+        // body at a round it has already done, and a retry budget that starts again.
+        //
+        // **`uses` IS DELIBERATELY NOT READ.** It is what was copied in and is written for
+        // provenance; nothing in the executor consults it, and a field read with no reader
+        // is this repository's own most-recorded defect wearing a completeness argument.
+        loops: plainObject(row.loops),
+        tries: plainObject(row.tries),
         startedAt: msOf(row.created_at),
       };
     },
@@ -159,19 +170,72 @@ export function makeAutomationStore(opts = {}) {
      * Answers what `agent.advance_automation_run` answered, which is `append_entry`'s own
      * shape plus `advanced`. **The caller's whole job is reading a refusal the right way
      * round**: `ok: false` means the claim is gone and this worker must write nothing more,
-     * and `advanced: false` with `ok: true` means the progress was already recorded — a
-     * retry, and safe.
+     * and `advanced: false` with `ok: true` means the ROW DID NOT MOVE — it already holds at
+     * least as many outcomes as were offered. ⚠ **That is not the same as "safe".** It is the
+     * ordinary answer to a redelivery replaying recorded work, and it is also exactly what a
+     * disagreement looks like, so the runner LOGS it rather than reading it as a success: a
+     * loop whose every round after the first came back this way is what the reading cost.
      */
-    async advance({ runId, worker, token, entry, position, values, outcomes, waiting }) {
+    async advance({ runId, worker, token, entry, position, values, outcomes, waiting, loops, tries }) {
       const answer = await call("POST", "rpc/advance_automation_run", {
         p_run_id: runId, p_worker: worker, p_token: token,
         p_entry: entry, p_position: position,
         p_vars: values && typeof values === "object" ? values : {},
         p_outcomes: outcomes,
         p_waiting: waiting ?? null,
+        // ⚠ **ON THE SAME CALL AS THE POSITION, so the three can never be persisted apart.**
+        // A position saved without its loop state re-enters a body at a round already done,
+        // and one saved without its attempt counts gives every delivery a fresh retry
+        // budget. The function REFUSES a null, so a caller that did not say is a loud
+        // refusal rather than a row quietly told a loop is at its beginning.
+        p_loops: plainObject(loops),
+        p_tries: plainObject(tries),
       });
       if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
         throw new Error("advance_automation_run: no answer came back");
+      }
+      return answer;
+    },
+
+    /**
+     * Every automation of ONE agent, as the steps and version a parent would copy in.
+     *
+     * **THE SCOPE IS THE WALL AND IT IS THE QUERY'S, NOT THE EXPANSION'S.**
+     * `expandWorkflow` knows nothing about a tenant or an agent — what it is handed is
+     * data — so "not one of this agent's" and "not there at all" are ONE answer, decided
+     * here. Both agents of one owner share a tenant, so the agent id is the only thing
+     * that tells them apart, and a tenant filter alone would let one agent run another's
+     * workflow.
+     */
+    async children({ tenant, agentId }) {
+      if (!isText(tenant)) throw new TypeError("children: tenant must be a non-empty string, from the claim");
+      if (!isText(agentId)) throw new TypeError("children: agentId must be a non-empty string");
+      const answer = await call("POST", "rpc/automation_children", {
+        p_tenant: tenant, p_agent_id: agentId,
+      });
+      // REFUSED RATHER THAN COERCED. An answer that is not a list is a read this process
+      // cannot understand, and reading it as "this agent has no other automations" would
+      // turn an outage into a workflow refused for naming an automation that is really
+      // there — the wrong sentence, about the wrong layer.
+      if (!Array.isArray(answer)) throw new Error("automation_children: the answer is not a list");
+      return answer;
+    },
+
+    /**
+     * The flattened plan, written once, before the first step.
+     *
+     * Answers `{ok, set, steps}` or a fenced refusal under its own name. **`set: false` is
+     * NOT an error**: a redelivery whose first attempt already expanded finds the plan
+     * written and the position moved, which is the ordinary case rather than a fault.
+     */
+    async setPlan({ runId, worker, token, steps, uses }) {
+      const answer = await call("POST", "rpc/set_automation_plan", {
+        p_run_id: runId, p_worker: worker, p_token: token,
+        p_steps: Array.isArray(steps) ? steps : [],
+        p_uses: Array.isArray(uses) ? uses : [],
+      });
+      if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
+        throw new Error("set_automation_plan: no answer came back");
       }
       return answer;
     },

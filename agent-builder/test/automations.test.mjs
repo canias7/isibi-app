@@ -2311,3 +2311,134 @@ test("⚠ RESTARTING INSIDE A SUBWORKFLOW RESUMES INSIDE IT — nothing runs twi
   }
   assert.ok(diverged >= 1, "throwing the loop state away changed nothing, so the matrix proves nothing");
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// A RESUME IS SPENT BY ITS FIRST ARRIVAL — which a loop is what proved
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Deliveries of one execution, carrying the PAUSE the way the database does.
+ *
+ * **THE RE-PAUSE RULE IS MIRRORED RATHER THAN INVENTED**: `agent.advance_automation_run`
+ * keeps the deadline it already has only when the stored pause names the SAME step, and
+ * computes a fresh one otherwise. A fixture that always computed a fresh one would make the
+ * defect below unreachable, and one that never did would report the product as broken.
+ *
+ * `elapse` is what makes each deadline come due, so a wait is honoured rather than waited out.
+ */
+async function deliverWaits({ steps, registry, max = 12, elapse = 600_000 }) {
+  let state = { position: 0, outcomes: [], values: {}, loops: {}, tries: {}, waiting: null, waitUntil: null };
+  let clock = 1_800_000_000_000;
+  const pauses = [];
+  let stop = null;
+  for (let d = 0; d < max; d++) {
+    const out = await runWorkflow({
+      steps, registry, now: () => clock,
+      position: state.position, outcomes: state.outcomes, values: state.values,
+      loops: state.loops, tries: state.tries, waiting: state.waiting, waitUntil: state.waitUntil,
+      record: async (st) => {
+        const same = state.waiting !== null && state.waitUntil !== null
+          && state.waiting.step === (st.waiting?.step ?? null);
+        state = {
+          position: st.position, outcomes: st.outcomes, values: st.values,
+          loops: JSON.parse(JSON.stringify(st.loops ?? {})),
+          tries: JSON.parse(JSON.stringify(st.tries ?? {})),
+          waiting: st.waiting ?? null,
+          waitUntil: st.waiting
+            ? (same ? state.waitUntil : clock + Number(st.waiting.minutes ?? 1) * 60_000)
+            : null,
+        };
+        if (st.waiting) pauses.push({ step: st.waiting.step, at: st.position });
+        return { ok: true };
+      },
+    });
+    if (out.stop) { stop = out.stop; break; }
+    if (!out.waiting) break;
+    clock += elapse;
+  }
+  return { stop, pauses, state };
+}
+
+test("⚠ A WAIT INSIDE A LOOP IS HONOURED ON EVERY ROUND, because a resume is spent once", async () => {
+  // ⚠ **MEASURED THROUGH A REAL POSTGRESQL BEFORE IT WAS FIXED: it waited ONCE.** The stored
+  // pause records a step ID and nothing else, so on round two the same id matched, the
+  // already-passed deadline was read as this round's, and the wait answered "already over".
+  // The execution finished having honoured one of the two waits it was asked for.
+  const { steps } = readWorkflow([
+    { type: "repeat", mode: "times", times: 3 },
+    { type: "note", text: "a round" },
+    { type: "wait", mode: "for", minutes: 5 },
+    { type: "endrepeat" },
+    { type: "note", text: "finished" },
+  ]);
+  const w = watchNotes();
+  const out = await deliverWaits({ steps, registry: w.registry });
+  assert.equal(out.stop.reason, "done");
+  // THREE PAUSES FOR THREE ROUNDS, and they are all at the wait's own position.
+  assert.equal(out.pauses.length, 3, JSON.stringify(out.pauses));
+  assert.ok(out.pauses.every((p) => p.step === "s3" && p.at === 2), JSON.stringify(out.pauses));
+  // AND THE BODY RAN ONCE PER ROUND, so the pauses are not a step that never advanced.
+  assert.deepEqual(w.fired, ["a round", "a round", "a round", "finished"]);
+});
+
+test("...and a pause OUTSIDE a loop still resumes exactly once", async () => {
+  // THE CONTROL. Every pause this product had before loops is this shape, and spending the
+  // resume must not have changed it: one pause, one resume, one run through.
+  const { steps } = readWorkflow([
+    { type: "note", text: "before" },
+    { type: "wait", mode: "for", minutes: 5 },
+    { type: "note", text: "after" },
+  ]);
+  const w = watchNotes();
+  const out = await deliverWaits({ steps, registry: w.registry });
+  assert.equal(out.stop.reason, "done");
+  assert.equal(out.pauses.length, 1, JSON.stringify(out.pauses));
+  assert.deepEqual(w.fired, ["before", "after"]);
+});
+
+test("⚠ A STEP WHOSE RESUME IS A STORED DECISION CANNOT GO IN A LOOP", () => {
+  const APPROVAL = { type: "approval", ask: "ok?", hours: 1, on_timeout: "reject" };
+  const inLoop = readWorkflow([
+    { type: "repeat", mode: "times", times: 2 }, APPROVAL, { type: "endrepeat" },
+  ]);
+  // BY NAME AND BY POSITION, while it is still somebody's form: `decisions` is keyed by the
+  // step's id and the first decision stands, so every round after the first would take the
+  // first round's verdict with nobody asked.
+  assert.match(inLoop.error, /"Wait for approval" cannot go inside a "Repeat"/);
+  assert.equal(inLoop.at, 2);
+  // ⚠ TWO CONTROLS, and without them the refusal is satisfied by a reader that turns away
+  // every pause in a loop, or every approval anywhere.
+  assert.ok(!readWorkflow([APPROVAL]).error, "an approval on its own is refused");
+  assert.ok(!readWorkflow([
+    { type: "repeat", mode: "times", times: 2 },
+    { type: "wait", mode: "for", minutes: 5 }, { type: "endrepeat" },
+  ]).error, "a wait inside a loop is refused");
+  // AND NESTED: the wall is the loop being open at all, not the step being its first child.
+  const deeper = readWorkflow([
+    { type: "repeat", mode: "times", times: 2 },
+    { type: "if", left: "a", op: "is", right: "b" }, APPROVAL, { type: "end" },
+    { type: "endrepeat" },
+  ]);
+  assert.match(deeper.error, /cannot go inside a "Repeat"/);
+  assert.equal(deeper.at, 3);
+  // ...AND NOT INSIDE A BRANCH THAT IS NOT A LOOP, which is what `depthOf("repeat")` means.
+  assert.ok(!readWorkflow([
+    { type: "if", left: "a", op: "is", right: "b" }, APPROVAL, { type: "end" },
+  ]).error, "an approval inside a plain branch is refused");
+});
+
+test("⚠ `decided` IS DECLARED, REFUSED RATHER THAN COERCED, and only a pause may have it", () => {
+  const whole = { type: "x", kind: "pause", label: "X", does: "Does x.", fields: [], configless: true,
+    read: () => ({ config: {} }), run: () => ({}) };
+  // THE CONTROL FIRST, or every refusal below is satisfied by a spec refused for some other
+  // reason — the vacuous-fixture trap this file already records.
+  assert.ok(defineStep({ ...whole }).type === "x");
+  assert.ok(defineStep({ ...whole, decided: true }).decided === true);
+  assert.equal(defineStep({ ...whole }).decided, false, "absent must read as false, never undefined");
+  assert.throws(() => defineStep({ ...whole, decided: "yes" }), /decided must be true or false/);
+  assert.throws(() => defineStep({ ...whole, decided: 1 }), /decided must be true or false/);
+  // A FLAG ABOUT HOW A RESUME IS MATCHED IS A DEAD DECLARATION ON A STEP WITH NO RESUME.
+  assert.throws(() => defineStep({ ...whole, kind: "action", decided: true }), /only a pause can have its resume decided/);
+  // AND EXACTLY ONE STEP DECLARES IT, so the wall above is about something real.
+  assert.deepEqual(AUTOMATION_STEPS.filter((s) => s.decided).map((s) => s.type), ["approval"]);
+});

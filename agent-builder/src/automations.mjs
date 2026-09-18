@@ -344,12 +344,32 @@ export function readErrorPath(raw, def) {
  * step that forgot them still throws.
  */
 export function defineStep(spec = {}) {
-  const { type, kind, label, does, fields, read, run, configless, retryable } = spec;
+  const { type, kind, label, does, fields, read, run, configless, retryable, decided } = spec;
   if (!isText(type)) throw new TypeError("defineStep: type must be a non-empty string");
   if (!STEP_KINDS.includes(kind)) throw new TypeError(`defineStep(${type}): kind must be one of ${STEP_KINDS.join(", ")}`);
   if (!isText(label)) throw new TypeError(`defineStep(${type}): label must be a non-empty string`);
   if (!isText(does)) throw new TypeError(`defineStep(${type}): does must be a non-empty string — it is what a person reads when choosing this`);
   if (!Array.isArray(fields)) throw new TypeError(`defineStep(${type}): fields must say what this step is configured with`);
+  /**
+   * ⚠ **`decided` — THIS STEP'S RESUME IS A STORED DECISION KEYED BY ITS ID.**
+   *
+   * Only an `approval` is: `agent.automation_runs.decisions` is `{ "<step id>": … }` and the
+   * first decision at a key stands, so inside a loop every round after the first would take
+   * the first round's answer with nobody asked. That is why a `decided` step may not go in a
+   * loop, refused where the workflow is written — and the flag is on the DECLARATION rather
+   * than a list of names elsewhere, so a second such step next month carries the wall by
+   * existing.
+   *
+   * REFUSED, NEVER COERCED (`Boolean("false")` is `true`), and refused on a step that cannot
+   * pause at all: a flag about how a resume is matched is an opinion on a step with no
+   * resume, which is a dead declaration.
+   */
+  if (decided !== undefined && typeof decided !== "boolean") {
+    throw new TypeError(`defineStep(${type}): decided must be true or false, or left out`);
+  }
+  if (decided === true && kind !== "pause") {
+    throw new TypeError(`defineStep(${type}): only a pause can have its resume decided, and this is a ${kind}`);
+  }
   if (!fields.length && configless !== true) {
     throw new TypeError(`defineStep(${type}): a step with no fields must declare configless: true, so an empty list is deliberate rather than forgotten`);
   }
@@ -476,6 +496,7 @@ export function defineStep(spec = {}) {
   return Object.freeze({
     kind: "step", type, stepKind: kind, label, does, words,
     configless: configless === true,
+    decided: decided === true,
     produces: spec.produces ?? "text",
     failable, retryable: retryable === true,
     fields: Object.freeze(all.map((f) => Object.freeze({
@@ -888,6 +909,8 @@ const wait = defineStep({
 const approval = defineStep({
   type: "approval",
   kind: "pause",
+  // ITS RESUME IS A DECISION STORED UNDER THIS STEP'S ID — see `defineStep`'s own note.
+  decided: true,
   label: "Wait for approval",
   does: "Pause and ask to be approved or rejected before carrying on. Say what happens if nobody answers in time.",
   fields: [
@@ -1393,6 +1416,24 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
     }
     const def = registry.get(typeof one.type === "string" ? one.type : "");
     if (!def) return { error: `there is no step called ${String(one.type ?? "(nothing)")}`, at };
+    /**
+     * ⚠ **A STEP WHOSE RESUME IS A STORED DECISION MAY NOT GO IN A LOOP.**
+     *
+     * `agent.automation_runs.decisions` is keyed by the STEP'S ID and the first decision at a
+     * key stands, so inside a `repeat` the same id comes round again with an answer already
+     * recorded — and every round after the first would take the first round's verdict with
+     * nobody asked. **That is worse than a stranding: it is an approval nobody gave.**
+     *
+     * So it is refused where the workflow is WRITTEN, by name and by position, while it is
+     * still somebody's form. A `wait` in a loop is fine and is driven: its state is a
+     * deadline, which is cleared between rounds. Making an approval per-round means keying
+     * the decisions by the outcome key, which is a migration and is not this.
+     *
+     * DERIVED FROM THE DECLARATION (`decided`), never from a list of type names here.
+     */
+    if (def.decided === true && depthOf("repeat") > 0) {
+      return { error: `step ${at}: "${def.label}" cannot go inside a "Repeat" — one answer would stand for every time round`, at };
+    }
     const readIt = def.read(one);
     if (readIt?.error) return { error: `step ${at}: ${readIt.error}`, at };
     // ⚠ **THE ERROR PATH IS READ BY ONE SHARED READER AND NEVER BY THE STEP'S OWN
@@ -1775,6 +1816,10 @@ export async function runWorkflow(opts = {}) {
   let waiting = null;
   let waitingAt = null;
   let halted = null;
+  // WHETHER THE PAUSE THIS DELIVERY RESUMED HAS BEEN HANDED TO ITS STEP. Declared here —
+  // above the loop and above `checkpoint`, which is the first thing that could read it —
+  // because this file has the temporal dead zone recorded twice already.
+  let resumeSpent = false;
 
   const checkpoint = async (position, pause) => {
     if (!record) return true;
@@ -2145,12 +2190,23 @@ export async function runWorkflow(opts = {}) {
       continue;
     }
 
-    // ⚠ IS THIS THE STEP THE EXECUTION WAS SUSPENDED ON? Asked by the step's own ID and
-    // never by the position alone, so a resume that arrived for one pause can never be
-    // read as the answer to another.
-    const resume = pausedOn.step === id
+    /**
+     * ⚠ IS THIS THE STEP THE EXECUTION WAS SUSPENDED ON? Asked by the step's own ID and
+     * never by the position alone, so a resume that arrived for one pause can never be
+     * read as the answer to another.
+     *
+     * ⚠ **AND IT IS SPENT BY THE FIRST ARRIVAL, which a LOOP is what made necessary.** The
+     * stored pause records a step ID and nothing else, so inside a `repeat` the same id
+     * comes round again — and a resume matched on the id alone was read a second time, with
+     * a deadline that had already passed. MEASURED, through the real database: a `wait` five
+     * minutes inside a two-round loop waited once and then went straight through, and the
+     * execution finished having honoured one of the two waits it was asked for. Every later
+     * arrival is a FRESH pause, which is what each round of a loop is.
+     */
+    const resume = !resumeSpent && pausedOn.step === id
       ? { waitUntil, decision: Object.hasOwn(decisions, id) ? decisions[id] : null }
       : null;
+    if (resume) resumeSpent = true;
 
     let answer;
     let threw = null;

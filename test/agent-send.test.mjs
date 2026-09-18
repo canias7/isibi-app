@@ -1067,6 +1067,11 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
     // to reach the same refusal.
     assert.equal(site.failable === true, engine.failable === true, `${type}: whether it can fail drifted`);
     assert.equal(site.retryable === true, engine.retryable === true, `${type}: whether it may be retried drifted`);
+    // ⚠ **AND WHETHER ITS RESUME IS A STORED DECISION**, which is the whole of whether it may
+    // go inside a loop: `decisions` is keyed by the step's id, so one answer would stand for
+    // every round. A drift is one door accepting a workflow the other refuses — and in the
+    // direction that accepts it, every round after the first takes an approval nobody gave.
+    assert.equal(site.decided === true, engine.decided === true, `${type}: whether its resume is decided drifted`);
     // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: something out there really does
     // declare a `when`, a `refs` and a set of options, or the loop above asserts nothing.
   }
@@ -1080,6 +1085,8 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
   assert.ok(anyField((f) => f.empty !== undefined), "no field carries its own empty-field sentence");
   assert.ok(ENGINE_STEPS.some((s) => s.failable === true), "nothing can fail, so that comparison is vacuous");
   assert.ok(ENGINE_STEPS.some((s) => s.retryable === true), "nothing may be retried, so that comparison is vacuous");
+  assert.ok(ENGINE_STEPS.some((s) => s.decided === true), "nothing is resumed by a decision, so that comparison is vacuous");
+  assert.ok(ENGINE_STEPS.some((s) => s.decided !== true), "everything is resumed by a decision, so the other half is vacuous");
   assert.ok(ENGINE_STEPS.some((s) => s.failable !== true), "everything can fail, so the other half is vacuous");
 });
 
@@ -1284,6 +1291,17 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
     ["nested, both arms of the inner one, used after the inner end",
       [IF, IF, N("x", "draft"), { type: "otherwise" }, N("y", "draft"), { type: "end" },
         N("{{draft}}"), { type: "end" }], []],
+    // ⚠ A STEP WHOSE RESUME IS A STORED DECISION, INSIDE A LOOP — and the `wait` beside it
+    // is the CONTROL, without which both refusals are satisfied by a door that turns away
+    // every pause in a loop there is.
+    ["an approval inside a repeat",
+      [{ type: "repeat", mode: "times", times: 2 },
+        { type: "approval", ask: "ok?", hours: 1, on_timeout: "reject" }, { type: "endrepeat" }], []],
+    ["...and a WAIT inside a repeat, which is fine",
+      [{ type: "repeat", mode: "times", times: 2 },
+        { type: "wait", mode: "for", minutes: 5 }, { type: "endrepeat" }], []],
+    ["an approval OUTSIDE a repeat, which is also fine",
+      [{ type: "approval", ask: "ok?", hours: 1, on_timeout: "reject" }], []],
   ];
 
   let refused = 0;

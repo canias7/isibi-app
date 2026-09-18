@@ -695,9 +695,20 @@ const spec = [
   // A suspended execution is the one state in this schema where a row is meant to sit
   // still, off the queue, holding nothing — so every guarantee here is about what may
   // and may not happen to it while nobody is running it.
-  mWkm("⚠ SQL/wait: progress may go BACKWARDS, so a stale worker rewinds a resumed run",
-    "     and position <= p_position\n     and jsonb_array_length(outcomes) <= jsonb_array_length(p_outcomes);",
+  // ⚠ RE-ANCHORED, NOT APPEASED, AND THE PROPERTY MOVED WITH THE CODE. This named
+  // `position <= p_position` as half the guard — and that half ASSERTED THE DEFECT: a
+  // `repeat` moves the position backwards by design, so it made every checkpoint inside
+  // round two a silent no-op. What is monotonic is the OUTCOME COUNT, and that is what the
+  // mutant removes now.
+  mWkm("⚠ SQL/wait: the outcome count may go BACKWARDS, so a stale worker rewinds a resumed run",
+    "     and jsonb_array_length(outcomes) <= jsonb_array_length(p_outcomes);",
     "     and true;"),
+  // ⚠ AND THE DEFECT PUT BACK, which is the mutant that only a loop can kill: a second round
+  // re-enters the body BELOW the high-water mark the first reached, so a position guard turns
+  // every one of its checkpoints into a no-op and strands the execution.
+  mWkm("⚠ SQL/wait: the POSITION must only move forward, so a loop's second round records nothing",
+    "     and jsonb_array_length(outcomes) <= jsonb_array_length(p_outcomes);",
+    "     and position <= p_position\n     and jsonb_array_length(outcomes) <= jsonb_array_length(p_outcomes);"),
   mWkm("⚠ SQL/wait: a RE-PAUSE resolves its deadline again, so a duplicate extends the wait for ever",
     "    if v_exec.wait_until is not null and v_exec.waiting ->> 'step' = p_waiting ->> 'step' then\n      v_until := v_exec.wait_until;",
     "    if false then\n      v_until := v_exec.wait_until;"),

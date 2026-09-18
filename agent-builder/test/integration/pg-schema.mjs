@@ -2274,6 +2274,62 @@ try {
   check("...so the position and the values are the ones that were really reached",
     jget(`select position || '|' || (vars->>'a') from agent.automation_runs where id='${R_W1}';`) === "1|one");
 
+  /**
+   * ⚠ **AND A LOWER POSITION WITH MORE OUTCOMES DOES MOVE IT — which is a LOOP's second
+   * round, and is the case a position guard makes impossible.**
+   *
+   * This guard used to carry `position <= p_position` as well, and that half asserted a
+   * defect: a `repeat` re-enters its body BELOW the high-water mark the first round reached,
+   * so every checkpoint inside round two was a silent no-op and the execution was stranded
+   * at the position after the loop with nothing waiting and nothing finished. MEASURED end
+   * to end before it was fixed. The stale case above is the CONTROL: fewer outcomes is still
+   * refused, which is what the guard was ever for.
+   */
+  // ⚠ ITS OWN ID: `…d3` is `R_M1`'s, five hundred lines down, and reusing it failed two
+  // checks about memory snapshots. The third instance of that collision in this one long body.
+  const R_LOOP = "cc000000-0000-0000-0000-0000000000e7";
+  jget(`select agent.accept_automation_run('t1','${AU2}','${R_LOOP}','manual',null)::text;`);
+  const holdL = jget(`select agent.claim_run('${R_LOOP}','w-l',90)::text;`);
+  const TOKL = (JSON.parse(holdL).claim_token ?? "").trim();
+  jget(`select agent.advance_automation_run('${R_LOOP}','w-l','${TOKL}',
+    '{"kind":"step","step":2,"at":20,"mark":"progress","done":2}'::jsonb, 2,
+    '{}'::jsonb, '[{"id":"s1","outcome":"ran"},{"id":"s2","outcome":"ran"}]'::jsonb, null)::text;`);
+  const backwards = jget(`select agent.advance_automation_run('${R_LOOP}','w-l','${TOKL}',
+    '{"kind":"step","step":1,"at":21,"mark":"progress","done":3}'::jsonb, 1,
+    '{}'::jsonb,
+    '[{"id":"s1","outcome":"ran"},{"id":"s2","outcome":"ran"},{"id":"s2#1.1","outcome":"ran"}]'::jsonb,
+    null, '{"s1":{"at":1,"of":2,"list":[],"as":null}}'::jsonb)::text;`);
+  check("⚠ a LOWER position with MORE outcomes does move it — a loop's second round",
+    /"advanced"\s*:\s*true/.test(backwards), JSON.stringify(backwards));
+  check("...and the row really went back to that position, with the extra outcome recorded",
+    jget(`select position || '|' || jsonb_array_length(outcomes) || '|' || (loops->'s1'->>'at')
+            from agent.automation_runs where id='${R_LOOP}';`) === "1|3|1");
+  const fewer = jget(`select agent.advance_automation_run('${R_LOOP}','w-l','${TOKL}',
+    '{"kind":"step","step":9,"at":22,"mark":"progress","done":1}'::jsonb, 9,
+    '{}'::jsonb, '[{"id":"s1","outcome":"ran"}]'::jsonb, null)::text;`);
+  check("⚠ THE CONTROL: FEWER outcomes is still refused, however far forward the position",
+    /"advanced"\s*:\s*false/.test(fewer), JSON.stringify(fewer));
+  check("...so the row is where the loop really left it",
+    jget(`select position || '|' || jsonb_array_length(outcomes) from agent.automation_runs where id='${R_LOOP}';`) === "1|3");
+  // ⚠ AND THE LOOP STATE IS REFUSED RATHER THAN COERCED: cannot-tell must never read as
+  // "no loops", which would tell the next delivery that a loop is at its beginning.
+  const OUT3 = `'[{"id":"s1","outcome":"ran"},{"id":"s2","outcome":"ran"},{"id":"s2#1.1","outcome":"ran"}]'::jsonb`;
+  refused("⚠ a loop state that is not an object is REFUSED by name",
+    `select agent.advance_automation_run('${R_LOOP}','w-l','${TOKL}',
+      '{"kind":"step","step":1,"at":23,"mark":"progress","done":3}'::jsonb, 1,
+      '{}'::jsonb, ${OUT3}, null, '[]'::jsonb);`,
+    "loop state must be an object", asWriter);
+  refused("...and so are the attempt counts",
+    `select agent.advance_automation_run('${R_LOOP}','w-l','${TOKL}',
+      '{"kind":"step","step":1,"at":24,"mark":"progress","done":3}'::jsonb, 1,
+      '{}'::jsonb, ${OUT3}, null, '{}'::jsonb, 'null'::jsonb);`,
+    "attempt counts must be an object", asWriter);
+  allowed("THE CONTROL: the same call with both of them shaped right is accepted",
+    `select agent.advance_automation_run('${R_LOOP}','w-l','${TOKL}',
+      '{"kind":"step","step":1,"at":25,"mark":"progress","done":3}'::jsonb, 1,
+      '{}'::jsonb, ${OUT3}, null, '{}'::jsonb, '{}'::jsonb);`, asWriter);
+  jget(`select agent.release_run('${R_LOOP}','w-l','${TOKL}',true,null)::text;`);
+
   // ⚠ A RE-PAUSE KEEPS THE DEADLINE IT ALREADY HAS. Resolving it again from now would
   // let a duplicate delivery extend a wait indefinitely — a duplicate doing harm.
   const before = jget(`select wait_until::text from agent.automation_runs where id='${R_W1}';`);

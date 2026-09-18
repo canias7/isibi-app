@@ -710,7 +710,205 @@ try {
     JSON.stringify(bothArms.body));
 
   // ═════════════════════════════════════════════════════════════════════════
-  console.log("\n14. WHAT THE WHOLE RUN LEFT BEHIND");
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n16. ⚠ A WORKFLOW THAT RUNS ANOTHER — copied in, snapshotted, and ONE execution");
+  // ═════════════════════════════════════════════════════════════════════════
+  // **THE SW_CHILD IS SELF-CONTAINED, AND THAT IS A MEASURED LIMITATION RATHER THAN A CHOICE
+  // OF FIXTURE** — see the refusals at the end of this section. It holds a LOOP with a
+  // WAIT inside it, so one run proves three things at once: the child's steps really
+  // execute, the loop's round is durable across a restart, and the whole thing is ONE
+  // execution with one position and one journal.
+  const SW_CHILD_PLAN = [
+    { type: "repeat", mode: "times", times: 2 },
+    { type: "note", text: "a round of tidying up" },
+    { type: "wait", mode: "for", minutes: 5 },
+    { type: "endrepeat" },
+  ];
+  const swChildMade = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Tidy up", enabled: false, schedule: "manual", zone: "UTC", steps: SW_CHILD_PLAN },
+  });
+  check("a child automation is saved, at version 1", swChildMade.status === 200 &&
+    q(`select version from agent.automations where id='${swChildMade.body.id}';`) === "1", JSON.stringify(swChildMade.body));
+  const SW_CHILD = swChildMade.body.id;
+
+  const swParentMade = await api("/api/agent/automation-create", {
+    body: {
+      agent: AG, name: "Morning round", schedule: "manual", zone: "UTC",
+      steps: [
+        { type: "note", text: "opening up", out: "opening" },
+        { type: "workflow", runs: SW_CHILD },
+        { type: "note", text: "and then: {{opening}}" },
+      ],
+    },
+  });
+  check("a parent that RUNS it is saved with three steps, the call still a call",
+    swParentMade.status === 200 &&
+    q(`select jsonb_array_length(steps) from agent.automations where id='${swParentMade.body.id}';`) === "3" &&
+    q(`select steps->1->>'type' from agent.automations where id='${swParentMade.body.id}';`) === "workflow",
+    JSON.stringify(swParentMade.body));
+  const SW_PARENT = swParentMade.body.id;
+
+  const swSubPress = await api("/api/agent/automation-run", { body: { id: SW_PARENT }, ring });
+  const SW_SUB = swSubPress.body.runId;
+  check("Run now is accepted", swSubPress.status === 200, JSON.stringify(swSubPress.body));
+  await drain();
+
+  // ⚠ **THE EXPANSION IS WHAT THE ROW HOLDS, NOT WHAT THE RUNNER REMEMBERED.** The stored
+  // list is read back out of PostgreSQL: six steps, not three, and not one of them a call.
+  const swSubSteps = JSON.parse(q(`select steps::text from agent.automation_runs where id='${SW_SUB}';`));
+  check("⚠ the child's steps are COPIED IN — six flattened steps where the parent has three",
+    swSubSteps.length === 6, JSON.stringify(swSubSteps.map((x) => x.type)));
+  check("...and not one of them is still a call, which is the only flag there is",
+    !swSubSteps.some((x) => x.type === "workflow"), JSON.stringify(swSubSteps.map((x) => x.type)));
+  check("⚠ the ids are re-minted by FLATTENED position, so two children cannot collide",
+    swSubSteps.map((x) => x.id).join(",") === "s1,s2,s3,s4,s5,s6", swSubSteps.map((x) => x.id).join(","));
+  check("⚠ every spliced step carries WHOSE it is and WHICH VERSION was copied",
+    swSubSteps.slice(1, 5).every((x) => x.from === SW_CHILD && x.ver === 1), JSON.stringify(swSubSteps.slice(1, 5)));
+  check("...and the parent's own steps carry no stamp at all",
+    swSubSteps[0].from === undefined && swSubSteps[5].from === undefined, JSON.stringify([swSubSteps[0], swSubSteps[5]]));
+  const swUses = JSON.parse(q(`select uses::text from agent.automation_runs where id='${SW_SUB}';`));
+  check("⚠ and what was copied in is recorded as a fact beside the plan",
+    swUses.length === 1 && swUses[0].id === SW_CHILD && swUses[0].version === 1, JSON.stringify(swUses));
+
+  // ⚠ **IT REALLY PAUSED INSIDE THE SW_CHILD'S LOOP, AND THE ROUND IS IN THE ROW.** This is
+  // the durable half: a counter living in the process would give the next delivery a fresh
+  // one, and the loop would re-enter its body at a round it has already done.
+  const swMidLoop = JSON.parse(q(`select loops::text from agent.automation_runs where id='${SW_SUB}';`));
+  // ⚠ THE WAIT IS AT `s4`, NOT `s3`: the flattened list is note(s1) · repeat(s2) · note(s3) ·
+  // wait(s4) · endrepeat(s5) · note(s6). This expectation was written as `s3` and the run
+  // said `s4` — a guess about a producer, corrected by measuring it.
+  check("⚠ it is suspended inside the loop, which round it is on written down",
+    q(`select waiting->>'step' from agent.automation_runs where id='${SW_SUB}';`) === "s4" &&
+    Object.keys(swMidLoop).length === 1 && Object.values(swMidLoop)[0].at === 0,
+    JSON.stringify({ waiting: q(`select waiting::text from agent.automation_runs where id='${SW_SUB}';`), loops: swMidLoop }));
+  check("...and the worker was RELEASED by the transaction that recorded the pause",
+    q(`select coalesce(claimed_by,'-') from agent.run_work where run_id='${SW_SUB}';`) === "-");
+
+  expire(SW_SUB);
+  await tick();
+  await drain();
+  const swRound2 = JSON.parse(q(`select loops::text from agent.automation_runs where id='${SW_SUB}';`));
+  check("⚠ the second round is a SECOND round, not the first one again",
+    Object.values(swRound2)[0]?.at === 1, JSON.stringify(swRound2));
+  expire(SW_SUB);
+  await tick();
+  await drain();
+  check("the whole thing finishes, once both rounds are through",
+    row(SW_SUB, "run_stop->>'reason'") === "done", row(SW_SUB, "run_stop::text"));
+
+  const swSubOut = outcomes(SW_SUB);
+  // ⚠ **ONE OUTCOME PER STEP PER ROUND**, which is what a loop's history has to be: eight
+  // for six steps, the two extra being the body's second time round.
+  check("⚠ the history has one row per step per round — eight for six steps",
+    swSubOut.length === 8, `${swSubOut.length}: ${JSON.stringify(swSubOut.map((o) => o.id))}`);
+  // ⚠ THE BODY'S OWN ID CARRIES WHICH ROUND IT IS (`s3#2.0`, `s3#2.1`), so a bare equality
+  // finds neither. This expectation was written as `o.id === "s2"` and measured zero — the
+  // wrong position AND the wrong shape, in one line.
+  check("...and the child's note really ran, once per round",
+    swSubOut.filter((o) => o.id.startsWith("s3") && o.outcome === "ran").length === 2,
+    JSON.stringify(swSubOut.filter((o) => o.id.startsWith("s3"))));
+  check("...and the parent's own last step ran after the child's, using the parent's value",
+    swSubOut.some((o) => o.id === "s6" && o.outcome === "ran"), JSON.stringify(swSubOut.at(-1)));
+
+  // ⚠ ONE EXECUTION, ONE RUN, ONE JOURNAL — which is what makes the shared execution budget
+  // a property of the SHAPE rather than a check somebody has to write: there is only one
+  // `MAX_STEP_RUNS` because there is only one run.
+  check("⚠ a parent and its child are ONE execution and ONE run, never two",
+    q(`select count(*) from agent.automation_runs where automation_id in ('${SW_PARENT}','${SW_CHILD}');`) === "1");
+  check("...with one stopped entry in one log",
+    q(`select count(*) from agent.run_entries where run_id='${SW_SUB}' and body->>'kind'='stopped';`) === "1");
+  check("...and the child automation itself was never executed on its own",
+    q(`select count(*) from agent.automation_runs where automation_id='${SW_CHILD}';`) === "0");
+
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n17. WHAT A CALL MAY NAME — refused where the workflow is WRITTEN");
+  // ═════════════════════════════════════════════════════════════════════════
+  // ⚠ **THE WALL NO TENANT FILTER CAN SEE.** Both agents below belong to the SAME account,
+  // so the tenant is identical and only the agent id tells them apart — which is exactly
+  // the case a tenant-scoped check passes and an agent-scoped one refuses.
+  const SW_SECOND_AG = "44444444-4444-4444-8444-444444444444";
+  q(`insert into agent.agents (id, tenant_id, name, instructions) values ('${SW_SECOND_AG}','${A}','Second','Also theirs.');`);
+  const swSibling = await api("/api/agent/automation-create", {
+    body: { agent: SW_SECOND_AG, name: "Somebody else's", schedule: "manual", steps: [{ type: "note", text: "not yours" }] },
+  });
+  check("the same account's OTHER agent has an automation of its own", swSibling.status === 200);
+  const swCrossAgent = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Reaches sideways", schedule: "manual", steps: [{ type: "workflow", runs: swSibling.body.id }] },
+  });
+  check("⚠ a workflow naming ANOTHER AGENT's automation is refused, although the account is the same",
+    swCrossAgent.status === 400 && /isn't one of this agent's/.test(swCrossAgent.body.error), JSON.stringify(swCrossAgent.body));
+  const swNoSuch = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Names nothing", schedule: "manual", steps: [{ type: "workflow", runs: "99999999-9999-4999-8999-999999999999" }] },
+  });
+  check("...and an automation that does not exist is the SAME answer, so neither can be probed for",
+    swNoSuch.status === 400 && swNoSuch.body.error === swCrossAgent.body.error, JSON.stringify(swNoSuch.body));
+  // THE CONTROL, without which both of those are satisfied by a route that refuses every
+  // call there is.
+  const swLegit = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Reaches its own", schedule: "manual", steps: [{ type: "workflow", runs: SW_CHILD }] },
+  });
+  check("...while naming one of its OWN agent's automations is accepted", swLegit.status === 200, JSON.stringify(swLegit.body));
+
+  const swItself = await api("/api/agent/automation-update", {
+    body: { id: swLegit.body.id, name: "Runs itself", schedule: "manual", steps: [{ type: "workflow", runs: swLegit.body.id }] },
+  });
+  check("⚠ an automation that runs ITSELF is refused at save time, not at run time",
+    swItself.status === 400 && /can't run itself/.test(swItself.body.error), JSON.stringify(swItself.body));
+
+  // ⚠ **THE VERSION MOVES ON THE STEPS AND ON NOTHING ELSE**, which is what makes a
+  // parent's recorded snapshot honest across every edit that is not an edit of the work.
+  const swRenamed = await api("/api/agent/automation-update", {
+    body: { id: SW_CHILD, name: "Tidy up, swRenamed", schedule: "manual", zone: "UTC", steps: SW_CHILD_PLAN },
+  });
+  check("renaming the child leaves its version where it was",
+    swRenamed.status === 200 && q(`select version from agent.automations where id='${SW_CHILD}';`) === "1",
+    JSON.stringify(swRenamed.body));
+  const swRewritten = await api("/api/agent/automation-update", {
+    body: {
+      id: SW_CHILD, name: "Tidy up, swRenamed", schedule: "manual", zone: "UTC",
+      steps: [{ type: "note", text: "one sweep is enough" }],
+    },
+  });
+  check("...and rewriting its steps moves it to version 2",
+    swRewritten.status === 200 && q(`select version from agent.automations where id='${SW_CHILD}';`) === "2",
+    JSON.stringify(swRewritten.body));
+
+  // ⚠ **THE SNAPSHOT IS A SNAPSHOT.** The execution already finished above holds the steps
+  // and the version it was accepted with; a NEW run copies in what the child says now.
+  check("⚠ the finished execution still holds version 1's six steps",
+    JSON.parse(q(`select uses::text from agent.automation_runs where id='${SW_SUB}';`))[0].version === 1 &&
+    JSON.parse(q(`select steps::text from agent.automation_runs where id='${SW_SUB}';`)).length === 6);
+  const swAgain = await api("/api/agent/automation-run", { body: { id: SW_PARENT }, ring });
+  await drain();
+  const SW_AGAIN = swAgain.body.runId;
+  const swAgainUses = JSON.parse(q(`select uses::text from agent.automation_runs where id='${SW_AGAIN}';`));
+  check("⚠ ...while the next run copies in VERSION 2, and is three steps long",
+    swAgainUses[0]?.version === 2 &&
+    JSON.parse(q(`select steps::text from agent.automation_runs where id='${SW_AGAIN}';`)).length === 3,
+    JSON.stringify(swAgainUses));
+  check("...and it ran straight through, because version 2 has no wait in it",
+    row(SW_AGAIN, "run_stop->>'reason'") === "done", row(SW_AGAIN, "run_stop::text"));
+
+  // ⚠ **A VALUE MAY NOT CROSS THE CALL BOUNDARY YET, and this is the MEASUREMENT of that
+  // rather than a note about it.** Each half is validated on its own when it is saved, so a
+  // child naming something the parent produces cannot be saved, and neither can a parent
+  // naming something the child produces. The flattened list validates as one workflow —
+  // which is what makes the increment small — but nothing saved in two pieces can reach it.
+  const swWantsParents = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Wants the parent's", schedule: "manual", steps: [{ type: "note", text: "about {{opening}}" }] },
+  });
+  check("⚠ a child naming a value its PARENT produces cannot be saved on its own",
+    swWantsParents.status === 400 && /opening/.test(swWantsParents.body.error), JSON.stringify(swWantsParents.body));
+  const swWantsChilds = await api("/api/agent/automation-create", {
+    body: {
+      agent: AG, name: "Wants the child's", schedule: "manual",
+      steps: [{ type: "workflow", runs: SW_CHILD }, { type: "note", text: "after {{tally}}" }],
+    },
+  });
+  check("...and a parent naming a value its CHILD produces cannot be saved either",
+    swWantsChilds.status === 400 && /tally/.test(swWantsChilds.body.error), JSON.stringify(swWantsChilds.body));
+
+  console.log("\n18. WHAT THE WHOLE RUN LEFT BEHIND");
   // ═════════════════════════════════════════════════════════════════════════
   const tally = q(`select string_agg(state || '=' || n, '  ' order by state) from (
       select coalesce(r.stop->>'reason', case when a.waiting is not null then 'waiting' else 'queued' end) as state,
@@ -721,9 +919,17 @@ try {
     q(`select count(*) from agent.automation_runs where finished_at is not null and waiting is not null;`) === "0");
   check("⚠ no execution has more than one stopped entry",
     q(`select count(*) from (select run_id from agent.run_entries where body->>'kind'='stopped' group by run_id having count(*) > 1) t;`) === "0");
-  check("every finished execution's outcomes are exactly as long as its own steps",
+  // ⚠ **RE-ANCHORED, NOT APPEASED: a LOOP makes the outcome count GROW past the step count**
+  // — one row per step PER ROUND — so an equality was the property only while nothing went
+  // round twice. What is still true, and is strictly more than the count was: every step has
+  // at least one outcome, and no outcome names a position outside the list.
+  check("every finished execution has at least one outcome per step",
     q(`select count(*) from agent.automation_runs where finished_at is not null
-        and jsonb_array_length(outcomes) <> jsonb_array_length(steps);`) === "0");
+        and jsonb_array_length(outcomes) < jsonb_array_length(steps);`) === "0");
+  check("⚠ ...and no outcome anywhere names a step the list has not got",
+    q(`select count(*) from agent.automation_runs a, jsonb_array_elements(a.outcomes) o
+        where (split_part(ltrim(o->>'id', 's'), '#', 1))::integer
+              not between 1 and jsonb_array_length(a.steps);`) === "0");
   check("⚠ no execution's position ever ran past its own step list",
     q(`select count(*) from agent.automation_runs where position > jsonb_array_length(steps);`) === "0");
   check("nothing was left claimed", q(`select count(*) from agent.run_work where claimed_by is not null;`) === "0");

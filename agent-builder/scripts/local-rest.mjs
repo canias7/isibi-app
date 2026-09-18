@@ -87,7 +87,13 @@ const RPCS = {
   // THE SAME TRANSLATION AGAIN. `advance_automation_run` is the one worth naming: it
   // reaches `append_entry` inside its own transaction, so driving it through this shim
   // exercises the real fence rather than a stand-in for it.
-  advance_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_entry::jsonb", "p_position::integer", "p_vars::jsonb", "p_outcomes::jsonb", "p_waiting::jsonb"], shape: "value" },
+  advance_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_entry::jsonb", "p_position::integer", "p_vars::jsonb", "p_outcomes::jsonb", "p_waiting::jsonb", "p_loops::jsonb", "p_tries::jsonb"], shape: "value" },
+  // ── subworkflows: what a parent may copy in, and where the flat plan is kept ──
+  // **NEITHER IS A SHIM DECISION.** The scope is `automation_children`'s own query and the
+  // fence is `set_automation_plan`'s own, so a runner that expanded somebody else's
+  // workflow, or wrote a plan it had no claim on, is refused HERE by the real function.
+  automation_children: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
+  set_automation_plan: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_steps::jsonb", "p_uses::jsonb"], shape: "value" },
   decide_automation_approval: { args: ["p_tenant", "p_run_id::uuid", "p_step", "p_verdict", "p_note", "p_by"], shape: "value" },
   resume_due_automations: { args: ["p_limit::integer"], shape: "set" },
   search_knowledge: { args: ["p_tenant", "p_agent_id::uuid", "p_query", "p_limit::integer"], shape: "set" },
@@ -174,11 +180,17 @@ const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "
 
 /** The automations' own columns, and their executions'. A third set, for a third half. */
 const AUTOMATION_COLUMNS = new Set(["id", "agent_id", "tenant_id", "name", "enabled", "schedule",
-  "at_local", "zone", "steps", "inputs", "next_run_at", "created_at", "updated_at"]);
+  "at_local", "zone", "steps", "inputs", "version", "next_run_at", "created_at", "updated_at"]);
 const EXECUTION_COLUMNS = new Set(["id", "automation_id", "agent_id", "tenant_id", "trigger", "occurrence",
   "steps", "zone", "outcomes", "missed", "created_at", "finished_at",
   "run_status", "run_stop", "run_started_at", "run_stopped_at",
-  "position", "vars", "input", "memory", "waiting", "wait_until", "decisions"]);
+  "position", "vars", "input", "memory", "waiting", "wait_until", "decisions",
+  // ⚠ THE DURABLE LOOP AND RETRY STATE, and `uses` beside them. **A shim LESS capable than
+  // the thing it stands in for hides a defect exactly as well as one that is more**, and
+  // this set is the whole of what a read may name: leaving these out would refuse the
+  // store's own select and report the wiring as broken, or — worse, if the filter were
+  // silent — answer a restart that a loop is at its beginning.
+  "loops", "tries", "uses"]);
 
 /**
  * Reference material and memory — a fourth and fifth set, for the same reason as the

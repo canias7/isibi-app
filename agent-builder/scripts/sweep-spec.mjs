@@ -1035,9 +1035,13 @@ const spec = [
     '      return await finish(false, "unreadable", "this run has no automation execution record");'),
   // THE CONFIGURATION IS THE SNAPSHOT'S. Reading the definition instead would make an
   // in-flight execution editable from outside.
+  // ⚠ RE-ANCHORED, NOT APPEASED: the `steps:` line became `steps,` when the runner gained a
+  // local for the flattened list, so the old anchor named bytes that had moved. The PROPERTY
+  // is unchanged — the zone and the occurrence come from the snapshot rather than from
+  // nowhere — and the two lines the mutant really turns off are still the two it names.
   m("runner: the workflow is read live instead of from the snapshot", RN,
-    "        steps: exec.steps,\n        zone: exec.zone,\n        occurrence: exec.occurrence,",
-    "        steps: exec.steps,\n        zone: null,\n        occurrence: null,"),
+    "        zone: exec.zone,\n        occurrence: exec.occurrence,",
+    "        zone: null,\n        occurrence: null,"),
 
   // ══════════════════════════════════════════════════════════════════════════
   // worker.mjs — the scheduler on the cron
@@ -1521,8 +1525,18 @@ const spec = [
   m("resume: the day is taken from the RESUME rather than from when it started", AU,
     "  const asOf = typeof opts.startedAt === \"number\" && Number.isFinite(opts.startedAt) ? opts.startedAt : now;",
     "  const asOf = now;"),
+  // ⚠ RE-ANCHORED, NOT APPEASED: the test gained `!resumeSpent &&` when a loop showed that a
+  // resume must be consumed ONCE. The property is unchanged — the step's own ID and not the
+  // position — and the mutant still says exactly that.
   m("resume: a decision is matched by POSITION, so one pause's answer resumes another", AU,
-    "    const resume = pausedOn.step === id", "    const resume = pausedOn.step !== undefined"),
+    "!resumeSpent && pausedOn.step === id", "!resumeSpent && pausedOn.step !== undefined"),
+  // ⚠ AND THE NEW HALF: a resume read a SECOND time. Inside a loop the same step id comes
+  // round again, and the stored pause names an id and nothing else — so a wait five minutes
+  // inside a two-round loop waited once and went straight through the second round.
+  m("resume: a resume is read again on a later round, so a loop's second wait is already over", AU,
+    "    const resume = !resumeSpent && pausedOn.step === id", "    const resume = pausedOn.step === id"),
+  m("resume: the resume is never marked spent, which is the same defect one line down", AU,
+    "    if (resume) resumeSpent = true;", "    if (resume) resumeSpent = false;"),
   m("checkpoint: the clock is re-read per call, so a retry writes a SECOND journal entry", AU,
     "        at: now,", "        at: Date.now(),"),
   m("pause: the position ADVANCES past the step that is waiting", AU,
