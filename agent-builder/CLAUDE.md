@@ -5942,11 +5942,12 @@ blanking a column behind the function's back: the not-refreshable row genuinely 
 credential, and the expired row is put into a status the CHECK really admits, which is the point.
 *An id is not a scratch value; it carries an owner and a state.*
 
-### ⚠ And the fourth defect's CLASS was then looked for everywhere — two findings, both negative
+### ⚠ And the fourth defect's CLASS was then looked for everywhere — three findings, all negative
 
 A privilege that contradicts a prose guarantee is a class, not an incident, so the obvious next
-question is where else it could be. **Both answers are negative and both are recorded, because a
-measured non-defect is the only thing that stops the same audit being run again from scratch.**
+question is where else it could be. **All three answers are negative and all three are recorded, because a
+measured non-defect is the only thing that stops the same audit being run again from scratch —
+and one of them exists to stop a later reader "fixing" something that is already right.**
 
 1. **THE ONLY OTHER STORED SECRET IS THE WEBHOOK SIGNING KEY, AND IT WAS ALREADY RIGHT.** Every
    secret-bearing column in every migration, found by scanning the declarations rather than by
@@ -5955,7 +5956,21 @@ measured non-defect is the only thing that stops the same audit being run again 
    functions, which is exactly the shape the connections fix now matches — and
    `pg-schema.mjs` already asserts `has_table_privilege('service_role','agent.webhooks','select')`
    is false. So that half was done correctly and is guarded; nothing to fix.
-2. **`seen.done` IS TRUTHY-CHECKED WHERE `seen.known` REQUIRES AN EXPLICIT `true`, AND THAT
+2. **EVERY DELIBERATE REVOCATION FROM `service_role` IS ALREADY ASSERTED, and there are four.**
+   Scanned rather than recalled: `run_entries` INSERT (the fence), `operations` UPDATE/DELETE,
+   `tool_revocations` UPDATE, and now `connections`' whole write side — each with a
+   `has_table_privilege` check in `pg-schema.mjs`, plus `events` and `webhooks` on the read side.
+   So the axis the fourth defect sits on is otherwise covered.
+   **⚠ AND `agent.run_work`'S FULL `select, insert, update, delete` IS CORRECT AND MUST NOT BE
+   "FIXED" BY ANALOGY WITH THIS ONE — the two designs are OPPOSITE and both are right.** Its
+   functions are `security invoker`, so they carry no privilege of their own and the calling role
+   needs the table grant for them to work at all; the connections functions are `security
+   definer`, so the calling role needs nothing. Taking `run_work`'s grant away because it looks
+   like the defect would break the queue — and its own comment already records the three walls
+   measured by removing them one at a time. *The same grant is a hole in one design and the
+   mechanism in another; which it is depends on how the functions are defined, not on how the
+   line reads.*
+3. **`seen.done` IS TRUTHY-CHECKED WHERE `seen.known` REQUIRES AN EXPLICIT `true`, AND THAT
    ASYMMETRY IS CORRECT.** It looks like the first defect's shape — cannot-tell reading as a
    value — and it is not: `done` carries the FOUND RECORD by contract, not a boolean (a guard
    passes `done: { message: "it-landed" }` and the fake provider answers `done: true`/`false`),

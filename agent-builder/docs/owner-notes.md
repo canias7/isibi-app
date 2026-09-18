@@ -1733,13 +1733,21 @@ above on the second, once the gaps they exposed were closed.
 
 **And I went looking for more of the same, which is the part I would want to know about.** A
 permission that contradicts what the design says is a *kind* of mistake, not a one-off, so I
-checked every other place a secret is stored. There is exactly one — the signing key for the
-webhook endpoints — and **it was already done correctly**: the engine holds no access to that
-table at all, everything goes through the operations, and there was already a check saying so.
-I also re-examined one line in the sending code that *looked* like the first defect wearing a
-different hat, and it is not: it is correct for a documented reason, and changing it would have
-broken something that works. **Both of those are findings with nothing to fix, and I am recording
-them so nobody has to do that search again.**
+checked every other place a secret is stored, every place a permission is deliberately taken
+away, and one line that merely resembled the first defect. **All three came back with nothing to
+fix**, and I am recording them so nobody repeats the search:
+
+- The only other stored secret is the signing key for the webhook endpoints, and **it was already
+  done correctly** — the engine holds no access to that table at all, everything goes through the
+  operations, and there was already a check saying so.
+- Every permission this work deliberately withholds from the engine already has a check proving
+  it is withheld. There are four of them, and the credential is now the fourth.
+- **And one table's wide permission is correct and must not be "tidied" to match the fix**, which
+  is the one worth writing down. Its operations are defined the other way round — they carry no
+  authority of their own, so the engine's access to the table is what makes them work. Removing
+  it because it looks like the mistake I just fixed would break how work gets picked up. The same
+  line is a hole in one design and the mechanism in the other; I have said so in the notes beside
+  the code.
 
 **Nothing is applied, deployed or merged, no model is connected, no real account is touched, and
 no credential of anybody's exists anywhere in this work.**
