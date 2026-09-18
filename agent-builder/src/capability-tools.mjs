@@ -75,7 +75,7 @@ import { uuidFrom } from "./approvals.mjs";
 // described: a model reads what `AUTOMATION_STEPS` really holds and its workflow goes
 // through the same `readWorkflow` a person's save does. Two descriptions of one catalog is
 // how a tool comes to offer a step no executor can run.
-import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, MAX_WORKFLOW_STEPS, VALUE_TYPES, readWorkflow } from "./automations.mjs";
+import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, WEEKDAYS, MAX_WORKFLOW_STEPS, VALUE_TYPES, readWorkflow } from "./automations.mjs";
 
 /** How long a piece of text a tool may be handed, so a schema states its own bound. */
 export const TOOL_TEXT_MAX = 4000;
@@ -479,6 +479,63 @@ const readExecution = tool({
   },
 });
 
+const cancelExecution = tool({
+  name: "cancel_execution",
+  description:
+    "Stop one run of one of this agent's automations. Anything it has already done stays " +
+    "done — this stops what is left, releases any wait, and withdraws anything waiting for " +
+    "a person. It cannot undo work.",
+  input: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "The execution's id, from list_executions." },
+      reason: { type: "string", description: "Why, in a few words. It is recorded on the run." },
+    },
+    required: ["id"],
+  },
+  writes: true,
+  repeatable: true,
+  /**
+   * ⚠ **A PERSON SAYS YES, for the same reason the authoring tools are gated: the decision is
+   * about persistent work, and a gate a model can route around is not a gate.** Stopping is
+   * strictly less than starting — this can never begin anything — but it ends work somebody
+   * is waiting on, and an approval is what makes that theirs.
+   *
+   * ⚠ **AND IT IS NOT ONE OF THE USER-ONLY ACTIONS, which is worth saying because it sits
+   * beside them.** Approving a request, granting a permission and connecting an account are
+   * powers an agent must never hold, and none of them has a tool: there is no `approve_*`, no
+   * `allow_tool`, no `connect_*` on this surface, asserted as a census. Stopping one of the
+   * agent's OWN executions is not in that family — it takes nothing away from a person and
+   * grants the agent nothing it did not already have.
+   */
+  approval: true,
+  run: async (args, can, ctx) => {
+    const answer = await can.cancelExecution({
+      execution: text(args.id), reason: text(args.reason) || null, operation: ctx?.operation,
+    });
+    if (answer?.ok !== true) {
+      return { ok: false, error: answer?.error ?? "refused",
+        say: answer?.error === "no-execution"
+          ? "there is no run of this agent's with that id"
+          : "that run could not be stopped" };
+    }
+    /**
+     * ⚠ **WHAT HAD ALREADY HAPPENED IS SAID, AND IT IS NEVER CALLED UNDONE.** The counts are
+     * the database's — *don't claim completed effects were undone* — and a run that had
+     * already stopped answers what it really ended as rather than being stopped again.
+     */
+    return { ok: true, execution: text(args.id),
+      stopped: answer.repeat !== true,
+      ...(answer.repeat === true ? { repeat: true, alreadyStopped: true } : {}),
+      completedSteps: answer.completedSteps ?? 0,
+      completedCalls: answer.completedCalls ?? 0,
+      ...(answer.withdrewApprovals ? { withdrewApprovals: answer.withdrewApprovals } : {}),
+      say: answer.repeat === true
+        ? "that run had already stopped, so nothing changed — what it did is still done"
+        : "stopped — what had already run has already run and was not undone" };
+  },
+});
+
 // ── writing a workflow ──────────────────────────────────────────────────────
 
 /**
@@ -597,7 +654,29 @@ const STEPS_FIELD = Object.freeze({
  * platform schedule, so a typo cannot quietly offer one that does not exist, and a name the
  * platform drops fails by existing. Widening it means giving the tool the fields first.
  */
-export const AUTHORABLE_SCHEDULES = Object.freeze(["manual", "daily"]);
+export const AUTHORABLE_SCHEDULES = Object.freeze([...AUTOMATION_SCHEDULES]);
+
+/**
+ * ⚠ **WHAT EACH SCHEDULE NEEDS BEFORE IT IS A SCHEDULE — the table's own wholeness rules, in
+ * the one place a tool can refuse them with a sentence.**
+ *
+ * `automations_schedule_is_whole` refuses a `weekly` with no days and a `once` with no date;
+ * a constraint RAISES, and what reaches a model then is a PL/pgSQL exception. So the rules
+ * are asked here, named per field — and `test/integration/pg-schema.mjs` drives both, so a
+ * tool that admitted what the column refuses is a red run rather than an exception in
+ * somebody's face.
+ *
+ * **AND IT IS A TABLE RATHER THAN A CHAIN OF `if`s** because it is also what the census in
+ * `test/capabilities.test.mjs` reads: every schedule this tool may NAME must have every
+ * field it needs among the tool's own properties. That is the property the old narrowing was
+ * a stand-in for, and it holds as the set widens.
+ */
+export const SCHEDULE_NEEDS = Object.freeze({
+  manual: Object.freeze([]),
+  daily: Object.freeze(["atLocal"]),
+  weekly: Object.freeze(["atLocal", "days"]),
+  once: Object.freeze(["atLocal", "onDate"]),
+});
 
 /**
  * ⚠ **THE WALL, BECAUSE A DESCRIPTION IS NOT ONE.** `SCHEDULE_FIELDS` tells a model which
@@ -617,7 +696,7 @@ export const AUTHORABLE_SCHEDULES = Object.freeze(["manual", "daily"]);
  */
 function authorableSchedule(raw) {
   if (raw !== undefined && raw !== null && typeof raw !== "string") {
-    return { error: "bad-schedule", say: `when it runs has to be one of ${AUTHORABLE_SCHEDULES.join(" or ")}, written as a word` };
+    return { error: "bad-schedule", say: `when it runs has to be one of ${AUTHORABLE_SCHEDULES.join(", ")}, written as a word` };
   }
   // ⚠ **ONLY AN ABSENT ONE IS `manual`, and `""` IS NOT ABSENT.** The site's own reader answers
   // an empty string with its list refusal, so reading it as "by hand" here would be the two
@@ -627,21 +706,165 @@ function authorableSchedule(raw) {
   // front of the semicolon, which names nothing a model can act on.
   const asked = raw === undefined || raw === null ? "manual" : text(raw);
   if (!asked) {
-    return { error: "bad-schedule", say: `say when it runs: ${AUTHORABLE_SCHEDULES.join(" or ")}` };
+    return { error: "bad-schedule", say: `say when it runs: ${AUTHORABLE_SCHEDULES.join(", ")}` };
   }
   if (!AUTHORABLE_SCHEDULES.includes(asked)) {
     return {
       error: "bad-schedule",
-      say: `this tool can set ${AUTHORABLE_SCHEDULES.join(" or ")}; ${asked} has to be set on the screen, which asks for the rest of what it needs`,
+      say: `this tool can set ${AUTHORABLE_SCHEDULES.join(", ")}; ${asked} is not a schedule this platform runs`,
     };
   }
   return { schedule: asked };
 }
 
-/** ...and the one description of when it runs. The ZONE is never the model's — see below. */
+/**
+ * ⚠ **THE EVENT NAME'S SHAPE, AND THE BOUND IS THE SITE'S OWN (64), not a rounder number.**
+ *
+ * It is WIDER than an input's on purpose: an event comes from somebody else's system, so dots
+ * and dashes are the ordinary way one is named (`order.paid`, `invoice-sent`). **The first
+ * draft of this admitted 80 characters** — a name this door accepts and the other refuses is
+ * an endpoint nothing can ever match, and `test/agent-send.test.mjs` censuses the two so a
+ * drift is a red run rather than a customer whose trigger never fires.
+ *
+ * DECLARED ABOVE ITS READER, because *declare what a closure reads above its first POSSIBLE
+ * call, not above its obvious one* — this module has paid for that rule twice.
+ */
+export const AGENT_EVENT_SHAPE = /^[a-z][a-z0-9._-]{0,63}$/;
+
+/**
+ * ⚠ **A LOCAL TIME AS THIS TOOL SENDS ONE — and it has to ACCEPT the shape the row answers.**
+ *
+ * `"HH:MM"`, whole minutes, because `09:00:30` is a schedule no screen shows and the column
+ * refuses it. **But a stored `time` comes back as `"09:00:00"`**, so a reader that only took
+ * `HH:MM` could not read a schedule's own time back — and that is not theoretical: moving a
+ * weekly automation's DAYS without repeating its time was refused `bad-time` about a time the
+ * row really holds. **Found by driving the real tool against a real PostgreSQL**, where the
+ * module guard had passed because its fixture wrote `"23:00"` — the shape the TOOL sends —
+ * and the database answers `"23:00:00"`. *A fixture less capable than the thing it stands in
+ * for hides a defect exactly as well as one that is more*, and here the less capable one was
+ * the one written by hand.
+ *
+ * `readAt` answers the canonical `HH:MM` for either, and `""` for anything else, so one shape
+ * reaches the store whichever door the value came through.
+ */
+const AT_SHAPE = /^([01][0-9]|2[0-3]):[0-5][0-9](:00)?$/;
+const readAt = (v) => {
+  const t = typeof v === "string" ? v.trim() : "";
+  return AT_SHAPE.test(t) ? t.slice(0, 5) : "";
+};
+/** A calendar date, and the cast is what decides whether it is one. `2026-13-45` matches this. */
+const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * ⚠ **THE DAYS OF A WEEKLY SCHEDULE — the platform's own names, refused rather than repaired.**
+ *
+ * `WEEKDAYS` is the engine's list and the column's check is built from it, so a tool that
+ * accepted `Monday` would store a day the constraint refuses. The names come back in the
+ * WEEK'S order and duplicates collapse, so two saves of one selection are byte-identical —
+ * the rule the site's own reader follows, for the same reason.
+ */
+function readDays(raw) {
+  if (!Array.isArray(raw)) return { error: "bad-days", say: "the days have to arrive as a list of day names" };
+  const seen = new Set();
+  for (const d of raw) {
+    if (typeof d !== "string") return { error: "bad-days", say: "each day has to be a name like mon" };
+    const name = d.trim().toLowerCase();
+    if (!WEEKDAYS.includes(name)) {
+      return { error: "bad-days", say: `"${d}" is not a day — use ${WEEKDAYS.join(", ")}` };
+    }
+    seen.add(name);
+  }
+  if (!seen.size) return { error: "bad-days", say: "a weekly schedule needs at least one day" };
+  return { days: WEEKDAYS.filter((d) => seen.has(d)) };
+}
+
+/**
+ * ⚠ **THE WHOLE TRIGGER, AND IT IS ONE READER FOR BOTH AUTHORING TOOLS.**
+ *
+ * **THE GAP THIS CLOSES**: `AUTHORABLE_SCHEDULES` was `["manual", "daily"]` and the tool had
+ * `schedule` and `atLocal` and nothing else — so `weekly` and `once` existed in the engine, in
+ * the column and on the person's own form, and an agent could not ask for either. The comment
+ * that stood where this does said a schedule a tool can NAME and cannot DESCRIBE is a dead
+ * control that answers, which was right; the answer is the fields, not the narrowing.
+ *
+ * **AN EVENT IS NOT A SCHEDULE, and this is the site's own correction carried across.** "Every
+ * morning AND whenever a payment lands" is a thing somebody wants, so `onEvent` is answered
+ * for every schedule rather than being a fifth one — and a manual automation that also listens
+ * is the ordinary shape of "I can run this myself, and it runs itself when something happens".
+ *
+ * Every field is refused rather than coerced, and each refusal names the field.
+ */
+function readTrigger(args, { at: storedAt = null, days: storedDays = null,
+                             onDate: storedDate = null, onEvent: storedEvent = null } = {}) {
+  const when = authorableSchedule(args.schedule);
+  if (when.error) return when;
+  const schedule = when.schedule;
+  const needs = SCHEDULE_NEEDS[schedule] ?? [];
+  const out = { schedule, atLocal: null, days: [], onDate: null };
+
+  if (needs.includes("atLocal")) {
+    const at = readAt(Object.hasOwn(args, "atLocal") ? args.atLocal : storedAt);
+    if (!at) {
+      return { error: "bad-time", say: `a ${schedule} schedule needs a time of day as "HH:MM"` };
+    }
+    out.atLocal = at;
+  }
+  if (needs.includes("days")) {
+    const read = readDays(Object.hasOwn(args, "days") ? args.days : (storedDays ?? []));
+    if (read.error) return read;
+    out.days = read.days;
+  }
+  if (needs.includes("onDate")) {
+    const on = Object.hasOwn(args, "onDate") ? text(args.onDate) : (storedDate === null ? "" : text(storedDate));
+    // SHAPED, THEN A REAL DATE. `2026-13-45` matches the shape and is not a date, and the
+    // cast's own refusal several layers down is not a sentence.
+    if (!DATE_SHAPE.test(on) || Number.isNaN(Date.parse(`${on}T00:00:00Z`))
+        || new Date(`${on}T00:00:00Z`).toISOString().slice(0, 10) !== on) {
+      return { error: "bad-date", say: "a one-off schedule needs the date to run, as YYYY-MM-DD" };
+    }
+    out.onDate = on;
+  }
+
+  // ⚠ THE EVENT, FOR EVERY SCHEDULE. Absent leaves whatever is stored; `null` or `""` clears
+  // it, which is how somebody stops an automation listening without deleting it.
+  if (Object.hasOwn(args, "onEvent")) {
+    if (args.onEvent === null || args.onEvent === "") out.onEvent = null;
+    else if (typeof args.onEvent !== "string") {
+      return { error: "bad-event", say: "the event to listen for has to be a name, as text" };
+    } else {
+      const name = args.onEvent.trim().toLowerCase();
+      if (!AGENT_EVENT_SHAPE.test(name)) {
+        return { error: "bad-event",
+          say: "an event's name is lower-case letters, digits, dots, dashes and underscores, starting with a letter" };
+      }
+      out.onEvent = name;
+    }
+  } else if (storedEvent !== null) {
+    out.onEvent = storedEvent;
+  } else {
+    out.onEvent = null;
+  }
+  return out;
+}
+
+
+/**
+ * ...and the one description of when it runs. The ZONE is never the model's — see below.
+ *
+ * ⚠ **EVERY FIELD EVERY AUTHORABLE SCHEDULE NEEDS IS HERE, and that is asserted rather than
+ * described**: `test/capabilities.test.mjs` reads `SCHEDULE_NEEDS` against these properties,
+ * so a schedule the tool may name and cannot describe is a red run. That is the property the
+ * old two-name narrowing stood in for.
+ */
 const SCHEDULE_FIELDS = Object.freeze({
-  schedule: { type: "string", description: `When it runs: ${AUTHORABLE_SCHEDULES.join(" or ")}.` },
-  atLocal: { type: "string", description: 'For a daily one, the local time as "HH:MM".' },
+  schedule: { type: "string", description: `When it runs: ${AUTHORABLE_SCHEDULES.join(", ")}.` },
+  atLocal: { type: "string", description: 'The local time as "HH:MM", for anything but a manual one.' },
+  days: { type: "array", items: { type: "string" },
+    description: `For a weekly one, which days: ${WEEKDAYS.join(", ")}.` },
+  onDate: { type: "string", description: "For a one-off, the date to run, as YYYY-MM-DD." },
+  onEvent: { type: "string",
+    description: "Optional, and separate from the schedule: an event name that also starts it, " +
+      "like order.paid. Send null to stop it listening." },
 });
 
 /**
@@ -747,10 +970,28 @@ const checkWorkflow = pureTool({
  * **A MANUAL SCHEDULE ASKS FOR NOTHING**, because it has no time to be local to — so a tool
  * making an unscheduled automation never touches the settings and never refuses for a zone.
  */
-const NEEDS_A_ZONE = Object.freeze(["daily"]);
+/**
+ * ⚠ **WHICH SCHEDULES NEED ONE — derived from `SCHEDULE_NEEDS` rather than listed.** Every
+ * timed schedule is local to somewhere, so the day `weekly` and `once` became authorable this
+ * had to cover them; a hand-kept list would have let a weekly schedule through with no zone
+ * and met the column's own refusal instead of a sentence.
+ */
+const NEEDS_A_ZONE = Object.freeze(
+  Object.keys(SCHEDULE_NEEDS).filter((k) => SCHEDULE_NEEDS[k].includes("atLocal")));
 
-async function zoneFor(can, schedule) {
+/**
+ * ⚠ **AN EDIT KEEPS THE ZONE THE AUTOMATION ALREADY HAS, and only a CREATE reads the
+ * account's.** This is the requirement's own wording — *preserve the existing timezone during
+ * unrelated edits* — and it is a real choice rather than a convenience: an automation's zone
+ * is what it was written in, and re-zoning a live one because somebody later changed the
+ * account setting would move the absolute time it fires at, silently, on an edit about
+ * something else. `held` is absent on a create, so the account setting is the only source
+ * there; it is the fallback on an edit, for an automation that has none.
+ */
+async function zoneFor(can, schedule, held = null) {
   if (!NEEDS_A_ZONE.includes(schedule)) return { zone: null };
+  const kept = held && typeof held.zone === "string" && held.zone.trim() ? held.zone.trim() : null;
+  if (kept) return { zone: kept };
   const settings = typeof can.readAgentSettings === "function" ? await can.readAgentSettings() : null;
   const zone = settings && typeof settings.zone === "string" && settings.zone.trim()
     ? settings.zone.trim() : null;
@@ -799,9 +1040,8 @@ const makeAutomation = tool({
     if (!asked.ok) return asked;
     const read = checkSteps(args.steps, asked.inputs ?? []);
     if (!read.ok) return read;
-    const when = authorableSchedule(args.schedule);
+    const when = readTrigger(args);
     if (when.error) return { ok: false, error: when.error, say: when.say };
-    const at = text(args.atLocal) || null;
     const zone = await zoneFor(can, when.schedule);
     if (zone.error) return { ok: false, error: zone.error, say: zone.say };
     const answer = await can.createAutomation({
@@ -811,7 +1051,10 @@ const makeAutomation = tool({
       id: await uuidFrom(`automation:${ctx?.operation ?? ""}`),
       name: text(args.name), steps: read.steps,
       schedule: when.schedule,
-      atLocal: at,
+      atLocal: when.atLocal,
+      days: when.days,
+      onDate: when.onDate,
+      onEvent: when.onEvent,
       zone: zone.zone,
       inputs: asked.inputs ?? [],
       enabled: args.enabled !== false,
@@ -821,6 +1064,9 @@ const makeAutomation = tool({
     return { ok: true, automation: answer.automation ?? answer.id ?? null, steps: read.steps.length,
       ...(asked.inputs ? { inputs: asked.inputs.map((i) => i.name) } : {}),
       ...(zone.zone ? { zone: zone.zone } : {}),
+      // ⚠ WHEN IT WILL REALLY RUN, from the database's own arithmetic. A model that asked for a
+      // weekly schedule has no other way to check it got the one it meant.
+      ...(answer.next_run_at ? { nextRunAt: answer.next_run_at } : {}),
       ...(answer.repeat === true ? { repeat: true, say: "that was already created by this same request" } : {}) };
   },
 });
@@ -910,33 +1156,49 @@ const changeAutomation = tool({
       if (asked.inputs) patch.inputs = asked.inputs;
     }
 
-    if (Object.hasOwn(args, "schedule")) {
-      const when = authorableSchedule(args.schedule);
+    /**
+     * ⚠ **A SCHEDULE AND EVERY FIELD IT NEEDS MOVE TOGETHER, or the row cannot be whole.**
+     *
+     * `automations_schedule_is_whole` refuses `daily` with no time, `weekly` with no days,
+     * `once` with no date and `manual` WITH a time — so a call saying `schedule: "weekly"`
+     * has to carry or inherit the days, and one saying `manual` has to clear everything. That
+     * is why the trigger is read as ONE thing rather than field by field: a field left behind
+     * is a constraint raising several layers from the model that can act on it.
+     *
+     * **A FIELD OF THE TRIGGER NAMED WITHOUT A SCHEDULE IS A CHANGE TO THE STORED ONE'S**,
+     * so the stored schedule is read and the same wholeness rules applied to it. Moving a
+     * weekly automation's days without repeating the word "weekly" is the ordinary edit.
+     */
+    const TRIGGER_FIELDS = ["schedule", "atLocal", "days", "onDate", "onEvent"];
+    if (TRIGGER_FIELDS.some((f) => Object.hasOwn(args, f))) {
+      const when = readTrigger(
+        Object.hasOwn(args, "schedule") ? args : { ...args, schedule: text(held.schedule) || "manual" },
+        { at: held.atLocal ?? null, days: Array.isArray(held.days) ? held.days : null,
+          onDate: held.onDate ?? null, onEvent: held.onEvent ?? null });
       if (when.error) return { ok: false, error: when.error, say: when.say };
-      patch.schedule = when.schedule;
       /**
-       * ⚠ **A SCHEDULE AND ITS TIME MOVE TOGETHER, and leaving one behind is a refusal with
-       * no sentence.** The table's wholeness check refuses `daily` with no time and `manual`
-       * WITH one, so a call saying `schedule: "manual"` has to clear the time and one saying
-       * `daily` has to carry it — either from this call or from the row. `atLocal` is
-       * therefore part of the schedule change rather than a field of its own.
+       * ⚠ **ONLY WHAT REALLY MOVED GOES ON THE PATCH, and that is not tidiness: the patch's
+       * own contract is that a key it carries is a field this call is about.** A trigger read
+       * answers every field, so putting all five on would make "I changed the days" arrive as
+       * an edit of the schedule, the time and the event too — and the approval a person gave
+       * would again be for less than what happened.
        */
-      const at = Object.hasOwn(args, "atLocal") ? (text(args.atLocal) || null) : (held.atLocal ?? null);
-      patch.atLocal = when.schedule === "manual" ? null : at;
-      const zone = await zoneFor(can, when.schedule);
+      const sameDays = (a, b) => a.length === b.length && a.every((d, i) => d === b[i]);
+      const heldDays = Array.isArray(held.days) ? held.days : [];
+      if (when.schedule !== text(held.schedule)) patch.schedule = when.schedule;
+      // ⚠ COMPARED IN THE CANONICAL FORM, because the row answers `"23:00:00"` and this tool
+      // sends `"23:00"` — a raw comparison would call every unchanged time a change and put it
+      // on a patch that is not about it.
+      if (when.atLocal !== (readAt(held.atLocal) || null)) patch.atLocal = when.atLocal;
+      if (!sameDays(when.days, heldDays)) patch.days = when.days;
+      if (when.onDate !== (held.onDate ?? null)) patch.onDate = when.onDate;
+      if (when.onEvent !== (held.onEvent ?? null)) patch.onEvent = when.onEvent;
+      const zone = await zoneFor(can, when.schedule, held);
       if (zone.error) return { ok: false, error: zone.error, say: zone.say };
       // THE ZONE IS LEFT ALONE WHERE THE SCHEDULE DOES NOT NEED ONE. It is the automation's
       // own — a `weekday` condition reads it on an unscheduled automation too — so clearing
       // it on a move to `manual` would take away something nothing asked about.
-      if (zone.zone) patch.zone = zone.zone;
-    } else if (Object.hasOwn(args, "atLocal")) {
-      // ⚠ A TIME WITH NO SCHEDULE NAMED IS A CHANGE TO THE STORED SCHEDULE'S TIME, and it
-      // still needs a zone if the stored schedule is one that takes one — otherwise the row
-      // it produces cannot be whole.
-      patch.atLocal = text(args.atLocal) || null;
-      const zone = await zoneFor(can, text(held.schedule));
-      if (zone.error) return { ok: false, error: zone.error, say: zone.say };
-      if (zone.zone) patch.zone = zone.zone;
+      if (zone.zone && zone.zone !== (held.zone ?? null)) patch.zone = zone.zone;
     }
 
     if (Object.keys(patch).length === 0) {
@@ -958,6 +1220,8 @@ const changeAutomation = tool({
     return { ok: true, automation: answer.automation ?? text(args.id),
       // WHAT REALLY CHANGED, by name, so the answer is about the edit rather than the row.
       changed: Object.keys(patch).sort(),
+      // ...AND WHEN IT WILL NEXT RUN, which is the one thing a schedule edit is really about.
+      ...(answer.next_run_at !== undefined ? { nextRunAt: answer.next_run_at } : {}),
       ...(answer.version !== undefined ? { version: answer.version } : {}),
       ...(answer.repeat === true ? { repeat: true, say: "that was already changed by this same request" } : {}) };
   },
@@ -1130,7 +1394,7 @@ export const CAPABILITY_TOOLS = Object.freeze([
   listActions, checkWorkflow,
   listAutomations, readAutomation, makeAutomation, changeAutomation,
   pauseAutomation, runAutomation,
-  listExecutions, readExecution,
+  listExecutions, readExecution, cancelExecution,
   listConnections, readMessages, sendMessage,
 ]);
 

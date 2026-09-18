@@ -357,9 +357,48 @@ begin
     v_on_event := v_row.on_event;
   end if;
 
-  -- ⚠ **ONE WRITER.** The schedule arithmetic, the version rule, the workflow check and
-  -- every wholeness refusal are `update_automation`'s, unchanged — this function's whole
-  -- job was deciding what an absent key means, and it is done.
+  -- ⚠ **THE RESOLVED COMBINATION IS CHECKED FOR WHOLENESS BEFORE IT IS WRITTEN, and this is a
+  -- REFUSAL where the layers below RAISE.**
+  --
+  -- MEASURED: a patch of `{"days": []}` on a weekly automation reached
+  -- `agent.automation_next_run`, which raises *a weekly schedule needs at least one day* — an
+  -- HTTP 400 carrying three PL/pgSQL context lines, which is exactly the shape this whole round
+  -- exists to remove. The column's own `automations_schedule_is_whole` would refuse the row too,
+  -- and a CHECK constraint raises as well. So a patch that produces a half-whole schedule is
+  -- answered here, by name, while it is still somebody's edit.
+  --
+  -- **THE RULES ARE THE COLUMN'S, and the point of repeating them is the ANSWER rather than the
+  -- decision**: the constraint is still what makes them true, and is what catches a caller that
+  -- does not come through here. `test/integration/pg-schema.mjs` drives both.
+  if v_schedule <> 'manual' and v_at is null then
+    return jsonb_build_object('ok', false, 'error', 'bad-time', 'schedule', v_schedule);
+  end if;
+  if v_schedule <> 'manual' and (v_zone is null or btrim(v_zone) = '') then
+    return jsonb_build_object('ok', false, 'error', 'bad-zone', 'schedule', v_schedule);
+  end if;
+  if v_schedule = 'weekly' and coalesce(cardinality(v_days), 0) = 0 then
+    return jsonb_build_object('ok', false, 'error', 'bad-days', 'schedule', v_schedule);
+  end if;
+  if v_schedule = 'once' and v_on_date is null then
+    return jsonb_build_object('ok', false, 'error', 'bad-date', 'schedule', v_schedule);
+  end if;
+  -- ⚠ AND THE OTHER DIRECTION, which is the one a reader forgets: `manual` carrying a time or a
+  -- day list is a control somebody set that nothing reads, and the column refuses that too.
+  if v_schedule = 'manual' and (v_at is not null or coalesce(cardinality(v_days), 0) > 0
+                                or v_on_date is not null) then
+    return jsonb_build_object('ok', false, 'error', 'bad-schedule', 'schedule', v_schedule);
+  end if;
+  -- `daily` AND `once` HOLD NO DAYS, and `daily`/`weekly` hold no date — the same rule.
+  if v_schedule in ('daily', 'once') and coalesce(cardinality(v_days), 0) > 0 then
+    return jsonb_build_object('ok', false, 'error', 'bad-days', 'schedule', v_schedule);
+  end if;
+  if v_schedule in ('daily', 'weekly') and v_on_date is not null then
+    return jsonb_build_object('ok', false, 'error', 'bad-date', 'schedule', v_schedule);
+  end if;
+
+  -- ⚠ **ONE WRITER.** The schedule arithmetic, the version rule and the workflow check are
+  -- `update_automation`'s, unchanged — this function decides what an absent key means and
+  -- whether what it resolved can be a row at all.
   return agent.update_automation(
     p_tenant   := p_tenant,
     p_id       := p_id,
@@ -593,3 +632,78 @@ end; $$;
 
 comment on function agent.set_automation_enabled(text, uuid, boolean) is
   'Turn one on or off. Turning it ON re-arms its next instant forward through agent.automation_next_run — for every schedule, not only a daily one — so a long-disabled automation does not come back with a backlog. Turning it off leaves the instant alone, because a scheduled row is whole only with one and the enabled flag is the gate.';
+
+-- ── 7. STOPPING ONE EXECUTION, UNDER AN OPERATION IDENTITY ──────────────────
+--
+-- ⚠ **`agent.cancel_run` HAD NO `_once` WRAPPER because only a PERSON could reach it**, and a
+-- person's press goes through the site's own route. An agent may stop its own automation's
+-- execution now — which is strictly less than `run_automation`, since it stops work and can
+-- never start any — and every write on the tool surface goes through its operation record.
+-- `test/capabilities.test.mjs` censuses that both ways, so this is not optional politeness.
+--
+-- **AND IT IS NOT REDUNDANT WITH `cancel_run`'S OWN IDEMPOTENCE**, which is worth saying
+-- because it looks it: `cancel_run` already answers `repeat: true, alreadyStopped: true` for a
+-- run that has stopped. What the record adds is the OTHER half — a DIFFERENT call landing in
+-- the same slot is refused `operation-mismatch` rather than cancelling something the caller
+-- did not mean, and the answer is byte-identical across retries rather than merely equivalent.
+--
+-- The shape is `create_automation_once`'s exactly: check, work in a subtransaction that catches
+-- everything, and let the RECORD arbitrate — a committed twin is authoritative, no twin means
+-- the failure is ours and is re-raised with its own code.
+create or replace function agent.cancel_run_once(
+  p_tenant    text,
+  p_op_key    text,
+  p_args_hash text,
+  p_op_run    uuid,
+  p_run_id    uuid,
+  p_by        text,
+  p_reason    text
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_check jsonb;
+  v_out   jsonb;
+  v_lost  boolean := false;
+  v_state text;
+  v_msg   text;
+begin
+  v_check := agent.operation_check(p_tenant, p_op_key, 'cancel_run', p_args_hash);
+  if v_check ->> 'state' = 'repeat' then
+    return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+  end if;
+  if v_check ->> 'state' <> 'fresh' then
+    return jsonb_build_object('ok', false, 'error', 'operation-' || (v_check ->> 'state'),
+                              'was', v_check ->> 'action');
+  end if;
+
+  begin
+    v_out := agent.cancel_run(p_tenant := p_tenant, p_run_id := p_run_id,
+                              p_by := p_by, p_reason := p_reason);
+    if not agent.operation_record(p_tenant, p_op_key, 'cancel_run', p_args_hash, p_op_run, v_out) then
+      raise exception 'another delivery recorded this operation first'
+        using errcode = 'AG001';
+    end if;
+  exception when others then
+    v_lost  := true;
+    v_state := sqlstate;
+    v_msg   := sqlerrm;
+  end;
+
+  if v_lost then
+    v_check := agent.operation_check(p_tenant, p_op_key, 'cancel_run', p_args_hash);
+    if v_check ->> 'state' = 'repeat' then
+      return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+    end if;
+    if v_state <> 'AG001' then
+      raise exception '%', v_msg using errcode = v_state;
+    end if;
+    return jsonb_build_object('ok', false, 'error', 'operation-lost', 'action', 'cancel_run');
+  end if;
+  return v_out;
+end $$;
+
+comment on function agent.cancel_run_once(text, text, text, uuid, uuid, text, text) is
+  'agent.cancel_run under an operation identity, so a redelivery answers the first attempt and a different call in the same slot is refused rather than stopping something nobody meant.';
+
+revoke all on function agent.cancel_run_once(text, text, text, uuid, uuid, text, text) from public;
+grant execute on function agent.cancel_run_once(text, text, text, uuid, uuid, text, text) to service_role;

@@ -59,7 +59,7 @@ export const CAPABILITIES = Object.freeze([
   "listAutomations", "readAutomation", "createAutomation", "updateAutomation",
   "patchAutomation",
   "setAutomationEnabled", "startAutomation",
-  "listExecutions", "readExecution",
+  "listExecutions", "readExecution", "cancelExecution",
   // ⚠ **A READ OF THE AGENT'S OWN SETTINGS, AND IT IS DELIBERATELY NOT A TOOL.** It exists
   // because a daily schedule needs a time zone and a zone is not a model's to choose; the
   // authoring tools ask this and then either use what a person set or ASK for it. Narrow by
@@ -91,6 +91,7 @@ export const CAPABILITY_RPC = Object.freeze({
   startAutomation: "accept_automation_run",
   listExecutions: "list_executions",
   readExecution: "read_execution",
+  cancelExecution: "cancel_run",
   readAgentSettings: "read_agent_settings",
 });
 
@@ -110,7 +111,7 @@ export const CAPABILITY_RPC = Object.freeze({
 export const CAPABILITY_WRITES = Object.freeze([
   "saveMemory", "deleteMemory",
   "createAutomation", "updateAutomation", "patchAutomation",
-  "setAutomationEnabled", "startAutomation",
+  "setAutomationEnabled", "startAutomation", "cancelExecution",
 ]);
 
 /**
@@ -258,12 +259,20 @@ export function makeCapabilities(opts = {}) {
               if (!isId(id)) return null;
               return mine(await rpc(CAPABILITY_RPC.readAutomation, { p_tenant: tenant, p_id: id }));
             },
-            async createAutomation({ id, name, enabled, schedule, atLocal, zone, steps, inputs, operation } = {}) {
+            async createAutomation({ id, name, enabled, schedule, atLocal, zone, steps, inputs,
+                                     days, onDate, onEvent, operation } = {}) {
               return mutate("createAutomation", operation, {
                 p_tenant: tenant, p_agent_id: agentId, p_id: id, p_name: name ?? "",
                 p_enabled: enabled !== false, p_schedule: schedule ?? "manual",
                 p_at_local: atLocal ?? null, p_zone: zone ?? null,
                 p_steps: steps ?? [], p_max: CAP_AUTOMATIONS, p_inputs: inputs ?? [],
+                // ⚠ **THE THREE TRIGGER FIELDS, and a create had to gain them or a weekly
+                // schedule was a schedule this store could not send.** They go in the shared
+                // shape rather than on one path, which is the site's own rule one product over:
+                // a create and an edit carrying different trigger fields is how a screen comes
+                // to save a weekly schedule that stores no days.
+                p_days: Array.isArray(days) ? days : [],
+                p_on_date: onDate ?? null, p_on_event: onEvent ?? null,
               });
             },
             async updateAutomation({ id, name, enabled, schedule, atLocal, zone, steps, inputs, operation } = {}) {
@@ -346,6 +355,33 @@ export function makeCapabilities(opts = {}) {
               });
               if (row === null || typeof row !== "object" || row.ok !== true) return { zone: null };
               return { zone: typeof row.zone === "string" && row.zone.trim() ? row.zone.trim() : null };
+            },
+            /**
+             * ⚠ **STOP ONE EXECUTION — and the WALL is `readExecution`, not a filter in the
+             * function.**
+             *
+             * `agent.cancel_run` takes a RUN id and filters by tenant alone, because a person
+             * is entitled to their whole account. An agent is entitled to its own, so this
+             * reads the execution FIRST — which asks `readAutomation` about the automation it
+             * belongs to, the one wall no tenant filter can see. **And that read is also what
+             * keeps a conversation out of reach**: `agent.automation_history` holds only
+             * automation executions, so a run id that is a chat — including the agent's own
+             * current run — resolves to nothing and is refused. The scope is a property of
+             * which relation is read rather than a check somebody has to remember.
+             *
+             * ⚠ **`p_by` IS DERIVED FROM THE CLOSURE AND SAYS IT WAS THE AGENT.** It goes into
+             * the run's own stop as `cancelledBy`, so a person reading why their automation
+             * stopped must not be shown an account id a model wrote — there is no argument for
+             * one, and the value names the agent because that is what is true.
+             */
+            async cancelExecution({ execution, reason, operation } = {}) {
+              const row = await this.readExecution({ id: execution });
+              if (!row) return { ok: false, error: "no-execution" };
+              return mutate("cancelExecution", operation, {
+                p_tenant: tenant, p_run_id: execution,
+                p_by: `agent:${agentId}`,
+                p_reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : null,
+              });
             },
             async readExecution({ id } = {}) {
               if (!isId(id)) return null;

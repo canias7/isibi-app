@@ -1176,26 +1176,52 @@ const spec = [
   // that does not read must not be saved — and it is pinned on the check plus its own refusal,
   // which is the shortest window that is still unique.
   m("tools: a workflow that does not read is saved anyway", CT,
-    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);",
-    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    const when = authorableSchedule(args.schedule);"),
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);",
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    const when = readTrigger(args);"),
   // ⚠ AND THE DECLARATIONS MUST REACH THE READER, or a step using `{{an_input}}` is refused on
   // the one save that introduces it — the defect this round fixed. Two mutants, because the
   // hop can be cut at either end: the reader not told, or the declarations not validated.
   m("tools: the steps are checked against no declarations", CT,
-    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);",
-    "    const read = checkSteps(args.steps, []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);"),
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);",
+    "    const read = checkSteps(args.steps, []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);"),
   // ⚠ ANCHORED THROUGH `authorableSchedule`, because `check_workflow` opens with the same three
   // lines — the two tools really do read their declarations identically, which is the point.
   m("tools: a create's declarations are stored without being read", CT,
-    "    const asked = readInputs(args.inputs);\n    if (!asked.ok) return asked;\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);",
-    "    const asked = { ok: true, inputs: Array.isArray(args.inputs) ? args.inputs : null };\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);"),
+    "    const asked = readInputs(args.inputs);\n    if (!asked.ok) return asked;\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);",
+    "    const asked = { ok: true, inputs: Array.isArray(args.inputs) ? args.inputs : null };\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);"),
   // ⚠ AND THE WALL ITSELF: a description is not a wall, so a model may write a schedule this
   // tool has no fields for and the DATABASE's wholeness check would refuse it as an exception.
   m("tools: a schedule this tool cannot describe is passed on anyway", CT,
     "  if (!AUTHORABLE_SCHEDULES.includes(asked)) {", "  if (false) {"),
-  m("tools: the authorable set becomes every schedule the platform has", CT,
-    'export const AUTHORABLE_SCHEDULES = Object.freeze(["manual", "daily"]);',
-    "export const AUTHORABLE_SCHEDULES = AUTOMATION_SCHEDULES;"),
+  // ⚠ **THE OLD MUTANT HERE WIDENED THE AUTHORABLE SET, and the product has since widened it
+  // deliberately — with the FIELDS to describe each schedule.** So the mutation that matters
+  // now is the opposite: a schedule offered whose own needs the tool cannot express, which is
+  // exactly the dead control the narrowing used to prevent. Four mutants, because the wholeness
+  // can be broken at the declaration, at the reader, or at either field on the way to the store.
+  m("tools: a schedule is offered whose needs nothing declares", CT,
+    '  weekly: Object.freeze(["atLocal", "days"]),',
+    '  weekly: Object.freeze([]),'),
+  m("tools: a weekly schedule stores no days, which the column refuses", CT,
+    "      days: when.days,\n      onDate: when.onDate,",
+    "      onDate: when.onDate,"),
+  m("tools: a one-off stores no date", CT,
+    "      onDate: when.onDate,\n      onEvent: when.onEvent,",
+    "      onEvent: when.onEvent,"),
+  m("tools: a day a week does not have is repaired instead of refused", CT,
+    "    if (!WEEKDAYS.includes(name)) {",
+    "    if (false) {"),
+  m("tools: an event name wider than the other door's is admitted", CT,
+    "export const AGENT_EVENT_SHAPE = /^[a-z][a-z0-9._-]{0,63}$/;",
+    "export const AGENT_EVENT_SHAPE = /^[a-z][a-z0-9._-]{0,255}$/;"),
+  m("tools: an edit re-zones a live automation from the account setting", CT,
+    "  const kept = held && typeof held.zone === \"string\" && held.zone.trim() ? held.zone.trim() : null;\n  if (kept) return { zone: kept };",
+    "  const kept = null;"),
+  m("tools: a trigger read puts every field on the patch, not only what moved", CT,
+    "      if (when.schedule !== text(held.schedule)) patch.schedule = when.schedule;",
+    "      patch.schedule = when.schedule;"),
+  m("tools: a trigger field named alone is read against no stored schedule", CT,
+    '        Object.hasOwn(args, "schedule") ? args : { ...args, schedule: text(held.schedule) || "manual" },',
+    "        args,"),
   // ⚠ A NON-STRING SCHEDULE SILENTLY BECAME `manual`, so an agent asking for a daily run got
   // an automation that runs by hand and was told `ok`. Found by a guard written for the mutant
   // above it, and the same shape was live in the SITE's own reader.
@@ -1227,11 +1253,16 @@ const spec = [
     '  if (!NEEDS_A_ZONE.includes(schedule)) return { zone: null };',
     '  return { zone: null };'),
   m("tools: every schedule is made to demand a zone, including a manual one", CT,
-    'const NEEDS_A_ZONE = Object.freeze(["daily"]);',
-    'const NEEDS_A_ZONE = Object.freeze(["daily", "manual"]);'),
+    '  Object.keys(SCHEDULE_NEEDS).filter((k) => SCHEDULE_NEEDS[k].includes("atLocal")));',
+    "  Object.keys(SCHEDULE_NEEDS));"),
+  // ⚠ AND ITS OPPOSITE: a TIMED schedule that demands none, which is the row the column
+  // refuses. The derivation can be broken either way and only one of them is obvious.
+  m("tools: a timed schedule is allowed to have no zone", CT,
+    '  Object.keys(SCHEDULE_NEEDS).filter((k) => SCHEDULE_NEEDS[k].includes("atLocal")));',
+    '  Object.keys(SCHEDULE_NEEDS).filter((k) => k === "daily"));'),
   m("tools: the resolved zone is never sent, so the database raises", CT,
-    "      atLocal: at,\n      zone: zone.zone,",
-    "      atLocal: at,"),
+    "      onEvent: when.onEvent,\n      zone: zone.zone,",
+    "      onEvent: when.onEvent,"),
   m("tools: an edit sends a whole replace, resetting what it did not name", CT,
     '    if (Object.hasOwn(args, "name")) patch.name = text(args.name);\n    if (Object.hasOwn(args, "enabled")) patch.enabled = args.enabled;',
     '    patch.name = text(args.name);\n    patch.enabled = args.enabled !== false;'),
@@ -1246,12 +1277,35 @@ const spec = [
   m("tools: an edit's steps are not validated at all", CT,
     "      const read = checkSteps(steps, inputs);\n      if (!read.ok) return read;",
     "      const read = checkSteps(steps, inputs);"),
+  // ⚠ **THE TIME IS PART OF THE TRIGGER READ NOW, so the mutants aim there.** Both of these
+  // are rows the column refuses: `daily` with no time, and `manual` WITH one.
   m("tools: a schedule change leaves its time behind, so the row cannot be whole", CT,
-    '      patch.atLocal = when.schedule === "manual" ? null : at;',
-    '      patch.atLocal = at;'),
+    '  if (needs.includes("atLocal")) {',
+    "  if (false) {"),
   m("tools: a move to manual keeps a time the wholeness check refuses", CT,
-    '      const at = Object.hasOwn(args, "atLocal") ? (text(args.atLocal) || null) : (held.atLocal ?? null);',
-    '      const at = text(args.atLocal) || null;'),
+    "  const out = { schedule, atLocal: null, days: [], onDate: null };",
+    "  const out = { schedule, atLocal: text(args.atLocal) || null, days: [], onDate: null };"),
+  m("tools: a timed schedule takes its time from the call only, never from the row", CT,
+    '    const at = readAt(Object.hasOwn(args, "atLocal") ? args.atLocal : storedAt);',
+    "    const at = readAt(args.atLocal);"),
+  // ⚠ **THE STORED SHAPE, AND THIS IS THE DEFECT A REAL DATABASE FOUND.** A row answers
+  // `"09:00:00"` and the tool sends `"09:00"`; a reader that takes only the short form cannot
+  // read a schedule's own time back, so an edit naming only the DAYS was refused `bad-time`.
+  m("tools: the stored time shape is not readable, so an unrelated edit is refused", CT,
+    "const AT_SHAPE = /^([01][0-9]|2[0-3]):[0-5][0-9](:00)?$/;",
+    "const AT_SHAPE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;"),
+  m("tools: a time is compared in two shapes, so an unchanged one reads as moved", CT,
+    "      if (when.atLocal !== (readAt(held.atLocal) || null)) patch.atLocal = when.atLocal;",
+    "      if (when.atLocal !== (held.atLocal ?? null)) patch.atLocal = when.atLocal;"),
+  m("tools: a stored time with real seconds is accepted and the column refuses it", CT,
+    "  return AT_SHAPE.test(t) ? t.slice(0, 5) : \"\";",
+    "  return t.slice(0, 5);"),
+  m("tools: a date that is not a date is stored anyway", CT,
+    "    if (!DATE_SHAPE.test(on) || Number.isNaN(Date.parse(`${on}T00:00:00Z`))",
+    "    if (false || Number.isNaN(Date.parse(`${on}T00:00:00Z`))"),
+  m("tools: an impossible calendar date passes because only the shape is asked", CT,
+    '        || new Date(`${on}T00:00:00Z`).toISOString().slice(0, 10) !== on) {',
+    "        || false) {"),
   m("tools: an edit naming nothing answers ok about nothing", CT,
     '    if (Object.keys(patch).length === 0) {',
     '    if (false) {'),

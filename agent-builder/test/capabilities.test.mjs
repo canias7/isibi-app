@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
-import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, CONNECTION_TOOLS } from "../src/capability-tools.mjs";
+import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, SCHEDULE_NEEDS, CONNECTION_TOOLS } from "../src/capability-tools.mjs";
 import { CONNECTION_OPS, CONNECTION_WRITES } from "../src/connections.mjs";
 import { FAKE_WRITES } from "../src/fake-provider.mjs";
 import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
@@ -241,7 +241,18 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
   // the old one at all, so the four operations that were right were right by accident of
   // how they were written. Every operation is driven and every request is read.
   const AUTO = "22222222-2222-4222-8222-222222222222";
-  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true, id: AUTO }));
+  /**
+   * ⚠ **THE FIXTURE HAS TO ANSWER A REAL EXECUTION TOO, and this is the same trap the
+   * operation-record census below records one operation over.** `cancelExecution` reads the
+   * execution FIRST — that read is its wall — and `readExecution` then asks `readAutomation`
+   * about the automation the row names. A bare `{ok: true}` carries no `automation`, so the
+   * read answers null, the operation refuses `no-execution` and the census passes over an
+   * operation it never exercised. *A fake less capable than the thing it stands in for hides a
+   * defect exactly as well as one that is more.*
+   */
+  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG }
+    : fn === "read_execution" ? { id: AUTO, automation: AUTO }
+    : { ok: true, id: AUTO }));
   const ops = can.forTenant(T).forAgent(AG);
   const drive = {
     searchKnowledge: [{ query: "x" }], listKnowledge: [], readKnowledge: [{ id: AUTO }],
@@ -257,6 +268,10 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
     setAutomationEnabled: [{ id: AUTO, enabled: false, operation: OP() }],
     startAutomation: [{ id: AUTO, runId: AUTO, operation: OP() }],
     listExecutions: [{ automation: AUTO }], readExecution: [{ id: AUTO }],
+    // ⚠ IT READS THE EXECUTION FIRST, which is the wall; the fixture answers one so the WRITE
+    // is reached at all. A fixture answering nothing would make this look like a refusal and
+    // the census would pass over an operation it never exercised.
+    cancelExecution: [{ execution: AUTO, operation: OP() }],
     // A READ, and it takes nothing at all — the agent is the closure's, as it is everywhere
     // here, which is what makes "a model cannot ask about another agent's settings" true by
     // there being nowhere to say one.
@@ -516,8 +531,15 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
   // AND BOTH DIRECTIONS ARE REALLY EXERCISED, or the equality above is satisfied by every
   // tool being a read.
   const writers = [...touched.keys()].filter((n) => CAPABILITY_TOOLS.find((t) => t.name === n).writes);
+  // ⚠ DERIVED FROM THE CATALOG'S OWN FLAGS rather than listed. This was a hand-typed array of
+  // six and went red the day `cancel_execution` honestly arrived — the same trap as every other
+  // count in this file. What it is FOR is that both directions are really exercised, so that is
+  // what is asked: some tools wrote and some did not, and the writers are exactly the flagged
+  // ones. The equality against `touched` above is what makes the flags themselves true.
   assert.deepEqual(writers.sort(),
-    ["change_automation", "forget", "make_automation", "pause_automation", "remember", "run_automation"]);
+    CAPABILITY_TOOLS.filter((t) => t.writes && touched.has(t.name)).map((t) => t.name).sort());
+  assert.ok(writers.length >= 6, `only ${writers.length} writing tools were driven`);
+  assert.ok(touched.size > writers.length, "every driven tool writes, so the split proves nothing");
   // ⚠ AND ON THE OTHER SEAM TOO, which is what stops "one `perform` tool writes" being
   // satisfied by all three claiming it or none of them doing.
   const outWriters = [...outsideSeen.keys()].filter((n) => CAPABILITY_TOOLS.find((t) => t.name === n).writes);
@@ -701,7 +723,11 @@ test("⚠ EVERY WRITE GOES THROUGH ITS OPERATION RECORD, AND A MISSING IDENTITY 
   // pre-check FIRST — so with a bare `{ok: true}` they refuse `no-automation` and the case
   // reads as the identity wall being broken. Either order is safe (neither refusal writes
   // anything), and the fixture has to be the capable one to ask about the identity at all.
-  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true }));
+  // ⚠ AND `read_execution` FOR THE SAME REASON, one operation later: `cancelExecution`'s own
+  // wall is that read, so a row with no `automation` refuses `no-execution` and the case reads
+  // as the identity wall being broken rather than as the fixture being thin.
+  const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG }
+    : fn === "read_execution" ? { id: AUTO, automation: AUTO } : { ok: true }));
   const ops = can.forTenant(T).forAgent(AG);
   const drive = {
     saveMemory: { name: "a", value: "b" },
@@ -711,6 +737,7 @@ test("⚠ EVERY WRITE GOES THROUGH ITS OPERATION RECORD, AND A MISSING IDENTITY 
     patchAutomation: { id: AUTO, patch: { name: "y" } },
     setAutomationEnabled: { id: AUTO, enabled: false },
     startAutomation: { id: AUTO, runId: AUTO },
+    cancelExecution: { execution: AUTO },
   };
   // ⚠ CENSUSED AGAINST `CAPABILITY_WRITES` BOTH WAYS, so a write added next month is not
   // silently left undriven — the silence would read exactly like coverage.
@@ -950,6 +977,146 @@ test("⚠ A SIBLING AGENT'S AUTOMATION IS NOT THIS AGENT'S TO REWRITE", async ()
  * ════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠ THE AUDIT: EVERY CAPABILITY, CLASSIFIED — and it is a DRIVEN CENSUS rather than prose.
+ *
+ * The requirement is to audit each implemented capability from its tool schema through
+ * validation, backend operation, execution and returned result, and to report each as
+ * **reachable**, **intentionally restricted** or **unfinished**. A paragraph saying so is a
+ * claim that rots; this is the same statement as code, so a capability added, widened or
+ * narrowed without its classification moving is a red run.
+ *
+ * `REACH` is the report. Every name in it must be a real thing, every real thing must be in
+ * it, and each classification is asked of the surface rather than trusted.
+ * ════════════════════════════════════════════════════════════════════════════
+ */
+const REACH = Object.freeze({
+  // ── REACHABLE: a tool schema, a validator, a backend operation and a result ──
+  reachable: Object.freeze({
+    searchKnowledge: "search_reference", listKnowledge: "list_reference", readKnowledge: "read_reference",
+    listMemory: "list_memory", saveMemory: "remember", deleteMemory: "forget",
+    listAutomations: "list_automations", readAutomation: "read_automation",
+    createAutomation: "make_automation", patchAutomation: "change_automation",
+    setAutomationEnabled: "pause_automation", startAutomation: "run_automation",
+    listExecutions: "list_executions", readExecution: "read_execution",
+    cancelExecution: "cancel_execution",
+  }),
+  /**
+   * ── INTENTIONALLY RESTRICTED: implemented, and deliberately not an agent's ──
+   *
+   * Each carries the reason, because "restricted" without one is indistinguishable from
+   * "forgotten" — which is the whole distinction this report exists to make.
+   */
+  restricted: Object.freeze({
+    updateAutomation:
+      "the screen's WHOLE REPLACE. A form shows every field and sends every field; a tool names "
+      + "the one thing it was asked to change, which is `patchAutomation`. A tool on this would "
+      + "be the reset defect back under another name.",
+    readAgentSettings:
+      "read by the authoring path and offered to no model. It exists so a schedule can resolve "
+      + "its zone; a tool for it would widen the surface for nothing a model needs to ask.",
+  }),
+});
+
+test("⚠ THE AUDIT IS COMPLETE AND EVERY CLASSIFICATION IS ASKED OF THE SURFACE", () => {
+  const classified = { ...REACH.reachable, ...REACH.restricted };
+  // ⚠ TOTAL AND DISJOINT OVER `CAPABILITIES`, both ways. A capability in neither class is
+  // unaudited, and a name in the report that is not a capability is a report about nothing.
+  assert.deepEqual(Object.keys(classified).sort(), [...CAPABILITIES].sort(),
+    "a capability is unclassified, or the report names one that does not exist");
+  assert.equal(Object.keys(REACH.reachable).some((k) => Object.hasOwn(REACH.restricted, k)), false,
+    "a capability is in both classes");
+
+  const byName = new Map(CAPABILITY_TOOLS.map((t) => [t.name, t]));
+  for (const [op, toolName] of Object.entries(REACH.reachable)) {
+    // ⚠ **THE FOUR HOPS THE REQUIREMENT NAMES, asked one at a time.** A tool that exists, a
+    // schema a model can fill, a backend operation it really reaches (driven above, in the
+    // `writes` census) and an answer that is not composed. The hop this catches is the one
+    // this repository keeps paying for: a name on a list with nothing behind it.
+    const t = byName.get(toolName);
+    assert.ok(t, `${op} is called reachable through ${toolName}, which is not a tool`);
+    assert.equal(typeof t.input, "object", `${toolName} has no input schema`);
+    assert.equal(t.input.type, "object", `${toolName}'s schema is not an object`);
+    assert.equal(typeof t.run, "function", `${toolName} cannot run`);
+    assert.ok(CAPABILITY_RPC[op], `${op} names no database function`);
+  }
+  for (const op of Object.keys(REACH.restricted)) {
+    // ⚠ **RESTRICTED MEANS NO TOOL REACHES IT, and that is asked of what the tools really
+    // CALL rather than of their names.** A name-based check would pass a tool called something
+    // else that calls it — which is precisely how a restriction stops being one.
+    assert.equal(Object.values(REACH.reachable).includes(op), false);
+    assert.ok(REACH.restricted[op].length > 40, `${op} is restricted with no reason given`);
+  }
+  // ⚠ AND THE REPORT HAS NO `unfinished` CLASS TODAY, which is a statement rather than an
+  // omission: every implemented capability is now either reachable or restricted on purpose.
+  // A capability whose tool did not work would have to go here, and the census above would
+  // force it: it cannot be `reachable` without a tool and it cannot be `restricted` without a
+  // reason. `unfinished` is named in this assertion so the word exists in the report.
+  assert.equal(Object.hasOwn(REACH, "unfinished"), false,
+    "there is unfinished work in the report — say what it is here and in the notes");
+});
+
+test("⚠ EVERY STEP THE ENGINE CAN RUN IS ONE AN AGENT CAN AUTHOR — loops and all", () => {
+  /**
+   * **THE GAP THIS CLOSES BY ASKING**: the requirement names typed inputs, loops,
+   * subworkflows and event waits as capabilities an agent might not be able to use. All four
+   * are STEPS, and a step is reachable when `list_actions` offers it and `readWorkflow`
+   * accepts it — so this drives both rather than reading the catalog.
+   */
+  const list = CAPABILITY_TOOLS.find((t) => t.name === "list_actions");
+  const offered = new Set();
+  return list.run({}, {}).then(async (out) => {
+    for (const a of out.actions) offered.add(a.type);
+    for (const d of AUTOMATION_STEPS) {
+      assert.ok(offered.has(d.type), `${d.type} exists and is not offered to a model`);
+    }
+    // ⚠ **AND EACH OF THE FOUR THE REQUIREMENT NAMES IS REALLY VALIDATED, through
+    // `check_workflow` — the tool, not the module.** A step offered and refused by the save is
+    // a dead control that answers, which is the shape of every gap this round is about.
+    const check = CAPABILITY_TOOLS.find((t) => t.name === "check_workflow");
+    const shapes = {
+      "an event wait": { steps: [{ type: "event", name: "order.paid", out: "paid" }] },
+      // ⚠ A `times` LOOP BINDS NOTHING, and the first draft of this case gave it `as: "n"` and
+      // then read `{{n}}` — refused, correctly, because `as` is an `each`-only field. *A
+      // fixture that fails for a reason other than the one under test reads exactly like the
+      // feature being broken*, and here it would have reported loops as unreachable.
+      "a bounded loop": { steps: [
+        { type: "repeat", mode: "times", times: 3 },
+        { type: "note", text: "again" },
+        { type: "endrepeat" }] },
+      "a loop over a typed input": {
+        inputs: [{ name: "lines", type: "list" }],
+        steps: [
+          { type: "repeat", mode: "each", each: "{{lines}}", as: "line" },
+          { type: "note", text: "{{line}}" },
+          { type: "endrepeat" }] },
+      "a branch": { steps: [
+        { type: "note", text: "hello", out: "greeting" },
+        { type: "if", left: "{{greeting}}", op: "is", right: "hello" },
+        { type: "note", text: "matched" },
+        { type: "otherwise" },
+        { type: "note", text: "did not" },
+        { type: "end" }] },
+      // ⚠ `"stop"` IS NOT ONE OF THE TIMEOUT VERDICTS — the reader said so, by name, which is
+      // the refusal doing its job on my own fixture.
+      "an approval wait": { steps: [{ type: "approval", ask: "send it?", hours: 24, on_timeout: "reject" }] },
+    };
+    for (const [what, args] of Object.entries(shapes)) {
+      const out2 = await check.run(args, {});
+      assert.equal(out2.ok, true, `${what} is offered and cannot be checked: ${JSON.stringify(out2)}`);
+    }
+    // A SUBWORKFLOW IS THE ONE STEP `check_workflow` CANNOT SETTLE ALONE, and saying so is the
+    // honest answer rather than dropping it: `runs` names another automation, and whether it is
+    // this agent's is `agent.automation_calls`' question inside the save's own transaction.
+    // What IS asked here is that the step is offered and takes the field it needs.
+    const sub = AUTOMATION_STEPS.find((d) => d.type === "workflow");
+    assert.ok(sub, "the subworkflow step is gone");
+    assert.ok(offered.has("workflow"));
+    assert.deepEqual(sub.fields.map((f) => f.name), ["runs"]);
+  });
+});
+
 test("⚠ A DAILY SCHEDULE RESOLVES ITS ZONE FROM THE ACCOUNT, and asks where there is none", async () => {
   /**
    * **REPRODUCED**: `make_automation` offered `schedule: "daily"` and sent NO zone, so
@@ -1022,8 +1189,16 @@ test("⚠ AN EDIT CHANGES ONLY WHAT IT NAMES — the whole-replace defect, at th
    * person approved `{id, name}` and what happened was a reset.
    */
   const change = CAPABILITY_TOOLS.find((t) => t.name === "change_automation");
+  /**
+   * ⚠ **`atLocal` IS `"23:00:00"` HERE BECAUSE THAT IS WHAT THE ROW ANSWERS, and the `"23:00"`
+   * that stood here hid a real defect.** A stored `time` comes back from PostgREST with
+   * seconds; the tool SENDS `"HH:MM"`. With the shorter form in this fixture every case passed,
+   * and driving the real tool against a real PostgreSQL refused `bad-time` when an edit named
+   * only the DAYS — about a time the row really holds. *A fixture less capable than the thing
+   * it stands in for hides a defect exactly as well as one that is more.*
+   */
   const STORED = { id: AUTO, agent: AG, name: "Payroll", enabled: false, schedule: "daily",
-    atLocal: "23:00", zone: "Europe/London", version: 3,
+    atLocal: "23:00:00", zone: "Europe/London", version: 3,
     steps: [{ id: "s1", type: "note", text: "hello {{customer}}", out: null }],
     inputs: [{ name: "customer", label: "customer", required: false, default: "", type: "text" }] };
   const drive = async (args, settings = { ok: true, zone: "Europe/London" }) => {
@@ -1059,8 +1234,35 @@ test("⚠ AN EDIT CHANGES ONLY WHAT IT NAMES — the whole-replace defect, at th
   // ── a time with no schedule named changes the stored schedule's time ──
   const moved = await drive({ id: AUTO, atLocal: "07:30" });
   assert.equal(moved.patch.atLocal, "07:30");
-  assert.equal(moved.patch.zone, "Europe/London", "a timed change lost the zone the row needs");
   assert.equal(Object.hasOwn(moved.patch, "schedule"), false, "a time change rewrote the schedule");
+  /**
+   * ⚠ **THE ZONE IS PRESERVED, WHICH MEANS IT IS NOT ON THE PATCH AT ALL.**
+   *
+   * **RE-ANCHORED, NOT APPEASED, and the product moved with it.** This demanded
+   * `patch.zone === "Europe/London"` — re-sending a value that had not changed, which the
+   * patch's own contract says a key must not do: a carried field makes "I moved the time"
+   * arrive as an edit of the zone too, and the approval a person gave was for less.
+   *
+   * ⚠ AND THE STRONGER HALF: an edit now keeps the automation's OWN zone rather than reading
+   * the account's, which is the requirement's own wording — *preserve the existing timezone
+   * during unrelated edits*. Re-zoning a live automation because somebody later changed the
+   * account setting would move the absolute time it fires at, silently. Driven below with the
+   * two deliberately different.
+   */
+  assert.equal(Object.hasOwn(moved.patch, "zone"), false,
+    "a timed change re-sent a zone that had not moved");
+  const tokyo = await drive({ id: AUTO, atLocal: "07:30" }, { ok: true, zone: "Asia/Tokyo" });
+  assert.equal(Object.hasOwn(tokyo.patch, "zone"), false,
+    "an edit re-zoned a live automation from the account setting");
+  // ⚠ ...AND THE CONTROL: an automation with NO zone of its own does take the account's, or
+  // the preservation above is satisfied by a tool that never sets one.
+  const w = recorder((fn) => (fn === "read_automation" ? { ...STORED, zone: null, schedule: "manual", atLocal: null }
+    : fn === "read_agent_settings" ? { ok: true, zone: "Asia/Tokyo" } : { ok: true, id: AUTO, version: 3 }));
+  const fresh = await change.run({ id: AUTO, schedule: "daily", atLocal: "06:00" },
+    { capabilities: w.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(fresh.ok, true, JSON.stringify(fresh));
+  assert.equal(w.sent.find((r) => r.rpc === "patch_automation_once").body.p_patch.zone, "Asia/Tokyo",
+    "an automation with no zone did not take the account's");
 
   // ── a call naming nothing is a REFUSAL, not an `ok` about nothing ──
   const nothing = await drive({ id: AUTO });
@@ -1071,6 +1273,99 @@ test("⚠ AN EDIT CHANGES ONLY WHAT IT NAMES — the whole-replace defect, at th
   // ── ONLY THE ID IS REQUIRED, which is what lets a rename be a rename ──
   assert.deepEqual(change.input.required, ["id"],
     "an edit still demands a field it is not about, so a rename must guess a workflow");
+});
+
+test("⚠ WEEKLY, ONE-OFF AND EVENT TRIGGERS ARE AUTHORABLE, with every field they need", async () => {
+  /**
+   * **THE GAP**: `weekly` and `once` existed in the engine, in the column and on the person's
+   * own form, and `AUTHORABLE_SCHEDULES` was `["manual","daily"]` because the tool had no day
+   * list and no date — so an agent could not ask for either. An event trigger had no field at
+   * all. Each is now a field, and each is refused BY NAME rather than reaching the column's own
+   * check, which raises.
+   */
+  const make = CAPABILITY_TOOLS.find((t) => t.name === "make_automation");
+  const zoned = () => recorder((fn) => (fn === "read_agent_settings" ? { ok: true, zone: "Europe/London" }
+    : { ok: true, id: AUTO }));
+  const steps = [{ type: "note", text: "hi" }];
+  const sent = (w) => w.sent.find((r) => r.rpc === "create_automation_once").body;
+
+  const wk = zoned();
+  const weekly = await make.run({ name: "W", steps, schedule: "weekly", atLocal: "09:00", days: ["thu", "mon", "mon"] },
+    { capabilities: wk.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(weekly.ok, true, JSON.stringify(weekly));
+  assert.equal(sent(wk).p_schedule, "weekly");
+  // ⚠ THE WEEK'S ORDER AND NO DUPLICATES, so two saves of one selection are byte-identical.
+  assert.deepEqual(sent(wk).p_days, ["mon", "thu"]);
+  assert.equal(sent(wk).p_zone, "Europe/London", "a weekly schedule went out with no zone");
+
+  const on = zoned();
+  const once = await make.run({ name: "O", steps, schedule: "once", atLocal: "07:15", onDate: "2027-03-01" },
+    { capabilities: on.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(once.ok, true, JSON.stringify(once));
+  assert.equal(sent(on).p_on_date, "2027-03-01");
+  assert.deepEqual(sent(on).p_days, [], "a one-off went out with days");
+
+  // ⚠ **AN EVENT IS NOT A SCHEDULE — it rides on a MANUAL automation and asks for no zone.**
+  // "I can run this myself, and it runs itself when something happens" is the ordinary shape.
+  const ev = recorder(() => ({ ok: true, id: AUTO }));
+  const listener = await make.run({ name: "L", steps, onEvent: "Order.Paid" },
+    { capabilities: ev.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(listener.ok, true, JSON.stringify(listener));
+  const evBody = ev.sent.find((r) => r.rpc === "create_automation_once").body;
+  assert.equal(evBody.p_schedule, "manual");
+  // FOLDED, so `Order.Paid` and `order.paid` are one event — the same fold the trigger reads by.
+  assert.equal(evBody.p_on_event, "order.paid");
+  assert.deepEqual(ev.sent.filter((r) => r.rpc === "read_agent_settings"), [],
+    "an event-only automation asked for a time zone it has no use for");
+
+  // ── REFUSED BY NAME, AND NOTHING WRITTEN ──
+  for (const [want, args] of [
+    ["bad-days", { schedule: "weekly", atLocal: "09:00" }],
+    ["bad-days", { schedule: "weekly", atLocal: "09:00", days: [] }],
+    ["bad-days", { schedule: "weekly", atLocal: "09:00", days: ["Monday"] }],
+    ["bad-days", { schedule: "weekly", atLocal: "09:00", days: "mon" }],
+    ["bad-days", { schedule: "weekly", atLocal: "09:00", days: [1] }],
+    ["bad-date", { schedule: "once", atLocal: "09:00" }],
+    ["bad-date", { schedule: "once", atLocal: "09:00", onDate: "2026-02-30" }],
+    ["bad-date", { schedule: "once", atLocal: "09:00", onDate: "2026-13-01" }],
+    ["bad-date", { schedule: "once", atLocal: "09:00", onDate: "soon" }],
+    ["bad-time", { schedule: "weekly", days: ["mon"] }],
+    ["bad-time", { schedule: "once", atLocal: "9am", onDate: "2027-01-01" }],
+    ["bad-event", { onEvent: "order paid" }],
+    ["bad-event", { onEvent: "Order/Paid" }],
+    ["bad-event", { onEvent: 7 }],
+    ["bad-event", { onEvent: "x".repeat(200) }],
+  ]) {
+    const w = zoned();
+    const out = await make.run({ name: "R", steps, ...args },
+      { capabilities: w.can.forTenant(T).forAgent(AG), operation: OP() });
+    const said = JSON.stringify(args);
+    assert.equal(out.ok, false, `${said} was accepted`);
+    assert.equal(out.error, want, `${said} refused ${out.error}: ${out.say}`);
+    assert.deepEqual(w.sent.filter((r) => r.rpc.endsWith("_once")), [], `${said} wrote something`);
+  }
+
+  /**
+   * ⚠ **AND AN EDIT NAMING ONE TRIGGER FIELD READS THE REST FROM THE ROW — which is where the
+   * real bug was.** `days` alone on a weekly automation was refused `bad-time`, because the row
+   * answers `"09:00:00"` and the reader only took `"HH:MM"`. Driven against a real PostgreSQL;
+   * the fixture here answers the row's own shape so it can be seen at the module too.
+   */
+  const change = CAPABILITY_TOOLS.find((t) => t.name === "change_automation");
+  const held = { id: AUTO, agent: AG, name: "W", enabled: true, schedule: "weekly",
+    atLocal: "09:00:00", zone: "Europe/London", days: ["mon", "thu"], onDate: null, onEvent: null,
+    version: 1, steps: [], inputs: [] };
+  const w2 = recorder((fn) => (fn === "read_automation" ? held
+    : fn === "read_agent_settings" ? { ok: true, zone: "Europe/London" } : { ok: true, id: AUTO, version: 1 }));
+  const moved = await change.run({ id: AUTO, days: ["sat", "sun"] },
+    { capabilities: w2.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(moved.ok, true, `moving only the days was refused: ${JSON.stringify(moved)}`);
+  const patch = w2.sent.find((r) => r.rpc === "patch_automation_once").body.p_patch;
+  // ⚠ ONLY THE DAYS, and in the week's order. The unchanged time must NOT be on the patch, or
+  // "I moved the days" arrives as an edit of the time too.
+  assert.deepEqual(Object.keys(patch), ["days"], JSON.stringify(patch));
+  assert.deepEqual(patch.days, ["sun", "sat"]);
+  assert.deepEqual(moved.changed, ["days"]);
 });
 
 test("⚠ THE VERSION FENCE REACHES THE STORE, and a stale edit is refused by name", async () => {
@@ -1228,15 +1523,40 @@ test("⚠ AN AGENT MAY ONLY AUTHOR A SCHEDULE ITS OWN TOOL CAN DESCRIBE", async 
   // refusing it for want of a day list the tool has no field for — a Postgres exception several
   // layers below the thing that can act on it — and a `once` is the same for `on_date`.
   //
-  // THE SET IS NARROWER THAN THE PLATFORM'S ON PURPOSE, and asserted so: a set that grew to
-  // every schedule would make the refusal unreachable and the tool a control that answers.
-  assert.deepEqual([...AUTHORABLE_SCHEDULES], ["manual", "daily"]);
-  for (const wider of AUTOMATION_SCHEDULES) {
-    if (AUTHORABLE_SCHEDULES.includes(wider)) continue;
-    assert.ok(["weekly", "once"].includes(wider), `an unexpected schedule ${wider} exists`);
+  /**
+   * ⚠ **RE-ANCHORED, NOT APPEASED, AND THE PRODUCT MOVED RATHER THAN THE CHECK.**
+   *
+   * This read `AUTHORABLE_SCHEDULES === ["manual","daily"]` plus "the set is narrower than the
+   * platform's, so the refusal is reachable" — a narrowing pinned as a rule. Its own comment
+   * gave the real reason: *a schedule a tool can NAME and cannot fully DESCRIBE is a dead
+   * control that answers*, because `weekly` needs a day list and `once` a date and the tool
+   * had fields for neither. **The answer to that is the FIELDS, not the narrowing**, and this
+   * round gave it them — so `weekly` and `once`, which existed in the engine, in the column
+   * and on the person's own form, are reachable now instead of being permanently out of an
+   * agent's hands.
+   *
+   * The property that survives, asked as a derived census: **every schedule this tool may name
+   * must have every field it needs among the tool's own properties.** A schedule added to
+   * `AUTHORABLE_SCHEDULES` with nothing to describe it is a red run, which is what the old
+   * list was standing in for.
+   */
+  assert.deepEqual([...AUTHORABLE_SCHEDULES].sort(), [...AUTOMATION_SCHEDULES].sort(),
+    "a schedule the platform runs is out of an agent's reach, or one it does not is offered");
+  for (const name of ["make_automation", "change_automation"]) {
+    const props = CAPABILITY_TOOLS.find((t) => t.name === name).input.properties;
+    for (const sched of AUTHORABLE_SCHEDULES) {
+      const needs = SCHEDULE_NEEDS[sched];
+      assert.ok(Array.isArray(needs), `${sched} has no declared needs, so nothing checks it`);
+      for (const field of needs) {
+        assert.ok(Object.hasOwn(props, field),
+          `${name} may set ${sched} and has no ${field} field — a dead control that answers`);
+      }
+    }
   }
-  assert.ok(AUTHORABLE_SCHEDULES.length < AUTOMATION_SCHEDULES.length,
-    "the authorable set is every schedule the platform has, so the refusal is unreachable");
+  // AND THE OBSERVER IS ALIVE: at least one schedule really needs a field, so the loop above
+  // is not vacuous over four empty lists.
+  assert.ok(Object.values(SCHEDULE_NEEDS).some((n) => n.length > 0),
+    "no schedule needs anything, so the census checks nothing");
 
   for (const name of ["make_automation", "change_automation"]) {
     const tool = CAPABILITY_TOOLS.find((t) => t.name === name);
@@ -1257,7 +1577,10 @@ test("⚠ AN AGENT MAY ONLY AUTHOR A SCHEDULE ITS OWN TOOL CAN DESCRIBE", async 
 
     // REFUSED BY NAME, WITH THE LIST, and NOTHING IS WRITTEN — which is what makes it a
     // refusal rather than a failed attempt somebody has to undo.
-    for (const asked of ["weekly", "once", "hourly", "DAILY", ["daily"], 7, "", "  "]) {
+    // ⚠ `weekly` AND `once` ARE OFF THIS LIST BECAUSE THEY ARE REACHABLE NOW. What is left is
+    // what is genuinely not a schedule: a name the platform does not have, a wrong case, a
+    // wrong kind and a blank — each with its own sentence.
+    for (const asked of ["hourly", "fortnightly", "DAILY", ["daily"], 7, "", "  "]) {
       // ⚠ COUNTED AS WRITES, NOT AS REQUESTS — and the first draft of this counted requests.
       // `change_automation` makes a `read_automation` pre-check FIRST, which is a read and is
       // legitimate: what a refusal must leave untouched is the ROW, so the census is over the
@@ -1269,14 +1592,19 @@ test("⚠ AN AGENT MAY ONLY AUTHOR A SCHEDULE ITS OWN TOOL CAN DESCRIBE", async 
       // ⚠ BOTH REFUSALS NAME THE SET IT CAN SET, because that is the one thing a model can act
       // on — and they are two SENTENCES, because "a schedule that exists and this tool cannot
       // set" and "that did not arrive as a word" need different things done about them.
-      assert.match(out.say, /manual or daily/, `the refusal does not say what it can set: ${out.say}`);
-      // ⚠ THREE REFUSALS, THREE SENTENCES. A schedule that EXISTS and this tool cannot set,
-      // one that did not arrive as a word, and a blank need different things done about them —
-      // and the blank's needs its own, because the list's reads "; has to be set on the
-      // screen" with nothing in front of the semicolon.
+      assert.match(out.say, new RegExp(AUTHORABLE_SCHEDULES.join(", ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+        `the refusal does not say what it can set: ${out.say}`);
+      /**
+       * ⚠ **THREE REFUSALS, THREE SENTENCES** — and the third one's WORDS changed with the
+       * product rather than the check being relaxed. It used to read "has to be set on the
+       * screen, which asks for the rest of what it needs", which was true while the tool could
+       * not describe `weekly` or `once`; now it can, so a name that is refused is one the
+       * PLATFORM does not run and the sentence says that instead. Sending somebody to a screen
+       * that cannot help either would be a dead end dressed as advice.
+       */
       if (typeof asked !== "string") assert.match(out.say, /as a word/, out.say);
       else if (!asked.trim()) assert.match(out.say, /^say when it runs/, out.say);
-      else assert.match(out.say, /has to be set on the screen/, out.say);
+      else assert.match(out.say, /not a schedule this platform runs/, out.say);
       assert.equal(sent.filter((r) => r.rpc.endsWith("_once")).length, before,
         `${name} wrote something for a refused schedule`);
     }
@@ -1296,8 +1624,15 @@ test("⚠ AN AGENT MAY ONLY AUTHOR A SCHEDULE ITS OWN TOOL CAN DESCRIBE", async 
       const req = sent.filter((r) => r.rpc.endsWith("_once")).at(-1);
       return req.rpc === "patch_automation_once" ? req.body.p_patch?.schedule : req.body.p_schedule;
     };
-    for (const asked of ["manual", "daily"]) {
-      const out = await tool.run({ ...args, schedule: asked, atLocal: "09:00" }, { capabilities: ops, operation: OP() });
+    // ⚠ EVERY AUTHORABLE SCHEDULE IS DRIVEN, derived from the list rather than named — so one
+    // added next month is a control by existing. Each is given the fields IT needs.
+    const enough = { manual: {}, daily: { atLocal: "09:00" },
+      weekly: { atLocal: "09:00", days: ["mon", "thu"] },
+      once: { atLocal: "09:00", onDate: "2027-01-04" } };
+    assert.deepEqual(Object.keys(enough).sort(), [...AUTHORABLE_SCHEDULES].sort(),
+      "a schedule is authorable and undriven, which reads exactly like coverage");
+    for (const asked of AUTHORABLE_SCHEDULES) {
+      const out = await tool.run({ ...args, schedule: asked, ...enough[asked] }, { capabilities: ops, operation: OP() });
       assert.equal(out.ok, true, `${name} refused ${asked}: ${JSON.stringify(out)}`);
       assert.equal(storedSchedule(), asked, `${name} stored ${storedSchedule()} for ${asked}`);
     }

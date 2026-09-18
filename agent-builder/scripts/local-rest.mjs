@@ -192,7 +192,10 @@ const RPCS = {
  * not more forgiving than the real thing.
  */
 const ONCE_OF = ["save_memory", "delete_memory", "set_automation_enabled",
-  "accept_automation_run", "create_automation", "update_automation", "patch_automation"];
+  "accept_automation_run", "create_automation", "update_automation", "patch_automation",
+  // ⚠ STOPPING ONE EXECUTION IS A WRITE AN AGENT MAY MAKE NOW, so it has a record like every
+  // other. A person's press still goes through `cancel_run` itself, from the site's own route.
+  "cancel_run"];
 for (const name of ONCE_OF) {
   const inner = RPCS[name];
   if (!inner) throw new Error(`local-rest: ${name} is not served, so ${name}_once cannot be derived`);

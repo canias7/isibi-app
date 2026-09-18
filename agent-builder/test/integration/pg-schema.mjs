@@ -4769,14 +4769,137 @@ try {
   check("⚠ ...and clearing the schedule clears its time and its instant, keeping the zone",
     jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"schedule":"manual","atLocal":null}'::jsonb) ->> 'ok';`) === "true"
     && shape() === "true | manual | - | Europe/London | 1 | 1 | v1 | no-instant", shape());
-  // ⚠ **AND A HALF-WHOLE SCHEDULE IS THE COLUMN'S OWN REFUSAL, which is why this needs a real
-  // database: `daily` with no time is a row Postgres will not hold, and the patch does not
-  // duplicate that check — it lets the constraint raise, which `patch_automation` passes on.
-  const halfWhole = psql(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"schedule":"daily"}'::jsonb);`, asOwner);
-  check("⚠ a daily schedule with no time is refused by the column, not stored half-whole",
-    halfWhole.err !== null && /automations_schedule_is_whole|a daily schedule needs/.test(String(halfWhole.err)),
-    String(halfWhole.err).slice(0, 120));
+  /**
+   * ⚠ **A HALF-WHOLE SCHEDULE IS A REFUSAL WITH A NAME, NOT A RAISE — and this assertion was
+   * RE-ANCHORED because the product got better.**
+   *
+   * It read "refused by the column", and it was: `daily` with no time reached
+   * `agent.automation_next_run`, which raises, and the caller got an HTTP 400 with three
+   * PL/pgSQL context lines. That is the shape this whole round exists to remove, so
+   * `patch_automation` now checks the RESOLVED combination and answers `bad-time` as a VALUE.
+   * The constraint is still what makes it true and still catches anything that does not come
+   * through here — proved separately below, against the table.
+   */
+  const halfWhole = jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"schedule":"daily"}'::jsonb)::text;`);
+  check("⚠ a daily schedule with no time is refused BY NAME, as a value rather than a raise",
+    JSON.parse(halfWhole).error === "bad-time" && JSON.parse(halfWhole).ok === false, halfWhole);
   check("...and the row is still what it was", shape() === "true | manual | - | Europe/London | 1 | 1 | v1 | no-instant", shape());
+  // ⚠ **AND THE COLUMN IS STILL THE WALL, which only a real database can show.** The refusal
+  // above is the ANSWER; this is what stops a writer that never asked. Driven straight at the
+  // table, so the constraint is proved alive rather than assumed behind a function.
+  const raw = psql(`update agent.automations set schedule = 'daily', at_local = null, next_run_at = null
+                     where id = '${P1}'::uuid;`, asOwner);
+  check("⚠ ...and the CONSTRAINT refuses the same row to a writer that did not ask",
+    raw.err !== null && /automations_schedule_is_whole/.test(String(raw.err)), String(raw.err).slice(0, 110));
+
+  // ── EVERY SCHEDULE THE COLUMN HOLDS, WRITTEN BY THE PATCH ──
+  //
+  // ⚠ **THE POINT OF DOING THIS HERE is that `automations_schedule_is_whole` is what really
+  // decides, and it RAISES.** A weekly schedule with no days, a one-off with no date, a manual
+  // one carrying a time: each is a row Postgres will not hold, and the patch's job is to
+  // produce whole ones from partial calls. A fake store cannot refuse any of them.
+  const P3 = "dd000000-0000-0000-0000-0000000000b3";
+  jget(`select agent.create_automation('${PT}', '${PA}'::uuid, '${P3}'::uuid,
+      'Every trigger', true, 'weekly', '09:00', 'Europe/London', '[]'::jsonb, 20, '[]'::jsonb,
+      '{mon,thu}'::text[], null, null) ->> 'ok';`);
+  const trig = () => jget(`select schedule || ' | ' || coalesce(at_local::text, '-') || ' | ' || days::text
+      || ' | ' || coalesce(on_date::text, '-') || ' | ' || coalesce(on_event, '-')
+      || ' | ' || case when next_run_at is null then 'no-instant' else 'armed' end
+      from agent.automations where id = '${P3}'::uuid;`);
+  check("a weekly automation exists, armed", trig() === "weekly | 09:00:00 | {mon,thu} | - | - | armed", trig());
+  check("⚠ moving only the DAYS keeps the time and re-arms the instant",
+    jget(`select agent.patch_automation('${PT}', '${P3}'::uuid, '{"days":["sat","sun"]}'::jsonb) ->> 'ok';`) === "true"
+    && trig() === "weekly | 09:00:00 | {sat,sun} | - | - | armed", trig());
+  // ⚠ **REFUSED BY NAME rather than by a raise from the arithmetic.** MEASURED before the fix:
+  // `{"days": []}` on a weekly automation reached `agent.automation_next_run`, which raises *a
+  // weekly schedule needs at least one day* with three context lines. The answer names the field.
+  check("⚠ a weekly schedule with NO days is refused BY NAME, and the row is untouched",
+    JSON.parse(jget(`select agent.patch_automation('${PT}', '${P3}'::uuid, '{"days":[]}'::jsonb)::text;`)).error === "bad-days"
+    && trig() === "weekly | 09:00:00 | {sat,sun} | - | - | armed", trig());
+  // AND EVERY OTHER HALF-WHOLE COMBINATION, each by its own name. Two directions per schedule:
+  // a field it needs and has not got, and a field it must not have and does.
+  for (const [patch, want] of [
+    ['{"schedule":"once","onDate":null}', "bad-date"],
+    ['{"schedule":"daily","days":["mon"]}', "bad-days"],
+    ['{"schedule":"weekly","onDate":"2027-01-01"}', "bad-date"],
+    ['{"schedule":"manual"}', "bad-schedule"],
+  ]) {
+    const got = JSON.parse(jget(`select agent.patch_automation('${PT}', '${P3}'::uuid, '${patch}'::jsonb)::text;`));
+    check(`⚠ ...and ${patch} is ${want}`, got.error === want && got.ok === false, JSON.stringify(got));
+  }
+  check("...and none of them moved the row", trig() === "weekly | 09:00:00 | {sat,sun} | - | - | armed", trig());
+  check("⚠ becoming a one-off clears the days and takes the date",
+    jget(`select agent.patch_automation('${PT}', '${P3}'::uuid,
+            '{"schedule":"once","onDate":"2027-03-01","days":[]}'::jsonb) ->> 'ok';`) === "true"
+    && trig() === "once | 09:00:00 | {} | 2027-03-01 | - | armed", trig());
+  check("⚠ an event name is stored beside whatever schedule it has",
+    jget(`select agent.patch_automation('${PT}', '${P3}'::uuid, '{"onEvent":"order.paid"}'::jsonb) ->> 'ok';`) === "true"
+    && trig() === "once | 09:00:00 | {} | 2027-03-01 | order.paid | armed", trig());
+  check("⚠ ...and clearing it is explicit, and leaves the schedule alone",
+    jget(`select agent.patch_automation('${PT}', '${P3}'::uuid, '{"onEvent":null}'::jsonb) ->> 'ok';`) === "true"
+    && trig() === "once | 09:00:00 | {} | 2027-03-01 | - | armed", trig());
+  check("⚠ and back to manual clears the time, the date and the instant together",
+    jget(`select agent.patch_automation('${PT}', '${P3}'::uuid,
+            '{"schedule":"manual","atLocal":null,"onDate":null}'::jsonb) ->> 'ok';`) === "true"
+    && trig() === "manual | - | {} | - | - | no-instant", trig());
+
+  // ── ENABLING RE-ARMS EVERY SCHEDULE, NOT ONLY A DAILY ONE ──
+  //
+  // ⚠ **THE GAP THIS CLOSES, and only a real database shows it**: `set_automation_enabled`
+  // recomputed the next instant for `schedule = 'daily'` alone, so a weekly or one-off
+  // automation disabled for a fortnight came back with an instant in the past — the backlog
+  // burst the scheduler exists to avoid, which its own comment describes and the code named one
+  // schedule for. The instant is READ, before and after, because "it re-armed" is a claim about
+  // a value moving forward.
+  jget(`select agent.patch_automation('${PT}', '${P3}'::uuid,
+          '{"schedule":"weekly","atLocal":"09:00","days":["mon","tue","wed","thu","fri","sat","sun"]}'::jsonb) ->> 'ok';`);
+  psql(`update agent.automations set enabled = false, next_run_at = now() - interval '14 days'
+         where id = '${P3}'::uuid;`, asOwner);
+  const behind = jget(`select next_run_at::text from agent.automations where id = '${P3}'::uuid;`);
+  check("a disabled weekly automation is a fortnight behind", behind !== "", behind);
+  const rearmed = JSON.parse(jget(`select agent.set_automation_enabled('${PT}', '${P3}'::uuid, true)::text;`));
+  check("⚠ ENABLING IT RE-ARMS THE INSTANT FORWARD — for a weekly one too",
+    rearmed.ok === true
+    && jget(`select (next_run_at > now())::text from agent.automations where id = '${P3}'::uuid;`) === "true",
+    `${behind} -> ${jget(`select next_run_at::text from agent.automations where id = '${P3}'::uuid;`)}`);
+  // AND TURNING IT OFF LEAVES THE INSTANT ALONE, which the wholeness check requires: a
+  // scheduled row is whole only WITH one, and the enabled flag is what the tick reads.
+  const armedAt = jget(`select next_run_at::text from agent.automations where id = '${P3}'::uuid;`);
+  jget(`select agent.set_automation_enabled('${PT}', '${P3}'::uuid, false) ->> 'ok';`);
+  check("...and turning it off leaves the instant alone",
+    jget(`select next_run_at::text from agent.automations where id = '${P3}'::uuid;`) === armedAt);
+
+  // ── STOPPING ONE EXECUTION, UNDER ITS OPERATION RECORD ──
+  //
+  // ⚠ **THE WRAPPER IS WHAT MAKES A REDELIVERY ANSWER RATHER THAN ACT, and `cancel_run` is
+  // where an agent's reach had to be proved against a real journal**: the stop is an ENTRY, the
+  // status is PROJECTED off it, and the counts come from rows. None of that exists in a fake.
+  const RUNX = "dd000000-0000-0000-0000-0000000000c1";
+  psql(`insert into agent.runs (id, tenant_id, model, status)
+        values ('${RUNX}'::uuid, '${PT}', 'stand-in', 'running') on conflict do nothing;`, asOwner);
+  psql(`insert into agent.automation_runs (id, automation_id, tenant_id, agent_id, trigger, steps, zone)
+        values ('${RUNX}'::uuid, '${P3}'::uuid, '${PT}', '${PA}'::uuid, 'manual', '[]'::jsonb, 'Europe/London')
+        on conflict do nothing;`, asOwner);
+  const CKEY = "99999999-9999-4999-8999-999999999999:71:0";
+  const cancelOnce = (hash = "cafe7171") => JSON.parse(jget(`select agent.cancel_run_once('${PT}', '${CKEY}',
+      '${hash}', null, '${RUNX}'::uuid, 'agent:${PA}', 'not needed')::text;`));
+  // ⚠ NOT `first`: this block already declares one for the patch wrapper, and a second `const`
+  // in one scope makes node report the whole FILE as failing. The recorded trap, met here.
+  const stopped1 = cancelOnce();
+  check("⚠ an execution is stopped, and what it had done is COUNTED rather than undone",
+    stopped1.ok === true && stopped1.repeat === false
+    && Number.isInteger(stopped1.completedSteps) && Number.isInteger(stopped1.completedCalls),
+    JSON.stringify(stopped1).slice(0, 200));
+  check("...and the run's own journal says who stopped it and why",
+    jget(`select (stop ->> 'reason') || ' / ' || (stop ->> 'cancelledBy') || ' / ' || (stop ->> 'note')
+            from agent.runs where id = '${RUNX}'::uuid;`) === `cancelled / agent:${PA} / not needed`);
+  check("⚠ ...and the status is PROJECTED off the entry, not written beside it",
+    jget(`select status from agent.runs where id = '${RUNX}'::uuid;`) === "stopped");
+  const twice = cancelOnce();
+  check("⚠ a redelivery answers the first attempt rather than stopping it again",
+    twice.repeat === true && (twice.ok === true), JSON.stringify(twice).slice(0, 160));
+  check("⚠ ...and a DIFFERENT call in that slot is refused",
+    cancelOnce("other-hash").error === "operation-mismatch");
 
   // ── THE VERSION FENCE, AND WHAT IT REALLY COVERS ──
   check("a stale version is refused, and says which one it has",

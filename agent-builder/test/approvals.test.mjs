@@ -259,8 +259,16 @@ test("⚠ WHICH TOOLS NEED A PERSON IS DECLARED IN CODE, and the set is pinned b
   // recalled by anything here, which is the strongest case there is for asking a person.
   // Its neighbour `read_messages` is deliberately NOT gated, and the pair is what keeps the
   // rule about EFFECT rather than about which seam a tool happens to use.
+  /**
+   * ⚠ RE-ANCHORED AGAIN 2026-09-18: `cancel_execution` joined, and it is the first gated tool
+   * that can only ever STOP work. The line above is about work that carries on after the
+   * conversation, and ending some of it is a decision about the same thing: somebody is
+   * waiting on that run. It is deliberately NOT one of the user-only powers it sits beside —
+   * approving a request, granting a permission, connecting an account — and the census below
+   * asserts none of those has a tool at all.
+   */
   const GATED = ["make_automation", "change_automation", "pause_automation", "run_automation",
-    "send_message"];
+    "cancel_execution", "send_message"];
   const byName = new Map(CAPABILITY_TOOLS.map((t) => [t.name, t]));
   for (const n of GATED) assert.equal(byName.get(n)?.approval, true, `${n} runs with nobody asked`);
   for (const t of CAPABILITY_TOOLS) {
@@ -277,6 +285,36 @@ test("⚠ WHICH TOOLS NEED A PERSON IS DECLARED IN CODE, and the set is pinned b
   assert.equal(byName.get("read_messages")?.approval, false,
     "a read through a connection is gated, so the rule has become about the seam");
   assert.equal(byName.get("list_connections")?.approval, false);
+
+  /**
+   * ⚠ **AND THE THREE POWERS AN AGENT MUST NEVER HOLD HAVE NO TOOL AT ALL — asserted as an
+   * absence over the whole surface, because that is the only way an absence is a wall.**
+   *
+   * Approving a request, granting a permission and connecting an account are a PERSON'S, and
+   * the requirement is explicit that they must not become powers the agent grants itself. A
+   * gate is not enough for these: an approval an agent can REQUEST and then APPROVE is a gate
+   * it routes around, so the door does not exist. `connect_provider` is reachable only from
+   * the site's own route, and there is no `approve_*`, `allow_*` or `grant_*` anywhere here.
+   *
+   * ASKED BY SHAPE RATHER THAN BY A LIST OF NAMES, so a tool called something new that does
+   * one of these is caught by existing — and asked of what a tool CALLS as well as of its
+   * name, because a name is a label and the call is the power.
+   */
+  const FORBIDDEN_NAME = /^(approve|reject|decide|allow|grant|permit|connect|disconnect|revoke)_/;
+  for (const t of CAPABILITY_TOOLS) {
+    assert.ok(!FORBIDDEN_NAME.test(t.name), `${t.name} is a power that belongs to a person`);
+  }
+  // ⚠ AND THE OPERATIONS BEHIND THEM ARE NOT ON THE SURFACE EITHER. A tool could be named
+  // innocently and still call one, so the CAPABILITY census is what settles it — these are
+  // the names a decision, a grant or a credential would have to go through.
+  for (const op of ["decideApproval", "approveTool", "grantTool", "setAgentTools",
+                    "connect", "disconnect", "revoke", "setAgentZone"]) {
+    assert.equal(CAPABILITIES.includes(op), false,
+      `${op} is a capability, so a tool is one line from reaching it`);
+  }
+  // THE OBSERVER, ALIVE: the census is over a real, non-empty surface.
+  assert.ok(CAPABILITY_TOOLS.length >= 12 && CAPABILITIES.length >= 14,
+    `${CAPABILITY_TOOLS.length} tools over ${CAPABILITIES.length} operations`);
 });
 
 test("⚠ `approval` IS REFUSED, NEVER COERCED — `Boolean(\"false\")` is `true`", () => {

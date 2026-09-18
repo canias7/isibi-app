@@ -232,6 +232,15 @@ export const AGENT_TOOLS = Object.freeze([
     label: "Read one run in full",
     does: "Opens one run of an automation and reads every step's outcome.",
   }),
+  Object.freeze({
+    name: "cancel_execution",
+    label: "Stop a run that is under way",
+    // ⚠ THE WORDS SAY WHAT IT CANNOT DO, because that is what somebody deciding needs. Stopping
+    // is not undoing, and a label that left that out would promise the wrong thing.
+    does: "Stops one run of one of its automations part way through. Anything already done stays "
+      + "done — this only stops what is left, and it can never start anything. You are asked "
+      + "before it happens.",
+  }),
   // ── what it may do OUTSIDE this platform ──────────────────────────────────
   //
   // ⚠ **THE WORDS HERE ARE FOR A PERSON DECIDING WHETHER TO ALLOW IT, which is why they say
