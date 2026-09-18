@@ -131,6 +131,8 @@ const mSend = mFn("send_to_agent");
 const SETTINGS = lastDefining("add column if not exists status text");
 const mSettings = (label, from, to, control = false) => ({ label, files: [SETTINGS], from, to, control });
 const mAuthored = mFn("authored_run");
+const mForget = mFn("delete_memory");
+const mSnap = mFn("agent_memory_snapshot");
 const mThread = (label, from, to, control = false) =>
   ({ label, files: [lastDefining("create or replace view agent.agent_thread")], from, to, control });
 /**
@@ -1030,6 +1032,31 @@ const spec = [
   mRunApprovals("⚠ SQL/lists: a run's own list cannot say a window closed",
     "               when a.expires_at is not null and a.expires_at <= now() then 'expired'\n               else null end,",
     "               else null end,"),
+  /**
+   * ⚠ WHAT FORGETTING REACHES. A memory lives in three relations and a delete reaches ONE;
+   * both doors report the reach from THIS function's own answer, so a note about it cannot
+   * drift from what a delete does — and a reach this function composes wrongly is a claim
+   * two products then repeat.
+   */
+  mForget("⚠ SQL/memory: a delete claims it reaches an execution already accepted",
+    "      'acceptedRuns',    false,    -- each holds the snapshot it was accepted with",
+    "      'acceptedRuns',    true,"),
+  mForget("⚠ SQL/memory: a delete claims the history is erased too",
+    "      'runHistory',      false));  -- the journal is append-only and keeps what was quoted",
+    "      'runHistory',      true));"),
+  mForget("SQL/memory: a delete says it does not reach a later run, which is the one place it does",
+    "      'futureRuns',      true,     -- no later snapshot carries it",
+    "      'futureRuns',      false,"),
+  mForget("SQL/memory: the reach is not answered at all, so nothing can report it",
+    "    'affects', jsonb_build_object(", "    'unused', jsonb_build_object("),
+  mForget("⚠ SQL/memory: forgetting nothing is reported as having removed something",
+    "    'ok', true, 'forgot', v_gone > 0, 'key', lower(btrim(coalesce(p_key, ''))),",
+    "    'ok', true, 'forgot', true, 'key', lower(btrim(coalesce(p_key, ''))),"),
+  // ⚠ AND WHOSE FACT IT WAS, in the snapshot an execution is given: without the source an
+  // agent's own note and a fact a person confirmed arrive as one thing, and the engine's
+  // fail-closed reader would call both of them `unknown`.
+  mSnap("⚠ SQL/memory: the snapshot drops who confirmed a fact, so provenance cannot travel",
+    "'source', m.source", "'source', null"),
   mCtrl("SQL/controls/CONTROL (comment only)",
     "-- ⚠ **THREE THINGS, AND COLLAPSING ANY TWO LOSES A REAL DISTINCTION.**",
     "-- Three things, and collapsing any two loses a real distinction (control).", true),

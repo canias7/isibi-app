@@ -2553,11 +2553,142 @@ try {
     jget(`select (memory->'tone'->>'value') || ' v' || (memory->'tone'->>'version')
             from agent.automation_runs where id='${R_M2}';`) === "formal again v3");
 
+  /**
+   * ⚠ **WHAT FORGETTING REACHES: three places, and a delete reaches ONE.**
+   *
+   * The milestone's own words: *define how forgetting a memory affects future retrieval and
+   * existing run snapshots; report those semantics clearly rather than implying deletion
+   * erases historical records.* So it is DEFINED here, on a real database, as three separate
+   * readings of one delete — and the thing that makes them three is that each is a different
+   * relation, not three views of one.
+   *
+   * | place | what a delete does to it |
+   * |---|---|
+   * | `agent.agent_memory` — what a NEW snapshot is built from | the row is gone |
+   * | `agent.automation_runs.memory` — an execution ALREADY accepted | untouched |
+   * | `agent.run_entries` — what the journal quoted | untouched |
+   *
+   * The second and third are on purpose and are the same rule the instruction snapshot
+   * follows: a run executes what it was accepted with. Reporting a delete as "erased" would
+   * be a claim about two relations it never touched.
+   */
+  console.log("\n── memory: what forgetting reaches, and what it does not ──");
+  const FG_KEY = "greeting";
+  jget(`select agent.save_memory('t1','${AG_ON}','${FG_KEY}','hello there',null,'person',100)::text;`);
+  check("a fact is saved to be forgotten",
+    jget(`select value from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='${FG_KEY}';`)
+      === "hello there");
+  // AN EXECUTION IS ACCEPTED WHILE IT IS STILL THERE, so its snapshot holds it.
+  const FG_RUN = "cc000000-0000-0000-0000-0000000000f1";
+  jget(`select agent.accept_automation_run('t1','${AU2}','${FG_RUN}','manual',null)::text;`);
+  check("an execution accepted before the delete holds the fact",
+    jget(`select memory->'${FG_KEY}'->>'value' from agent.automation_runs where id='${FG_RUN}';`) === "hello there");
+  // AND THE JOURNAL QUOTES IT, which is the third place — written through the fence, as a
+  // step's own progress, exactly as a `knowledge` or `memory` step's outcome really is.
+  const fgHold = jget(`select (agent.claim_run('${FG_RUN}','w-forget',90))->>'claim_token';`);
+  const fgSeq = jget(`select coalesce(max(seq), -1) + 1 from agent.run_entries where run_id='${FG_RUN}';`);
+  // ⚠ THE BODY IS THE **THIRD** ARGUMENT — `(run_id, seq, body, worker, token)`. My own first
+  // draft wrote it last and the statement errored, which `jget` returns as an empty string, so
+  // the check failed about the journal rather than about the call. This file's own recorded
+  // argument-order trap; the answer is asserted now, so a refused call is its own failure.
+  const fgWrote = jget(`select agent.append_entry('${FG_RUN}'::uuid, ${fgSeq},
+          '{"kind":"step","at":1,"step":1,"mark":"progress","outcomes":[{"id":"s1","type":"memory","outcome":"ran","result":"hello there"}]}'::jsonb,
+          'w-forget', '${fgHold}')::text;`);
+  check("the journal quotes what the step really used",
+    /"stored"\s*:\s*true/.test(fgWrote)
+    && /hello there/.test(jget(`select body::text from agent.run_entries where run_id='${FG_RUN}' and kind='step';`)),
+    `${fgHold} @${fgSeq} -> ${fgWrote}`);
+
+  // ── THE DELETE ────────────────────────────────────────────────────────────────────
+  const fgAnswer = jget(`select agent.delete_memory('t1','${AG_ON}','${FG_KEY}')::text;`);
+  check("the delete says it found one", /"forgot"\s*:\s*true/.test(fgAnswer), fgAnswer);
+  /**
+   * ⚠ **THE ANSWER CARRIES THE REACH AND IT IS THE FUNCTION'S OWN, not the caller's.** Both
+   * doors report it (an agent's `forget` tool and the site's route) and both read it from
+   * here — so a note about what a delete reaches cannot drift from what a delete does.
+   */
+  check("⚠ ...and it says what it reaches: later runs yes, accepted runs no, history no",
+    /"futureRuns"\s*:\s*true/.test(fgAnswer)
+    && /"acceptedRuns"\s*:\s*false/.test(fgAnswer)
+    && /"runHistory"\s*:\s*false/.test(fgAnswer), fgAnswer);
+  check("...and it names the fact it forgot, so an answer can be tied to an ask",
+    new RegExp(`"key"\\s*:\\s*"${FG_KEY}"`).test(fgAnswer), fgAnswer);
+
+  check("1/3 — the row is gone, so it is not remembered any more",
+    jget(`select count(*) from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='${FG_KEY}';`)
+      === "0");
+  check("⚠ 1/3 — and a NEW snapshot does not carry it, which is what 'future retrieval' means",
+    jget(`select (agent.agent_memory_snapshot('t1','${AG_ON}') ? '${FG_KEY}')::text;`) === "false");
+  check("⚠ 2/3 — an execution ALREADY ACCEPTED still resolves it, at the version it was given",
+    jget(`select memory->'${FG_KEY}'->>'value' from agent.automation_runs where id='${FG_RUN}';`) === "hello there");
+  check("⚠ 3/3 — and the journal still holds what it quoted",
+    /hello there/.test(jget(`select body::text from agent.run_entries where run_id='${FG_RUN}' and kind='step';`)));
+  // THE CONTROL, without which "still there" is satisfied by a delete that did nothing at
+  // all: the OTHER memory of the same agent is untouched, and the row really went.
+  check("the control — the agent's other memories are untouched",
+    jget(`select value from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='tone';`)
+      === "formal again");
+
+  // ── FORGETTING TWICE, AND ACROSS ACCOUNTS ─────────────────────────────────────────
+  const fgTwice = jget(`select agent.delete_memory('t1','${AG_ON}','${FG_KEY}')::text;`);
+  check("⚠ forgetting it again is OK and says there was nothing — not a failure, and not a removal",
+    /"ok"\s*:\s*true/.test(fgTwice) && /"forgot"\s*:\s*false/.test(fgTwice), fgTwice);
+  check("...and the reach is still stated, because it is about how forgetting works",
+    /"futureRuns"\s*:\s*true/.test(fgTwice), fgTwice);
+  /**
+   * ⚠ **SCOPED BY (ACCOUNT, AGENT), AND THE TWO LAYERS SEPARATE DIFFERENTLY — measured, after
+   * my own first draft asked for a shape the schema forbids.**
+   *
+   * `agent.agents.id` is a PRIMARY KEY on the id ALONE, so two accounts cannot share an agent.
+   * A cross-account delete therefore names the other account's OWN agent, and
+   * `delete_memory` answers `no-agent` for one that is not theirs — which is the function's
+   * wall. The INDEX's own scope is a different question, and the shape that separates it is a
+   * memory row carrying a mismatched pair, which only the owner can insert. Both are driven,
+   * because a claim about the index proved through the function is a claim about the function.
+   */
+  jget(`select agent.save_memory('t1','${AG_ON}','shared','ours',null,'person',100)::text;`);
+  jget(`select agent.save_memory('t2','${AG_T2}','shared','theirs',null,'person',100)::text;`);
+  const fgAcross = jget(`select agent.delete_memory('t2','${AG_T2}','shared')::text;`);
+  check("the other account's delete answers about its own", /"forgot"\s*:\s*true/.test(fgAcross), fgAcross);
+  check("⚠ ...and OURS is still there, so one account's forgetting is not another's",
+    jget(`select value from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='shared';`)
+      === "ours");
+  check("⚠ ...and an agent that is not this account's is `no-agent`, never a silent no-op",
+    /"error"\s*:\s*"no-agent"/.test(jget(`select agent.delete_memory('t2','${AG_ON}','shared')::text;`)));
+  // AND THE OTHER DIRECTION: two agents of ONE account, which a tenant filter cannot tell
+  // apart at all — only the agent id does.
+  jget(`select agent.save_memory('t1','${AG_OFF}','shared','the sibling''s',null,'person',100)::text;`);
+  jget(`select agent.delete_memory('t1','${AG_ON}','shared')::text;`);
+  check("⚠ ...and a sibling agent of the SAME account keeps its own",
+    jget(`select value from agent.agent_memory where tenant_id='t1' and agent_id='${AG_OFF}' and key='shared';`)
+      === "the sibling's");
+  // ⚠ AND THE INDEX'S OWN SCOPE, at the layer the function cannot reach: a row whose account
+  // and agent do not belong together is a DIFFERENT slot, so "one value per name" is per pair
+  // rather than per name. Inserted as the owner, because that is the only writer that can
+  // make such a row at all — which is also why the function's wall above is the real one.
+  allowed("a memory row carrying a mismatched (account, agent) pair is its own slot",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value)
+       values (gen_random_uuid(),'t2','${AG_ON}','shared','neither''s');`, asOwner);
+  check("⚠ ...so the index scopes by the PAIR and not by the name",
+    jget(`select count(*) from agent.agent_memory where key='shared';`, asOwner) === "2");
+  check("...and forgetting one pair leaves the other, which is what the index buys",
+    /"forgot"\s*:\s*false/.test(jget(`select agent.delete_memory('t1','${AG_ON}','shared')::text;`)));
+
   console.log("\n── memory: a customer reads their own and writes none of it ──");
+  // RE-ANCHORED, NOT APPEASED: this read `count(*) === "2"`, which is a claim about how many
+  // fixtures this file happens to have — so adding a memory above made it red for a reason
+  // that has nothing to do with tenancy. It names the ROWS now, against the set `t1` really
+  // owns, with its observer proved alive: strictly stronger than the number it replaced, and
+  // the same correction this file already records one view over.
   check("an account reads its own memories",
-    jget(`select count(*) from agent.agent_memory;`, claimT1) === "2");
+    jget(`select count(*) from agent.agent_memory;`, claimT1)
+      === jget(`select count(*) from agent.agent_memory where tenant_id='t1';`, asOwner));
+  check("...and the observer is alive — there really are some to read",
+    Number(jget(`select count(*) from agent.agent_memory;`, claimT1)) > 0);
   check("...and none of the other account's",
     jget(`select count(*) from agent.agent_memory where tenant_id='t2';`, claimT1) === "0");
+  check("...and the other account really has some, so that zero is a wall and not an empty table",
+    Number(jget(`select count(*) from agent.agent_memory where tenant_id='t2';`, asOwner)) > 0);
   refused("a client may not write a memory directly",
     `insert into agent.agent_memory (id, tenant_id, agent_id, key, value)
        values (gen_random_uuid(),'t1','${AG_ON}','sneaky','x');`, "denied", claimT1);

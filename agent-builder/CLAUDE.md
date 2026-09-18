@@ -5095,9 +5095,17 @@ SQL mutant can be seen by. What the twenty-nine checks cover:
   waiting into an observable refusal. **The row-lock helper takes a TABLE now** rather than
   being copied, because that is the same property one relation over;
 - **nothing-to-look-for is not everything**, both ways round, with its control;
-- **a memory's scope is (account, agent)**, driven by two accounts sharing an AGENT ID —
-  the only shape that separates the two scopes, and reachable, because an id is a uuid and
-  not something one account owns;
+- **a memory's scope is (account, agent)** — and ⚠ **THIS LINE SAID IT WAS DRIVEN BY "two
+  accounts sharing an AGENT ID … reachable, because an id is a uuid and not something one
+  account owns", WHICH IS FALSE OF THE `agents` TABLE AND TRUE ONLY OF THE INDEX.**
+  Corrected 2026-09-18 by asking the schema: `agent.agents.id` is a PRIMARY KEY on the id
+  ALONE, so two accounts cannot have an agent of one id at all, and a cross-account
+  `delete_memory` is answered `no-agent` rather than reaching a row. **The two layers
+  separate differently and both are driven now**: the FUNCTION's wall is the other
+  account's own agent (`no-agent`, never a silent no-op), and the INDEX's scope is a memory
+  row carrying a mismatched pair — which only the table's owner can insert, which is also
+  why the function's wall is the real one. Found by writing a check on the old sentence's
+  premise and watching it fail;
 - **a `step` entry must name where it got to** and must not carry a tool index;
 - **an operation record must say what happened**, and is the account's alone.
 
