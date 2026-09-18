@@ -13312,7 +13312,15 @@ let the field read as a safety net.** The credits go *inside* the single addon
 request, and nothing outside that request can stop it part-way; the harness
 checks the number *between* cases, and an `ask` run has only one case, so the
 check never fires. The only thing that really bounds the spend is the account
-balance. For scale: the nearest comparable runs cost 12 and 13.
+balance.
+
+**For scale — and this one is more than the recent runs, because it buys a
+picture.** A generated photograph is priced flat at **18.75 credits** (`$0.15`
+at `$0.008` a credit), and that lands on top of the page work, which on real
+sites has come to 12 and 13 on the two nearest runs. So **roughly 30 is what I
+would expect**, with the QR code and the homepage link on top of that — not the
+12-ish the last few runs cost. **40 leaves headroom and enforces nothing**; if
+the number matters, the balance is the thing to look at before pressing.
 
 **And the balance and fal's readiness are both unreadable from here** — no
 credential for either exists in my environment, re-checked rather than assumed.
