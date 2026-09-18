@@ -13235,27 +13235,53 @@ over, and wrote down why, so nobody deletes it later as dead.
 
 ### What you need for the live test
 
-**The order is merge → deploy → press**, and the reason is your own instruction
-from last round: the harness refuses to spend if it cannot confirm it read the
-site's stores completely, and the live Worker does not yet say so. So it has to
-go out first.
+**MERGED AND DEPLOYED — deploy 2134, 2026-09-18 21:09:02→21:12:54Z, green in
+3m52s**, on `main` `d826d7fb` → `ff9fce5f` (fast-forward, 60 commits, 56 files).
+The order was your own from last round — merge → deploy → press — because the
+harness refuses to spend if it cannot confirm it read the site's stores
+completely, and main's Worker could not say so until now. **Both halves are
+done; the press is yours.**
 
-**The two expectations to type into the form** (they are what stop the run
-testing the wrong build, and the run refuses before spending a credit if either
-is wrong):
+**The two expectations to type into the form** — and both are now read off the
+deploy that really happened rather than predicted:
 
 | field | value |
 |---|---|
-| `expect_deploy` | **read it off the green deploy run** — the sha the successful deployment actually went out on, not a number copied from here. Anything written down now is a prediction; the deploy is the record, and a further note added to this file would move it. A short sha (7+) matches as a prefix |
-| `expect_image` | **`3b93a9cae43bac41`** — and this one does **not** move for a documentation commit, because it is hashed from the files the image is built from. It changes only if an image input changes |
+| `expect_deploy` | **`ff9fce5f72fe1b16339a687ec0ad76d07fce3778`** — deploy 2134's own sha. `DEPLOY_ID` is `github.sha`, so this is what the Worker answers. A short sha (7+) matches as a prefix, so **`ff9fce5f` is enough** |
+| `expect_image` | **`3b93a9cae43bac41`** — and the deploy's own log names it |
 
-`3b93a9cae43bac41` is computed from the tree before anything has moved, the way
-every deploy here has been cross-checked lately, and re-checked against this
-file's own last two commits: unmoved, as a documentation commit should leave it.
-Main is on **`7273d2569866364f`** today, which is exactly the image deploy 2133
-rolled to — so the arithmetic is checked against reality and not only against
-itself. **The container will roll** (this touches `worker.js` and the builder
-modules), so the usual **15–20 minute hold** applies before pressing.
+**The image id was computed before the merge and the deploy agreed on both
+ends** — the eighth cross-check of that technique, and the strongest form of it:
+`origin/main` hashed to `7273d2569866364f` and the candidate to
+`3b93a9cae43bac41` (183 inputs each), and the log's own diff then reads
+`- "image": …7273d2569866364f` / `+ "image": …3b93a9cae43bac41`, `EDIT
+isibi-app-sitebuildcontainer`, `SUCCESS Modified application`, `Applied
+changes`. **The container rolled at 21:12:47.7Z** — read out of that diff, never
+inferred from how long the step took. **So the 15–20 minute hold ran to
+~21:28–21:33Z.**
+
+**And the served file proves the Worker half, which it usually cannot.**
+`public/chat.js` really changed in this merge, so `/chat.js` is fetchable with no
+token and is **byte-identical to the merged tree** — 707,785 bytes, sha256
+`4b3e8c869af12519` (705,648 / `56c3cfa2c177e6a5` before). **The cheap
+discriminator for this particular change is `pictureNote`: 0 occurrences in what
+main served before, 2 now** — the identifier the whole combined page + photo
+reply turns on, absent from every byte the platform had ever served.
+
+**Regression: byte-identical**, baseline taken 48 seconds before the push and
+compared 40 seconds after the deploy. Seven sites 200 at the same sizes
+(repairbench-1 46,358 · fretwork-1 58,642 · ashgrove-1 31,120 · northgroup-5
+1,641 · washhouse-1 52,404 · ben-crowe-guitar 52,060 · fold-lane-bakery 11,262),
+each on the same `x-site-version` and the same build — and the interactive half,
+because a 200 is an availability check and never a health check: `/status`
+**200/6,272** and `/booking-check` **200/6,290** on the same version, with
+`count_booked_repairs` and `count_existing_bookings` both **200 answering 3**.
+Gate discriminator 401/401/401/404.
+
+**The merge started exactly one workflow** — deploy 2134 and nothing else, which
+is the merge-trigger census holding in the live. **And nothing paid was in
+flight**: the last `lane sweep` was run 50, two days ago, checked before pushing
+rather than after, which is the near-miss recorded in September.
 
 **The run itself** — `lane sweep`, dispatch only, your press:
 
@@ -13267,7 +13293,7 @@ modules), so the usual **15–20 minute hold** applies before pressing.
 | `ask` | *Add a gallery page at /gallery showing photographs of our work, with a new photograph of the bakery on it, a link to it from the homepage, and a QR code that opens the gallery page.* |
 | `picker` | `grok` |
 | `budget` | `40` — **an estimate, not a cap. It does not bound this run.** See below |
-| `expect_deploy` | the sha off the green deploy |
+| `expect_deploy` | `ff9fce5f` (deploy 2134 — the full sha works too) |
 | `expect_image` | `3b93a9cae43bac41` |
 | `run_job` | *(leave blank — the form's own default, and blank means do not press)* |
 | `lanes` | leave as `all` — the `ask` replaces the case list |

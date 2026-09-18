@@ -9653,6 +9653,67 @@ cannot confirm the before-inventory was complete, main's Worker sends no `reads`
 key, so a press against the live Worker today REFUSES. The live-test inputs are
 in `docs/owner-notes.md`.
 
+#### MERGED AND LIVE — deploy 2134 (2026-09-18), and the press is the owner's
+
+Owner: *"you merge it and do whatever we gotta do, i will do the spwnding part,
+the clicks"* — the merge and the deploy authorized, the paid dispatch reserved.
+
+**Deploy 2134, 21:09:02→21:12:54Z, green in 3m52s**, on `main` `d826d7fb` →
+`ff9fce5f` (fast-forward, 60 commits, 56 files, +17,961/−313). **`expect_deploy`
+is `ff9fce5f72fe1b16339a687ec0ad76d07fce3778`** — `DEPLOY_ID` is `github.sha`,
+so that is what the Worker answers, and the harness matches a 7+ prefix.
+
+**THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED ON BOTH ENDS
+— the eighth cross-check of that technique, and the strongest form of it.**
+`origin/main` → **`7273d2569866364f`** and the candidate → **`3b93a9cae43bac41`**
+(183 inputs each), both hashed before anything moved; the log's own diff then
+reads `- "image": …7273d2569866364f` / `+ "image": …3b93a9cae43bac41`, `EDIT
+isibi-app-sitebuildcontainer`, `SUCCESS Modified application`, `Applied changes`.
+**The container rolled at 21:12:47.7Z** — read out of the diff, never inferred
+from the step's duration. **So the 15–20 minute hold ran to ~21:28–21:33Z.**
+`Uploaded isibi-app (7.40 sec)`, `Worker Startup Time: 30 ms`, `Total Upload
+3569.50 KiB / gzip 962.69 KiB`, `Current Version ID: ae95b5ba-7efe-4e22-…`.
+
+**THE SERVED-FILE CHECK IS AVAILABLE AND IT DISCRIMINATES THIS DEPLOY**, because
+`public/chat.js` really moved: `/chat.js` is **byte-identical to the merged
+tree** — **707,785 bytes, sha256 `4b3e8c869af12519`** (705,648 /
+`56c3cfa2c177e6a5` before). **The cheap discriminator is `pictureNote`: 0
+occurrences in what main served before, 2 now**, with `keptPartsNote` 0 → 1 —
+identifiers the combined page + photo reply turns on, absent from every byte the
+platform had ever served.
+
+**REGRESSION: BYTE-IDENTICAL, with the baseline taken 48 seconds BEFORE the push
+and compared 40 seconds after the deploy** (the process miss of the 2124 round,
+not repeated). Seven sites 200 at the same sizes — repairbench-1 46,358 ·
+fretwork-1 58,642 · ashgrove-1 31,120 · northgroup-5 1,641 · washhouse-1 52,404 ·
+ben-crowe-guitar 52,060 · fold-lane-bakery 11,262 — each on the same
+`x-site-version` and the same build id, and the interactive half because a 200 is
+an availability check and never a health check: `/status` **200/6,272** and
+`/booking-check` **200/6,390** on the same version, with `count_booked_repairs`
+and `count_existing_bookings` both **200 answering 3**. Gate discriminator
+401/401/401/404.
+**AND `fretwork-1` IS 58,642 HERE against 58,404 at deploy 2128** — it moved
+again between the two sessions, on a days-old `x-site-version` that has not
+changed. Identical on both sides of THIS deploy, so it is not this one's; not
+explained beyond that, and not claimed to be.
+
+**THE MERGE STARTED EXACTLY ONE WORKFLOW** — deploy 2134 and nothing else, the
+merge-trigger census holding in the live. **And the in-flight check was made
+BEFORE the push rather than after**, which is the September near-miss's own
+lesson: the last `lane sweep` was run 50 on 2026-09-16, so nothing paid was
+running. Two other sessions' runs were in flight on their own branches
+(`unit tests`, `site build`, `agent deploy`) and none of them touches this
+Worker or its container.
+
+**CI HAD READ THE SHA BEFORE THE MERGE**: `unit tests` run **2725** on
+`ff9fce5f`, green — `# tests 6843 / # pass 6839 / # fail 0 / # skipped 4`,
+against local `6843 / 6843 / 0 / 0`; the four are the three recorded environment
+skips plus `site-searchpath`'s baseline-commit case, and the TOTAL is what
+matches.
+
+**NOT PRESSED.** The paid run is the owner's dispatch and nothing here spent a
+credit.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH.**
 
 
