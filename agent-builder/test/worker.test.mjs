@@ -1427,3 +1427,201 @@ test("⚠ `setPlan` REFUSES A NON-LIST rather than writing an empty plan", async
   // AND NOTHING WAS SENT for any of them: a refusal that still writes is not a refusal.
   assert.equal(sent.length, 1, `a refused plan reached the wire: ${JSON.stringify(sent.slice(1))}`);
 });
+
+// ── events, through the real dispatcher ──────────────────────────────────────
+
+/**
+ * ⚠ **THE FIFTH CRON JOB IS IN `worker.scheduled` AND NOTHING IN THIS DIRECTORY DRIVES THAT
+ * FILE BY ACCIDENT** — four mutants survived in the FOURTH job's block for exactly that
+ * reason, and its own note records it. So the event dispatch is driven here, over the
+ * in-memory fake, where the ring, the filter and the bound are all observable.
+ */
+test("⚠ AN EVENT FILES WHAT LISTENS FOR IT AND THE WORKER RINGS EVERY RUN IT TOUCHED", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest, { over: {
+      schedule: "manual", next_run_at: null, on_event: "order.paid",
+      steps: [{ id: "s1", type: "note", text: "a payment landed" }],
+    } });
+    rest.events.set("e1", {
+      id: "e1", tenant_id: TENANT, agent_id: AGENT, name: "order.paid",
+      payload: { amount: 42 }, source: "webhook", event_key: "dlv-1",
+      depth: 0, at: new Date().toISOString(), handled_at: null,
+    });
+
+    await worker.scheduled({}, env, ctx);
+    // ⚠ THE KEY IS `ring`, WHICH IS WHAT THE FUNCTION REALLY ANSWERS — the first draft of the
+    // handler read `runs` and would have rung nothing at all, with every other line correct.
+    const rung = env[QUEUE_BINDING].sent.filter((m) => m.runId);
+    assert.equal(rung.length, 1, `the doorbell rang ${rung.length} times: ${JSON.stringify(env[QUEUE_BINDING].sent)}`);
+    const filed = [...rest.execs.values()].find((x) => x.trigger === "event");
+    assert.ok(filed, "no execution was filed for the event");
+    assert.equal(filed.event_id, "e1", "the execution does not carry the event it came from");
+    assert.equal(rung[0].runId, filed.id);
+    assert.notEqual(rest.events.get("e1").handled_at, null, "the event was not stamped handled");
+
+    /**
+     * AND A SECOND TICK FILES NOTHING, because the stamp is the gate — the property that makes
+     * one event one execution however many ticks see it.
+     *
+     * ⚠ **THE ASSERTION IS ABOUT THE EXECUTION AND NOT ABOUT THE DOORBELL, and my first draft had
+     * it the other way round.** The run this event filed has a CLAIMABLE work row until something
+     * executes it, so the SWEEPER legitimately rings it again on the next tick — the product being
+     * right. What must not happen is a second execution.
+     */
+    const before = [...rest.execs.values()].filter((x) => x.trigger === "event").length;
+    const stamped = rest.events.get("e1").handled_at;
+    await worker.scheduled({}, env, ctx);
+    assert.equal([...rest.execs.values()].filter((x) => x.trigger === "event").length, before);
+    assert.equal(rest.events.get("e1").handled_at, stamped, "the event was dispatched a second time");
+
+    // ...AND THE RUN THE EVENT FILED REALLY EXECUTES, which is what makes the ring worth ringing.
+    const ran = await worker.queue(batchOf([{ runId: filed.id }]), env, ctx);
+    assert.notEqual(rest.execs.get(filed.id).finished_at, null,
+      `the event's own execution never ran: ${JSON.stringify(rest.work.get(filed.id))} ${JSON.stringify(ran ?? null)}`);
+  });
+});
+
+test("⚠ AN EVENT WAIT IS WOKEN BY THE DISPATCH, and the run carries on with what it carried", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest, { over: { steps: [
+      { id: "s1", type: "event", name: "order.shipped", out: "it" },
+      { id: "s2", type: "note", text: "shipped: {{it}}" },
+    ] } });
+    // First delivery: it reaches the wait and suspends.
+    await worker.scheduled({}, env, ctx);
+    const first = env[QUEUE_BINDING].sent.filter((m) => m.runId);
+    const runId = first[first.length - 1].runId;
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+
+    const paused = rest.execs.get(runId);
+    assert.equal(paused.waiting?.kind, "event", JSON.stringify(paused.waiting));
+    assert.equal(paused.waiting?.name, "order.shipped");
+    // ⚠ AN EVENT PAUSE CARRIES `since`, and it is what bounds the wait to news it was really
+    // waiting for — without it an event from last week would satisfy a wait set up this morning.
+    assert.ok(typeof paused.waiting?.since === "string", JSON.stringify(paused.waiting));
+    assert.equal(paused.finished_at, null);
+    // AND THE PAUSE RELEASED ITS WORKER, which is what makes a suspended execution cost nothing.
+    assert.notEqual(rest.work.get(runId).done_at, null, "the pause did not release the work");
+
+    // The event arrives. The dispatcher records it AND puts the work back.
+    rest.events.set("e9", {
+      id: "e9", tenant_id: TENANT, agent_id: AGENT, name: "order.shipped",
+      payload: { who: "dpd" }, source: "person", event_key: null,
+      depth: 0, at: new Date().toISOString(), handled_at: null,
+    });
+    env[QUEUE_BINDING].sent.length = 0;
+    await worker.scheduled({}, env, ctx);
+    assert.equal(rest.execs.get(runId).heard?.s1?.name, "order.shipped");
+    assert.equal(rest.work.get(runId).done_at, null, "the woken run was left off the queue");
+    const woke = env[QUEUE_BINDING].sent.filter((m) => m.runId === runId);
+    assert.equal(woke.length, 1, "the woken run was not rung");
+
+    // The next delivery finishes it, and the payload really reached the note.
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+    const done = rest.execs.get(runId);
+    assert.notEqual(done.finished_at, null, "it never finished");
+    const said = JSON.stringify(done.outcomes);
+    // ⚠ THE OUTCOME OBJECT, NOT A MATCH AGAINST ITS JSON — the payload's own quotes come back
+    // escaped inside a stringified array, so a regex over that is asserting the serialiser's
+    // spelling rather than what the step produced.
+    const note = done.outcomes.find((o) => o.id === "s2");
+    assert.equal(note?.result, 'shipped: {"who":"dpd"}', said);
+    // ⚠ AND NOTHING RAN TWICE: one outcome per step, which is the property a `heard` applied
+    // twice would break.
+    assert.equal(done.outcomes.length, 2, said);
+  });
+});
+
+test("⚠ THE ARRIVAL RACE: an event that got there first is heard when the pause is recorded", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest, { over: { steps: [
+      { id: "s1", type: "event", name: "order.refunded" },
+      { id: "s2", type: "note", text: "refunded" },
+    ] } });
+    // ⚠ THE EVENT IS ALREADY DISPATCHED BEFORE THE EXECUTION EVER RUNS, so the dispatcher's own
+    // waking half could not have seen it: an execution that is not suspended yet is invisible to
+    // it. This is the half `hear_pending_event` exists for, and the runner asks it only once the
+    // pause is RECORDED — which is why the order in `deliverAutomation` matters.
+    /**
+     * ⚠ **THE EVENT'S `at` IS JUST AHEAD OF NOW, AND THAT IS THE WINDOW STANDING IN FOR ITSELF.**
+     * The race is an event arriving BETWEEN the executor reaching the step and the pause being
+     * visible — so its `at` is AFTER the step's `since` and its dispatch is BEFORE the row exists.
+     * A test cannot interleave those, and my first fixture dated the event a second in the PAST,
+     * which is a different case entirely: an event from before the wait, which the `since` bound
+     * exists to refuse and correctly did. The forward offset is the sub-millisecond window made
+     * observable, and the refusal of a genuinely older event is its own check on real PostgreSQL.
+     */
+    rest.events.set("e7", {
+      id: "e7", tenant_id: TENANT, agent_id: AGENT, name: "order.refunded",
+      payload: {}, source: "person", event_key: null,
+      depth: 0, at: new Date(Date.now() + 250).toISOString(), handled_at: null,
+    });
+    await worker.scheduled({}, env, ctx);            // dispatches it with nobody waiting
+    assert.notEqual(rest.events.get("e7").handled_at, null, "the event was never dispatched");
+
+    const sent = env[QUEUE_BINDING].sent.filter((m) => m.runId);
+    const runId = sent[sent.length - 1].runId;
+    env[QUEUE_BINDING].sent.length = 0;
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+
+    const x = rest.execs.get(runId);
+    assert.equal(x.heard?.s1?.name, "order.refunded", `nothing was heard: ${JSON.stringify(x.heard)}`);
+    // ⚠ AND THE WORK IS BACK, which is the half the database had to be corrected for: a `heard`
+    // written against a run whose work row is done reaches nobody, for ever.
+    assert.equal(rest.work.get(runId).done_at, null, "the race was heard and the run left stranded");
+
+    // The next delivery carries on, so the race costs one tick and never the event.
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+    assert.notEqual(rest.execs.get(runId).finished_at, null, "it never carried on");
+  });
+});
+
+test("an event nothing listens for and nothing waits on is dispatched and rings nobody", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest, { over: { schedule: "manual", next_run_at: null } });
+    rest.events.set("e2", {
+      id: "e2", tenant_id: TENANT, agent_id: AGENT, name: "nobody.cares",
+      payload: {}, source: "person", event_key: null,
+      depth: 0, at: new Date().toISOString(), handled_at: null,
+    });
+    await worker.scheduled({}, env, ctx);
+    // A ROW THAT CHANGED NOTHING CARRIES NO RUNS, so the handler rings for nothing — and the
+    // event is still STAMPED, or the tick would look at it again every minute for ever.
+    assert.equal(env[QUEUE_BINDING].sent.filter((m) => m.runId).length, 0);
+    assert.notEqual(rest.events.get("e2").handled_at, null);
+  });
+});
+
+test("⚠ A THROW IN THE EVENT JOB DOES NOT TAKE THE SWEEPER DOWN WITH IT", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    // A dropped run for the SWEEPER to find, so its work is observable.
+    seedAutomation(rest, { over: { steps: [{ id: "s1", type: "note", text: "x" }] } });
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("rpc/dispatch_events")) throw new Error("events are down");
+      return real(url, init);
+    };
+    const said = [];
+    const realErr = console.error;
+    console.error = (...a) => { said.push(a.join(" ")); };
+    try { await worker.scheduled({}, env, ctx); }
+    finally { globalThis.fetch = real; console.error = realErr; }
+
+    // ⚠ FIVE JOBS, FIVE `try` BLOCKS, AND NONE MAY SILENCE ANOTHER. The scheduler ran and filed
+    // its due automation although the event job threw — which is the whole reason the blocks are
+    // separate, and the sweeper is the recovery for every dropped run in the deployment.
+    assert.ok(said.some((l) => l.includes("agent-events")), `the failure was silent: ${JSON.stringify(said)}`);
+    assert.ok(env[QUEUE_BINDING].sent.filter((m) => m.runId).length >= 1,
+      "the scheduler's own work was lost when the event job threw");
+  });
+});

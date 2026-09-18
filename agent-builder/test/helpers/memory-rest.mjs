@@ -338,15 +338,24 @@ export function memoryRest({ now = () => Date.now() } = {}) {
      */
     if (p.endsWith("/rpc/accept_automation_run") && init.method === "POST") {
       const { p_tenant: tenant, p_automation_id: autoId, p_run_id: runId, p_trigger: trigger,
-              p_occurrence: occ = null, p_input: given = {} } = body;
+              p_occurrence: occ = null, p_input: given = {},
+              p_event_id: eventId = null, p_event_depth: eventDepth = 0 } = body;
       if (typeof tenant !== "string" || tenant.trim() === "") return res(400, { message: "accept_automation_run: tenant must be a non-empty string" });
       if (!isText(runId)) return res(400, { message: "accept_automation_run: the execution needs a run id" });
-      if (!["manual", "schedule"].includes(trigger)) return res(400, { message: "accept_automation_run: a run is triggered manually or by a schedule" });
+      if (!["manual", "schedule", "event"].includes(trigger)) return res(400, { message: "accept_automation_run: a run is triggered manually, by a schedule or by an event" });
       const a = autos.get(autoId);
       if (!a || a.tenant_id !== tenant) return res(200, { ok: false, error: "no-automation" });
       const g = agents.get(a.agent_id);
 
+      /**
+       * ⚠ **AN EXECUTION HAS TWO IDENTITIES AND WHICH ONE APPLIES DEPENDS ON WHO ASKED.** An
+       * occurrence is the SCHEDULE's; an event id is the EVENT's — `automation_runs_one_per_event`
+       * — and a manual run has neither, which is why two presses are two executions.
+       */
       let exec = occ === null ? null : [...execs.values()].find((e) => e.automation_id === autoId && e.occurrence === occ) ?? null;
+      if (!exec && eventId !== null) {
+        exec = [...execs.values()].find((e) => e.automation_id === autoId && e.event_id === eventId) ?? null;
+      }
       let fresh = false;
       if (!exec) {
         if (!a.enabled) return res(200, { ok: false, error: "disabled" });
@@ -379,6 +388,10 @@ export function memoryRest({ now = () => Date.now() } = {}) {
           steps: a.steps, zone: a.zone, outcomes: [], missed: null, finished_at: null,
           position: 0, vars, input: given ?? {}, memory: snap,
           waiting: null, wait_until: null, decisions: {},
+          // WHAT IT HAS HEARD, AND WHICH EVENT STARTED IT. `{}` and `null` are the columns' own
+          // defaults, and a fake answering `undefined` would let a store that had stopped reading
+          // them look correct — the row reads as "nothing heard" either way.
+          heard: {}, event_id: eventId, event_depth: eventDepth,
           // ⚠ THE COLUMNS' OWN DEFAULTS, and they are here because a fake that answered
           // `undefined` for them would let a store which had stopped reading them look
           // correct — the row read as a loop at its beginning either way.
@@ -567,25 +580,26 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       for (const e of [...events.values()].filter((x) => x.handled_at === null).slice(0, limit)) {
         const ring = [];
         let filed = 0, woke = 0;
+        /**
+         * ⚠ **IT CALLS THE ACCEPT RATHER THAN REIMPLEMENTING IT, exactly as the real function
+         * does — and the first draft of this fake reimplemented it and cost a debugging round.**
+         * The accept writes the run row, its FIRST JOURNAL ENTRY and the work row together; a
+         * copy here wrote two of the three and the filed execution then claimed, ran and never
+         * finished, for a reason that had nothing to do with events. *One producer of one shape*,
+         * which is the same argument `accept_run` makes about its own three inserts.
+         */
         for (const a of [...autos.values()].filter((x) =>
           x.tenant_id === e.tenant_id && x.agent_id === e.agent_id && x.enabled && x.on_event === e.name)) {
-          const runId = `ev-${e.id}-${a.id}`;
-          if (![...execs.values()].some((x) => x.automation_id === a.id && x.event_id === e.id)) {
-            runs.set(runId, { id: runId, tenant_id: e.tenant_id });
-            execs.set(runId, {
-              id: runId, tenant_id: e.tenant_id, automation_id: a.id, agent_id: a.agent_id,
-              trigger: "event", occurrence: null, steps: a.steps ?? [], zone: a.zone ?? "UTC",
-              finished_at: null, position: 0, vars: {}, input: {}, memory: {}, outcomes: [],
-              waiting: null, wait_until: null, decisions: {}, loops: {}, tries: {}, uses: [],
-              heard: {}, event_id: e.id, event_depth: e.depth ?? 0, created_at: now(),
-            });
-            work.set(runId, {
-              run_id: runId, tenant_id: e.tenant_id, kind: "start", executor: "automation",
-              claimed_by: null, claimed_at: null, lease_expires_at: null, claim_token: null,
-              attempts: 0, done_at: null,
-            });
-            filed += 1; ring.push(runId);
-          }
+          const accepted = await fetch(`${u.origin}/rest/v1/rpc/accept_automation_run`, {
+            method: "POST", headers: init.headers,
+            body: JSON.stringify({
+              p_tenant: e.tenant_id, p_automation_id: a.id, p_run_id: `ev-${e.id}-${a.id}`,
+              p_trigger: "event", p_occurrence: null, p_input: {},
+              p_event_id: e.id, p_event_depth: e.depth ?? 0,
+            }),
+          });
+          const answer = JSON.parse(await accepted.text());
+          if (answer?.ok === true) { filed += 1; ring.push(answer.run_id); }
         }
         // ⚠ AND WHAT WAS WAITING: `heard ? step` is what makes it exactly once, and the re-queue
         // is what makes it reach anybody — a `heard` written with the work row left done is the
