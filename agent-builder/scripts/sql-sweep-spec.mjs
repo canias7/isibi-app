@@ -860,9 +860,33 @@ const spec = [
   mWkm("SQL/wait: a finished execution can be left WAITING, which is a state nothing resumes",
     "alter table agent.automation_runs add constraint automation_runs_finished_is_not_waiting check (",
     "alter table agent.automation_runs add constraint automation_runs_finished_is_not_waiting check ( true or"),
-  mWkm("⚠ SQL/approve: a SECOND decision overwrites the first, so an absorbed press changes the answer",
-    "     where id = p_run_id and not (decisions ? p_step);",
-    "     where id = p_run_id;"),
+  // ⚠ **THE WRITE-ONCE ON A DECISION IS A PAIR, AND THE `for update` IS THE HALF THAT DOES THE
+  // WORK — measured, after the single mutant survived a test written specifically to kill it.**
+  // The predicate alone was mutated here and SURVIVED, so a racing-press test was added; it
+  // survived that too. Reproduced by hand on throwaway databases, printing both callers'
+  // answers and the stored row: with the predicate and without it, the loser answers
+  // `repeat: true, verdict: approved` and the winner's decision stands — BYTE-IDENTICAL.
+  //
+  // The reason is at the top of the function: its opening read is `select … for update`, so a
+  // second press BLOCKS there and then reads the committed row, finds the decision, and never
+  // reaches the write block at all. **The two presses cannot interleave, so the predicate is a
+  // belt behind a row lock** — which is worth keeping and is not a wall on its own.
+  //
+  // So the mutant is the PAIR, expressible because both halves sit in one contiguous region of
+  // this function, and DERIVED FROM THE FILE rather than pasted: 31 lines of literal in a spec
+  // is 31 lines that can drift from the migration silently.
+  (() => {
+    const t = fs.readFileSync(WKM, "utf8");
+    const at = t.indexOf("function agent.decide_automation_approval");
+    const a = t.indexOf("     for update;", at);
+    const tail = "     where id = p_run_id and not (decisions ? p_step);";
+    const b = t.indexOf(tail, a);
+    if (a < 0 || b < 0) { console.error("the decision pair's landmarks moved"); process.exit(1); }
+    const from = t.slice(a, b + tail.length);
+    return mWkm("⚠ SQL/approve: BOTH WALLS DOWN — a racing press overwrites a decision already made",
+      from,
+      from.replace("     for update;", "     ;").replace(" and not (decisions ? p_step)", ""));
+  })(),
   mWkm("⚠ SQL/approve: a decision is recorded for a step the execution is NOT waiting at",
     "  if v_exec.waiting is null\n     or v_exec.waiting ->> 'kind' is distinct from 'approval'\n     or v_exec.waiting ->> 'step' is distinct from p_step then",
     "  if false then"),
