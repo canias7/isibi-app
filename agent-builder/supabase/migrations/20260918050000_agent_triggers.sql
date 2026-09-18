@@ -777,6 +777,21 @@ begin
     select * into v_exec from agent.automation_runs
      where automation_id = p_automation_id and event_id = p_event_id;
   end if;
+  -- ⚠ **THIS PROBE AND THE RE-READ INSIDE THE EXCEPTION HANDLER BELOW ARE A DECLARED PAIR, AND
+  -- EACH IS INERT ON ITS OWN — measured, not reasoned.** Both turn a duplicate run id into
+  -- `repeat`: this one before the insert is attempted, that one after the unique violation. Three
+  -- variants were applied to throwaway databases and asked the same manual run id twice — as it
+  -- stands, with this probe cut, and with the handler's re-read cut — and **all three answered
+  -- byte-identically (`ok, repeat: true`, the same run id) and left exactly one row**. So a sweep
+  -- cannot kill either one alone, and two mutants aimed at them SURVIVED a 976-check suite for
+  -- exactly that reason rather than because anything is unguarded.
+  --
+  -- **THEY ARE NOT INTERCHANGEABLE, WHICH IS WHY BOTH STAY.** The handler is the only thing that
+  -- can see a row another transaction committed BETWEEN this probe and our insert — a probe
+  -- cannot read an uncommitted row, so the race has no other answer. This probe is what keeps an
+  -- ordinary redelivery off the exception path altogether, which is where the `conflicted with a
+  -- row that is not there` raise lives. *Deleting either because "nothing appears to need it"
+  -- is the reading this paragraph exists to prevent.*
   if v_exec.id is null then
     select * into v_exec from agent.automation_runs
      where automation_id = p_automation_id and id = p_run_id;

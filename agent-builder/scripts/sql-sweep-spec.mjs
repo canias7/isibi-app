@@ -762,18 +762,26 @@ const spec = [
     "      (p_run_id, p_automation_id, v_agent, p_tenant, p_trigger, p_occurrence, '[]'::jsonb, v_zone,"),
 
   // ── M5: a derived identity is only an identity if the database absorbs it ──
-  mAcceptAuto("⚠ SQL/accept: a duplicate RUN ID raises instead of reading as a repeat",
-    "  if v_exec.id is null then\n    select * into v_exec from agent.automation_runs\n     where automation_id = p_automation_id and id = p_run_id;\n  end if;",
-    "  if false then\n    select * into v_exec from agent.automation_runs\n     where automation_id = p_automation_id and id = p_run_id;\n  end if;"),
+  // ⚠ **THE DUPLICATE-RUN-ID PAIR, AND NEITHER HALF CAN BE SWEPT ALONE — MEASURED, and the two
+  // mutants that used to sit here are why.** The probe before the insert and the re-read inside
+  // the exception handler both turn a duplicate run id into `repeat`; three variants on throwaway
+  // databases (as it stands, probe cut, handler cut) answered BYTE-IDENTICALLY and left one row.
+  // So both mutants SURVIVED a 976-check suite for the honest reason, and closing that with a new
+  // test is impossible: there is no observable difference to assert.
+  //
+  // The pair cannot be mutated as one either — the two halves are a hundred lines apart and this
+  // runner applies ONE replacement per mutant — so it is recorded the way this directory already
+  // records that case: a comment-only control over the very paragraph that declares it. If
+  // somebody deletes the declaration, this control is killed and says so.
+  mAcceptAuto("SQL/accept/CONTROL (comment only): the note declaring the duplicate-id pair",
+    "  -- ⚠ **THIS PROBE AND THE RE-READ INSIDE THE EXCEPTION HANDLER BELOW ARE A DECLARED PAIR, AND",
+    "  -- The probe and the handler's re-read are a declared pair, measured inert apart (control).", true),
   mAcceptAuto("⚠ SQL/accept: the insert absorbs only the occurrence, so a redelivery raises",
     "    on conflict do nothing\n    returning * into v_exec;",
     "    on conflict (automation_id, occurrence) where occurrence is not null\n    do nothing\n    returning * into v_exec;"),
   mAcceptAuto("⚠ SQL/accept: a run id belonging to ANOTHER automation reads as this one's repeat",
     "     where automation_id = p_automation_id and id = p_run_id;\n  end if;\n",
     "     where id = p_run_id;\n  end if;\n"),
-  mAcceptAuto("SQL/accept: the racing re-read forgets the run id, so the raise is reached",
-    "      if v_exec.id is null then\n        select * into v_exec from agent.automation_runs\n         where automation_id = p_automation_id and id = p_run_id;\n      end if;",
-    "      if false then\n        select * into v_exec from agent.automation_runs\n         where automation_id = p_automation_id and id = p_run_id;\n      end if;"),
 
   mTick("⚠ SQL/tick: the catch-up window becomes unbounded, so downtime IS a burst",
     "           <= make_interval(secs => greatest(0, coalesce(p_catchup_s, 3600))) then",
