@@ -45,6 +45,53 @@ if (files.length < 1) { console.error(`no migrations in ${DIR}`); process.exit(1
  * pointing at a file that does not contain them. Derived, it cannot go stale.
  */
 /**
+ * ⚠ **WHICH CONSTRAINT BODY A POSITION SITS INSIDE, or null — and asking it POSITIONALLY is what
+ * the first version of this got wrong.** That one asked whether the anchor TEXT names a
+ * constraint, which catches a mutant on the `constraint … check (` header and misses one aimed at
+ * a CLAUSE a few lines inside it. A third survivor is what said so, and the function version's
+ * own comment already records the same lesson in the same words: *a preceding landmark is not an
+ * enclosing one.*
+ *
+ * Comments and single-quoted literals are BLANKED length-preservingly before the paren walk,
+ * because a body here really does contain both — one of these constraints carries a comment
+ * holding `array_length('{}', 1)`, whose parens would otherwise unbalance the scan.
+ */
+const blankedSql = (t) => {
+  const out = [...t];
+  for (let i = 0; i < t.length;) {
+    if (t[i] === "-" && t[i + 1] === "-") {
+      const j = t.indexOf("\n", i) < 0 ? t.length : t.indexOf("\n", i);
+      for (let k = i; k < j; k++) out[k] = " ";
+      i = j;
+    } else if (t[i] === "'") {
+      let j = i + 1;
+      while (j < t.length) {
+        if (t[j] === "'") { if (t[j + 1] === "'") { j += 2; continue; } break; }
+        j++;
+      }
+      for (let k = i; k <= Math.min(j, t.length - 1); k++) out[k] = " ";
+      i = j + 1;
+    } else i++;
+  }
+  return out.join("");
+};
+const constraintsIn = (text) => {
+  const b = blankedSql(text);
+  const found = [];
+  for (const m of b.matchAll(/constraint\s+([a-z0-9_]+)\s+check\s*\(/gi)) {
+    let d = 0, i = m.index + m[0].length - 1;
+    for (; i < b.length; i++) {
+      if (b[i] === "(") d++;
+      else if (b[i] === ")") { d--; if (d === 0) break; }
+    }
+    found.push({ name: m[1], start: m.index, end: i });
+  }
+  return found;
+};
+const enclosingConstraint = (text, at) =>
+  at < 0 ? null : (constraintsIn(text).find((c) => c.start <= at && at <= c.end) ?? null);
+
+/**
  * ⚠ **THE FILE WHOSE DEFINITION OF A NAMED CONSTRAINT IS IN FORCE — and `lastDefining` cannot
  * answer this, which is why the trap arrived a FIFTH time.** `create or replace` is how a
  * function or a view is silently superseded, and the check below is narrowed to those two for
@@ -687,8 +734,13 @@ const spec = [
   mAuto("SQL/automations: the workflow cap on the column is lifted",
     "jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 20",
     "jsonb_typeof(steps) = 'array' and jsonb_array_length(steps) <= 2000"),
-  mAuto("SQL/automations: an execution's occurrence need not match its trigger",
-    "    (trigger = 'manual'   and occurrence is null)", "    true or (trigger = 'manual'   and occurrence is null)"),
+  // ⚠ RE-AIMED: it sat inside the AUTOMATIONS migration's copy, which the triggers migration
+  // drops and re-adds — and its anchor NAMES NO CONSTRAINT, which is exactly why the first
+  // version of the supersession check could not see it. Asked positionally now.
+  mConstraint("automation_runs_occurrence_matches_trigger")(
+    "SQL/automations: an execution's occurrence need not match its trigger",
+    "check (\n  (trigger = 'manual'   and occurrence is null)",
+    "check (\n  true or (trigger = 'manual'   and occurrence is null)"),
   mAuto("SQL/automations: the executor column admits an executor nothing can run",
     "add constraint run_work_executor_known check (executor in ('agent', 'automation'));",
     "add constraint run_work_executor_known check (executor is not null);"),
@@ -1289,10 +1341,11 @@ for (const s of spec) {
   // supersedes those; a constraint takes a different route and needs its own question. Asked of
   // the FILES, per name, exactly as `lastDefining` is: if any migration drops this constraint and
   // a later one re-adds it, a mutant on an earlier copy is inert by construction.
-  for (const cm of s.from.matchAll(/constraint\s+([a-z0-9_]+)\s+check/gi)) {
-    const owner = lastConstraining(cm[1]);
-    if (owner !== f && !s.control) {
-      console.error(`SUPERSEDED CONSTRAINT: ${s.label}\n    its anchor defines ${cm[1]}, which ${path.basename(owner)} defines last`);
+  const cEncl = enclosingConstraint(text.get(f), text.get(f).indexOf(s.from));
+  if (cEncl && !s.control) {
+    const owner = lastConstraining(cEncl.name);
+    if (owner !== f) {
+      console.error(`SUPERSEDED CONSTRAINT: ${s.label}\n    its anchor is inside ${cEncl.name}, which ${path.basename(owner)} defines last`);
       bad++;
     }
   }
