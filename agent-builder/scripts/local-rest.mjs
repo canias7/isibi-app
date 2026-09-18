@@ -26,6 +26,13 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+/**
+ * How long one statement may take before the shim calls it wedged. Generous on purpose: a
+ * real statement here runs in milliseconds, so this only ever bites something that is stuck,
+ * and a bound tight enough to catch a slow query would report a working database as broken.
+ */
+export const SQL_TIMEOUT_MS = 30_000;
+
 /** A SQL string literal. Doubling the quote is the whole of it. */
 const lit = (v) => `'${String(v).replaceAll("'", "''")}'`;
 /**
@@ -281,14 +288,46 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
    * `service_role` is what the deployment really is — and the difference is
    * observable: a superuser bypasses row level security whatever FORCE says.
    */
+  /**
+   * ⚠ **IT CANNOT WAIT FOR EVER, AND WHAT MADE THAT NECESSARY IS A MACHINE THIS RAN ON
+   * FOR MONTHS WITHOUT SHOWING IT.**
+   *
+   * `su postgres` needs no password for ROOT, which is what this session and the sweeps run
+   * as — so locally the child answers in milliseconds. As any other user `su` prints
+   * `Password: ` and BLOCKS ON STDIN, and `execFile` hands the child a pipe nobody ever
+   * writes to or closes, so it waits for ever. MEASURED as a non-root caller: `Password: `
+   * and no exit, ended only by an 8-second bound.
+   *
+   * **WHAT THAT COST: every `agent deploy` run for a whole day read `cancelled`.** A GitHub
+   * runner is the user `runner` and has no PostgreSQL, so one request that passes the profile
+   * gate reached here and never came back — `fetch` gave up at undici's 300-second headers
+   * timeout, and the hung child then kept `node --test` alive until the job's own
+   * `timeout-minutes: 45` killed it. GitHub reports a timed-out job as CANCELLED, which reads
+   * exactly like a run superseded by a later push, so twelve runs in a row said nothing.
+   *
+   * Two bounds, because they answer different questions. **Closing stdin** turns an
+   * authentication prompt into EOF, so a machine that cannot reach Postgres is told so at
+   * once rather than at the timeout. **The timeout** is the belt for anything else that can
+   * hang — a wedged psql, a lock nobody releases — and it is generous, because a slow
+   * statement must not be mistaken for a wedged one.
+   */
   async function sql(statement) {
     const full = `set role service_role; ${statement}`;
     try {
-      const { stdout } = await run("su", ["postgres", "-c",
-        `psql -X -q -t -A -v ON_ERROR_STOP=1 -d ${db} -c ${shq(full)}`], { maxBuffer: 32 * 1024 * 1024 });
+      const stdout = await new Promise((resolve, reject) => {
+        const child = execFile("su", ["postgres", "-c",
+          `psql -X -q -t -A -v ON_ERROR_STOP=1 -d ${db} -c ${shq(full)}`],
+          { maxBuffer: 32 * 1024 * 1024, timeout: SQL_TIMEOUT_MS },
+          (e, out) => (e ? reject(e) : resolve(out)));
+        // EOF rather than silence. Without this a password prompt is an indefinite wait.
+        child.stdin?.end();
+      });
       return { ok: true, out: stdout.trim() };
     } catch (e) {
-      return { ok: false, err: `${e.stdout ?? ""}${e.stderr ?? ""}`.trim() };
+      const said = `${e.stdout ?? ""}${e.stderr ?? ""}`.trim();
+      // A KILLED CHILD SAYS SO, because "it timed out" and "Postgres refused it" need
+      // different things done about them and an empty `err` is neither.
+      return { ok: false, err: e.killed ? `psql did not answer within ${SQL_TIMEOUT_MS}ms${said ? ` — ${said}` : ""}` : said };
     }
   }
 
@@ -805,7 +844,14 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
       const { port: got } = server.address();
       resolve({
         url: `http://127.0.0.1:${got}`, port: got,
-        close: () => new Promise((r) => server.close(r)),
+        /**
+         * ⚠ **IT DESTROYS OPEN CONNECTIONS, because `server.close` alone WAITS for them.**
+         * A case that fails mid-request leaves a socket open and never reaches the end of its
+         * own body — the cleanup runs in an `after` hook, correctly, and then blocks anyway.
+         * That is the second half of what turned one failed assertion into a 45-minute job
+         * timeout: nothing was still working, and nothing could exit either.
+         */
+        close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }),
         /** How many requests the profile gate turned away. See `refusedProfiles`. */
         refusedProfiles: () => refusedProfiles,
       });

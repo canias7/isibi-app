@@ -8592,6 +8592,28 @@ rule and the measurement.
   route, the fork was built on the edit route, and the addon route — same
   connection, LONGER work — stayed synchronous and died at 257.6 s. **When an
   infrastructure limit is found on one route, list every route under it.**
+- **A TIMED-OUT JOB IS REPORTED AS `cancelled`, WHICH READS EXACTLY LIKE A SUPERSEDED ONE
+  (2026-09-18, and it cost a whole day of the engine's CI).** `agent deploy` ran twelve times
+  and every run said `cancelled`. On a branch being pushed to all day that is the ordinary
+  shape of a run a later push replaced, so nobody looked — and the five that had actually
+  reached their job had each run for exactly **45 minutes**, which is that job's
+  `timeout-minutes`. **The tell is the ELAPSED TIME, not the word**: a superseded run dies in
+  seconds while still pending, and a timeout dies at its bound to the second. `conclusion`
+  cannot tell them apart, so read the duration and the job's own timeout before believing a
+  cancellation was somebody else's push.
+- **A FIXTURE CAN WORK BECAUSE YOU ARE ROOT, AND CI IS NOT.** The engine's test shim reaches
+  Postgres through `su postgres -c psql`, which needs **no password for root** — what every
+  session and every sweep here runs as. For any other user `su` prints `Password: ` and
+  **blocks on stdin**, and `execFile` hands the child a pipe nobody closes, so it waits for
+  ever. A GitHub runner is the user `runner`: one request reached it, `fetch` gave up at
+  undici's 300-second headers wall, and the hung child plus an open socket kept `node --test`
+  alive to the job timeout. **MEASURED as a non-root caller: `Password: ` and no exit.** Two
+  rules follow. **Close a child's stdin** whenever it might prompt — EOF turns an indefinite
+  wait into an immediate, named failure — and **`server.close()` WAITS for open connections**,
+  so a fixture that must be able to exit after a failed case needs `closeAllConnections()`.
+  The check that catches this class is a case that **drops to an unprivileged user and asserts
+  the file terminates**; it can only exist where the defect is invisible, and it skips visibly
+  on a runner, where the whole suite is already that condition.
 - **`supabase/applied/` IS NOT THE RECORD OF WHAT IS LIVE.** Before redefining any
   RPC, read it out of the database (`pg_get_functiondef`).
 

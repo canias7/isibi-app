@@ -101,6 +101,12 @@ test("⚠ THE LOCAL SHIM ENFORCES PostgREST'S PROFILE RULE, in both directions, 
       method,
       headers: { apikey: "k", authorization: "Bearer k", "content-type": "application/json", ...extra },
       body: method === "GET" ? undefined : "{}",
+      // ⚠ BOUNDED, because an unbounded `fetch` here cost a whole day of CI. Undici's own
+      // wall is 300 SECONDS of waiting for headers, and what arrives after it is the word
+      // `fetch failed` — which names neither the request nor the reason. This is well past
+      // any real answer from a shim on the loopback, so it only ever fires on a hang, and
+      // when it does the failure says which call it was.
+      signal: AbortSignal.timeout(20_000),
     });
     let body = null;
     try { body = JSON.parse(await r.text()); } catch { /* not json */ }
@@ -140,4 +146,97 @@ test("⚠ THE LOCAL SHIM ENFORCES PostgREST'S PROFILE RULE, in both directions, 
     const ok = await ask(method, p, extra);
     assert.ok(!PGRST.test(ok.code ?? ""), `${what} was refused by the profile gate: ${ok.code} ${ok.message}`);
   }
+});
+
+/**
+ * ⚠ **THE FIXTURE THAT HOLDS THE WHOLE ENGINE SUITE OPEN, AND WHAT IT COST.**
+ *
+ * The two cases below are about this file's own fixture rather than about the product, and
+ * they exist because that fixture stopped the engine's CI check passing for a whole day
+ * without anything going red. The chain, measured end to end:
+ *
+ *   `sql()` reaches Postgres through `su postgres -c psql`. **For ROOT that needs no
+ *   password** — which is what this session and every local sweep run as, so the child
+ *   answers in milliseconds and the suite takes under six seconds. For any OTHER user `su`
+ *   prints `Password: ` and BLOCKS ON STDIN, and `execFile` hands it a pipe nobody closes.
+ *   A GitHub runner is the user `runner` and has no PostgreSQL at all, so the first request
+ *   that PASSES the profile gate — one of the two controls above, which pass it on purpose —
+ *   reached `sql()` and never came back. `fetch` gave up after undici's 300-second headers
+ *   wall with the words `fetch failed`, and the hung child plus the open socket then kept
+ *   `node --test` alive until the job's `timeout-minutes: 45`.
+ *
+ * **AND A TIMED-OUT JOB IS REPORTED AS `cancelled`, which is the reason nobody noticed.**
+ * That is indistinguishable at a glance from a run superseded by a later push, and a branch
+ * being pushed to all day produces plenty of those: twelve consecutive `agent deploy` runs
+ * read `cancelled` and not one of them was about a push.
+ *
+ * MEASURED, as a non-root caller, before and after: before, the file does not exit at all
+ * (killed at 122 seconds, and the bounded `fetch` above is not enough on its own — the child
+ * and the socket outlive the failure); after, **568 tests, 0 failed, 5.6 seconds, exit 0.**
+ */
+test("⚠ THE SHIM LETS GO OF A CONNECTION NOBODY FINISHED, so a failed case can still exit", async () => {
+  const net = await import("node:net");
+  const rest = await startLocalRest({ db: "postgres_no_such_db_for_this_test", quiet: true });
+
+  // A SOCKET THAT ASKS FOR NOTHING is what a failed case leaves behind: the request is in
+  // flight, no response has been written, and the case is already over.
+  const held = net.connect(rest.port, "127.0.0.1");
+  await new Promise((r, x) => { held.once("connect", r); held.once("error", x); });
+  held.write("GET /rest/v1/runs?select=id HTTP/1.1\r\nhost: x\r\napikey: k\r\n\r\n");
+
+  /**
+   * ⚠ **`server.close()` ALONE WAITS FOR OPEN CONNECTIONS, and that is the whole defect.**
+   * The cleanup is in an `after` hook — correctly, since a failing case never reaches the end
+   * of its own body — and it blocks anyway. So the property is not "close was called", it is
+   * that closing FINISHES, and the bound is what makes that an assertion rather than a hang.
+   */
+  const closed = await Promise.race([
+    rest.close().then(() => "closed"),
+    new Promise((r) => setTimeout(() => r("still waiting"), 5000)),
+  ]);
+  held.destroy();
+  assert.equal(closed, "closed",
+    "the shim would not let go of an unfinished connection, so a failed case holds the run open");
+});
+
+test("⚠ THIS FILE EXITS FOR A USER WHO IS NOT ROOT — the condition CI actually runs under", async (t) => {
+  /**
+   * ⚠ **THE ONE CHECK THAT WOULD HAVE CAUGHT THIS, and it can only run where the defect is
+   * invisible.** Locally everything is root, which is exactly why the hang never showed; so
+   * the check drops to an unprivileged user and asks whether this file still terminates.
+   *
+   * ON A RUNNER IT SKIPS, VISIBLY, and that is not a gap: there the whole suite already runs
+   * as an unprivileged user, so a regression fails the job itself rather than hiding. What
+   * this covers is the machine where the suite is green for the wrong reason.
+   */
+  if (process.getuid?.() !== 0) { t.skip("already running unprivileged, which is the condition itself"); return; }
+  const { spawnSync } = await import("node:child_process");
+  const dir = path.join(import.meta.dirname, "..");
+  const here = path.relative(dir, import.meta.filename);
+  // CAN THE UNPRIVILEGED USER EVEN READ THE TREE? If not, a failure here would be about
+  // permissions and not about the hang, so it says so rather than reporting a defect.
+  const reachable = spawnSync("su", ["nobody", "-s", "/bin/sh", "-c", `cd ${dir} && test -r ${here}`],
+    { encoding: "utf8", timeout: 20_000 });
+  if (reachable.status !== 0) { t.skip("the unprivileged user cannot read this tree"); return; }
+
+  /**
+   * ⚠ **A CLEAN CHILD ENVIRONMENT, and this directory's mutation runner already records
+   * why.** `node --test` stamps `NODE_TEST_CONTEXT` on everything it spawns, and a nested
+   * `node --test` that sees it reports through the PARENT's channel instead of writing TAP to
+   * its own stdout. MEASURED: the same command run by hand gives 1,906 bytes and run from
+   * inside a test gives an empty string — so the observer assertions below were reading a
+   * silence that had nothing to do with the child.
+   */
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const out = spawnSync("su", ["nobody", "-s", "/bin/sh", "-c",
+    `cd ${dir} && exec /usr/bin/env node --test ${here}`], { encoding: "utf8", timeout: 120_000, env });
+  // ⚠ THE PROPERTY IS TERMINATION, ASKED FIRST. `killed` is what a hang looks like from here,
+  // and reading a hang as a test failure is how this was missed for a day.
+  assert.equal(out.killed !== true, true,
+    `this file did not terminate for an unprivileged user — the shape that reads as CANCELLED in CI`);
+  assert.equal(out.status, 0, `unprivileged run failed:\n${String(out.stdout).slice(-1200)}`);
+  // AND THE OBSERVER IS ALIVE: a run that executed nothing would also exit 0 quietly.
+  assert.match(String(out.stdout), /^# pass \d+$/m, "the unprivileged run reported no results");
+  assert.doesNotMatch(String(out.stdout), /^# pass 0$/m, "the unprivileged run passed nothing");
 });

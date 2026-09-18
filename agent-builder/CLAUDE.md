@@ -6240,3 +6240,135 @@ the round-number naming is the tell). When it goes the order is the recorded one
 **migration → engine → site** — and here the site's half is real: its route now hands the
 whole declarations to the validator, so a site shipped first would save a workflow whose list
 input the live database still refuses to answer.
+
+### …AND THE SWEEP FOUND WHAT THE SUITE COULD NOT, INCLUDING A CI CHECK THAT HAD NEVER PASSED (2026-09-18)
+
+Owner: *"Finish the outstanding sweeps and obtain completed CI results on the final pushed
+head. A cancelled engine workflow is not a passed check."* Both halves of that instruction
+turned out to be about real defects rather than about paperwork.
+
+#### ⚠ THE SPOT-CHECK THAT REPORTED TEN KILLS WAS THE ANCHOR CENSUS FAILING TEN TIMES
+
+The ten mutants this round added were reported here as *"spot-checked 10/10 killed, each by a
+named test"*. **That was wrong, and the test it walked into says so in its own comment.**
+`authored-run.test.mjs`'s census asserts every mutant's anchor is still in the tree — so while
+a mutant is APPLIED its own anchor is gone by construction and that case fails, reporting
+every mutant as killed. Its comment: *"this check fails for every mutant and reports every one
+as KILLED — the whole sweep green and meaningless"*, and the guard it names is
+`process.env.MUTATION_SWEEP`, which the runner sets and a hand-run does not.
+
+**So a hand-applied mutant is only evidence with `MUTATION_SWEEP=1` set.** Re-measured that
+way, five of the ten were caught by nothing at all — not the suite, not `verify:tools`, not
+`verify:integration`. *A check on your own honesty is no use if the thing you run by hand
+turns it off.*
+
+#### THE EIGHT SURVIVORS SPLIT FIVE / THREE, AND MEASURING IS WHAT SPLIT THEM
+
+The sweep read **648 mutants, 640 killed, 8 survived, 11 controls survived**, every survivor
+in `capability-tools.mjs`. A probe drove the real tools over the shapes each mutant is about
+and diffed every observable answer, so "does this mutation change anything" was measured
+rather than read off the source.
+
+**FIVE MOVED AN ANSWER AND NOTHING CAUGHT THEM** — genuine gaps, each closed:
+
+| the wall | what the mutation really did |
+|---|---|
+| an unknown type | `lsit` **stored as a type**, to be refused days later by a loop |
+| `required` | `"false"` became an input, because `Boolean("false")` is true |
+| two of one name | both kept, so a `{{reference}}` resolves to neither |
+| the ceiling | nine declarations sent to a column whose check refuses more than eight |
+| `manual` + a time | the time **kept**, on BOTH tools — what `automations_schedule_is_whole` refuses |
+
+Closed by two cases in `test/capabilities.test.mjs` (**38 → 40**), driven **through the tools**
+rather than through `readInputs`: the reader was already right, and the hop is exactly what the
+site's own route dropped one product over. Each has a control that fires if the reader simply
+refused everything, and each assertion was proved RED against its defect first.
+
+**THREE MOVED NOTHING, and they were faulty mutants rather than gaps** — the walls had guards
+all along:
+
+- **"changing an automation needs nobody" was COMMENT-ONLY.** Its `to` inserted
+  `// no approval` and left `approval: true` where it was; `from` and `to` are identical once
+  comments are stripped, which is the definition of a control. It had been tallied as a product
+  mutant. Re-anchored on the gate.
+- **"a missing zone is guessed" was INERT.** It added `zone: "UTC"` to the object `zoneFor`
+  REFUSES with, and every caller reads `.error` first. Re-anchored on the FALLBACK, which is
+  where a guess would come from.
+- **the date SHAPE test is a MEASURED REDUNDANCY.** Over twelve real spellings **not one** is
+  refused by `DATE_SHAPE` alone. It is kept and declared in the source, because the two refuse
+  different things — the shape says the ask is not a date at all, the round-trip says it is not
+  a real day (`2027-02-29` passes both the shape and the parse) — and because `Date.parse` has
+  a **lenient fallback**: `Date.parse("4 JulyT00:00:00Z")` is NOT NaN. The mutant removes the
+  PAIR.
+
+All three now die, each caught by a guard that already existed: the approval census in
+`approvals.test.mjs`, and the zone and trigger cases in `capabilities.test.mjs`.
+
+#### ⚠ AND THE ENGINE'S OWN CI CHECK HAD NEVER PASSED — TWELVE RUNS, ALL "CANCELLED"
+
+`agent deploy` ran twelve times on 2026-09-18 and **every one reads `cancelled`**. That is why
+the owner's instruction names it. The ones that reached the job ran **45 minutes** —
+`timeout-minutes: 45` — and **GitHub reports a timed-out job as CANCELLED**, which at a glance
+is indistinguishable from a run superseded by a later push. On a branch being pushed to all day
+there are plenty of those, so the signal said nothing. *A workflow that stops working does not
+have to go red to stop telling you anything.*
+
+The step is only `npm --prefix agent-builder test`, which takes **under six seconds** here. The
+chain, read out of run 78's own log and then measured:
+
+1. `test/rest-profile.test.mjs`'s two **CONTROLS pass the profile gate on purpose**, so unlike
+   the four refusals above them they reach `sql()`. The file's own comment explains why the
+   refusals need no database and is silent about the controls, which do.
+2. `sql()` reaches Postgres through `su postgres -c psql`. **For ROOT that needs no password**
+   — which is what this session and every local sweep are. For any other user `su` prints
+   `Password: ` and **blocks on stdin**, and `execFile` hands it a pipe nobody closes.
+   MEASURED as a non-root caller: `Password: ` and no exit, ended only by an 8-second bound.
+3. A GitHub runner is the user `runner` and has no PostgreSQL, so that request never came back.
+   `fetch` gave up after **300,807 ms** — undici's 300-second headers wall, the number this
+   repository already records — with the words `fetch failed`.
+4. The hung child and the open socket then kept `node --test` alive for another **40 minutes**
+   until the job timeout. The cleanup is in an `after` hook, correctly; `server.close()` **waits
+   for open connections**, so it blocked too.
+
+**THREE FIXES, each closing one link.** `sql()` closes the child's stdin (a password prompt
+becomes EOF, so a machine that cannot reach Postgres is told at once) and carries
+`SQL_TIMEOUT_MS` (30 s, generous on purpose — a real statement here is milliseconds, and a
+bound tight enough to catch a slow query would call a working database wedged); `close()` calls
+`closeAllConnections()` so a failed case can still exit; and the test's `fetch` is bounded at
+20 s so a hang names itself instead of arriving as `fetch failed` five minutes later.
+**The fetch bound alone is NOT enough and that is measured**: with it in place and the shim
+unfixed, the file still never exits.
+
+**MEASURED, as a non-root user with no reachable database — the runner's exact condition:**
+
+| | result |
+|---|---|
+| before | **never exits** — killed at 122 s, exit 124 |
+| after | **568 tests, 0 failed, 5.6 s, exit 0** |
+
+**Two guards, because the thing that runs your guards is not itself guarded unless somebody
+writes it down.** `rest-profile` 5 → **7**: one drives a raw socket that asks for nothing and
+asserts `close()` **finishes** (the property is not that close was called), and one **drops to
+an unprivileged user and asserts this file terminates** — the condition CI runs under, which is
+invisible on a machine where everything is root. It **skips visibly** when already
+unprivileged, which is not a gap: there the whole suite is that condition, so a regression
+fails the job itself. Both were proved red against their own defects.
+
+**⚠ AND THE SECOND GUARD READ AN EMPTY SILENCE FIRST, for this directory's own recorded
+reason.** `node --test` stamps `NODE_TEST_CONTEXT` on what it spawns and a nested `node --test`
+that sees it reports through the PARENT — so the child's TAP never reached the assertion.
+MEASURED: 1,906 bytes by hand, **empty string** from inside a test. `scripts/mutate.mjs` has
+carried that note since it was written. The child gets a clean environment now.
+
+### Measured
+
+- **Engine sweep, one run's own answer: 648 mutants, 648 killed, 0 survived, 0 never applied,
+  11 comment-only controls.** The spec holds 659 entries and does not mutate
+  `scripts/local-rest.mjs` at all, which is why the fixture fix moves no mutant.
+- **Engine suite 566 → 568** (the two input/schedule cases) **→ 570** (the two fixture cases),
+  0 failed. **Site suite 6,814**, 0 failed, 2 skipped — untouched, this round being engine-only.
+- **AND CI WILL READ 1 SKIPPED WHERE THIS MACHINE READS 0 — predicted before the run, which is
+  the only way a skip count is evidence rather than an observation.** The privilege-drop case
+  needs to BE root in order to stop being root, and a GitHub runner is the user `runner`, so it
+  skips there. The number to carry across the two machines is the TOTAL, exactly as it is for
+  the site suite's own environment skips.
