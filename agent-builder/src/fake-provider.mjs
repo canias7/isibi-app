@@ -55,8 +55,19 @@ export const FAKE_SCOPES = Object.freeze({ read_messages: "read", send_message: 
 
 export const FAKE_PROVIDER = "fakemail";
 
-/** How a scripted call can end, and each is a different thing for a caller to do about it. */
-export const FAKE_OUTCOMES = Object.freeze(["ok", "timeout", "refused", "unauthorised"]);
+/**
+ * How a scripted call can end, and each is a different thing for a caller to do about it.
+ *
+ * ⚠ **`lost` AND `timeout` ARE BOTH UNCERTAIN AND THEY ARE NOT THE SAME EVENT, which is the
+ * distinction the whole reconciliation design turns on — and this fake could not produce the
+ * first one until the demonstration needed it.** `timeout` means the request did not arrive:
+ * nothing happened, and a caller cannot tell. `lost` means the work HAPPENED and the answer
+ * did not come back: also uncertain, and reconciliation finds it. From the caller's side they
+ * are indistinguishable, which is the point; what separates them is what the provider really
+ * holds afterwards, and a fake that threw before storing could only ever model the first —
+ * so every "it landed and we did not hear" case would have been quietly testing the other one.
+ */
+export const FAKE_OUTCOMES = Object.freeze(["ok", "lost", "timeout", "refused", "unauthorised"]);
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
@@ -122,6 +133,7 @@ export function makeFakeProvider(opts = {}) {
     if (fate === "timeout") {
       // ⚠ **A TIMEOUT ON A WRITE IS UNCERTAIN AND ON A READ IS NOT.** The request may have
       // arrived; for a read that costs nothing and for a write it is the whole problem.
+      // (`lost` is the sibling case where it really DID arrive — asked after the work, below.)
       throw new FakeProviderError("the provider did not answer in time",
         { uncertain: FAKE_WRITES.includes(action), status: 0 });
     }
@@ -144,6 +156,15 @@ export function makeFakeProvider(opts = {}) {
     minted += 1;
     const id = `fake-msg-${minted}`;
     box(lease.account).push({ id, to: args.to, body: args.body, trace: args.trace ?? null });
+    // ⚠ **`lost` IS ASKED AFTER THE WORK, WHICH IS THE ONLY PLACE IT CAN BE.** The message is
+    // in the mailbox and the answer never arrives — so the caller sees exactly what a timeout
+    // looks like and the provider holds exactly what a success leaves. Reconciliation is the
+    // only thing that can tell the two apart, which is why this outcome has to exist for the
+    // feature to be demonstrable at all.
+    if (fate === "lost") {
+      throw new FakeProviderError("the provider did not answer after doing the work",
+        { uncertain: true, status: 0 });
+    }
     return { simulated: true, provider: FAKE_PROVIDER, account: lease.account,
              sent: true, message: id };
   }

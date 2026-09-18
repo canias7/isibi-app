@@ -450,6 +450,53 @@ test("⚠ AND WHEN IT CANNOT BE SETTLED IT IS `unresolved`, WHICH IS NOT A FAILU
   assert.equal(settled.length, 0, "an unknown was settled as though it were known");
 });
 
+test("⚠ A PROVIDER THAT CAN BE ASKED AND CANNOT SAY IS `unresolved`, NEVER 'it did not happen'", async () => {
+  // ⚠ **A SWEEP SURVIVOR BOUGHT THIS CASE, and the mis-read it prevents is the worse of the
+  // two directions.** Nothing drove `perform` with a reconciliation that ANSWERS `known:
+  // false` — with the fake provider that only happens when there is no trace, and `perform`
+  // always sends one, so the branch was unreachable from every earlier case. A real adapter
+  // reaches it easily: a provider whose search is inconclusive can be asked and still not
+  // know. With the wall gone, `seen.done` is `undefined` and the answer falls through to
+  // *"a check found it had not happened"* — telling somebody their message did not go out
+  // when it may well have, which is the reading this whole design exists to prevent.
+  const settled = [];
+  const shrugging = {
+    provider: FAKE_PROVIDER, actions: [...FAKE_ACTIONS], writes: [...FAKE_WRITES], scopes: {},
+    run: async () => { throw new FakeProviderError("no answer", { uncertain: true }); },
+    reconcilable: () => true,
+    // ⚠ ANSWERS, AND SAYS IT DOES NOT KNOW. That is a legitimate adapter answer, not a bug.
+    reconcile: async () => ({ known: false, why: "the search was inconclusive" }),
+  };
+  const { via } = build({
+    [CONNECTION_RPC.lease]: () => leased(),
+    [CONNECTION_RPC.begin]: () => ({ ok: true, began: true }),
+    [CONNECTION_RPC.settle]: (b) => { settled.push(b.p_outcome); return { ok: true, settled: true }; },
+  }, { [FAKE_PROVIDER]: shrugging });
+  const out = await via.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: await OP() });
+  assert.equal(out.error, "unresolved", JSON.stringify(out));
+  assert.equal(out.uncertain, true);
+  assert.equal(out.reconcilable, true, "it reported the action as uncheckable, which it is not");
+  assert.match(out.why, /could not say/);
+  assert.match(out.say, /may or may not have gone out/);
+  // ⚠ AND THE RECORD STAYS IN FLIGHT, so a later delivery can try again to LEARN. Settling it
+  // either way would freeze a guess.
+  assert.equal(settled.length, 0, `an unknown was settled: ${JSON.stringify(settled)}`);
+
+  // THE CONTROL, which is what makes this about "could not say" rather than about the adapter
+  // being broken: the SAME adapter answering that it did happen settles and reports done.
+  const knowing = { ...shrugging, reconcile: async () => ({ known: true, done: true, message: "m-9" }) };
+  const { via: v2 } = build({
+    [CONNECTION_RPC.lease]: () => leased(),
+    [CONNECTION_RPC.begin]: () => ({ ok: true, began: true }),
+    [CONNECTION_RPC.settle]: (b) => { settled.push(b.p_outcome); return { ok: true, settled: true }; },
+  }, { [FAKE_PROVIDER]: knowing });
+  const good = await v2.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: await OP() });
+  assert.equal(good.ok, true, JSON.stringify(good));
+  assert.equal(settled.length, 1, "a known outcome was left in flight");
+});
+
 test("an action that cannot be checked afterwards says so rather than pretending", async () => {
   const provider = makeFakeProvider({ script: () => "timeout" });
   // An adapter with no way to look: the answer is still `unresolved` and it says WHY.
@@ -592,4 +639,62 @@ test("⚠ THE LIST READS THE VIEW AND IS SCOPED BOTH WAYS", async () => {
   // ⚠ AND IT CANNOT ASK FOR A CREDENTIAL, because the view has no such column — asserted as
   // the absence of any request for one, which is what a `select=` naming it would look like.
   assert.ok(!url.includes("secret"), url);
+});
+
+// ── the model's own context, and the logs ───────────────────────────────────
+
+test("⚠ NO TOOL ASKS A MODEL FOR A CREDENTIAL — the census the milestone's own wording needs", async () => {
+  const { CAPABILITY_TOOLS, CONNECTION_TOOLS } = await import("../src/capability-tools.mjs");
+  // *Keep credentials out of model context* starts here: a schema that HAS a place for one
+  // is an invitation, and a model that fills it in has put a secret in a tool result, a
+  // journal entry and a conversation before anything refuses it.
+  const FORBIDDEN = ["secret", "token", "credential", "password", "apikey", "api_key",
+    "refresh", "bearer", "auth", "key"];
+  let scanned = 0;
+  for (const t of CAPABILITY_TOOLS) {
+    const names = Object.keys(t.input?.properties ?? {});
+    scanned += names.length;
+    for (const n of names) {
+      const flat = n.toLowerCase().replace(/[^a-z_]/g, "");
+      for (const bad of FORBIDDEN) {
+        assert.ok(!flat.includes(bad), `${t.name} asks a model for \`${n}\``);
+      }
+    }
+  }
+  assert.ok(scanned > 10, `the census read only ${scanned} properties`);
+  // ⚠ AND THE OBSERVER IS ALIVE, which a census of absences needs: the needle really does
+  // catch the shape it is looking for.
+  assert.ok(FORBIDDEN.some((bad) => "refresh_secret".includes(bad)), "the needle finds nothing");
+  // AND THE THREE THAT REACH OUTSIDE ASK FOR AN ID, WHICH IS NOT A CREDENTIAL: a connection
+  // id is a row's name and confers nothing without the lease behind it.
+  const { CAPABILITY_TOOLS: all } = await import("../src/capability-tools.mjs");
+  for (const n of CONNECTION_TOOLS) {
+    const t = all.find((x) => x.name === n);
+    const props = Object.keys(t.input?.properties ?? {});
+    assert.ok(props.every((k) => ["connection", "to", "body"].includes(k)),
+      `${n} takes ${JSON.stringify(props)}`);
+  }
+});
+
+test("⚠ AND NOTHING THIS MODULE LOGS CARRIES ONE — asked of the source, blanked first", () => {
+  // `connections.mjs` has no logger of its own, which is the strongest form of this: there is
+  // no call that could carry a lease. Asserted rather than assumed, because a `console.log`
+  // added while debugging a provider is exactly how a credential reaches a log — and the
+  // comments are blanked first, because this module's own prose is about credentials.
+  const blank = (t) => t.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  const src = blank(fs.readFileSync(path.join(SRC, "connections.mjs"), "utf8"));
+  assert.ok(src.includes("lease_connection") || src.includes("CONNECTION_RPC.lease"),
+    "the scanner cannot see the lease at all");
+  for (const bad of ["console.", "onEvent(", "log("]) {
+    assert.ok(!src.includes(bad), `connections.mjs calls ${bad}`);
+  }
+  // AND THE FAKE PROVIDER'S OWN RECORD OF WHAT IT WAS ASKED holds no credential, which is the
+  // other place one accumulates: a recorder built for a test is still a log.
+  const provider = makeFakeProvider();
+  provider.run("send_message", { to: "x", body: "y" }, { secret: SENTINEL, account: "a" });
+  assert.ok(!JSON.stringify(provider.seen()).includes(SENTINEL));
+  assert.ok(!JSON.stringify(provider.mailbox("a")).includes(SENTINEL));
+  assert.ok(!JSON.stringify(provider.describe()).includes(SENTINEL));
+  // THE OBSERVER: it really was handed one, so the absence is about what it keeps.
+  assert.equal(provider.calls(), 1);
 });

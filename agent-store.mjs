@@ -232,6 +232,31 @@ export const AGENT_TOOLS = Object.freeze([
     label: "Read one run in full",
     does: "Opens one run of an automation and reads every step's outcome.",
   }),
+  // ── what it may do OUTSIDE this platform ──────────────────────────────────
+  //
+  // ⚠ **THE WORDS HERE ARE FOR A PERSON DECIDING WHETHER TO ALLOW IT, which is why they say
+  // what it reaches rather than what it calls.** The engine's own `description` for the same
+  // tool is written for a model choosing whether to use it; that is the whole reason this
+  // catalog is a declared COPY rather than an import.
+  //
+  // **CONNECTING SOMETHING IS NOT ON THIS LIST AND CANNOT BE**: an agent that could store a
+  // credential could store one it wrote, so a connection is made by a PERSON and the agent is
+  // only ever allowed to USE one.
+  Object.freeze({
+    name: "list_connections",
+    label: "See what it is connected to",
+    does: "Lists the outside accounts you have connected for this agent, and whether each is usable right now. It never sees any password or key.",
+  }),
+  Object.freeze({
+    name: "read_messages",
+    label: "Read a connected account",
+    does: "Reads what is in one of the accounts you have connected. It only reads.",
+  }),
+  Object.freeze({
+    name: "send_message",
+    label: "Send from a connected account",
+    does: "Sends a message from one of the accounts you have connected. You are asked to approve every one before it goes out, and you see who it is for and what it says.",
+  }),
 ]);
 
 /** The catalog's names, DERIVED, so nothing holds a second copy of the list. */

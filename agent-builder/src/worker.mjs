@@ -35,6 +35,21 @@ import { makeAutomationStore } from "./automation-store.mjs";
 import { makeCapabilities } from "./capabilities.mjs";
 import { makeConnections } from "./connections.mjs";
 import { makeFakeProvider, FAKE_PROVIDER } from "./fake-provider.mjs";
+
+/**
+ * ⚠ **THE ADAPTER REGISTRY IS MODULE-SCOPED, AND FOR THE FAKE PROVIDER THAT IS THE HONEST
+ * MODEL RATHER THAN AN OPTIMISATION.** An adapter stands in for something OUTSIDE this
+ * process, so it must not be rebuilt per invocation: the fake's mailbox is its stand-in for
+ * the provider's own storage, and one built inside `parts` would forget every message between
+ * two deliveries of the same run — which is exactly the state reconciliation is about, so a
+ * per-invocation provider makes the feature undemonstrable rather than merely slower.
+ *
+ * **WHAT IT DOES NOT SURVIVE, said rather than left to be discovered: an ISOLATE.** Module
+ * scope on this stack lives as long as the isolate does, so a deploy or an eviction empties
+ * the mailbox. That is correct for a fake — nothing real is being kept — and it is the one
+ * reason a fake provider could never stand in for a real one in production.
+ */
+const ADAPTERS = { [FAKE_PROVIDER]: makeFakeProvider() };
 import { makeApprovals } from "./approvals.mjs";
 import { makeWork } from "./work.mjs";
 import { makeApi } from "./api.mjs";
@@ -248,7 +263,7 @@ function parts(env, { notify, fetchImpl } = {}) {
    * its mailbox is a Map, so it does not survive an isolate, and a customer would have to
    * connect `fakemail` deliberately — there is no way for a real provider's name to reach it.
    */
-  const connections = makeConnections({ ...wire, adapters: { [FAKE_PROVIDER]: makeFakeProvider() } });
+  const connections = makeConnections({ ...wire, adapters: ADAPTERS });
 
   return { store, work, automations, capabilities, connections, approvals, send: make(), ring, doFetch, modelName };
 }

@@ -35,7 +35,7 @@ import { handleAgentApi, makeAgentStore } from "../../agent-store.mjs";
 import worker from "../src/worker.mjs";
 import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
 import { OFFERED_NAMES } from "../src/agents.mjs";
-import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
+import { CAPABILITY_TOOLS, CONNECTION_TOOLS } from "../src/capability-tools.mjs";
 import { makeCapabilities } from "../src/capabilities.mjs";
 import { AUTOMATION_STEPS, MAX_WORKFLOW_STEPS, readWorkflow } from "../src/automations.mjs";
 import { argsHash } from "../src/approvals.mjs";
@@ -726,7 +726,21 @@ try {
    * have really run — through a direct drive, whose evidence is the ROW each one left.
    */
   const NOT_FROM_THE_STAND_IN = ["check_workflow", "make_automation", "change_automation"];
-  const never = TOOLS.filter((n) => !called.includes(n) && !NOT_FROM_THE_STAND_IN.includes(n));
+  /**
+   * ⚠ **THE THREE THAT REACH OUTSIDE ARE DEMONSTRATED IN `verify:connections`, AND THE LIST
+   * IS THE ENGINE'S OWN RATHER THAN TYPED HERE.** They are not on the list above — the
+   * stand-in composes them perfectly well, they take strings — they are simply about
+   * something this file does not stand up: a stored credential and a provider adapter.
+   * Duplicating that scaffolding would be two copies of one fixture, and the copy that
+   * drifts is the one deciding whether a credential can leak.
+   *
+   * **AND THE OTHER HALF IS NOT WEAKENED BY IT**: `verify:connections` carries the same
+   * census for exactly these three, driven by a real model through real messages, so a
+   * connection tool nobody demonstrates fails there instead of slipping through here.
+   * `CONNECTION_TOOLS` is imported, so a name cannot be exempted by being misspelled.
+   */
+  const never = TOOLS.filter((n) => !called.includes(n)
+    && !NOT_FROM_THE_STAND_IN.includes(n) && !CONNECTION_TOOLS.includes(n));
   check("⚠ EVERY capability tool the stand-in can compose was really called by it",
     never.length === 0, never.length ? `never called: ${never.join(", ")}` : `${called.length} of ${TOOLS.length}`);
   // ⚠ AND THE OBSERVER FOR THE OTHER THREE IS THEIR OWN EFFECT, not a claim that they ran:
@@ -740,6 +754,7 @@ try {
   // THE LIST IS NOT A LOOPHOLE: every name on it must be a real tool, so a typo cannot
   // exempt a tool that does not exist and quietly excuse one that does.
   for (const n of NOT_FROM_THE_STAND_IN) check(`⚠ ...and "${n}" is a real tool rather than an excuse`, TOOLS.includes(n));
+  for (const n of CONNECTION_TOOLS) check(`⚠ ...and "${n}" is a real tool, demonstrated in verify:connections`, TOOLS.includes(n));
 
   console.log(failed ? `\n${failed} FAILED:\n  ${fails.join("\n  ")}` : "\nall checks passed");
 } finally {

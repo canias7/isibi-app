@@ -160,6 +160,20 @@ const RPCS = {
   // ── the operation record ──────────────────────────────────────────────────
   operation_check: { args: ["p_tenant", "p_op_key", "p_action", "p_args_hash"], shape: "value" },
   operation_record: { args: ["p_tenant", "p_op_key", "p_action", "p_args_hash", "p_run_id::uuid", "p_outcome::jsonb"], shape: "value" },
+  // ⚠ THE IN-FLIGHT PAIR. `operation_begin` claims a slot with NO outcome and
+  // `operation_settle` fills it in write-once, which is what makes "sent, outcome unknown" a
+  // state a caller can reconcile from rather than a gap.
+  operation_begin: { args: ["p_tenant", "p_op_key", "p_action", "p_args_hash", "p_run_id::uuid"], shape: "value" },
+  operation_settle: { args: ["p_tenant", "p_op_key", "p_action", "p_args_hash", "p_outcome::jsonb"], shape: "value" },
+  // ── connections to things outside ─────────────────────────────────────────
+  //
+  // ⚠ `lease_connection` IS THE ONE DOOR TO A CREDENTIAL and it is an RPC like the others,
+  // which is the point: the shim translates HTTP and the guarantee is the function's.
+  connect_provider: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_provider", "p_label", "p_account", "p_scopes::text[]", "p_secret", "p_refresh", "p_expires::timestamptz", "p_max::integer"], shape: "value" },
+  disconnect_connection: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_why"], shape: "value" },
+  revoke_connection: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_why"], shape: "value" },
+  lease_connection: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_scopes::text[]"], shape: "value" },
+  refresh_connection: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_secret", "p_refresh", "p_expires::timestamptz"], shape: "value" },
 };
 
 /**
@@ -192,6 +206,16 @@ for (const name of ONCE_OF) {
  */
 const AGENT_COLUMNS = new Set(["id", "tenant_id", "name", "instructions", "created_at", "updated_at",
   "last_message", "status", "tools"]);
+/**
+ * ⚠ **`agent.connection_list`'s COLUMNS, AND NEITHER CREDENTIAL IS ON THE LIST — because the
+ * VIEW does not have them.** A shim that passed a column list through would let a caller ask
+ * for `secret` and get a 42703 that reads like the shim being narrow, when the real reason is
+ * that the view protects it; naming the columns here makes the shim agree with the database
+ * about what exists. `refreshable` is a generated column, which is exactly why a screen can
+ * be told a refresh is possible without anybody reading the credential.
+ */
+const CONNECTION_COLUMNS = new Set(["id", "tenant_id", "agent_id", "provider", "label", "account",
+  "scopes", "status", "refreshable", "expires_at", "stopped_why", "created_at", "updated_at"]);
 const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "run_id",
   "run_status", "run_stop", "run_step", "run_model", "run_started_at", "run_stopped_at",
   // ⚠ THE TWO THAT TELL FIVE STATES APART. A shim that refuses a column the view really has
@@ -662,6 +686,18 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
         const order = url.searchParams.get("order") === "created_at.desc" ? "order by created_at desc" : "";
         const limit = /^\d+$/.test(url.searchParams.get("limit") ?? "") ? `limit ${url.searchParams.get("limit")}` : "";
         const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from ${rel} ${whereOf(url.searchParams, EXECUTION_COLUMNS)} ${order} ${limit}) t;`);
+        if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
+        return send(200, JSON.parse(r.out || "[]"));
+      }
+      if (p === "/rest/v1/connection_list" && req.method === "GET") {
+        // ⚠ **NO `select=` MEANS EVERY COLUMN, because that is what PostgREST does.** A
+        // fallback of `["id"]` made this shim LESS capable than the thing it stands in for and
+        // the list came back as a row of ids — a screen with no labels, reported as the
+        // product being broken. The store deliberately sends no `select`, because the view has
+        // no credential to leave out.
+        const cols = selectOf(url.searchParams, CONNECTION_COLUMNS, [...CONNECTION_COLUMNS]);
+        const order = url.searchParams.get("order") === "created_at.desc" ? "order by created_at desc" : "";
+        const r = await sql(`select coalesce(json_agg(t), '[]')::text from (select ${cols} from agent.connection_list ${whereOf(url.searchParams, CONNECTION_COLUMNS)} ${order}) t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(200, JSON.parse(r.out || "[]"));
       }
