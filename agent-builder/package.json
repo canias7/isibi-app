@@ -16,6 +16,7 @@
     "verify:wf": "node scripts/verify-workflows.mjs",
     "verify:tools": "node scripts/verify-tools.mjs",
     "verify:ops": "node scripts/verify-operations.mjs",
-    "verify:controls": "node scripts/verify-controls.mjs"
+    "verify:controls": "node scripts/verify-controls.mjs",
+    "verify:triggers": "node scripts/verify-triggers.mjs"
   }
 }

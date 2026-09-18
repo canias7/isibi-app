@@ -1196,6 +1196,63 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return rows(r).length === 1 ? automationRow(rows(r)[0]) : null;
     },
 
+    // ── inbound endpoints ─────────────────────────────────────────────────
+    /**
+     * Every endpoint of one agent — **and the secret is not among the columns, because the
+     * function does not select it.** That is asserted against the function itself rather
+     * than trusted: `test/agent-api.test.mjs` reads `list_webhooks` out of the migration
+     * and requires `secret` to be absent from its projection.
+     */
+    async listWebhooks(tenant, agentId) {
+      const r = await req("POST", "rpc/list_webhooks", {
+        body: { p_tenant: tenant, p_agent_id: agentId },
+      });
+      if (!r.ok) throw storeFail("list endpoints", r);
+      const a = answerOf(r, "list endpoints");
+      return Array.isArray(a) ? a.map(webhookRow) : [];
+    },
+
+    /**
+     * Make one.
+     *
+     * ⚠ **THE SECRET IS AN ARGUMENT HERE AND IS MINTED BY THE ROUTE**, so this operation
+     * carries it exactly once, into the transaction, and nothing reads it back afterwards.
+     */
+    async createWebhook(tenant, { agentId, id, name, event, secret }) {
+      const r = await req("POST", "rpc/create_webhook", {
+        body: {
+          p_tenant: tenant, p_agent_id: agentId, p_id: id, p_name: name,
+          p_event: event, p_secret: secret, p_max: MAX_WEBHOOKS,
+        },
+      });
+      if (!r.ok) throw storeFail("create endpoint", r);
+      return answerOf(r, "create endpoint");
+    },
+
+    /** Turn one on or off. Its own narrow write, for the toggle's own reason. */
+    async setWebhookEnabled(tenant, id, enabled) {
+      const r = await req("POST", "rpc/set_webhook_enabled", {
+        body: { p_tenant: tenant, p_id: id, p_enabled: enabled },
+      });
+      if (!r.ok) throw storeFail("enable endpoint", r);
+      return answerOf(r, "enable endpoint");
+    },
+
+    /**
+     * Take one away.
+     *
+     * **DELETING IT IS THE ONLY WAY TO CHANGE A SECRET, and that is deliberate.** A rotate
+     * would have to answer the new secret, which makes a second door that hands one out;
+     * delete and make another is one door, and the old endpoint stops answering at once.
+     */
+    async removeWebhook(tenant, id) {
+      const r = await req("POST", "rpc/delete_webhook", {
+        body: { p_tenant: tenant, p_id: id },
+      });
+      if (!r.ok) throw storeFail("delete endpoint", r);
+      return answerOf(r, "delete endpoint");
+    },
+
     /** The executions go with it, by the foreign key's own `on delete cascade`. */
     async removeAutomation(tenant, id) {
       const r = await req("DELETE", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
@@ -1369,6 +1426,90 @@ const ON_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
  * what the engine accepts, measured, with both halves reading as correct.
  */
 export const AGENT_EVENT_RE = /^[a-z][a-z0-9_.-]{0,63}$/;
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * AN INBOUND ENDPOINT — what somebody else's system POSTs to, to raise an event here
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ **THE SECRET IS MINTED HERE AND IS ANSWERED EXACTLY ONCE.** `agent.create_webhook`
+ * takes it and does not hand it back, and `agent.list_webhooks` never selects the column —
+ * so the create's own answer is the only time it exists outside the database. That is the
+ * design rather than a limitation: a secret a list can re-read is one that leaks through
+ * every later screen, log line and cached response that ever shows the list.
+ *
+ * **AND IT IS MINTED BY THE SERVER, NEVER TAKEN FROM THE REQUEST.** A caller-supplied
+ * secret is a caller-chosen one, so a browser could set it to a word — and a browser is
+ * not where the strength of a signing key should be decided. There is nowhere to put one:
+ * the route reads no secret field at all.
+ */
+
+/** How many endpoints one agent may hold. The create function's own ceiling. */
+export const MAX_WEBHOOKS = 10;
+
+/** How long an endpoint's name may be — the column's own check constraint. */
+export const WEBHOOK_NAME_MAX = 80;
+
+/**
+ * How many bytes of randomness a minted secret carries.
+ *
+ * **32 BYTES, WHICH IS 64 HEX CHARACTERS — inside the column's own 32..200 and well past
+ * the floor.** The floor is what the database guarantees; this is what we choose, and the
+ * two are deliberately not the same number: a secret AT the minimum would be one the next
+ * person to raise the floor breaks.
+ */
+export const WEBHOOK_SECRET_BYTES = 32;
+
+/**
+ * THE PATH A DELIVERY IS POSTED TO, on the agent engine.
+ *
+ * ⚠ **A PATH AND NEVER A URL, because this product does not hold the engine's origin.** It
+ * rings the engine through a queue BINDING, which carries no address — so composing a URL
+ * here would mean inventing one, and an invented origin is a URL somebody configures their
+ * system with and which never works. The path is what we can say truthfully.
+ */
+export const webhookPath = (id) => `/deliver/${id}`;
+
+/**
+ * Mint one endpoint secret.
+ *
+ * **THE RANDOMNESS IS INJECTED**, so the one thing that must be unguessable is drivable in
+ * a test — and it is REQUIRED rather than defaulted, because a minter that quietly falls
+ * back to something weaker is the one failure nobody would see. Hex, so it survives every
+ * header, form and JSON hop between here and whoever signs with it.
+ */
+export function mintWebhookSecret(random) {
+  if (typeof random !== "function") throw new TypeError("mintWebhookSecret: needs a randomness source");
+  const bytes = random(WEBHOOK_SECRET_BYTES);
+  if (!(bytes instanceof Uint8Array) || bytes.length !== WEBHOOK_SECRET_BYTES) {
+    throw new TypeError(`mintWebhookSecret: expected ${WEBHOOK_SECRET_BYTES} bytes`);
+  }
+  // ⚠ `byte`, NEVER `b` — and that is not style. `b` names the REQUEST BODY everywhere else
+  // in this module, and `test/agent-api.test.mjs` censuses every `b.<field>` in the whole
+  // file to prove no route reads an account off what somebody sent. A `b` that is a byte
+  // made that census read `b.toString` as a body field and report a correct file as broken:
+  // *a scan is only as good as the premise it states, and this module states that one.*
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * WHAT A LIST ROW SAYS, and the census that it says no secret.
+ *
+ * `webhookRow` FAILS CLOSED ON `enabled`: a value it cannot read is `false`, because being
+ * wrong that way costs a press of the switch and the other way accepts deliveries for an
+ * endpoint somebody turned off.
+ */
+export function webhookRow(r) {
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    name: typeof r?.name === "string" ? r.name : "",
+    event: typeof r?.event_name === "string" ? r.event_name : "",
+    enabled: r?.enabled === true,
+    lastAt: typeof r?.last_at === "string" ? r.last_at : null,
+    createdAt: typeof r?.created_at === "string" ? r.created_at : null,
+    path: typeof r?.id === "string" ? webhookPath(r.id) : "",
+  };
+}
 
 /**
  * WHAT A NAMED VALUE IS — a DECLARED COPY of the engine's `VALUE_TYPES`, censused both ways.
@@ -2534,6 +2675,14 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/automation-delete": "POST",
   "/api/agent/automation-run": "POST",
   "/api/agent/automation-history": "GET",
+  // ── inbound endpoints ─────────────────────────────────────────────────────
+  // ⚠ NO `webhook-rotate`, DELIBERATELY. A rotate has to hand back the new secret, which
+  // is a SECOND door that gives one out — and the whole design is that there is exactly
+  // one. Delete and make another does the same job through the door that already exists.
+  "/api/agent/webhooks": "GET",
+  "/api/agent/webhook-create": "POST",
+  "/api/agent/webhook-enable": "POST",
+  "/api/agent/webhook-delete": "POST",
   "/api/agent/automation-approve": "POST",
   // ── reference material and memory ─────────────────────────────────────────
   "/api/agent/knowledge": "GET",
@@ -2705,7 +2854,7 @@ function readTools(b) {
  * account from `body` or `query`, and a tenant this cannot read refuses the
  * whole call rather than falling back to anything.
  */
-export async function handleAgentApi({ path, method, query, body, tenant, store, ring, newId, now, log } = {}) {
+export async function handleAgentApi({ path, method, query, body, tenant, store, ring, newId, now, log, random } = {}) {
   if (!Object.hasOwn(AGENT_ROUTES, path)) return null;
   if (AGENT_ROUTES[path] !== method) return no(405, "wrong method for that");
 
@@ -2716,6 +2865,10 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
   if (!who) return no(401, "sign in required");
 
   const mint = typeof newId === "function" ? newId : () => crypto.randomUUID();
+  // THE PLATFORM'S OWN RANDOMNESS, injected so the one value that must be unguessable is
+  // drivable — and the default is the real source rather than a weaker one, exactly as
+  // `mint` above defaults to `crypto.randomUUID`.
+  const dice = typeof random === "function" ? random : (n) => crypto.getRandomValues(new Uint8Array(n));
   const at = typeof now === "function" ? now : () => Date.now();
   const b = body && typeof body === "object" ? body : {};
   const q = query || new URLSearchParams();
@@ -3020,6 +3173,73 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // and not a cancellation: work already accepted keeps its own recorded
       // configuration and finishes.
       return a ? ok({ automation: a }) : NO_AUTOMATION();
+    }
+
+    // ── AN INBOUND ENDPOINT ───────────────────────────────────────────────────
+    if (path === "/api/agent/webhooks") {
+      const agentId = cleanId(q.get("agent"));
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      // THE PATH RIDES ON EVERY ROW, because an endpoint whose address nobody can read is
+      // one nobody can configure — and it is a PATH, since this product does not hold the
+      // engine's origin and inventing one prints a URL that does not work.
+      return ok({ webhooks: await store.listWebhooks(who, agentId), max: MAX_WEBHOOKS });
+    }
+
+    if (path === "/api/agent/webhook-create") {
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      const name = cleanText(b.name, WEBHOOK_NAME_MAX);
+      if (!name) return no(400, "give it a name first");
+      /**
+       * ⚠ **THE EVENT NAME IS CHECKED AGAINST THE SAME SHAPE THE TRIGGER USES.** An endpoint
+       * emitting a name no automation can listen for is a dead control that ANSWERS: it takes
+       * deliveries, records events, and nothing ever runs. One regex, so the two doors cannot
+       * disagree about what an event may be called.
+       */
+      const event = typeof b.event === "string" ? b.event.trim().toLowerCase() : "";
+      if (!AGENT_EVENT_RE.test(event)) {
+        return no(400, "an event name is lower case letters, digits, dots, dashes or underscores, starting with a letter");
+      }
+      // ⚠ NOTHING READS A SECRET OFF THE REQUEST, and there is nowhere to put one. A
+      // caller-chosen signing key is a browser deciding how strong it is.
+      const secret = mintWebhookSecret(dice);
+      const id = mint();
+      const a = await store.createWebhook(who, { agentId, id, name, event, secret });
+      if (a?.error === "no-agent") return NO_AGENT();
+      if (a?.error === "too-many") {
+        return no(409, `that's as many endpoints as one agent can hold (${MAX_WEBHOOKS}) — delete one first`);
+      }
+      if (a?.ok !== true) return NO_AGENT();
+      /**
+       * ⚠ **THE ONE AND ONLY TIME THE SECRET IS ANSWERED, and the sentence says so.** Nothing
+       * can read it back: `agent.list_webhooks` does not select the column and no route asks
+       * for it. Somebody who loses it deletes the endpoint and makes another.
+       */
+      return ok({
+        id, name, event, path: webhookPath(id), secret,
+        note: "this is the only time you'll see that secret — copy it into whatever will be sending, and if it's lost, delete this endpoint and make another",
+      });
+    }
+
+    if (path === "/api/agent/webhook-enable") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which endpoint?");
+      // REFUSED RATHER THAN COERCED: `Boolean("false")` is `true`, so a string out of a form
+      // would turn "off" into "on" — the one direction that keeps accepting deliveries for an
+      // endpoint somebody meant to close.
+      if (typeof b.enabled !== "boolean") return no(400, "an endpoint is either on or off");
+      const a = await store.setWebhookEnabled(who, id, b.enabled);
+      if (a?.ok !== true) return no(404, "that endpoint isn't here any more");
+      return ok({ id, enabled: a.enabled === true });
+    }
+
+    if (path === "/api/agent/webhook-delete") {
+      const id = cleanId(b.id);
+      if (!id) return no(400, "which endpoint?");
+      const a = await store.removeWebhook(who, id);
+      if (a?.ok !== true) return no(404, "that endpoint isn't here any more");
+      return ok({ id });
     }
 
     if (path === "/api/agent/automation-delete") {

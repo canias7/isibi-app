@@ -1199,9 +1199,23 @@ end; $$;
  * So they go, for the same reason the 6-argument `accept_automation_run` goes below: an
  * overload that cannot express the new thing is a door somebody reaches by accident. The
  * `_once` wrappers in `20260918020000_agent_operation_records.sql` call these by NAME and
- * resolve at run time, so they reach the wide ones with the three new parameters defaulting —
- * which is what makes an agent-authored automation still work while being unable to ask for a
- * weekly schedule it has no day list for.
+ * resolve at run time, so their inner calls reach the wide ones with the new parameters
+ * defaulting — which is what makes an agent-authored automation still work while being unable
+ * to ask for a weekly schedule it has no day list for.
+ *
+ * ⚠ **BUT THEIR OWN SIGNATURES HAD TO BE WIDENED TOO, and the first cut of this migration
+ * widened only the inner three.** A wrapper takes `p_tenant`, its own four, and the inner
+ * function's remaining parameters — that is the rule the local PostgREST shim DERIVES each
+ * wrapper's argument list from, rather than writing eleven lists out twice. So an inner
+ * function that grows a parameter and a wrapper that does not is a shim sending more
+ * arguments than the database will accept: MEASURED, `run_automation` answered
+ * `HTTP 400 … accept_automation_run_once(...) does not exist` and THREE demonstrations went
+ * red at once, on a wrapper, an inner function and a shim that were each correct alone.
+ *
+ * **AND A DOOR NARROWER THAN THE THING BEHIND IT HAS TO BE WIDENED EVENTUALLY ANYWAY** — the
+ * day an event-triggered accept needs to be idempotent, or an agent is allowed a weekly
+ * schedule, that wrapper cannot express it. The census in `test/integration/pg-schema.mjs`
+ * asks the rule of all six now, so the next parameter fails by existing.
  */
 drop function if exists agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb);
 drop function if exists agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb);
@@ -1215,3 +1229,177 @@ revoke all on function agent.create_automation(text, uuid, uuid, text, boolean, 
 revoke all on function agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb, text[], date, text) from public;
 grant execute on function agent.create_automation(text, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb, text[], date, text) to service_role;
 grant execute on function agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb, text[], date, text) to service_role;
+
+
+-- ── 12. THE `_once` WRAPPERS FOLLOW THEIR INNER FUNCTIONS ───────────────────
+--
+-- Three of the six wrap a function this migration widened, so three are re-created here
+-- with the inner function's new parameters on the end and the inner call passing them
+-- through. The bodies are otherwise the ones `20260918020000` wrote and are not repeated:
+-- `create or replace` replaces a body whole, and only the SIGNATURE and the inner call
+-- differ, so what follows is the same text with those two lines changed.
+
+create or replace function agent.create_automation_once(
+  p_tenant    text,
+  p_op_key    text,
+  p_args_hash text,
+  p_op_run    uuid,
+  p_agent_id uuid,
+  p_id       uuid,
+  p_name     text,
+  p_enabled  boolean,
+  p_schedule text,
+  p_at_local time,
+  p_zone     text,
+  p_steps    jsonb,
+  p_max      integer,
+  p_inputs   jsonb,
+  p_days     text[] default null,
+  p_on_date  date   default null,
+  p_on_event text   default null
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_check jsonb; v_out jsonb; v_lost boolean := false; v_state text; v_msg text;
+begin
+  v_check := agent.operation_check(p_tenant, p_op_key, 'create_automation', p_args_hash);
+  if v_check ->> 'state' = 'repeat' then
+    return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+  end if;
+  if v_check ->> 'state' <> 'fresh' then
+    return jsonb_build_object('ok', false, 'error', 'operation-' || (v_check ->> 'state'),
+                              'was', v_check ->> 'action');
+  end if;
+  begin
+    v_out := agent.create_automation(p_tenant := p_tenant, p_agent_id := p_agent_id,
+      p_id := p_id, p_name := p_name, p_enabled := p_enabled, p_schedule := p_schedule,
+      p_at_local := p_at_local, p_zone := p_zone, p_steps := p_steps, p_max := p_max,
+      p_inputs := p_inputs, p_days := p_days, p_on_date := p_on_date, p_on_event := p_on_event);
+    if not agent.operation_record(p_tenant, p_op_key, 'create_automation', p_args_hash, p_op_run, v_out) then
+      raise exception 'another delivery recorded this operation first' using errcode = 'AG001';
+    end if;
+  exception when others then
+    v_lost := true; v_state := sqlstate; v_msg := sqlerrm;
+  end;
+  if v_lost then
+    v_check := agent.operation_check(p_tenant, p_op_key, 'create_automation', p_args_hash);
+    if v_check ->> 'state' = 'repeat' then
+      return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+    end if;
+    if v_state <> 'AG001' then raise exception '%', v_msg using errcode = v_state; end if;
+    return jsonb_build_object('ok', false, 'error', 'operation-lost', 'action', 'create_automation');
+  end if;
+  return v_out;
+end $$;
+
+create or replace function agent.update_automation_once(
+  p_tenant    text,
+  p_op_key    text,
+  p_args_hash text,
+  p_op_run    uuid,
+  p_id       uuid,
+  p_name     text,
+  p_enabled  boolean,
+  p_schedule text,
+  p_at_local time,
+  p_zone     text,
+  p_steps    jsonb,
+  p_inputs   jsonb,
+  p_days     text[] default null,
+  p_on_date  date   default null,
+  p_on_event text   default null
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_check jsonb; v_out jsonb; v_lost boolean := false; v_state text; v_msg text;
+begin
+  v_check := agent.operation_check(p_tenant, p_op_key, 'update_automation', p_args_hash);
+  if v_check ->> 'state' = 'repeat' then
+    return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+  end if;
+  if v_check ->> 'state' <> 'fresh' then
+    return jsonb_build_object('ok', false, 'error', 'operation-' || (v_check ->> 'state'),
+                              'was', v_check ->> 'action');
+  end if;
+  begin
+    v_out := agent.update_automation(p_tenant := p_tenant, p_id := p_id, p_name := p_name,
+      p_enabled := p_enabled, p_schedule := p_schedule, p_at_local := p_at_local,
+      p_zone := p_zone, p_steps := p_steps, p_inputs := p_inputs, p_days := p_days,
+      p_on_date := p_on_date, p_on_event := p_on_event);
+    if not agent.operation_record(p_tenant, p_op_key, 'update_automation', p_args_hash, p_op_run, v_out) then
+      raise exception 'another delivery recorded this operation first' using errcode = 'AG001';
+    end if;
+  exception when others then
+    v_lost := true; v_state := sqlstate; v_msg := sqlerrm;
+  end;
+  if v_lost then
+    v_check := agent.operation_check(p_tenant, p_op_key, 'update_automation', p_args_hash);
+    if v_check ->> 'state' = 'repeat' then
+      return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+    end if;
+    if v_state <> 'AG001' then raise exception '%', v_msg using errcode = v_state; end if;
+    return jsonb_build_object('ok', false, 'error', 'operation-lost', 'action', 'update_automation');
+  end if;
+  return v_out;
+end $$;
+
+create or replace function agent.accept_automation_run_once(
+  p_tenant    text,
+  p_op_key    text,
+  p_args_hash text,
+  p_op_run    uuid,
+  p_automation_id uuid,
+  p_run_id        uuid,
+  p_trigger       text,
+  p_occurrence    date,
+  p_input         jsonb,
+  p_event_id      uuid    default null,
+  p_event_depth   integer default 0
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_check jsonb; v_out jsonb; v_lost boolean := false; v_state text; v_msg text;
+begin
+  v_check := agent.operation_check(p_tenant, p_op_key, 'accept_automation_run', p_args_hash);
+  if v_check ->> 'state' = 'repeat' then
+    return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+  end if;
+  if v_check ->> 'state' <> 'fresh' then
+    return jsonb_build_object('ok', false, 'error', 'operation-' || (v_check ->> 'state'),
+                              'was', v_check ->> 'action');
+  end if;
+  begin
+    v_out := agent.accept_automation_run(p_tenant := p_tenant, p_automation_id := p_automation_id,
+      p_run_id := p_run_id, p_trigger := p_trigger, p_occurrence := p_occurrence,
+      p_input := p_input, p_event_id := p_event_id, p_event_depth := p_event_depth);
+    if not agent.operation_record(p_tenant, p_op_key, 'accept_automation_run', p_args_hash, p_op_run, v_out) then
+      raise exception 'another delivery recorded this operation first' using errcode = 'AG001';
+    end if;
+  exception when others then
+    v_lost := true; v_state := sqlstate; v_msg := sqlerrm;
+  end;
+  if v_lost then
+    v_check := agent.operation_check(p_tenant, p_op_key, 'accept_automation_run', p_args_hash);
+    if v_check ->> 'state' = 'repeat' then
+      return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+    end if;
+    if v_state <> 'AG001' then raise exception '%', v_msg using errcode = v_state; end if;
+    return jsonb_build_object('ok', false, 'error', 'operation-lost', 'action', 'accept_automation_run');
+  end if;
+  return v_out;
+end $$;
+
+-- THE NARROW WRAPPERS GO, for the reason stated above their inner functions: a wider
+-- signature is a SECOND function, and a call with the old arity would then match both and be
+-- refused `is not unique` — which reads as a missing row two checks later.
+drop function if exists agent.create_automation_once(text, text, text, uuid, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb);
+drop function if exists agent.update_automation_once(text, text, text, uuid, uuid, text, boolean, text, time, text, jsonb, jsonb);
+drop function if exists agent.accept_automation_run_once(text, text, text, uuid, uuid, uuid, text, date, jsonb);
+
+-- THE WIDENED WRAPPERS ARE THEIR OWN OBJECTS, so they need their own revokes and grants.
+revoke all on function agent.create_automation_once(text, text, text, uuid, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb, text[], date, text) from public;
+revoke all on function agent.update_automation_once(text, text, text, uuid, uuid, text, boolean, text, time, text, jsonb, jsonb, text[], date, text) from public;
+revoke all on function agent.accept_automation_run_once(text, text, text, uuid, uuid, uuid, text, date, jsonb, uuid, integer) from public;
+grant execute on function agent.create_automation_once(text, text, text, uuid, uuid, uuid, text, boolean, text, time, text, jsonb, integer, jsonb, text[], date, text) to service_role;
+grant execute on function agent.update_automation_once(text, text, text, uuid, uuid, text, boolean, text, time, text, jsonb, jsonb, text[], date, text) to service_role;
+grant execute on function agent.accept_automation_run_once(text, text, text, uuid, uuid, uuid, text, date, jsonb, uuid, integer) to service_role;

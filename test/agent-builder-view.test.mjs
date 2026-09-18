@@ -479,7 +479,16 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
    */
   const NO_SCREEN_YET = ["/api/agent/tool-withdraw", "/api/agent/tool-revoke",
                          "/api/agent/tool-restore", "/api/agent/revoked-tools",
-                         "/api/agent/run-cancel"];
+                         "/api/agent/run-cancel",
+                         // ⚠ THE FOUR INBOUND-ENDPOINT ROUTES, deferred for the same stated
+                         // reason: the frontend is to stay as it is for now, so the backend
+                         // landed first. **A person is exactly who makes an endpoint and who
+                         // copies its secret**, so calling these `SERVER_ONLY` would record a
+                         // design decision nobody made — and the secret is answered ONCE, on
+                         // the create, which is a thing only a screen can put in front of
+                         // somebody. The list shrinks when the screen arrives.
+                         "/api/agent/webhooks", "/api/agent/webhook-create",
+                         "/api/agent/webhook-enable", "/api/agent/webhook-delete"];
   const paths = Object.keys(AGENT_ROUTES)
     .filter((p) => !SERVER_ONLY.includes(p) && !NO_SCREEN_YET.includes(p));
   assert.ok(paths.length >= 6, `the census is looking at only ${paths.length} routes`);

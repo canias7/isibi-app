@@ -1907,9 +1907,19 @@ const spec = [
   m("worker: the event dispatch is unbounded, so a burst of deliveries starves the schedules", W,
     "      const dispatched = await automations.dispatchEvents({ limit: EVENT_DISPATCH_LIMIT });",
     "      const dispatched = await automations.dispatchEvents({ limit: 1000000 });"),
+  // RE-ANCHORED, NOT APPEASED: the tally this line printed was an `action` bucket
+  // `agent.dispatch_events` never answers, so the log now reports `filed` and `woke` — what
+  // the function really says. The PROPERTY is unchanged and is the catch, not the line.
   m("⚠ worker: a throw in the event job escapes into the tick, taking the sweeper down with it", W,
-    "      console.log(\"agent-events\", JSON.stringify({ events: dispatched.length, rung, ...tally }));\n    } catch (e) {\n      console.error(\"agent-events\", String(e?.message ?? e));\n    }",
-    "      console.log(\"agent-events\", JSON.stringify({ events: dispatched.length, rung, ...tally }));\n    }"),
+    "      console.log(\"agent-events\", JSON.stringify({ events: dispatched.length, filed, woke, rung }));\n    } catch (e) {\n      console.error(\"agent-events\", String(e?.message ?? e));\n    }",
+    "      console.log(\"agent-events\", JSON.stringify({ events: dispatched.length, filed, woke, rung }));\n    }"),
+  // ⚠ AND THE LINE ITSELF IS WORTH A MUTANT NOW, because it is an instrument rather than a
+  // decoration: an `action` tally read `{"events":1,"rung":0,"?":1}` for a tick that had
+  // really filed an execution, which is a log whose numbers cannot move. A log that always
+  // says the same thing is one nobody can read a tick by.
+  m("worker: the event log stops saying what the tick really did", W,
+    "JSON.stringify({ events: dispatched.length, filed, woke, rung })",
+    "JSON.stringify({ events: dispatched.length })"),
   m("⚠ worker: the delivery route is dispatched AFTER the token gate, so no delivery can reach it", W,
     "    if (delivery.handles(path, request.method)) {", "    if (false) {"),
   m("worker: the delivery handler is built with the API's own configuration demand", W,

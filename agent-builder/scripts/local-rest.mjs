@@ -78,11 +78,32 @@ const RPCS = {
   // THE SAME TRANSLATION AND THE SAME GUARANTEES: these are the product's own
   // functions, called as they are called in production, so what is local here is the
   // HTTP hop and nothing else. `tick_automations` answers a SET, like the sweeper.
-  create_automation: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_max::integer", "p_inputs::jsonb"], shape: "value" },
-  update_automation: { args: ["p_tenant", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_inputs::jsonb"], shape: "value" },
-  accept_automation_run: { args: ["p_tenant", "p_automation_id::uuid", "p_run_id::uuid", "p_trigger", "p_occurrence::date", "p_input::jsonb"], shape: "value" },
+  // ⚠ THE THREE TRIGGER PARAMETERS ARE HERE BECAUSE THE FUNCTIONS TAKE THEM, and a shim
+  // whose list is short is one that drops what a caller really sent — which is how this
+  // shim once hid a dropped `status`. A weekly schedule with no `p_days` is refused by the
+  // database's own `automations_schedule_is_whole`, so leaving them out reports the SITE as
+  // broken for a fault of the fixture's.
+  create_automation: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_max::integer", "p_inputs::jsonb", "p_days::text[]", "p_on_date::date", "p_on_event"], shape: "value" },
+  update_automation: { args: ["p_tenant", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_inputs::jsonb", "p_days::text[]", "p_on_date::date", "p_on_event"], shape: "value" },
+  accept_automation_run: { args: ["p_tenant", "p_automation_id::uuid", "p_run_id::uuid", "p_trigger", "p_occurrence::date", "p_input::jsonb", "p_event_id::uuid", "p_event_depth::integer"], shape: "value" },
   finish_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_outcomes::jsonb", "p_stop::jsonb", "p_position::integer", "p_vars::jsonb"], shape: "value" },
   tick_automations: { args: ["p_catchup_s::integer", "p_limit::integer"], shape: "set" },
+  // ── triggers: inbound deliveries and internal events ──────────────────────
+  // **THE SECRET IS THE ROW'S AND `webhook_for_delivery` IS THE ONE FUNCTION THAT ANSWERS
+  // IT**, which is why it is here rather than being read off the table: the shim serves the
+  // real function, so what the engine gets locally is what it gets in production. It takes
+  // no tenant, because the account is what a delivery ANSWERS.
+  webhook_for_delivery: { args: ["p_id::uuid"], shape: "value" },
+  list_webhooks: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
+  create_webhook: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_event", "p_secret", "p_max::integer"], shape: "value" },
+  set_webhook_enabled: { args: ["p_tenant", "p_id::uuid", "p_enabled::boolean"], shape: "value" },
+  delete_webhook: { args: ["p_tenant", "p_id::uuid"], shape: "value" },
+  // THE DEPTH IS NOT IN THIS LIST AS A CALLER'S ARGUMENT BY ACCIDENT: `p_max_depth` is the
+  // function's own default and nothing sends one, so the ceiling cannot be reset from
+  // outside. `p_from_run` is what the depth is really taken from.
+  emit_event: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_payload::jsonb", "p_source", "p_key", "p_from_run::uuid"], shape: "value" },
+  dispatch_events: { args: ["p_limit::integer"], shape: "set" },
+  hear_pending_event: { args: ["p_run_id::uuid", "p_tenant"], shape: "value" },
   // ── richer workflows, reference material and memory ───────────────────────
   // THE SAME TRANSLATION AGAIN. `advance_automation_run` is the one worth naming: it
   // reaches `append_entry` inside its own transaction, so driving it through this shim
@@ -190,7 +211,13 @@ const EXECUTION_COLUMNS = new Set(["id", "automation_id", "agent_id", "tenant_id
   // this set is the whole of what a read may name: leaving these out would refuse the
   // store's own select and report the wiring as broken, or — worse, if the filter were
   // silent — answer a restart that a loop is at its beginning.
-  "loops", "tries", "uses"]);
+  "loops", "tries", "uses",
+  // ⚠ THE EVENT SIDE, AND `heard` IS THE ONE THAT COST A DEFECT. The set above already
+  // carried the warning two lines up and the set itself was not extended: `heard` was
+  // dropped from every read, `plainObject(undefined)` answered `{}`, and a suspended
+  // execution that really had heard its event RE-PAUSED for ever. Measured, through the
+  // whole dispatcher, with the engine, the store and the migration all correct.
+  "heard", "event_id", "event_depth"]);
 
 /**
  * Reference material and memory — a fourth and fifth set, for the same reason as the
@@ -238,20 +265,61 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
     return { status: 400, body: { code: "P0001", message: err.split("\n").slice(0, 2).join(" ") } };
   }
 
+/**
+ * ⚠ **A COLUMN THIS SHIM DOES NOT KNOW IS REFUSED, NEVER DROPPED — and it was dropped
+ * until 2026-09-18, silently, which is how a whole feature came to be demonstrated over a
+ * store that could not have worked.**
+ *
+ * `selectOf` filtered the asked-for list against its allow-list and carried on with
+ * whatever survived, so a store selecting a column this set had not been extended with got
+ * a 200 and a row WITHOUT it. The reader below then read the absence as a value — `{}` for
+ * `heard`, which an event wait reads as "nothing heard yet" — and a suspended execution
+ * re-paused for ever with the engine, the store and the migration all correct. *A filter on
+ * somebody's input is a silent drop; a check is a sentence*, and this shim's whole value is
+ * that it is not more forgiving than the real thing.
+ *
+ * **PostgREST REFUSES IT TOO, so this is the faithful behaviour as well as the loud one**:
+ * an unknown column is `400 42703`, in its own words, naming the column and the relation.
+ */
+function unknownColumn(rel, column) {
+  const e = new Error(`column ${rel}.${column} does not exist`);
+  e.pgrst = { status: 400, body: { code: "42703", message: `column ${rel}.${column} does not exist`, details: null, hint: null } };
+  return e;
+}
+
+/**
+ * The reserved query parameters, which are NOT filters.
+ *
+ * **A LIST OF WHAT IS NOT A COLUMN, so that everything else is one.** The other way round —
+ * a list of what is a filter — is what let an unknown one through: a key nobody recognised
+ * read as neither, and neither is exactly a silent drop.
+ */
+const NOT_A_FILTER = new Set(["select", "order", "limit", "offset", "on_conflict", "columns",
+  "and", "or", "not"]);
+
+/** Does this value look like a PostgREST filter at all? `eq.x`, `is.null`, `gt.3` … */
+const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
+
   /** `?a=eq.x` → `a = 'x'`, for the handful of columns the store filters on. */
-  function whereOf(params, allowed) {
+  function whereOf(params, allowed, rel = "relation") {
     const parts = [];
     for (const [k, v] of params) {
-      if (!allowed.has(k)) continue;
+      if (NOT_A_FILTER.has(k)) continue;
+      // ⚠ A FILTER-SHAPED VALUE ON AN UNKNOWN COLUMN IS REFUSED. Skipping it is worse than
+      // dropping a select column: the row set comes back WIDER than was asked for, so a
+      // read scoped to one account could answer another's.
+      if (!FILTER_SHAPE.test(v)) continue;
+      if (!allowed.has(k)) throw unknownColumn(rel, k);
       if (!v.startsWith("eq.")) continue;
       parts.push(`${JSON.stringify(k).replaceAll('"', '"')} = ${lit(v.slice(3))}`);
     }
     return parts.length ? `where ${parts.map((p) => p.replace(/^"?([a-z_]+)"?/, '"$1"')).join(" and ")}` : "";
   }
 
-  function selectOf(params, allowed, fallback) {
+  function selectOf(params, allowed, fallback, rel = "relation") {
     const raw = params.get("select");
-    const cols = (raw ? raw.split(",") : fallback).map((c) => c.trim()).filter((c) => allowed.has(c));
+    const cols = (raw ? raw.split(",") : fallback).map((c) => c.trim()).filter((c) => c !== "");
+    for (const c of cols) if (!allowed.has(c)) throw unknownColumn(rel, c);
     if (!cols.length) throw new Error("no readable columns were asked for");
     return cols.map((c) => `"${c}"`).join(", ");
   }
@@ -629,6 +697,21 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
           const v = body?.[name];
           if (v === undefined || v === null) return "null";
           const text = typeof v === "object" ? JSON.stringify(v) : String(v);
+          /**
+           * ⚠ **A `text[]` IS CONVERTED BY POSTGRES, NEVER BY THIS SHIM.** PostgREST turns a
+           * JSON array into a Postgres array, and the honest local translation is to hand the
+           * JSON over and let `jsonb_array_elements_text` do it — because building `{a,b}` by
+           * hand needs array-literal escaping, which is a parser, which is this repository's
+           * own "flat scans where depth matters" trap living in a fixture.
+           *
+           * THE ORDER IS ASKED FOR RATHER THAN RELIED ON (`with ordinality`), because the
+           * day list's order is stored and read back, so a conversion that reordered it
+           * would be a shim deciding what a customer saved.
+           */
+          if (cast === "text[]") {
+            return `(select coalesce(array_agg(x order by n), '{}'::text[])`
+              + ` from jsonb_array_elements_text(${lit(text)}::jsonb) with ordinality as t(x, n))`;
+          }
           return cast ? `${lit(text)}::${cast}` : lit(text);
         }).join(", ");
         const call = `agent.${rpc[1]}(${args})`;
@@ -642,6 +725,10 @@ export function startLocalRest({ db, port = 0, quiet = true } = {}) {
 
       return send(404, { message: `the local rest does not serve ${req.method} ${p}` });
     } catch (e) {
+      // A REFUSAL THIS SHIM RAISED ON PURPOSE ARRIVES AS PostgREST'S OWN ANSWER, not as a
+      // 500: a store reading a 500 as "the service is down" would retry a request that can
+      // never succeed, and the one thing the caller needs is the column's name.
+      if (e?.pgrst) return send(e.pgrst.status, e.pgrst.body);
       send(500, { message: String(e?.message ?? e) });
     }
   });

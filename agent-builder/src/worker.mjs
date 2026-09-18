@@ -657,11 +657,27 @@ export default {
      */
     try {
       const dispatched = await automations.dispatchEvents({ limit: EVENT_DISPATCH_LIMIT });
-      const tally = {};
+      /**
+       * ⚠ **WHAT IT ANSWERS IS `filed` AND `woke`, AND THE FIRST DRAFT TALLIED AN `action`
+       * THAT DOES NOT EXIST.** `agent.dispatch_events` answers
+       * `{event_id, name, filed, woke, ring}` — there is no `action` anywhere in it — so
+       * every row fell to the `"?"` bucket and the line read `{"events":1,"rung":0,"?":1}`
+       * for a tick that had really filed an execution. **A log that always says the same
+       * thing is a log nobody can read a tick by**, which is this product's own
+       * `requeue_expired_approvals` finding one job over: a line whose numbers cannot move
+       * is a line that is not an instrument.
+       *
+       * The two numbers are kept APART because they are different facts: `filed` is how
+       * many executions an event STARTED, `woke` is how many suspended ones it let carry
+       * on. An operator reading one total could not tell an event that triggered ten
+       * automations from one that released ten waiters.
+       */
+      let filed = 0;
+      let woke = 0;
       let rung = 0;
       for (const row of dispatched) {
-        const action = typeof row?.action === "string" ? row.action : "?";
-        tally[action] = (tally[action] ?? 0) + 1;
+        filed += Number.isInteger(row?.filed) ? row.filed : 0;
+        woke += Number.isInteger(row?.woke) ? row.woke : 0;
         // EVERY RUN ONE EVENT TOUCHED, which is a LIST rather than one id: an event can file
         // a trigger AND wake a waiter, and ringing only the first would leave the other
         // waiting for the sweeper. A row that changed nothing carries none.
@@ -674,7 +690,7 @@ export default {
           catch (e) { console.error("agent-events", JSON.stringify({ runId, ring: String(e?.message ?? e) })); }
         }
       }
-      console.log("agent-events", JSON.stringify({ events: dispatched.length, rung, ...tally }));
+      console.log("agent-events", JSON.stringify({ events: dispatched.length, filed, woke, rung }));
     } catch (e) {
       console.error("agent-events", String(e?.message ?? e));
     }

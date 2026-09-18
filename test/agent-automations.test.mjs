@@ -553,6 +553,12 @@ test("no automation route reads an account off the body or the query", () => {
     // `reason` is a person's own words about why they stopped a run. The four spellings this
     // census exists to forbid (`tenant`, `uid`, `owner`, `account`) are still not in it.
     "tool", "reason",
+    // ⚠ GROWN ONCE MORE, BY ONE, and still not by an exemption. `event` is the name an
+    // inbound endpoint EMITS, fixed at creation so a delivery cannot choose what it triggers,
+    // and read through `AGENT_EVENT_RE` — the same shape the `on_event` trigger reads. **AND
+    // `secret` IS DELIBERATELY NOT HERE AND MUST NEVER BE**: the route MINTS one, so there is
+    // nowhere for a caller-chosen signing key to arrive.
+    "event",
   ]);
   for (const r of reads) assert.ok(allowed.has(r), `an automation route reads ${r} off what somebody sent`);
   // THE OBSERVER, PROVED ALIVE: it can see the reads the block really makes.

@@ -114,6 +114,26 @@ function fakeStore(over = {}) {
       return { ok: true, repeat: false, run_id: RID, occurrence: null, trigger: "manual", state: "queued" };
     },
     executions: async (...a) => { calls.push({ name: "executions", args: a }); return []; },
+    // ── inbound endpoints ──────────────────────────────────────────────────
+    // ⚠ AND THE SAME RULE A FOURTH TIME: the answer shapes are the ones
+    // `agent.list_webhooks`, `create_webhook`, `set_webhook_enabled` and `delete_webhook`
+    // really give, read off the migration rather than invented. A fake missing one of them
+    // makes the route throw and the census reads a 502 — which is what it did.
+    //
+    // **AND NOT ONE OF THEM ANSWERS A SECRET, because the real functions do not.** The
+    // create's own answer carries `id` and `event_name` and no key: the ROUTE mints the
+    // secret and hands it back once, so a fake that returned one would be a fake teaching a
+    // reader that the database can be asked for it.
+    listWebhooks: async (...a) => { calls.push({ name: "listWebhooks", args: a }); return []; },
+    createWebhook: async (...a) => {
+      calls.push({ name: "createWebhook", args: a });
+      return { ok: true, id: A1, event_name: "order.paid" };
+    },
+    setWebhookEnabled: async (...a) => {
+      calls.push({ name: "setWebhookEnabled", args: a });
+      return { ok: true, id: A1, enabled: true };
+    },
+    removeWebhook: async (...a) => { calls.push({ name: "removeWebhook", args: a }); return { ok: true, id: A1 }; },
     // ── richer workflows, reference material and memory ────────────────────
     // ⚠ AND THE SAME RULE AGAIN: `readAutomation` is what the run route asks for the
     // input DECLARATION, so a fake without it makes the route throw and the census
@@ -207,6 +227,12 @@ test("every operation is scoped by the tenant the handler was given", async () =
         // because the route checks it against the catalog rather than only against the
         // grammar — a revocation of a name no tool has is a row that can never do anything.
         tool: "remember", reason: "changed my mind",
+        // ⚠ AND ONCE MORE for an inbound endpoint. `event` has to be a REAL event name,
+        // because the route checks its shape against the same regex the trigger reads — a
+        // census that drove it without would read the 400 it correctly gives and prove
+        // nothing about its scoping. **There is no `secret` here and there cannot be**: the
+        // route mints one and reads none.
+        event: "order.paid",
       },
       newId: () => A1,
     });
@@ -287,7 +313,30 @@ test("no route reads an account off the body or the query — asserted over the 
   // SCANNING THE WHOLE FILE IS SAFE HERE AND WAS CHECKED, NOT ASSUMED: `b` names the
   // request body and nothing else in this module — there is no `(a, b)` comparator,
   // no `b` loop variable — so every `b.` really is a read of what somebody sent.
-  const body = SRC;
+  //
+  // ⚠ **AND COMMENTS ARE BLANKED FIRST, WHICH THEY WERE NOT UNTIL 2026-09-18.** This scan
+  // read the raw source, so any sentence in this module that WROTE a body read — including
+  // one explaining this very rule — was a match: measured, a comment about the premise above
+  // reported the file as reading an account off the request. *Prose contains the thing it
+  // forbids*, this repository's most repeated own-goal, met in the census whose premise is
+  // about names. The blanking is LENGTH-PRESERVING, so every offset below still means what it
+  // meant, and the observer-alive lines under it are what prove the blanker did not erase the
+  // landmarks it is meant to leave alone.
+  const blankComments = (src) => {
+    let out = ""; let i = 0; let inBlock = false; let quote = "";
+    while (i < src.length) {
+      const c = src[i]; const nx = src[i + 1];
+      if (inBlock) { if (c === "*" && nx === "/") { out += "  "; i += 2; inBlock = false; continue; } out += c === "\n" ? "\n" : " "; i++; continue; }
+      if (quote) { out += c; if (c === "\\") { out += nx === undefined ? "" : nx; i += 2; continue; } if (c === quote) quote = ""; i++; continue; }
+      if (c === '"' || c === "'" || c === "`") { quote = c; out += c; i++; continue; }
+      if (c === "/" && nx === "*") { out += "  "; i += 2; inBlock = true; continue; }
+      if (c === "/" && nx === "/") { while (i < src.length && src[i] !== "\n") { out += " "; i++; } continue; }
+      out += c; i++;
+    }
+    return out;
+  };
+  const body = blankComments(SRC);
+  assert.equal(body.length, SRC.length, "the blanking must preserve every offset");
   assert.ok(body.length > 500, "the source must have been found");
   const reads = [...body.matchAll(/\b[bq]\.(?:get\(")?([A-Za-z_]+)/g)].map((m) => m[1]);
   assert.ok(reads.length >= 8, `the scanner read nothing: ${reads.length}`);
@@ -324,6 +373,13 @@ test("no route reads an account off the body or the query — asserted over the 
   // route to prove the tenant reaches the store from the verified token alone.
                            "agent", "enabled", "schedule", "zone", "steps",
                            "inputs", "input", "run", "step", "verdict", "note", "title", "format", "value", "source",
+  // ⚠ RE-ANCHORED A SIXTH TIME, by ONE field and still not by an exemption. `event` is the
+  // name an inbound endpoint EMITS — a field of the endpoint being made, fixed at creation so
+  // a delivery cannot choose what it triggers — and it goes through `AGENT_EVENT_RE`, the same
+  // shape the trigger reads, so the two doors cannot disagree about what an event may be
+  // called. **AND NOTHING READS A SECRET OFF A REQUEST AT ALL**: the route mints one, which is
+  // why `secret` is not on this list and must never be.
+                           "event",
   // ⚠ RE-ANCHORED A FIFTH TIME, by THREE TRIGGER fields and still not by an exemption. `days`,
   // `on_date` and `on_event` say WHEN an automation runs, exactly as `schedule`, `at` and `zone`
   // already do — and each goes through `cleanSchedule`, which refuses a day that is not a day, a

@@ -3959,6 +3959,65 @@ try {
     })(), jget(`select next_run_at from agent.automations where id='${AU_ONCE}';`));
 }
 
+// ── EVERY `_once` WRAPPER TAKES ITS INNER FUNCTION'S PARAMETERS ───────────────
+//
+// ⚠ **THE RULE, AND IT COST THREE DEMONSTRATIONS AT ONCE.** A wrapper's parameter list is
+// `p_tenant`, its own three bookkeeping arguments, and then the inner function's parameters
+// after `p_tenant` — in that order, with the same types. That is the rule the local
+// PostgREST shim DERIVES each wrapper's argument list from rather than writing eleven lists
+// out twice, so a wrapper that does not follow it is a shim sending arguments the database
+// will not accept: measured, `run_automation` answered
+// `HTTP 400 … accept_automation_run_once(...) does not exist` on an inner function, a
+// wrapper and a shim that were each correct alone.
+//
+// **ASKED OF `pg_proc`, SO IT IS ABOUT WHAT WOULD REALLY BE APPLIED** — not about the text of
+// a file, and not about one wrapper somebody remembered. A parameter added to any of the six
+// inner functions fails here by existing.
+{
+  console.log("\n── EVERY `_once` WRAPPER FOLLOWS ITS INNER FUNCTION ──");
+  const WRAPPED = ["save_memory", "delete_memory", "set_automation_enabled",
+    "accept_automation_run", "create_automation", "update_automation"];
+  // THE OWN FOUR, in the order the wrappers really declare them.
+  const OWN = ["p_tenant text", "p_op_key text", "p_args_hash text", "p_op_run uuid"];
+  const params = (name) => {
+    const rows = jget(`select coalesce(string_agg(t, '|' order by t), '') from (
+        select pg_get_function_arguments(p.oid) as t from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'agent' and p.proname = '${name}') x;`);
+    return rows === "" ? [] : rows.split("|");
+  };
+  // ⚠ EACH NAME MUST RESOLVE TO EXACTLY ONE FUNCTION. An overload is the other half of this
+  // defect — a call with the old arity matches both and is refused `is not unique` — so the
+  // census would be meaningless without it, and it is what the migration's own drops buy.
+  for (const inner of WRAPPED) {
+    const i = params(inner);
+    const w = params(`${inner}_once`);
+    check(`⚠ exactly one agent.${inner} and one agent.${inner}_once`,
+      i.length === 1 && w.length === 1, `${i.length} inner, ${w.length} wrapper`);
+    if (i.length !== 1 || w.length !== 1) continue;
+    // `pg_get_function_arguments` writes `name type DEFAULT expr`; the DEFAULT is the
+    // wrapper's business and not the rule, so it is cut off both sides before comparing.
+    const bare = (list) => list.split(",").map((a) => a.trim().split(/\s+DEFAULT\s+/i)[0].trim());
+    const innerArgs = bare(i[0]);
+    const wrapArgs = bare(w[0]);
+    const want = [...OWN, ...innerArgs.slice(1)];
+    check(`⚠ agent.${inner}_once takes its own four and then ${inner}'s own`,
+      wrapArgs.length === want.length && wrapArgs.every((a, n) => a === want[n]),
+      `wrapper ${JSON.stringify(wrapArgs)} / wanted ${JSON.stringify(want)}`);
+    // THE OBSERVER, PROVED ALIVE TWO WAYS. A census over an EMPTY inner list would pass
+    // every wrapper, which is the shape a renamed function produces — so the inner list is
+    // asserted non-trivial. And the COMPARATOR is asked to discriminate: the same lists with
+    // one parameter missing must NOT satisfy it, which is exactly the shape the defect had
+    // and is a claim about this check rather than about the schema.
+    check(`...and ${inner} really has parameters to follow`, innerArgs.length >= 2,
+      JSON.stringify(innerArgs));
+    const short = want.slice(0, -1);
+    check(`...and this census would have CAUGHT ${inner}_once missing one`,
+      !(wrapArgs.length === short.length && wrapArgs.every((a, n) => a === short[n])),
+      `a wrapper one short would have passed: ${JSON.stringify(short)}`);
+  }
+}
+
 } finally {
   try {
     execFileSync("su", ["postgres", "-c", `psql -X -q -d postgres -c ${shq(`drop database if exists ${DB};`)}`],
