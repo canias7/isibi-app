@@ -13246,15 +13246,16 @@ is wrong):
 
 | field | value |
 |---|---|
-| `expect_deploy` | **the branch tip at merge time.** The branch is a clean fast-forward of main, so the merge commit *is* the tip — `git rev-parse origin/claude/help-needed-ehlwlj`, or just read the sha off the green deploy run. It was `b98af6db` when I wrote this; a further note added here would move it, which is why the rule is given rather than a number to copy |
-| `expect_image` | **`3b93a9cae43bac41`** — and this one does **not** move for a documentation commit, because it is hashed from the files the image is built from |
+| `expect_deploy` | **read it off the green deploy run** — the sha the successful deployment actually went out on, not a number copied from here. Anything written down now is a prediction; the deploy is the record, and a further note added to this file would move it. A short sha (7+) matches as a prefix |
+| `expect_image` | **`3b93a9cae43bac41`** — and this one does **not** move for a documentation commit, because it is hashed from the files the image is built from. It changes only if an image input changes |
 
 `3b93a9cae43bac41` is computed from the tree before anything has moved, the way
-every deploy here has been cross-checked lately. Main is on **`7273d2569866364f`**
-today, which is exactly the image deploy 2133 rolled to — so the arithmetic is
-checked against reality and not only against itself. **The container will roll**
-(this touches `worker.js` and the builder modules), so the usual **15–20 minute
-hold** applies before pressing.
+every deploy here has been cross-checked lately, and re-checked against this
+file's own last two commits: unmoved, as a documentation commit should leave it.
+Main is on **`7273d2569866364f`** today, which is exactly the image deploy 2133
+rolled to — so the arithmetic is checked against reality and not only against
+itself. **The container will roll** (this touches `worker.js` and the builder
+modules), so the usual **15–20 minute hold** applies before pressing.
 
 **The run itself** — `lane sweep`, dispatch only, your press:
 
@@ -13262,30 +13263,64 @@ hold** applies before pressing.
 |---|---|
 | `confirm` | `spend` |
 | `harness` | `addon` |
-| `site` | `fretwork-1` |
-| `ask` | *Add a gallery page with a photograph of the workshop on it, and a QR code that opens it.* |
+| `site` | `fold-lane-bakery` |
+| `ask` | *Add a gallery page at /gallery showing photographs of our work, with a new photograph of the bakery on it, a link to it from the homepage, and a QR code that opens the gallery page.* |
 | `picker` | `grok` |
-| `budget` | `40` |
-| `expect_deploy` | the merged sha |
+| `budget` | `40` — **an estimate, not a cap. It does not bound this run.** See below |
+| `expect_deploy` | the sha off the green deploy |
 | `expect_image` | `3b93a9cae43bac41` |
-| `run_job` | `none` |
+| `run_job` | *(leave blank — the form's own default, and blank means do not press)* |
 | `lanes` | leave as `all` — the `ask` replaces the case list |
 
-**Two things to know before you press, and neither is a reason not to.**
+**The baseline for `fold-lane-bakery`, taken fresh just now** (2026-09-18
+20:50:18Z, from outside with no token — so it is what a visitor is served, kept
+separate from the store, which only the run's own before-read can see):
 
-**`fretwork-1` has no photographs on its pages**, so the "a new picture does not
-lose the old ones" half is **vacuous there** — that check short-circuits on a site
-with none. It is the strongest site for the **QR** half (it already has two
-codes, so "a new one does not disturb the existing ones" is a real question
-there). No site on the account is strong on both halves; the four with
-photographs are your older sites and have no codes. Which trade to take is yours.
+- **`/gallery` does not exist — 404**, with both controls answering: `/` is 200
+  and `/nope-not-a-route` is 404, so the 404 is a real answer and not a site
+  that is down.
+- **Three photographs, and all three are really on the pages** — not share-card
+  entries, not icons. `/` shows two (*"Harbour Loaf on a Bristol side street in
+  the early morning"*, *"A sourdough boule cooling after the morning bake"*) and
+  `/visit` shows one (*"The counter and morning board at Harbour Loaf"*). Each
+  one fetches as a real JPEG, 1.5–1.9 MB. One of them is also the share image on
+  all four pages, which is why it is worth separating the two: `/order` and
+  `/the-starter` reference it in the head and show no picture at all.
+- Its four pages are `/`, `/order`, `/the-starter`, `/visit`.
+- **This corrects my own earlier note**, which had this site at two photographs.
+  That reading came from one page; this one reads all four.
+
+**So the half that matters most is live here, not vacuous.** "Buying a new
+picture must not lose the ones already there" is the thing the last two rounds
+of work were about, and it short-circuits on a site with no photographs — which
+is why `fretwork-1` was the wrong subject for it. Here it has three real ones to
+protect, on two different pages.
+
+**The trade this way round: `fold-lane-bakery` has no QR codes at all** (no
+`qr-*.svg` on any page, and `/qr.svg` is a 404). So "a new code does not disturb
+the existing ones" is untestable here — but that was never this run's question.
+What *is* tested is the whole of the new code: that it is drawn, published, and
+really opens `/gallery`, which the report now verifies by re-encoding the
+published drawing rather than trusting the file's name.
+
+**One state change worth expecting**: the site serves no `x-site-version`, so it
+is still on the old storage layout. Its next publish — this run — moves it to the
+current one. That is the normal path and the reason every site gets there.
+
+**`budget` is an estimate and not an enforced cap, and I would rather say so than
+let the field read as a safety net.** The credits go *inside* the single addon
+request, and nothing outside that request can stop it part-way; the harness
+checks the number *between* cases, and an `ask` run has only one case, so the
+check never fires. The only thing that really bounds the spend is the account
+balance. For scale: the nearest comparable runs cost 12 and 13.
 
 **And the balance and fal's readiness are both unreadable from here** — no
-credential for either exists in my environment, re-checked rather than assumed. A
-fal account with nothing in it is a *graceful* outcome: the run spends the
-addon's credits, publishes placeholders and reads as a complete result, proving
-nothing about placement. So it is worth confirming both before the press rather
-than absorbing it afterwards.
+credential for either exists in my environment, re-checked rather than assumed.
+**Both are worth confirming before you press.** An empty fal is the one that
+would waste the run quietly: it is a *graceful* outcome, so the addon spends its
+credits, publishes placeholders, and comes back looking like a complete result
+while proving nothing about the picture. A short balance is the cheaper failure —
+it refuses.
 
 **Nothing merged, nothing deployed, nothing paid.**
 
